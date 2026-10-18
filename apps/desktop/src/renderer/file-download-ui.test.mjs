@@ -268,6 +268,23 @@ test('a failed download stays with its reason until Retry succeeds; Dismiss clea
   await dismissAll(f);
 });
 
+test('the same file failing again updates its row instead of stacking another', async (t) => {
+  const f = setup(t);
+  const { env, calls } = scriptedEnv({
+    authorize: async () => {
+      throw new FileDownloadError('not-found', 'gone');
+    },
+  });
+  const source = { kind: 'project', sessionId: 's1', relPath: 'flat-mark.svg' };
+  await act(async () => startFileDownload(source, 'flat-mark.svg', env));
+  await tick();
+  await act(async () => startFileDownload({ ...source }, 'flat-mark.svg', env));
+  await tick();
+  assert.equal(f.panel().querySelectorAll('.file-download').length, 1);
+  assert.deepEqual(calls, ['authorize', 'authorize'], 'the second tap is a real second attempt');
+  await dismissAll(f);
+});
+
 test('a finished folder zip says in one line what it left out; nothing when it left out nothing', async (t) => {
   const f = setup(t);
   const note = () => f.panel().querySelector('.file-download-note')?.textContent ?? null;

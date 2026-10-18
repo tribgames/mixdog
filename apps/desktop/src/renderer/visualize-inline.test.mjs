@@ -4,7 +4,6 @@ import test from 'node:test';
 import createDOMPurify from 'dompurify';
 import { JSDOM } from 'jsdom';
 
-import { htmlRunsScripts } from '../shared/visualize-scripts.ts';
 import { remoteInlinePageSource } from './visualize-inline-remote.ts';
 import {
   buildInlineDocument,
@@ -17,8 +16,22 @@ import {
 
 useInlinePurifier(createDOMPurify(new JSDOM('').window));
 
-const dark = { scheme: 'dark', background: '#111111', text: '#eeeeee', muted: '#999999', border: '#333333', accent: '#58a6ff' };
-const light = { scheme: 'light', background: '#ffffff', text: '#111111', muted: '#666666', border: '#dddddd', accent: '#0b63ce' };
+const dark = {
+  scheme: 'dark',
+  background: '#111111',
+  text: '#eeeeee',
+  muted: '#999999',
+  border: '#333333',
+  accent: '#58a6ff',
+};
+const light = {
+  scheme: 'light',
+  background: '#ffffff',
+  text: '#111111',
+  muted: '#666666',
+  border: '#dddddd',
+  accent: '#0b63ce',
+};
 
 test('the frame is fully sandboxed under a no-network, no-script CSP', () => {
   // No allow-same-origin, no allow-scripts: an opaque origin with nothing to run.
@@ -46,12 +59,9 @@ test('a remote client builds scripted inline pages from the content in the tab s
   assert.equal(chart.kind, 'html');
   assert.match(chart.srcdoc, /<script>var echarts=\{\};<\/script>/);
   assert.match(chart.srcdoc, /id="option">\{"series":\[\]\}</);
-  // It runs scripts, so the client gates it behind [Run] like an HTML file page.
-  assert.equal(htmlRunsScripts(chart.srcdoc), true);
   const html = await remoteInlinePageSource({ kind: 'html', source: '<p>sketch</p>' });
   assert.equal(html.kind, 'html');
   assert.ok(html.srcdoc.startsWith('<style data-mixdog-theme>') && html.srcdoc.endsWith('<p>sketch</p>'));
-  assert.equal(htmlRunsScripts(html.srcdoc), false);
   // No library, no page: the caller falls back to the static render.
   await assert.rejects(
     remoteInlinePageSource({ kind: 'chart', source: '{}' }, async () => {
@@ -64,7 +74,10 @@ test('a remote client builds scripted inline pages from the content in the tab s
 test('a diagram fits the pane, never upscales, and scrolls only below 0.6x natural width', () => {
   const wide = fitDiagram('<svg viewBox="0 0 2000 400" style="max-width: 2000px"></svg>');
   // Pane width, capped at natural (2000) and floored at 0.6x natural (1200), centered.
-  assert.match(wide, /class="fit" style="overflow:auto"><div style="width:100%;margin:0 auto;max-width:2000px;min-width:1200px">/);
+  assert.match(
+    wide,
+    /class="fit" style="overflow:auto"><div style="width:100%;margin:0 auto;max-width:2000px;min-width:1200px">/
+  );
   assert.match(fitDiagram('<svg viewBox="0 0 300 200"></svg>'), /max-width:300px;min-width:180px/);
   assert.match(fitDiagram('<svg></svg>'), /style="width:100%;margin:0 auto">/);
   // The page rule overrides Mermaid's inline max-width and keeps the aspect.
@@ -104,7 +117,11 @@ test('SVG is sanitized: scripts, handlers and external links are removed', async
 
 test('HTML and Markdown render without scripts or off-page links', async () => {
   const html = await renderInlineContent(
-    { kind: 'html', source: '<style>p{color:red}</style><p onclick="x()">a</p><script>x()</script><a href="https://evil.example/">l</a>' },
+    {
+      kind: 'html',
+      source:
+        '<style>p{color:red}</style><p onclick="x()">a</p><script>x()</script><a href="https://evil.example/">l</a>',
+    },
     dark
   );
   assert.equal(html.ok, true);

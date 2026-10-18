@@ -20,7 +20,15 @@ import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { localizeRemoteOutputNotes } from './remote-output-notes';
 import { markCompactPayload } from './remote-compact-frames';
 import { VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
-import { takeRemoteConnectionTimeline, reportRemoteConnectionIssue } from './remote-connection-state';
+import {
+  remoteConnectionInterruptedError,
+  reportRemoteConnectionIssue,
+  setRemoteConnectionState,
+  takeRemoteConnectionTimeline,
+} from './remote-connection-state';
+
+/** The relay's cleartext notice that this phone's PC leg is gone. */
+const REMOTE_DESKTOP_GONE_NOTICE = 'desktop-gone';
 import type { RemoteShimContext } from './remote-shim-state';
 import { ACTIVITY_RAIL_PINS_EVENT, readActivityRailPinsState } from '../shared/activity-rail-pins';
 import {
@@ -94,11 +102,13 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
      *  selection. */
     authenticated: boolean
   ): void => {
-    // Any inbound frame proves the socket is alive; pong frames carry
-    // nothing else.
+    // Any inbound frame proves the socket is alive to the keepalive; only a
+    // pong answers a wake probe. Pong frames carry nothing else.
     ctx.awaitingPong = false;
-    ctx.clearWakePongTimer();
-    if ('pong' in frame) return;
+    if ('pong' in frame) {
+      ctx.answerWakeProbe();
+      return;
+    }
     if (frame.event === VIEW_BASELINE_EVENT) {
       if (!authenticated) return;
       try {
@@ -139,6 +149,9 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       return;
     }
     if (typeof message.id === 'number') {
+      // Before the caller lookup: a call that timed out here still held the
+      // PC's frame budget until this answer.
+      ctx.settleCallCredit(message.id);
       const entry = ctx.pending.get(message.id);
       if (!entry) return;
       ctx.pending.delete(message.id);
@@ -163,6 +176,8 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
     // never be mistaken for one; it carries no state, so it never resyncs.
     const rejectedPayload = readRelayPayloadRejection(message, authenticated);
     if (rejectedPayload) {
+      // Only the desktop names a call here, and only one it finished with.
+      if (rejectedPayload.callId !== null) ctx.settleCallCredit(rejectedPayload.callId);
       ctx.limits.applyRelayPayloadRejection(rejectedPayload);
       return;
     }
@@ -332,6 +347,28 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
     }
   };
 
+  /** The relay parked this socket: the PC's leg is gone, so nothing sent on
+   *  this channel can be answered. The calls it still owed fail as interrupted
+   *  and return their credits, and the socket stays open for the PC's next
+   *  handshake (the challenge path re-keys it in place). No error: the state
+   *  is the ordinary reconnecting one. The relay repeats the notice, so this
+   *  is idempotent. Cleartext and unauthenticated, like every resync: it can
+   *  only make this side wait, never pick a call or a victim. */
+  const parkUntilDesktopReturns = (): void => {
+    const ws = ctx.socket;
+    if (!ws) return;
+    if (ctx.connectionReady) {
+      ctx.connectionReady = false;
+      ctx.viewSync.close();
+      ctx.resetDeltaState();
+    }
+    setRemoteConnectionState('reconnecting');
+    const failure = remoteConnectionInterruptedError();
+    for (const entry of [...ctx.pending.values()]) entry.reject(failure);
+    ctx.pending.clear();
+    ctx.retireCallCredits(ws);
+  };
+
   /** A cleartext `resync` off the socket. A relay refusal rides `resync` on
    *  purpose: it is the one cleartext key this browser acts on BEFORE
    *  decryption, so it can never reach decryptJson. It is also
@@ -339,6 +376,10 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
    *  select a victim — it surfaces the error and tightens the pre-send check.
    *  An unrelated resync hint yields no rejection at all. */
   const handleClearResync = (clear: Record<string, unknown>): void => {
+    if (clear.resync === REMOTE_DESKTOP_GONE_NOTICE) {
+      parkUntilDesktopReturns();
+      return;
+    }
     const rejected = readRelayPayloadRejection(clear, false);
     if (rejected) ctx.limits.applyRelayPayloadRejection(rejected);
     ctx.requestResync();

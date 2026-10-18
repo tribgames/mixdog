@@ -9,6 +9,7 @@ import {
   syncMarkdownParser,
 } from './markdown-worker-client';
 import MarkdownAstBody from './MarkdownAstBody';
+import type { StreamFadeTimeline } from './markdown-stream-fade';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 import { noteStreamSyncParse, noteStreamWorkerParse } from './transcript-stream-metrics';
 
@@ -56,12 +57,16 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   parseText,
   parse,
   sync,
+  fadeTimeline,
+  fadeChunk,
   copyControl,
 }: {
   text: string;
   parseText: string;
   parse: boolean;
   sync: boolean;
+  fadeTimeline: StreamFadeTimeline | null;
+  fadeChunk: string;
   copyControl: MarkdownCopyControl;
 }) {
   const slowAt = useRef(Number.POSITIVE_INFINITY);
@@ -174,7 +179,9 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // un-styled markdown that was already rendered, which is the one thing the
   // reader must never see (the projection never shows source either).
   if (usable) {
-    return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
+    return (
+      <MarkdownAstBody root={usable.root} copyControl={copyControl} fadeTimeline={fadeTimeline} fadeChunk={fadeChunk} />
+    );
   }
   if (showFencedSourceFallback) {
     // The projection only reserves geometry. Entry still waits for the parse:
@@ -197,6 +204,8 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   parseText,
   parse = true,
   sync = false,
+  fadeTimeline = null,
+  fadeChunk = '',
   copyControl,
 }: {
   text: string;
@@ -204,6 +213,10 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   parse?: boolean;
   /** Live reply: small text parses on the main thread (see SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS). */
   sync?: boolean;
+  /** A streamed reply's timeline: its words fade in (markdown-stream-fade). */
+  fadeTimeline?: StreamFadeTimeline | null;
+  /** This chunk's key within the reply. */
+  fadeChunk?: string;
   copyControl: MarkdownCopyControl;
 }) {
   // Stable chunks promote exactly (immutable text -> exact AST, whose source
@@ -213,7 +226,15 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   // sees closed markers while the source fallback still shows exactly what
   // the model has emitted.
   return (
-    <ParsedMarkdownBody text={text} parseText={parseText ?? text} parse={parse} sync={sync} copyControl={copyControl} />
+    <ParsedMarkdownBody
+      text={text}
+      parseText={parseText ?? text}
+      parse={parse}
+      sync={sync}
+      fadeTimeline={fadeTimeline}
+      fadeChunk={fadeChunk}
+      copyControl={copyControl}
+    />
   );
 });
 

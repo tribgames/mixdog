@@ -85,8 +85,18 @@ let lastUpdateStatus = '';
 let redeeming = false;
 // Bumped by Cancel: a redemption that finishes later must not save or navigate.
 let pairingAttempt = 0;
+/** How long the bundled screen may sit on "waiting" after asking to open the
+ *  relay page; a page that loads replaces this one well before that. */
+const NAVIGATION_TIMEOUT_MS = 20_000;
+let navigationWatchdog = 0;
+// Reopening a saved PC keeps #screen blank (the page background) until the
+// picker is actually needed; this stays false until the first render.
+let drawn = false;
+// Navigation to the saved host was requested.
+let navigating = false;
 
 function render(): void {
+  drawn = true;
   renderPairing(
     screen,
     { view: viewFor(ui, strings), state: ui, strings, codeValue },
@@ -136,7 +146,15 @@ async function openHost(
         go('waiting');
       },
       navigate: (target) => {
+        navigating = true;
         window.location.href = target;
+        // A refused navigation (origin not allowed, handed to the system
+        // browser) leaves this page alive: end the wait with an error + retry.
+        window.clearTimeout(navigationWatchdog);
+        navigationWatchdog = window.setTimeout(() => {
+          if (attempt !== undefined && attempt !== pairingAttempt) return;
+          if (!drawn || ui.step === 'waiting' || ui.step === 'waiting-offline') go('result', { result: 'network-error' });
+        }, NAVIGATION_TIMEOUT_MS);
       },
       now: Date.now,
     },
@@ -177,9 +195,25 @@ async function connectWithCode(): Promise<void> {
   }
 }
 
+function isInstallPageUrl(text: string): boolean {
+  try {
+    const url = new URL(text.trim());
+    return url.protocol === 'https:' && /^\/app\/?$/u.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function connectFrom(text: string): Promise<void> {
   const link = extractPairingLink(text);
   if (!link) {
+    // The PC's phone tab shows the install-page QR (`<relay>/app`); pairing
+    // from there is by code, so take the user straight to the code step.
+    if (isInstallPageUrl(text)) {
+      codeValue = '';
+      go('code', { error: strings.installQr });
+      return;
+    }
     go('start', { error: strings.notLink });
     return;
   }
@@ -343,6 +377,7 @@ function onAction(id: Action['id']): void {
       if (ui.step === 'waiting' || ui.step === 'waiting-offline') window.stop();
       pairingAttempt += 1;
       redeeming = false;
+      window.clearTimeout(navigationWatchdog);
       go('start');
       break;
     case 'retry':
@@ -390,7 +425,9 @@ async function boot(): Promise<void> {
     return;
   }
   await loadBook();
-  render();
+  // With a saved PC and nothing to manage, the picker would only flash while
+  // the origins sync and the page loads: draw it only if something needs it.
+  if (manage || !book.last) render();
   await syncOrigins();
   void App.addListener('appUrlOpen', ({ url }) => void connectFrom(linkFromAppUrl(url)));
 
@@ -407,8 +444,13 @@ async function boot(): Promise<void> {
   if (ui.update) render();
   if (!manage && !ui.update && book.last) {
     launching = true;
-    await openHost(book.last);
+    try {
+      await openHost(book.last);
+    } catch {
+      // Opening the saved PC failed: fall through to the picker.
+    }
     launching = false;
+    if (!navigating && !drawn) render();
   }
 }
 

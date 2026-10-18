@@ -14,7 +14,7 @@ import { TurnChangesContext, type TurnChangesSurface } from './TurnChangesCard';
 import type { ConversationTimeline } from './use-conversation-timeline';
 import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
 import type { ConversationViewport } from './use-conversation-viewport';
-import { TRANSCRIPT_HISTORY_TOP_PX } from './use-transcript-history';
+import { transcriptHistoryLead } from './use-transcript-history';
 import { BrandTile } from './WorkspaceEmptyState';
 
 type OpenFile = (project: string, rel: string, line?: number, accessToken?: string, column?: number) => void;
@@ -196,7 +196,8 @@ export function ConversationTranscript({
         onMouseDownCapture={collapseSelectionOnPress}
         onScroll={(event) => {
           follow.handleScroll();
-          if (event.currentTarget.scrollTop <= TRANSCRIPT_HISTORY_TOP_PX) requestEarlierTranscript();
+          const element = event.currentTarget;
+          if (element.scrollTop <= transcriptHistoryLead(element.clientHeight)) requestEarlierTranscript();
         }}
         onWheel={follow.handleWheel}
         onPointerDown={follow.handlePointerDown}

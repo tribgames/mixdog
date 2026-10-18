@@ -67,11 +67,12 @@ export function requiredVisualizeTabCommand(value: unknown): DesktopVisualizeTab
     action !== 'network' &&
     action !== 'reopen' &&
     action !== 'render' &&
+    action !== 'blocked' &&
     action !== 'history' &&
     action !== 'export'
   ) {
     throw new TypeError(
-      'visualize command action must be activate, close, version, restore, network, reopen, render, history, or export.'
+      'visualize command action must be activate, close, version, restore, network, reopen, render, blocked, history, or export.'
     );
   }
   if (action === 'history') {
@@ -94,6 +95,7 @@ export function requiredVisualizeTabCommand(value: unknown): DesktopVisualizeTab
   }
   if (action === 'version') return visualizeVersionCommand(base, command);
   if (action === 'render') return visualizeRenderCommand(base, command);
+  if (action === 'blocked') return visualizeBlockedCommand(base, command);
   if (action === 'restore') return visualizeRestoreCommand(base, command);
   return { ...base, action };
 }
@@ -186,6 +188,22 @@ function visualizeRenderCommand(base: VisualizeTabBase, command: VisualizeComman
     pane,
     renderId: requiredString(command.renderId, 'visualize render id', 128),
     ...(error ? { error: error.slice(0, 4000) } : {}),
+  };
+}
+
+/** A refused outside request of a remote page frame: the address and the kind of request. */
+function visualizeBlockedCommand(base: VisualizeTabBase, command: VisualizeCommandInput): DesktopVisualizeTabCommand {
+  const { pane, resource } = command;
+  if (!isVisualizePaneIndex(pane)) throw new TypeError('visualize pane index is invalid.');
+  if (typeof resource !== 'string' || !/^[A-Za-z]{1,24}$/.test(resource)) {
+    throw new TypeError('visualize blocked resource is invalid.');
+  }
+  return {
+    ...base,
+    action: 'blocked',
+    pane,
+    url: requiredString(command.url, 'visualize blocked url', 2048),
+    resource,
   };
 }
 

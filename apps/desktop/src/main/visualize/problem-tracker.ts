@@ -4,6 +4,7 @@
  * inline render) to settle so its problems ride a tool result.
  */
 import type { VisualizeProblem } from '../../shared/visualize';
+import { blockedNetworkMessage, isOutsideNetworkUrl } from '../../shared/visualize-network-policy';
 import type { VisualizeServiceContext } from './context';
 import { buildProblem, classifyConsole, leasePrefixOf, type PageConsoleReport, recordProblem } from './page-problems';
 import { displayedPanes, realCwdOfTab, type TabState } from './tab-state';
@@ -88,10 +89,37 @@ export function createProblemTracker(ctx: Pick<VisualizeServiceContext, 'session
     );
   };
 
+  /** A paired device's page frame refused an outside request (its CSP is the
+   *  policy there): recorded as the same `blocked-network` problem the desktop
+   *  files, unless the address is no outside network address. A tab that allows
+   *  network is reported too: the frame's CSP still refuses some requests there. */
+  const reportRemoteBlockedNetwork = (
+    sessionId: string,
+    tab: TabState,
+    index: number,
+    url: string,
+    resource: string
+  ) => {
+    const pane = displayedPanes(tab)[index];
+    if (pane?.kind !== 'html') return;
+    let target: URL;
+    try {
+      target = new URL(url);
+    } catch {
+      return;
+    }
+    if (!isOutsideNetworkUrl(target)) return;
+    recordPageProblem(
+      { sessionId, tab, index, version: pane.version },
+      { kind: 'blocked-network', message: blockedNetworkMessage(target.host, resource), source: '', line: 0 }
+    );
+  };
+
   return {
     paneOfUrl,
     recordPageProblem,
     reportInlineRender,
+    reportRemoteBlockedNetwork,
     /** Wait until no problem was reported (and no reload is pending) for one
      *  quiet interval, at most `rounds` intervals. */
     async settle(tab: TabState, rounds: number): Promise<void> {

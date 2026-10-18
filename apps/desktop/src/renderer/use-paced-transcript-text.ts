@@ -9,17 +9,19 @@
  *
  * - Unit: whole words (Intl word segments; a word longer than
  *   LONG_WORD_CHARS falls back to graphemes). Whitespace and markdown markers
- *   join the word after them. While streaming, the final segment is held: it
- *   may still be an unfinished word.
+ *   join the word after them. While streaming, a final word is held: it may
+ *   still be unfinished. Final punctuation is complete and paints.
  * - Cost: rates, lag and the reveal budget count graphemes; a whitespace or
  *   marker run counts as one, since it paints nothing on its own.
+ * - Opening: the first PACER_INSTANT_CHARS graphemes of a part paint with
+ *   their arrival, so a preamble or a short reply is never paced.
  * - Steady rate: the row's sustained inbound rate (cost since its first
  *   arrival over at least 1 s), so a stall counts as silence instead of
- *   compressing the burst it ends with. Near the received end the reveal
- *   slows down instead of stalling and then jumping.
+ *   compressing the burst it ends with.
  * - Catch-up: a backlog drains toward PACER_TARGET_LAG_MS of lag, capped at
  *   PACER_MAX_RATE; past PACER_MAX_LAG_CHARS behind, the excess drains fast.
- *   Completion drains the rest within PACER_DRAIN_MS.
+ *   Completion shows a short remainder at once and drains a longer one
+ *   within PACER_DRAIN_MS.
  * - Received text is never delayed upstream: canonical text, persistence,
  *   copy and tools all read the full text. Only what the live row paints is
  *   paced.
@@ -36,18 +38,20 @@ export const PACER_FRAME_CAP_MS = 100;
 // Under the 250 ms completion budget, leaving a frame for the settled commit.
 export const PACER_DRAIN_MS = 230;
 /** Ceiling of the steady and catch-up reveal, graphemes per second. */
-export const PACER_MAX_RATE = 350;
-/** A backlog drains toward this much display lag. */
-export const PACER_TARGET_LAG_MS = 550;
+export const PACER_MAX_RATE = 500;
+/** A backlog drains toward this much display lag: about two arrivals of the
+ *  unfinished-line channel, enough to even out its cadence. */
+export const PACER_TARGET_LAG_MS = 160;
 /** The reveal never stays further behind the received text than this. */
-export const PACER_MAX_LAG_CHARS = 600;
+export const PACER_MAX_LAG_CHARS = 400;
+/** A part's opening graphemes paint with their arrival (a preamble before a
+ *  tool call, a short reply); pacing starts past them. A remainder this
+ *  short at completion shows at once. */
+export const PACER_INSTANT_CHARS = 48;
 /** Time constant that drains a backlog beyond PACER_MAX_LAG_CHARS. */
 const OVER_LAG_DRAIN_MS = 300;
 const SUSTAINED_MIN_SPAN_MS = 1_000;
-const MIN_RATE = 30;
-/** Within this many characters of the received end, the reveal slows down. */
-const NEAR_END_CHARS = 20;
-const NEAR_END_MIN_FACTOR = 0.35;
+const MIN_RATE = 60;
 /** A single arrival far beyond any lag is not replayed: it jumps. */
 const MAX_BACKLOG_CHARS = 4_000;
 /** A longer "word" (URL, unspaced script) reveals grapheme by grapheme. */
@@ -63,6 +67,7 @@ const REGISTRY_LIMIT = 64;
 /** Markdown that is not healable at a cut right after it. */
 const UNCLEAN_BEFORE_CUT = /[`*_~[\]()<>#|\\!]/;
 const CUT_SNAP_LIMIT = 8;
+const SENTENCE_END = /[.!?。！？…]/;
 /** A segment made only of these paints nothing at the end of a reveal. */
 const SILENT_SEGMENT = /^[`*_~[\]()<>#|\\!\s]+$/;
 
@@ -167,7 +172,8 @@ export class TranscriptTextPacer {
         }
       } else {
         cost += graphemeCount(segment);
-        if ((!last || this.settled) && end > this.shown) this.pushBound(end, cost);
+        const complete = !last || this.settled || !segments[index].isWordLike;
+        if (complete && end > this.shown) this.pushBound(end, cost);
       }
     }
     this.targetCost = cost;
@@ -224,15 +230,32 @@ export class TranscriptTextPacer {
     }
     this.compact();
     this.capBacklog();
-    // Nothing painted yet: the first whole word paints with its arrival. The
-    // row opening a reply takes its first line (and the live band its step
-    // below it) in the commit that mounts it; left to the frame loop's slow
-    // start near the received end, that first word painted 100-500 ms after
-    // the followed transcript had already moved up by the empty line.
-    if (this.shown === 0 && this.head < this.bounds.length) {
+    // The opening paints with its arrival: the first whole word always, and
+    // every word within PACER_INSTANT_CHARS of the part start. The row
+    // opening a reply takes its first line (and the live band its step below
+    // it) in the commit that mounts it, and a preamble or a short reply is
+    // read whole, never typed out behind its own arrival.
+    while (this.head < this.bounds.length && (this.shown === 0 || this.costs[this.head] <= PACER_INSTANT_CHARS)) {
       this.shown = this.bounds[this.head];
       this.shownCost = this.costs[this.head];
       this.head += 1;
+    }
+    this.releaseOpeningSentence();
+  }
+
+  /** The opening sentence, cut inside by PACER_INSTANT_CHARS, paints whole
+   *  once its ending punctuation has arrived. */
+  private releaseOpeningSentence(): void {
+    if (this.shown === 0 || this.shownCost > PACER_INSTANT_CHARS || this.head >= this.bounds.length) return;
+    if (SENTENCE_END.test(this.target[this.shown - 1])) return;
+    for (let at = this.head; at < this.bounds.length; at += 1) {
+      const end = this.bounds[at];
+      if (!SENTENCE_END.test(this.target[end - 1]) || (end < this.target.length && /\S/.test(this.target[end])))
+        continue;
+      this.shown = end;
+      this.shownCost = this.costs[at];
+      this.head = at + 1;
+      return;
     }
   }
 
@@ -247,12 +270,13 @@ export class TranscriptTextPacer {
     }
   }
 
-  /** Streaming ended: the held final word joins, and whatever is left
-   *  drains within PACER_DRAIN_MS. */
+  /** Streaming ended: the held final word joins. A short remainder shows at
+   *  once; a longer one drains within PACER_DRAIN_MS. */
   settle(now: number): void {
     if (!this.settled) {
       this.settled = true;
       this.resegmentTail();
+      if (this.targetCost - this.shownCost <= PACER_INSTANT_CHARS) this.flush();
     }
     if (!Number.isFinite(this.drainDeadline)) this.drainDeadline = now + PACER_DRAIN_MS;
   }
@@ -292,8 +316,6 @@ export class TranscriptTextPacer {
     );
     if (backlog > PACER_MAX_LAG_CHARS) {
       speed += ((backlog - PACER_MAX_LAG_CHARS) * 1000) / OVER_LAG_DRAIN_MS;
-    } else if (!this.settled && backlog < NEAR_END_CHARS) {
-      speed *= Math.max(NEAR_END_MIN_FACTOR, backlog / NEAR_END_CHARS);
     }
     if (Number.isFinite(this.drainDeadline)) {
       speed = Math.max(speed, (backlog * 1000) / Math.max(dt, this.drainDeadline - now));
@@ -347,15 +369,21 @@ function wholeWordPrefix(text: string, limit: number): { end: number; cost: numb
 
 /** Whether still-streaming `text` holds a word the pacer paints now (the
  *  bounds segmentFrom queues while streaming): a painting segment that is not
- *  the final, possibly unfinished one, or the first graphemes of a long final
- *  word. Stops at the first such word. */
+ *  the final, possibly unfinished one, final punctuation, or the first
+ *  graphemes of a long final word. Stops at the first such word. */
 export function streamingTextPaints(text: string): boolean {
   let painting: string | null = null;
-  for (const { segment } of wordSegmenter().segment(text)) {
+  let wordLike = false;
+  for (const { segment, isWordLike } of wordSegmenter().segment(text)) {
     if (painting !== null) return true;
-    if (!SILENT_SEGMENT.test(segment)) painting = segment;
+    if (!SILENT_SEGMENT.test(segment)) {
+      painting = segment;
+      wordLike = Boolean(isWordLike);
+    }
   }
-  return painting !== null && painting.length > LONG_WORD_CHARS && graphemeCount(painting) > 1;
+  if (painting === null) return false;
+  if (painting.length > LONG_WORD_CHARS) return graphemeCount(painting) > 1;
+  return !wordLike;
 }
 
 /** The revealed prefix must end where the streamed-markdown healer can close

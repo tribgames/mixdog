@@ -63,7 +63,7 @@ const update = (text, fields = {}) => ({
   snapshot: { busy: true, items, streamingTail: { id: 'tail', kind: 'assistant', text }, ...fields },
 });
 
-test('a text burst sends one latest snapshot per batch window, with every character preserved', () => {
+test('a text burst sends its first append at once, then one latest snapshot per batch window', () => {
   const time = clock();
   const frames = [];
   let mailbox;
@@ -73,15 +73,24 @@ test('a text burst sends one latest snapshot per batch window, with every charac
   }, time.timers);
   mailbox.publish(update(''));
   mailbox.publish(update('한'));
+  // The append that ends a quiet spell does not wait for the window.
+  assert.equal(frames.length, 2);
+  assert.equal(frames[1].value.snapshot.streamingTail.text, '한');
+  assert.equal(frames[1].critical, false);
   mailbox.publish(update('한글'));
-  assert.equal(frames.length, 1);
+  assert.equal(frames.length, 2);
   assert.equal(time.pending, 1);
   time.advance(REMOTE_STREAM_BATCH_MS - 1);
-  assert.equal(frames.length, 1);
-  time.advance(1);
   assert.equal(frames.length, 2);
-  assert.equal(frames[1].value.snapshot.streamingTail.text, '한글');
-  assert.equal(frames[1].critical, false);
+  time.advance(1);
+  assert.equal(frames.length, 3);
+  assert.equal(frames[2].value.snapshot.streamingTail.text, '한글');
+  assert.equal(frames[2].critical, false);
+  // A quiet window closes without a frame; the next append travels at once.
+  time.advance(REMOTE_STREAM_BATCH_MS);
+  assert.equal(frames.length, 3);
+  mailbox.publish(update('한글 다음'));
+  assert.equal(frames.length, 4);
 });
 
 test('completion, replay, and unknown approval fields bypass batching and remain critical', () => {
@@ -94,9 +103,12 @@ test('completion, replay, and unknown approval fields bypass batching and remain
   }, time.timers);
   mailbox.publish(update(''));
   mailbox.publish(update('pending text'));
-  mailbox.publish(update('pending text', { futureApproval: { id: 'approval' } }));
-  assert.equal(frames.length, 2);
-  assert.equal(frames[1].critical, true);
+  mailbox.publish(update('pending text more'));
+  mailbox.publish(update('pending text more', { futureApproval: { id: 'approval' } }));
+  // The first append went at once, the held one is superseded by the approval.
+  assert.equal(frames.length, 3);
+  assert.equal(frames[2].critical, true);
+  assert.equal(frames[2].value.snapshot.streamingTail.text, 'pending text more');
   assert.equal(time.pending, 0);
   mailbox.publish(update('complete', { busy: false }));
   assert.equal(frames.at(-1).value.snapshot.busy, false);
@@ -144,14 +156,16 @@ test('partial-line growth batches as a text append; a partial for another row do
   mailbox.publish(update('line1\n', partial('partial')));
   // The completed line moves the tail and restarts the partial after it.
   mailbox.publish(update('line1\npartial line\n', partial('ne', 19)));
-  assert.equal(frames.length, 1);
-  time.advance(REMOTE_STREAM_BATCH_MS);
+  // The first partial travels at once; the rest wait for the window.
   assert.equal(frames.length, 2);
   assert.equal(frames[1].critical, false);
-  assert.deepEqual(frames[1].value.snapshot.streamingPartial, { id: 'tail', from: 19, text: 'ne' });
-  mailbox.publish(update('line1\npartial line\n', partial('x', 0, 'other')));
+  time.advance(REMOTE_STREAM_BATCH_MS);
   assert.equal(frames.length, 3);
-  assert.equal(frames[2].critical, true);
+  assert.equal(frames[2].critical, false);
+  assert.deepEqual(frames[2].value.snapshot.streamingPartial, { id: 'tail', from: 19, text: 'ne' });
+  mailbox.publish(update('line1\npartial line\n', partial('x', 0, 'other')));
+  assert.equal(frames.length, 4);
+  assert.equal(frames[3].critical, true);
 });
 
 test('a decoder that predates streamingPartial keeps painting the line-gated tail', () => {
@@ -210,8 +224,9 @@ test('batching reduces real compact packet bytes while preserving decoder state'
   }
   time.advance(REMOTE_STREAM_BATCH_MS);
   assert.equal(received.streamingTail.text, text);
-  // 100 updates over 400ms: the initial state plus one packet per 90ms window.
+  // 100 updates over 400ms: the initial state, the first append at once, then
+  // one packet per 90ms window.
   assert.equal(REMOTE_STREAM_BATCH_MS, 90);
-  assert.equal(packets, 6);
+  assert.equal(packets, 7);
   assert.ok(bytes < 5000, `unexpected burst cost: ${bytes}`);
 });

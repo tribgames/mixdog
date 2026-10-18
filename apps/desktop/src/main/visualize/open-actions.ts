@@ -59,18 +59,24 @@ async function selectRequested(
   }
 }
 
-/** Where the opened tab went: the side panel when the user can see it, else
- *  a note that the user must bring it up. Keeps the literal "as tab vN". */
+/** Where the opened tab went: "Showing" only when the user can see it now,
+ *  else what stands between it and the user, so the agent can say so. Keeps
+ *  the literal "as tab vN" (chat cards read the tab id from it). */
 async function placement(
   deps: Pick<OpenContext['deps'], 'onScreen'>,
   sessionId: string,
   tab: TabState,
   what: string
 ): Promise<string> {
-  const visible = (await deps.onScreen?.(sessionId, view(tab))) ?? true;
-  return visible
-    ? `Showing ${what} in the side panel as tab ${tab.id}.`
-    : `Opened ${what} as tab ${tab.id}, but it is not on screen (the window is minimized or hidden, or the session is not shown); the user must bring the Mixdog window and this session's visualize panel up to see it.`;
+  const state = (await deps.onScreen?.(sessionId, view(tab))) ?? 'visible';
+  if (state === 'visible') return `Showing ${what} in the side panel as tab ${tab.id}.`;
+  if (state === 'background') {
+    return `Opened ${what} in the side panel as tab ${tab.id}, but the Mixdog window is in the background (another app has the focus); tell the user it is waiting in the Mixdog window.`;
+  }
+  if (state === 'covered') {
+    return `Opened ${what} in the side panel as tab ${tab.id}, but something in the Mixdog window covers the panel (a dialog, Settings or another overlay); the user must close it to see the tab.`;
+  }
+  return `Opened ${what} as tab ${tab.id}, but it is not on screen (the window is minimized or hidden, or the session is not shown); the user must bring the Mixdog window and this session's visualize panel up to see it.`;
 }
 
 /** `open` with `input.content`: a direct-renderer tab, no files. Reopening

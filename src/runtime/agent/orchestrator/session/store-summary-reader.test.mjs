@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -8,6 +8,48 @@ import { flushAllIndexWritesSync } from '../../../../session-runtime/services/ag
 import { createLeadWorkerIndex } from '../../../../session-runtime/services/agent-tool/lead-worker-index.mjs';
 import { createTagRegistry } from '../../../../session-runtime/services/agent-tool/tag-registry.mjs';
 import { listStoredAgentWorkers } from './store-summary-reader.mjs';
+
+test('a pool larger than any fixed cache bound still serves every unchanged header from the cache', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-header-many-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    mkdirSync(join(root, 'sessions'));
+    const stamp = new Date().toISOString();
+    // A fixed mtime lets a same-size rewrite keep the file fingerprint.
+    const mtime = new Date(Date.parse(stamp) - 60_000);
+    const ids = Array.from({ length: 300 }, (_, index) => `many-child-${String(index).padStart(3, '0')}`);
+    const writeSession = (id, letter) => {
+      const path = join(root, 'sessions', `${id}.json`);
+      writeFileSync(path, JSON.stringify({ id, owner: 'agent', title: `Title ${letter} ${id}`, updatedAt: stamp }));
+      utimesSync(path, mtime, mtime);
+    };
+    for (const id of ids) writeSession(id, 'A');
+    writeFileSync(
+      join(root, 'agent-workers.json'),
+      JSON.stringify({
+        workers: ids.map((sessionId) => ({
+          sessionId,
+          tag: sessionId,
+          agent: 'worker',
+          status: 'idle',
+          updatedAt: stamp,
+        })),
+      })
+    );
+    const titles = () => listStoredAgentWorkers().map((row) => row.title);
+    const first = titles();
+    assert.equal(first.length, ids.length);
+    assert.ok(first.every((title) => title.startsWith('Title A ')));
+    // Same size, same mtime: only a header the cache still holds keeps 'A'.
+    for (const id of ids) writeSession(id, 'B');
+    assert.deepEqual(titles(), first);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 // The worker/Lead indexes persist through an async writer queue; a test that
 // inspects the file itself first waits for the queue to land.

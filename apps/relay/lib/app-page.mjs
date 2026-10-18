@@ -15,8 +15,10 @@ const MOBILE_RELEASE_CONFIG = new URL('../mobile-release.json', import.meta.url)
 // Without a deployed link (local runs, or a release that recorded none) the
 // releases list still reaches every published APK.
 export const ANDROID_FALLBACK_URL = 'https://github.com/tribgames/mixdog/releases';
-const ANDROID_URL_RE =
-  /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/releases(?:\/tag\/mobile-v\d+\.\d+\.\d+)?$/;
+// The recorded link is the APK itself: this repo's mobile-v* release asset.
+const ANDROID_APK_RE =
+  /^https:\/\/github\.com\/tribgames\/mixdog\/releases\/download\/mobile-v\d+\.\d+\.\d+\/[A-Za-z0-9_.-]+\.apk$/;
+const isAndroidApkUrl = (value) => typeof value === 'string' && ANDROID_APK_RE.test(value);
 
 export function readAndroidUrl(file = MOBILE_RELEASE_CONFIG) {
   let text;
@@ -28,7 +30,7 @@ export function readAndroidUrl(file = MOBILE_RELEASE_CONFIG) {
   }
   try {
     const { androidUrl } = JSON.parse(text);
-    if (typeof androidUrl === 'string' && ANDROID_URL_RE.test(androidUrl)) return androidUrl;
+    if (androidUrl === ANDROID_FALLBACK_URL || isAndroidApkUrl(androidUrl)) return androidUrl;
   } catch {
     /* reported below */
   }
@@ -86,19 +88,28 @@ ${PAIRING_CSS}
 </body>
 </html>`;
 
-const PAGE = renderAppPage(readAndroidUrl());
-
-export function sendAppPage(request, response) {
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    response.writeHead(405).end();
-    return;
-  }
-  response
-    .writeHead(200, {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'Content-Security-Policy': APP_PAGE_CSP,
-      'X-Content-Type-Options': 'nosniff',
-    })
-    .end(request.method === 'HEAD' ? undefined : PAGE);
+export function createAppPageHandler(androidUrl) {
+  const page = renderAppPage(androidUrl);
+  return (request, response) => {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.writeHead(405).end();
+      return;
+    }
+    // The QR targets this page for every phone: an Android phone is sent
+    // straight to the APK, anything else gets the install page.
+    if (isAndroidApkUrl(androidUrl) && /Android/i.test(request.headers['user-agent'] || '')) {
+      response.writeHead(302, { Location: androidUrl, 'Cache-Control': 'no-store' }).end();
+      return;
+    }
+    response
+      .writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Security-Policy': APP_PAGE_CSP,
+        'X-Content-Type-Options': 'nosniff',
+      })
+      .end(request.method === 'HEAD' ? undefined : page);
+  };
 }
+
+export const sendAppPage = createAppPageHandler(readAndroidUrl());

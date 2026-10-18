@@ -4,6 +4,33 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Os telefones agora se conectam mais rápido e sem pop-ups, o desktop não fica mais lento quando muitos agentes são executados e as respostas em streaming aparecem com mais suavidade.
+
+### Alterações
+
+- Alteradas as conexões do telefone para reconectar automaticamente sem pop-ups ou contagens regressivas; um ponto pequeno aparece apenas durante uma desconexão longa.
+- Alteradas as respostas em streaming para aparecerem palavra por palavra com um fade suave, sem saltos de Markdown incompleto; blocos de código aparecem com seu conteúdo.
+- Alterado o status do agente para mostrar Done até você abrir o resultado, e depois Idle.
+- Alterado o menu de ramificação para abrir a partir de um botão `…` ou clique com o botão direito; em telefones, pressione e segure uma ramificação.
+- Alteradas as páginas de visualize em telefones para abrirem diretamente sem a solicitação Run, assim como no desktop.
+- Ajustados o painel de uso e o resumo da ilha do compositor para manter sua altura enquanto os valores carregam.
+- Alterado o código QR de instalação do Android para baixar o aplicativo diretamente.
+
+### Correções de bugs
+
+- Corrigidas mensagens enviadas e respostas que não apareciam na conversa após o aplicativo reiniciar até que fosse reaberto (#113, thanks @oh1701).
+- Corrigido o desktop pausando cerca de um segundo por vez quando existiam mais de 256 sessões de agentes.
+- Corrigidas solicitações de telefones aguardando leituras lentas de uso e do Git no desktop.
+- Corrigidos telefones desconectados enquanto o desktop estava ocupado e a primeira conexão após abrir o aplicativo demorando mais de 10 segundos.
+- Corrigidos telefones que permaneciam em "Allowed. Connecting…" indefinidamente ou exibiam "Request expired" após o PC ter aprovado.
+- Corrigido o telefone solicitando aprovação novamente ao iniciar após perder seu login salvo.
+- Corrigidos telefones que pareciam conectados enquanto o PC reiniciava, com todas as mensagens expirando por tempo limite.
+- Corrigidos telefones pareados desconectados em definitivo quando o PC falhava ao ler sua identidade de conexão.
+- Corrigida uma verificação lenta de caminho de arquivo que travava todas as outras solicitações do telefone.
+- Corrigida a rolagem para cima em conversas longas travando enquanto mensagens antigas eram carregadas (#104).
+- Corrigida a conversa sendo puxada de volta para baixo ao rolar para cima no celular durante uma resposta em streaming.
+- Corrigidos ícones sobrepostos em cartões de arquivo e avisos repetidos de falha no download.
+
 ## v1.2.4 - 2026-10-17
 
 Atualização com controle de sessões de agentes e atribuição de modelos de fallback, preparação automática de worktrees, otimização de saída do harness e melhorias gerais de desempenho.

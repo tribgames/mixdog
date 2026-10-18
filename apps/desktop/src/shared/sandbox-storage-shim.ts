@@ -158,10 +158,15 @@ function headInsertionPoint(html: string): number {
   return safe;
 }
 
+/** `html` with `markup` placed before any page content. */
+export function withHeadMarkup(html: string, markup: string): string {
+  const at = headInsertionPoint(html);
+  return `${html.slice(0, at)}${markup}${html.slice(at)}`;
+}
+
 /** `html` with `script` as an inline `<script>` placed before any page content. */
 export function withHeadScript(html: string, script: string): string {
-  const at = headInsertionPoint(html);
-  return `${html.slice(0, at)}<script>${script}</script>${html.slice(at)}`;
+  return withHeadMarkup(html, `<script>${script}</script>`);
 }
 
 /** `html` with the storage shim first in its head. */

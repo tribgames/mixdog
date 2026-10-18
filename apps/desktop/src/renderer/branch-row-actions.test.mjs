@@ -31,6 +31,10 @@ async function fixture(t, over = {}) {
       return 'folder';
     },
   };
+  const toasts = [];
+  const onToast = (event) => toasts.push(event.detail.text);
+  window.addEventListener('mixdog:desktop-toast', onToast);
+  t.after(() => window.removeEventListener('mixdog:desktop-toast', onToast));
   const node = document.createElement('div');
   document.body.append(node);
   const root = createRoot(node);
@@ -51,13 +55,18 @@ async function fixture(t, over = {}) {
     await act(async () => root.unmount());
     node.remove();
   });
-  await act(async () => node.querySelector('button').click());
+  // Selecting an item closes the menu, so each action reopens it.
+  const open = () => act(async () => node.querySelector('button').click());
+  await open();
   return {
     node,
+    open,
     calls,
     view,
     refreshed: () => refreshed,
-    button: (text) => [...node.querySelectorAll('button')].find((button) => button.textContent.includes(text)),
+    toasts,
+    button: (text) =>
+      [...document.body.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent.includes(text)),
   };
 }
 
@@ -67,8 +76,9 @@ test('branch actions inspect without switching, and merge sends confirmed commit
   await act(async () => f.button('Merge into main').click());
   assert.equal(f.calls.length, 1);
   window.confirm = () => true;
+  await f.open();
   await act(async () => f.button('Merge into main').click());
-  assert.deepEqual(f.calls[1], {
+  assert.deepEqual(f.calls.at(-1), {
     capability: 'manageProjectBranch',
     args: [
       {
@@ -90,16 +100,19 @@ test('refusals read exactly like the runtime (TUI, remote) in English and are tr
   assert.deepEqual([...DESKTOP_WORKTREE_REFUSAL_REASONS].sort(), Object.keys(WORKTREE_REFUSAL_REASONS).sort());
   const f = await fixture(t);
   window.confirm = () => true;
-  // Kept across the language switch, whose label is translated.
-  const merge = f.button('Merge into main');
+  const inspect = window.mixdogDesktop.invokeCapability;
   const shown = async (reason) => {
+    window.mixdogDesktop.invokeCapability = inspect;
+    if (!document.body.querySelector('[role="menu"]')) await f.open();
+    const merge = document.body.querySelector('[data-action-id="merge"]');
     window.mixdogDesktop.invokeCapability = async () => {
       throw new Error(
         `Error invoking remote method: WORKTREE_BUSY_JOBS: ${WORKTREE_REFUSAL_REASONS[reason]}\n[worktree-details] ${JSON.stringify({ reason })}`
       );
     };
+    f.toasts.length = 0;
     await act(async () => merge.click());
-    return f.node.querySelector('[role="alert"]').textContent;
+    return f.toasts.at(-1);
   };
   for (const reason of Object.keys(WORKTREE_REFUSAL_REASONS)) {
     assert.equal(await shown(reason), WORKTREE_REFUSAL_REASONS[reason]);
@@ -111,6 +124,16 @@ test('refusals read exactly like the runtime (TUI, remote) in English and are tr
     const text = await shown(reason);
     assert.ok(text && text !== WORKTREE_REFUSAL_REASONS[reason], `${reason} is translated`);
   }
+});
+
+test('right-click or a touch long-press on the row opens the same menu at the press point', async (t) => {
+  const f = await fixture(t);
+  await act(async () => f.node.querySelector('.branch-row-more').click());
+  assert.equal(document.body.querySelector('[role="menu"]'), null);
+  const event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 60 });
+  await act(async () => f.node.querySelector('.branch-row-shell').dispatchEvent(event));
+  assert.equal(event.defaultPrevented, true, 'the long-press is taken, so the tap does not switch branches');
+  assert.ok(f.button('Merge into main'));
 });
 
 test('external folders can open but cannot be cleaned or have their checked-out branch deleted', async (t) => {

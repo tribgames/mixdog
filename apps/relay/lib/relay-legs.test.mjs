@@ -167,6 +167,60 @@ test('a missed handshake turn closes the PC leg only when the leg is also silent
   }
 });
 
+test('parked phones are told once when the PC leg closes, then once a second per phone while calls go nowhere', (t) => {
+  const sendJson = (target, payload) => target.send(JSON.stringify(payload));
+  const desktop = fakeSocket();
+  const entry = { socket: desktop, clients: new Map(), media: new Map(), mediaLane: false };
+  desktopLeg(entry, desktop);
+  const first = fakeSocket();
+  const second = fakeSocket();
+  runClientLeg(entry, sendJson, first, 'browser-1', { maxFrameBytes: 1024 });
+  runClientLeg(entry, sendJson, second, 'browser-2', { maxFrameBytes: 1024 });
+  const notice = JSON.stringify({ resync: 'desktop-gone' });
+
+  // A live PC: calls are carried and nobody is told anything.
+  first.emit('message', Buffer.from('{"call":1}'), false);
+  assert.deepEqual(first.sent, []);
+
+  // The PC leg closes: every parked phone hears it, in the cleartext resync shape.
+  desktop.readyState = 3;
+  desktop.emit('close', 1006, '');
+  assert.deepEqual(first.sent, [notice]);
+  assert.deepEqual(second.sent, [notice]);
+
+  // Calls into the gap are told again, but never more than once a second.
+  let now = Date.now() + 5_000;
+  t.mock.method(Date, 'now', () => now);
+  first.emit('message', Buffer.from('{"call":2}'), false);
+  first.emit('message', Buffer.from('{"call":3}'), false);
+  first.emit('message', Buffer.from([1, 2, 3]), true);
+  assert.deepEqual(first.sent, [notice, notice]);
+  assert.deepEqual(second.sent, [notice], 'a quiet phone is not told again');
+  now += 1_000;
+  first.emit('message', Buffer.from('{"call":4}'), false);
+  assert.deepEqual(first.sent, [notice, notice, notice]);
+
+  // Pings are still answered by the relay and are not calls.
+  now += 5_000;
+  first.emit('message', Buffer.from('{"ping":1}'), false);
+  assert.equal(first.sent.at(-1), '{"pong":1}');
+  assert.equal(first.sent.length, 4);
+});
+
+test('a superseded PC leg closing does not tell phones the PC is gone', () => {
+  const sendJson = (target, payload) => target.send(JSON.stringify(payload));
+  const old = fakeSocket();
+  const entry = { socket: old, clients: new Map(), media: new Map(), mediaLane: false };
+  desktopLeg(entry, old);
+  const phone = fakeSocket();
+  runClientLeg(entry, sendJson, phone, 'browser-1', { maxFrameBytes: 1024 });
+  const replacement = fakeSocket();
+  desktopLeg(entry, replacement);
+  old.readyState = 3;
+  old.emit('close', 1006, '');
+  assert.deepEqual(phone.sent, []);
+});
+
 test('client-open omits the credential when the leg has none (older desktops)', () => {
   const sent = [];
   const entry = { socket: fakeSocket(), clients: new Map() };

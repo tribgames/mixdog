@@ -5,7 +5,8 @@
 // parent instead: it posts the reference, this side resolves it against the
 // page with the same containment as an inlined asset and reads it through the
 // pane's own range method (the host re-checks every read). Anything else (an
-// outside https URL) goes to the real fetch, which the frame's CSP allows.
+// outside URL) goes to the real fetch, which the frame's CSP refuses unless
+// the tab allowed network (visualize-blocked-network.ts).
 import { withHeadScript } from '../shared/sandbox-storage-shim';
 
 export const PAGE_FETCH_REQUEST = 'mixdog-page-fetch';

@@ -308,7 +308,8 @@ test('real host, relay and browser shim recover through reconnects and backgroun
     {
       const before = sockets.length;
       sockets.at(-1).terminate();
-      await until(() => handle.clientCount === 0);
+      // The first retry leaves at once, so the change lands in the same tick
+      // as the drop — before the redial can sync — not after polling for it.
       // The kept transcript stays on screen while the phone reconnects.
       assert.equal(text.textContent, largeAnswer);
       f.put('lead', 'changed while away');

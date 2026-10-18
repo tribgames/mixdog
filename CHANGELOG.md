@@ -5,6 +5,33 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Phones now connect faster and without popups, the desktop no longer slows down once many agents have run, and streaming replies appear more smoothly.
+
+### Changes
+
+- Changed phone connections to reconnect automatically without popups or countdowns; a small dot appears only during a long outage.
+- Changed streaming replies to appear word by word with a soft fade, without jumps from unfinished Markdown; code blocks appear with their content.
+- Changed agent status to show Done until you open the result, then Idle.
+- Changed the branch menu to open from a `…` button or right-click; on phones, long-press a branch.
+- Changed visualize pages on phones to open directly without a Run prompt, as on the desktop.
+- Adjusted the usage panel and the composer island summary to keep their height while figures load.
+- Changed the Android install QR code to download the app directly.
+
+### Bug fixes
+
+- Fixed sent messages and replies not appearing in the conversation after the app restarted until it was reopened (#113, thanks @oh1701).
+- Fixed the desktop pausing about a second at a time once more than 256 agent sessions existed.
+- Fixed phone requests waiting behind slow usage and Git reads on the desktop.
+- Fixed phones being disconnected while the desktop was busy, and the first connection after opening the app taking over 10 seconds.
+- Fixed phones staying on "Allowed. Connecting…" forever, or showing "Request expired" after the PC had approved.
+- Fixed a phone asking for approval again on launch after its saved sign-in was lost.
+- Fixed phones looking connected while the PC restarted, with every message timing out.
+- Fixed paired phones being cut off for good when the PC failed to read its connection identity.
+- Fixed one slow file-path check holding up every other phone request.
+- Fixed scrolling up in long conversations stalling while older messages load (#104).
+- Fixed the conversation pulling back down while scrolling up on phones during a streaming reply.
+- Fixed overlapping icons on file cards and repeated download-failure notices.
+
 ## v1.2.4 - 2026-10-17
 
 Added agent session control and fallback model assignment, automatic worktree preparation, harness output optimization, and overall performance improvements.

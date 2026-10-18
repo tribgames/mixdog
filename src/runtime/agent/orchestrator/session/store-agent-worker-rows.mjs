@@ -212,8 +212,13 @@ export function listStoredAgentWorkerLinks() {
 // The agent pool only reads top-level session fields, yet each refresh used to
 // JSON.parse every active worker's whole transcript (megabytes per worker,
 // every catalog publish). Cache the header per file fingerprint instead.
-const WORKER_HEADER_CACHE_MAX = 256;
+// The cache holds exactly the headers the latest pool assembly read: a fixed
+// LRU cap below the index size (263 headers against 256 slots) evicted every
+// entry just before its reuse, so each refresh re-parsed every worker
+// transcript synchronously (~130 MB, ~1 s of blocked daemon event loop).
 const workerSessionHeaderCache = new Map();
+/** Assembly the cache entries were last read by; older entries are dropped. */
+let headerPass = 0;
 // Pool rows need identity, routing, and lifecycle metadata only. Keeping the
 // rest of a session here also retained its tool catalogs and provider state.
 const WORKER_HEADER_FIELDS = [
@@ -251,9 +256,7 @@ function readWorkerSessionHeader(sessionId) {
   if (probe.state !== PROBE_PRESENT) return null;
   const cached = workerSessionHeaderCache.get(path);
   if (cached && cached.mtimeMs === probe.mtimeMs && cached.size === probe.size) {
-    // Refresh insertion order so the eviction below stays LRU-ish.
-    workerSessionHeaderCache.delete(path);
-    workerSessionHeaderCache.set(path, cached);
+    cached.pass = headerPass;
     return cached.header;
   }
   let session = null;
@@ -267,10 +270,7 @@ function readWorkerSessionHeader(sessionId) {
   for (const field of WORKER_HEADER_FIELDS) {
     if (Object.hasOwn(session, field)) header[field] = session[field];
   }
-  workerSessionHeaderCache.set(path, { mtimeMs: probe.mtimeMs, size: probe.size, header });
-  if (workerSessionHeaderCache.size > WORKER_HEADER_CACHE_MAX) {
-    workerSessionHeaderCache.delete(workerSessionHeaderCache.keys().next().value);
-  }
+  workerSessionHeaderCache.set(path, { mtimeMs: probe.mtimeMs, size: probe.size, header, pass: headerPass });
   return header;
 }
 
@@ -487,13 +487,21 @@ export function listStoredAgentWorkers({ runningSessionIds = null } = {}) {
     };
     return tombstoneBlocksWork(work, findTagTombstone(work, tombstones));
   };
-  return assembleStoredAgentWorkers({
-    now,
-    runningSessionIds,
-    storedAgentWorkerIndexRows: () => rows.filter((row) => !isReaped(cleanValue(row.sessionId))),
-    projectChildWorkerRow,
-    storedLeadWorkerRows,
-    projectLeadWorkerRow,
-    pruneOrphanChildRows,
-  });
+  headerPass += 1;
+  try {
+    return assembleStoredAgentWorkers({
+      now,
+      runningSessionIds,
+      storedAgentWorkerIndexRows: () => rows.filter((row) => !isReaped(cleanValue(row.sessionId))),
+      projectChildWorkerRow,
+      storedLeadWorkerRows,
+      projectLeadWorkerRow,
+      pruneOrphanChildRows,
+    });
+  } finally {
+    // Keep what this assembly read, whatever the index size; forget the rest.
+    for (const [path, entry] of workerSessionHeaderCache) {
+      if (entry.pass !== headerPass) workerSessionHeaderCache.delete(path);
+    }
+  }
 }

@@ -1,47 +1,63 @@
 import { Copy, FolderOpen, GitMerge, MoreHorizontal, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import type React from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { DesktopBranchActionState, DesktopBranchManagementAction } from '../shared/contract';
+import { showDesktopToast } from './desktop-toasts';
 import { t } from './i18n';
+import { ScmContextMenu, type ScmContextMenuItem } from './ScmContextMenu';
 import { invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
 
+/** A branch row's shell: the row itself, its "…" trigger, and the same menu on
+ *  right-click or a touch long-press (touch screens show no "…"). */
 export function BranchRowActions({
   projectPath,
   branch,
   locked,
   onChanged,
+  children,
 }: {
   projectPath: string;
   branch: string;
   locked: boolean;
   onChanged(): Promise<unknown>;
+  children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<DesktopBranchActionState | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
-  const actions = useRef<HTMLFieldSetElement>(null);
-  // The opened actions scroll into view inside the list.
-  useEffect(() => {
-    if (open) actions.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [open]);
-  const fail = (error: unknown) => setNotice(worktreeFailureText(worktreeFailure(error)));
-  const toggle = async () => {
+  const [anchor, setAnchor] = useState({ x: 0, y: 0, flipY: 0, alignEnd: true });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  const setNotice = (text: string) => {
+    if (text) showDesktopToast(text, 'info');
+  };
+  const fail = (error: unknown) => showDesktopToast(worktreeFailureText(worktreeFailure(error)), 'error');
+  const show = async (at: { x: number; y: number; flipY: number; alignEnd: boolean }) => {
     if (busy) return;
-    if (open) {
-      setOpen(false);
-      return;
-    }
+    setAnchor(at);
     setOpen(true);
     setState(null);
-    setNotice('');
     setBusy(true);
     try {
       setState(await invokeWorktree<DesktopBranchActionState>('inspectProjectBranch', [{ projectPath, branch }]));
     } catch (error) {
       fail(error);
+      setOpen(false);
     } finally {
       setBusy(false);
     }
+  };
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = trigger.current?.getBoundingClientRect();
+    void show({ x: rect?.right ?? 0, y: (rect?.bottom ?? 0) + 2, flipY: (rect?.top ?? 0) - 2, alignEnd: true });
+  };
+  const openAtPoint = (event: React.MouseEvent) => {
+    event.preventDefault();
+    void show({ x: event.clientX, y: event.clientY, flipY: event.clientY, alignEnd: false });
   };
   const act = async (action: DesktopBranchManagementAction) => {
     if (!state || busy || locked) return;
@@ -124,65 +140,71 @@ export function BranchRowActions({
       fail(error);
     }
   };
+  const items: ScmContextMenuItem[] = [
+    { id: 'copy', label: t('Copy branch name'), icon: <Copy size={14} />, onSelect: () => void copy() },
+    {
+      id: 'open-folder',
+      label: t('Open folder'),
+      icon: <FolderOpen size={14} />,
+      disabled: !state?.path || busy,
+      title: !state?.path ? t('This branch has no working folder.') : state.path,
+      onSelect: () => void openFolder(),
+    },
+    {
+      id: 'merge',
+      label: t('Merge into {{target}}', { target: state?.target ?? '…' }),
+      icon: <GitMerge size={14} />,
+      disabled: !state?.target || state.target === branch || locked || busy,
+      title: locked ? t("Can't switch while work is running") : undefined,
+      onSelect: () => void act('merge'),
+    },
+    {
+      id: 'remove-worktree',
+      label: t('Remove worktree folder'),
+      icon: <Trash2 size={14} />,
+      disabled: state?.kind !== 'managed' || locked || busy,
+      title:
+        state?.kind !== 'managed'
+          ? t('Only Mixdog-managed worktree folders can be removed.')
+          : locked
+            ? t("Can't switch while work is running")
+            : undefined,
+      onSelect: () => void act('remove-worktree'),
+    },
+    {
+      id: 'delete-branch',
+      label: t('Delete branch'),
+      icon: <Trash2 size={14} />,
+      danger: true,
+      disabled: !state || !!state.path || !state.target || state.target === branch || locked || busy,
+      title: state?.path
+        ? t('This branch is checked out. Remove or leave its worktree first.')
+        : locked
+          ? t("Can't switch while work is running")
+          : undefined,
+      onSelect: () => void act('delete-branch'),
+    },
+  ];
   return (
-    <>
+    // biome-ignore lint/a11y/noStaticElementInteractions: right-click/long-press is a shortcut; keyboard users have the "…" button
+    <div className="branch-row-shell" onContextMenu={openAtPoint}>
+      {children}
       <button
+        ref={trigger}
         type="button"
         className="branch-row-more"
         aria-label={t('Actions for {{branch}}', { branch })}
+        aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => void toggle()}
-        disabled={busy}
+        onClick={toggle}
       >
         <MoreHorizontal size={14} aria-hidden="true" />
       </button>
-      {open && (
-        <fieldset ref={actions} className="branch-row-actions" aria-label={t('Branch actions')}>
-          <button type="button" onClick={() => void copy()}>
-            <Copy size={14} />
-            {t('Copy branch name')}
-          </button>
-          <button
-            type="button"
-            disabled={!state?.path || busy}
-            onClick={() => void openFolder()}
-            title={!state?.path ? t('This branch has no working folder.') : state.path}
-          >
-            <FolderOpen size={14} />
-            {t('Open folder')}
-          </button>
-          <button
-            type="button"
-            disabled={!state?.target || state.target === branch || locked || busy}
-            onClick={() => void act('merge')}
-          >
-            <GitMerge size={14} />
-            {t('Merge into {{target}}', { target: state?.target ?? '…' })}
-          </button>
-          <button
-            type="button"
-            disabled={state?.kind !== 'managed' || locked || busy}
-            title={state?.kind !== 'managed' ? t('Only Mixdog-managed worktree folders can be removed.') : undefined}
-            onClick={() => void act('remove-worktree')}
-          >
-            <Trash2 size={14} />
-            {t('Remove worktree folder')}
-          </button>
-          <button
-            type="button"
-            data-danger
-            disabled={!state || !!state.path || !state.target || state.target === branch || locked || busy}
-            title={state?.path ? t('This branch is checked out. Remove or leave its worktree first.') : undefined}
-            onClick={() => void act('delete-branch')}
-          >
-            <Trash2 size={14} />
-            {t('Delete branch')}
-          </button>
-          {locked && <p role="status">{t("Can't switch while work is running")}</p>}
-          {notice && <p role="alert">{notice}</p>}
-          {busy && <p role="status">{t('Checking…')}</p>}
-        </fieldset>
-      )}
-    </>
+      <ScmContextMenu
+        state={open ? { label: t('Branch actions'), ...anchor, items } : null}
+        onClose={close}
+        anchorRef={trigger}
+      />
+    </div>
   );
 }

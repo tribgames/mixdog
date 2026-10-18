@@ -195,6 +195,33 @@ test('a slow read does not block another read; mutations remain ordered barriers
   assert.deepEqual(seen, ['read-start', 'snapshot', 'read-end', 'write', 'after-write']);
 });
 
+test('a usage sweep never holds the resume reads and snapshot queued after it', async () => {
+  const queue = createRemoteCallQueue();
+  const sweep = deferred();
+  const seen = [];
+  const usage = queue.run('readCapabilities:slow', async () => {
+    await sweep.promise;
+    seen.push('usage');
+  });
+  // The order a resuming phone sent them in (daemon.log, 2026-10-17 20:37:59).
+  const resume = [
+    'readActivityRailPins',
+    'readHostDisplayPreferences',
+    'getUpdaterState',
+    'readSettings',
+    'viewerDevice',
+    'readCapabilities',
+    'listProjects',
+    'getSnapshot',
+  ];
+  await Promise.all(resume.map((method) => queue.run(method, async () => seen.push(method))));
+  assert.deepEqual(seen, resume);
+  sweep.resolve();
+  await usage;
+  assert.deepEqual(seen, [...resume, 'usage']);
+  queue.close();
+});
+
 test('slow searches never delay a stat, capability read or submit issued after them', async () => {
   const queue = createRemoteCallQueue();
   const gate = deferred();
@@ -334,4 +361,23 @@ test('review reads ride the slow lane, so a snapshot read never waits behind the
     assert.deepEqual(seen, ['snapshot', 'read-mark', 'third'], method);
     queue.close();
   }
+});
+
+test('a hung resolveLocalPaths does not hold submit or settings calls behind it', async () => {
+  const queue = createRemoteCallQueue();
+  const hung = deferred();
+  const seen = [];
+  const resolving = queue.run('resolveLocalPaths', async () => {
+    await hung.promise;
+  });
+  await queue.run('readSettings', async () => {
+    seen.push('settings');
+  });
+  await queue.run('submitToSession', async () => {
+    seen.push('submit');
+  });
+  assert.deepEqual(seen, ['settings', 'submit']);
+  hung.resolve();
+  await resolving;
+  queue.close();
 });

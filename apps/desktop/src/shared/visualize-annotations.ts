@@ -167,25 +167,3 @@ export function withVisualizeOverlay(html: string, marks: ReadonlyArray<{ select
 })();`;
   return withHeadScript(html, script);
 }
-
-/** Selector text safe to place in a stylesheet: nothing that could close the
- *  rule, start another, open a comment or end the style element. */
-const CSS_SAFE_SELECTOR = /^[^{}<>;@\\]*$/;
-
-/** `html` with `marks` as plain CSS outlines (a remote page drawn without
- *  scripts until the user taps Run): the same color, no labels. A selector
- *  that is not CSS-safe is skipped. */
-export function withVisualizeOutlines(html: string, marks: ReadonlyArray<{ selector: string }>): string {
-  const rules = marks
-    .map((mark) => mark.selector.trim())
-    .filter((selector) => selector && CSS_SAFE_SELECTOR.test(selector) && !selector.includes('/*'))
-    .map(
-      (selector) =>
-        `:is(${selector}){outline:2px solid #ff3b6b !important;outline-offset:2px !important;background-color:rgba(255,59,107,.06) !important}`
-    );
-  if (!rules.length) return html;
-  const style = `<style data-mixdog-marks="">${rules.join('')}</style>`;
-  const head = /<head[^>]*>/i.exec(html);
-  if (head) return html.slice(0, head.index + head[0].length) + style + html.slice(head.index + head[0].length);
-  return style + html;
-}

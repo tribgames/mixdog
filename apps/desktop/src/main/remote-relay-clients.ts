@@ -4,6 +4,7 @@
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import type { createKeyedListDeltaEncoder } from '../shared/list-delta';
 import type { RelayE2EEChannel, RelayE2EEChallenge } from '../shared/remote-e2ee';
+import { REMOTE_CLIENT_PENDING_FRAMES } from '../shared/remote-frame-budget';
 import type { DesktopService } from './desktop-service-contract';
 import { createRemoteCallQueue } from './remote-call-queue';
 import type { createRemoteStateLane } from './remote-state-lane';
@@ -16,7 +17,7 @@ import {
 import type { createSnapshotDeltaEncoder } from './state-delta';
 
 const MAX_ACTIVE_REMOTE_CLIENTS = 32;
-const MAX_PENDING_REMOTE_FRAMES = 256;
+const MAX_PENDING_REMOTE_FRAMES = REMOTE_CLIENT_PENDING_FRAMES;
 const MAX_PENDING_REMOTE_TOTAL_FRAMES = 512;
 const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
 /** How long a dropped phone's delta lanes wait for it to come back. Every

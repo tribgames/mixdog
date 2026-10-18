@@ -846,7 +846,7 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$RELAY_PORT" =~ ^[0-9]+$ ]]
-          [[ "$ANDROID_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases(/tag/mobile-v[0-9]+\.[0-9]+\.[0-9]+)?$ ]]
+          [[ "$ANDROID_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases$ || "$ANDROID_URL" =~ ^https://github\.com/tribgames/mixdog/releases/download/mobile-v[0-9]+\.[0-9]+\.[0-9]+/[A-Za-z0-9_.-]+\.apk$ ]]
           DESKTOP_VERSION="${RELEASE_TAG#v}"
           ARCHIVE="/tmp/mixdog-relay-${RELEASE_TAG}.tar.gz"
           REMOTE_DIR="/tmp/mixdog-relay-${RELEASE_TAG}"

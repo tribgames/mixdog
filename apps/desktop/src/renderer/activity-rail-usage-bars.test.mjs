@@ -71,13 +71,29 @@ async function waitFor(check) {
 const brand = (key) => document.querySelector(`[data-usage-pin="${key}"]`);
 const meters = (key) => [...brand(key).querySelectorAll(':scope > i')];
 
+// The flyout body loads asynchronously: open it and wait for its menu.
+async function openFlyout() {
+  await press(document.querySelector('.sidebar-usage-toggle'));
+  await waitFor(() => document.querySelector('.sidebar-usage-menu'));
+  return document.querySelector('.sidebar-usage-menu');
+}
+
+// Runs first: only the first open in a process finds the module cold.
+test('a cold flyout open shows the loading placeholder until the module is ready', async (t) => {
+  await mountRail(t);
+  await press(document.querySelector('.sidebar-usage-toggle'));
+  assert.ok(document.querySelector('.initial-surface[aria-busy="true"]'), 'placeholder while loading');
+  assert.equal(document.querySelector('.sidebar-usage-menu'), null);
+  await waitFor(() => document.querySelector('.sidebar-usage-menu'));
+  assert.equal(document.querySelector('.initial-surface[aria-busy="true"]'), null);
+});
+
 test('the rail draws one bar per brand by default and saves the chosen two-bar mode in settings', async (t) => {
   const { root, props, stored } = await mountRail(t);
   assert.equal(meters('claude').length, 1);
   assert.equal(brand('claude').querySelector('small').textContent, '41%');
 
-  await press(document.querySelector('.sidebar-usage-toggle'));
-  const menuButton = document.querySelector('.sidebar-usage-menu');
+  const menuButton = await openFlyout();
   assert.ok(menuButton);
   await press(menuButton);
   await press(document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]'));
@@ -114,8 +130,8 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
 
 test('the pin switch in the portaled menu survives a real pointer press and saves the pin', async (t) => {
   const { stored } = await mountRail(t);
-  await press(document.querySelector('.sidebar-usage-toggle'));
-  await press(document.querySelector('.sidebar-usage-menu'));
+  await press(await openFlyout());
+  await waitFor(() => document.querySelector('[role="menuitemcheckbox"]'));
   await press(document.querySelector('[role="menuitemcheckbox"]'));
   assert.ok(document.querySelector('.usage-menu'), 'the menu survives its own press');
   await waitFor(() => stored.usagePinned === false);

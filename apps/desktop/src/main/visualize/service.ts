@@ -44,6 +44,9 @@ import { createVisualizeVersionStore, type VisualizeVersionLimits } from './vers
 export type { RequesterFrame } from './lease-guard';
 export type { VisualizeResult, VisualizeTabSummary } from './tab-state';
 
+/** How far the user can see a displayed tab (see `VisualizeServiceDeps.onScreen`). */
+export type VisualizeScreenState = 'visible' | 'background' | 'covered' | 'hidden';
+
 export interface VisualizeServiceDeps {
   /** False while no desktop window can show the panel. */
   windowAvailable(): boolean;
@@ -81,10 +84,13 @@ export interface VisualizeServiceDeps {
   /** Resolves once the displayed tab's HTML panes are on screen (so their
    *  problems are being captured); throws when they cannot be. */
   ensureShown?(sessionId: string, tab: VisualizeTabView): Promise<void>;
-  /** Whether the displayed tab is visible to the user right now (window shown,
-   *  panel open, session displayed — or a paired remote device viewing it).
-   *  Absent = assumed visible. */
-  onScreen?(sessionId: string, tab: VisualizeTabView): Promise<boolean>;
+  /** Whether the user can see the displayed tab right now: `visible` (the
+   *  desktop window is in front with the tab's panel uncovered, or a paired
+   *  remote device is viewing it), `background` (drawn uncovered, but another
+   *  app has the focus), `covered` (drawn, but an overlay in the window hides
+   *  it) or `hidden` (window minimized or hidden, panel closed, session not
+   *  shown). Absent = assumed visible. */
+  onScreen?(sessionId: string, tab: VisualizeTabView): Promise<VisualizeScreenState>;
   /** Keep version history in this folder (the app's data folder, never a
    *  project); absent = no history. */
   versions?: { directory: string } & VisualizeVersionLimits;

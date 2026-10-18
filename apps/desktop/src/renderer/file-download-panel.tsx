@@ -31,6 +31,8 @@ import './file-download-panel.css';
 
 interface DownloadRow {
   id: number;
+  /** The download source, so one file never gets two rows. */
+  key: string;
   name: string;
   /** `unsaved`: finished natively but only in staging; sharing keeps it. */
   status: 'running' | 'failed' | 'done' | 'unsaved';
@@ -210,6 +212,14 @@ export function startFileDownload(
   name: string,
   env: FileDownloadEnvironment = defaultFileDownloadEnvironment()
 ): void {
+  // The same file already has a row: a running one is left alone; a failed
+  // one is tried again in place instead of stacking a second row.
+  const key = JSON.stringify(source);
+  const existing = rows.find((entry) => entry.key === key && (entry.status === 'running' || entry.status === 'failed'));
+  if (existing) {
+    if (existing.status === 'failed') existing.retry();
+    return;
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const remove = () => {
     clearTimeout(timer);
@@ -252,6 +262,7 @@ export function startFileDownload(
   };
   const row: DownloadRow = {
     id: ++sequence,
+    key,
     name,
     status: 'running',
     phase: 'preparing',

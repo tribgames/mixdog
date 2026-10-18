@@ -391,7 +391,7 @@ test('remote boot cannot bypass connection or hydration and offers a working ret
   window.addEventListener(REMOTE_WAKE_EVENT, () => {
     retries++;
   });
-  const retry = view.host.querySelector('.desktop-boot-cover .remote-connection-overlay');
+  const retry = view.host.querySelector('.desktop-boot-cover .remote-connection-indicator');
   assert.ok(retry, 'initial connection failure must offer retry outside the inert workspace');
   await view.settle(() => retry.click());
   assert.equal(retries, 1);
@@ -510,14 +510,100 @@ test('startup emits no settled signal while persisted panes are still being vali
   assert.equal(settled, 1);
 });
 
+test('usage pin paints cached rows in its first render, before the settings read lands', async (t) => {
+  const view = harness(t);
+  window.mixdogDesktop.readSettings = () => new Promise(() => {});
+  const { useUsageRailPin } = await import('./use-usage-rail-pin.ts');
+  Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get: () => 800,
+  });
+  function Probe({ snapshot }) {
+    const rail = useRef(null);
+    const nav = useRef(null);
+    const button = useRef(null);
+    const state = useUsageRailPin(snapshot, { rail, nav, settings: button }, true);
+    return React.createElement(
+      'aside',
+      { ref: rail },
+      React.createElement('nav', { ref: nav }),
+      // biome-ignore lint/a11y/useButtonType: DOM fixture element, never submitted.
+      React.createElement('button', { ref: button }),
+      React.createElement('output', null, `${state.loading ? 'pending' : 'ready'}:${state.usagePinRows.length}`)
+    );
+  }
+  const snapshot = {
+    status: 'idle',
+    loading: false,
+    refreshedAt: 0,
+    dashboard: { rows: [{ id: 'openai', group: 'oauth', windows: [{ label: 'W', usedPct: 25 }] }] },
+  };
+  await view.render(React.createElement(Probe, { snapshot }));
+  assert.equal(view.host.querySelector('output').textContent, 'ready:1');
+});
+
+test('usage pin reserves neutral rows from the connected accounts before any quota arrives', async (t) => {
+  const view = harness(t);
+  window.localStorage.clear();
+  window.mixdogDesktop.readSettings = () => new Promise(() => {});
+  window.mixdogDesktop.readCapabilities = async () => [
+    {
+      ok: true,
+      value: {
+        oauth: [
+          { id: 'openai-oauth', authenticated: true },
+          { id: 'anthropic-oauth', authenticated: true },
+          { id: 'grok-oauth', authenticated: false },
+        ],
+        api: [{ id: 'opencode-go', authenticated: true }],
+      },
+    },
+  ];
+  const { useUsageRailPin } = await import('./use-usage-rail-pin.ts');
+  Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get: () => 800,
+  });
+  function Probe({ snapshot }) {
+    const rail = useRef(null);
+    const nav = useRef(null);
+    const button = useRef(null);
+    const state = useUsageRailPin(snapshot, { rail, nav, settings: button }, true);
+    const rows = state.usagePinRows.map((row) => `${row.key}${row.pending ? '~' : ''}:${row.bars.length}`).join();
+    return React.createElement(
+      'aside',
+      { ref: rail },
+      React.createElement('nav', { ref: nav }),
+      // biome-ignore lint/a11y/useButtonType: DOM fixture element, never submitted.
+      React.createElement('button', { ref: button }),
+      React.createElement('output', null, `${state.loading ? 'pending' : 'ready'} ${rows}`)
+    );
+  }
+  const snapshot = { status: 'loading', loading: true, refreshedAt: 0, dashboard: {} };
+  await view.render(React.createElement(Probe, { snapshot }));
+  await view.settle(() => {});
+  assert.equal(view.host.querySelector('output').textContent, 'ready codex~:1,claude~:1,opencode-go~:1');
+  await view.render(
+    React.createElement(Probe, {
+      snapshot: {
+        status: 'ready',
+        loading: false,
+        refreshedAt: 1,
+        dashboard: {
+          rows: [{ id: 'openai-oauth', group: 'oauth', windows: [{ label: 'W', usedPct: 25 }] }],
+        },
+      },
+    })
+  );
+  // The live result is authoritative: providers without quota drop their rows.
+  assert.equal(view.host.querySelector('output').textContent, 'ready codex:1');
+});
+
 test('usage pin waits for its initial setting and data, without letting a late read undo a user toggle', async (t) => {
   const view = harness(t);
   const settings = Promise.withResolvers();
   window.mixdogDesktop.readSettings = () => settings.promise;
-  const { loadSidebarUsageModule, useUsageRailPin } = await import('./use-usage-rail-pin.ts');
-  // The pin reader is a lazy chunk; with it cached, only the setting and the
-  // usage data remain to wait for.
-  await loadSidebarUsageModule();
+  const { useUsageRailPin } = await import('./use-usage-rail-pin.ts');
   Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {
     configurable: true,
     get: () => 800,

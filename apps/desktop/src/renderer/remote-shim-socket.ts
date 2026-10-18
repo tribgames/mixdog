@@ -14,7 +14,7 @@ import {
   shouldRunRemoteHeartbeat,
   type RemoteConnectionIssue,
 } from './remote-connection-state';
-import { REMOTE_CONNECTION_READY_EVENT } from './remote-shim-state';
+import { REMOTE_CONNECTION_READY_EVENT, REMOTE_SECURE_CHANNEL_READY_EVENT } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
 import { publishMediaKey, revokeMediaKey } from './remote-media-lane';
 import { notifyMediaSessionChanged } from './remote-file-preview';
@@ -193,7 +193,7 @@ const openSocketAttempt = (
       window.clearTimeout(handshakeTimer);
       handshakeTimer = null;
     }
-    ctx.retryMs = 500;
+    ctx.retryMs = 0;
     if (!ctx.approvalVerificationInFlight) {
       document.getElementById('mixdog-remote-pairing')?.remove();
     }
@@ -207,6 +207,7 @@ const openSocketAttempt = (
         /* no storage */
       }
     }
+    window.dispatchEvent(new Event(REMOTE_SECURE_CHANNEL_READY_EVENT));
     if (!ctx.peerViewSync) window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
     replaySubscriptions(ctx, reconnected);
     ctx.resyncOnWake = false;
@@ -298,8 +299,10 @@ const openSocketAttempt = (
       if (!parsed || typeof parsed !== 'object') return;
       const clear = parsed as Record<string, unknown>;
       ctx.awaitingPong = false;
-      ctx.clearWakePongTimer();
-      if ('pong' in clear) return;
+      if ('pong' in clear) {
+        ctx.answerWakeProbe();
+        return;
+      }
       if ('resync' in clear) {
         ctx.handleClearResync(clear);
         return;
@@ -314,14 +317,18 @@ const openSocketAttempt = (
         if (opened) {
           // The VPS retained this phone while its desktop leg redialed.
           // Calls sent to the old leg cannot complete; fail them now and
-          // establish a new channel on the existing browser socket.
+          // establish a new channel on the existing browser socket. A silent
+          // attempt: if it fails, the handshake deadline retires the socket
+          // and that close takes the visible reconnect path.
           ctx.connectionReady = false;
           ctx.viewSync.close();
-          setRemoteConnectionState('reconnecting');
+          setRemoteConnectionState('connecting');
           ctx.resetDeltaState();
           const failure = remoteConnectionInterruptedError();
           for (const entry of [...ctx.pending.values()]) entry.reject(failure);
           ctx.pending.clear();
+          // The new leg is a fresh client on the PC with its own budget.
+          ctx.retireCallCredits(ws);
         } else if (handshakeStarted) {
           // The PC leg was replaced while this socket's first handshake was
           // still running: the relay kept the socket and the new leg sent
@@ -415,11 +422,18 @@ const openSocketAttempt = (
     ctx.viewResumeToken = null;
     if (!ctx.carriedResumeToken) ctx.resetDeltaState();
     // Decided BEFORE the rejection sweep empties the map: a keepalive
-    // recycle only stays quiet while nothing was waiting on this leg.
-    const quietRecycle = ctx.quietRecycledSockets.delete(ws) && ctx.pending.size === 0;
+    // recycle only stays quiet while nothing was waiting on this leg. A leg
+    // that went into the background and never answered since is the cost of
+    // that background, whatever was in flight: its redial stays silent too.
+    const keepaliveRecycle = ctx.quietRecycledSockets.delete(ws) && ctx.pending.size === 0;
+    const backgroundCasualty = ctx.unprovenSocket === ws;
+    if (backgroundCasualty) ctx.unprovenSocket = null;
+    ctx.resyncAfterWakeProbe = false;
+    const quietRecycle = keepaliveRecycle || backgroundCasualty;
     const failure = remoteConnectionInterruptedError();
     for (const entry of [...ctx.pending.values()]) entry.reject(failure);
     ctx.pending.clear();
+    ctx.retireCallCredits(ws);
     if (!opened) reject(failure);
     if (event && isInvalidRemotePairingClose(event)) {
       ctx.resetApprovalAndAsk(earlyUiT('Your PC disconnected this device.'));
@@ -430,14 +444,16 @@ const openSocketAttempt = (
       // runs the normal path and the disconnect countdown starts.
       setRemoteConnectionState('connecting');
       if (!ctx.backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
-        ctx.retryMs = 500;
+        ctx.retryMs = 0;
         void redial().catch(() => {
           /* the retry loop takes over */
         });
         return;
       }
     }
-    ctx.scheduleReconnect();
+    // A live leg the network closed (not one this page retired) is what a
+    // relay restart does to every phone at once.
+    ctx.scheduleReconnect(Boolean(event) && opened);
   };
   ws.onclose = finishClose;
 };

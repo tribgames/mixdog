@@ -3,10 +3,7 @@ import test from 'node:test';
 
 import { onBrowserPageRevealRequested } from './browser-page-request.ts';
 import {
-  allowVisualizeReveal,
-  allowVisualizeScripts,
   applyVisualizeEvent,
-  visualizeScriptsAllowed,
   hydrateVisualizeStates,
   subscribe,
   markVisualizePanelHidden,
@@ -224,17 +221,6 @@ test('the version stepper walks kept versions; the newest is live', () => {
   } finally {
     globalThis.window = previous;
   }
-});
-
-test('a remote page that runs scripts waits for a trusted Run tap, remembered per tab', () => {
-  assert.equal(visualizeScriptsAllowed('s1', 'v1'), false);
-  assert.equal(allowVisualizeScripts('s1', 'v1', { isTrusted: false }), false, 'a synthetic click does not run a page');
-  assert.equal(allowVisualizeScripts('s1', 'v1', {}), false);
-  assert.equal(visualizeScriptsAllowed('s1', 'v1'), false);
-  assert.equal(allowVisualizeScripts('s1', 'v1', { isTrusted: true }), true);
-  assert.equal(visualizeScriptsAllowed('s1', 'v1'), true);
-  assert.equal(visualizeScriptsAllowed('s1', 'v2'), false, 'another tab stays gated');
-  assert.equal(visualizeScriptsAllowed('s2', 'v1'), false, 'another session stays gated');
 });
 
 test('there is no network toggle any more: the store exports no setter', async () => {

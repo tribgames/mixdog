@@ -866,15 +866,16 @@ test('an unmeasured or missing agent session drops every combined figure and its
     sessions: { 's-a': ledgerUsage(100, { unmeasured: 1 }), 's-b': ledgerUsage(100) },
   });
   // The agents' share is unknown (s-a unmeasured, s-c missing): no total,
-  // cache rate or cost, so no footer; the header counts stay.
-  assert.equal(summary, null);
+  // cache rate or cost: the footer keeps its line empty (so the rows never
+  // move when figures arrive); the header counts stay.
+  assert.equal(summary.querySelector('b'), null);
   assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': '100' });
 });
 
 test('without a usage read only the header counts remain', async (t) => {
   const { summary, meta, rowTokens } = await usagePanel(t, null);
-  assert.equal(summary, null);
+  assert.equal(summary.querySelector('b'), null);
   assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': null });
 });

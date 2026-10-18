@@ -5,7 +5,9 @@ import { createLatestStateMailbox, type LatestStateMailbox } from './desktop-ser
 /** A phone repaints a whole markdown tail per frame it receives. At 16ms
  *  nearly every desktop update became its own socket frame (168 frames for
  *  173 updates) and a throttled phone missed half its vsyncs; ~90ms keeps
- *  text visibly flowing at ~11 paints a second. */
+ *  text visibly flowing at ~11 paints a second. The window opens with the
+ *  append that ends a quiet spell, which travels at once: the first words of
+ *  a reply never wait for it. */
 export const REMOTE_STREAM_BATCH_MS = 90;
 
 type Timers = {
@@ -34,6 +36,18 @@ export function createRemoteStreamingMailbox(
     timer = null;
     delayed = null;
   };
+  // An append sent now holds the appends after it for one window; the
+  // window's latest append ends it and opens the next one.
+  const sendAndHold = (update: DesktopSessionStateUpdate): void => {
+    mailbox.publish(update);
+    timer = timers.setTimeout(() => {
+      timer = null;
+      const latest = delayed;
+      delayed = null;
+      if (latest) sendAndHold(latest);
+    }, REMOTE_STREAM_BATCH_MS);
+    timer.unref?.();
+  };
   return {
     publish(update): void {
       // Batch only a proved text append; every other transition bypasses the timer.
@@ -45,15 +59,11 @@ export function createRemoteStreamingMailbox(
         mailbox.publish(update);
         return;
       }
-      delayed = update;
-      if (timer !== null) return;
-      timer = timers.setTimeout(() => {
-        timer = null;
-        const latest = delayed;
-        delayed = null;
-        if (latest) mailbox.publish(latest);
-      }, REMOTE_STREAM_BATCH_MS);
-      timer.unref?.();
+      if (timer !== null) {
+        delayed = update;
+        return;
+      }
+      sendAndHold(update);
     },
     acknowledge: mailbox.acknowledge,
     reset(update): void {

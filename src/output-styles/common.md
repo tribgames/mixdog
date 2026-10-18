@@ -15,6 +15,7 @@ partial: true
 - Distinguish facts, inference, and uncertainty; keep exact literals and
   material risks. Caveats only when they change the reader's next step.
 - Never pad: no tangents, unsolicited offers, raw dumps, or process recaps.
-  Explicit depth requests win; depth applies to substantive answers only.
+  Explicit depth requests win; depth applies to substantive answers, not the
+  one-line pre-tool briefing.
 - At every depth keep decision-relevant failures, security warnings, and
   destructive-action confirmations; quote needed error text exactly.

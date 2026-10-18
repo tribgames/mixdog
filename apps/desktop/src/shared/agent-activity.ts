@@ -83,12 +83,6 @@ export function isFailedDesktopAgentEntry(value: unknown): boolean {
   return DESKTOP_FAILED_AGENT_STATUS.test(lifecycle);
 }
 
-export function isCompletedDesktopAgentEntry(value: unknown): boolean {
-  const entry = record(value);
-  const lifecycle = String(entry.status || '').trim() || String(entry.stage || '').trim();
-  return /^completed$/i.test(lifecycle);
-}
-
 /** The reason of a failed row; '' for a row that did not fail. */
 export function desktopAgentFailureReason(value: unknown): DesktopAgentFailureReason | '' {
   if (!isFailedDesktopAgentEntry(value)) return '';
@@ -155,9 +149,8 @@ export function desktopAgentActivityState(
   if (isQueuedDesktopAgentEntry(value)) return 'queued';
   if (isActiveDesktopAgentEntry(value)) return 'running';
   if (options.waitingForTasks === true || hasPendingDesktopAgentWork(value)) return 'waiting';
-  // A worker row the pool reports `completed` finished its turn normally; it
-  // reads "Completed" for its pane window, unseen or not.
-  return options.unread === true || isCompletedDesktopAgentEntry(value) ? 'done' : 'idle';
+  // A finished turn reads "Completed" until its reply is seen, then rests.
+  return options.unread === true ? 'done' : 'idle';
 }
 
 export function desktopAgentIdentity(value: unknown): string {

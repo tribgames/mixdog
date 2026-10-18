@@ -20,7 +20,15 @@ import { renderPageExportDetailed } from './export-render';
 import { chooseExportPath, type ExportRenderers, exportRenderers, exportTabBytes } from './host-export-path';
 import { watchFile } from './host-file-watch';
 import { createFeedbackHost } from './host-feedback';
-import { bodyRectNow, captureWindowRect, capturedPng, leasePrefix, shownBody, windowAccess } from './host-frames';
+import {
+  bodyRectNow,
+  captureWindowRect,
+  capturedPng,
+  desktopScreenState,
+  leasePrefix,
+  shownBody,
+  windowAccess,
+} from './host-frames';
 import { inlinePageUrl, panePreviewUrl } from './host-pane-preview';
 import { watchPageProblems } from './host-page-observer';
 import { annotatePanes, inspectPanes, requireShownWindow, shownHtmlFrames } from './host-page-ops';
@@ -271,15 +279,9 @@ export function createDesktopVisualize(options: {
     // On the desktop window, else on a paired remote device showing the session.
     async onScreen(sessionId, tab) {
       const window = liveWindow();
-      if (
-        window &&
-        (await shownBody(window, sessionId, tab).then(
-          () => true,
-          () => false
-        ))
-      )
-        return true;
-      return viewer.remoteViewing(sessionId);
+      const desktop = window ? await desktopScreenState(window, sessionId, tab) : 'hidden';
+      if (desktop === 'visible' || (await viewer.remoteViewing(sessionId))) return 'visible';
+      return desktop;
     },
     capture: captureBody,
     chooseExportPath: (request) => chooseExportPath(requireWindow, request),

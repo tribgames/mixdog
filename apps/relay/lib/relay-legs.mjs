@@ -6,6 +6,7 @@ import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from './relay-binary-f
 import { DESKTOP_HANDSHAKE_STALLED_CLOSE, DESKTOP_OFFLINE_CLOSE } from './relay-close-codes.mjs';
 import { failMediaPending, forwardMediaFrame } from './relay-media-proxy.mjs';
 import { cleanName } from './pair-codes.mjs';
+import { APPROVED_CLAIM_RETAIN_MS, EXPIRED_CLAIM_RETAIN_MS } from './relay-pairing.mjs';
 import {
   bindNativeToken,
   dropNativeBindings,
@@ -28,6 +29,7 @@ import {
   sendToPhone,
   sendUplink,
   signalDesktopOversize,
+  signalPhoneDesktopGone,
   signalPhoneOversize,
   trackLegIngress,
   uplinkCeilings,
@@ -180,7 +182,9 @@ function approveClaim({ store, deviceId, claims }, message) {
   const claim = claims?.get(message.claimId);
   if (!claim || claim.deviceId !== deviceId || claim.status !== 'pending') return;
   if (claim.expiresAt <= Date.now()) {
-    claims.delete(claim.id);
+    // Not deleted: a poll must still read `expired`, which only `unknown` differs from.
+    claim.status = 'expired';
+    claim.expiresAt = Date.now() + EXPIRED_CLAIM_RETAIN_MS;
     return;
   }
   const registered = store.registerClient(deviceId, claim.clientId, claim.profile);
@@ -191,6 +195,8 @@ function approveClaim({ store, deviceId, claims }, message) {
   claim.token = registered.token;
   claim.sealed = message.sealed ?? null;
   claim.status = 'approved';
+  // From here the claim only lives to be re-read by a poller whose answer was lost.
+  claim.expiresAt = Date.now() + APPROVED_CLAIM_RETAIN_MS;
 }
 
 function denyClaim({ deviceId, claims }, message) {
@@ -351,6 +357,9 @@ function releaseDesktopLeg(liveDesktops, deviceId, entry, socket) {
   // socket, so the next connection starts from its own declaration.
   if (liveDesktops.get(deviceId)?.socket !== socket) return;
   failMediaPending(entry);
+  // Parked phones keep answering their own pings, so without a word from here
+  // they look connected while every call goes nowhere.
+  for (const phone of entry.clients.values()) signalPhoneDesktopGone(phone);
   // Keep browser legs parked at the relay during transient desktop/VPS
   // outages. New RPCs cannot reach a closed desktop socket, but the next
   // desktop leg rekeys and resumes all existing clients in place.
@@ -526,6 +535,13 @@ function createLegPathReader(entry, clientId, maxFrameBytes) {
   };
 }
 
+/** Phone -> desktop, telling the phone when there is no desktop leg to carry
+ *  the frame (a refusal for any other reason has its own handling). */
+function uplink(socket, desktop, payload) {
+  if (sendUplink(socket, desktop, payload)) return;
+  if (!desktop || desktop.readyState !== desktop.OPEN) signalPhoneDesktopGone(socket, true);
+}
+
 // One frame from a phone: a liveness probe is answered here, everything else
 // rides up the desktop leg inside the routing envelope.
 function handlePhoneFrame(socket, clientId, legPath, raw, isBinary, onPhoneTurn) {
@@ -542,7 +558,7 @@ function handlePhoneFrame(socket, clientId, legPath, raw, isBinary, onPhoneTurn)
   if (rejectOversizeFrame(socket, raw, limit, announced)) return;
   if (isBinary) {
     onPhoneTurn();
-    sendUplink(socket, path.desktop, encodeRelayBinaryFrame({ clientId, data: raw }));
+    uplink(socket, path.desktop, encodeRelayBinaryFrame({ clientId, data: raw }));
     return;
   }
   const text = raw.toString();
@@ -567,7 +583,7 @@ function handlePhoneFrame(socket, clientId, legPath, raw, isBinary, onPhoneTurn)
   const envelope = path.textFrames
     ? encodeRelayBinaryFrame({ clientId, data: raw, text: true })
     : JSON.stringify({ type: 'frame', clientId, data: text });
-  sendUplink(socket, path.desktop, envelope);
+  uplink(socket, path.desktop, envelope);
 }
 
 // `browserClientId` is the per-browser credential the relay authenticated when

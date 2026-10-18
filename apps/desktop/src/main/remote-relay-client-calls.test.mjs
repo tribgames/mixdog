@@ -71,7 +71,7 @@ test('dictation calls are queued on their capability key, other capabilities on 
     resyncClient() {},
     recordCall() {},
   });
-  for (const [id, capability] of ['transcribeAudio', 'prepareTranscription', 'getVoiceStatus'].entries()) {
+  for (const [id, capability] of ['transcribeAudio', 'prepareTranscription', 'setAutoUpdate'].entries()) {
     const { execution } = await dispatch(
       'client-1',
       client,
@@ -119,8 +119,7 @@ test('a per-client method table answers only the client it was built for', async
 });
 
 test('review reads and per-file patches pick the slow-read queue key', () => {
-  const stat = (capability) =>
-    remoteCallStatName('invokeCapability', [{ capability, args: [], sessionId: 's' }]);
+  const stat = (capability) => remoteCallStatName('invokeCapability', [{ capability, args: [], sessionId: 's' }]);
   for (const capability of ['getSessionReviewFilePatch', 'getTurnReviewFilePatch', 'getTurnChanges']) {
     assert.equal(remoteCallQueueKey('invokeCapability', stat(capability)), `invokeCapability:${capability}`);
   }
@@ -131,4 +130,22 @@ test('review reads and per-file patches pick the slow-read queue key', () => {
   for (const method of ['gitReview', 'gitReviewDiff', 'gitReviewDiffs', 'getSnapshot']) {
     assert.equal(remoteCallQueueKey(method, method), method);
   }
+});
+
+test('read-only capability calls read; quota and usage sweeps take the slow-read lane', () => {
+  const invoke = (capability) => remoteCallStatName('invokeCapability', [{ capability, args: [], sessionId: 's' }]);
+  const read = (...capabilities) =>
+    remoteCallStatName('readCapabilities', [capabilities.map((capability) => ({ capability, args: [] }))]);
+  for (const capability of ['getVoiceStatus', 'skillsStatus', 'getProviderSetup', 'listWorkflows']) {
+    assert.equal(remoteCallQueueKey('invokeCapability', invoke(capability)), 'readCapabilities');
+  }
+  assert.equal(remoteCallQueueKey('readCapabilities', read('skillsStatus', 'mcpStatus')), 'readCapabilities');
+  for (const capability of ['getUsageDashboard', 'getQuotaHistory', 'getUsageStats']) {
+    assert.equal(remoteCallQueueKey('invokeCapability', invoke(capability)), 'readCapabilities:slow');
+    assert.equal(remoteCallQueueKey('readCapabilities', read('skillsStatus', capability)), 'readCapabilities:slow');
+  }
+  // A mutation, or a name outside the allow-list, stays an ordered barrier.
+  assert.equal(remoteCallQueueKey('invokeCapability', invoke('setAutoUpdate')), 'invokeCapability');
+  assert.equal(remoteCallQueueKey('invokeCapability', invoke('no-such-capability')), 'invokeCapability');
+  assert.equal(remoteCallQueueKey('invokeCapability', 'invokeCapability'), 'invokeCapability');
 });

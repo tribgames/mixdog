@@ -252,9 +252,20 @@ export function useTranscriptFollow({
       }),
     [fingerOnGlass]
   );
+  // A finger on the glass owns the viewport before its first touchmove is
+  // handled. On a phone the compositor scrolls from the first move past the
+  // slop while the main thread is still busy with a streaming frame; the end
+  // pin that frame requested then wrote the old bottom back under the finger
+  // and every small upward drag juddered until the touchmove released follow.
+  // A pin requested meanwhile waits for the finger (the end pin retries every
+  // frame), so a tap that never scrolls still lands on the new bottom.
   const hasReaderScroll = useCallback(
-    () => hasGesture() || hasTouchScroll() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
-    [hasGesture, hasTouchScroll]
+    () =>
+      hasGesture() ||
+      hasTouchScroll() ||
+      fingerOnGlass() ||
+      Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
+    [fingerOnGlass, hasGesture, hasTouchScroll]
   );
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
     const time = Date.now();
@@ -365,6 +376,7 @@ export function useTranscriptFollow({
       readerScrollShouldReleaseFollow({
         programmatic: programmaticScroll,
         chromePointer: chromeScroll.current,
+        fingerOnGlass: fingerOnGlass(),
         upwardMove: previousTop - top,
       });
     // The dock shrinking grows the viewport, and Chromium clamps an offset
@@ -415,7 +427,7 @@ export function useTranscriptFollow({
       return;
     }
     if (releaseCandidate && !clamped) stop('scroll', previousTop);
-  }, [hasReaderScroll, isProgrammatic, markReaderMotion, publish, scheduleScrollState, stop, viewport]);
+  }, [fingerOnGlass, hasReaderScroll, isProgrammatic, markReaderMotion, publish, scheduleScrollState, stop, viewport]);
 
   const handleWheel = useCallback(
     (event: WheelLike) => {

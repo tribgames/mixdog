@@ -49,6 +49,7 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
               className={`rail-usage-pin-brand${tone}`}
               key={entry.key}
               data-usage-pin={entry.key}
+              aria-busy={entry.pending || undefined}
               data-tooltip={entry.tooltip}
             >
               <ProviderIcon provider={entry.provider} />
@@ -57,7 +58,9 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
                   <i style={{ width: `${displayUsagePercent(bar.percent) ?? 0}%` }} />
                 </i>
               ))}
-              <small>{percent}%</small>
+              <small>
+                <span className="rail-usage-pin-value">{entry.pending ? '–' : `${percent}%`}</span>
+              </small>
             </span>
           );
         })}
@@ -170,7 +173,12 @@ export function ActivityRail({
     }
     const dismiss = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('.rail-usage-popup, .sidebar-usage-toggle, [data-provider-account-overlay], [data-usage-menu-overlay]')) return;
+      if (
+        target?.closest(
+          '.rail-usage-popup, .sidebar-usage-toggle, [data-provider-account-overlay], [data-usage-menu-overlay]'
+        )
+      )
+        return;
       setUsageOpen(false);
     };
     const keydown = (event: KeyboardEvent) => {

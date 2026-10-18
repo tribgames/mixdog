@@ -774,8 +774,7 @@ async function resolveLocalPathEntries(
   const linkingSession = async (path: string): Promise<string> =>
     (await provenance.sessionFor(path)) ?? (await everywhere?.sessionFor(path)) ?? '';
   const projects = await deps.host.listProjects().catch(() => []);
-  const rows: DesktopLocalPathEntry[] = [];
-  for (const raw of paths) {
+  const describe = async (raw: unknown): Promise<DesktopLocalPathEntry> => {
     const absolute = absoluteLocalPath(raw);
     const owner = owningProject(projects, absolute);
     const inProject = owner !== null && staysInProject(owner.root, absolute);
@@ -812,9 +811,34 @@ async function resolveLocalPathEntries(
         row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath, linkedSession);
       }
     }
-    rows.push(row);
-  }
+    return row;
+  };
+  // Paths are described a few at a time, each with its own deadline: a path on
+  // a stalled network share or an endless transcript search fails alone.
+  const rows = new Array<DesktopLocalPathEntry>(paths.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < paths.length) {
+      const index = next++;
+      rows[index] = await withPathDeadline(describe(paths[index]), String(paths[index]));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(LOCAL_PATH_CONCURRENCY, paths.length) }, worker));
   return rows;
+}
+
+const LOCAL_PATH_CONCURRENCY = 4;
+const LOCAL_PATH_TIMEOUT_MS = 15_000;
+
+function withPathDeadline<T>(operation: Promise<T>, path: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Timed out after ${LOCAL_PATH_TIMEOUT_MS / 1000}s reading ${path}.`)),
+      LOCAL_PATH_TIMEOUT_MS
+    );
+  });
+  return Promise.race([operation, deadline]).finally(() => clearTimeout(timer));
 }
 
 const ENTRY_SCAN_LIMIT = 20000;

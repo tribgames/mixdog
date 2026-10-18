@@ -465,32 +465,6 @@ export function toggleVisualizeCompare(sessionId: string, tab: VisualizeTabState
   if (typeof version === 'number') showVisualizeVersion(sessionId, tab.id, version, true);
 }
 
-/** Tabs whose pages the user chose to run on this paired remote client,
- *  remembered for this device session (the page's lifetime). */
-const scriptRuns = new Set<string>();
-const scriptRunKey = (sessionId: string, tabId: string) => `${sessionId}\0${tabId}`;
-
-/** The user tapped "Run" on a page that runs scripts: only a trusted
- *  (user-made) event counts. Returns whether it was accepted. */
-export function allowVisualizeScripts(sessionId: string, tabId: string, event: { isTrusted?: boolean }): boolean {
-  if (event.isTrusted !== true) return false;
-  scriptRuns.add(scriptRunKey(sessionId, tabId));
-  emit();
-  return true;
-}
-
-export function visualizeScriptsAllowed(sessionId: string, tabId: string): boolean {
-  return scriptRuns.has(scriptRunKey(sessionId, tabId));
-}
-
-export function useVisualizeScriptsAllowed(sessionId: string, tabId: string): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => visualizeScriptsAllowed(sessionId, tabId),
-    () => false
-  );
-}
-
 /** An inline pane (displayed index `pane`) finished rendering; `error` is why
  *  it could not, which main lists with the tab's page problems. */
 export function reportVisualizeRender(
@@ -512,6 +486,20 @@ export function reportVisualizeRender(
       renderId,
       ...(error ? { error: error.slice(0, 2000) } : {}),
     })
+    ?.catch(() => {});
+}
+
+/** A remote page frame refused an outside request (`url`, asked for by
+ *  `resource`): the host lists it with the tab's page problems. */
+export function reportVisualizeBlockedNetwork(
+  sessionId: string,
+  tabId: string,
+  pane: number,
+  url: string,
+  resource: string
+): void {
+  void window.mixdogDesktop
+    ?.visualizeCommand?.({ sessionId, tabId, action: 'blocked', pane, url, resource })
     ?.catch(() => {});
 }
 

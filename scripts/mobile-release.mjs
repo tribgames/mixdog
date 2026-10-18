@@ -9,9 +9,10 @@
 //   CLI: MOBILE_MODE=auto|force|skip MOBILE_BUMP=patch|minor node scripts/mobile-release.mjs plan
 //   appends mobile_release / mobile_version / mobile_tag to $GITHUB_OUTPUT.
 //
-// link: the Android release the relay's /app page links — the newest
-//   published (non-draft) mobile-v* release whose APK actually downloads, or
-//   the releases list when there is none. `--require=<tag>` instead fails
+// link: the Android APK the relay's /app page links — the direct download URL
+//   (.../releases/download/mobile-vX.Y.Z/<asset>.apk) of the newest published
+//   (non-draft) mobile-v* release whose APK actually downloads, or the
+//   releases list when there is none. `--require=<tag>` instead fails
 //   unless that exact release is the one that resolves (post-publish check).
 //   CLI: GITHUB_REPOSITORY=o/r GH_TOKEN=… node scripts/mobile-release.mjs link [--require=mobile-vX.Y.Z]
 //   appends url / tag to $GITHUB_OUTPUT.
@@ -148,7 +149,7 @@ export async function resolveAndroidLink({
   const candidates = androidReleaseCandidates(await listReleases(repository, { token, fetchImpl }));
   for (const candidate of requiredTag ? candidates.filter((item) => item.tag === requiredTag) : candidates) {
     if (await downloadable(candidate.apkUrl, { fetchImpl, attempts, delayMs })) {
-      return { url: candidate.url, tag: candidate.tag };
+      return { url: candidate.apkUrl, tag: candidate.tag };
     }
     if (!requiredTag) console.warn(`::warning::${candidate.tag} APK is not downloadable; trying an older release.`);
   }

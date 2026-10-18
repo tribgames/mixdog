@@ -840,8 +840,12 @@ test('an approval mints the credential; the relay only routes the request', asyn
     // The relay forwards the sealed material without a key to open it.
     assert.deepEqual(answer.sealed, { box: 'opaque' });
     assert.equal(relay.store.deviceIdForClientToken(answer.token), DEVICE_ID);
-    // One-shot: the credential leaves this relay exactly once.
-    assert.equal((await (await fetch(`${origin}/claim/${claimId}`)).json()).status, 'expired');
+    // A lost answer can be asked for again, and only by the claim id.
+    const again = await (await fetch(`${origin}/claim/${claimId}`)).json();
+    assert.equal(again.status, 'approved');
+    assert.equal(again.token, answer.token);
+    // An id this relay never held (a restart) is unknown, not expired.
+    assert.equal((await (await fetch(`${origin}/claim/${randomUUID()}`)).json()).status, 'unknown');
   } finally {
     try {
       desktop?.close();

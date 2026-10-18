@@ -28,7 +28,27 @@ const PARALLEL_READS = new Set([
   // Agent visualize panel: the tab list and pane byte ranges.
   'visualizeState',
   'visualizePaneRange',
+  // A phone's resume reads. As unknown-method barriers each one waited for
+  // every in-flight read (a 3-6s usage sweep) and then ran one at a time,
+  // holding the transcript's getSnapshot ~3s behind them.
+  'readSettings',
+  'readActivityRailPins',
+  'readHostDisplayPreferences',
+  'getUpdaterState',
+  'viewerDevice',
+  'gitCliStatus',
+  'libreOfficeStatus',
 ]);
+
+/** Read-only capabilities that sweep providers' quota APIs or the usage
+ *  ledger (seconds per call): they ride the slow-read lane. */
+export const SLOW_READ_CAPABILITIES: ReadonlySet<string> = new Set([
+  'getUsageDashboard',
+  'getQuotaHistory',
+  'getUsageStats',
+]);
+/** Lane key of a capability call naming one of {@link SLOW_READ_CAPABILITIES}. */
+export const SLOW_CAPABILITY_READ_CALL = 'readCapabilities:slow';
 
 // A review row's own patch, keyed by capability at the dispatch site.
 export const REVIEW_FILE_PATCH_CALLS: ReadonlySet<string> = new Set([
@@ -57,6 +77,10 @@ const SLOW_READS = new Set([
   // an unknown-method barrier, holding Settings reads ~10s behind it.
   'githubCliStatus',
   'githubCliAccount',
+  // Stats files (possibly on network shares) and may search transcripts for a
+  // linking reply; its only effect is an in-memory file grant. Seen at 186s as
+  // a barrier, holding submitToSession/readSettings behind it.
+  'resolveLocalPaths',
   'ghPrList',
   'ghPrView',
   'ghPrDiff',
@@ -70,6 +94,7 @@ const SLOW_READS = new Set([
   'gitReviewDiff',
   'gitReviewDiffs',
   ...[...REVIEW_FILE_PATCH_CALLS],
+  SLOW_CAPABILITY_READ_CALL,
 ]);
 
 // Dictation (keyed by capability at the dispatch site). A transcription runs

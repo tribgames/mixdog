@@ -4,6 +4,7 @@
  * request of such a page is refused while its tab has not allowed network.
  */
 import type { VisualizePaneView, VisualizeProblem } from '../../shared/visualize';
+import { blockedNetworkMessage, isOutsideNetworkUrl } from '../../shared/visualize-network-policy';
 import { leasePrefixOf } from './page-problems';
 
 /** A frame that made a request or navigation: its URL and, when known, its
@@ -114,9 +115,9 @@ export function createLeaseGuard(
         // An unparsable address from an owned page is refused outright.
         return true;
       }
-      if (!/^(?:https?|wss?):$/.test(target.protocol)) return false;
+      if (!isOutsideNetworkUrl(target)) return false;
       if (target.host === new URL(owned).host) return false;
-      onBlocked(owned, 'blocked-network', `${target.host} (${request.resourceType})`);
+      onBlocked(owned, 'blocked-network', blockedNetworkMessage(target.host, request.resourceType));
       return true;
     },
   };

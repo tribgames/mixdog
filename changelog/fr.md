@@ -5,6 +5,33 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Les téléphones se connectent désormais plus rapidement et sans fenêtres contextuelles, l'application de bureau ne ralentit plus après l'exécution de nombreux agents, et les réponses en streaming s'affichent de manière plus fluide.
+
+### Modifications
+
+- Modification des connexions de téléphone pour se reconnecter automatiquement sans pop-up ni compte à rebours ; un petit point n'apparaît que lors d'une interruption prolongée.
+- Modification des réponses en streaming pour s'afficher mot par mot avec un fondu doux, sans sauts dus au Markdown incomplet ; les blocs de code apparaissent avec leur contenu.
+- Modification de l'état de l'agent pour afficher Done jusqu'à l'ouverture du résultat, puis Idle.
+- Modification du menu de branche pour s'ouvrir depuis un bouton `…` ou par un clic droit ; sur les téléphones, appuyez longuement sur une branche.
+- Modification des pages visualize sur les téléphones pour s'ouvrir directement sans invite Run, comme sur le bureau.
+- Ajustement du panneau d'utilisation et du résumé de l'îlot du compositeur pour conserver leur hauteur pendant le chargement des chiffres.
+- Modification du code QR d'installation Android pour télécharger directement l'application.
+
+### Corrections de bugs
+
+- Correction des messages envoyés et des réponses qui n'apparaissaient pas dans la conversation après le redémarrage de l'application tant qu'elle n'était pas rouverte (#113, thanks @oh1701).
+- Correction de l'application de bureau marquant des pauses d'environ une seconde dès qu'il existait plus de 256 sessions d'agents.
+- Correction des requêtes des téléphones bloquées derrière des lectures lentes de Git et d'utilisation sur le bureau.
+- Correction des téléphones déconnectés lorsque le bureau était occupé, et de la première connexion après ouverture de l'application prenant plus de 10 secondes.
+- Correction des téléphones restant indéfiniment sur "Allowed. Connecting…" ou affichant "Request expired" après approbation par le PC.
+- Correction d'un téléphone demandant à nouveau une approbation au lancement après la perte de sa connexion enregistrée.
+- Correction des téléphones apparaissant connectés pendant le redémarrage du PC, chaque message arrivant à expiration.
+- Correction de la déconnexion définitive des téléphones associés lorsque le PC ne parvenait pas à lire son identité de connexion.
+- Correction d'une vérification lente de chemin de fichier qui bloquait toutes les autres requêtes du téléphone.
+- Correction du défilement vers le haut dans les longues conversations qui bloquait pendant le chargement des messages plus anciens (#104).
+- Correction de la conversation ramenée vers le bas lors du défilement vers le haut sur téléphone pendant une réponse en cours.
+- Correction du chevauchement d'icônes sur les cartes de fichiers et des notifications répétées d'échec de téléchargement.
+
 ## v1.2.4 - 2026-10-17
 
 Mise à jour comprenant le contrôle des sessions d'agents et l'attribution de modèles de secours, la préparation automatique des worktrees, l'optimisation des sorties du harness et des améliorations générales des performances.

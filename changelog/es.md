@@ -5,6 +5,33 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Los teléfonos ahora se conectan más rápido y sin ventanas emergentes, el escritorio ya no se ralentiza cuando se han ejecutado muchos agentes y las respuestas en streaming aparecen con mayor fluidez.
+
+### Cambios
+
+- Se cambiaron las conexiones del teléfono para que se reconecten automáticamente sin ventanas emergentes ni cuentas regresivas; solo aparece un pequeño punto durante una interrupción prolongada.
+- Se cambiaron las respuestas en streaming para que aparezcan palabra por palabra con un desvanecimiento suave, sin saltos por Markdown incompleto; los bloques de código aparecen con su contenido.
+- Se cambió el estado del agente para mostrar Done hasta que abras el resultado, y luego Idle.
+- Se cambió el menú de ramas para abrirse desde un botón `…` o con clic derecho; en teléfonos, mantén presionada una rama.
+- Se cambiaron las páginas de visualize en teléfonos para que se abran directamente sin el aviso Run, al igual que en el escritorio.
+- Se ajustaron el panel de uso y el resumen de la isla del compositor para mantener su altura mientras se cargan los datos.
+- Se cambió el código QR de instalación de Android para descargar la aplicación directamente.
+
+### Correcciones de errores
+
+- Se corrigió que los mensajes enviados y las respuestas no aparecieran en la conversación tras reiniciar la aplicación hasta que se volvía a abrir (#113, thanks @oh1701).
+- Se corrigió que el escritorio se pausara alrededor de un segundo a la vez cuando existían más de 256 sesiones de agentes.
+- Se corrigió que las solicitudes del teléfono quedaran esperando detrás de lecturas lentas de Git y de uso en el escritorio.
+- Se corrigió que los teléfonos se desconectaran mientras el escritorio estaba ocupado, y que la primera conexión tras abrir la aplicación tardara más de 10 segundos.
+- Se corrigió que los teléfonos se quedaran indefinidamente en "Allowed. Connecting…" o mostraran "Request expired" después de que la PC hubiera aprobado la conexión.
+- Se corrigió que un teléfono volviera a solicitar aprobación al iniciar tras perder su inicio de sesión guardado.
+- Se corrigió que los teléfonos parecieran conectados mientras la PC se reiniciaba, provocando que todos los mensajes se agotaran por tiempo de espera.
+- Se corrigió que los teléfonos vinculados se desconectaran definitivamente cuando la PC no podía leer su identidad de conexión.
+- Se corrigió que una comprobación lenta de ruta de archivo retuviera todas las demás solicitudes del teléfono.
+- Se corrigió que el desplazamiento hacia arriba en conversaciones largas se detuviera mientras se cargaban los mensajes anteriores (#104).
+- Se corrigió que la conversación volviera hacia abajo al desplazarse hacia arriba en el teléfono durante una respuesta en curso.
+- Se corrigieron los iconos superpuestos en las tarjetas de archivos y los avisos repetidos de error de descarga.
+
 ## v1.2.4 - 2026-10-17
 
 Actualización que incluye control de sesiones de agentes y asignación de modelos de respaldo, preparación automática de worktrees, optimización de la salida del harness y mejoras generales de rendimiento.

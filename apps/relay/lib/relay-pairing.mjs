@@ -17,6 +17,12 @@ export const MAX_PENDING_CLAIMS_PER_DEVICE = 8;
 export const MAX_PENDING_CLAIMS_PER_SOURCE = 8;
 // Long enough to walk to the desktop and answer the prompt there.
 export const CLAIM_TTL_MS = 300_000;
+// An approved claim stays readable this long (or until its client registers),
+// so a poll answer lost on the wire can be asked for again.
+export const APPROVED_CLAIM_RETAIN_MS = 60_000;
+// An expired claim keeps answering `expired` this long; after that, like a
+// claim this relay never held, it is `unknown`.
+export const EXPIRED_CLAIM_RETAIN_MS = 60_000;
 
 function requestToken(request, url) {
   const authorization = String(request.headers.authorization || '');
@@ -69,7 +75,7 @@ function rejectUnauthorized(unauthorizedLimiter, request, response, status) {
   response.writeHead(status).end();
 }
 
-export async function handleClientRegistration(store, unauthorizedLimiter, request, response) {
+export async function handleClientRegistration(store, unauthorizedLimiter, request, response, claims = null) {
   if (request.method !== 'POST') {
     response.writeHead(405).end();
     return;
@@ -90,6 +96,15 @@ export async function handleClientRegistration(store, unauthorizedLimiter, reque
     return;
   }
   answerRegistration(store, access, clientId, input.body, request, response);
+  // The client has used its credential: it holds the answer, so the re-read
+  // window of the claim that minted it closes.
+  if (access.clientId === clientId) releaseApprovedClaim(claims, requestToken(request, input.url));
+}
+
+function releaseApprovedClaim(claims, token) {
+  for (const [id, claim] of claims ?? []) {
+    if (claim.status === 'approved' && claim.token === token) claims.delete(id);
+  }
 }
 
 // A browser already bound to this token refreshes its record; a fresh one is
@@ -126,19 +141,22 @@ function jsonResponder(response) {
   };
 }
 
-// GET /claim/<id>: the container polls until the desktop answers. One-shot:
-// the credential leaves this relay exactly once.
+// GET /claim/<id>: the container polls until the desktop answers. The claim id
+// (an unguessable UUID only the original claimant was given) is the poll's
+// secret; an approved claim answers with the credential to anyone who presents
+// it until APPROVED_CLAIM_RETAIN_MS passes or the client registers. An id this
+// relay does not hold (a restart, or retention over) is `unknown`, which the
+// client answers by claiming again; `expired` is a claim that really lapsed.
 function answerClaimPoll(claims, claimId, json) {
   const claim = claims.get(claimId);
   if (!claim) {
-    json(200, { status: 'expired' });
+    json(200, { status: 'unknown' });
     return;
   }
   if (claim.status !== 'approved') {
     json(200, { status: claim.status });
     return;
   }
-  claims.delete(claim.id);
   json(200, {
     status: 'approved',
     clientId: claim.clientId,
@@ -219,8 +237,17 @@ function openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, pro
 }
 
 function sweepExpiredClaims(claims) {
-  for (const [id, pending] of claims) {
-    if (pending.expiresAt <= Date.now()) claims.delete(id);
+  const now = Date.now();
+  for (const [id, claim] of claims) {
+    if (claim.expiresAt > now) continue;
+    // An approved claim's retention is over, and an expired one has been told
+    // so long enough: both are forgotten. Anything else lapses to `expired`.
+    if (claim.status === 'approved' || claim.status === 'expired') {
+      claims.delete(id);
+    } else {
+      claim.status = 'expired';
+      claim.expiresAt = now + EXPIRED_CLAIM_RETAIN_MS;
+    }
   }
 }
 

@@ -8,19 +8,47 @@ const HEALABLE_MARKDOWN_SYNTAX = /[`*_~[]/;
 function openFence(text) {
   let marker = '';
   let length = 0;
+  let start = 0;
+  let lineStart = 0;
   for (const rawLine of String(text ?? '').split('\n')) {
     const fence = FENCE_LINE.exec(rawLine.replace(/\r$/, ''));
-    if (!fence) continue;
-    const marks = fence[1];
-    if (!marker) {
-      marker = marks[0];
-      length = marks.length;
-    } else if (marks[0] === marker && marks.length >= length && !fence[2].trim()) {
-      marker = '';
-      length = 0;
+    if (fence) {
+      const marks = fence[1];
+      if (!marker) {
+        marker = marks[0];
+        length = marks.length;
+        start = lineStart;
+      } else if (marks[0] === marker && marks.length >= length && !fence[2].trim()) {
+        marker = '';
+        length = 0;
+      }
     }
+    lineStart += rawLine.length + 1;
   }
-  return marker ? { marker, length } : null;
+  return marker ? { marker, length, start } : null;
+}
+
+// The opening fence line arrives a token at a time: ``` → ```py → ```python.
+// Rendered at once, the card opened unlabelled and then relabelled (and
+// re-highlighted) per token. The card appears with its first code character:
+// an opening line alone would paint an empty box before any code.
+function trimPartialOpeningFence(text, fence) {
+  const lineEnd = text.indexOf('\n', fence.start);
+  return lineEnd >= 0 && /\S/.test(text.slice(lineEnd + 1)) ? text : text.slice(0, fence.start);
+}
+
+// A line holding only a block marker so far has no content to show, and the
+// marker alone parses as something else: `-` or `=` under a paragraph is a
+// setext underline (the paragraph flashed into a heading until the item text
+// arrived), `2` is a lazy paragraph continuation until its `.` arrives, `#`
+// grows into `##`, and a lone backtick run is literal text until it becomes a
+// fence. Hold the line back until its first content character.
+const PENDING_BLOCK_MARKER_LINE = /(?:^|\n)[ \t]*(?:[-+*=_#>~`]+|\d{1,9}[.)]?)[ \t]*$/;
+
+function trimPendingBlockMarker(text) {
+  const pending = PENDING_BLOCK_MARKER_LINE.exec(text);
+  if (!pending) return text;
+  return text.slice(0, pending.index + (pending[0].startsWith('\n') ? 1 : 0));
 }
 
 // A closing fence arrives a token at a time. Until its run is long enough to
@@ -57,7 +85,9 @@ function closeInlineCode(text, isPendingLocalPath) {
     } else if (run === open) open = 0;
     index = end;
   }
-  if (open && isPendingLocalPath?.(text.slice(openIndex + open))) {
+  // An opener with nothing after it yet closes into an empty span, which
+  // parses as a literal backtick run that then vanishes into code.
+  if (open && (!text.slice(openIndex + open) || isPendingLocalPath?.(text.slice(openIndex + open)))) {
     return text.slice(0, openIndex);
   }
   return open > 0 ? `${text}${'`'.repeat(open)}` : text;
@@ -93,6 +123,7 @@ function scanEmphasisRuns(masked) {
     let end = index + 1;
     while (masked[end] === marker) end += 1;
     const length = end - index;
+    const at = index;
     const before = index > 0 ? masked[index - 1] : '';
     const after = end < masked.length ? masked[end] : '';
     const beforeSpace = isMarkdownSpace(before);
@@ -102,16 +133,26 @@ function scanEmphasisRuns(masked) {
     const left = !afterSpace && (!afterPunctuation || beforeSpace || beforePunctuation);
     const right = !beforeSpace && (!beforePunctuation || afterSpace || afterPunctuation);
     if (marker === '~') {
-      if (length >= 2) runs.push({ marker, length: 2, canOpen: left, canClose: right });
+      // A single tilde is inert, but at the end it may be half of `~~`.
+      runs.push({
+        marker,
+        length: Math.min(length, 2),
+        canOpen: left && length >= 2,
+        canClose: right && length >= 2,
+        at,
+        end,
+      });
     } else if (marker === '_') {
       runs.push({
         marker,
         length,
         canOpen: left && (!right || beforePunctuation),
         canClose: right && (!left || afterPunctuation),
+        at,
+        end,
       });
     } else {
-      runs.push({ marker, length, canOpen: left, canClose: right });
+      runs.push({ marker, length, canOpen: left, canClose: right, at, end });
     }
     index = end;
   }
@@ -120,7 +161,9 @@ function scanEmphasisRuns(masked) {
 
 function closeEmphasis(text) {
   const open = [];
-  for (const run of scanEmphasisRuns(maskCode(text))) {
+  const runs = scanEmphasisRuns(maskCode(text));
+  const last = runs[runs.length - 1];
+  for (const run of runs) {
     let length = run.length;
     while (run.canClose && length > 0) {
       let match = -1;
@@ -137,13 +180,21 @@ function closeEmphasis(text) {
       length -= used;
       open.length = opener.length > 0 ? match + 1 : match;
     }
+    // A run ending the text that closed nothing has no content after it yet:
+    // it painted as literal `**` until the next token turned it into style.
+    if (run === last && run.end === text.length && length === run.length) {
+      return closeEmphasis(text.slice(0, run.at));
+    }
     if (length > 0 && run.canOpen) open.push({ marker: run.marker, length });
   }
-  let healed = text;
+  // Closers go before trailing whitespace: `**word ` closed after the space
+  // could not close (a closing run must follow non-space) and stayed literal.
+  const body = text.trimEnd();
+  let closers = '';
   for (let index = open.length - 1; index >= 0; index -= 1) {
-    healed += open[index].marker.repeat(Math.min(open[index].length, 3));
+    closers += open[index].marker.repeat(Math.min(open[index].length, 3));
   }
-  return healed;
+  return closers ? `${body}${closers}${text.slice(body.length)}` : text;
 }
 
 function linkDestinationEnd(text, start) {
@@ -246,8 +297,9 @@ function trimPendingTableHead(text) {
 export function healStreamingMarkdownTail(text, isPendingLocalPath) {
   const source = String(text ?? '');
   const fence = source.includes('`') || source.includes('~') ? openFence(source) : null;
-  if (fence) return trimPartialClosingFence(source, fence);
-  const value = source.includes('|') ? trimPendingTableHead(source) : source;
+  if (fence) return trimPartialOpeningFence(trimPartialClosingFence(source, fence), fence);
+  const unmarked = trimPendingBlockMarker(source);
+  const value = unmarked.includes('|') ? trimPendingTableHead(unmarked) : unmarked;
   const hasSyntax = HEALABLE_MARKDOWN_SYNTAX.test(value);
   if (!value || (!hasSyntax && !isPendingLocalPath)) return value;
   const healed = hasSyntax

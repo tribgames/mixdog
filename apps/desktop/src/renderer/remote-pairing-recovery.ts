@@ -96,6 +96,30 @@ export function canReuseStoredRemoteClientRegistration({
   return everPaired && hasE2eePairing && isRemoteClientCredential(token);
 }
 
+/** What a boot does before it may dial. `lost`: this container booted before
+ *  and kept its id, but its credential is gone (and no durable copy came back)
+ *  with no request pending — it says so and waits for the user to ask, instead
+ *  of filing a new request on the PC behind their back. */
+export type RemoteBootApproval = 'not-installed' | 'lost' | 'no-token' | 'no-key' | 'dial';
+
+export function remoteBootApproval({
+  installed,
+  token,
+  hasE2eePairing,
+  browserIdStored,
+  claimPending,
+}: {
+  installed: boolean;
+  token: string;
+  hasE2eePairing: boolean;
+  browserIdStored: boolean;
+  claimPending: boolean;
+}): RemoteBootApproval {
+  if (!installed) return 'not-installed';
+  if (!token) return browserIdStored && !claimPending ? 'lost' : 'no-token';
+  return hasE2eePairing ? 'dial' : 'no-key';
+}
+
 function isLoopbackHostname(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/gu, '');
   return host === 'localhost' || host === '127.0.0.1' || host === '::1';

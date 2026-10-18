@@ -6,6 +6,7 @@ import {
   UNTRACKED_STAT_CONCURRENCY,
   gitCacheKey,
   mapWithConcurrency,
+  sharedRead,
   untrackedStat,
 } from './git-read-utils';
 import { publicGitRemoteUrl, run, streamNulRecords } from './git-runner';
@@ -295,7 +296,14 @@ export async function currentGitOperation(cwd: string): Promise<GitOperation> {
   return '';
 }
 
-export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Promise<GitStatusResult> {
+/** Concurrent identical status reads share one scan ({@link sharedRead}). */
+export const gitStatus = sharedRead(
+  (cwd: string, options: GitStatusOptions = {}) =>
+    `${gitCacheKey(cwd)}\0${options.reuseLineStats === true}\0${options.skipLineStats === true}`,
+  readGitStatus
+);
+
+async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promise<GitStatusResult> {
   const files: GitFileEntry[] = [];
   let branch = '';
   let oid = '';

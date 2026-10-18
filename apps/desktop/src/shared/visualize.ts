@@ -231,6 +231,11 @@ export type DesktopVisualizeTabCommand =
    *  it failed, carrying the pane's issued `renderId` (the desktop window's
    *  or, on the remote command path, the remote one). */
   | { sessionId: string; tabId: string; action: 'render'; pane: number; renderId: string; error?: string }
+  /** A paired device's page frame refused a request to the outside network
+   *  (its CSP stands in for the desktop's session filter): `url` is the refused
+   *  address, `resource` what asked for it (an Electron `resourceType`). It is
+   *  listed as the same `blocked-network` page problem as on the desktop. */
+  | { sessionId: string; tabId: string; action: 'blocked'; pane: number; url: string; resource: string }
   /** A chat card of a closed tab: open the same file targets again in the
    *  session's working directory (validated like an agent open). */
   | {

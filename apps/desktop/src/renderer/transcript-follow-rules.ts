@@ -100,18 +100,22 @@ export function selectionAutoScrollShouldReleaseFollow(delta: number): boolean {
   return Number.isFinite(delta) && delta < 0;
 }
 
-/** Follow releases only on a real reader leave: wheel, scrollbar, or key.
- *  Tool resize and content clicks change scrollTop but are not a leave. */
+/** Follow releases only on a real reader leave: wheel, scrollbar, touch, or
+ *  key. Tool resize and content clicks change scrollTop but are not a leave.
+ *  A native upward move under a finger on the glass is the touch itself: the
+ *  compositor can deliver it before the main thread handles the touchmove. */
 export function readerScrollShouldReleaseFollow({
   programmatic,
   chromePointer,
+  fingerOnGlass = false,
   upwardMove,
 }: {
   programmatic: boolean;
   chromePointer: boolean;
+  fingerOnGlass?: boolean;
   upwardMove: number;
 }): boolean {
-  if (programmatic || !chromePointer) return false;
+  if (programmatic || !(chromePointer || fingerOnGlass)) return false;
   return upwardMove > RELEASE_MOVE_PX;
 }
 

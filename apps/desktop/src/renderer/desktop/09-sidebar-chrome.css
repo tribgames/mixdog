@@ -74,7 +74,7 @@
   color: var(--mx-text);
   display: block;
   width: 100%;
-  text-align: center;
+  text-align: left;
   font-size: var(--mx-font-micro);
   /* A gauge readout, not a heading: regular weight keeps the figures
      legible without out-weighing the rail icons (user: % 가 좀 굵다 →
@@ -83,6 +83,14 @@
   line-height: 11px;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
+}
+/* Centered by transform, not text-align: the value's layout box starts at the
+   same x whatever its width, so "–" becoming "60%" is not a layout shift. */
+.rail-usage-pin-value {
+  display: inline-block;
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
 }
 .rail-usage-pin-brand.tone-warning > small {
   color: var(--mx-warning);

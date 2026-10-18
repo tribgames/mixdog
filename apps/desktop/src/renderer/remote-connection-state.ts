@@ -129,6 +129,9 @@ export function reportRemoteConnectionIssue(issue: RemoteConnectionIssue, error?
   // it means that is no longer known.
   if (issue === 'websocket-closed' && code === REMOTE_DESKTOP_OFFLINE_CLOSE) data.mixdogRemoteDesktop = 'offline';
   else delete data.mixdogRemoteDesktop;
+  // Held until the state moves on: the retries of a failing sync keep the
+  // state at 'syncing', and a new connection or a completed sync clears it.
+  if (issue === 'sync-failed') data.mixdogRemoteSync = 'failed';
   data.mixdogRemoteError = [
     data.mixdogRemotePhase || 'approval',
     issue,
@@ -168,6 +171,7 @@ export function setRemoteConnectionState(state: RemoteConnectionState): void {
   if (currentRemoteConnectionState() === state) return;
   markRemoteConnectionTimeline(`state=${state}`);
   document.documentElement.dataset.mixdogRemoteConnection = state;
+  delete document.documentElement.dataset.mixdogRemoteSync;
   if (state === 'connected') delete document.documentElement.dataset.mixdogRemoteDesktop;
   if (state === 'connected' && document.documentElement.dataset.mixdogRemotePhase) {
     document.documentElement.dataset.mixdogRemotePhase = 'connected';
@@ -183,7 +187,26 @@ export function clearRemoteConnectionState(): void {
   delete document.documentElement.dataset.mixdogRemotePhase;
   delete document.documentElement.dataset.mixdogRemoteError;
   delete document.documentElement.dataset.mixdogRemoteDesktop;
+  delete document.documentElement.dataset.mixdogRemoteSync;
   window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
+}
+
+/** Why a boot had to go through approval, recorded on the boot timeline:
+ *  no stored credential, no stored E2EE key, or a surface that may not hold one. */
+export function markRemoteApprovalReason(reason: 'no-token' | 'no-key' | 'not-installed'): void {
+  markRemoteConnectionTimeline(`approval=${reason}`);
+}
+
+/** Whether the link to the PC is down — the only thing the calm "Connecting…"
+ *  indicator counts toward. Every redial ('connecting', 'reconnecting') is;
+ *  a view sync on a socket that is up is not — the transcript on screen stays
+ *  readable — until that sync has failed. A cold boot has nothing on screen
+ *  yet, so its sync counts too. */
+export function isRemoteConnectionOutage(boot: boolean): boolean {
+  const state = currentRemoteConnectionState();
+  if (state === 'reconnecting' || state === 'connecting') return true;
+  if (state === 'syncing') return boot || document.documentElement.dataset.mixdogRemoteSync === 'failed';
+  return false;
 }
 
 export function subscribeRemoteConnectionState(listener: () => void): () => void {
@@ -192,31 +215,4 @@ export function subscribeRemoteConnectionState(listener: () => void): () => void
   const target = window;
   target.addEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
   return () => target.removeEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
-}
-
-/** What the disconnect overlay says, in priority order: this device has no
- *  network, the relay said the PC is not connected, the link is up and the
- *  view is being synchronized, or the link itself is being restored. */
-export type RemoteConnectionLabel = 'no-internet' | 'pc-offline' | 'updating' | 'reconnecting';
-
-export function currentRemoteConnectionLabel(): RemoteConnectionLabel {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'no-internet';
-  if (typeof document !== 'undefined' && document.documentElement.dataset.mixdogRemoteDesktop === 'offline') {
-    return 'pc-offline';
-  }
-  return currentRemoteConnectionState() === 'syncing' ? 'updating' : 'reconnecting';
-}
-
-/** Connection state changes plus this device's own network changes. */
-export function subscribeRemoteConnectionLabel(listener: () => void): () => void {
-  if (typeof window === 'undefined') return () => {};
-  const target = window;
-  const unsubscribe = subscribeRemoteConnectionState(listener);
-  target.addEventListener('online', listener);
-  target.addEventListener('offline', listener);
-  return () => {
-    unsubscribe();
-    target.removeEventListener('online', listener);
-    target.removeEventListener('offline', listener);
-  };
 }

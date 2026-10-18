@@ -83,7 +83,7 @@
   background: transparent;
 }
 /* The "…" trigger sits inside the row's right end: shown on hover or focus
-   (the row's label steps aside), and always on touch. */
+   (the row's label steps aside); right-click opens the same menu. */
 .branch-row-shell {
   --branch-row-h: 30px;
   position: relative;
@@ -116,13 +116,13 @@
 .branch-row-shell:is(:hover, :focus-within) > .branch-menu-item > :is(small, .branch-menu-check) {
   margin-right: 28px;
 }
+/* Touch has no hover: a long-press opens the row's menu, so no "…" sits next
+   to the check. */
 @media (hover: none) {
-  .branch-row-shell > .branch-row-more {
-    opacity: 1;
-    pointer-events: auto;
-  }
-  .branch-row-shell > .branch-menu-item {
-    padding-right: 40px;
+  .branch-row-shell:is(:hover, :focus-within) > .branch-row-more,
+  .branch-row-shell > .branch-row-more[aria-expanded="true"] {
+    opacity: 0;
+    pointer-events: none;
   }
   .branch-row-shell:is(:hover, :focus-within) > .branch-menu-item > :is(small, .branch-menu-check) {
     margin-right: 0;
@@ -133,49 +133,9 @@
   background: var(--mx-hover);
   color: var(--mx-text);
 }
-.branch-row-more:focus-visible,
-.branch-row-actions button:focus-visible {
+.branch-row-more:focus-visible {
   outline: 1px solid var(--mx-focus);
   outline-offset: -1px;
-}
-.branch-row-actions {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: 0;
-  padding: 4px 8px 8px 22px;
-  border: 0;
-  border-bottom: var(--mx-popup-border);
-}
-.branch-row-actions button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 30px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  color: var(--mx-text);
-  text-align: left;
-  font: inherit;
-  overflow-wrap: anywhere;
-}
-.branch-row-actions button:hover:not(:disabled) {
-  background: var(--mx-hover);
-}
-.branch-row-actions button:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: not-allowed;
-}
-.branch-row-actions button[data-danger] {
-  color: var(--mx-danger);
-}
-.branch-row-actions p {
-  font-size: var(--mx-font-meta);
-  color: var(--mx-warning);
-  overflow-wrap: anywhere;
-  margin: 6px 0;
 }
 /* Everything but the list keeps its own height: a notice, the search, the
    actions and New branch never squeeze. */
@@ -361,13 +321,6 @@
 .branch-menu-body .branch-menu-item + .branch-menu-item,
 .branch-menu-body .branch-row-shell + .branch-row-shell {
   border-top: var(--mx-hairline) solid var(--composer-island-rule);
-}
-.branch-menu-body .branch-row-actions {
-  margin: 2px 6px 6px 32px;
-  padding: 4px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--composer-island-wash);
 }
 .branch-menu-body .branch-menu-item:hover:not([aria-disabled="true"]),
 .branch-menu-body .branch-menu-item:focus-visible,

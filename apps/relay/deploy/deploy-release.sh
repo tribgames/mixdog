@@ -15,7 +15,7 @@ DATA_DIR=/var/lib/mixdog-relay
 [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]
 [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 [[ -z "$DESKTOP_VERSION" || "$DESKTOP_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$ ]]
-[[ -z "$ANDROID_URL" || "$ANDROID_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases(/tag/mobile-v[0-9]+\.[0-9]+\.[0-9]+)?$ ]]
+[[ -z "$ANDROID_URL" || "$ANDROID_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases$ || "$ANDROID_URL" =~ ^https://github\.com/tribgames/mixdog/releases/download/mobile-v[0-9]+\.[0-9]+\.[0-9]+/[A-Za-z0-9_.-]+\.apk$ ]]
 [[ "$(id -u)" = 0 ]]
 
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"

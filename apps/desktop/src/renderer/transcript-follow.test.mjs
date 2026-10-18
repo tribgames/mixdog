@@ -231,6 +231,82 @@ test('only a chrome-pointer upward move counts as a reader scroll release', () =
     }),
     false
   );
+  // A native upward move under a finger is the touch, even before its
+  // touchmove reaches the main thread; the timeline's own write never is.
+  assert.equal(
+    readerScrollShouldReleaseFollow({ programmatic: false, chromePointer: false, fingerOnGlass: true, upwardMove: 30 }),
+    true
+  );
+  assert.equal(
+    readerScrollShouldReleaseFollow({ programmatic: true, chromePointer: false, fingerOnGlass: true, upwardMove: 30 }),
+    false
+  );
+});
+
+// Phone: the compositor scrolls from the first move past the slop while the
+// main thread is still inside a streaming frame. The end pin that frame
+// requested must not write the old bottom back under the finger before the
+// touchmove is handled; a tap that never scrolls still re-pins on lift.
+test('a finger on the glass holds the end pin off and its upward scroll releases follow', async () => {
+  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }] = await Promise.all([
+    import('react'),
+    import('react-dom/client'),
+    import('./use-transcript-follow.ts'),
+  ]);
+  const { restore } = installTestDom(null, {
+    html: "<div id='root'></div>",
+    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
+    expose: ['Element'],
+  });
+  const realNow = Date.now;
+  let now = 100_000;
+  Date.now = () => now;
+  const root = createRoot(document.getElementById('root'));
+  let follow = null;
+  function Harness() {
+    const viewport = React.useRef(null);
+    const content = React.useRef(null);
+    follow = useTranscriptFollow({ viewport, content, sessionKey: 'finger-down' });
+    return React.createElement(
+      'div',
+      { ref: viewport },
+      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
+    );
+  }
+  let native = 2000;
+  try {
+    await React.act(async () => root.render(React.createElement(Harness)));
+    const row = document.getElementById('row');
+    const viewport = row.parentElement.parentElement;
+    Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => native, set: () => {} });
+    const release = registerTranscriptScrollGeometry(viewport, {
+      viewportHeight: () => 400,
+      contentHeight: () => 2400,
+      scrollTop: () => native,
+      deviation: () => 0,
+    });
+    await React.act(async () => follow.handleScroll());
+    now += 1_000;
+    assert.equal(follow.followingRef.current, true, 'the reader starts at the tail');
+    assert.equal(follow.hasScrollGesture(), false, 'no reader owns the idle tail');
+    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    // A tap: the finger holds the pin off while it rests, and lets go on lift.
+    follow.handleTouchStart(touch(100));
+    assert.equal(follow.hasScrollGesture(), true, 'a resting finger holds the end pin off');
+    assert.equal(follow.followingRef.current, true, 'resting is not a leave');
+    follow.handleTouchEnd();
+    assert.equal(follow.hasScrollGesture(), false, 'a tap that never scrolled hands the tail back');
+    // A drag the compositor moved before its touchmove reached the page.
+    follow.handleTouchStart(touch(100));
+    native = 1960;
+    await React.act(async () => follow.handleScroll());
+    assert.equal(follow.followingRef.current, false, 'the upward move under the finger releases follow');
+    release();
+  } finally {
+    Date.now = realNow;
+    await React.act(async () => root.unmount());
+    restore();
+  }
 });
 
 test('growth follows the tail only when the viewport was at the bottom before it', () => {

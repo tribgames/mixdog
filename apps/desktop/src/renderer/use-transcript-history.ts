@@ -6,8 +6,24 @@ import {
 } from './transcript-history';
 import { transcriptScrollExtent, transcriptScrollGeometryRegistered } from './use-transcript-follow';
 
-/** Distance from the top of the transcript at which older history loads. */
+/** Distance from the top within which an unfilled transcript asks for older
+ *  history (see useTranscriptHistoryFill), and the floor of the scroll lead. */
 export const TRANSCRIPT_HISTORY_TOP_PX = 320;
+
+/** Viewport heights above the reader at which a scroll asks for older history.
+ *  Asked for only 320px from the top, a fast fling crossed that band in a few
+ *  frames and ended against the top edge before the page arrived: the
+ *  momentum died, then the page landed (#104, Android: 위로 빠르게 넘기면
+ *  버벅거림). Repeated flings are boosted past 15k px/s, so the lead has to
+ *  cover a page's round trip at that speed. The landing's anchor restore keeps
+ *  the reader in place wherever the page lands, so asking early costs nothing
+ *  but the (bounded) pages themselves. */
+export const TRANSCRIPT_HISTORY_LEAD_VIEWPORTS = 10;
+
+/** Scroll offset at or below which older history is requested. */
+export function transcriptHistoryLead(viewportHeight: number): number {
+  return Math.max(TRANSCRIPT_HISTORY_TOP_PX, viewportHeight * TRANSCRIPT_HISTORY_LEAD_VIEWPORTS);
+}
 
 /** A first window may hold only a few rows (the daemon's byte budget cuts a
  *  window of huge rows to 8), and collapsed rows may not fill the pane: with

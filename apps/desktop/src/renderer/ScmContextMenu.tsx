@@ -51,6 +51,10 @@ export interface ScmContextMenuState {
   heading?: string;
   x: number;
   y: number;
+  /** Right-align the menu to x (a menu anchored under a trailing button). */
+  alignEnd?: boolean;
+  /** Edge the menu flips above when it would overflow below (defaults to y). */
+  flipY?: number;
   items: ScmContextMenuItem[];
 }
 
@@ -90,13 +94,20 @@ export function contextMenuRowProps(open: (point: { x: number; y: number }) => v
 /** Clamped against the window, exactly like the dock's other overlays: the
  *  dock hugs the window edge, so a menu opened at the pointer would otherwise
  *  run off-screen (anchored-panel.ts keeps the same rule for the panels). */
-function menuPosition(surface: HTMLElement | null, x: number, y: number): React.CSSProperties {
+function menuPosition(
+  surface: HTMLElement | null,
+  x: number,
+  y: number,
+  alignEnd = false,
+  flipY = y
+): React.CSSProperties {
   const width = surface?.offsetWidth || 0;
   const height = surface?.scrollHeight || surface?.offsetHeight || 0;
   const viewportWidth = window.innerWidth || 0;
   const viewportHeight = window.innerHeight || 0;
-  const left = width && viewportWidth ? Math.max(8, Math.min(x, viewportWidth - width - 8)) : x;
-  const top = height && viewportHeight && y + height > viewportHeight - 8 ? Math.max(8, y - height) : y;
+  const start = alignEnd ? x - width : x;
+  const left = width && viewportWidth ? Math.max(8, Math.min(start, viewportWidth - width - 8)) : start;
+  const top = height && viewportHeight && y + height > viewportHeight - 8 ? Math.max(8, flipY - height) : y;
   return {
     position: 'fixed',
     left,
@@ -188,8 +199,8 @@ export function ScmContextMenu({
   // biome-ignore lint/correctness/useExhaustiveDependencies: submenuId changes the measured panel size
   useLayoutEffect(() => {
     if (!open) return;
-    setStyle(menuPosition(panel.current, x, y));
-  }, [open, x, y, submenuId]);
+    setStyle(menuPosition(panel.current, x, y, state?.alignEnd, state?.flipY));
+  }, [open, x, y, submenuId, state]);
 
   useEffect(() => {
     if (!open) return undefined;

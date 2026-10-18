@@ -14,6 +14,7 @@ import {
 } from './AgentActivityPane.tsx';
 import { createDesktopCancellationLedger, desktopAgentActivityState } from '../shared/agent-activity.ts';
 import { backgroundJobRows } from './background-jobs-model.ts';
+import { agentElapsedText } from './agent-row-meta.ts';
 import {
   formatGoalDuration,
   goalCompletedTimeLabel,
@@ -38,6 +39,21 @@ function installDom() {
   };
 }
 
+test('a running row whose start stamp is ahead of the clock reads 0s and never wraps to a day', () => {
+  const clock = Date.UTC(2026, 9, 18, 12, 0, 0);
+  for (const ahead of [1, 500, 1_500, 60_000, 86_399_500, 86_400_000]) {
+    const future = clock + ahead;
+    for (const stamp of [future, new Date(future).toISOString(), String(future)]) {
+      assert.equal(agentElapsedText('running', { turnStartedAt: stamp, startedAt: 0 }, clock), '0s');
+      assert.equal(agentElapsedText('running', { turnStartedAt: 0, startedAt: stamp }, clock), '0s');
+    }
+  }
+  assert.equal(agentElapsedText('running', { turnStartedAt: clock - 1_500, startedAt: 0 }, clock), '1s');
+  assert.equal(agentElapsedText('running', { turnStartedAt: 0, startedAt: 0 }, clock), '0s');
+  // Idle rows still carry no duration.
+  assert.equal(agentElapsedText('idle', { turnStartedAt: clock + 500, startedAt: 0 }, clock), 'Idle');
+});
+
 test('missing liveness is unknown, and execution capacity waits are queued', () => {
   assert.equal(desktopAgentActivityState({ status: 'unknown', stage: 'unknown' }), 'unknown');
   assert.equal(desktopAgentActivityState({ status: 'running', stage: 'resource_wait' }), 'queued');
@@ -58,8 +74,9 @@ test('a working agent keeps its lifecycle while the runtime phase reads idle, do
   assert.equal(desktopAgentActivityState({ stage: 'idle' }), 'idle');
 });
 
-test('a completed pool row reads done, a cancel or failure outranks it, and new work reads working', () => {
-  assert.equal(desktopAgentActivityState({ status: 'completed', stage: 'completed' }), 'done');
+test('a completed pool row reads done until seen, a cancel or failure outranks it, and new work reads working', () => {
+  assert.equal(desktopAgentActivityState({ status: 'completed', stage: 'completed' }, { unread: true }), 'done');
+  assert.equal(desktopAgentActivityState({ status: 'completed', stage: 'completed' }), 'idle');
   assert.equal(
     desktopAgentActivityState({ status: 'completed', stage: 'completed' }, { waitingForTasks: true }),
     'waiting'

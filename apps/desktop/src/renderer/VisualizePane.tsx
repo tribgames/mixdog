@@ -8,8 +8,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type { DesktopApi, DesktopDocumentPreviewPages } from '../shared/contract';
 import { type VisualizePaneSource, type VisualizePaneView, visualizeProblemLocation } from '../shared/visualize';
 import { withVisualizeFeedbackScript } from '../shared/visualize-feedback';
-import { visualizePaneMarks, withVisualizeOutlines, withVisualizeOverlay } from '../shared/visualize-annotations';
-import { remotePageGate } from '../shared/visualize-scripts';
+import { visualizePaneMarks, withVisualizeOverlay } from '../shared/visualize-annotations';
 import { t } from './i18n';
 import { visualizeCommentKind } from '../shared/visualize-comment-kinds';
 import { announceVisualizeCommentMode, useVisualizeFeedbackBridge, VisualizeCommentLayer } from './VisualizeFeedback';
@@ -20,7 +19,7 @@ import { loadSandboxedPage } from './sandboxed-page-preview';
 import { servePageFetches, withPageFetchBridge } from './page-fetch-bridge';
 import { serveFrameZoom, withFrameZoomBridge } from './visualize-frame-zoom';
 import { useMediaSessionEpoch } from './remote-file-preview';
-import { useVisualizeRunPages, visualizeRunPagesAction } from './visualize-run-pref';
+import { serveBlockedNetwork, withBlockedNetwork, withBlockedNetworkReporter } from './visualize-blocked-network';
 import { DockHeaderRow } from './pane-dock-chrome';
 import { InlinePaneContent } from './VisualizeInline';
 import { useVisualizePanelExtras } from './VisualizePanelExtras';
@@ -30,11 +29,10 @@ import { remoteInlinePageSource } from './visualize-inline-remote';
 import {
   activateVisualizeTab,
   allowVisualizeReveal,
-  allowVisualizeScripts,
   closeVisualizeTab,
-  useVisualizeScriptsAllowed,
   markVisualizePanelHidden,
   markVisualizePanelShown,
+  reportVisualizeBlockedNetwork,
   reportVisualizeRender,
   useVisualizeState,
   visualizeHeaderActions,
@@ -186,7 +184,7 @@ function RemotePaneContent({
   tabId,
   index,
   load,
-  commenting,
+  networkAllowed,
   marks,
 }: {
   pane: VisualizePaneView;
@@ -194,8 +192,8 @@ function RemotePaneContent({
   tabId: string;
   index: number;
   load: NonNullable<DesktopApi['visualizePaneSource']>;
-  /** Comment mode is on: a page that is not running yet offers Run. */
-  commenting: boolean;
+  /** The desktop user allowed outside network for this tab's pages. */
+  networkAllowed: boolean;
   /** This pane's annotation marks. */
   marks: Array<{ selector: string; label: string }>;
 }) {
@@ -243,34 +241,39 @@ function RemotePaneContent({
   }, [load, sessionId, tabId, index, asPages, mediaEpoch]);
   const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
   const srcdoc = source?.srcdoc;
-  // A page the agent wrote first renders without scripts; only the user's tap
-  // on "Run" (remembered for this tab on this device) lets them execute -
-  // unless this device runs agent pages immediately (its own setting).
-  const runAllowed = useVisualizeScriptsAllowed(sessionId, tabId);
-  const runPages = useVisualizeRunPages();
-  const gate = srcdoc !== undefined ? remotePageGate(srcdoc, runAllowed || runPages, commenting) : null;
-  const gated = gate !== null && !gate.runScripts;
   // Marks change with the tab state; the page reloads to show the new set.
   const marksKey = JSON.stringify(marks);
+  // Pages run at once, as on the desktop, and under the desktop's network
+  // policy: outside network stays blocked until the desktop user allows it for
+  // the tab (`networkAllowed`, carried in the tab state; a change reloads).
   // The feedback page script (Comment pins, `data-choice` picks) and the
   // annotation overlay ride inside the page: nothing on this client can reach
   // into the opaque frame. The page bridge answers the page's own fetch/XHR
   // of its project files.
   // biome-ignore lint/correctness/useExhaustiveDependencies: marksKey stands for marks
   useEffect(() => {
-    if (!frame || srcdoc === undefined || gated) return undefined;
+    if (!frame || srcdoc === undefined) return undefined;
     const fetcher = source?.fetch;
     let page = withVisualizeOverlay(withVisualizeFeedbackScript(srcdoc), marks);
     if (fetcher && source?.page !== undefined) page = withPageFetchBridge(page, source.page);
-    const unload = loadSandboxedPage(frame, withFrameZoomBridge(page));
+    page = withFrameZoomBridge(page);
+    const unload = loadSandboxedPage(
+      frame,
+      networkAllowed ? withBlockedNetworkReporter(page) : withBlockedNetwork(page)
+    );
     const unserve = fetcher ? servePageFetches(frame, fetcher) : undefined;
     const unzoom = serveFrameZoom(frame);
+    // Reporting stays on either way: the frame's own CSP refuses some requests even when the tab allows network.
+    const unblocked = serveBlockedNetwork(frame, (url, resource) =>
+      reportVisualizeBlockedNetwork(sessionId, tabId, index, url, resource)
+    );
     return () => {
       unload();
       unserve?.();
       unzoom();
+      unblocked();
     };
-  }, [frame, srcdoc, gated, source, marksKey]);
+  }, [frame, srcdoc, source, marksKey, networkAllowed, sessionId, tabId, index]);
   if (asPages) return <RemoteDocumentPages label={pane.label} read={pages} onFail={pagesUnavailable} />;
   if (error && pane.inline) {
     // The interactive page could not be built here: the static render stands in.
@@ -285,43 +288,12 @@ function RemotePaneContent({
   }
   if (error) return <div className="visualize-empty">{error}</div>;
   if (!source) return <div className="visualize-empty">{t('Loading…')}</div>;
-  if (srcdoc !== undefined && gate) {
-    if (gated) {
-      // Fails closed: no `allow-scripts` at all (and no meta refresh to
-      // follow) until the user taps Run, whatever detection found; markup
-      // and styles only, in an opaque origin.
-      return (
-        <div className="visualize-script-pane">
-          {gate.prompt ? (
-            <div className="visualize-script-gate" role="status">
-              <span>
-                {gate.prompt === 'comments' ? t('Comments need this page to run.') : t('This page runs scripts.')}
-              </span>
-              <button type="button" onClick={(event) => allowVisualizeScripts(sessionId, tabId, event.nativeEvent)}>
-                {t('Run')}
-              </button>
-            </div>
-          ) : null}
-          {pane.inline?.kind === 'chart' ? (
-            // A chart page is blank without its script: the static render
-            // (drawn here, no script in the frame) stands in until Run.
-            <InlinePaneContent pane={{ ...pane, kind: 'inline' }} />
-          ) : (
-            <iframe
-              key="static"
-              title={pane.label}
-              sandbox=""
-              srcDoc={withVisualizeOutlines(gate.srcdoc, marks)}
-              referrerPolicy="no-referrer"
-            />
-          )}
-        </div>
-      );
-    }
+  if (srcdoc !== undefined) {
     // Scripts run in an opaque origin: no access to this app, its storage or
-    // its relay socket; outside https loads as on the desktop (the relay
-    // frame's CSP). Forms (their submit handlers; the CSP still refuses any
-    // form navigation) and alert/confirm work as on the desktop.
+    // its relay socket, and no outside network unless the tab allowed it (the
+    // desktop's policy, as a CSP in the page). Forms (their submit handlers;
+    // the CSP still refuses any form navigation) and alert/confirm work as on
+    // the desktop.
     return (
       <iframe
         key="live"
@@ -509,9 +481,6 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
 
   // "All visuals", the source toggle and the export menu.
   const extras = useVisualizePanelExtras(sessionId, state, tab, Boolean(remoteSource));
-  // A paired device's own choice to run agent pages without the Run tap.
-  useVisualizeRunPages();
-  const runPagesAction = remoteSource ? [visualizeRunPagesAction()] : [];
 
   const left = state.tabs.length ? (
     <div ref={strip} className="visualize-tabs" role="tablist" aria-label={t('Visualize')}>
@@ -570,7 +539,6 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
           ...elementsAction,
           ...tweaksAction,
           ...commentAction,
-          ...runPagesAction,
           zoomBarAction(),
         ])}
         onClose={onClose}
@@ -636,7 +604,7 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
                   tabId={tab.id}
                   index={index}
                   load={remoteSource}
-                  commenting={comment && commentable}
+                  networkAllowed={tab.networkAllowed === true}
                   marks={visualizePaneMarks(tab.annotations, index)}
                 />
               );

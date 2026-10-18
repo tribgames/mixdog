@@ -1,6 +1,6 @@
 import { GitCommitHorizontal, GitPullRequest, SlidersHorizontal, Upload } from 'lucide-react';
 import { parseIslandGitRequestText } from './island-git-request';
-import { Suspense, createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, createContext, memo, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { submissionIdentity } from './transcript-rows';
 import {
   fitImageThumbnail,
@@ -30,6 +30,7 @@ import {
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
+import { streamFadeTimeline } from './markdown-stream-fade';
 import { preloadSyncMarkdownParser } from './markdown-worker-client';
 import { imagePreviewCache, imagePreviewKey } from './transcript-metrics';
 import { CopyControl } from './transcript-primitives';
@@ -54,9 +55,23 @@ const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: st
   return <MarkdownBody text={text} copyControl={CopyControl} />;
 });
 
-const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { text: string; streaming: boolean }) {
+const MarkdownResponse = memo(function MarkdownResponse({
+  text,
+  streaming,
+  fadeKey,
+}: {
+  text: string;
+  streaming: boolean;
+  /** Row identity of the reply's word-fade timeline (markdown-stream-fade). */
+  fadeKey: string;
+}) {
   const markdownCache = useRef(createStreamingMarkdownCache());
   const workerPipeline = useRef(streaming);
+  const instanceKey = useId();
+  // Every chunk, frozen ones included, fades on the reply's one timeline: a
+  // paragraph that froze mid-fade keeps animating, the next block's first
+  // words fade too, and a settled reply's last words finish their fade.
+  const fadeTimeline = streamFadeTimeline(fadeKey || instanceKey, streaming);
   useLayoutEffect(() => {
     if (streaming) noteStreamCommit(text.length);
   }, [streaming, text]);
@@ -70,7 +85,13 @@ const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { t
   const renderedChunks = markdownParts.stableChunks.map((chunk, index) => (
     <Suspense fallback={<span hidden data-transcript-pending />} key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current ? (
-        <StreamingMarkdownBody text={chunk} sync copyControl={CopyControl} />
+        <StreamingMarkdownBody
+          text={chunk}
+          sync
+          fadeTimeline={fadeTimeline}
+          fadeChunk={markdownParts.stableChunkKeys[index]}
+          copyControl={CopyControl}
+        />
       ) : (
         <StableMarkdownBody text={chunk} />
       )}
@@ -88,6 +109,8 @@ const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { t
             parseText={unstableParseText}
             parse={markdownParts.parseUnstable}
             sync
+            fadeTimeline={fadeTimeline}
+            fadeChunk={markdownParts.unstableKey}
             copyControl={CopyControl}
           />
         ) : (
@@ -687,7 +710,7 @@ export const TranscriptRow = memo(
               {!user && (
                 // Only a settled reply's links can be downloaded by its row id.
                 <MarkdownTranscriptItemContext.Provider value={streaming ? '' : String(item.id ?? '')}>
-                  <MarkdownResponse text={paced.text} streaming={streaming} />
+                  <MarkdownResponse text={paced.text} streaming={streaming} fadeKey={paceKey} />
                 </MarkdownTranscriptItemContext.Provider>
               )}
             </div>

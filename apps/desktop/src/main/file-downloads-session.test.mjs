@@ -378,3 +378,22 @@ test('an outside-project HTML page opens through a session-scoped preview grant,
   await assert.rejects(methods.localPageUrl([outside, 'secret.txt', 'forged']));
   assert.ok(createLinkProvenance);
 });
+
+test('a path that never answers fails alone after its deadline, leaving no hung call', async (t) => {
+  const { host, outside, base } = fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const methods = createRemoteMethods({
+    host: {
+      ...host,
+      listProjects: async () => [{ path: join(base, 'project'), name: 'project' }],
+      invokeDesktopOperation: () => new Promise(() => {}),
+    },
+    hostRequest: async () => null,
+    viewedSessionIds: () => ['s1'],
+  });
+  const pending = methods.resolveLocalPaths([[join(outside, 'page.html')], 's1']);
+  const settled = assert.rejects(pending, /Timed out|not linked|link/i);
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(15_000);
+  await settled;
+});

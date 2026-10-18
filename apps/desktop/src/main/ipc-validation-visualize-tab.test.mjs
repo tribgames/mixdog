@@ -12,16 +12,37 @@ const cmd = (extra) => requiredVisualizeTabCommand({ ...ids, ...extra });
 
 test('visualize export accepts formats and optional pane, rejects the rest', () => {
   assert.deepEqual(cmd({ action: 'export', format: 'png' }), { ...ids, action: 'export', format: 'png' });
-  assert.deepEqual(cmd({ action: 'export', format: 'pdf', pane: 15 }), { ...ids, action: 'export', format: 'pdf', pane: 15 });
+  assert.deepEqual(cmd({ action: 'export', format: 'pdf', pane: 15 }), {
+    ...ids,
+    action: 'export',
+    format: 'pdf',
+    pane: 15,
+  });
   assert.equal(cmd({ action: 'export', format: 'project', pane: 0 }).pane, 0);
-  for (const bad of [{ format: 'gif' }, { format: 'png', pane: 16 }, { format: 'png', pane: -1 }, { format: 'png', pane: 1.5 }, { format: 'png', pane: '1' }, { format: 'png', pane: null }]) {
+  for (const bad of [
+    { format: 'gif' },
+    { format: 'png', pane: 16 },
+    { format: 'png', pane: -1 },
+    { format: 'png', pane: 1.5 },
+    { format: 'png', pane: '1' },
+    { format: 'png', pane: null },
+  ]) {
     assert.throws(() => cmd({ action: 'export', ...bad }), TypeError);
   }
 });
 
 test('visualize reopen validates targets, content and label', () => {
-  assert.deepEqual(cmd({ action: 'reopen', targets: ['a.html'], label: 'L' }), { ...ids, action: 'reopen', targets: ['a.html'], label: 'L' });
-  assert.deepEqual(cmd({ action: 'reopen', targets: ['a', 'b', 'c'], label: '' }), { ...ids, action: 'reopen', targets: ['a', 'b', 'c'] });
+  assert.deepEqual(cmd({ action: 'reopen', targets: ['a.html'], label: 'L' }), {
+    ...ids,
+    action: 'reopen',
+    targets: ['a.html'],
+    label: 'L',
+  });
+  assert.deepEqual(cmd({ action: 'reopen', targets: ['a', 'b', 'c'], label: '' }), {
+    ...ids,
+    action: 'reopen',
+    targets: ['a', 'b', 'c'],
+  });
   for (const bad of [
     { targets: [] },
     { targets: ['a', 'b', 'c', 'd'] },
@@ -38,7 +59,10 @@ test('visualize reopen validates targets, content and label', () => {
   const content = { kind: 'html', source: '<p>x</p>', title: 'T' };
   const ok = cmd({ action: 'reopen', content, label: 'L' });
   assert.deepEqual(ok, { ...ids, action: 'reopen', targets: [], content, label: 'L' });
-  assert.deepEqual(cmd({ action: 'reopen', content: { kind: 'html', source: '', title: '' } }).content, { kind: 'html', source: '' });
+  assert.deepEqual(cmd({ action: 'reopen', content: { kind: 'html', source: '', title: '' } }).content, {
+    kind: 'html',
+    source: '',
+  });
   for (const bad of [
     { kind: 'nope', source: 's' },
     { kind: 'html', source: 5 },
@@ -53,21 +77,62 @@ test('visualize reopen validates targets, content and label', () => {
 
 test('visualize version, render and restore validation', () => {
   assert.deepEqual(cmd({ action: 'version', version: null }), { ...ids, action: 'version', version: null });
-  assert.deepEqual(cmd({ action: 'version', version: 3, compare: true }), { ...ids, action: 'version', version: 3, compare: true });
+  assert.deepEqual(cmd({ action: 'version', version: 3, compare: true }), {
+    ...ids,
+    action: 'version',
+    version: 3,
+    compare: true,
+  });
   assert.deepEqual(cmd({ action: 'version', version: 3, compare: false }), { ...ids, action: 'version', version: 3 });
-  for (const bad of [{ version: 0 }, { version: 1.5 }, { version: '1' }, { version: 1_000_000_001 }, { version: 1, compare: 'y' }]) {
+  for (const bad of [
+    { version: 0 },
+    { version: 1.5 },
+    { version: '1' },
+    { version: 1_000_000_001 },
+    { version: 1, compare: 'y' },
+  ]) {
     assert.throws(() => cmd({ action: 'version', ...bad }), TypeError);
   }
-  assert.deepEqual(cmd({ action: 'render', pane: 2, renderId: 'r' }), { ...ids, action: 'render', pane: 2, renderId: 'r' });
+  assert.deepEqual(cmd({ action: 'render', pane: 2, renderId: 'r' }), {
+    ...ids,
+    action: 'render',
+    pane: 2,
+    renderId: 'r',
+  });
   assert.equal(cmd({ action: 'render', pane: 2, renderId: 'r', error: 'e'.repeat(5000) }).error.length, 4000);
   assert.equal('error' in cmd({ action: 'render', pane: 2, renderId: 'r', error: '' }), false);
-  for (const bad of [{ pane: 16, renderId: 'r' }, { pane: 'a', renderId: 'r' }, { pane: 1 }, { pane: 1, renderId: 'r'.repeat(129) }, { pane: 1, renderId: 'r', error: 7 }]) {
+  for (const bad of [
+    { pane: 16, renderId: 'r' },
+    { pane: 'a', renderId: 'r' },
+    { pane: 1 },
+    { pane: 1, renderId: 'r'.repeat(129) },
+    { pane: 1, renderId: 'r', error: 7 },
+  ]) {
     assert.throws(() => cmd({ action: 'render', ...bad }), TypeError);
   }
-  assert.deepEqual(cmd({ action: 'restore', version: 2, assets: ['a'] }), { ...ids, action: 'restore', version: 2, assets: ['a'] });
+  assert.deepEqual(cmd({ action: 'restore', version: 2, assets: ['a'] }), {
+    ...ids,
+    action: 'restore',
+    version: 2,
+    assets: ['a'],
+  });
   assert.deepEqual(cmd({ action: 'restore', version: 2, assets: [] }), { ...ids, action: 'restore', version: 2 });
-  for (const bad of [{ version: 2, assets: 'a' }, { version: 2, assets: [''] }, { version: 2, assets: [1] }, { version: 2, assets: Array(65).fill('a') }, {}]) {
+  for (const bad of [
+    { version: 2, assets: 'a' },
+    { version: 2, assets: [''] },
+    { version: 2, assets: [1] },
+    { version: 2, assets: Array(65).fill('a') },
+    {},
+  ]) {
     assert.throws(() => cmd({ action: 'restore', ...bad }), TypeError);
+  }
+});
+
+test('visualize blocked-network report from a remote page frame', () => {
+  const report = { action: 'blocked', pane: 1, url: 'https://cdn.example/a.js', resource: 'script' };
+  assert.deepEqual(cmd({ ...report, extra: 1 }), { ...ids, ...report });
+  for (const bad of [{ pane: 16 }, { url: '' }, { url: 'x'.repeat(2049) }, { resource: 'a b' }, { resource: 7 }]) {
+    assert.throws(() => cmd({ ...report, ...bad }), TypeError);
   }
 });
 

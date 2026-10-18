@@ -5,6 +5,7 @@
  */
 import type { WebContents, WebFrameMain } from 'electron';
 
+import { OUTSIDE_NETWORK_URL_PATTERNS } from '../../shared/visualize-network-policy';
 import type { RequesterFrame, VisualizeService } from './service';
 
 type PageProblemSink = Pick<
@@ -81,7 +82,7 @@ function watchRequests(
   service: Pick<PageProblemSink, 'guardRequest' | 'reportAssetFailure'>
 ): void {
   const requests = contents.session.webRequest;
-  requests.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (details, callback) => {
+  requests.onBeforeRequest({ urls: OUTSIDE_NETWORK_URL_PATTERNS }, (details, callback) => {
     callback({
       cancel: service.guardRequest(requesterOrigins(contents.id, details), {
         url: details.url,

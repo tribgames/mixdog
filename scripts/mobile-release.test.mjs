@@ -140,7 +140,7 @@ test('the relay links the newest release whose APK downloads, else the releases 
   console.warn = () => {};
   try {
     assert.deepEqual(await resolveAndroidLink({ ...options, ...fakeGitHub(releases) }), {
-      url: 'https://github.com/o/r/releases/tag/mobile-v0.1.13',
+      url: 'https://dl/mobile-v0.1.13.apk',
       tag: 'mobile-v0.1.13',
     });
     const missing = fakeGitHub(releases, new Set(['https://dl/mobile-v0.1.13.apk']));

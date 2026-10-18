@@ -122,11 +122,16 @@ test('every transient state keeps reconnecting by itself, with bounded backoff, 
     };
     /** The retry the loop armed on its own: bounded, then fired by the clock. */
     const delays = [];
-    const runArmedRetry = async () => {
+    const runArmedRetry = async ({ fleet = false } = {}) => {
       const id = ctx.reconnectTimer;
       assert.notEqual(id, null, 'a retry is armed without any user input');
       const timer = timers.live.get(id);
-      assert.ok(timer.ms >= 500 && timer.ms <= 10_000, `retry delay ${timer.ms} within bounds`);
+      // The first retry of an outage leaves at once — spread over 1.5 s when
+      // the relay closed a live leg — and every later one is inside the
+      // jittered [500 ms, 10 s] backoff.
+      assert.ok(timer.ms >= 0 && timer.ms <= 10_000, `retry delay ${timer.ms} within bounds`);
+      if (fleet) assert.ok(timer.ms <= 1_500, `first retry ${timer.ms} after a relay close is only spread`);
+      else if (timer.ms !== 0) assert.ok(timer.ms >= 500, `retry delay ${timer.ms} keeps the floor`);
       delays.push(timer.ms);
       const before = attempts();
       timers.live.delete(id);
@@ -155,7 +160,7 @@ test('every transient state keeps reconnecting by itself, with bounded backoff, 
       ws = await runArmedRetry();
     }
     assert.ok(
-      delays.slice(-3).every((delay) => delay === 10_000),
+      delays.slice(-3).every((delay) => delay >= 5_000 && delay <= 10_000),
       `the backoff caps: ${delays}`
     );
 
@@ -185,8 +190,8 @@ test('every transient state keeps reconnecting by itself, with bounded backoff, 
     ws.onmessage({ data: await server.encryptJson({ type: 'e2ee-ready', version: 1 }) });
     await until(() => ctx.connectionReady, 'a ready connection');
     close(ws, 1012);
-    ws = await runArmedRetry();
-    assert.ok(delays.at(-1) <= 1_000, 'a connection that worked resets the backoff');
+    ws = await runArmedRetry({ fleet: true });
+    assert.ok(delays.at(-1) <= 1_500, 'a connection that worked resets the backoff');
 
     // 5. The phone sleeps and its network drops while hidden: nothing dials
     //    in the background, and the network coming back resumes on its own.

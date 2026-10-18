@@ -447,6 +447,23 @@ html[data-window-material="mica"] .jump-to-latest {
 .markdown.streaming :is(h1, h2, h3, h4, h5, h6):empty {
   display: none;
 }
+/* Words of a streamed reply (markdown-stream-fade.ts). The wrappers are plain
+   inline elements and only opacity animates, so the fade costs no layout.
+   The duration is STREAM_FADE_DURATION_MS; each word's staggered delay is set
+   inline when its wrapper is created, and `both` holds it hidden until then. */
+[data-stream-fade] {
+  animation: markdown-stream-fade 700ms cubic-bezier(0.37, 0.55, 0.86, 0.88) both;
+}
+@keyframes markdown-stream-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-stream-fade] {
+    animation: none;
+  }
+}
 /* Heading ladder — surveyed chat renderers land near 17/15/13px, 1.65/1.35/
    1.15em, or 3xl→sm: every rung must differ from BODY, not just from the
    rung above — size carries h1-h3, ink carries h4-h6. h4 sits at body size, so

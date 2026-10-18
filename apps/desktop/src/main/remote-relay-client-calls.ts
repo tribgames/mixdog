@@ -1,12 +1,14 @@
 // What an attached phone's decrypted frame asks for, after the E2EE handshake:
 // transport-scoped registrations (lanes, visible sessions, view sync, resync)
 // answered here, and every other call queued into the host's remote methods.
-import { DESKTOP_CAPABILITIES } from '../shared/contract';
+import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import {
   REVIEW_FILE_PATCH_CALLS,
   SIDE_QUESTION_CALLS,
   SIDE_QUESTION_CANCEL_CALL,
+  SLOW_CAPABILITY_READ_CALL,
+  SLOW_READ_CAPABILITIES,
   VOICE_CALLS,
 } from './remote-call-queue';
 import { filterSessionIds, requiredSessionId } from './desktop-state';
@@ -26,6 +28,7 @@ import { isStateResyncFrame } from './state-delta';
 const SLOW_REMOTE_CALL_MS = 2_000;
 
 const KNOWN_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_CAPABILITIES);
+const READ_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_READ_CAPABILITIES);
 
 // Names the capabilities behind a capability call, so the logs say which one
 // ran instead of only "invokeCapability". Only allow-listed names; never args.
@@ -51,6 +54,17 @@ export function remoteCallQueueKey(method: string, statName: string): string {
     statName === SIDE_QUESTION_CANCEL_CALL
   ) {
     return statName;
+  }
+  // Read-only capabilities read like any other read: a quota/usage sweep on
+  // the slow-read lane, the rest overlapping in the general lane. As barriers
+  // they (and everything after them) waited for every in-flight read.
+  if (method === 'invokeCapability' || method === 'readCapabilities') {
+    const capabilities = statName.slice(method.length + 1).split('+');
+    if (capabilities.every((name) => READ_CAPABILITIES.has(name))) {
+      return capabilities.some((name) => SLOW_READ_CAPABILITIES.has(name))
+        ? SLOW_CAPABILITY_READ_CALL
+        : 'readCapabilities';
+    }
   }
   return method;
 }

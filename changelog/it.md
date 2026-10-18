@@ -4,6 +4,33 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+I telefoni ora si connettono più velocemente e senza popup, il desktop non rallenta più quando sono stati eseguiti molti agent e le risposte in streaming appaiono in modo più fluido.
+
+### Modifiche
+
+- Modificate le connessioni dei telefoni per riconnettersi automaticamente senza popup o conti alla rovescia; un piccolo punto appare solo durante un'interruzione prolungata.
+- Modificate le risposte in streaming in modo che appaiano parola per parola con una dissolvenza morbida, senza salti dovuti a Markdown incompleto; i blocchi di codice appaiono con il rispettivo contenuto.
+- Modificato lo stato dell'agent per mostrare Done finché non si apre il risultato, poi Idle.
+- Modificato il menu del ramo per aprirsi da un pulsante `…` o con il clic destro; sui telefoni, premere a lungo su un ramo.
+- Modificate le pagine visualize sui telefoni per aprirsi direttamente senza la richiesta Run, come sul desktop.
+- Regolati il pannello di utilizzo e il riepilogo dell'isola del compositore per mantenere la loro altezza durante il caricamento delle cifre.
+- Modificato il codice QR di installazione per Android per scaricare direttamente l'app.
+
+### Correzioni di bug
+
+- Corretto il problema per cui i messaggi inviati e le risposte non apparivano nella conversazione dopo il riavvio dell'app finché non veniva riaperta (#113, thanks @oh1701).
+- Corretto il blocco del desktop di circa un secondo alla volta in presenza di più di 256 sessioni di agent.
+- Corrette le richieste dei telefoni in attesa dietro a letture lente dell'utilizzo e di Git sul desktop.
+- Corretta la disconnessione dei telefoni quando il desktop era occupato e la prima connessione dopo l'apertura dell'app che richiedeva più di 10 secondi.
+- Corretti i telefoni che rimanevano bloccati su "Allowed. Connecting…" all'infinito o mostravano "Request expired" dopo l'approvazione del PC.
+- Corretto il telefono che richiedeva nuovamente l'approvazione all'avvio dopo la perdita dell'accesso salvato.
+- Corretti i telefoni che sembravano connessi durante il riavvio del PC, con ogni messaggio che andava in timeout.
+- Corretta la disconnessione definitiva dei telefoni associati quando il PC non riusciva a leggere la propria identità di connessione.
+- Corretto il controllo lento di un singolo percorso file che bloccava tutte le altre richieste del telefono.
+- Corretto lo scorrimento verso l'alto nelle conversazioni lunghe che si bloccava durante il caricamento dei messaggi meno recenti (#104).
+- Corretta la conversazione che tornava verso il basso scorrendo verso l'alto sul telefono durante una risposta in streaming.
+- Corrette le icone sovrapposte nelle schede dei file e le notifiche ripetute di errore di download.
+
 ## v1.2.4 - 2026-10-17
 
 Aggiornamento che include il controllo delle sessioni degli agenti e l'assegnazione di modelli di fallback, la preparazione automatica dei worktree, l'ottimizzazione dell'output dell'harness e miglioramenti generali delle prestazioni.

@@ -551,10 +551,13 @@ function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
  *  exactly is left out, never estimated. */
 function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
   const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
-  if (totalTokens === null && cacheHitRate === null && costUsd === null) return null;
+  const empty = totalTokens === null && cacheHitRate === null && costUsd === null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: fieldset default border/padding/margin would change the styling.
     <div className="composer-island-summary" role="group" aria-label={t('Session usage')}>
+      {/* Until the ledger answers (or when it cannot attribute a figure) the
+          footer keeps its one-line height, so the rows above never move. */}
+      {empty ? <span aria-hidden="true">{'\u00a0'}</span> : null}
       {totalTokens !== null && leadTokens !== null && agentTokens !== null ? (
         <span>
           {t('Island: Total tokens')} <b>{statsTokens(totalTokens)}</b>{' '}

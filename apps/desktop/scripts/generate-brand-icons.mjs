@@ -286,8 +286,9 @@ await writeFile(`${buildDir}/icon.icns`, Buffer.concat([icnsHeader, icnsBody]));
 const mobileRoot = fileURLToPath(new URL('../../mobile/', import.meta.url));
 const androidRes = `${mobileRoot}android/app/src/main/res`;
 const publicDir = fileURLToPath(new URL('../src/renderer/public/', import.meta.url));
-// Mark diameter is 158 of 256 units; 0.96 keeps it inside the 66dp/108dp safe zone.
-const adaptiveMarkScale = 0.96;
+// The launcher shows the middle 72dp of the 108dp layer, so 72/108 makes the
+// visible icon the same tile-to-mark proportion as the web/PWA icon.
+const adaptiveMarkScale = 72 / 108;
 const androidDensities = [
   ['ldpi', 36, 81],
   ['mdpi', 48, 108],

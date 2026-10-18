@@ -783,7 +783,12 @@ export function MarkdownLink({
   // resolving one can never change the line's text, width or height.
   const mention = automatic && local;
   let label: ReactNode = children;
-  if (mention) {
+  // An icon-button link brings its own glyph; the file icon on top of it
+  // drew two icons over each other in the artifact card corner.
+  const iconButton = String(className || '')
+    .split(/\s+/)
+    .includes('icon-button');
+  if (mention || iconButton) {
     label = children;
   } else if (pathLike) {
     label = (

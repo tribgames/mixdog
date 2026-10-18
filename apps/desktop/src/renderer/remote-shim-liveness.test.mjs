@@ -60,26 +60,46 @@ test('reconnect delays are jittered inside [step, next step] and keep the 500ms 
     delays.push(ms);
     return 1;
   };
-  const draw = (random) => {
+  const draw = (random, fleet = false) => {
     Math.random = () => random;
     ctx.reconnectTimer = null;
-    ctx.scheduleReconnect();
+    ctx.scheduleReconnect(fleet);
     return delays.at(-1);
   };
   try {
-    // First step: anywhere in [500, 1000], never the bare 500 every phone shares.
+    // The first retry of an outage — a resume, a dead socket — leaves at
+    // once; the next starts the backoff.
+    ctx.retryMs = 0;
+    assert.equal(draw(1), 0);
+    assert.equal(ctx.retryMs, 500);
+    // A live leg the relay closed: every phone retries in this same instant,
+    // so that first retry is spread over [0, 1.5 s].
+    ctx.retryMs = 0;
+    assert.equal(draw(0, true), 0);
+    ctx.retryMs = 0;
+    assert.equal(draw(1, true), 1_500);
+    ctx.retryMs = 0;
+    assert.equal(draw(0.5, true), 750);
+    assert.equal(ctx.retryMs, 500);
+    // Then anywhere in [500, 1000], never the bare 500 every phone shares.
     assert.equal(draw(0), 500);
     ctx.retryMs = 500;
     assert.equal(draw(1), 1000);
     ctx.retryMs = 500;
     assert.equal(draw(0.5), 750);
     assert.equal(ctx.retryMs, 1000, 'the step still doubles');
-    // Near the cap the range is clamped to it, and at the cap it stays there.
+    // Near the cap the range is clamped to it; at the cap it keeps a real
+    // spread, [5 s, 10 s], so capped retries never line up again.
     ctx.retryMs = 8_000;
     assert.equal(draw(1), 10_000);
     assert.equal(ctx.retryMs, 10_000);
     assert.equal(draw(1), 10_000);
-    assert.equal(draw(0), 10_000);
+    assert.equal(draw(0), 5_000);
+    assert.equal(draw(0.5), 7_500);
+    const capped = new Set();
+    for (let index = 0; index < 20; index++) capped.add(draw(realRandom()));
+    assert.ok(capped.size > 1, 'repeated capped retries are randomised');
+    for (const delay of capped) assert.ok(delay >= 5_000 && delay <= 10_000, `capped delay ${delay}`);
     for (let index = 0; index < 50; index++) {
       // Every step the backoff can reach: 500, 1000, … 8000, then the cap.
       ctx.retryMs = Math.min(10_000, 500 * 2 ** (index % 6));

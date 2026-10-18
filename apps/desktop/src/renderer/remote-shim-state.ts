@@ -48,6 +48,8 @@ export const DEVICE_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.device;
 export const REMOTE_CREDENTIAL_READY_EVENT = 'mixdog:remote-credential-ready';
 export { REMOTE_CONNECTION_READY_EVENT };
 export const REMOTE_PAIRING_INVALID_EVENT = 'mixdog:remote-pairing-invalid';
+/** The E2EE channel to the PC is up (before any view sync). */
+export const REMOTE_SECURE_CHANNEL_READY_EVENT = 'mixdog:remote-secure-channel-ready';
 export const VISIBLE_SESSIONS_STORAGE_KEY = 'mixdog.remote-visible-sessions';
 const LAST_SESSION_STORAGE_KEY = 'mixdog.desktop-last-session.v1';
 export const MAX_RESTORED_VISIBLE_SESSIONS = 8;
@@ -90,6 +92,8 @@ export interface RemoteShimState {
   requestedViewSyncKey: string | null;
   everConnected: boolean;
   everPaired: boolean;
+  /** This container's id was already in storage when it booted. */
+  browserIdStored: boolean;
   retryMs: number;
   nextId: number;
   secureChannel: RelayE2EEChannel | null;
@@ -167,6 +171,12 @@ export interface RemoteShimState {
   // therefore exists ONLY for a silent socket: a busy session never spends a
   // probe, and never risks the recycle that a lost pong triggers.
   lastTrafficAt: number;
+  // The open leg the page went into the background with (or a wake probed),
+  // until a wake probe proves it again. Its death is the background's cost,
+  // so its redial runs silently instead of raising the disconnect surface.
+  unprovenSocket: WebSocket | null;
+  // The resync a wake asked for, sent once that wake's probe is answered.
+  resyncAfterWakeProbe: boolean;
   backgroundSuspended: boolean;
   resyncOnWake: boolean;
   reconnectTimer: number | null;
@@ -238,7 +248,9 @@ export interface RemoteShimServices {
   wsUrl: () => string;
   ensureClientRegistration: () => Promise<void>;
   showPairingScreen: ReturnType<typeof createRemotePairingScreen>;
-  adoptApproval: (credential: string, material: RelayE2EEPairingMaterial) => boolean;
+  adoptApproval: (credential: string, material: RelayE2EEPairingMaterial) => Promise<boolean>;
+  /** Fill a credential missing from localStorage from its durable copy. */
+  restoreDurablePairing: () => Promise<void>;
   verifyApprovedConnection: () => Promise<void>;
   resetApprovalAndAsk: (message: string) => void;
   // remote-shim-dispatch.ts
@@ -248,8 +260,9 @@ export interface RemoteShimServices {
   handleClearResync: (clear: Record<string, unknown>) => void;
   // remote-shim-liveness.ts
   clearWakePongTimer: () => void;
+  answerWakeProbe: () => void;
   wakeProbe: (event?: Event) => void;
-  scheduleReconnect: () => void;
+  scheduleReconnect: (fleet?: boolean) => void;
   // remote-shim-socket.ts
   connect: () => Promise<WebSocket>;
   // remote-shim-calls.ts
@@ -262,6 +275,11 @@ export interface RemoteShimServices {
     method: 'listSessions' | 'listAgentPool'
   ) => Promise<T[]>;
   fire: (method: string, params: unknown[]) => void;
+  /** The PC answered call `id` (or named it in a refusal): its transport
+   *  credit returns, whether or not the caller is still waiting. */
+  settleCallCredit: (id: number) => void;
+  /** The PC leg behind `ws` is gone: every credit its calls held returns. */
+  retireCallCredits: (ws: WebSocket) => void;
 }
 
 export type RemoteShimContext = RemoteShimState & RemoteShimCollaborators & RemoteShimServices;
@@ -333,8 +351,11 @@ export const createRemoteShimContext = (): RemoteShimContext => {
   const e2eePairing: RelayE2EEPairingMaterial | null =
     e2eePublicKey && e2eeSecret ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret } : null;
   let browserId = '';
+  let browserIdStored = false;
   try {
-    browserId = localStorage.getItem(keys.browserId) || newBrowserId();
+    const storedBrowserId = localStorage.getItem(keys.browserId) || '';
+    browserIdStored = Boolean(storedBrowserId);
+    browserId = storedBrowserId || newBrowserId();
     localStorage.setItem(keys.browserId, browserId);
   } catch {
     browserId = newBrowserId();
@@ -374,7 +395,8 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     requestedViewSyncKey: null,
     everConnected: false,
     everPaired,
-    retryMs: 500,
+    browserIdStored,
+    retryMs: 0,
     nextId: 1,
     secureChannel: null,
     connectionReady: false,
@@ -405,6 +427,8 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     awaitingPong: false,
     wakePongTimer: null,
     lastTrafficAt: 0,
+    unprovenSocket: null,
+    resyncAfterWakeProbe: false,
     backgroundSuspended: hidden,
     resyncOnWake: hidden,
     reconnectTimer: null,

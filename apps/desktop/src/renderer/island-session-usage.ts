@@ -61,6 +61,18 @@ function measuredUsage(value: unknown): MeasuredUsage | null {
   };
 }
 
+/** Each session's last answer, so reopening the panel paints its figures at
+ *  once instead of growing when the next read lands. Most recent last. */
+const LAST_USAGE_SESSIONS = 16;
+const lastUsage = new Map<string, unknown>();
+
+function rememberUsage(sessionId: string, value: unknown): void {
+  if (value === null) return;
+  lastUsage.delete(sessionId);
+  lastUsage.set(sessionId, value);
+  if (lastUsage.size > LAST_USAGE_SESSIONS) lastUsage.delete(lastUsage.keys().next().value as string);
+}
+
 /** The agent sessions a usage read can name: real ids, bounded. */
 export function islandUsageSessionIds(sessionIds: readonly string[]): string[] {
   return [...new Set(sessionIds.filter((id) => SESSION_ID.test(id)))].slice(0, MAX_AGENT_SESSION_IDS);
@@ -110,6 +122,7 @@ export function useIslandSessionUsage(
   revision: unknown
 ): unknown {
   const [usage, setUsage] = useState<{ sessionId: string; value: unknown } | null>(null);
+  const known = usage?.sessionId === sessionId ? usage.value : (lastUsage.get(sessionId) ?? null);
   const lastRead = useRef({ at: 0, ids: '' });
   const ids = islandUsageSessionIds(agentSessionIds);
   const idsKey = ids.join('\n');
@@ -136,6 +149,7 @@ export function useIslandSessionUsage(
           api.invokeCapability({ capability: 'getSessionUsage', args: [{ sessionIds: ids }], sessionId })
         ).then(
           (result) => {
+            rememberUsage(sessionId, result?.value ?? null);
             if (mounted.current) setUsage({ sessionId, value: result?.value ?? null });
           },
           () => undefined
@@ -145,5 +159,5 @@ export function useIslandSessionUsage(
     );
     return () => window.clearTimeout(timer);
   }, [open, sessionId, idsKey, revision]);
-  return usage?.sessionId === sessionId ? usage.value : null;
+  return known;
 }

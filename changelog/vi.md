@@ -4,6 +4,33 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Điện thoại giờ đây kết nối nhanh hơn và không có cửa sổ bật lên, ứng dụng trên máy tính không còn bị chậm khi chạy nhiều tác nhân, và câu trả lời phát trực tuyến hiển thị mượt mà hơn.
+
+### Thay đổi
+
+- Đã thay đổi kết nối điện thoại để tự động kết nối lại mà không cần cửa sổ bật lên hay đếm ngược; một dấu chấm nhỏ chỉ xuất hiện khi mất kết nối trong thời gian dài.
+- Đã thay đổi phản hồi phát trực tuyến để xuất hiện từng từ một với hiệu ứng mờ dần mềm mại, không bị nhảy do Markdown chưa hoàn chỉnh; các khối mã xuất hiện cùng nội dung.
+- Đã thay đổi trạng thái tác nhân để hiển thị Done cho đến khi bạn mở kết quả, sau đó là Idle.
+- Đã thay đổi menu nhánh để mở từ nút `…` hoặc nhấp chuột phải; trên điện thoại, nhấn giữ vào một nhánh.
+- Đã thay đổi các trang visualize trên điện thoại để mở trực tiếp mà không cần lời nhắc Run, giống như trên máy tính.
+- Đã điều chỉnh bảng mức sử dụng và phần tóm tắt trên đảo trình soạn thảo để giữ nguyên chiều cao trong khi tải số liệu.
+- Đã thay đổi mã QR cài đặt Android để tải ứng dụng trực tiếp.
+
+### Sửa lỗi
+
+- Đã sửa lỗi tin nhắn đã gửi và câu trả lời không xuất hiện trong cuộc trò chuyện sau khi ứng dụng khởi động lại cho đến khi được mở lại (#113, thanks @oh1701).
+- Đã sửa lỗi ứng dụng trên máy tính tạm dừng khoảng một giây mỗi lần khi có hơn 256 phiên tác nhân tồn tại.
+- Đã sửa lỗi các yêu cầu từ điện thoại phải chờ sau các thao tác đọc Git và mức sử dụng chậm trên máy tính.
+- Đã sửa lỗi điện thoại bị ngắt kết nối khi máy tính đang bận, và kết nối đầu tiên sau khi mở ứng dụng mất hơn 10 giây.
+- Đã sửa lỗi điện thoại mãi ở trạng thái "Allowed. Connecting…" hoặc hiển thị "Request expired" sau khi máy tính đã phê duyệt.
+- Đã sửa lỗi điện thoại yêu cầu phê duyệt lại khi khởi chạy sau khi thông tin đăng nhập đã lưu bị mất.
+- Đã sửa lỗi điện thoại hiển thị như đã kết nối trong khi máy tính đang khởi động lại, khiến mọi tin nhắn đều bị hết thời gian chờ.
+- Đã sửa lỗi điện thoại đã ghép nối bị ngắt kết nối vĩnh viễn khi máy tính không đọc được danh tính kết nối của mình.
+- Đã sửa lỗi một lần kiểm tra đường dẫn tệp chậm làm nghẽn mọi yêu cầu khác từ điện thoại.
+- Đã sửa lỗi cuộn lên trong các cuộc trò chuyện dài bị gián đoạn trong khi tải tin nhắn cũ hơn (#104).
+- Đã sửa lỗi cuộc trò chuyện bị kéo ngược xuống khi cuộn lên trên điện thoại trong lúc câu trả lời đang được truyền.
+- Đã sửa lỗi các biểu tượng bị chồng chéo trên thẻ tệp và thông báo lỗi tải xuống lặp lại.
+
 ## v1.2.4 - 2026-10-17
 
 Bản cập nhật bao gồm kiểm soát phiên tác nhân và gán mô hình dự phòng, tự động chuẩn bị worktree, tối ưu hóa đầu ra harness và cải thiện hiệu năng tổng thể.

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import {
   PACER_DRAIN_MS,
+  PACER_INSTANT_CHARS,
   PACER_MAX_LAG_CHARS,
   PACER_MAX_RATE,
   TranscriptTextPacer,
@@ -75,18 +76,45 @@ test('a burst is revealed over several frames, starting within the first few fra
 });
 
 // The commit that opens a reply row moves the followed transcript by its
-// first line: that line must not stay empty while the slow start near the
-// received end crawls toward the first word (measured: 100-500 ms).
-test("a reply's first whole word paints with its first arrival; the rest is still paced", () => {
+// first line: that line must not stay empty while the reveal crawls toward
+// it, and a preamble before a tool call is read whole, not typed out behind
+// its own arrival (measured: its last 36 of 40 characters waited for the
+// tool card).
+test("a reply's opening paints with its arrival; past it the reveal is paced", () => {
   const pacer = new TranscriptTextPacer('After long reply received', false, 0);
-  assert.equal(pacer.text, 'After');
-  pacer.tick(FRAME);
-  assert.ok(pacer.text.length < 'After long reply'.length, JSON.stringify(pacer.text));
+  assert.equal(pacer.text, 'After long reply', 'every whole word of a short opening');
   const held = new TranscriptTextPacer();
   held.push('Aft', 0);
   assert.equal(held.text, '', 'an unfinished first word still waits');
   held.push('After long', 30);
   assert.equal(held.text, 'After', 'the arrival that completes it paints it');
+  const text = prose(300);
+  const long = new TranscriptTextPacer(text, false, 0);
+  assert.ok(long.text.length > 0 && long.text.length <= PACER_INSTANT_CHARS, JSON.stringify(long.text));
+  long.tick(FRAME);
+  assert.ok(long.shown < text.length - 200, `${long.shown} shown after one frame`);
+});
+
+test('final punctuation paints while streaming; a final word waits', () => {
+  const pacer = new TranscriptTextPacer();
+  pacer.push('Checking the config first.', 0);
+  assert.equal(pacer.text, 'Checking the config first.');
+  pacer.push('Checking the config first. Then', 40);
+  assert.equal(pacer.text, 'Checking the config first.');
+  assert.equal(streamingTextPaints('Done.'), true);
+  assert.equal(streamingTextPaints('Done'), false);
+});
+
+test('a completed opening sentence longer than the instant window paints whole', () => {
+  const sentence = `${'Checking the configuration files carefully '.repeat(2)}before we continue with the change.`;
+  assert.ok(sentence.length > PACER_INSTANT_CHARS);
+  const pacer = new TranscriptTextPacer();
+  pacer.push(`${sentence} Then`, 0);
+  assert.equal(pacer.text, sentence);
+  const open = new TranscriptTextPacer();
+  open.push(sentence.slice(0, -8), 0);
+  assert.ok(open.text.length <= PACER_INSTANT_CHARS + 8);
+  assert.ok(open.text.length < sentence.length - 8);
 });
 
 test('streamingTextPaints matches the words a streaming pacer paints at once', () => {
@@ -132,13 +160,16 @@ test('a first arrival over 600 characters is paced over many frames, never paint
   const pacer = new TranscriptTextPacer();
   const text = prose(1166);
   pacer.push(text, 0);
+  // Only the opening paints with the arrival.
+  const opening = pacer.shown;
+  assert.ok(opening > 0 && opening <= PACER_INSTANT_CHARS, `opening ${opening}`);
   const frames = play(pacer, FRAME, 3000);
   const largest = Math.max(...frames.map((frame) => frame.grew));
   const growing = frames.filter((frame) => frame.grew > 0).length;
   assert.ok(largest < 80, `largest frame ${largest}`);
   assert.ok(growing >= 30, `${growing} growing frames`);
   // The excess over the lag ceiling drains within about 600 ms.
-  const at600 = frames.filter((frame) => frame.now <= 600).reduce((sum, frame) => sum + frame.grew, 0);
+  const at600 = opening + frames.filter((frame) => frame.now <= 600).reduce((sum, frame) => sum + frame.grew, 0);
   assert.ok(text.length - at600 <= PACER_MAX_LAG_CHARS, `behind ${text.length - at600} at 600 ms`);
 });
 
@@ -291,24 +322,28 @@ test('flush reveals everything at once (reduced motion, hidden pane, a later row
 const graphemesOf = (text) => [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].length;
 
 test('rate, lag and reveal budget count graphemes, not UTF-16 units', () => {
-  // 600 graphemes, 3,600 UTF-16 units: within the lag ceiling, so the reveal
-  // stays at the cap instead of draining a 3,600-unit "excess".
+  // A ZWJ family is one grapheme of 11 UTF-16 units, "café" with U+0301 four
+  // graphemes of five units: each reveals exactly like plain text of the same
+  // grapheme count (the opening budget, the lag ceiling and the rate alike).
   const family = '👨‍👩‍👧‍👦';
-  const emoji = new TranscriptTextPacer();
-  const text = `${family} `.repeat(300);
-  emoji.push(text, 0);
-  play(emoji, FRAME, 1000);
-  const shown = graphemesOf(emoji.text);
-  assert.ok(shown <= PACER_MAX_RATE + 20, `${shown} graphemes in the first second`);
-  assert.ok(shown >= 250, `${shown} graphemes in the first second`);
-  // Combining sequences: each "café" (e + U+0301) is four graphemes; 550
-  // graphemes are within the lag ceiling, 660 UTF-16 units would not be.
-  const combining = new TranscriptTextPacer();
-  const cafe = 'cafe\u0301 '.repeat(110);
-  combining.push(cafe, 0);
-  play(combining, FRAME, 1000);
-  assert.ok(graphemesOf(combining.text) <= PACER_MAX_RATE + 20, `${graphemesOf(combining.text)} graphemes`);
-  assert.ok(!combining.text.endsWith('e'), 'never cuts before a combining mark');
+  const reveal = (text, until) => {
+    const pacer = new TranscriptTextPacer();
+    pacer.push(text, 0);
+    play(pacer, FRAME, until);
+    return pacer.text;
+  };
+  for (const until of [FRAME, 200, 500, 900]) {
+    const emoji = graphemesOf(reveal(`${family} `.repeat(300), until));
+    const plain = graphemesOf(reveal('x '.repeat(300), until));
+    assert.ok(emoji > 0 && Math.abs(emoji - plain) <= 2, `${Math.round(until)} ms: ${emoji} vs ${plain}`);
+    const combining = reveal('cafe\u0301 '.repeat(110), until);
+    const ascii = graphemesOf(reveal('cafe '.repeat(110), until));
+    assert.ok(
+      Math.abs(graphemesOf(combining) - ascii) <= 5,
+      `${Math.round(until)} ms: ${graphemesOf(combining)} vs ${ascii}`
+    );
+    assert.ok(!combining.endsWith('e'), 'never cuts before a combining mark');
+  }
 });
 
 test('a whitespace run costs one step, so the lag bound holds', () => {
@@ -338,9 +373,10 @@ test('a rewrite keeps only the last whole word of the still valid prefix', () =>
   pacer.push('hello world ', 0);
   play(pacer, FRAME, 1500);
   assert.equal(pacer.text, 'hello world');
+  // The rewritten word is whole and within the opening, so it shows at once.
   pacer.push('hello wording ', 1500);
-  assert.equal(pacer.text, 'hello');
-  const seen = new Set();
+  assert.equal(pacer.text, 'hello wording');
+  const seen = new Set([pacer.text]);
   pacer.push('hello wording and more ', 1500);
   for (let now = 1500; now < 4000; now += FRAME) {
     pacer.tick(now);
@@ -353,15 +389,14 @@ test('a rewrite keeps only the last whole word of the still valid prefix', () =>
   assert.ok(seen.has('hello wording'), 'the rewritten word reveals whole');
 });
 
-test('completion releases the held final word through the drain', () => {
+test('completion shows the held final word at once', () => {
   const caughtUp = new TranscriptTextPacer();
   caughtUp.push(`${prose(80)} last`, 0);
   play(caughtUp, FRAME, 2000);
   assert.ok(caughtUp.unrevealed, 'the final word is held while streaming');
   caughtUp.settle(2000);
-  assert.ok(caughtUp.pending > 0, 'it joins the drain');
-  play(caughtUp, 2000 + FRAME, 2000 + PACER_DRAIN_MS + FRAME);
-  assert.equal(caughtUp.unrevealed, false);
+  assert.equal(caughtUp.unrevealed, false, 'a short remainder does not wait for the drain');
+  assert.equal(caughtUp.pending, 0);
 });
 
 test('the backlog is capped so a huge burst does not replay', () => {

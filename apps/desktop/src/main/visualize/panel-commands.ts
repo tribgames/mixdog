@@ -50,6 +50,10 @@ export function createPanelCommands(
         ctx.problems.reportInlineRender(command.sessionId, tab, command.pane, command.renderId, command.error);
         return;
       }
+      if (command.action === 'blocked') {
+        ctx.problems.reportRemoteBlockedNetwork(command.sessionId, tab, command.pane, command.url, command.resource);
+        return;
+      }
       if (command.action === 'export')
         return ctx.exports.exportTab(command.sessionId, tab, command.format, command.pane ?? 0);
       if (command.action === 'network') {

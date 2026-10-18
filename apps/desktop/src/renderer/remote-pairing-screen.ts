@@ -166,9 +166,10 @@ interface RemotePairingScreenDeps {
   clientId: () => string;
   /** Store and adopt an approval. False is a refused approval — a credential
    *  that cannot be stored is never a half pairing. */
-  acceptApproval: (credential: string, material: RelayE2EEPairingMaterial) => boolean;
+  acceptApproval: (credential: string, material: RelayE2EEPairingMaterial) => Promise<boolean> | boolean;
   /** Dial with the fresh credential and resolve once the secure channel is
-   *  ready; the rejection carries the text this screen shows. */
+   *  ready, redialing on its own for as long as that takes; the rejection
+   *  (a pairing the PC refused) carries the text this screen shows. */
   verifyConnection: () => Promise<void>;
 }
 
@@ -326,15 +327,19 @@ const requestApproval = async (
     const deadline = Date.now() + 300_000;
     let outcome = 'expired';
     let reachable = true;
-    while (Date.now() < deadline) {
+    // A page frozen in the background thaws with the deadline already gone:
+    // the loop still owes that wake one poll, which may well be the approval.
+    for (let last = false; !last; ) {
       await wait(2_000);
       if (stale()) return;
+      last = Date.now() >= deadline;
       let payload: { status?: unknown; token?: unknown; sealed?: unknown };
       try {
         const response = await fetch(new URL(`/claim/${encodeURIComponent(claimId)}`, base).toString(), {
           headers: { Accept: 'application/json' },
-          // A stalled poll ends with the deadline, not after it.
-          signal: runSignal(aborter.signal, Math.max(1, Math.min(10_000, deadline - Date.now()))),
+          // A stalled poll ends with the deadline, not after it; the final
+          // poll gets the ordinary bound.
+          signal: runSignal(aborter.signal, last ? 10_000 : Math.max(1, Math.min(10_000, deadline - Date.now()))),
         });
         if (!response.ok) {
           reachable = false;
@@ -348,6 +353,10 @@ const requestApproval = async (
       }
       const status = String(payload?.status || 'pending');
       if (status === 'pending') continue;
+      if (status === 'unknown') {
+        outcome = status;
+        break;
+      }
       if (status !== 'approved') {
         outcome = status;
         break;
@@ -361,11 +370,12 @@ const requestApproval = async (
       if (!isInstalledMobileWebAppSurface()) markDirectBrowserSurface();
       const directTab = layer.dataset.direct === '1';
       // A box that does not open is a refused approval, never a half pairing.
-      if (!material || !isRemoteClientCredential(credential) || !deps.acceptApproval(credential, material)) {
+      if (!material || !isRemoteClientCredential(credential) || !(await deps.acceptApproval(credential, material))) {
         clearPendingClaim(deps.claimStorageKey);
         report(failure(earlyUiT('Could not verify the connection. Try again.')));
         return;
       }
+      if (stale()) return;
       report({ kind: 'allowed' });
       try {
         await deps.verifyConnection();
@@ -389,6 +399,13 @@ const requestApproval = async (
       return;
     }
     if (stale()) return;
+    if (outcome === 'unknown') {
+      // The relay no longer knows this claim (it restarted, or dropped it):
+      // nothing was decided, so the same key asks again on its own.
+      clearPendingClaim(deps.claimStorageKey);
+      claimId = '';
+      continue;
+    }
     if (outcome === 'expired' && !reachable) {
       // The deadline passed while the relay was unreachable: not an expiry.
       report(networkEvent());
@@ -411,7 +428,7 @@ const requestApproval = async (
  */
 export const createRemotePairingScreen = (
   deps: RemotePairingScreenDeps
-): ((message: string, autoAsk?: boolean) => void) => {
+): ((message: string, autoAsk?: boolean, title?: string) => void) => {
   takeTicketFromAddress();
   let installPrompt: (Event & { prompt(): Promise<void> }) | null = null;
   window.addEventListener('beforeinstallprompt', (event) => {
@@ -419,7 +436,7 @@ export const createRemotePairingScreen = (
     installPrompt = event as Event & { prompt(): Promise<void> };
     document.querySelector('#mixdog-remote-pairing [data-role="install"]')?.removeAttribute('hidden');
   });
-  return (message: string, autoAsk = true): void => {
+  return (message: string, autoAsk = true, title?: string): void => {
     if (document.getElementById('mixdog-remote-pairing')) return;
     // Install instructions depend on the device, not on the current layout width.
     const mobile = isMobileDeviceSurface();
@@ -488,7 +505,7 @@ export const createRemotePairingScreen = (
         return retryView(event.title, event.sub);
       };
       const endedView = (): PairingView =>
-        retryView(earlyUiT('You were disconnected'), message || earlyUiT('Your PC disconnected this device.'));
+        retryView(title || earlyUiT('You were disconnected'), message || earlyUiT('Your PC disconnected this device.'));
       const installView = (): PairingView => {
         let stepOne = earlyUiT('Open this page on your phone or tablet');
         let stepTwo = earlyUiT('Install Mixdog from the mobile browser');

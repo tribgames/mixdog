@@ -1,7 +1,7 @@
-// The Visualize panel on a paired remote device: the Run gate and the
-// device's "run agent pages immediately" setting, PDF / Office panes as page
-// images (with the blob fallback), the remote PNG/PDF export entries and the
-// render report a remote inline pane files.
+// The Visualize panel on a paired remote device: agent pages that run at once
+// under the desktop's network block, PDF / Office panes as page images (with
+// the blob fallback), the remote PNG/PDF export entries and the render report
+// a remote inline pane files.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -55,7 +55,7 @@ window.mixdogDesktop = {
 
 const { VisualizePane } = await import('./VisualizePane.tsx');
 const { applyVisualizeEvent } = await import('./visualize-store.ts');
-const { setVisualizeRunPages } = await import('./visualize-run-pref.ts');
+const { BLOCKED_NETWORK_CSP } = await import('../shared/visualize-network-policy.ts');
 
 const putTab = (tab) =>
   applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [tab], active: tab.id } });
@@ -75,27 +75,118 @@ const openMenu = async () => {
 };
 const page = { kind: 'html', label: 'a.html', target: 'a.html', url: '' };
 
-test('an agent page waits for Run unless this device runs agent pages immediately', async () => {
-  setVisualizeRunPages(false);
+/** The document the pane hands its frame once the relay's /preview-frame page says it is ready. */
+async function framedDocument() {
+  const frame = document.querySelector('.visualize-pane-content iframe');
+  const sent = [];
+  frame.contentWindow.postMessage = (message) => sent.push(message);
+  await act(async () =>
+    window.dispatchEvent(
+      new window.MessageEvent('message', { data: { type: 'mixdog-preview-ready' }, source: frame.contentWindow })
+    )
+  );
+  return { frame, html: sent[0]?.html ?? '' };
+}
+const cspOf = (html) => /<meta http-equiv="Content-Security-Policy" content="([^"]*)">/.exec(html)?.[1];
+
+test('a remote agent page runs scripts at once, with no Run gate or run-pages menu item', async () => {
   putTab({ id: 'r1', label: 'a.html', revision: 0, panes: [page] });
   const root = await mount();
   try {
-    // Gated: no scripts at all, with the Run prompt.
-    assert.equal(document.querySelector('.visualize-pane-content iframe').getAttribute('sandbox'), '');
-    assert.match(document.querySelector('.visualize-script-gate').textContent, /This page runs scripts/);
-    const item = (await openMenu()).find((button) => button.textContent.includes('Run agent pages immediately'));
-    assert.equal(item.getAttribute('role'), 'menuitemcheckbox');
-    assert.equal(item.getAttribute('aria-checked'), 'false');
-    await click(item);
-    await settle();
-    // Live at once: scripts, forms and dialogs in the opaque frame, no Run prompt.
-    const frame = document.querySelector('.visualize-pane-content iframe');
+    const { frame, html } = await framedDocument();
     assert.equal(frame.getAttribute('sandbox'), 'allow-scripts allow-forms allow-modals');
     assert.equal(document.querySelector('.visualize-script-gate'), null);
-    assert.equal(window.localStorage.getItem('mixdog:visualize-run-agent-pages'), 'true');
+    assert.match(html, /<script>go\(\)<\/script>/);
+    const labels = (await openMenu()).map((button) => button.textContent);
+    assert.equal(
+      labels.some((text) => /Run agent pages/.test(text)),
+      false
+    );
   } finally {
     await act(async () => root.unmount());
-    setVisualizeRunPages(false);
+  }
+});
+
+test('a remote page document blocks outside origins like the desktop, until the tab allows network', async () => {
+  commands.length = 0;
+  putTab({ id: 'r1b', label: 'a.html', revision: 0, panes: [page] });
+  let root = await mount();
+  try {
+    const { frame, html } = await framedDocument();
+    const csp = cspOf(html);
+    assert.equal(csp, BLOCKED_NETWORK_CSP);
+    // Nothing of the outside network (http, https, ws, wss, or any host) is a source.
+    assert.doesNotMatch(csp, /https?:|wss?:|\*|\/\//);
+    assert.ok(html.indexOf('Content-Security-Policy') < html.indexOf('go()'), 'the policy precedes the page');
+    // A refusal inside the frame is filed with the host as the desktop's blocked-network problem.
+    await act(async () =>
+      window.dispatchEvent(
+        new window.MessageEvent('message', {
+          data: { type: 'mixdog-page-blocked', url: 'https://cdn.example/x.png', directive: 'img-src' },
+          source: frame.contentWindow,
+        })
+      )
+    );
+    assert.deepEqual(commands.at(-1), {
+      sessionId: 's1',
+      tabId: 'r1b',
+      action: 'blocked',
+      pane: 0,
+      url: 'https://cdn.example/x.png',
+      resource: 'image',
+    });
+    // A message from anywhere else, or about a local address, files nothing.
+    const filed = commands.length;
+    await act(async () =>
+      window.dispatchEvent(
+        new window.MessageEvent('message', {
+          data: { type: 'mixdog-page-blocked', url: 'https://other.example/', directive: 'img-src' },
+          source: window,
+        })
+      )
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new window.MessageEvent('message', {
+          data: { type: 'mixdog-page-blocked', url: 'inline', directive: 'script-src' },
+          source: frame.contentWindow,
+        })
+      )
+    );
+    assert.equal(commands.length, filed);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  // The desktop user allowed network for the tab: the page loads without the block.
+  putTab({ id: 'r1c', label: 'a.html', revision: 0, panes: [page], networkAllowed: true });
+  root = await mount();
+  try {
+    const { frame, html } = await framedDocument();
+    assert.match(html, /<script>go\(\)<\/script>/);
+    assert.equal(cspOf(html), undefined);
+    // The reporter stays: the frame's own CSP (the relay's preview frame) still refuses e.g. wss:.
+    assert.match(html, /securitypolicyviolation/);
+    commands.length = 0;
+    await act(async () =>
+      window.dispatchEvent(
+        new window.MessageEvent('message', {
+          data: { type: 'mixdog-page-blocked', url: 'wss://live.example/socket', directive: 'connect-src' },
+          source: frame.contentWindow,
+        })
+      )
+    );
+    assert.deepEqual(commands, [
+      {
+        sessionId: 's1',
+        tabId: 'r1c',
+        action: 'blocked',
+        pane: 0,
+        url: 'wss://live.example/socket',
+        resource: 'webSocket',
+      },
+    ]);
+  } finally {
+    await act(async () => root.unmount());
   }
 });
 

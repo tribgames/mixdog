@@ -3,7 +3,12 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { useTranscriptHistory, useTranscriptHistoryFill } from './use-transcript-history.ts';
+import {
+  TRANSCRIPT_HISTORY_TOP_PX,
+  transcriptHistoryLead,
+  useTranscriptHistory,
+  useTranscriptHistoryFill,
+} from './use-transcript-history.ts';
 import { registerTranscriptScrollGeometry } from './use-transcript-follow.ts';
 
 /** A DOM whose desktop bridge records each `prefetchSession` request so a test
@@ -75,6 +80,15 @@ test('tail windows page older history from transcriptHasOlder, one page per publ
   } finally {
     await restoreHistoryDom(env, root);
   }
+});
+
+test('a scroll asks for older history screens before the top, so a fling never runs out of rows first', () => {
+  // #104: a phone fling crosses hundreds of px per frame; asked for only at
+  // the old 320px band, it hit the top edge and died before the page landed.
+  assert.equal(transcriptHistoryLead(711), 7_110);
+  // An unmeasured or tiny pane still asks within the old band.
+  assert.equal(transcriptHistoryLead(0), TRANSCRIPT_HISTORY_TOP_PX);
+  assert.equal(transcriptHistoryLead(20), TRANSCRIPT_HISTORY_TOP_PX);
 });
 
 test('a first window that does not fill the pane loads older history without a scroll', async () => {

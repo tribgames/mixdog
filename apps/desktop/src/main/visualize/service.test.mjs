@@ -180,7 +180,7 @@ test('open says so when the panel is not on screen, keeping "as tab vN"', async 
   const { deps } = fakeDeps({
     onScreen: async (sessionId, tab) => {
       asked.push([sessionId, tab.id]);
-      return visible;
+      return visible ? 'visible' : 'hidden';
     },
   });
   const service = createVisualizeService(deps);
@@ -921,7 +921,11 @@ test('annotate needs the tab on screen, like capture', async () => {
         const pane = event.state?.tabs[0]?.panes[0];
         if (pane) frame.url = pane.url;
       },
-      executeJavaScript: async () => (bodyShown ? { x: 0, y: 0, width: 10, height: 10 } : null),
+      // The rect query and the hit-test query answer differently: a rect, or whether the body is uncovered.
+      executeJavaScript: async (script) => {
+        if (script.includes('elementFromPoint')) return bodyShown ? true : null;
+        return bodyShown ? { x: 0, y: 0, width: 10, height: 10 } : null;
+      },
       mainFrame: { framesInSubtree: [frame] },
     },
   };
@@ -1053,6 +1057,28 @@ test('annotate needs the tab on screen, like capture', async () => {
     );
     assert.equal(remoteEvents.at(-1).state.tabs[0].networkAllowed, undefined);
 
+    // A paired device's page frame enforces the same block with a CSP and files
+    // each refusal as the very same problem; a local address files nothing.
+    const filed = problems().length;
+    await service.command({
+      sessionId: 's1',
+      tabId: 'v1',
+      action: 'blocked',
+      pane: 0,
+      url: 'https://fonts.example/f.woff2',
+      resource: 'font',
+    });
+    await service.command({
+      sessionId: 's1',
+      tabId: 'v1',
+      action: 'blocked',
+      pane: 0,
+      url: 'data:,x',
+      resource: 'image',
+    });
+    assert.equal(problems().length, filed + 1);
+    assert.deepEqual([problems().at(-1).kind, problems().at(-1).message], ['blocked-network', 'fonts.example (font)']);
+
     // The user's toggle lifts the block for this tab alone, reloads it (the
     // blocked problems are gone) and can be turned off again.
     const revision = remoteEvents.at(-1).state.tabs[0].revision;
@@ -1060,6 +1086,20 @@ test('annotate needs the tab on screen, like capture', async () => {
     assert.equal(remoteEvents.at(-1).state.tabs[0].networkAllowed, true);
     assert.equal(remoteEvents.at(-1).state.tabs[0].revision, revision + 1);
     assert.equal(problems(), undefined);
+    // A network-enabled tab still files a genuine CSP refusal of the paired device's frame
+    // (the relay preview CSP refuses wss:) as a blocked-network problem.
+    await service.command({
+      sessionId: 's1',
+      tabId: 'v1',
+      action: 'blocked',
+      pane: 0,
+      url: 'wss://live.example/socket',
+      resource: 'webSocket',
+    });
+    assert.deepEqual(
+      problems().map((problem) => [problem.kind, problem.message]),
+      [['blocked-network', 'live.example (webSocket)']]
+    );
     const reloaded = { url: frame.url, isDestroyed: () => false, parent: null };
     assert.notEqual(reloaded.url, page.url, 'a reload serves a fresh lease');
     assert.equal(
@@ -1627,6 +1667,7 @@ test('inspect lays the pane frames out at the requested viewport, reads only the
     isDestroyed: () => false,
     isMinimized: () => false,
     isVisible: () => true,
+    isFocused: () => true,
     webContents: {
       id: 7,
       isDestroyed: () => false,
@@ -1640,6 +1681,7 @@ test('inspect lays the pane frames out at the requested viewport, reads only the
         }
       },
       executeJavaScript: async (script) => {
+        if (script.includes('elementFromPoint')) return true;
         if (!script.includes('[data-visualize-body] iframe')) return { x: 0, y: 0, width: 10, height: 10 };
         if (script.includes('setProperty')) {
           log.push(['main', 'resize', script.includes('375px') && script.includes('812px')]);

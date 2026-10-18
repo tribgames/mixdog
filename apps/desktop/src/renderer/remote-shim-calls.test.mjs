@@ -93,6 +93,154 @@ test('a frame that can never be sent fails the call and probes the connection', 
   assert.deepEqual(probes, ['probe']);
 });
 
+// A burst of calls released at once (the app's reads waiting on a view sync)
+// must stay inside the desktop's per-browser frame budget: past it, the PC
+// drops the whole connection ("remote client backlog exceeded").
+const { REMOTE_CLIENT_CALL_WINDOW, REMOTE_CLIENT_PENDING_FRAMES, REMOTE_CLIENT_PRIORITY_RESERVE } = await import(
+  '../shared/remote-frame-budget.ts'
+);
+const ORDINARY_LIMIT = REMOTE_CLIENT_CALL_WINDOW - REMOTE_CLIENT_PRIORITY_RESERVE;
+
+/** A shim whose frames reach a fake PC: `sent` is the wire, `answer(id)` is
+ *  the PC's reply arriving (what the dispatcher does with a response frame),
+ *  and `outstanding()` counts what the PC still owes — sent and unanswered,
+ *  whatever this page did with the caller in between. */
+function windowHarness() {
+  const sent = [];
+  const answered = new Set();
+  const ws = { send: (frame) => sent.push(frame), close() {} };
+  const ctx = {
+    nextId: 1,
+    pending: new Map(),
+    e2eePairing: true,
+    connectionReady: true,
+    relayBinaryFrames: false,
+    socket: ws,
+    secureChannel: { encryptJson: async (payload) => payload },
+    limits: { refuseOversize() {}, noteSentFrame() {} },
+    probes: 0,
+    // The relay answers every liveness probe: nothing ever retires the leg.
+    wakeProbe() {
+      ctx.probes += 1;
+    },
+    connect: async () => ws,
+  };
+  installRemoteCalls(ctx);
+  const answer = (id, value = id) => {
+    answered.add(id);
+    ctx.settleCallCredit(id);
+    const entry = ctx.pending.get(id);
+    if (!entry) return;
+    ctx.pending.delete(id);
+    entry.resolve(value);
+  };
+  const outstanding = () => sent.filter((frame) => !answered.has(frame.id)).length;
+  return { ctx, ws, sent, answer, outstanding };
+}
+
+test('the call window stays inside the desktop budget', () => {
+  assert.ok(REMOTE_CLIENT_CALL_WINDOW < REMOTE_CLIENT_PENDING_FRAMES);
+  assert.ok(REMOTE_CLIENT_PRIORITY_RESERVE > 0 && REMOTE_CLIENT_PRIORITY_RESERVE < REMOTE_CLIENT_CALL_WINDOW);
+});
+
+// The local deadline fails the CALLER; the PC still holds the frame in its
+// queue. Freeing the credit there let a stalled PC accumulate more than the
+// window, one deadline cycle at a time, and brought the eviction loop back.
+test('a call that timed out keeps its credit until the PC answers it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { ctx, sent, answer, outstanding } = windowHarness();
+  const settle = (promise) => promise.catch((error) => error);
+  const calls = [];
+  for (let cycle = 0; cycle < 4; cycle += 1) {
+    // The app keeps asking while the PC's work stays blocked.
+    for (let index = 0; index < ORDINARY_LIMIT; index += 1) {
+      calls.push(settle(ctx.invoke('statProjectFile', [cycle, index])));
+    }
+    await flush();
+    assert.ok(outstanding() <= REMOTE_CLIENT_CALL_WINDOW, `cycle ${cycle}: ${outstanding()} outstanding`);
+    assert.equal(outstanding(), ORDINARY_LIMIT);
+    t.mock.timers.tick(20_000);
+    await flush();
+  }
+  assert.ok(ctx.probes > 0, 'the deadlines fired and probed a leg that answers its probes');
+  assert.equal(sent.length, ORDINARY_LIMIT, 'no deadline freed a credit');
+  const first = await calls[0];
+  assert.equal(first.message, 'mixdog remote call timed out.');
+
+  // The PC finally answers one of the timed-out calls: exactly one more leaves.
+  answer(sent[0].id);
+  await flush();
+  assert.equal(sent.length, ORDINARY_LIMIT + 1);
+  assert.deepEqual(sent.at(-1).params, [1, 0], 'the oldest waiting call takes the credit');
+  assert.equal(outstanding(), ORDINARY_LIMIT);
+  for (const frame of [...sent]) answer(frame.id);
+  t.mock.timers.tick(20_000);
+});
+
+test('a retired connection returns every credit its calls held', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { ctx, ws, sent } = windowHarness();
+  const calls = Array.from({ length: ORDINARY_LIMIT + 3 }, (_, index) =>
+    ctx.invoke('statProjectFile', [index]).catch((error) => error)
+  );
+  await flush();
+  assert.equal(sent.length, ORDINARY_LIMIT);
+  t.mock.timers.tick(20_000);
+  await flush();
+  assert.equal(sent.length, ORDINARY_LIMIT);
+  ctx.retireCallCredits(ws);
+  await flush();
+  assert.equal(sent.length, ORDINARY_LIMIT + 3);
+  for (const [id, entry] of [...ctx.pending]) {
+    ctx.pending.delete(id);
+    entry.resolve(id);
+  }
+  await Promise.all(calls);
+});
+
+// Ordinary reads stop at the reserve; priority calls fill it and jump the
+// queue, in their own order, but the total never passes the window.
+test('ordinary and priority calls together never pass the window', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { ctx, sent, answer, outstanding } = windowHarness();
+  const calls = [];
+  const track = (method, params) => {
+    calls.push(ctx.invoke(method, params).catch((error) => error));
+  };
+  for (let index = 0; index < REMOTE_CLIENT_CALL_WINDOW; index += 1) track('statProjectFile', [index]);
+  await flush();
+  assert.equal(outstanding(), ORDINARY_LIMIT, 'ordinary calls leave the reserve free');
+  const aborts = REMOTE_CLIENT_PRIORITY_RESERVE + 2;
+  for (let index = 0; index < aborts; index += 1) track('abortSession', [`s${index}`]);
+  track('synchronizeViews', [[]]);
+  track('resolveToolApprovalForSession', ['s0']);
+  await flush();
+  assert.equal(outstanding(), REMOTE_CLIENT_CALL_WINDOW, 'priority calls fill the reserve and no more');
+  assert.equal(sent.at(-1).method, 'abortSession');
+
+  // Credits free one by one: the queued priority calls go first, in order —
+  // the sync is never held behind a later approval or the ordinary reads.
+  const ordinary = sent.filter((frame) => frame.method === 'statProjectFile');
+  for (let step = 0; step < 4; step += 1) {
+    answer(ordinary[step].id);
+    await flush();
+    assert.ok(outstanding() <= REMOTE_CLIENT_CALL_WINDOW, `${outstanding()} outstanding`);
+  }
+  assert.deepEqual(
+    sent.slice(REMOTE_CLIENT_CALL_WINDOW).map((frame) => frame.method),
+    ['abortSession', 'abortSession', 'synchronizeViews', 'resolveToolApprovalForSession']
+  );
+  // Drain: every round the PC answers what it holds; the waiting reads follow
+  // and the ceiling holds throughout.
+  while (outstanding() > 0) {
+    for (const frame of [...sent]) answer(frame.id);
+    await flush();
+    assert.ok(outstanding() <= REMOTE_CLIENT_CALL_WINDOW, `${outstanding()} outstanding`);
+  }
+  await Promise.all(calls);
+  assert.equal(sent.filter((frame) => frame.method === 'statProjectFile').length, REMOTE_CLIENT_CALL_WINDOW);
+});
+
 test('a request on the wire still fails on its own deadline and probes the connection', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { ctx, sent, probes, release } = harness();

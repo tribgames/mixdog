@@ -7,6 +7,7 @@ import {
   gitCacheKey,
   mapWithConcurrency,
   parseNumstat,
+  sharedRead,
   untrackedPatch,
   untrackedStat,
 } from './git-read-utils';
@@ -488,7 +489,14 @@ async function diffStaleRows(
   return { records: parseRawNumstat(raw), whole };
 }
 
-export async function gitReview(cwd: string, source: GitReviewSource = 'branch'): Promise<GitReviewResult> {
+/** The review rows of the worktree against `source`; concurrent identical
+ *  requests share one scan ({@link sharedRead}). */
+export const gitReview = sharedRead(
+  (cwd: string, source: GitReviewSource = 'branch') => `${gitCacheKey(cwd)}\0${source}`,
+  readGitReview
+);
+
+async function readGitReview(cwd: string, source: GitReviewSource = 'branch'): Promise<GitReviewResult> {
   let root: string;
   try {
     root = await cachedGitRoot(cwd);

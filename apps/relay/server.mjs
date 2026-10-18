@@ -424,7 +424,7 @@ function routeRequest(relay, request, response) {
     return;
   }
   if (url.startsWith('/client/register')) {
-    handleClientRegistration(store, unauthorizedLimiter, request, response).catch(
+    handleClientRegistration(store, unauthorizedLimiter, request, response, claims).catch(
       failRequest(request, response, 'client registration')
     );
     return;

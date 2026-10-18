@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import test from 'node:test';
 
-import { htmlRunsScripts } from '../../shared/visualize-scripts.ts';
 import { chartPageDocument, INLINE_CHART_RENDERED, withHtmlThemePrelude } from '../../shared/visualize-inline-page.ts';
 import { localVirtualPageUrl, revokeLocalPagesFor } from '../local-page-server.ts';
 import { withSandboxStorageShim } from '../../shared/sandbox-storage-shim.ts';
@@ -14,7 +13,9 @@ function get(url) {
     request({ hostname, port, path: pathname }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
-      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString() }));
+      response.on('end', () =>
+        resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString() })
+      );
     })
       .on('error', reject)
       .end();
@@ -22,13 +23,19 @@ function get(url) {
 }
 
 test('a chart page carries its option as data and the bundled library by file', async () => {
-  const files = await inlinePageFiles({ kind: 'chart', source: '{"title":{"text":"</script><b>"}}' }, async () => 'window.echarts={};');
+  const files = await inlinePageFiles(
+    { kind: 'chart', source: '{"title":{"text":"</script><b>"}}' },
+    async () => 'window.echarts={};'
+  );
   assert.deepEqual(Object.keys(files).sort(), ['echarts.js', 'index.html']);
   const page = files['index.html'].body.toString();
   assert.match(page, /<script src="echarts\.js"><\/script>/);
   // The option can neither close its block nor inject markup.
   assert.equal(page.includes('</script><b>'), false);
-  assert.match(page, /<script type="application\/json" id="option">\{"title":\{"text":"\\u003c\/script>\\u003cb>"\}\}<\/script>/);
+  assert.match(
+    page,
+    /<script type="application\/json" id="option">\{"title":\{"text":"\\u003c\/script>\\u003cb>"\}\}<\/script>/
+  );
   assert.equal(files['echarts.js'].body.toString(), 'window.echarts={};');
   assert.doesNotMatch(page, /https?:\/\//, 'no CDN or any other address');
   // Bad JSON is reported by the page itself.
@@ -61,12 +68,21 @@ test('a chart page marks its root once ECharts finished drawing, or the chart fa
   drawn.window.handlers.finished();
   assert.equal(root.hasAttribute(INLINE_CHART_RENDERED), true);
   const broken = run('{oops', library);
-  assert.equal(broken.window.document.documentElement.hasAttribute(INLINE_CHART_RENDERED), true, 'nothing left to wait for');
+  assert.equal(
+    broken.window.document.documentElement.hasAttribute(INLINE_CHART_RENDERED),
+    true,
+    'nothing left to wait for'
+  );
 });
 
 test('a chart page is drawn again in the dark theme when the color scheme changes', async () => {
   const { JSDOM } = await import('jsdom');
-  const media = { matches: false, listeners: [], addEventListener: (name, handler) => media.listeners.push([name, handler]), removeEventListener() {} };
+  const media = {
+    matches: false,
+    listeners: [],
+    addEventListener: (name, handler) => media.listeners.push([name, handler]),
+    removeEventListener() {},
+  };
   const library = `var echarts = { init: function (box, theme) {
     window.themes = (window.themes || []).concat([theme]);
     return { on: function () {}, setOption: function () {}, resize: function () {}, dispose: function () { window.disposed = (window.disposed || 0) + 1; } };
@@ -93,19 +109,31 @@ test('an html sketch gets a zero-specificity app-theme base the author overrides
   assert.match(base, /:where\(button,input,select,textarea\)\{font:inherit/);
   // Every selector sits under :where(), so author CSS always wins.
   const css = base.slice(base.indexOf('>') + 1, base.indexOf('</style>'));
-  const selectors = css.replace(/@media[^{]*\{/, '').split('}').map((rule) => rule.split('{')[0].trim()).filter(Boolean);
-  assert.ok(selectors.every((selector) => selector.startsWith(':where(')), selectors.join(' | '));
+  const selectors = css
+    .replace(/@media[^{]*\{/, '')
+    .split('}')
+    .map((rule) => rule.split('{')[0].trim())
+    .filter(Boolean);
+  assert.ok(
+    selectors.every((selector) => selector.startsWith(':where(')),
+    selectors.join(' | ')
+  );
   // Placement keeps standards mode and a real head.
-  assert.match(withHtmlThemePrelude('<!doctype html><html><head><title>t</title></head><body/></html>'), /<head><style data-mixdog-theme>/);
-  assert.match(withHtmlThemePrelude('<!doctype html><html><body>b</body></html>'), /<html><head><style data-mixdog-theme>[\s\S]*<\/head><body>/);
+  assert.match(
+    withHtmlThemePrelude('<!doctype html><html><head><title>t</title></head><body/></html>'),
+    /<head><style data-mixdog-theme>/
+  );
+  assert.match(
+    withHtmlThemePrelude('<!doctype html><html><body>b</body></html>'),
+    /<html><head><style data-mixdog-theme>[\s\S]*<\/head><body>/
+  );
   assert.ok(withHtmlThemePrelude('<!DOCTYPE html><p>x</p>').startsWith('<!DOCTYPE html><style data-mixdog-theme>'));
 });
 
 test('the remote form inlines the library, and is gated like any page that runs scripts', () => {
   const page = chartPageDocument('{}', { inline: 'var echarts={};</script><i>' });
   assert.equal(page.includes('</script><i>'), false);
-  assert.equal(htmlRunsScripts(page), true);
-  assert.equal(htmlRunsScripts('<p>plain sketch</p>'), false);
+  assert.match(page, /<script\b/i);
 });
 
 test('a virtual page lease serves exactly its files in an opaque origin and dies with its owner', async () => {
@@ -128,12 +156,18 @@ test('a virtual page lease serves exactly its files in an opaque origin and dies
   assert.equal((await get(url.replace('index.html', 'secret.txt'))).status, 404);
   assert.equal((await get(url.replace('index.html', '..%2Findex.html'))).status, 404);
   // Another lease's token is another page.
-  const other = await localVirtualPageUrl({ 'index.html': { type: 'text/html', body: Buffer.from('other') } }, { authorize: async () => {} });
+  const other = await localVirtualPageUrl(
+    { 'index.html': { type: 'text/html', body: Buffer.from('other') } },
+    { authorize: async () => {} }
+  );
   assert.equal((await get(other)).body, withSandboxStorageShim('other'));
   assert.notEqual(new URL(other).pathname.split('/')[1], new URL(url).pathname.split('/')[1]);
 
   revokeLocalPagesFor(owner);
   assert.equal((await get(url)).status, 404);
   assert.equal((await get(other)).status, 200);
-  await assert.rejects(localVirtualPageUrl({ 'a.html': { type: 'text/html', body: Buffer.alloc(0) } }, { authorize: async () => {} }), /index\.html/);
+  await assert.rejects(
+    localVirtualPageUrl({ 'a.html': { type: 'text/html', body: Buffer.alloc(0) } }, { authorize: async () => {} }),
+    /index\.html/
+  );
 });

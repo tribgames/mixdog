@@ -260,7 +260,11 @@ export function useBranchMenuOverlay(disabled: boolean, modal: boolean) {
       const target = event.target as Node | null;
       if (root.current?.contains(target) || panel.current?.contains(target)) return;
       // The uncommitted-files choice is a modal over the open menu.
-      if (target instanceof Element && target.closest('.worktree-carry-dialog, .settings-confirm-layer')) return;
+      if (
+        target instanceof Element &&
+        target.closest('.worktree-carry-dialog, .settings-confirm-layer, .dock-scm-context-menu')
+      )
+        return;
       setOpen(false);
     };
     window.addEventListener('resize', place);
@@ -754,9 +758,10 @@ function BranchMenuContents({
           </button>
         )}
         <h3 className="branch-menu-label">{t('Branch')}</h3>
-        {rows.map((row) => (
-          <div className="branch-row-shell" key={row.name}>
+        {rows.map((row) => {
+          const item = (
             <BranchMenuRow
+              key={row.name}
               row={row}
               intent={intent}
               busy={busy}
@@ -765,16 +770,23 @@ function BranchMenuContents({
               worktreeBound={worktreeBound}
               onPick={onPickRow}
             />
-            {management && (
-              <BranchRowActions
-                projectPath={management.projectPath}
-                branch={row.name}
-                locked={locked || busy}
-                onChanged={management.refresh}
-              />
-            )}
-          </div>
-        ))}
+          );
+          return management ? (
+            <BranchRowActions
+              key={row.name}
+              projectPath={management.projectPath}
+              branch={row.name}
+              locked={locked || busy}
+              onChanged={management.refresh}
+            >
+              {item}
+            </BranchRowActions>
+          ) : (
+            <div className="branch-row-shell" key={row.name}>
+              {item}
+            </div>
+          );
+        })}
         {rows.length === 0 &&
           (loading ? (
             <p className="branch-menu-empty" data-loading role="status">

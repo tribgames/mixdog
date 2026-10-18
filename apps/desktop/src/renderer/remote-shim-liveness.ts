@@ -10,8 +10,18 @@ import {
 } from './remote-connection-state';
 import { REMOTE_CONNECTION_READY_EVENT, type RemoteShimContext } from './remote-shim-state';
 
+/** Shortest wait before a reconnect attempt after the immediate first one. */
+const RECONNECT_MIN_MS = 500;
+/** How far the first retry after a relay-side close of a live leg is spread. */
+const FLEET_FIRST_RETRY_SPREAD_MS = 1_500;
 /** Longest wait between two reconnect attempts. */
 const RECONNECT_MAX_MS = 10_000;
+/** How long a foreground wake waits for the relay to answer its probe. */
+const WAKE_PROBE_MS = 2_500;
+/** Frames still arriving this long after a wake probe come from a live leg.
+ *  Anything earlier may be the burst a frozen page queued before its socket
+ *  died, dispatched only when the page thaws. */
+const WAKE_TRAFFIC_PROOF_MS = 1_000;
 
 export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
   // NAT/carrier middleboxes silently drop idle WebSockets; the browser
@@ -33,6 +43,23 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     reportRemoteConnectionIssue('heartbeat-timeout');
     if (ctx.pending.size === 0) ctx.quietRecycledSockets.add(ws);
     ctx.retireConnection?.();
+  };
+  // The leg answered after a wake: it is live again, and only now is the
+  // resync that wake asked for worth sending. Started earlier, it would put a
+  // possibly dead socket into 'syncing' and run the disconnect countdown
+  // through the probe, the redial and the fresh connection's own sync.
+  const wakeProbeAnswered = (): void => {
+    ctx.unprovenSocket = null;
+    if (!ctx.resyncAfterWakeProbe) return;
+    ctx.resyncAfterWakeProbe = false;
+    ctx.requestResync();
+  };
+  // Only the relay's pong answers a wake probe: frames dispatched as a frozen
+  // page thaws may have been queued before its socket died.
+  const answerWakeProbe = (): void => {
+    if (ctx.wakePongTimer === null) return;
+    clearWakePongTimer();
+    wakeProbeAnswered();
   };
   window.setInterval(() => {
     if (ctx.backgroundSuspended || !shouldRunRemoteHeartbeat(document.visibilityState)) {
@@ -108,6 +135,10 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     ctx.backgroundGraceTimer = null;
   };
   const beginBackgroundGrace = (): void => {
+    // A phone suspends a backgrounded page and may kill its socket without a
+    // close it can deliver before the page is back. Until a wake probe proves
+    // it, this leg dying is the cost of the background, not an outage.
+    if (ctx.socket?.readyState === WebSocket.OPEN) ctx.unprovenSocket = ctx.socket;
     if (!backgroundSuspendApplies()) return;
     reportForeground(false);
     ctx.resyncOnWake = true;
@@ -140,7 +171,7 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     const ws = ctx.socket;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       ctx.resyncOnWake = true;
-      ctx.retryMs = 500;
+      ctx.retryMs = 0;
       // Neither a stalled handshake nor a delayed close event may keep
       // connect() pinned to the previous attempt after a foreground wake.
       const attempt = ctx.openingSocket ?? ws;
@@ -158,9 +189,10 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     }
     // A wake must never inherit a grown backoff: if this probe fails, the
     // redial that follows IS the gap the user watches.
-    ctx.retryMs = 500;
+    ctx.retryMs = 0;
     ctx.heartbeatSentAt = Date.now();
     ctx.awaitingPong = true;
+    ctx.unprovenSocket = ws;
     try {
       ws.send('{"ping":1}');
     } catch {
@@ -168,21 +200,28 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     }
     // Foreground recovery should not inherit the normal 10s background
     // heartbeat budget. If this exact probe gets no response, recycle the
-    // half-open socket promptly and let the reconnect loop re-register lanes.
+    // half-open socket promptly; its close redials silently (unprovenSocket).
     clearWakePongTimer();
     const probeSentAt = ctx.heartbeatSentAt;
     ctx.wakePongTimer = window.setTimeout(() => {
       ctx.wakePongTimer = null;
-      if (ctx.socket !== ws || !ctx.awaitingPong || ctx.heartbeatSentAt !== probeSentAt) return;
+      if (ctx.socket !== ws || ctx.unprovenSocket !== ws) return;
+      // A leg still delivering a backlog queues the pong behind it.
+      if (ctx.lastTrafficAt - probeSentAt >= WAKE_TRAFFIC_PROOF_MS) {
+        wakeProbeAnswered();
+        return;
+      }
       ctx.awaitingPong = false;
       recycleIdleSocket(ws);
-    }, 2_500);
+    }, WAKE_PROBE_MS);
     // A live socket proves nothing about the transcript: pushes sent while
     // this tab was hidden may have been dropped for a congested leg, and a
-    // finished turn never sends another patch to expose it.
+    // finished turn never sends another patch to expose it. The resync waits
+    // for the probe (wakeProbeAnswered); a recycled leg's replacement runs its
+    // own full sync instead.
     if (shouldResync) {
       ctx.resyncOnWake = false;
-      ctx.requestResync();
+      ctx.resyncAfterWakeProbe = true;
     }
   };
   document.addEventListener('visibilitychange', wakeProbe);
@@ -195,7 +234,9 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
   // waiting user never has to sit out the remaining backoff.
   window.addEventListener(REMOTE_WAKE_EVENT, wakeProbe);
 
-  const scheduleReconnect = (): void => {
+  /** `fleet`: the relay closed a leg that was live, so every phone on it may
+   *  be retrying in this same instant. */
+  const scheduleReconnect = (fleet = false): void => {
     if (ctx.backgroundSuspended || !shouldRunRemoteHeartbeat(document.visibilityState)) {
       setRemoteConnectionState('connecting');
       return;
@@ -204,18 +245,30 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     // Registration failures and socket closes can both ask for a retry in the
     // same tick; one timer serves them all.
     if (ctx.reconnectTimer !== null) return;
-    // Every phone of a relay that restarts sees the close in the same instant
-    // and starts from the same step, so each delay is drawn from [step,
-    // next step]: the redials spread out instead of landing together. The
-    // floor stays at the first step and the ceiling at the backoff cap.
+    // The first retry of an outage (step 0, after every connection that
+    // became ready and every foreground wake) leaves at once: most gaps are
+    // one dead socket, and its replacement is the gap the user waits on —
+    // except when the relay itself closed a live leg (`fleet`): a relay
+    // restart closes every phone in the same instant, so that first retry is
+    // spread over [0, FLEET_FIRST_RETRY_SPREAD_MS] instead of one burst.
+    // From then on each delay is drawn from [step, next step], floored at
+    // RECONNECT_MIN_MS; at the ceiling the range stays [ceiling / 2, ceiling],
+    // so retries that reached the cap never line up again.
     const step = ctx.retryMs;
-    const delay = Math.round(step + Math.random() * (Math.min(RECONNECT_MAX_MS, step * 2) - step));
-    ctx.retryMs = Math.min(RECONNECT_MAX_MS, step * 2);
+    let delay: number;
+    if (step === 0) {
+      delay = fleet ? Math.round(Math.random() * FLEET_FIRST_RETRY_SPREAD_MS) : 0;
+    } else {
+      const high = Math.min(RECONNECT_MAX_MS, step * 2);
+      const low = Math.min(step, high / 2);
+      delay = Math.round(low + Math.random() * (high - low));
+    }
+    ctx.retryMs = step === 0 ? RECONNECT_MIN_MS : Math.min(RECONNECT_MAX_MS, step * 2);
     ctx.reconnectTimer = window.setTimeout(() => {
       ctx.reconnectTimer = null;
       void ctx.connect().catch(() => {});
     }, delay);
   };
 
-  Object.assign(ctx, { clearWakePongTimer, wakeProbe, scheduleReconnect });
+  Object.assign(ctx, { clearWakePongTimer, answerWakeProbe, wakeProbe, scheduleReconnect });
 };

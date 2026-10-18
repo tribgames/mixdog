@@ -842,6 +842,28 @@ export function signalPhoneOversize(socket, bytes, limit) {
   }
 }
 
+/** At most one desktop-gone notice per phone in this window when it is
+ *  triggered by the phone's own frames. */
+export const DESKTOP_GONE_NOTICE_INTERVAL_MS = 1_000;
+
+/** The PC's leg is gone and this phone's frames have nowhere to go. Same
+ *  cleartext channel and the same reason as signalPhoneOversize: the shim acts
+ *  on `resync` before decryption and drops the socket on any other cleartext
+ *  key, so the notice is `{"resync":"desktop-gone"}` — an older build just
+ *  resyncs. `throttle` caps a notice a phone's own traffic provokes to one per
+ *  DESKTOP_GONE_NOTICE_INTERVAL_MS; the close-time notice is unthrottled. */
+export function signalPhoneDesktopGone(socket, throttle = false) {
+  if (socket.readyState !== socket.OPEN) return;
+  const now = Date.now();
+  if (throttle && now - (socket.desktopGoneAt ?? -Infinity) < DESKTOP_GONE_NOTICE_INTERVAL_MS) return;
+  socket.desktopGoneAt = now;
+  try {
+    socket.send(JSON.stringify({ resync: 'desktop-gone' }));
+  } catch {
+    /* peer vanished */
+  }
+}
+
 /** Oversize toward the DESKTOP leg. The desktop is what answers phone RPCs, so
  *  name the client whose call produced the refused frame whenever that can be
  *  read without touching the payload: only the desktop can hand that phone an

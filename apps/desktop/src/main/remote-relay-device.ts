@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import WebSocket from 'ws';
 
+import { withFileLock } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { readSecretFile, writeSecretFile } from './secret-file';
 
 export const REVOKE_TIMEOUT_MS = 5_000;
@@ -65,6 +66,22 @@ async function writeDeviceIdentity(path: string): Promise<DeviceIdentity> {
   return identity;
 }
 
+/** The stored identity; null when the file is absent; `{ corrupt }` with the
+ *  unreadable text when it was read but holds no valid identity. Read,
+ *  permission and lock errors propagate. */
+async function readStoredDevice(path: string): Promise<DeviceIdentity | { corrupt: string } | null> {
+  const text = await readSecretFile(path);
+  if (text === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { corrupt: text };
+  }
+  if (!validDeviceIdentity(parsed)) return { corrupt: text };
+  return { deviceId: parsed.deviceId, deviceSecret: parsed.deviceSecret };
+}
+
 async function loadQueuedRevocations(userDataPath: string): Promise<DeviceIdentity[]> {
   try {
     const parsed = JSON.parse((await readSecretFile(join(userDataPath, DEVICE_REVOCATIONS_FILE))) ?? '[]') as unknown;
@@ -92,15 +109,23 @@ function mutateDeviceFiles<T>(operation: () => Promise<T>): Promise<T> {
 // It authenticates this desktop's leg, so it lives in an owner-only file.
 export async function loadOrCreateDevice(userDataPath: string): Promise<DeviceIdentity> {
   const path = join(userDataPath, DEVICE_IDENTITY_FILE);
-  try {
-    const parsed = JSON.parse((await readSecretFile(path)) ?? 'null') as unknown;
-    if (validDeviceIdentity(parsed)) {
-      return { deviceId: parsed.deviceId, deviceSecret: parsed.deviceSecret };
-    }
-  } catch {
-    /* first run */
-  }
-  return writeDeviceIdentity(path);
+  // Only a genuinely absent file (readSecretFile -> null) mints an identity;
+  // any read/permission/lock error propagates so the relay retries later
+  // instead of orphaning every paired phone's device id.
+  // A file that reads fine but holds no valid identity can never recover on
+  // retry: keep its text beside it, then mint a new identity.
+  const existing = await readStoredDevice(path);
+  if (existing && !('corrupt' in existing)) return existing;
+  return withFileLock(
+    `${path}.lock`,
+    async () => {
+      const stored = await readStoredDevice(path);
+      if (stored && !('corrupt' in stored)) return stored;
+      if (stored) await writeSecretFile(`${path}.corrupt-${Date.now()}`, stored.corrupt);
+      return writeDeviceIdentity(path);
+    },
+    { secret: true }
+  );
 }
 
 /** Queue the current identity for authenticated server-side deletion, then

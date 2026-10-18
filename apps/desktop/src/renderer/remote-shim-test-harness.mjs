@@ -122,6 +122,8 @@ export const withShim = async ({ secure = true } = {}, run) => {
       backgroundSuspended: false,
       resyncOnWake: false,
       lastTrafficAt: 0,
+      unprovenSocket: null,
+      resyncAfterWakeProbe: false,
       viewResumeToken: null,
       carriedResumeToken: null,
       pendingReconnectNotification: false,
@@ -147,6 +149,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
       resetDeltaState() {},
       refreshBroadcastLanes() {},
       clearWakePongTimer() {},
+      answerWakeProbe() {},
       wakeProbe() {},
       requestResync: () => {
         resyncs += 1;

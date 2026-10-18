@@ -17,11 +17,20 @@ const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
 const bash = windows ? (existsSync(gitBash) ? gitBash : null) : existsSync('/bin/bash') ? '/bin/bash' : null;
 const marker = (body) => `\x1b]697;${body}\x07`;
 
-/** Run `file` with `input` on stdin; resolves with stdout + stderr. */
+/**
+ * Run `file` with `input` on stdin; resolves with stdout + stderr.
+ *
+ * A `-c` shell never reads stdin and can exit before we close the pipe, so the
+ * write fails with EPIPE on a fast machine (seen on Linux arm64). That alone
+ * is not a failure: the assertions on the output decide. It is a failure when
+ * the shell also exited abnormally, and then the error carries the exit code
+ * and the shell's output.
+ */
 function run(file, args, env, input) {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { env, windowsHide: true });
     let out = '';
+    let stdinError = null;
     child.stdout.on('data', (chunk) => (out += chunk));
     child.stderr.on('data', (chunk) => (out += chunk));
     const timer = setTimeout(() => {
@@ -29,8 +38,20 @@ function run(file, args, env, input) {
       reject(new Error(`timed out; output so far: ${JSON.stringify(out)}`));
     }, 30_000);
     child.on('error', reject);
-    child.on('exit', () => {
+    child.stdin.on('error', (error) => {
+      stdinError = error;
+    });
+    // 'close' fires after the output streams drain; 'exit' may precede the last chunk.
+    child.on('close', (code, signal) => {
       clearTimeout(timer);
+      if (stdinError && (stdinError.code !== 'EPIPE' || code !== 0)) {
+        reject(
+          new Error(`${stdinError.message}; exit code ${code}, signal ${signal}; output: ${JSON.stringify(out)}`, {
+            cause: stdinError,
+          })
+        );
+        return;
+      }
       resolve(out);
     });
     child.stdin.end(input);
