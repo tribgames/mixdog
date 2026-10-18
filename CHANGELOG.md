@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+### Bug fixes
+
+- Fixed every turn in a project failing with "Workspace activity cannot be verified" after a crash left the workspace ledger unreadable; the damaged file is now set aside and work resumes.
+
 ## v1.2.5 - 2026-10-18
 
 Phones now connect faster and without popups, the desktop no longer slows down once many agents have run, and streaming replies appear more smoothly.

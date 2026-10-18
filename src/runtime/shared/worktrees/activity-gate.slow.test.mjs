@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { admitWorkspaceActivity, holdWorkspaceActivity, tryAdmitWorkspaceActivity } from './activity-gate.mjs';
@@ -190,7 +190,7 @@ test('a shell targeting a different checkout waits before spawning and cancels w
   holdWorkspaceActivity([repo])();
 });
 
-test('cancellation while waiting registers nothing; corrupt ledger and failed release remain visible', async () => {
+test('cancellation while waiting registers nothing', async () => {
   const repo = makeRepo();
   const writer = holdWorkspaceActivity([repo]);
   const controller = new AbortController();
@@ -198,13 +198,50 @@ test('cancellation while waiting registers nothing; corrupt ledger and failed re
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
   writer();
-  const leave = tryAdmitWorkspaceActivity('reader', repo);
   const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-  const original = readFileSync(path, 'utf8');
-  writeFileSync(path, '{broken');
-  assert.throws(leave, { code: 'WORKTREE_BUSY_JOBS' });
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
-  writeFileSync(path, original);
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).leases, []);
+  holdWorkspaceActivity([repo])();
+});
+
+// A crash that commits the ledger's size but not its bytes leaves it NUL-filled
+// (observed on NTFS). Such a ledger is quarantined and admission starts over,
+// instead of refusing every turn in the project until someone deletes the file.
+test('a torn ledger is moved aside and admission resumes; an unreadable ledger still refuses', () => {
+  const repo = makeRepo();
+  const gitDir = join(repo, '.git');
+  const path = join(gitDir, 'mixdog-workspace-admission.json');
+  const leave = tryAdmitWorkspaceActivity('reader', repo);
+  const torn = Buffer.alloc(readFileSync(path).length);
+  writeFileSync(path, torn);
+  // The stale lease died with the crash: a writer is admitted, and the
+  // orphaned release is a no-op rather than a failure.
+  holdWorkspaceActivity([repo])();
   leave();
+  const quarantined = readdirSync(gitDir).filter((name) => name.startsWith('mixdog-workspace-admission.json.corrupt-'));
+  assert.equal(quarantined.length, 1);
+  assert.deepEqual(readFileSync(join(gitDir, quarantined[0])), torn);
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).leases, []);
+
+  // Not JSON, but not NUL-filled either: also torn, also quarantined.
+  writeFileSync(path, '{broken');
+  assert.ok(tryAdmitWorkspaceActivity('again', repo));
+  assert.equal(
+    readdirSync(gitDir).filter((name) => name.startsWith('mixdog-workspace-admission.json.corrupt-')).length,
+    2
+  );
+
+  // A ledger that cannot be read (a directory in its place) is not empty:
+  // nothing is admitted, held or overwritten.
+  unlinkSync(path);
+  mkdirSync(path);
+  assert.throws(() => tryAdmitWorkspaceActivity('blocked', repo), {
+    code: 'WORKTREE_BUSY_JOBS',
+    details: { reason: 'workspace-admission-unreadable' },
+  });
+  assert.throws(() => holdWorkspaceActivity([repo]), {
+    code: 'WORKTREE_BUSY_JOBS',
+    details: { reason: 'workspace-admission-unreadable' },
+  });
+  rmdirSync(path);
   holdWorkspaceActivity([repo])();
 });
