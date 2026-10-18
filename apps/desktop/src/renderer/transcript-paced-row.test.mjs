@@ -34,28 +34,89 @@ async function mountRow(props) {
 const fadeDurations = (host, selector = '[data-stream-fade]') =>
   [...host.querySelectorAll(selector)].map((node) => Number.parseFloat(node.style.getPropertyValue('--mx-fade-ms')));
 
-test('completion drains the rest of a paced reply quickly, then turns the fade off', async () => {
-  const streaming = { id: 'a1', kind: 'assistant', text: 'Hi', streaming: true };
+/** Wait for the markdown tree of the painted text: it parses asynchronously,
+ *  and until it lands the row paints nothing of that text. Waits on that
+ *  condition, never on a time window, and the fake clock does not move. */
+async function parsed(host) {
+  for (let i = 0; i < 400 && host.querySelector('[data-transcript-pending]'); i += 1) {
+    await act(async () => sleep(5));
+  }
+  assert.equal(host.querySelector('[data-transcript-pending]'), null, 'the markdown parse landed');
+}
+
+/** A manual frame clock: the pacer reads performance.now and runs on
+ *  requestAnimationFrame, so a test that drives both sees every step in order
+ *  whatever the runner's load. */
+function installFrameClock(t) {
+  let clock = performance.now();
+  const frames = new Map();
+  let handle = 0;
+  t.mock.method(performance, 'now', () => clock);
+  t.mock.method(globalThis, 'requestAnimationFrame', (callback) => {
+    handle += 1;
+    frames.set(handle, callback);
+    return handle;
+  });
+  t.mock.method(globalThis, 'cancelAnimationFrame', (id) => frames.delete(id));
+  /** Advance the clock `ms`, run the frames due, and wait for the parse. */
+  return async (host, ms = 16) => {
+    await act(async () => {
+      clock += ms;
+      const due = [...frames.values()];
+      frames.clear();
+      for (const callback of due) callback(clock);
+    });
+    await parsed(host);
+  };
+}
+
+test('completion drains the rest of a paced reply quickly, then turns the fade off', async (t) => {
+  const FULL = `Hi ${LONG}`.trim();
+  const streaming = { id: 'a1', kind: 'assistant', text: 'Hi', streaming: true, phase: 'final_answer' };
   const view = await mountRow({ item: streaming, paceKey: 's:a1', pace: true });
-  // The markdown parser loads on first use.
+  // The markdown parser loads on first use (real time); the frame clock takes
+  // over once it has.
   await act(async () => sleep(300));
-  await view.render({ item: { ...streaming, text: LONG }, paceKey: 's:a1', pace: true });
+  const frame = installFrameClock(t);
+  // Growth of the received text is paced; a text that does not extend it
+  // would be a rewrite, shown whole.
+  await view.render({ item: { ...streaming, text: `Hi ${LONG}` }, paceKey: 's:a1', pace: true });
+  await parsed(view.host);
+  // A few steps of the paced reveal, so the completion finds a backlog mid-way.
+  for (let i = 0; i < 10; i += 1) await frame(view.host);
+  const revealed = view.host.textContent.length;
+  assert.ok(revealed > 0 && revealed < FULL.length, `paced when the turn completes: ${revealed}`);
   const completion = { id: 'd1', kind: 'turndone', status: 'done', elapsedMs: 10 };
   await view.render({
-    item: { id: 'a1', kind: 'assistant', text: LONG },
+    item: { id: 'a1', kind: 'assistant', text: `Hi ${LONG}`, phase: 'final_answer' },
     completion,
     paceKey: 's:a1',
     pace: true,
   });
+  await parsed(view.host);
   assert.ok(view.host.querySelector('article').className.includes('settled'));
   assert.ok(view.host.querySelector('.response-footer'));
-  assert.ok(!view.host.textContent.includes(LONG.trim()), 'the backlog drains instead of snapping');
-  await act(async () => sleep(400));
-  assert.ok(view.host.textContent.includes(LONG.trim()), 'drained within the drain time');
+  assert.ok(!view.host.textContent.includes(FULL), 'the backlog drains instead of snapping');
+  // The drain runs PACER_DRAIN_MS (200 ms): sampled frame by frame, it passes
+  // through several states, growing each time, before the whole text shows.
+  const lengths = new Set();
+  let previous = view.host.textContent.length;
+  for (let i = 0; i < 20 && !view.host.textContent.includes(FULL); i += 1) {
+    await frame(view.host);
+    const length = view.host.textContent.length;
+    assert.ok(length >= previous, 'the drain only grows');
+    previous = length;
+    if (!view.host.textContent.includes(FULL)) lengths.add(length);
+  }
+  assert.ok(view.host.textContent.includes(FULL), 'drained within the drain time');
+  assert.ok(lengths.size >= 2, `the backlog drains over several steps, not one: ${[...lengths]}`);
+  // The fade stays on until the drained words are inked (FADE_FLOOR_MS).
+  for (let i = 0; i < 20 && view.host.querySelector('[data-stream-fade], [data-stream-fade-box]'); i += 1) {
+    await frame(view.host);
+  }
   assert.equal(view.host.querySelector('[data-stream-fade], [data-stream-fade-box]'), null, 'the fade is off');
   await view.cleanup();
 });
-
 test('commentary shows as it arrives, its fade 150 ms; a final answer is paced, fading 120-500 ms', async () => {
   const commentary = { id: 'c1', kind: 'assistant', text: 'Checking', streaming: true, phase: 'commentary' };
   const view = await mountRow({ item: commentary, paceKey: 's:c1', pace: true });
