@@ -4,7 +4,45 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { ANDROID_FALLBACK_URL, createAppPageHandler, readAndroidUrl, renderAppPage } from './app-page.mjs';
+import {
+  ANDROID_FALLBACK_URL,
+  createAppPageHandler,
+  createLatestHandler,
+  readAndroidUrl,
+  renderAppPage,
+} from './app-page.mjs';
+
+function latest(androidUrl, method = 'GET') {
+  const result = {};
+  const response = {
+    writeHead(status, head) {
+      Object.assign(result, { status, head });
+      return this;
+    },
+    end(body) {
+      result.body = body;
+    },
+  };
+  createLatestHandler(androidUrl)({ method, headers: {} }, response);
+  return result;
+}
+
+test('/app/latest.json reports the version and APK of the deployed release', () => {
+  const ok = latest(RELEASE_URL);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(JSON.parse(ok.body), { version: '0.1.13', url: RELEASE_URL });
+  assert.equal(ok.head['Cache-Control'], 'no-store');
+  assert.equal(ok.head['X-Content-Type-Options'], 'nosniff');
+  assert.match(ok.head['Content-Type'], /^application\/json/);
+  assert.equal(latest(RELEASE_URL, 'HEAD').body, undefined);
+  assert.equal(latest(RELEASE_URL, 'POST').status, 405);
+});
+
+test('/app/latest.json is 404 when only the releases page is known', () => {
+  const missing = latest(ANDROID_FALLBACK_URL);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.head['Cache-Control'], 'no-store');
+});
 
 const RELEASE_URL = 'https://github.com/tribgames/mixdog/releases/download/mobile-v0.1.13/Mixdog-0.1.13.apk';
 

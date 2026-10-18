@@ -63,7 +63,7 @@ import { MAX_HOOK_PENDING_PER_DEVICE, failHookPending, handleHookRequest, runHoo
 import { startSocketDiagnostics } from './lib/relay-diagnostics.mjs';
 import { failMediaPending, handleMediaRequest } from './lib/relay-media-proxy.mjs';
 import { handleClaimRequest, handleClientRegistration } from './lib/relay-pairing.mjs';
-import { sendAppPage } from './lib/app-page.mjs';
+import { sendAppPage, sendLatestRelease } from './lib/app-page.mjs';
 import { sendConnectPage } from './lib/connect-page.mjs';
 import { PairCodes, createPresenceLimiter, handlePairCodeRequest } from './lib/pair-codes.mjs';
 import { serveStatic } from './lib/relay-static-gate.mjs';
@@ -410,6 +410,10 @@ function routeRequest(relay, request, response) {
   }
   if (url.split('?')[0] === '/app') {
     sendAppPage(request, response);
+    return;
+  }
+  if (url.split('?')[0] === '/app/latest.json') {
+    sendLatestRelease(request, response);
     return;
   }
   if (url.split('?')[0] === '/connect') {

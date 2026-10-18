@@ -26,8 +26,15 @@ The reason the app exists is **reliable native push**:
   session and resolve the approval with `resolveToolApprovalForSession`. A plain
   tap opens the session through the web app's notification navigation.
 - Android updates itself in-app (`MixdogAppUpdater`): it looks up GitHub Releases
-  (`mobile-v*` with an `.apk` asset, at most every 6 hours or on a manual check),
-  downloads the APK with the system DownloadManager, verifies size, SHA-256 and
+  (`mobile-v*` with an `.apk` asset). Every 10 minutes and on a manual check it
+  asks the relay's public `GET /app/latest.json` (`{"version","url"}`, default
+  origin as the desktop); only when that version is newer than the installed one
+  does it call the GitHub releases API (selection and checks unchanged). If the
+  relay is unavailable (unreachable, 404 from an older relay, any non-200 or a
+  malformed answer) it falls back to GitHub, at most once an hour; only a valid
+  answer that is not newer counts as up to date. The relay
+  answer is just a hint, validated against the strict APK URL pattern; the APK
+  itself is verified as below. It downloads the APK with the system DownloadManager, verifies size, SHA-256 and
   signing certificate against the installed app, and hands it to the system
   installer. Web pages drive it through the native bridge (`getAppUpdate`,
   `startAppUpdate`, `cancelAppUpdate`, `installAppUpdate`, `dismissAppUpdate`,

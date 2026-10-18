@@ -31,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -62,7 +63,13 @@ final class MixdogAppUpdater {
   private static final String TAG_PREFIX = "mobile-v";
   private static final String APK_MIME = "application/vnd.android.package-archive";
   private static final String UPDATES_DIR = "updates";
-  private static final long CHECK_INTERVAL_MS = 6L * 60 * 60 * 1000;
+  // The relay (same default origin as the desktop) names the newest published
+  // version; GitHub's 60/h anonymous limit is only touched when that is newer
+  // than the installed app, or as a once-an-hour fallback if the relay is down.
+  private static final String RELAY_LATEST = "https://192-255-139-161.sslip.io/app/latest.json";
+  private static final String GITHUB_CHECK = "github_check";
+  private static final long CHECK_INTERVAL_MS = 10L * 60 * 1000;
+  private static final long GITHUB_FALLBACK_MS = 60L * 60 * 1000;
   // Progress reaches the web app at most ~4 times a second.
   private static final long POLL_MS = 250;
   private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -395,7 +402,88 @@ final class MixdogAppUpdater {
     }
   }
 
+  /**
+   * The relay is asked every interval (it is not rate limited); GitHub only when
+   * the relay reports a newer version, or, with the relay unreachable, at most
+   * once per GITHUB_FALLBACK_MS. The relay answer is only a hint: the release
+   * itself still comes from the GitHub lookup and is verified as before.
+   */
   private Release lookup() throws Exception {
+    String relayVersion = null; // null = relay unavailable
+    try {
+      relayVersion = relayLatestVersion();
+    } catch (Exception e) {
+      // Unreachable, 404 (old relay or no release known), any non-200 or a bad body.
+    }
+    switch (planLookup(relayVersion, installed, System.currentTimeMillis(), prefs().getLong(GITHUB_CHECK, 0))) {
+      case PLAN_GITHUB:
+        return githubLookup();
+      case PLAN_UP_TO_DATE:
+        return null;
+      default:
+        throw new IOException("relay unavailable, GitHub fallback not due");
+    }
+  }
+
+  private static final int PLAN_UP_TO_DATE = 0;
+  private static final int PLAN_GITHUB = 1;
+  private static final int PLAN_SKIP = 2;
+
+  /**
+   * What a lookup does. relayVersion is the version from a valid 200 relay
+   * answer, or null when the relay is unavailable (unreachable, 404, any other
+   * non-200, malformed body).
+   *  - valid answer, not newer than installed -> PLAN_UP_TO_DATE (no GitHub call)
+   *  - valid answer, newer                    -> PLAN_GITHUB
+   *  - unavailable, last GitHub call >= 1 h ago (or clock went back) -> PLAN_GITHUB
+   *  - unavailable, last GitHub call < 1 h ago -> PLAN_SKIP (counts as a failed check)
+   */
+  static int planLookup(String relayVersion, String installedVersion, long now, long lastGithubCheck) {
+    if (relayVersion != null) {
+      return compareVersions(relayVersion, installedVersion) > 0 ? PLAN_GITHUB : PLAN_UP_TO_DATE;
+    }
+    boolean recent = now >= lastGithubCheck && now - lastGithubCheck < GITHUB_FALLBACK_MS;
+    return recent ? PLAN_SKIP : PLAN_GITHUB;
+  }
+
+  /** The version from a valid 200 relay answer; throws on anything else (404 included) so the caller treats the relay as unavailable. */
+  private String relayLatestVersion() throws Exception {
+    HttpURLConnection connection = (HttpURLConnection) new URL(RELAY_LATEST).openConnection();
+    try {
+      connection.setInstanceFollowRedirects(false);
+      connection.setConnectTimeout(10_000);
+      connection.setReadTimeout(15_000);
+      connection.setRequestProperty("Accept", "application/json");
+      connection.setRequestProperty("User-Agent", "MixdogApp/" + installed);
+      int code = connection.getResponseCode();
+      if (code != 200) throw new IOException("HTTP " + code);
+      String version = parseRelayLatest(readBody(connection));
+      if (version == null) throw new IOException("bad relay answer");
+      return version;
+    } finally {
+      connection.disconnect();
+    }
+  }
+
+  /** The version of a well-formed relay answer (version matches the strict APK url), else null. */
+  static String parseRelayLatest(String json) {
+    try {
+      JSONObject o = new JSONObject(json);
+      String version = o.optString("version", "");
+      String url = o.optString("url", "");
+      if (!version.matches("\\d+\\.\\d+\\.\\d+")) return null;
+      if (!url.matches(
+          Pattern.quote(DOWNLOAD_PREFIX + TAG_PREFIX + version + "/") + "[A-Za-z0-9_.-]+\\.apk")) {
+        return null;
+      }
+      return version;
+    } catch (JSONException e) {
+      return null;
+    }
+  }
+
+  private Release githubLookup() throws Exception {
+    prefs().edit().putLong(GITHUB_CHECK, System.currentTimeMillis()).commit();
     HttpURLConnection connection = (HttpURLConnection) new URL(RELEASES_API).openConnection();
     try {
       connection.setConnectTimeout(10_000);
@@ -403,18 +491,22 @@ final class MixdogAppUpdater {
       connection.setRequestProperty("Accept", "application/vnd.github+json");
       connection.setRequestProperty("User-Agent", "MixdogApp/" + installed);
       if (connection.getResponseCode() != 200) throw new IOException("HTTP " + connection.getResponseCode());
-      try (InputStream in = connection.getInputStream()) {
-        ByteArrayOutputStream body = new ByteArrayOutputStream();
-        byte[] buffer = new byte[16 * 1024];
-        int n;
-        while ((n = in.read(buffer)) > 0) {
-          body.write(buffer, 0, n);
-          if (body.size() > MAX_RESPONSE_BYTES) throw new IOException("response too large");
-        }
-        return pick(new JSONArray(new String(body.toByteArray(), StandardCharsets.UTF_8)), installed);
-      }
+      return pick(new JSONArray(readBody(connection)), installed);
     } finally {
       connection.disconnect();
+    }
+  }
+
+  private static String readBody(HttpURLConnection connection) throws IOException {
+    try (InputStream in = connection.getInputStream()) {
+      ByteArrayOutputStream body = new ByteArrayOutputStream();
+      byte[] buffer = new byte[16 * 1024];
+      int n;
+      while ((n = in.read(buffer)) > 0) {
+        body.write(buffer, 0, n);
+        if (body.size() > MAX_RESPONSE_BYTES) throw new IOException("response too large");
+      }
+      return new String(body.toByteArray(), StandardCharsets.UTF_8);
     }
   }
 

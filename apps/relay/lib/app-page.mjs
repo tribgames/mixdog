@@ -113,3 +113,31 @@ export function createAppPageHandler(androidUrl) {
 }
 
 export const sendAppPage = createAppPageHandler(readAndroidUrl());
+
+// Public read-only hint for the Android updater: the newest published version
+// and its APK, so the app only asks GitHub when this is newer than itself.
+export function createLatestHandler(androidUrl) {
+  const version = androidUrl.match(/\/mobile-v(\d+\.\d+\.\d+)\//)?.[1];
+  const body = isAndroidApkUrl(androidUrl) && version ? JSON.stringify({ version, url: androidUrl }) : null;
+  return (request, response) => {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.writeHead(405).end();
+      return;
+    }
+    if (body === null) {
+      // 404 = "no APK known here": the client must treat the relay as
+      // unavailable and use its rate-limited GitHub fallback, not assume up to date.
+      response.writeHead(404, { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }).end();
+      return;
+    }
+    response
+      .writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      })
+      .end(request.method === 'HEAD' ? undefined : body);
+  };
+}
+
+export const sendLatestRelease = createLatestHandler(readAndroidUrl());
