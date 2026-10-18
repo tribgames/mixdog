@@ -4,6 +4,32 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Il desktop ora consuma meno risorse in inattività e passa da una sessione all'altra più rapidamente, i comandi della shell passano in background dopo 60 secondi e la gestione dei modelli e l'accesso a OpenCode Go sono ora disponibili.
+
+### Nuove funzionalità
+
+- **Gestione dei modelli** — Aggiunta una pagina in Impostazioni per aggiungere ai preferiti e nascondere i modelli, oltre a un menu contestuale nel selettore dei modelli.
+- **Accesso a OpenCode Go** — Aggiunto l'accesso a OpenCode Go con il proprio account OpenCode; sostituisce la vecchia chiave API.
+
+### Modifiche
+
+- Modificato il desktop per utilizzare meno CPU in inattività e passare da una sessione all'altra più rapidamente.
+- Modificata la shell per spostare i comandi in background dopo 60 secondi; le notifiche di completamento ora includono il codice di uscita e l'output.
+- Modificati gli elenchi dei provider per mostrare il motivo del mancato caricamento dei modelli invece di un elenco vuoto, ed è stato aggiunto un collegamento alla chiave API per i provider connessi.
+- Modificata l'archiviazione o l'eliminazione di una sessione occupata richiedendo prima una conferma (#109).
+- Modificate le risposte per risultare più brevi da leggere e raggruppare risultati, cause e decisioni; le tabelle ora vanno a capo invece di scorrere orizzontalmente.
+
+### Correzioni di bug
+
+- Corretto il blocco del backend sotto carico elevato di agent e il suo riavvio automatico, che interrompeva gli agent in esecuzione.
+- Corretto l'annullamento che lasciava processi figlio e server ancora in esecuzione (#115).
+- Corretto il testo incollato difficile da leggere o modificare quando era lungo (#110), e la digitazione di un singolo `/` nel compositore (thanks @oh1701).
+- Corretta la finestra di dialogo di conferma della shell che spingeva i propri pulsanti fuori dallo schermo (#114) e le cartelle `.git` vuote che bloccavano le attività (#108).
+- Corretto il totale di utilizzo degli agent che escludeva gli agent chiusi (#99, thanks @22nsuk).
+- Corretti gli allegati persi durante il caricamento e un agent non riuscito che contrassegnava l'intera scheda della sessione come non riuscita.
+- Corretto il fallimento di ogni turno con "Workspace activity cannot be verified" dopo che un arresto anomalo ha danneggiato il registro dell'area di lavoro.
+- Corretti i tempi di attesa degli account scaduti che non venivano ritentati (#106), i backup delle impostazioni che perdevano gli originali (#105) e la cronologia di utilizzo illeggibile che bloccava i totali (#103), thanks @22nsuk.
+
 ## v1.2.5 - 2026-10-18
 
 I telefoni ora si connettono più velocemente e senza popup, il desktop non rallenta più quando sono stati eseguiti molti agent e le risposte in streaming appaiono in modo più fluido.

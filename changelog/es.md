@@ -5,6 +5,32 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+El escritorio ahora consume menos recursos en reposo y cambia de sesión más rápido, los comandos de shell pasan a segundo plano tras 60 segundos, y la gestión de modelos y el inicio de sesión en OpenCode Go son nuevos.
+
+### Nuevas funciones
+
+- **Gestión de modelos** — Se añadió una página de Configuración para marcar modelos como favoritos y ocultarlos, además de un menú contextual en el selector de modelos.
+- **Inicio de sesión en OpenCode Go** — Se añadió el inicio de sesión en OpenCode Go con su cuenta de OpenCode; reemplaza la antigua clave de API.
+
+### Cambios
+
+- Se cambió el escritorio para usar menos CPU en reposo y cambiar de sesión más rápido.
+- Se cambió la shell para pasar los comandos a segundo plano tras 60 segundos; los avisos de finalización ahora incluyen el código de salida y la salida.
+- Se cambiaron las listas de proveedores para mostrar por qué los modelos no pudieron cargarse en lugar de una lista vacía, y se añadió un enlace a la clave de API en los proveedores conectados.
+- Se cambió el archivado o la eliminación de una sesión ocupada para pedir confirmación primero (#109).
+- Se cambiaron las respuestas para que sean más breves de leer y agrupen resultados, causas y decisiones; las tablas ahora se ajustan en lugar de desplazarse horizontalmente.
+
+### Correcciones de errores
+
+- Se corrigió que el backend se bloqueara bajo una gran carga de agentes y se reiniciara a sí mismo, deteniendo los agentes en ejecución.
+- Se corrigió que la cancelación dejara procesos secundarios y servidores en ejecución (#115).
+- Se corrigió que el texto pegado fuera difícil de leer o editar cuando era largo (#110), y al escribir un `/` simple en el compositor (thanks @oh1701).
+- Se corrigió que el cuadro de diálogo de confirmación de shell empujara sus botones fuera de la pantalla (#114) y que las carpetas `.git` vacías bloquearan las tareas (#108).
+- Se corrigió que los totales de uso de agentes omitieran los agentes cerrados (#99, thanks @22nsuk).
+- Se corrigió la pérdida de archivos adjuntos durante la carga y que un agente fallido marcara toda la pestaña de su sesión como fallida.
+- Se corrigió que cada turno fallara con "Workspace activity cannot be verified" después de que un bloqueo dañara el registro del espacio de trabajo.
+- Se corrigió que los tiempos de espera de cuentas expiradas no se reintentaran (#106), que las copias de seguridad de la configuración perdieran los originales (#105) y que el historial de uso ilegible bloqueara los totales (#103), thanks @22nsuk.
+
 ## v1.2.5 - 2026-10-18
 
 Los teléfonos ahora se conectan más rápido y sin ventanas emergentes, el escritorio ya no se ralentiza cuando se han ejecutado muchos agentes y las respuestas en streaming aparecen con mayor fluidez.

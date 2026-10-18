@@ -4,6 +4,32 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+O desktop agora consome menos recursos quando ocioso e alterna entre sessões mais rapidamente, comandos de shell passam para o segundo plano após 60 segundos, e o gerenciamento de modelos e o login no OpenCode Go são novidades.
+
+### Novos recursos
+
+- **Gerenciamento de modelos** — Adicionada uma página em Configurações para favoritar e ocultar modelos, além de um menu de clique com o botão direito no seletor de modelos.
+- **Login no OpenCode Go** — Adicionado o login no OpenCode Go com sua conta OpenCode; substitui a antiga chave de API.
+
+### Alterações
+
+- Alterado o desktop para usar menos CPU quando ocioso e alternar entre sessões mais rapidamente.
+- Alterado o shell para mover comandos para o segundo plano após 60 segundos; os avisos de conclusão agora incluem o código de saída e a saída.
+- Alteradas as listas de provedores para mostrar por que os modelos falharam ao carregar em vez de uma lista vazia, e adicionado um link para a chave de API nos provedores conectados.
+- Alterado o arquivamento ou a exclusão de uma sessão ocupada para solicitar confirmação primeiro (#109).
+- Alteradas as respostas para ficarem mais concisas e agruparem resultados, causas e decisões; tabelas agora quebram linhas em vez de rolar horizontalmente.
+
+### Correções de bugs
+
+- Corrigido o backend travando sob alta carga de agentes e reiniciando a si mesmo, o que interrompia os agentes em execução.
+- Corrigido o cancelamento deixando processos filhos e servidores em execução (#115).
+- Corrigido o texto colado sendo difícil de ler ou editar quando longo (#110), e a digitação de uma `/` simples no compositor (thanks @oh1701).
+- Corrigida a caixa de diálogo de confirmação do shell empurrando seus botões para fora da tela (#114) e pastas `.git` vazias bloqueando tarefas (#108).
+- Corrigido o total de uso dos agentes deixando de fora agentes encerrados (#99, thanks @22nsuk).
+- Corrigida a perda de anexos durante o carregamento e um agente com falha marcando toda a aba de sua sessão como com falha.
+- Corrigido cada turno falhando com "Workspace activity cannot be verified" após uma falha danificar o registro do espaço de trabalho.
+- Corrigidos tempos de espera de contas expiradas não tentando novamente (#106), backups de configurações perdendo os originais (#105) e histórico de uso ilegível bloqueando os totais (#103), thanks @22nsuk.
+
 ## v1.2.5 - 2026-10-18
 
 Os telefones agora se conectam mais rápido e sem pop-ups, o desktop não fica mais lento quando muitos agentes são executados e as respostas em streaming aparecem com mais suavidade.

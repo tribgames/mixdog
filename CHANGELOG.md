@@ -5,9 +5,31 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+The desktop now idles lighter and switches sessions faster, shell commands move to the background after 60 seconds, and Model management and OpenCode Go sign-in are new.
+
+### New features
+
+- **Model management** — Added a Settings page to favourite and hide models, plus a right-click menu in the model picker.
+- **OpenCode Go sign-in** — Added signing in to OpenCode Go with your OpenCode account; it replaces the old API key.
+
+### Changes
+
+- Changed the desktop to use less CPU while idle and to switch sessions faster.
+- Changed the shell to move a command to the background after 60 seconds; completion notices now include the exit code and output.
+- Changed provider lists to show why models failed to load instead of an empty list, and added an API key link to connected providers.
+- Changed archiving or deleting a busy session to ask for confirmation first (#109).
+- Changed replies to read shorter and group results, causes, and decisions; tables now wrap instead of scrolling sideways.
+
 ### Bug fixes
 
-- Fixed every turn in a project failing with "Workspace activity cannot be verified" after a crash left the workspace ledger unreadable; the damaged file is now set aside and work resumes.
+- Fixed the backend stalling under heavy agent load and restarting itself, which stopped running agents.
+- Fixed cancel leaving child processes and servers running (#115).
+- Fixed pasted text being hard to read or edit when long (#110), and typing a plain `/` in the composer (thanks @oh1701).
+- Fixed the shell confirm dialog pushing its buttons off screen (#114) and empty `.git` folders blocking tasks (#108).
+- Fixed agent usage totals leaving out closed agents (#99, thanks @22nsuk).
+- Fixed attachments being lost while loading, and a failed agent marking its whole session tab as failed.
+- Fixed every turn failing with "Workspace activity cannot be verified" after a crash damaged the workspace ledger.
+- Fixed expired account cooldowns not retrying (#106), settings backups losing originals (#105), and unreadable usage history blocking totals (#103), thanks @22nsuk.
 
 ## v1.2.5 - 2026-10-18
 

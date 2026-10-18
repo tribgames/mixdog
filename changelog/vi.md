@@ -4,6 +4,32 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Ứng dụng máy tính hiện tiêu tốn ít tài nguyên hơn khi nhàn rỗi và chuyển đổi phiên nhanh hơn, các lệnh shell sẽ chuyển sang chạy ngầm sau 60 giây, cùng với tính năng quản lý mô hình và đăng nhập OpenCode Go mới.
+
+### Tính năng mới
+
+- **Quản lý mô hình** — Đã thêm trang Cài đặt để yêu thích và ẩn các mô hình, cùng với menu chuột phải trong bộ chọn mô hình.
+- **Đăng nhập OpenCode Go** — Đã thêm tính năng đăng nhập vào OpenCode Go bằng tài khoản OpenCode; thay thế khóa API cũ.
+
+### Thay đổi
+
+- Đã thay đổi ứng dụng máy tính để sử dụng ít CPU hơn khi nhàn rỗi và chuyển đổi phiên nhanh hơn.
+- Đã thay đổi shell để chuyển lệnh sang chạy ngầm sau 60 giây; thông báo hoàn tất hiện bao gồm mã thoát và đầu ra.
+- Đã thay đổi danh sách nhà cung cấp để hiển thị lý do mô hình không tải được thay vì danh sách trống, và thêm liên kết khóa API cho các nhà cung cấp đã kết nối.
+- Đã thay đổi việc lưu trữ hoặc xóa phiên đang bận để yêu cầu xác nhận trước (#109).
+- Đã thay đổi các câu trả lời để đọc ngắn gọn hơn và nhóm kết quả, nguyên nhân và quyết định; các bảng hiện tự xuống dòng thay vì cuộn ngang.
+
+### Sửa lỗi
+
+- Đã sửa lỗi phần phụ trợ bị treo khi tải tác nhân nặng và tự khởi động lại, làm gián đoạn các tác nhân đang chạy.
+- Đã sửa lỗi thao tác hủy vẫn để các tiến trình con và máy chủ tiếp tục chạy (#115).
+- Đã sửa lỗi văn bản dán dài khó đọc hoặc chỉnh sửa (#110), và lỗi khi nhập ký tự `/` đơn lẻ trong trình soạn thảo (thanks @oh1701).
+- Đã sửa lỗi hộp thoại xác nhận shell đẩy các nút ra ngoài màn hình (#114) và các thư mục `.git` trống chặn tác vụ (#108).
+- Đã sửa lỗi tổng mức sử dụng tác nhân bỏ sót các tác nhân đã đóng (#99, thanks @22nsuk).
+- Đã sửa lỗi mất tệp đính kèm trong khi tải và một tác nhân bị lỗi đánh dấu toàn bộ tab phiên của nó là thất bại.
+- Đã sửa lỗi mọi lượt đều thất bại với "Workspace activity cannot be verified" sau khi sự cố làm hỏng sổ cái không gian làm việc.
+- Đã sửa lỗi thời gian hồi tài khoản đã hết hạn không thử lại (#106), sao lưu cài đặt làm mất bản gốc (#105) và lịch sử sử dụng không thể đọc được chặn tính tổng (#103), thanks @22nsuk.
+
 ## v1.2.5 - 2026-10-18
 
 Điện thoại giờ đây kết nối nhanh hơn và không có cửa sổ bật lên, ứng dụng trên máy tính không còn bị chậm khi chạy nhiều tác nhân, và câu trả lời phát trực tuyến hiển thị mượt mà hơn.

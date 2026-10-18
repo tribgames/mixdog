@@ -5,6 +5,32 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+L'application de bureau consomme désormais moins de ressources en veille et change de session plus rapidement, les commandes shell passent en arrière-plan après 60 secondes, et la gestion des modèles ainsi que la connexion à OpenCode Go font leur apparition.
+
+### Nouvelles fonctionnalités
+
+- **Gestion des modèles** — Ajout d'une page dans Paramètres pour ajouter des modèles aux favoris et les masquer, ainsi qu'un menu contextuel dans le sélecteur de modèles.
+- **Connexion à OpenCode Go** — Ajout de la connexion à OpenCode Go avec votre compte OpenCode ; elle remplace l'ancienne clé API.
+
+### Modifications
+
+- Modification de l'application de bureau pour consommer moins de CPU en veille et changer de session plus rapidement.
+- Modification du shell pour faire passer une commande en arrière-plan après 60 secondes ; les notifications de fin incluent désormais le code de sortie et la sortie.
+- Modification des listes de fournisseurs pour afficher la raison de l'échec de chargement des modèles au lieu d'une liste vide, et ajout d'un lien vers la clé API pour les fournisseurs connectés.
+- Modification de l'archivage ou de la suppression d'une session occupée pour demander d'abord une confirmation (#109).
+- Modification des réponses pour une lecture plus concise et un regroupement des résultats, causes et décisions ; les tableaux s'ajustent désormais à la ligne au lieu de défiler horizontalement.
+
+### Corrections de bugs
+
+- Correction du blocage du backend sous une lourde charge d'agents suivi de son redémarrage automatique, ce qui interrompait les agents en cours d'exécution.
+- Correction de l'annulation qui laissait les processus enfants et les serveurs en cours d'exécution (#115).
+- Correction des textes collés difficiles à lire ou à modifier lorsqu'ils étaient longs (#110), et de la saisie d'un simple `/` dans le compositeur (thanks @oh1701).
+- Correction de la boîte de dialogue de confirmation du shell qui repoussait ses boutons hors de l'écran (#114) et des dossiers `.git` vides qui bloquaient les tâches (#108).
+- Correction des totaux d'utilisation des agents qui omettaient les agents fermés (#99, thanks @22nsuk).
+- Correction des pièces jointes perdues pendant le chargement, et d'un agent en échec marquant tout l'onglet de sa session comme ayant échoué.
+- Correction de chaque tour échouant avec "Workspace activity cannot be verified" après qu'un plantage a endommagé le registre de l'espace de travail.
+- Correction des délais d'attente de compte expirés qui n'étaient pas réessayés (#106), des sauvegardes de paramètres perdant les originaux (#105) et de l'historique d'utilisation illisible bloquant les totaux (#103), thanks @22nsuk.
+
 ## v1.2.5 - 2026-10-18
 
 Les téléphones se connectent désormais plus rapidement et sans fenêtres contextuelles, l'application de bureau ne ralentit plus après l'exécution de nombreux agents, et les réponses en streaming s'affichent de manière plus fluide.

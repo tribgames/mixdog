@@ -4,6 +4,32 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Der Desktop verbraucht im Leerlauf nun weniger Ressourcen und wechselt Sitzungen schneller, Shell-Befehle wechseln nach 60 Sekunden in den Hintergrund, und die Modellverwaltung sowie die Anmeldung bei OpenCode Go sind neu.
+
+### Neue Funktionen
+
+- **Modellverwaltung** — Einstellungsseite zum Favorisieren und Ausblenden von Modellen hinzugefügt, plus ein Rechtsklick-Menü in der Modellauswahl.
+- **OpenCode Go-Anmeldung** — Anmeldung bei OpenCode Go mit Ihrem OpenCode-Konto hinzugefügt; ersetzt den alten API-Schlüssel.
+
+### Änderungen
+
+- Desktop so geändert, dass er im Leerlauf weniger CPU verbraucht und Sitzungen schneller wechselt.
+- Shell so geändert, dass Befehle nach 60 Sekunden in den Hintergrund verschoben werden; Abschlussbenachrichtigungen enthalten nun den Exit-Code und die Ausgabe.
+- Anbieterlisten so geändert, dass bei fehlgeschlagenem Laden von Modellen der Grund statt einer leeren Liste angezeigt wird, und Link zu API-Schlüsseln bei verbundenen Anbietern hinzugefügt.
+- Archivieren oder Löschen einer aktiven Sitzung so geändert, dass zunächst um Bestätigung gebeten wird (#109).
+- Antworten so geändert, dass sie kürzer zu lesen sind und Ergebnisse, Ursachen sowie Entscheidungen gruppieren; Tabellen werden nun umbrochen, anstatt seitlich zu scrollen.
+
+### Fehlerbehebungen
+
+- Behoben: Das Backend geriet unter hoher Agenten-Last ins Stocken und startete sich selbst neu, wodurch laufende Agenten abbrachen.
+- Behoben: Beim Abbrechen blieben Kindprozesse und Server weiterhin aktiv (#115).
+- Behoben: Lange eingefügte Texte waren schwer zu lesen oder zu bearbeiten (#110), und die Eingabe eines einfachen `/` im Composer schlug fehl (thanks @oh1701).
+- Behoben: Der Shell-Bestätigungsdialog schob seine Schaltflächen aus dem Bildschirm (#114) und leere `.git`-Ordner blockierten Aufgaben (#108).
+- Behoben: Abgeschlossene Agenten fehlten in den Gesamtwerten der Agenten-Nutzung (#99, thanks @22nsuk).
+- Behoben: Anhänge gingen beim Laden verloren, und ein fehlgeschlagener Agent markierte seinen gesamten Sitzungs-Tab als fehlgeschlagen.
+- Behoben: Jeder Durchlauf schlug mit "Workspace activity cannot be verified" fehl, nachdem ein Absturz das Workspace-Ledger beschädigt hatte.
+- Behoben: Abgelaufene Konten-Abklingzeiten wurden nicht wiederholt (#106), Einstellungssicherungen verloren Originale (#105) und unlesbare Nutzungshistorie blockierte die Gesamtwerte (#103), thanks @22nsuk.
+
 ## v1.2.5 - 2026-10-18
 
 Smartphones verbinden sich jetzt schneller und ohne Popups, der Desktop wird auch bei vielen ausgeführten Agents nicht mehr langsamer, und Streaming-Antworten werden flüssiger angezeigt.
