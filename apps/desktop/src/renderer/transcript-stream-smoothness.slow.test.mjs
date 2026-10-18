@@ -331,10 +331,9 @@ function coefficientOfVariation(values) {
   return Math.round((Math.sqrt(variance) / mean) * 100) / 100;
 }
 
-/** The largest one-frame growth after the reply's opening sentence. The pacer
- *  deliberately paints the opening sentence whole once its ending punctuation
- *  has arrived (product rule, use-paced-transcript-text.ts releaseOpeningSentence),
- *  so that one release is not a burst; every later frame is measured. The
+/** The largest one-frame growth after the reply's opening sentence. A part's
+ *  first received text paints with its arrival (use-paced-transcript-text.ts),
+ *  so the opening is not a burst; every later frame is measured. The
  *  opening is the heading plus the first sentence of BURSTY_MARKDOWN. */
 function maxBurstAfterOpening(perFrame) {
   const opening = BURSTY_MARKDOWN.slice(0, BURSTY_MARKDOWN.indexOf('.') + 1)
@@ -385,22 +384,25 @@ function describe({ raw, summary, quiet }) {
 // come from one run on a loaded machine, ~66 fps and 15 long tasks unpaced):
 //
 //                                   pacer on         pacer off
-//   cvVisibleFrames (stdev/mean     0.55 - 0.72      1.48 - 2.52
+//   cvVisibleFrames (stdev/mean     1.18 - 1.31     1.48 - 2.52
 //     of graphemes per painting frame)
-//   maxBurst (graphemes in 1 frame)  29 - 41          451
-//   p95GapMs (between visible        42.5 - 48.5      431 - 1838
+//   maxBurst (graphemes in 1 frame)  102 - 112        451
+//   p95GapMs (between visible        151.5 - 151.7    431 - 1838
 //     updates)
 //   rowShrinks / scroll moves        0 / 0            0 / 0
 //
-// Each threshold sits between the two columns: roughly twice the worst pacer-on
-// run, and far below the unpaced run, so scheduler noise on a busy runner does
-// not trip it while a disabled pacer always does. Row shrinks and scroll moves
+// The pacer-on column is the v1.3 pacer (50 ms reveal steps, 750 ms target
+// lag, stream-reveal-hold): tables rows, headings and code lines deliberately
+// appear whole, so a held line paints as one burst and a code line waits for
+// its newline. Pacer-on values are deterministic (seed 7), not load noise.
+// Each threshold sits between the two columns, so scheduler noise on a busy
+// runner does not trip it while a disabled pacer always does. Row shrinks and scroll moves
 // after settling have a baseline of zero, so their threshold is zero; the
 // injected-shrink control proves the shrink check can fail.
 const THRESHOLDS = {
-  cvVisibleFrames: 1.2,
-  maxBurst: 60,
-  p95GapMs: 100,
+  cvVisibleFrames: 1.4,
+  maxBurst: 180,
+  p95GapMs: 250,
   rowShrinks: 0,
   scrollEventsAfterSettle: 0,
   scrollMovesAfterSettle: 0,

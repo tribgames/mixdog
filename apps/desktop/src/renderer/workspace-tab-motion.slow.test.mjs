@@ -121,12 +121,14 @@ test('tab creation keeps fitting runs anchored and still reveals genuine overflo
               result.samples.every((sample) => Math.abs(sample.firstOffset) < 0.75),
               `${label}: leading tab moved`
             );
-            if (motion === 'no-preference') {
-              assert.ok(
-                result.samples.some((sample) => sample.activeWidth < result.settled.activeWidth - 1),
-                `${label}: entry width no longer animates`
-              );
-            }
+            // The entry no longer grows in from nothing (04-workspace-tabs.css:
+            // the run takes its new cells at once, so an opened session's tab
+            // shows without waiting on the incoming pane's long tasks). The new
+            // tab is never narrower than its settled cell at any frame.
+            assert.ok(
+              result.samples.every((sample) => sample.activeWidth >= result.settled.activeWidth - 1),
+              `${label}: entry grew in instead of landing whole`
+            );
           } else {
             assert.ok(result.settled.scroll > 0, `${label}: actual overflow did not scroll`);
           }

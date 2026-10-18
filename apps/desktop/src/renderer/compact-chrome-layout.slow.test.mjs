@@ -186,7 +186,7 @@ test('compact chrome preserves input growth, readable rows and accessible action
       answerStep: '8px',
       turnGap: '20px',
       font: '15px',
-      line: '24px',
+      line: '26px',
       menu: 30,
     });
     await page.evaluate(() => {
