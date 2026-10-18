@@ -46,17 +46,12 @@ function runNode(cwd, args, timeout = 60_000) {
   return result;
 }
 
-test('test concurrency: share of cores under a shell cap, explicit choices win, standalone untouched', () => {
-  const capped = { MIXDOG_SHELL_CONCURRENCY_CAP: '8' };
-  assert.equal(testConcurrencyArg([], capped, 20), '--test-concurrency=12');
-  assert.equal(testConcurrencyArg([], { MIXDOG_SHELL_CONCURRENCY_CAP: '4' }, 20), '--test-concurrency=16');
-  assert.equal(testConcurrencyArg([], capped, 8), '--test-concurrency=4', 'never below 4');
-  assert.equal(testConcurrencyArg([], {}, 20), null, 'no cap: Node default');
-  assert.equal(testConcurrencyArg([], { MIXDOG_SHELL_CONCURRENCY_CAP: 'x' }, 20), null);
-  assert.equal(testConcurrencyArg([], { ...capped, MIXDOG_TEST_CONCURRENCY: '6' }, 20), '--test-concurrency=6');
-  assert.equal(testConcurrencyArg([], { MIXDOG_TEST_CONCURRENCY: '3' }, 20), '--test-concurrency=3');
-  assert.equal(testConcurrencyArg(['--test-concurrency=9'], { ...capped, MIXDOG_TEST_CONCURRENCY: '6' }, 20), null);
-  assert.equal(testConcurrencyArg(['--test-concurrency', '9'], capped, 20), null);
+test('test concurrency: explicit choices win, otherwise Node default', () => {
+  assert.equal(testConcurrencyArg([], {}), null, 'Node default');
+  assert.equal(testConcurrencyArg([], { MIXDOG_TEST_CONCURRENCY: 'x' }), null);
+  assert.equal(testConcurrencyArg([], { MIXDOG_TEST_CONCURRENCY: '3' }), '--test-concurrency=3');
+  assert.equal(testConcurrencyArg(['--test-concurrency=9'], { MIXDOG_TEST_CONCURRENCY: '6' }), null);
+  assert.equal(testConcurrencyArg(['--test-concurrency', '9'], {}), null);
 });
 
 test('explicitly named slow-lane files keep the long per-file bound under test-direct', () => {
@@ -322,12 +317,16 @@ test('ownership follows recorded spawns and their descendants, never a reused pi
     { pid: 30, since: at(7_000) },
   ];
   const owned = ownedProcesses(snapshot, anchors, { batchStart, scratchDir, platform: 'win32' });
-  assert.deepEqual(owned.map((entry) => entry.pid).sort((a, b) => a - b), [11, 12, 20, 32, 40]);
+  assert.deepEqual(
+    owned.map((entry) => entry.pid).sort((a, b) => a - b),
+    [11, 12, 20, 32, 40]
+  );
 });
 
 test('a batch that never finishes is killed by the watchdog and named, and later batches still run', async (t) => {
   const cwd = await fixture(t, {
-    'hang.test.mjs': "import test from 'node:test';\ntest('never settles', () => new Promise(() => setInterval(() => {}, 1000)));\n",
+    'hang.test.mjs':
+      "import test from 'node:test';\ntest('never settles', () => new Promise(() => setInterval(() => {}, 1000)));\n",
     'after.test.mjs': "import test from 'node:test';\ntest('later batch case', () => {});\n",
   });
   const probe = `
@@ -387,13 +386,13 @@ test('--test-timeout consumes its value in both forms and a valueless one is a f
   assert.throws(() => parseArgs(['--test-timeout']), { message: '--test-timeout requires a value' });
 });
 
-test('--test-concurrency consumes its value in both forms and still beats the env cap', () => {
+test('--test-concurrency consumes its value in both forms and still beats the env setting', () => {
   assert.deepEqual(parseArgs(['--test-concurrency', '3']).nodeArgs, ['--test-concurrency=3']);
   assert.deepEqual(parseArgs(['--test-concurrency=3']).nodeArgs, ['--test-concurrency=3']);
   assert.deepEqual(parseArgs(['--test-concurrency', '3', 'src/lib']).filters, ['src/lib']);
   assert.throws(() => parseArgs(['--test-concurrency']), { message: '--test-concurrency requires a value' });
   const { nodeArgs } = parseArgs(['--test-concurrency', '3']);
-  assert.equal(testConcurrencyArg(nodeArgs, { MIXDOG_SHELL_CONCURRENCY_CAP: '8' }, 20), null);
+  assert.equal(testConcurrencyArg(nodeArgs, { MIXDOG_TEST_CONCURRENCY: '8' }), null);
 });
 
 test('a non-zero exit with no failed test is reported as a failed run, not "0 failed"', async () => {

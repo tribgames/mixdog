@@ -30,9 +30,8 @@ async function fixture(t, entries) {
 function runNode(cwd, args) {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
-  // An agent shell exports its shell cap, which makes the runner add a
-  // --test-concurrency flag; these tests pin the runner's own argv.
-  delete env.MIXDOG_SHELL_CONCURRENCY_CAP;
+  // MIXDOG_TEST_CONCURRENCY makes the runner add a --test-concurrency flag;
+  // these tests pin the runner's own argv.
   delete env.MIXDOG_TEST_CONCURRENCY;
   // The local default re-runs failed files; these tests pin the strict policy.
   env.MIXDOG_TEST_RERUN_FAILED = '0';

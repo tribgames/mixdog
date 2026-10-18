@@ -67,22 +67,13 @@ const positiveInt = (value) => {
   return Number.isInteger(n) && n > 0 ? n : null;
 };
 
-// `node --test` defaults to availableParallelism()-1 file processes. When the
-// run is one of several concurrent shell commands (the Mixdog shell tool
-// exports the admission cap as MIXDOG_SHELL_CONCURRENCY_CAP), that multiplies
-// across peers, so a capped run leaves `cap` cores to them: cores - cap, never
-// below 4. Dividing the cores by the cap left a 20-core machine with 2 file
-// processes and tripled the wall time (desktop 289 s vs 63.5 s). Precedence: an
-// explicit --test-concurrency flag, then MIXDOG_TEST_CONCURRENCY, then the
-// capped share; with none of them Node's default (cores-1) stands.
-// Returns the flag to add, or null.
-export function testConcurrencyArg(nodeArgs, env = process.env, parallelism = availableParallelism()) {
+// `node --test` defaults to availableParallelism()-1 file processes. Precedence:
+// an explicit --test-concurrency flag, then MIXDOG_TEST_CONCURRENCY; with
+// neither, Node's default (cores-1) stands. Returns the flag to add, or null.
+export function testConcurrencyArg(nodeArgs, env = process.env) {
   if (nodeArgs.some(concurrencyFlag)) return null;
   const explicit = positiveInt(env.MIXDOG_TEST_CONCURRENCY);
-  if (explicit) return `--test-concurrency=${explicit}`;
-  const cap = positiveInt(env.MIXDOG_SHELL_CONCURRENCY_CAP);
-  if (!cap) return null;
-  return `--test-concurrency=${Math.max(4, parallelism - cap)}`;
+  return explicit ? `--test-concurrency=${explicit}` : null;
 }
 
 // Every test file process is bounded: node:test fails a file (and records it

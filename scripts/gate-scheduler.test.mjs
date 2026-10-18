@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { allocateWorkers, gateTestBudget, runGateLegs } from './lib/gate-scheduler.mjs';
 
-test('a local gate shares the shell or explicit budget instead of multiplying it per lane', () => {
+test('a local gate shares the default or explicit budget instead of multiplying it per lane', () => {
   assert.equal(gateTestBudget({}, 20), 6);
   assert.equal(gateTestBudget({}, 1), 1);
-  assert.equal(gateTestBudget({ MIXDOG_SHELL_CONCURRENCY_CAP: '8' }, 20), 12);
-  assert.equal(gateTestBudget({ MIXDOG_TEST_CONCURRENCY: '3', MIXDOG_SHELL_CONCURRENCY_CAP: '8' }, 20), 3);
+  assert.equal(gateTestBudget({ MIXDOG_TEST_CONCURRENCY: '3' }, 20), 3);
 });
 
 for (const budget of [1, 2, 6]) {

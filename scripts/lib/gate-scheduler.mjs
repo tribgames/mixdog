@@ -2,9 +2,9 @@ import { availableParallelism } from 'node:os';
 import { testConcurrencyArg } from './run-node-tests.mjs';
 
 // A local gate has one budget, not a full machine's worth of workers per lane.
-// Six is the interactive-desktop default; explicit and shell budgets still win.
+// Six is the interactive-desktop default; an explicit budget still wins.
 export function gateTestBudget(env = process.env, parallelism = availableParallelism()) {
-  const argument = testConcurrencyArg([], env, parallelism);
+  const argument = testConcurrencyArg([], env);
   return argument ? Number(argument.split('=')[1]) : Math.min(6, parallelism);
 }
 
