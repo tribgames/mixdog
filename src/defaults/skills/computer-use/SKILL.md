@@ -125,7 +125,9 @@ GNOME with Mixdog's own shell extension, which the app sets up); prefer accessib
   the user. If target-local release remains unconfirmed, the user must
   inspect/recover that window; restarting the host alone does not prove
   release. Obtain a new observation after an interruption.
-  Use `wait_for_user` to keep the task waiting without sending input. Never
+  The Lead may use `wait_for_user` to keep the task waiting without sending
+  input; an agent preserves the state, reports the required user action, and
+  stops. Never
   operate Resume, Stop or the recovery controls, or change the idle policy, on
   the user's behalf.
   While paused, only `list`, `diagnose` and `wait_for_user` are available.

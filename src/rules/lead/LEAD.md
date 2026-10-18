@@ -28,6 +28,7 @@
 - Receiving an agent's report: it arrives as a `<task-notification>` block, a
   runtime message rather than the user speaking. Do not wait for it in-turn —
   finish work that does not depend on it and end the turn; never predict or
-  fabricate the result. When it arrives, review the diff against the brief,
-  run the independent verification, and report to the user; pending agent
-  work is not a completed request.
+  fabricate the result. On an agent report, review its diff against the brief;
+  verify the integrated result once before the final review; after the
+  Reviewer reports, resolve the findings before reporting completion. Pending
+  agent work is not a completed request.

@@ -192,7 +192,8 @@ not as two blocks joined.
 - **Screen is the deliverable / user continues** — leave the relevant foreground
   page visible using `open` with its `tab`; clean up only disposable support
   pages. A CAPTCHA, 2FA, or identity check is a handoff, not completion: retain
-  that exact page with `open` and wait.
+  that exact page with `open`. The Lead may wait; an agent preserves the
+  state, reports the required user action, and stops.
 - Preserve pre-existing user tabs, unfinished forms, and pages needed for
   recovery. If ownership or disposability is unclear, preserve the page;
   never clear cookies/storage as cleanup. Do not hide a screen the user asked

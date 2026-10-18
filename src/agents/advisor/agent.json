@@ -1,6 +1,6 @@
 {
   "id": "advisor",
   "name": "Advisor",
-  "description": "Use by difficulty: on any work beyond a simple one- or two-step change, after orientation and before committing to an approach, when errors recur or results stop converging, before changing approach, and for requested second opinions.",
+  "description": "Use when the approach is genuinely unclear, when errors recur or results stop converging, before changing approach, or when the user asks for a second opinion. Never for final verification.",
   "entry": "AGENT.md"
 }

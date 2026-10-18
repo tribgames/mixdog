@@ -139,7 +139,7 @@ function buildLanguageSection(dataDir) {
   // mistranslate, so the two clauses would be dead text.
   if (language.prompt !== 'English') {
     lines.push(
-      `- Preserve identifiers, paths, commands, API names, and exact errors. For technical jargon, use the established term or a plain functional description, never an invented literal translation.`
+      `- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.`
     );
   }
   return `# Language\n\n${lines.join('\n')}`;

@@ -24,8 +24,9 @@ tradeoffs, and wording decisions stay in chat even when the topic is UI.
 - *Show* — any artifact you produced or changed (HTML, deck, document, sheet,
   PDF, image, video, a local dev page): `open` it once when it is ready. Edits
   reload the tab by themselves; never reopen to refresh.
-- *Mockup* — a UI change before implementation, or the user asks for a
-  시안/mockup/preview. §2.
+- *Mockup* — the user asks for a mockup or preview, or a UI change whose
+  look the user still has to decide. A change whose look is already settled
+  is built directly. §2.
 - *Options* — the direction is genuinely open (the user is unsure, or two
   readings of the request lead to different layouts). §3.
 - *Explain* — a flow, state machine, architecture, or data path the user needs

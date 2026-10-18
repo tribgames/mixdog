@@ -78,21 +78,21 @@ function measureOutputText(text) {
     text: trimmed,
   };
 }
-const SHARED_MARKER = 'Lead with the answer or action';
+const SHARED_MARKER = 'Lead with the answer; no restated request';
 const ANCHOR_MARKER = 'does not apply to code or tool calls';
 // One phrase per shared-format rule, each expected exactly once — a rule that
 // gets restated in a second bullet fails the scaffold instead of shipping.
 const SHARED_FORMAT_MARKERS = [
-  'Choose structure for clarity, not a fixed template',
+  'the content picks the format at every depth',
   'Distinguish facts, inference, and uncertainty',
-  'Follow explicit requests for depth; never pad',
-  'Apply the selected depth to substantive answers, not preambles or progress updates',
+  'Explicit depth requests win',
+  'depth applies to substantive answers, not the one-line pre-tool briefing',
 ];
 // Pin the distinct depth contracts, not an obsolete Retain/Omit layout.
 const DEPTH_MARKERS = {
-  detailed: 'Explain the reasoning, mechanisms, evidence, trade-offs, and implications',
+  detailed: 'then go clearly beyond simple',
   simple: 'Give a self-contained summary',
-  minimal: 'State the conclusion and determining cause',
+  minimal: 'Give the conclusion, the determining cause',
   'extreme-minimal': 'Give the direct answer or result',
 };
 const COMPOSITION_CHECKS = [

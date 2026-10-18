@@ -1,6 +1,6 @@
 {
   "id": "reviewer",
   "name": "Reviewer",
-  "description": "Use only at the end, as the final check of non-trivial work: after the implementation is written and verified, before reporting completion, to independently verify correctness, regressions, risks, and acceptance criteria. Skip for low-difficulty work.",
+  "description": "Use only at the end, as the final independent check of non-trivial work; otherwise Lead's own review suffices.",
   "entry": "AGENT.md"
 }
