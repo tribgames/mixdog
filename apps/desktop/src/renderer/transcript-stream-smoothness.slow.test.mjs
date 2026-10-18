@@ -331,6 +331,25 @@ function coefficientOfVariation(values) {
   return Math.round((Math.sqrt(variance) / mean) * 100) / 100;
 }
 
+/** The largest one-frame growth after the reply's opening sentence. The pacer
+ *  deliberately paints the opening sentence whole once its ending punctuation
+ *  has arrived (product rule, use-paced-transcript-text.ts releaseOpeningSentence),
+ *  so that one release is not a burst; every later frame is measured. The
+ *  opening is the heading plus the first sentence of BURSTY_MARKDOWN. */
+function maxBurstAfterOpening(perFrame) {
+  const opening = BURSTY_MARKDOWN.slice(0, BURSTY_MARKDOWN.indexOf('.') + 1)
+    .replace('## ', '')
+    .replace('\n\n', '');
+  const openingGraphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(opening)].length;
+  let painted = 0;
+  let after = 0;
+  while (after < perFrame.length && painted < openingGraphemes) {
+    painted += perFrame[after];
+    after += 1;
+  }
+  return Math.max(0, ...perFrame.slice(after));
+}
+
 function describe({ raw, summary, quiet }) {
   const window = streamedWindow(raw.frames);
   const perFrame = window.map((frame) => frame.grew);
@@ -346,7 +365,7 @@ function describe({ raw, summary, quiet }) {
     meanPerFrame: Math.round((growth.reduce((sum, value) => sum + value, 0) / perFrame.length) * 100) / 100,
     cvPerFrame: coefficientOfVariation(perFrame),
     cvVisibleFrames: coefficientOfVariation(growth),
-    maxBurst: Math.max(0, ...perFrame),
+    maxBurst: maxBurstAfterOpening(perFrame),
     p95GapMs: summary.paintGrowthGapMs.p95,
     maxGapMs: summary.paintGrowthGapMs.max,
     rowShrinks: raw.shrinks,
