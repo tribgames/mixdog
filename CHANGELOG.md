@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.2.6 - 2026-10-18
+
 The desktop now idles lighter and switches sessions faster, shell commands move to the background after 60 seconds, and Model management and OpenCode Go sign-in are new.
 
 ### New features

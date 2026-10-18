@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.2.6 - 2026-10-18
+
 El escritorio ahora consume menos recursos en reposo y cambia de sesión más rápido, los comandos de shell pasan a segundo plano tras 60 segundos, y la gestión de modelos y el inicio de sesión en OpenCode Go son nuevos.
 
 ### Nuevas funciones

@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.2.6 - 2026-10-18
+
 Il desktop ora consuma meno risorse in inattività e passa da una sessione all'altra più rapidamente, i comandi della shell passano in background dopo 60 secondi e la gestione dei modelli e l'accesso a OpenCode Go sono ora disponibili.
 
 ### Nuove funzionalità

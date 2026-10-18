@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.2.6 - 2026-10-18
+
 L'application de bureau consomme désormais moins de ressources en veille et change de session plus rapidement, les commandes shell passent en arrière-plan après 60 secondes, et la gestion des modèles ainsi que la connexion à OpenCode Go font leur apparition.
 
 ### Nouvelles fonctionnalités

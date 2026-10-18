@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.2.6 - 2026-10-18
+
 O desktop agora consome menos recursos quando ocioso e alterna entre sessões mais rapidamente, comandos de shell passam para o segundo plano após 60 segundos, e o gerenciamento de modelos e o login no OpenCode Go são novidades.
 
 ### Novos recursos

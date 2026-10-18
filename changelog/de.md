@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.2.6 - 2026-10-18
+
 Der Desktop verbraucht im Leerlauf nun weniger Ressourcen und wechselt Sitzungen schneller, Shell-Befehle wechseln nach 60 Sekunden in den Hintergrund, und die Modellverwaltung sowie die Anmeldung bei OpenCode Go sind neu.
 
 ### Neue Funktionen

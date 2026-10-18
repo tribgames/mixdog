@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.2.6 - 2026-10-18
+
 Ứng dụng máy tính hiện tiêu tốn ít tài nguyên hơn khi nhàn rỗi và chuyển đổi phiên nhanh hơn, các lệnh shell sẽ chuyển sang chạy ngầm sau 60 giây, cùng với tính năng quản lý mô hình và đăng nhập OpenCode Go mới.
 
 ### Tính năng mới
