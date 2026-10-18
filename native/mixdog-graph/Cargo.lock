@@ -557,7 +557,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-graph"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "ast-grep-config",
  "ast-grep-core",
