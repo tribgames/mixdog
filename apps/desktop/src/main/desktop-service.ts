@@ -95,6 +95,7 @@ interface DesktopServiceAdapter {
   readonly clientCount: number;
   invoke(method: string, args: unknown[]): Promise<unknown>;
   control(message: unknown): Promise<void>;
+  releaseClient(epoch: number): Promise<void>;
   dispose(reason?: string): Promise<void>;
 }
 
@@ -659,6 +660,9 @@ export async function createDesktopService({
     async control(value): Promise<void> {
       if (!value || typeof value !== 'object') return;
       await stateSync.control(value as DesktopServiceInbound);
+    },
+    releaseClient(epoch): Promise<void> {
+      return stateSync.releaseClient(epoch);
     },
     async dispose(): Promise<void> {
       unregisterTerminalReleaser();

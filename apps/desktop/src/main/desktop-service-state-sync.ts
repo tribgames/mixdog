@@ -12,7 +12,7 @@ import {
   type SnapshotDeltaEncoder,
 } from './state-delta';
 import { synchronizeViewSnapshot } from './view-synchronizer';
-import { filterSessionIds, requiredVisibleSessionVersion } from './desktop-state';
+import { requiredSessionIds, requiredVisibleSessionVersion } from './desktop-state';
 
 /** Per-session transcript deltas: one encoder per session, the last snapshot it
  *  encoded, and where that snapshot came from. Every session-state frame the
@@ -101,8 +101,10 @@ function createSessionStatePublisher(emit: (message: DesktopServiceOutbound) => 
 }
 
 export interface DesktopServiceStateSync {
-  /** `setVisibleSessions`: the window's delivery filter, newest version wins. */
+  /** `setVisibleSessions`: newest request per daemon-issued client epoch wins. */
   setDeliveryFilter(args: unknown[]): Promise<boolean>;
+  /** Release only this client's visibility; other attached desktops stay live. */
+  releaseClient(epoch: number): Promise<void>;
   /** The window's own read: its frames pass the filter while `run` is open. */
   runDesktopRead<T>(sessionId: string, run: () => Promise<T>): Promise<T>;
   /** State ACK, full view resync and single-lane resync. */
@@ -123,12 +125,21 @@ export function createDesktopServiceStateSync({
 }): DesktopServiceStateSync {
   let viewsSyncing = false;
   let viewVersion = 0;
-  let visibleSessionVersion = 0;
+  const visibilitySources = new Map<number, { version: number; sessionIds: string[] }>();
   let serviceClosed = false;
   let viewSyncQueue: Promise<void> = Promise.resolve();
   const visibleSessionIds = new Set<string>();
   const desktopReads = createSessionReadWindow();
   const sessionStates = createSessionStatePublisher(emit);
+  const updateVisibleSessions = (): Promise<boolean> => {
+    viewVersion += 1;
+    visibleSessionIds.clear();
+    for (const source of visibilitySources.values()) {
+      for (const sessionId of source.sessionIds) visibleSessionIds.add(sessionId);
+    }
+    sessionStates.releaseHidden(visibleSessionIds);
+    return host.setVisibleSessions([...visibleSessionIds]);
+  };
 
   const stateMailbox = createSnapshotStateMailbox<SessionSnapshot>((sequence, wire) => {
     emit({ kind: 'state', sequence, wire });
@@ -187,20 +198,18 @@ export function createDesktopServiceStateSync({
 
   return {
     async setDeliveryFilter(args: unknown[]): Promise<boolean> {
-      const version = args[1];
-      if (version !== undefined) {
-        const nextVersion = requiredVisibleSessionVersion(version);
-        // HTTP requests can arrive out of order even when IPC sent them in
-        // order. An old tab must not restore its filter or subscription set.
-        if (nextVersion <= visibleSessionVersion) return true;
-        visibleSessionVersion = nextVersion;
-      }
-      viewVersion += 1;
-      const requested = filterSessionIds(args[0]);
-      visibleSessionIds.clear();
-      for (const sessionId of requested) visibleSessionIds.add(sessionId);
-      sessionStates.releaseHidden(visibleSessionIds);
-      return host.setVisibleSessions(args[0] as string[]);
+      const epoch = args[2] === undefined ? 0 : requiredVisibleSessionVersion(args[2]);
+      const prior = visibilitySources.get(epoch);
+      const version = args[1] === undefined ? (prior?.version ?? 0) : requiredVisibleSessionVersion(args[1]);
+      // The daemon retains this adapter across desktop restarts. Fence
+      // out-of-order requests within each attachment, not across independent
+      // desktops, and keep every active attachment's conversations visible.
+      if (args[1] !== undefined && prior && version <= prior.version) return true;
+      visibilitySources.set(epoch, { version, sessionIds: requiredSessionIds(args[0]) });
+      return updateVisibleSessions();
+    },
+    async releaseClient(epoch: number): Promise<void> {
+      if (visibilitySources.delete(epoch)) await updateVisibleSessions();
     },
     runDesktopRead<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
       return desktopReads.run(sessionId, run);
@@ -236,6 +245,7 @@ export function createDesktopServiceStateSync({
       stateMailbox.clear();
       sessionStates.clear();
       visibleSessionIds.clear();
+      visibilitySources.clear();
     },
   };
 }
