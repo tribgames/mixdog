@@ -12,22 +12,33 @@
  *  this daemon's in-memory turn activity (every session runs inline here, so
  *  it is the single source of truth; worker index files only declare work). */
 async function loadSessionStoreWithRuntimeActivity() {
-  const [store, runtime, progress] = await Promise.all([
+  const [store, runtime, progress, tasks] = await Promise.all([
     import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
     // The import-free leaf holding the runtime map: no session manager graph.
     import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
     import('../runtime/agent/orchestrator/session/agent-pool-progress.mjs'),
+    import('../runtime/shared/background-tasks.mjs'),
   ]);
   return {
     ...store,
     // Running rows also carry their turn's progress stamp and stage (the
-    // quiet-time cue), read from the same runtime map.
-    listStoredAgentWorkers: () =>
-      progress.withTurnProgress(
-        store.listStoredAgentWorkers({ runningSessionIds: runtime.inFlightSessionActivity().working }),
+    // quiet-time cue), read from the same runtime map; an idle row whose
+    // agent handed off background shell work that still runs reads waiting.
+    // The handed-off shell work of every row comes from one task scan. The
+    // store is read with awaited I/O (a listing runs on every activity
+    // change); the running set is taken once those reads are done.
+    listStoredAgentWorkers: async () => {
+      const rows = await store.listStoredAgentWorkersAsync({
+        runningSessionIds: () => runtime.inFlightSessionActivity().working,
+      });
+      const awaiting = tasks.activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true });
+      return progress.withTurnProgress(
+        rows,
         (sessionId) => runtime.runtimeState.get(sessionId),
-        runtime.isTurnInFlight
-      ),
+        runtime.isTurnInFlight,
+        (sessionId) => awaiting.has(sessionId)
+      );
+    },
   };
 }
 
@@ -53,6 +64,8 @@ export function createDesktopRuntime({ getLocalSessionBridge }) {
     loadStatuslineSegments: () => import('../runtime/shared/statusline/statusline-segments.mjs'),
     loadConfig: () => import('../runtime/shared/config.mjs'),
     loadDocumentPreview: () => import('../runtime/office/pdf/document-preview.mjs'),
+    // The desktop service's git children start on this worker, off the loop.
+    loadProcessRunner: () => import('../runtime/shared/process-runner.mjs'),
     async executeCodeGraphTool(name, args, cwd) {
       const graph = await import('../runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
       return graph.executeCodeGraphTool(name, args, cwd);

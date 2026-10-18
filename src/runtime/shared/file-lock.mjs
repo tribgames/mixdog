@@ -24,7 +24,13 @@ import { createKeyedSerialQueue } from './keyed-serial-queue.mjs';
 import { sleep, sleepSync } from './sleep.mjs';
 
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
-export const DEFAULT_BACKOFFS_MS = Object.freeze([25, 50, 100, 200, 400, 800, 1200, 1600]);
+// Cross-process waits must poll (in-process waiters already queue on
+// lockQueue and wake on release). Each sleep is capped at 200 ms: longer
+// sleeps overshoot a release by up to their full length, and the synchronous
+// paths block the event loop for each sleep. The schedule keeps the earlier
+// ~4.2 s total window for rename retries (Windows AV/indexer file holds).
+const RETRY_MAX_MS = 200;
+export const DEFAULT_BACKOFFS_MS = Object.freeze([25, 50, 100, ...Array(20).fill(RETRY_MAX_MS)]);
 const configuredLockTimeoutMs = Number(process.env.MIXDOG_LOCK_TIMEOUT_MS);
 const DEFAULT_LOCK_TIMEOUT_MS =
   Number.isFinite(configuredLockTimeoutMs) && configuredLockTimeoutMs >= 0 ? configuredLockTimeoutMs : 2000;

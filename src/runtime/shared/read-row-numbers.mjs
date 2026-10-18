@@ -88,7 +88,7 @@ export function readSourceWindow(text) {
       rows.push({ number, content: row[2] });
       continue;
     }
-    const metadata = /^\[lines (\d+)-(\d+) of (\d+)(?:; pass offset:\d+ to continue)?\]$/.exec(line);
+    const metadata = /^\[lines (\d+)-(\d+) of (\d+)(?:; offset:\d+ for more)?\]$/.exec(line);
     if (!metadata || footer) return null;
     footer = metadata;
     totalLines = Number(metadata[3]);

@@ -2,8 +2,9 @@
  * Repository mutation lock for managed worktree operations (create, checkout,
  * merge, remove, reconcile). Keyed by the canonical git common dir so the
  * main checkout and every linked worktree serialize:
- *   - in-process: the git tool's repository read/write lock (write side), so
- *     agent git calls never interleave with a managed mutation;
+ *   - in-process: the git tool's write lock on the whole repository, so no
+ *     agent git write interleaves with a managed mutation (agent reads take no
+ *     lock, so they neither wait for it nor delay it);
  *   - cross-process: a file lock under <dataDir>/worktrees-v1/<repoHash>.lock,
  *     shared by the runtime daemon and the desktop main process.
  * Re-entrant within one async call chain.

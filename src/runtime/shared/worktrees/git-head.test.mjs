@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { createGitHeadWatcher, readGitHead } from './git-head.mjs';
+import { createGitHeadWatcher, findGitLayout, readGitHead } from './git-head.mjs';
 
 const SHA = 'a'.repeat(40);
 
@@ -124,6 +124,30 @@ test('the watcher notices a change inside the symbolic-ref chain', async (t) => 
 
 test('a folder outside any repository reads null', (t) => {
   assert.equal(readGitHead(sandbox(t)), null);
+});
+
+test('strict lookup skips an empty .git above the work and finds the parent repo', (t) => {
+  const root = sandbox(t);
+  const outer = repo(root, 'outer', 'ref: refs/heads/main\n');
+  mkdirSync(join(outer, 'home', '.git'), { recursive: true });
+  mkdirSync(join(outer, 'home', 'work'), { recursive: true });
+  assert.equal(findGitLayout(join(outer, 'home', 'work'), { strict: true }).topLevel, outer);
+  const bare = join(root, 'plain', 'work');
+  mkdirSync(join(root, 'plain', '.git'), { recursive: true });
+  mkdirSync(bare, { recursive: true });
+  assert.equal(findGitLayout(bare, { strict: true }), null);
+});
+
+test('strict lookup treats an empty .git in the cwd as no repository', (t) => {
+  const cwd = join(sandbox(t), 'proj');
+  mkdirSync(join(cwd, '.git'), { recursive: true });
+  assert.equal(findGitLayout(cwd, { strict: true }), null);
+});
+
+test('strict lookup still rejects a non-empty .git without HEAD', (t) => {
+  const cwd = join(sandbox(t), 'proj');
+  mkdirSync(join(cwd, '.git', 'objects'), { recursive: true });
+  assert.throws(() => findGitLayout(cwd, { strict: true }), /Cannot inspect Git HEAD/);
 });
 
 test('a switch is read at once and a half-written HEAD keeps the last answer', (t) => {

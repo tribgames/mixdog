@@ -3,6 +3,8 @@
 // context cost of any one tool call is bounded and consistent. Override with
 // MIXDOG_TOOL_OUTPUT_MAX_BYTES. Line-based sub-caps (e.g. bash max lines) stay
 // per-tool; this governs only the byte budget.
+import { capMarker } from './tool-output-marker.mjs';
+export { capMarker, formatCapSize, windowMarker } from './tool-output-marker.mjs';
 // A positive integer from an env var, or `fallback` when unset or invalid.
 export function positiveEnvInt(name, fallback) {
   const v = parseInt(process.env[name], 10);
@@ -53,7 +55,7 @@ export function capLineOrientedToolOutput(result, maxBytes, footerForPrefix) {
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);
     const kept = lines.slice(0, mid);
-    const footer = String(footerForPrefix?.(kept, lines) || '... [output budget reached; remainder omitted]');
+    const footer = String(footerForPrefix?.(kept, lines) || capMarker({ limit: cap }));
     const candidate = `${kept.join('\n')}${kept.length ? '\n' : ''}${footer}`;
     if (Buffer.byteLength(candidate, 'utf8') <= cap) {
       best = candidate;
@@ -63,5 +65,5 @@ export function capLineOrientedToolOutput(result, maxBytes, footerForPrefix) {
     }
   }
   if (best) return best;
-  return _prefixByBytes(String(footerForPrefix?.([], lines) || '... [output budget reached; remainder omitted]'), cap);
+  return _prefixByBytes(String(footerForPrefix?.([], lines) || capMarker({ limit: cap })), cap);
 }

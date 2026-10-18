@@ -88,21 +88,30 @@ function nextRenameDelayMs(err, attempt, backoffs) {
   return backoffs[attempt] + Math.floor(Math.random() * Math.min(50, Math.max(1, backoffs[attempt])));
 }
 
-export function renameWithRetrySync(src, dst, opts = {}) {
-  const backoffs = renameBackoffs(opts);
-  let lastErr = null;
-  for (let attempt = 0; attempt <= backoffs.length; attempt++) {
-    try {
-      renameSync(src, dst);
-      return true;
-    } catch (err) {
-      lastErr = err;
-      const delayMs = nextRenameDelayMs(err, attempt, backoffs);
-      if (delayMs === null) break;
-      sleepSync(delayMs);
-    }
+/**
+ * Attempt `attempt` (0-based) of the renameWithRetry schedule: null when the
+ * rename landed, else the delay before the next attempt. Throws the rename's
+ * own error when that error or the attempt count ends the loop — the same
+ * final error renameWithRetrySync throws. A caller that must not block waits
+ * the delay asynchronously between attempts.
+ */
+export function renameAttempt(src, dst, attempt, opts = {}) {
+  try {
+    renameSync(src, dst);
+    return null;
+  } catch (err) {
+    const delayMs = nextRenameDelayMs(err, attempt, renameBackoffs(opts));
+    if (delayMs === null) throw err;
+    return delayMs;
   }
-  throw lastErr;
+}
+
+export function renameWithRetrySync(src, dst, opts = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const delayMs = renameAttempt(src, dst, attempt, opts);
+    if (delayMs === null) return true;
+    sleepSync(delayMs);
+  }
 }
 
 async function renameWithRetry(src, dst, opts = {}) {

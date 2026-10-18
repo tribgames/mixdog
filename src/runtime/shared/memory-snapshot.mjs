@@ -22,8 +22,12 @@ const PERIODIC_ATTRIBUTION_FREE_BYTES = 2 * 1024 * 1024 * 1024;
 let periodicTimer = null;
 let lastPressureSnapshotAt = 0;
 
+// Opt-in diagnostics (MIXDOG_MEMORY_SNAPSHOT=1): every sample starts a
+// PowerShell process on Windows (two for a full snapshot, requested exactly
+// when the host is under memory pressure), from every process that loads
+// this module. A normal install never pays for that.
 function enabled() {
-  return process.env.MIXDOG_MEMORY_SNAPSHOT !== '0';
+  return process.env.MIXDOG_MEMORY_SNAPSHOT === '1';
 }
 
 function snapshotPaths() {

@@ -219,12 +219,36 @@ pub(crate) struct ProcessControl {
     pub(crate) pid: u32,
 }
 
+/// Grace between SIGTERM and SIGKILL of a command's process group: long
+/// enough for a server or build tool to flush and exit, short enough that a
+/// cancellation still reads as immediate.
+#[cfg(unix)]
+const TERMINATE_GRACE: Duration = Duration::from_millis(1_000);
+#[cfg(unix)]
+const TERMINATE_POLL: Duration = Duration::from_millis(25);
+
 #[cfg(unix)]
 impl ProcessControl {
+    /// SIGTERM the whole group, then SIGKILL whatever of it is still alive
+    /// once the grace passes. The escalation stops as soon as the group is
+    /// empty, so it never signals a group id that no longer names ours.
     pub(crate) fn terminate(&self) {
+        let group = -(self.pid as i32);
         unsafe {
-            libc::kill(-(self.pid as i32), libc::SIGKILL);
+            libc::kill(group, libc::SIGTERM);
         }
+        thread::spawn(move || {
+            let deadline = std::time::Instant::now() + TERMINATE_GRACE;
+            while std::time::Instant::now() < deadline {
+                thread::sleep(TERMINATE_POLL);
+                if unsafe { libc::kill(group, 0) } != 0 {
+                    return;
+                }
+            }
+            unsafe {
+                libc::kill(group, libc::SIGKILL);
+            }
+        });
     }
 
     pub(crate) fn preserve_descendants(&self) {}

@@ -489,3 +489,61 @@ fn failed_directory_inventory_preserves_results_and_rechecks_recovery() {
     drop(store);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn content_windows_are_path_ordered_and_offset_pages_cover_each_match_once() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("mg-content-paging-{nonce}"));
+    for i in 0..150 {
+        let sub = dir.join(format!("d{}", i % 7));
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(
+            sub.join(format!("f{i:03}.txt")),
+            "needle a\nskip\nneedle b\n",
+        )
+        .unwrap();
+    }
+    let store = Arc::new(FileListStore::new());
+    let lines = |offset: usize, limit: usize| {
+        let mut req = request(&["-n", "-H", "-e", "needle", "."], limit);
+        req.cwd = dir.to_string_lossy().into_owned();
+        req.offset = offset;
+        let response = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+        assert_eq!(response["timeout"], false, "{response}");
+        response["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line.as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    // The first call scans a live walk, the rest a cached inventory: both
+    // must produce the same path-ordered window.
+    let whole = lines(0, 0);
+    assert_eq!(whole.len(), 300);
+    assert_eq!(lines(0, 0), whole);
+    let path_of = |line: &String| PathBuf::from(line.rsplitn(3, ':').nth(2).unwrap().to_string());
+    let paths = whole.iter().map(path_of).collect::<Vec<_>>();
+    let mut sorted = paths.clone();
+    sorted.sort();
+    assert_eq!(paths, sorted);
+    for page in [1, 7, 64] {
+        let first = (0..)
+            .map(|index| index * page)
+            .take_while(|offset| *offset < whole.len())
+            .flat_map(|offset| lines(offset, page))
+            .collect::<Vec<_>>();
+        assert_eq!(first, whole, "page {page}");
+        let again = (0..)
+            .map(|index| index * page)
+            .take_while(|offset| *offset < whole.len())
+            .flat_map(|offset| lines(offset, page))
+            .collect::<Vec<_>>();
+        assert_eq!(again, first, "repeat page {page}");
+    }
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}

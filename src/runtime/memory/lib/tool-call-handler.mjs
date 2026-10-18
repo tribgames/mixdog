@@ -1,5 +1,6 @@
 import {
   capLineOrientedToolOutput,
+  capMarker,
   RECALL_OUTPUT_MAX_BYTES,
 } from '../../agent/orchestrator/tools/builtin/tool-output-limit.mjs';
 
@@ -8,11 +9,12 @@ import {
 // footer, so a huge multi-query/grouped browse cannot flood the caller's
 // context (42KB single-call observed before the cap).
 function capRecallText(text) {
-  return capLineOrientedToolOutput(
-    text,
-    RECALL_OUTPUT_MAX_BYTES,
-    (kept, lines) =>
-      `... [recall output capped at ${Math.round(RECALL_OUTPUT_MAX_BYTES / 1024)}KB after ${kept.length} of ${lines.length} lines; narrow query[]/category/period or page with the returned cursor]`
+  return capLineOrientedToolOutput(text, RECALL_OUTPUT_MAX_BYTES, (kept, lines) =>
+    capMarker({
+      limit: RECALL_OUTPUT_MAX_BYTES,
+      shown: `${kept.length} of ${lines.length} lines shown`,
+      narrow: 'narrow query[]/category/period, lower limit, or page with the cursor/offset shown in the results',
+    })
   );
 }
 

@@ -1,4 +1,4 @@
-import { availableParallelism } from 'node:os';
+import { availableParallelism, totalmem } from 'node:os';
 import { createOwnerFairGate } from './owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from './tool-execution-owner.mjs';
 import { positiveInt } from './numbers.mjs';
@@ -9,8 +9,9 @@ import { positiveInt } from './numbers.mjs';
 // singleton semaphore CAN bound the number of concurrent child processes (rg,
 // mixdog-graph, …) across ALL agents/workers in this daemon.
 //
-// Default: Windows search scales conservatively from 1..4 with CPU count;
-// code-graph remains 1. Other platforms are unbounded. Windows measurements
+// Default: Windows search and code-graph-query scale 2..8 with CPU count;
+// code-graph builds 1..4 with cores and memory. Other platforms bound search
+// only. Windows measurements
 // showed both extremes are poor: cap 1 creates multi-session queue latency,
 // while unbounded multithreaded rg amplifies Defender/process-scan and disk
 // contention. Separate lanes isolate short search from long graph builds.
@@ -28,7 +29,8 @@ function resolveDefaultChildSpawnLaneMaxInflight(
   laneName,
   env = process.env,
   platform = process.platform,
-  parallelism = availableParallelism()
+  parallelism = availableParallelism(),
+  memoryBytes = totalmem()
 ) {
   const lane = _laneName(laneName);
   const laneOverride = positiveInt(env[`MIXDOG_CHILD_SPAWN_${_laneEnvKey(lane)}_MAX_INFLIGHT`]);
@@ -45,13 +47,19 @@ function resolveDefaultChildSpawnLaneMaxInflight(
   // Slots are held only across the spawn itself, so a small cap smooths the
   // AV convoy without limiting how many commands run concurrently.
   if (lane === 'process-spawn') return Math.max(2, Math.min(4, Math.floor(cpus / 6) || 2));
-  // One cold graph build saturates memory/disk; allow a second only on big hosts.
-  if (lane === 'code-graph') return cpus >= 12 ? 2 : 1;
-  if (lane !== 'search') return 1;
-  // Multiple rg processes beat one under multi-session load, but each process
-  // is itself threaded and Defender amplifies excess fan-out. Burst stress
-  // measured cap-4 starvation (find p50 15s at 8 concurrent sessions), so
-  // scale with cores and cap at eight: 4→2, 8→3, 12→4, 18→6, 24+→8.
+  // Graph builds (Worker thread + native walk/parse) hold a slot for seconds
+  // and are memory-heavy: one per 4 cores and per 4 GiB, 1..4. Builds of one
+  // repo are already single-flight (build.mjs); distinct repos are independent.
+  if (lane === 'code-graph') {
+    const memGb = Math.floor((Number(memoryBytes) || 0) / 1024 ** 3);
+    return Math.max(1, Math.min(4, Math.floor(cpus / 4), Math.floor(memGb / 4)));
+  }
+  if (lane !== 'search' && lane !== 'code-graph-query') return 1;
+  // Short read-only walks: rg, and the graph binary's `--manifest` that
+  // validates a cached graph. Multiple processes beat one under multi-session
+  // load, but each is itself threaded and Defender amplifies excess fan-out.
+  // Burst stress measured cap-4 starvation (find p50 15s at 8 concurrent
+  // sessions), so scale with cores and cap at eight: 4→2, 8→3, 12→4, 18→6, 24+→8.
   return Math.max(2, Math.min(8, Math.ceil(cpus / 3)));
 }
 
@@ -87,11 +95,13 @@ function _laneSetting(name, suffix, fallback) {
 // ── Lanes ────────────────────────────────────────────────────────────────
 // Independent optional limits and queues:
 //   'search'     — short-lived rg processes.
-//   'code-graph' — long-lived graph workers / native graph binaries. A cold
-//               graph build can hold its slot for seconds-to-minutes; a
-//               single shared lane would let one build
-//               stall every rg spawn behind it. Separate lanes remove that
-//               starvation class while keeping each spawn family bounded.
+//   'code-graph' — long-lived graph build workers. A cold build can hold its
+//               slot for seconds-to-minutes; a single shared lane would let
+//               one build stall every rg spawn behind it. Separate lanes
+//               remove that starvation class while keeping each spawn
+//               family bounded.
+//   'code-graph-query' — the short read-only manifest walk that validates
+//               a cached graph, so queries never wait behind builds.
 function _makeLane(name) {
   const limit = resolveDefaultChildSpawnLaneMaxInflight(name);
   const queueMax = _laneSetting(name, 'MAX_QUEUE', 1024);

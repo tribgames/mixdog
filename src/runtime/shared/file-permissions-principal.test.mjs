@@ -45,7 +45,10 @@ for (const [index, fixture] of cases.entries()) {
     syncBuiltinESMExports();
     const url = new URL('./file-permissions.mjs', import.meta.url);
     url.searchParams.set('principal-fixture', String(index));
-    const { enforceOwnerOnlyAclWin32 } = await import(url.href);
+    const { disableOwnerOnlyAclSyncBridgeForTests, enforceOwnerOnlyAclWin32 } = await import(url.href);
+    // The principal is parsed by this thread's one-shot path (the sync
+    // bridge's worker resolves its own, unmocked).
+    disableOwnerOnlyAclSyncBridgeForTests();
     if (fixture.sid) {
       enforceOwnerOnlyAclWin32(path, { fresh: true });
       assert.deepEqual(grants, [`*${fixture.sid}:(F)`]);

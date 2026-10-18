@@ -43,7 +43,7 @@ test('display rebuilds the numbered rows, including blank and row-like content',
       if (n === 10) return '12→not a row';
       return `  line ${n}`;
     }),
-    '[lines 5-27 of 90; pass offset:28 to continue]',
+    '[lines 5-27 of 90; offset:28 for more]',
     '',
     'b.go [ok]',
     ...rows(1, 4, () => '\tx'),

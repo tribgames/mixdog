@@ -15,7 +15,10 @@ const META = '\u2581';
 // The library's stand-in for SentencePiece's precompiled charsmap.
 function precompiledNormalize(text) {
   text = text.replace(/[\u0001-\u0008\u000B\u000E-\u001F\u007F\u008F\u009F]/gm, '');
-  text = text.replace(/[\u0009\u000A\u000C\u000D\u00A0\u1680\u2000-\u200F\u2028\u2029\u202F\u205F\u2581\u3000\uFEFF\uFFFD]/gm, ' ');
+  text = text.replace(
+    /[\u0009\u000A\u000C\u000D\u00A0\u1680\u2000-\u200F\u2028\u2029\u202F\u205F\u2581\u3000\uFEFF\uFFFD]/gm,
+    ' '
+  );
   return text.includes('\uFF5E')
     ? text
         .split('\uFF5E')
@@ -30,9 +33,10 @@ function buildNormalizer(spec) {
     if (step.type === 'Precompiled') return precompiledNormalize;
     if (step.type === 'Replace' && step.pattern?.Regex != null) {
       const re = new RegExp(step.pattern.Regex, 'gu');
-      return (text) => text.replace(re, step.content);
+      return (text) => text.replace(re, () => step.content);
     }
-    if (step.type === 'Replace' && step.pattern?.String != null) return (text) => text.replaceAll(step.pattern.String, step.content);
+    if (step.type === 'Replace' && step.pattern?.String != null)
+      return (text) => text.replaceAll(step.pattern.String, () => step.content);
     throw new UnsupportedTokenizerError(`unsupported normalizer ${step.type}`);
   });
   return (text) => fns.reduce((acc, fn) => fn(acc), text);
@@ -58,18 +62,10 @@ function splitOn(words, text) {
   return out;
 }
 
-/** Loads tokenizer.json; throws UnsupportedTokenizerError for any other layout. */
-export function loadUnigramTokenizer(tokenizerJsonPath, { maxLength = 512 } = {}) {
-  const json = JSON.parse(readFileSync(tokenizerJsonPath, 'utf8'));
-  const model = json.model;
-  const pre = json.pre_tokenizer;
-  const template = json.post_processor;
-  if (model?.type !== 'Unigram') throw new UnsupportedTokenizerError(`unsupported model ${model?.type}`);
-  if (pre?.type !== 'Metaspace') throw new UnsupportedTokenizerError(`unsupported pre-tokenizer ${pre?.type}`);
-  if (template?.type !== 'TemplateProcessing') throw new UnsupportedTokenizerError(`unsupported post-processor ${template?.type}`);
-  const normalize = buildNormalizer(json.normalizer);
-
-  const n = model.vocab.length;
+// Packs the vocabulary into one string pool with typed-array scores and an
+// open-addressing index; `lookup(str, a, b)` returns the id of str[a, b) or -1.
+function buildVocabIndex(vocab) {
+  const n = vocab.length;
   const scores = new Float64Array(n);
   const offsets = new Int32Array(n + 1);
   const pieces = [];
@@ -77,7 +73,7 @@ export function loadUnigramTokenizer(tokenizerJsonPath, { maxLength = 512 } = {}
   let maxChars = 1;
   let minScore = Infinity;
   for (let i = 0; i < n; i++) {
-    const [piece, score] = model.vocab[i];
+    const [piece, score] = vocab[i];
     scores[i] = score;
     if (score < minScore) minScore = score;
     offsets[i] = length;
@@ -119,6 +115,21 @@ export function loadUnigramTokenizer(tokenizerJsonPath, { maxLength = 512 } = {}
       slot = (slot + 1) & mask;
     }
   };
+  return { scores, minScore, maxChars, lookup };
+}
+
+/** Loads tokenizer.json; throws UnsupportedTokenizerError for any other layout. */
+export function loadUnigramTokenizer(tokenizerJsonPath, { maxLength = 512 } = {}) {
+  const json = JSON.parse(readFileSync(tokenizerJsonPath, 'utf8'));
+  const model = json.model;
+  const pre = json.pre_tokenizer;
+  const template = json.post_processor;
+  if (model?.type !== 'Unigram') throw new UnsupportedTokenizerError(`unsupported model ${model?.type}`);
+  if (pre?.type !== 'Metaspace') throw new UnsupportedTokenizerError(`unsupported pre-tokenizer ${pre?.type}`);
+  if (template?.type !== 'TemplateProcessing')
+    throw new UnsupportedTokenizerError(`unsupported post-processor ${template?.type}`);
+  const normalize = buildNormalizer(json.normalizer);
+  const { scores, minScore, maxChars, lookup } = buildVocabIndex(model.vocab);
   const unkId = model.unk_id;
   const unkScore = minScore - 10;
   scores[unkId] = unkScore;
@@ -229,8 +240,11 @@ export function loadUnigramTokenizer(tokenizerJsonPath, { maxLength = 512 } = {}
       return stripAround(splitOn(normalizedAdded, normalized)).flatMap((sub) => {
         if (sub.length === 0) return [];
         if (added.has(sub)) return [sub];
-        let piece = sub.replaceAll(' ', strRep);
-        if (!piece.startsWith(replacement) && (prependScheme === 'always' || (prependScheme === 'first' && sectionIndex === 0))) {
+        let piece = sub.replaceAll(' ', () => strRep);
+        if (
+          !piece.startsWith(replacement) &&
+          (prependScheme === 'always' || (prependScheme === 'first' && sectionIndex === 0))
+        ) {
           piece = strRep + piece;
         }
         return fuseUnk(viterbi(piece));

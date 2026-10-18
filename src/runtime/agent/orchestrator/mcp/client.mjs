@@ -14,7 +14,7 @@ import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { buildSmartReadTruncationMarker, smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
+import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
 import { shutdownStdioChild, killStdioChildTreeFast } from './child-tree.mjs';
 import { makeToolEnvelope, normalizeToolEnvelope } from '../session/tool-envelope.mjs';
 import { classifyResultKind } from '../session/result-classification.mjs';
@@ -308,7 +308,11 @@ function callAdmissionFor(server) {
   const cfg = server?.cfg || {};
   gate = createOwnerFairGate({
     name: `MCP ${server.name}`,
-    activeMax: positiveInt(cfg.maxConcurrency ?? cfg.max_concurrency ?? process.env.MIXDOG_MCP_MAX_INFLIGHT, 8),
+    // JSON-RPC multiplexes requests by id over one transport, so the client
+    // imposes no in-flight cap of its own; a server that needs one declares
+    // it (maxConcurrency) or the operator sets MIXDOG_MCP_MAX_INFLIGHT.
+    activeMax:
+      positiveInt(cfg.maxConcurrency ?? cfg.max_concurrency ?? process.env.MIXDOG_MCP_MAX_INFLIGHT, null) ?? Infinity,
     queueMax: positiveInt(cfg.maxQueue ?? cfg.max_queue ?? process.env.MIXDOG_MCP_MAX_QUEUE, 256),
     minOwnerQueue: 8,
     waitTimeoutMs: positiveInt(
@@ -1037,7 +1041,7 @@ function capMcpOutputParts(content) {
   const s = typeof content === 'string' ? content : String(content ?? '');
   const bodyBytes = Buffer.byteLength(s, 'utf8');
   const bodyLines = countTextLines(s);
-  const { text, truncated } = smartReadTruncate(s, bodyLines, bodyBytes);
+  const { text, truncated, marker } = smartReadTruncate(s, bodyLines, bodyBytes);
   if (!truncated) return { text, spillNote: '', truncated: false };
   // Spill the full body to a tmp file so the caller can recover content
   // elided by the head/tail cap.
@@ -1056,7 +1060,6 @@ function capMcpOutputParts(content) {
     /* spill best-effort */
   }
   const spillNote = spillPath ? `\n\n... [full output spilled to ${spillPath}] ...` : '';
-  const marker = buildSmartReadTruncationMarker(bodyLines, bodyBytes);
   const split = text.indexOf(`\n${marker}\n`);
   return {
     text,

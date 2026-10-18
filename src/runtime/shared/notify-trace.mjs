@@ -1,4 +1,6 @@
-// Lightweight always-on completion-notification trace. The display path for
+// Opt-in (MIXDOG_NOTIFY_TRACE=1) completion-notification trace: off by
+// default, so a normal install writes no line per delivery decision (it kept
+// a multi-MB log growing in every data dir). The display path for
 // background completions is event-time only and has repeatedly failed silently
 // in the field (2026-08-17: bench shell output never rendered while the model
 // queue twin worked every time). One append-only line per decision point keeps
@@ -36,7 +38,12 @@ function tracePath() {
   return join(traceDir, 'notify-trace.log');
 }
 
+function notifyTraceEnabled() {
+  return process.env.MIXDOG_NOTIFY_TRACE === '1';
+}
+
 export function notifyTrace(stage, fields = {}) {
+  if (!notifyTraceEnabled()) return;
   try {
     const parts = [`[${new Date().toISOString()}]`, `pid=${process.pid}`, stage];
     for (const [key, value] of Object.entries(fields)) {

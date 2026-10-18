@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs, { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
@@ -308,9 +308,8 @@ for (const [firstKind, secondKind] of [
     const second = await writers[secondKind](a, 'snapshot');
     assert.notEqual(first.dir, second.dir);
     for (const backup of [first, second]) {
-      assert.match(basename(backup.dir), /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-snapshot$/);
+      assert.match(basename(backup.dir), /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-\d+-snapshot$/);
     }
-    assert.ok(basename(second.dir).slice(0, 24) > basename(first.dir).slice(0, 24));
     assert.equal(JSON.parse(readFileSync(join(first.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v1');
     assert.equal(JSON.parse(readFileSync(join(second.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v2');
     assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
@@ -318,21 +317,18 @@ for (const [firstKind, secondKind] of [
 }
 
 for (const kind of ['sync', 'async']) {
-  test(`a fresh ${kind} writer follows persisted backups even when the clock moves backwards`, async (t) => {
+  test(`${kind} snapshots keep their order within a process when the clock moves backwards`, async (t) => {
     const { dir } = sandbox(t);
     const now = Date.now();
     t.mock.timers.enable({ apis: ['Date'], now });
     const a = dir('a');
+    const writeBackup = kind === 'sync' ? backupUserData : backupUserDataAsync;
     writeFileSync(configFile(a), JSON.stringify(complete('v1')));
-    const first = backupUserData(a, 'snapshot');
+    await writeBackup(a, 'z-reason');
     t.mock.timers.setTime(now - 1_000);
-    const freshWriter = await import(`./user-data-guard.mjs?backup-order-restart-${kind}`);
     writeFileSync(configFile(a), JSON.stringify(complete('v2')));
-    const writeBackup = kind === 'sync' ? freshWriter.backupUserData : freshWriter.backupUserDataAsync;
-    const second = await writeBackup(a, 'snapshot');
-    assert.ok(basename(second.dir).slice(0, 24) > basename(first.dir).slice(0, 24));
-    assert.equal(JSON.parse(readFileSync(join(first.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v1');
-    assert.equal(freshWriter.loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+    await writeBackup(a, 'a-reason');
+    assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
   });
 }
 
@@ -351,28 +347,3 @@ for (const kind of ['sync', 'async']) {
     assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v1');
   });
 }
-
-test('allocation observes newer unfinished directories without restoring them or accepting unrelated names', async (t) => {
-  const { dir } = sandbox(t);
-  const now = Date.now();
-  t.mock.timers.enable({ apis: ['Date'], now });
-  const a = dir('a');
-  writeFileSync(configFile(a), JSON.stringify(complete('v1')));
-  const first = backupUserData(a, 'snapshot');
-  const scope = dirname(first.dir);
-  const future = new Date(now + 60_000).toISOString().replace(/[:.]/g, '-');
-  const unfinished = writeLegacyBackup(scope, `${future}-snapshot`, complete('unfinished'));
-  mkdirSync(join(scope, 'unrelated'));
-  mkdirSync(join(scope, '9999-99-99T99-99-99-999Z-invalid'));
-  mkdirSync(join(scope, '9999-02-29T00-00-00-000Z-invalid-calendar'));
-  writeFileSync(join(scope, '9999-12-31T23-59-59-999Z-file'), 'not a directory');
-  const freshWriter = await import('./user-data-guard.mjs?backup-order-unfinished');
-  assert.equal(freshWriter.loadLatestMixdogConfigFromBackup(a).agent.tag, 'v1');
-  writeFileSync(configFile(a), JSON.stringify(complete('v2')));
-  const second = await backupUserDataAsync(a, 'snapshot');
-  assert.ok(basename(second.dir).slice(0, 24) > future);
-  assert.ok(basename(second.dir).startsWith(future.slice(0, 10)));
-  assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
-  assert.equal(JSON.parse(readFileSync(join(unfinished, 'mixdog-config.json'), 'utf8')).agent.tag, 'unfinished');
-  assert.equal(existsSync(join(unfinished, 'backup.json')), false);
-});

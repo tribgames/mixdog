@@ -46,6 +46,21 @@ function isFile(path, strict = false) {
   }
 }
 
+const GIT_LAYOUT_ENTRIES = ['objects', 'refs', 'config', 'commondir', 'packed-refs', 'index'];
+
+/** True when a `.git` directory holds any entry git itself would create. Permission errors propagate. */
+function hasGitLayout(dotGit) {
+  return GIT_LAYOUT_ENTRIES.some((name) => {
+    try {
+      statSync(resolve(dotGit, name));
+      return true;
+    } catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
+      return false;
+    }
+  });
+}
+
 function layoutAbove(start, strict = false) {
   for (let dir = start; ; dir = dirname(dir)) {
     const dotGit = resolve(dir, '.git');
@@ -57,8 +72,11 @@ function layoutAbove(start, strict = false) {
       if (strict && !pointer) throw new Error(`Cannot inspect Git directory: ${dotGit}`);
       if (pointer) gitDir = resolve(dir, pointer[1]);
     }
-    if (gitDir && strict && !isFile(resolve(gitDir, 'HEAD'), true))
-      throw new Error(`Cannot inspect Git HEAD: ${gitDir}`);
+    if (gitDir && strict && !isFile(resolve(gitDir, 'HEAD'), true)) {
+      // A directory with none of git's layout is a stray folder, not a damaged repo.
+      if (gitDir !== dotGit || hasGitLayout(gitDir)) throw new Error(`Cannot inspect Git HEAD: ${gitDir}`);
+      gitDir = null;
+    }
     if (gitDir && isFile(resolve(gitDir, 'HEAD'), strict)) {
       const common = readText(resolve(gitDir, 'commondir'), strict)?.trim();
       return {

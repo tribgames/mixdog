@@ -57,9 +57,10 @@ export function createTransportRoutes({
 }) {
   // Checked on every register/call, last right before the work is handed on
   // (after the body is read): a daemon that lost (or cannot re-verify) its
-  // owner lease serves nothing.
-  const refuseUnadmitted = (res) => {
-    if (admitWork()) return false;
+  // owner lease serves nothing. `admitWork` may answer asynchronously (a
+  // request arriving during the lease's re-verification waits for it).
+  const refuseUnadmitted = async (res) => {
+    if (await admitWork()) return false;
     sendError(res, 'daemon owner lease is not held', 503);
     return true;
   };
@@ -99,7 +100,7 @@ export function createTransportRoutes({
 
   const register = async (req, res) => {
     const body = await readBody(req);
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     if (drain.committed) {
       sendError(res, `daemon is draining: ${drain.reason}`, 503);
       return;
@@ -150,7 +151,7 @@ export function createTransportRoutes({
   };
 
   const call = async (req, res) => {
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     if (drain.committed) {
       sendError(res, `daemon is draining: ${drain.reason}`, 503);
       return;
@@ -158,7 +159,7 @@ export function createTransportRoutes({
     const body = await readBody(req);
     // Again right before dispatch: the lease may have been fenced while the
     // body was still arriving.
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     await callRoute(body, res);
   };
 

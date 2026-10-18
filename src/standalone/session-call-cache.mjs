@@ -85,6 +85,10 @@ export function createSessionCallCache({
     // Identity cannot be removed inside the promised retry TTL.
     for (const [key, record] of records) {
       if (records.size <= maxEntries && retainedBytes <= maxBytes) return;
+      // Insertion order is `at` order and settledAt >= at, so no later record
+      // can have left its TTL: stop instead of rescanning every live entry on
+      // each new call while a burst holds the cache above its budget.
+      if (at - record.at < ttlMs) break;
       if (!record.settled || !record.settledAt) continue;
       if (at - record.settledAt < ttlMs) continue;
       remove(key, record);
@@ -120,6 +124,8 @@ export function createSessionCallCache({
       bytes: 0,
       timer: null,
     };
+    // Re-insert at the tail so Map order stays `at` order (prune relies on it).
+    remove(key);
     records.set(key, record);
     prune();
     promise

@@ -188,7 +188,7 @@ function runtimeAssetUrlCandidates(url) {
     .map((repo) => repo.trim())
     .filter(Boolean);
   for (const repo of overrides) {
-    if (repo && repo !== releaseRepo) add(value.replace(`/github.com/${releaseRepo}/`, `/github.com/${repo}/`));
+    if (repo && repo !== releaseRepo) add(value.replace(`/github.com/${releaseRepo}/`, () => `/github.com/${repo}/`));
   }
   return out;
 }

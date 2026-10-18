@@ -7,6 +7,7 @@ import {
 } from './tool-execution-contract.mjs';
 import { presentErrorText } from './err-text.mjs';
 import { clean } from './clean.mjs';
+import { emitSessionActivityChange } from './session-activity-signal.mjs';
 import {
   parseTaskNotification,
   renderTaskCompletionEnvelope,
@@ -104,12 +105,17 @@ function hasScopeCriteria(scope) {
   return Boolean(scope?.callerSessionId || scope?.routingSessionId || scope?.clientHostPid);
 }
 
-function taskMatchesScope(task, options = {}, { includeUnattributed = true } = {}) {
+function taskSessionIdOf(task) {
+  return task.ownerSessionId || task.notifyContext?.callerSessionId || task.notifyContext?.routingSessionId || null;
+}
+
+// `scope` is normalizeTaskScope(options), normalized once per scan by the
+// caller: a scan is O(tasks), and the daemon runs one per session per
+// busy-count, so per-task normalization multiplied into seconds under load.
+function taskMatchesScope(task, scope, { includeUnattributed = true } = {}) {
   if (!task) return false;
-  const scope = normalizeTaskScope(options);
   if (!hasScopeCriteria(scope)) return true;
-  const taskSessionId =
-    task.ownerSessionId || task.notifyContext?.callerSessionId || task.notifyContext?.routingSessionId || null;
+  const taskSessionId = taskSessionIdOf(task);
   const taskClientHostPid = task.clientHostPid || task.notifyContext?.clientHostPid || null;
   // Legacy/unattributed tasks remain visible so old async jobs are still recoverable.
   if (!taskSessionId && !taskClientHostPid) return includeUnattributed;
@@ -127,11 +133,13 @@ function pruneTasks(options = {}) {
   const { force = false, surface } = options;
   const now = Date.now();
   const wanted = clean(surface);
-  for (const [taskId, task] of [...tasks.entries()]) {
+  const scope = normalizeTaskScope(options);
+  // Deleting the entry being visited is safe during Map iteration.
+  for (const [taskId, task] of tasks) {
     if (wanted && task.surface !== wanted) continue;
-    if (!taskMatchesScope(task, options)) continue;
     const finishedAt = task.finishedAtMs || 0;
-    if (force || (finishedAt > 0 && now - finishedAt > TASK_TTL_MS)) tasks.delete(taskId);
+    if (!force && !(finishedAt > 0 && now - finishedAt > TASK_TTL_MS)) continue;
+    if (taskMatchesScope(task, scope)) tasks.delete(taskId);
   }
   if (tasks.size <= MAX_TASKS) return;
   const removable = [...tasks.values()]
@@ -197,6 +205,7 @@ export function registerBackgroundTask({
     notifyOnCancel: notifyOnCancel === true,
   };
   tasks.set(id, task);
+  emitSessionActivityChange(task.ownerSessionId || '');
   return task;
 }
 
@@ -230,38 +239,64 @@ export function getBackgroundTask(taskId, options = {}) {
   if (!task) return null;
   const wanted = clean(options.surface);
   if (wanted && task.surface !== wanted) return null;
-  if (!taskMatchesScope(task, options)) return null;
+  if (!taskMatchesScope(task, normalizeTaskScope(options))) return null;
   return task;
 }
 
+function countsAsActive(task, wanted, awaitedOnly) {
+  return task.status === 'running' && !(awaitedOnly && task.detached === true) && (!wanted || task.surface === wanted);
+}
+
 /** Lifetime signal: a session-owned background task remains live
- * work even while the interactive turn is idle and every view is detached. */
+ * work even while the interactive turn is idle and every view is detached.
+ * `awaitedOnly` leaves out `detached` tasks: processes a finished command
+ * deliberately left running (an app or server it launched), which nothing is
+ * waiting on and which may outlive the session's work by days.
+ * A read: pruning only ever drops finished tasks, which never count here. */
 export function hasActiveBackgroundTasks(options = {}) {
-  pruneTasks(options);
   const wanted = clean(options.surface);
-  return [...tasks.values()].some(
-    (task) =>
-      task.status === 'running' &&
-      (!wanted || task.surface === wanted) &&
-      taskMatchesScope(task, options, { includeUnattributed: false })
-  );
+  const awaitedOnly = options.awaitedOnly === true;
+  const scope = normalizeTaskScope(options);
+  for (const task of tasks.values()) {
+    if (countsAsActive(task, wanted, awaitedOnly) && taskMatchesScope(task, scope, { includeUnattributed: false })) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Every owner session `hasActiveBackgroundTasks({ callerSessionId, surface,
+ *  awaitedOnly })` answers true for, from ONE pass over the tasks: a caller
+ *  asking for every session (busy counts, pool rows) scans once instead of
+ *  once per session. */
+export function activeBackgroundTaskSessionIds(options = {}) {
+  const wanted = clean(options.surface);
+  const awaitedOnly = options.awaitedOnly === true;
+  const ids = new Set();
+  for (const task of tasks.values()) {
+    if (!countsAsActive(task, wanted, awaitedOnly)) continue;
+    const sessionId = taskSessionIdOf(task);
+    if (sessionId) ids.add(sessionId);
+  }
+  return ids;
 }
 
 export function listBackgroundTasks(options = {}) {
   const { surface } = options;
   pruneTasks(options);
   const wanted = clean(surface);
+  const scope = normalizeTaskScope(options);
   return [...tasks.values()]
     .filter((task) => !wanted || task.surface === wanted)
-    .filter((task) => taskMatchesScope(task, options))
+    .filter((task) => taskMatchesScope(task, scope))
     .map((task) => taskSummary(task));
 }
 
 export function cleanupBackgroundTasks(options = {}) {
   const wanted = clean(options.surface);
+  const scope = normalizeTaskScope(options);
   const countForSurface = () =>
-    [...tasks.values()].filter((task) => (!wanted || task.surface === wanted) && taskMatchesScope(task, options))
-      .length;
+    [...tasks.values()].filter((task) => (!wanted || task.surface === wanted) && taskMatchesScope(task, scope)).length;
   const before = countForSurface();
   pruneTasks(options);
   const after = countForSurface();
@@ -331,6 +366,7 @@ export function cancelBackgroundTasks(options = {}) {
   const reason = clean(options.reason) || 'cancelled';
   const wanted = clean(options.surface);
   const executionSessionId = clean(options.executionSessionId);
+  const scope = normalizeTaskScope(options);
   let cancelled = 0;
   for (const task of [...tasks.values()]) {
     if (wanted && task.surface !== wanted) continue;
@@ -341,7 +377,7 @@ export function cancelBackgroundTasks(options = {}) {
       // Delegated work executes in its bound session; before binding it still
       // belongs to the registering session. Notification ownership is separate.
       if ((clean(task.meta?.sessionId) || task.ownerSessionId) !== executionSessionId) continue;
-    } else if (!taskMatchesScope(task, options, { includeUnattributed: false })) continue;
+    } else if (!taskMatchesScope(task, scope, { includeUnattributed: false })) continue;
     if (TERMINAL_STATUSES.has(task.status)) {
       if (options.notify === false) silenceCancelledNotification(task);
       continue;
@@ -413,6 +449,7 @@ export function completeBackgroundTask(
   if (error != null) task.error = presentErrorText(error, { surface: task.surface });
   if (resultType) task.resultType = resultType;
   if (instruction) task.notificationInstruction = compactText(instruction, 1_000);
+  emitSessionActivityChange(task.ownerSessionId || '');
   if (notify) {
     task.meta = sanitizeTaskMeta(task.meta);
     notifyTaskCompletion(task, instruction);
@@ -522,6 +559,9 @@ export function renderBackgroundTaskNotification(task) {
       : resultTextForTask(task);
   if (task.surface === 'shell') {
     const parsed = parseTaskNotification(result);
+    // The completion envelope already carries the result (exit code,
+    // duration, output or its summary): deliver it as is.
+    if (parsed?.result) return result;
     return renderShellCompletionNotice({
       jobId: task.taskId,
       status: task.status,

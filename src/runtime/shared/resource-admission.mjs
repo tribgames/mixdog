@@ -1,4 +1,4 @@
-import { freemem, totalmem } from 'node:os';
+import { availableParallelism, freemem, totalmem } from 'node:os';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { requestMemoryPressureSnapshot } from './memory-snapshot.mjs';
 import { nonNegativeInt, positiveInt } from './numbers.mjs';
@@ -6,12 +6,20 @@ import { nonNegativeInt, positiveInt } from './numbers.mjs';
 const MB = 1024 * 1024;
 
 // The unified daemon queues bursts instead of starting an unbounded number of
-// agent/provider/shell tasks in one process. Environment overrides remain
-// available for larger hosts; memory thresholds are diagnostic only.
+// agent/provider tasks in one process. Shell commands start immediately: their
+// only bound is maxShells (64) live foreground commands, a runaway guard
+// rather than a CPU budget; the OS shares the cores. Environment overrides remain available; memory thresholds
+// are diagnostic only.
+// Agent leases are held only while an agent runs tools (they yield during
+// provider I/O) and their tool work is mostly child-process I/O, so two per
+// core keeps the host busy: 30-agent stress on 20 cores halved wall time at
+// 40 versus 8 with no event-loop or memory cost. 8 is the floor for small
+// hosts. maxHighLoad now bounds agents only and defaults to the same.
+const AGENT_LIMIT = Math.max(8, 2 * availableParallelism());
 const RESOURCE_ADMISSION_DEFAULTS = Object.freeze({
-  maxAgents: 8,
-  maxShells: 8,
-  maxHighLoad: 12,
+  maxAgents: AGENT_LIMIT,
+  maxShells: 64,
+  maxHighLoad: AGENT_LIMIT,
   maxQueue: 1024,
   minFreeMemoryMb: 0,
   maxRssMb: 0,
@@ -79,12 +87,15 @@ class ResourceAdmissionQueueFullError extends ResourcePressureError {
  * shells. Running work is never revoked: pressure only rejects a new request or
  * keeps a concurrency-blocked request in the bounded FIFO queue.
  *
- * A shell lease covers only the foreground part of a command: promotion to a
- * background job releases it (lib/shell-run-background/promote-job.mjs), so
- * background jobs count toward neither maxShells nor the maxHighLoad budget
- * shared with agents, and are not capped at all: they are mostly idle
- * servers/watchers at below-normal OS priority whose memory lives in their own
- * processes. Session/runtime close stops them (shell-jobs shutdownShellJobs).
+ * Shell leases are their own pool of maxShells: they are not part of the
+ * maxHighLoad budget, do not suspend the calling agent's lease, and never wait
+ * behind queued agent work, so a command starts at once unless maxShells
+ * commands are already running. A shell lease covers only the foreground part
+ * of a command: promotion to a background job releases it
+ * (lib/shell-run-background/promote-job.mjs), so background jobs are not
+ * capped at all: they are mostly idle servers/watchers at below-normal OS
+ * priority whose memory lives in their own processes. Session/runtime close
+ * stops them (shell-jobs shutdownShellJobs).
  */
 export class ResourceAdmissionController {
   constructor({ limits = {}, metrics = defaultMetrics, now = Date.now, env = process.env } = {}) {
@@ -98,6 +109,20 @@ export class ResourceAdmissionController {
     // Live leases for saturation diagnostics only (labels/ages in snapshot()).
     this.activeLeases = new Set();
     this.context = new AsyncLocalStorage();
+    // Admission waits by pool: first acquisition (agent/shell) and the
+    // reacquisition after a yielded provider call (restore). Shows whether
+    // the agent cap actually delays work.
+    this.waitStats = {};
+  }
+
+  _recordWait(pool, waitedMs) {
+    this.waitStats[pool] ??= { admitted: 0, waited: 0, totalWaitMs: 0, maxWaitMs: 0 };
+    const stats = this.waitStats[pool];
+    stats.admitted += 1;
+    if (waitedMs <= 0) return;
+    stats.waited += 1;
+    stats.totalWaitMs += waitedMs;
+    stats.maxWaitMs = Math.max(stats.maxWaitMs, waitedMs);
   }
 
   _recordMemoryPressure(kind) {
@@ -129,9 +154,14 @@ export class ResourceAdmissionController {
   }
 
   _canStart(kind) {
-    const total = this.active.agent + this.active.shell;
-    const kindLimit = kind === 'shell' ? this.limits.maxShells : this.limits.maxAgents;
-    return total < this.limits.maxHighLoad && this.active[kind] < kindLimit;
+    if (kind === 'shell') return this.active.shell < this.limits.maxShells;
+    return this.active.agent < this.limits.maxHighLoad && this.active.agent < this.limits.maxAgents;
+  }
+
+  // Shell and agent waiters never delay each other's new requests.
+  _queuedInPool(lane) {
+    const shell = lane === 'shell';
+    return this.queue.some((item) => (item.kind === 'shell') === shell);
   }
 
   _adjustOwnerCount(kind, ownerKey, delta) {
@@ -240,6 +270,7 @@ export class ResourceAdmissionController {
       },
     };
     this.activeLeases.add(lease);
+    this._recordWait(kind, lease.queuedMs);
     return lease;
   }
 
@@ -294,8 +325,9 @@ export class ResourceAdmissionController {
     this._recordMemoryPressure(lane);
     const ambientParent = this.context.getStore();
     const detachedDependency = dependency === 'detached' && ambientParent?.controller === this;
-    const parent = detachedDependency ? null : this._suspendParent(ambientParent);
-    if (detachedDependency && (!this._canStart(lane) || this.queue.length > 0)) {
+    // A shell runs beside its agent instead of taking the agent's slot.
+    const parent = detachedDependency || lane === 'shell' ? null : this._suspendParent(ambientParent);
+    if (detachedDependency && (!this._canStart(lane) || this._queuedInPool(lane))) {
       const error = new ResourcePressureError(
         `detached nested ${lane} work has no admission capacity; retry after running work completes`,
         { kind: lane }
@@ -303,7 +335,7 @@ export class ResourceAdmissionController {
       error.code = 'ERESOURCEDEPENDENCY';
       return Promise.reject(error);
     }
-    if (this._canStart(lane) && this.queue.length === 0) {
+    if (this._canStart(lane) && !this._queuedInPool(lane)) {
       const lease = this._lease(lane, null, parent, owner, taskPriority);
       lease.label = label;
       lease.signal = signal;
@@ -439,6 +471,7 @@ export class ResourceAdmissionController {
       if (item.restore) {
         item.parent.restorePending = null;
         item.parent.counted = true;
+        this._recordWait(`${item.kind}Restore`, Math.max(0, this.now() - item.queuedAt));
         this.active[item.kind] += 1;
         this._adjustOwnerCount(item.kind, item.ownerKey, 1);
         item.resolve();
@@ -461,6 +494,15 @@ export class ResourceAdmissionController {
         shell: this.activeByOwner.shell.size,
       },
       queued: this.queue.length,
+      waitStats: Object.fromEntries(
+        Object.entries(this.waitStats).map(([pool, stats]) => [
+          pool,
+          {
+            ...stats,
+            averageQueuedMs: stats.waited > 0 ? Math.round(stats.totalWaitMs / stats.waited) : 0,
+          },
+        ])
+      ),
       limits: {
         ...this.limits,
         maxAgents: wireLimit(this.limits.maxAgents),

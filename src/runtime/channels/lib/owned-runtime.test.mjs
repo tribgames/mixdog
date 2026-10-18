@@ -359,7 +359,7 @@ test('reloadRuntimeConfig with an unchanged provider discards the fresh instance
 test('reloadRuntimeConfig with a provider type change clears the routing snapshot', async (t) => {
   const { state, runtime } = makeHarness(t, { provider: makeProvider('primary') });
   await runtime.startOwnedRuntime();
-  const other = makeProvider('telegram');
+  const other = makeProvider('secondary');
   fixtures.loadedConfig = makeConfig();
   fixtures.nextProvider = other;
   calls.length = 0;
@@ -370,7 +370,7 @@ test('reloadRuntimeConfig with a provider type change clears the routing snapsho
     calls.filter((c) => c[0] === 'status.update'),
     [['status.update', '', '']]
   );
-  assert.ok(calls.some((c) => c[0] === 'provider.connect' && c[1] === 'telegram'));
+  assert.ok(calls.some((c) => c[0] === 'provider.connect' && c[1] === 'secondary'));
 });
 
 test('refreshBridgeOwnership stops an inactive bridge once and coalesces concurrent callers', async (t) => {

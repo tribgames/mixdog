@@ -6,7 +6,7 @@
  * cannot be read is treated as busy rather than risking the loss of a live
  * turn. The eviction sweep that consumes this lives in ../retention.mjs.
  */
-import { hasActiveBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
+import { activeBackgroundTaskSessionIds, hasActiveBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
 
 export function createBusyTracker({ sessions, currentSessionId }) {
   function stateBusy(state) {
@@ -44,10 +44,15 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     }
   }
 
+  // sessionBusy for every entry, with the background tasks scanned once: the
+  // owner heartbeat, telemetry and status ask this every few seconds, and a
+  // scan per session made it sessions × tasks on the event loop.
   function liveBusyCount() {
+    const withTasks = activeBackgroundTaskSessionIds();
     let count = 0;
     for (const entry of sessions) {
-      if (sessionBusy(entry)) count += 1;
+      const sessionId = currentSessionId(entry);
+      if ((sessionId && withTasks.has(sessionId)) || sessionTurnBusy(entry)) count += 1;
     }
     return count;
   }

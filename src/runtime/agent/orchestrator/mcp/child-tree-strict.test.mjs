@@ -1,36 +1,41 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import test, { mock } from 'node:test';
 
-// Every spawned enumerator, and how the next one behaves: 'deny' fails at
-// once, 'hang' never answers until it is killed.
+// Every enumerator started (on the process-runner worker), and how the next
+// one behaves: 'deny' fails at once, 'hang' never answers until the runner
+// kills it at the deadline it was given (ETIMEDOUT, as run-child.mjs does).
 const spawned = [];
 let behavior = 'deny';
-mock.module('node:child_process', {
+mock.module('../../../shared/process-runner.mjs', {
   namedExports: {
-    spawn: () => {
-      const child = new EventEmitter();
-      child.stdout = Object.assign(new EventEmitter(), {
-        destroyed: false,
-        destroy() {
-          this.destroyed = true;
-        },
-      });
-      child.alive = true;
-      child.kill = (signal) => {
-        child.killedWith = signal;
-        child.alive = false;
-        return true;
-      };
+    runProcessOffThread: (command, args, { timeoutMs }) => {
+      const child = { command, args, timeoutMs, alive: true };
       spawned.push(child);
-      if (behavior === 'deny') {
-        queueMicrotask(() => {
+      return new Promise((resolve, reject) => {
+        if (behavior === 'manual') {
+          // Answers when the test says so, with a table naming this process.
+          child.answer = () => {
+            child.alive = false;
+            const row =
+              process.platform === 'win32'
+                ? `${process.pid} 1 node.exe 2026-10-18T00:00:00`
+                : `${process.pid} 1 ${process.pid} S node Sun Oct 18 00:00:00 2026`;
+            resolve({ code: 0, stdout: `${row}\n`, stderr: '' });
+          };
+          return;
+        }
+        if (behavior === 'deny') {
+          queueMicrotask(() => {
+            child.alive = false;
+            reject(new Error('process enumeration denied'));
+          });
+          return;
+        }
+        setTimeout(() => {
           child.alive = false;
-          child.emit('error', new Error('process enumeration denied'));
-          child.emit('close', 1);
-        });
-      }
-      return child;
+          reject(Object.assign(new Error(`${command} timed out after ${timeoutMs}ms`), { code: 'ETIMEDOUT' }));
+        }, timeoutMs);
+      });
     },
   },
 });
@@ -59,8 +64,8 @@ test('a hung enumerator is killed at the deadline and its snapshot rejected', as
     t.mock.timers.tick(1);
     await read;
     assert.match(String(settled?.message), /timed out/);
-    assert.equal(spawned[0].killedWith, 'SIGKILL', 'the enumerator is killed');
-    assert.equal(spawned[0].stdout.destroyed, true);
+    assert.equal(spawned[0].timeoutMs, ENUMERATION_DEADLINE_MS, 'the runner kills the enumerator at the deadline');
+    assert.equal(spawned[0].alive, false);
     // Best-effort callers get an empty answer, not a hang.
     const legacy = collectDescendantProcesses(process.pid);
     await new Promise((resolve) => setImmediate(resolve));
@@ -72,6 +77,36 @@ test('a hung enumerator is killed at the deadline and its snapshot rejected', as
       0,
       'repeated reads never leave an earlier enumerator running'
     );
+  } finally {
+    behavior = 'deny';
+  }
+});
+
+// Runs while no read is in flight (the watch test below leaves one hanging).
+test('concurrent observers share one enumerator at a time, each served by a read begun after it asked', async () => {
+  behavior = 'manual';
+  spawned.length = 0;
+  try {
+    const first = readProcessTable();
+    // A pre-kill capture may join the running read.
+    const capture = readProcessTable({ shared: true });
+    // Observers asking while it runs must not get it: they share the next one.
+    const observers = Array.from({ length: 8 }, () => readProcessTable());
+    assert.equal(spawned.length, 1, 'no enumerator is started beside the running one');
+    spawned[0].answer();
+    const firstTable = await first;
+    assert.equal(await capture, firstTable);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(spawned.length, 2, 'one more read, begun after the first settled, serves every observer');
+    spawned[1].answer();
+    const tables = await Promise.all(observers);
+    assert.ok(tables.every((table) => table === tables[0] && table !== firstTable));
+    assert.equal(tables[0].nameOf.has(process.pid), true);
+    // Nothing in flight: the next observer starts its own read at once.
+    const alone = readProcessTable();
+    assert.equal(spawned.length, 3);
+    spawned[2].answer();
+    await alone;
   } finally {
     behavior = 'deny';
   }

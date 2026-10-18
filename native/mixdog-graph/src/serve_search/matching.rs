@@ -373,67 +373,114 @@ pub(super) fn scan_file(
     }
 }
 
-pub(super) fn append_scanned_matches_unordered(
+/// One file's block for the content window, or `None` when the request
+/// stopped, the operand filter rejects the file, or it has no match.
+fn scan_window_file(
+    file: &Path,
+    scope: &OperandScope<'_>,
+    use_prefix: bool,
+    match_limit: Option<usize>,
+    trust: &TrustSnapshot,
+    ctx: &ScanCtx<'_>,
+) -> Option<Vec<String>> {
+    if ctx.cancelled.load(Ordering::Relaxed)
+        || deadline_expired(ctx.deadline_at)
+        || !scope.filter.allows(file)
+    {
+        return None;
+    }
+    let prefix = if use_prefix {
+        display_path(scope.operand, scope.operand_path, file)
+    } else {
+        String::new()
+    };
+    ctx.files_scanned.fetch_add(1, Ordering::Relaxed);
+    scan_file(file, &prefix, match_limit, trust, ctx)
+}
+
+/// Append per-file blocks in the order given, with rg's `--` separator
+/// between context blocks, up to the window's hard stop. True once it filled.
+pub(super) fn append_blocks(
+    blocks: impl IntoIterator<Item = Vec<String>>,
+    parsed: &ParsedArgs,
+    out: &mut ScanOutput<'_>,
+) -> bool {
+    let separators = (parsed.before > 0 || parsed.after > 0) && !parsed.files_with_matches;
+    for block in blocks {
+        if out.all_lines.len() >= out.collect_until {
+            return true;
+        }
+        if separators && *out.emitted_blocks > 0 {
+            out.all_lines.push("--".to_string());
+        }
+        *out.emitted_blocks += 1;
+        let available = out.collect_until.saturating_sub(out.all_lines.len());
+        out.all_lines.extend(block.into_iter().take(available));
+    }
+    out.all_lines.len() >= out.collect_until
+}
+
+/// Scan `files` in parallel and append their blocks in `files` order, so the
+/// window is a pure function of the (sorted) inventory and offset paging is
+/// stable. A bounded window scans in growing chunks — each chunk parallel,
+/// merged by index — and stops after the chunk that fills it. Files in
+/// `prior` were already scanned (during a live walk) and reuse that result.
+pub(super) fn append_scanned_matches_ordered(
     files: &[PathBuf],
+    prior: &HashMap<PathBuf, Option<Vec<String>>>,
     scope: &OperandScope<'_>,
     use_prefix: bool,
     trust: &TrustSnapshot,
     ctx: &ScanCtx<'_>,
     out: &mut ScanOutput<'_>,
 ) -> bool {
-    let parsed = ctx.parsed;
     let collect_until = out.collect_until;
-    let remaining = collect_until.saturating_sub(out.all_lines.len());
-    if files.is_empty() || remaining == 0 {
-        return remaining == 0;
-    }
-    // Read once: the separator counter is only written after the parallel pass.
-    let emitted_blocks = *out.emitted_blocks;
-    let done = AtomicBool::new(false);
-    let gathered = Mutex::new((Vec::new(), 0usize));
-    files.par_iter().for_each(|file| {
-        if done.load(Ordering::Relaxed)
-            || ctx.cancelled.load(Ordering::Relaxed)
-            || deadline_expired(ctx.deadline_at)
-            || !scope.filter.allows(file)
-        {
-            return;
+    let mut chunk_len = (rayon::current_num_threads() * 8).max(32);
+    let mut rest = files;
+    while !rest.is_empty() {
+        let remaining = collect_until.saturating_sub(out.all_lines.len());
+        if remaining == 0 {
+            return true;
         }
-        let prefix = if use_prefix {
-            display_path(scope.operand, scope.operand_path, file)
+        let bounded = collect_until != usize::MAX;
+        let take = if bounded {
+            chunk_len.min(rest.len())
         } else {
-            String::new()
+            rest.len()
         };
-        ctx.files_scanned.fetch_add(1, Ordering::Relaxed);
-        let Some(block) = scan_file(
-            file,
-            &prefix,
-            (collect_until != usize::MAX).then_some(remaining),
-            trust,
-            ctx,
-        ) else {
-            return;
-        };
-        let mut state = lock_recover(&gathered);
-        if state.0.len() >= remaining {
-            done.store(true, Ordering::Relaxed);
-            return;
+        let (chunk, tail) = rest.split_at(take);
+        rest = tail;
+        let match_limit = bounded.then_some(remaining);
+        let blocks: Vec<Option<Vec<String>>> = chunk
+            .par_iter()
+            .map(|file| match prior.get(file) {
+                Some(block) => block.clone(),
+                None => scan_window_file(file, scope, use_prefix, match_limit, trust, ctx),
+            })
+            .collect();
+        if append_blocks(blocks.into_iter().flatten(), ctx.parsed, out) {
+            return true;
         }
-        if emitted_blocks + state.1 > 0
-            && (parsed.before > 0 || parsed.after > 0)
-            && !parsed.files_with_matches
-        {
-            state.0.push("--".to_string());
-        }
-        state.1 += 1;
-        let available = remaining.saturating_sub(state.0.len());
-        state.0.extend(block.into_iter().take(available));
-        if state.0.len() >= remaining {
-            done.store(true, Ordering::Relaxed);
-        }
-    });
-    let (lines, blocks) = gathered.into_inner().unwrap_or_else(|e| e.into_inner());
-    *out.emitted_blocks += blocks;
-    out.all_lines.extend(lines);
+        chunk_len = chunk_len.saturating_mul(2).min(8192);
+    }
     out.all_lines.len() >= collect_until
+}
+
+/// Scan `files` in parallel and return every file's result keyed by its path,
+/// for a caller that orders the blocks once the whole inventory is known.
+pub(super) fn scan_matches_keyed(
+    files: &[PathBuf],
+    scope: &OperandScope<'_>,
+    use_prefix: bool,
+    match_limit: Option<usize>,
+    trust: &TrustSnapshot,
+    ctx: &ScanCtx<'_>,
+) -> Vec<(PathBuf, Option<Vec<String>>)> {
+    files
+        .par_iter()
+        .map(|file| {
+            let block = scan_window_file(file, scope, use_prefix, match_limit, trust, ctx);
+            (file.clone(), block)
+        })
+        .collect()
 }

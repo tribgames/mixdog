@@ -9,6 +9,7 @@
 // tree (taskkill /T /F on Windows, SIGTERM->SIGKILL of every descendant on
 // POSIX). No external dependencies.
 import { spawn } from 'node:child_process';
+import { runProcessOffThread } from '../../../shared/process-runner.mjs';
 import { detachedSpawnOpts } from '../../../shared/spawn-flags.mjs';
 
 const isWin = process.platform === 'win32';
@@ -44,54 +45,26 @@ function transportPid(transport) {
  *  settled, so enumerators never pile up whatever this value is. */
 export const ENUMERATION_DEADLINE_MS = 20_000;
 
-// Spawn a helper command and resolve its stdout (empty string on any error).
-// `timeoutMs` > 0: past the deadline the helper is killed (Node reaps it on
-// exit) and the call settles at once instead of waiting for it.
-function run(cmd, args, { strict = false, timeoutMs = 0 } = {}) {
-  return new Promise((resolve, reject) => {
-    let out = '';
-    let cp;
-    let timer = null;
-    let settled = false;
-    const settle = (finish) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      finish();
-    };
-    try {
-      cp = spawn(cmd, args, { windowsHide: true });
-    } catch (error) {
-      if (strict) {
-        reject(error);
-        return;
-      }
-      resolve('');
-      return;
+// Output bound of one helper command: a process table is tens of KB.
+const HELPER_MAX_BYTES = 64 * 1024 * 1024;
+
+// Run a helper command off the event loop (process-runner.mjs: under load one
+// PowerShell start blocked the daemon's loop for seconds) and resolve its
+// stdout. Past `timeoutMs` (default ENUMERATION_DEADLINE_MS) the helper is
+// killed and the call settles. Strict: a failed, non-zero or timed-out run
+// rejects; otherwise it resolves '' (non-zero exits keep their stdout).
+function run(cmd, args, { strict = false, timeoutMs = ENUMERATION_DEADLINE_MS } = {}) {
+  return runProcessOffThread(cmd, args, { timeoutMs, maxBytes: HELPER_MAX_BYTES }).then(
+    ({ code, stdout }) => {
+      if (strict && code !== 0) throw new Error(`Process enumeration failed (${code}).`);
+      return stdout;
+    },
+    (error) => {
+      if (!strict) return '';
+      if (error?.code === 'ETIMEDOUT') throw new Error(`Process enumeration timed out after ${timeoutMs} ms.`);
+      throw error;
     }
-    cp.stdout?.on('data', (d) => {
-      out += String(d);
-    });
-    cp.on('error', (error) => settle(() => (strict ? reject(error) : resolve(out))));
-    cp.on('close', (code) =>
-      settle(() => (strict && code !== 0 ? reject(new Error(`Process enumeration failed (${code}).`)) : resolve(out)))
-    );
-    if (timeoutMs > 0) {
-      timer = setTimeout(() => {
-        try {
-          cp.kill('SIGKILL');
-        } catch {
-          /* already gone */
-        }
-        cp.stdout?.destroy?.();
-        cp.stderr?.destroy?.();
-        settle(() =>
-          strict ? reject(new Error(`Process enumeration timed out after ${timeoutMs} ms.`)) : resolve('')
-        );
-      }, timeoutMs);
-      timer.unref?.();
-    }
-  });
+  );
 }
 
 // Snapshot the whole process table once: parent map + a per-pid identity
@@ -114,21 +87,25 @@ async function enumerate({ strict = false } = {}) {
         ],
         { strict, timeoutMs: ENUMERATION_DEADLINE_MS }
       )
-    : await run('ps', ['-A', '-o', 'pid=,ppid=,pgid=,comm=,lstart='], {
+    : await run('ps', ['-A', '-o', 'pid=,ppid=,pgid=,stat=,comm=,lstart='], {
         strict,
         timeoutMs: ENUMERATION_DEADLINE_MS,
       });
-  const row = isWin ? /^(\d+)\s+(\d+)\s+()(\S+)(?:\s+(.+))?$/ : /^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(.+))?$/;
+  const row = isWin ? /^(\d+)\s+(\d+)\s+()()(\S+)(?:\s+(.+))?$/ : /^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)(?:\s+(.+))?$/;
   for (const line of out.split(/\r?\n/)) {
     const m = line.trim().match(row);
     if (!m) continue;
+    // A zombie runs nothing and holds no port or file; it only waits to be
+    // reaped (forever under an init that does not reap, e.g. a container
+    // without one). Counting it alive would hold a dead tree as running.
+    if (m[4].startsWith('Z')) continue;
     const pid = Number(m[1]);
     const ppid = Number(m[2]);
-    const token = (m[5] || '').trim() || null;
+    const token = (m[6] || '').trim() || null;
     if (!childrenOf.has(ppid)) childrenOf.set(ppid, []);
     childrenOf.get(ppid).push(pid);
     tokenOf.set(pid, token);
-    nameOf.set(pid, m[4]);
+    nameOf.set(pid, m[5]);
     if (m[3]) pgidOf.set(pid, Number(m[3]));
   }
   if (strict && !nameOf.has(process.pid)) throw new Error('The process snapshot could not be verified.');
@@ -142,17 +119,33 @@ async function enumerate({ strict = false } = {}) {
  *  `shared: true` (pre-kill captures) joins a read already in flight, so many
  *  jobs promoted together do not each spawn an enumerator; a capture taken
  *  while its root runs is valid whenever that read began. An observation after
- *  a kill never shares: a read that began before the kill would report the
- *  killed tree alive and defer the confirmation by a whole re-check. */
+ *  a kill or exit must see a table taken AFTER it asked: a read that began
+ *  before the kill would report the killed tree alive and defer the
+ *  confirmation by a whole re-check. Such a caller starts a read when none
+ *  runs, else joins the one queued to begin when the running read settles —
+ *  every observer asking meanwhile shares it. At most one enumerator runs at
+ *  a time, however many shells settle or watch at once (each one is a
+ *  PowerShell process on Windows; one per settle and watch pass compounded
+ *  machine load into multi-second daemon stalls). */
 let tableInFlight = null;
+let nextTable = null;
+function startTableRead() {
+  const read = enumerate({ strict: true }).finally(() => {
+    if (tableInFlight === read) tableInFlight = null;
+  });
+  tableInFlight = read;
+  return read;
+}
 export function readProcessTable({ shared = false } = {}) {
-  if (!shared) return enumerate({ strict: true });
-  if (!tableInFlight) {
-    tableInFlight = enumerate({ strict: true }).finally(() => {
-      tableInFlight = null;
-    });
-  }
-  return tableInFlight;
+  if (shared && tableInFlight) return tableInFlight;
+  if (nextTable) return nextTable;
+  if (!tableInFlight) return startTableRead();
+  const settled = () => {};
+  nextTable = tableInFlight.then(settled, settled).then(() => {
+    nextTable = null;
+    return startTableRead();
+  });
+  return nextTable;
 }
 
 // Walk every descendant pid of rootPid (excludes rootPid).

@@ -7,6 +7,7 @@ import { flushNotifyTrace, notifyTrace } from './notify-trace.mjs';
 import { createAsyncLogAppender } from './async-log-appender.mjs';
 
 function withEnv(values, run) {
+  values = { MIXDOG_NOTIFY_TRACE: '1', ...values };
   const saved = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
   for (const [name, value] of Object.entries(values)) {
     if (value === undefined) delete process.env[name];
@@ -21,6 +22,19 @@ function withEnv(values, run) {
     }
   }
 }
+
+test('the trace is off unless MIXDOG_NOTIFY_TRACE=1 opts in', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-notify-trace-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dataDir = join(root, 'data');
+  for (const value of [undefined, '', '0', 'true']) {
+    withEnv({ MIXDOG_NOTIFY_TRACE: value, MIXDOG_DATA_DIR: dataDir, MIXDOG_HOME: undefined }, () =>
+      notifyTrace('off-stage')
+    );
+  }
+  await flushNotifyTrace();
+  assert.equal(existsSync(join(dataDir, 'diagnostics')), false, 'nothing is written, not even the folder');
+});
 
 test('the trace lands in the data dir the environment names at call time', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-notify-trace-'));
@@ -52,7 +66,9 @@ test('the trace returns before its write and a flush lands every queued line', a
     assert.ok(!existsSync(join(dataDir, 'diagnostics', 'notify-trace.log')), 'append must not run inline');
   });
   await flushNotifyTrace();
-  const lines = readFileSync(join(dataDir, 'diagnostics', 'notify-trace.log'), 'utf8').trim().split('\n');
+  const lines = readFileSync(join(dataDir, 'diagnostics', 'notify-trace.log'), 'utf8')
+    .trim()
+    .split('\n');
   assert.equal(lines.length, 50);
   assert.match(lines[49], /burst index=49$/);
 });
@@ -68,7 +84,10 @@ test('an appended file is cut to its last whole lines once it passes the cap', a
   const text = readFileSync(file, 'utf8');
   assert.ok(text.length <= 300 + 50, `bounded, got ${text.length}`);
   const lines = text.trim().split('\n');
-  assert.ok(lines.every((line) => /^(old|new)-\d+$/.test(line)), 'no partial line survives');
+  assert.ok(
+    lines.every((line) => /^(old|new)-\d+$/.test(line)),
+    'no partial line survives'
+  );
   assert.deepEqual(lines.slice(-5), ['new-0', 'new-1', 'new-2', 'new-3', 'new-4']);
   assert.ok(lines.includes('old-199'));
 });

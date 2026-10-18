@@ -88,6 +88,11 @@
       "credentialFile": "antigravity-oauth.json",
       "credentialPathEnv": "ANTIGRAVITY_OAUTH_CREDENTIALS_PATH",
       "modelCatalogFile": "antigravity-oauth-models.json"
+    },
+    "opencode-go-oauth": {
+      "credentialFile": "opencode-go-oauth.json",
+      "credentialPathEnv": "OPENCODE_GO_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "opencode-go-oauth-models.json"
     }
   },
   "apiKeyProviders": {
@@ -96,7 +101,6 @@
     "gemini": "GEMINI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "xai": "XAI_API_KEY",
-    "opencode-go": "OPENCODE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY"
   },
   "personalStateCounters": [

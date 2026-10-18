@@ -46,6 +46,46 @@ test('provider-style waits yield and reacquire the current agent lease', async (
   assert.equal(admission.snapshot().active.agent, 0);
 });
 
+test('shells default to 64 live leases, MIXDOG_MAX_CONCURRENT_SHELLS overrides it', () => {
+  assert.equal(new ResourceAdmissionController({ env: {} }).limits.maxShells, 64);
+  const env = { MIXDOG_MAX_CONCURRENT_SHELLS: '3' };
+  assert.equal(new ResourceAdmissionController({ env }).limits.maxShells, 3);
+});
+
+test('shells start beside saturated agents and queued agent work, without taking the agent slot', async () => {
+  const admission = new ResourceAdmissionController({ env: {}, limits: { maxAgents: 1, maxHighLoad: 1 } });
+  const agent = await admission.acquire('agent', { ownerKey: 'a' });
+  const queuedAgent = admission.acquire('agent', { ownerKey: 'b' });
+  const shells = await admission.runWithLease(agent, () =>
+    Promise.all(Array.from({ length: 20 }, () => admission.acquire('shell')))
+  );
+  const snap = admission.snapshot();
+  assert.equal(snap.active.shell, 20);
+  assert.equal(snap.active.agent, 1, 'the calling agent keeps its slot');
+  assert.equal(snap.queued, 1, 'only the second agent waits');
+  await Promise.all(shells.map((lease) => lease.release()));
+  assert.equal(admission.snapshot().active.agent, 1);
+  await agent.release();
+  await (await queuedAgent).release();
+  assert.equal(admission.snapshot().active.agent, 0);
+});
+
+test('the shell cap is the only shell bound: at maxShells a new shell waits for a release', async () => {
+  const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 2 } });
+  const held = [await admission.acquire('shell'), await admission.acquire('shell')];
+  let started = false;
+  const third = admission.acquire('shell').then((lease) => {
+    started = true;
+    return lease;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started, false);
+  await held[0].release();
+  await (await third).release();
+  await held[1].release();
+  assert.equal(admission.snapshot().active.shell, 0);
+});
+
 test('an already-aborted acquire uses the shared abort reason', async () => {
   const admission = new ResourceAdmissionController({
     limits: { maxAgents: 1, maxShells: 1, maxHighLoad: 1, maxQueue: 8 },

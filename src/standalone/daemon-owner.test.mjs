@@ -89,7 +89,7 @@ async function leasedTransport(t, heartbeat) {
   const transport = createSessionTransport({
     handleCall: async () => ({ ok: true }),
     serverToken: 'tok',
-    admitWork: () => heartbeat.admit(),
+    admitWork: () => heartbeat.admitAsync(),
   });
   const { port } = await transport.start();
   t.after(() => transport.stop());
@@ -221,7 +221,7 @@ test('a trickling health response is cut off by total duration, and a short budg
   assert.ok(performance.now() - budgeted < 250);
 });
 
-test('the heartbeat refreshes or recreates its own record and stops when another pid owns it', (t) => {
+test('the heartbeat refreshes or recreates its own record and stops when another pid owns it', async (t) => {
   const { ownerPath } = fixture(t);
   const owner = { kind: 'mixdog-daemon', pid: 4242, claimedAt: at(-3_600_000), heartbeatAt: at(-3_600_000) };
   writeFileSync(ownerPath, JSON.stringify(owner));
@@ -243,18 +243,23 @@ test('the heartbeat refreshes or recreates its own record and stops when another
     onFenced: () => assert.fail('not fenced'),
   });
 
-  assert.equal(heartbeat.beat(), 'refreshed');
+  // The default refresh is asynchronous: a beat answers 'pending' and settles.
+  assert.equal(heartbeat.beat(), 'pending');
+  assert.equal(heartbeat.beat(), 'pending', 'one refresh at a time');
+  assert.equal(await heartbeat.settled(), 'refreshed');
   assert.deepEqual(readSingletonOwner(ownerPath).owner, { ...owner, heartbeatAt: at(0) });
   rmSync(ownerPath);
   clock += 10_000;
   mono += 10_000;
-  assert.equal(heartbeat.beat(), 'refreshed');
+  heartbeat.beat();
+  assert.equal(await heartbeat.settled(), 'refreshed');
   assert.deepEqual(readSingletonOwner(ownerPath).owner, { ...owner, heartbeatAt: at(10_000) });
   assert.deepEqual(beats, [NOW, NOW + 10_000]);
 
   const winner = { kind: 'mixdog-daemon', pid: 7, heartbeatAt: at(10_000) };
   writeFileSync(ownerPath, JSON.stringify(winner));
-  assert.equal(heartbeat.beat(), 'superseded');
+  heartbeat.beat();
+  assert.equal(await heartbeat.settled(), 'superseded');
   assert.deepEqual(superseded, [winner]);
   assert.deepEqual(readSingletonOwner(ownerPath).owner, winner);
   assert.equal(heartbeat.admit(), false);
@@ -294,7 +299,8 @@ test('the lease runs in monotonic time: an expired lease fences instead of renew
   // One success renews the lease from that beat.
   failing = false;
   assert.equal(heartbeat.beat(), 'refreshed');
-  // An overdue beat (the loop stalled past the lease) must not renew it.
+  // An overdue beat with no stall observed (only a tick or request sees one)
+  // must not renew it.
   mono = 39_999 + 40_000;
   const calls = refreshes.length;
   assert.equal(heartbeat.beat(), 'fenced');
@@ -352,45 +358,159 @@ test('after a stall nothing is admitted until a refresh re-verifies the record',
   assert.equal(heartbeat.admit(), false);
 });
 
-test('event-loop stall past the lease: fenced on resume, never renewed, requests refused', async (t) => {
-  const refreshes = [];
+test('event-loop stall past the lease: re-verified under the claim lock on resume, fenced only when unproven', async (t) => {
+  // `status`: what the claim-locked refresh finds once the loop resumes.
+  const run = async (status) => {
+    const refreshes = [];
+    const fenced = [];
+    const superseded = [];
+    const logs = [];
+    let resumed = false;
+    const heartbeat = createOwnerHeartbeat({
+      ownerPath: 'unused',
+      owner: { pid: 4242, heartbeatAt: new Date().toISOString() },
+      heartbeatMs: 100,
+      fenceMs: 400,
+      tickMs: 25,
+      stallMs: 100,
+      log: (line) => logs.push(line),
+      refresh: (_path, record) => {
+        refreshes.push(performance.now());
+        const answer = resumed ? status : 'refreshed';
+        return { status: answer, owner: answer === 'superseded' ? { pid: 7 } : record };
+      },
+      onSuperseded: (record) => superseded.push(record),
+      onFenced: (info) => fenced.push(info),
+    });
+    t.after(() => heartbeat.stop());
+    const port = await leasedTransport(t, heartbeat);
+    heartbeat.start();
+    await delay(250);
+    assert.ok(refreshes.length >= 1, 'beating before the stall');
+    assert.equal((await post(port, '/client/register')).status !== 503, true);
+    const pending = post(port, '/call');
+    resumed = true;
+    busyWait(700);
+    return { response: await pending, fenced, superseded, logs, heartbeat, port };
+  };
+
+  // The record still names this process: no contender took it, so the sole
+  // daemon keeps serving (and keeps every running turn) instead of fencing.
+  const kept = await run('refreshed');
+  assert.notEqual(kept.response.status, 503);
+  assert.deepEqual(kept.fenced, []);
+  assert.equal(kept.heartbeat.state, 'active');
+  assert.ok(kept.logs.some((line) => /^owner lease re-verified \d+ms after its last refresh/.test(line)));
+  assert.notEqual((await post(kept.port, '/client/register')).status, 503);
+
+  // A contender reclaimed it meanwhile: stopped, never renewed over the winner.
+  const taken = await run('superseded');
+  assert.equal(taken.response.status, 503);
+  assert.match(taken.response.body, /daemon owner lease is not held/);
+  assert.deepEqual(
+    taken.superseded.map((record) => record.pid),
+    [7]
+  );
+  assert.equal(taken.heartbeat.state, 'superseded');
+
+  // Unprovable (claim lock busy): refused meanwhile, fenced after one beat.
+  const unproven = await run('busy');
+  assert.equal(unproven.response.status, 503);
+  for (let i = 0; i < 40 && unproven.fenced.length === 0; i += 1) await delay(25);
+  assert.equal(unproven.fenced.length, 1);
+  assert.equal(unproven.heartbeat.state, 'fenced');
+  assert.equal((await post(unproven.port, '/client/register')).status, 503);
+});
+
+test('an asynchronous refresh never holds the loop, and one unanswered at the lease still fences on time', async () => {
+  let mono = 0;
+  const answers = [];
   const fenced = [];
   const heartbeat = createOwnerHeartbeat({
     ownerPath: 'unused',
-    owner: { pid: 4242, heartbeatAt: new Date().toISOString() },
-    heartbeatMs: 100,
-    fenceMs: 400,
-    tickMs: 25,
-    stallMs: 100,
-    refresh: (_path, record) => {
-      refreshes.push(performance.now());
-      return { status: 'refreshed', owner: record };
-    },
+    owner: { pid: 4242, heartbeatAt: at(0) },
+    heartbeatMs: 10_000,
+    fenceMs: 40_000,
+    tickMs: 250,
+    stallMs: 1000,
+    monoNow: () => mono,
+    // Answers only when the test says so (a refresh stuck on a slow disk).
+    refresh: (_path, record) =>
+      new Promise((resolve) => answers.push(() => resolve({ status: 'refreshed', owner: record }))),
     onSuperseded: () => assert.fail('not superseded'),
     onFenced: (info) => fenced.push(info),
   });
-  t.after(() => heartbeat.stop());
-  const port = await leasedTransport(t, heartbeat);
-  heartbeat.start();
-  await delay(250);
-  assert.ok(refreshes.length >= 1, 'beating before the stall');
-  assert.equal((await post(port, '/client/register')).status !== 503, true);
+  for (mono = 250; mono <= 10_000; mono += 250) heartbeat.tick();
+  assert.equal(answers.length, 1, 'the beat started one refresh and returned');
+  for (; mono <= 12_000; mono += 250) heartbeat.tick();
+  assert.equal(answers.length, 1, 'never a second refresh beside the first');
+  assert.equal(heartbeat.admit(), true, 'the loop kept serving meanwhile');
+  answers[0]();
+  assert.equal(await heartbeat.settled(), 'refreshed');
+  // Renewed from when it started (10 s): the next beat is due at 20 s and
+  // the lease, if that one never answers, runs out at 50 s.
+  for (; mono < 50_000; mono += 250) heartbeat.tick();
+  assert.equal(answers.length, 2);
+  assert.deepEqual(fenced, []);
+  heartbeat.tick();
+  assert.equal(fenced.length, 1, 'fenced at the lease with the refresh still pending');
+  answers[1]();
+  assert.equal(await heartbeat.settled(), 'refreshed');
+  assert.equal(heartbeat.state, 'fenced', 'a late answer never revives a fenced holder');
+  assert.equal(heartbeat.admit(), false);
+});
 
-  const stalledAt = performance.now();
-  const pending = post(port, '/call');
-  busyWait(700);
-  const response = await pending;
-  assert.equal(response.status, 503);
-  assert.match(response.body, /daemon owner lease is not held/);
+test('only a lease that ran out inside one stall is re-verifiable; refreshes failing while the loop runs fence', () => {
+  let mono = 0;
+  let status = 'refreshed';
+  const fenced = [];
+  const heartbeat = createOwnerHeartbeat({
+    ownerPath: 'unused',
+    owner: { pid: 4242, heartbeatAt: at(0) },
+    heartbeatMs: 10_000,
+    fenceMs: 40_000,
+    tickMs: 250,
+    stallMs: 1000,
+    monoNow: () => mono,
+    refresh: (_path, record) => ({ status, owner: record }),
+    onSuperseded: () => assert.fail('not superseded'),
+    onFenced: (info) => fenced.push(info),
+  });
+  // A 66 s stall (the incident): renewed by the first refresh after it.
+  mono = 66_000;
+  heartbeat.tick();
+  assert.equal(heartbeat.state, 'active');
+  assert.equal(heartbeat.admit(), true);
+  // Another one with the claim lock busy: retried for one beat, then fenced.
+  status = 'busy';
+  mono = 140_000;
+  heartbeat.tick();
+  assert.equal(heartbeat.admit(), false);
+  mono = 145_000;
+  heartbeat.tick();
+  assert.deepEqual(fenced, []);
+  mono = 150_000;
+  heartbeat.tick();
   assert.equal(fenced.length, 1);
-  assert.deepEqual(
-    refreshes.filter((when) => when >= stalledAt),
-    [],
-    'the overdue beat fenced instead of renewing'
-  );
-  const later = await post(port, '/client/register');
-  assert.equal(later.status, 503);
-  assert.equal(heartbeat.state, 'fenced');
+
+  // The loop keeps running while every refresh fails: fenced at the lease.
+  mono = 0;
+  const running = [];
+  const failing = createOwnerHeartbeat({
+    ownerPath: 'unused',
+    owner: { pid: 4242, heartbeatAt: at(0) },
+    heartbeatMs: 10_000,
+    fenceMs: 40_000,
+    tickMs: 250,
+    stallMs: 1000,
+    monoNow: () => mono,
+    refresh: () => ({ status: 'busy', owner: null }),
+    onSuperseded: () => assert.fail('not superseded'),
+    onFenced: (info) => running.push(info),
+  });
+  for (mono = 250; mono <= 40_000 && running.length === 0; mono += 250) failing.tick();
+  assert.equal(running.length, 1);
+  assert.equal(running[0].sinceMs, 40_000);
 });
 
 test('a short stall re-verifies before serving: refused if the record was taken, served if not', async (t) => {
@@ -413,10 +533,17 @@ test('a short stall re-verifies before serving: refused if the record was taken,
     const port = await leasedTransport(t, heartbeat);
     heartbeat.start();
     await delay(150);
+    // No refresh mid-flight across the stall: the takeover below bypasses the
+    // claim lock, which a real contender's claim never does.
+    await heartbeat.settled();
     const pending = post(port, '/call');
     busyWait(150);
     // A contender reclaims while this holder cannot answer (its probe timed out).
-    if (takeOver) writeFileSync(ownerPath, JSON.stringify({ kind: 'mixdog-daemon', pid: 7, heartbeatAt: new Date().toISOString() }));
+    if (takeOver)
+      writeFileSync(
+        ownerPath,
+        JSON.stringify({ kind: 'mixdog-daemon', pid: 7, heartbeatAt: new Date().toISOString() })
+      );
     busyWait(150);
     return { response: await pending, superseded, heartbeat };
   };
@@ -496,7 +623,10 @@ test('one long block is reported once with the describeStall detail, and still f
   // A later, separate block is a new report over its own window only.
   mono = 6000;
   heartbeat.tick();
-  assert.deepEqual(windows, [[0, 3500], [3500, 6000]]);
+  assert.deepEqual(windows, [
+    [0, 3500],
+    [3500, 6000],
+  ]);
 });
 
 test('a throwing describeStall never disturbs the stall report or the lease', () => {

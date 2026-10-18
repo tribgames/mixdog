@@ -10,7 +10,7 @@ test('channel inbound targets the reserved session before first chat', () => {
 });
 
 test('channel inbound content and silent routing remain explicit', () => {
-  assert.equal(channelNotificationModelContent({ content: 'discord inbound' }), 'discord inbound');
+  assert.equal(channelNotificationModelContent({ content: 'channel inbound' }), 'channel inbound');
   assert.equal(
     channelNotificationModelContent({
       content: 'ignored',

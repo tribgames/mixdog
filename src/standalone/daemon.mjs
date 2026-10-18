@@ -35,7 +35,8 @@ import path from 'node:path';
 import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
-import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../runtime/shared/atomic-file.mjs';
+import { prewarmOwnerOnlyAclWin32 } from '../runtime/shared/file-permissions.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
 import { listenerLeakWarningLine } from '../runtime/shared/listener-leak-warning.mjs';
@@ -46,6 +47,7 @@ import {
   daemonOwnerTimings,
   discoveryPid,
   proveDaemonOwnerRecord,
+  readDiscoveryAsync,
   startOwnerLivenessListener,
 } from './daemon-owner.mjs';
 import { remoteIntentPath } from '../runtime/shared/remote-intent.mjs';
@@ -607,11 +609,12 @@ function daemonStatusSnapshot() {
 }
 
 /** The file every attacher reads to find this daemon: wire identity plus both
- *  loopback endpoints and their privileged tokens. */
+ *  loopback endpoints and their privileged tokens. Written asynchronously
+ *  (the secret file's owner-only ACL included), never on the event loop. */
 function publishDaemonDiscovery({ channel, session, modelProxy = null }) {
   // A re-publish keeps the first publication's startedAt.
   publishedEndpoints = { channel, session, modelProxy, startedAt: publishedEndpoints?.startedAt ?? Date.now() };
-  writeJsonAtomicSync(
+  return writeJsonAtomicAsync(
     DAEMON_DISCOVERY_PATH,
     {
       protocol: SESSION_PROTOCOL,
@@ -658,6 +661,13 @@ function admitOwnerWork() {
   return ownerHeartbeat ? ownerHeartbeat.admit() : true;
 }
 
+/** admitOwnerWork for the HTTP front doors: a request that arrives while the
+ *  lease is being re-verified (the refresh is asynchronous) waits for that
+ *  refresh instead of being refused. */
+function admitOwnerWorkAsync() {
+  return ownerHeartbeat ? ownerHeartbeat.admitAsync() : true;
+}
+
 /** This process no longer holds (or is about to lose) the owner lease: refuse
  *  new work at once, unpublish its endpoint so launchers stop finding it, then
  *  shut down within the shutdown budget — before a contender may reclaim. */
@@ -678,14 +688,31 @@ function fenceDaemon(reason) {
 /** Heartbeat follow-up while this process still owns the lock: a daemon.json
  *  deleted (TEMP cleanup) or overwritten while it runs is written again, so
  *  new clients keep finding the one daemon that serves this data dir. */
+// Read and rewritten asynchronously, one check at a time: this runs after
+// every heartbeat, and its synchronous read of daemon.json was measured
+// blocking the loop for 5.9 s under disk contention.
+let republishing = false;
 function republishMissingDiscovery() {
-  if (!publishedEndpoints || shuttingDown || discoveryPid(DAEMON_DISCOVERY_PATH) === process.pid) return;
-  try {
-    publishDaemonDiscovery(publishedEndpoints);
-    log('daemon.json was missing or named another pid — re-published');
-  } catch (error) {
-    log(`daemon.json re-publish failed: ${error?.message || error}`);
-  }
+  if (!publishedEndpoints || shuttingDown || republishing) return;
+  republishing = true;
+  void (async () => {
+    try {
+      if ((await readDiscoveryAsync(DAEMON_DISCOVERY_PATH))?.pid === process.pid || shuttingDown) return;
+      await publishDaemonDiscovery(publishedEndpoints);
+      // Fenced while it was written: take it back down (fenceDaemon already ran).
+      if (shuttingDown) {
+        if ((await readDiscoveryAsync(DAEMON_DISCOVERY_PATH))?.pid === process.pid) {
+          rmSync(DAEMON_DISCOVERY_PATH, { force: true });
+        }
+        return;
+      }
+      log('daemon.json was missing or named another pid — re-published');
+    } catch (error) {
+      log(`daemon.json re-publish failed: ${error?.message || error}`);
+    } finally {
+      republishing = false;
+    }
+  })();
 }
 
 /** Ready handshake for the spawner, plus the log-sink handoff pinned to the
@@ -757,7 +784,7 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
   transport = createChannelTransport({
     handleCall: channelsRuntime.handleCall,
     agentBroker: agentDispatchBroker,
-    admitWork: admitOwnerWork,
+    admitWork: admitOwnerWorkAsync,
     log,
     // The durable channel link lives in this file. Without it a restart loses
     // the pinned session (nothing to restore) and every catalog reports Remote
@@ -974,7 +1001,7 @@ async function main() {
       } catch {}
     },
     onUpgradeRequested: requestDaemonReplacement,
-    admitWork: admitOwnerWork,
+    admitWork: admitOwnerWorkAsync,
   });
   const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
   const modelProxyEndpoint = await startModelProxyBridge(bootPhases);
@@ -988,7 +1015,7 @@ async function main() {
     exitRecorder.setReason(`owner claim superseded by pid=${ownerPid} before publish`, 0);
     process.exit(0);
   }
-  publishDaemonDiscovery({ channel: { port, token }, session: sessionEndpoint, modelProxy: modelProxyEndpoint });
+  await publishDaemonDiscovery({ channel: { port, token }, session: sessionEndpoint, modelProxy: modelProxyEndpoint });
   bootPhases.mark('discovery-published');
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
 
@@ -1000,6 +1027,9 @@ async function main() {
     void sessionRuntimeHost?.warmLocalRuntime?.();
   });
   startPostgresInBackground();
+  // Secret writes (token stores, config) find the ACL helpers already running
+  // instead of starting one under their file lock.
+  void prewarmOwnerOnlyAclWin32();
 
   // Automation may spawn the shared daemon; keep schedules/webhooks live.
   // A TUI-spawned daemon keeps the historical eager start (its channels client

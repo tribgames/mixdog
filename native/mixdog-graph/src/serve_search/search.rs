@@ -160,7 +160,15 @@ pub(super) fn next_stream_batch<T>(
     Ok(StreamBatch::Items(batch))
 }
 
-pub(super) fn scan_streaming_operand(
+/// Scan one content operand. Output is in inventory path order (`PathBuf`
+/// order, the order the cached inventory is sorted in), so identical requests
+/// return identical windows and offset pages neither repeat nor skip.
+/// A cached inventory is scanned in order with an early stop. A live walk is
+/// scanned as it publishes — a bounded window only until it has enough lines
+/// in walk order — and once the walk settles its sorted inventory is scanned
+/// in order, reusing those results; if the deadline cuts the walk short, the
+/// blocks found so far are returned sorted by path.
+pub(super) fn scan_operand(
     store: &Arc<FileListStore>,
     scope: &OperandScope<'_>,
     use_prefix: bool,
@@ -179,57 +187,73 @@ pub(super) fn scan_streaming_operand(
     }
     let key = walk_key(operand_path, parsed);
     if let Some(files) = store.take_ready(&key) {
-        let reached_limit =
-            append_scanned_matches_unordered(&files, scope, use_prefix, &trust, ctx, out);
+        let reached_limit = append_scanned_matches_ordered(
+            &files,
+            &HashMap::new(),
+            scope,
+            use_prefix,
+            &trust,
+            ctx,
+            out,
+        );
         let timed_out = deadline_expired(deadline_at);
         return Ok((reached_limit, timed_out, watched, Vec::new()));
     }
     let (live, _waiter) = store.join_live_walk(key, operand_path, parsed, keep_warm, 0, watched);
     let mut cursor = 0usize;
-    let account_walk_errors = || {
-        let count = live.walk_errors.load(Ordering::Acquire);
-        if count > 0 {
-            ctx.scan_errors.fetch_add(count, Ordering::Relaxed);
-        }
-    };
-    let outcome = |reached_limit, timed_out| {
-        (
-            reached_limit,
-            timed_out,
-            live.cacheable.load(Ordering::Acquire),
-            live_walk_error_details(&live),
-        )
-    };
-    loop {
+    let wanted = out.collect_until.saturating_sub(out.all_lines.len());
+    let match_limit = (out.collect_until != usize::MAX).then_some(wanted);
+    let mut scanned: HashMap<PathBuf, Option<Vec<String>>> = HashMap::new();
+    let mut found_lines = 0usize;
+    let inventory = loop {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
         if deadline_expired(deadline_at) {
-            account_walk_errors();
-            return Ok(outcome(false, true));
+            break None;
         }
-        let batch = match next_live_batch(&live, &mut cursor, cancelled, deadline_at)? {
-            LiveBatch::Files(batch) => batch,
-            LiveBatch::Done => {
-                account_walk_errors();
-                return Ok(outcome(false, false));
+        match next_live_batch(&live, &mut cursor, cancelled, deadline_at)? {
+            LiveBatch::Files(batch) => {
+                if found_lines >= wanted {
+                    continue;
+                }
+                for (file, block) in
+                    scan_matches_keyed(&batch, scope, use_prefix, match_limit, &trust, ctx)
+                {
+                    found_lines += block.as_ref().map_or(0, Vec::len);
+                    scanned.insert(file, block);
+                }
             }
-            LiveBatch::TimedOut => {
-                account_walk_errors();
-                return Ok(outcome(false, true));
-            }
-        };
-        let reached_limit =
-            append_scanned_matches_unordered(&batch, scope, use_prefix, &trust, ctx, out);
-        if deadline_expired(deadline_at) {
-            account_walk_errors();
-            return Ok(outcome(reached_limit, true));
+            LiveBatch::Done => match &*lock_recover(&live.state) {
+                LiveState::Done(files) => break Some(Arc::clone(files)),
+                _ => break None,
+            },
+            LiveBatch::TimedOut => break None,
         }
-        if reached_limit {
-            account_walk_errors();
-            return Ok(outcome(true, false));
-        }
+    };
+    let count = live.walk_errors.load(Ordering::Acquire);
+    if count > 0 {
+        ctx.scan_errors.fetch_add(count, Ordering::Relaxed);
     }
+    let reached_limit = match &inventory {
+        Some(files) => {
+            append_scanned_matches_ordered(files, &scanned, scope, use_prefix, &trust, ctx, out)
+        }
+        None => {
+            let mut found: Vec<(PathBuf, Vec<String>)> = scanned
+                .into_iter()
+                .filter_map(|(file, block)| block.map(|block| (file, block)))
+                .collect();
+            found.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            append_blocks(found.into_iter().map(|(_, block)| block), parsed, out)
+        }
+    };
+    Ok((
+        reached_limit,
+        inventory.is_none() || deadline_expired(deadline_at),
+        live.cacheable.load(Ordering::Acquire),
+        live_walk_error_details(&live),
+    ))
 }
 
 pub(super) fn handle(
@@ -531,7 +555,7 @@ fn handle_content_search(
                 emitted_blocks: &mut emitted_blocks,
                 collect_until,
             };
-            scan_streaming_operand(store, &scope, use_prefix, req.keep_warm, &ctx, &mut out)?
+            scan_operand(store, &scope, use_prefix, req.keep_warm, &ctx, &mut out)?
         };
         cache_safe &= operand_cache_safe;
         append_walk_error_details(&mut walk_error_details, details);

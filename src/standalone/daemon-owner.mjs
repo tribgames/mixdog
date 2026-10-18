@@ -15,6 +15,14 @@
 //   being renewed, and every register/call asks `admit()` first. After an
 //   event-loop stall nothing is served until a refresh under the claim lock
 //   proves the record still names it — a contender's claim takes that lock.
+//   A lease that ran out DURING such a stall (live when the loop stopped) is
+//   the one exception to the fence: the holder never had a turn to refresh
+//   or to fence, and a contender's reclaim is decided under the claim lock
+//   against the record's heartbeat there (daemonOwnerIsStale re-checks it),
+//   so a refresh that finds the record still naming this pid proves no
+//   contender took it and none can on its earlier proof. Without that, a sole
+//   daemon whose loop the machine starved past the lease killed itself and
+//   every running turn with no other daemon to take over.
 // - Holder's record names `livenessPort` from its very first claim: a tiny
 //   loopback listener started BEFORE the claim (startOwnerLivenessListener)
 //   answers /health with the pid, through boot and for the process lifetime.
@@ -32,8 +40,9 @@
 // daemon.json publishes, answering with that pid, proves them alive.
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
-import { readSingletonOwner, refreshSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { readSingletonOwner, refreshSingletonOwnerAsync } from '../runtime/shared/singleton-owner.mjs';
 
 export const DAEMON_OWNER_STALE_MS = 60_000;
 export const OWNER_PROBE_TIMEOUT_MS = 3_000;
@@ -58,11 +67,23 @@ export function daemonOwnerTimings(env = process.env) {
 }
 
 /** daemon.json's pid and session endpoint, or null when missing/unreadable. */
+function discoveryOf(parsed) {
+  const session = parsed?.endpoints?.session;
+  return { pid: Number(parsed?.pid) || 0, port: Number(session?.port) || 0, token: session?.token || '' };
+}
+
 export function readDiscovery(discoveryPath) {
   try {
-    const parsed = JSON.parse(readFileSync(discoveryPath, 'utf8'));
-    const session = parsed?.endpoints?.session;
-    return { pid: Number(parsed?.pid) || 0, port: Number(session?.port) || 0, token: session?.token || '' };
+    return discoveryOf(JSON.parse(readFileSync(discoveryPath, 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+/** readDiscovery without blocking the event loop. */
+export async function readDiscoveryAsync(discoveryPath) {
+  try {
+    return discoveryOf(JSON.parse(await readFile(discoveryPath, 'utf8')));
   } catch {
     return null;
   }
@@ -243,7 +264,10 @@ export function daemonOwnerIsStale(
  * `tickMs` it checks the lease, notices stalls, and every `heartbeatMs`
  * rewrites `owner` with a fresh wall-clock `heartbeatAt` under the claim lock
  * (recreating a deleted record), then calls `onBeat`.
- * - No successful refresh for `fenceMs`: fenced, never renewed (`onFenced`).
+ * - No successful refresh for `fenceMs`: fenced, never renewed (`onFenced`) —
+ *   unless the lease ran out inside one stall (live when the loop stopped):
+ *   then the refresh is retried every tick for `heartbeatMs` after the loop
+ *   resumes, and fenced only if none succeeds by then.
  * - The record names another pid: `onSuperseded(record)`.
  * - A turn gap over `stallMs`: `admit()` refuses work until a refresh succeeds.
  *   The gap is logged once, with `describeStall(fromMono, toMono)` appended.
@@ -258,7 +282,7 @@ export function createOwnerHeartbeat({
   stallMs,
   now = Date.now,
   monoNow = () => performance.now(),
-  refresh = refreshSingletonOwner,
+  refresh = refreshSingletonOwnerAsync,
   log = () => {},
   describeStall = null,
   onBeat = () => {},
@@ -272,6 +296,13 @@ export function createOwnerHeartbeat({
   let lastBeatAt = leaseFrom;
   let lastTurnAt = leaseFrom;
   let needsVerify = false;
+  // Monotonic time the loop resumed from a stall that outlived the lease.
+  let stallResumedAt = null;
+  // The refresh in flight: a promise of its settled status, else null.
+  let pending = null;
+  // When the latest stall was noticed: only a refresh started after it can
+  // re-verify the record (an older one may have read it before the stall).
+  let stallNotedAt = Number.NEGATIVE_INFINITY;
   let timer = null;
 
   function halt(next) {
@@ -282,6 +313,12 @@ export function createOwnerHeartbeat({
 
   function leaseExpired(t) {
     return t - leaseFrom >= fenceMs;
+  }
+
+  // Expired and past re-verification: the refreshes failed while the loop
+  // ran, or no refresh landed within `heartbeatMs` of resuming from a stall.
+  function mustFence(t) {
+    return leaseExpired(t) && !(stallResumedAt !== null && t - stallResumedAt < heartbeatMs);
   }
 
   function fence(t) {
@@ -298,6 +335,8 @@ export function createOwnerHeartbeat({
     lastTurnAt = t;
     if (t - from <= stallMs) return;
     needsVerify = true;
+    stallNotedAt = t;
+    if (state === 'active' && !leaseExpired(from) && leaseExpired(t)) stallResumedAt = t;
     let detail = '';
     try {
       detail = describeStall?.(from, t) || '';
@@ -310,28 +349,24 @@ export function createOwnerHeartbeat({
     );
   }
 
-  function beat() {
-    if (state !== 'active') return null;
-    const t = monoNow();
-    lastBeatAt = t;
-    // Checked before every renewal: an overdue beat after a stall must fence,
-    // not extend a lease a contender may already have reclaimed.
-    if (leaseExpired(t)) {
-      fence(t);
-      return 'fenced';
-    }
-    const heartbeatAt = new Date(now()).toISOString();
-    let result;
-    try {
-      result = refresh(ownerPath, { ...record, heartbeatAt });
-    } catch (error) {
-      log(`owner heartbeat failed: ${error?.message || error}`);
-      result = { status: 'failed' };
-    }
+  // A refresh's verdict, applied once it is known. Fenced, superseded or
+  // stopped while it ran: nothing is renewed. A renewal counts from the
+  // moment the refresh started (`t`), never from when it answered.
+  function settle(t, heartbeatAt, result) {
+    if (state !== 'active') return result.status;
     if (result.status === 'refreshed') {
+      if (leaseExpired(t)) {
+        log(
+          `owner lease re-verified ${Math.round(t - leaseFrom)}ms after its last refresh (event-loop stall)` +
+            ' — the record still names this process; serving again'
+        );
+      }
       leaseFrom = t;
       lastRefreshAt = heartbeatAt;
-      needsVerify = false;
+      if (t >= stallNotedAt) {
+        needsVerify = false;
+        stallResumedAt = null;
+      }
       onBeat();
     } else if (result.status === 'superseded') {
       halt('superseded');
@@ -342,11 +377,53 @@ export function createOwnerHeartbeat({
     return result.status;
   }
 
+  function failedRefresh(error) {
+    log(`owner heartbeat failed: ${error?.message || error}`);
+    return { status: 'failed' };
+  }
+
+  // One refresh at a time. An asynchronous refresh (the default: its file
+  // work and lock retries never block the loop) answers 'pending' here and
+  // settles later; the lease and fence keep their monotonic deadlines while
+  // it runs — a refresh still unanswered at the fence does not hold it off.
+  function beat() {
+    if (state !== 'active') return null;
+    if (pending) return 'pending';
+    const t = monoNow();
+    lastBeatAt = t;
+    // Checked before every renewal: an overdue beat must fence, not extend a
+    // lease a contender may already have reclaimed — except right after a
+    // stall that outlived the lease, where the refresh itself (under the
+    // claim lock) answers whether one did.
+    if (mustFence(t)) {
+      fence(t);
+      return 'fenced';
+    }
+    const heartbeatAt = new Date(now()).toISOString();
+    let result;
+    try {
+      result = refresh(ownerPath, { ...record, heartbeatAt });
+    } catch (error) {
+      result = failedRefresh(error);
+    }
+    if (typeof result?.then !== 'function') return settle(t, heartbeatAt, result);
+    pending = result
+      .then(
+        (value) => value,
+        (error) => failedRefresh(error)
+      )
+      .then((value) => {
+        pending = null;
+        return settle(t, heartbeatAt, value);
+      });
+    return 'pending';
+  }
+
   function tick() {
     if (state !== 'active') return;
     const t = monoNow();
     noteTurn(t);
-    if (leaseExpired(t)) fence(t);
+    if (mustFence(t)) fence(t);
     else if (needsVerify ? t - lastBeatAt >= tickMs : t - lastBeatAt >= heartbeatMs) beat();
   }
 
@@ -363,7 +440,7 @@ export function createOwnerHeartbeat({
       // Shutting down: no ticks run to measure stalls; the lease still bounds it.
       if (state === 'stopped') return !leaseExpired(t);
       noteTurn(t);
-      if (leaseExpired(t)) {
+      if (mustFence(t)) {
         fence(t);
         return false;
       }
@@ -372,8 +449,23 @@ export function createOwnerHeartbeat({
       if (needsVerify && t - lastBeatAt >= tickMs) beat();
       return state === 'active' && !needsVerify;
     },
+    /** admit(), but a request arriving while the lease is being re-verified
+     *  waits for the verifying refresh instead of being refused outright: at
+     *  most two refreshes (one started before the stall cannot verify). */
+    async admitAsync() {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (this.admit()) return true;
+        if (!pending) return false;
+        await pending;
+      }
+      return this.admit();
+    },
     beat,
     tick,
+    /** Settles with the in-flight refresh's status (null when none runs). */
+    settled() {
+      return pending ?? Promise.resolve(null);
+    },
     /** Stop beating (shutdown). admit() keeps refusing once the lease runs out. */
     stop() {
       if (state === 'active') halt('stopped');

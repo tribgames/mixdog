@@ -31,9 +31,10 @@ export function createChannelRoutes({
   // Checked on every register/call/agent dispatch, first and again right
   // before the work is handed on (the lease may have been fenced while the
   // body was still arriving): a daemon that lost (or cannot re-verify) its
-  // owner lease serves nothing.
-  function refuseUnadmitted(res) {
-    if (admitWork()) return false;
+  // owner lease serves nothing. `admitWork` may answer asynchronously (a
+  // request arriving during the lease's re-verification waits for it).
+  async function refuseUnadmitted(res) {
+    if (await admitWork()) return false;
     sendError(res, 'daemon owner lease is not held', 503);
     return true;
   }
@@ -54,10 +55,10 @@ export function createChannelRoutes({
   }
 
   async function register(req, res) {
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     if (state.drainCommitted) return sendDraining(res);
     const body = await readChannelBody(req);
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     const clientToken = registry.registerClient({
       leadPid: body.leadPid,
       cwd: body.cwd,
@@ -96,11 +97,11 @@ export function createChannelRoutes({
   // channels client registry alive. The broker itself owns a parallel fair
   // scheduler and per-call cancellation.
   async function agentDispatch(req, res) {
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     if (state.drainCommitted) return sendDraining(res);
     if (!agentBroker?.dispatch) return sendError(res, 'agent broker unavailable', 503);
     const body = await readChannelBody(req);
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     const callId = String(body.callId || '').trim();
     if (!callId) return sendError(res, 'callId required', 400);
     res.on('close', () => {
@@ -130,10 +131,10 @@ export function createChannelRoutes({
   }
 
   async function call(req, res) {
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     if (state.drainCommitted) return sendDraining(res);
     const body = await readChannelBody(req);
-    if (refuseUnadmitted(res)) return;
+    if (await refuseUnadmitted(res)) return;
     const clientToken = body.token || null;
     const c = clientToken ? clients.get(clientToken) : null;
     if (!c) return sendError(res, 'unknown client token', 404);

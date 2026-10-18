@@ -26,18 +26,18 @@ test('the Agents pool shows working exactly while the daemon has the turn in fli
       JSON.stringify({ workers: { lead: { sessionId: 'lead', agent: 'lead', status, stage: status } } })
     );
   const store = await createDesktopRuntime({ getLocalSessionBridge: () => null }).loadSessionStore();
-  const leadStatus = () => store.listStoredAgentWorkers().find((row) => row.sessionId === 'lead')?.status;
+  const leadStatus = async () => (await store.listStoredAgentWorkers()).find((row) => row.sessionId === 'lead')?.status;
 
   writeLead('running');
   runtimeState.set('lead', { stage: 'streaming', session: { owner: 'user', agent: 'lead' } });
-  assert.equal(leadStatus(), 'running');
+  assert.equal(await leadStatus(), 'running');
 
   // The row still claims running, but the daemon has no turn in flight.
   runtimeState.set('lead', { stage: 'done', session: { owner: 'user', agent: 'lead' } });
-  assert.equal(leadStatus(), 'unknown');
+  assert.equal(await leadStatus(), 'unknown');
 
   writeLead('idle');
-  assert.equal(leadStatus(), 'idle');
+  assert.equal(await leadStatus(), 'idle');
 });
 
 test('the Agents pool drops working when the daemon is lost and restores it for the turns the reconnected daemon runs', async (t) => {
@@ -57,18 +57,19 @@ test('the Agents pool drops working when the daemon is lost and restores it for 
     JSON.stringify({ workers: { first: lead('first'), second: lead('second') } })
   );
   const store = await createDesktopRuntime({ getLocalSessionBridge: () => null }).loadSessionStore();
-  const statuses = () => Object.fromEntries(store.listStoredAgentWorkers().map((row) => [row.sessionId, row.status]));
+  const statuses = async () =>
+    Object.fromEntries((await store.listStoredAgentWorkers()).map((row) => [row.sessionId, row.status]));
   const turn = { stage: 'streaming', session: { owner: 'user', agent: 'lead' } };
 
   runtimeState.set('first', turn);
   runtimeState.set('second', turn);
-  assert.deepEqual(statuses(), { first: 'running', second: 'running' });
+  assert.deepEqual(await statuses(), { first: 'running', second: 'running' });
 
   // The daemon is lost: the rows still declare running, but nothing is guessed.
   runtimeState.clear();
-  assert.deepEqual(statuses(), { first: 'unknown', second: 'unknown' });
+  assert.deepEqual(await statuses(), { first: 'unknown', second: 'unknown' });
 
   // The reconnected daemon runs only one of them again.
   runtimeState.set('second', turn);
-  assert.deepEqual(statuses(), { first: 'unknown', second: 'running' });
+  assert.deepEqual(await statuses(), { first: 'unknown', second: 'running' });
 });
