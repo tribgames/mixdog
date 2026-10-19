@@ -1211,12 +1211,16 @@ function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
   // The Changes panel view draws its own DockHeaderRow (SessionDiffPane).
   const sessionDiffPanelShowing =
     openNow && entry.surface === '' && (entry.view === 'session-diff' || entry.view === 'visualize');
+  // Width only: the visualize view is a page viewer, so it takes the browser's
+  // wide range and shared width instead of the classic 560px panel column.
+  const widthSurfaceShowing = sessionSurfaceShowing || (openNow && entry.surface === '' && entry.view === 'visualize');
   return {
     browserShowing,
     terminalShowing,
     fileShowing,
     filesShowing,
     sessionSurfaceShowing,
+    widthSurfaceShowing,
     diffShowing,
     sessionDiffPanelShowing,
   };
@@ -1575,7 +1579,8 @@ export function PaneSideDock(props: PaneSideDockProps) {
   // (their activity, focus, fit) follows `bodyShown`.
   const showing = paneDockShowing(entry, openNow);
   const bodyShowing = paneDockShowing(entry, bodyShown);
-  const { browserShowing, terminalShowing, sessionSurfaceShowing, diffShowing, sessionDiffPanelShowing } = showing;
+  const { browserShowing, terminalShowing, sessionSurfaceShowing, widthSurfaceShowing, diffShowing, sessionDiffPanelShowing } =
+    showing;
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
     useDockWidthPrefs();
@@ -1591,7 +1596,7 @@ export function PaneSideDock(props: PaneSideDockProps) {
   );
   const panelWidthDrag = usePanelWidthDrag({
     terminalShowing,
-    sessionSurfaceShowing,
+    sessionSurfaceShowing: widthSurfaceShowing,
     terminalPref,
     setTerminalPref,
     browserPref,
@@ -1648,7 +1653,7 @@ export function PaneSideDock(props: PaneSideDockProps) {
     openNow,
     mobileSheet,
     diffShowing,
-    sessionSurfaceShowing,
+    sessionSurfaceShowing: widthSurfaceShowing,
     sessionMin: session.min,
     sessionPref: session.pref,
     panelPref,
@@ -1717,7 +1722,7 @@ export function PaneSideDock(props: PaneSideDockProps) {
             bodyShown,
             asideWidth,
             panelWidthDrag,
-            widthRange: dockWidthRange(sessionSurfaceShowing, session),
+            widthRange: dockWidthRange(widthSurfaceShowing, session),
           })}
       </div>
     </PaneDockExpandContext.Provider>

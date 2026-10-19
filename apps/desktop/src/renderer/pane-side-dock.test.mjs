@@ -1755,7 +1755,7 @@ test('a cancelled panel resize restores the preference snapshotted at gesture st
   assert.match(dock, /onWidthDrag=\{panelWidthDrag\}/);
   assert.match(
     dock,
-    /const panelWidthDrag = usePanelWidthDrag\(\{\s*terminalShowing,\s*sessionSurfaceShowing,\s*terminalPref,\s*setTerminalPref,\s*browserPref,\s*setBrowserPref,\s*panelPref,\s*setPanelPref,/
+    /const panelWidthDrag = usePanelWidthDrag\(\{\s*terminalShowing,\s*sessionSurfaceShowing: widthSurfaceShowing,\s*terminalPref,\s*setTerminalPref,\s*browserPref,\s*setBrowserPref,\s*panelPref,\s*setPanelPref,/
   );
   assert.match(dock, /terminal: PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY,/);
   assert.match(dock, /browser: PANE_SIDE_DOCK_BROWSER_WIDTH_KEY,/);
