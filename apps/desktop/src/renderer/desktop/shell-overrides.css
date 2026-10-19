@@ -181,7 +181,7 @@ html[data-mixdog-mobile-tabs] .model-trigger {
     transition: none;
   }
   /* Loading glyphs rest like every other spinner under reduced motion
-     (desktop-loading-spinner, sidebar-update-loader); an indeterminate bar
+     (desktop-loading-spinner); an indeterminate bar
      rests as a static partial fill. `:root` outranks the lazily loaded
      browser-pane and extension layers that land after this one. */
   .spin,

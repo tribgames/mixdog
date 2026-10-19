@@ -59,6 +59,11 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
     fireEvent();
   }
 
+  /** The activity left the foreground: the updater's check timer stops. */
+  void onPause() {
+    updater.onPause();
+  }
+
   /** This app's notification settings; the app's details page when the device has none. */
   private boolean openNotificationSettings() {
     Intent settings =

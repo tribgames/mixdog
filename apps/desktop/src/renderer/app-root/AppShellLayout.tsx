@@ -98,13 +98,15 @@ export function AppShellLayout({
         }
       >
         <RemoteConnectionBanner />
-        <DesktopTitlebar updaterState={updaterState} onOpenUpdate={openDesktopUpdate} />
+        <DesktopTitlebar />
         <div className="desktop-body">
           <AppSidebarDrawer
             {...shellPanels}
             onboardingActive={onboardingOpen || !onboardingReady}
             closeSidebarForNavigation={closeSidebarForNavigation}
             openSettings={openSettings}
+            updaterState={updaterState}
+            openDesktopUpdate={openDesktopUpdate}
             workbenchSideLayout={workbenchSideLayout}
             sideViewDescriptors={sideViewDescriptors}
             activeSideViews={activeSideViews}

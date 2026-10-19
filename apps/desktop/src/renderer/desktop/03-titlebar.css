@@ -156,49 +156,6 @@ html[data-mixdog-titlebar="hidden"] .desktop-body {
 .topbar nav {
   -webkit-app-region: no-drag;
 }
-/* The ◀ ▶ pane-cycle pair was removed from the bar (user: 좌우 이동 버튼
-   의미 없는 듯 — 지우자); Alt+Left/Right keeps the same focus cycle. */
-.titlebar-leading {
-  position: relative;
-  z-index: 30;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  align-self: center;
-  gap: 2px;
-  margin-right: 0;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-}
-/* Updater: the accent circle badge, docked in the window bar immediately left
-   of the sidebar toggle (user: 다운로드 아이콘을 토글 왼쪽으로). */
-.topbar .titlebar-update {
-  position: relative;
-  color: var(--mx-text-accent);
-}
-.topbar .titlebar-update::before {
-  content: "";
-  position: absolute;
-  inset: 50% auto auto 50%;
-  width: 20px;
-  height: 20px;
-  border-radius: var(--mx-radius-pill);
-  background: color-mix(in srgb, var(--mx-text-accent) 20%, transparent);
-  transform: translate(-50%, -50%);
-}
-.topbar .titlebar-update:hover,
-.topbar .titlebar-update:focus-visible {
-  color: var(--mx-text-accent);
-  background: transparent;
-}
-.topbar .titlebar-update:hover::before,
-.topbar .titlebar-update:focus-visible::before {
-  background: color-mix(in srgb, var(--mx-text-accent) 28%, var(--mx-bg-layer-1));
-}
-.topbar .titlebar-update > svg {
-  position: relative;
-  z-index: 1;
-}
 .icon-button,
 .toolbar-sidebar {
   width: 28px;

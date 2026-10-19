@@ -1,6 +1,8 @@
 import type React from 'react';
 import { memo, useMemo } from 'react';
 import { ActivityRail } from '../ActivityRail';
+import type { DesktopUpdaterState } from '../../shared/contract';
+import type { RailUpdateSettingsTarget } from '../RailUpdateSlot';
 import { useStableEvent } from '../use-stable-event';
 import { useEdgeSwipeDrawers } from '../use-edge-swipe-drawers';
 import { isMobileDeviceSurface, useMobileRemoteSurface } from '../mobile-surface';
@@ -33,6 +35,10 @@ interface AppSidebarDrawerProps {
   onboardingActive: boolean;
   closeSidebarForNavigation: (motion?: 'animated' | 'instant') => void;
   openSettings: ReturnType<typeof useAppSettingsRouter>['openSettings'];
+  /** This desktop app's updater: the rail's update slot reads and installs it. */
+  updaterState: DesktopUpdaterState;
+  /** Opens the install confirmation for a ready desktop update. */
+  openDesktopUpdate: () => void;
   setCommandSurface: ReturnType<typeof useAppShellPanels>['setCommandSurface'];
 
   workbenchSideLayout: ReturnType<typeof useAppSideDocks>['workbenchSideLayout'];
@@ -70,6 +76,8 @@ export function AppSidebarDrawer({
   onboardingActive,
   closeSidebarForNavigation,
   openSettings,
+  updaterState,
+  openDesktopUpdate,
   setCommandSurface,
   workbenchSideLayout,
   sideViewDescriptors,
@@ -90,7 +98,8 @@ export function AppSidebarDrawer({
     closeSidebarForNavigation('instant');
     openSettings(section);
   });
-  const openRailSettings = useStableEvent(() => openSettingsFromRail());
+  const openRailSettings = useStableEvent((section?: RailUpdateSettingsTarget) => openSettingsFromRail(section));
+  const installRailDesktopUpdate = useStableEvent(() => openDesktopUpdate());
   const openRailProviders = useStableEvent(() => openSettingsFromRail('providers'));
   const openUsageStats = useStableEvent(() => setCommandSurface('stats'));
   const closeSettings = useStableEvent(() => setSettingsOpen(false));
@@ -119,6 +128,8 @@ export function AppSidebarDrawer({
       <ActivityRail
         settingsOpen={settingsOpen}
         onOpenSettings={openRailSettings}
+        desktopUpdaterState={updaterState}
+        onInstallDesktopUpdate={installRailDesktopUpdate}
         onOpenProviders={openRailProviders}
         onOpenUsageStats={openUsageStats}
         onPrefetchSettings={warmSettingsView}

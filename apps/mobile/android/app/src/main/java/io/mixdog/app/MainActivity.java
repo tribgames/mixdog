@@ -115,6 +115,12 @@ public class MainActivity extends BridgeActivity {
   }
 
   @Override
+  public void onPause() {
+    if (nativeHost != null) nativeHost.onPause();
+    super.onPause();
+  }
+
+  @Override
   public void onDestroy() {
     if (nativeHost != null) nativeHost.onDestroy();
     super.onDestroy();

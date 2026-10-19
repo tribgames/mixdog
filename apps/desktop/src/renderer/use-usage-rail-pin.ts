@@ -94,7 +94,9 @@ export function useUsageRailPin(
     nav: RefObject<HTMLElement | null>;
     settings: RefObject<HTMLElement | null>;
   },
-  enabled: boolean
+  enabled: boolean,
+  /** Height of rail cells below the destinations besides Settings (the update slot). */
+  extraHeight = 0
 ) {
   // The config value (code default: pinned) is the single source; the retired
   // localStorage mirror is dropped once.
@@ -217,7 +219,7 @@ export function useUsageRailPin(
         usagePinStackFits({
           railHeight: element.clientHeight,
           navHeight: nav.current?.scrollHeight ?? 0,
-          settingsHeight: settings.current?.offsetHeight ?? 0,
+          settingsHeight: (settings.current?.offsetHeight ?? 0) + extraHeight,
           rowCount: wanted.length,
           doubleBarCount,
         })
@@ -227,7 +229,7 @@ export function useUsageRailPin(
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [nav, rail, settings, wanted.length, doubleBarCount]);
+  }, [nav, rail, settings, wanted.length, doubleBarCount, extraHeight]);
   const loading =
     enabled &&
     wanted.length === 0 &&

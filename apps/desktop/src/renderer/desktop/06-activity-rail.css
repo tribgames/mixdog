@@ -71,6 +71,42 @@
   color: var(--mx-text);
   outline: 0;
 }
+/* Update slot (RailUpdateSlot): one cell above Usage, silver like every rail
+   icon (it is only present while an update waits, which is the signal); it
+   leaves the column when no update is waiting. A downloading slot wears a
+   progress ring around the glyph. */
+.activity-rail > .rail-update-slot {
+  color: var(--mx-icon);
+}
+.activity-rail > .rail-update-slot:hover:not(:disabled),
+.activity-rail > .rail-update-slot:focus-visible {
+  color: var(--mx-text);
+}
+.activity-rail > .rail-update-slot:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.activity-rail > .rail-update-slot[data-kind="downloading"] {
+  color: var(--mx-text-soft);
+}
+.rail-update-ring {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+.rail-update-ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+.rail-update-ring-track {
+  stroke: color-mix(in srgb, var(--mx-text) 14%, transparent);
+}
+.rail-update-ring-fill {
+  stroke: var(--mx-text);
+  stroke-linecap: round;
+}
 .activity-rail > button.is-active,
 .activity-rail > button.selected {
   color: var(--mx-text);

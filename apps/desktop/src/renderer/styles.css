@@ -71,15 +71,11 @@ button {
   align-items: center;
   user-select: none;
 }
-.titlebar-leading,
 .workspace-tabs,
 .workspace-tab,
 .workspace-tab-main {
   display: flex;
   align-items: center;
-}
-.titlebar-leading {
-  flex: 0 0 auto;
 }
 .titlebar-spacer {
   flex: 1;

@@ -34,6 +34,7 @@ import {
   type RecordValue,
 } from './capability-data';
 import { McpPanel, PluginExtensionsPanel, SkillExtensionsPanel } from './extension-panels';
+import { PhoneUpdatePanel } from './phone-app-update-group';
 import { ProvidersPanel } from './provider-panel';
 import { ModelManagementPanel } from './model-management-panel';
 
@@ -464,6 +465,7 @@ function DesktopPowerGroup() {
 function SystemPanel(context: PanelContext) {
   return (
     <>
+      <PhoneUpdatePanel />
       {/* The updater is this PC's: a server window has no update entry. */}
       {!isSshConnectionWindow() && <UpdatePanel {...context} />}
       <DesktopPowerGroup />

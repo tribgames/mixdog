@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { type NativeAppUpdateState, NATIVE_UPDATE_EVENT, nativeAppInfo } from '../shared/native-app';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
 
 // The Android phone app shell reports its own app-update state through the
 // native bridge; this banner is the whole UI for it. Old shells answer the
 // calls with null (or never answer): that reads as "feature absent".
 
-export type AppUpdateAction = 'start' | 'later' | 'cancel' | 'install' | 'hide' | 'retry' | 'browser';
+export type AppUpdateAction = 'start' | 'cancel' | 'install' | 'hide' | 'retry' | 'browser';
 
 export interface AppUpdateView {
   kind: 'available' | 'downloading' | 'ready' | 'failed';
@@ -55,13 +55,15 @@ export function appUpdateView(
         sub: t('Currently installed: v{{installed}}', { installed: state.installed }),
         actions: [
           { id: 'start', label: t('Update'), primary: true },
-          { id: 'later', label: t('Later') },
+          { id: 'hide', label: t('Later') },
         ],
       };
     case 'downloading': {
+      // The shell downloads on its own: progress lives in Settings, not a toast.
+      if (state.auto) return null;
       const received = state.receivedBytes ?? 0;
       const total = state.totalBytes ?? 0;
-      const percent = total > 0 ? Math.min(100, Math.max(0, Math.floor((received / total) * 100))) : 0;
+      const percent = downloadPercent(state);
       return {
         kind: 'downloading',
         role: 'status',
@@ -78,8 +80,8 @@ export function appUpdateView(
       return {
         kind: 'ready',
         role: 'status',
-        title: t('v{{version}} downloaded', { version }),
-        sub: t('Installing continues on the Android install screen'),
+        title: t('Phone app v{{version}} is ready to install', { version }),
+        sub: t('Currently installed: v{{installed}}', { installed: state.installed }),
         progress: 100,
         actions: [
           { id: 'install', label: t('Install'), primary: true, disabled: busy },
@@ -113,17 +115,91 @@ export function appUpdateView(
   }
 }
 
-export function AppUpdateBanner() {
+/** An update is on its way or waiting: available, downloading or downloaded. */
+export function isAppUpdatePending(state: NativeAppUpdateState | null): boolean {
+  if (!state) return false;
+  if (state.status === 'available') return Boolean(state.version);
+  return state.status === 'downloading' || sessionHideGroup(state.status) === 'ready';
+}
+
+export function downloadPercent(state: NativeAppUpdateState): number {
+  const total = state.totalBytes ?? 0;
+  return total > 0 ? Math.min(100, Math.max(0, Math.floor(((state.receivedBytes ?? 0) / total) * 100))) : 0;
+}
+
+export interface PhoneAppUpdateView {
+  current: string;
+  /** Newest known version; the installed one when nothing newer is known. */
+  latest: string;
+  /** Failure line under the group title, when the last check or download failed. */
+  note: string;
+  /** A check or a download is under way: "Check now" waits. */
+  busy: boolean;
+  install: { id: 'install' | 'start' | null; label: string };
+}
+
+function clockLabel(at: number | undefined): string {
+  if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return '';
+  return new Date(at).toLocaleTimeString(uiFormatLocale(), { hour: 'numeric', minute: '2-digit' });
+}
+
+/** Settings view of the phone app's update: always shown, ignores `dismissed`.
+ *  Mirrors the host updater rows (current / latest / check / install). */
+export function phoneAppUpdateView(state: NativeAppUpdateState | null, installedFallback = ''): PhoneAppUpdateView {
+  const current = state?.installed || installedFallback;
+  const version = state?.version ?? '';
+  const view: PhoneAppUpdateView = {
+    current,
+    latest: version || current,
+    note: '',
+    busy: false,
+    install: { id: null, label: t('Check for update') },
+  };
+  if (!state) return view;
+  if (state.lastCheckError) {
+    const time = clockLabel(state.lastCheckAt);
+    view.note = time
+      ? t("Couldn't check for updates · last tried {{time}}", { time })
+      : t("Couldn't check for updates");
+  }
+  switch (state.status) {
+    case 'checking':
+      return { ...view, busy: true, install: { id: null, label: t('Checking for update…') } };
+    case 'available':
+      if (!version) break;
+      return { ...view, install: { id: 'start', label: t('Update to v{{version}}', { version }) } };
+    case 'downloading':
+      return {
+        ...view,
+        busy: true,
+        install: {
+          id: null,
+          label: t('Downloading v{{version}}… {{percent}}%', { version, percent: downloadPercent(state) }),
+        },
+      };
+    case 'ready':
+    case 'needs-permission':
+      return { ...view, install: { id: 'install', label: t('Update to v{{version}}', { version }) } };
+    case 'installing':
+      return { ...view, install: { id: null, label: t('Installing v{{version}}…', { version }) } };
+    case 'failed':
+      view.note ||= t("Couldn't download the update");
+      return version ? { ...view, install: { id: 'start', label: t('Try again') } } : view;
+    case 'up-to-date':
+      return { ...view, install: { id: null, label: t('Up to date') } };
+    default:
+  }
+  return view;
+}
+/** Cached update state of the Android shell; null off Android or on old shells. */
+export function useNativeAppUpdate() {
   const [state, setState] = useState<NativeAppUpdateState | null>(null);
-  const [hidden, setHidden] = useState<string | null>(null);
   const info = nativeAppInfo();
   const call = info?.platform === 'android' ? info.call : undefined;
   const bridge = call ? info : null;
 
   const apply = useCallback((next: unknown) => {
-    const valid = isAppUpdateState(next) ? next : null;
-    setState(valid);
-    setHidden((current) => (valid && current === sessionHideGroup(valid.status) ? current : null));
+    setState(isAppUpdateState(next) ? next : null);
   }, []);
 
   useEffect(() => {
@@ -151,6 +227,17 @@ export function AppUpdateBanner() {
     };
   }, [bridge, apply]);
 
+  return { bridge, state, apply };
+}
+
+export function AppUpdateBanner() {
+  const { bridge, state, apply } = useNativeAppUpdate();
+  const [hidden, setHidden] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHidden((current) => (state && current === sessionHideGroup(state.status) ? current : null));
+  }, [state]);
+
   const view = bridge ? appUpdateView(state, hidden) : null;
   if (!bridge?.call || !view || !state) return null;
 
@@ -170,9 +257,7 @@ export function AppUpdateBanner() {
         ? native('startAppUpdate')
         : id === 'cancel'
           ? native('cancelAppUpdate')
-          : id === 'install'
-            ? native('installAppUpdate')
-            : native('dismissAppUpdate', { version: state.version ?? '' });
+          : native('installAppUpdate');
     void request.then(apply).catch(() => undefined);
   };
 

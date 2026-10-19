@@ -61,6 +61,12 @@ export interface NativeAppUpdateState {
   /** The user postponed this version. */
   dismissed?: boolean;
   error?: 'network' | 'verify' | 'storage' | 'install';
+  /** The shell downloads updates on its own (no user Update tap). */
+  auto?: boolean;
+  /** The last release lookup failed; absent from older shells. */
+  lastCheckError?: 'network';
+  /** When the last release lookup ran (ms since epoch); absent from older shells. */
+  lastCheckAt?: number;
 }
 
 export interface MixdogNativeCalls extends NativeFileSaveCalls {

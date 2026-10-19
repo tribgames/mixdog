@@ -128,6 +128,16 @@ test('an update offer shows instead of opening the saved PC', async () => {
   assert.equal(b.navigations.length, 0);
 });
 
+test('an automatic download in progress still opens the saved PC', async () => {
+  const b = await boot({
+    saved: SAVED,
+    platform: 'android',
+    update: { status: 'downloading', installed: '0.1.16', version: '9.9.9', auto: true },
+    settle: (x) => x.navigations.length > 0,
+  });
+  assert.equal(b.navigations.length, 1);
+});
+
 test('a saved PC that fails to open falls back to the picker', async () => {
   const b = await boot({ saved: SAVED, saveFails: true, settle: (x) => x.actions().length > 0 });
   assert.deepEqual(b.actions(), ['scan', 'enter-code']);

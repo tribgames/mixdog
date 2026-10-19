@@ -441,8 +441,11 @@ async function boot(): Promise<void> {
     lastUpdateStatus = cached?.status ?? '';
     applyUpdate(cached);
   }
-  if (ui.update) render();
-  if (!manage && !ui.update && book.last) {
+  // A download running by itself does not hold the launch: the PC page shows
+  // its progress. Only an offer that needs the user (Install, retry) stops here.
+  const holds = ui.update !== undefined && ui.update.phase !== 'downloading';
+  if (holds) render();
+  if (!manage && !holds && book.last) {
     launching = true;
     try {
       await openHost(book.last);

@@ -1,23 +1,15 @@
 // Window title bar: a clean drag band. The workspace tab strips moved into
-// the panes themselves (WorkspaceTabStrip); the bar
-// keeps the draggable run, the updater badge, and the Windows caption reserve.
-import { ArrowDown } from 'lucide-react';
+// the panes themselves (WorkspaceTabStrip); the bar keeps the draggable run
+// and the Windows caption reserve. The updater lives in the activity rail.
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 
 import { version as appVersion } from '../../package.json';
-import type { DesktopUpdaterState } from '../shared/contract';
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { RemotePcSwitcher } from './RemotePcSwitcher';
-import { ProgressSpinner } from './ProgressSpinner';
 import { isElectronRenderer } from './remote-ui-projection';
 import { useWhatsNewNotice } from './settings/use-whats-new-notice';
-
-interface DesktopTitlebarProps {
-  updaterState?: DesktopUpdaterState;
-  onOpenUpdate?(): void;
-}
 
 type WindowControlsOverlay = EventTarget & { readonly visible: boolean };
 
@@ -47,7 +39,7 @@ export function usePlainBrowserChrome(): boolean {
   return !isElectronRenderer() && !phoneLayout && !captionOverlay;
 }
 
-export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarProps) {
+export function DesktopTitlebar() {
   // The - ㅁ x caption reserve exists only where the window really draws
   // native caption controls over the page (Window Controls Overlay: the
   // Windows/Linux main window and other-PC windows). A browser tab, a phone or
@@ -63,10 +55,6 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
     root.setAttribute('data-mixdog-titlebar', 'hidden');
     return () => root.removeAttribute('data-mixdog-titlebar');
   }, [bandless]);
-  // The updater stays window-global; layout controls belong to their panes.
-  const updateVisible =
-    Boolean(onOpenUpdate) && (updaterState?.status === 'ready' || updaterState?.status === 'installing');
-  const updateInstalling = updaterState?.status === 'installing';
   const { notice, closeNotice } = useWhatsNewNotice(appVersion);
   const [ChangelogDialog, setChangelogDialog] = useState<ComponentType<{ onClose(): void }> | null>(null);
   const closeChangelog = () => setChangelogDialog(null);
@@ -108,32 +96,6 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
           brand button and drawer carry the same information. */}
       {!phoneLayout && <RemotePcSwitcher />}
       <div className="titlebar-spacer" aria-hidden="true" />
-      {/* RIGHT cluster: updater badge ahead of the native caption reserve.
-          Layout surfaces use contextual pane entry points. */}
-      {/* biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the titlebar. */}
-      <div className="titlebar-leading titlebar-controls" role="group" aria-label={t('Layout controls')}>
-        {updateVisible && (
-          <button
-            type="button"
-            className="icon-button titlebar-update"
-            onClick={onOpenUpdate}
-            disabled={updateInstalling}
-            aria-busy={updateInstalling}
-            aria-label={
-              updateInstalling
-                ? t('Installing update')
-                : t('Install Mixdog {{version}}', { version: updaterState?.version })
-            }
-            data-tooltip={updateInstalling ? t('Installing update') : t('Update')}
-          >
-            {updateInstalling ? (
-              <ProgressSpinner size={12} className="sidebar-update-loader" aria-hidden="true" />
-            ) : (
-              <ArrowDown size={16} aria-hidden="true" />
-            )}
-          </button>
-        )}
-      </div>
       {windowsCaptionControls && <div className="titlebar-caption-space" aria-hidden="true" />}
       {dialogs}
     </header>

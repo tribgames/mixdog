@@ -5,6 +5,13 @@
 import type React from 'react';
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import type { DesktopUpdaterState } from '../shared/contract';
+import {
+  RAIL_UPDATE_SLOT_HEIGHT,
+  RailUpdateSlot,
+  type RailUpdateSettingsTarget,
+  useRailUpdate,
+} from './RailUpdateSlot';
 import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from '../shared/window-layout';
 import { desktopFeatureEnabled } from './desktop-feature-config';
 import { t } from './i18n';
@@ -76,6 +83,8 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
 export const ActivityRail = memo(function ActivityRail({
   settingsOpen,
   onOpenSettings,
+  desktopUpdaterState,
+  onInstallDesktopUpdate,
   onOpenProviders,
   onOpenUsageStats,
   onPrefetchSettings,
@@ -86,7 +95,11 @@ export const ActivityRail = memo(function ActivityRail({
 }: {
   /** The settings surface is open, so the rail-foot button reads selected. */
   settingsOpen: boolean;
-  onOpenSettings(): void;
+  /** A section opens Settings on it (the update slot's "see progress"). */
+  onOpenSettings(section?: RailUpdateSettingsTarget): void;
+  /** The desktop app's own updater, for the slot above Usage. */
+  desktopUpdaterState?: DesktopUpdaterState;
+  onInstallDesktopUpdate?(): void;
   onOpenProviders?(): void;
   /** Opens the token-usage statistics dialog from the usage flyout header. */
   onOpenUsageStats?(): void;
@@ -109,6 +122,7 @@ export const ActivityRail = memo(function ActivityRail({
   const railRef = useRef<HTMLElement | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
   const settingsRef = useRef<HTMLButtonElement | null>(null);
+  const railUpdate = useRailUpdate(desktopUpdaterState, onInstallDesktopUpdate, onOpenSettings);
   const {
     usagePinned,
     toggleUsagePin,
@@ -119,7 +133,8 @@ export const ActivityRail = memo(function ActivityRail({
   } = useUsageRailPin(
     usageSnapshot,
     { rail: railRef, nav: navRef, settings: settingsRef },
-    desktopFeatureEnabled('usage')
+    desktopFeatureEnabled('usage'),
+    railUpdate ? RAIL_UPDATE_SLOT_HEIGHT : 0
   );
   // Anchor the flyout's bottom edge to the Usage button itself, measured at
   // open time (static offsets drifted a few px from the real rail layout).
@@ -207,6 +222,8 @@ export const ActivityRail = memo(function ActivityRail({
         <ActivityRailNavigation entries={navigationItems} activeId={activeNavigationId} onSelect={onSelectNavigation} />
       </nav>
       <div className="activity-rail-spacer" />
+      {/* Directly above the whole Usage block, pinned gauges included. */}
+      <RailUpdateSlot update={railUpdate} />
       {desktopFeatureEnabled('usage') && (
         <button
           type="button"
@@ -254,7 +271,7 @@ export const ActivityRail = memo(function ActivityRail({
           onPointerDown={(event) => {
             if (event.button === 0) onPrefetchSettings?.();
           }}
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings()}
         >
           <span className="codicon codicon-settings-gear" aria-hidden="true" />
         </button>

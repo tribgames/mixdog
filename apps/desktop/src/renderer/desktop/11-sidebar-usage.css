@@ -520,20 +520,6 @@
   margin: 0;
   padding: 8px 12px;
 }
-.sidebar-update-loader {
-  position: relative;
-  z-index: 1;
-  width: 10px;
-  height: 10px;
-  display: block;
-  color: currentColor;
-  animation: var(--mx-motion-spin);
-}
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-update-loader {
-    animation: none;
-  }
-}
 /* Collapsed section heading keeps the unread signal visible. */
 .sidebar-heading-dot {
   position: absolute;

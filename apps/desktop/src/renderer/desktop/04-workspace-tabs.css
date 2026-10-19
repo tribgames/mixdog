@@ -20,7 +20,6 @@
 .workspace-tabs.drag-scroll::-webkit-scrollbar {
   display: none;
 }
-.titlebar-leading,
 .workspace-tabs-shell {
   margin-top: 0;
 }
