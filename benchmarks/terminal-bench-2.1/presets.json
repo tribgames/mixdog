@@ -18,16 +18,6 @@
       "prove-plus-comm"
     ],
     "full": [],
-    "fast8-2": [
-      "cancel-async-tasks",
-      "configure-git-webserver",
-      "extract-elf",
-      "kv-store-grpc",
-      "mteb-retrieve",
-      "pytorch-model-cli",
-      "pytorch-model-recovery",
-      "sqlite-with-gcov"
-    ],
     "readprobe": [
       "kv-store-grpc",
       "mteb-retrieve",
@@ -111,6 +101,10 @@
     }
   },
   "presets": {
+    "deepseek-flash-go": {
+      "suite": "core",
+      "routeProfile": "deepseek-flash-go"
+    },
     "sol-xhigh": {
       "suite": "core",
       "routeProfile": "sol-xhigh-nofast"
@@ -151,23 +145,15 @@
       "suite": "core",
       "routeProfile": "sol61-xhigh"
     },
-    "fast8-2-opus5-solo": {
-      "suite": "fast8-2",
-      "routeProfile": "opus5-solo"
-    },
-    "fast8-2-sol-xhigh-fast": {
-      "suite": "fast8-2",
-      "routeProfile": "sol-xhigh-fast"
-    },
     "full-sol-xhigh": {
       "suite": "full",
       "routeProfile": "sol-xhigh-nofast",
-      "compareTo": "codex-gpt56-sol"
+      "compareTo": "codex-gpt61-sol"
     },
     "full-sol-xhigh-k5": {
       "suite": "full",
       "routeProfile": "sol-xhigh-nofast",
-      "compareTo": "codex-gpt56-sol",
+      "compareTo": "codex-gpt61-sol",
       "attempts": 5
     },
     "full-opus5-solo": {
@@ -193,7 +179,7 @@
     "servertasks-sol-xhigh": {
       "suite": "server-tasks",
       "routeProfile": "sol-xhigh-nofast",
-      "compareTo": "codex-gpt56-sol",
+      "compareTo": "codex-gpt61-sol",
       "concurrent": 2
     },
     "retry15-opus5-solo": {

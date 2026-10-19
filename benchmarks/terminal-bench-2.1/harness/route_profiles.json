@@ -1,6 +1,16 @@
 {
   "schemaVersion": 1,
   "profiles": {
+    "deepseek-flash-go": {
+      "routes": {
+        "lead": {
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "high",
+          "fast": false
+        }
+      }
+    },
     "opus55-high": {
       "routes": {
         "lead": {
@@ -45,7 +55,7 @@
       "routes": {
         "lead": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "high",
           "fast": false
         },
@@ -63,7 +73,7 @@
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "high",
           "fast": false
         }
@@ -73,7 +83,7 @@
       "routes": {
         "lead": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": false
         }
@@ -83,7 +93,7 @@
       "routes": {
         "lead": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -119,7 +129,7 @@
       "routes": {
         "lead": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         },
@@ -137,7 +147,7 @@
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -165,13 +175,13 @@
         },
         "heavy-worker": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -181,7 +191,7 @@
       "routes": {
         "lead": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -219,13 +229,13 @@
         },
         "heavy-worker": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -259,7 +269,7 @@
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -287,7 +297,7 @@
         },
         "heavy-worker": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         },
@@ -327,7 +337,7 @@
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -355,13 +365,13 @@
         },
         "heavy-worker": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "high",
           "fast": true
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -383,19 +393,19 @@
         },
         "worker": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         },
         "heavy-worker": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }
@@ -429,7 +439,7 @@
         },
         "reviewer": {
           "provider": "openai-oauth",
-          "model": "gpt-5.6-sol",
+          "model": "gpt-6.1-sol",
           "effort": "xhigh",
           "fast": true
         }

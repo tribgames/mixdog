@@ -42,8 +42,8 @@ EXPECTED_AUDIT_LINE = (
     "route-profile fable-xhigh: "
     "lead=anthropic-oauth/claude-fable-5 effort=xhigh fast=false; "
     "worker=openai-oauth/gpt-5.6-terra effort=high fast=true; "
-    "heavy-worker=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
-    "reviewer=openai-oauth/gpt-5.6-sol effort=xhigh fast=true"
+    "heavy-worker=openai-oauth/gpt-6.1-sol effort=xhigh fast=true; "
+    "reviewer=openai-oauth/gpt-6.1-sol effort=xhigh fast=true"
 )
 
 
@@ -143,13 +143,13 @@ class RoutingProfileTests(unittest.TestCase):
                 },
                 "heavy-worker": {
                     "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
+                    "model": "gpt-6.1-sol",
                     "effort": "xhigh",
                     "fast": True,
                 },
                 "reviewer": {
                     "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
+                    "model": "gpt-6.1-sol",
                     "effort": "xhigh",
                     "fast": True,
                 },
@@ -163,7 +163,7 @@ class RoutingProfileTests(unittest.TestCase):
             {
                 "lead": {
                     "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
+                    "model": "gpt-6.1-sol",
                     "effort": "xhigh",
                     "fast": True,
                 },
@@ -301,7 +301,7 @@ class RoutingProfileTests(unittest.TestCase):
         self.assertEqual(
             format_resolved_routes("sol-xhigh-nofast", profile),
             "route-profile sol-xhigh-nofast: "
-            "lead=openai-oauth/gpt-5.6-sol effort=xhigh fast=false",
+            "lead=openai-oauth/gpt-6.1-sol effort=xhigh fast=false",
         )
 
     def test_real_runtime_helpers_resolve_benchmark_config(self) -> None:
