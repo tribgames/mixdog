@@ -35,6 +35,7 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
   const activityAt = finiteNumber(row.activityAt, Number.NaN);
   const createdAt = finiteNumber(row.createdAt, Number.NaN);
   const inheritedFrom = text(row.inheritedFromSessionId, 256);
+  const agentHome = text(row.agentHome, 256);
 
   return {
     id,
@@ -54,6 +55,7 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     ...(sourceName ? { sourceName } : {}),
     ...(Number.isFinite(createdAt) && createdAt > 0 ? { createdAt } : {}),
     ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
+    ...(agentHome ? { agentHome } : {}),
   };
 }
 

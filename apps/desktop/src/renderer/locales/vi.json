@@ -4682,5 +4682,9 @@
   "Zoom Out": "Thu nhỏ",
   "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
   "{{names}}: not attached — the conversation changed while it was loading.": "{{names}}: chưa được đính kèm — cuộc trò chuyện đã thay đổi khi đang tải.",
-  "Attachments are still loading. Send again once they finish.": "Tệp đính kèm vẫn đang tải. Hãy gửi lại khi tải xong."
+  "Attachments are still loading. Send again once they finish.": "Tệp đính kèm vẫn đang tải. Hãy gửi lại khi tải xong.",
+  "Work sessions": "Phiên làm việc",
+  "Primary assistant": "Trợ lý chính",
+  "No messages yet": "Chưa có tin nhắn",
+  "Could not open {{name}}: {{error}}": "Không thể mở {{name}}: {{error}}"
 }

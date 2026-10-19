@@ -4804,5 +4804,9 @@
   "Zoom Out": "Diminuir zoom",
   "Zoom to {{value0}}%": "Zoom para {{value0}}%",
   "{{names}}: not attached — the conversation changed while it was loading.": "{{names}}: não anexado — a conversa mudou durante o carregamento.",
-  "Attachments are still loading. Send again once they finish.": "Os anexos ainda estão carregando. Envie novamente quando terminarem."
+  "Attachments are still loading. Send again once they finish.": "Os anexos ainda estão carregando. Envie novamente quando terminarem.",
+  "Work sessions": "Sessões de trabalho",
+  "Primary assistant": "Assistente principal",
+  "No messages yet": "Nenhuma mensagem ainda",
+  "Could not open {{name}}: {{error}}": "Não foi possível abrir {{name}}: {{error}}"
 }

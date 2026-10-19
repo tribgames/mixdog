@@ -1,4 +1,4 @@
-import { Bot, ChevronRight, CircleX } from 'lucide-react';
+import { Bot, ChevronRight, CircleX, Star } from 'lucide-react';
 import type React from 'react';
 import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { InitialSurface } from './InitialSurface';
@@ -24,6 +24,11 @@ import {
 } from './agent-chat-summary';
 import { ProgressSpinner } from './ProgressSpinner';
 import { timeMs } from './transcript-primitives';
+import { type AgentContact, agentContacts } from './agent-contacts-model';
+import { MixdogMark } from './mixdog-mark';
+import { useSidebarReferences } from './sidebar-reference-cache';
+import { showDesktopToast } from './desktop-toasts';
+import { errorMessageText } from './ErrorNotice';
 import {
   AGENT_POOL_RECONCILE_MS,
   agentActivityGroups,
@@ -442,6 +447,20 @@ function agentActivitySessionGroups(
 
 type AgentActivitySessionGroup = ReturnType<typeof agentActivitySessionGroups>[number];
 
+/** Work sessions keep every Lead group except agent home threads, whose pool
+ *  nodes feed their contact row instead. */
+export function splitAgentHomeGroups<G extends { ownerId: string; session: DesktopSessionSummary; nodes: unknown }>(
+  groups: readonly G[]
+): { groups: G[]; homeNodes: Map<string, G['nodes']> } {
+  const work: G[] = [];
+  const homeNodes = new Map<string, G['nodes']>();
+  for (const group of groups) {
+    if (group.session.agentHome) homeNodes.set(group.ownerId, group.nodes);
+    else work.push(group);
+  }
+  return { groups: work, homeNodes };
+}
+
 /** Every owner and descendant session the expand-all command reaches. */
 function expandedAgentActivityIds(
   groups: readonly AgentActivitySessionGroup[],
@@ -669,6 +688,74 @@ function AgentChatGroup({
   );
 }
 
+/** One contact: an agent as a messenger row over its home thread — avatar
+ *  (Mixy's logo with its star, else the model's provider), display name,
+ *  time, last-message preview and the one trailing status. */
+function AgentContactRow({ contact, onOpen }: { contact: AgentContact; onOpen(contact: AgentContact): void }) {
+  const describedBy = useId();
+  const { dragProps, clickSuppressed } = useSessionDragSource(contact.session?.id ?? '', contact.name);
+  return (
+    <li className="agent-chat-row" data-kind="contact" data-agent-contact={contact.agentId} {...rowOverflowHostProps()}>
+      <button
+        type="button"
+        className="agent-chat-row-main"
+        aria-label={contact.name}
+        aria-describedby={`${describedBy}-preview ${describedBy}-status`}
+        {...dragProps}
+        onClick={() => {
+          if (!clickSuppressed()) onOpen(contact);
+        }}
+      >
+        <span className="agent-chat-avatar">
+          {contact.mixy ? (
+            <MixdogMark className="agent-contact-logo" />
+          ) : (
+            <AgentProviderMark agent={{ provider: contact.provider || null }} size={20} />
+          )}
+          {contact.mixy && (
+            <span className="agent-contact-badge" title={t('Primary assistant')}>
+              <Star size={9} aria-hidden="true" />
+              <span className="sr-only">{t('Primary assistant')}</span>
+            </span>
+          )}
+        </span>
+        <span className="agent-chat-body">
+          <span className="agent-chat-line">
+            <b className="agent-chat-title">{contact.name}</b>
+            <time className="agent-chat-time">{agentChatTimeLabel(contact.at)}</time>
+          </span>
+          <span className="agent-chat-line">
+            <span id={`${describedBy}-preview`} className="agent-chat-preview">
+              {contact.preview}
+            </span>
+            <AgentChatStatus indicator={contact.indicator} id={`${describedBy}-status`} />
+          </span>
+        </span>
+      </button>
+      <RowOverflowMenu
+        label={t('Actions for {{title}}', { title: contact.name })}
+        items={[{ id: 'open-agent-contact', label: t('Open in tab'), onSelect: () => onOpen(contact) }]}
+      />
+    </li>
+  );
+}
+
+const CONTACT_REFERENCE_KEYS = ['agents'] as const;
+
+/** The agent catalog behind the contacts, re-read whenever a turn settles: a
+ *  chat (Mixy's setup tool) may just have created or deleted an agent. */
+function useContactAgents(active: boolean, sessions: readonly DesktopSessionSummary[]): unknown {
+  const { values, refresh } = useSidebarReferences(window.mixdogDesktop, CONTACT_REFERENCE_KEYS, active);
+  const working = sessions.filter((session) => session.working).length;
+  const workingRef = useRef(working);
+  useEffect(() => {
+    const settled = working < workingRef.current;
+    workingRef.current = working;
+    if (settled && active) void refresh({ force: true });
+  }, [active, refresh, working]);
+  return values.agents;
+}
+
 export function AgentActivityPane({
   active,
   showGroupActions = false,
@@ -708,7 +795,28 @@ export function AgentActivityPane({
   const { hiddenOwnerIds, hideGroup } = useHiddenAgentGroups();
   const orderRef = useRef<Map<string, number>>(new Map());
   useAgentPoolCadence(poolStore, active);
-  const groups = useMemo(() => agentActivitySessionGroups(agents, sessions, orderRef), [agents, sessions]);
+  const allGroups = useMemo(() => agentActivitySessionGroups(agents, sessions, orderRef), [agents, sessions]);
+  // A home thread's work belongs to its contact row, not to the work sessions.
+  const { groups, homeNodes } = useMemo(() => splitAgentHomeGroups(allGroups), [allGroups]);
+  const contactAgents = useContactAgents(active, sessions);
+  const contacts = useMemo(
+    () => agentContacts(contactAgents, sessions, homeNodes, unreadSessionIds),
+    [contactAgents, homeNodes, sessions, unreadSessionIds]
+  );
+  const openContact = async (contact: AgentContact): Promise<void> => {
+    try {
+      // The host stamps a home thread with its agent; a contact without one
+      // yet asks the host, which resolves (and on first open creates) it.
+      const sessionId =
+        contact.session?.id ?? (await window.mixdogDesktop?.openAgentHome?.(contact.agentId))?.sessionId ?? '';
+      if (sessionId) onOpenSession?.(sessionId, contact.name, sessionId);
+    } catch (error) {
+      showDesktopToast(
+        t('Could not open {{name}}: {{error}}', { name: contact.name, error: errorMessageText(error) }),
+        'error'
+      );
+    }
+  };
   useEffect(() => {
     const setAllExpanded = (event: Event): void => {
       const expanded = (event as CustomEvent<boolean>).detail;
@@ -737,6 +845,12 @@ export function AgentActivityPane({
           <AgentGroupsMenu />
         </div>
       )}
+      <ul className="agent-contact-list" aria-label={t('Agents')}>
+        {contacts.map((contact) => (
+          <AgentContactRow key={contact.agentId} contact={contact} onOpen={(row) => void openContact(row)} />
+        ))}
+      </ul>
+      <h3 className="agent-chat-section-label">{t('Work sessions')}</h3>
       {visibleGroups.length === 0 && (
         <p className="schedules-empty agent-activity-empty">
           <Bot size={28} aria-hidden="true" />

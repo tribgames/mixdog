@@ -243,6 +243,9 @@ function useSessionOrdering(
         ? []
         : sessions
             .filter((session) => showAgents || !session.agentSession)
+            // A live agent home thread is that agent's contact (Agents pane);
+            // only an archived one, whose agent is gone, lists here.
+            .filter((session) => !session.agentHome || session.archived)
             .filter((session) => session.classification === 'task' || session.classification === 'project')
             .sort((left, right) => {
               const leftActivityAt = Number(left.activityAt) || left.updatedAt;

@@ -4682,5 +4682,9 @@
   "Zoom Out": "缩小",
   "Zoom to {{value0}}%": "缩放到 {{value0}}%",
   "{{names}}: not attached — the conversation changed while it was loading.": "{{names}}：未附加，加载期间会话已切换。",
-  "Attachments are still loading. Send again once they finish.": "附件仍在加载，加载完成后请重新发送。"
+  "Attachments are still loading. Send again once they finish.": "附件仍在加载，加载完成后请重新发送。",
+  "Work sessions": "工作会话",
+  "Primary assistant": "主助手",
+  "No messages yet": "暂无消息",
+  "Could not open {{name}}: {{error}}": "无法打开 {{name}}：{{error}}"
 }

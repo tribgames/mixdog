@@ -9,6 +9,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'inspectProjectBranch',
   'isSessionTerminal',
   'contextStatus',
+  'agentDefinitionPresence',
   'getAgentDefinition',
   'getAutoClear',
   'getChannelSettings',

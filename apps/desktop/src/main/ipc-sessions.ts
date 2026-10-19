@@ -94,6 +94,7 @@ export function registerSessionIpc({
   handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) =>
     sidebar.setSessionArchived(sessionId, archived)
   );
+  handle(DESKTOP_IPC.openAgentHome, (_event, agentId) => host.openAgentHome(requiredString(agentId, 'agentId', 200)));
   handle(DESKTOP_IPC.setSessionFavorite, (_event, sessionId, favorite) =>
     sidebar.setSessionFavorite(sessionId, favorite)
   );

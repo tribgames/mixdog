@@ -119,6 +119,9 @@ export interface DesktopSessionSummary {
   archived?: boolean;
   /** Favorite: pinned to the Favorites section above Recent. */
   favorite?: boolean;
+  /** The agent whose home thread this is: shown as that agent's contact in
+   *  the Agents pane, never in the session lists. */
+  agentHome?: string;
   /** Automation origin: present on schedule/webhook runner sessions so the
    *  sidebar groups them under Automations instead of Recent. */
   sourceType?: 'schedule' | 'webhook';

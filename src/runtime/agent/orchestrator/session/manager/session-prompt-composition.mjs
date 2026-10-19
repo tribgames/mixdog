@@ -101,7 +101,9 @@ export function sessionRolePromptFields(identity, { ownerIsAgent, toolFreeRole, 
   return {
     roleRules,
     userPrompt: identity.systemPrompt,
-    skipRoleCatalog: !ownerIsAgent,
+    // A Lead carries no role section; an agent's home thread (a user session
+    // running as that agent) carries its own AGENT.md role.
+    skipRoleCatalog: !ownerIsAgent && (!identity.agent || identity.agent === 'lead'),
     agent: identity.agent,
     profile: { skip: identity.profileSkip },
   };

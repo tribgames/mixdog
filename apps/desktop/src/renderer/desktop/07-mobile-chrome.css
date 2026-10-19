@@ -1064,17 +1064,26 @@ html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page {
 }
 /* The messenger list at native dp: chat-list rows, finger-sized agent rows
    and disclosure; the row menu opens by long-press. */
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="session"] .agent-chat-row-main {
+html[data-mixdog-mobile-tabs]
+  .utility-dock
+  .agent-chat-row:is([data-kind="session"], [data-kind="contact"])
+  .agent-chat-row-main {
   min-height: 68px;
   gap: 12px;
   padding: 10px 8px;
 }
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="session"] .agent-chat-avatar {
+html[data-mixdog-mobile-tabs]
+  .utility-dock
+  .agent-chat-row:is([data-kind="session"], [data-kind="contact"])
+  .agent-chat-avatar {
   width: 44px;
   height: 44px;
   flex-basis: 44px;
 }
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="session"] .agent-chat-title {
+html[data-mixdog-mobile-tabs]
+  .utility-dock
+  .agent-chat-row:is([data-kind="session"], [data-kind="contact"])
+  .agent-chat-title {
   font-size: calc(16px * var(--mx-content-scale, 1));
   line-height: 22px;
 }

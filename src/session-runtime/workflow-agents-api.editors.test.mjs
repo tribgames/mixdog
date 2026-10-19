@@ -20,7 +20,7 @@ import { readMarkdownDocument, normalizeAgentPermissionOrNone } from '../runtime
 
 const MAIN = { provider: 'openai', model: 'main-model' };
 
-function fixture(t) {
+function fixture(t, extra = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-workflow-agents-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const helpers = createWorkflowHelpers({
@@ -49,6 +49,7 @@ function fixture(t) {
       return { appliedToCurrentSession: true };
     },
     invalidateContextStatusCache() {},
+    ...extra,
   });
   return { dataDir, helpers, state, api };
 }
@@ -117,6 +118,34 @@ test('saveAgentDefinition creates a custom agent (id from name, AGENT.md + manif
   assert.equal(existsSync(dir), false);
   assert.equal(Object.hasOwn(state.config.agents || {}, created.id), false);
   assert.throws(() => api.getAgentDefinition(created.id), /not found/);
+});
+
+test('agentDefinitionPresence proves a deletion per id from the files, never from a failed read', async (t) => {
+  const { dataDir, helpers, api } = fixture(t);
+  const created = await api.saveAgentDefinition({ name: 'Watcher', body: 'Watch.' });
+  const starter = helpers.listCustomAgentIds(dataDir).find((id) => id !== created.id);
+  assert.deepEqual(api.agentDefinitionPresence([created.id, starter, 'never-existed']), {
+    [created.id]: 'present',
+    [starter]: 'present',
+    'never-existed': 'deleted',
+  });
+  await api.deleteAgentDefinition(created.id);
+  await api.deleteAgentDefinition(starter);
+  // A removed user agent and a tombstoned starter are both proven gone.
+  assert.deepEqual(api.agentDefinitionPresence([created.id, starter]), {
+    [created.id]: 'deleted',
+    [starter]: 'deleted',
+  });
+  // Malformed ids are never judged.
+  assert.deepEqual(api.agentDefinitionPresence(['Not An Id']), { 'Not An Id': 'unknown' });
+
+  // A directory-read fault (EIO/EACCES) answers 'unknown', even for a gone agent.
+  const failing = fixture(t, {
+    statSync: () => {
+      throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+    },
+  });
+  assert.deepEqual(failing.api.agentDefinitionPresence(['never-existed']), { 'never-existed': 'unknown' });
 });
 
 test('saving an off agent with a picked model stores the model and keeps the agent off', async (t) => {

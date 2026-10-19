@@ -226,6 +226,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     readTranscriptItem: (sessionId, itemId) => call('readTranscriptItem', [sessionId, itemId]),
     setQuotaAutoResume: (enabled) => call('setQuotaAutoResume', [enabled]),
     setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),
+    openAgentHome: (agentId: string) => call('openAgentHome', [agentId]),
     setSessionFavorite: (sessionId: string, favorite: boolean) => call('setSessionFavorite', [sessionId, favorite]),
     setSessionProject: (sessionId: string, projectPath: string) => call('setSessionProject', [sessionId, projectPath]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),

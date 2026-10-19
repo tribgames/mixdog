@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
+import { DESKTOP_CAPABILITIES, DESKTOP_IPC, DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
+import { registerSessionIpc } from './ipc-sessions.ts';
 import { createRemoteMethods, createSelectedFileGrants } from './remote-methods.ts';
 import { remoteFilePreviewTestHooks } from './remote-file-preview.ts';
 import { sensitivePolicy } from './remote-sensitive-paths.ts';
@@ -155,6 +156,29 @@ test('prefetchSession drops an empty read trace id like the desktop handler', as
     calls.map((call) => call[2]),
     [undefined, 'trace']
   );
+});
+
+test('openAgentHome resolves the same home thread on the desktop and a paired device', async () => {
+  const calls = [];
+  const host = {
+    openAgentHome: async (agentId) => {
+      calls.push(agentId);
+      return { sessionId: `sess_home_${agentId}` };
+    },
+  };
+  const handlers = new Map();
+  registerSessionIpc({ handle: (channel, listener) => handlers.set(channel, listener), host });
+  const desktop = (agentId) => handlers.get(DESKTOP_IPC.openAgentHome)({}, agentId);
+  const remote = createRemoteMethods({ host }).openAgentHome;
+  assert.deepEqual(await desktop('github-watcher'), { sessionId: 'sess_home_github-watcher' });
+  assert.deepEqual(await remote(['github-watcher']), { sessionId: 'sess_home_github-watcher' });
+  assert.deepEqual(calls, ['github-watcher', 'github-watcher']);
+  // Both refuse a missing or oversized agent id before reaching the host.
+  for (const bad of [undefined, 42, 'x'.repeat(201)]) {
+    await assert.rejects(async () => desktop(bad));
+    await assert.rejects(async () => remote([bad]));
+  }
+  assert.equal(calls.length, 2);
 });
 
 test('a file outside every project gets the same grant answers on the desktop and a paired device', async () => {

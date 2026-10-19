@@ -141,6 +141,23 @@ test('user-owned conversations are never closed; a cold blank scratch is reaped 
   });
 });
 
+test('an agent home thread is exempt from reaping, blank or legacy-shaped alike', async (t) => {
+  await withStore(t, async ({ now, write, read, exists }) => {
+    write({ id: 'sess_home_watcher', owner: 'cli', status: 'idle', updatedAt: now - 30 * DAY, messages: [] });
+    write({ id: 'sess_home_lead', status: 'idle', updatedAt: now - 30 * DAY });
+    write({ id: 'blank-cold', owner: 'user', status: 'idle', updatedAt: now - 2 * HOUR, messages: [] });
+    const result = sweepStaleSessions(5 * MINUTE, { isSessionLive: () => false, openMaxCount: 0 });
+    assert.deepEqual(
+      result.openPrunedDetails.map((d) => d.id),
+      ['blank-cold']
+    );
+    assert.equal(result.cleaned, 0, 'no home thread is idle-closed');
+    assert.equal(exists('sess_home_watcher'), true);
+    assert.equal(exists('sess_home_lead'), true);
+    assert.equal(read('sess_home_lead').closed, undefined);
+  });
+});
+
 test('a live session is protected from close, prune and tombstone deletion', async (t) => {
   await withStore(t, async ({ now, write, read, exists }) => {
     write({ id: 'live-agent', owner: 'agent', status: 'idle', updatedAt: now - 3 * HOUR });

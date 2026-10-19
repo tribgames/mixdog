@@ -869,6 +869,9 @@ export class DesktopServiceClient implements DesktopService {
   setSessionArchived(sessionId: string, archived: boolean): Promise<unknown> {
     return this.invoke('setSessionArchived', [sessionId, archived]);
   }
+  openAgentHome(agentId: string): Promise<{ sessionId: string }> {
+    return this.invoke('openAgentHome', [agentId]);
+  }
   deleteSession(sessionId: string): Promise<unknown> {
     return this.invoke('deleteSession', [sessionId]);
   }

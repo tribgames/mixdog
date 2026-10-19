@@ -13,6 +13,7 @@ import { _queueSessionSummaryUpsert, _queueSessionSummaryRemoval } from '../summ
 import { deleteSession } from '../session-delete.mjs';
 import { markSessionClosed } from '../lifecycle-barriers.mjs';
 import { BLANK_SCRATCH_MAX_AGE_MS, RUNNING_STALL_MS, readSweepRecord } from './sweep-record.mjs';
+import { isAgentHomeSessionId } from '../../agent-home.mjs';
 
 /** The AUTHORITATIVE on-disk fields, falling back to the best-effort (and
  *  possibly stale) summary row only where the record lacks them — a stale row
@@ -145,6 +146,12 @@ function closeIdleRecord(ctx, row, eff, { lastActive }) {
  *  backstop, the idle close, or a retention-cap candidacy. */
 function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
   const { plan, now, tally } = ctx;
+  // An agent's home thread is permanent, blank or not: no idle close, no
+  // blank-scratch prune, no retention cap.
+  if (isAgentHomeSessionId(row.id)) {
+    tally.remaining++;
+    return;
+  }
   const eff = effectiveFields(record.doc, row);
   const ownerNamed = typeof eff.owner === 'string' && eff.owner.length > 0;
   // Freshness gate — recently-touched open sessions are skipped cheaply here.

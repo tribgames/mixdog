@@ -444,6 +444,9 @@ export interface DesktopApi {
   ): Promise<{ id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown; withheld?: true } | null>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
+  /** The agent contact's one home thread, resolved by the host from the agent
+   *  id and created on its first open; the same id on every device. */
+  openAgentHome?(agentId: string): Promise<{ sessionId: string }>;
   setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;
   /** Move a session to a registered project path ('' = no project, the task
    *  workspace) by changing its working folder. Refused while its turn runs

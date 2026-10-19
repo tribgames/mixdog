@@ -3,6 +3,7 @@
  * lifecycle groups (teardown, session switching, inheritance).
  */
 import { hasUserConversationMessage } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+import { isAgentHomeSessionId } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 
 export { SESSION_ID_PATTERN } from '../../runtime/agent/orchestrator/runtime-core/session-id.mjs';
 
@@ -19,7 +20,10 @@ export function isScratchConversation(messages, liveTurnMessages) {
   );
 }
 
+/** An agent's home thread is never scratch: a blank one is tombstoned on no
+ *  close, so its fixed id stays open for the next visit. */
 export function isScratchSession(session) {
+  if (isAgentHomeSessionId(session?.id)) return false;
   return isScratchConversation(session?.messages, session?.liveTurnMessages);
 }
 

@@ -5,6 +5,7 @@ import type {
   DesktopWorkspaceTransitionState,
 } from '../shared/contract';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
+import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 
 // A user prompt plus an assistant reply: the smallest persisted conversation.
 const MIN_CONVERSATION_MESSAGE_COUNT = 2;
@@ -158,6 +159,7 @@ export function desktopSessionSummaries(
       const createdAt = Number(row.createdAt) || 0;
       const inheritedFrom = String(row.inheritedFromSessionId || '').trim();
       const messageCount = Math.max(0, Math.floor(Number(row.messageCount) || 0));
+      const agentHome = agentIdOfHomeSession(String(row.id || ''));
       // Empty and synthetic runtime previews both normalize to no usable title.
       // Keep compacted handoffs when their earliest real user prompt can be
       // recovered, but hide abandoned/interrupted/internal rows instead of
@@ -200,6 +202,7 @@ export function desktopSessionSummaries(
           ...(createdAt > 0 ? { createdAt } : {}),
           ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
           ...(workspace ? { workspace } : {}),
+          ...(agentHome ? { agentHome } : {}),
         },
       ];
     })

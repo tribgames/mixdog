@@ -106,6 +106,7 @@ export function sessionRemoteMethods(
       return host.setQuotaAutoResume(enabled);
     },
     setSessionArchived: ([sessionId, archived]) => sidebar.setSessionArchived(sessionId, archived),
+    openAgentHome: ([agentId]) => host.openAgentHome(requiredString(agentId, 'agentId', 200)),
     setSessionFavorite: ([sessionId, favorite]) => sidebar.setSessionFavorite(sessionId, favorite),
     setSessionProject: ([sessionId, projectPath]) => sidebar.setSessionProject(sessionId, projectPath),
     deleteSession: async ([sessionId]) => {

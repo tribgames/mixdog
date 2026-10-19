@@ -77,6 +77,7 @@ export const DESKTOP_IPC = {
   viewerDevice: 'mixdog:viewer-device',
   setQuotaAutoResume: 'mixdog:set-quota-auto-resume',
   setSessionArchived: 'mixdog:set-session-archived',
+  openAgentHome: 'mixdog:open-agent-home',
   setSessionFavorite: 'mixdog:set-session-favorite',
   setSessionProject: 'mixdog:set-session-project',
   deleteSession: 'mixdog:delete-session',

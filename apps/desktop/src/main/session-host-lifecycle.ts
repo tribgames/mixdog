@@ -23,6 +23,7 @@ import type {
 } from '../shared/contract';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import { projectIdentity } from '../shared/project-identity';
+import { createAgentHomeSessions } from './agent-home-sessions';
 import { createBranchMenuCache } from './branch-menu-cache';
 import { createInFlightJoin, createProviderModelsCache } from './provider-models-cache';
 import { SLOW_READ_CAPABILITIES } from './remote-call-queue';
@@ -103,6 +104,8 @@ export interface SessionHostLifecycleOwner {
   publishShell(snapshot: SessionSnapshot): void;
   ensureColdViewRefresh(): void;
   listSessions(): Promise<DesktopSessionSummary[]>;
+  /** Ids of every stored row the daemon listed, before summary filtering. */
+  storedSessionIds(): string[];
   sessionCatalogLoaded(): boolean;
   sessionCatalog(): DesktopSessionSummary[];
   publishSessionCatalog(sessions: DesktopSessionSummary[]): void;
@@ -287,6 +290,38 @@ export class SessionHostLifecycle {
     const cwd = target ? await this.owner.canonicalDirectory(target) : await this.owner.taskWorkspace();
     await this.owner.invokeSession(id, 'setCwd', [cwd]);
     await this.owner.publishCatalogs();
+  }
+
+  private readonly agentHomes = createAgentHomeSessions({
+    listAgents: () => this.owner.invokeControl('listAgents', []),
+    readSession: (sessionId) => this.owner.readSession(sessionId, false, false),
+    createSession: async (sessionId, params) => {
+      const created = await this.owner.client.create(
+        { ...params, sessionId },
+        this.owner.callOptions(`session-create:${sessionId}`)
+      );
+      if (sessionIdOf(created.sessionId) !== sessionId) throw new Error('Agent home returned a mismatched session id.');
+      this.owner.applySessionResult(sessionId, created);
+    },
+    setArchived: (sessionId, archived) => this.setSessionArchived(sessionId, archived),
+    knownSessionIds: () => [
+      ...new Set([...this.owner.storedSessionIds(), ...this.owner.publication.projections.keys()]),
+    ],
+    agentPresence: (agentIds) => this.owner.invokeControl('agentDefinitionPresence', [agentIds]),
+    taskWorkspace: () => this.owner.taskWorkspace(),
+  });
+
+  /** The agent's one home thread, created on its first open. */
+  async openAgentHome(agentId: string): Promise<{ sessionId: string }> {
+    return this.agentHomes.open(agentId);
+  }
+
+  private async retireAgentHomes(retire: () => Promise<void>): Promise<void> {
+    try {
+      await retire();
+    } catch (error) {
+      console.warn('[mixdog-session] Could not archive the threads of removed agents:', error);
+    }
   }
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
@@ -889,6 +924,14 @@ export class SessionHostLifecycle {
     } finally {
       if (mutation) this.invalidateReadCaches();
     }
+    // A deleted agent's home thread is archived by its fixed id once the
+    // definition is proven gone on disk. A catalog read only re-checks the
+    // known homes per id (deletions through a chat's setup tool); absence
+    // from the list itself never archives anything.
+    if (capability === 'deleteAgentDefinition') {
+      const deletedId = (result.value as { id?: unknown } | null)?.id;
+      if (typeof deletedId === 'string') void this.retireAgentHomes(() => this.agentHomes.retire([deletedId]));
+    } else if (capability === 'listAgents') void this.retireAgentHomes(() => this.agentHomes.reconcile());
     return {
       value: copyCapabilityValue(result.value) as T,
       snapshot: result.snapshot,

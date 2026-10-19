@@ -242,6 +242,7 @@ export class SessionHost implements DesktopService {
       publishShell: (snapshot) => this.publication.publishShell(snapshot),
       ensureColdViewRefresh: () => this.catalog.ensureColdViewRefresh(),
       listSessions: () => this.listSessions(),
+      storedSessionIds: () => this.rawSessionRows.map((row) => String(row.id || '')).filter(Boolean),
       sessionCatalogLoaded: () => this.sessionCatalogLoaded,
       sessionCatalog: () => this.sessionCatalog(),
       publishSessionCatalog: (sessions) => this.publishSessionCatalog(sessions),
@@ -743,6 +744,10 @@ export class SessionHost implements DesktopService {
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
     return this.lifecycle.setSessionArchived(sessionId, archived);
+  }
+
+  async openAgentHome(agentId: string): Promise<{ sessionId: string }> {
+    return this.lifecycle.openAgentHome(agentId);
   }
 
   async deleteSession(sessionId: string): Promise<SessionSnapshot> {

@@ -289,6 +289,9 @@ export class CaptureService implements DesktopService {
     return true;
   }
   async setSessionArchived(): Promise<void> {}
+  async openAgentHome(): Promise<{ sessionId: string }> {
+    throw new Error('Agent threads are unavailable in the capture profile.');
+  }
   async setSessionFavorite(): Promise<void> {}
   async setSessionProject(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> {

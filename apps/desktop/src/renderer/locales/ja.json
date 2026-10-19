@@ -4682,5 +4682,9 @@
   "Zoom Out": "ズームアウト",
   "Zoom to {{value0}}%": "{{value0}}%にする",
   "{{names}}: not attached — the conversation changed while it was loading.": "{{names}}: 添付されませんでした。読み込み中に会話が切り替わりました。",
-  "Attachments are still loading. Send again once they finish.": "添付ファイルを読み込み中です。完了してから再度送信してください。"
+  "Attachments are still loading. Send again once they finish.": "添付ファイルを読み込み中です。完了してから再度送信してください。",
+  "Work sessions": "作業セッション",
+  "Primary assistant": "メインアシスタント",
+  "No messages yet": "まだメッセージはありません",
+  "Could not open {{name}}: {{error}}": "{{name}} を開けませんでした: {{error}}"
 }

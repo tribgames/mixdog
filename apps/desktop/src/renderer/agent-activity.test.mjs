@@ -294,7 +294,9 @@ test('Agent groups can be hidden, stay hidden through pool pushes and remounts, 
     await click('[data-action-id="restore-agent-groups"]');
     assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 2);
     assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.agent-hidden-groups')), []);
+    // The contacts read the agent catalog (a read capability); nothing else.
     assert.deepEqual([...new Set(touched)].filter((key) => key !== 'perfLog').sort(), [
+      'invokeCapability',
       'listAgentPool',
       'subscribeAgentPool',
     ]);
@@ -2330,7 +2332,8 @@ test('a nested Agent row opens its exact child session without touching session 
       touched.filter((name) => /session/i.test(name)),
       []
     );
-    assert.deepEqual([...new Set(touched)].sort(), ['listAgentPool', 'subscribeAgentPool']);
+    // The contacts read the agent catalog (a read capability); nothing else.
+    assert.deepEqual([...new Set(touched)].sort(), ['invokeCapability', 'listAgentPool', 'subscribeAgentPool']);
     assert.deepEqual(prefetched, ['grand-a', 'great-a', 'lead-a']);
   } finally {
     await act(async () => dom.root.unmount());

@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
@@ -176,5 +176,36 @@ export function createAgentEditorApi(deps) {
     return { id, deleted: true, revertedToBuiltIn: builtIn && Boolean(sourceFallback) };
   }
 
-  return { listAgents, getAgentDefinition, saveAgentDefinition, deleteAgentDefinition };
+  // Whether each agent's definition is on disk, decided per id from the files
+  // themselves: 'deleted' only when every source is PROVEN absent (ENOENT) or
+  // tombstoned, 'unknown' on any other read fault. A list read swallows
+  // directory errors, so its absence never proves a deletion; this does.
+  function agentDefinitionPresence(agentIds = []) {
+    const dataDir = resolveDataDir(deps);
+    const rootDir = deps.rootDir ?? STANDALONE_ROOT;
+    const stat = deps.statSync ?? statSync;
+    const probe = (path) => {
+      try {
+        stat(path);
+        return 'present';
+      } catch (error) {
+        return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? 'absent' : 'unknown';
+      }
+    };
+    const presence = (agentId) => {
+      const id = agentEditorId(agentId);
+      if (!id || id !== agentId) return 'unknown';
+      const user = probe(join(dataDir, 'agents', id, 'AGENT.md'));
+      if (user !== 'absent') return user;
+      const tombstone = probe(join(dataDir, 'agents', id, AGENT_DELETED_MARKER));
+      if (tombstone === 'present') return 'deleted';
+      if (tombstone === 'unknown') return 'unknown';
+      const shipped = probe(join(rootDir, 'agents', id, 'AGENT.md'));
+      return shipped === 'absent' ? 'deleted' : shipped;
+    };
+    const ids = Array.isArray(agentIds) ? agentIds.filter((id) => typeof id === 'string') : [];
+    return Object.fromEntries(ids.map((id) => [id, presence(id)]));
+  }
+
+  return { listAgents, getAgentDefinition, saveAgentDefinition, deleteAgentDefinition, agentDefinitionPresence };
 }

@@ -77,6 +77,8 @@ export interface DesktopService {
   getQuotaAutoResume(): Promise<boolean>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
+  /** The agent contact's one home thread (agent-home-sessions.ts). */
+  openAgentHome(agentId: string): Promise<{ sessionId: string }>;
   setSessionFavorite(sessionId: string, favorite: boolean): unknown;
   setSessionProject(sessionId: string, projectPath: string): unknown;
   deleteSession(sessionId: string): unknown;
@@ -176,6 +178,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'getQuotaAutoResume',
   'setQuotaAutoResume',
   'setSessionArchived',
+  'openAgentHome',
   'setSessionFavorite',
   'setSessionProject',
   'deleteSession',

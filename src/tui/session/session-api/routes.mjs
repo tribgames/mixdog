@@ -274,6 +274,7 @@ export function createSessionRouteApi(bag) {
     getAgentDefinition: (agentId) => runtime.getAgentDefinition?.(agentId) ?? null,
     saveAgentDefinition: async (payload) => runtime.saveAgentDefinition?.(payload) ?? null,
     deleteAgentDefinition: async (agentId) => runtime.deleteAgentDefinition?.(agentId) ?? null,
+    agentDefinitionPresence: (agentIds) => runtime.agentDefinitionPresence?.(agentIds) ?? null,
     getOutputStyle: () => {
       return runtime.getOutputStyle?.() || runtime.listOutputStyles?.() || null;
     },

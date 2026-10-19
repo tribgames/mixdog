@@ -4865,5 +4865,9 @@
   "Zoom Out": "Уменьшить масштаб",
   "Zoom to {{value0}}%": "Масштаб {{value0}}%",
   "{{names}}: not attached — the conversation changed while it was loading.": "{{names}}: не прикреплено — беседа сменилась во время загрузки.",
-  "Attachments are still loading. Send again once they finish.": "Вложения ещё загружаются. Отправьте снова, когда загрузка завершится."
+  "Attachments are still loading. Send again once they finish.": "Вложения ещё загружаются. Отправьте снова, когда загрузка завершится.",
+  "Work sessions": "Рабочие сессии",
+  "Primary assistant": "Основной помощник",
+  "No messages yet": "Сообщений пока нет",
+  "Could not open {{name}}: {{error}}": "Не удалось открыть {{name}}: {{error}}"
 }

@@ -8,7 +8,13 @@ import { modelDisplayName, ModelRouteLabel, ProviderIcon, routeDaybreakBlue } fr
 
 /** The brand of the model an agent runs on marks its row; `size` enlarges it
  *  for an avatar. */
-export function AgentProviderMark({ agent, size = 16 }: { agent: DesktopAgentPoolRow; size?: number }) {
+export function AgentProviderMark({
+  agent,
+  size = 16,
+}: {
+  agent: Pick<DesktopAgentPoolRow, 'provider'>;
+  size?: number;
+}) {
   return (
     <span className="sidebar-resource-icon" aria-hidden="true">
       {agent.provider ? (

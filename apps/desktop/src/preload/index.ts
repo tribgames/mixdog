@@ -238,6 +238,7 @@ const api: DesktopApi = {
   viewerDevice: () => invokeIpc(DESKTOP_IPC.viewerDevice),
   setQuotaAutoResume: (enabled) => invokeIpc(DESKTOP_IPC.setQuotaAutoResume, enabled),
   setSessionArchived: (sessionId, archived) => invokeIpc(DESKTOP_IPC.setSessionArchived, sessionId, archived),
+  openAgentHome: (agentId) => invokeIpc(DESKTOP_IPC.openAgentHome, agentId),
   setSessionFavorite: (sessionId, favorite) => invokeIpc(DESKTOP_IPC.setSessionFavorite, sessionId, favorite),
   setSessionProject: (sessionId, projectPath) => invokeIpc(DESKTOP_IPC.setSessionProject, sessionId, projectPath),
   deleteSession: (sessionId) => invokeIpc(DESKTOP_IPC.deleteSession, sessionId),

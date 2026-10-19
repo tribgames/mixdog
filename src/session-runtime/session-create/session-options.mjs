@@ -2,9 +2,10 @@
 // the current runtime state: route, tool spec, ownership/lane, workflow pack,
 // memory context and compaction.
 import { normalizeCompactionConfig } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
-import { hasOwn } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { clean, hasOwn } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { toolSpecForMode } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
-import { pluginDataDir } from '../runtime-paths.mjs';
+import { STANDALONE_ROOT, pluginDataDir } from '../runtime-paths.mjs';
+import { readAgentFrontmatterPermission } from '../services/agent-tool/helpers.mjs';
 import { LEAD_DISALLOWED_TOOLS } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { HEADLESS_TOOL_PROFILE } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 
@@ -37,6 +38,10 @@ export function sessionOptions(deps, coreMemoryContext) {
   } = activeWorkflowContext(rt.config, dataDir);
   const sessionProfile = rt.sessionProfile && typeof rt.sessionProfile === 'object' ? rt.sessionProfile : null;
   const agentOwned = sessionProfile?.owner === 'agent' || sessionProfile?.visibility === 'agent-only';
+  // An agent's home thread: a user conversation that runs AS that agent (its
+  // AGENT.md role and permission); route comes with the create call.
+  const homeAgent = agentOwned ? '' : clean(sessionProfile?.homeAgent);
+  const homePermission = homeAgent ? readAgentFrontmatterPermission(homeAgent, dataDir, STANDALONE_ROOT) : null;
   // Agent-owned sessions keep the Active Workflow block only.
   const workflowContext = agentOwned ? packContext : leadWorkflowContext;
   const callerDisallowedTools = [
@@ -51,7 +56,8 @@ export function sessionOptions(deps, coreMemoryContext) {
     tools: toolSpecForMode(rt.mode),
     ...(Array.isArray(schemaAllowedTools) ? { schemaAllowedTools } : {}),
     owner: agentOwned ? 'agent' : 'cli',
-    agent: agentOwned ? sessionProfile?.agent || 'worker' : 'lead',
+    agent: agentOwned ? sessionProfile?.agent || 'worker' : homeAgent || 'lead',
+    ...(homePermission ? { permission: homePermission } : {}),
     lane: agentOwned ? 'agent' : 'cli',
     // One-shot `mixdog exec` runs carry their own source so session catalogs
     // can keep them out of the user's resumable list.

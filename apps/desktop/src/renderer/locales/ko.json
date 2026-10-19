@@ -4682,5 +4682,9 @@
   "Zoom Out": "축소",
   "Zoom to {{value0}}%": "{{value0}}%로 확대/축소",
   "{{names}}: not attached — the conversation changed while it was loading.": "{{names}}: 첨부되지 않았습니다. 불러오는 중에 대화가 바뀌었습니다.",
-  "Attachments are still loading. Send again once they finish.": "첨부 파일을 아직 불러오는 중입니다. 끝난 뒤 다시 보내세요."
+  "Attachments are still loading. Send again once they finish.": "첨부 파일을 아직 불러오는 중입니다. 끝난 뒤 다시 보내세요.",
+  "Work sessions": "작업 세션",
+  "Primary assistant": "기본 비서",
+  "No messages yet": "아직 메시지가 없습니다",
+  "Could not open {{name}}: {{error}}": "{{name}}을(를) 열 수 없습니다: {{error}}"
 }
