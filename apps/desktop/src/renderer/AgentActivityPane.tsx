@@ -1,24 +1,29 @@
-import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bot, ChevronRight, CircleX } from 'lucide-react';
 import type React from 'react';
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { InitialSurface } from './InitialSurface';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
-import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import {
-  desktopAgentActivityState,
-  hasPendingDesktopAgentWork,
-  type DesktopAgentActivityState,
-} from '../shared/agent-activity';
+import { desktopAgentActivityState, type DesktopAgentActivityState } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { agentElapsedText } from './agent-row-meta';
 import { useClock } from './use-clock';
 import { clearableAgentTreeRows, dismissFinishedAgentRows, useVisibleAgentPool } from './agent-dismiss';
-import { AgentProviderMark, AgentRouteSummary } from './agent-row-parts';
-import { TextShimmer } from './transcript-primitives';
+import { AgentProviderMark, AgentRouteSummary, useSessionDragSource } from './agent-row-parts';
+import {
+  type AgentChatIndicator,
+  agentChatElapsed,
+  agentChatTimeLabel,
+  agentFailureText,
+  agentNodeState,
+  agentRowName,
+  agentSessionChatSummary,
+} from './agent-chat-summary';
+import { ProgressSpinner } from './ProgressSpinner';
+import { timeMs } from './transcript-primitives';
 import {
   AGENT_POOL_RECONCILE_MS,
   agentActivityGroups,
@@ -49,17 +54,25 @@ function useRowClock(state: DesktopAgentActivityState, clock: number | undefined
   return clock ?? now;
 }
 
-/** The row's right-column text. */
+/** The row's right-column text; `compact` (the Agents list) keeps a running
+ *  clock to its largest unit. */
 function AgentRowElapsed({
   state,
   agent,
   clock,
+  compact = false,
 }: {
   state: DesktopAgentActivityState;
   agent: DesktopAgentPoolRow;
   clock?: number;
+  compact?: boolean;
 }): React.ReactElement {
-  const elapsed = agentElapsedText(state, agent, useRowClock(state, clock));
+  const now = useRowClock(state, clock);
+  const turn = timeMs(agent.turnStartedAt);
+  const elapsed =
+    compact && turn && (state === 'running' || state === 'waiting')
+      ? agentChatElapsed(now - turn)
+      : agentElapsedText(state, agent, now);
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name
     <time
@@ -71,6 +84,15 @@ function AgentRowElapsed({
       {elapsed}
     </time>
   );
+}
+
+/** The tab title a child agent opens under: its session title plus its tag. */
+function agentTabTitle(agent: DesktopAgentPoolRow, role: string): string {
+  const tag = String(agent.tag || '').trim();
+  const sessionTitle = String(agent.title || '').trim();
+  return tag && tag.toLowerCase() !== sessionTitle.toLowerCase()
+    ? [sessionTitle, tag].filter(Boolean).join(' · ')
+    : sessionTitle || tag || role;
 }
 
 export const AgentPoolRow = memo(function AgentPoolRow({
@@ -128,19 +150,12 @@ export const AgentPoolRow = memo(function AgentPoolRow({
   const role = agentRoleLabel(agent.agent || agent.tag);
   const sessionId = String(agent.sessionId || '').trim();
   const lead = Boolean(sessionId) && sessionId === ownerSessionId;
-  const tag = String(agent.tag || '').trim();
-  const sessionTitle = String(agent.title || '').trim();
-  const name = !lead && tag && tag.toLowerCase() !== role.toLowerCase() ? `${role} · ${tag}` : role;
-  const tabTitle =
-    tag && tag.toLowerCase() !== sessionTitle.toLowerCase()
-      ? [sessionTitle, tag].filter(Boolean).join(' · ')
-      : sessionTitle || tag || role;
+  const name = agentRowName(agent, lead);
+  const tabTitle = agentTabTitle(agent, role);
   const prefetch = () => {
     if (sessionId) onPrefetchSession?.(lead ? ownerSessionId : sessionId);
   };
-  const [dragging, setDragging] = useState(false);
-  // A settled native drag must not also fire the row's open click.
-  const suppressClick = useRef(false);
+  const { dragProps, clickSuppressed } = useSessionDragSource(sessionId, tabTitle);
   return (
     <button
       type="button"
@@ -159,50 +174,12 @@ export const AgentPoolRow = memo(function AgentPoolRow({
       tabIndex={tabIndex}
       aria-label={name}
       disabled={!sessionId}
-      // Every row with a session is a pane source, exactly like a sidebar
-      // session row: dropping it inside a pane opens the session as a tab and
-      // dropping it on a pane edge splits a new pane there.
-      draggable={Boolean(sessionId)}
-      data-dragging={dragging ? 'true' : undefined}
+      {...dragProps}
       onPointerEnter={prefetch}
       onFocus={prefetch}
       onPointerDown={prefetch}
-      onDragStart={(event) => {
-        if (!sessionId) {
-          event.preventDefault();
-          return;
-        }
-        const drag: PaneDragSession = {
-          kind: 'session',
-          key: `session:${sessionId}`,
-          title: tabTitle,
-          selection: { kind: 'session', id: sessionId, title: tabTitle },
-        };
-        // The gesture settles in the global drag session, so this cleanup still
-        // runs when the pool retires this row mid-drag.
-        beginPaneDrag(
-          event.nativeEvent,
-          drag,
-          event.currentTarget,
-          () => {
-            setDragging(false);
-            suppressClick.current = true;
-            window.setTimeout(() => {
-              suppressClick.current = false;
-            }, 0);
-            delete document.body.dataset.tabDragging;
-          },
-          // The row's own frame follows the pointer, not a tab ghost.
-          'frame'
-        );
-        setDragging(true);
-        document.body.dataset.tabDragging = '1';
-      }}
-      onDragEnd={() => {
-        finishPaneDrag();
-      }}
       onClick={() => {
-        if (!sessionId || suppressClick.current) return;
+        if (!sessionId || clickSuppressed()) return;
         if (lead) onOpenLeadSession?.(ownerSessionId);
         else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
       }}
@@ -224,142 +201,180 @@ export const AgentPoolRow = memo(function AgentPoolRow({
   );
 });
 
+/** The row's single trailing status (see AgentChatIndicator). */
+function AgentChatStatus({ indicator, id }: { indicator: AgentChatIndicator; id: string }) {
+  if (!indicator) return null;
+  if (indicator.kind === 'attention') {
+    return (
+      <span id={id} className="agent-chat-status" data-kind="attention">
+        {t('Needs attention')}
+      </span>
+    );
+  }
+  if (indicator.kind === 'error') {
+    return (
+      <span id={id} className="agent-chat-status" data-kind="error">
+        <CircleX size={14} aria-hidden="true" />
+        <span className="sr-only">{t('Failed')}</span>
+      </span>
+    );
+  }
+  if (indicator.kind === 'running') {
+    return (
+      <span id={id} className="agent-chat-status" data-kind="running">
+        <ProgressSpinner size={14} aria-hidden="true" />
+        <span className="sr-only">{t('Working')}</span>
+      </span>
+    );
+  }
+  return (
+    <span id={id} className="agent-chat-status" data-kind="unread">
+      <span className="sr-only">{t('Unread')} </span>
+      {indicator.count}
+    </span>
+  );
+}
+
+/** A session row's time: the running turn's elapsed while it works, otherwise
+ *  the moment the group last started or settled work. */
+function AgentChatTime({ lead, live, at }: { lead: DesktopAgentPoolRow | null; live: boolean; at: number }) {
+  const ticking = live && Boolean(lead && timeMs(lead.turnStartedAt));
+  const now = useClock(ticking);
+  const text = ticking && lead ? agentChatElapsed(now - timeMs(lead.turnStartedAt)) : agentChatTimeLabel(at);
+  return (
+    <time className="agent-chat-time" data-live={ticking ? 'true' : undefined}>
+      {text}
+    </time>
+  );
+}
+
+/** The twisty painted before the title of a row with agents below it. */
+function AgentChatTwisty({ expanded }: { expanded: boolean }) {
+  return (
+    <span className="agent-chat-twisty" data-expanded={expanded ? 'true' : undefined} aria-hidden="true">
+      <ChevronRight size={12} />
+    </span>
+  );
+}
+
+/** The twisty's hit area: a transparent button laid over the twisty and the
+ *  avatar edge (no width of its own). Arrow keys on the row do the same; the
+ *  button stays out of the tab order. */
+function AgentChatToggle({
+  expanded,
+  label,
+  leadSessionId,
+  onToggle,
+}: {
+  expanded: boolean;
+  label: string;
+  leadSessionId?: string;
+  onToggle(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className="agent-chat-toggle"
+      tabIndex={-1}
+      aria-label={`${expanded ? t('Fold') : t('Unfold')}: ${label}`}
+      aria-expanded={expanded}
+      data-lead-session-id={leadSessionId}
+      onClick={onToggle}
+    />
+  );
+}
+
 const AGENT_TREE_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']);
 
-/** One owner group rendered as a real ARIA tree: roving tab focus, Arrow
- *  Up/Down through the painted rows, Arrow Right/Left to open, close and climb
- *  the hierarchy, Home/End to its ends. Every `aria-expanded` here reports the
- *  state the surface actually paints — including a row whose subtree is folded
- *  away with its group. */
-function AgentActivityTree({
-  group,
-  label,
-  groupExpanded,
-  expandedSessionIds,
-  onSetExpanded,
-  unreadSessionIds,
-  onExpandGroup,
-  onCollapseGroup,
+type AgentChatTreeItem = {
+  roving: { tabIndex: number; onFocus(): void };
+  level: number;
+};
+
+/** One child agent: a compact row of the same shell, with its role/tag, model
+ *  route, lifecycle and elapsed. */
+function AgentMemberRow({
+  node,
+  ownerSessionId,
+  state,
+  expanded,
+  item,
+  onToggle,
   onPrefetchSession,
-  onOpenLeadSession,
   onOpenSession,
 }: {
-  group: { ownerId: string; nodes: readonly AgentActivityNode[] };
-  label: string;
-  groupExpanded: boolean;
-  expandedSessionIds: ReadonlySet<string>;
-  onSetExpanded(sessionId: string, expanded: boolean): void;
-  unreadSessionIds?: ReadonlySet<string>;
-  onExpandGroup?(): void;
-  onCollapseGroup?(): void;
+  node: AgentActivityNode;
+  ownerSessionId: string;
+  state: DesktopAgentActivityState;
+  expanded: boolean;
+  item: AgentChatTreeItem;
+  onToggle(): void;
   onPrefetchSession?(sessionId: string): void;
-  onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
-}): React.ReactElement {
-  const treeRef = useRef<HTMLDivElement | null>(null);
-  const [focusedSessionId, setFocusedSessionId] = useState('');
-  const descendantCount = useMemo(
-    () => flattenAgentActivityNodes(group.nodes).filter((node) => node.sessionId !== group.ownerId).length,
-    [group.nodes, group.ownerId]
-  );
-  const rows = useMemo(() => {
-    const visible = visibleAgentTreeRows(group.nodes, expandedSessionIds);
-    // A collapsed GROUP keeps exactly the owner's own row: every descendant,
-    // at any generation, folds away with it.
-    return groupExpanded ? visible : visible.filter((node) => node.sessionId === group.ownerId);
-  }, [expandedSessionIds, group.nodes, group.ownerId, groupExpanded]);
-  const focusedIndex = rows.findIndex((node) => node.sessionId === focusedSessionId);
-  const activeIndex = focusedIndex >= 0 ? focusedIndex : 0;
-  const rowExpanded = (node: AgentActivityNode): boolean => groupExpanded && expandedSessionIds.has(node.sessionId);
-  const focusRow = (index: number): void => {
-    const node = rows[Math.min(Math.max(index, 0), rows.length - 1)];
-    if (!node) return;
-    setFocusedSessionId(node.sessionId);
-    treeRef.current?.querySelector<HTMLElement>(`[data-agent-session-id="${node.sessionId}"]`)?.focus();
-  };
-  const setRowCollapsed = (sessionId: string, collapsed: boolean): void => {
-    setFocusedSessionId(sessionId);
-    onSetExpanded(sessionId, !collapsed);
-  };
-  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (!AGENT_TREE_KEYS.has(event.key)) return;
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const originId =
-      (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-agent-session-id]')?.dataset.agentSessionId ||
-      '';
-    const found = rows.findIndex((node) => node.sessionId === originId);
-    const index = found >= 0 ? found : activeIndex;
-    const node = rows[index];
-    if (!node) return;
-    event.preventDefault();
-    if (event.key === 'ArrowDown') {
-      focusRow(index + 1);
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      focusRow(index - 1);
-      return;
-    }
-    if (event.key === 'Home') {
-      focusRow(0);
-      return;
-    }
-    if (event.key === 'End') {
-      focusRow(rows.length - 1);
-      return;
-    }
-    const hasChildren = node.children.length > 0;
-    if (event.key === 'ArrowRight') {
-      // The root row of a folded group opens the group itself: that fold is
-      // the only thing hiding its subtree.
-      if (!groupExpanded && node.sessionId === group.ownerId) {
-        onExpandGroup?.();
-        return;
-      }
-      if (!hasChildren) return;
-      if (!rowExpanded(node)) {
-        setRowCollapsed(node.sessionId, false);
-        return;
-      }
-      // Expanded: its first child is the next row in depth-first order.
-      focusRow(index + 1);
-      return;
-    }
-    if (hasChildren && rowExpanded(node)) {
-      setRowCollapsed(node.sessionId, true);
-      return;
-    }
-    const parentIndex = rows.findIndex((row) => row.sessionId === node.parentSessionId);
-    if (parentIndex >= 0) {
-      focusRow(parentIndex);
-      return;
-    }
-    if (groupExpanded) onCollapseGroup?.();
+}) {
+  const { agent, sessionId } = node;
+  const name = agentRowName(agent, false);
+  const tabTitle = agentTabTitle(agent, agentRoleLabel(agent.agent || agent.tag));
+  const hasChildren = node.children.length > 0;
+  const { dragProps, clickSuppressed } = useSessionDragSource(sessionId, tabTitle);
+  const prefetch = () => {
+    if (sessionId) onPrefetchSession?.(sessionId);
   };
   return (
-    <div ref={treeRef} className="schedules-list" role="tree" aria-label={label} onKeyDown={onKeyDown}>
-      {rows.map((node, index) => (
-        <AgentPoolRow
-          key={poolRowKey(node.agent, index)}
-          agent={node.agent}
-          depth={node.depth}
-          parentSessionId={node.parentSessionId}
-          hasChildren={node.children.length > 0}
-          expanded={rowExpanded(node)}
-          posInSet={node.posInSet}
-          setSize={node.setSize}
-          tabIndex={index === activeIndex ? 0 : -1}
-          ownerSessionId={group.ownerId}
-          descendantCount={descendantCount}
-          unread={unreadSessionIds?.has(node.sessionId) === true}
-          waitingForTasks={flattenAgentActivityNodes(node.children).some(({ agent }) =>
-            hasPendingDesktopAgentWork(agent)
-          )}
-          onPrefetchSession={onPrefetchSession}
-          onOpenLeadSession={onOpenLeadSession}
-          onOpenSession={onOpenSession}
-        />
-      ))}
+    <div
+      className="agent-chat-row"
+      data-kind="agent"
+      role="none"
+      style={{ '--agent-chat-depth': item.level - 2 } as React.CSSProperties}
+    >
+      <button
+        type="button"
+        className="agent-chat-row-main agent-pool-row"
+        data-agent-tag={agent.tag || undefined}
+        data-agent-session-id={sessionId || undefined}
+        data-agent-parent-session-id={node.parentSessionId || undefined}
+        data-agent-depth={item.level - 1}
+        role="treeitem"
+        aria-level={item.level}
+        aria-posinset={node.posInSet}
+        aria-setsize={node.setSize}
+        aria-expanded={hasChildren ? expanded : undefined}
+        aria-label={name}
+        tabIndex={item.roving.tabIndex}
+        disabled={!sessionId}
+        {...dragProps}
+        onPointerEnter={prefetch}
+        onFocus={() => {
+          item.roving.onFocus();
+          prefetch();
+        }}
+        onPointerDown={prefetch}
+        onClick={() => {
+          if (!sessionId || clickSuppressed()) return;
+          onOpenSession?.(sessionId, tabTitle, ownerSessionId);
+        }}
+      >
+        <span className="agent-chat-avatar">
+          <AgentProviderMark agent={agent} size={14} />
+        </span>
+        <span className="agent-chat-body">
+          <span className="agent-chat-line">
+            {hasChildren && <AgentChatTwisty expanded={expanded} />}
+            <b className="agent-chat-title agent-pool-name">{name}</b>
+            <AgentRowElapsed state={state} agent={agent} compact />
+          </span>
+          <span className="agent-chat-line">
+            {state === 'failed' ? (
+              <small className="agent-chat-preview" data-state="failed">
+                {agentFailureText(agent)}
+              </small>
+            ) : (
+              <AgentRouteSummary agent={agent} />
+            )}
+          </span>
+        </span>
+      </button>
+      {hasChildren && <AgentChatToggle expanded={expanded} label={name} onToggle={onToggle} />}
     </div>
   );
 }
@@ -416,7 +431,7 @@ function agentActivitySessionGroups(
   return built
     .flatMap((group) => {
       const session = sessionById.get(group.ownerId);
-      return session ? [{ ...group, session }] : [];
+      return session ? [{ ...group, session, stamp: order.get(group.ownerId) || 0 }] : [];
     })
     .sort((left, right) => {
       const leftTime = order.get(left.ownerId) || 0;
@@ -439,7 +454,14 @@ function expandedAgentActivityIds(
   );
 }
 
-function renderAgentActivityGroup({
+/** One Lead session as a messenger row — avatar, bold title, time, a preview
+ *  of what it is doing and one status — with its agents folded beneath it as
+ *  compact rows of the same shell. The group is one ARIA tree: roving tab
+ *  focus, Arrow Up/Down through the painted rows, Arrow Right/Left to open,
+ *  close and climb, Home/End to its ends. Every `aria-expanded` reports what
+ *  the surface actually paints. Right-click, Menu/Shift+F10 and a touch
+ *  long-press open the row's overflow menu. */
+function AgentChatGroup({
   group,
   expandedSessionIds,
   unreadSessionIds,
@@ -457,63 +479,192 @@ function renderAgentActivityGroup({
   onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
-}) {
+}): React.ReactElement {
+  const { ownerId } = group;
   const title = sessionSummaryTitle(group.session, t('Untitled session'));
-  const expanded = expandedSessionIds.has(group.ownerId);
-  // Any agent of the group still working — the Lead or a descendant — makes
-  // the session name shimmer, so a folded group still reads as live.
-  const working = group.agents.some((agent) => desktopAgentActivityState(agent) === 'running');
-  const setGroupCollapsed = (collapsed: boolean): void => setSessionExpanded(group.ownerId, !collapsed);
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const [focusedSessionId, setFocusedSessionId] = useState('');
+  const describedBy = useId();
+  const lead = group.nodes.find((node) => node.sessionId === ownerId) ?? null;
+  // Under a Lead row its children are the members; without one the top rows are.
+  const members = lead ? lead.children : group.nodes;
+  const levelOffset = lead ? 1 : 2;
+  const groupExpanded = expandedSessionIds.has(ownerId);
+  const summary = useMemo(
+    () => agentSessionChatSummary(ownerId, group.nodes, unreadSessionIds),
+    [group.nodes, ownerId, unreadSessionIds]
+  );
+  const rows = useMemo(
+    () => (groupExpanded ? visibleAgentTreeRows(members, expandedSessionIds) : []),
+    [expandedSessionIds, groupExpanded, members]
+  );
+  const rowIds = [ownerId, ...rows.map((node) => node.sessionId)];
+  const activeIndex = Math.max(0, rowIds.indexOf(focusedSessionId));
+  const avatarAgent = lead?.agent ?? group.agents[0];
+  const { dragProps, clickSuppressed } = useSessionDragSource(ownerId, title);
+  const setGroupExpanded = (expanded: boolean) => setSessionExpanded(ownerId, expanded);
+  const focusRow = (index: number): void => {
+    const id = rowIds[Math.min(Math.max(index, 0), rowIds.length - 1)];
+    if (!id) return;
+    setFocusedSessionId(id);
+    treeRef.current?.querySelector<HTMLElement>(`[data-agent-session-id="${id}"]`)?.focus();
+  };
+  const setRowExpanded = (sessionId: string, expanded: boolean): void => {
+    setFocusedSessionId(sessionId);
+    setSessionExpanded(sessionId, expanded);
+  };
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!AGENT_TREE_KEYS.has(event.key)) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const origin = (event.target as HTMLElement | null)?.closest<HTMLElement>('[role="treeitem"]');
+    if (!origin) return;
+    const found = rowIds.indexOf(origin.dataset.agentSessionId || '');
+    const index = found >= 0 ? found : activeIndex;
+    event.preventDefault();
+    const moves: Partial<Record<string, number>> = {
+      ArrowDown: index + 1,
+      ArrowUp: index - 1,
+      Home: 0,
+      End: rowIds.length - 1,
+    };
+    const target = moves[event.key];
+    if (target !== undefined) {
+      focusRow(target);
+      return;
+    }
+    const node = index > 0 ? rows[index - 1] : undefined;
+    if (!node) {
+      // The session row: its fold is the whole group's.
+      if (event.key === 'ArrowLeft') {
+        if (groupExpanded) setRowExpanded(ownerId, false);
+      } else if (!groupExpanded) {
+        if (members.length > 0) setRowExpanded(ownerId, true);
+      } else focusRow(1);
+      return;
+    }
+    const hasChildren = node.children.length > 0;
+    const expanded = expandedSessionIds.has(node.sessionId);
+    if (event.key === 'ArrowRight') {
+      if (!hasChildren) return;
+      // Expanded: its first child is the next row in depth-first order.
+      if (expanded) focusRow(index + 1);
+      else setRowExpanded(node.sessionId, true);
+      return;
+    }
+    if (hasChildren && expanded) {
+      setRowExpanded(node.sessionId, false);
+      return;
+    }
+    // Climb to the parent row; a top member's parent is the session row.
+    focusRow(Math.max(0, rowIds.indexOf(node.parentSessionId)));
+  };
+  const roving = (sessionId: string, index: number) => ({
+    tabIndex: index === activeIndex ? 0 : -1,
+    onFocus: () => setFocusedSessionId(sessionId),
+  });
+  const clearable = clearableAgentTreeRows(group.nodes);
+  const prefetch = () => onPrefetchSession?.(ownerId);
   return (
-    <section key={group.ownerId} className="workflows-models" data-agent-owner-session-id={group.ownerId}>
-      <div className="workflows-section-head" {...rowOverflowHostProps()}>
-        <button
-          type="button"
-          className="agent-session-heading"
-          aria-label={title}
-          aria-expanded={expanded}
-          data-lead-session-id={group.ownerId}
-          onClick={() => setGroupCollapsed(expanded)}
-        >
-          <h2>
-            <TextShimmer text={title} active={working} />
-          </h2>
-          <span className="agent-session-chevron" aria-hidden="true">
-            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          </span>
-        </button>
-        <RowOverflowMenu
-          label={t('Actions for {{title}}', { title })}
-          items={[
-            {
-              id: 'hide-agent-group',
-              label: t('Hide this group'),
-              onSelect: () => hideGroup(group.ownerId),
-            },
-            {
-              id: 'clear-finished-agents',
-              label: t('Clear finished'),
-              disabled: clearableAgentTreeRows(group.nodes).length === 0,
-              onSelect: () => {
-                dismissFinishedAgentRows(clearableAgentTreeRows(group.nodes));
+    <section className="agent-chat-group" data-agent-owner-session-id={ownerId}>
+      <div ref={treeRef} className="agent-chat-tree" role="tree" aria-label={title} onKeyDown={onKeyDown}>
+        <div className="agent-chat-row" data-kind="session" role="none" {...rowOverflowHostProps()}>
+          <button
+            type="button"
+            className="agent-chat-row-main agent-pool-row"
+            data-agent-tag={lead?.agent.tag || undefined}
+            data-agent-session-id={ownerId}
+            data-agent-depth={0}
+            data-state={summary.state}
+            role="treeitem"
+            aria-level={1}
+            aria-posinset={1}
+            aria-setsize={1}
+            aria-expanded={members.length > 0 ? groupExpanded : undefined}
+            aria-label={title}
+            aria-describedby={`${describedBy}-preview ${describedBy}-status`}
+            tabIndex={activeIndex === 0 ? 0 : -1}
+            {...dragProps}
+            onPointerEnter={prefetch}
+            onFocus={() => {
+              setFocusedSessionId(ownerId);
+              prefetch();
+            }}
+            onPointerDown={prefetch}
+            onClick={() => {
+              if (!clickSuppressed()) onOpenLeadSession?.(ownerId);
+            }}
+          >
+            <span className="agent-chat-avatar">
+              <AgentProviderMark agent={avatarAgent} size={20} />
+            </span>
+            <span className="agent-chat-body">
+              <span className="agent-chat-line">
+                {members.length > 0 && <AgentChatTwisty expanded={groupExpanded} />}
+                <b className="agent-chat-title">{title}</b>
+                <AgentChatTime
+                  lead={lead?.agent ?? null}
+                  live={summary.state === 'running' || summary.state === 'waiting'}
+                  at={group.stamp}
+                />
+              </span>
+              <span className="agent-chat-line">
+                <span id={`${describedBy}-preview`} className="agent-chat-preview">
+                  <span className="agent-chat-state" data-state={summary.state}>
+                    {summary.stateText}
+                  </span>
+                  {summary.preview.slice(summary.stateText.length)}
+                </span>
+                <AgentChatStatus indicator={summary.indicator} id={`${describedBy}-status`} />
+              </span>
+            </span>
+          </button>
+          {members.length > 0 && (
+            <AgentChatToggle
+              expanded={groupExpanded}
+              label={title}
+              leadSessionId={ownerId}
+              onToggle={() => setGroupExpanded(!groupExpanded)}
+            />
+          )}
+          <RowOverflowMenu
+            label={t('Actions for {{title}}', { title })}
+            items={[
+              {
+                id: 'open-agent-session',
+                label: t('Open in tab'),
+                onSelect: () => onOpenLeadSession?.(ownerId),
               },
-            },
-          ]}
-        />
+              {
+                id: 'hide-agent-group',
+                label: t('Hide this group'),
+                separatorBefore: true,
+                onSelect: () => hideGroup(ownerId),
+              },
+              {
+                id: 'clear-finished-agents',
+                label: t('Clear finished'),
+                disabled: clearable.length === 0,
+                onSelect: () => {
+                  dismissFinishedAgentRows(clearableAgentTreeRows(group.nodes));
+                },
+              },
+            ]}
+          />
+        </div>
+        {rows.map((node, index) => (
+          <AgentMemberRow
+            key={poolRowKey(node.agent, index)}
+            node={node}
+            ownerSessionId={ownerId}
+            state={agentNodeState(node, unreadSessionIds)}
+            expanded={expandedSessionIds.has(node.sessionId)}
+            item={{ roving: roving(node.sessionId, index + 1), level: node.depth + levelOffset }}
+            onToggle={() => setRowExpanded(node.sessionId, !expandedSessionIds.has(node.sessionId))}
+            onPrefetchSession={onPrefetchSession}
+            onOpenSession={onOpenSession}
+          />
+        ))}
       </div>
-      <AgentActivityTree
-        group={group}
-        label={title}
-        groupExpanded={expanded}
-        expandedSessionIds={expandedSessionIds}
-        onSetExpanded={setSessionExpanded}
-        unreadSessionIds={unreadSessionIds}
-        onExpandGroup={() => setGroupCollapsed(false)}
-        onCollapseGroup={() => setGroupCollapsed(true)}
-        onPrefetchSession={onPrefetchSession}
-        onOpenLeadSession={onOpenLeadSession}
-        onOpenSession={onOpenSession}
-      />
     </section>
   );
 }
@@ -592,18 +743,19 @@ export function AgentActivityPane({
           <span>{groups.length > 0 ? t('All agent groups are hidden.') : t('No agents are running.')}</span>
         </p>
       )}
-      {visibleGroups.map((group) =>
-        renderAgentActivityGroup({
-          group,
-          expandedSessionIds,
-          unreadSessionIds,
-          setSessionExpanded,
-          hideGroup,
-          onPrefetchSession,
-          onOpenLeadSession,
-          onOpenSession,
-        })
-      )}
+      {visibleGroups.map((group) => (
+        <AgentChatGroup
+          key={group.ownerId}
+          group={group}
+          expandedSessionIds={expandedSessionIds}
+          unreadSessionIds={unreadSessionIds}
+          setSessionExpanded={setSessionExpanded}
+          hideGroup={hideGroup}
+          onPrefetchSession={onPrefetchSession}
+          onOpenLeadSession={onOpenLeadSession}
+          onOpenSession={onOpenSession}
+        />
+      ))}
     </div>
   );
 }

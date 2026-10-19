@@ -714,6 +714,237 @@ html[data-window-material="mica"] .session-sidebar {
 .utility-dock .agent-activity-page .schedules-row-copy {
   gap: 2px;
 }
+/* Agents list, messenger style: one row per Lead session (avatar, bold title
+   and time; preview and ONE status), its agents folded beneath it as compact
+   rows of the same shell. Silver throughout: only a failure mark is red. */
+.utility-dock .agent-activity-page:has(.agent-chat-group) {
+  gap: 2px;
+}
+.utility-dock .agent-chat-group,
+.utility-dock .agent-chat-tree {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.utility-dock .agent-chat-row {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border-radius: var(--mx-radius-lg);
+}
+.utility-dock .agent-chat-row:hover {
+  background: var(--mx-hover);
+}
+.utility-dock .agent-chat-row-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.utility-dock .agent-chat-row-main:disabled {
+  cursor: default;
+}
+.utility-dock .agent-chat-row-main:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
+}
+.utility-dock .agent-chat-row-main[data-dragging="true"] {
+  opacity: var(--mx-op-dim);
+}
+/* The provider mark, enlarged on a neutral disc. */
+.utility-dock .agent-chat-avatar {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
+  color: var(--mx-text-soft);
+}
+.utility-dock .agent-activity-page .agent-chat-avatar > .sidebar-resource-icon {
+  width: auto;
+  height: auto;
+  flex: none;
+  color: inherit;
+}
+.utility-dock .agent-chat-body {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.utility-dock .agent-chat-line {
+  min-width: 0;
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.utility-dock .agent-chat-title {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-semibold);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-dock .agent-chat-row:is(:hover, :focus-within) .agent-chat-title {
+  color: var(--mx-row-title-ink-active);
+}
+/* Twisty before the title of a row with agents below it: 12px, points down
+   when open. */
+.utility-dock .agent-chat-twisty {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  display: grid;
+  place-items: center;
+  margin-right: -2px;
+  color: var(--mx-text-muted);
+  transition: transform var(--mx-motion-ink);
+}
+.utility-dock .agent-chat-twisty[data-expanded="true"] {
+  transform: rotate(90deg);
+}
+.utility-dock .agent-chat-row:has(> .agent-chat-toggle:hover) .agent-chat-twisty {
+  color: var(--mx-text);
+}
+.utility-dock .agent-chat-time,
+.utility-dock .agent-chat-row[data-kind="agent"] .agent-activity-elapsed {
+  flex: none;
+  margin-left: auto;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Work in progress stays silver here; the spinner names it. */
+.utility-dock .agent-chat-row .agent-activity-elapsed:is([data-state="running"], [data-state="waiting"]) {
+  color: var(--mx-text-muted);
+}
+.utility-dock .agent-chat-preview,
+.utility-dock .agent-chat-row .agent-route-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-supporting);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The status slot: exactly one of attention pill, failure mark, spinner or
+   unread count, at the trailing edge under the time. */
+.utility-dock .agent-chat-status {
+  min-width: 18px;
+  height: 18px;
+  flex: none;
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.utility-dock .agent-chat-status[data-kind="attention"] {
+  padding: 0 7px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-pressed);
+  color: var(--mx-text);
+  white-space: nowrap;
+}
+.utility-dock .agent-chat-status[data-kind="error"] {
+  color: var(--mx-danger);
+}
+.utility-dock .agent-chat-status[data-kind="unread"] {
+  padding: 0 5px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-text-soft);
+  color: var(--mx-bg-base);
+}
+/* The twisty's hit area: a transparent square laid over the twisty and the
+   avatar edge, so the disclosure takes no row width. Each row kind places it
+   on its twisty (--agent-chat-hit-x/y). */
+.utility-dock .agent-chat-row {
+  --agent-chat-hit: 24px;
+  --agent-chat-hit-x: 46px;
+  --agent-chat-hit-y: 6px;
+}
+.utility-dock .agent-chat-row[data-kind="agent"] {
+  --agent-chat-hit-x: calc(48px + var(--agent-chat-depth, 0) * 16px);
+  --agent-chat-hit-y: 2px;
+}
+.utility-dock .agent-chat-toggle {
+  position: absolute;
+  left: var(--agent-chat-hit-x);
+  top: var(--agent-chat-hit-y);
+  width: var(--agent-chat-hit);
+  height: var(--agent-chat-hit);
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  cursor: pointer;
+}
+/* The row's actions rest over its time and take its place under the pointer
+   or keyboard focus; touch opens them by long-press. */
+.utility-dock .agent-chat-row > .row-overflow {
+  position: absolute;
+  top: 6px;
+  right: 4px;
+}
+@media (hover: hover) {
+  .utility-dock .agent-chat-row > .row-overflow .row-overflow-trigger {
+    opacity: 0;
+  }
+  .utility-dock .agent-chat-row:is(:hover, :focus-within) > .row-overflow .row-overflow-trigger,
+  .utility-dock .agent-chat-row > .row-overflow .row-overflow-trigger[aria-expanded="true"] {
+    opacity: 1;
+  }
+  .utility-dock .agent-chat-row:is(:hover, :focus-within):has(> .row-overflow) .agent-chat-time {
+    visibility: hidden;
+  }
+}
+@media (hover: none) {
+  .utility-dock .agent-chat-row > .row-overflow {
+    display: none;
+  }
+}
+/* Agents below a session: compact rows of the same shell, indented by depth. */
+.utility-dock .agent-chat-row[data-kind="agent"] .agent-chat-row-main {
+  gap: 8px;
+  padding: 4px 6px 4px calc(22px + var(--agent-chat-depth, 0) * 16px);
+}
+.utility-dock .agent-chat-row[data-kind="agent"] .agent-chat-avatar {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+}
+.utility-dock .agent-chat-row[data-kind="agent"] .agent-chat-title {
+  font-weight: var(--mx-weight-regular);
+}
 /* Workflow settings sub-sections read as sidebar section headings on the 6px line,
    with a real section break above each one. */
 .session-sidebar-panels .workflows-models {

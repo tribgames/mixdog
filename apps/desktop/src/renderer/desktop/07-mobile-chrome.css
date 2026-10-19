@@ -1062,6 +1062,40 @@ html[data-mixdog-mobile-tabs] .utility-dock .agent-session-heading {
 html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page {
   padding-bottom: 8px;
 }
+/* The messenger list at native dp: chat-list rows, finger-sized agent rows
+   and disclosure; the row menu opens by long-press. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="session"] .agent-chat-row-main {
+  min-height: 68px;
+  gap: 12px;
+  padding: 10px 8px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="session"] .agent-chat-avatar {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="session"] .agent-chat-title {
+  font-size: calc(16px * var(--mx-content-scale, 1));
+  line-height: 22px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="agent"] .agent-chat-row-main {
+  min-height: var(--mx-touch);
+  padding-left: calc(30px + var(--agent-chat-depth, 0) * 16px);
+}
+/* A 44dp twisty target centred on the twisty, overlapping the avatar edge and
+   the title start instead of adding width. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row {
+  --agent-chat-hit: var(--mx-touch);
+  --agent-chat-hit-x: 48px;
+  --agent-chat-hit-y: 2px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="agent"] {
+  --agent-chat-hit-x: calc(46px + var(--agent-chat-depth, 0) * 16px);
+  --agent-chat-hit-y: 0px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row > .row-overflow {
+  display: none;
+}
 /* Source Control's ONE action at native dp: the desktop 28px commit row is a
    fingernail band on a phone. The row and its full-width button take the 44dp primary tier. */
 html[data-mixdog-mobile-tabs] .utility-dock .dock-scm-commit-split {
