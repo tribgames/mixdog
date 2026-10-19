@@ -218,12 +218,12 @@ test('an open Changes pane re-reads when the history is deleted and empties', as
   assert.ok(view.reads.length > reads, 'the pane re-read the session diff');
   assert.deepEqual(sectionPaths(view), []);
 });
-test('a requested file that left the session diff shows a notice, not another file', async (t) => {
+test('a requested file that left the session diff shows every file without a notice', async (t) => {
   const view = await mountPane(t, 'sd-missing', ['src/a.ts', 'src/b.ts']);
   await act(async () => requestSessionDiffFile('sd-missing', 'src/gone.ts'));
   await view.settle();
   assert.deepEqual(sectionPaths(view), ['src/a.ts', 'src/b.ts']);
-  assert.equal(view.q('.session-diff-notice').textContent, 'src/gone.ts is no longer in the session diff.');
+  assert.equal(view.q('.session-diff-notice'), null);
 });
 test('a file already on screen opens at once; a hidden document still waits for the adopted read to judge it', async (t) => {
   const view = await mountPane(t, 'sd-hidden', ['src/a.ts', 'src/b.ts']);

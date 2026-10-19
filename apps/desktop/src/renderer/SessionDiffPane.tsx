@@ -164,8 +164,6 @@ export function SessionDiffPane({
     busy,
     ready,
     unsupported,
-    truncated,
-    diffTooLarge,
     loading,
     error,
     refresh,
@@ -187,7 +185,6 @@ export function SessionDiffPane({
   // Every changed file is one section of a single scroll; the island's files
   // segment scrolls to the top and a turn card's file to that file's section.
   const [revertError, setRevertError] = useState('');
-  const [fileNotice, setFileNotice] = useState('');
   // A capped set draws one file: the one picked by its header (default: first).
   const [selectedPath, setSelectedPath] = useState('');
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -203,11 +200,9 @@ export function SessionDiffPane({
     onClose,
     onSessionChange: () => {
       setRevertError('');
-      setFileNotice('');
       setSelectedPath('');
       resetCollapsed();
     },
-    onReopen: () => setFileNotice(''),
   });
   const fileRequest = useSessionDiffRequests({
     sessionId,
@@ -217,7 +212,6 @@ export function SessionDiffPane({
     error,
     refresh,
     adoptions,
-    setFileNotice,
     expandPath,
     showAllFiles: tabs.showAllFiles,
     openDiffTab: tabs.openDiffTab,
@@ -353,16 +347,7 @@ export function SessionDiffPane({
   return (
     <SessionDiffFrame>
       {header}
-      {truncated && <p className="session-diff-notice">{t('The session diff was truncated.')}</p>}
-      {diffTooLarge && (
-        <p className="session-diff-notice">{t('The diff is too large to show; file counts are still listed.')}</p>
-      )}
       {revertError && <p className="session-diff-notice">{revertError}</p>}
-      {fileNotice && (
-        <p className="session-diff-notice" role="status">
-          {fileNotice}
-        </p>
-      )}
       {body}{' '}
     </SessionDiffFrame>
   );

@@ -69,7 +69,7 @@ test('a file listed without its patch reads it on its own when drawn, counts sho
   assert.equal(view.reads.length, 2);
 });
 
-test('a file past 15,000 changed lines is never read or drawn; a whole-diff failure shows one notice', async (t) => {
+test('a file past 15,000 changed lines is never read or drawn; a whole-diff failure adds no banner', async (t) => {
   const view = await mount(t, 'sd-huge', {
     supported: true,
     authoritative: true,
@@ -78,8 +78,7 @@ test('a file past 15,000 changed lines is never read or drawn; a whole-diff fail
     patch: '',
     diffTooLarge: true,
   });
-  const notices = [...view.document.querySelectorAll('.session-diff-notice')].map((node) => node.textContent);
-  assert.deepEqual(notices, ['The diff is too large to show; file counts are still listed.']);
+  assert.equal(view.document.querySelector('.session-diff-notice'), null);
   const huge = view.section('huge.txt');
   assert.match(huge.querySelector('.diff-stats').textContent, /\+15000/);
   assert.equal(huge.dataset.collapsed, undefined, 'files start expanded');

@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { t } from './i18n';
 import {
   consumeSessionDiffFileRequest,
   type SessionDiffFileRequest,
@@ -36,7 +35,6 @@ export function useSessionDiffRequests({
   error,
   refresh,
   adoptions,
-  setFileNotice,
   expandPath,
   showAllFiles,
   openDiffTab,
@@ -50,7 +48,6 @@ export function useSessionDiffRequests({
   error: string;
   refresh: ReturnType<typeof useSessionDiffRefresh>['refresh'];
   adoptions: number;
-  setFileNotice(notice: string): void;
   expandPath(path: string): void;
   showAllFiles(): void;
   openDiffTab(path: string): void;
@@ -59,11 +56,10 @@ export function useSessionDiffRequests({
   const pendingRequest = useSessionDiffFileRequest(active ? sessionId : '');
   // The island's files segment asks for the top of the stack.
   const listRequestSeq = pendingRequest && !pendingRequest.path ? pendingRequest.seq : 0;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once per list request; the notice setter and tab action are read at that moment
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per list request; the tab action is read at that moment
   useEffect(() => {
     if (!listRequestSeq) return;
     consumeSessionDiffFileRequest(listRequestSeq);
-    setFileNotice('');
     showAllFiles();
   }, [listRequestSeq]);
   // A transcript turn-changes card asks for one file: re-read the diff, then
@@ -111,16 +107,13 @@ export function useSessionDiffRequests({
   useEffect(() => {
     if (!fileRequest || fileRequestRead !== fileRequest.seq || !ready || error) return;
     consumeSessionDiffFileRequest(fileRequest.seq);
-    const wanted = normalizeChangePath(fileRequest.path);
     const row = findRequestedRow(rows, fileRequest);
     if (row) {
-      setFileNotice('');
       expandPath(row.path);
       openDiffTab(row.path);
     } else {
-      // The file is gone: say so over every file rather than an empty pane.
+      // The file is gone (committed or reverted): show every file instead.
       setChangesOpen(true);
-      setFileNotice(t('{{file}} is no longer in the session diff.', { file: wanted }));
     }
   }, [fileRequest, fileRequestRead, ready, error, rows]);
   return fileRequest;

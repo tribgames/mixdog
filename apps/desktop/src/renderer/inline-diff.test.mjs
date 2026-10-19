@@ -204,7 +204,8 @@ test('the unified diff body shows add/del rows and expandable folds', async () =
     assert.equal(first.querySelector('[data-kind="del"] .inline-diff-ln').textContent, '23');
     // The unmodified run is a button that expands that run.
     const fold = first.querySelector('button.inline-diff-fold');
-    assert.match(fold.textContent, /4 unmodified lines/);
+    assert.equal(fold.textContent, '');
+    assert.equal(fold.getAttribute('aria-label'), '4 unmodified lines');
     await view.click(fold);
     assert.equal(first.querySelector('button.inline-diff-fold'), null);
     assert.equal(first.querySelectorAll('.inline-diff-row').length, 12);

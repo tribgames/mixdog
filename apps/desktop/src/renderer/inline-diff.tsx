@@ -1,4 +1,4 @@
-import { ArrowUpRight, ChevronDown, ChevronRight, ChevronsUpDown } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 
 import type { DiffStyle } from './desktop-types';
@@ -162,11 +162,17 @@ export function InlineDiff({
     <div className="inline-diff" data-mode="unified">
       {items.map((item) => {
         if (item.type === 'line') return <DiffRow key={item.key} line={item.line} tokens={tokensOf(item.line)} />;
+        // Unchanged runs draw as a thin rule; the count is only the accessible
+        // name and tooltip.
         if (item.type === 'gap') {
           return (
-            <div key={item.key} className="inline-diff-fold" data-static="true">
-              {unmodifiedLabel(item.count)}
-            </div>
+            <div
+              key={item.key}
+              className="inline-diff-fold"
+              data-static="true"
+              role="separator"
+              aria-label={unmodifiedLabel(item.count)}
+            />
           );
         }
         if (expanded.has(item.key)) {
@@ -180,11 +186,10 @@ export function InlineDiff({
             key={item.key}
             type="button"
             className="inline-diff-fold"
+            aria-label={unmodifiedLabel(item.lines.length)}
+            data-tooltip={unmodifiedLabel(item.lines.length)}
             onClick={() => setExpanded((current) => new Set(current).add(item.key))}
-          >
-            <ChevronsUpDown size={13} aria-hidden="true" />
-            {unmodifiedLabel(item.lines.length)}
-          </button>
+          />
         );
       })}
     </div>

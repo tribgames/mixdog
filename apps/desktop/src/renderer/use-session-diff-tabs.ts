@@ -30,7 +30,6 @@ export function useSessionDiffTabs({
   fileTabs,
   onClose,
   onSessionChange,
-  onReopen,
 }: {
   sessionId: string;
   active: boolean;
@@ -39,8 +38,6 @@ export function useSessionDiffTabs({
   onClose?(): void;
   /** Resets the rest of the pane when the session changes. */
   onSessionChange(): void;
-  /** Resets the rest of the pane when a hidden pane is shown again. */
-  onReopen(): void;
 }) {
   const [diffTabs, setDiffTabs] = useState<readonly string[]>([]);
   const [focusPath, setFocusPath] = useState('');
@@ -102,7 +99,6 @@ export function useSessionDiffTabs({
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs only when the pane is shown again; the session and the reset actions are read at that moment
   useLayoutEffect(() => {
     if (active && !wasActive.current) {
-      onReopen();
       setDiffTabs([]);
       if (pendingSessionDiffFileRequest(sessionId)?.path) {
         setChangesOpen(false);
