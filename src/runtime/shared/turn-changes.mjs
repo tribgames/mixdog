@@ -27,7 +27,6 @@ import {
 export const TURN_CHANGE_FILE_PATCH_MAX_BYTES = 8 * 1024 * 1024;
 const APPLY_TIMEOUT_MS = 60_000;
 const APPLY_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
-const STATUSES = new Set(['A', 'M', 'D', 'R']);
 // Characters a patch header cannot carry unquoted; such a path is recorded but
 // never replayed.
 const UNSAFE_PATH_CHARACTERS = /[\t\n\r"\0]/;
@@ -35,13 +34,6 @@ const UNSAFE_PATH_CHARACTERS = /[\t\n\r"\0]/;
 export function changePathKey(value) {
   const text = clean(value).replace(/\\/g, '/');
   return process.platform === 'win32' ? text.toLowerCase() : text;
-}
-
-/** git status letter → record status (copies create a new file). */
-export function normalizeChangeStatus(code) {
-  const letter = String(code || 'M').charAt(0);
-  if (STATUSES.has(letter)) return letter;
-  return letter === 'C' ? 'A' : 'M';
 }
 
 /** A root-relative forward-slash path that a patch may name, or ''. */

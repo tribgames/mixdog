@@ -14,14 +14,6 @@ import { retryAfterMsFromError, sleepWithAbort } from './retry-classifier.mjs';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-// Explicit quota / billing refusals: waiting never helps, so no retry layer
-// may treat them as an ordinary rate limit.
-const QUOTA_OR_BILLING_CODE_RE = /quota|billing|usage_limit|usage_not_included/;
-
-export function isQuotaOrBillingCode(code) {
-  return QUOTA_OR_BILLING_CODE_RE.test(String(code || '').toLowerCase());
-}
-
 /**
  * Parse an HTTP error body ONCE into its contract fields. `message` is the
  * body's own message (untruncated); callers truncate for diagnostics.

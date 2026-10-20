@@ -40,14 +40,6 @@ export function currentPendingLifecycleToken(sessionId) {
   return pendingLifecycleToken(pendingSessionLifecycle(sessionId));
 }
 
-// Refusal verdict of the lifecycle a token was minted from (tombstoned or
-// unreadable) — exactly pendingLifecycleInvalidated(sessionId) for that same
-// read, so a caller holding a fresh token needs no second durable read.
-export function lifecycleTokenClosed(token) {
-  const { source } = parseLifecycleToken(token);
-  return source === 'closed' || source === 'unreadable';
-}
-
 // Parses a `source:generation` epoch token.
 function parseLifecycleToken(token) {
   const text = String(token);

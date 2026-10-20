@@ -49,7 +49,3 @@ export function sessionVisibility(value) {
 export function isAgentOnlySession(value) {
   return sessionVisibility(value) === SESSION_VISIBILITY_AGENT_ONLY;
 }
-
-export function isOrdinarySession(value) {
-  return !isAgentOnlySession(value);
-}

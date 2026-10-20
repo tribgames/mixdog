@@ -3,8 +3,8 @@
 // monotonic clock the owner heartbeat uses (performance.now), completed spans
 // over `minMs` land in a bounded ring, and spans over `slowMs` are logged as
 // `[slow-op] <label> <ms>`. When the event loop stalls, `describe(from, to)`
-// names the spans that overlapped the stall window. Spans carry labels, phase
-// durations and sizes only — never payloads.
+// names the spans that overlapped the stall window. Spans carry labels and phase
+// durations only — never payloads.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
@@ -36,18 +36,11 @@ export function markPhase(name) {
   span.mark = t;
 }
 
-/** Records a size (count/bytes) on the caller's span. */
-export function noteSpanSize(size) {
-  const span = current.getStore();
-  if (span && Number.isFinite(size)) span.size = size;
-}
-
 const round = (ms) => Math.round(ms);
 
 function formatSpan(span) {
   const phases = span.phases.map(([name, ms]) => `${name}=${round(ms)}`).join(' ');
-  const size = span.size === undefined ? '' : ` size=${span.size}`;
-  return `${span.label} ${round(span.ms)}ms${phases ? ` ${phases}` : ''}${size}`;
+  return `${span.label} ${round(span.ms)}ms${phases ? ` ${phases}` : ''}`;
 }
 
 export function createSlowSpans({
@@ -70,7 +63,6 @@ export function createSlowSpans({
         end: span.end,
         ms: span.ms,
         phases: span.phases,
-        size: span.size,
       });
       if (ring.length > capacity) ring.shift();
     }
@@ -90,7 +82,7 @@ export function createSlowSpans({
     /** Runs `fn` inside a span; markPhase/annotateSpan inside it attach to this span. */
     async trace(label, fn) {
       const start = now();
-      const span = { label: String(label), start, mark: start, now, phases: [], size: undefined };
+      const span = { label: String(label), start, mark: start, now, phases: [] };
       try {
         return await current.run(span, fn);
       } finally {
