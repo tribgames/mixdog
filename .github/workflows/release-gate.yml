@@ -285,7 +285,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.runtime == 'true'
     timeout-minutes: 20
-    runs-on: macos-14
+    runs-on: macos-15
     # Sharded like the Linux runtime job: the unsharded lane was the gate's
     # critical path.
     strategy:
@@ -344,7 +344,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-22.04, macos-14]
+        runner: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

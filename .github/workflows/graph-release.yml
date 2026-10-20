@@ -159,8 +159,8 @@ jobs:
           # patch-release already does. The Intel image is scarce enough that
           # its queue wait plus its slower build made this single leg the
           # longest job in Deploy, and nothing here runs the produced binary.
-          - { runner: macos-14,         target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
-          - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-15,         target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-15,         target: aarch64-apple-darwin,      pkey: darwin-arm64, ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:

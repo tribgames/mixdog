@@ -38,7 +38,7 @@ jobs:
       matrix:
         include:
           - { os: linux,  arch: x64,   runner: ubuntu-22.04, container: 'ubuntu:20.04' }
-          - { os: darwin, arch: arm64, runner: macos-14,     container: '' }
+          - { os: darwin, arch: arm64, runner: macos-15,     container: '' }
           - { os: win32,  arch: x64,   runner: windows-2022, container: '' }
 
     steps:

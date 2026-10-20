@@ -388,7 +388,7 @@ jobs:
       ref: ${{ inputs.ref || github.ref }}
       tag: ${{ inputs.tag || github.ref_name }}
       release_id: ${{ needs.prepare-github-release.outputs.release_id }}
-      runner: macos-14
+      runner: macos-15
       platform: darwin
       arch: arm64
       artifact_arch: arm64

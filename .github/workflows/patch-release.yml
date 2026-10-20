@@ -166,12 +166,12 @@ jobs:
           # darwin-x64: cross-target build on the Apple-silicon macOS runner.
           - platformKey: darwin-x64
             target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             ext: ""
           # darwin-arm64: native build on the Apple-silicon macOS runner.
           - platformKey: darwin-arm64
             target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             ext: ""
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

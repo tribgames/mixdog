@@ -24,7 +24,7 @@ runs:
     # The cask downloads from download.documentfoundation.org, which has gone
     # down for hours at a time. When the cask fails, the same release comes from
     # TDF mirrors and is checked against the cask's own sha256. Every macOS
-    # runner using this action is arm64 (macos-14).
+    # runner using this action is arm64 (macos-15).
     #
     # Fetching the ~350 MB disk image took ~45s of every macOS shard, the
     # gate's longest leg. The download is restored into Homebrew's own cache,
