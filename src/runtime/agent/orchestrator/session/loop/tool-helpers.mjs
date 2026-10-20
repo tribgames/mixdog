@@ -2,6 +2,7 @@
 // message-array change detect, tool-kind classification, skills, hook overrides,
 // native tool-search payload parsing, bash-session routing, and approval.
 import { isMcpTool } from '../../mcp/client.mjs';
+import { unattendedApprovalPort } from '../human-gate/gate.mjs';
 import { isBuiltinTool } from '../../tools/builtin.mjs';
 import { isInternalTool } from '../../internal-tools.mjs';
 import { loadSkillToolDependencies } from '../../runtime-core/skill-tool-loading.mjs';
@@ -207,15 +208,24 @@ export async function resolvePreToolAskApproval({
   toolCallId,
   askReason,
   toolApprovalHook,
+  request = null,
 }) {
   const name = String(toolName || 'tool');
   const reason = String(askReason || 'approval requested by hook').trim();
-  if (typeof toolApprovalHook !== 'function') {
+  // Unattended runs never auto-approve and have no card: a schedule or webhook
+  // run always holds the request for its owner; a room member does when no
+  // approval UI is attached (session-runtime/held-requests.mjs).
+  const unattended = unattendedApprovalPort();
+  const run = unattended?.runOf?.(sessionId) || null;
+  const held = run && (run.kind !== 'room' || typeof toolApprovalHook !== 'function');
+  const ask = held ? unattended.hold : toolApprovalHook;
+  if (typeof ask !== 'function') {
     return { denial: formatMissingToolApprovalUiDenial(name, reason) };
   }
   let approval;
   try {
-    approval = await toolApprovalHook({
+    approval = await ask({
+      ...(request || {}),
       name,
       args,
       cwd,
@@ -229,7 +239,7 @@ export async function resolvePreToolAskApproval({
   }
   if (!approvalGranted(approval)) {
     const detail = approvalReason(approval, reason || 'not approved');
-    return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
+    return { denial: `Error: tool "${name}" denied by hook: ${detail}`, approval };
   }
   return { approval };
 }

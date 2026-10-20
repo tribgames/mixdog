@@ -704,6 +704,13 @@ html[data-window-material="mica"] .jump-to-latest {
   word-break: keep-all;
   text-wrap: pretty;
 }
+/* A reply streaming in breaks its lines greedily: `pretty` re-balances a
+   paragraph's last lines on every word that arrives, so words already shown
+   jumped a line down and back up while the reply grew (phone CLS 0.16–0.21).
+   It stays greedy once settled, so finishing reflows nothing. */
+.markdown.streamed :is(p, li, blockquote) {
+  text-wrap: wrap;
+}
 /* Plain-text stand-in while the lazy markdown chunk streams in. */
 .markdown-plain {
   white-space: pre-wrap;
@@ -999,7 +1006,6 @@ html[data-window-material="mica"] .jump-to-latest {
 }
 /* The review bar's inline diff box: same fill, hairline ring and corner.
    .approval-detail is the call itself (the command, path or URL). */
-.approval-card dd code,
 .approval-detail {
   display: block;
   max-height: min(24vh, 160px);
@@ -1015,11 +1021,6 @@ html[data-window-material="mica"] .jump-to-latest {
   line-height: var(--mx-line-meta);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-/* Decision row: right-aligned chips straight under the body, no divider. */
-.approval-actions {
-  gap: 4px;
-  padding: 0 var(--approval-inset) 10px;
 }
 
 /* Composer cluster: animated status text, compact message navigation, context,

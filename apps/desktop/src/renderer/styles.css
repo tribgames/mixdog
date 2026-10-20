@@ -551,33 +551,6 @@ button {
   align-items: flex-start;
 }
 
-.approval-heading {
-  display: flex;
-  align-items: center;
-}
-.approval-heading > span {
-  display: grid;
-  place-items: center;
-}
-.approval-heading div {
-  display: grid;
-}
-.approval-card dd {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.approval-card code {
-  white-space: pre-wrap;
-}
-.approval-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.approval-actions button {
-  display: flex;
-  align-items: center;
-}
 .code-diff {
   overflow: hidden;
 }

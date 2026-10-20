@@ -12,6 +12,7 @@ import { createRelayPushLanes } from './remote-relay-push-lanes';
 import type { RelayWebPush } from './remote-relay-web-push';
 import type { RelaySessionStateFanout } from './remote-relay-session-state';
 import { synchronizeRelayViews } from './remote-view-sync';
+import { registerHeldRequestNotifier } from '../../../../src/runtime/shared/held-request-host.mjs';
 
 export interface RelaySessionWiringDeps {
   host: DesktopService;
@@ -130,6 +131,7 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
               },
             }
           : {}),
+        isSessionMuted: (sessionId) => deps.host.isSessionNotificationMuted?.(sessionId) === true,
         onError: (detail) => console.error(`[mixdog-remote-push] ${detail}`),
         onDiagnostic: (event, details) =>
           console.info(
@@ -154,6 +156,8 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         if (deps.clients.size === 0) return;
         deps.sessionStates.publish(update);
       });
+      // Held requests of unattended runs (src/session-runtime/held-requests.mjs).
+      const unregisterHeldRequests = registerHeldRequestNotifier((event) => pushNotifier.onHeldRequest(event));
       const pushLanes = createRelayPushLanes({
         clients: deps.clients.clients,
         broadcastEncrypted: deps.broadcastEncrypted,
@@ -170,6 +174,7 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
           pushNotifier.dispose();
           unsubscribeAgentPool();
           unsubscribeSessionStates();
+          unregisterHeldRequests();
           pushLanes.dispose();
         },
       };

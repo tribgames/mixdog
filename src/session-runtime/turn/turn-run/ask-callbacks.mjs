@@ -61,11 +61,17 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
 
   // The turn's change-record key rides the caller's transcript metadata (in
   // place: the stream stamps assistantAt on this same object), so the
-  // persisted user row and completion carry it across restore.
+  // persisted user row and completion carry it across restore. A merged
+  // batch also names every submission it delivers, so a queued-input restore
+  // can tell each one delivered.
   function stampCheckpoint(options) {
     const meta = options.transcriptMeta;
+    if (!meta || typeof meta !== 'object') return meta;
     const checkpointId = String(options.id || '').trim();
-    if (checkpointId && meta && typeof meta === 'object') meta.checkpointId = checkpointId;
+    if (checkpointId) meta.checkpointId = checkpointId;
+    if (Array.isArray(options.submissionIds) && options.submissionIds.length > 1) {
+      meta.submissionIds = options.submissionIds.map(String);
+    }
     return meta;
   }
 
@@ -74,6 +80,8 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
       beforeToolExecution: () => turn.snapshot.promise || Promise.resolve(),
       transcriptMeta: stampCheckpoint(options),
       promptSource: options.promptSource,
+      // A routine turn's trusted selection text (its instructions only).
+      ...(typeof options.skillSelection === 'string' ? { skillSelection: options.skillSelection } : {}),
       retryFailedTurn: options.retryFailedTurn === true,
       retryTurnId: options.retryTurnId,
       retryAttemptId: options.retryAttemptId,

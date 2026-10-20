@@ -319,6 +319,9 @@ export function conversationKeyDownCapture(
     ?.focus({ preventScroll: true });
 }
 
+/** A turn's visualize cards and whether a row already seated them. */
+export type TurnCardsSeat = { cards: ReactNode; placed: boolean };
+
 function errorRowNode(
   row: Extract<TranscriptRowModel, { _tag: 'Error' }>,
   {
@@ -328,7 +331,9 @@ function errorRowNode(
     settledTurnKeys,
     onRetryTurn,
     onOpenSettings,
+    turnCards,
   }: {
+    turnCards?: TurnCardsSeat;
     readOnly: boolean;
     retryDisabled: boolean;
     settledItems: readonly TranscriptItem[];
@@ -371,6 +376,7 @@ function errorRowNode(
   return row.turnChanges ? (
     <>
       {notice}
+      {seatTurnCards(turnCards)}
       <TurnChangesCard turnChanges={row.turnChanges} />
     </>
   ) : (
@@ -395,7 +401,14 @@ export function transcriptRowNode(
     onRetryTurn,
     onOpenSettings,
     questionCard,
+    approvalCard,
+    quietTools = false,
+    turnCards,
   }: {
+    /** Coding mode: the turn's visualize cards, seated above its changed-files card. */
+    turnCards?: TurnCardsSeat;
+    /** Agent mode: no tool rows; only a question that needs the user shows. */
+    quietTools?: boolean;
     disclosureScope: string;
     optimisticActivityStartedAt: number;
     readOnly: boolean;
@@ -410,17 +423,28 @@ export function transcriptRowNode(
     onOpenSettings(section?: SettingsSection | null): void;
     /** The pending ask_user card, shown where its tool call sits. */
     questionCard?: ReactNode;
+    /** The pending approval card: the turn waits on it, so it leads the live row. */
+    approvalCard?: ReactNode;
   }
 ): ReactNode {
   if (row._tag === 'TurnGap') {
     return <div className="transcript-turn-gap" aria-hidden="true" />;
   }
   if (row._tag === 'Error') {
-    return errorRowNode(row, { readOnly, retryDisabled, settledItems, settledTurnKeys, onRetryTurn, onOpenSettings });
+    return errorRowNode(row, {
+      readOnly,
+      retryDisabled,
+      settledItems,
+      settledTurnKeys,
+      onRetryTurn,
+      onOpenSettings,
+      turnCards,
+    });
   }
   if (row._tag === 'Thinking') {
     return (
       <div className="live-activity-slot" data-busy="true">
+        {approvalCard}
         <LiveActivity
           snapshot={snapshot}
           optimisticStartedAt={optimisticActivityStartedAt}
@@ -437,11 +461,15 @@ export function transcriptRowNode(
     // answered one stays as its summary.
     const { rest, asked, waiting } = splitAskUser(row.items, Boolean(questionCard));
     if (!asked.length && !waiting) {
-      return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />;
+      return quietTools ? null : (
+        <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />
+      );
     }
     return (
       <>
-        {rest.length > 0 && <ToolActivityGroup items={rest} disclosureScope={disclosureScope} turnKey={row.turnKey} />}
+        {rest.length > 0 && !quietTools && (
+          <ToolActivityGroup items={rest} disclosureScope={disclosureScope} turnKey={row.turnKey} />
+        )}
         {asked.map((item, index) => (
           <AskUserRecord key={String(item.id ?? index)} item={item} />
         ))}
@@ -476,9 +504,17 @@ export function transcriptRowNode(
   return row.turnChanges ? (
     <>
       {assistant}
+      {seatTurnCards(turnCards)}
       <TurnChangesCard turnChanges={row.turnChanges} />
     </>
   ) : (
     assistant
   );
+}
+
+/** The turn's visualize cards, seated once above its changed-files card. */
+function seatTurnCards(turnCards?: TurnCardsSeat): ReactNode {
+  if (!turnCards) return null;
+  turnCards.placed = true;
+  return turnCards.cards;
 }

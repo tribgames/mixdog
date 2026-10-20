@@ -52,6 +52,22 @@ export interface DesktopBrowserCredentialSuggestion {
   label: string;
 }
 
+/** A site the Browser Use profile stays signed in to; no cookie data. */
+export interface DesktopBrowserSignedInSite {
+  site: string;
+  cookies: number;
+}
+
+/** A login takeover's sign-in window (main/browser/login-popup.ts): idle (not
+ *  opened yet), open, closed (closed without 완료, still pending), refused (the
+ *  provider refused an embedded sign-in), done, or unavailable (no such login
+ *  takeover on this PC). */
+export interface DesktopBrowserLoginStatus {
+  state: 'idle' | 'open' | 'closed' | 'refused' | 'done' | 'unavailable';
+  /** refused: who refused (Google). */
+  provider?: string;
+}
+
 export interface DesktopBrowserCredentialFillResult {
   usernameFilled: boolean;
   passwordFilled: boolean;
@@ -88,12 +104,9 @@ export interface DesktopBrowserOpenRequest {
   reveal?: boolean;
   /** Hide only: never create or release pages; overrides reveal. */
   hide?: boolean;
-  /** Temporary automation reveal, scoped to one runtime turn. */
-  temporaryTurnId?: number;
-  /** Restore only the matching temporary reveal, never a user's selection. */
-  restoreTurnId?: number;
-  /** Human takeover commits a temporary surface without reopening it. */
-  retainTurnId?: number;
+  /** A takeover hand-off: the user must act on the page, so the panel opens
+   *  even where they closed it. Agent work alone never opens it. */
+  handoff?: boolean;
 }
 
 export interface DesktopRemoteBrowserFrame {

@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
+import { bindCardKeys, focusCardWhenIdle, isImeKey, isTypingTarget } from './question-card-keys';
 import {
   buildAnswers,
   emptyDraft,
@@ -23,42 +24,16 @@ import {
 
 export type QuestionDecision = { approved: boolean; reason?: string; answers?: QuestionAnswer[] };
 
-// Shortcuts belong to one card: the one in the pane of the last pointer/focus
-// interaction (several panes can each show their own pending question).
-const cards = new Set<HTMLElement>();
-let lastPane: Element | null = null;
-const paneOf = (node: EventTarget | null): Element | null =>
-  node instanceof Element ? node.closest('.pane-leaf') : null;
-const rememberPane = (event: Event) => {
-  lastPane = paneOf(event.target) ?? lastPane;
-};
-function ownsKeyboard(card: HTMLElement): boolean {
-  // Focus in a dialog or anywhere outside the card's conversation (and outside
-  // every pane) belongs to that surface. A single-pane layout has no pane
-  // element, so the conversation is the scope there.
-  const active = document.activeElement;
-  const scope = card.closest('.conversation');
-  if (active && active !== document.body && !paneOf(active) && !scope?.contains(active)) return false;
-  if (document.querySelector('[aria-modal="true"], dialog[open]')) return false;
-  const pane = lastPane ?? paneOf(active);
-  return pane ? pane === paneOf(card) : cards.size === 1;
-}
-
-// An IME commit arrives as keyCode 229 even after isComposing has cleared.
-const isImeKey = (event: globalThis.KeyboardEvent): boolean => event.isComposing || event.keyCode === 229;
-
-const isTypingTarget = (target: EventTarget | null): boolean =>
-  target instanceof HTMLInputElement ||
-  target instanceof HTMLTextAreaElement ||
-  (target instanceof HTMLElement && target.isContentEditable);
-
 /** The pending ask_user question, shown in the transcript where its call sits. */
 export function QuestionCard({
   questions,
   resolve,
   draftsRef,
+  agentMode = false,
 }: {
   questions: Question[];
+  /** Agent mode: the card narrows to the bubble column (question-card-keys.ts). */
+  agentMode?: boolean;
   /** Kept current with the card's drafts so the composer can send them along with a reply. */
   draftsRef?: MutableRefObject<QuestionDraft[]>;
   /** true/false: recorded or refused (another device answered first; the card
@@ -137,24 +112,12 @@ export function QuestionCard({
   // once; a user already typing in the composer keeps typing there (sending
   // from it closes the question).
   useEffect(() => {
-    const card = cardRef.current;
-    if (!card) return;
-    const active = document.activeElement;
-    if (active && active !== document.body) return;
-    card.focus({ preventScroll: true });
-    // Long tool output above can leave the new card below the fold.
-    card.scrollIntoView({ block: 'nearest' });
+    if (cardRef.current) focusCardWhenIdle(cardRef.current);
   }, []);
   useEffect(() => {
     const card = cardRef.current;
     if (!card) return;
-    cards.add(card);
-    if (!lastPane) lastPane = paneOf(document.activeElement);
-    document.addEventListener('pointerdown', rememberPane, true);
-    document.addEventListener('focusin', rememberPane, true);
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (isImeKey(event) || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (!ownsKeyboard(card)) return;
+    return bindCardKeys(card, (event) => {
       const { advance: advanceCard, choose: chooseOption, close: closeCard, questions: all } = live.current;
       const { index: at, multi: multiFlags } = stateRef.current;
       const target = event.target;
@@ -203,17 +166,7 @@ export function QuestionCard({
         handled();
         apply({ type: 'step', delta: event.key === 'ArrowRight' ? 1 : -1 });
       }
-    };
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => {
-      cards.delete(card);
-      document.removeEventListener('keydown', onKeyDown, true);
-      if (cards.size === 0) {
-        document.removeEventListener('pointerdown', rememberPane, true);
-        document.removeEventListener('focusin', rememberPane, true);
-        lastPane = null;
-      }
-    };
+    });
   }, [apply]);
 
   const moveFromInput = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -258,6 +211,7 @@ export function QuestionCard({
       role="group"
       aria-label={t('Agent question')}
       data-multi={multi || undefined}
+      data-agent-mode={agentMode || undefined}
     >
       <div className="question-head">
         <span className="question-icon" aria-hidden="true">
@@ -267,12 +221,7 @@ export function QuestionCard({
           <strong>{question.header || t('Question')}</strong>
           {meta && <span className="question-meta">{meta}</span>}
         </span>
-        <button
-          type="button"
-          className="question-close"
-          aria-label={t('Close question')}
-          onClick={() => void close()}
-        >
+        <button type="button" className="question-close" aria-label={t('Close question')} onClick={() => void close()}>
           ✕
         </button>
       </div>

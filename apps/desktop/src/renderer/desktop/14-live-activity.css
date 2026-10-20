@@ -677,84 +677,8 @@
 :root[data-mixdog-motion="paused"] .live-activity-star-turn {
   animation: none;
 }
-/* Approval card: shown as the expanded composer island, which supplies the
-   material (15-composer.css); standalone it keeps the prompt card's fill,
-   12px corner and raised edge, no ring of its own. No glyph and no stripe:
-   in the island the warning is its 1px amber ring.
-   Grammar: a 32px header row (title · tool), a body on the title's left
-   edge (reason, then the call itself), and right-aligned chip buttons. */
-.approval-card {
-  --approval-inset: 10px;
-  --approval-indent: var(--approval-inset);
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-xl);
-  color: var(--mx-text);
-  background: var(--mx-composer-surface);
-  box-shadow: var(--mx-raised);
-  overflow: hidden;
-}
-.approval-card .approval-heading {
-  min-height: 32px;
-  gap: 6px;
-  padding: 6px var(--approval-inset);
-}
-.approval-card .approval-heading > div {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.approval-heading b {
-  flex: none;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-ui);
-}
-.approval-heading small {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.approval-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 0 var(--approval-inset) 10px var(--approval-indent);
-}
-.approval-card p {
-  margin: 0;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-ui);
-  overflow-wrap: anywhere;
-}
-/* Label over value, one pair per block: a long argument dump never squeezes
-   into a column beside its label. */
-.approval-card dl {
-  display: grid;
-  margin: 0;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.approval-card dt {
-  color: var(--mx-text-faint);
-}
-.approval-card dd + dt {
-  margin-top: 8px;
-}
-.approval-card dd {
-  margin-top: 3px;
-}
+/* The approval card's Office preview strip (ApprovalCard.tsx); the card
+   itself is a question card (15-composer.css). */
 .office-approval-preview {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -780,38 +704,6 @@
   padding: 4px 7px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-}
-.approval-actions button {
-  min-height: 28px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: var(--mx-action-bg);
-  box-shadow: none;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-}
-.approval-actions button:hover:not(:disabled) {
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-chip-bg);
-}
-.approval-actions button:active:not(:disabled) {
-  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-chip-bg);
-}
-.approval-actions button:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
-}
-/* Deny is a quiet ghost like the Goal footer's Cancel; Allow keeps the chip
-   plate, so the decision reads without a dialog-weight contrast slab. */
-.approval-actions button.deny {
-  color: var(--mx-text-muted);
-  background: transparent;
-  box-shadow: none;
-}
-.approval-actions button.deny:hover:not(:disabled) {
-  color: var(--mx-text);
-  background: var(--mx-hover);
 }
 /* A transcript diff is the same class of object as a fenced code card, so it
    wears that card's chrome: the muted hairline and the shared card surface.

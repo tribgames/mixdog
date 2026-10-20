@@ -1,3 +1,5 @@
+import { loginPageUrl } from '../session/human-gate/requests.mjs';
+
 const ASK_USER_MAX_QUESTIONS = 4;
 export const ASK_USER_MAX_TEXT = 4000;
 
@@ -50,12 +52,105 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
             required: ['question', 'header', 'options'],
           },
         },
+        handoff: {
+          type: 'object',
+          description:
+            'Instead of questions: secret = the user types a password/token into the focused field (you never see it; result provided/skipped/timeout); takeover = the user does a step (sign-in, CAPTCHA, 2FA) and says done.',
+          properties: {
+            kind: { type: 'string', enum: ['secret', 'takeover'] },
+            surface: { type: 'string', enum: ['browser', 'computer'] },
+            target: { type: 'string', maxLength: 200, description: 'Site/app and form.' },
+            field: { type: 'string', maxLength: 80, description: 'secret: field label.' },
+            instructions: { type: 'string', maxLength: 2000, description: 'takeover: what to do.' },
+            need: {
+              type: 'string',
+              enum: ['sign_in', 'action', 'confirmation'],
+              description:
+                'takeover: sign_in (sign-in, 2FA), action (CAPTCHA, other step), confirmation (identity/payment check). Default action.',
+            },
+            purpose: {
+              type: 'string',
+              enum: ['login'],
+              description: 'browser takeover: login = sign-in window on url.',
+            },
+            url: { type: 'string', maxLength: 2048, description: 'login: sign-in page (https).' },
+            tab: { type: 'string', maxLength: 64, description: 'browser takeover: page ID from list_tabs.' },
+            window_id: { type: 'string', maxLength: 128, description: 'computer takeover: exact window id.' },
+            app: { type: 'string', maxLength: 120, description: 'computer takeover: app name.' },
+          },
+          required: ['kind', 'surface'],
+          additionalProperties: false,
+        },
       },
-      required: ['questions'],
       additionalProperties: false,
     },
   },
 ]);
+
+/** The handoff of an ask_user call ({ kind, surface, target, field, instructions }), or null. */
+export function validateAskUserHandoff(args) {
+  const handoff = args?.handoff;
+  if (handoff == null) return null;
+  if (args.questions != null) throw new Error('ask_user takes questions or a handoff, not both');
+  if (typeof handoff !== 'object' || Array.isArray(handoff)) throw new Error('ask_user handoff must be an object');
+  if (handoff.kind !== 'secret' && handoff.kind !== 'takeover') {
+    throw new Error('ask_user handoff kind is secret or takeover');
+  }
+  if (handoff.surface !== 'browser' && handoff.surface !== 'computer') {
+    throw new Error('ask_user handoff surface is browser or computer');
+  }
+  const text = (key, limit) => (typeof handoff[key] === 'string' ? handoff[key].trim().slice(0, limit) : '');
+  if (handoff.kind === 'takeover' && !text('instructions', 2000)) {
+    throw new Error('ask_user takeover needs instructions');
+  }
+  const login = handoffLogin(handoff);
+  let need = login ? 'sign_in' : 'action';
+  if (['sign_in', 'action', 'confirmation'].includes(handoff.need)) need = handoff.need;
+  return {
+    kind: handoff.kind,
+    surface: handoff.surface,
+    target: text('target', 200),
+    field: text('field', 80),
+    instructions: text('instructions', 2000),
+    ...(handoff.kind === 'takeover' ? { need, identity: handoffIdentity(handoff), ...(login ? { login } : {}) } : {}),
+  };
+}
+
+/** A login takeover's sign-in page ({ url, origin }); null without the
+ *  explicit purpose, so every other takeover keeps the side panel. */
+function handoffLogin(handoff) {
+  if (handoff.purpose == null) return null;
+  if (handoff.purpose !== 'login' || handoff.kind !== 'takeover' || handoff.surface !== 'browser') {
+    throw new Error('ask_user purpose login is a browser takeover');
+  }
+  const page = loginPageUrl(handoff.url);
+  if (!page) throw new Error('ask_user login needs an https url (http only on localhost)');
+  return page;
+}
+
+/** The window a takeover is about, validated per surface: a browser page ID
+ *  (list_tabs p1, v1 or a page name) or a computer window id and app. Shapes
+ *  that are not plain tokens are dropped, never passed on. */
+const TOKEN = /^[\w.:#@-]+$/;
+function handoffIdentity(handoff) {
+  const token = (key, limit) => {
+    const value = typeof handoff[key] === 'string' ? handoff[key].trim() : '';
+    return value && value.length <= limit && TOKEN.test(value) ? value : '';
+  };
+  if (handoff.surface === 'browser') {
+    const tab = token('tab', 64);
+    return tab ? { tab } : {};
+  }
+  const windowId = token('window_id', 128);
+  const app =
+    typeof handoff.app === 'string'
+      ? handoff.app
+          .replace(/[\r\n]+/g, ' ')
+          .trim()
+          .slice(0, 120)
+      : '';
+  return { ...(windowId ? { windowId } : {}), ...(app ? { app } : {}) };
+}
 
 /** Throws a clear error when the questions are malformed; returns the list. */
 export function validateAskUserQuestions(args) {

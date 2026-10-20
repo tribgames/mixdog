@@ -1,3 +1,4 @@
+import { loginSiteLabel } from '../shared/login-site';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
@@ -86,10 +87,31 @@ function closedNote(result: string): string {
   return t('Question closed · the agent decided');
 }
 
+/** A finished login takeover: "로그인됨 · <site>" (or not signed in), one head line. */
+function LoginRecord({ url, done }: { url: string; done: boolean }) {
+  const site = loginSiteLabel(url);
+  const title = done ? t('Signed in') : t('Not signed in');
+  return (
+    <article className="question-card" data-settled data-approval="login" aria-label={title}>
+      <div className="question-head">
+        <span className="question-icon" data-tone={done ? 'done' : undefined} aria-hidden="true">
+          {done ? '✓' : '?'}
+        </span>
+        <span className="question-title">
+          <strong>{title}</strong>
+          {site && <span className="question-meta">{site}</span>}
+        </span>
+      </div>
+    </article>
+  );
+}
+
 /** An answered ask_user call, kept in the transcript as the card it was, picks marked. */
 export function AskUserRecord({ item }: { item: TranscriptItem }) {
   const result = String(toolActivityResultValue(item) ?? '');
   const args = askUserArgs(item);
+  const handoff = asRecord(args?.handoff);
+  if (handoff?.purpose === 'login') return <LoginRecord url={String(handoff.url ?? '')} done={result === 'done'} />;
   const questions = (Array.isArray(args?.questions) ? (args.questions as unknown[]) : [])
     .map((entry) => asRecord(entry))
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));

@@ -350,6 +350,14 @@ export interface ToolApprovalDecision {
   answers?: Array<{ selected: string[]; text?: string } | null>;
   /** ask_user: the composer message that answered the question. */
   reply?: string;
+  /** Human-in-the-loop response (human-gate/requests.mjs); never carries a
+   *  secret value — that goes through provideSecretInput only. */
+  response?: 'approve' | 'deny' | 'edit-and-approve' | 'provide-secret' | 'skip' | 'done';
+  /** edit-and-approve: the card's edited text for the request's editable fields. */
+  editedArgs?: Record<string, string>;
+  remember?: 'once' | 'agent' | 'always';
+  /** permission: the chosen scope id. */
+  scope?: string;
   /** Host-stamped name of the device that answered. */
   device?: string;
 }
@@ -493,6 +501,9 @@ export interface DesktopSubmitOptions {
   priority?: DesktopPromptPriority;
   pastedImages?: Record<string, DesktopPromptAttachment>;
   pastedTexts?: Record<string, DesktopPastedText>;
+  /** A runtime kickoff (a new agent's greeting turn): the model reads it, the
+   *  transcript and the queue never show it as the user speaking. */
+  kickoff?: boolean;
   /** Host-stamped name of the device that sent this (see session-device.ts).
    *  Request validation rejects it from a caller. */
   device?: string;

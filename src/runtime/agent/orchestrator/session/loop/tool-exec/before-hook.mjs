@@ -6,10 +6,16 @@ import { resolvePreToolAskApproval } from '../tool-helpers.mjs';
 import { runAbortable, throwIfAborted } from '../../../../../shared/abort-race.mjs';
 import { evaluateExecPolicy } from '../../../tools/bash-policy-scan.mjs';
 import { beginSessionApprovalWait } from '../../manager/runtime-liveness.mjs';
+import { agentMcpToolPermission } from '../../../mcp/agent-connectors.mjs';
+import { humanGateDecision, recordHumanDecision } from '../../human-gate/gate.mjs';
+import { applyEditedArgs } from '../../human-gate/requests.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
-async function askApproval(call, { callerSessionId, executeOpts, toolApprovalHook, decision }) {
+async function askApproval(
+  call,
+  { callerSessionId, executeOpts, toolApprovalHook, decision, request = null, gate = null }
+) {
   const askReason = String(decision?.reason || 'approval requested by hook').trim();
   // While the user decides, the session is waiting on them, not working.
   const releaseApprovalWait = beginSessionApprovalWait(callerSessionId);
@@ -24,15 +30,43 @@ async function askApproval(call, { callerSessionId, executeOpts, toolApprovalHoo
         toolCallId: executeOpts.toolCallId || null,
         askReason,
         toolApprovalHook,
+        request,
       })
     );
   } finally {
     releaseApprovalWait();
   }
-  if (askOutcome.denial) return { denial: askOutcome.denial };
   const approval = askOutcome.approval;
+  await recordHumanDecision(gate, approval);
+  if (askOutcome.denial) return { denial: askOutcome.denial };
   if (approval && typeof approval === 'object' && isArgsObject(approval.args)) call.args = approval.args;
+  // The card's edited text replaces the model's before the call runs.
+  if (request?.kind === 'outbound' && approval?.editedArgs) {
+    call.args = applyEditedArgs(call.args, approval.editedArgs, request.outbound?.editable);
+  }
+  // The user approved this very call on the richer outbound card.
+  if (request?.kind === 'outbound') call.outboundApproved = true;
   return null;
+}
+
+export const CONNECTOR_APPROVAL_REASON = 'This connector tool is set to ask before it runs for this agent.';
+
+/**
+ * A connector tool the running agent set to `needs_approval` asks through the
+ * ordinary approval hook, whatever the PreToolUse hooks decided. Run after
+ * them, on the final call: a renamed call is judged under its final name.
+ * A call the outbound card already got approved is not asked a second time.
+ * @returns {Promise<{ denial: string } | null>} the denial, or null to run
+ */
+export function applyConnectorApproval(call, { agentId, callerSessionId, executeOpts, toolApprovalHook }) {
+  if (call.outboundApproved) return null;
+  if (agentMcpToolPermission(agentId, call.name) !== 'needs_approval') return null;
+  return askApproval(call, {
+    callerSessionId,
+    executeOpts,
+    toolApprovalHook,
+    decision: { reason: CONNECTOR_APPROVAL_REASON },
+  });
 }
 
 /**
@@ -62,22 +96,40 @@ export async function applyBeforeToolHook({
   executeOpts,
   beforeToolHook,
   toolApprovalHook,
+  mcpScopeId = null,
 }) {
   const call = { name, args, cwd };
   // ask_user is itself the user prompt; it never goes through the ordinary approval gate.
-  if (!beforeToolHook || name === 'ask_user') return call;
+  if (name === 'ask_user') return call;
   try {
-    const decision = await runAbortable(executeOpts.signal, () =>
-      beforeToolHook(
-        {
-          name,
-          args,
-          cwd,
-          sessionId: callerSessionId,
-          toolCallId: executeOpts.toolCallId || null,
-        },
-        { signal: executeOpts.signal }
-      )
+    const hookDecision = beforeToolHook
+      ? await runAbortable(executeOpts.signal, () =>
+          beforeToolHook(
+            {
+              name,
+              args,
+              cwd,
+              sessionId: callerSessionId,
+              toolCallId: executeOpts.toolCallId || null,
+            },
+            { signal: executeOpts.signal }
+          )
+        )
+      : null;
+    // Outbound sends ask the user whatever the hooks allowed (human-gate/gate.mjs).
+    // Judged as the call will run: only a rewriting decision changes name/args.
+    const hookAction = String(hookDecision?.action || hookDecision?.decision || '').toLowerCase();
+    const rewritten = hookAction === 'ask' || hookAction === 'modify' || hookAction === 'rewrite';
+    const { decision, request, gate } = await humanGateDecision(
+      {
+        name:
+          rewritten && typeof hookDecision?.name === 'string' && hookDecision.name.trim()
+            ? hookDecision.name.trim()
+            : name,
+        args: rewritten && isArgsObject(hookDecision?.args) ? hookDecision.args : args,
+      },
+      hookDecision,
+      { sessionId: callerSessionId, mcpScopeId }
     );
     const action = String(decision?.action || decision?.decision || '').toLowerCase();
     if (action === 'deny' || action === 'block') {
@@ -89,7 +141,14 @@ export async function applyBeforeToolHook({
       if (typeof decision?.name === 'string' && decision.name.trim()) call.name = decision.name.trim();
     }
     if (action === 'ask') {
-      const denied = await askApproval(call, { callerSessionId, executeOpts, toolApprovalHook, decision });
+      const denied = await askApproval(call, {
+        callerSessionId,
+        executeOpts,
+        toolApprovalHook,
+        decision,
+        request,
+        gate,
+      });
       if (denied) return denied;
     }
   } catch (error) {

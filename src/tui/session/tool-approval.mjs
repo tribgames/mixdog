@@ -6,6 +6,11 @@
  * state, so the closure identifiers (state/set/nextId/disposed/timeout) are
  * threaded through the factory argument via getters — never stale snapshots.
  */
+import {
+  humanRequestFields,
+  normalizeHumanResponse,
+} from '../../runtime/agent/orchestrator/session/human-gate/requests.mjs';
+
 export function createToolApproval({ getState, set, nextId, getDisposed, timeoutMs }) {
   const toolApprovalQueue = [];
   let activeToolApproval = null;
@@ -32,6 +37,8 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       requestedAt: now,
       timeoutMs: requestTimeoutMs,
       expiresAt: requestTimeoutMs === null ? null : now + requestTimeoutMs,
+      // outbound / secret / takeover / permission fields (human-gate/requests.mjs).
+      ...humanRequestFields(input),
     };
   }
   // Every request expires from ITS OWN requestedAt, queued or active. Arming
@@ -41,18 +48,24 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (!entry || entry.timer || entry.request?.expiresAt === null) return;
     const remainingMs = Math.max(0, Number(entry.request?.expiresAt || 0) - Date.now());
     entry.timer = setTimeout(() => {
-      finishToolApproval(entry.id, false, 'approval timed out');
+      finishToolApproval(entry.id, false, 'approval timed out', '', undefined, undefined, { timedOut: true });
     }, remainingMs);
     entry.timer.unref?.();
   }
   // Settle one entry: drop its timeout, then hand the waiter its answer. The
   // resolve stays guarded — a waiter whose caller already went away must never
   // take the rest of the queue down with it.
-  function settleToolApproval(entry, approved, reason, answers, reply) {
+  function settleToolApproval(entry, approved, reason, answers, reply, extra, device = '') {
     if (entry?.timer) clearTimeout(entry.timer);
     const result = { approved, reason };
     if (answers !== undefined) result.answers = answers;
     if (reply !== undefined) result.reply = reply;
+    // A human-kind request answers with its canonical response (never a value).
+    if (entry?.request?.remember) {
+      Object.assign(result, normalizeHumanResponse(entry.request, approved, extra));
+      if (device) result.device = device;
+    }
+    if (extra?.timedOut === true) result.timedOut = true;
     try {
       entry.resolve(result);
     } catch {}
@@ -68,7 +81,15 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     armToolApprovalTimeout(entry);
     set({ toolApproval: entry.request });
   }
-  function finishToolApproval(id, approved, reason = '', device = '', answers = undefined, reply = undefined) {
+  function finishToolApproval(
+    id,
+    approved,
+    reason = '',
+    device = '',
+    answers = undefined,
+    reply = undefined,
+    extra = undefined
+  ) {
     const targetId = String(id || '');
     if (activeToolApproval && activeToolApproval.id === targetId) {
       const entry = activeToolApproval;
@@ -79,14 +100,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
         ? { id: targetId, approved: approved === true, device: String(device), at: Date.now() }
         : null;
       set({ toolApproval: null, toolApprovalResult });
-      settleToolApproval(entry, approved === true, String(reason || ''), answers, reply);
+      settleToolApproval(entry, approved === true, String(reason || ''), answers, reply, extra, String(device || ''));
       presentNextToolApproval();
       return true;
     }
     const index = toolApprovalQueue.findIndex((entry) => entry.id === targetId);
     if (index >= 0) {
       const [entry] = toolApprovalQueue.splice(index, 1);
-      settleToolApproval(entry, approved === true, String(reason || ''), answers, reply);
+      settleToolApproval(entry, approved === true, String(reason || ''), answers, reply, extra, String(device || ''));
       return true;
     }
     return false;

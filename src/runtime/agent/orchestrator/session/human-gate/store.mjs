@@ -1,0 +1,167 @@
+// session/human-gate/store.mjs
+// Per-agent permissions and the decision audit, both under the plugin data dir.
+// A grant is keyed by agent + action kind (outbound-policy.mjs ACTION_KINDS)
+// and says `allow` (never ask: "다시 묻지 않기") or `block` (deny without a
+// card); no grant means ask. `agent` scope names the agent, `always` stands for
+// every agent ('*'), and an agent's own grant wins over an every-agent one;
+// `once` is never stored. Payments and deletes are never allowed. Grants are
+// listed and revoked by id. The audit is one JSONL line per decision with
+// agent, kind, action, tool, target, decision, deciding device and time —
+// never a value, an argument or a payload — read back newest first.
+import { createHash } from 'node:crypto';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { parseJsonText, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
+import { ACTION_KINDS, isRememberableAction } from './outbound-policy.mjs';
+
+const ANY_AGENT = '*';
+const FIELD_LIMIT = 200;
+const AUDIT_KEYS = ['agentId', 'kind', 'action', 'tool', 'target', 'decision', 'device'];
+export const PERMISSION_MODES = Object.freeze(['ask', 'allow', 'block']);
+
+const field = (value) => String(value ?? '').slice(0, FIELD_LIMIT);
+const grantId = (agentId, action) =>
+  `grant_${createHash('sha256').update(`${agentId}\n${action}`).digest('hex').slice(0, 24)}`;
+const isGrant = (row) => ACTION_KINDS.includes(row?.action) && (row.mode === 'allow' || row.mode === 'block');
+
+export function createHumanGateStore(directory) {
+  const grantsFile = join(directory, 'grants.json');
+  const auditFile = join(directory, 'audit.jsonl');
+  const grantsOf = (doc) => (Array.isArray(doc?.grants) ? doc.grants.filter(isGrant) : []);
+  async function readGrants() {
+    try {
+      return grantsOf(parseJsonText(await readFile(grantsFile, 'utf8')));
+    } catch (error) {
+      if (error?.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+  async function updateGrants(mutate) {
+    await mkdir(directory, { recursive: true });
+    let result;
+    await updateJsonAtomic(grantsFile, (doc) => {
+      const out = mutate(grantsOf(doc));
+      if (!out) return undefined;
+      result = out.result;
+      return { grants: out.grants };
+    });
+    return result;
+  }
+  /** Set `agentId`'s mode for `action`; `ask` removes its grant. Returns the
+   *  grant, or null for `ask` and for an `allow` that may not exist. */
+  async function setMode({ agentId, action, mode, device = '' }) {
+    if (!ACTION_KINDS.includes(action) || !PERMISSION_MODES.includes(mode)) return null;
+    if (mode === 'allow' && !isRememberableAction(action)) return null;
+    const owner = field(agentId);
+    const id = grantId(owner, action);
+    const grant = mode === 'ask' ? null : { id, agentId: owner, action, mode, device: field(device), at: Date.now() };
+    await updateGrants((grants) => ({
+      grants: [...grants.filter((row) => row.id !== id), ...(grant ? [grant] : [])],
+      result: grant,
+    }));
+    return grant;
+  }
+  /** `allow`, `block` or `ask` for `agentId` + `action`; the agent's own grant wins. */
+  async function modeFor({ agentId, action }) {
+    const grants = (await readGrants()).filter((grant) => grant.action === action);
+    const own =
+      grants.find((grant) => grant.agentId === agentId) || grants.find((grant) => grant.agentId === ANY_AGENT);
+    if (own?.mode === 'allow' && !isRememberableAction(action)) return 'ask';
+    return own?.mode || 'ask';
+  }
+  return {
+    setMode,
+    modeFor,
+    /** Stores an `allow` for `agent`/`always` scope; `once` stores nothing. Returns the grant or null. */
+    async grant({ agentId, action, scope, device = '' }) {
+      if (scope !== 'agent' && scope !== 'always') return null;
+      return setMode({ agentId: scope === 'always' ? ANY_AGENT : agentId, action, mode: 'allow', device });
+    },
+    /** Every action kind with `agentId`'s mode, for the profile's permission table. */
+    async permissions(agentId) {
+      const out = [];
+      for (const action of ACTION_KINDS) {
+        out.push({ action, mode: await modeFor({ agentId, action }), rememberable: isRememberableAction(action) });
+      }
+      return out;
+    },
+    /** Grants that apply to `agentId` (its own and every-agent ones); all when omitted. */
+    async listGrants({ agentId } = {}) {
+      const grants = await readGrants();
+      return agentId ? grants.filter((grant) => grant.agentId === agentId || grant.agentId === ANY_AGENT) : grants;
+    },
+    async revokeGrant(id) {
+      return (
+        (await updateGrants((grants) => {
+          const rest = grants.filter((grant) => grant.id !== id);
+          return rest.length === grants.length ? null : { grants: rest, result: true };
+        })) === true
+      );
+    },
+    async recordAudit(entry) {
+      const line = { at: Number.isFinite(entry?.at) ? entry.at : Date.now() };
+      for (const key of AUDIT_KEYS) line[key] = field(entry?.[key]);
+      await mkdir(dirname(auditFile), { recursive: true });
+      await appendFile(auditFile, `${JSON.stringify(line)}\n`, 'utf8');
+      return line;
+    },
+    /** Newest first; `agentId` filters to one agent. */
+    async readAudit({ agentId = '', limit = 100 } = {}) {
+      let raw = '';
+      try {
+        raw = await readFile(auditFile, 'utf8');
+      } catch (error) {
+        if (error?.code === 'ENOENT') return [];
+        throw error;
+      }
+      const rows = [];
+      for (const line of raw.split('\n').reverse()) {
+        if (!line) continue;
+        try {
+          const row = JSON.parse(line);
+          if (!agentId || row.agentId === agentId) rows.push(row);
+        } catch {}
+        if (rows.length >= limit) break;
+      }
+      return rows;
+    },
+  };
+}
+
+let processStore = null;
+/** The process store under the plugin data dir; built on first use. */
+export async function humanGateStore() {
+  if (!processStore) {
+    const { getPluginData } = await import('../../config.mjs');
+    processStore = createHumanGateStore(join(getPluginData(), 'human-gate'));
+  }
+  return processStore;
+}
+
+function requiredAgentId(agentId) {
+  if (typeof agentId !== 'string' || !agentId.trim() || agentId.length > FIELD_LIMIT || agentId === ANY_AGENT) {
+    throw new Error('agent id is invalid');
+  }
+  return agentId;
+}
+
+/** The profile's "권한" table for `agentId` (capability getAgentPermissions). */
+export async function agentPermissions(agentId) {
+  return (await humanGateStore()).permissions(requiredAgentId(agentId));
+}
+
+/** Set one row of that table (capability setAgentPermission); returns the table. */
+export async function setAgentPermission(agentId, action, mode) {
+  const agent = requiredAgentId(agentId);
+  if (!ACTION_KINDS.includes(action)) throw new Error(`action must be one of ${ACTION_KINDS.join(', ')}`);
+  if (!PERMISSION_MODES.includes(mode)) throw new Error(`mode must be one of ${PERMISSION_MODES.join(', ')}`);
+  if (mode === 'allow' && !isRememberableAction(action)) throw new Error(`${action} always asks; it cannot be allowed`);
+  const store = await humanGateStore();
+  await store.setMode({ agentId: agent, action, mode });
+  return store.permissions(agent);
+}
+
+/** Replace the process store (tests); null restores the default. */
+export function setHumanGateStore(store) {
+  processStore = store || null;
+}

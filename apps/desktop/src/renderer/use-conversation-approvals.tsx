@@ -1,8 +1,10 @@
-import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
 import type { ToolApprovalDecision } from '../shared/contract';
-import { ApprovalCard } from './ApprovalCard';
+import { ApprovalCard, publishHeldSettlements } from './ApprovalCard';
 import { QuestionCard } from './QuestionCard';
+import { useAgentChatSession } from './agent-chat-mode';
 import { approvalQuestions, buildAnswers, type QuestionDraft } from './question-card-logic';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import type { Snapshot } from './desktop-types';
@@ -32,10 +34,16 @@ export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: 
   const [answeredElsewhere, setAnsweredElsewhere] = useState<AnsweredElsewhere | null>(null);
   const multiDevice = useMemo(() => sessionUsesMultipleDevices(snapshot.items), [snapshot.items]);
   const viewerDevice = useViewerDevice();
+  // Agent mode (agent-chat-mode.ts) narrows both cards to the bubble column together.
+  const agentMode = useAgentChatSession(decidedSessionId);
+  // Held requests in an agent's home thread fold away once their settling row arrives.
+  useLayoutEffect(() => {
+    if (isAgentHomeSessionId(decidedSessionId)) publishHeldSettlements(decidedSessionId, snapshot.items ?? []);
+  }, [decidedSessionId, snapshot.items]);
 
-  // A pending approval grows the island into its card. An answer from another
-  // device leaves no card: the island flashes it instead.
-  // A pending ask_user question renders in the transcript instead.
+  // A pending approval or ask_user question renders in the transcript, where
+  // the turn waits on it. An approval answered on another device stays there a
+  // moment, disabled, saying who answered; a question's answer flashes in the island.
   let approvalCard: ReactNode = null;
   let questionCard: ReactNode = null;
   // Sending a message while a question waits closes the question first.
@@ -72,6 +80,7 @@ export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: 
           questions={questions}
           resolve={resolveDecision}
           draftsRef={questionDrafts}
+          agentMode={agentMode}
         />
       );
       dismissQuestion = () => resolveDecision({ approved: false, reason: 'dismissed by user' });
@@ -87,10 +96,21 @@ export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: 
         <ApprovalCard
           key={approvalInstanceKey(pendingApproval.id)}
           approval={pendingApproval}
-          resolve={(approved) => resolveDecision({ approved })}
+          resolve={resolveDecision}
+          agentMode={agentMode}
         />
       );
     }
+  } else if (retiredApproval && retiredApproval.approval.kind !== 'question') {
+    approvalCard = (
+      <ApprovalCard
+        key={`retired:${approvalInstanceKey(retiredApproval.approval.id)}`}
+        approval={retiredApproval.approval}
+        resolve={async () => false}
+        agentMode={agentMode}
+        settled={retiredApproval.outcome}
+      />
+    );
   }
   return {
     approvalCard,
@@ -111,7 +131,12 @@ export function conversationIslandFlash(
   answeredElsewhere: AnsweredElsewhere | null,
   viewerDevice: string | null
 ): ComposerIslandFlash | null {
-  if (retiredApproval && isOtherDevice(retiredApproval.outcome.device, viewerDevice)) {
+  // A retired approval card says who answered itself; only a question flashes.
+  if (
+    retiredApproval &&
+    retiredApproval.approval.kind === 'question' &&
+    isOtherDevice(retiredApproval.outcome.device, viewerDevice)
+  ) {
     const { approval, outcome } = retiredApproval;
     return {
       key: `retired:${approvalInstanceKey(approval.id)}`,

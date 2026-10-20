@@ -23,6 +23,9 @@ import {
 } from 'electron';
 
 import { isSessionId } from './desktop-state';
+import { takeoverGate } from './takeover-gate';
+import { agentNotificationMutePath, isSessionMutedOnDisk } from './agent-notification-mute';
+import { secretInputs } from './secret-input';
 import { remoteSessionConfigFromEnv } from './ssh/remote-session';
 import { allowedProvidersForHost, loadSshHostStore } from './ssh/ssh-host-store';
 import { currentSshContext, runWithSshContext } from './ssh/ssh-context';
@@ -76,6 +79,10 @@ import {
 import { registerDesktopIpc } from './ipc';
 import { registerSshHostIpc } from './ipc-ssh-hosts';
 import { createBrowserHost, type BrowserHost } from './browser/host';
+import { BROWSER_PARTITION } from './browser/command';
+import { browserUrlPolicyFromEnvironment } from './browser/host-policy';
+import { createBrowserLoginPopup } from './browser/login-popup';
+import { loginTakeoverOf } from './browser/login-takeover';
 import { createComputerHost, type ComputerHost } from './computer';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
 import type { DesktopTerminalRunRequest } from '../shared/terminal-command';
@@ -658,6 +665,8 @@ let browserHostDisposal: Promise<void> = Promise.resolve();
 // Last-known Browser Use opt-in: the host is created with the window, which
 // may happen before or after the initial settings read, so both sides apply.
 let browserControlEnabled = false;
+// Saved-login sign-in (default on), read by the host per command.
+let browserAutoSignIn = true;
 let computerHost: ComputerHost | null = null;
 let computerUseOverlay: ComputerUseOverlay | null = null;
 let computerControlEnabled = false;
@@ -739,6 +748,7 @@ const awakeService = new AgentAwakeService(powerSaveBlocker);
 let turnAttention: TurnAttention | null = null;
 let unsubscribeAwake: (() => void) | null = null;
 let unsubscribeServiceSettings: (() => void) | null = null;
+let unsubscribeTakeovers: (() => void) | null = null;
 let unsubscribeUpdaterRelay: (() => void) | null = null;
 // OS notification on final answers: schedules notify even in the foreground,
 // ordinary conversations only while unfocused. Both respect the setting.
@@ -783,6 +793,8 @@ const turnNotifier = createDesktopTurnNotifier({
   openSession: (sessionId) => {
     pendingPrimaryActivation = !openDesktopNotificationSession(mainWindow, sessionId);
   },
+  // The host's per-agent mute (written by the desktop service, same profile).
+  isSessionMuted: (sessionId) => isSessionMutedOnDisk(agentNotificationMutePath(app.getPath('userData')), sessionId),
 });
 let unsubscribeTurnNotifier: (() => void) | null = null;
 /** A server window's notifications fire on this PC, labeled with the server
@@ -836,6 +848,7 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
   browserControlEnabled = settings.browserControl === true;
   browserFeatureInstalled = settings.browserInstalled !== false;
   browserHost?.setBridgeEnabled(browserControlEnabled);
+  browserAutoSignIn = settings.browserAutoSignIn !== false;
 };
 // Computer use is opt-in and high risk, so the bridge (and thus the agent
 // `computer` tool) exists only while the setting is on. Toggling it starts or
@@ -867,11 +880,37 @@ function applyComputerObserveOnlySetting(enabled: boolean): void {
 }
 // This PC's daemon drives the PC-wide features: the Browser Use host, the
 // updater and trash requests of paired phones, and the desktop settings.
+// A pending takeover hands this PC to the user: Computer and Browser Use wait.
+// A browser takeover is the one moment the Browser Use panel opens by itself.
+// It opens once human control is ready (the agent's commands stopped and drained).
+// A login takeover never reveals the panel: its card opens the sign-in window.
+const browserLogin = createBrowserLoginPopup({
+  parent: () => mainWindow,
+  session: () => session.fromPartition(BROWSER_PARTITION),
+  urlPolicy: browserUrlPolicyFromEnvironment({ remote: false }),
+  ready: (sessionId, id) => takeoverGate.ready(sessionId, id),
+  settle: (sessionId, id) =>
+    localService.resolveToolApprovalForSession(sessionId, id, { approved: true, response: 'done' }),
+  afterSignIn: (sessionId) => browserHost?.reloadAfterSignIn(sessionId),
+});
+unsubscribeTakeovers = localService.subscribeSessionStates((update) => {
+  const surface = takeoverGate.onSessionState(update);
+  const login = update?.snapshot ? loginTakeoverOf(update.snapshot) : null;
+  if (update?.sessionId && update.snapshot) browserLogin.sync(String(update.sessionId), login);
+  if (surface !== 'browser' || login) return;
+  const sessionId = String(update.sessionId);
+  const approval = (update.snapshot as { toolApproval?: { id?: unknown } | null } | undefined)?.toolApproval;
+  void takeoverGate.ready(sessionId, String(approval?.id ?? 'takeover')).then((ready) => {
+    if (ready) browserHost?.openForTakeover(sessionId);
+  });
+});
 unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'session-runtime-released') {
     const event = value as { sessionId?: unknown; restore?: unknown } | null;
     if (isSessionId(event?.sessionId)) {
       browserHost?.releaseSession(event.sessionId, { restore: event.restore === true });
+      // A session's secrets are redacted for its lifetime, then forgotten.
+      if (event.restore !== true) secretInputs.forget(event.sessionId);
     }
     return;
   }
@@ -1239,6 +1278,10 @@ function disposeDesktopResources(): Promise<void> {
   turnNotifier.dispose();
   unsubscribeServiceSettings?.();
   unsubscribeServiceSettings = null;
+  unsubscribeTakeovers?.();
+  unsubscribeTakeovers = null;
+  browserLogin.dispose();
+  takeoverGate.dispose();
   unsubscribeUpdaterRelay?.();
   unsubscribeUpdaterRelay = null;
   awakeService.dispose();
@@ -1819,6 +1862,7 @@ function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
     // browser pane and agent bridge), so its sessions always work locally.
     remoteSession: false,
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
+    autoSignIn: () => browserAutoSignIn,
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.
     publishRemoteFrame: async (frame) => {
@@ -2052,6 +2096,7 @@ function installWindowIpc(
       ? {
           onDesktopSettingsChanged: applyDesktopSettings,
           browserHost: windowBrowserHost,
+          browserLogin,
           computer: { readPermissions: readComputerPermissions, requestPermissions: requestComputerPermissions },
           remoteAccessInfo,
           rotateRemoteAccess,
@@ -2229,7 +2274,11 @@ if (!app.requestSingleInstanceLock()) {
       });
       // Every session's roster and the agent pool, not just the active pane:
       // the final-answer rule needs background work as well as turn state.
-      const unsubscribeTurnSessions = localService.subscribeSessions(turnNotifier.onSessions);
+      const unsubscribeTurnSessions = localService.subscribeSessions((sessions) => {
+        turnNotifier.onSessions(sessions);
+        // Visualize holds the panel while a session's agent turn runs.
+        void visualize.observeTurns(sessions);
+      });
       const unsubscribeTurnAgents = localService.subscribeAgentPool(turnNotifier.onAgentPool);
       unsubscribeTurnNotifier = () => {
         unsubscribeTurnSessions();

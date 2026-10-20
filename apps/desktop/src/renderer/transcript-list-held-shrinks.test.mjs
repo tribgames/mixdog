@@ -3,7 +3,7 @@ import test from 'node:test';
 import React, { act, useRef } from 'react';
 import { createHeldRowShrinks } from './transcript-list-held-shrinks.ts';
 import { useRememberVirtualMeasurements, useTranscriptHandles } from './transcript-list-handles.ts';
-import { SCROLL_END_THRESHOLD_PX } from './transcript-list-geometry.ts';
+import { measureTranscriptRow, SCROLL_END_THRESHOLD_PX } from './transcript-list-geometry.ts';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache.ts';
 import { installTestDom } from './test-support/test-dom.mjs';
 
@@ -33,6 +33,25 @@ function virtualHost(held, rows, anchorTo = 'end') {
   for (const row of measured) held.measured(host, row.key, row.size);
   return host;
 }
+
+test('a laid-out row collapsing to zero height gives up its slot; a hidden or pending row keeps it', () => {
+  const instance = {
+    options: { getItemKey: () => 'band' },
+    indexFromElement: () => 0,
+    itemSizeCache: new Map([['band', 62]]),
+    measurementsCache: [{ key: 'band', size: 62 }],
+  };
+  const element = (pending = false) => ({
+    style: { setProperty() {} },
+    querySelector: (selector) => (pending && selector === '[data-transcript-pending]' ? {} : null),
+  });
+  const entry = (inlineSize, blockSize) => ({ borderBoxSize: [{ inlineSize, blockSize }] });
+  // The agent chat's typing bubble (62px) empties once the reply streams above it.
+  assert.equal(measureTranscriptRow(element(), entry(720, 0), instance), 0, 'the collapsed band takes no room');
+  assert.equal(measureTranscriptRow(element(), entry(0, 0), instance), 62, 'a hidden pane keeps the held size');
+  assert.equal(measureTranscriptRow(element(true), entry(720, 0), instance), 62, 'a pending row keeps the held size');
+  assert.equal(measureTranscriptRow(element(), entry(720, 40), instance), 40);
+});
 
 test("a new streaming row's first size lands even below its estimate (no estimate gap above the live band)", () => {
   const held = createHeldRowShrinks();
@@ -222,6 +241,48 @@ test('a provisional estimate is not a slot to hold: the first parsed height belo
   // A later dip below that real measurement IS a held streaming reflow.
   virtualizer.resizeItem(1, 90);
   assert.equal(core.itemSizeCache.get('reply'), 100);
+});
+
+test('a followed pending row that outgrows its estimate takes its box in the same frame', async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  const frames = [];
+  window.requestAnimationFrame = (cb) => frames.push(cb);
+  window.cancelAnimationFrame = () => {};
+  const { useProvisionalRowResize } = await import('./transcript-list-provisional-resize.ts');
+  const reply = pendingReplyElement(document);
+  const keys = ['prompt', 'reply'];
+  const core = (anchorTo) => ({
+    options: { anchorTo, followOnAppend: false, count: 2, getItemKey: (index) => keys[index] },
+    elementsCache: new Map([['reply', reply.element]]),
+    itemSizeCache: new Map([['prompt', 66]]),
+    resizeItem(index, size) {
+      this.itemSizeCache.set(keys[index], size);
+    },
+  });
+  const followed = core('end');
+  const reading = core('start');
+  function Harness({ virtualizer }) {
+    const virtualizerRef = useRef(virtualizer);
+    const heldEstimates = useRef(new Map([['reply', 120]]));
+    const fallbackEstimates = useRef(new Set());
+    useProvisionalRowResize({ virtualizer, virtualizerRef, heldEstimates, fallbackEstimates });
+    return null;
+  }
+  for (const virtualizer of [followed, reading]) {
+    virtualizer.resizeItem = virtualizer.resizeItem.bind(virtualizer);
+    await act(async () =>
+      root.render(React.createElement(Harness, { virtualizer, key: virtualizer.options.anchorTo }))
+    );
+  }
+  // The streaming fallback grows a line past the learned estimate.
+  followed.resizeItem(1, 146);
+  reading.resizeItem(1, 146);
+  assert.equal(followed.itemSizeCache.get('reply'), 146, 'the pinned tail grows with the row, no frame later');
+  assert.equal(reading.itemSizeCache.get('reply'), 120, 'a row above the reader keeps its estimate until parsed');
+  // A smaller fallback never shrinks a followed slot below its estimate.
+  followed.resizeItem(1, 90);
+  assert.equal(followed.itemSizeCache.get('reply'), 120);
+  assert.equal(frames.length > 0, true, 'the parse still settles the real box');
 });
 
 function fakeVirtualizer(log) {
