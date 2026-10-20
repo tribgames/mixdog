@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.3.1 - 2026-10-20
+
 Un correctif de stabilisation pour les problèmes rencontrés depuis la 1.3.0, avec un juge d'effort de raisonnement amélioré.
 
 Nous sommes désolés que la mise à jour 1.3.0 ait réinitialisé certaines données de workflow pour certains utilisateurs.

@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.3.1 - 2026-10-20
+
 Bản vá ổn định cho các sự cố phát hiện từ bản 1.3.0, cùng bộ đánh giá mức suy luận được nâng cấp.
 
 Chúng tôi rất tiếc vì bản cập nhật 1.3.0 đã đặt lại một số dữ liệu quy trình công việc của một số người dùng.

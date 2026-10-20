@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.3.1 - 2026-10-20
+
 Un parche de estabilización para los problemas detectados desde 1.3.0, con un evaluador de esfuerzo de razonamiento actualizado.
 
 Lamentamos que la actualización a 1.3.0 haya restablecido algunos datos de flujo de trabajo para algunos usuarios.

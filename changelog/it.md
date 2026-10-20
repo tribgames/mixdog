@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.3.1 - 2026-10-20
+
 Una patch di stabilizzazione per i problemi riscontrati dalla 1.3.0, con un valutatore dello sforzo di ragionamento aggiornato.
 
 Ci scusiamo per il fatto che l'aggiornamento a 1.3.0 abbia ripristinato alcuni dati del flusso di lavoro per alcuni utenti.

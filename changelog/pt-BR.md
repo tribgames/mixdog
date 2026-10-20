@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.3.1 - 2026-10-20
+
 Um patch de estabilização para problemas encontrados desde a versão 1.3.0, com um avaliador de esforço de raciocínio atualizado.
 
 Pedimos desculpas pelo fato de a atualização 1.3.0 ter redefinido dados de fluxo de trabalho para alguns usuários.

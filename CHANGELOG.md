@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.3.1 - 2026-10-20
+
 A stabilization patch for issues found since 1.3.0, with an upgraded reasoning-effort judge.
 
 We're sorry that the 1.3.0 update reset some workflow data for some users.

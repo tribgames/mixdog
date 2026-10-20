@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.3.1 - 2026-10-20
+
 Ein Stabilisierungs-Patch für Probleme, die seit 1.3.0 aufgetreten sind, mit einem verbesserten Beurteiler für den Reasoning-Aufwand.
 
 Wir bitten um Entschuldigung, dass das Update auf 1.3.0 bei einigen Benutzern Workflow-Daten zurückgesetzt hat.
