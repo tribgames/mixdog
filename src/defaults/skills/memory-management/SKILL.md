@@ -32,7 +32,10 @@ as preferences; automatic history already preserves them.
 
 Omit `project_id` for the current Project, use `common` for shared memory,
 or an explicit Project slug for another Project. The `*` scope is read-only.
-Confirm the target before destructive changes.
+`agent_id: "self"` selects your own agent memory instead: only you read it,
+and it is the only pool an unattended run (schedule, webhook, group room,
+delegated agent) may write; common and Project memory change only while the
+user is chatting. Confirm the target before destructive changes.
 
 Memory indices start at 1 independently in common memory and each Project.
 Deletion and movement compact the affected scope's indices; new memories

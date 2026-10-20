@@ -10,7 +10,7 @@ const { dom } = installTestDom(null, {
   jsdom: {
     url: 'https://mixdog.test/',
   },
-  expose: ['HTMLElement'],
+  expose: ['HTMLElement', 'Event'],
   actEnvironment: false,
 });
 globalThis.React = React;
@@ -168,8 +168,9 @@ test('extension settings routes collapse into Plugin and Skill', () => {
   assert.equal(extensionSectionForSettings('plugins'), 'plugins');
   assert.equal(extensionSectionForSettings('voice'), 'plugins');
   assert.equal(extensionSectionForSettings('memory'), 'plugins');
-  assert.equal(extensionSectionForSettings('skills'), 'skills');
-  assert.equal(extensionSectionForSettings('mcp'), 'skills');
+  // Skills have their own rail destination; only MCP stays in Extensions.
+  assert.equal(extensionSectionForSettings('skills'), null);
+  assert.equal(extensionSectionForSettings('mcp'), 'connectors');
   assert.equal(extensionSectionForSettings('general'), null);
   assert.equal(extensionSectionForSettings(null), null);
 });
@@ -284,7 +285,7 @@ test('built-in details show their engines and supplied model metadata instead of
   }
 });
 
-test('bundled skills have inert required-tool buttons and inherit parent activation', async () => {
+test('built-in skills are not shown in the built-in feature details', async () => {
   const context = panelContext();
   context.data.skills.skills = [
     {
@@ -293,42 +294,16 @@ test('bundled skills have inert required-tool buttons and inherit parent activat
       owner: { kind: 'builtin', feature: 'office' },
     },
   ];
-  context.data.disabledSkills.disabled = ['office-guide'];
-  const calls = [];
-  const rendered = await renderPanel('plugins', {
-    ...context,
-    async run(...args) {
-      calls.push(args);
-    },
-  });
+  const rendered = await renderPanel('plugins', context);
   try {
     await act(async () => document.querySelector('[data-built-in-feature="office"]').click());
-    let dialog = document.querySelector('[data-feature-id="office"]');
-    assert.equal(dialog.querySelectorAll('input[type="checkbox"]').length, 1);
-    const button = [...dialog.querySelectorAll('button')].find((node) => node.textContent === 'Required tools');
-    assert.equal(button.disabled, true);
-    await act(async () => button.click());
-    assert.deepEqual(calls, []);
-    assert.equal(dialog.querySelector('input[type="checkbox"]').checked, true);
-    // Persisted parent changes, including removal, update the child without a
-    // separate setDisabledSkills mutation.
-    for (const entry of [
-      { installed: true, enabled: false },
-      { installed: false, enabled: true },
-    ]) {
-      context.data = { ...context.data, toolModules: { ...context.data.toolModules, office: entry } };
-      await act(async () =>
-        rendered.root.render(
-          React.createElement(CategoryPanel, {
-            category: 'plugins',
-            context,
-          })
-        )
-      );
-      dialog = document.querySelector('[data-feature-id="office"]');
-      if (entry.installed) assert.equal(dialog.querySelector('input[type="checkbox"]').checked, false);
-      assert.equal(dialog.querySelectorAll('input').length, entry.installed ? 1 : 0);
-    }
+    const dialog = document.querySelector('[data-feature-id="office"]');
+    assert.ok(dialog);
+    assert.doesNotMatch(dialog.textContent, /office-guide/);
+    assert.equal(
+      [...dialog.querySelectorAll('button')].some((node) => node.textContent === 'Required tools'),
+      false
+    );
   } finally {
     await rendered.cleanup();
   }
@@ -423,7 +398,28 @@ test('plugin detail keeps every unavailable fact visible with a placeholder', as
 });
 
 test('empty Plugin, Skill, and MCP categories keep their own visible empty states', async () => {
-  const skills = await renderPanel('skills', {
+  const skills = await renderPanel('user-skills', {
+    data: {
+      // Built-in and plugin skills never count as the user's own.
+      skills: {
+        skills: [
+          { name: 'office-guide', owner: { kind: 'builtin', feature: 'office' } },
+          { name: 'bundled-skill', owner: { kind: 'plugin', id: 'bundle' } },
+        ],
+      },
+      disabledSkills: { disabled: [] },
+      mcp: { servers: [] },
+      __loadedSections: ['skills', 'mcp'],
+    },
+  });
+  try {
+    assert.match(document.body.textContent, /No skills\./);
+    assert.doesNotMatch(document.body.textContent, /office-guide|bundled-skill/);
+  } finally {
+    await skills.cleanup();
+  }
+
+  const mcp = await renderPanel('skills', {
     data: {
       skills: { skills: [] },
       disabledSkills: { disabled: [] },
@@ -432,10 +428,10 @@ test('empty Plugin, Skill, and MCP categories keep their own visible empty state
     },
   });
   try {
-    assert.match(document.body.textContent, /No skills found\./);
     assert.match(document.body.textContent, /No MCP servers configured\./);
+    assert.doesNotMatch(document.body.textContent, /No skills/);
   } finally {
-    await skills.cleanup();
+    await mcp.cleanup();
   }
 
   const plugins = await renderPanel('plugins', {
@@ -452,7 +448,7 @@ test('empty Plugin, Skill, and MCP categories keep their own visible empty state
     },
   });
   try {
-    assert.match(document.body.textContent, /No plugins installed\./);
+    assert.match(document.body.textContent, /No plugins\./);
   } finally {
     await plugins.cleanup();
   }
@@ -559,9 +555,9 @@ test('project scope stays in the plugin detail and saves from its scope selector
   }
 });
 
-test('plugin detail toggles each bundled skill and MCP server on its own', async () => {
+test('an MCP plugin is a connector package: no skills, its own servers, each switched off on its own', async () => {
   const calls = [];
-  const rendered = await renderPanel('plugins', {
+  const rendered = await renderPanel('connectors', {
     data: {
       toolModules: {
         git: { enabled: true, installed: true },
@@ -616,16 +612,19 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
   });
   try {
     await act(async () => {
-      document.querySelector('[data-extension-row="Bundle"]').click();
+      document.querySelector('[data-connector-row="bundle"] > button').click();
     });
     assert.equal(document.querySelector('[data-extension-item="plugin-bundle-other"]'), null);
     assert.match(document.querySelector('.extensions-dialog').textContent, /broken: stdio server requires "command"/);
+    assert.equal(document.querySelector('[data-extension-item="bundled-skill"]'), null);
+    assert.doesNotMatch(document.querySelector('.extensions-dialog').textContent, /bundled-skill/);
     await act(async () => {
-      document.querySelector('[data-extension-item="bundled-skill"] input').click();
+      document.querySelector('[data-extension-item="plugin-bundle"] .extensions-action').click();
     });
-    assert.deepEqual(calls.at(-1), ['setDisabledSkills', [['loose-skill', 'bundled-skill']]]);
     await act(async () => {
-      document.querySelector('[data-extension-item="plugin-bundle"] input').click();
+      [...document.querySelectorAll('.extensions-dialog button')]
+        .find((node) => node.textContent === 'Disconnect')
+        .click();
     });
     assert.deepEqual(calls.at(-1), ['setMcpServerEnabled', ['plugin-bundle', false]]);
   } finally {
@@ -633,44 +632,99 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
   }
 });
 
-test('Skill combines skills and MCP and lets the add action choose either kind', async () => {
-  let closed = 0;
-  const calls = [];
-  const rendered = await renderPanel('skills', {
-    createOpen: true,
-    closeCreate() {
-      closed += 1;
-    },
-    async run(capability, args) {
-      calls.push([capability, args]);
-      if (capability === 'skillContent') return { content: '# Example' };
-    },
-  });
+test('the Skill category lists only MCP; user skills live in their own category', async () => {
+  const rendered = await renderPanel('skills', { createOpen: true });
   try {
     assert.deepEqual(
       [...document.querySelectorAll('.settings-group > header h3')].map((heading) => heading.textContent),
-      ['Skills', 'MCP']
+      ['MCP']
     );
-    assert.match(document.body.textContent, /example-skill/);
+    assert.doesNotMatch(document.body.textContent, /example-skill/);
     assert.match(document.body.textContent, /example-mcp/);
-    assert.ok(document.querySelector('[data-extension-create-kind="skill"]'));
-    assert.ok(document.querySelector('[data-extension-create-kind="mcp"]'));
-    // Rows carry no switch; enabling happens inside each detail dialog.
-    assert.equal(document.querySelector('[data-extension-row="example-skill"] input'), null);
+    assert.equal(document.querySelector('[data-extension-create-kind]'), null);
     assert.equal(document.querySelector('[data-extension-row="example-mcp"] input'), null);
     const mcpTag = document.querySelector('[data-extension-row="example-mcp"] .sidebar-resource-tag');
     assert.ok(mcpTag);
     assert.equal(mcpTag.textContent, 'Not connected');
     assert.equal(mcpTag.getAttribute('data-tone'), 'warn');
-    assert.equal(document.querySelector('#extensions-skill-dialog-title'), null);
-
-    await act(async () => {
-      document.querySelector('[data-extension-create-kind="skill"]').click();
-    });
-    assert.equal(document.querySelector('#extensions-skill-dialog-title').textContent, 'Add skill');
-    assert.equal(closed, 0);
   } finally {
     await rendered.cleanup();
+  }
+});
+
+test('the Skills pane lists user skills only, and creates, edits, toggles and deletes them', async () => {
+  let closed = 0;
+  const calls = [];
+  const confirmations = [];
+  const skills = [
+    { name: 'my-skill', description: 'Mine', owner: { kind: 'user' }, editable: true },
+    { name: 'office-guide', description: 'Built in', owner: { kind: 'builtin', feature: 'office' } },
+    { name: 'bundled-skill', description: 'From a plugin', owner: { kind: 'plugin', id: 'bundle' } },
+  ];
+  const rendered = await renderPanel('user-skills', {
+    createOpen: true,
+    closeCreate() {
+      closed += 1;
+    },
+    confirm(options) {
+      confirmations.push(options);
+    },
+    data: { skills: { skills }, disabledSkills: { disabled: ['my-skill'] }, __loadedSections: ['skills'] },
+    async run(capability, args) {
+      calls.push([capability, args]);
+      if (capability === 'skillContent') return { content: '# Mine' };
+      return { ok: true };
+    },
+  });
+  try {
+    assert.ok(document.querySelector('[data-extension-row="my-skill"]'));
+    assert.equal(document.querySelector('[data-extension-row="office-guide"]'), null);
+    assert.equal(document.querySelector('[data-extension-row="bundled-skill"]'), null);
+    assert.equal(
+      document.querySelector('[data-extension-row="my-skill"] .sidebar-resource-tag').textContent,
+      'Disabled'
+    );
+
+    // Create: the editor opens straight away and saves through addSkill.
+    assert.equal(document.querySelector('#extensions-skill-dialog-title').textContent, 'Add skill');
+    globalThis.FormData = window.FormData;
+    document.querySelector('[name="skill-name"]').value = 'new-skill';
+    document.querySelector('[name="skill-description"]').value = 'New one';
+    await act(async () => {
+      document
+        .querySelector('.extensions-skill-dialog form')
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    });
+    assert.equal(calls.find(([capability]) => capability === 'addSkill')[1][0].name, 'new-skill');
+    assert.equal(closed, 1);
+  } finally {
+    await rendered.cleanup();
+  }
+
+  const edit = await renderPanel('user-skills', {
+    data: { skills: { skills }, disabledSkills: { disabled: [] }, __loadedSections: ['skills'] },
+    confirm(options) {
+      confirmations.push(options);
+    },
+    async run(capability, args) {
+      calls.push([capability, args]);
+      if (capability === 'skillContent') return { content: '# Mine' };
+      return { ok: true };
+    },
+  });
+  try {
+    await act(async () => {
+      document.querySelector('[data-extension-row="my-skill"]').click();
+    });
+    assert.ok(document.querySelector('#extensions-skill-dialog-title'));
+    await act(async () => {
+      document
+        .querySelector('.extensions-skill-dialog form')
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    });
+    assert.equal(calls.findLast(([capability]) => capability === 'saveSkill')[1][0].originalName, 'my-skill');
+  } finally {
+    await edit.cleanup();
   }
 });
 
@@ -737,7 +791,7 @@ test('the add dialog stays open and shows the host duplicate rejection from a st
 test('Skill and MCP rows acknowledge the card click before their detail payload resolves', async () => {
   const skillContent = deferred();
   const mcpConfig = deferred();
-  const rendered = await renderPanel('skills', {
+  let rendered = await renderPanel('user-skills', {
     async run(capability) {
       if (capability === 'skillContent') return skillContent.promise;
       if (capability === 'getMcpServerConfig') return mcpConfig.promise;
@@ -756,6 +810,14 @@ test('Skill and MCP rows acknowledge the card click before their detail payload 
     assert.ok(document.querySelector('#extensions-skill-dialog-title'));
     await act(async () => {
       document.querySelector('.extensions-skill-dialog header button[aria-label="Close"]').click();
+    });
+    await rendered.cleanup();
+    rendered = await renderPanel('mcp', {
+      async run(capability) {
+        if (capability === 'getMcpServerConfig') return mcpConfig.promise;
+      },
+    });
+    await act(async () => {
       document.querySelector('[data-extension-row="example-mcp"]').click();
     });
     assert.match(document.querySelector('[data-extension-loading="mcp"]').textContent, /Loading/);
@@ -773,31 +835,30 @@ test('Skill and MCP rows acknowledge the card click before their detail payload 
 });
 
 test('sidebar resource tags reflect disabled items and omit tags for connected MCP servers', async () => {
-  const rendered = await renderPanel('skills', {
-    data: {
-      toolModules: {},
-      voice: { enabled: false, installed: false },
-      plugins: {
-        plugins: [
-          { id: 'off-plugin', name: 'Off plugin', enabled: false },
-          { id: 'on-plugin', name: 'On plugin', enabled: true },
-        ],
-      },
-      skills: {
-        skills: [
-          { name: 'off-skill', description: 'Disabled skill' },
-          { name: 'on-skill', description: 'Active skill' },
-        ],
-      },
-      disabledSkills: { disabled: ['off-skill'] },
-      mcp: {
-        servers: [
-          { name: 'off-mcp', enabled: false, config: { type: 'stdio', command: 'x' } },
-          { name: 'connected-mcp', enabled: true, connected: true, config: { type: 'stdio', command: 'y' } },
-        ],
-      },
+  const sidebarData = {
+    toolModules: {},
+    voice: { enabled: false, installed: false },
+    plugins: {
+      plugins: [
+        { id: 'off-plugin', name: 'Off plugin', enabled: false },
+        { id: 'on-plugin', name: 'On plugin', enabled: true },
+      ],
     },
-  });
+    skills: {
+      skills: [
+        { name: 'off-skill', description: 'Disabled skill' },
+        { name: 'on-skill', description: 'Active skill' },
+      ],
+    },
+    disabledSkills: { disabled: ['off-skill'] },
+    mcp: {
+      servers: [
+        { name: 'off-mcp', enabled: false, config: { type: 'stdio', command: 'x' } },
+        { name: 'connected-mcp', enabled: true, connected: true, config: { type: 'stdio', command: 'y' } },
+      ],
+    },
+  };
+  const renderedSkills = await renderPanel('user-skills', { data: sidebarData });
   try {
     const offSkillTag = document.querySelector('[data-extension-row="off-skill"] .sidebar-resource-tag');
     assert.ok(offSkillTag);
@@ -806,7 +867,12 @@ test('sidebar resource tags reflect disabled items and omit tags for connected M
 
     const onSkillTag = document.querySelector('[data-extension-row="on-skill"] .sidebar-resource-tag');
     assert.equal(onSkillTag, null);
+  } finally {
+    await renderedSkills.cleanup();
+  }
 
+  const renderedMcp = await renderPanel('skills', { data: sidebarData });
+  try {
     const offMcpTag = document.querySelector('[data-extension-row="off-mcp"] .sidebar-resource-tag');
     assert.ok(offMcpTag);
     assert.equal(offMcpTag.textContent, 'Disabled');
@@ -815,7 +881,7 @@ test('sidebar resource tags reflect disabled items and omit tags for connected M
     const connectedMcpTag = document.querySelector('[data-extension-row="connected-mcp"] .sidebar-resource-tag');
     assert.equal(connectedMcpTag, null);
   } finally {
-    await rendered.cleanup();
+    await renderedMcp.cleanup();
   }
 
   const renderedPlugins = await renderPanel('plugins', {

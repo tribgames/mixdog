@@ -1,6 +1,6 @@
 {
   "id": "reviewer",
   "name": "Reviewer",
-  "description": "Use only at the end, as the final independent check of non-trivial work; otherwise Lead's own review suffices.",
+  "description": "Use once at the end, as the single final independent check of non-trivial work, never a second full pass over work already reviewed; otherwise Lead's own review suffices.",
   "entry": "AGENT.md"
 }

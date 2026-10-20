@@ -197,6 +197,15 @@
 .session-sidebar-panels .extensions-pane .settings-group-body {
   gap: 4px;
 }
+/* A list with nothing in it hands its whole height to the shared
+   .utility-dock-empty, which centres the line in the panel. */
+.session-sidebar-panels .extensions-pane .capability-settings-content:has(.utility-dock-empty),
+.session-sidebar-panels .extensions-pane .settings-group:has(> .settings-group-body > .utility-dock-empty),
+.session-sidebar-panels .extensions-pane .settings-group-body:has(> .utility-dock-empty) {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
 .session-sidebar-panels .extensions-pane .schedules-row.utilities-row.extensions-row {
   min-height: 32px;
 }

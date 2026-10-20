@@ -33,7 +33,8 @@ import {
   type PanelContext,
   type RecordValue,
 } from './capability-data';
-import { McpPanel, PluginExtensionsPanel, SkillExtensionsPanel } from './extension-panels';
+import { McpPanel, PluginExtensionsPanel, SkillExtensionsPanel, SkillsPanel } from './extension-panels';
+import { ConnectorsPanel } from './connectors-panel';
 import { PhoneUpdatePanel } from './phone-app-update-group';
 import { ProvidersPanel } from './provider-panel';
 import { ModelManagementPanel } from './model-management-panel';
@@ -49,6 +50,8 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'mcp') return <McpPanel {...context} />;
   if (category === 'plugins') return <PluginExtensionsPanel {...context} />;
   if (category === 'skills') return <SkillExtensionsPanel {...context} />;
+  if (category === 'connectors') return <ConnectorsPanel {...context} />;
+  if (category === 'user-skills') return <SkillsPanel {...context} />;
   if (category === 'context') return <ContextPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;

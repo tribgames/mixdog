@@ -87,8 +87,10 @@ for (const kind of ['extensions']) {
     const ui = await mount(t);
     const Component = (await import('./ExtensionsView.tsx')).ExtensionsPane;
     const initial = 'plugins';
-    const detail = 'Skill';
-    const home = 'Plugin';
+    // ExtensionsView SECTIONS: the tabs are now Extensions (first) and Connectors
+    // (the former Plugin / Skill tabs; extension-sections.ts 'connectors').
+    const detail = 'Connectors';
+    const home = 'Extensions';
     function Panel({ active, id }) {
       const [section, onSectionChange] = useState(initial);
       return React.createElement(

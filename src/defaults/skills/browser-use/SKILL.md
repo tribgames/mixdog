@@ -316,9 +316,14 @@ in the page instead of retrying the same `navigate`.
 - A refused or restricted action stays refused; do not reach the same effect
   through another page, tool, or `evaluate`.
 - Tool-side confirmation does not replace the user's approved scope.
+  Submitting a form (`submit`, Enter) or clicking a send/post control asks the
+  user once in the desktop app; a denial dispatches nothing.
   `MIXDOG_BROWSER_CONFIRM_ACTIONS` and
   `MIXDOG_BROWSER_DENY_ACTIONS` optionally name comma-separated public actions
   (or `*`) the desktop app confirms once or refuses; denial takes precedence.
+- For a password or token, focus the field and call `ask_user` with
+  `handoff: { kind: 'secret', surface: 'browser' }`; for sign-in, CAPTCHA or
+  2FA use `kind: 'takeover'` with instructions. Never ask for secrets in chat.
 - Cookie listings never expose values. Registered secret values remain
   redacted across redirects. A blocked result is not success; an inconclusive
   postcondition is not proof.

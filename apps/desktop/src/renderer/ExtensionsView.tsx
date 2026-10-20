@@ -1,4 +1,4 @@
-import { Blocks, Plus, Sparkles } from 'lucide-react';
+import { Blocks, Link, Plus } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 
 import type { ExtensionsSection } from './extension-sections';
@@ -11,13 +11,13 @@ import './settings/settings.css';
 import './desktop/31-extensions.css';
 
 const SECTIONS: ReadonlyArray<SidebarToolbarSection<ExtensionsSection>> = [
-  { id: 'plugins', label: 'Plugin', icon: Blocks },
-  { id: 'skills', label: 'Skill', icon: Sparkles },
+  { id: 'plugins', label: 'Extensions', icon: Blocks },
+  { id: 'connectors', label: 'Connectors', icon: Link },
 ];
 
 const CREATE_LABEL = {
   plugins: 'Install plugin',
-  skills: 'Add skill or MCP',
+  connectors: 'Add custom connector',
 } as const satisfies Record<ExtensionsSection, string>;
 
 export const ExtensionsPane = memo(function ExtensionsPane({

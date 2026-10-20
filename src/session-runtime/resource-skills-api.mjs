@@ -24,6 +24,7 @@ export function createSkillsResourceApi({ deps, sync, decorate }) {
     skillContent,
     addGlobalSkill,
     saveSkillDocument,
+    removeGlobalSkill,
     invalidateSkills,
     getDisabledSkills,
     setDisabledSkills,
@@ -55,6 +56,17 @@ export function createSkillsResourceApi({ deps, sync, decorate }) {
       }
       await sync.announce('skills', { invalidate: false });
       return { skill, status: skillsStatus() };
+    },
+    async removeSkill(input = {}) {
+      const removed = removeGlobalSkill(input);
+      // A removed skill leaves no stale disabled entry behind.
+      const disabled = getDisabledSkills?.().disabled;
+      if (Array.isArray(disabled) && disabled.includes(removed.name)) {
+        setDisabledSkills?.(disabled.filter((name) => name !== removed.name));
+        await flushSkillsSave?.();
+      }
+      await sync.announce('skills');
+      return { skill: removed, status: skillsStatus() };
     },
     async setDisabledSkills(names = []) {
       const result = setDisabledSkills?.(names);

@@ -164,7 +164,12 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     };
   }, [api]);
 
-  const extensionCategory = category === 'plugins' || category === 'skills' || category === 'mcp';
+  const extensionCategory =
+    category === 'plugins' ||
+    category === 'skills' ||
+    category === 'user-skills' ||
+    category === 'mcp' ||
+    category === 'connectors';
   const refreshExtensions = useCallback(async () => {
     const sections = await refreshCapabilitySections(api, EXTENSION_SECTIONS);
     if (Object.keys(sections).length) setData((previous) => applySectionRefresh(previous, sections));

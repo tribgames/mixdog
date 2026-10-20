@@ -174,8 +174,10 @@ export function collectSkills(cwd) {
         } catch {
           continue;
         }
-        // Agent Skills requires the manifest name to match its folder.
-        if (basename(dirname(filePath)) !== skill.name) continue;
+        // Agent Skills requires the manifest name to match its folder. Plugins
+        // are exempt: they ship nested layouts (skills/<plugin>/<topic>/) and
+        // load by their declared name; `seen` still settles collisions.
+        if (source !== 'plugin' && basename(dirname(filePath)) !== skill.name) continue;
         if (seen.has(skill.name)) continue;
         seen.add(skill.name);
         skills.push({

@@ -1,7 +1,7 @@
 // Skill surface (status listing, resource load, tool envelope, global skill
 // creation/editing). The runtime facade only wires the mutable cwd and the
 // context module into it.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import {
@@ -193,6 +193,20 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     return { originalName, name, filePath };
   }
 
+  function removeGlobalSkill(input = {}) {
+    const name = validateSkillName(input.name);
+    const resource = contextMod.loadSkillResource?.(name, getCwd());
+    if (!resource?.filePath) throw new Error(`skill not found: ${name}`);
+    const dir = dirname(resolve(resource.filePath));
+    const rel = relative(globalSkillsRoot(), dir);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel) || basename(dir) !== name) {
+      throw new Error(`only your own skills can be removed: ${name}`);
+    }
+    rmSync(dir, { recursive: true, force: true });
+    invalidateSkills();
+    return { name };
+  }
+
   function invalidateSkills() {
     contextMod.invalidateSkillsCache?.(getCwd());
   }
@@ -203,6 +217,7 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     skillToolContent,
     addGlobalSkill,
     saveSkillDocument,
+    removeGlobalSkill,
     invalidateSkills,
   };
 }

@@ -41,10 +41,7 @@ test('a write through the skills API is visible to the very next read, with no w
     // and settings mutations run.
     await settle();
     const filePath = join(process.env.MIXDOG_DATA_DIR, 'skills', 'fresh-skill', 'SKILL.md');
-    writeFileSync(
-      filePath,
-      readFileSync(filePath, 'utf8').replace('Use when saved again.', 'Use when reloaded.')
-    );
+    writeFileSync(filePath, readFileSync(filePath, 'utf8').replace('Use when saved again.', 'Use when reloaded.'));
     api.invalidateSkills();
     assert.equal(describe('fresh-skill'), 'Use when reloaded.');
   } finally {
@@ -281,6 +278,33 @@ test('read-only packaged skills permit local dependency edits but not source edi
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
     if (previousRoot === undefined) delete process.env.MIXDOG_ROOT;
     else process.env.MIXDOG_ROOT = previousRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('removeGlobalSkill deletes only the user skill folder and refuses built-in skills', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-remove-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  try {
+    mkdirSync(join(process.env.MIXDOG_DATA_DIR, 'skills'), { recursive: true });
+    const api = createSkillsApi({ contextMod, getCwd: () => root });
+    api.addGlobalSkill({ name: 'doomed-skill', description: 'Use when removing.' });
+    const dir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'doomed-skill');
+    assert.equal(existsSync(dir), true);
+    assert.deepEqual(api.removeGlobalSkill({ name: 'doomed-skill' }), { name: 'doomed-skill' });
+    assert.equal(existsSync(dir), false);
+    assert.equal(
+      api.skillsStatus().skills.some((skill) => skill.name === 'doomed-skill'),
+      false
+    );
+    assert.throws(() => api.removeGlobalSkill({ name: 'doomed-skill' }), /skill not found/);
+    const builtin = api.skillsStatus().skills.find((skill) => skill.source === 'builtin');
+    if (builtin) assert.throws(() => api.removeGlobalSkill({ name: builtin.name }), /only your own skills/);
+  } finally {
+    contextMod.invalidateSkillsCache(root);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
     rmSync(root, { recursive: true, force: true });
   }
 });

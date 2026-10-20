@@ -29,6 +29,8 @@
   runtime message rather than the user speaking. Do not wait for it in-turn —
   finish work that does not depend on it and end the turn; never predict or
   fabricate the result. On an agent report, review its diff against the brief;
-  verify the integrated result once before the final review; after the
-  Reviewer reports, resolve the findings before reporting completion. Pending
+  verify the integrated result once before the final review; the final
+  review is one pass over the integrated result, never a repeat of reviews
+  already done per scope; after the Reviewer reports, resolve the findings
+  before reporting completion. Pending
   agent work is not a completed request.

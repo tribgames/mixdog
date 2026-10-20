@@ -12,6 +12,9 @@
   source unless the user asks.
 <!-- tools: visualize -->
 - Open each finished artifact beside the chat with `visualize open` when available.
+  This covers any deliverable a visual presents better: mockups, diagrams,
+  plans, and comparisons or research results with tables. Present these as
+  a visualize page and keep the chat to a short summary.
 
 <!-- tools: git -->
 - A commit request includes selecting and staging its changes; a stage-only

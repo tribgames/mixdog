@@ -1,7 +1,10 @@
 import { X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 
+import { agentAvatar, defaultAgentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
 import type { DesktopCapability, DesktopModelOption } from '../shared/contract';
+import { AgentAvatarPicker, NEW_AGENT_AVATAR } from './agent-avatar';
+import { AgentInstructionEditors } from './agent-instruction-editors';
 import { t } from './i18n';
 import { RouteChainEditor, routeChainComplete } from './RouteChainEditor';
 import { record } from './record-utils';
@@ -17,8 +20,9 @@ export type RouteEditorTarget = {
   id: string;
   label: string;
   route: RecordValue;
-  capability: Extract<DesktopCapability, 'setWebSearchRoute' | 'setAgentRoute'>;
-  modelKind: 'webSearch' | 'agent';
+  /** 'setModelRoute' is the Main route's desktop API setter, not a capability. */
+  capability: Extract<DesktopCapability, 'setWebSearchRoute' | 'setAgentRoute'> | 'setModelRoute';
+  modelKind: 'webSearch' | 'agent' | 'main';
   description: string;
   disabled?: boolean;
   readOnlyDefinition: boolean;
@@ -31,10 +35,23 @@ const NEW_WORKFLOW_BODY = [
   'what each phase must deliver, and how results are reviewed and verified.',
 ].join('\n');
 
-const NEW_AGENT_BODY = [
-  'Describe this agent role: what it owns, how it works, and what it must',
-  'deliver back to the Lead.',
-].join('\n');
+/** The AGENT.md an empty "일하는 방식" saves as: the name as its heading, what
+ *  it does, then conversational conduct (the agent talks with the user; it is
+ *  not a worker filing reports). The name is required, so the body is never empty. */
+export function agentBodyFromBrief(name: string, description: string): string {
+  const role = description.trim();
+  return [
+    `# ${name.trim()}`,
+    role,
+    [
+      `- ${role ? 'Help the user with this role' : 'Help the user'} in a natural, friendly conversation, in the language they write in.`,
+      '- Ask a short question when a request is unclear, and say plainly when something is outside what you do.',
+      '- Keep replies as short or as detailed as the moment needs.',
+    ].join('\n'),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 // Reuse the canonical compact route editor so model, effort, and fast mode
 // match the existing options surface instead of drifting in a local copy.
@@ -203,6 +220,17 @@ export function AgentEditorDialog({
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
   const [enabled, setEnabled] = useState(() => record(agent).disabled !== true);
   const [formError, setFormError] = useState('');
+  // The face it shows today; saved only once changed here (or on create), so
+  // an untouched agent keeps whatever its agent.json holds. An agent with an
+  // uploaded image shows its id mascot here, saved only if picked.
+  const [avatar, setAvatar] = useState(() => {
+    const id = String(agent?.id || '');
+    const current = editing ? agentAvatar(id, agent?.avatar) : NEW_AGENT_AVATAR;
+    return current.kind === 'mascot' ? current : defaultAgentAvatar(id);
+  });
+  const [avatarChanged, setAvatarChanged] = useState(!editing);
+  const [body, setBody] = useState(() => String(agent?.body || ''));
+  const [persona, setPersona] = useState(() => String(agent?.persona || ''));
   // An agent is either off or pinned to a model: switching it on waits for
   // one, and an on agent with an empty model cannot be saved.
   const needsModel = enabled && !routeChainComplete(route);
@@ -236,11 +264,6 @@ export function AgentEditorDialog({
             event.preventDefault();
             const data = new FormData(event.currentTarget);
             const text = (name: string) => String(data.get(name) || '').trim();
-            const body = String(data.get('agent-body') || '').trim();
-            if (!body) {
-              setFormError('AGENT.md must not be empty.');
-              return;
-            }
             setFormError('');
             const picked = route.provider && route.model ? route : null;
             let routeField: { route?: object } = {};
@@ -250,8 +273,10 @@ export function AgentEditorDialog({
               ...(editing ? { id: String(agent?.id || '') } : {}),
               name: text('agent-name'),
               description: text('agent-description'),
+              ...(avatarChanged ? { avatar } : {}),
               ...routeField,
-              body,
+              persona: persona.trim(),
+              body: body.trim() || agentBodyFromBrief(text('agent-name'), text('agent-description')),
             });
           }}
         >
@@ -280,6 +305,18 @@ export function AgentEditorDialog({
             />
           </label>
           <div className="schedules-field">
+            <span>{t('Avatar')}</span>
+            <AgentAvatarPicker
+              value={avatar}
+              disabled={busy}
+              compact
+              onChange={(next) => {
+                setAvatar(next);
+                setAvatarChanged(true);
+              }}
+            />
+          </div>
+          <div className="schedules-field">
             <div className="workflows-dialog-route">
               <RouteControls
                 label={t('Agent model')}
@@ -291,18 +328,16 @@ export function AgentEditorDialog({
               />
             </div>
           </div>
-          <label className="schedules-field workflows-md-field">
-            <span>AGENT.md</span>
-            <small>{t('Instructions that define how this agent works.')}</small>
-            <textarea
-              name="agent-body"
-              defaultValue={String(agent?.body || (editing ? '' : NEW_AGENT_BODY))}
-              required
-              spellCheck={false}
+          <div className="schedules-field workflows-md-field">
+            <span>{t('Personality and how it works')}</span>
+            <AgentInstructionEditors
+              persona={persona}
+              body={body}
               disabled={busy}
-              aria-label="AGENT.md body"
+              onPersona={setPersona}
+              onBody={setBody}
             />
-          </label>
+          </div>
           <EditorDialogFooter
             error={formError || error}
             busy={busy}
@@ -390,7 +425,7 @@ export function RouteEditorDialog({
                 route={route}
                 models={models}
                 disabled={busy}
-                composerParity={target.modelKind === 'agent'}
+                composerParity={target.modelKind !== 'webSearch'}
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
               />
             </div>

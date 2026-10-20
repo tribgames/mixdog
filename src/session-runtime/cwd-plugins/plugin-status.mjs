@@ -68,6 +68,10 @@ export function createPluginStatus({
     const name = clean(manifest.name) || clean(manifest.id) || clean(entry.name) || root.split(/[\\/]/).pop() || root;
     const { mcpScript, mcpInline } = discoverPluginMcp(root);
     const skillCount = countSkillFiles(root);
+    // The hook files the hook bus loads for a plugin (hook-bus/config.mjs).
+    const hooks = [resolve(root, 'hooks', 'hooks.json'), resolve(root, '.mixdog', 'hooks.json')].some((file) =>
+      existsSync(file)
+    );
     const plugin = {
       id: clean(entry.id) || name,
       name,
@@ -85,11 +89,12 @@ export function createPluginStatus({
       installedAt: entry.installedAt || null,
       updatedAt: entry.updatedAt || null,
       skillCount,
+      hooks,
       mcpScript,
       mcpInline,
     };
     if (invalid) plugin.invalid = true;
-    if (plugin.enabled && skillCount === 0 && !mcpScript && !mcpInline) {
+    if (plugin.enabled && skillCount === 0 && !mcpScript && !mcpInline && !hooks) {
       plugin.searchedSkillRoots = pluginSkillsRoots(root);
       plugin.warning = `No skills or MCP server found. Searched skill roots: ${plugin.searchedSkillRoots.join(', ')}`;
     }

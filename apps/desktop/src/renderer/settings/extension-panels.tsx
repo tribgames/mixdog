@@ -1,4 +1,4 @@
-import { Blocks, ChevronRight, Plug, Sparkles } from 'lucide-react';
+import { Blocks, Plug } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { t } from '../i18n';
 import { CapabilityIcon } from '../CapabilityIcon';
@@ -10,12 +10,12 @@ import { ScmContextMenu, type ScmContextMenuState } from '../ScmContextMenu';
 import { SidebarLoadingDialog } from '../sidebar-dialog';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { PluginInfo } from './plugin-info';
-import { SkillEditorDialog, useSkillToolLinks } from './skill-editor';
+import { SkillEditorDialog } from './skill-editor';
 import { CompactSwitch, Group, ListEmpty } from './capability-controls';
 import { label, rows, sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
+import { isConnectorPlugin } from '../connectors-model';
 import {
   currentProjectPath,
-  ExtensionAction,
   ExtensionDetailDialog,
   ExtensionField,
   ExtensionItemList,
@@ -92,57 +92,9 @@ function saveSkillEnabled(run: PanelContext['run'], disabled: ReadonlySet<string
   void run('setDisabledSkills', [[...next]]);
 }
 
-type SkillExtensionCreateKind = 'skill' | 'mcp';
-
-function SkillExtensionCreateDialog({
-  onClose,
-  onSelect,
-}: {
-  onClose(): void;
-  onSelect(kind: SkillExtensionCreateKind): void;
-}) {
-  return (
-    <ExtensionDetailDialog
-      width="compact"
-      className="extensions-create-dialog"
-      titleId="extensions-create-dialog-title"
-      title={t('Add skill or MCP')}
-      onClose={onClose}
-    >
-      <div className="extensions-create-options">
-        <button type="button" data-extension-create-kind="skill" onClick={() => onSelect('skill')}>
-          <Sparkles size={18} aria-hidden="true" />
-          <span>
-            <b>{t('Skill')}</b>
-            <small>{t('Instructions that define how this skill works.')}</small>
-          </span>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-        <button type="button" data-extension-create-kind="mcp" onClick={() => onSelect('mcp')}>
-          <Plug size={18} aria-hidden="true" />
-          <span>
-            <b>{t('MCP')}</b>
-            <small>{t('How Mixdog connects to this MCP server.')}</small>
-          </span>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-      </div>
-    </ExtensionDetailDialog>
-  );
-}
-
 const REMOVAL_IN_FLIGHT = Symbol('mcp-removal-in-flight');
 
-export function McpPanel({
-  api,
-  data,
-  pending,
-  run,
-  confirm,
-  refreshExtensions,
-  createOpen,
-  closeCreate,
-}: PanelContext) {
+export function McpPanel({ data, pending, run, confirm, refreshExtensions, createOpen, closeCreate }: PanelContext) {
   const status = record(data.mcp);
   const oauthLogin = useMcpOAuthLogin({ run, refreshExtensions });
   // Probing is a read: no busy state, no list refresh, and a failure comes back
@@ -318,17 +270,8 @@ export function McpPanel({
           onClose={closeEditor}
           onConnect={(serverName) => void oauthLogin.connect(serverName)}
           onDisconnect={(serverName) => void oauthLogin.disconnect(serverName)}
-          scopeField={
-            <ExtensionScopeField
-              api={api}
-              run={run}
-              kind="mcp"
-              name={openName}
-              {...scopeOf(servers.find((server) => String(server.name) === openName) || openServer)}
-              currentPath={currentProjectPath(data)}
-              busy={busy}
-            />
-          }
+          // No "Applies to" here: a connector is on in every project unless
+          // Project settings switches it off (사용할 커넥터).
           onSave={(payload) => {
             closeEditor();
             void run('saveMcpServer', [payload]);
@@ -344,7 +287,17 @@ export function McpPanel({
   );
 }
 
-function SkillsPanel({ api, data, pending, run, refreshExtensions, createOpen, closeCreate }: PanelContext) {
+/** The user's own skills only: built-in and plugin skills stay out of the UI. */
+export function SkillsPanel({
+  api,
+  data,
+  pending,
+  run,
+  confirm,
+  refreshExtensions,
+  createOpen,
+  closeCreate,
+}: PanelContext) {
   const status = record(data.skills);
   const skills = rows(status, 'skills').filter(
     (skill) => record(skill.owner).kind !== 'builtin' && record(skill.owner).kind !== 'plugin'
@@ -374,7 +327,25 @@ function SkillsPanel({ api, data, pending, run, refreshExtensions, createOpen, c
       items: [
         { id: 'open', label: t('Open'), onSelect: () => window.setTimeout(() => openDetail(name), 0) },
         { id: 'toggle', label: off ? t('Enable') : t('Disable'), onSelect: () => toggle(name) },
+        {
+          id: 'remove',
+          label: t('Delete'),
+          danger: true,
+          separatorBefore: true,
+          onSelect: () => window.setTimeout(() => confirmRemove(name), 0),
+        },
       ],
+    });
+  const confirmRemove = (name: string) =>
+    confirm({
+      title: t('Delete skill?'),
+      description: t('{{name}} will be deleted from your skills.', { name }),
+      confirmLabel: t('Delete'),
+      danger: true,
+      onConfirm: () => {
+        setDetail((current) => (current?.name === name ? null : current));
+        void run('removeSkill', [{ name }]);
+      },
     });
   const save = async (payload: RecordValue) => {
     const capability = detail ? 'saveSkill' : 'addSkill';
@@ -385,7 +356,7 @@ function SkillsPanel({ api, data, pending, run, refreshExtensions, createOpen, c
     showDesktopToast(t('Saved "{{name}}".', { name: String(payload.name || '') }), 'success');
   };
   return (
-    <Group title={t('Skills')}>
+    <Group>
       {createOpen && (
         <SkillEditorDialog
           skill={null}
@@ -397,9 +368,14 @@ function SkillsPanel({ api, data, pending, run, refreshExtensions, createOpen, c
           onSave={(payload) => void save(payload)}
         />
       )}
-      {skills.length === 0 && (
-        <ListEmpty text={sectionLoaded(data, 'skills') ? t('No skills found.') : t('Loading skills…')} />
-      )}
+      {skills.length === 0 &&
+        (sectionLoaded(data, 'skills') ? (
+          <div className="utility-dock-empty">
+            <p>{t('No skills.')}</p>
+          </div>
+        ) : (
+          <ListEmpty text={t('Loading skills…')} />
+        ))}
       {skills.map((skill) => {
         const name = String(skill.name);
         const off = disabled.has(name);
@@ -461,12 +437,6 @@ function pluginRowStatus(enabled: boolean, warning: boolean) {
   return null;
 }
 
-function pluginSkillRows(data: PanelContext['data'], pluginId: string): RecordValue[] {
-  return rows(record(data.skills), 'skills').filter(
-    (skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === pluginId
-  );
-}
-
 // A plugin's MCP servers are the status rows whose owner metadata names it.
 function pluginMcpServers(data: PanelContext['data'], plugin: RecordValue): RecordValue[] {
   const id = String(plugin.id || plugin.name || '');
@@ -516,12 +486,10 @@ function PluginDetailDialog({
   run,
   confirm,
   refreshExtensions,
-  openSkillTools,
   onClose,
 }: Pick<PanelContext, 'api' | 'data' | 'run' | 'confirm' | 'refreshExtensions'> & {
   plugin: RecordValue;
   busy: boolean;
-  openSkillTools(name: string): void;
   onClose(): void;
 }) {
   const id = String(open.id || open.name);
@@ -530,12 +498,10 @@ function PluginDetailDialog({
   useEffect(() => {
     void refreshExtensions();
   }, [id]);
-  const skills = pluginSkillRows(data, id);
   const servers = pluginMcpServers(data, open);
   const mcpProblems = pluginMcpProblems(open, servers);
   const pluginOn = open.enabled !== false;
-  const disabledSkills = disabledSkillNames(data);
-  const contents = skills.length + servers.length;
+  const contents = servers.length;
   // Footer keeps the plugin's real actions only — Remove (parked left) and
   // Update. Its MCP servers appear on their own from its declarations; the
   // root path and MCP names sit in Info as selectable text.
@@ -598,32 +564,6 @@ function PluginDetailDialog({
         )}
         {contents > 0 && (
           <ExtensionItemList>
-            {skills.map((skill) => {
-              const name = String(skill.name);
-              const off = disabledSkills.has(name);
-              return (
-                <ExtensionItemRow
-                  key={`skill:${name}`}
-                  icon={<CapabilityIcon name={name} size={16} />}
-                  title={name}
-                  description={skillDisplayDescription(skill).trim()}
-                  tone={off ? 'off' : 'ok'}
-                  control={
-                    <>
-                      <ExtensionAction disabled={busy} onClick={() => openSkillTools(name)}>
-                        {t('Required tools')}
-                      </ExtensionAction>
-                      <CompactSwitch
-                        label={`${name} · ${t('Enabled')}`}
-                        checked={!off}
-                        disabled={busy}
-                        onChange={(next) => saveSkillEnabled(run, disabledSkills, name, next)}
-                      />
-                    </>
-                  }
-                />
-              );
-            })}
             {servers.map((server) => {
               const name = String(server.name);
               // The switch is the server's own intent; the plugin toggle above
@@ -659,9 +599,9 @@ function PluginDetailDialog({
 }
 
 function PluginsPanel({ api, data, pending, run, confirm, refreshExtensions, createOpen, closeCreate }: PanelContext) {
-  const { openSkillTools, skillToolsDialog } = useSkillToolLinks({ data, pending, run });
   const status = record(data.plugins);
-  const plugins = rows(status, 'plugins');
+  // Plugins that bring MCP servers are connectors (Connectors → 커스텀 커넥터).
+  const plugins = rows(status, 'plugins').filter((plugin) => !isConnectorPlugin(plugin));
   const busy = Boolean(pending);
   const [openId, setOpenId] = useState('');
   const open = openId ? plugins.find((plugin) => String(plugin.id || plugin.name) === openId) : undefined;
@@ -699,7 +639,6 @@ function PluginsPanel({ api, data, pending, run, confirm, refreshExtensions, cre
   };
   return (
     <Group title={t('Plugins')}>
-      {skillToolsDialog}
       {createOpen && (
         <PluginInstallDialog
           busy={busy}
@@ -708,7 +647,7 @@ function PluginsPanel({ api, data, pending, run, confirm, refreshExtensions, cre
         />
       )}
       {plugins.length === 0 && (
-        <ListEmpty text={sectionLoaded(data, 'plugins') ? t('No plugins installed.') : t('Loading plugins…')} />
+        <ListEmpty text={sectionLoaded(data, 'plugins') ? t('No plugins.') : t('Loading plugins…')} />
       )}
       {plugins.map((plugin) => {
         const id = String(plugin.id || plugin.name);
@@ -743,7 +682,6 @@ function PluginsPanel({ api, data, pending, run, confirm, refreshExtensions, cre
           run={run}
           confirm={confirm}
           refreshExtensions={refreshExtensions}
-          openSkillTools={openSkillTools}
           onClose={() => setOpenId('')}
         />
       )}
@@ -761,20 +699,5 @@ export function PluginExtensionsPanel(context: PanelContext) {
 }
 
 export function SkillExtensionsPanel(context: PanelContext) {
-  const { createOpen, closeCreate } = context;
-  const [createKind, setCreateKind] = useState<SkillExtensionCreateKind | null>(null);
-  useEffect(() => {
-    if (!createOpen) setCreateKind(null);
-  }, [createOpen]);
-  const closeCreateFlow = () => {
-    setCreateKind(null);
-    closeCreate?.();
-  };
-  return (
-    <>
-      {createOpen && !createKind && <SkillExtensionCreateDialog onClose={closeCreateFlow} onSelect={setCreateKind} />}
-      <SkillsPanel {...context} createOpen={createKind === 'skill'} closeCreate={closeCreateFlow} />
-      <McpPanel {...context} createOpen={createKind === 'mcp'} closeCreate={closeCreateFlow} />
-    </>
-  );
+  return <McpPanel {...context} />;
 }

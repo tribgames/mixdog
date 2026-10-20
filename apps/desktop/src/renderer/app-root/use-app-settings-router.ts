@@ -54,6 +54,19 @@ export function useAppSettingsRouter({
 }: UseAppSettingsRouterOptions) {
   const openSettings = useCallback(
     (section: SlashSettingsSection | null = null) => {
+      if (section === 'skills') {
+        setSettingsOpen(false);
+        setCommandSurface(null);
+        mountSidebarPanel('skills');
+        trackSidebarPanelModule('skills', loadSidebarPanelModule.skills());
+        if (workbenchSideLayout.sideOf('skills') === 'right') {
+          paneSideDocks.open(focusedLeafIdRef.current, 'skills');
+          return;
+        }
+        setActiveSideViews((current) => (current.left === 'skills' ? current : { ...current, left: 'skills' }));
+        applySidebarOpen(true);
+        return;
+      }
       const extensionSection = extensionSectionForSettings(section);
       if (extensionSection) {
         if (!desktopFeatureEnabled('extensions')) return;

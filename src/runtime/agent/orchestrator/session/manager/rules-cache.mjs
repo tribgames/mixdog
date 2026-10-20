@@ -112,20 +112,36 @@ export function _buildAgentRules(profile = 'full') {
   );
 }
 
-export function _buildLeadRules({ includeLeadBrief = true } = {}) {
+// One `part` of LEAD.md (rules-builder buildLeadRoleContent): 'common' (the
+// lines every Lead shares), 'coding' / 'agent' (the mode-variant passages),
+// 'identity' (the coding identity sentence).
+export function _buildLeadRules({ includeLeadBrief = true, part = 'common' } = {}) {
   const PLUGIN_ROOT = mixdogRoot();
   const DATA_DIR = resolvePluginData();
   const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+  const variant = includeLeadBrief ? 'delegating' : 'delegation-free';
   return buildCachedRules(
     'buildLeadRoleContent',
     'lead role rules',
     [join(RULES_DIR, 'lead'), join(DATA_DIR, 'mixdog-config.json')],
-    { PLUGIN_ROOT, DATA_DIR, includeLeadBrief },
-    includeLeadBrief ? 'delegating' : 'delegation-free'
+    { PLUGIN_ROOT, DATA_DIR, includeLeadBrief, part },
+    `${variant}\n${part}`
   );
 }
 
-export function _buildLeadMetaContext() {
+// One agent-mode rule file (rules/agent-mode): 'conduct', 'mixy' or 'routine'.
+export function _buildAgentModeRules({ part = 'conduct' } = {}) {
+  const PLUGIN_ROOT = mixdogRoot();
+  return buildCachedRules(
+    'buildAgentModeContent',
+    'agent mode rules',
+    [join(PLUGIN_ROOT, 'rules', 'agent-mode')],
+    { PLUGIN_ROOT, part },
+    part
+  );
+}
+
+export function _buildLeadMetaContext({ includeOutputStyle = true } = {}) {
   const PLUGIN_ROOT = mixdogRoot();
   const DATA_DIR = resolvePluginData();
   const RULES_DIR = join(PLUGIN_ROOT, 'rules');
@@ -138,7 +154,8 @@ export function _buildLeadMetaContext() {
       join(PLUGIN_ROOT, 'output-styles'),
       join(DATA_DIR, 'output-styles'),
     ],
-    { PLUGIN_ROOT, DATA_DIR }
+    { PLUGIN_ROOT, DATA_DIR, includeOutputStyle },
+    includeOutputStyle ? 'style' : 'no-style'
   );
 }
 

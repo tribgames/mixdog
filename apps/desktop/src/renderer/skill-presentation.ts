@@ -16,6 +16,7 @@ const DESCRIPTIONS: Record<string, () => string> = {
   'memory-management': () => t('Manage saved user preferences and constraints.'),
   'local-provider': () => t('Download and run AI models on this device.'),
   setup: () => t('Configure models, tools, and application settings.'),
+  'setup-guide': () => t('Guide first setup and explain Mixdog concepts.'),
   'skill-creator': () => t('Create, review, and improve reusable skills.'),
   'code-tidy': () => t('Format, lint, and tidy code across languages.'),
   visualize: () => t('Show mockups, documents, and other results beside the chat.'),

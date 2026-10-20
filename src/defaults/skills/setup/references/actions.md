@@ -52,6 +52,7 @@ Read this when choosing a `setup` mutation.
 | Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
 | Select, rename, or reorder OAuth accounts, set the switching policy, or allow paid credits | `set_provider_account` |
 | Developer options such as risk-gated OAuth providers | `set_developer_option` |
+| Connect a catalog service (Slack, Notion, GitHub, …) for the user: shows a one-click connect card | `connect_connector` |
 | Add an MCP server | `add_mcp_server` |
 | Edit or rename an MCP server | `save_mcp_server` |
 | Remove an MCP server | `remove_mcp_server` |
@@ -71,9 +72,10 @@ Read this when choosing a `setup` mutation.
 | Create a workflow, agent, or machine-global user skill | `create_definition` |
 | Partially edit a workflow, agent, or machine-global user skill | `save_definition` |
 | Delete a user workflow/agent definition or override | `delete_definition` |
-| Save a schedule/webhook; explicitly overwrite to edit | `save_automation` |
+| Save a schedule/webhook; explicitly overwrite to edit. A new one belongs to the calling thread's agent (Mixy = `lead`); `entry.owner` moves it to another agent | `save_automation` |
 | Delete an existing schedule/webhook | `delete_automation` |
-| Enable/disable a schedule/webhook | `set_automation_enabled` |
+| Enable/disable (pause/resume) a schedule/webhook | `set_automation_enabled` |
+| Run a schedule once now, or re-run a webhook on its latest received payload; the result posts into the owning agent's thread | `run_automation` |
 | Webhook listener enabled state, port, or domain | `set_webhook_config` |
 | Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, usage rail short + long bars, or Computer observe-only state | `set_desktop_settings` |
 | Desktop theme, display language, side panels, markdown default view, link previews, or tool activity expansion | `set_appearance` |
@@ -235,6 +237,12 @@ markers are read with `status desktop`.
   `add_mcp_server`, `save_mcp_server`, and `remove_mcp_server` refuse plugin
   servers. Declaration problems and naming conflicts are reported as
   `declarationErrors` and `warnings`.
+- `connect_connector` is how to connect a catalog service the user asks for
+  ("Slack 연결해 줘"): it leaves a connect card in the conversation whose
+  press runs the browser sign-in (or the key sheet) in Desktop; nothing
+  connects until the user presses it, so tell them to press the card and read
+  `status mcp` afterwards. `add_mcp_server` with the service URL is not the
+  sign-in flow; never use it for a catalog service.
 - `enable_plugin_mcp` turns every server the plugin declares back on and
   reconnects them; a disabled plugin stays disabled, and it fails for a plugin
   that declares no MCP servers.
@@ -248,8 +256,7 @@ markers are read with `status desktop`.
 - A Project removal unregisters it only.
 - Inspect schedules/webhooks before editing. `overwrite:true` updates an
   existing named entry and preserves omitted fields; a new schedule needs
-  instructions, a `model` (no default-model fallback), and exactly one of cron
-  `time` or one-shot `at`.
+  instructions and exactly one of cron `time` or one-shot `at`.
 - Attachment contents and webhook signing secrets are not returned by setup.
   Omitted attachments and existing webhook secrets are preserved. A saved
   secret is never shown again: tell the user to open the Webhooks panel, edit

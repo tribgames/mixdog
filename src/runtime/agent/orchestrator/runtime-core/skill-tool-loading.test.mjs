@@ -265,6 +265,7 @@ test('every bundled skill declares its mandatory existing tools without eagerly 
     image: ['media'],
     video: ['media'],
     setup: ['setup'],
+    'setup-guide': ['setup'],
     'local-provider': ['setup'],
     'skill-creator': ['read', 'shell'],
     'goal-management': ['goal'],

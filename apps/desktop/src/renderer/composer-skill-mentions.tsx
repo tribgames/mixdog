@@ -169,6 +169,7 @@ const SKILL_CATALOG_MUTATIONS = new Set<string>([
   'setExtensionScope',
   'addSkill',
   'saveSkill',
+  'removeSkill',
   'reloadSkills',
   'reloadPlugins',
   'addPlugin',

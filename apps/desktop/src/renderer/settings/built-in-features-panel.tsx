@@ -1,5 +1,4 @@
 import { CapabilityIcon } from '../CapabilityIcon';
-import { skillDisplayDescription } from '../skill-presentation';
 import { useEffect, useMemo, useState } from 'react';
 
 import type {
@@ -17,15 +16,7 @@ import { publishAutoEffort } from '../auto-effort-store';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { CompactSwitch, Group } from './capability-controls';
 import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
-import {
-  ExtensionDetailDialog,
-  ExtensionAction,
-  ExtensionItemList,
-  ExtensionItemRow,
-  ExtensionNote,
-  ExtensionRow,
-  ExtensionSection,
-} from './extension-detail';
+import { ExtensionDetailDialog, ExtensionNote, ExtensionRow } from './extension-detail';
 import { BUILT_IN_FEATURES, type BuiltInFeatureDefinition, type BuiltInFeatureId } from './built-in-feature-registry';
 import { SlotProgress } from './built-in-install-progress';
 import { LocalProviderModels } from './local-provider-models';
@@ -127,8 +118,6 @@ function useDesktopFeatureStatus(api: PanelContext['api']) {
 
 type FeatureState = {
   feature: BuiltInFeatureDefinition;
-  /** Built-in skills that install and toggle with this feature. */
-  bundledSkills: RecordValue[];
   installed: boolean;
   enabled: boolean;
   ready: boolean;
@@ -243,7 +232,7 @@ function FeatureDetailDialog({
   onClose(): void;
   localActions: LocalProviderActions;
 }) {
-  const { feature, bundledSkills, action, ready, installed } = state;
+  const { feature, action, ready, installed } = state;
   const title = t(feature.title);
   const requirement = featureRequirement(feature.id);
   return (
@@ -282,26 +271,6 @@ function FeatureDetailDialog({
       {/* Provider accounts live on the desktop, so a server window has no
           generators or accounts to choose from. */}
       {feature.id === 'media' && !serverWindow && <MediaGenerationSettings data={media} />}
-      {bundledSkills.length > 0 && (
-        <ExtensionSection title={t('Skills')} count={bundledSkills.length}>
-          <ExtensionItemList>
-            {bundledSkills.map((skill) => {
-              const name = String(skill.name);
-              const off = !ready || !installed || !state.enabled || !state.available;
-              return (
-                <ExtensionItemRow
-                  key={name}
-                  icon={<CapabilityIcon name={name} size={16} />}
-                  title={name}
-                  description={skillDisplayDescription(skill).trim()}
-                  tone={off ? 'off' : 'ok'}
-                  control={<ExtensionAction disabled>{t('Required tools')}</ExtensionAction>}
-                />
-              );
-            })}
-          </ExtensionItemList>
-        </ExtensionSection>
-      )}
       <BuiltInFeatureInfo
         state={state}
         gitStatus={gitStatus}
@@ -319,8 +288,12 @@ export function BuiltInFeaturesPanel({
   run,
   api,
   initialFeature = null,
+  onDetailClose,
 }: PanelContext & {
   initialFeature?: BuiltInFeatureId | null;
+  /** Detail only: no list, just `initialFeature`'s card (the 커넥터 tab's
+   *  GitHub row opens Git & GitHub here); called when it closes. */
+  onDetailClose?(): void;
 }) {
   const localActions = useLocalProviderActions(run, pending);
   const { settings, setSettings, gitStatus, setGitStatus, officeDependency, setOfficeDependency } =
@@ -347,21 +320,6 @@ export function BuiltInFeaturesPanel({
   const media = useMediaGeneration(api, openId === 'media' && !serverWindow);
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
-  // Built-in skills ride their feature's Install and toggle, so the card names
-  // them instead of the Skills panel listing them as loose entries.
-  const bundledSkills = useMemo<Partial<Record<BuiltInFeatureId, RecordValue[]>>>(() => {
-    const byFeature: Partial<Record<BuiltInFeatureId, RecordValue[]>> = {};
-    const skills = record(data.skills).skills;
-    for (const skill of Array.isArray(skills) ? skills : []) {
-      const owner = record(record(skill).owner);
-      if (owner.kind !== 'builtin' || typeof owner.feature !== 'string') continue;
-      const feature = owner.feature as BuiltInFeatureId;
-      const list = byFeature[feature] ?? [];
-      list.push(record(skill));
-      byFeature[feature] = list;
-    }
-    return byFeature;
-  }, [data.skills]);
   useEffect(() => {
     if (voice.installed === true) setVoiceInstalled(true);
   }, [voice.installed]);
@@ -531,7 +489,6 @@ export function BuiltInFeaturesPanel({
     }
     return {
       feature,
-      bundledSkills: bundledSkills[feature.id] || [],
       installed: installed[feature.id],
       enabled: optimistic?.id === feature.id ? optimistic.value : enabled[feature.id],
       ready,
@@ -556,6 +513,24 @@ export function BuiltInFeaturesPanel({
     };
   };
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
+  const detail = open ? (
+    <FeatureDetailDialog
+      key={open.id}
+      state={stateOf(open)}
+      api={api}
+      localActions={localActions}
+      gitStatus={gitStatus}
+      officeDependency={officeDependency}
+      tidyStatus={tidy.status}
+      tidyInstallStatus={tidy.installStatus}
+      computerReadiness={computerReadiness}
+      media={media}
+      onInstall={() => install(open.id)}
+      onToggle={(next) => toggle(open.id, next)}
+      onClose={onDetailClose ?? (() => setOpenId(null))}
+    />
+  ) : null;
+  if (onDetailClose) return detail;
   return (
     <Group title={t('Built-in')}>
       {BUILT_IN_FEATURES.filter((feature) => !(serverWindow && PC_ONLY_FEATURES.has(feature.id))).map((feature) => {
@@ -574,23 +549,7 @@ export function BuiltInFeaturesPanel({
           />
         );
       })}
-      {open && (
-        <FeatureDetailDialog
-          key={open.id}
-          state={stateOf(open)}
-          api={api}
-          localActions={localActions}
-          gitStatus={gitStatus}
-          officeDependency={officeDependency}
-          tidyStatus={tidy.status}
-          tidyInstallStatus={tidy.installStatus}
-          computerReadiness={computerReadiness}
-          media={media}
-          onInstall={() => install(open.id)}
-          onToggle={(next) => toggle(open.id, next)}
-          onClose={() => setOpenId(null)}
-        />
-      )}
+      {detail}
     </Group>
   );
 }

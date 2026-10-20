@@ -36,7 +36,7 @@ test('composeSystemPrompt omits empty optional slices without rewriting present 
   assert.equal(sessionMarkerCore, '# Active Workflow: Solo');
 });
 
-test('instruction files ride the BP3 core right after core memory; skip.claudemd drops them', () => {
+test('instruction files ride the BP3 core right before core memory; skip.claudemd drops them', () => {
   const opts = {
     workflowContext: '# Active Workflow: Solo',
     roleRules: '# General',
@@ -48,7 +48,7 @@ test('instruction files ride the BP3 core right after core memory; skip.claudemd
   const { sessionMarkerCore, sessionEnvironment } = composeSystemPrompt(opts);
   assert.equal(
     sessionMarkerCore,
-    '# Active Workflow: Solo\n\n---\n\n# General\n\n---\n\n# Core Memory\n- memo\n\n---\n\n# Instruction Files\n\n## /home/u/.codex/AGENTS.md\n\nrule'
+    '# Active Workflow: Solo\n\n---\n\n# General\n\n---\n\n# Instruction Files\n\n## /home/u/.codex/AGENTS.md\n\nrule\n\n---\n\n# Core Memory\n- memo'
   );
   assert.doesNotMatch(sessionEnvironment, /Instruction Files/);
   const skipped = composeSystemPrompt({ ...opts, profile: { skip: { claudemd: true } } });

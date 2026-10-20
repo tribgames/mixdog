@@ -23,6 +23,7 @@ const TITLES: Record<string, () => string> = {
   'memory-management': () => t('Memory'),
   'local-provider': () => t('Local Provider'),
   setup: () => t('Settings'),
+  'setup-guide': () => t('Setup guide'),
   'skill-creator': () => t('Create skill'),
   'code-tidy': () => t('Code Tidy'),
 };

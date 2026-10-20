@@ -413,6 +413,48 @@ test('requires a standard folder name that matches the manifest name', () => {
   }
 });
 
+test('plugin skills load by their declared name even when the folder name differs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-skill-name-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  try {
+    const pluginRoot = join(root, 'notion-plugin');
+    const writeSkill = (dir, name, description) => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, 'SKILL.md'),
+        ['---', `name: ${name}`, `description: ${description}`, '---', '', '# Instructions', ''].join('\n')
+      );
+    };
+    writeSkill(join(pluginRoot, 'skills', 'notion', 'knowledge-capture'), 'notion-knowledge-capture', 'Nested.');
+    writeSkill(join(pluginRoot, 'skills', 'matching'), 'matching', 'Matching.');
+    // Same declared name as a user-global skill: the global one keeps precedence.
+    writeSkill(join(pluginRoot, 'skills', 'shadowed-folder'), 'shared-name', 'From plugin.');
+    writeSkill(join(process.env.MIXDOG_DATA_DIR, 'skills', 'shared-name'), 'shared-name', 'From global.');
+    const registryDir = join(process.env.MIXDOG_DATA_DIR, 'plugins');
+    mkdirSync(registryDir, { recursive: true });
+    writeFileSync(
+      join(registryDir, 'registry.json'),
+      JSON.stringify({ plugins: [{ id: 'notion', root: pluginRoot, enabled: true }] })
+    );
+
+    invalidateSkillsCache();
+    const skills = collectSkillsCached(join(root, 'any-project'));
+    const nested = skills.find((skill) => skill.name === 'notion-knowledge-capture');
+    assert.equal(nested?.plugin, 'notion');
+    assert.equal(nested?.filePath, join(pluginRoot, 'skills', 'notion', 'knowledge-capture', 'SKILL.md'));
+    assert.equal(skills.find((skill) => skill.name === 'matching')?.plugin, 'notion');
+    const shared = skills.filter((skill) => skill.name === 'shared-name');
+    assert.equal(shared.length, 1);
+    assert.equal(shared[0].source, 'global');
+  } finally {
+    invalidateSkillsCache();
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a skill that requires a built-in feature is offered only while that feature is installed and enabled', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-requires-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;

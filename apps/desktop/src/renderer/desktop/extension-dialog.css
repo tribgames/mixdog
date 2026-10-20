@@ -620,56 +620,6 @@
   min-width: 84px;
 }
 
-/* ── Add-kind choices (Skill / MCP) ───────────────────────────────────── */
-.extensions-create-options {
-  min-height: 0;
-  display: grid;
-  gap: 8px;
-}
-.extensions-create-options > button {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 12px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.extensions-create-options > button:hover {
-  background: var(--mx-hover);
-}
-.extensions-create-options > button:focus-visible {
-  outline: 1px solid var(--mx-focus);
-  outline-offset: -1px;
-}
-.extensions-create-options > button > svg {
-  flex: 0 0 auto;
-  color: var(--mx-icon-muted);
-}
-.extensions-create-options > button > span {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-.extensions-create-options b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--mx-font-ui);
-}
-.extensions-create-options small {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-
 /* Respond to the card's usable width, not the application window. */
 @container sidebar-dialog (max-width: 440px) {
   .extensions-dialog-facts > div {

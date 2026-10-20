@@ -43,6 +43,13 @@ test('claude-plugin skills are counted live and empty plugins warn with searched
   status = pluginsStatus();
   assert.equal(byId(status, 'claude').skillCount, 1);
   assert.equal(byId(status, 'claude').warning, undefined);
+  // A hooks-only plugin is a working extension (Extensions tab), not empty.
+  assert.equal(byId(status, 'empty').hooks, false);
+  mkdirSync(join(emptyRoot, 'hooks'));
+  writeFileSync(join(emptyRoot, 'hooks', 'hooks.json'), '{}');
+  status = pluginsStatus();
+  assert.equal(byId(status, 'empty').hooks, true);
+  assert.equal(byId(status, 'empty').warning, undefined);
 });
 
 test('a codex manifest skills list counts every listed root', async () => {

@@ -14,6 +14,7 @@ import { createSelfUpdateController } from '../self-update.mjs';
 import { createCompletionWakeScheduler, createNotificationBus } from '../notification-bus.mjs';
 import { createSkillsApi } from '../skills-api.mjs';
 import { createCwdPlugins } from '../cwd-plugins.mjs';
+import { injectedMemoryAgentId } from '../services/memory-access.mjs';
 import { listProjectsStrict } from '../../runtime/shared/projects.mjs';
 import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
@@ -212,29 +213,37 @@ export function sessionAdopter(boot) {
 // the mutable cwd, the context module and the live tool surface.
 function wireSkills(boot) {
   const { rt, contextMod } = boot;
-  const { skillsStatus, skillContent, skillToolContent, addGlobalSkill, saveSkillDocument, invalidateSkills } =
-    createSkillsApi({
-      contextMod,
-      getCwd: () => rt.currentCwd,
-      getTools: () => {
-        const surface = boot.activeToolSurface();
-        return [
-          ...new Map(
-            [
-              ...(surface?.tools || []),
-              ...(surface?.deferredToolCatalog || []),
-              ...(surface?.deferredLateToolCatalog || []),
-            ].map((tool) => [tool.name, tool])
-          ).values(),
-        ];
-      },
-    });
+  const {
+    skillsStatus,
+    skillContent,
+    skillToolContent,
+    addGlobalSkill,
+    saveSkillDocument,
+    removeGlobalSkill,
+    invalidateSkills,
+  } = createSkillsApi({
+    contextMod,
+    getCwd: () => rt.currentCwd,
+    getTools: () => {
+      const surface = boot.activeToolSurface();
+      return [
+        ...new Map(
+          [
+            ...(surface?.tools || []),
+            ...(surface?.deferredToolCatalog || []),
+            ...(surface?.deferredLateToolCatalog || []),
+          ].map((tool) => [tool.name, tool])
+        ).values(),
+      ];
+    },
+  });
   Object.assign(boot, {
     skillsStatus,
     skillContent,
     skillToolContent,
     addGlobalSkill,
     saveSkillDocument,
+    removeGlobalSkill,
     invalidateSkills,
   });
 }
@@ -247,6 +256,8 @@ function wireCwdPlugins(boot) {
   const { rt, cfgMod, hooks, hookCommonPayload, tunables } = boot;
   const { resolveCwdPath, applyResolvedCwd, pluginsStatus, loadCoreMemoryContext } = createCwdPlugins({
     getCurrentCwd: () => rt.currentCwd,
+    getMemoryAgentId: () =>
+      injectedMemoryAgentId({ session: rt.session, sessionId: rt.reservedSessionId, profile: rt.sessionProfile }),
     setCurrentCwd: (next) => {
       rt.currentCwd = next;
     },

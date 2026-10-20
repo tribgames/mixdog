@@ -49,6 +49,7 @@ const SIDEBAR_PANEL_TITLES: Record<SidebarPanelKey, string> = {
   projects: 'Projects',
   workflows: 'Workflow',
   extensions: 'Extensions',
+  skills: 'Skills',
 };
 
 type SidebarSurface = 'sessions' | 'schedules' | 'webhooks' | 'projects';
@@ -348,6 +349,7 @@ export function useAppSidebarSurface({
   const ProjectsPane = sidebarPanes.projects;
   const WorkflowsPane = sidebarPanes.workflows;
   const ExtensionsPane = sidebarPanes.extensions;
+  const SkillsPane = sidebarPanes.skills;
   const sidebarPanelTitle = presentedSidebarPanel ? SIDEBAR_PANEL_TITLES[presentedSidebarPanel] : '';
   // Stable sidebar handlers + memoised panel children: SessionSidebar, its
   // rows, and every rail panel are memoised, but fresh inline closures and a
@@ -392,6 +394,8 @@ export function useAppSidebarSurface({
       content = (
         <ExtensionsPane active={active} section={extensionsSection} onSectionChange={onExtensionsSectionChange} />
       );
+    } else if (panel === 'skills') {
+      content = <SkillsPane active={active} />;
     } else if (panel === 'workflows') {
       content = (
         <div

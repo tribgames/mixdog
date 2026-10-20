@@ -25,7 +25,6 @@ const { _withRegisteredProviderForTestAsync } = await import('../providers/regis
 const { invalidateSkillsCache } = await import('../context/collect.mjs');
 const { explicitSkillNames } = await import('./explicit-skills.mjs');
 const { webhookRunPrompt } = await import('../../../channels/lib/webhook/session-dispatch.mjs');
-const { AUTOMATION_RESULT_TURN_OPTS } = await import('../../../../session-runtime/automation-agents.mjs');
 invalidateSkillsCache(root);
 process.on('exit', () => {
   try {
@@ -110,10 +109,10 @@ test('a webhook event-rule notice delivered over the channel path never selects 
   });
 });
 
-test('task-notification turns (drained completions, automation results) never select skills', async (t) => {
+test('task-notification turns (drained agent completions) never select skills', async (t) => {
   await withSession(t, async ({ session, ask, applied }) => {
     await ask('Agent finished: use $selected-guide next.', { promptSource: 'task-notification' });
-    await ask('Worker result mentions $other-guide.', { ...AUTOMATION_RESULT_TURN_OPTS });
+    await ask('Worker result mentions $other-guide.', { promptSource: 'task-notification' });
     assert.deepEqual(applied, []);
     assert.deepEqual(skillBodies(session), []);
     const notices = messagesOf(session).filter((message) => message.meta?.source === 'task-notification');

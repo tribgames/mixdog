@@ -20,6 +20,7 @@ const names = [
   'memory-management',
   'local-provider',
   'setup',
+  'setup-guide',
   'skill-creator',
   'code-tidy',
 ];

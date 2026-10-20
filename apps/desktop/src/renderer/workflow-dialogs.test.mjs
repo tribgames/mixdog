@@ -10,8 +10,18 @@ const { dom } = installTestDom(null, {
   expose: ['HTMLElement'],
 });
 const { createRoot } = await import('react-dom/client');
-const { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog } = await import('./workflow-dialogs.tsx');
+const { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog, agentBodyFromBrief } = await import(
+  './workflow-dialogs.tsx'
+);
 test.after(() => dom.window.close());
+
+test('the default AGENT.md of a new agent is conversational, not a worker contract', () => {
+  const body = agentBodyFromBrief(' GitHub 감시 ', ' 새 이슈를 요약합니다 ');
+  assert.match(body, /^# GitHub 감시\n\n새 이슈를 요약합니다\n\n/);
+  assert.match(body, /natural, friendly conversation, in the language they write in/);
+  assert.doesNotMatch(body, /English|Status|preamble|report/i);
+  assert.match(agentBodyFromBrief('Bench', ''), /^# Bench\n\n- Help the user in a natural/);
+});
 
 const route = { provider: 'openai', model: 'test-model' };
 const models = [
@@ -117,6 +127,45 @@ const editors = [
     }),
   },
 ];
+
+test('the agent editor keeps an existing AGENT.md and fills an emptied one from the name and description', async (t) => {
+  const render = harness(t);
+  const priorFormData = globalThis.FormData;
+  globalThis.FormData = dom.window.FormData;
+  t.after(() => {
+    globalThis.FormData = priorFormData;
+  });
+  const saved = [];
+  const agent = { id: 'reviewer', name: 'Reviewer', description: 'Reviews PRs', body: 'Review changes.', route };
+  const submit = async () =>
+    act(async () =>
+      document
+        .querySelector('.workflows-dialog form')
+        .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+    );
+  await render(
+    React.createElement(AgentEditorDialog, {
+      agent,
+      models: [],
+      busy: false,
+      onCancel() {},
+      onSave: (value) => saved.push(value),
+    })
+  );
+  const body = document.querySelector('textarea[aria-label="AGENT.md"]');
+  assert.equal(body.value, 'Review changes.', 'editing shows the real AGENT.md');
+  await submit();
+  assert.equal(saved[0].body, 'Review changes.');
+
+  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+  await act(async () => {
+    setter.call(body, '');
+    body.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  await submit();
+  assert.equal(saved[1].body, agentBodyFromBrief('Reviewer', 'Reviews PRs'));
+  assert.match(saved[1].body, /^# Reviewer\n\nReviews PRs\n\n/);
+});
 
 test('workflow editor contains only instructions and metadata, not delegation controls', async (t) => {
   const render = harness(t);
