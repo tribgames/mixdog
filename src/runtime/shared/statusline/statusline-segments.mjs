@@ -200,7 +200,8 @@ async function refreshShellJobsStatus(ownerPid) {
       // its owner retires the record. Its root pid may be gone while a
       // descendant lives, so the owner's liveness decides, not the root's.
       const unconfirmed = detail?.terminationUnconfirmed === true;
-      if (unconfirmed ? !isPidAlive(ownerByJob.get(id) || 0) : !(await isShellJobAlive(detail, p, dir, id))) continue;
+      if (unconfirmed ? !isHeldShellJobAlive(detail, ownerByJob.get(id)) : !(await isShellJobAlive(detail, p, dir, id)))
+        continue;
       // A foreground command is awaited in its own tool card; listing it here
       // made every short command flash in and out of the shell list. Only
       // backgrounded jobs (including promoted ones) are background work.
@@ -324,6 +325,17 @@ function summarizeShellJobs({ count, oldestMs, jobs, bySession }) {
     };
   }
   return { count, elapsedLabel, jobs, sessions };
+}
+
+// A held record lives while its owner process does. Once its owner session
+// has closed, it also needs a process left to hold: the root or a survivor
+// its termination watch last reported. Without one it is an orphan whose
+// processes are gone, and it resolves instead of staying unconfirmed.
+function isHeldShellJobAlive(detail, ownerPid) {
+  if (!isPidAlive(ownerPid || 0)) return false;
+  if (detail?.ownerSessionClosed !== true) return true;
+  const survivors = Array.isArray(detail?.survivorPids) ? detail.survivorPids : [];
+  return [detail?.pid, ...survivors].some((pid) => isPidAlive(positiveInt(pid)));
 }
 
 async function isShellJobAlive(detail, detailPath, dir, id) {

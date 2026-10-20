@@ -440,6 +440,64 @@ test(
 );
 
 test(
+  'a closed session’s tree without a pre-kill snapshot ends once nothing is left after exit',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = runningChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    run.killed = false;
+    run.foregroundRecordId = 'job_closed_blind';
+    run.foregroundRecordInput.ownerSessionId = 'closing-blind';
+    registerForegroundOwnedTree(run, 'closing-blind');
+    tree.state.next = () => new Promise(() => {});
+    const cancel = cancelOwnedShellTrees('closing-blind');
+    await tick(PROCESS_TABLE_READ_BOUND_MS);
+    await cancel;
+    noteShellOwnerSessionClosed('closing-blind');
+    assert.equal(run.terminationTracker.complete, false);
+    exitChild(child, 137);
+    tree.state.next = () => processTable([]);
+    await settleAndFlush(run);
+    await flush();
+    assert.equal(isHeld(repo), false, 'confirmed gone from the post-exit observation');
+    assert.deepEqual(records.retired, ['job_closed_blind'], 'the record never lingers as unconfirmed');
+    const reads = tree.state.reads;
+    await tick(30_000);
+    assert.equal(tree.state.reads, reads, 'the observation loop stopped');
+  })
+);
+
+test(
+  'a closed session’s tree without a snapshot still sweeps what stays linked to its root',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = runningChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    run.killed = false;
+    run.foregroundRecordId = 'job_closed_linked';
+    run.foregroundRecordInput.ownerSessionId = 'closing-linked';
+    registerForegroundOwnedTree(run, 'closing-linked');
+    tree.state.next = () => new Promise(() => {});
+    const cancel = cancelOwnedShellTrees('closing-linked');
+    await tick(PROCESS_TABLE_READ_BOUND_MS);
+    await cancel;
+    noteShellOwnerSessionClosed('closing-linked');
+    exitChild(child, 137);
+    const worker = { pid: 4500, ppid: ROOT, token: 'worker' };
+    tree.state.next = () => processTable([worker]);
+    tree.state.kills.length = 0;
+    await settleAndFlush(run);
+    await flush();
+    assert.deepEqual(tree.state.kills, [4500], 'the linked survivor is killed');
+    assert.equal(isHeld(repo), true, 'held while it still runs');
+    tree.state.next = () => processTable([]);
+    await tick(5_000);
+    assert.equal(isHeld(repo), false);
+    assert.deepEqual(records.retired, ['job_closed_linked']);
+  })
+);
+
+test(
   'a closed session’s hold is releasable from any session that sees its workspace',
   withTimers(async () => {
     const repo = makeRepo();

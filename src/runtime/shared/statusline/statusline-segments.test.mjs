@@ -252,3 +252,46 @@ test('a foreground command whose termination is unconfirmed stays listed after i
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a closed session’s held shell with no live process resolves on the next read', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-orphan-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const dir = join(root, 'shell-jobs');
+    mkdirSync(dir, { recursive: true });
+    const write = (jobId, record) => {
+      writeFileSync(
+        join(dir, `${jobId}.json`),
+        JSON.stringify({
+          ownerSessionId: 'sess-closed',
+          foreground: true,
+          terminationUnconfirmed: true,
+          ownerSessionClosed: true,
+          cwd: root,
+          ...record,
+        })
+      );
+      // The owner host (the runtime) is still alive.
+      writeFileSync(join(dir, `${jobId}.owner-${process.pid}`), '');
+    };
+    const orphan = `job_${Date.now()}_orphan`;
+    const survivor = `job_${Date.now()}_survivor`;
+    write(orphan, { pid: 2_147_483_646, command: 'npm test' });
+    write(survivor, { pid: 2_147_483_645, survivorPids: [process.pid], command: 'node server.js' });
+    const status = await shellJobsStatusFresh({ clientHostPid: process.pid });
+    assert.deepEqual(
+      status.orphaned.map((job) => job.taskId),
+      [survivor],
+      'only a hold whose survivor still runs is offered to other sessions'
+    );
+    assert.deepEqual(
+      status.sessions['sess-closed'].jobs.map((job) => job.taskId),
+      [survivor]
+    );
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

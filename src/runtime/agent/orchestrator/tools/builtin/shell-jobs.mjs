@@ -28,8 +28,10 @@ import {
   adoptShellWorkspaceAdmission,
   clearTerminationHold,
   completeShellJobRecord,
+  isShellOwnerSessionClosed,
   listShellJobRecords,
   markShellJobTerminationUnconfirmed,
+  noteShellJobSurvivors,
   publishShellJobRecord,
   registerTerminationHold,
   retireShellJobRecord,
@@ -194,6 +196,8 @@ function trackShellJobRecord(task, options) {
       sweep: killed,
       onTerminated: finish,
       releaseRequested: () => takeReleaseRequest(jobId),
+      ownerClosed: () => isShellOwnerSessionClosed(options?.ownerSessionId),
+      onSurvivors: (pids) => void noteShellJobSurvivors(jobId, pids),
       onUnconfirmed: () => {
         void markShellJobTerminationUnconfirmed(jobId);
         registerTerminationHold(jobId, {

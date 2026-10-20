@@ -288,6 +288,7 @@ async function settleQueuedPromotion(jobId) {
 function queueSaturatedAsTask(run, saturation, spec) {
   const queuedAbort = new AbortController();
   const taskId = run.foregroundRecordId;
+  let promotedJobId = null;
   let task;
   try {
     task = startBackgroundTask({
@@ -301,10 +302,15 @@ function queueSaturatedAsTask(run, saturation, spec) {
       input: { command: spec.command, cwd: spec.cwd },
       meta: { task_id: taskId, stdout: null, stderr: null, cwd: spec.cwd, timeoutMs: spec.backgroundDeadlineMs || 0 },
       resultType: 'shell_task_result',
+      // While the command runs in the foreground, its abort handler snapshots
+      // the tree before it kills. A native kill sent here as well would end
+      // the root first: the snapshot then misses the tree and the workspace
+      // stays held as unconfirmed forever. Only a promoted job is killed here.
       cancel: () => {
         queuedAbort.abort();
+        if (!promotedJobId) return;
         try {
-          killShellJob(taskId);
+          killShellJob(promotedJobId);
         } catch {}
       },
       run: async () => {
@@ -319,7 +325,17 @@ function queueSaturatedAsTask(run, saturation, spec) {
           onProgress: null,
           onOutputTail: null,
         });
-        if (result.backgrounded && result.jobId) return settleQueuedPromotion(result.jobId);
+        if (result.backgrounded && result.jobId) {
+          promotedJobId = result.jobId;
+          // Promotion detached the abort handler: a cancel that landed during
+          // the handoff reaches the promoted job here.
+          if (queuedAbort.signal.aborted) {
+            try {
+              killShellJob(promotedJobId);
+            } catch {}
+          }
+          return settleQueuedPromotion(promotedJobId);
+        }
         const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
         if (result.exitCode !== 0) {
           throw new Error(`exit code ${result.exitCode ?? result.signal ?? 'unknown'}${output ? `\n${output}` : ''}`);
@@ -573,65 +589,67 @@ export function execShellCommand(options) {
     // The user approved this call's elevation 'ask' decision (runtime-set).
     elevationApproved = false,
   } = options;
-  return new Promise(async (resolve) => {
+  return new Promise((resolve) => {
     const run = createShellRun({ abortSignal, resolve, jobId });
-    // An async executor's throw is NOT routed to this Promise — it becomes an
-    // unhandled rejection of the executor's own promise while the awaiting
-    // caller hangs forever. Every path below therefore has to settle the run
-    // itself, including the unexpected one.
-    try {
-      const spawned = await admitAndSpawn(
-        run,
-        {
-          admission,
-          shell,
-          shellArg,
-          shellArgs,
-          command,
-          env,
-          cwd,
-          abortSignal,
-          directArgv,
-          execScript,
-          elevationApproved,
-          ownerSessionId,
-          clientHostPid,
-        },
-        {
-          admissionWaitMs,
-          onSaturated: (err) => backgroundOnTimeout && queueSaturatedAsTask(run, err, options),
-        }
-      );
-      if (!spawned) return;
+    // A throw inside this async body is NOT routed to the Promise — it becomes
+    // an unhandled rejection while the awaiting caller hangs forever. Every
+    // path below therefore has to settle the run itself, including the
+    // unexpected one.
+    void (async () => {
+      try {
+        const spawned = await admitAndSpawn(
+          run,
+          {
+            admission,
+            shell,
+            shellArg,
+            shellArgs,
+            command,
+            env,
+            cwd,
+            abortSignal,
+            directArgv,
+            execScript,
+            elevationApproved,
+            ownerSessionId,
+            clientHostPid,
+          },
+          {
+            admissionWaitMs,
+            onSaturated: (err) => backgroundOnTimeout && queueSaturatedAsTask(run, err, options),
+          }
+        );
+        if (!spawned) return;
 
-      // Pre-aborted signal: kill immediately if the abort already fired
-      // before spawn returned (synchronous reentry from a parent abort), so
-      // the child doesn't run for the full timeoutMs window.
-      if (abortSignal?.aborted) {
-        treeKillForceSettle(run, 'cancellation');
+        // Pre-aborted signal: kill immediately if the abort already fired
+        // before spawn returned (synchronous reentry from a parent abort), so
+        // the child doesn't run for the full timeoutMs window.
+        if (abortSignal?.aborted) {
+          treeKillForceSettle(run, 'cancellation');
+        }
+        attachOutputCapture(run);
+        const releasePromotedCapture = createPromotedCaptureRelease(run);
+        run.settle = createSettle(run, releasePromotedCapture);
+        attachChildExit(run, releasePromotedCapture);
+        const fireAutoBackground = createAutoBackground({
+          run,
+          command,
+          cwd,
+          clientHostPid,
+          ownerSessionId,
+          promotedTimeoutMs,
+          backgroundDeadlineMs,
+        });
+        armDeadlines(
+          run,
+          { timeoutMs, autoBackgroundMs, autoBackgroundReason, backgroundOnTimeout, abortSignal },
+          fireAutoBackground
+        );
+        armInputWake(run, wakeSignal, fireAutoBackground);
+        armProgressTimers(run, { onProgress, onOutputTail });
+      } catch (err) {
+        settleSetupFailure(run, err);
       }
-      attachOutputCapture(run);
-      const releasePromotedCapture = createPromotedCaptureRelease(run);
-      run.settle = createSettle(run, releasePromotedCapture);
-      attachChildExit(run, releasePromotedCapture);
-      const fireAutoBackground = createAutoBackground({
-        run,
-        command,
-        cwd,
-        clientHostPid,
-        ownerSessionId,
-        promotedTimeoutMs,
-        backgroundDeadlineMs,
-      });
-      armDeadlines(
-        run,
-        { timeoutMs, autoBackgroundMs, autoBackgroundReason, backgroundOnTimeout, abortSignal },
-        fireAutoBackground
-      );
-      armInputWake(run, wakeSignal, fireAutoBackground);
-      armProgressTimers(run, { onProgress, onOutputTail });
-    } catch (err) {
-      settleSetupFailure(run, err);
-    }
+    })();
   });
 }

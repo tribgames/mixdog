@@ -7,6 +7,8 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { ResourceAdmissionController, resourceAdmission } from '../../../shared/resource-admission.mjs';
+import { holdWorkspaceActivity } from '../../../shared/worktrees/activity-gate.mjs';
+import { cleanupTempDirs, makeRepo } from '../../../shared/worktrees/test-support.mjs';
 import { cancelBackgroundTask, getBackgroundTask, registerBackgroundTask } from '../../../shared/background-tasks.mjs';
 import { execShellCommand } from './shell-command.mjs';
 import { shutdownShellJobs } from './builtin/shell-jobs.mjs';
@@ -74,6 +76,7 @@ const keepAlive = setInterval(() => {}, 1_000);
 if (hasBinary) _setNativeSpawnBinaryForTest(binary);
 test.after(async () => {
   clearInterval(keepAlive);
+  cleanupTempDirs();
   if (!hasBinary) return;
   await stopAll();
   await shutdownNativeSpawnServer('test-finish').catch(() => {});
@@ -198,6 +201,52 @@ test('a queued saturated command releases its lease when it is promoted', {
     assert.ok(await until(() => getNativeTask(taskId)?.status !== 'running'));
     assert.equal(admission.snapshot().active.shell, 0);
     assert.equal(admission.snapshot().activeLeases.length, 0);
+  } finally {
+    await stopAll();
+  }
+});
+
+test('cancelling a queued command still in the foreground frees its workspace once the tree is gone', {
+  skip: skipNative,
+  timeout: 60_000,
+}, async () => {
+  const admission = new ResourceAdmissionController({ env: {}, limits: { maxShells: 1, maxHighLoad: 12 } });
+  const repo = makeRepo();
+  const workspaceFree = () => {
+    try {
+      holdWorkspaceActivity([repo])();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    const holder = await admission.acquire('shell', { label: 'holder' });
+    const queued = await execShellCommand(
+      longJob('queued-foreground', {
+        cwd: repo,
+        autoBackgroundMs: 0,
+        admission,
+        admissionWaitMs: 300,
+        ownerSessionId: 'sess_queue_cancel',
+      })
+    );
+    assert.equal(queued.backgrounded, true);
+    const taskId = /task_id: (\S+?)\]/.exec(queued.backgroundMessage)?.[1];
+    assert.ok(taskId, queued.backgroundMessage);
+    await holder.release();
+    assert.ok(await until(() => getNativeTask(taskId)?.status === 'running'));
+    // Past spawn: the foreground run's abort handler owns the kill now.
+    await delay(500);
+    const task = getBackgroundTask(taskId);
+    cancelBackgroundTask(taskId, 'test');
+    await task.promise;
+    assert.equal(task.status, 'cancelled');
+    assert.ok(await until(() => getNativeTask(taskId)?.status !== 'running'));
+    // A kill sent before the pre-kill snapshot left the tree unconfirmed and
+    // the workspace held for good.
+    assert.ok(await until(workspaceFree, 15_000), 'the workspace is released after the cancelled tree ended');
+    assert.equal(admission.snapshot().active.shell, 0);
   } finally {
     await stopAll();
   }

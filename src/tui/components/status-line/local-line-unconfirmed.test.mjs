@@ -20,7 +20,14 @@ test('the TUI status line shows a held shell as termination unconfirmed, not run
   write(`job_${Date.now()}_run`, { pid: process.pid, command: 'npm run dev' });
   write(`job_${Date.now()}_held`, { pid: 2_147_483_646, command: 'node server.js', terminationUnconfirmed: true });
   const closedId = `job_${Date.now()}_closed`;
-  write(closedId, { pid: 2_147_483_645, command: 'vite', terminationUnconfirmed: true, ownerSessionClosed: true });
+  // Its root is gone but a survivor its termination watch reported still runs.
+  write(closedId, {
+    pid: 2_147_483_645,
+    survivorPids: [process.pid],
+    command: 'vite',
+    terminationUnconfirmed: true,
+    ownerSessionClosed: true,
+  });
   const status = await shellJobsStatusFresh({ clientHostPid: process.pid });
   assert.deepEqual(
     status.orphaned.map((job) => job.taskId),

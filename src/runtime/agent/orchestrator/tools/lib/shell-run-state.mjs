@@ -104,6 +104,9 @@ export function createShellRun({ abortSignal, resolve, jobId = null }) {
     // `settled`: whichever transition wins first wins for good.
     autoBackgrounded: false,
     autoBackgroundJobId: null,
+    // [exitCode, signal] of a 'close' that arrived while promotion was in
+    // flight; a promotion that then fails settles the run with it.
+    promotionClose: null,
     autoBgTimer: null,
     killUnconfirmed: false,
     child: null,

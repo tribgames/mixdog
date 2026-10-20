@@ -57,9 +57,14 @@ const tree = scriptedChildTree();
 mock.module('../../mcp/child-tree.mjs', { namedExports: tree.namedExports });
 
 const { killShellJob, promoteForegroundShellJob } = await import('./shell-jobs.mjs');
-const { _shellJobRecordWritesSettledForTest, forceReleaseTerminationHold, readShellJobRecord } = await import(
-  './lib/shell-job-records.mjs'
-);
+const {
+  _shellJobRecordWritesSettledForTest,
+  forceReleaseTerminationHold,
+  noteShellOwnerSessionClosed,
+  readShellJobRecord,
+} = await import('./lib/shell-job-records.mjs');
+const { cancelOwnedShellTrees } = await import('../lib/owned-shell-trees.mjs');
+const { shellJobsStatusFresh } = await import('../../../../shared/statusline/statusline-segments.mjs');
 
 after(cleanupTempDirs);
 
@@ -163,4 +168,42 @@ test('a background job left unconfirmed is flagged on its record and can be forc
   const done = await readShellJobRecord('job_bg_6300');
   assert.equal(done.terminal, true);
   assert.equal(done.status, 'completed');
+});
+
+test('closing the owner session of a running job records a final state and lists nothing unconfirmed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const repo = makeRepo();
+  // No identity snapshot ever lands: neither the promotion baseline nor the
+  // pre-kill read.
+  tree.state.next = () => {
+    throw new Error('process enumeration denied');
+  };
+  await promoteForegroundShellJob({
+    command: 'npm run dev',
+    cwd: repo,
+    pid: 6400,
+    jobId: 'job_bg_6400',
+    ownerSessionId: 'sess_closing',
+  });
+  await flush();
+  // The session close: owner cancel, then the owner is noted closed.
+  await cancelOwnedShellTrees('sess_closing');
+  noteShellOwnerSessionClosed('sess_closing');
+  tree.state.next = () => processTable([]);
+  setTask('job_bg_6400', 'cancelled');
+  await until(() => !isHeld(repo));
+  const record = await until(async () => {
+    await _shellJobRecordWritesSettledForTest('job_bg_6400');
+    const current = await readShellJobRecord('job_bg_6400');
+    return current?.terminal ? current : null;
+  });
+  assert.equal(record.status, 'cancelled', 'a definitive final state');
+  const status = await shellJobsStatusFresh({ clientHostPid: process.pid });
+  const listed = [...(status.jobs || []), ...(status.orphaned || [])];
+  for (const bucket of Object.values(status.sessions || {})) listed.push(...bucket.jobs);
+  assert.deepEqual(
+    listed.filter((job) => job.taskId === 'job_bg_6400'),
+    [],
+    'no panel lists it as running or termination unconfirmed'
+  );
 });

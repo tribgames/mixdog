@@ -195,12 +195,22 @@ function sweepLiveIdentities(tracker) {
  *
  *  `sweep` (a killed tree): a pass that finds captured identities alive
  *  terminates them and observes again in the same pass, so a cancellation
- *  ends with the tree gone instead of a held folder over live processes. */
+ *  ends with the tree gone instead of a held folder over live processes.
+ *
+ *  `ownerClosed`: once the owning session has closed and the root has
+ *  exited, a tree without a complete pre-kill snapshot is observed after
+ *  exit (what is still linked to the root) instead of answering 'unknown'
+ *  forever — no one is left to release it, and the close must end in a
+ *  definitive state. `onSurvivors(pids)` reports the pids a pass that is
+ *  not 'gone' found alive, whenever that set changes, so out-of-process
+ *  readers can tell a live hold from a stale one. */
 export function watchTermination({
   tracker,
   rootExited = () => true,
   onTerminated,
   onUnconfirmed = null,
+  onSurvivors = null,
+  ownerClosed = null,
   releaseRequested = null,
   intervalMs = TERMINATION_RECHECK_MS,
   sweep = false,
@@ -208,6 +218,7 @@ export function watchTermination({
   let timer = null;
   let stopped = false;
   let reportedUnconfirmed = false;
+  let survivorKey = null;
   const stop = () => {
     stopped = true;
     if (timer) clearTimeout(timer);
@@ -223,6 +234,7 @@ export function watchTermination({
     if (releaseRequested?.()) state = 'gone';
     else
       try {
+        if (!tracker.complete && rootExited() && ownerClosed?.()) tracker.acceptExitObservation();
         observation = tracker.observe({ rootExited: rootExited() });
         observation.catch(() => {});
         // A pass that has not answered by the next cadence tick is unknown.
@@ -248,6 +260,18 @@ export function watchTermination({
         onUnconfirmed?.();
       } catch {
         /* presentation only */
+      }
+    }
+    if (state !== 'gone' && onSurvivors) {
+      const pids = tracker.live.map((entry) => entry.pid);
+      const key = pids.join(',');
+      if (key !== survivorKey) {
+        survivorKey = key;
+        try {
+          onSurvivors(pids);
+        } catch {
+          /* presentation only */
+        }
       }
     }
     if (state === 'gone') {

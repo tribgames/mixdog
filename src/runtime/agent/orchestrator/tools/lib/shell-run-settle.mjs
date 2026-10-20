@@ -8,6 +8,8 @@ import { unregisterOwnedShellTree } from './owned-shell-trees.mjs';
 import {
   adoptShellWorkspaceAdmission,
   clearTerminationHold,
+  isShellOwnerSessionClosed,
+  noteShellJobSurvivors,
   registerTerminationHold,
   takeReleaseRequest,
 } from '../builtin/lib/shell-job-records.mjs';
@@ -60,6 +62,8 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true } =
     sweep: run.killed === true,
     onTerminated: release,
     onUnconfirmed: markNow ? null : () => keepTerminationUnconfirmedRecord(run),
+    onSurvivors: (pids) => void noteShellJobSurvivors(run.foregroundRecordId, pids),
+    ownerClosed: () => isShellOwnerSessionClosed(run.foregroundRecordInput?.ownerSessionId),
     releaseRequested: () => takeReleaseRequest(run.foregroundRecordId),
   });
 }
@@ -164,6 +168,8 @@ export function createSettle(run, releasePromotedCapture) {
     if (run.settled) return;
     if (run.ownedTree) unregisterOwnedShellTree(run.foregroundRecordId, run.ownedTree);
     if (run.autoBackgrounded) {
+      // A failed promotion settles the run with this close instead.
+      run.promotionClose = [exitCode, signal];
       releasePromotedCapture();
       return;
     }
