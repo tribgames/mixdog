@@ -30,6 +30,7 @@
       "07643b62440d3eba29b7360b8a33f09f",
       "0d45f8d9a2a67373462840e8bf930694",
       "1593af04edd24cdd5f05fe89a7386407",
+      "1a8115cec6ae4414f8637b1765948cdd",
       "25b44b46269490e26ca31c1852925171",
       "a60ea68f9287d55489e92e5450432f62",
       "a61cb4557def4e7ed647d4bdacbb72e4",
@@ -175,6 +176,7 @@
     "browser-use": [
       "00085086a7649ec6631f5cf0a3bbbf60",
       "08eee52328524eb032fd14f342742c41",
+      "25a6744e7591ea5597abbda008d123fe",
       "43eeb0b9c5792f08f2223c76846926cb",
       "4ab5316454013712cedb25d9b75f4e43",
       "646365a3f7041a3da3d7d7d896a0c3b6",
@@ -280,6 +282,7 @@
       "bdf26b0f2ac9f3126bfa74ced15a7d73"
     ],
     "memory-management": [
+      "1533630b81ebace2bc9ece6fda02bb11",
       "261a34fce0fb0f73abfd1b1e2add3602",
       "356bf57f7087fe2c40c5dcd99622c3e9",
       "a8ffffd02f438cdd6005e09cfe6cf42f",
@@ -365,9 +368,13 @@
       "e04e6abe9a54e7d07b37f8fc32b5ad30",
       "e38d606df69865a9cf1cc48386535e8b",
       "e5ac8ea16905815e36e88d883195a617",
+      "e848b92962dee0d4c3d7e3721d2e3294",
       "e9b89f9193bd9d9c80ba6cf4419e58ff",
       "feabe973080344c4d52787a96043ab68",
       "ff18ac1a9f5961925aec27ffb870bae0"
+    ],
+    "setup-guide": [
+      "633e15b84dbe22f2b578b67cc35853d4"
     ],
     "skill-creator": [
       "020817866da73a69544ba35086bdcd5f",
