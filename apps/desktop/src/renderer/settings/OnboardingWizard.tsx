@@ -237,9 +237,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
       if (pending) return;
       pending = true;
       try {
-        const [result] = await readCapabilityBatch(api, [
-          { capability: 'getProviderSetup', args: [{ force: true }] },
-        ]);
+        const [result] = await readCapabilityBatch(api, [{ capability: 'getProviderSetup', args: [{ force: true }] }]);
         if (!cancelled && result?.ok) setProviderSetup(record(result.value));
       } finally {
         pending = false;

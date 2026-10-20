@@ -23,7 +23,7 @@ window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 // react-dom reads the DOM capabilities once at load (text input events), so it loads after the test DOM exists.
 const { createRoot } = await import('react-dom/client');
 const { CategoryPanel } = await import('./capability-panels.tsx');
-const { mcpStatus, mcpErrorSummary } =await import('./mcp-editor-dialog.tsx');
+const { mcpStatus, mcpErrorSummary } = await import('./mcp-editor-dialog.tsx');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -72,7 +72,9 @@ async function mountMcp({ servers, run, createOpen = false, refreshExtensions = 
 }
 
 function actionLabels() {
-  return [...document.querySelectorAll('.extensions-mcp-dialog .extensions-action')].map((button) => button.textContent);
+  return [...document.querySelectorAll('.extensions-mcp-dialog .extensions-action')].map(
+    (button) => button.textContent
+  );
 }
 
 async function openEditor(name) {
@@ -130,7 +132,10 @@ test('a sign-in required server connects through the login wait dialog and refre
     },
   });
   try {
-    assert.equal(document.querySelector('[data-extension-row="cloudflare"] .sidebar-resource-tag').textContent, 'Sign-in required');
+    assert.equal(
+      document.querySelector('[data-extension-row="cloudflare"] .sidebar-resource-tag').textContent,
+      'Sign-in required'
+    );
     await openEditor('cloudflare');
     assert.equal(document.querySelector('.extensions-dialog-title-status').textContent, 'Sign-in required');
     assert.deepEqual(actionLabels(), ['Connect']);
@@ -340,7 +345,11 @@ for (const [variant, enter] of Object.entries(awayVariants)) {
         await sleep(1250);
       });
       assert.ok(polls >= 2);
-      assert.equal(dialog.querySelector('.settings-oauth-host').textContent, 'auth.test', 'a status without url keeps the link');
+      assert.equal(
+        dialog.querySelector('.settings-oauth-host').textContent,
+        'auth.test',
+        'a status without url keeps the link'
+      );
       assert.ok(dialog.querySelector('[aria-label="Open again"]'));
       assert.match(dialog.textContent, /OAuth status could not be checked\./);
       const paste = dialog.querySelector('form.settings-oauth-code input[name="code"]');
@@ -363,7 +372,12 @@ for (const [variant, enter] of Object.entries(awayVariants)) {
       );
       assert.match(afterPaste, /OAuth status could not be checked\./, 'the status error is its own notice');
       assert.equal(refreshed, 0, 'an invalid paste keeps the dialog open');
-      await act(async () => setInput(document.querySelector('form.settings-oauth-code input[name="code"]'), 'http://127.0.0.1:1/cb?code=a&state=b'));
+      await act(async () =>
+        setInput(
+          document.querySelector('form.settings-oauth-code input[name="code"]'),
+          'http://127.0.0.1:1/cb?code=a&state=b'
+        )
+      );
       await act(async () => {
         document.querySelector('form.settings-oauth-code').requestSubmit();
       });
@@ -596,7 +610,12 @@ test('the shared dialog keeps provider extras: device code, manual code paste, o
         {
           id: 'anthropic-oauth',
           closeLabel: 'Close OAuth login',
-          flow: { flowId: 'p1', state: 'pending', manualUrl: 'https://claude.ai/oauth/authorize?x=1', userCode: 'ABCD-1234' },
+          flow: {
+            flowId: 'p1',
+            state: 'pending',
+            manualUrl: 'https://claude.ai/oauth/authorize?x=1',
+            userCode: 'ABCD-1234',
+          },
           error: '',
           paste: {
             title: 'Anthropic authorization code',

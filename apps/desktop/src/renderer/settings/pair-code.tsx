@@ -96,9 +96,7 @@ export function PairCodeBlock({ pair }: { pair: PairCodeState }) {
         <div className="conn-code-tile conn-code-tile--na" role="note">
           {t('Codes aren’t available right now')}
         </div>
-        <p className="conn-code-note">
-          {t('This connection server doesn’t support codes.')}
-        </p>
+        <p className="conn-code-note">{t('This connection server doesn’t support codes.')}</p>
       </div>
     );
   }

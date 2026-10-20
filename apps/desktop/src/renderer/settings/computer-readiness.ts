@@ -99,9 +99,7 @@ function linuxRows(linux: DesktopLinuxComputerReadiness): ComputerReadinessRow[]
       id: 'windows',
       icon: 'window',
       title: t('Window helper'),
-      description: t(
-        'Sign out and back in to turn it on. Until then only screen viewing and mouse/keyboard are used.'
-      ),
+      description: t('Sign out and back in to turn it on. Until then only screen viewing and mouse/keyboard are used.'),
       ...base(windows),
       status: t('Sign-in needed again'),
     });

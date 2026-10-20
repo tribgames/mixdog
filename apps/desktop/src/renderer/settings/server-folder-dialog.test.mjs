@@ -8,7 +8,12 @@ import { ServerFolderDialog } from './connection-dialogs.tsx';
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event'] };
 
 const TREE = {
-  '/home/me': { entries: [{ name: 'demo', git: true }, { name: 'notes', git: false }] },
+  '/home/me': {
+    entries: [
+      { name: 'demo', git: true },
+      { name: 'notes', git: false },
+    ],
+  },
   '/home/me/demo': { entries: [{ name: 'src', git: false }] },
   '/home/me/notes': { entries: [] },
   '/home': { entries: [{ name: 'me', git: false }] },
@@ -33,7 +38,8 @@ const settle = () =>
   });
 const rows = (document) => [...document.querySelectorAll('.conn-list .conn-row')];
 const rowNamed = (document, name) => rows(document).find((row) => row.querySelector('b').textContent === name);
-const buttonNamed = (document, name) => [...document.querySelectorAll('.conn-dialog footer button')].find((b) => b.textContent === name);
+const buttonNamed = (document, name) =>
+  [...document.querySelectorAll('.conn-dialog footer button')].find((b) => b.textContent === name);
 
 async function mountPicker(t, extra = {}) {
   const dom = installTestDom(t, DOM);

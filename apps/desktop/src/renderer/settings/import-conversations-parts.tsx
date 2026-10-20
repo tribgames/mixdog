@@ -172,7 +172,9 @@ function ImportListView({ listing, busy }: { listing: ImportListing; busy: boole
           />
           <span>{t('Select all conversations')}</span>
         </label>
-        <span className="settings-import-count">{list ? t('{{count}} conversations', { count: list.matchedCount }) : ''}</span>
+        <span className="settings-import-count">
+          {list ? t('{{count}} conversations', { count: list.matchedCount }) : ''}
+        </span>
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: a <fieldset> does not scroll as an overflow container in Chromium, and this list pages in rows on scroll. */}
       <div
@@ -307,7 +309,8 @@ interface FooterProps {
 }
 
 export function ImportFooterContent(props: FooterProps) {
-  const { batchJob, running, showEmpty, selectedCount, canContinue, busy, onStop, onViewChats, onClose, onStart } = props;
+  const { batchJob, running, showEmpty, selectedCount, canContinue, busy, onStop, onViewChats, onClose, onStart } =
+    props;
   if (batchJob && running) return <RunningFooter job={batchJob} onStop={onStop} />;
   if (batchJob) return <FinishedFooter job={batchJob} onViewChats={onViewChats} onClose={onClose} />;
   if (showEmpty) {

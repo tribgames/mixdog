@@ -345,28 +345,28 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
                   meta={client.alias ? `${defaultTitle} · ${baseMeta}` : baseMeta}
                   actions={
                     <>
-                    {api.setRemoteClientAlias && (
+                      {api.setRemoteClientAlias && (
+                        <button
+                          type="button"
+                          className="conn-btn conn-btn--sm"
+                          disabled={Boolean(client.pendingRemoval)}
+                          onClick={() => setDialog({ kind: 'rename-client', client })}
+                        >
+                          {t('Rename')}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="conn-btn conn-btn--sm"
-                        disabled={Boolean(client.pendingRemoval)}
-                        onClick={() => setDialog({ kind: 'rename-client', client })}
+                        disabled={Boolean(revokingClient) || Boolean(client.pendingRemoval)}
+                        onClick={() =>
+                          confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id)
+                        }
                       >
-                        {t('Rename')}
+                        {client.pendingRemoval
+                          ? t('Removing…')
+                          : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      className="conn-btn conn-btn--sm"
-                      disabled={Boolean(revokingClient) || Boolean(client.pendingRemoval)}
-                      onClick={() =>
-                        confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id)
-                      }
-                    >
-                      {client.pendingRemoval
-                        ? t('Removing…')
-                        : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
-                    </button>
                     </>
                   }
                 />
@@ -576,7 +576,9 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
             name: dialog.host.name,
           })}
           confirmLabel={t('Forget')}
-          onConfirm={() => runHost(`forget-ssh:${dialog.host.id}`, () => api.sshForgetHost?.(dialog.host.id).then(refreshSshHosts))}
+          onConfirm={() =>
+            runHost(`forget-ssh:${dialog.host.id}`, () => api.sshForgetHost?.(dialog.host.id).then(refreshSshHosts))
+          }
           onClose={closeDialog}
         />
       )}

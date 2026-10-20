@@ -96,8 +96,27 @@ test('inline code, code blocks, links, issue refs and versions must be preserved
 });
 
 test('an inline code span wrapped at a different place still matches', () => {
-  const english = ['# Changelog', '', 'Intro.', '', '## v1.0.0 - 2026-10-01', '', '- Run `npm run build --workspace desktop` now.', ''].join('\n');
-  const wrapped = ['# Änderungen', '', 'Einleitung.', '', '## v1.0.0 - 2026-10-01', '', '- Jetzt `npm run', '  build   --workspace desktop` ausführen.', ''].join('\n');
+  const english = [
+    '# Changelog',
+    '',
+    'Intro.',
+    '',
+    '## v1.0.0 - 2026-10-01',
+    '',
+    '- Run `npm run build --workspace desktop` now.',
+    '',
+  ].join('\n');
+  const wrapped = [
+    '# Änderungen',
+    '',
+    'Einleitung.',
+    '',
+    '## v1.0.0 - 2026-10-01',
+    '',
+    '- Jetzt `npm run',
+    '  build   --workspace desktop` ausführen.',
+    '',
+  ].join('\n');
   assert.deepEqual(checkLocaleText(english, wrapped), []);
   const changed = wrapped.replace('--workspace', '--workspaces');
   assert.match(checkLocaleText(english, changed).join('\n'), /inline code: differs/);
@@ -109,7 +128,10 @@ test('untranslated list items and intros fail, code-only items pass', () => {
     check(edit('Absturz bei `foo --bar` behoben, siehe #8 und https://example.com/a (v1.0.0).', english)).join('\n'),
     /list item 1 is not translated/
   );
-  assert.match(check(edit('Alle wichtigen Änderungen.', 'All notable changes.').replace('# Änderungen', '# Changelog')).join('\n'), /intro: not translated/);
+  assert.match(
+    check(edit('Alle wichtigen Änderungen.', 'All notable changes.').replace('# Änderungen', '# Changelog')).join('\n'),
+    /intro: not translated/
+  );
   assert.doesNotMatch(check(GOOD).join('\n'), /only-code/);
 });
 

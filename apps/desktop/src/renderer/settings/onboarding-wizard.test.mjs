@@ -332,18 +332,22 @@ test('API provider detail from the backend is shown literally even when it match
   assert.deepEqual(states, ['History', 'KEY-KO']);
 });
 
-
 for (const unavailable of [false, true]) {
   test(`SSH onboarding shows desktop availability without credential actions (offline=${unavailable})`, async (t) => {
     const { calls } = await mount(t, {
       step: 1,
-      reads: { getProviderSetup: {
-        managedByClient: true, unavailable,
-        oauth: [{ id: 'anthropic-oauth', name: 'Anthropic OAuth', usable: true }],
-        api: [{ id: 'gemini', name: 'Gemini API', usable: false },
-          { id: 'custom-lab', name: 'Lab Gateway', usable: true }],
-        local: [{ id: 'mixdog-local', name: 'Local Provider', usable: true }],
-      } },
+      reads: {
+        getProviderSetup: {
+          managedByClient: true,
+          unavailable,
+          oauth: [{ id: 'anthropic-oauth', name: 'Anthropic OAuth', usable: true }],
+          api: [
+            { id: 'gemini', name: 'Gemini API', usable: false },
+            { id: 'custom-lab', name: 'Lab Gateway', usable: true },
+          ],
+          local: [{ id: 'mixdog-local', name: 'Local Provider', usable: true }],
+        },
+      },
     });
     assert.match(document.body.textContent, /Manage sign-ins and accounts in the local window/);
     assert.equal(document.querySelector('input[type="password"]'), null);
@@ -362,7 +366,6 @@ for (const unavailable of [false, true]) {
   });
 }
 
-
 for (const event of ['focus', 'mixdog:remote-reconnected', 'poll']) {
   test(`SSH onboarding updates desktop availability on ${event}`, async (t) => {
     let connected = false;
@@ -370,26 +373,39 @@ for (const event of ['focus', 'mixdog:remote-reconnected', 'poll']) {
     if (event === 'poll') {
       const schedule = window.setInterval.bind(window);
       t.mock.method(window, 'setInterval', (callback, ms, ...args) => {
-        if (ms === 7_000) { poll = callback; return 700007; }
+        if (ms === 7_000) {
+          poll = callback;
+          return 700007;
+        }
         return schedule(callback, ms, ...args);
       });
     }
     const reads = [];
     await mount(t, {
       step: 1,
-      readCapabilities: async (requests) => requests.map(({ capability, args }) => {
-        reads.push({ capability, args });
-        return { ok: true, value: capability === 'getProviderSetup'
-          ? { managedByClient: true, unavailable: !connected,
-              oauth: connected ? [{ id: 'anthropic-oauth', name: 'Anthropic OAuth', usable: true }] : [] }
-          : profile };
-      }),
+      readCapabilities: async (requests) =>
+        requests.map(({ capability, args }) => {
+          reads.push({ capability, args });
+          return {
+            ok: true,
+            value:
+              capability === 'getProviderSetup'
+                ? {
+                    managedByClient: true,
+                    unavailable: !connected,
+                    oauth: connected ? [{ id: 'anthropic-oauth', name: 'Anthropic OAuth', usable: true }] : [],
+                  }
+                : profile,
+          };
+        }),
     });
     assert.match(document.body.textContent, /Connect the desktop to view its providers/);
     connected = true;
     await act(async () => {
-      if (event === 'poll') { assert.ok(poll); poll(); }
-      else window.dispatchEvent(new window.Event(event));
+      if (event === 'poll') {
+        assert.ok(poll);
+        poll();
+      } else window.dispatchEvent(new window.Event(event));
     });
     assert.match(document.body.textContent, /Anthropic OAuth/);
     assert.doesNotMatch(document.body.textContent, /Connect the desktop to view its providers/);
