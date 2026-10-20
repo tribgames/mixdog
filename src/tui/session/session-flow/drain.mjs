@@ -52,6 +52,13 @@ function renderBatchItems(batch, pushUserOrSyntheticItem) {
       }
       continue;
     }
+    // A routine fire paints as the routine's marker row, not a user bubble.
+    if (entry.mode === 'routine') {
+      pushUserOrSyntheticItem(entry.text, entry.id, 'routine', {
+        routineTrigger: entry.transcriptMeta?.routineTrigger,
+      });
+      continue;
+    }
     const sender = String(entry.transcriptMeta?.sender || '')
       .trim()
       .toLowerCase();
@@ -106,6 +113,10 @@ export function turnOptionsForBatch(batch, steering) {
       Array.isArray(entry?.resumeCompletionKeys) ? entry.resumeCompletionKeys : []
     ),
     transcriptMeta: batch[0]?.transcriptMeta || null,
+    // Only a routine turn names its selection text (never its payload).
+    ...(batch[0]?.mode === 'routine' && typeof batch[0].skillSelection === 'string'
+      ? { skillSelection: batch[0].skillSelection }
+      : {}),
     context:
       batch
         .map((entry) => String(entry.context || '').trim())
@@ -191,9 +202,7 @@ export function createDrainLoop(
     clearBlockedDrainRetry();
     if (entries.length === 0) return;
     queue.removeQueuedEntries(entries);
-    const mirrored = entries.filter(
-      (entry) => steering.shouldMirrorSteeringEntry(entry) && !entry.steeringPersistRestored
-    );
+    const mirrored = entries.filter((entry) => steering.shouldMirrorSteeringEntry(entry) && entry.steeringPersistId);
     if (mirrored.length > 0) {
       void Promise.resolve(dropTuiSteeringPersist(steering.leadSessionId(), mirrored)).catch(() => {});
     }

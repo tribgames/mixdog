@@ -1,7 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { mergePromptContents, promptContentImageMeta, promptDisplayText } from './queue-helpers.mjs';
+import {
+  isSlashQueuedEntry,
+  mergePromptContents,
+  promptContentImageMeta,
+  promptDisplayText,
+} from './queue-helpers.mjs';
+
+test('a queued entry is a slash command only when it names a registered command', () => {
+  const slash = (text, extra = {}) => isSlashQueuedEntry({ content: text, ...extra });
+  // Paths and unknown words are ordinary messages.
+  assert.equal(slash('/Users/example/python-learn'), false);
+  assert.equal(slash('  /Users/example/python-learn 이 폴더 봐줘'), false);
+  assert.equal(slash('/'), false);
+  assert.equal(slash('/nope'), false);
+  assert.equal(slash([{ type: 'text', text: '/home/me/project look' }]), false);
+  // Registered commands and aliases, in any case, are commands.
+  for (const text of ['/compact', ' /CLEAR now', '/new', '/model gpt-5', '/q']) {
+    assert.equal(slash(text), true, text);
+  }
+  assert.equal(slash([{ type: 'text', text: '/compact' }]), true);
+  assert.equal(slash('/compact', { skipSlashCommands: true }), false);
+});
 
 test('image meta carries attachmentRef only for reference parts', () => {
   const ref = 'b'.repeat(64);

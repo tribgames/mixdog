@@ -11,7 +11,7 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 
 const {
   appendTuiSteeringPersist,
-  drainTuiSteeringPersist,
+  readTuiSteeringPersist,
   dropTuiSteeringPersist,
   flushTuiSteeringPersist,
   _steeringPersistChainCount,
@@ -62,14 +62,14 @@ test('a blocked session does not delay another; flush awaits all; keys released'
   assert.equal(_steeringPersistChainCount(), 0);
 });
 
-test('per-session order: append -> drop -> drain', async () => {
+test('per-session order: append -> drop -> read', async () => {
   const e1 = { text: 'one' };
   const e2 = { text: 'two' };
   const p = [
     appendTuiSteeringPersist('ordS', e1),
     appendTuiSteeringPersist('ordS', e2),
     dropTuiSteeringPersist('ordS', [e1]),
-    drainTuiSteeringPersist('ordS'),
+    readTuiSteeringPersist('ordS'),
   ];
   const results = await Promise.all(p);
   assert.deepEqual(

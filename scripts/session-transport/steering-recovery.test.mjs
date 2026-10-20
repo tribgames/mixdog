@@ -6,7 +6,7 @@ import {
   createSessionApiA,
   createSessionApiB,
   appendTuiSteeringPersist,
-  drainTuiSteeringPersist,
+  readTuiSteeringPersist,
   createStubSessionRuntime,
   withDaemon,
   waitFor,
@@ -81,7 +81,7 @@ test('persisted steering keeps the desktop submission identity across recovery',
     submittedAt: Date.now() - 50,
   };
   await appendTuiSteeringPersist(sessionId, entry);
-  const restored = await drainTuiSteeringPersist(sessionId);
+  const restored = await readTuiSteeringPersist(sessionId);
   assert.equal(restored.length, 1);
   assert.equal(restored[0].text, entry.text);
   assert.equal(restored[0].submissionId, entry.id);

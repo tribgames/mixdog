@@ -78,18 +78,28 @@ export function createSessionResetActions(bag) {
   };
 
   return {
-    clear: () =>
+    // `archiveAs`: the id the outgoing transcript is kept under (an agent
+    // home's fresh start); the clear fails rather than wipe without it.
+    // `rebuildPrompt` / `fork: false`: an agent chat's reset (session-ops clear).
+    clear: (options = {}) =>
       withResetLock(async () => {
+        const archiveAs = typeof options?.archiveAs === 'string' ? options.archiveAs : '';
+        const reset = {
+          ...(options?.rebuildPrompt === true ? { rebuildPrompt: true } : {}),
+          ...(options?.fork === false ? { fork: false } : {}),
+        };
         const clearedId = getState().sessionId;
         // A cleared session has no failed turn left to resume.
         bag.supersedeQuotaResume?.(clearedId);
         const rollbackSnapshot = beginTuiReset();
         set(blankSessionPatch());
         try {
-          await runtime.clear({ recoverAgent: true });
+          const result = await runtime.clear({ recoverAgent: true, ...(archiveAs ? { archiveAs } : {}), ...reset });
+          if (result === false && (archiveAs || reset.rebuildPrompt))
+            throw new Error('The conversation could not be cleared.');
           commitEmptySession(rollbackSnapshot);
           flags.lastUserActivityAt = Date.now();
-          return true;
+          return reset.rebuildPrompt ? result : true;
         } catch (error) {
           restoreTuiAfterFailedSessionReset(rollbackSnapshot);
           throw error;

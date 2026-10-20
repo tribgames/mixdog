@@ -9,6 +9,17 @@ import { createInheritanceActions } from './lifecycle/inheritance.mjs';
 import { createResumeAction } from './lifecycle/resume.mjs';
 import { createDisposeAction } from './lifecycle/dispose.mjs';
 import { publishModelSwitch } from './routes.mjs';
+import { resolveHeldRequest } from '../../../runtime/shared/held-request-host.mjs';
+
+/** The human-response fields of a decision (never a value), or null. */
+function humanDecisionFields(decision) {
+  if (!decision || typeof decision !== 'object') return null;
+  const fields = {};
+  for (const key of ['response', 'editedArgs', 'remember', 'scope']) {
+    if (decision[key] !== undefined) fields[key] = decision[key];
+  }
+  return Object.keys(fields).length ? fields : null;
+}
 
 export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFlows }) {
   const { runtime, pushNotice, removeNotice, setProgressHint, finishToolApproval } = bag;
@@ -52,14 +63,19 @@ export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFl
   return {
     isSessionTerminal: () => bag.flags?.admission === 'terminal' || runtime.isSessionTerminal?.() === true,
     resolveToolApproval: (id, decision = {}) => {
+      // A held request of an unattended run is answered from its owner's home
+      // thread, wherever the run itself lives (session-runtime/held-requests.mjs).
+      if (resolveHeldRequest(id, decision)) return true;
       const approved = decision === true || decision?.approved === true;
+      const extra = humanDecisionFields(decision);
       return finishToolApproval(
         id,
         approved,
         decision?.reason || (approved ? 'approved by user' : 'denied by user'),
         typeof decision?.device === 'string' ? decision.device : '',
         decision?.answers,
-        typeof decision?.reply === 'string' ? decision.reply : undefined
+        typeof decision?.reply === 'string' ? decision.reply : undefined,
+        ...(extra ? [extra] : [])
       );
     },
     pushNotice,

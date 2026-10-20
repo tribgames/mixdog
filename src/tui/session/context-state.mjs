@@ -135,7 +135,12 @@ export function createContextState({
     const ctx = runtime.contextStatus?.() || null;
     if (!ctx) return null;
     syncContextDisplayFields(ctx);
-    const stats = { ...getState().stats, ...contextMeasurementStats(ctx) };
+    const stats = {
+      ...getState().stats,
+      ...contextMeasurementStats(ctx),
+      // The persisted session totals behind the composer's usage readout.
+      usageReadout: ctx.usage?.usageReadout ?? null,
+    };
     updateState({ stats });
     return ctx;
   };

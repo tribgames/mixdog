@@ -142,6 +142,26 @@ for (const command of SLASH_COMMANDS) {
   }
 }
 
+/**
+ * The registered command a prompt runs, by the renderer's rule
+ * (apps/desktop renderer/slash-commands.ts recognisedSlashSpan): the text,
+ * trimmed, begins with `/` and its first whitespace-delimited token names a
+ * command or alias. Returns that token lowercased, else null: any other
+ * leading `/` (an absolute path, a stray word) is ordinary message text.
+ */
+export function recognisedSlashToken(text) {
+  const token = /^\s*\/(\S+)/.exec(String(text ?? ''))?.[1].toLowerCase();
+  return token && SLASH_COMMAND_BY_TOKEN.has(token) ? token : null;
+}
+
+/** The only commands a bot's conversation room runs, by their literal name
+ *  (`/new` stays text); mirrors the renderer's recognisedAgentRoomSlash. */
+const AGENT_ROOM_SLASH_TOKENS = new Set(['compact', 'clear']);
+
+export function recognisedAgentRoomSlash(text) {
+  return AGENT_ROOM_SLASH_TOKENS.has(recognisedSlashToken(text));
+}
+
 export function normalizeSlashCommandName(cmd) {
   const name = String(cmd || '').toLowerCase();
   return SLASH_COMMAND_BY_TOKEN.get(name)?.name || name;

@@ -43,8 +43,9 @@ export function makeQueueEntry(text, options = {}, nextId) {
       ? options.resumeCompletionKeys.filter((key) => key != null && String(key).trim())
       : [],
     steeringPersistId: options.steeringPersistId || null,
-    steeringPersistRestored: options.steeringPersistRestored === true,
     isMeta: options.isMeta === true,
+    // A routine turn's trusted skill-selection text (its instructions only).
+    skillSelection: typeof options.skillSelection === 'string' ? options.skillSelection : null,
     goalId: options.goalId || null,
     // Retry of a failed turn: the transcript and the session rewind the
     // failed turn's unanswered prompt before this entry runs.

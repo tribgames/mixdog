@@ -37,7 +37,7 @@ test('a prompt submitted before task wait releases it and drains exactly once', 
   };
   const queue = createQueueOps(bag, { kickDrain() {} });
   bag.enqueue = (text, options) => {
-    const entry = queue.makeQueueEntry(text, { ...options, steeringPersistRestored: true });
+    const entry = queue.makeQueueEntry(text, options);
     pending.push(entry);
     state.queued.push(entry);
     return true;
@@ -69,7 +69,7 @@ test('a prompt submitted before task wait releases it and drains exactly once', 
     assert.equal(begin().signal.aborted, false, 'reclaimed steering must not interrupt a later wait');
 
     for (const [text, options] of [
-      ['/help', {}],
+      ['/compact', {}],
       ['나중에', { priority: 'later' }],
       ['notification', { mode: 'task-notification' }],
       ['goal', { mode: 'goal-closeout' }],

@@ -477,9 +477,11 @@ const NON_WAKE_KINDS = [
   {
     path: 'lead',
     name: 'a slash command typed during the wait',
-    needle: '/compact-marker',
+    needle: 'compact-marker',
     deliveredInTurn: 0,
-    fire: (ctx) => ctx.lead.intake.submit('/compact-marker'),
+    // A registered command; an unregistered `/word` is ordinary message text
+    // (isSlashQueuedEntry) and rightly wakes the wait like any typed message.
+    fire: (ctx) => ctx.lead.intake.submit('/compact compact-marker'),
   },
   {
     path: 'lead',

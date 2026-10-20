@@ -191,6 +191,14 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       (name) => runtime.runScheduleNow(name),
       (_result, name) => `schedule ran: ${name}`
     ),
+    runWebhookNow: announced(
+      (name) => runtime.runWebhookNow(name),
+      (_result, name) => `webhook ran: ${name}`
+    ),
+    retryRoutineDelivery: announced(
+      (kind, name) => runtime.retryRoutineDelivery(kind, name),
+      (_result, kind, name) => `${kind} result delivered: ${name}`
+    ),
     saveWebhook: announced(
       (entry) => runtime.saveWebhook(entry),
       (result) => `webhook saved: ${result.name}`

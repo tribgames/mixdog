@@ -13,7 +13,7 @@ mock.module('../tui-steering-persist.mjs', {
       dropped.push([sessionId, entries.map((entry) => entry.steeringPersistId)]);
       return Promise.resolve();
     },
-    drainTuiSteeringPersist: async () => [],
+    readTuiSteeringPersist: async () => [],
   },
 });
 const { createSessionFlow } = await import('../session-flow.mjs');

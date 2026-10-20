@@ -5,6 +5,7 @@
  */
 import { agentJobResultText, parseAgentJob, parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { attachmentTextForPart, isAttachmentReference } from '../../runtime/attachments/store.mjs';
+import { recognisedSlashToken } from '../app/slash-commands.mjs';
 
 const QUEUE_PRIORITY = { now: 0, next: 1, later: 2 };
 
@@ -52,7 +53,7 @@ export function isQueuedEntryVisible(entry) {
 export function isSlashQueuedEntry(entry) {
   if (entry?.skipSlashCommands) return false;
   const text = promptContentText(entry?.content ?? entry?.text ?? '');
-  return text.trim().startsWith('/');
+  return recognisedSlashToken(text) !== null;
 }
 
 function firstQueueLine(text) {

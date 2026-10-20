@@ -13,9 +13,8 @@ import test from 'node:test';
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-tui-steering-persist-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 
-const { appendTuiSteeringPersist, drainTuiSteeringPersist, flushTuiSteeringPersist } = await import(
-  './tui-steering-persist.mjs'
-);
+const { appendTuiSteeringPersist, dropTuiSteeringPersist, flushTuiSteeringPersist, readTuiSteeringPersist } =
+  await import('./tui-steering-persist.mjs');
 
 const spoolPath = join(dataDir, 'session-pending-messages.json');
 const legacyPath = spoolPath;
@@ -99,18 +98,86 @@ test('a TUI steering append migrates the legacy spool and leaves foreign rows lo
   assert.equal(steering[0].text, 'steer me');
 });
 
-test('drain touches only its own shard: the file is removed, other shards stay', async () => {
+test('a read touches only its own shard and keeps the rows until they are dropped', async () => {
   const foreignBefore = readFileSync(shardPath('sess_runtime_owner'), 'utf8');
-  const drained = await drainTuiSteeringPersist('leadsessionone');
+  const restored = await readTuiSteeringPersist('leadsessionone');
   assert.deepEqual(
-    drained.map((row) => row.text),
+    restored.map((row) => row.text),
     ['steer me']
   );
-
-  assert.equal(existsSync(shardPath('tui_leadsessionone')), false);
+  // A restart before the queue settles the row restores it again.
+  assert.deepEqual(
+    (await readTuiSteeringPersist('leadsessionone')).map((row) => row.steeringPersistId),
+    restored.map((row) => row.steeringPersistId)
+  );
   assert.equal(readFileSync(shardPath('sess_runtime_owner'), 'utf8'), foreignBefore);
-  // Another lead session's stale bucket is the sweep's concern, not the drain's.
+  // Another lead session's stale bucket is the sweep's concern, not the read's.
   assert.equal(existsSync(shardPath('tui_staleother')), true);
+
+  await dropTuiSteeringPersist('leadsessionone', restored);
+  assert.equal(existsSync(shardPath('tui_leadsessionone')), false);
+});
+
+test('a row keeps the executable content and attachment links it was accepted with', async () => {
+  const content = [
+    { type: 'text', text: '[Image #1] what is this' },
+    { type: 'image', ref: 'att_image_1', mimeType: 'image/png' },
+  ];
+  const entry = {
+    id: 'desktop-submit-7',
+    text: '[Image #1] what is this',
+    content,
+    pastedImages: { 1: { id: 1, ref: 'att_image_1' } },
+    pastedTexts: { 2: { id: 2, ref: 'att_text_2' } },
+    transcriptMeta: { device: 'Laptop', attachments: [{ kind: 'image', ref: 'att_image_1' }] },
+    priority: 'now',
+    onCommitted: () => {},
+  };
+  const appending = appendTuiSteeringPersist('attachlead', entry);
+  // An edit of the live entry after acceptance never reaches the stored row.
+  content[0].text = 'edited later';
+  await appending;
+  const [row] = await readTuiSteeringPersist('attachlead');
+  assert.equal(row.submissionId, 'desktop-submit-7');
+  assert.deepEqual(row.content, [
+    { type: 'text', text: '[Image #1] what is this' },
+    { type: 'image', ref: 'att_image_1', mimeType: 'image/png' },
+  ]);
+  assert.deepEqual(row.pastedImages, entry.pastedImages);
+  assert.deepEqual(row.pastedTexts, entry.pastedTexts);
+  assert.deepEqual(row.transcriptMeta, entry.transcriptMeta);
+  assert.equal(row.priority, 'now');
+  assert.equal(Object.hasOwn(row, 'onCommitted'), false);
+});
+
+test('a row of an older build gets one durable id on its first read', async () => {
+  mkdirSync(join(dataDir, 'session-pending'), { recursive: true });
+  const at = Date.now();
+  writeFileSync(
+    shardPath('tui_legacylead'),
+    JSON.stringify({
+      version: 1,
+      updatedAt: at,
+      sessions: { tui_legacylead: ['plain legacy row', { text: 'idless legacy row', at }] },
+      sessionTouchedAt: { tui_legacylead: at },
+    })
+  );
+  const first = await readTuiSteeringPersist('legacylead');
+  assert.deepEqual(
+    first.map((row) => row.text),
+    ['plain legacy row', 'idless legacy row']
+  );
+  assert.ok(first.every((row) => typeof row.steeringPersistId === 'string' && row.steeringPersistId));
+  const again = await readTuiSteeringPersist('legacylead');
+  assert.deepEqual(
+    again.map((row) => row.steeringPersistId),
+    first.map((row) => row.steeringPersistId)
+  );
+  await dropTuiSteeringPersist('legacylead', [first[0]]);
+  assert.deepEqual(
+    (await readTuiSteeringPersist('legacylead')).map((row) => row.text),
+    ['idless legacy row']
+  );
 });
 
 test('steering operations of different sessions never contend on one lock', async () => {

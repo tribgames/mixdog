@@ -1,6 +1,7 @@
 /**
  * Transcript spill storage, history paging, and session item-state mutations.
  */
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
@@ -19,8 +20,11 @@ export const tuiDebug = (msg) => {
   } catch {}
 };
 
+// Item ids outlive the process (queued-input mirror, turn change records), so
+// a restarted process never issues an id again.
+const ID_PREFIX = `it_${randomBytes(4).toString('hex')}_`;
 let _idSeq = 0;
-export const nextId = () => `it_${++_idSeq}`;
+export const nextId = () => `${ID_PREFIX}${++_idSeq}`;
 
 export const TRANSCRIPT_LIVE_ITEM_CAP = 512;
 export const TRANSCRIPT_SPILL_CHUNK_ITEMS = 128;

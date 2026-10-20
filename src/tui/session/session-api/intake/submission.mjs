@@ -14,6 +14,11 @@ export function createSubmissionIntake(bag) {
       text,
       queueOptions: {
         ...options,
+        // A kickoff (a new agent's greeting turn) reaches the model only: no
+        // user bubble, no queue row, never restored into the composer.
+        ...(options.kickoff === true
+          ? { isMeta: true, suppressDisplay: true, skipSlashCommands: true, restorable: false }
+          : {}),
         // Always mint a submission id so daemon retries / dual-path intake
         // can dedupe instead of booking the same prompt twice.
         id: String(options.id || '').trim() || nextId(),

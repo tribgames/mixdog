@@ -43,7 +43,8 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
         batch.push(entry);
         pending.splice(i, 1);
         if (entry.mode === 'task-notification' && entry.key) pendingNotificationKeys.delete(entry.key);
-        if (entry.retryTurnId || batch.length >= limit) break;
+        // A routine fire is a turn of its own, never merged with another.
+        if (entry.retryTurnId || entry.mode === 'routine' || batch.length >= limit) break;
       } else {
         i += 1;
       }
@@ -73,7 +74,7 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
     // A reclaimed prompt goes back to the draft, so its durable steering
     // mirror goes with it; otherwise the next runtime restore re-queues a
     // prompt the user already took back.
-    const mirrored = queued.filter((entry) => entry.steeringPersistId && !entry.steeringPersistRestored);
+    const mirrored = queued.filter((entry) => entry.steeringPersistId);
     if (mirrored.length > 0) void dropTuiSteeringPersist(leadSessionId(), mirrored);
     const queuedText = queued
       .map((item) => item.text)

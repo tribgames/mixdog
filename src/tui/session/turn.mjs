@@ -54,6 +54,7 @@ import {
   startLiveTail,
 } from './turn-tool-cards.mjs';
 import { startQuietWatch } from './turn-quiet.mjs';
+import { endLiveCall, noteLiveCallText, startNextLiveCall, withdrawLiveCall } from './turn-live-call.mjs';
 
 // A usage limit is exactly a spent quota, a plan-gated feature or a billing
 // refusal; overloads, rate limits and server faults recover by waiting.
@@ -336,10 +337,15 @@ export function applyCompactEvent(ctx, event) {
   set({ ...routeState(), stats: { ...getState().stats } });
 }
 
-function applyTurnUsageDelta({ turn, getState, set, syncContextStats }, delta) {
+function applyTurnUsageDelta(ctx, delta) {
+  const { turn, getState, set, syncContextStats } = ctx;
   const stats = { ...getState().stats };
   applyUsageDelta(stats, delta);
   set({ stats });
+  // The call is over: the composer's live speed gives way to the session's
+  // figure, which this delta's exact usage has just joined.
+  startNextLiveCall(ctx.stream);
+  // Publishes the session's persisted usage totals (stats.usageReadout) too.
   syncContextStats({ allowEstimated: true });
   const inputTokens = Math.max(0, getState().stats.inputTokens - turn.inputBaseline);
   const outputTokens = Math.max(0, getState().stats.outputTokens - turn.outputBaseline);
@@ -369,7 +375,6 @@ function turnHandlers(ctx) {
     },
     drainSteering: (_sessionId, drainOptions) =>
       isCurrentTurn() ? drainPendingSteering({ ...drainOptions, turnEpoch: ctx.turn.epoch }) : [],
-    onStreamDelta: () => {},
     onSteerMessage: (text, steeringMeta = {}) => {
       if (isCurrentTurn()) injectSteerMessage(ctx, text, steeringMeta);
     },
@@ -441,8 +446,13 @@ export function streamHandlers(ctx) {
       // prompt — the runtime would rewind it while the host skipped the requeue.
       if (textChunk.trim()) ctx.markPromptCommitted();
       appendTextDelta(stream, textChunk);
+      noteLiveCallText(stream, textChunk);
     },
-    onTextReset: (reset = {}) => (isCurrentTurn() ? resetStreamedText(stream, reset) : false),
+    onTextReset: (reset = {}) => {
+      if (!isCurrentTurn()) return false;
+      endLiveCall(stream);
+      return resetStreamedText(stream, reset);
+    },
     onAssistantText: (text, detail) => {
       const full = String(text ?? '');
       if (!full.trim() || !isCurrentTurn()) return;
@@ -454,7 +464,9 @@ export function streamHandlers(ctx) {
       appendAssistantText(stream, full, { committed: detail?.committed === true });
     },
     onReasoningDelta: (chunk) => {
-      if (isCurrentTurn()) appendReasoningDelta(stream, String(chunk ?? ''));
+      if (!isCurrentTurn()) return;
+      appendReasoningDelta(stream, String(chunk ?? ''));
+      noteLiveCallText(stream, chunk);
     },
     // A provider output item started. A tool call ends the text before it
     // (a preamble settles at the call's start, not after its arguments or
@@ -462,8 +474,10 @@ export function streamHandlers(ctx) {
     // commentary or final answer.
     onStreamItemStart: (detail) => {
       if (!isCurrentTurn()) return;
-      if (detail?.kind === 'tool') settleSegmentBeforeToolCall(ctx);
-      else if (detail?.kind === 'text') noteAssistantPhase(stream, detail.phase);
+      if (detail?.kind === 'tool') {
+        withdrawLiveCall(stream);
+        settleSegmentBeforeToolCall(ctx);
+      } else if (detail?.kind === 'text') noteAssistantPhase(stream, detail.phase);
     },
   };
 }
@@ -725,6 +739,7 @@ export function createRunTurn(bag) {
     try {
       const { result, session } = await runtime.ask(userText, {
         id: turn.submittedIds[0],
+        submissionIds: turn.submittedIds,
         submittedAt: options.submittedAt,
         promptSource: options.promptSource,
         retryFailedTurn: options.retryFailedTurn === true,
@@ -732,6 +747,7 @@ export function createRunTurn(bag) {
         retryAttemptId: options.retryAttemptId,
         transcriptMeta: turn.transcriptMeta,
         context: options.context || null,
+        ...(typeof options.skillSelection === 'string' ? { skillSelection: options.skillSelection } : {}),
         ...turnHandlers(ctx),
         ...toolHandlers(ctx),
         ...streamHandlers(ctx),

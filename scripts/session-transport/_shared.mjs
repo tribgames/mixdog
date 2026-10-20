@@ -37,7 +37,7 @@ const { createProjectPicker } = await import('../../src/tui/app/project-picker.m
 const { createPanelSurface } = await import('../../src/tui/app/panel-surface.mjs');
 const { createSessionApiA } = await import('../../src/tui/session/session-api.mjs');
 const { createSessionApiB } = await import('../../src/tui/session/session-api-ext.mjs');
-const { appendTuiSteeringPersist, drainTuiSteeringPersist } = await import(
+const { appendTuiSteeringPersist, readTuiSteeringPersist } = await import(
   '../../src/tui/session/tui-steering-persist.mjs'
 );
 const { createSessionOAuthFlowRegistry } = await import('../../src/tui/session/oauth-flows.mjs');
@@ -361,7 +361,7 @@ export {
   createSessionApiA,
   createSessionApiB,
   appendTuiSteeringPersist,
-  drainTuiSteeringPersist,
+  readTuiSteeringPersist,
   createSessionOAuthFlowRegistry,
   SESSION_CAPABILITY_FINGERPRINT,
   SESSION_PROTOCOL,

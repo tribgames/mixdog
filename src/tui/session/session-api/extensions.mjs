@@ -121,6 +121,10 @@ export function createSessionExtensionsApi(bag) {
       (input) => runtime.saveSkill?.(input),
       (result, input) => [`skill saved: ${result?.skill?.name || input?.name || 'skill'}`]
     ),
+    removeSkill: lockedChange(
+      (input) => runtime.removeSkill?.(input),
+      (result, input) => [`skill removed: ${result?.skill?.name || input?.name || 'skill'}`]
+    ),
     reloadSkills: lockedChange(
       () => runtime.reloadSkills?.(),
       (status) => [`skills reload: ${status?.count || 0} available`]

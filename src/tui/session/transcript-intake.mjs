@@ -12,6 +12,7 @@ import {
 import { isLateToolAnnouncement } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { appendPromptHistory } from '../prompt-history-store.mjs';
 import { newTranscriptMessageId } from '../../runtime/shared/transcript-metadata.mjs';
+import { routineTriggerField } from '../../runtime/shared/routine-trigger.mjs';
 import {
   buildExecutionResponseToolItem,
   completionCardFromExecution,
@@ -107,16 +108,19 @@ export function createTranscriptIntake({ getState, flags, pushItem, patchItem, t
     // message reports it) or, for a typed prompt, a new one that goes with
     // the prompt into the model transcript. An injected row with no message
     // id of its own carries none.
+    // A routine fire's row is the prompt the turn persists, like a typed one.
+    const ownsPrompt = origin === 'user' || origin === 'routine';
     let messageId = '';
     if (typeof extra?.messageId === 'string' && extra.messageId) messageId = extra.messageId;
-    else if (origin === 'user') messageId = newTranscriptMessageId();
+    else if (ownsPrompt) messageId = newTranscriptMessageId();
     const transcriptMeta = { ...transcriptRouteMetadata(), ...(messageId ? { messageId } : {}) };
-    if (origin === 'user') flags.pendingTranscriptMeta = transcriptMeta;
+    if (ownsPrompt) flags.pendingTranscriptMeta = transcriptMeta;
     pushItem({
       kind: 'user',
       id,
       text,
       ...transcriptMeta,
+      ...routineTriggerField(extra),
       ...(extra && typeof extra.sender === 'string' && extra.sender ? { sender: extra.sender } : {}),
       ...(extra && typeof extra.device === 'string' && extra.device ? { device: extra.device } : {}),
       // Byte-free attachment metadata (name/mime/size) from the queue entry —
