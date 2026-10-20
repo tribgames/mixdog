@@ -8,12 +8,12 @@ import {
 
 const sourceRoute = { provider: 'openai', model: 'gpt-5.4', effort: 'high', fast: false };
 
-function fixture({ session, updateSessionRoute, lookupModelMeta, config: initialConfig } = {}) {
+function fixture({ session, updateSessionRoute, lookupModelMeta, config: initialConfig, route: initialRoute } = {}) {
   let config = initialConfig || { modelSettings: {} };
   const calls = [];
   const persisted = [];
   const state = {
-    route: { ...sourceRoute, contextPercent: 100, effectiveEffort: 'high' },
+    route: initialRoute || { ...sourceRoute, contextPercent: 100, effectiveEffort: 'high' },
     session: session === undefined ? { id: 'empty-1', ...sourceRoute, messages: [] } : session,
     webSearchRoute: null,
   };
@@ -112,6 +112,52 @@ test('setRoute falls back to mutating the session when the manager cannot update
   assert.equal(state.session.effort, 'low');
   assert.deepEqual(state.session.modelParameters, {});
 });
+
+test('setRoute onlyIfEmpty fills an empty route and never replaces a set one', async () => {
+  const empty = fixture({ route: { provider: '', model: '' } });
+  await empty.api.setRoute({ provider: 'anthropic', model: 'claude-x' }, { onlyIfEmpty: true });
+  assert.equal(empty.state.route.model, 'claude-x');
+  const set = fixture();
+  const answer = await set.api.setRoute({ provider: 'anthropic', model: 'claude-x' }, { onlyIfEmpty: true });
+  assert.equal(answer.model, 'gpt-5.4');
+  assert.equal(set.state.route.model, 'gpt-5.4');
+  assert.deepEqual(set.persisted, []);
+});
+
+// Every Lead-route writer is this runtime's setRoute, with these options: the
+// model controls and the settings model editor / RouteEditorDialog (the plain
+// desktop setModelRoute), a new-task submit and the setup tool
+// (keepMainModel: false), TUI /model and other windows or a phone (the same
+// daemon session surface).
+const LEAD_WRITERS = {
+  'desktop setModelRoute / TUI /model': {},
+  'settings model editor, new-task submit, setup tool': { keepMainModel: false },
+  'addressed pick with the Main model': { applyToCurrentSession: true, keepMainModel: false },
+};
+
+for (const [writer, options] of Object.entries(LEAD_WRITERS)) {
+  test(`a Main route picked by ${writer} between the emptiness read and the write is not overwritten`, async () => {
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const h = fixture({
+      route: { provider: '', model: '' },
+      lookupModelMeta: async (_provider, model) => {
+        if (model === 'claude-fill') await gate;
+        return { id: model, fastCapable: true };
+      },
+    });
+    const fill = h.api.setRoute({ provider: 'anthropic', model: 'claude-fill' }, { onlyIfEmpty: true });
+    await Promise.resolve();
+    // The pick lands while the fill is still resolving its model.
+    await h.api.setRoute({ provider: 'openai', model: 'gpt-picked' }, options);
+    release();
+    const answer = await fill;
+    assert.equal(h.state.route.model, 'gpt-picked');
+    assert.equal(answer.model, 'gpt-picked');
+  });
+}
 
 test('setRoute rejects a model the provider catalog cannot resolve', async () => {
   const { api } = fixture({ lookupModelMeta: async (_provider, model) => ({ id: model }) });

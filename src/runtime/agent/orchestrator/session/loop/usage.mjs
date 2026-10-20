@@ -41,7 +41,7 @@ export function usageDeltaEvent({
   usage,
   sendTools,
   toolCalls = 0,
-  generationMs = 0,
+  requestMs = 0,
 }) {
   return {
     sessionId,
@@ -57,9 +57,10 @@ export function usageDeltaEvent({
     deltaToolCalls: toolCalls,
     ...reasoningUsage(usage),
     deltaPrompt: usage.promptTokens || 0,
-    // First visible token → end of this response; 0 when the call was not
-    // timed (nothing visible streamed). Only timed output enters speed figures.
-    generationMs,
+    // Request start → end of this response (first-token wait included, as the
+    // ledger's duration_ms); 0 when the call was not timed. Only timed output
+    // enters speed figures.
+    requestMs,
     // A provider that cannot measure the prompt or its cache split says so;
     // its zeros are unknowns, not readings (no cache hit can be derived).
     promptKnown: usage.inputTokensKnown !== false && usage.cacheTokensKnown !== false,
@@ -77,6 +78,47 @@ export function usageDeltaEvent({
     sendTools,
     ts: Date.now(),
   };
+}
+
+const SUMMED_USAGE_FIELDS = [
+  'inputTokens',
+  'outputTokens',
+  'cachedTokens',
+  'cacheWriteTokens',
+  'cacheWrite1hTokens',
+  'promptTokens',
+];
+
+/** What `total` added after the running total `earlier` (both from addUsage); null when nothing. */
+export function usageSince(total, earlier) {
+  if (!total) return null;
+  if (!earlier) return { ...total };
+  const delta = {};
+  for (const field of SUMMED_USAGE_FIELDS) delta[field] = Math.max(0, (total[field] || 0) - (earlier[field] || 0));
+  if (total.reasoningTokens != null) {
+    delta.reasoningTokens = Math.max(0, total.reasoningTokens - (earlier.reasoningTokens ?? 0));
+    delta.reasoningTokensComplete = total.reasoningTokensComplete === true;
+  }
+  if (total.costUsd != null) delta.costUsd = Math.max(0, total.costUsd - (earlier.costUsd || 0));
+  if (total.contextTokens) delta.contextTokens = total.contextTokens;
+  return Object.values(delta).some((value) => typeof value === 'number' && value > 0) ? delta : null;
+}
+
+/**
+ * The turn's usage split per model when the route switched mid-turn:
+ * `hops` holds, per left model, the running total when it was left. Each
+ * segment carries only its own tokens so it is priced at its own rates.
+ */
+export function routeUsageSegments(hops, total, current) {
+  if (!Array.isArray(hops) || !hops.length) return null;
+  const boundaries = [...hops, { ...current, usage: total }];
+  return boundaries
+    .map((segment, index) => ({
+      provider: segment.provider,
+      model: segment.model,
+      usage: usageSince(segment.usage, index ? boundaries[index - 1].usage : null),
+    }))
+    .filter((segment) => segment.usage);
 }
 
 export function addUsage(total, usage) {

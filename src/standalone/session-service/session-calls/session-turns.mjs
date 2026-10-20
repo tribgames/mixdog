@@ -12,6 +12,7 @@ import {
 import { providerNativePdf } from '../../../runtime/agent/orchestrator/providers/registry.mjs';
 import { cancelBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
 import { isAgentModeSession } from '../../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { isAgentHomeSessionId } from '../../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { recognisedAgentRoomSlash } from '../../../tui/app/slash-commands.mjs';
 import { promptContentText } from '../../../tui/session/queue-helpers.mjs';
 
@@ -35,6 +36,17 @@ function abortsAgentTurn(id, state, hasAgentSession) {
       .trim()
       .toLowerCase() === 'agent-only' ||
     isLegacyAgentChild
+  );
+}
+
+/** A prompt the user typed: not an agent's send (`sender: 'lead'`), a hidden
+ *  wake, a routine fire or any other runtime-made turn. */
+export function isUserTurn(options = {}) {
+  return (
+    (options.mode || 'prompt') === 'prompt' &&
+    options.kickoff !== true &&
+    options.isMeta !== true &&
+    options.transcriptMeta?.sender !== 'lead'
   );
 }
 
@@ -88,6 +100,13 @@ export function createSessionTurnCalls(ctx) {
     const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, submissionOptions));
     if (accepted === true) {
       entry.reservedOnly = false;
+      if (isAgentHomeSessionId(id) && isUserTurn(submissionOptions)) {
+        // The user spoke in this agent's home: its round trips with other
+        // sessions count from zero again, so a capped thread wakes again.
+        void import('../../../session-runtime/agent-home-delivery.mjs')
+          .then(({ resetAgentTaskRounds }) => resetAgentTaskRounds(id))
+          .catch((error) => log(`round reset of ${id} failed: ${error?.message || error}`));
+      }
     }
     const step = settleAction(entry, 'headless session submit');
     log(`session submit session=${id} accepted=${accepted === true}`);

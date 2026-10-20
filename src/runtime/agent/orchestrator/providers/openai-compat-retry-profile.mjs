@@ -104,10 +104,16 @@ export const COMPAT_RETRY_PROFILES = Object.freeze({
   }),
 });
 
-/** withRetry options (attempt budget, schedule, jitter) for a provider; {} for the shared defaults. */
+// A provider without a profile (custom endpoints, gateways, local servers)
+// keeps the shared ladder, but a Retry-After beyond a minute is not waited
+// out: it surfaces with its wait so the account pool can rotate and the
+// notice can name when to try again.
+export const COMPAT_DEFAULT_MAX_RETRY_AFTER_MS = 60_000;
+
+/** withRetry options (attempt budget, schedule, jitter) for a provider; only the advice ceiling for the shared defaults. */
 export function compatRetryOptions(providerName) {
   const profile = COMPAT_RETRY_PROFILES[providerName];
-  if (!profile) return {};
+  if (!profile) return { maxRetryAfterMs: COMPAT_DEFAULT_MAX_RETRY_AFTER_MS };
   return {
     maxAttempts: profile.maxAttempts,
     backoffMs: profile.backoffMs,

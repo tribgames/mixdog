@@ -42,9 +42,9 @@ test('judge levels map to steps: easy -1, normal 0, hard +1, very hard +2', () =
     [-1, 0, 1, 2]
   );
   assert.deepEqual(judgedStep([0.1, 0.2, 0.6, 0.1]), { step: 1, level: 2, confidence: 0.6 });
-  // "Very hard" without a firm judge stays one step lower (high, not xhigh).
-  assert.deepEqual(judgedStep([0, 0.003, 0.4, 0.597]), { step: 1, level: 2, confidence: 0.597 });
-  assert.equal(judgedStep([0, 0.002, 0.169, 0.829]).step, 2);
+  // "Very hard" wins over "hard" once it outweighs "normal" and "hard" together.
+  assert.deepEqual(judgedStep([0, 0.003, 0.4, 0.597]), { step: 2, level: 3, confidence: 0.597 });
+  assert.deepEqual(judgedStep([0, 0.1, 0.45, 0.45]), { step: 1, level: 2, confidence: 0.45 });
 });
 
 test('a split judge avoids an opposite call instead of following the top level', () => {

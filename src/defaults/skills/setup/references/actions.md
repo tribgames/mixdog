@@ -52,7 +52,7 @@ Read this when choosing a `setup` mutation.
 | Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
 | Select, rename, or reorder OAuth accounts, set the switching policy, or allow paid credits | `set_provider_account` |
 | Developer options such as risk-gated OAuth providers | `set_developer_option` |
-| Connect a catalog service (Slack, Notion, GitHub, …) for the user: shows a one-click connect card | `connect_connector` |
+| Connect a catalog service (Notion, Linear, Gmail, …; not GitHub, which is the GitHub CLI) for the user: shows a one-click connect card | `connect_connector` |
 | Add an MCP server | `add_mcp_server` |
 | Edit or rename an MCP server | `save_mcp_server` |
 | Remove an MCP server | `remove_mcp_server` |
@@ -112,6 +112,9 @@ workflow` before changing the corresponding domain.
   `originalName` and `name`. Skill deletion is not exposed; disable it instead.
   Built-in and plugin skills accept only `toolDependencies` edits (`null`
   restores their declared dependencies).
+- A created agent is a bot (`definition.kind: "bot"`) or a workflow agent
+  (`"agent"`); omitted, the representative bot's chat creates a bot and any other chat a
+  workflow agent. The kind is fixed after creation.
 - Changing orchestration does not rewrite workflow instructions or agents.
 
 ## Providers and authentication

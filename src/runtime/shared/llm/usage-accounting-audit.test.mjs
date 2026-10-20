@@ -129,7 +129,7 @@ test('re-sent, abandoned and failed attempts each reach the ledger exactly once'
   // A fallback re-send returns its own result through the enclosing send.
   await send('audit-resend', () => send('audit-resend', async () => ({ model, usage: usage(10) })));
   // A retried stream attempt was billed before the retry replaced it.
-  await send('audit-abandoned', async () => {
+  const completed = await send('audit-abandoned', async () => {
     noteAbandonedUsage(usage(20), model);
     noteAbandonedUsage({ inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 }, model);
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -166,6 +166,13 @@ test('re-sent, abandoned and failed attempts each reach the ledger exactly once'
     [30, true],
   ]);
   assert.deepEqual(timed('audit-failed'), [[40, false]]);
+  // The loop's speed figures read the very span the ledger row holds.
+  const row = ledger.db
+    .prepare('SELECT duration_ms FROM events WHERE session_id=? AND input=30')
+    .get('audit-abandoned');
+  assert.ok(completed.usageDurationMs > 0);
+  assert.equal(completed.usageDurationMs, row.duration_ms);
+  assert.equal(Object.keys(completed).includes('usageDurationMs'), false, 'not part of the response payload');
 });
 
 test('trace import prices the 1-hour cache-write share from the raw usage', () => {

@@ -1,6 +1,7 @@
 import { SESSION_ID_PATTERN } from '../runtime/agent/orchestrator/runtime-core/session-id.mjs';
 import { sessionListOutput, sessionReadOutput, SESSION_TOOL_OUTPUT_BYTES } from './session-tool-output.mjs';
 import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
+import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
 
 const TARGET_ACTIONS = new Set(['status', 'read', 'send', 'cancel', 'delete']);
 const MUTATING_ACTIONS = new Set(['send', 'cancel', 'delete']);
@@ -51,15 +52,22 @@ export function createSessionControl({
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) {
         throw new Error('session: prompt is required for action=send');
       }
-      // The agent's follow-up in a task session it created reports back too.
-      const origin = await agentTasks.originFor(sessionId, context.callerAgentId);
-      if (origin) return { sessionId, accepted: await agentTasks.send(sessionId, args.prompt, origin) };
+      // An agent conversation's send reports its turn back to the agent's
+      // home: a task session it created by its stored origin, any other
+      // session by an origin for this send only.
+      // Forwarded files ride along as stored attachment parts (workspace-tools.mjs).
+      const prompt = handoffContent(args.prompt, context.attachmentParts);
+      const origin = await agentTasks.reportOrigin(sessionId, context.callerAgentId, caller);
+      if (origin) {
+        const { accepted, reportsBack } = await agentTasks.send(sessionId, prompt, origin);
+        return { sessionId, accepted, reportsBack };
+      }
       const result = await service.submitSession({
         sessionId,
-        prompt: args.prompt,
+        prompt,
         options: { mode: 'prompt', transcriptMeta: { sender: 'lead' } },
       });
-      return { sessionId, accepted: result.accepted === true };
+      return { sessionId, accepted: result.accepted === true, reportsBack: false };
     }
     if (action === 'cancel') {
       const result = await service.abortSession({ sessionId });

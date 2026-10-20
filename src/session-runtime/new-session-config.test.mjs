@@ -318,3 +318,16 @@ test('the creation boundary refreshes before memory/tools/workflow, but skips an
   assert.equal(next.coreMemoryContext, 'old memory');
   assert.equal(creations, 2);
 });
+
+test('a model picked for a still-empty conversation survives the first creation reload while no Lead model is configured', async () => {
+  const f = fixture();
+  f.root.agent = { ...configFor(''), presets: [], default: undefined };
+  const runtime = f.runtime();
+  assert.equal(runtime.rt.route.model || '', '');
+  runtime.rt.route = { ...runtime.rt.route, provider: 'test-provider', model: 'picked' };
+  await runtime.prepare();
+  assert.equal(runtime.rt.route.model, 'picked');
+  f.root.agent = configFor('configured');
+  await runtime.prepare();
+  assert.equal(runtime.rt.route.model, 'configured');
+});

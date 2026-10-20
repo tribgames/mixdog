@@ -700,7 +700,7 @@ test('stored rows restore as a user bubble or a room notice and read back', () =
 
 const REF = (char) => char.repeat(64);
 
-test("a user row's files reach the members it addresses, right after its words; peer rows carry none", () => {
+test("a user row's files reach the members it addresses, right after its words; a peer's produced files follow its speech", () => {
   const files = [
     { type: 'image', attachmentRef: REF('a'), mimeType: 'image/png', sizeBytes: 3 },
     { type: 'text', attachmentRef: REF('b'), textKind: 'paste', mimeType: 'text/plain' },
@@ -722,19 +722,21 @@ test("a user row's files reach the members it addresses, right after its words; 
   assert.ok(Array.isArray(prompt));
   assert.deepEqual(
     prompt.map((part) => part.type),
-    ['text', 'image', 'text', 'text']
+    ['text', 'image', 'text', 'text', 'image', 'text', 'text']
   );
   assert.match(prompt[0].text, /^\[mixdog-runtime\][\s\S]*The user, to everyone:\nsee \[Image #1\]$/);
   assert.deepEqual(prompt.slice(1, 3), files.slice(0, 2));
-  // The peer's row and the message to another member bring no files here.
-  assert.match(prompt[3].text, /^<room-transcript>\n\[Bench\]\n│ mine too\n<\/room-transcript>\n/);
-  assert.match(prompt[3].text, /you were not asked\):\nBench only$/);
+  // The peer's produced files follow its words, inside the transcript boundary.
+  assert.match(prompt[3].text, /^<room-transcript>\n\[Bench\]\n│ mine too\n│ \(files from Bench follow\)$/);
+  assert.deepEqual(prompt.slice(4, 6), files.slice(0, 2));
+  // The message to another member brings no files here.
+  assert.match(prompt[6].text, /^<\/room-transcript>\n[\s\S]*you were not asked\):\nBench only$/);
   const bench = roomTurnPrompt({ ...base, self: { id: 'bench', name: 'Bench' }, rows: [toBench] });
   assert.deepEqual(bench.slice(1), files.slice(0, 2), 'the addressed member gets them');
   assert.equal(typeof roomTurnPrompt({ ...base, rows: [{ id: 'u3', kind: 'user', text: 'plain' }] }), 'string');
 });
 
-test('a user row keeps its stored files through the log and a restore; no bytes, no files on peer rows', async () => {
+test('a user row keeps its stored files through the log and a restore; no bytes; peer speech keeps only its produced files', async () => {
   const parts = [{ type: 'image', attachmentRef: REF('a'), mimeType: 'image/png', sizeBytes: 3 }];
   const attachments = [
     { id: REF('a'), attachmentRef: REF('a'), kind: 'image', name: 'shot.png', mimeType: 'image/png', size: 3 },
@@ -765,6 +767,13 @@ test('a user row keeps its stored files through the log and a restore; no bytes,
   const speech = normalizeRoomRow({ id: 's1', kind: 'speech', speaker: 'gh', text: 'x', parts, attachments, images });
   assert.deepEqual(
     ['parts', 'attachments', 'images'].filter((key) => key in speech),
+    ['parts', 'attachments']
+  );
+  const said = roomRowMessage(speech);
+  assert.deepEqual(roomRowItem(said).attachments, attachments, 'the speech row shows its returned files');
+  const pass = normalizeRoomRow({ id: 'p1', kind: 'pass', speaker: 'gh', text: '', parts, attachments });
+  assert.deepEqual(
+    ['parts', 'attachments'].filter((key) => key in pass),
     []
   );
 });

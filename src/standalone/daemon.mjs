@@ -96,6 +96,7 @@ import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
 import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
 import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
 import { createSessionControl } from './daemon-session-control.mjs';
+import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
 import { flushAllIndexWrites } from '../session-runtime/services/agent-tool/index-write-queue.mjs';
 import {
   compareRuntimeVersions,
@@ -926,6 +927,8 @@ async function main() {
     cwd: CWD,
   });
   canonicalAgentControl = agentControl;
+  // Agents' cross-session sends and task sessions, and their report watches.
+  const agentTasks = createAgentTaskSessions({ getSessionService: () => sessionService });
   const requestedRuntimeMode = String(process.env.MIXDOG_SESSION_RUNTIME_MODE || '')
     .trim()
     .toLowerCase();
@@ -939,7 +942,7 @@ async function main() {
     log,
     measureBootPhase: bootPhases.measure,
     executeAgentControl: agentControl.execute,
-    executeSessionControl: createSessionControl({ getSessionService: () => sessionService }),
+    executeSessionControl: createSessionControl({ getSessionService: () => sessionService, agentTasks }),
   });
   // Codex-style runtime: daemon routing and independent async session actors
   // share one V8 isolate and module graph. CPU-heavy work stays in bounded
@@ -986,9 +989,16 @@ async function main() {
   setAgentHomeLiveSurface({
     busy: (sessionId) => sessionService.liveSessionBusy(sessionId),
     notice: (sessionId, notice) => sessionService.pushLiveSessionNotice(sessionId, notice),
-    // A task session's result (session create): the agent relays it in one turn.
-    wake: (sessionId, prompt) =>
-      sessionService.submitSession({ sessionId, prompt, options: { mode: 'prompt', kickoff: true } }),
+    // A task session's result (session create): the agent relays it in one
+    // turn. Resolves whether the turn was taken.
+    wake: async (sessionId, prompt, { id } = {}) =>
+      (
+        await sessionService.submitSession({
+          sessionId,
+          prompt,
+          options: { mode: 'prompt', kickoff: true, ...(id ? { id } : {}) },
+        })
+      )?.accepted === true,
     // A routine fire: one queued turn in its bot's thread (routine-home-turn.mjs).
     submit: async (sessionId, prompt, options) =>
       (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,
@@ -997,6 +1007,8 @@ async function main() {
   // Results queued before a restart are posted now; results a finished run
   // could not queue (kept on its routine's record) are queued again.
   recoverScheduleResults().catch((error) => log(`routine results recovery failed: ${error?.message || error}`));
+  // Agents' sends whose report an earlier process had not queued yet.
+  agentTasks.recover().catch((error) => log(`agent task report recovery failed: ${error?.message || error}`));
   recoverRoutineDeliveries().catch((error) => log(`routine delivery recovery failed: ${error?.message || error}`));
   sessionTransport = createSessionTransport({
     // ctx carries the CLIENT token: the session service refcounts views across

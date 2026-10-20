@@ -66,5 +66,11 @@ test('a first-party cache row is unchanged by the custom fields', () => {
   for (const key of ['name', 'manual', 'customReasoning']) assert.equal(Object.hasOwn(row, key), false);
   // A provider catalog's own hidden mark (visibility) does carry over.
   assert.equal(row.hidden, true);
-  assert.equal(Object.hasOwn(providerModelCacheRow('openai', { id: 'm' }, () => false), 'hidden'), false);
+  assert.equal(
+    Object.hasOwn(
+      providerModelCacheRow('openai', { id: 'm' }, () => false),
+      'hidden'
+    ),
+    false
+  );
 });

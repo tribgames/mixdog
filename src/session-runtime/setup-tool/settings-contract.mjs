@@ -157,6 +157,12 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     name: text,
     description: text,
     body: text,
+    kind: {
+      type: 'string',
+      enum: ['bot', 'agent'],
+      description:
+        'Agent create only: "bot" (a contact the user chats with) or "agent" (a workflow sub-agent). Omitted: a bot when created from the representative bot\'s chat, else a workflow agent. Fixed after creation.',
+    },
     whenToUse: text,
     toolDependencies: {
       type: ['array', 'null'],

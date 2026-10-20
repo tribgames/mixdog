@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
-  "release": "effort-judge-v6",
+  "release": "effort-judge-v7",
   "files": {
     "model.onnx": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v6/model.onnx",
-      "sha256": "5abed811aaa44690f8d6292472aa8d930abae49f73a99265bb7fe874044df395",
+      "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v7/model.onnx",
+      "sha256": "d01ceb1685e123335d2b70809e7b53fcc07ffb110b9412b408bc6b09a5394288",
       "size": 153062716
     },
     "tokenizer.json": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v6/tokenizer.json",
+      "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v7/tokenizer.json",
       "sha256": "22c064aaa468855d6211fe5c2ec8fdec595c97c55eb2ffd3b9fdf71a93b16292",
       "size": 32170665
     },
     "calibration.json": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v6/calibration.json",
-      "sha256": "cc52c28b19fa891cca8913c69871235d5f863bd224d9336ada7d0f8cfb0765f6",
-      "size": 157
+      "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v7/calibration.json",
+      "sha256": "01fe4cc99972bcca15e6ce8384cabf83c5705117e33da9a87541dc0f3d60a035",
+      "size": 223
     }
   }
 }

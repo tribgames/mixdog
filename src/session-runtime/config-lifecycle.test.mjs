@@ -20,7 +20,9 @@ function deferred() {
   return { promise, resolve };
 }
 
-function fixture({ config = {}, disk } = {}) {
+function fixture({ config = {}, disk, mainRoute } = {}) {
+  // mainRoute set: the lifecycle may sync the runtime Main route on reload.
+  let route = mainRoute || { provider: 'demo' };
   let current = {
     builtins: {},
     providers: { demo: { enabled: true } },
@@ -72,7 +74,15 @@ function fixture({ config = {}, disk } = {}) {
     setConfigHasSecrets: (next) => {
       hasSecrets = next;
     },
-    getRoute: () => ({ provider: 'demo' }),
+    getRoute: () => route,
+    ...(mainRoute
+      ? {
+          setRouteState: (next) => {
+            route = next;
+          },
+          resolveRoute: (cfg) => ({ provider: 'demo', model: cfg.leadModel || '' }),
+        }
+      : {}),
     cfgMod,
     sharedCfgMod,
     setConfiguredShell() {},
@@ -84,8 +94,26 @@ function fixture({ config = {}, disk } = {}) {
     resolve,
     STANDALONE_DATA_DIR: process.cwd(),
   });
-  return { lifecycle, cfgMod, sharedCfgMod, writes, config: () => current, disk: () => root };
+  return { lifecycle, cfgMod, sharedCfgMod, writes, config: () => current, disk: () => root, route: () => route };
 }
+
+test('a reload that brings in a Lead route fills an empty Main route and never replaces a chosen one', () => {
+  // The Lead route was edited on disk (or by another process) while this
+  // runtime had no model: a pending backfill must now find it set.
+  const empty = fixture({ mainRoute: { provider: 'demo', model: '' } });
+  empty.disk().agent.leadModel = 'model-ext';
+  empty.lifecycle.reloadFullConfig();
+  assert.equal(empty.route().model, 'model-ext');
+  // A route that already has a model is the selection of this runtime.
+  const chosen = fixture({ mainRoute: { provider: 'demo', model: 'picked' } });
+  chosen.disk().agent.leadModel = 'model-ext';
+  chosen.lifecycle.reloadFullConfig();
+  assert.equal(chosen.route().model, 'picked');
+  // A reload that brings no Lead route leaves the route empty.
+  const none = fixture({ mainRoute: { provider: 'demo', model: '' } });
+  none.lifecycle.reloadFullConfig();
+  assert.equal(none.route().model, '');
+});
 
 test('the first save seeds fresh-profile defaults no diff carries, never over stored values', async () => {
   // A brand-new profile: defaults in memory, nothing of them on disk yet.

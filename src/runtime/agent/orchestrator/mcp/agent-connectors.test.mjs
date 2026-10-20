@@ -223,6 +223,8 @@ test('a needs_approval tool the outbound gate already approved asks once; others
   saveConnectors('mailer', {
     tools: { gmail: { send_email: 'needs_approval' }, alpha: { write_it: 'needs_approval' } },
   });
+  // The outbound card is a bot's: only a `kind: bot` agent gets it.
+  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'agents', 'mailer', 'AGENT.md'), '---\nkind: bot\n---\nMailer.\n');
   const session = { id: 'sess_home_mailer', agent: 'mailer', mcpScopeId: scopeId };
   const asked = [];
   const run = (name, args) =>

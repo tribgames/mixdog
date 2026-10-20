@@ -19,8 +19,7 @@ export type ConnectorBackend =
       placeholder?: string;
       /** Tools that ask before they run unless the agent set them. */
       askTools?: readonly string[];
-    }
-  | { kind: 'builtin'; feature: string };
+    };
 
 export interface ConnectorCatalogEntry {
   id: string;

@@ -63,16 +63,18 @@ export function createWorkflowContext({ packs, agents }) {
   function leadPromptParts(config, dir, { agentMode = false, mixy = false } = {}) {
     const mode = configuredOrchestrationMode(config);
     const ids = agents.delegatableAgentIds(config, dir);
+    const isContact = (id) => isContactAgentId(id, agents.loadAgentDefinition(dir, id)?.kind);
     if (!agentMode) {
-      const catalog = agentCatalog(dir, ids);
+      // Bots are never a coding Lead's agents: only Mixy hands them work.
+      const workflowIds = ids.filter((id) => !isContact(id));
+      const catalog = agentCatalog(dir, workflowIds);
       return {
         // Solo without agents has nothing to delegate to on request either.
-        orchestrationContext: mode === 'none' && !ids.length ? '' : orchestrationInstructions(mode),
+        orchestrationContext: mode === 'none' && !workflowIds.length ? '' : orchestrationInstructions(mode),
         agentCatalogContext: catalog ? `# Available Agents\n\n${catalog}` : '',
         contactCatalogContext: '',
       };
     }
-    const isContact = (id) => isContactAgentId(id, agents.loadAgentDefinition(dir, id)?.frontmatter?.kind);
     const subAgents = agentCatalog(
       dir,
       ids.filter((id) => !isContact(id))

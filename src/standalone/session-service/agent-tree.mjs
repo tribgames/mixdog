@@ -10,7 +10,7 @@
 import { createAgentCancellation } from './agent-tree/agent-cancel.mjs';
 import { createAgentRegistry } from './agent-tree/agent-registry.mjs';
 import { createAgentRehydration, lastStoredAgentHandoff } from './agent-tree/agent-rehydrate.mjs';
-import { createAgentTurns } from './agent-tree/agent-turns.mjs';
+import { agentTurnContent, agentTurnTranscriptMeta, createAgentTurns } from './agent-tree/agent-turns.mjs';
 import { randomUUID } from 'node:crypto';
 
 export { SESSION_ID_PATTERN } from './agent-tree/agent-registry.mjs';
@@ -139,12 +139,13 @@ export function createAgentTree({
       const cancelEpoch = registry.assertAdmission(descriptor.id);
       const runtime = sessionOwner(descriptor.id)?.runtime;
       if (!runtime || !stateBusy(runtime.getState())) return null;
-      const accepted = await runtime.submitAsync(String(prompt || ''), {
+      const content = agentTurnContent(prompt);
+      const accepted = await runtime.submitAsync(content, {
         id: `agent-message-${randomUUID()}`,
         mode: 'prompt',
         priority: 'next',
         context,
-        transcriptMeta: { sender: 'lead' },
+        transcriptMeta: agentTurnTranscriptMeta(content),
       });
       if (accepted === false) throw new Error('agent follow-up was not accepted');
       registry.assertAdmission(descriptor.id, cancelEpoch);

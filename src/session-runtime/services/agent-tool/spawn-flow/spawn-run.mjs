@@ -25,6 +25,7 @@ import { settledWorkerStatus } from '../worker-index/row-liveness.mjs';
 import { saveSessionAsync } from '../../../../runtime/agent/orchestrator/session/store.mjs';
 import { presetDescriptor } from './spawn-prep.mjs';
 import { workerStageForStatus } from '../worker-rows.mjs';
+import { handoffContent } from '../../../handoff-attachments.mjs';
 
 // Mid-turn worker persistence cadence. The watchdog sweep runs every second;
 // a transcript save is far more expensive than a bookkeeping stamp, so the
@@ -117,7 +118,9 @@ export function createSpawnRunner({
   };
 
   async function runTurn(prepared, turnHooks) {
-    const { args, session, prompt, workerCwd } = prepared;
+    const { args, session, workerCwd } = prepared;
+    // The caller's forwarded files ride along as attachment parts.
+    const prompt = handoffContent(prepared.prompt, args.attachmentParts);
     if (typeof sessionSurface?.runTurn === 'function' && sessionSurface.canRun?.(session) !== false) {
       return sessionSurface.runTurn({ session, prompt, context: args.context || null, cwd: workerCwd, ...turnHooks });
     }

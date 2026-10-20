@@ -67,6 +67,7 @@ import { createConversationImportApi } from '../conversation-import/service.mjs'
 import { importError } from '../conversation-import/discovery.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
+import { registerBotRouteStore } from '../../runtime/shared/agent-store.mjs';
 import {
   dataDirOf,
   resolveRoute,
@@ -124,7 +125,16 @@ export function wireApis(boot) {
     } catch (error) {
       bootProfile('connector-policy:migrate-failed', { error: error?.message || String(error) });
     }
+    // Bots get their own store (bots/) once, before any catalog read; a
+    // failed split leaves agents/ read as before (bot-split-migration.mjs).
+    try {
+      boot.workflowAgentsApi.migrateBotStore();
+    } catch (error) {
+      bootProfile('bot-split:migrate-failed', { error: error?.message || String(error) });
+    }
   }
+  // Route reads ask a store bot's own folder first (agent-store.mjs).
+  registerBotRouteStore(() => dataDirOf(boot.cfgMod));
   boot.workspaceApi = workspaceApiFor(boot);
   boot.sessionTurnApi = sessionTurnApiFor(boot);
   const getFacadeSessionId = () => boot.rt.session?.id || boot.rt.reservedSessionId || null;
@@ -538,6 +548,8 @@ function modelRouteApiFor(boot) {
     adoptConfig: boot.adoptConfig,
     saveConfigAndAdopt: boot.saveConfigAndAdopt,
     ensureFullConfig: boot.ensureFullConfig,
+    reloadFullConfig: boot.reloadFullConfig,
+    confirmLeadFill: boot.confirmLeadFill,
     awaitKeychainPrewarm: boot.awaitKeychainPrewarm,
     ensureProvidersReady: boot.ensureProvidersReady,
     persistLeadRoute: boot.persistLeadRoute,
@@ -567,6 +579,7 @@ function workflowAgentsApiFor(boot) {
     lookupModelMeta: boot.lookupModelMeta,
     adoptConfig: boot.adoptConfig,
     saveConfigAndAdopt: boot.saveConfigAndAdopt,
+    reloadFullConfig: boot.reloadFullConfig,
     ensureProvidersReady: boot.ensureProvidersReady,
     displayConfig: boot.displayConfig,
     mcpStatus: () => boot.mcpStatus(),

@@ -79,7 +79,7 @@ test('an edited PERSONA.md applies to the next composition', () => {
   });
 });
 
-test('the Lead is unaffected without a persona and picks one up from agents/lead', () => {
+test("Mixy's persona (agents/lead) rides only Mixy's own agent-mode thread, never a coding Lead", () => {
   withDataDir(({ base }) => {
     const before = compose('lead');
     assert.doesNotMatch(before, /Persona/);
@@ -87,7 +87,15 @@ test('the Lead is unaffected without a persona and picks one up from agents/lead
     const dir = join(base, 'data', 'agents', 'lead');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'PERSONA.md'), 'Calm and concise.');
-    assert.match(compose('lead'), /## Persona[\s\S]*Calm and concise\./);
+    // A coding Lead (the `lead` role, outside Mixy's thread) is unchanged.
+    assert.equal(compose('lead'), before);
     assert.equal(compose(null), before);
+    const mixy = composeSystemPrompt({
+      ...sessionRolePromptFields(
+        { agent: 'lead' },
+        { ownerIsAgent: false, toolFreeRole: false, delegationFree: false, sessionMode: 'agent' }
+      ),
+    }).sessionMarkerCore;
+    assert.match(mixy, /## Persona[\s\S]*Calm and concise\./);
   });
 });

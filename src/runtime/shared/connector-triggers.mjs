@@ -6,7 +6,6 @@
 export const CONNECTOR_TRIGGER_MAX_CHARS = 100;
 
 export const CONNECTOR_TRIGGERS = Object.freeze({
-  github: 'GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.',
   notion: 'Notion pages, databases and workspace search; create or update team docs and notes.',
   linear: 'Linear issues, projects, cycles and comments; create, triage or update tickets.',
   sentry: 'Sentry issues, events, stack traces and releases; triage production errors.',

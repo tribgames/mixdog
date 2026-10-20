@@ -558,7 +558,7 @@ export async function persistIterationMetrics(delta) {
     // per model call of this session (every tool-loop iteration), replaced
     // immutably so a consumer can tell by identity that it changed. Sessions
     // saved before this field began at their first call after it.
-    session.usageReadout = foldUsageReadout(session.usageReadout, delta, delta.generationMs);
+    session.usageReadout = foldUsageReadout(session.usageReadout, delta, delta.requestMs);
     recordLastContextTokens(session, iterationContext(delta));
   }
   session.lastIterationIndex = iterationIndex;

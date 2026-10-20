@@ -19,6 +19,7 @@ import {
 } from '../../agent-runtime/cache-strategy.mjs';
 import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../runtime-core/config-helpers.mjs';
 import { _buildBaseRules } from './rules-cache.mjs';
+import { stripProviderReplayMessages } from './provider-replay.mjs';
 import { composeSessionSystem, seedSessionMessages } from './session-prompt-composition.mjs';
 import { agentProfileRevision, leadRosterRevision } from '../../context/role-instructions.mjs';
 import {
@@ -241,7 +242,9 @@ export function createSession(createOpts) {
   const surface = resolveSessionToolSurface(opts, { profile, toolPreset, modelName });
   // The agent profile the prompt is composed from, read first: an edit landing
   // during composition leaves the stamp behind, never ahead (refreshAgentProfile).
-  const agentProfile = surface.ownerIsAgent ? '' : agentProfileRevision(surface.resolvedAgent);
+  const agentProfile = surface.ownerIsAgent
+    ? ''
+    : agentProfileRevision(surface.resolvedAgent, { mixy: sessionMode === AGENT_MODE });
   const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode });
   const messages = seedSessionMessages(prompt, opts.files);
   logSessionSurface(surface);
@@ -421,27 +424,11 @@ function resetSessionForRouteChange(id, session, previousModel, previousProvider
   _forgetPreparedResume(id);
 }
 
-// Every message field a provider adapter replays or re-reads as native state.
-const PROVIDER_REPLAY_FIELDS = [
-  'providerReplay',
-  'reasoning',
-  'thinkingBlocks',
-  'assistantBlocks',
-  'reasoningItems',
-  'reasoningContent',
-  'providerMetadata',
-];
-
-// Provider-native replay (reasoning items, thinking blocks) belongs to the
-// provider that produced it. Replace, never mutate, so delta saves rewrite.
+// Provider-native replay (reasoning items, thinking blocks, signatures)
+// belongs to the provider that produced it (see provider-replay.mjs).
 function stripProviderReplay(session) {
   if (!Array.isArray(session.messages)) return;
-  session.messages = session.messages.map((message) => {
-    if (!message || !PROVIDER_REPLAY_FIELDS.some((field) => field in message)) return message;
-    const plain = { ...message };
-    for (const field of PROVIDER_REPLAY_FIELDS) delete plain[field];
-    return plain;
-  });
+  session.messages = stripProviderReplayMessages(session.messages);
 }
 
 // `options.crossProvider` is the explicit in-place continuation of an

@@ -267,7 +267,7 @@ export function effortJudgeInfo(dir = effortJudgeModelDir()) {
     /* not installed */
   }
   // The installed model names its backbone in calibration.json; older packs predate the field.
-  let backbone = 'mmBERT-small';
+  let backbone = 'EmbeddingGemma 2 (18 layers)';
   try {
     backbone = JSON.parse(readFileSync(join(dir, 'calibration.json'), 'utf8')).backbone || backbone;
   } catch {

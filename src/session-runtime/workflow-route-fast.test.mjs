@@ -130,3 +130,80 @@ test('Web Search Fast off survives save and route reload', async () => {
   assert.equal(config.webSearchRoute.fast, false);
   assert.equal(reloaded.fast, false);
 });
+
+// Compare-and-set fill (`onlyIfEmpty`): the model lookup is the await between
+// the first emptiness check and the write, where a pick can land.
+function onlyIfEmptyApi(initial) {
+  const helpers = createWorkflowRouteHelpers({ findPreset: () => null });
+  // disk: what another process wrote to the config file; the debounced change
+  // notification has not delivered it, only a synchronous re-read (reload) can.
+  const state = { config: initial, gate: null, disk: null };
+  const api = createWorkflowAgentsApi({
+    getConfig: () => state.config,
+    resolveRoute: (_config, requested) => ({ ...requested }),
+    lookupModelMeta: async () => {
+      await state.gate;
+      return {};
+    },
+    saveConfigAndAdopt: (next) => {
+      state.config = next;
+    },
+    ensureProvidersReady: async () => {},
+    reloadFullConfig: () => {
+      if (state.disk) state.config = state.disk;
+    },
+    agentRouteFromConfig: helpers.agentRouteFromConfig,
+  });
+  return { api, state };
+}
+
+const FILL = { provider: 'openai', model: 'gpt-fill', onlyIfEmpty: true };
+const PICKED = { provider: 'anthropic-oauth', model: 'claude-picked' };
+
+test('onlyIfEmpty fills an agent without a route and keeps an off agent off', async () => {
+  const { api, state } = onlyIfEmptyApi({ agents: {}, disabledAgents: ['reviewer'] });
+  const saved = await api.setAgentRoute('reviewer', FILL);
+  assert.equal(saved.skipped, undefined);
+  assert.equal(state.config.agents.reviewer.model, 'gpt-fill');
+  assert.deepEqual(state.config.disabledAgents, ['reviewer']);
+});
+
+test('onlyIfEmpty never replaces a route the agent already has', async () => {
+  const { api, state } = onlyIfEmptyApi({ agents: { reviewer: { ...PICKED } } });
+  const answer = await api.setAgentRoute('reviewer', FILL);
+  assert.equal(answer.skipped, true);
+  assert.equal(state.config.agents.reviewer.model, 'claude-picked');
+});
+
+test('a route picked between the emptiness read and the write is not overwritten', async () => {
+  const { api, state } = onlyIfEmptyApi({ agents: {} });
+  let release;
+  state.gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const fill = api.setAgentRoute('reviewer', FILL);
+  await Promise.resolve();
+  // The user's pick lands while the fill is still resolving its model.
+  state.config = { ...state.config, agents: { reviewer: { ...PICKED } } };
+  release();
+  const answer = await fill;
+  assert.equal(answer.skipped, true);
+  assert.equal(state.config.agents.reviewer.model, 'claude-picked');
+});
+
+test('a route another process wrote to the config file is found by the re-read before the save', async () => {
+  const { api, state } = onlyIfEmptyApi({ agents: {} });
+  let release;
+  state.gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const fill = api.setAgentRoute('reviewer', FILL);
+  await Promise.resolve();
+  // Persisted by another process; this runtime's config does not hold it yet.
+  state.disk = { agents: { reviewer: { ...PICKED } } };
+  release();
+  const answer = await fill;
+  assert.equal(answer.skipped, true);
+  assert.equal(answer.model, 'claude-picked');
+  assert.equal(state.config.agents.reviewer.model, 'claude-picked');
+});

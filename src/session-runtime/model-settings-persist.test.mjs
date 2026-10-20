@@ -289,3 +289,51 @@ test('setFast debounce-persists modelSettings when the lead preset cannot be wri
   assert.equal(saveCalls, 0);
   assert.equal(debounceCalls, 1);
 });
+
+test('tuning never changes the Main model: empty live route writes no preset, a pick during tuning is kept', async () => {
+  const { normalizeWorkflowRoute } = await import('../runtime/agent/orchestrator/runtime-core/workflow.mjs');
+  const persisted = [];
+  const persistLeadRoute = (route) => {
+    const lead = normalizeWorkflowRoute(route);
+    if (lead) persisted.push(lead.model);
+    return lead;
+  };
+  const stub = (extra) =>
+    stubRouteApi({
+      cfgMod: { loadConfig: () => ({ modelSettings: {} }) },
+      persistLeadRoute,
+      saveConfigAndAdopt: () => {},
+      ...extra,
+    });
+  // No model on the live route: tuning has nothing to write as the Main model.
+  const empty = stub({ initialRoute: { provider: '', model: '' } });
+  await empty.setEffort('low');
+  assert.deepEqual(persisted, []);
+  // A model picked while a tuning waits for the model metadata stays: tuning
+  // reads the live route afterwards and only ever rewrites the Main model with itself.
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let holdNext = true;
+  const picked = { provider: 'openai', model: 'gpt-6-sol' };
+  const api = stub({
+    lookupModelMeta: async (_provider, model) => {
+      if (holdNext) {
+        holdNext = false;
+        await gate;
+      }
+      return { id: model };
+    },
+  });
+  const tuning = api.setEffort('low');
+  await Promise.resolve();
+  await api.setRoute(picked, { keepMainModel: false });
+  release();
+  await tuning;
+  // (This stub resolves the lead preset id as a literal model; real resolution maps it back.)
+  assert.deepEqual(
+    [...new Set(persisted)].filter((model) => model !== 'workflow-lead'),
+    ['gpt-6-sol']
+  );
+});

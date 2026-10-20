@@ -304,7 +304,7 @@ test("a bot created, renamed, archived or restored reaches the roster in Mixy's 
   const { dataDir, agentDir } = withDataDir(t);
   writeFileSync(join(agentDir('poet'), 'AGENT.md'), 'Write poems.');
   const { api, thread, refresherFor } = botCatalog(dataDir);
-  await api.saveAgentDefinition({ name: 'Watcher', description: 'Watches the repo', body: 'Watch.' });
+  await api.saveAgentDefinition({ name: 'Watcher', description: 'Watches the repo', body: 'Watch.', kind: 'bot' });
   const mixy = thread('lead');
   const poet = thread('poet');
   const mixyApplied = subscribe(t, refresherFor(mixy));
@@ -336,7 +336,7 @@ test("a bot created, renamed, archived or restored reaches the roster in Mixy's 
 
   // Created: a new bot joins the roster too.
   delete mixy.pendingCacheBreakIntent;
-  await api.saveAgentDefinition({ name: 'Scout', description: 'Finds things', body: 'Scout.' });
+  await api.saveAgentDefinition({ name: 'Scout', description: 'Finds things', body: 'Scout.', kind: 'bot' });
   assert.match(tier3(mixy), /- Scout \(scout\)/);
   assert.deepEqual(mixyApplied.length, 4);
 });
@@ -344,7 +344,7 @@ test("a bot created, renamed, archived or restored reaches the roster in Mixy's 
 test('a reopened Mixy thread catches up on a roster change made while no runtime held it', async (t) => {
   const { dataDir } = withDataDir(t);
   const { api, thread, refresherFor } = botCatalog(dataDir);
-  await api.saveAgentDefinition({ name: 'Watcher', description: 'Watches', body: 'Watch.' });
+  await api.saveAgentDefinition({ name: 'Watcher', description: 'Watches', body: 'Watch.', kind: 'bot' });
   const mixy = thread('lead');
   await api.saveAgentDefinition({ id: 'watcher', name: 'Sentinel', description: 'Watches', body: 'Watch.' });
   assert.match(tier3(mixy), /Watcher \(watcher\)/, 'no runtime held it');
@@ -355,7 +355,7 @@ test('a reopened Mixy thread catches up on a roster change made while no runtime
 test('delegation resolves a bot by its id; its display name is never an address', async (t) => {
   const { dataDir } = withDataDir(t);
   const { api } = botCatalog(dataDir);
-  await api.saveAgentDefinition({ name: 'Watcher', description: 'Watches', body: 'Watch.' });
+  await api.saveAgentDefinition({ name: 'Watcher', description: 'Watches', body: 'Watch.', kind: 'bot' });
   await api.saveAgentDefinition({ id: 'watcher', name: 'Sentinel', description: 'Watches', body: 'Watch.' });
   const root = join(process.cwd(), 'src');
   assert.equal(agentDefinitionExists(normalizeAgentName('watcher'), dataDir, root), true);

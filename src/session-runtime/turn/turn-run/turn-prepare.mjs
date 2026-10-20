@@ -10,6 +10,8 @@ import { throwIfAborted } from '../../../runtime/shared/abort-race.mjs';
 // UserPromptSubmit hook.
 export function createTurnPreparation({
   getSession,
+  setSession,
+  mgr,
   getCurrentCwd,
   awaitRoutePreparation,
   createCurrentSession,
@@ -105,6 +107,15 @@ export function createTurnPreparation({
     }
     throwIfAborted(turn.signal);
     assertSessionAdmission?.();
+    // askSession runs the turn on the session the store serves for this id.
+    // While this runtime idled, the store's idle sweep may have released the
+    // snapshot it holds, and the store then serves a fresh parse of the file:
+    // preparing the turn on the held copy would leave its one-shot work (the
+    // first-turn MCP fold, its flag) undone on the turn's session, which then
+    // rewrites the prompt it already sent on the next turn. Prepare the turn
+    // on the session it runs on (as completeTurn adopts it afterwards).
+    const stored = mgr.getSession(getSession().id);
+    if (stored && stored !== getSession()) setSession(stored);
     // Turn admission: waits while this session's workspace transitions or
     // another session changes the checkout this session works in, then holds
     // the turn registered (released by settleTurn) so no checkout changes

@@ -4,9 +4,8 @@
 // explicitly:
 //   oauth   — a remote MCP server that signs in with MCP OAuth;
 //   apiKey  — an MCP server that takes one key (an HTTP header or a stdio
-//             environment variable);
-//   builtin — a Mixdog built-in feature (GitHub is the GitHub CLI of the
-//             Git & GitHub built-in, never a GitHub MCP);
+//             environment variable).
+// GitHub is not a connector: it is the signed-in GitHub CLI (github tool).
 // A connected catalog service is an ordinary user MCP server whose config
 // carries `connector: <id>`. An existing custom server is never adopted into
 // the catalog row.
@@ -50,7 +49,6 @@ export const CONNECTOR_CATALOG = Object.freeze(
     { id: 'airtable', name: 'Airtable', backend: oauth('https://mcp.airtable.com/mcp') },
     { id: 'confluence', name: 'Confluence', backend: oauth('https://mcp.atlassian.com/v1/mcp/authv2') },
     { id: 'dropbox', name: 'Dropbox', backend: oauth('https://mcp.dropbox.com/mcp') },
-    { id: 'github', name: 'GitHub', backend: Object.freeze({ kind: 'builtin', feature: 'git' }) },
     {
       id: 'gmail',
       name: 'Gmail',

@@ -210,12 +210,53 @@ test('the curated fallback resolves the same way as a live catalog', () => {
   for (const model of ANTIGRAVITY_MODELS) assert.equal(model.provider, 'antigravity-oauth');
 });
 
-test('the curated fallback classes Gemini 4 Argon as gemini-pro and keeps its thinking level', () => {
+test('the curated fallback sends Gemini 4 Argon by its tier wire id, never the bare id the gateway 404s', () => {
   assert.equal(antigravityModelFamily('gemini-4-argon', ANTIGRAVITY_MODELS), 'gemini-pro');
-  assert.deepEqual(resolveAntigravityWireModel('gemini-4-argon', 'medium', ANTIGRAVITY_MODELS), {
-    model: 'gemini-4-argon',
-    effort: 'medium',
+  assert.equal(antigravityModelFamily('gemini-4-argon-high', ANTIGRAVITY_MODELS), 'gemini-pro');
+  for (const effort of ['low', 'medium', 'high']) {
+    assert.deepEqual(resolveAntigravityWireModel('gemini-4-argon', effort, ANTIGRAVITY_MODELS), {
+      model: `gemini-4-argon-${effort}`,
+      effort: null,
+    });
+  }
+  assert.deepEqual(resolveAntigravityWireModel('gemini-4-argon', undefined, ANTIGRAVITY_MODELS), {
+    model: 'gemini-4-argon-high',
+    effort: null,
   });
+});
+
+test('the live gateway tier labels for Argon collapse into the same record as the curated fallback', () => {
+  catalogRows.clear();
+  const live = normalizeAntigravityCatalog({
+    'gemini-4-argon-low': gemini('Gemini 4 Argon (Low)'),
+    'gemini-4-argon-medium': gemini('Gemini 4 Argon (Medium)'),
+    'gemini-4-argon-high': gemini('Gemini 4 Argon (High)'),
+  });
+  const curated = ANTIGRAVITY_MODELS.find((entry) => entry.id === 'gemini-4-argon');
+  assert.deepEqual(live, [curated]);
+});
+
+test('sends resolve against the last live catalog even after its TTL, before the curated list', async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-ag-catalog-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dir;
+  try {
+    const live = [{ id: 'gemini-9-live', provider: 'antigravity-oauth', wire: { high: 'gemini-9-live-high' } }];
+    const fetchedAt = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    writeFileSync(join(dir, 'antigravity-oauth-models.json'), JSON.stringify({ version: 1, fetchedAt, models: live }));
+    const fresh = await import(`./antigravity-oauth-catalog.mjs?stale=${Date.now()}`);
+    assert.deepEqual(fresh.resolveAntigravityWireModel('gemini-9-live', 'low'), {
+      model: 'gemini-9-live-high',
+      effort: null,
+    });
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 const GEMINI_GROUP = {

@@ -12,6 +12,8 @@ import {
 import { PRESET_ALIASES } from './tool-def.mjs';
 import { positiveInt } from '../../../runtime/shared/numbers.mjs';
 import { clean } from '../../../runtime/shared/clean.mjs';
+import { readAgentDefinitionKind } from '../../../runtime/shared/agent-kind.mjs';
+import { isStoreBot, userDefinitionDir } from '../../../runtime/shared/agent-store.mjs';
 import { normalizeContextTokens } from '../../../runtime/shared/llm/default-context-window.mjs';
 
 export { positiveInt };
@@ -300,13 +302,18 @@ const _frontmatterPermCache = new Map(); // key -> { value, atMs }
 const FRONTMATTER_PERM_CACHE_TTL_MS = envTimeoutMs('MIXDOG_AGENT_FRONTMATTER_TTL_MS', 5_000);
 
 function agentDeleted(cleanAgent, dataDir) {
-  return Boolean(dataDir) && existsSync(join(dataDir, 'agents', cleanAgent, '.deleted'));
+  return Boolean(dataDir) && existsSync(join(userDefinitionDir(dataDir, cleanAgent), '.deleted'));
 }
 
 /** Where an agent's definition may live, in precedence order: the data dir
  *  (user/custom agents) before the shipped source root. */
 function agentDefinitionFiles(cleanAgent, dataDir, standaloneSourceRoot) {
   const candidates = [];
+  if (dataDir && isStoreBot(dataDir, cleanAgent)) {
+    // A bot of the store: only its own folder (never the agents/ original).
+    candidates.push(join(userDefinitionDir(dataDir, cleanAgent), 'AGENT.md'));
+    return candidates;
+  }
   if (dataDir) {
     candidates.push(join(dataDir, 'agents', cleanAgent, 'AGENT.md'));
     candidates.push(join(dataDir, 'agents', `${cleanAgent}.md`));
@@ -353,13 +360,25 @@ export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceR
 }
 
 const _frontmatterKindCache = new Map(); // key -> { value, atMs }
+const _frontmatterKindValueCache = new Map(); // key -> { value, atMs }
 
-/** The agent definition's frontmatter `kind` (isContactAgentId reads it), or
- *  null when it sets none. */
+/** The agent definition's kind (isContactAgentId reads it), by the one
+ *  read-only rule (agent-kind.mjs), cached per agent for the frontmatter TTL. */
 export function readAgentFrontmatterKind(agent, dataDir, standaloneSourceRoot) {
-  return cachedFrontmatterValue(_frontmatterKindCache, agent, dataDir, standaloneSourceRoot, (fm) =>
-    typeof fm.kind === 'string' && fm.kind.trim() ? fm.kind.trim() : null
+  const id = clean(agent);
+  if (!id || agentDeleted(id, dataDir)) return null;
+  const cacheKey = `${dataDir}\u0000${id}`;
+  const cached = _frontmatterKindCache.get(cacheKey);
+  if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) return cached.value;
+  // An explicit kind in the definition in effect (any layout) wins; only an
+  // unmarked user copy goes to the evidence rule.
+  const explicit = cachedFrontmatterValue(_frontmatterKindValueCache, id, dataDir, standaloneSourceRoot, (fm) =>
+    typeof fm.kind === 'string' && fm.kind.trim() ? fm.kind.trim().toLowerCase() : null
   );
+  const value =
+    explicit || (dataDir ? readAgentDefinitionKind({ dataDir, shippedRoot: standaloneSourceRoot, id }) : null);
+  _frontmatterKindCache.set(cacheKey, { value, atMs: Date.now() });
+  return value;
 }
 
 /** The agent definition's `firstResponseTimeoutMs` (a non-negative integer;

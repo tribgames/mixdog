@@ -8,6 +8,7 @@ import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-tex
 import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
 import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { scheduleCallerScope } from '../services/schedule-access.mjs';
+import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.mjs';
 
 const USER_TITLE_ERROR = 'session: the user already titled this session; the title was not changed';
 
@@ -18,6 +19,17 @@ function attendedAgentOf(session) {
   const { mode, agentId } = resolveSessionMode({ session });
   const { kind } = scheduleCallerScope(session);
   return mode === AGENT_MODE && (kind === 'human' || kind === 'agent') ? agentId : '';
+}
+
+/** The caller's `attachments` as stored prompt parts, resolved against its own
+ *  conversation and folders (handoff-attachments.mjs). */
+function callerAttachmentParts(rt, args, callerCwd, surface) {
+  return resolveHandoffAttachments(args?.attachments, {
+    messages: rt.session?.messages,
+    roots: sessionRoots(rt.session, callerCwd),
+    cwd: callerCwd,
+    surface,
+  }).parts;
 }
 
 export function createWorkspaceToolHandlers({
@@ -82,7 +94,7 @@ export function createWorkspaceToolHandlers({
       const callerAgentId = attendedAgentOf(rt.session);
       if (action === 'create' && !callerAgentId) {
         throw new Error(
-          'session: create belongs to an agent conversation; delegated workers, coding task sessions and schedule/webhook runs cannot create task sessions'
+          'session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions'
         );
       }
       // A task session reaches its agent only through its reported result.
@@ -97,8 +109,16 @@ export function createWorkspaceToolHandlers({
       if (typeof executeSessionControl !== 'function') {
         throw new Error('session: cross-session control is unavailable in this runtime');
       }
+      const { attachments, ...rest } = args || {};
+      if (attachments !== undefined && action !== 'send' && action !== 'create') {
+        throw new Error(`session: attachments apply to send and create, not action=${action}`);
+      }
+      const attachmentParts = callerAttachmentParts(rt, args, callerCwd, 'session');
       return JSON.stringify(
-        await executeSessionControl({ ...args, action }, { callerSessionId, callerAgentId, callerCwd })
+        await executeSessionControl(
+          { ...rest, action },
+          { callerSessionId, callerAgentId, callerCwd, ...(attachmentParts.length ? { attachmentParts } : {}) }
+        )
       );
     }
     if (target && target !== assertLead(action, callerCtx)) {
@@ -221,7 +241,11 @@ export function createWorkspaceToolHandlers({
       }),
     agent: async (args, { callerCtx, callerCwd }) => {
       const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
-      return await agentTool.execute(args, {
+      // `attachmentParts` is never the model's to set: only the resolved
+      // `attachments` reach the agent's turn.
+      const { attachments, attachmentParts: _ignored, ...rest } = args || {};
+      const attachmentParts = callerAttachmentParts(rt, { attachments }, callerCwd, 'agent');
+      return await agentTool.execute(attachmentParts.length ? { ...rest, attachmentParts } : rest, {
         callerCwd,
         invocationSource: 'model-tool',
         callerSessionId,

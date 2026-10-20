@@ -6,7 +6,7 @@
  */
 import { contextMeasurementStats } from '../../../../shared/context-measurement.mjs';
 import { toolResultText } from './tool-result-text.mjs';
-import { restoredUserImageRefs, restoredUserText } from './user-text.mjs';
+import { createUserTextRestore } from './user-text.mjs';
 import {
   completionCardFromExecution,
   parseModelVisibleCompletionWrapper,
@@ -379,7 +379,7 @@ function restoredNotificationToolItem(parsed, text, message, nextId, errorLabel)
   };
 }
 
-function restoredUserTranscriptItems(message, nextId) {
+function restoredUserTranscriptItems(message, nextId, userText) {
   // Injected model-context payloads are model-visible but never user-authored:
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
@@ -403,7 +403,7 @@ function restoredUserTranscriptItems(message, nextId) {
     const text = (typeof message.content === 'string' ? message.content : toolResultText(message.content)).trim();
     return text ? [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }] : [];
   }
-  const text = restoredUserText(message?.content).trim();
+  const text = userText.text(message?.content).trim();
   // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live
   // Response card is an event-time push that does not survive a transcript
@@ -434,7 +434,7 @@ function restoredUserTranscriptItems(message, nextId) {
   }
   const synthetic = parseSyntheticAgentMessage(text);
   if (!synthetic) {
-    const imageRefs = restoredUserImageRefs(message?.content);
+    const imageRefs = userText.imageRefs(message?.content);
     return [
       {
         kind: 'user',
@@ -442,6 +442,8 @@ function restoredUserTranscriptItems(message, nextId) {
         text,
         ...restoredTranscriptMetadata(message),
         ...(imageRefs.length ? { imageRefs } : {}),
+        // Read by the model inside its running turn, as the live row says.
+        ...(message?.meta?.source === 'steering' ? { steered: true } : {}),
       },
     ];
   }
@@ -474,7 +476,7 @@ export function workflowSwitchItem(id, boundary) {
   };
 }
 
-function restoreTranscriptRange(messages, start, sessionId) {
+function restoreTranscriptRange(messages, start, sessionId, userText) {
   const items = [];
   const pendingToolCalls = new Map();
   for (let index = start; index < messages.length; index += 1) {
@@ -490,7 +492,7 @@ function restoreTranscriptRange(messages, start, sessionId) {
       continue;
     }
     if (message?.role === 'user') {
-      items.push(...restoredUserTranscriptItems(message, restoredId));
+      items.push(...restoredUserTranscriptItems(message, restoredId, userText));
     } else if (message?.role === 'assistant' && !isContextAckMessage(message, messages[index - 1])) {
       items.push(...restoredAssistantTranscriptItems(message, restoredId));
       items.push(...restoredToolCallItems(message, restoredId, pendingToolCalls));
@@ -533,9 +535,12 @@ function restoreTranscriptRange(messages, start, sessionId) {
 
 export function restoreTranscriptItems(messages, { sessionId = 'session', itemLimit = Number.POSITIVE_INFINITY } = {}) {
   const source = Array.isArray(messages) ? messages : [];
+  // One projection per load: a widened range reuses each prompt's parts and
+  // the paste-line reads share one budget.
+  const userText = createUserTextRestore();
   const numericLimit = Number(itemLimit);
   const limited = Number.isFinite(numericLimit) && numericLimit > 0;
-  if (!limited) return restoreTranscriptRange(source, 0, sessionId);
+  if (!limited) return restoreTranscriptRange(source, 0, sessionId, userText);
 
   const limit = Math.max(1, Math.floor(numericLimit));
   // Restore beyond the visible cap so a boundary tool run can merge exactly
@@ -549,7 +554,7 @@ export function restoreTranscriptItems(messages, { sessionId = 'session', itemLi
     upperBound += restoredMessageItemUpperBound(source[start]);
   }
 
-  let restored = restoreTranscriptRange(source, start, sessionId);
+  let restored = restoreTranscriptRange(source, start, sessionId, userText);
   // Hidden/context messages and aggregate tool runs can make the cheap upper
   // bound optimistic. Expand backward exponentially only when necessary.
   let expansionTarget = Math.max(64, limit - restored.length);
@@ -559,7 +564,7 @@ export function restoreTranscriptItems(messages, { sessionId = 'session', itemLi
       start -= 1;
       expansion += restoredMessageItemUpperBound(source[start]);
     }
-    restored = restoreTranscriptRange(source, start, sessionId);
+    restored = restoreTranscriptRange(source, start, sessionId, userText);
     expansionTarget *= 2;
   }
   return restored.length > limit ? restored.slice(-limit) : restored;

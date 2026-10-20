@@ -14,6 +14,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { cwdWithinProjects } from '../../../shared/extension-scopes.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { userDefinitionDir } from '../../../shared/agent-store.mjs';
 import { isSelfMcpToolName, parseMcpToolName } from '../../../shared/tool-primitives.mjs';
 import { connectorToolDefault } from '../../../shared/connector-catalog.mjs';
 import { serverConnector } from './server-connectors.mjs';
@@ -149,7 +150,7 @@ export function readConnectorsFile(path) {
 export function agentConnectors(agentId, dataDir = resolvePluginData()) {
   const id = clean(agentId);
   if (!id || !AGENT_DIR_ID.test(id)) return null;
-  return cachedRead(join(dataDir, 'agents', id, 'agent.json'), readConnectorsFile);
+  return cachedRead(join(userDefinitionDir(dataDir, id), 'agent.json'), readConnectorsFile);
 }
 
 /** Uncached: the project policy file → `[{ root, off }]`, null without one,

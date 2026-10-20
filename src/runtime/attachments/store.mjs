@@ -166,6 +166,12 @@ function saveBuffer(buffer) {
   return { attachmentRef, sizeBytes: buffer.length };
 }
 
+/** Store `buffer` (a file a bot or agent hands on, session-runtime/
+ *  handoff-attachments.mjs) under its content address: `{ attachmentRef, sizeBytes }`. */
+export function storeAttachmentBuffer(buffer) {
+  return saveBuffer(buffer);
+}
+
 export function isAttachmentReference(value) {
   return Boolean(value && typeof value === 'object' && ATTACHMENT_REF_RE.test(String(value.attachmentRef || '')));
 }

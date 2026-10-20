@@ -9,7 +9,7 @@ export interface RoutineProvenance {
 export interface RoutineMessageMeta {
   source: string;
   routine: Record<string, unknown>;
-  transcript: { at: number; messageId?: string };
+  transcript: { at: number; messageId?: string; attachments?: unknown[] };
 }
 export interface RoutineMessage {
   role: 'user';
@@ -22,6 +22,15 @@ export interface RoutineNotice {
   routine: Record<string, unknown>;
   /** Live run notices only (routineRunNotice). */
   messageId?: string;
+  /** A task report's stored files (handoff-artifacts.mjs). */
+  attachments?: Array<{
+    id: string;
+    attachmentRef: string;
+    kind: string;
+    name: string;
+    mimeType: string;
+    size: number;
+  }>;
 }
 
 export const ROUTINE_RESULT_SOURCE: 'schedule-result';
@@ -45,7 +54,14 @@ export function agentTaskMessage(options: {
   status: string;
   text?: unknown;
   taskSessionId: string;
+  /** 'session': any session other than a task session the agent created. */
+  target?: 'task' | 'session';
   round?: number;
+  /** false: the report was posted without waking the agent (round-trip cap). */
+  woken?: boolean;
+  /** The files the turn produced (handoff-artifacts.mjs). */
+  files?: ReadonlyArray<{ name: string; path: string; mimeType?: string; size?: number; kind?: string; id?: string }>;
+  omitted?: number;
   at?: number;
   messageId?: string;
 }): RoutineMessage;

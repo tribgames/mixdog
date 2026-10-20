@@ -59,10 +59,9 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
       // A schedule result posted into a home thread (routine-result.mjs).
       ...(options.routine ? { routine: options.routine } : {}),
       ...(options.room ? { room: options.room } : {}),
-      // A room user row's files, in the fields a prompt row draws them from.
-      ...(userRow && Array.isArray(options.attachments) && options.attachments.length
-        ? { attachments: options.attachments }
-        : {}),
+      // A room user row's files, in the fields a prompt row draws them from;
+      // a task report's or member speech's returned files likewise.
+      ...(Array.isArray(options.attachments) && options.attachments.length ? { attachments: options.attachments } : {}),
       ...(userRow && Array.isArray(options.images) && options.images.length ? { images: options.images } : {}),
       // A held request of an unattended run (human-gate/held-message.mjs).
       ...(options.heldRequest ? { heldRequest: options.heldRequest } : {}),

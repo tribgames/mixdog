@@ -10,9 +10,12 @@
 import {
   normalizeRoomRow,
   roomIdOfSession,
+  roomMemberOfSession,
   roomRowItem,
   roomRowMessage,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { artifactRecords } from '../runtime/shared/handoff-artifacts.mjs';
+import { collectTurnArtifacts, sessionRoots, turnSlice } from './handoff-attachments.mjs';
 import {
   attachmentsForIntake,
   isAttachmentReference,
@@ -46,14 +49,52 @@ async function storedRow(row) {
   };
 }
 
+/** A member's speech with the files its turn produced taken in: `artifactsFrom`
+ *  `{ sessionId, since }` names the member's own session in this room and when
+ *  its turn started; the files inside that session's folders are stored and
+ *  ride on the row as references (handoff-attachments.mjs). */
+function speechWithArtifacts(row, roomId, loadSession, log) {
+  const from =
+    row?.kind === 'speech' && row.artifactsFrom && typeof row.artifactsFrom === 'object' ? row.artifactsFrom : null;
+  if (!from) return row;
+  const { artifactsFrom: _from, ...rest } = row;
+  const member = roomMemberOfSession(String(from.sessionId || ''));
+  if (!member || member.roomId !== roomId || member.agentId !== row.speaker) return rest;
+  try {
+    const session = loadSession(from.sessionId);
+    const messages = turnSlice(session?.messages, { since: Number(from.since) || 0 });
+    const { files } = collectTurnArtifacts(messages, { cwd: session?.cwd, roots: sessionRoots(session) });
+    const stored = files.filter((file) => file.id);
+    if (!stored.length) return rest;
+    return {
+      ...rest,
+      parts: stored.map((file) => ({
+        type: file.kind === 'image' ? 'image' : file.kind === 'text' ? 'text' : 'file',
+        attachmentRef: file.id,
+        ...(file.kind === 'text' ? { textKind: 'file' } : {}),
+        mimeType: file.mimeType,
+        filename: file.name,
+        sizeBytes: file.size,
+      })),
+      attachments: artifactRecords(stored),
+    };
+  } catch (error) {
+    log(`the files of ${from.sessionId} could not be taken in: ${error?.message || error}`);
+    return rest;
+  }
+}
+
 export function createAgentRoomDelivery({ loadSession, saveSession, live = agentHomeLiveSurface, log = () => {} }) {
   /** Append `rows` to the log of `sessionId`; resolves `{ added, rows }`: how
    *  many were new, and every row as stored (files as references, no bytes). */
   async function append(sessionId, rows) {
-    if (!roomIdOfSession(sessionId)) throw new TypeError('not a group-room session');
-    const kept = (await Promise.all((Array.isArray(rows) ? rows : []).map(storedRow))).map((row) =>
-      normalizeRoomRow(row)
-    );
+    const roomId = roomIdOfSession(sessionId);
+    if (!roomId) throw new TypeError('not a group-room session');
+    const kept = (
+      await Promise.all(
+        (Array.isArray(rows) ? rows : []).map((row) => storedRow(speechWithArtifacts(row, roomId, loadSession, log)))
+      )
+    ).map((row) => normalizeRoomRow(row));
     const messages = kept.map((row) => roomRowMessage(row));
     const session = loadSession(sessionId);
     if (!session || session.closed === true) throw new Error(`session ${sessionId} is not available`);

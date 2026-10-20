@@ -452,7 +452,10 @@ function finishBackup(dataDir, backupDir, reason) {
   legacyEvidenceCache.delete(normalizeDataDir(dataDir));
 }
 
-export function backupUserData(dataDir, reason = 'snapshot') {
+/** `dirs`: more data-dir folders this one snapshot also carries (a one-time
+ *  migration's, e.g. agents/ and bots/); routine snapshots keep to
+ *  USER_DATA_DIRS so the ring stays small. */
+export function backupUserData(dataDir, reason = 'snapshot', { dirs = [] } = {}) {
   if (skipBackups()) return { dir: null, copied: [] };
   if (!dataDir || !existsSync(dataDir)) return { dir: null, copied: [] };
   const scopeDir = scopeDirFor(dataDir);
@@ -462,7 +465,7 @@ export function backupUserData(dataDir, reason = 'snapshot') {
     const src = join(dataDir, rel);
     if (existsSync(src)) copyTree(src, join(backupDir, rel), copied);
   }
-  for (const rel of USER_DATA_DIRS) {
+  for (const rel of [...USER_DATA_DIRS, ...dirs]) {
     const src = join(dataDir, rel);
     if (existsSync(src)) copyTree(src, join(backupDir, rel), copied);
   }

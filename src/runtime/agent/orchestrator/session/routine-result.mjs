@@ -9,6 +9,8 @@
 // close the boundary or forge a reminder. Every transcript renders the row as
 // a notice: a routine result, never a user bubble or an assistant turn.
 import { escapeHarnessTags } from '../../../shared/shell-output-summary.mjs';
+import { artifactLines, artifactRecords, normalizeHandoffFiles } from '../../../shared/handoff-artifacts.mjs';
+import { transcriptAttachmentFields } from '../../../shared/transcript-metadata.mjs';
 
 export const ROUTINE_RESULT_SOURCE = 'schedule-result';
 const SUMMARY_LIMIT = 600;
@@ -135,10 +137,28 @@ export const TASK_LOOP_CAP = 3;
  *  turn that ended `completed` / `failed` / `cancelled`. `round` counts the
  *  agent-initiated round trips; from TASK_LOOP_CAP on, the report asks the
  *  agent to check with the user before continuing. */
-export function agentTaskMessage({ title, status, text = '', taskSessionId, round = 0, at = Date.now(), messageId }) {
+export function agentTaskMessage({
+  title,
+  status,
+  text = '',
+  taskSessionId,
+  target = 'task',
+  round = 0,
+  woken = true,
+  files = [],
+  omitted = 0,
+  at = Date.now(),
+  messageId,
+}) {
   const summary = routineSummary(text);
+  // The files the turn produced: listed for the agent, stored ones carried as
+  // the row's attachments (shown with the report, forwardable by id).
+  const produced = normalizeHandoffFiles(files);
+  const attachments = artifactRecords(produced);
   const label = escapeHarnessTags(String(title).replace(/["\r\n]/g, ''));
-  const head = `[mixdog-runtime] Coding task session "${label}" (${taskSessionId})`;
+  // `target` 'session': any session other than a task session the agent created.
+  const session = target === 'session';
+  const head = `[mixdog-runtime] ${session ? 'Session' : 'Agent task session'} "${label}" (${taskSessionId})`;
   let content;
   if (status === 'started') content = `${head} started; its result is reported here when its turn ends.`;
   else if (status === 'blocked') {
@@ -149,9 +169,13 @@ export function agentTaskMessage({ title, status, text = '', taskSessionId, roun
       `<task-output session="${taskSessionId}" status="${status}">`,
       escapeHarnessTags(summary),
       '</task-output>',
+      ...artifactLines(produced, omitted),
       ...(round >= TASK_LOOP_CAP
-        ? [`This was round trip ${round} with this task session: check with the user before sending it more work.`]
+        ? [
+            `This was round trip ${round} with this ${session ? 'session' : 'agent task session'}: check with the user before sending it more work.`,
+          ]
         : []),
+      ...(woken ? [] : ['This report did not wake you: the round-trip cap with that agent thread is reached.']),
     ].join('\n');
   }
   return {
@@ -159,17 +183,33 @@ export function agentTaskMessage({ title, status, text = '', taskSessionId, roun
     content,
     meta: {
       source: ROUTINE_RESULT_SOURCE,
-      routine: { kind: 'task', name: title, status, summary, sessionId: taskSessionId },
-      transcript: { at, ...(messageId ? { messageId } : {}) },
+      routine: {
+        kind: 'task',
+        name: title,
+        status,
+        summary,
+        sessionId: taskSessionId,
+        ...(session ? { target: 'session' } : {}),
+        ...(produced.length ? { files: produced } : {}),
+      },
+      transcript: { at, ...(messageId ? { messageId } : {}), ...(attachments.length ? { attachments } : {}) },
     },
   };
 }
 
-/** The hidden prompt that wakes the agent once its task results are posted. */
-export function agentTaskWakePrompt(messages) {
+/** The hidden prompt that wakes the agent once its task results are posted;
+ *  `more` counts posted reports it carries only as rows in the thread. */
+export function agentTaskWakePrompt(messages, { more = 0 } = {}) {
+  const files = messages.some((message) => message?.meta?.routine?.files?.length);
   return [
     ...messages.map((message) => message.content),
+    ...(more > 0 ? [`${more} more report${more === 1 ? '' : 's'} arrived; read the rows above.`] : []),
     'Relay the task result above to the user now, briefly and in your own words.',
+    ...(files
+      ? [
+          'Its files are already shown to the user with the report; name the ones that matter, link a path as a markdown link only when you refer to it, and pass them on to another session or agent with attachments.',
+        ]
+      : []),
   ].join('\n\n');
 }
 
@@ -218,11 +258,23 @@ export function routineResultNotice(message) {
   }
   if (routine.kind === 'task') {
     const { name, status, summary, sessionId } = routine;
+    const session = routine.target === 'session';
     const what = { started: 'started', blocked: 'waiting for confirmation' }[status] || status;
+    const files = normalizeHandoffFiles(routine.files);
     return {
-      text: `🛠 Task ${what} · ${name}${summary ? ` — ${summary}` : ''}`,
+      text: `🛠 ${session ? 'Session' : 'Agent task'} ${what} · ${name}${summary ? ` — ${summary}` : ''}`,
       tone: status === 'failed' ? 'warn' : 'info',
-      routine: { kind: 'task', name, status, summary, sessionId },
+      routine: {
+        kind: 'task',
+        name,
+        status,
+        summary,
+        sessionId,
+        ...(session ? { target: 'session' } : {}),
+        ...(files.length ? { files } : {}),
+      },
+      // The stored files, in the field a prompt row draws its attachments from.
+      ...transcriptAttachmentFields(message.meta.transcript),
     };
   }
   const webhook = routine.kind === 'webhook';

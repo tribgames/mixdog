@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createAgentTaskSessions, resolveTaskProject } from './agent-task-sessions.mjs';
+import { createAgentTaskSessions, resolveTaskProject, submissionOutcome } from './agent-task-sessions.mjs';
+import { agentTaskMessage, routineResultNotice } from '../runtime/agent/orchestrator/session/routine-result.mjs';
 import { createAgentHomeDelivery, createRoutineResultQueue } from './agent-home-delivery.mjs';
 import { createSessionControl } from '../standalone/daemon-session-control.mjs';
+import { isUserTurn } from '../standalone/session-service/session-calls/session-turns.mjs';
 import { createWorkspaceToolHandlers } from './internal-tool-executor/workspace-tools.mjs';
 import { sessionOptions } from './session-create/session-options.mjs';
 import { sessionOriginFields } from '../runtime/agent/orchestrator/session/manager/session-record.mjs';
@@ -56,17 +58,22 @@ function fakeService() {
 function tasks(h, overrides = {}) {
   const delivered = [];
   const stored = new Map();
+  const watched = [];
   const api = createAgentTaskSessions({
     getSessionService: () => h.service,
     deliver: async (agentId, report) => delivered.push([agentId, report]),
+    watches: { add: async (watch) => watched.push(watch), list: async () => [], remove: async () => {} },
+    queuedSubmissionIds: async () => [],
     loadSession: async (id) => stored.get(id) || null,
     listProjects: async () => [{ name: 'mixdog', alias: null, path: '/repo/mixdog' }],
     newTaskDefault: async () => 'branch',
     modelRoute: async (ref) => ({ provider: 'test', model: ref }),
+    leadRoute: async () => ({ provider: 'lead-provider', model: 'lead-model' }),
+    lastUsedRoute: async () => null,
     log: () => {},
     ...overrides,
   });
-  return { api, delivered, stored };
+  return { api, delivered, stored, watched };
 }
 
 const submitted = (h) => h.calls.filter(([name]) => name === 'submit').map(([, params]) => params);
@@ -95,7 +102,7 @@ test('create is allowed from agent homes and refused from workers, coding sessio
     { id: 'sess_run', owner: 'user', sourceType: 'schedule', sourceName: 'daily', ownerAgentId: 'reviewer' },
     { id: 'sess_hook', owner: 'user', sourceType: 'webhook', sourceName: 'push', ownerAgentId: 'lead' },
   ];
-  for (const session of refused) await assert.rejects(run(session), /create belongs to an agent conversation/);
+  for (const session of refused) await assert.rejects(run(session), /create belongs to a bot conversation/);
   assert.equal(seen.length, 2, 'a refused create never reaches the service');
   // A task session reaches its agent only through its reported result.
   const task = {
@@ -205,6 +212,99 @@ test('create records the origin, follows the worktree default and returns at onc
   assert.equal(record.titleSource, 'ai');
 });
 
+const CALLER = { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' };
+
+test('a created task session starts on the Lead route; an explicit model wins', async () => {
+  const h = fakeService();
+  const { api } = tasks(h, {
+    lastUsedRoute: async () => assert.fail('the Lead route needs no fallback'),
+  });
+  await api.create({ brief: 'x' }, CALLER);
+  const [, created] = h.calls[0];
+  assert.equal(created.provider, 'lead-provider');
+  assert.equal(created.model, 'lead-model');
+  await api.create({ brief: 'y', model: 'test/fast' }, CALLER);
+  const [, explicit] = h.calls.filter(([name]) => name === 'create')[1];
+  assert.deepEqual([explicit.provider, explicit.model], ['test', 'test/fast']);
+});
+
+test('without a Lead route the last-used model starts the task session', async () => {
+  const h = fakeService();
+  const { api } = tasks(h, {
+    leadRoute: async () => null,
+    lastUsedRoute: async () => ({ provider: 'used-provider', model: 'used-model' }),
+  });
+  await api.create({ brief: 'x' }, CALLER);
+  const [, created] = h.calls[0];
+  assert.deepEqual([created.provider, created.model], ['used-provider', 'used-model']);
+});
+
+test('with no Lead route and no last-used model create fails and creates no session', async () => {
+  const h = fakeService();
+  const { api, delivered } = tasks(h, { leadRoute: async () => null });
+  await assert.rejects(api.create({ brief: 'x' }, CALLER), /Choose a Lead model first/);
+  assert.deepEqual(h.calls, []);
+  assert.deepEqual(delivered, []);
+});
+
+function lastUsedApi(h) {
+  return createAgentTaskSessions({
+    getSessionService: () => h.service,
+    deliver: async () => {},
+    watches: { add: async () => {}, list: async () => [] },
+    listProjects: async () => [],
+    newTaskDefault: async () => 'branch',
+    leadRoute: async () => null,
+    log: () => {},
+  });
+}
+
+test('the last-used model is the first coding session row in catalog order that has one', async () => {
+  const h = fakeService();
+  h.service.listSessionCatalog = async () => ({
+    sessions: [
+      { id: 'a', provider: 'mixy', model: 'mixy-model', sessionMode: 'agent' },
+      { id: 'b', provider: '', model: '' },
+      { id: 'c', provider: 'new', model: 'new-model' },
+      { id: 'd', provider: 'old', model: 'old-model' },
+    ],
+  });
+  await lastUsedApi(h).create({ brief: 'x' }, CALLER);
+  const [, created] = h.calls[0];
+  assert.deepEqual([created.provider, created.model], ['new', 'new-model']);
+});
+
+test('the last-used model search follows nextCursor past the first page and stops at the first match', async () => {
+  const h = fakeService();
+  const requests = [];
+  const pages = {
+    start: { sessions: [{ id: 'a', provider: '', model: '' }], nextCursor: 'p2' },
+    p2: { sessions: [{ id: 'b', provider: 'mixy', model: 'm', sessionMode: 'agent' }], nextCursor: 'p3' },
+    p3: { sessions: [{ id: 'c', provider: 'deep', model: 'deep-model' }], nextCursor: 'p4' },
+    p4: { sessions: [{ id: 'd', provider: 'older', model: 'older-model' }], nextCursor: null },
+  };
+  h.service.listSessionCatalog = async ({ page }) => {
+    requests.push(page.cursor);
+    return pages[page.cursor || 'start'];
+  };
+  await lastUsedApi(h).create({ brief: 'x' }, CALLER);
+  const [, created] = h.calls[0];
+  assert.deepEqual([created.provider, created.model], ['deep', 'deep-model']);
+  assert.deepEqual(requests, [null, 'p2', 'p3'], 'paging stops at the first match');
+});
+
+test('the last-used model search is bounded and ends at the last page', async () => {
+  const h = fakeService();
+  let reads = 0;
+  h.service.listSessionCatalog = async () => {
+    reads += 1;
+    return { sessions: [{ id: `s${reads}`, provider: '', model: '' }], nextCursor: `c${reads}` };
+  };
+  await assert.rejects(lastUsedApi(h).create({ brief: 'x' }, CALLER), /Choose a Lead model first/);
+  assert.equal(reads, 20);
+  assert.deepEqual(h.calls, []);
+});
+
 test('a Project task without the worktree default stays in the Project folder', async () => {
   const h = fakeService();
   const { api } = tasks(h);
@@ -228,7 +328,7 @@ test('a Project task without the worktree default stays in the Project folder', 
 
 test('only turns the origin agent starts report back, ended or waiting for the user', async () => {
   const h = fakeService();
-  const { api, delivered, stored } = tasks(h);
+  const { api, delivered, stored, watched } = tasks(h);
   const { session_id: taskId } = await api.create(
     { brief: 'Read README', title: 'README' },
     { callerSessionId: 'sess_home_lead', callerAgentId: 'lead', callerCwd: '/home' }
@@ -251,25 +351,76 @@ test('only turns the origin agent starts report back, ended or waiting for the u
   );
   assert.equal(h.listeners.size, 0, 'the watch ends with the turn');
 
-  // The agent's follow-up reports; the same send from anyone else does not.
+  // The agent's follow-up reports to it; another agent's send reports to that
+  // agent alone; a coding session's send reports to nobody.
   const execute = createSessionControl({ getSessionService: () => h.service, agentTasks: api });
-  await execute(
-    { action: 'send', session_id: taskId, prompt: 'and the second line?' },
-    { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' }
+  const storedOrigin = structuredClone(stored.get(taskId).taskOrigin);
+  assert.deepEqual(
+    await execute(
+      { action: 'send', session_id: taskId, prompt: 'and the second line?' },
+      { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' }
+    ),
+    { sessionId: taskId, accepted: true, reportsBack: true }
   );
-  await execute(
-    { action: 'send', session_id: taskId, prompt: 'from another agent' },
-    { callerSessionId: 'sess_home_reviewer', callerAgentId: 'reviewer' }
+  assert.equal(
+    (
+      await execute(
+        { action: 'send', session_id: taskId, prompt: 'from another agent' },
+        { callerSessionId: 'sess_home_reviewer', callerAgentId: 'reviewer' }
+      )
+    ).reportsBack,
+    true
   );
-  await execute({ action: 'send', session_id: taskId, prompt: 'from a coding session' }, { callerSessionId: 'sess_c' });
+  assert.deepEqual(
+    await execute(
+      { action: 'send', session_id: taskId, prompt: 'from a coding session' },
+      { callerSessionId: 'sess_c' }
+    ),
+    { sessionId: taskId, accepted: true, reportsBack: false }
+  );
   const [, followUp, foreign, coding] = submitted(h);
+  assert.equal(followUp.options.id.startsWith('atask_'), true);
   assert.equal(typeof followUp.options.onSettled, 'function');
-  assert.equal(foreign.options.onSettled, undefined);
+  assert.equal(typeof foreign.options.onSettled, 'function');
   assert.equal(coding.options.onSettled, undefined);
   followUp.options.onSettled({ status: 'failed', error: 'provider down' });
   await settle();
-  assert.deepEqual(delivered.at(-1)[1].status, 'failed');
-  assert.equal(delivered.length, 4, "a user's own turns never report");
+  assert.deepEqual(delivered.at(-1), [
+    'lead',
+    {
+      runId: `${followUp.options.id}_end`,
+      taskSessionId: taskId,
+      title: 'README',
+      status: 'failed',
+      text: 'provider down',
+      watchId: followUp.options.id,
+    },
+  ]);
+  foreign.options.onSettled({ status: 'done', result: { content: 'done' } });
+  await settle();
+  assert.deepEqual(delivered.at(-1), [
+    'reviewer',
+    {
+      runId: `${foreign.options.id}_end`,
+      taskSessionId: taskId,
+      title: taskId,
+      status: 'completed',
+      text: 'done',
+      target: 'session',
+      watchId: foreign.options.id,
+    },
+  ]);
+  // Every reporting turn was watched durably; a coding session's send was not.
+  assert.deepEqual(
+    watched.map((watch) => [watch.runId, watch.agentId, watch.homeSessionId, watch.target ?? 'task']),
+    [
+      [brief.options.id, 'lead', 'sess_home_lead', 'task'],
+      [followUp.options.id, 'lead', 'sess_home_lead', 'task'],
+      [foreign.options.id, 'reviewer', 'sess_home_reviewer', 'session'],
+    ]
+  );
+  assert.equal(delivered.length, 5, "a user's own turns never report");
+  assert.deepEqual(stored.get(taskId).taskOrigin, storedOrigin, 'a send never rewrites the stored origin');
 });
 
 function homeDelivery(t) {
@@ -361,4 +512,523 @@ test('a turn waiting for the user posts one faint line and wakes nobody', async 
   // Waiting is not a round trip.
   await h.delivery.drain(await h.delivery.enqueueTask('lead', report(2)));
   assert.equal(h.thread()[1].content.includes('round trip'), false);
+});
+
+test("an ordinary session reports as a session, and another agent's thread stops waking past the cap", async (t) => {
+  const h = homeDelivery(t);
+  const botReport = (n) => ({
+    runId: `bot_${n}_end`,
+    taskSessionId: 'sess_home_reviewer',
+    title: 'Reviewer',
+    status: 'completed',
+    text: `answer ${n}`,
+    target: 'session',
+  });
+  for (const n of [1, 2, 3, 4, 5]) await h.delivery.drain(await h.delivery.enqueueTask('lead', botReport(n)));
+  const thread = h.thread();
+  assert.match(
+    thread[0].content,
+    /^\[mixdog-runtime\] Session "Reviewer" \(sess_home_reviewer\) reported \(completed\)/
+  );
+  assert.deepEqual(
+    thread.map((message) => /did not wake you/.test(message.content)),
+    [false, false, false, true, true]
+  );
+  assert.equal(h.wakes.length, 3, 'past the cap the rows post without waking the agent');
+  assert.equal(routineResultNotice(thread[0]).text, '🛠 Session completed · Reviewer — answer 1');
+  const [item] = restoreTranscriptItems(thread, { sessionId: 'sess_home_lead' });
+  assert.equal(item.routine.target, 'session');
+  // A task session the agent created keeps its wording.
+  const task = agentTaskMessage({ title: 'README', status: 'completed', taskSessionId: 'sess_task_1' });
+  assert.match(task.content, /^\[mixdog-runtime\] Agent task session "README" \(sess_task_1\) reported/);
+  assert.equal(task.meta.routine.target, undefined);
+});
+
+test("the user's own message in the home thread restarts its round trips, so a capped thread wakes again", async (t) => {
+  const h = homeDelivery(t);
+  const botReport = (n) => ({
+    runId: `bot_${n}_end`,
+    taskSessionId: 'sess_home_reviewer',
+    title: 'Reviewer',
+    status: 'completed',
+    text: `answer ${n}`,
+    target: 'session',
+  });
+  for (const n of [1, 2, 3, 4]) await h.delivery.drain(await h.delivery.enqueueTask('lead', botReport(n)));
+  assert.equal(h.wakes.length, 3);
+  await h.delivery.resetRounds('sess_home_lead');
+  await h.delivery.drain(await h.delivery.enqueueTask('lead', botReport(5)));
+  assert.equal(h.wakes.length, 4, 'the first report after the reset wakes the agent');
+  assert.equal(h.thread()[4].content.includes('round trip'), false, 'and counts as round trip 1');
+  // Only a typed prompt resets: an agent's send, a wake or a routine fire does not.
+  assert.equal(isUserTurn({ mode: 'prompt' }), true);
+  assert.equal(isUserTurn({}), true);
+  assert.equal(isUserTurn({ mode: 'prompt', transcriptMeta: { sender: 'lead' } }), false);
+  assert.equal(isUserTurn({ mode: 'prompt', kickoff: true }), false);
+  assert.equal(isUserTurn({ mode: 'routine' }), false);
+});
+
+const HOME = 'sess_home_lead';
+const TARGET = 'sess_user_1';
+const promptRow = (runId) => ({
+  role: 'user',
+  content: 'run the simulation',
+  meta: { transcript: { checkpointId: runId } },
+});
+const replyRow = (runId, text) => ({
+  role: 'assistant',
+  content: text,
+  meta: { transcript: { completion: { status: 'done', checkpointId: runId } } },
+});
+
+/** One data dir across daemon starts: each `boot()` is a new process over the
+ *  same routine-results.json, home thread and target session record. */
+function restartWorld(t) {
+  const file = join(tempDir(t), 'routine-results.json');
+  const home = { id: HOME, messages: [], generation: 1 };
+  const records = new Map([[TARGET, { id: TARGET, title: 'AA sim', messages: [] }]]);
+  const wakes = [];
+  const persisted = [];
+  // How the next wake goes: taken (undefined), refused (false) or a throw.
+  const wakeOutcome = { next: undefined, attempts: [] };
+  function boot() {
+    const h = fakeService();
+    const delivery = createAgentHomeDelivery({
+      loadSession: (id) => (id === HOME ? home : null),
+      saveSession: async () => {},
+      turnInFlight: () => false,
+      queue: createRoutineResultQueue(file),
+      live: () => ({
+        busy: () => false,
+        notice: () => {},
+        wake: async (id, prompt, options) => {
+          wakeOutcome.attempts.push(options?.id);
+          const outcome = wakeOutcome.next;
+          if (outcome instanceof Error) throw outcome;
+          if (outcome === false) return false;
+          wakes.push([id, prompt, options]);
+        },
+      }),
+      retryLater: () => {},
+      log: () => {},
+    });
+    let reported = Promise.resolve(null);
+    const api = createAgentTaskSessions({
+      getSessionService: () => h.service,
+      deliver: (agentId, report) => {
+        reported = delivery.enqueueTask(agentId, report);
+        return reported;
+      },
+      watches: {
+        add: (watch) => (world.failWatch ? Promise.reject(new Error('disk full')) : delivery.watchTask(watch)),
+        list: () => delivery.taskWatches(),
+        remove: (runId) => delivery.unwatchTask(runId),
+      },
+      queuedSubmissionIds: async () => [...persisted],
+      loadSession: async (id) => records.get(id) || null,
+      log: () => {},
+    });
+    const posted = async () => {
+      await settle();
+      const homeId = await reported;
+      if (homeId) await delivery.drain(homeId);
+    };
+    return { h, api, delivery, posted };
+  }
+  const watchIds = async () => (await createRoutineResultQueue(file).watches()).map((watch) => watch.runId);
+  const owedWakes = async () => {
+    const { owed, batches } = await createRoutineResultQueue(file).wakes(HOME);
+    return [...owed, ...batches.flatMap((batch) => batch.runIds)];
+  };
+  const world = {
+    home,
+    records,
+    wakes,
+    wakeOutcome,
+    persisted,
+    boot,
+    watchIds,
+    owedWakes,
+    failWatch: false,
+    target: () => records.get(TARGET),
+  };
+  return world;
+}
+
+test('a restart while the target turn runs reports it once that turn ends', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = await first.api.reportOrigin(TARGET, 'lead', HOME);
+  // The watch is durable before the target can take the turn.
+  first.h.service.submitSession = async (params) => {
+    first.h.calls.push(['submit', params]);
+    assert.deepEqual(await w.watchIds(), [params.options.id]);
+    return { accepted: true };
+  };
+  assert.deepEqual(await first.api.send(TARGET, 'run the simulation', origin), { accepted: true, reportsBack: true });
+  const [{ options }] = submitted(first.h);
+  const runId = options.id;
+  assert.deepEqual(await w.watchIds(), [runId], 'the watch is stored when the send is accepted');
+  // The daemon stops mid-turn: this process's onSettled never runs.
+  const second = w.boot();
+  w.target().messages.push(promptRow(runId));
+  second.h.state.busy = true;
+  assert.equal(await second.api.recover(), 1);
+  await second.posted();
+  assert.equal(w.home.messages.length, 0, 'nothing reports while the turn runs');
+  w.target().messages.push(replyRow(runId, 'simulation finished'));
+  second.h.state.busy = false;
+  second.h.emit();
+  await second.posted();
+  assert.equal(w.home.messages.length, 1);
+  assert.match(w.home.messages[0].content, /Session "AA sim" \(sess_user_1\) reported \(completed\)/);
+  assert.match(w.home.messages[0].content, /simulation finished/);
+  assert.equal(w.wakes.length, 1);
+  assert.deepEqual(await w.watchIds(), []);
+  assert.equal(second.h.listeners.size, 0, 'the re-attached watch ends with the report');
+  assert.equal(await w.boot().api.recover(), 0, 'a later start has nothing to re-attach');
+  assert.equal(Object.hasOwn(w.target(), 'taskOrigin'), false, 'the target never gets an origin stored');
+});
+
+test('a turn that ended while no report was queued reports once on recovery, never twice', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  await first.api.send(TARGET, 'run the simulation', await first.api.reportOrigin(TARGET, 'lead', HOME));
+  const [{ options }] = submitted(first.h);
+  w.target().messages.push(promptRow(options.id), replyRow(options.id, 'finished before the restart'));
+  const second = w.boot();
+  await second.api.recover();
+  await second.posted();
+  assert.equal(w.home.messages.length, 1);
+  assert.match(w.home.messages[0].content, /reported \(completed\)[\s\S]*finished before the restart/);
+  assert.equal(w.wakes.length, 1);
+  assert.deepEqual(await w.watchIds(), []);
+  // A watch replayed for the already posted run posts nothing and is dropped.
+  const third = w.boot();
+  await third.delivery.watchTask({
+    runId: options.id,
+    agentId: 'lead',
+    homeSessionId: HOME,
+    taskSessionId: TARGET,
+    title: 'AA sim',
+    target: 'session',
+  });
+  await third.api.recover();
+  await third.posted();
+  assert.equal(w.home.messages.length, 1);
+  assert.equal(w.wakes.length, 1);
+  assert.deepEqual(await w.watchIds(), []);
+});
+
+test('a message still queued durably is watched to its end; one lost in the restart reports so', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const watch = (runId) => ({
+    runId,
+    agentId: 'lead',
+    homeSessionId: HOME,
+    taskSessionId: TARGET,
+    title: 'AA sim',
+    target: 'session',
+  });
+  await first.delivery.watchTask(watch('atask_lost'));
+  await first.delivery.watchTask(watch('atask_queued'));
+  w.persisted.push('atask_queued');
+  const second = w.boot();
+  await second.api.recover();
+  await second.posted();
+  assert.equal(w.home.messages.length, 1);
+  assert.match(w.home.messages[0].content, /reported \(cancelled\)[\s\S]*never ran/);
+  assert.deepEqual(await w.watchIds(), ['atask_queued']);
+  // The restored queue runs the message.
+  w.persisted.length = 0;
+  second.h.state.busy = true;
+  w.target().messages.push(promptRow('atask_queued'));
+  second.h.emit();
+  await second.posted();
+  assert.equal(w.home.messages.length, 1);
+  w.target().messages.push(replyRow('atask_queued', 'ran after the restart'));
+  second.h.state.busy = false;
+  second.h.emit();
+  await second.posted();
+  assert.equal(w.home.messages.length, 2);
+  assert.match(w.home.messages[1].content, /reported \(completed\)[\s\S]*ran after the restart/);
+  assert.deepEqual(await w.watchIds(), []);
+});
+
+test('a send whose watch cannot be stored claims no report; a refused or failed submit drops its watch', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = await first.api.reportOrigin(TARGET, 'lead', HOME);
+  w.failWatch = true;
+  assert.deepEqual(await first.api.send(TARGET, 'run the simulation', origin), {
+    accepted: true,
+    reportsBack: false,
+  });
+  const [plain] = submitted(first.h);
+  assert.equal(plain.options.onSettled, undefined, 'no report hook it could not keep');
+  assert.equal(first.h.listeners.size, 0);
+  w.failWatch = false;
+  first.h.service.submitSession = async () => ({ accepted: false });
+  assert.deepEqual(await first.api.send(TARGET, 'refused', origin), { accepted: false, reportsBack: false });
+  assert.deepEqual(await w.watchIds(), [], 'a refused submit drops its watch');
+  first.h.service.submitSession = async () => {
+    throw new Error('runtime gone');
+  };
+  await assert.rejects(first.api.send(TARGET, 'failed', origin), /runtime gone/);
+  assert.deepEqual(await w.watchIds(), [], 'a failed submit drops its watch');
+  assert.equal(first.h.listeners.size, 0);
+  assert.equal(await w.boot().api.recover(), 0);
+  assert.equal(w.home.messages.length, 0);
+});
+
+test('a wake that fails before a restart is owed durably and taken once after it, without a second row', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  await first.api.send(TARGET, 'run the simulation', await first.api.reportOrigin(TARGET, 'lead', HOME));
+  const [{ options }] = submitted(first.h);
+  w.wakeOutcome.next = new Error('submit failed');
+  options.onSettled({ status: 'done', result: { content: 'simulation finished' } });
+  await first.posted();
+  assert.equal(w.home.messages.length, 1, 'the row is posted');
+  assert.equal(w.wakes.length, 0);
+  assert.deepEqual(await w.owedWakes(), [`${options.id}_end`], 'the wake stays owed');
+  // The daemon stops before any retry: the next start wakes, posting nothing.
+  w.wakeOutcome.next = undefined;
+  const second = w.boot();
+  for (const homeId of await second.delivery.recover()) await second.delivery.drain(homeId);
+  assert.equal(w.home.messages.length, 1);
+  assert.equal(w.wakes.length, 1);
+  assert.match(w.wakes[0][1], /simulation finished/);
+  assert.match(w.wakes[0][2].id, /^awake_/);
+  assert.deepEqual(await w.owedWakes(), []);
+  assert.deepEqual(await w.boot().delivery.recover(), [], 'a later start owes nothing');
+  assert.equal(w.wakes.length, 1);
+});
+
+test('a refused wake stays owed; a wake taken just before a restart is not taken again', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = await first.api.reportOrigin(TARGET, 'lead', HOME);
+  await first.api.send(TARGET, 'one', origin);
+  await first.api.send(TARGET, 'two', origin);
+  const [one, two] = submitted(first.h);
+  w.wakeOutcome.next = false;
+  one.options.onSettled({ status: 'done', result: { content: 'first' } });
+  await first.posted();
+  assert.equal(w.wakes.length, 0);
+  assert.equal((await w.owedWakes()).length, 1, 'a refused wake stays owed');
+  w.wakeOutcome.next = undefined;
+  await first.delivery.drain(HOME);
+  assert.equal(w.wakes.length, 1, 'the retry takes it');
+  assert.deepEqual(await w.owedWakes(), []);
+  // The wake turn of the second result reached the thread, but the process
+  // stopped before it was marked taken.
+  w.wakeOutcome.next = new Error('stopped');
+  two.options.onSettled({ status: 'done', result: { content: 'second' } });
+  await first.posted();
+  const wakeId = w.wakeOutcome.attempts.at(-1);
+  w.home.messages.push({ role: 'user', content: 'wake', meta: { transcript: { checkpointId: wakeId } } });
+  w.wakeOutcome.next = undefined;
+  const second = w.boot();
+  for (const homeId of await second.delivery.recover()) await second.delivery.drain(homeId);
+  assert.equal(w.wakes.length, 1, 'never woken twice');
+  assert.deepEqual(await w.owedWakes(), []);
+});
+
+test('a wake taken before a restart is not taken again when a later result is owed too', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = await first.api.reportOrigin(TARGET, 'lead', HOME);
+  await first.api.send(TARGET, 'A', origin);
+  await first.api.send(TARGET, 'B', origin);
+  const [a, b] = submitted(first.h);
+  // A's wake turn reached the thread, then the process stopped before the
+  // obligation was cleared.
+  w.wakeOutcome.next = new Error('stopped');
+  a.options.onSettled({ status: 'done', result: { content: 'result A' } });
+  await first.posted();
+  const wakeA = w.wakeOutcome.attempts.at(-1);
+  w.home.messages.push({ role: 'user', content: 'wake', meta: { transcript: { checkpointId: wakeA } } });
+  // B's turn ended while the daemon was down.
+  w.target().messages.push(promptRow(b.options.id), replyRow(b.options.id, 'result B'));
+  w.wakeOutcome.next = undefined;
+  const second = w.boot();
+  await second.api.recover();
+  await second.posted();
+  for (const homeId of await second.delivery.recover()) await second.delivery.drain(homeId);
+  assert.equal(w.wakes.length, 1, 'only B wakes');
+  assert.match(w.wakes[0][1], /result B/);
+  assert.equal(w.wakes[0][1].includes('result A'), false, 'A is never relayed twice');
+  assert.notEqual(w.wakes[0][2].id, wakeA, 'B wakes under a batch of its own');
+  assert.deepEqual(await w.owedWakes(), []);
+  assert.equal(w.home.messages.filter((message) => message.meta?.routine).length, 2, 'one row each');
+});
+
+const DAY = 24 * 60 * 60 * 1000;
+const roundItem = (runId, target) => ({ runId, kind: 'agent-task', taskSessionId: target, roundTrip: true });
+
+function capWorld(
+  t,
+  { caps, deleted = [], threads = {}, agentPresence = () => 'present', roomPresence = () => 'present' } = {}
+) {
+  const file = join(tempDir(t), 'routine-results.json');
+  const clock = { now: Date.parse('2026-01-01T00:00:00Z') };
+  const queue = createRoutineResultQueue(file, { now: () => clock.now, ...(caps ? { caps } : {}) });
+  const logs = [];
+  const wakes = [];
+  // While busy no thread is posted to; while `failWake` every wake throws.
+  const state = { busy: true, failWake: false };
+  const delivery = createAgentHomeDelivery({
+    // Every record but the given threads reads as null, as an unreadable one does.
+    loadSession: (id) => threads[id] || null,
+    saveSession: async () => {},
+    turnInFlight: () => state.busy,
+    queue,
+    live: () => ({
+      busy: () => false,
+      notice: () => {},
+      wake: async (id, prompt, options) => {
+        if (state.failWake) throw new Error('submit failed');
+        wakes.push([id, prompt, options]);
+      },
+    }),
+    retryLater: () => {},
+    agentPresence,
+    roomPresence,
+    sessionDeleted: (id) => deleted.includes(id),
+    log: (line) => logs.push(line),
+  });
+  const doc = () => JSON.parse(readFileSync(file, 'utf8'));
+  return { queue, delivery, clock, logs, doc, wakes, state };
+}
+
+test('start retires only proven-deleted homes: Mixy, threadless bots and live rooms keep their watches', async (t) => {
+  const mixy = 'sess_home_lead';
+  const threadless = 'sess_home_kept';
+  const deleted = 'sess_home_gone';
+  const room = 'sess_room_abcdef12';
+  const member = 'sess_rmem_abcdef12_kept';
+  const deletedRoom = 'sess_room_zzzzzz99';
+  const homes = [mixy, threadless, deleted, room, member, deletedRoom];
+  // No thread record exists for any of them.
+  const w = capWorld(t, {
+    agentPresence: (agentId) => (agentId === 'gone' || agentId === 'lead' ? 'deleted' : 'present'),
+    roomPresence: (roomId) => (roomId === 'zzzzzz99' ? 'deleted' : 'present'),
+  });
+  for (const homeId of homes) {
+    await w.queue.add(homeId, roundItem(`${homeId}_end`, 'sess_t'));
+    await w.queue.remove(homeId, [`${homeId}_end`], null, { wake: [`${homeId}_end`] });
+    await w.queue.watch({ runId: `w_${homeId}`, agentId: 'x', homeSessionId: homeId, taskSessionId: 'sess_t' });
+  }
+  await w.delivery.recover();
+  const kept = [mixy, threadless, room, member].sort();
+  const doc = w.doc();
+  assert.deepEqual(Object.keys(doc.rounds).sort(), kept);
+  assert.deepEqual(Object.keys(doc.wakes).sort(), kept);
+  assert.deepEqual(Object.keys(doc.delivered).sort(), kept);
+  assert.deepEqual(
+    Object.values(doc.watches)
+      .map((watch) => watch.homeSessionId)
+      .sort(),
+    kept,
+    "Mixy's watch survives with no home record, even if a probe calls Mixy deleted"
+  );
+});
+
+test('every write retires idle round counts and keeps the most recent targets per home', async (t) => {
+  const w = capWorld(t, { caps: { roundTargets: 2, watches: 200, wakeRunIds: 100 } });
+  const home = 'sess_home_lead';
+  for (const target of ['sess_a', 'sess_b', 'sess_c']) {
+    w.clock.now += 1000;
+    await w.queue.add(home, roundItem(`${target}_end`, target));
+  }
+  assert.deepEqual(Object.keys(w.doc().rounds[home]).sort(), ['sess_b', 'sess_c'], 'least recently counted drops');
+  w.clock.now += 31 * DAY;
+  // Any write, not only a start, retires the idle counts.
+  await w.queue.watch({ runId: 'w1', agentId: 'lead', homeSessionId: home, taskSessionId: 'sess_a' });
+  assert.deepEqual(w.doc().rounds, {});
+  await w.queue.add(home, roundItem('again_end', 'sess_c'));
+  assert.equal((await w.queue.items(home)).at(-1).round, 1, 'an idle count starts over');
+});
+
+test('a home keeps at most its cap of watches and owed wakes', async (t) => {
+  const home = 'sess_home_lead';
+  // sess_unreadable has no readable record but no deletion evidence either.
+  const w = capWorld(t, { caps: { roundTargets: 100, watches: 2, wakeRunIds: 3 }, deleted: ['sess_dead'] });
+  const watch = (runId, taskSessionId, homeSessionId = home) => ({
+    runId,
+    agentId: 'lead',
+    homeSessionId,
+    taskSessionId,
+  });
+  await w.delivery.watchTask(watch('w1', 'sess_dead'));
+  await w.delivery.watchTask(watch('w2', 'sess_unreadable'));
+  await w.delivery.watchTask(watch('w_other', 'sess_alive', 'sess_home_reviewer'));
+  // At the cap the oldest watch whose session is proven deleted makes room, logged.
+  await w.delivery.watchTask(watch('w3', 'sess_alive'));
+  assert.deepEqual(Object.keys(w.doc().watches).sort(), ['w2', 'w3', 'w_other']);
+  assert.match(w.logs.join('\n'), /watch cap: dropped 1 watch/);
+  // An unreadable target is not evicted: the watch is refused, so the send claims no report.
+  await assert.rejects(w.delivery.watchTask(watch('w4', 'sess_alive')), /already waits on 2 session reports/);
+  assert.deepEqual(Object.keys(w.doc().watches).sort(), ['w2', 'w3', 'w_other']);
+  // Owed wakes: past the cap the oldest collapse into one marker; none is lost.
+  assert.equal((await w.queue.remove(home, [], null, { wake: ['a', 'b'] })).overflowed, 0);
+  assert.equal((await w.queue.remove(home, [], null, { wake: ['c', 'd'] })).overflowed, 1);
+  assert.deepEqual(await w.queue.wakes(home), {
+    owed: ['b', 'c', 'd'],
+    batches: [],
+    overflow: { count: 1, oldest: 'a', newest: 'a' },
+  });
+  const batch = await w.queue.batchWake(home);
+  assert.deepEqual(batch.overflow, { count: 1, oldest: 'a', newest: 'a' }, 'the next batch takes the marker over');
+  // A stored batch fills the cap: later results collapse, the batch is unchanged.
+  assert.equal((await w.queue.remove(home, [], null, { wake: ['e', 'f'] })).overflowed, 2);
+  const state = await w.queue.wakes(home);
+  assert.deepEqual(state.batches, [batch]);
+  assert.deepEqual(state.overflow, { count: 2, oldest: 'e', newest: 'f' });
+});
+
+test('past the wake cap no report is lost: the next wake relays the overflow once, even after a failed try', async (t) => {
+  const home = 'sess_home_lead';
+  const thread = { id: home, messages: [], generation: 1 };
+  const w = capWorld(t, { caps: { roundTargets: 100, watches: 200, wakeRunIds: 2 }, threads: { [home]: thread } });
+  // Five results arrive while the thread is busy, then post in one pass.
+  for (const n of [1, 2, 3, 4, 5]) await w.delivery.enqueueTask('lead', report(n));
+  w.state.busy = false;
+  w.state.failWake = true;
+  await w.delivery.drain(home);
+  assert.equal(thread.messages.length, 5, 'every result is posted');
+  assert.equal(w.wakes.length, 0);
+  assert.match(w.logs.join('\n'), /wake cap: 3 result\(s\) ride the next wake/);
+  const [stored] = (await w.queue.wakes(home)).batches;
+  assert.deepEqual(stored.runIds, ['turn_4_end', 'turn_5_end']);
+  assert.deepEqual(stored.overflow, { count: 3, oldest: 'turn_1_end', newest: 'turn_3_end' });
+  // The retry wakes once under the same batch, carrying the overflow.
+  w.state.failWake = false;
+  await w.delivery.drain(home);
+  assert.equal(w.wakes.length, 1);
+  assert.equal(w.wakes[0][2].id, stored.id);
+  assert.match(w.wakes[0][1], /answer 4[\s\S]*answer 5/);
+  assert.match(w.wakes[0][1], /3 more reports arrived; read the rows above\./);
+  assert.deepEqual(await w.queue.wakes(home), { owed: [], batches: [], overflow: null }, 'cleared once taken');
+  await w.delivery.drain(home);
+  assert.equal(w.wakes.length, 1, 'never relayed twice');
+});
+
+test('the end of a stored turn is read from its completion, interruption or the next prompt', () => {
+  assert.equal(submissionOutcome([], 'a'), null);
+  assert.equal(submissionOutcome([promptRow('a')], 'a'), 'open');
+  assert.deepEqual(submissionOutcome([promptRow('a'), replyRow('a', 'ok')], 'a'), { status: 'completed', text: 'ok' });
+  const failed = {
+    ...promptRow('a'),
+    meta: { transcript: { checkpointId: 'a', completion: { status: 'failed', detail: 'provider down' } } },
+  };
+  assert.deepEqual(submissionOutcome([failed], 'a'), { status: 'failed', text: 'provider down' });
+  const interrupted = { role: 'user', content: '[Request interrupted by process restart]' };
+  assert.deepEqual(submissionOutcome([promptRow('a'), interrupted], 'a'), { status: 'cancelled', text: '' });
+  assert.deepEqual(submissionOutcome([promptRow('a'), promptRow('b')], 'a'), { status: 'cancelled', text: '' });
+  // A merged batch names every submission it delivered.
+  const merged = { role: 'user', content: 'x', meta: { transcript: { checkpointId: 'a', submissionIds: ['a', 'b'] } } };
+  assert.deepEqual(submissionOutcome([merged, replyRow('a', 'both')], 'b'), { status: 'completed', text: 'both' });
 });

@@ -18,6 +18,7 @@ import {
   writeCheckpointHeader,
 } from './turn-checkpoint-journal.mjs';
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
+import { stripProviderReplayMessages } from './provider-replay.mjs';
 
 export { turnCheckpointPath, turnMessagesForCheckpoint };
 export { captureTurnCheckpointContextState, restoreTurnCheckpointContextState };
@@ -198,7 +199,12 @@ export function recoverTurnCheckpoint(session) {
   const current = Array.isArray(session.messages) ? session.messages : [];
   const start = findTurnStart(current, checkpoint.currentUserContent);
   const kept = start >= 0 ? current.slice(0, start) : current;
-  session.messages = checkpoint.fullTranscript === true ? finalized.messages : [...kept, ...finalized.messages];
+  // The route switched models mid-turn (the marker says so) and the journal
+  // may predate the switch: its turn still carries the previous provider's
+  // native replay state, which the saved route's provider must not receive.
+  const turnMessages =
+    marker?.routeChanged === true ? stripProviderReplayMessages(finalized.messages) : finalized.messages;
+  session.messages = checkpoint.fullTranscript === true ? turnMessages : [...kept, ...turnMessages];
   // Re-anchor provider usage / post-compact replacement state to the exact
   // canonical checkpoint representation. If a legacy or corrupted checkpoint
   // cannot prove alignment, retain the last provider reading for display but

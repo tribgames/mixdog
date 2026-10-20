@@ -43,6 +43,25 @@ function applyField(current, path, change) {
   return next;
 }
 
+const isSet = (value) => value !== undefined && value !== null && value !== '';
+
+function valueAt(source, path) {
+  let value = source;
+  for (const key of path) {
+    if (!isPlainObject(value) || !Object.hasOwn(value, key)) return undefined;
+    value = value[key];
+  }
+  return value;
+}
+
+/** A change with `unlessSet: [path…]` is skipped when the stored value at that
+ *  path is already set. It is judged against `current`, the state before the
+ *  whole patch, so the changes of one patch that share a guard stand or fall
+ *  together whatever their order. */
 export function applyConfigPatch(current, changes) {
-  return changes.reduce((next, change) => applyField(next, change.path, change), current);
+  return changes.reduce(
+    (next, change) =>
+      change.unlessSet && isSet(valueAt(current, change.unlessSet)) ? next : applyField(next, change.path, change),
+    current
+  );
 }

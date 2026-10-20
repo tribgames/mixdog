@@ -16,7 +16,7 @@ Object.assign(process.env, { MIXDOG_DATA_DIR: dataDir, HOME: root, USERPROFILE: 
 delete process.env.MIXDOG_BOOT_INSTRUCTION_FILES;
 const sampleDir = join(dataDir, 'agents', 'sample');
 mkdirSync(sampleDir, { recursive: true });
-writeFileSync(join(sampleDir, 'AGENT.md'), '---\nname: Sample\n---\n# Sample\n\nSAMPLE_ROLE_BODY');
+writeFileSync(join(sampleDir, 'AGENT.md'), '---\nname: Sample\nkind: bot\n---\n# Sample\n\nSAMPLE_ROLE_BODY');
 writeFileSync(
   join(sampleDir, 'agent.json'),
   JSON.stringify({
@@ -29,7 +29,7 @@ writeFileSync(join(sampleDir, 'PERSONA.md'), 'SAMPLE_PERSONA_TEXT');
 // A second contact agent: its prompt shares everything up to the tail.
 const otherDir = join(dataDir, 'agents', 'other');
 mkdirSync(otherDir, { recursive: true });
-writeFileSync(join(otherDir, 'AGENT.md'), '---\nname: Other\n---\n# Other\n\nOTHER_ROLE_BODY');
+writeFileSync(join(otherDir, 'AGENT.md'), '---\nname: Other\nkind: bot\n---\n# Other\n\nOTHER_ROLE_BODY');
 writeFileSync(join(otherDir, 'agent.json'), JSON.stringify({ name: 'Other', description: 'plans trips.' }));
 const leadDir = join(dataDir, 'agents', 'lead');
 mkdirSync(leadDir, { recursive: true });
@@ -104,6 +104,28 @@ function compose({ agent = 'lead', sessionMode, legacy = false, sourceType } = {
   // `legacy`: the exact pre-agent-mode call shape (no sessionMode at all).
   return composeSessionSystem(opts, legacy ? route : { ...route, sessionMode });
 }
+
+test("Mixy's persona rides only Mixy's own thread: never a coding Lead; a bot keeps its own", async (t) => {
+  const { agentProfileRevision } = await import('../context/role-instructions.mjs');
+  const persona = join(leadDir, 'PERSONA.md');
+  t.after(() => rmSync(persona, { force: true }));
+  const codingBefore = JSON.stringify(compose({ sessionMode: 'coding' }));
+  const codingStamp = agentProfileRevision('lead', { mixy: false });
+  const mixyStamp = agentProfileRevision('lead', { mixy: true });
+  writeFileSync(persona, 'MIXY_PERSONA_TEXT');
+  const coding = JSON.stringify(compose({ sessionMode: 'coding' }));
+  assert.doesNotMatch(coding, /MIXY_PERSONA_TEXT/, 'a coding Lead never carries Mixy');
+  assert.equal(coding, codingBefore, "a coding Lead's prompt does not move when Mixy is edited");
+  assert.doesNotMatch(JSON.stringify(compose({ legacy: true })), /MIXY_PERSONA_TEXT/);
+  assert.match(JSON.stringify(compose({ sessionMode: 'agent' })), /MIXY_PERSONA_TEXT/, "Mixy's own thread");
+  const bot = JSON.stringify(compose({ agent: 'sample', sessionMode: 'agent' }));
+  assert.match(bot, /SAMPLE_PERSONA_TEXT/, 'a bot thread carries its own persona');
+  assert.doesNotMatch(bot, /MIXY_PERSONA_TEXT/);
+  // The coding Lead's profile stamp never follows Mixy's files (no refresh,
+  // no cache break); Mixy's own thread's does.
+  assert.equal(agentProfileRevision('lead', { mixy: false }), codingStamp);
+  assert.notEqual(agentProfileRevision('lead', { mixy: true }), mixyStamp);
+});
 
 test('mode resolution for each session kind', () => {
   const agent = (args) => resolveSessionMode(args);
@@ -182,7 +204,9 @@ test('a coding Lead prompt: the same with or without a mode, in the prefix-shari
     workflow.context.slice(workflow.packContext.length + 2)
   );
   assert.match(parts.orchestrationContext, /^# Orchestration Mode: Balanced/);
-  assert.match(parts.agentCatalogContext, /\(sample\)/);
+  // A coding Lead lists workflow agents only: bots (sample) are Mixy's.
+  assert.match(parts.agentCatalogContext, /\(worker\)/);
+  assert.doesNotMatch(parts.agentCatalogContext, /\(sample\)/);
   // LEAD.md's split loses no word: common + coding passages + identity.
   assert.deepEqual(
     words(
@@ -196,7 +220,7 @@ test('a coding Lead prompt: the same with or without a mode, in the prefix-shari
   );
   assert.doesNotMatch(_buildLeadRules(), /You are Mixdog|Before your first tool call|review its diff/);
   assert.match(instructionFiles, /INSTRUCTION_FILE_SENTINEL/);
-  assert.doesNotMatch(core, /# Agent Mode|# Delegation\n|# Your Role|# Contact Agents/);
+  assert.doesNotMatch(core, /# Bot Mode|# Delegation\n|# Your Role|# Contact Agents/);
 });
 
 // The longest common prefix of two strings.
@@ -216,7 +240,7 @@ test('BP3 prefixes: every Lead shares the pack and LEAD.md; agents share through
   // Through step 2 (the mode block) every agent but Mixy is byte-identical.
   const step2 = sample.slice(0, sample.indexOf('# Identity'));
   assert.equal(other.slice(0, other.indexOf('# Identity')), step2);
-  assert.ok(step2.includes('# Agent Mode') && step2.includes('# Available Agents'));
+  assert.ok(step2.includes('# Bot Mode') && step2.includes('# Available Agents'));
   assert.ok(mixy.startsWith(step2.slice(0, -SEP.length)), 'Mixy shares it and adds its own section');
   t.diagnostic(
     `shared prefix chars: coding↔agent ${sharedPrefix(coding, sample)}, agent↔agent ${sharedPrefix(sample, other)}, agent↔Mixy ${sharedPrefix(sample, mixy)}; BP3 lengths: coding ${coding.length}, agent ${sample.length}, Mixy ${mixy.length}`
@@ -273,7 +297,7 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
   const mixyParts = workflow.leadPromptParts({ agentMode: true, mixy: true });
   assert.equal(mixyParts.agentCatalogContext, parts.agentCatalogContext);
   assertInOrder(mixy, [
-    '# Agent Mode',
+    '# Bot Mode',
     '# Available Agents',
     "# Your Role\n\n- You are the user's personal assistant,",
     "You coordinate the user's bots and agents",
@@ -285,22 +309,27 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
   t.diagnostic(`--- sample agent BP3 ---\n${core}\n--- Mixy BP3 ---\n${mixy}`);
 });
 
-test('a Workflows-page agent (kind: agent) is a sub-agent, never a contact; an unmarked custom agent stays one', (t) => {
-  const helperDir = join(dataDir, 'agents', 'helper');
-  mkdirSync(helperDir, { recursive: true });
-  writeFileSync(join(helperDir, 'AGENT.md'), '---\nname: Helper\nkind: agent\n---\n# Helper\n\nHELPER_ROLE_BODY');
-  writeFileSync(join(helperDir, 'agent.json'), JSON.stringify({ name: 'Helper', description: 'drafts replies.' }));
+test('a kind: agent or unmarked (pre-bot) agent is a sub-agent, never a contact; a kind: bot agent is one', (t) => {
+  const write = (id, frontmatter) => {
+    const dir = join(dataDir, 'agents', id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'AGENT.md'), `---\nname: ${id}\n${frontmatter}---\n# ${id}\n\nROLE_BODY`);
+    writeFileSync(join(dir, 'agent.json'), JSON.stringify({ name: id, description: `${id} drafts replies.` }));
+    return dir;
+  };
+  const dirs = [write('helper', 'kind: agent\n'), write('legacy', '')];
   t.after(() => {
-    rmSync(helperDir, { recursive: true, force: true });
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
     helpers.listCustomAgentIds(dataDir);
   });
   helpers.listCustomAgentIds(dataDir);
   const context = helpers.activeWorkflowContext(config, dataDir);
   for (const mixy of [false, true]) {
     const parts = context.leadPromptParts({ agentMode: true, mixy });
-    assert.match(parts.agentCatalogContext, /- Helper \(helper\): drafts replies\./);
+    assert.match(parts.agentCatalogContext, /- helper \(helper\): helper drafts replies\./);
+    assert.match(parts.agentCatalogContext, /- legacy \(legacy\): legacy drafts replies\./);
     assert.doesNotMatch(parts.agentCatalogContext, /\(sample\)|\(other\)/);
-    assert.doesNotMatch(parts.contactCatalogContext, /\(helper\)/);
+    assert.doesNotMatch(parts.contactCatalogContext, /\(helper\)|\(legacy\)/);
   }
   const mixyParts = context.leadPromptParts({ agentMode: true, mixy: true });
   assert.match(mixyParts.contactCatalogContext, /\(other\)[\s\S]*\(sample\)/);
@@ -384,7 +413,7 @@ test('a schedule run acts as its owner: persona, connectors and memory', (t) => 
   assert.equal(session.sessionMode, 'agent');
   assert.equal(session.agent, 'sample');
   assertInOrder(session.bp3CoreContext, [
-    '# Agent Mode',
+    '# Bot Mode',
     '# Routine Run',
     'You are Sample. Your role: reads the news for the user.',
     'SAMPLE_ROLE_BODY',

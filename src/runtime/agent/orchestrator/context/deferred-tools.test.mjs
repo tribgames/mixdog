@@ -155,8 +155,8 @@ test('MCP tools are listed once per server: curated, instruction, description an
 
 test('the deferred manifest is byte-identical across sessions and pool orders', () => {
   const catalog = [
-    mcpDef('github', 'list_issues', 'List issues.'),
-    mcpDef('github', 'create_issue', 'Open an issue.'),
+    mcpDef('notion', 'search', 'Search pages.'),
+    mcpDef('notion', 'create_page', 'Open a page.'),
     mcpDef('custom', 'run', 'Run a job.'),
     { name: 'shell', description: 'Run commands.' },
   ];
@@ -177,12 +177,13 @@ test('the deferred manifest is byte-identical across sessions and pool orders', 
   const first = build(names, { id: 'one', agentId: 'alpha', cwd: '/a' });
   const second = build([...names].reverse(), { id: 'two', agentId: 'beta', cwd: '/b' });
   assert.equal(first, second);
-  assert.match(first, /^- mcp__github: GitHub repos/m);
+  assert.match(first, /^- mcp__notion: Notion pages/m);
+  assert.equal(connectorTrigger('github'), '');
   assert.match(first, /^- mcp__custom: Run a job$/m);
 });
 
 test('curated connector triggers are single English lines within 100 characters', () => {
-  assert.equal(Object.keys(CONNECTOR_TRIGGERS).length, 17);
+  assert.equal(Object.keys(CONNECTOR_TRIGGERS).length, 16);
   for (const [id, line] of Object.entries(CONNECTOR_TRIGGERS)) {
     assert.ok(line.length <= CONNECTOR_TRIGGER_MAX_CHARS, `${id}: ${line.length}`);
     assert.match(line, /^[\x20-\x7e]+$/, id);

@@ -23,9 +23,11 @@ tool and brief each agent as the Lead rules describe.`;
 export const AGENT_MODE_DELEGATION = `# Delegation
 
 Handle conversation yourself. Delegate specialised work to sub-agents. Hand
-substantial coding to a new coding-mode task session (\`session create\`) with
+substantial coding to a new agent task session (\`session create\`) with
 a self-contained brief: start it when already requested, otherwise suggest it. Then relay the
-result in your own words.`;
+result in your own words. Work sent to an existing session (\`session send\`)
+reports back only when its result says reportsBack: true; promise to report
+only then.`;
 
 /** Mixy only: it also routes requests to the user's contact agents. */
 export const MIXY_CONTACTS_INTRO = `You also coordinate the user's contact agents: route a request to the

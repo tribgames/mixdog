@@ -131,7 +131,10 @@ export function createSessionRouteApi(bag) {
     // is the only place the display is touched once the write has started.
     const originGeneration = runtime.sessionGeneration;
     const owned = () => runtime.sessionGeneration === originGeneration;
-    const preview = optimisticRoutePatch(previewedRequest(routeOpts), getState());
+    // A conditional fill (only when the route is still empty) may not apply, so
+    // it never previews: the runtime's answer is what gets published.
+    const onlyIfEmpty = routeOpts.onlyIfEmpty === true;
+    const preview = onlyIfEmpty ? null : optimisticRoutePatch(previewedRequest(routeOpts), getState());
     // Preview immediately, serialize persistence without dropping a later
     // click. Earlier completions cannot replace the newest visible choice.
     if (!getState().commandBusy) routeLocked = true;
@@ -159,7 +162,13 @@ export function createSessionRouteApi(bag) {
         const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
         const keepMainModel = routeOpts.keepMainModel !== false;
         const sessionOnly = routeOpts.sessionOnly === true;
-        const { applyToCurrentSession: _drop, keepMainModel: _keep, sessionOnly: _scope, ...requested } = routeOpts;
+        const {
+          applyToCurrentSession: _drop,
+          keepMainModel: _keep,
+          sessionOnly: _scope,
+          onlyIfEmpty: _fill,
+          ...requested
+        } = routeOpts;
         let nextRoute = requested;
         if (sessionOnly) {
           const completed = completeSessionOnlyRequest(requested, previousRoute);
@@ -175,6 +184,7 @@ export function createSessionRouteApi(bag) {
           applyToCurrentSession,
           keepMainModel,
           ...(sessionOnly ? { sessionOnly } : {}),
+          ...(onlyIfEmpty ? { onlyIfEmpty } : {}),
           ...(originGeneration !== undefined ? { originGeneration } : {}),
           switchEstablished: true,
           deferUntilNextTurn: true,
@@ -300,7 +310,8 @@ export function createSessionRouteApi(bag) {
     saveLeadPersona: async (text) => runtime.saveLeadPersona?.(text) ?? '',
     getLeadAgentBody: () => runtime.getLeadAgentBody?.() ?? '',
     saveLeadAgentBody: async (text) => runtime.saveLeadAgentBody?.(text) ?? '',
-    getLeadStatus: () => runtime.getLeadStatus?.() ?? { created: null, name: '', avatar: null },
+    getLeadStatus: () =>
+      runtime.getLeadStatus?.() ?? { created: null, name: '', avatar: null, homeChatted: false, route: null },
     saveLeadIdentity: async (payload) => runtime.saveLeadIdentity?.(payload) ?? null,
     setLeadCreated: async (created, description) => runtime.setLeadCreated?.(created, description) ?? null,
     saveAgentDefinition: async (payload) => runtime.saveAgentDefinition?.(payload) ?? null,

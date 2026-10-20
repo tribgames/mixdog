@@ -4,6 +4,7 @@ import { estimateTokens } from '../../runtime/agent/orchestrator/session/token-e
 import {
   endLiveCall,
   LIVE_CALL_PUBLISH_MS,
+  markLiveCallRequestStart,
   noteLiveCallText,
   startNextLiveCall,
   withdrawLiveCall,
@@ -54,6 +55,26 @@ test('the call ends with its usage delta; the next call starts its own clock', (
   const count = ctx.published.length;
   startNextLiveCall(ctx);
   assert.equal(ctx.published.length, count);
+});
+
+test('the live clock starts at the request start, the first-token wait included, and restarts per call', () => {
+  const ctx = harness();
+  markLiveCallRequestStart(ctx, 500);
+  noteLiveCallText(ctx, 'Hello ', 3000);
+  assert.equal(ctx.state.spinner.liveCall.startedAt, 500);
+  assert.equal(ctx.state.spinner.liveCall.at, 3000);
+  // A text reset inside the same request keeps its clock.
+  endLiveCall(ctx);
+  noteLiveCallText(ctx, 'retry', 4000);
+  assert.equal(ctx.state.spinner.liveCall.startedAt, 500);
+  // The usage delta ends the call; the next one waits for its own request start.
+  startNextLiveCall(ctx);
+  noteLiveCallText(ctx, 'unmarked', 9000);
+  assert.equal(ctx.state.spinner.liveCall.startedAt, 9000);
+  startNextLiveCall(ctx);
+  markLiveCallRequestStart(ctx, 12_000);
+  noteLiveCallText(ctx, 'next', 14_000);
+  assert.equal(ctx.state.spinner.liveCall.startedAt, 12_000);
 });
 
 test('a call that turns to a tool call withdraws until its usage delta', () => {

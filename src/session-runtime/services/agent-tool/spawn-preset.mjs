@@ -27,11 +27,10 @@ export function resolveAgentSpawnPreset(config, args = {}) {
   }
 
   const agentName = normalizeAgentName(args.agent);
-  const agentRoute = !clean(args.preset)
-    ? configuredAgentRouteCandidates(config, agentName)
-        .map((candidate) => normalizeAgentRoute(candidate))
-        .find(Boolean) || null
-    : null;
+  // The agent's stored route: config.agents, or a store bot's own folder.
+  const candidates = !clean(args.preset) ? configuredAgentRouteCandidates(config, agentName) : [];
+  const agentRoute = candidates.map((candidate) => normalizeAgentRoute(candidate)).find(Boolean) || null;
+  const storedFallbacks = candidates.find((candidate) => normalizeAgentRoute(candidate))?.fallbacks;
   if (agentRoute) {
     return {
       presetName: agentPresetName(agentName),
@@ -41,9 +40,7 @@ export function resolveAgentSpawnPreset(config, args = {}) {
         type: 'agent',
         provider: agentRoute.provider,
         model: agentRoute.model,
-        ...(config.agents?.[agentName]?.fallbacks?.length
-          ? { fallbacks: config.agents[agentName].fallbacks.map(normalizeAgentRoute) }
-          : {}),
+        ...(storedFallbacks?.length ? { fallbacks: storedFallbacks.map(normalizeAgentRoute) } : {}),
         effort: agentRoute.effort,
         fast: agentRoute.fast === true,
         ...(agentRoute.autoEffort === false ? { autoEffort: false } : {}),

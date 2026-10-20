@@ -20,16 +20,20 @@ export const DEFAULT_DISABLED_AGENT_ROSTER = Object.freeze([...DEFAULT_DISABLED_
  *  an agent: a workflow delegation role, never a contact (봇). */
 export const WORKFLOW_AGENT_KIND = 'agent';
 
-/** A contact agent (a 봇): one the user made — not Mixy ('lead'), not a
- *  shipped role (the starter sub-agents Worker, Reviewer, … and the
- *  Maintainer), and not marked `kind: agent` (made on the Workflows page).
- *  `kind` is the definition's frontmatter `kind`; an unmarked custom agent
- *  stays a contact. The one rule for the runtime (delegation, agent catalogs)
- *  and the desktop (contacts, agent lists). */
+/** The AGENT.md frontmatter `kind` every bot creation path writes: the bot
+ *  dialog, and the setup tool when Mixy (agent mode) creates an agent. */
+export const BOT_AGENT_KIND = 'bot';
+
+/** A contact agent (a 봇): one explicitly marked `kind: bot` at creation —
+ *  never Mixy ('lead') nor a shipped role (the starter sub-agents Worker,
+ *  Reviewer, … and the Maintainer). `kind` is the definition's frontmatter
+ *  `kind`; an unmarked custom agent (every agent made before bots existed)
+ *  stays a workflow agent. The one rule for the runtime (delegation, agent
+ *  catalogs) and the desktop (contacts, agent lists). */
 export function isContactAgentId(value, kind) {
   const id = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  const marked = typeof kind === 'string' && kind.trim().toLowerCase() === WORKFLOW_AGENT_KIND;
-  return Boolean(id) && id !== 'lead' && !DEFAULT_DISABLED_AGENT_ROSTER.includes(id) && !marked;
+  const bot = typeof kind === 'string' && kind.trim().toLowerCase() === BOT_AGENT_KIND;
+  return Boolean(id) && id !== 'lead' && !DEFAULT_DISABLED_AGENT_ROSTER.includes(id) && bot;
 }
 
 function record(value) {
@@ -128,9 +132,19 @@ export function withAgentDisabled(config, agentId, disabled) {
 // left under retired slots (agents.maintenance, workflowRoutes.*,
 // maintenance.memory, generated workflow-* presets) are scrubbed by
 // canonicalizeAgentRouteStorage, never folded in.
+// A bot's route lives with the bot (agent-store.mjs registers the reader in
+// the runtime): the resolver answers a route, null (a bot without one), or
+// undefined (no bot — the config decides).
+let botRouteResolver = null;
+export function setBotRouteResolver(resolver) {
+  botRouteResolver = typeof resolver === 'function' ? resolver : null;
+}
+
 export function configuredAgentRouteCandidates(config, agentId) {
   const id = String(agentId || '').trim();
   if (!id) return [];
+  const bot = botRouteResolver?.(id);
+  if (bot !== undefined) return bot ? [bot] : [];
   const route = record(config?.agents)[id];
   return route ? [route] : [];
 }

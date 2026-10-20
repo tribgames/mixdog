@@ -15,6 +15,14 @@ test('a preview line drops markdown and keeps the words', () => {
   assert.equal(plainPreviewText('snake_case_name is 2*3 at $HOME'), 'snake_case_name is 2*3 at $HOME');
 });
 
+test('a list already folded onto one line by an older summary loses its markers', () => {
+  assert.equal(
+    plainPreviewText('몇 가지 예를 들어 드리겠습니다. - 조사: 웹에서 찾아 드립니다. - 글쓰기: 다듬어 드립니다.'),
+    '몇 가지 예를 들어 드리겠습니다. 조사: 웹에서 찾아 드립니다. 글쓰기: 다듬어 드립니다.'
+  );
+  assert.equal(plainPreviewText('a - b and well-known'), 'a - b and well-known');
+});
+
 test("a greeting's suggestions comment never reaches the preview", () => {
   assert.equal(
     plainPreviewText('안녕하세요, PR 감시입니다.\n<!-- mixdog:suggestions ["열린 PR 보여 줘", "주기 바꿔 줘"] -->'),

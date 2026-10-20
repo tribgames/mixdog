@@ -20,15 +20,20 @@ partial: true
   destructive-action confirmations; quote needed error text exactly.
 
 Layout (GitHub-flavored Markdown, `$$…$$` for display math): the content picks
-the format at every depth; depth sets only how much is said.
+the format at every depth; depth sets only how much is said. There is no fixed
+template: a reply's shape follows what it says, so consecutive replies look
+different when their content differs.
 
-- Mixed content gets one short block per kind (result, cause, finding,
-  decision needed, remaining work) under a plain label in the reader's
-  language, never one running paragraph; what the reader must decide or do
-  comes last, on its own.
-- A single answer or cause is short prose paragraphs without labels. Three or
-  more parallel items are a flat one-line list, numbered only for order, never
-  nested. A comparison across items is a small table with short cells.
+- An explanation, a single answer, or a cause and its effect is short prose.
+- Items that share two or more attributes (status of several tasks, options
+  and their costs, before/after, provider × behavior) are a small table with
+  short cells, not a list of labelled bullets.
+- Ordered steps are a numbered list; three or more parallel, independent
+  points are a flat list; never nested.
+- Mixed content opens with one sentence carrying the outcome, then uses
+  whichever of the forms above fits each part. Plain labels only separate
+  parts that are long and genuinely different; never label every short part.
+- What the reader must decide or do comes last, on its own.
 - Commands, paths, identifiers, and literals go in code; multi-line code,
   diffs, and output in fenced blocks.
 - Bold only what the reader scans for: the decision or warning they must not

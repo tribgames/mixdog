@@ -80,34 +80,324 @@ test('listAgents reports the fixed roles first with the effective Main route, th
   }
 });
 
-test('kind: agent marks a Workflows-page agent at creation; it survives edits and never changes; unmarked agents stay bots', async (t) => {
-  const { dataDir, api } = fixture(t);
+test('kind: bot marks a bot at creation; unmarked agents (every pre-bot agent) stay workflow agents; a kind never changes', async (t) => {
+  const { dataDir, state, api } = fixture(t);
   const isContact = (row) => isContactAgentId(row.id, row.kind);
   const role = await api.saveAgentDefinition({ name: 'Triage', body: 'Sort issues.', kind: 'agent' });
   assert.equal(role.kind, 'agent');
   const file = join(dataDir, 'agents', role.id, 'AGENT.md');
   assert.match(readFileSync(file, 'utf8'), /^---\nname: Triage\nkind: agent\n---\n/);
-  const bot = await api.saveAgentDefinition({ name: 'Concierge', body: 'Plan my day.' });
-  assert.equal(bot.kind, null);
-  // A legacy custom agent on disk without the marker keeps meaning a bot.
+  const bot = await api.saveAgentDefinition({ name: 'Concierge', body: 'Plan my day.', kind: 'bot' });
+  assert.equal(bot.kind, 'bot');
+  const botFile = join(dataDir, 'agents', bot.id, 'AGENT.md');
+  assert.match(readFileSync(botFile, 'utf8'), /^---\nname: Concierge\nkind: bot\n---\n/);
+  const plain = await api.saveAgentDefinition({ name: 'Helper', body: 'Help.' });
+  assert.equal(plain.kind, null);
+  // An agent made before bots existed: no marker, on disk as v1.2.6 wrote it,
+  // one switched off — both stay workflow agents and their files are untouched.
   const legacyDir = join(dataDir, 'agents', 'watcher');
   mkdirSync(legacyDir, { recursive: true });
-  writeFileSync(join(legacyDir, 'AGENT.md'), '---\nname: Watcher\n---\nWatch GitHub.\n');
+  const legacy = '---\nname: Watcher\n---\nWatch GitHub.\n';
+  writeFileSync(join(legacyDir, 'AGENT.md'), legacy);
+  state.config = { ...state.config, disabledAgents: ['watcher'] };
   const rows = new Map(api.listAgents().map((row) => [row.id, row]));
-  assert.equal(isContact(rows.get(role.id)), false, 'the workflow agent is no contact');
-  assert.equal(isContact(rows.get(bot.id)), true, 'a bot is a contact');
-  assert.equal(isContact(rows.get('watcher')), true, 'an unmarked legacy agent is a contact');
+  assert.equal(isContact(rows.get(role.id)), false, 'a kind: agent workflow agent is no contact');
+  assert.equal(isContact(rows.get(bot.id)), true, 'a kind: bot agent is a contact');
+  assert.equal(isContact(rows.get(plain.id)), false, 'an unmarked agent is a workflow agent');
+  assert.equal(isContact(rows.get('watcher')), false, 'a pre-bot unmarked agent stays a workflow agent');
+  assert.equal(readFileSync(join(legacyDir, 'AGENT.md'), 'utf8'), legacy, 'listing never stamps a marker');
   assert.equal(isContact(rows.get('worker')), false, 'shipped roles stay agents');
   // Edits keep the marker; a kind is never changed or given to an existing agent.
   const edited = await api.saveAgentDefinition({ id: role.id, name: 'Triage 2', body: 'Sort and label issues.' });
   assert.equal(edited.kind, 'agent');
   assert.match(readFileSync(file, 'utf8'), /kind: agent/);
+  const editedBot = await api.saveAgentDefinition({ id: bot.id, name: 'Concierge', body: 'Plan my week.' });
+  assert.equal(editedBot.kind, 'bot');
   await assert.rejects(
     api.saveAgentDefinition({ id: bot.id, body: 'x', kind: 'agent' }),
     /kind is set when it is created/
   );
-  await assert.rejects(api.saveAgentDefinition({ name: 'Odd', body: 'x', kind: 'bot' }), /agent kind must be "agent"/);
-  assert.equal(api.getAgentDefinition(bot.id).kind, null);
+  await assert.rejects(
+    api.saveAgentDefinition({ id: plain.id, body: 'x', kind: 'bot' }),
+    /kind is set when it is created/
+  );
+  await assert.rejects(api.saveAgentDefinition({ name: 'Odd', body: 'x', kind: 'robot' }), /agent kind must be "bot"/);
+});
+
+// --- Upgrade populations: bot or workflow agent, decided read-only ---
+const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
+const MASCOT = { kind: 'mascot', species: 'shepherd', accessory: 'collar', expression: 'calm', color: '#5b9bff' };
+
+// A v1.2.6 custom agent exactly as v1.2.6 wrote it (no kind marker).
+function writeV126Agent(dataDir, id) {
+  const dir = join(dataDir, 'agents', id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'AGENT.md'), `---\nname: ${id}\ndescription: ${id} role\n---\nYou are ${id}.\n`);
+  writeFileSync(join(dir, 'agent.json'), `${JSON.stringify({ name: id, description: `${id} role` }, null, 2)}\n`);
+  return dir;
+}
+
+function snapshotFiles(dir) {
+  return Object.fromEntries(
+    readdirSync(dir, { recursive: true })
+      .map(String)
+      .filter((name) => !name.endsWith('.lock'))
+      .flatMap((name) => {
+        try {
+          return [[name, readFileSync(join(dir, name), 'utf8')]];
+        } catch {
+          return [];
+        }
+      })
+  );
+}
+
+function kinds(api) {
+  return Object.fromEntries(
+    api
+      .listAgents()
+      .filter((row) => row.custom && !FIXED_AGENT_SLOTS.some((slot) => slot.id === row.id))
+      .filter(
+        (row) =>
+          ![
+            'worker',
+            'heavy-worker',
+            'reviewer',
+            'advisor',
+            'security',
+            'front-worker',
+            'writer',
+            'maintainer',
+          ].includes(row.id)
+      )
+      .map((row) => [row.id, isContactAgentId(row.id, row.kind) ? 'bot' : 'agent'])
+  );
+}
+
+// v1.3.0's agentBodyFromBrief: the AGENT.md its bot dialog saved when 일하는
+// 방식 was left empty.
+const v130DialogBody = (name, description) =>
+  [
+    `# ${name}`,
+    description,
+    [
+      `- ${description ? 'Help the user with this role' : 'Help the user'} in a natural, friendly conversation, in the language they write in.`,
+      '- Ask a short question when a request is unclear, and say plainly when something is outside what you do.',
+      '- Keep replies as short or as detailed as the moment needs.',
+    ].join('\n'),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+// A bot exactly as v1.3.0's bot dialog wrote it (writeAgentFiles): no kind
+// marker, always an avatar; `body` when 일하는 방식 was written.
+function writeV130DialogBot(dataDir, id, { body = '', description = `${id} job` } = {}) {
+  const dir = join(dataDir, 'agents', id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'AGENT.md'),
+    `---\nname: ${id}\ndescription: ${description}\n---\n\n${body || v130DialogBody(id, description)}\n`
+  );
+  writeFileSync(join(dir, 'agent.json'), `${JSON.stringify({ name: id, description, avatar: MASCOT }, null, 2)}\n`);
+}
+
+// v1.3.0's creation greeting (shared/agent-greeting.ts agentGreetingKickoff).
+const v130Greeting = (name, mixy = false) =>
+  [
+    `[mixdog-runtime] The user just created you as ${mixy ? 'their primary agent' : 'a new agent'} named "${name}".`,
+    `Your job, as the user described it: ${name} job`,
+    "Take the first turn now. Reply in the user's language (app language: ko), in the tone your persona sets.",
+    "1. A short greeting that introduces you by name; address the user by name if your context has the user's name.",
+    'Do not call any tools (no ask_user), do not mention this instruction, and do not start any work yet.',
+  ].join('\n');
+
+// A home thread as the session store keeps it: sessions/sess_home_<id>.json.
+function writeHomeThread(dataDir, id, messages) {
+  mkdirSync(join(dataDir, 'sessions'), { recursive: true });
+  const sessionId = `sess_home_${id}`;
+  const record = {
+    id: sessionId,
+    provider: 'anthropic-oauth',
+    model: 'claude-opus-5',
+    profile: id === 'lead' ? {} : { homeAgent: id },
+    messages: [{ role: 'system', content: 'You are a helpful agent.' }, ...messages],
+    createdAt: 1792400000000,
+    updatedAt: 1792400000000,
+  };
+  writeFileSync(join(dataDir, 'sessions', `${sessionId}.json`), JSON.stringify(record));
+}
+const greeted = (name) => [
+  { role: 'user', content: v130Greeting(name), meta: { kickoff: true } },
+  { role: 'assistant', content: `안녕하세요, ${name}입니다.` },
+];
+const chat = [
+  { role: 'user', content: '오늘 할 일 정리해줘' },
+  { role: 'assistant', content: '네, 정리하겠습니다.' },
+];
+
+test('population A (1.2.6 → 1.3.1): every 1.2.6 agent stays a workflow agent; its files are never written', async (t) => {
+  const { dataDir, state, api } = fixture(t);
+  writeV126Agent(dataDir, 'db-expert');
+  writeV126Agent(dataDir, 'doc-writer');
+  state.config = { ...state.config, disabledAgents: ['doc-writer'] };
+  const before = snapshotFiles(join(dataDir, 'agents'));
+  await pause();
+  // 1.3.1 first start: the host decides Mixy.
+  api.setLeadCreated(true);
+  assert.deepEqual(kinds(api), { 'db-expert': 'agent', 'doc-writer': 'agent' });
+  const after = snapshotFiles(join(dataDir, 'agents'));
+  for (const [name, text] of Object.entries(before)) assert.equal(after[name], text, `${name} untouched`);
+  // A bot made on 1.3.1 carries the explicit marker.
+  const bot = await api.saveAgentDefinition({ name: 'Concierge', body: 'Plan.', kind: 'bot', avatar: MASCOT });
+  assert.equal(kinds(api)[bot.id], 'bot');
+});
+
+test('population B (1.2.6 → 1.3.0 → 1.3.1): old agents opened, chatted with or given a face on 1.3.0 stay workflow agents; nothing is written', async (t) => {
+  const { dataDir, api } = fixture(t);
+  writeV126Agent(dataDir, 'db-expert');
+  writeV126Agent(dataDir, 'helper');
+  writeV126Agent(dataDir, 'opened');
+  writeV126Agent(dataDir, 'untouched');
+  // 1.3.0 auto-created Mixy ({"created": true}) and showed the old agents as
+  // bots: the user gave one a face and a persona, chatted with another and
+  // only opened a third (an empty home thread). None was ever greeted.
+  mkdirSync(join(dataDir, 'agents', 'lead'), { recursive: true });
+  writeFileSync(join(dataDir, 'agents', 'lead', 'agent.json'), '{\n  "created": true\n}\n');
+  writeFileSync(
+    join(dataDir, 'agents', 'db-expert', 'agent.json'),
+    `${JSON.stringify({ name: 'db-expert', description: 'db-expert role', avatar: MASCOT }, null, 2)}\n`
+  );
+  writeFileSync(join(dataDir, 'agents', 'db-expert', 'PERSONA.md'), 'Be kind.\n');
+  writeHomeThread(dataDir, 'db-expert', chat);
+  writeHomeThread(dataDir, 'helper', chat);
+  writeHomeThread(dataDir, 'opened', []);
+  const before = { ...snapshotFiles(join(dataDir, 'agents')), ...snapshotFiles(join(dataDir, 'sessions')) };
+  assert.deepEqual(kinds(api), { 'db-expert': 'agent', helper: 'agent', opened: 'agent', untouched: 'agent' });
+  // The untouched automatic Mixy: no name, no home thread — the host shows the dialog.
+  assert.deepEqual(api.getLeadStatus(), { created: true, name: '', avatar: null, homeChatted: false, route: null });
+  assert.deepEqual(
+    { ...snapshotFiles(join(dataDir, 'agents')), ...snapshotFiles(join(dataDir, 'sessions')) },
+    before,
+    'reading wrote nothing'
+  );
+});
+
+test('population C (fresh 1.3.0 → 1.3.1): unmarked 1.3.0 bots stay bots on creation evidence; one with none is a workflow agent', async (t) => {
+  const { dataDir, api } = fixture(t);
+  // Bot dialog, greeting posted (a written 일하는 방식, so only T1 holds).
+  writeV130DialogBot(dataDir, 'dialog-greeted', { body: 'Plan my week, every Monday.' });
+  writeHomeThread(dataDir, 'dialog-greeted', [...greeted('dialog-greeted'), ...chat]);
+  // Bot dialog, the greeting failed (no home thread): its avatar and default body (T2).
+  writeV130DialogBot(dataDir, 'dialog-silent');
+  // Mixy's setup tool, greeted by the host: files exactly as v1.2.6 wrote (T1).
+  writeV126Agent(dataDir, 'tool-greeted');
+  writeHomeThread(dataDir, 'tool-greeted', greeted('tool-greeted'));
+  // Mixy's setup tool, never greeted: indistinguishable from a v1.2.6 agent.
+  writeV126Agent(dataDir, 'tool-silent');
+  writeHomeThread(dataDir, 'tool-silent', chat);
+  // A Workflows-page agent of 1.3.0 (kind: agent), and an avatar on a body
+  // that is not the dialog's default (no T2).
+  const role = await api.saveAgentDefinition({ name: 'Triage', body: 'Sort.', kind: 'agent', avatar: MASCOT });
+  writeV130DialogBot(dataDir, 'faced', { body: 'My own instructions.' });
+  // Mixy made in the dialog: named, greeted.
+  mkdirSync(join(dataDir, 'agents', 'lead'), { recursive: true });
+  writeFileSync(
+    join(dataDir, 'agents', 'lead', 'agent.json'),
+    `${JSON.stringify({ created: true, name: 'Mixy', description: 'Primary assistant' }, null, 2)}\n`
+  );
+  writeHomeThread(dataDir, 'lead', [
+    { role: 'user', content: v130Greeting('Mixy', true), meta: { kickoff: true } },
+    { role: 'assistant', content: 'Mixdog에 오신 걸 환영합니다.' },
+  ]);
+  const before = snapshotFiles(join(dataDir, 'agents'));
+  assert.deepEqual(kinds(api), {
+    'dialog-greeted': 'bot',
+    'dialog-silent': 'bot',
+    'tool-greeted': 'bot',
+    'tool-silent': 'agent',
+    [role.id]: 'agent',
+    faced: 'agent',
+  });
+  assert.equal(api.getAgentDefinition('dialog-silent').kind, 'bot', 'the editor reports the same kind');
+  assert.deepEqual(api.getLeadStatus(), { created: true, name: 'Mixy', avatar: null, homeChatted: true, route: null });
+  assert.deepEqual(snapshotFiles(join(dataDir, 'agents')), before, 'nothing is stamped');
+});
+
+test('a starter override or an explicit kind is never inferred: evidence decides only unmarked user agents', async (t) => {
+  const { dataDir, api } = fixture(t);
+  // A user copy of the shipped Worker with an avatar and a greeted thread.
+  writeV130DialogBot(dataDir, 'worker');
+  writeHomeThread(dataDir, 'worker', greeted('worker'));
+  // An explicit kind: agent with the same evidence.
+  writeV130DialogBot(dataDir, 'marked');
+  writeFileSync(
+    join(dataDir, 'agents', 'marked', 'AGENT.md'),
+    `---\nname: marked\nkind: agent\n---\n\n${v130DialogBody('marked', 'marked job')}\n`
+  );
+  writeHomeThread(dataDir, 'marked', greeted('marked'));
+  const rows = new Map(api.listAgents().map((row) => [row.id, row]));
+  assert.equal(rows.get('worker').kind, null);
+  assert.equal(rows.get('marked').kind, 'agent');
+});
+
+test("an automatic Mixy's home thread: missing or never talked in reads unused; any message counts", async (t) => {
+  const { dataDir, api } = fixture(t);
+  mkdirSync(join(dataDir, 'agents', 'lead'), { recursive: true });
+  writeFileSync(join(dataDir, 'agents', 'lead', 'agent.json'), '{\n  "created": true\n}\n');
+  assert.equal(api.getLeadStatus().homeChatted, false, 'no thread');
+  writeHomeThread(dataDir, 'lead', []);
+  assert.equal(api.getLeadStatus().homeChatted, false, 'an empty thread');
+  writeHomeThread(dataDir, 'lead', [{ role: 'user', content: '[mixdog-runtime] Routine output from schedule "x"' }]);
+  assert.equal(api.getLeadStatus().homeChatted, false, 'a runtime turn alone is no conversation');
+  writeHomeThread(dataDir, 'lead', [{ role: 'user', content: '안녕' }]);
+  assert.equal(api.getLeadStatus().homeChatted, true, 'one user message');
+  // Completing the 대표 에이전트 dialog over the automatic manifest names it
+  // and keeps every key; the thread itself is never touched.
+  const thread = readFileSync(join(dataDir, 'sessions', 'sess_home_lead.json'), 'utf8');
+  api.saveLeadIdentity({ name: 'Mixy' });
+  const status = api.setLeadCreated(true, 'Primary assistant');
+  assert.deepEqual(status, { created: true, name: 'Mixy', avatar: null, homeChatted: true, route: null });
+  assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'agents', 'lead', 'agent.json'), 'utf8')), {
+    created: true,
+    name: 'Mixy',
+    description: 'Primary assistant',
+  });
+  assert.equal(readFileSync(join(dataDir, 'sessions', 'sess_home_lead.json'), 'utf8'), thread);
+});
+
+test('setLeadCreated leaves a malformed agents/lead/agent.json alone and fails soft', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const file = join(dataDir, 'agents', 'lead', 'agent.json');
+  mkdirSync(join(dataDir, 'agents', 'lead'), { recursive: true });
+  for (const broken of ['{"name": "Momo", ', '["not", "an", "object"]\n']) {
+    writeFileSync(file, broken);
+    const stderr = t.mock.method(process.stderr, 'write', () => true);
+    assert.deepEqual(api.setLeadCreated(true), {
+      created: null,
+      name: '',
+      avatar: null,
+      homeChatted: false,
+      route: null,
+    });
+    stderr.mock.restore();
+    assert.equal(readFileSync(file, 'utf8'), broken, 'the unreadable manifest is never overwritten');
+  }
+  // A readable manifest keeps every other key; a missing one is created.
+  writeFileSync(file, '{"name": "Momo", "connectors": {"off": ["github"]}}\n');
+  assert.deepEqual(api.setLeadCreated(true), {
+    created: true,
+    name: 'Momo',
+    avatar: null,
+    homeChatted: false,
+    route: null,
+  });
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {
+    name: 'Momo',
+    connectors: { off: ['github'] },
+    created: true,
+  });
+  rmSync(file);
+  assert.equal(api.setLeadCreated(false).created, false);
 });
 
 test('saveAgentDefinition creates a custom agent (id from name, AGENT.md + manifest, optional route) and delete removes it everywhere', async (t) => {
@@ -614,11 +904,23 @@ test("Mixy's 일하는 방식 is agents/lead/AGENT.md: saved, read back and remo
 
 test("Mixy's created flag lives in agents/lead/agent.json: undecided, then set, keeping the other keys", async (t) => {
   const { dataDir, api } = fixture(t);
-  assert.deepEqual(api.getLeadStatus(), { created: null, name: '', avatar: null });
+  assert.deepEqual(api.getLeadStatus(), { created: null, name: '', avatar: null, homeChatted: false, route: null });
   mkdirSync(join(dataDir, 'agents', 'lead'), { recursive: true });
   writeFileSync(join(dataDir, 'agents', 'lead', 'agent.json'), '{ "keep": 1 }\n');
-  assert.deepEqual(api.setLeadCreated(false), { created: false, name: '', avatar: null });
-  assert.deepEqual(api.setLeadCreated(true, '  기본 비서 '), { created: true, name: '', avatar: null });
+  assert.deepEqual(api.setLeadCreated(false), {
+    created: false,
+    name: '',
+    avatar: null,
+    homeChatted: false,
+    route: null,
+  });
+  assert.deepEqual(api.setLeadCreated(true, '  기본 비서 '), {
+    created: true,
+    name: '',
+    avatar: null,
+    homeChatted: false,
+    route: null,
+  });
   const manifest = JSON.parse(readFileSync(join(dataDir, 'agents', 'lead', 'agent.json'), 'utf8'));
   assert.equal(manifest.created, true);
   assert.equal(manifest.description, '기본 비서');
@@ -645,7 +947,13 @@ test("Mixy's name and face are `name` and `avatar` in agents/lead/agent.json; em
   api.setLeadCreated(true);
   assert.equal(api.saveLeadIdentity({ avatar: null }).name, 'Navi');
   assert.deepEqual(readdirSync(join(dataDir, 'agents', 'lead', 'avatar')), []);
-  assert.deepEqual(api.saveLeadIdentity({ name: '' }), { created: true, name: '', avatar: null });
+  assert.deepEqual(api.saveLeadIdentity({ name: '' }), {
+    created: true,
+    name: '',
+    avatar: null,
+    homeChatted: false,
+    route: null,
+  });
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).created, true);
   assert.throws(() => api.saveLeadIdentity({ avatar: { kind: 'mascot', variant: 'nope' } }), /mascot/);
 });

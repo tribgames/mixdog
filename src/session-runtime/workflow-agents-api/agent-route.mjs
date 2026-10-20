@@ -4,8 +4,22 @@ import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.
 import { normalizeWorkflowRoute } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { ensureProviderEnabled } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { resolveRouteContextState, selectionFastCapable } from '../route-state.mjs';
-import { canonicalizeAgentRouteStorage, withAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
-import { agentEditorId } from './shared.mjs';
+import {
+  canonicalizeAgentRouteStorage,
+  isAgentDisabled,
+  withAgentDisabled,
+} from '../../runtime/shared/agent-route-config.mjs';
+import { agentEditorId, resolveDataDir } from './shared.mjs';
+import {
+  isStoreBot,
+  readBotRoute,
+  readMixyRoute,
+  writeBotRoute,
+  writeMixyRoute,
+} from '../../runtime/shared/agent-store.mjs';
+
+/** Mixy's runtime id (agent-home.mjs MIXY_AGENT_ID). */
+const MIXY_RUNTIME_ID = 'lead';
 import { routeChain, validateRouteChainProviders } from '../../runtime/shared/model-route-chain.mjs';
 
 // Agent route persistence. Route-scope isolation: an agent route owns its
@@ -23,8 +37,35 @@ export function createAgentRouteApi(deps) {
     saveConfigAndAdopt(canonicalizeAgentRouteStorage(withAgentDisabled(getConfig(), id, disabled)));
   }
 
+  // A bot of the store keeps its route in its own folder (agent-store.mjs);
+  // Mixy (`lead` here, its runtime id) keeps its own in bots/mixy — never the
+  // Lead's route, which the Main route setter owns.
+  const dataDir = () => (deps.cfgMod || deps.STANDALONE_DATA_DIR ? resolveDataDir(deps) : '');
+  const isMixy = (id) => id === MIXY_RUNTIME_ID && Boolean(dataDir());
+  const storeBot = (id) => isStoreBot(dataDir(), id);
+  function saveRoute(id, route, keepOff) {
+    if (isMixy(id)) {
+      writeMixyRoute(dataDir(), route);
+      return;
+    }
+    if (storeBot(id)) {
+      writeBotRoute(dataDir(), id, route);
+      saveDisabled(id, keepOff);
+      return;
+    }
+    const nextConfig = withAgentDisabled(getConfig(), id, keepOff);
+    nextConfig.agents = { ...(nextConfig.agents || {}), [id]: route };
+    saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
+  }
+
   // Only an explicitly empty provider removes an override: the agent inherits Main.
   function clearOverride(id) {
+    if (isMixy(id) || storeBot(id)) {
+      if (isMixy(id)) writeMixyRoute(dataDir(), null);
+      else writeBotRoute(dataDir(), id, null);
+      const inherited = normalizeWorkflowRoute(resolveRoute(getConfig(), {}));
+      return { ...(inherited || {}), inherited: true };
+    }
     const nextConfig = { ...getConfig() };
     const agents = { ...(nextConfig.agents || {}) };
     const hadOverride = Object.hasOwn(agents, id);
@@ -83,7 +124,20 @@ export function createAgentRouteApi(deps) {
     if (!id) throw new Error(`unknown agent "${agentId}"`);
     if (isHiddenAgent(id)) throw new Error(`agent "${id}" is internal and has no configurable route`);
     const requested = { ...(next || {}) };
-    const stored = agentRouteFromConfig(getConfig(), id) || {};
+    // Compare-and-set: fill the route only while the agent has none. A route
+    // picked while the model resolved below stays (answered with `skipped`).
+    const onlyIfEmpty = requested.onlyIfEmpty === true;
+    delete requested.onlyIfEmpty;
+    const readStored = () => {
+      if (isMixy(id)) return readMixyRoute(dataDir()) || {};
+      if (storeBot(id)) return readBotRoute(dataDir(), id) || {};
+      return agentRouteFromConfig(getConfig(), id) || {};
+    };
+    const kept = () => ({ ...readStored(), id, skipped: true });
+    const stored = readStored();
+    if (onlyIfEmpty && clean(stored.provider)) return kept();
+    // Mixy is never off: its route request is a model pick alone.
+    if (isMixy(id)) delete requested.disabled;
     // Off is an explicit state, stored apart from the route so the model the
     // user picked survives and comes back when the agent is switched on. An
     // off request that also carries a model saves that model and stays off.
@@ -126,11 +180,17 @@ export function createAgentRouteApi(deps) {
     const [primary, ...fallbacks] = resolved;
     const routeToSave = normalizeWorkflowRoute({ ...primary, fallbacks });
     if (!routeToSave) throw new Error('agent route requires provider and model');
+    // No await from here to the write: the emptiness checked is the emptiness
+    // written over. An off agent stays off when it was only back-filled.
+    // A store bot's or Mixy's route is read from its folder on disk right here.
+    // An agent routed in the config file may have been written by another
+    // process whose change notification is still pending: re-read it first.
+    if (onlyIfEmpty && !isMixy(id) && !storeBot(id)) deps.reloadFullConfig?.();
+    if (onlyIfEmpty && clean(readStored().provider)) return kept();
+    const stayOff = onlyIfEmpty ? isAgentDisabled(getConfig(), id) : keepOff;
     // Picking a model is also the "on" switch unless the request keeps it off.
-    const nextConfig = withAgentDisabled(getConfig(), id, keepOff);
-    nextConfig.agents = { ...(nextConfig.agents || {}), [id]: routeToSave };
-    saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
-    return keepOff ? { ...routeToSave, id, disabled: true } : routeToSave;
+    saveRoute(id, routeToSave, stayOff);
+    return stayOff ? { ...routeToSave, id, disabled: true } : routeToSave;
   }
 
   return { setAgentRoute };

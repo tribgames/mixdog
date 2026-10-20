@@ -17,6 +17,11 @@ import {
 } from './media-normalization.mjs';
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import {
+  OPENAI_CHAT_TOOL_CALL_IDS,
+  OPENAI_RESPONSES_TOOL_CALL_IDS,
+  withWireToolCallIds,
+} from './lib/tool-call-wire-ids.mjs';
 import { acceptedWireTools } from './lib/claude-bridge-schema.mjs';
 import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
 import { responsesEffortUpdates } from './effort-configuration.mjs';
@@ -34,7 +39,8 @@ export function resolveCompatMaxOutputTokens(opts = {}) {
   );
 }
 
-export function toOpenAIMessages(messages, providerName, options = {}) {
+export function toOpenAIMessages(transcript, providerName, options = {}) {
+  const messages = withWireToolCallIds(transcript, OPENAI_CHAT_TOOL_CALL_IDS);
   // NOTE: chat.completions has no equivalent slot for replaying reasoning
   // encrypted_content the way the Responses API does (no `type:'reasoning'`
   // input item). Whatever reasoningItems may be attached to assistant
@@ -421,7 +427,8 @@ export function xaiSystemInstructions(messages) {
   return instructions || undefined;
 }
 
-export function toXaiResponsesInput(messages, providerState, options = {}) {
+export function toXaiResponsesInput(transcript, providerState, options = {}) {
+  const messages = withWireToolCallIds(transcript, OPENAI_RESPONSES_TOOL_CALL_IDS);
   const includeSystem = options.includeSystem !== false;
   // Generic Responses callers (opencode-go gateway) keep their own state
   // slot and replay tag so a provider switch never replays foreign items.

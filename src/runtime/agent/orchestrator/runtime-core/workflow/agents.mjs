@@ -9,6 +9,15 @@ import { readJsonSafe, readTextSafe } from '../fs-utils.mjs';
 import { SHARED_SCAN_REVALIDATE_MS, createSharedScanCache } from './shared-scan-cache.mjs';
 import { isHiddenAgent } from '../../internal-agents.mjs';
 import { isAgentDisabled } from '../../../../shared/agent-route-config.mjs';
+import { agentDefinitionKind } from '../../../../shared/agent-kind.mjs';
+import {
+  BOTS_DIR,
+  MIXY_BOT_ID,
+  botStoreActive,
+  isStoreBot,
+  migratedBotIds,
+  userDefinitionDir,
+} from '../../../../shared/agent-store.mjs';
 import {
   AGENT_DELETED_MARKER,
   AGENT_ROLE_IDS,
@@ -21,17 +30,22 @@ import {
   setAgentDefinitionCache,
 } from '../workflow-ids.mjs';
 
-// Yields its fs requests; see shared-scan-cache.mjs.
-function* scanCustomAgentIds(userRoot, shippedRoot) {
+// Yields its fs requests; see shared-scan-cache.mjs. With the bot store
+// active, bots/ is scanned too and the agents/ originals of the ids the split
+// copied are skipped (agent-store.mjs).
+function* scanCustomAgentIds(userRoot, shippedRoot, botsRoot = null, migrated = new Set()) {
   const ids = new Set();
-  for (const root of [userRoot, shippedRoot]) {
+  for (const root of [...(botsRoot ? [botsRoot] : []), userRoot, shippedRoot]) {
     const entries = yield { op: 'readdir', path: root };
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const id = normalizeWorkflowId(entry.name);
-      // `lead` is Mixy's own folder (PERSONA.md, AGENT.md), never an agent.
+      // `lead` is the Lead's own folder, `mixy` Mixy's: neither is an agent.
       if (!id || id === 'lead' || AGENT_ROLE_IDS.has(id) || isHiddenAgent(id)) continue;
-      if (root !== userRoot && (yield { op: 'exists', path: join(userRoot, id, AGENT_DELETED_MARKER) })) continue;
+      if (root === botsRoot && id === MIXY_BOT_ID) continue;
+      if (root === userRoot && migrated.has(id)) continue;
+      if (root === botsRoot && entry.name !== id) continue;
+      if (root === shippedRoot && (yield { op: 'exists', path: join(userRoot, id, AGENT_DELETED_MARKER) })) continue;
       if (!(yield { op: 'exists', path: join(root, entry.name, 'AGENT.md') })) continue;
       ids.add(id);
     }
@@ -57,15 +71,24 @@ const agentListCache = createSharedScanCache();
 
 export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, normalizeAgentPermissionOrNone }) {
   function agentSourceDirs(dir, id) {
+    // A store bot reads only its own folder (agent-store.mjs).
+    if (isStoreBot(dir || dataDir, id)) return [userDefinitionDir(dir || dataDir, id)];
     const userDir = join(dir || dataDir, 'agents', id);
     if (existsSync(join(userDir, AGENT_DELETED_MARKER))) return [userDir];
     return [userDir, join(rootDir, 'agents', id)];
   }
 
   function agentScan(dir) {
-    const userRoot = join(dir || dataDir, 'agents');
+    const base = dir || dataDir;
+    const userRoot = join(base, 'agents');
     const shippedRoot = join(rootDir, 'agents');
-    return { key: `${userRoot}\n${shippedRoot}`, makeScan: () => scanCustomAgentIds(userRoot, shippedRoot) };
+    const store = botStoreActive(base);
+    const migrated = store ? migratedBotIds(base) : new Set();
+    const botsRoot = store ? join(base, BOTS_DIR) : null;
+    return {
+      key: `${userRoot}\n${shippedRoot}\n${botsRoot || ''}\n${[...migrated].join(',')}`,
+      makeScan: () => scanCustomAgentIds(userRoot, shippedRoot, botsRoot, migrated),
+    };
   }
 
   function listCustomAgentIds(dir) {
@@ -101,6 +124,13 @@ export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, n
         description: clean(manifest.description) || slot?.description || '',
         permission: normalizeAgentPermissionOrNone(doc.frontmatter.permission),
         frontmatter: doc.frontmatter,
+        // bot | agent | null, decided read-only (shared/agent-kind.mjs).
+        kind: agentDefinitionKind({
+          frontmatterKind: doc.frontmatter.kind,
+          ...(d !== join(rootDir, 'agents', agentId)
+            ? { dataDir: dir || dataDir, shippedRoot: rootDir, id: agentId, manifest, body }
+            : {}),
+        }),
         body,
         // Optional PERSONA.md beside AGENT.md (same dir, same cache entry).
         persona: (readTextSafe(join(d, 'PERSONA.md')) || '').trim(),

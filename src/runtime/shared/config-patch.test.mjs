@@ -57,3 +57,27 @@ test('literal prototype-looking config keys remain own data properties', () => {
   assert.equal(Object.getPrototypeOf(saved), Object.prototype);
   assert.equal(Object.prototype.enabled, undefined);
 });
+
+test('a change with unlessSet is skipped when that stored value is set, judged before the whole patch', () => {
+  const guard = { unlessSet: ['default'] };
+  const patch = [
+    { path: ['presets'], value: ['mine'], ...guard },
+    { path: ['default'], value: 'workflow-lead', ...guard },
+    { path: ['theme'], value: 'new' },
+  ];
+  // Unset (absent, null or empty): both guarded changes apply, whatever their order.
+  for (const unset of [{}, { default: null }, { default: '' }]) {
+    assert.deepEqual(applyConfigPatch({ theme: 'old', ...unset }, patch), {
+      theme: 'new',
+      presets: ['mine'],
+      default: 'workflow-lead',
+    });
+    assert.deepEqual(applyConfigPatch({ ...unset }, [...patch].reverse()).default, 'workflow-lead');
+  }
+  // Set: the guarded changes stand down together; the unguarded one still applies.
+  assert.deepEqual(applyConfigPatch({ theme: 'old', default: 'other', presets: ['theirs'] }, patch), {
+    theme: 'new',
+    default: 'other',
+    presets: ['theirs'],
+  });
+});

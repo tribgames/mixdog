@@ -53,6 +53,13 @@ export const AGENT_TOOL = {
       file: { type: 'string', description: 'Path to task text; alternative to prompt/message for spawn/send.' },
       cwd: { type: 'string', description: 'Project directory for a new or respawned agent.' },
       context: { type: 'string', description: 'Extra context for the spawn/send turn.' },
+      attachments: {
+        type: 'array',
+        items: { type: 'string' },
+        maxItems: 8,
+        description:
+          'spawn/send: files the agent receives as real attachments (images, PDF/Office, text): an attachment of this conversation by its file name (a user upload) or id (a reported file’s [attachment:id]), or a file path inside your folders. Its result lists the files it produced by path; forward those by path.',
+      },
       model: {
         type: 'string',
         description:

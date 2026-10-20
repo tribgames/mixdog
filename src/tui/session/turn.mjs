@@ -54,7 +54,13 @@ import {
   startLiveTail,
 } from './turn-tool-cards.mjs';
 import { startQuietWatch } from './turn-quiet.mjs';
-import { endLiveCall, noteLiveCallText, startNextLiveCall, withdrawLiveCall } from './turn-live-call.mjs';
+import {
+  endLiveCall,
+  markLiveCallRequestStart,
+  noteLiveCallText,
+  startNextLiveCall,
+  withdrawLiveCall,
+} from './turn-live-call.mjs';
 
 // A usage limit is exactly a spent quota, a plan-gated feature or a billing
 // refusal; overloads, rate limits and server faults recover by waiting.
@@ -204,8 +210,9 @@ function steeringItemExtras(steeringMeta) {
       ? { messageId: steeringMeta.messageId }
       : {}),
     // Queue mode + execution provenance: a task notification is rendered as
-    // a tool card, never as an injected user bubble.
-    ...(steeringMeta?.mode === 'task-notification' ? { mode: 'task-notification' } : {}),
+    // a tool card, never as an injected user bubble. Anything else is a
+    // message the model read inside its running turn (the row's read mark).
+    ...(steeringMeta?.mode === 'task-notification' ? { mode: 'task-notification' } : { steered: true }),
     ...(steeringMeta?.execution && typeof steeringMeta.execution === 'object'
       ? { execution: steeringMeta.execution }
       : {}),
@@ -427,6 +434,9 @@ export function toolHandlers(ctx) {
 export function streamHandlers(ctx) {
   const { isCurrentTurn, stream } = ctx;
   return {
+    onProviderSendStarted: () => {
+      if (isCurrentTurn()) markLiveCallRequestStart(stream);
+    },
     onStageChange: async (stage, detail = null) => {
       if (!isCurrentTurn()) return;
       // A runtime notice (e.g. a tool the provider left out of the request)

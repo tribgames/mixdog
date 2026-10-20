@@ -40,9 +40,28 @@ test('only xai asks withRetry to rebuild the HTTP pool after a 5xx', () => {
 });
 
 test('a provider without a profile keeps the shared defaults', async () => {
-  assert.deepEqual(compatRetryOptions('custom-gw'), {});
+  assert.deepEqual(compatRetryOptions('custom-gw'), { maxRetryAfterMs: 60_000 });
   const { calls } = await run('custom-gw', httpError(503));
   assert.equal(calls, 5);
+});
+
+test('a provider without a profile waits out short advice but surfaces a lock-out at once', async () => {
+  const short = await run('custom-gw', (n) =>
+    n === 1 ? httpError(429, { headers: { 'retry-after': '20' } }) : httpError(401)
+  );
+  assert.equal(short.calls, 2);
+  assert.deepEqual(short.waits, [20_000]);
+  for (const failure of [
+    httpError(429, { headers: { 'retry-after': '3600' } }),
+    httpError(503, { retryAfterMs: 15 * 60_000 }),
+  ]) {
+    const locked = await run('custom-gw', failure);
+    assert.equal(locked.calls, 1);
+    assert.deepEqual(locked.waits, []);
+    // Final for every outer layer, and the wait stays on it for the notice.
+    assert.equal(isProviderRecoveryTerminal(locked.error), true);
+    assert.equal(locked.error, failure);
+  }
 });
 
 // DEFAULT_MAX_RETRIES (15) is the send budget: the classifier stops once

@@ -29,6 +29,10 @@ export interface RoomRow {
   /** Host → log only: a user row's files as the composer sent them, which the
    *  log's intake stores (agent-room-delivery.mjs) and replaces with the above. */
   upload?: { parts: unknown[]; pastedImages?: Record<string, unknown>; pastedTexts?: Record<string, unknown> };
+  /** Host → log only: a speech row's member session and the start of the
+   *  turn that spoke; the log's intake stores the files that turn produced
+   *  (agent-room-delivery.mjs) as the row's `parts` / `attachments`. */
+  artifactsFrom?: { sessionId: string; since: number };
   text: string;
 }
 /** A stored file reference (attachments/store.mjs): an image, a file, or an

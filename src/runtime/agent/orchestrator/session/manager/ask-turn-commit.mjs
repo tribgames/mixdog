@@ -120,14 +120,24 @@ function recordAgentRuntimeCall(session, result) {
 export async function recordAskUsage({ session, result, askStartedAt, turnSignal }) {
   const prefixHashForLog = recordAgentRuntimeCall(session, result);
   if (!result.usage) return;
-  await logSessionLlmUsage({
-    session,
-    usage: result.usage,
-    startedAt: askStartedAt,
-    signal: turnSignal,
-    prefixHash: prefixHashForLog,
-    transportTiming: result.transportTiming || null,
-  });
+  // A turn that switched models mid-way books one row per model, each priced
+  // at that model's rates; otherwise one row for the whole turn.
+  const segments = result.usageSegments?.length
+    ? result.usageSegments
+    : [{ provider: session.provider, model: session.model, usage: result.usage }];
+  for (const segment of segments) {
+    await logSessionLlmUsage({
+      session:
+        segment.provider === session.provider && segment.model === session.model
+          ? session
+          : { ...session, provider: segment.provider, model: segment.model },
+      usage: segment.usage,
+      startedAt: askStartedAt,
+      signal: turnSignal,
+      prefixHash: prefixHashForLog,
+      transportTiming: result.transportTiming || null,
+    });
+  }
   recordStandaloneStatusTelemetry(session, result, Date.now() - askStartedAt);
 }
 

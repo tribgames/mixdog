@@ -6,9 +6,10 @@
 // (`sess_rmem_<room>_<agent>`) and is handed only the rows new since it last
 // spoke. What another agent said reaches a member as DATA inside an explicit
 // boundary, with every harness tag escaped and every line relabelled, so a peer
-// can never forge a control frame or pose as the user. Files come only with the
-// user's own rows: stored references, handed as content to the members the
-// message reaches, once each.
+// can never forge a control frame or pose as the user. Files come with the
+// user's own rows and with a member's speech (the files its turn produced,
+// session-runtime/handoff-attachments.mjs): stored references, handed as
+// content to the members the row reaches, once each.
 import { escapeHarnessTags } from '../../../shared/shell-output-summary.mjs';
 import { normalizeMessageAttachments, transcriptAttachmentFields } from '../../../shared/transcript-metadata.mjs';
 import { agentHomeSessionId } from './agent-home.mjs';
@@ -465,6 +466,12 @@ export function roomTurnPrompt({
       if (shareTools) {
         for (const tool of row.tools || []) lines.push(...peerLines(`(tool ${label(tool.name)}) ${tool.summary}`));
       }
+      // The files this member's turn produced follow its words, still data.
+      const files = storedParts(row.parts);
+      if (files.length) {
+        lines.push(...peerLines(`(files from ${label(row.name || row.speaker)} follow)`));
+        content.push({ type: 'text', text: lines.splice(0).join('\n') }, ...files);
+      }
       continue;
     }
     if (open) lines.push('</room-transcript>');
@@ -547,9 +554,11 @@ export function normalizeRoomRow(row = {}) {
     .map((target) => ({ id: cleanName(target.id), name: cleanName(target.name) }))
     .filter((target, index, list) => target.id && list.findIndex((other) => other.id === target.id) === index)
     .slice(0, ROOM_MAX_MEMBERS);
-  // Files are the user's alone: what the log's intake stored for the row.
-  const parts = row.kind === 'user' ? storedParts(row.parts) : [];
-  const attachments = row.kind === 'user' ? normalizeMessageAttachments(row.attachments) : [];
+  // Files are the user's uploads or the files a member's turn produced: what
+  // the log's intake stored for the row.
+  const carriesFiles = row.kind === 'user' || row.kind === 'speech';
+  const parts = carriesFiles ? storedParts(row.parts) : [];
+  const attachments = carriesFiles ? normalizeMessageAttachments(row.attachments) : [];
   const images = row.kind === 'user' ? storedImages(row.images) : [];
   return {
     id,
@@ -623,8 +632,8 @@ export function roomRowItem(message, id) {
     room: { ...room, id: messageId },
     ...(messageId ? { messageId } : {}),
     ...(Number.isFinite(at) ? { at } : {}),
-    // A user row's files, in the fields a chat prompt's row draws them from.
-    ...(room.kind === 'user' ? transcriptAttachmentFields(message.meta.transcript) : {}),
+    // A user row's (or member speech's) files, in the fields a chat prompt's row draws them from.
+    ...(room.kind === 'user' || room.kind === 'speech' ? transcriptAttachmentFields(message.meta.transcript) : {}),
     ...(room.kind === 'user' && Array.isArray(images) && images.length ? { images } : {}),
   };
 }

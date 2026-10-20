@@ -138,6 +138,36 @@ test('an executed tool batch reseals the text aggregate and resets the continuat
   assert.equal(result.historyContent, undefined);
 });
 
+test('a message sent while the final text streams is read right after it, inside the same turn', async () => {
+  const messages = [{ role: 'user', content: 'explain' }];
+  const pending = [];
+  const steered = [];
+  const provider = scriptedProvider([
+    () => {
+      // The user sends while this text streams: it waits in the host queue.
+      pending.push({ id: 'sub-1', content: 'add a one-line summary', submittedAt: Date.now() });
+      return { content: 'first answer', toolCalls: [], stopReason: 'end_turn' };
+    },
+    { content: 'summary added', toolCalls: [], stopReason: 'end_turn' },
+  ]);
+  const result = await run(provider, messages, {
+    drainSteering: (_sessionId, options) => {
+      steered.push(options.stage);
+      return pending.splice(0);
+    },
+    onSteerMessage: () => {},
+  });
+  assert.equal(provider.state.sends, 2, 'one agentLoop call answers both: the turn continued');
+  assert.ok(steered.includes('terminal'), 'delivered at the boundary after the streamed message');
+  const roles = messages.map((message) => [message.role, message.meta?.source ?? '', message.content]);
+  assert.deepEqual(roles.slice(1, 3), [
+    ['assistant', '', 'first answer'],
+    ['user', 'steering', 'add a one-line summary'],
+  ]);
+  assert.deepEqual(messages[2].meta.submissionIds, ['sub-1']);
+  assert.equal(result.historyContent ?? result.content, 'summary added');
+});
+
 test('tool-call and continuation turns echo provider replay payloads under one precedence rule', async () => {
   const thinkingBlocks = [{ type: 'thinking', thinking: 'weigh options', signature: 'sig-1' }];
   const committed = [];

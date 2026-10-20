@@ -10,6 +10,7 @@ import { mergeFlatSchemaProperty } from './flat-schema-merge.mjs';
 import { reportedCostUsd } from './usage-primitives.mjs';
 import { reportInvalidTool, wireInputSchema } from './claude-bridge-schema.mjs';
 import { normalizeServerToolUse } from './anthropic-server-tool-usage.mjs';
+import { ANTHROPIC_TOOL_CALL_IDS, withWireToolCallIds } from './tool-call-wire-ids.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
@@ -232,7 +233,8 @@ const ANTHROPIC_NATIVE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);
 
 // `provider`: the engine's provider name. A gateway on a native Messages
 // route (wire-route.mjs) also replays the references it tagged itself.
-export function toAnthropicMessages(messages, availableTools, provider = '') {
+export function toAnthropicMessages(transcript, availableTools, provider = '') {
+  const messages = withWireToolCallIds(transcript, ANTHROPIC_TOOL_CALL_IDS);
   const ownProvider = String(provider || '').toLowerCase();
   const availableNames = anthropicToolNameSet(availableTools);
   const result = [];

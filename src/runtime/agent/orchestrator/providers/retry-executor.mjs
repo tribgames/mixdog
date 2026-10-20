@@ -150,6 +150,13 @@ function isOverloadFailure(status, errorKind) {
   return status === 529 || errorKind === 'overloaded';
 }
 
+function exceedsAdviceCeiling(caught, opts) {
+  const ceiling = Number(opts.maxRetryAfterMs);
+  if (!(ceiling > 0)) return false;
+  const advised = retryAfterMsFromError(caught);
+  return advised != null && advised > ceiling;
+}
+
 // Decides whether `caught` may be re-issued: returns the error to throw (the
 // caught one, the exhausted-marked one on the last attempt, or the model
 // fallback trigger) or null when the next attempt may run — and only then
@@ -205,6 +212,16 @@ function retryVerdict(caught, { opts, attempt, maxAttempts, state }) {
   if (QUOTA_KINDS.has(errorKind)) {
     const typedQuota = QUOTA_KINDS.has(providerErrorKind(caught, { quotaFlags: false }).kind);
     if (typedQuota || opts.retry429 === false || status !== 429) return caught;
+  }
+  // Opt-in `maxRetryAfterMs`: a server wait longer than the caller will sit
+  // through is a lock-out, not a retry. It surfaces now (with its advice for
+  // the notice and the account pool) instead of parking the send for it.
+  if (exceedsAdviceCeiling(caught, opts)) {
+    return markProviderRecoveryExhausted(caught, {
+      owner: opts.recoveryOwner || 'withRetry',
+      attempts: attempt + 1,
+      terminal: true,
+    });
   }
   // Background calls (titles and the like) never retry an overload: during a
   // capacity cascade every retry multiplies gateway load, and nobody is

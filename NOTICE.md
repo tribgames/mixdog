@@ -125,15 +125,58 @@ downloads it from this repository's `effort-judge-v*` GitHub releases, as
 listed in `src/runtime/effort-judge/model-manifest.json`.
 
 Statement of changes (Apache-2.0 section 4(b)): only the text encoder is kept,
-reduced to 12 of its layers; a four-level classification head is added and the
-model is fine-tuned to rate the reasoning effort a request needs; the weights
-are exported to ONNX and quantized to 4 bits. Full license text:
-`LICENSES/Apache-2.0.txt`.
+reduced to 18 of its layers; a four-level classification head is added and the
+model is fine-tuned to rate the reasoning effort a request or an agent step
+needs; the weights are exported to ONNX and quantized to 4 bits. Full license
+text: `LICENSES/Apache-2.0.txt`.
 
-Its training data includes requests from SWE-chat
-(<https://huggingface.co/datasets/cfahlgren1/SWE-chat>), made available under
-the Open Data Commons Attribution License 1.0, and from DataClaw exports that
-their authors published on the Hugging Face Hub under the MIT License.
+Its training data includes requests and agent steps from SWE-chat
+(<https://huggingface.co/datasets/SALT-NLP/SWE-chat>, Open Data Commons
+Attribution License 1.0); OpenAssistant oasst2
+(<https://huggingface.co/datasets/OpenAssistant/oasst2>, Apache License 2.0);
+DataClaw exports that their authors published on the Hugging Face Hub under the
+MIT License (<https://huggingface.co/datasets/di-zhang-fdu/ShareDataClaw>);
+DevGPT by Tao Xiao, Christoph Treude, Hideaki Hata and Kenichi Matsumoto
+(<https://doi.org/10.5281/zenodo.16392320>, CC BY 4.0); issue texts from the
+SWE-bench training split (<https://github.com/SWE-bench/SWE-bench>, MIT
+License); and agent steps from NVIDIA's SWE-Hero OpenHands trajectories
+(<https://huggingface.co/datasets/nvidia/SWE-Hero-openhands-trajectories>,
+CC BY 4.0).
+
+Contains information from WildChat-4.8M
+(<https://huggingface.co/datasets/allenai/WildChat-4.8M>) which is made
+available under the ODC Attribution License
+(<https://opendatacommons.org/licenses/by/1-0/>).
+
+Since `effort-judge-v7` it also includes questions from Stack Exchange sites
+(via <https://huggingface.co/datasets/HuggingFaceTB/stackexchange_2025_md>;
+each post is licensed CC BY-SA 2.5, 3.0 or 4.0 by its author, and its URL and
+author are kept with the training item); GitHub issues and pull requests of
+permissively licensed repositories (via
+<https://huggingface.co/datasets/common-pile/github_archive>, with each item's
+repository, URL, license and authors kept); issues and pull requests from
+Nebius SWE-rebench-V2 (<https://huggingface.co/datasets/nebius/SWE-rebench-V2>,
+<https://huggingface.co/datasets/nebius/SWE-rebench-V2-PRs>, CC BY 4.0,
+permissively licensed repositories only); and agent steps from Nebius
+SWE-agent trajectories
+(<https://huggingface.co/datasets/nebius/SWE-agent-trajectories>, CC BY 4.0),
+Nebius SWE-rebench OpenHands trajectories
+(<https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories>,
+CC BY 4.0), Kwai-Klear SWE-smith mini-swe-agent-plus trajectories
+(<https://huggingface.co/datasets/Kwai-Klear/SWE-smith-mini_swe_agent_plus-trajectories-66k>,
+MIT License), SWE-Factory DeepSWE-Agent Kimi-K2 trajectories
+(<https://huggingface.co/datasets/SWE-Factory/DeepSWE-Agent-Kimi-K2-Trajectories-2.8K>,
+MIT License), SWE-Gym OpenHands SFT trajectories
+(<https://huggingface.co/datasets/SWE-Gym/OpenHands-SFT-Trajectories>, MIT
+License), SWE-ZERO-12M trajectories
+(<https://huggingface.co/datasets/AlienKevin/SWE-ZERO-12M-trajectories>, Apache
+License 2.0), SWE-Lego real and synthetic data
+(<https://huggingface.co/datasets/Lego-X/SWE-Lego-Real-Data>,
+<https://huggingface.co/datasets/Lego-X/SWE-Lego-Synthetic-Data>, Apache
+License 2.0) and TIGER-Lab SWE-Next SFT trajectories
+(<https://huggingface.co/datasets/TIGER-Lab/SWE-Next-SFT-Trajectories>, MIT
+License). Each `effort-judge-v*` release lists its files, hashes and
+attributions.
 
 ## CC0-1.0
 

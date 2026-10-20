@@ -139,6 +139,9 @@ export function sessionRolePromptFields(
     // session running as that agent) carries its own AGENT.md role, and Mixy
     // in agent mode its optional agents/lead/AGENT.md.
     skipRoleCatalog: !ownerIsAgent && (!identity.agent || identity.agent === 'lead') && !(agentMode && mixy),
+    // Mixy's persona (bots/mixy/PERSONA.md) is Mixy's alone: keyed on Mixy's
+    // own agent-mode thread, never on the `lead` role a coding Lead shares.
+    skipPersona: !ownerIsAgent && (!identity.agent || identity.agent === 'lead') && !(agentMode && mixy),
     agent: identity.agent,
     profile: { skip: identity.profileSkip },
   };

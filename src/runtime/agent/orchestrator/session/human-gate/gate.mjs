@@ -5,13 +5,18 @@
 // turns an outbound call (outbound-policy.mjs) into an `ask` whatever the
 // hooks or the agent's permission said short of a deny, unless the agent's
 // permission for that action kind (store.mjs) is `allow`; `block` denies it
-// without a card. Other surfaces (group rooms) call it with their own
+// without a card. The outbound rule applies ONLY while a bot acts (see
+// actingBotId); an ordinary coding session's outbound call passes with the
+// hook decision unchanged. Other surfaces (group rooms) call it with their own
 // decision to get the same outbound rule. After the user answered,
 // recordHumanDecision stores a "don't ask again" grant and the audit line. Unattended runs (schedule, webhook, room member) register a
 // port here (session-runtime/held-requests.mjs) that turns their asks into
 // held requests instead of an approval card.
 import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../agent-home.mjs';
 import { serverConnector } from '../../mcp/server-connectors.mjs';
+import { readAgentDefinitionKind } from '../../../../shared/agent-kind.mjs';
+import { isContactAgentId } from '../../../../shared/agent-route-config.mjs';
+import { mixdogRoot, resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { roomMemberOfSession } from '../agent-room.mjs';
 import { classifyOutboundCall, isRememberableAction } from './outbound-policy.mjs';
 import { humanGateStore } from './store.mjs';
@@ -33,12 +38,33 @@ export function unattendedApprovalPort() {
   return unattendedPort;
 }
 
+/** The agent a session is bound to: its unattended run's owner, a room
+ *  member, a home thread's agent; '' for any other (coding) session. */
+function boundAgentId(sessionId) {
+  const run = unattendedPort?.runOf?.(sessionId);
+  if (run?.agentId) return run.agentId;
+  return roomMemberOfSession(sessionId)?.agentId || agentIdOfHomeSession(sessionId) || '';
+}
+
 /** The agent a session acts for: its unattended run's owner, a room member,
  *  a home thread's agent, else Mixy. */
 export function agentIdForSession(sessionId) {
-  const run = unattendedPort?.runOf?.(sessionId);
-  if (run?.agentId) return run.agentId;
-  return roomMemberOfSession(sessionId)?.agentId || agentIdOfHomeSession(sessionId) || MIXY_AGENT_ID;
+  return boundAgentId(sessionId) || MIXY_AGENT_ID;
+}
+
+/** The bot a session acts for, or '' when none: Mixy in her own home thread
+ *  (or her unattended run / room member session), or a contact agent (`kind:
+ *  bot`, isContactAgentId) in its home thread, room member session or
+ *  unattended run. A coding Lead (also id 'lead'), its workflow agents and
+ *  their sub-agent sessions are bound to nothing here, so they are no bot.
+ *  A sub-agent of a bot has its own session id and no link back to the
+ *  caller in this layer, so it is not gated either. */
+function actingBotId(sessionId) {
+  const id = boundAgentId(sessionId);
+  if (!id) return '';
+  if (id === MIXY_AGENT_ID) return id;
+  const kind = readAgentDefinitionKind({ dataDir: resolvePluginData(), shippedRoot: mixdogRoot(), id });
+  return isContactAgentId(id, kind) ? id : '';
 }
 
 const actionOf = (decision) => String(decision?.action || decision?.decision || '').toLowerCase();
@@ -97,7 +123,8 @@ export async function humanGateDecision(call, decision, ctx = {}) {
   if (action === 'deny' || action === 'block') return { decision, request: null, gate: null };
   const agentId = agentIdForSession(ctx.sessionId);
   const annotations = ctx.annotations ?? (await mcpAnnotations(call?.name, ctx.mcpScopeId));
-  const outbound = classifyOutboundCall({ name: call?.name, args: call?.args, annotations });
+  const classified = classifyOutboundCall({ name: call?.name, args: call?.args, annotations });
+  const outbound = classified && actingBotId(ctx.sessionId) ? classified : null;
   if (!outbound) {
     if (action !== 'ask') return { decision, request: null, gate: null };
     return {

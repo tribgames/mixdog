@@ -1,7 +1,9 @@
 import { SETUP_EXTENDED_PROPERTIES, SETUP_DESKTOP_ACTIONS } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { OPENAI_COMPAT_PRESETS } from '../../runtime/agent/orchestrator/providers/openai-compat-presets.mjs';
-import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { BOT_AGENT_KIND, WORKFLOW_AGENT_KIND } from '../../runtime/shared/agent-route-config.mjs';
 import { assertAutomationAccess, scheduleCallerScope } from '../services/schedule-access.mjs';
 
 const own = (value, key) => Object.hasOwn(value || {}, key);
@@ -164,13 +166,20 @@ async function readDefinition(rt, kind, name) {
   };
 }
 
-async function saveDefinition(rt, args) {
+// A created agent's explicit marker: the one given, else a bot when Mixy's
+// agent-mode chat creates it (Mixy creates bots), else a workflow agent.
+function createdAgentKind(input, caller) {
+  if (own(input, 'kind')) return input.kind;
+  const { mode, agentId } = resolveSessionMode({ session: caller });
+  return mode === AGENT_MODE && agentId === MIXY_AGENT_ID ? BOT_AGENT_KIND : WORKFLOW_AGENT_KIND;
+}
+
+async function saveDefinition(rt, args, context = {}) {
   const kind = args.definitionKind;
   const input = args.definition;
-  const allowed =
-    kind === 'skill'
-      ? ['originalName', 'name', 'description', 'body', 'whenToUse', 'toolDependencies']
-      : ['id', 'name', 'description', 'body'];
+  let allowed = ['id', 'name', 'description', 'body'];
+  if (kind === 'skill') allowed = ['originalName', 'name', 'description', 'body', 'whenToUse', 'toolDependencies'];
+  else if (kind === 'agent') allowed = [...allowed, 'kind'];
   const unexpected = Object.keys(input).find((key) => !allowed.includes(key));
   if (unexpected) throw new Error(`${unexpected} is not a ${kind} definition field`);
   const creating = args.action === 'create_definition';
@@ -200,7 +209,10 @@ async function saveDefinition(rt, args) {
       const agents = await rt.listAgents();
       if (agents.some((agent) => agent.id === input.id)) throw new Error(`agent "${input.id}" already exists`);
     }
-    return rt.saveAgentDefinition(creating ? next : { ...next, id: current.id });
+    if (creating) return rt.saveAgentDefinition({ ...next, kind: createdAgentKind(input, context.caller) });
+    // The stored kind is kept as it is; an edit naming one is refused by the editor.
+    const { kind: _storedKind, ...edit } = { ...pick(current, definitionKeys), ...input };
+    return rt.saveAgentDefinition({ ...edit, ...(own(input, 'kind') ? { kind: input.kind } : {}), id: current.id });
   }
   return creating ? rt.addSkill(next) : rt.saveSkill({ ...next, originalName: current.originalName });
 }

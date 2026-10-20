@@ -35,7 +35,7 @@ export function createRoutePersistence(deps) {
         hasSecrets: getConfigHasSecrets(),
       });
     },
-    persistAdoptedModelSettings(route, { keepMainModel } = {}) {
+    persistAdoptedModelSettings(route, { keepMainModel, onlyIfAbsent = false } = {}) {
       // saveModelSettings is in-memory only. persistLeadRoute debounce-writes
       // the adopted config (including modelSettings). If the lead preset cannot
       // be normalized, still debounce-persist so effort/fast are not memory-only.
@@ -43,7 +43,7 @@ export function createRoutePersistence(deps) {
         keepMainModel === true ||
         (keepMainModel !== false && tunesNonMainModel(getRoute(), route, resolveRoute(getConfig(), {})))
           ? null
-          : persistLeadRoute(route);
+          : persistLeadRoute(route, { onlyIfAbsent });
       if (!leadRoute) saveConfigAndAdopt(getConfig());
       return leadRoute;
     },

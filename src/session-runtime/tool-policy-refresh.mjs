@@ -369,7 +369,8 @@ export function createToolPolicyRefresh({
     const identity = session?.promptIdentity;
     const agent = identity?.agent;
     if (!session?.id || !agent || isAgentOwner(session)) return false;
-    const revision = agentProfileRevision(agent);
+    // Only Mixy's own (agent-mode) thread embeds Mixy's profile.
+    const revision = agentProfileRevision(agent, { mixy: sessionModeOf(session) === AGENT_MODE });
     const config = getConfig();
     const workflowId = session.workflow?.id;
     const workflowConfig = workflowId

@@ -8,6 +8,7 @@ import { resolveLiveToolCwd } from './tool-exec.mjs';
 import { createSteeringDrain } from './steering.mjs';
 import { createNoToolTurnResolver } from './no-tool-turn.mjs';
 import { classifyTerminationReason } from './termination.mjs';
+import { routeUsageSegments } from './usage.mjs';
 
 // Consecutive identical-AND-failing tool calls (same name+args, error result)
 // tolerated across iterations before the loop refuses to re-execute and steers
@@ -153,5 +154,13 @@ export function finishLoop(state) {
     providerStateUpdated: state.providerStateUpdated,
     terminationReason: classifyTerminationReason(response, { sessionAgent: state.sessionAgent }),
     providerContinuations: state.noToolTurn.providerContinuations,
+    ...(state.routeUsageHops?.length
+      ? {
+          usageSegments: routeUsageSegments(state.routeUsageHops, state.lastUsage, {
+            provider: state.sessionRef?.provider,
+            model: state.sessionRef?.model,
+          }),
+        }
+      : {}),
   };
 }

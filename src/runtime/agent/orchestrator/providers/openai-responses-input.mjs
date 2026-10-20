@@ -1,6 +1,7 @@
 // Transcript lowering is independent of request/turn metadata. A retained
 // message must have the same wire representation in every subsequent request.
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import { OPENAI_RESPONSES_TOOL_CALL_IDS, withWireToolCallIds } from './lib/tool-call-wire-ids.mjs';
 import { responsesEffortUpdates } from './effort-configuration.mjs';
 import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
 import { normalizeContentForOpenAIResponses, splitToolContentForOpenAIResponses } from './media-normalization.mjs';
@@ -147,7 +148,8 @@ function pushAssistantToolCalls(toolCalls, { out, customToolCallIds, nativeSearc
  *  - `includeSystem`, `nativePdf`, `splitToolContent`, `startIndex`: the
  *    gateway's system/media/continuation handling.
  */
-export function convertMessagesToResponsesInput(messages, opts = {}) {
+export function convertMessagesToResponsesInput(transcript, opts = {}) {
+  const messages = withWireToolCallIds(transcript, OPENAI_RESPONSES_TOOL_CALL_IDS);
   const out = [];
   const pendingToolMedia = [];
   const pendingToolLoads = [];

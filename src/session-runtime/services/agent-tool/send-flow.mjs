@@ -16,6 +16,7 @@ import {
   terminalResultHook,
 } from './job-task-reconcile.mjs';
 import { createTurnReviewCollector } from './turn-review.mjs';
+import { handoffContent } from '../../handoff-attachments.mjs';
 import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
 
 // `send` to an existing worker: resolve the live session, run one follow-up
@@ -69,8 +70,10 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     return hooks;
   }
 
-  function runTurn({ session, sessionId, prompt, args }, turnHooks) {
+  function runTurn({ session, sessionId, prompt: text, args }, turnHooks) {
     const cwd = session.cwd || defaultCwd;
+    // The caller's forwarded files ride along as attachment parts.
+    const prompt = handoffContent(text, args.attachmentParts);
     if (canUseSessionSurface(session)) {
       return sessionSurface.runTurn({ session, prompt, context: args.context || null, cwd, ...turnHooks });
     }
@@ -194,7 +197,11 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     const { session, sessionId, prompt } = prepared;
     const tag = registry.tagForSession(sessionId);
     if (canUseSessionSurface(session) && views.isSessionBusy(sessionId)) {
-      const queued = await sessionSurface.enqueueTurn({ session, prompt, context: prepared.args.context || null });
+      const queued = await sessionSurface.enqueueTurn({
+        session,
+        prompt: handoffContent(prompt, prepared.args.attachmentParts),
+        context: prepared.args.context || null,
+      });
       if (queued) {
         return renderResult({ queued: true, ...extras, tag, sessionId, agent: session.agent || null, ...queued });
       }
@@ -204,7 +211,8 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       views.isSessionBusy(sessionId) &&
       typeof mgr.enqueuePendingMessage === 'function'
     ) {
-      const queueDepth = mgr.enqueuePendingMessage(sessionId, prompt);
+      // The queued follow-up keeps the forwarded files, as the canonical queue does.
+      const queueDepth = mgr.enqueuePendingMessage(sessionId, handoffContent(prompt, prepared.args.attachmentParts));
       return renderResult({ queued: true, ...extras, tag, sessionId, agent: session.agent || null, queueDepth });
     }
     const job = spawnFlow.startJob(

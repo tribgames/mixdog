@@ -279,3 +279,38 @@ test('antigravityError: a typed ErrorInfo reason outranks message wording on a 4
   );
   assert.equal(err.code, 'rate_limit_exceeded');
 });
+
+test('a rejected API key on an INVALID_ARGUMENT 400 is an auth failure, not a request refusal', () => {
+  for (const reason of ['API_KEY_INVALID', 'API_KEY_EXPIRED']) {
+    const body = {
+      error: {
+        code: 400,
+        message: 'API key not valid. Please pass a valid API key.',
+        status: 'INVALID_ARGUMENT',
+        details: [errorInfo(reason)],
+      },
+    };
+    const err = geminiRestError({ status: 400, headers: new Headers() }, JSON.stringify(body), 'Gemini');
+    assert.equal(providerErrorKind(err).kind, 'auth', reason);
+  }
+  const disabled = geminiRestError(
+    { status: 403, headers: new Headers() },
+    JSON.stringify({
+      error: {
+        code: 403,
+        message: 'API has not been used',
+        status: 'PERMISSION_DENIED',
+        details: [errorInfo('SERVICE_DISABLED')],
+      },
+    }),
+    'Gemini'
+  );
+  assert.equal(providerErrorKind(disabled).kind, 'permission');
+  // An ordinary INVALID_ARGUMENT stays a request refusal.
+  const invalid = geminiRestError(
+    { status: 400, headers: new Headers() },
+    JSON.stringify({ error: { code: 400, message: 'bad field', status: 'INVALID_ARGUMENT' } }),
+    'Gemini'
+  );
+  assert.equal(providerErrorKind(invalid).kind, 'invalid_request');
+});

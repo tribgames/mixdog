@@ -9,7 +9,8 @@ fixed level. It is on by default and runs entirely on your machine.
 
 On the same model, GPT-6.1 Sol at `xhigh`, Auto cut the cost by **35%** compared
 with running every request at a fixed `xhigh`, at a near-equal score. All 89
-tasks, one pass each (`k=1`), web search on, 2026-10-15:
+tasks, one pass each (`k=1`), web search on, 2026-10-15, with effort judge v6
+(the previous judge; v7 has not been run on the benchmark):
 
 | Run | Score | Cost (API list rates) | vs fixed `xhigh` | vs Codex CLI | Output tokens | First-request input (median) | Final context (median) |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -39,8 +40,7 @@ records and method: [Bench log](../benchmarks/terminal-bench-2.1/README.md#bench
 3. The level is chosen by minimising expected cost under the judge's
    probabilities, not by taking the most likely level. Calling a hard request
    easy costs more than the reverse, because under-thinking degrades the
-   answer while over-thinking only costs tokens; an unnecessary `xhigh` also
-   costs extra.
+   answer while over-thinking only costs tokens.
 
 After each tool batch the step judgment is stored on that batch's last tool
 result, so later requests rebuild the same history and the prompt cache keeps
@@ -85,54 +85,62 @@ is sent anywhere for this judgment.
 ## Accuracy
 
 Compared with Jev 1.13 (TypeSafe's general decision API, given the same four
-levels and criteria) on the same 12,029 held-out items, none used in
-training: coding-agent prompts from held-out users, coding-agent sessions,
-SWE-bench issues, agent task requests, two chat sets, a final held-out set,
-and agent tool-result steps. Reference levels come from three independent
-Claude Sonnet votes per item, judged on the same text the judge sees.
+levels and criteria) on held-out items, none used in training:
+coding-agent prompts from held-out users, coding-agent sessions, SWE-bench
+issues, agent task requests, two chat sets, a final held-out set, and agent
+tool-result steps. The reference is three GPT-6.1 Sol votes per item (low
+effort), judged on the same text the judge sees; the level is the rounded
+mean of the known votes, and items where all three votes were undecidable
+are left out. That leaves 12,067 labelled items, of which 11,649 also have a
+Jev answer; the tables use those 11,649 (418 items have no Jev answer). On
+all 12,067 items, v7 agrees exactly on 77.9% and v6 on 71.0%.
 Differences are paired on the same items; intervals are 95% bootstrap
 intervals (2,000 resamples), and McNemar's test compares items only one of
 the two judged exactly right.
 
-| All items (n = 12,029) | Judge v6 | Jev 1.13 | v6 − Jev [95% CI] |
-|---|---:|---:|---:|
-| Exact level agreement | **78.5%** | 72.7% | **+5.8 pts** [4.8, 6.8] |
-| Quadratic weighted kappa | **0.689** | 0.626 | **+0.064** [0.047, 0.080] |
-| Mean absolute error (levels) | **0.222** | 0.288 | **−0.067** [−0.077, −0.056] |
-| Two or more levels off | **0.6%** | 1.4% | **−0.8 pts** [−1.0, −0.6] |
-| Hard-work detection (ROC AUC) | 0.954 | 0.956 | −0.002 [−0.008, 0.005] |
-| Exactly right where the other is not | **2,095** | 1,397 | McNemar p = 2.6 × 10⁻³² |
-| Median latency | **~115 ms** (local CPU) | ~380 ms (API) | |
+| All items (n = 11,649) | Judge v7 | Judge v6 | Jev 1.13 | v7 − Jev [95% CI] |
+|---|---:|---:|---:|---:|
+| Exact level agreement | **78.1%** | 71.1% | 69.6% | **+8.6 pts** [7.6, 9.4] |
+| Quadratic weighted kappa | **0.693** | 0.586 | 0.574 | **+0.119** [0.101, 0.138] |
+| Mean absolute error (levels) | **0.249** | 0.317 | 0.345 | **−0.096** [−0.106, −0.085] |
+| Two or more levels off | **2.5%** | 2.5% | 3.4% | **−0.9 pts** [−1.2, −0.5] |
+| Hard-work detection (ROC AUC) | **0.960** | 0.935 | 0.946 | **+0.014** [0.008, 0.020] |
+| Exactly right where the other is not (v7 vs Jev) | **2,138** | | 1,141 | McNemar p = 8 × 10⁻⁶⁹ |
+| Median latency | **~115 ms** (local CPU) | | ~380 ms (API) | |
 
-| By kind | Judge v6 | Jev 1.13 | v6 − Jev [95% CI] |
-|---|---:|---:|---:|
-| Requests (n = 10,532): exact | **79.7%** | 73.6% | **+6.0 pts** [5.1, 7.1] |
-| Requests: weighted kappa | **0.701** | 0.635 | **+0.066** [0.049, 0.084] |
-| Requests: two or more levels off | **0.5%** | 1.4% | **−0.8 pts** [−1.1, −0.6] |
-| Agent steps (n = 1,497): exact | **70.2%** | 66.1% | **+4.1 pts** [1.2, 7.0] |
-| Agent steps: weighted kappa | **0.621** | 0.545 | **+0.076** [0.027, 0.127] |
-| Agent steps: two or more levels off | 1.2% | 1.6% | −0.4 pts [−1.1, 0.3] |
+| By kind | Judge v7 | Judge v6 | Jev 1.13 | v7 − Jev [95% CI] |
+|---|---:|---:|---:|---:|
+| Requests (n = 10,278): exact | **79.7%** | 72.9% | 71.2% | **+8.5 pts** [7.5, 9.5] |
+| Requests: weighted kappa | **0.720** | 0.619 | 0.599 | **+0.121** [0.102, 0.139] |
+| Requests: two or more levels off | **2.0%** | 1.9% | 3.0% | **−1.0 pts** [−1.3, −0.7] |
+| Agent steps (n = 1,371): exact | **66.5%** | 58.1% | 57.4% | **+9.1 pts** [5.8, 12.1] |
+| Agent steps: weighted kappa | **0.543** | 0.398 | 0.404 | **+0.139** [0.071, 0.211] |
+| Agent steps: two or more levels off | 6.4% | 7.0% | 6.4% | 0.0 pts [−1.5, 1.5] |
+
+Judge v7 is also ahead of the previous judge, v6: +7.0 pts exact agreement
+[6.2, 7.8] on the same items.
 
 How to read it:
 
-- **Ceiling.** The reference itself is not perfectly repeatable: one Sonnet
-  vote matches the rounded mean of the other two on 85.3% of items (weighted
-  kappa 0.816). That is the practical upper bound for exact agreement, so
-  most of the remaining differences are one-level calls on borderline items,
-  not mistakes.
-- **Where v6 is better.** Higher agreement and kappa, smaller average error,
-  and about half the large errors, all with intervals that exclude zero; the
+- **Ceiling.** The reference itself is not perfectly repeatable: one GPT
+  vote matches the rounded mean of the other two on 91.2% of items with three
+  known votes (weighted kappa 0.907). That is the practical upper bound for
+  exact agreement, so most of the remaining differences are one-level calls
+  on borderline items, not mistakes.
+- **Where v7 is better.** Higher agreement and kappa, smaller average error,
+  and better hard-work detection, all with intervals that exclude zero; the
   exact-level advantage is significant on requests and on agent steps.
-- **Where they are even.** Separating hard work (high or above) from the rest
-  is statistically indistinguishable (AUC 0.954 vs 0.956). Jev calls hard work
-  less often and is more precise when it does; v6 calls it more often.
+- **Where they are even.** Large errors on agent steps are equally common
+  (6.4% for both), and agent steps are the weakest case for every judge. The
+  share of two-or-more-level errors is also the same for v7 and v6 overall
+  (2.5%).
 - Jev is a general model and was not tuned for this task; the comparison
   shows what a small dedicated model gains on its one job, not a general
   ranking of the two.
 
 ## Effect on cost
 
-Measured with an earlier judge (v1); a re-run with v6 is pending.
+Measured with an earlier judge (v1); a re-run with v7 is pending.
 Against a fixed `high` effort on the same tasks, with every run passing:
 GPT-6.1 Sol produced 46% fewer output tokens on five hard tasks and 26% fewer
 on eight Terminal-Bench tasks. Claude Opus 5.5 was about unchanged (±3%),
@@ -143,9 +151,10 @@ since it sizes its own thinking regardless of the effort setting.
 - The judge sees only a limited, shared token budget (256 by default) holding
   the start of the request and the end of the previous reply,
   so work implied by earlier conversation can be under-rated.
-- About four in ten requests rated hard or very hard by the reference are
-  rated lower by the judge, almost always by one level. "Very hard" is called
-  sparingly, so the hardest tasks can run at `high` instead of `xhigh`.
+- On 43% of the requests the reference rates hard or very hard, Auto picks a
+  lower effort, mostly one level lower (82% of those). `xhigh` is picked on
+  1.5% of items against 3.3% in the reference, so the hardest tasks can still
+  run at `high`.
 - Reference levels are LLM judgments, not measured task outcomes.
 
 ## Turning it off
@@ -162,7 +171,15 @@ training data includes requests and agent steps from SWE-chat (ODC-BY 1.0),
 OpenAssistant oasst2 (Apache 2.0), WildChat (ODC-BY 1.0), DataClaw exports
 (MIT), DevGPT (CC BY 4.0), issue texts from the SWE-bench training split
 (MIT), and agent steps from NVIDIA's SWE-Hero OpenHands trajectories
-(CC BY 4.0). The release notes of
+(CC BY 4.0). Judge v7 adds Stack Exchange posts (CC BY-SA 2.5/3.0/4.0, via
+HuggingFaceTB/stackexchange_2025_md); GitHub issues and pull requests of
+permissively licensed repositories (via common-pile/github_archive); Nebius
+SWE-rebench-V2 and SWE-rebench-V2-PRs (CC BY 4.0); and agent trajectories
+from nebius/SWE-agent-trajectories and
+nebius/SWE-rebench-openhands-trajectories (CC BY 4.0), Kwai-Klear SWE-smith
+mini-swe-agent-plus, SWE-Factory DeepSWE-Agent Kimi-K2, SWE-Gym
+OpenHands-SFT and TIGER-Lab SWE-Next-SFT (MIT), and AlienKevin SWE-ZERO-12M
+and Lego-X SWE-Lego real and synthetic (Apache 2.0). The release notes of
 each `effort-judge-v*` release list the files, hashes and attributions.
 
 Implementation: [decision rule](../src/runtime/agent/orchestrator/providers/auto-effort.mjs),

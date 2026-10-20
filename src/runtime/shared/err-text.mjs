@@ -237,7 +237,9 @@ function typedStreamFailureText(error, text) {
 
 export function presentErrorText(error, options = {}) {
   const presentation = describeError(error);
-  if (['image-size', 'payload-size', 'request'].includes(presentation.kind)) return presentation.summary;
+  if (['image-size', 'payload-size', 'request', 'model-unavailable', 'tool-schema'].includes(presentation.kind)) {
+    return presentation.summary;
+  }
   const kindLine = hasTypedEvidence(error) ? KIND_LINES[presentation.providerKind] : null;
   if (kindLine && presentation.kind !== 'unknown') {
     return typeof kindLine === 'function' ? kindLine(presentation) : kindLine;

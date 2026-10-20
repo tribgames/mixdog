@@ -377,6 +377,17 @@ const SETUP_STATUS_READERS = {
 // schema, the per-action field list and the route/object-argument minimums.
 function validateSetupInput(args) {
   const action = requireEnum(args?.action, SETUP_ACTIONS, 'action');
+  // Old callers still ask to connect GitHub: it is the signed-in GitHub CLI, not a catalog connector.
+  if (
+    action === 'connect_connector' &&
+    String(args.connector ?? '')
+      .trim()
+      .toLowerCase() === 'github'
+  ) {
+    throw new Error(
+      'GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.'
+    );
+  }
   const validationError = schemaValueError({ ...args, action }, SETUP_TOOL_DEFS[0].inputSchema, 'setup');
   if (validationError) throw new Error(`[tool-input-validation] ${validationError}`);
   const fields = SETUP_ACTION_FIELDS[action].split(' ').filter(Boolean);
@@ -647,7 +658,7 @@ const SETUP_ACTION_HANDLERS = {
     const entry = connectorById(requireText(args.connector, 'connector'));
     if (!entry || entry.ownKey) throw new Error(`connector must be one of ${CONNECTOR_IDS.join(', ')}`);
     const server = (rt.mcpStatus?.()?.servers || []).find((row) => row.connector === entry.id) || null;
-    const connected = entry.backend.kind === 'builtin' ? null : server?.connected === true;
+    const connected = server?.connected === true;
     return {
       connector: entry.id,
       name: entry.name,

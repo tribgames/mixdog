@@ -2,8 +2,9 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { compareCodePoints } from '../../../shared/code-point-order.mjs';
+import { BOTS_DIR, MIXY_BOT_ID, botStoreActive, isStoreBot, mixyIdentityDir } from '../../../shared/agent-store.mjs';
 import { mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
 import { listHiddenAgentsByKind, getAgentCatalogShareAgents } from '../internal-agents.mjs';
@@ -89,7 +90,33 @@ function agentSectionDirs(pluginRoot) {
   } catch {
     /* unresolvable data dir — built-in roles still load */
   }
+  // Bots of the store (agent-store.mjs), last: a bot's own folder wins over
+  // the agents/ original the split left behind.
+  const root = userDataRoot();
+  if (root && botStoreActive(root)) dirs.push(join(root, BOTS_DIR));
   return dirs;
+}
+
+// The user data dir (parent of agents/), or '' when it cannot be resolved.
+function userDataRoot() {
+  try {
+    const userDir = mixdogGlobalDir('agents');
+    return userDir ? dirname(userDir) : '';
+  } catch {
+    return '';
+  }
+}
+
+// A store bot's own folder, or ''.
+function storeBotDir(agent) {
+  const root = userDataRoot();
+  return root && isStoreBot(root, agent) ? join(root, BOTS_DIR, agent) : '';
+}
+
+// Mixy's identity folder: bots/mixy with the store, agents/lead before.
+function mixyDir() {
+  const root = userDataRoot();
+  return root ? mixyIdentityDir(root) : '';
 }
 
 function loadAgentSections(pluginRoot) {
@@ -117,6 +144,7 @@ function loadAgentSections(pluginRoot) {
       // Mixy's own AGENT.md (agents/lead/) rides only Mixy's agent-mode
       // prompt (loadMixyRoleSection), never another role catalog.
       if (!name || !raw || name === 'lead') continue;
+      if (name === MIXY_BOT_ID && basename(agentsDir) === BOTS_DIR) continue;
       const { body } = readMarkdownDocument(raw);
       if (!body) continue;
       byName.set(name, roleSection(name, body));
@@ -255,6 +283,12 @@ export function truncatePersona(text, max = PERSONA_MAX_CHARS) {
 export function loadAgentPersonaSection(agent) {
   if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
   const isLead = agent === 'lead';
+  // Mixy's persona is in its own folder; a store bot's in its bots/ folder.
+  const own = isLead ? mixyDir() : storeBotDir(agent);
+  if (own) {
+    const persona = truncatePersona(readSafe(join(own, 'PERSONA.md')) || '');
+    return persona ? personaSection(persona) : '';
+  }
   const pluginRoot = mixdogRoot();
   const roots = [];
   try {
@@ -272,15 +306,19 @@ export function loadAgentPersonaSection(agent) {
       if (isLead) continue;
       return '';
     }
-    return [
-      '## Persona',
-      '',
-      'Tone and style guide for how you speak, address the user and carry yourself. It never overrides tool, safety or role rules; those always win.',
-      '',
-      persona,
-    ].join('\n');
+    return personaSection(persona);
   }
   return '';
+}
+
+function personaSection(persona) {
+  return [
+    '## Persona',
+    '',
+    'Tone and style guide for how you speak, address the user and carry yourself. It never overrides tool, safety or role rules; those always win.',
+    '',
+    persona,
+  ].join('\n');
 }
 
 // --- Mixy's working style (agents/lead/AGENT.md, user data dir) ---
@@ -290,8 +328,8 @@ export function loadAgentPersonaSection(agent) {
 export function loadMixyRoleSection() {
   let raw = '';
   try {
-    const userDir = mixdogGlobalDir('agents');
-    raw = userDir ? readSafe(join(userDir, 'lead', 'AGENT.md')) || '' : '';
+    const dir = mixyDir();
+    raw = dir ? readSafe(join(dir, 'AGENT.md')) || '' : '';
   } catch {
     return '';
   }
@@ -306,6 +344,15 @@ export function loadMixyRoleSection() {
 // (the Lead configuration, id `lead`) has its own line, under the display name
 // the user gave it (session/mixy-name.mjs), Mixy by default.
 function agentManifest(agent) {
+  const own = storeBotDir(agent);
+  if (own) {
+    try {
+      const value = JSON.parse(readSafe(join(own, 'agent.json')) || '{}');
+      return value && typeof value === 'object' ? value : {};
+    } catch {
+      return {};
+    }
+  }
   const roots = [];
   try {
     const userDir = mixdogGlobalDir('agents');
@@ -344,9 +391,13 @@ export function agentModeIdentityLine(agent) {
 // the shipped tree — as one hash. A session stamps it when its prompt is
 // composed; another value means the profile was edited since
 // (session-runtime/tool-policy-refresh.mjs refreshAgentProfile). '' for an
-// invalid id.
-export function agentProfileRevision(agent) {
+// invalid id. A coding Lead (`lead` outside Mixy's own thread) embeds no
+// profile file at all, so its stamp is a constant: editing Mixy never
+// rebuilds a coding session's prompt.
+export const CODING_LEAD_PROFILE_REVISION = 'coding-lead';
+export function agentProfileRevision(agent, { mixy = true } = {}) {
   if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
+  if (agent === 'lead' && !mixy) return CODING_LEAD_PROFILE_REVISION;
   const roots = [mixdogGlobalDir('agents')];
   const pluginRoot = mixdogRoot();
   if (pluginRoot) roots.push(join(pluginRoot, 'agents'));
@@ -354,6 +405,13 @@ export function agentProfileRevision(agent) {
   for (const root of roots) {
     for (const file of ['agent.json', 'AGENT.md', 'PERSONA.md']) {
       hash.update(`${root}\0${file}\0${readSafe(join(root, agent, file)) ?? '\u0001'}\0`);
+    }
+  }
+  // Mixy's or a store bot's own folder, when it has one.
+  const own = agent === 'lead' ? mixyDir() : storeBotDir(agent);
+  if (own && own !== join(roots[0] || '', agent)) {
+    for (const file of ['agent.json', 'AGENT.md', 'PERSONA.md']) {
+      hash.update(`${own}\0${file}\0${readSafe(join(own, file)) ?? '\u0001'}\0`);
     }
   }
   return hash.digest('hex').slice(0, 24);
@@ -417,8 +475,8 @@ export function composeSystemPrompt(opts) {
         ? loadMixyRoleSection()
         : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
   }
-  // Persona follows the role; the Lead has no role section but may own a
-  // persona through agents/lead/PERSONA.md.
+  // Persona follows the role; Mixy's own thread carries Mixy's persona
+  // (bots/mixy/PERSONA.md) — a coding Lead's prompt never does (skipPersona).
   const personaContext = opts.agent && !opts.skipPersona ? loadAgentPersonaSection(opts.agent) : '';
   const coreMemory = skip.memory ? '' : trimmedPromptSlice(opts.coreMemoryContext);
   // User AGENTS.md / CLAUDE.md block (context/instruction-files.mjs), already

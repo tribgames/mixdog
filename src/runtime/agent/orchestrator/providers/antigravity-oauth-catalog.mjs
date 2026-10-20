@@ -187,9 +187,14 @@ export function normalizeAntigravityCatalog(rawModels) {
   return models.sort((a, b) => a.display.localeCompare(b.display));
 }
 
-/** Catalog to resolve wire ids against: in-memory mirror, disk cache, then the curated fallback. */
+/**
+ * Catalog to resolve wire ids against: in-memory mirror, disk cache, then the
+ * curated fallback. Sends never refresh the catalog, so the account's last live
+ * list is used even past its TTL: it names the wire ids this account was
+ * offered, which the curated list can only approximate.
+ */
 function antigravityCatalogModels() {
-  if (!_mirror) _mirror = antigravityModelCache.loadSync();
+  if (!_mirror) _mirror = antigravityModelCache.loadSync({ allowStale: true });
   return _mirror || ANTIGRAVITY_MODELS;
 }
 

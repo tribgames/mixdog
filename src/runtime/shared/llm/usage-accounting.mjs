@@ -63,6 +63,12 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     if (!ledger) return;
     recorded.add(owner);
     const usage = result.usage || UNMEASURED_USAGE;
+    const durationMs = timed ? Date.now() - startedAt : 0;
+    // The one measured request time: the loop's speed figures read it, so
+    // the composer and the ledger show the same span.
+    if (timed && result && typeof result === 'object') {
+      Object.defineProperty(result, 'usageDurationMs', { value: durationMs, configurable: true, writable: true });
+    }
     const row = makeUsageRecord({
       id: result.responseId ? undefined : id,
       ts: Date.now(),
@@ -88,7 +94,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       // The account this send is bound to, so quota history can tell one
       // connected subscription's records from another's.
       account: ACCOUNT_PROVIDERS.includes(provider) ? currentProviderAccountId(provider) : '',
-      durationMs: timed ? Date.now() - startedAt : 0,
+      durationMs,
     });
     // Committed by the ledger worker (batched with concurrent sends); the
     // send still settles only once its row is durable, as before, but the

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -8,10 +8,32 @@ import { createToolApproval } from '../../../../../tui/session/tool-approval.mjs
 import { _registerMcpServerForTest, disconnectAll } from '../../mcp/client.mjs';
 import { rememberServerConnector } from '../../mcp/server-connectors.mjs';
 import { applyBeforeToolHook } from '../loop/tool-exec/before-hook.mjs';
-import { humanGateDecision, recordHumanDecision } from './gate.mjs';
+import { humanGateDecision, recordHumanDecision, setUnattendedApprovalPort } from './gate.mjs';
 import { classifyOutboundCall } from './outbound-policy.mjs';
 import { humanRequestFields, normalizeHumanResponse } from './requests.mjs';
 import { createHumanGateStore, setHumanGateStore } from './store.mjs';
+
+// The outbound gate applies only while a bot acts: these agents are `kind: bot`
+// definitions in a throwaway data dir; `helper` is a workflow agent (`kind: agent`).
+const dataRoot = mkdtempSync(join(tmpdir(), 'human-gate-data-'));
+const previousDataDir = process.env.MIXDOG_DATA_DIR;
+process.env.MIXDOG_DATA_DIR = dataRoot;
+for (const [id, kind] of [
+  ['mailer', 'bot'],
+  ['inspector', 'bot'],
+  ['scribe', 'bot'],
+  ['buyer', 'bot'],
+  ['helper', 'agent'],
+]) {
+  mkdirSync(join(dataRoot, 'agents', id), { recursive: true });
+  writeFileSync(join(dataRoot, 'agents', id, 'AGENT.md'), `---\nkind: ${kind}\n---\nYou are ${id}.\n`);
+}
+test.after(() => {
+  if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+  else process.env.MIXDOG_DATA_DIR = previousDataDir;
+  rmSync(dataRoot, { recursive: true, force: true });
+});
+const BOT = { sessionId: 'sess_home_mailer' };
 
 function tempStore(t) {
   const dir = mkdtempSync(join(tmpdir(), 'human-gate-'));
@@ -175,7 +197,7 @@ test('an outbound call asks even when hooks allow, and edit-and-approve replaces
     name: 'github',
     args: { action: 'issue.comment', repo: 'o/r', number: 3, body: 'draft' },
     cwd: '/tmp',
-    callerSessionId: 'sess_a',
+    callerSessionId: 'sess_home_mailer',
     executeOpts: {},
     beforeToolHook: async () => ({ action: 'allow' }),
     toolApprovalHook: async (request) => {
@@ -196,7 +218,7 @@ test('an allowing hook that also returns a name or args cannot change what the o
     name: 'github',
     args: { action: 'issue.comment', repo: 'o/r', number: 3, body: 'draft' },
     cwd: '/tmp',
-    callerSessionId: 'sess_a',
+    callerSessionId: 'sess_home_mailer',
     executeOpts: {},
     beforeToolHook: async () => ({
       action: 'allow',
@@ -217,7 +239,7 @@ test('an allowing hook that also returns a name or args cannot change what the o
 test('"don\'t ask again" stores an agent + action-kind grant that later auto-allows, revocably', async (t) => {
   const { store } = tempStore(t);
   let asks = 0;
-  const call = (repo, number, remember = 'once', sessionId = 'sess_home_reviewer') =>
+  const call = (repo, number, remember = 'once', sessionId = 'sess_home_inspector') =>
     applyBeforeToolHook({
       name: 'github',
       args: { action: 'pr.comment', repo, number, body: 'ok' },
@@ -233,17 +255,17 @@ test('"don\'t ask again" stores an agent + action-kind grant that later auto-all
     });
   await call('o/r', 1, 'agent');
   assert.equal(asks, 1);
-  const [grant] = await store.listGrants({ agentId: 'reviewer' });
+  const [grant] = await store.listGrants({ agentId: 'inspector' });
   assert.deepEqual(
     { agentId: grant.agentId, action: grant.action, mode: grant.mode },
-    { agentId: 'reviewer', action: 'comment', mode: 'allow' }
+    { agentId: 'inspector', action: 'comment', mode: 'allow' }
   );
   await call('o/r', 1);
   await call('other/repo', 9);
   assert.equal(asks, 1, 'the grant covers the whole action kind, any repo or target');
-  await call('o/r', 1, 'once', 'sess_home_writer');
+  await call('o/r', 1, 'once', 'sess_home_scribe');
   assert.equal(asks, 2, 'another agent still asks');
-  const table = await store.permissions('reviewer');
+  const table = await store.permissions('inspector');
   assert.equal(table.find((row) => row.action === 'comment').mode, 'allow');
   assert.deepEqual(
     table.filter((row) => !row.rememberable).map((row) => row.action),
@@ -376,11 +398,11 @@ test('a Gmail trash card lists sender and subject from the connector, keyed on t
   const call = { name: 'mcp__gmail-9__trash_emails', args: { ids } };
   // A mail server that is not the Gmail connector is never sent the unlisted call.
   rememberServerConnector('gmail-9', {});
-  await humanGateDecision(call, null, { store, annotations: {}, mcpScopeId: scopeId });
+  await humanGateDecision(call, null, { ...BOT, store, annotations: {}, mcpScopeId: scopeId });
   assert.deepEqual(asked, []);
   rememberServerConnector('gmail-9', { connector: 'gmail' });
   t.after(() => rememberServerConnector('gmail-9', {}));
-  const out = await humanGateDecision(call, null, { store, annotations: {}, mcpScopeId: scopeId });
+  const out = await humanGateDecision(call, null, { ...BOT, store, annotations: {}, mcpScopeId: scopeId });
   assert.deepEqual(asked, [{ name: 'describe_emails', args: { ids: ['1', '2', '3'] } }]);
   assert.equal(out.request.outbound.account, 'me@gmail.com');
   assert.equal(
@@ -401,20 +423,74 @@ test('Gmail trash_emails asks and may be remembered; payments and permanent dele
   assert.equal(trash.payload, '');
   assert.equal(classifyOutboundCall({ name: 'mcp__gmail__archive_emails', args: { ids: ['1'] } }), null);
 
-  const first = await humanGateDecision(call, null, { store, annotations: {} });
+  const first = await humanGateDecision(call, null, { ...BOT, store, annotations: {} });
   assert.equal(first.decision.action, 'ask');
   assert.deepEqual(first.request.remember, ['once', 'agent']);
 
   const normalized = normalizeHumanResponse(first.request, true, { remember: 'agent' });
   assert.equal(normalized.remember, 'agent');
   await recordHumanDecision(first.gate, { approved: true, remember: 'agent' }, { store });
-  const again = await humanGateDecision(call, null, { store, annotations: {} });
+  const again = await humanGateDecision(call, null, { ...BOT, store, annotations: {} });
   assert.equal(again.request, null, 'a remembered trash grant stops asking');
 
   for (const name of ['mcp__shop__checkout', 'mcp__drive__delete_permanently']) {
-    const out = await humanGateDecision({ name, args: { ids: ['1'] } }, null, { store, annotations: {} });
+    const out = await humanGateDecision({ name, args: { ids: ['1'] } }, null, { ...BOT, store, annotations: {} });
     assert.deepEqual(out.request.remember, ['once'], name);
   }
+});
+
+test('the outbound gate applies only when a bot acts', async (t) => {
+  const { store } = tempStore(t);
+  const comment = { name: 'github', args: { action: 'issue.comment', repo: 'o/r', number: 3, body: 'hi' } };
+  const decide = (sessionId, decision = null) =>
+    humanGateDecision(comment, decision, { sessionId, store, annotations: {} });
+
+  // A coding session (no home thread, room or unattended run) sends without a card or an audit line.
+  for (const sessionId of ['sess_coding_1', undefined]) {
+    const out = await decide(sessionId, { action: 'allow' });
+    assert.deepEqual(out, { decision: { action: 'allow' }, request: null, gate: null });
+  }
+  // A hook's own ask is still the plain approval request.
+  const hookAsk = await decide('sess_coding_1', { action: 'ask', reason: 'hook says' });
+  assert.equal(hookAsk.decision.reason, 'hook says');
+  assert.equal(hookAsk.request.kind, 'approval');
+  assert.deepEqual(hookAsk.request.remember, ['once']);
+  // A coding session is not blocked by a block set for Mixy or any bot either.
+  await store.setMode({ agentId: 'lead', action: 'comment', mode: 'block' });
+  assert.equal((await decide('sess_coding_1')).decision, null);
+  assert.deepEqual(await store.readAudit({}), []);
+  await store.setMode({ agentId: 'lead', action: 'comment', mode: 'ask' });
+
+  // Mixy in her home thread, a bot's home thread and a bot's room member session ask.
+  for (const [sessionId, agentId] of [
+    ['sess_home_lead', 'lead'],
+    ['sess_home_inspector', 'inspector'],
+    ['sess_rmem_abcdef12_inspector', 'inspector'],
+  ]) {
+    const out = await decide(sessionId);
+    assert.equal(out.decision.action, 'ask', sessionId);
+    assert.equal(out.request.kind, 'outbound', sessionId);
+    assert.equal(out.request.agentId, agentId, sessionId);
+  }
+  // A workflow agent's home thread is no bot.
+  assert.equal((await decide('sess_home_helper')).request, null);
+});
+
+test('an unattended run is gated only when a bot or Mixy owns it', async (t) => {
+  const { store } = tempStore(t);
+  const runs = {
+    sess_run_bot: { kind: 'schedule', agentId: 'inspector', name: 'nightly' },
+    sess_run_mixy: { kind: 'webhook', agentId: 'lead', name: 'hook' },
+    sess_run_agent: { kind: 'schedule', agentId: 'helper', name: 'nightly' },
+  };
+  setUnattendedApprovalPort({ runOf: (sessionId) => runs[sessionId] || null });
+  t.after(() => setUnattendedApprovalPort(null));
+  const comment = { name: 'github', args: { action: 'issue.comment', repo: 'o/r', number: 3, body: 'hi' } };
+  const decide = (sessionId) => humanGateDecision(comment, null, { sessionId, store, annotations: {} });
+  assert.equal((await decide('sess_run_bot')).decision.action, 'ask');
+  assert.equal((await decide('sess_run_mixy')).decision.action, 'ask');
+  assert.deepEqual(await decide('sess_run_agent'), { decision: null, request: null, gate: null });
+  assert.deepEqual(await store.readAudit({ agentId: 'helper' }), []);
 });
 
 test('a presented trash card keeps its message list and remainder', () => {

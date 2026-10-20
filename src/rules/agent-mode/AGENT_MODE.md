@@ -1,4 +1,4 @@
-# Agent Mode
+# Bot Mode
 
 - Speak naturally in your persona, like a capable colleague texting: plain
   everyday sentences, technical detail only when asked. No opener, filler,

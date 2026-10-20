@@ -10,7 +10,7 @@ import {
   readAttachmentTextWithin,
 } from '../../../../attachments/store.mjs';
 import { restoreTranscriptItems } from './restore.mjs';
-import { restoredUserText } from './user-text.mjs';
+import { createUserTextRestore, restoredUserText } from './user-text.mjs';
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
@@ -30,7 +30,7 @@ const feedbackBlock = (note) =>
     'pin 2 · home.png region',
     '  note: Crop tighter',
     '  tab: v2 "Shots" · pane 1 (image) · file: shots/home.png',
-    '  region: x 10%, y 20%, 30%×40% of the pane\'s visible view',
+    "  region: x 10%, y 20%, 30%×40% of the pane's visible view",
     '  crop: none',
     'choices:',
     '  - tab: v8 "검증" · file: design/mockups/_vz2/index.html · group: "layout" → choice: "airy" ("2안 · 여유 있게")',
@@ -134,10 +134,7 @@ test('the feedback cap holds on the stored blob, not on the size the reference c
   writeFileSync(join(dir, 'prompt-attachments', 'sha256', ref.slice(0, 2), ref), feedbackBlock('z'));
   clearAttachmentBufferCache();
   assert.throws(() => readAttachmentTextWithin(small[1], 128 * 1024), /integrity/);
-  assert.equal(
-    restoredUserText(small),
-    ['핀과 선택 함께 전송', '[Image: visualize pin 1 · input, 177x21]'].join('\n')
-  );
+  assert.equal(restoredUserText(small), ['핀과 선택 함께 전송', '[Image: visualize pin 1 · input, 177x21]'].join('\n'));
 });
 
 test('other stored long text is not read and restores as before', (t) => {
@@ -148,6 +145,67 @@ test('other stored long text is not read and restores as before', (t) => {
   ]);
   assert.ok(prompt[1].attachmentRef);
   assert.equal(restoredUserText(prompt), 'short');
+});
+
+test('a stored pasted text and an attached text file restore as the chip tokens the live bubble drew', (t) => {
+  withDataDir(t);
+  const paste = Array.from({ length: 12 }, (_, line) => `line ${line + 1}`).join('\n');
+  const { prompt } = materializePromptSubmission('see\n[Pasted text #4 +12 lines]\n[File #7: main.ts]', {
+    pastedTexts: {
+      4: { id: 4, text: paste, filename: 'Pasted text · 12 lines', source: 'paste' },
+      7: { id: 7, text: 'export const a = 1;\n', filename: 'main.ts', source: 'file' },
+    },
+  });
+  assert.ok(prompt.some((part) => part.textKind === 'paste' && part.attachmentRef));
+  assert.equal(restoredUserText(prompt).replace(/\n+/g, '\n'), 'see\n[Pasted text #1 +12 lines]\n[File #2: main.ts]');
+});
+
+test('legacy pastes without a line count in their name: read once per load, within one byte budget', (t) => {
+  const dir = withDataDir(t);
+  const body = Array.from({ length: 20 }, (_, line) => `row ${line + 1}`).join('\n');
+  const legacy = (word) =>
+    materializePromptSubmission(`${word}\n[Pasted text #1 +20 lines]`, {
+      // Stored before the name carried the count.
+      pastedTexts: { 1: { id: 1, text: body, filename: 'pasted-text.txt', source: 'paste' } },
+    }).prompt;
+  const [a, b, c] = [legacy('a'), legacy('b'), legacy('c')];
+  const size = Buffer.byteLength(body);
+  // Budget for two reads. Message a's text and image refs share one read, so
+  // b still gets its count; c is past the budget and shows the plain chip.
+  const load = createUserTextRestore({ readBudgetBytes: size * 2 });
+  assert.equal(load.text(a).replace(/\n+/g, '\n'), 'a\n[Pasted text #1 +20 lines]');
+  assert.deepEqual(load.imageRefs(a), []);
+  assert.equal(load.text(a).replace(/\n+/g, '\n'), 'a\n[Pasted text #1 +20 lines]');
+  assert.equal(load.text(b).replace(/\n+/g, '\n'), 'b\n[Pasted text #1 +20 lines]');
+  assert.equal(load.text(c).replace(/\n+/g, '\n'), 'c\n[Pasted text #1]');
+  // A read that fails its integrity check still counts against the cap.
+  const tamperedBody = `${body}\nrow 21`;
+  const tampered = materializePromptSubmission('t\n[Pasted text #1 +21 lines]', {
+    pastedTexts: { 1: { id: 1, text: tamperedBody, filename: 'pasted-text.txt', source: 'paste' } },
+  }).prompt;
+  const ref = tampered.find((part) => part.attachmentRef).attachmentRef;
+  writeFileSync(join(dir, 'prompt-attachments', 'sha256', ref.slice(0, 2), ref), `${tamperedBody}!`);
+  clearAttachmentBufferCache();
+  const strict = createUserTextRestore({ readBudgetBytes: size * 2 + 64 });
+  assert.equal(strict.text(tampered).replace(/\n+/g, '\n'), 't\n[Pasted text #1]');
+  assert.equal(strict.text(b).replace(/\n+/g, '\n'), 'b\n[Pasted text #1]', 'the failed read used the budget');
+  // A whole transcript load counts them within the default budget.
+  const items = restoreTranscriptItems([{ role: 'user', content: a }]);
+  assert.equal(items[0].text.replace(/\n+/g, '\n'), 'a\n[Pasted text #1 +20 lines]');
+});
+
+test('a message the model read inside its running turn restores with its read mark', () => {
+  const [typed, steered] = restoreTranscriptItems(
+    [
+      { role: 'user', content: 'start' },
+      { role: 'user', content: 'also add a summary', meta: { source: 'steering', submissionIds: ['s1'] } },
+    ],
+    { sessionId: 's' }
+  );
+  assert.equal(typed.steered, undefined, 'the prompt that opened the turn carries no mark');
+  assert.equal(steered.kind, 'user');
+  assert.equal(steered.text, 'also add a summary');
+  assert.equal(steered.steered, true);
 });
 
 test('a tweaks section restores as the live icon line, after pins and picks', () => {

@@ -335,8 +335,19 @@ const CODE_KINDS = new Map(
     quota_exhausted: ['quota_exceeded', 'quota_exhausted', 'usage_limit_reached', 'provider_accounts_exhausted'],
     context_overflow: ['context_length_exceeded', 'context_window_exceeded', 'model_context_window_exceeded'],
     request_too_large: ['request_too_large', 'payload_too_large', 'request_entity_too_large'],
-    auth: ['invalid_api_key', 'authentication_error', 'unauthenticated', 'unauthorized', 'invalid_authentication'],
-    permission: ['permission_error', 'permission_denied', 'forbidden'],
+    // Google names a rejected or expired key with an ErrorInfo reason on an
+    // INVALID_ARGUMENT 400; the reason outranks the envelope status.
+    auth: [
+      'invalid_api_key',
+      'authentication_error',
+      'unauthenticated',
+      'unauthorized',
+      'invalid_authentication',
+      'api_key_invalid',
+      'api_key_expired',
+      'access_token_expired',
+    ],
+    permission: ['permission_error', 'permission_denied', 'forbidden', 'service_disabled', 'api_key_service_blocked'],
     overloaded: [
       'server_is_overloaded',
       'overloaded_error',
@@ -374,6 +385,7 @@ const CODE_KINDS = new Map(
       'not_found',
       'not_found_error',
       'model_not_found',
+      'model_not_supported',
       'unsupported_parameter',
     ],
   }).flatMap(([kind, codes]) => codes.map((code) => [code, kind]))

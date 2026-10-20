@@ -73,9 +73,9 @@ export const SESSION_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  trigger: 'Session lookup/control, coding task sessions, title, compact, fork, Project and worktrees.',
+  trigger: 'Session lookup/control, agent task sessions, title, compact, fork, Project and worktrees.',
   description:
-    'Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion. Cancel/delete and worktree actions require the user’s request. Other actions affect only the current session.',
+    'Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion; promise a report of it only when its result has reportsBack: true. Cancel/delete and worktree actions require the user’s request. Other actions affect only the current session. Pass files on with attachments; a reported turn returns the files it produced as attachments.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -102,7 +102,7 @@ export const SESSION_TOOL = {
           'prune-worktrees',
         ],
         description:
-          'status defaults to current; list pages sessions; read returns latest items; send queues prompt; cancel stops the turn; delete removes the session. create (agent conversations) starts a visible coding task session from brief and reports its turns back; unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
+          'status defaults to current; list pages sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations) starts a visible agent task session from brief and reports its turns back; unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
       },
       title: { type: 'string', description: 'rename: new current-session title; create: task title.' },
       session_id: {
@@ -147,8 +147,18 @@ export const SESSION_TOOL = {
       value: { type: 'boolean', description: 'favorite/archive: on or off.' },
       brief: { type: 'string', description: 'create: self-contained instruction, the first message.' },
       project: { type: 'string', description: 'create: registered Project name or existing directory.' },
-      model: { type: 'string', description: 'create: provider/model or preset; default route otherwise.' },
+      model: {
+        type: 'string',
+        description: 'create: provider/model or preset; default is the Lead model (else the last-used one).',
+      },
       notify: { type: 'boolean', description: 'create: report results back, default true.' },
+      attachments: {
+        type: 'array',
+        items: { type: 'string' },
+        maxItems: 8,
+        description:
+          'send/create: files the target turn receives as real attachments (images, PDF/Office, text): an attachment of this conversation by its file name (a user upload, e.g. its [Image: source: name]) or id (a reported file’s [attachment:id]), or a file path inside this session’s folders. Secret files are refused.',
+      },
     },
     additionalProperties: false,
   },

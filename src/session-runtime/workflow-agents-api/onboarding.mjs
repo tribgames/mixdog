@@ -25,6 +25,7 @@ function applyWorkflowSlots(workflowInput, draft) {
       if (!normalized) continue;
       draft.presets = upsertWorkflowPreset(draft.presets, 'lead', normalized);
       draft.defaultPreset = workflowPresetId('lead');
+      draft.leadRoute = normalized;
     } else if (slot === 'agent') {
       if (normalized) draft.agentRoutes.worker = normalized;
       else delete draft.agentRoutes.worker;
@@ -72,10 +73,13 @@ export function createOnboardingApi(deps) {
         presets: Array.isArray(nextConfig.presets) ? nextConfig.presets.slice() : [],
         defaultPreset: nextConfig.default,
         agentRoutes: { ...(nextConfig.agents || {}) },
+        // The Lead route this save writes, from `defaultRoute` or `workflowRoutes.lead`.
+        leadRoute: null,
       };
       if (defaultRoute) {
         draft.presets = upsertWorkflowPreset(draft.presets, 'lead', defaultRoute);
         draft.defaultPreset = workflowPresetId('lead');
+        draft.leadRoute = defaultRoute;
       }
       const workflowInput =
         payload.workflowRoutes && typeof payload.workflowRoutes === 'object' ? payload.workflowRoutes : {};
@@ -104,12 +108,15 @@ export function createOnboardingApi(deps) {
       }
 
       saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
-      if (defaultRoute) {
+      // Whatever wrote the Lead route also moves the runtime Main route, in the
+      // same synchronous step as the save: a pending conditional backfill then
+      // finds a route that is not empty instead of overwriting this choice.
+      if (draft.leadRoute) {
         setRouteState(
           resolveRoute(getConfig(), {
-            provider: defaultRoute.provider,
-            model: defaultRoute.model,
-            effort: defaultRoute.effort,
+            provider: draft.leadRoute.provider,
+            model: draft.leadRoute.model,
+            effort: draft.leadRoute.effort,
           })
         );
         deps.invalidatePreSessionToolSurface?.();

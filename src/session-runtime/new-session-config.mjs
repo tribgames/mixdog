@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { flushPendingSessionConfigWrites } from './config-lifecycle.mjs';
 
 // Run only after the lifecycle has established that it needs a NEW session.
@@ -27,7 +28,11 @@ export function createNewSessionConfig({
     if (!initialConfig || typeof initialConfig !== 'object') {
       reloadFullConfig();
       if (!firstSession || !initialRouteExplicit) {
-        rt.route = resolveRoute(rt.config, {});
+        const configured = resolveRoute(rt.config, {});
+        // With no Lead model configured the model picked for this runtime's
+        // still-empty conversation (a session-only choice never writes the
+        // Lead route) stands; the reload must not drop it before the first turn.
+        if (clean(configured?.model) || !clean(rt.route?.model)) rt.route = configured;
       }
     }
     invalidateOutputStyleStatusCache();

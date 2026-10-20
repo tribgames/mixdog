@@ -8,6 +8,7 @@ import {
   CONNECTOR_CATALOG,
   CONNECTOR_IDS,
   GOOGLE_SCOPES,
+  connectorById,
   connectorOfServer,
   connectorServerInput,
   connectorToolDefault,
@@ -30,7 +31,7 @@ test('the catalog uses the curated deferred-tool ids and declares every backend'
   );
   for (const entry of CONNECTOR_CATALOG) {
     assert.equal(entry.trigger, connectorTrigger(entry.id));
-    assert.ok(['oauth', 'apiKey', 'builtin'].includes(entry.backend.kind), entry.id);
+    assert.ok(['oauth', 'apiKey'].includes(entry.backend.kind), entry.id);
   }
   // The Google connectors are the built-in in-process server, signed in with
   // Mixdog's client and the one scope list per connector.
@@ -49,7 +50,8 @@ test('the catalog uses the curated deferred-tool ids and declares every backend'
   assert.equal(connectorToolDefault('google-calendar', 'delete_event'), 'needs_approval');
   assert.equal(connectorToolDefault('google-calendar', 'list_events'), 'auto');
   assert.equal(connectorToolDefault('notion', 'anything'), 'auto');
-  assert.equal(CONNECTOR_CATALOG.find((entry) => entry.id === 'github').backend.kind, 'builtin');
+  // GitHub is the signed-in GitHub CLI, not a connector.
+  assert.equal(connectorById('github'), null);
   assert.deepEqual(
     connectorServerInput(
       CONNECTOR_CATALOG.find((entry) => entry.id === 'notion'),
@@ -231,4 +233,9 @@ test('setup connect_connector reports state and never connects', async () => {
   assert.match(result.note, /connect card/);
   assert.deepEqual(calls, []);
   await assert.rejects(executor.execute({ action: 'connect_connector', connector: 'myspace' }), /connector/);
+  await assert.rejects(
+    executor.execute({ action: 'connect_connector', connector: 'github' }),
+    /GitHub uses the signed-in GitHub CLI; no connector needed/
+  );
+  assert.deepEqual(calls, []);
 });

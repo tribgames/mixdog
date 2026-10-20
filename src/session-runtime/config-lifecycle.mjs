@@ -79,6 +79,9 @@ export function createConfigLifecycle({
   getConfigHasSecrets,
   setConfigHasSecrets,
   getRoute,
+  // Main route sync on reload (both optional: a lifecycle without them never syncs)
+  setRouteState,
+  resolveRoute,
   // shared modules / helpers
   cfgMod,
   sharedCfgMod,
@@ -121,14 +124,40 @@ export function createConfigLifecycle({
   // separate from adoptConfig: model tuning is adopted before its route save.
   let configSaveBaseline = structuredClone(getConfig());
 
-  function saveConfigAndAdopt(nextConfig, { hasSecrets = getConfigHasSecrets() } = {}) {
+  // The Lead route lives in these two stored keys; a conditional fill writes
+  // them only while `default` is still unset on disk, judged under the config
+  // file lock when the patch is applied (config-patch.mjs `unlessSet`).
+  const LEAD_FILL_KEYS = new Set(['default', 'presets']);
+
+  function saveConfigAndAdopt(nextConfig, { hasSecrets = getConfigHasSecrets(), leadFill = false } = {}) {
     // In-memory adopt is synchronous and first so callers that read back the
     // value immediately (e.g. setProfile -> getProfile) see the new state.
     const adopted = adoptConfig(nextConfig, { hasSecrets });
-    const changes = cfgMod.createConfigPatch(configSaveBaseline, adopted);
+    const changes = cfgMod
+      .createConfigPatch(configSaveBaseline, adopted)
+      .map((change) =>
+        leadFill && LEAD_FILL_KEYS.has(change.path[0]) ? { ...change, unlessSet: ['default'] } : change
+      );
     configSaveBaseline = structuredClone(adopted);
     if (changes.length) writers.queueConfigChanges([...changes, ...seedChanges(adopted, changes)]);
     return adopted;
+  }
+
+  const sameModel = (a, b) => clean(a?.provider) === clean(b?.provider) && clean(a?.model) === clean(b?.model);
+
+  /** After a conditional Lead fill adopted `filled`: persist it now and, when
+   *  the file already held another Lead route (written by another process after
+   *  the fill's re-read, so the patch skipped it), adopt that one instead.
+   *  Answers whether the runtime route was replaced. A route the user has moved
+   *  off `filled` meanwhile stays. */
+  async function confirmLeadFill(filled) {
+    await writers.flushConfigSaveAsync();
+    reloadFullConfig();
+    if (!setRouteState || !resolveRoute || !sameModel(getRoute(), filled)) return false;
+    const winner = resolveRoute(getConfig(), {});
+    if (!clean(winner?.model) || sameModel(winner, filled)) return false;
+    setRouteState(winner);
+    return true;
   }
 
   // A fresh profile's install markers (an empty `builtins`) equal the
@@ -177,7 +206,18 @@ export function createConfigLifecycle({
     }
     const adopted = adoptConfig(next, { hasSecrets: true });
     configSaveBaseline = structuredClone(adopted);
+    syncEmptyMainRoute(adopted);
     return adopted;
+  }
+
+  // A Main route the runtime still has no model for takes the Lead route a
+  // reload brings in (edited on disk or by another process), so a conditional
+  // backfill sees it and never overwrites it. A live route that has a model is
+  // the user's selection and stays.
+  function syncEmptyMainRoute(config) {
+    if (!setRouteState || !resolveRoute || clean(getRoute()?.model)) return;
+    const resolved = resolveRoute(config, {});
+    if (clean(resolved?.model)) setRouteState(resolved);
   }
 
   function ensureFullConfig() {
@@ -211,6 +251,7 @@ export function createConfigLifecycle({
     // adopt / save
     adoptConfig,
     saveConfigAndAdopt,
+    confirmLeadFill,
     // Skills publication also drains older config edits first.
     flushSkillsSave: writers.flushConfigSaveAsync,
     scheduleSkillsSave,

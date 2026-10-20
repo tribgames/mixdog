@@ -12,6 +12,7 @@ import {
   clearAgentDefinitionCache,
 } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import {
+  BOT_AGENT_KIND,
   canonicalizeAgentRouteStorage,
   isAgentDisabled,
   WORKFLOW_AGENT_KIND,
@@ -43,9 +44,23 @@ function connectorPolicyInput(value) {
   return storedConnectorPolicy(parseConnectorPolicy(value));
 }
 import { STANDALONE_ROOT } from '../runtime-paths.mjs';
+import { homeThreadEvidence } from '../../runtime/shared/agent-kind.mjs';
+import { BOT_SPLIT_BACKUP_DIRS, migrateBotsToOwnStore } from '../../runtime/shared/bot-split-migration.mjs';
+import { backupUserData } from '../../runtime/shared/user-data-guard.mjs';
+import { normalizeWorkflowRoute } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import {
+  botDir,
+  botStoreActive,
+  migratedBotIds,
+  mixyIdentityDir,
+  readBotRoute,
+  readMixyRoute,
+  userDefinitionDir,
+} from '../../runtime/shared/agent-store.mjs';
 
 const isFixedAgent = (id) => FIXED_AGENT_SLOTS.some((agent) => agent.id === id);
-const hasUserAgentFile = (dataDir, id) => existsSync(join(dataDir, 'agents', id, 'AGENT.md'));
+const userDir = userDefinitionDir;
+const hasUserAgentFile = (dataDir, id) => existsSync(join(userDir(dataDir, id), 'AGENT.md'));
 // An archived (deleted) agent's AGENT.md, moved aside beside the tombstone:
 // no loader reads it, and restoring moves it back.
 const ARCHIVED_AGENT_FILE = 'AGENT.md.archived';
@@ -57,28 +72,36 @@ function hiddenFrontmatter(definition) {
   return rest;
 }
 
-// The definition's persisted `kind` marker (isContactAgentId reads it), or
-// null: only the Workflows page's create writes one (`kind: agent`).
+// The definition's kind (isContactAgentId reads it), or null: the explicit
+// marker bot creation (`kind: bot`) or the Workflows page (`kind: agent`)
+// wrote, else the read-only decision for an unmarked one (agent-kind.mjs).
 function kindOf(definition) {
-  const kind = definition?.frontmatter?.kind;
-  return typeof kind === 'string' && kind.trim() ? kind.trim() : null;
+  return definition?.kind || null;
 }
 
-// A save's `kind`: given only when creating, and only as the workflow-agent
-// marker. Unmarked agents are contacts (봇); a kind never changes later.
+// A save's `kind`: given only when creating, as the bot or workflow-agent
+// marker. Unmarked agents are workflow agents; a kind never changes later.
 function creationKind(payload, existed) {
   if (!hasOwn(payload, 'kind')) return null;
   if (existed) throw new Error("an agent's kind is set when it is created and cannot change");
-  if (payload.kind !== WORKFLOW_AGENT_KIND) throw new Error(`agent kind must be "${WORKFLOW_AGENT_KIND}" or absent`);
-  return WORKFLOW_AGENT_KIND;
+  if (payload.kind !== BOT_AGENT_KIND && payload.kind !== WORKFLOW_AGENT_KIND) {
+    throw new Error(`agent kind must be "${BOT_AGENT_KIND}", "${WORKFLOW_AGENT_KIND}" or absent`);
+  }
+  return payload.kind;
 }
 
 function readManifest(dir) {
+  return readManifestStrict(join(dir, 'agent.json')) || {};
+}
+
+// The manifest object at `file`, or null when it is missing, unreadable or
+// not a JSON object.
+function readManifestStrict(file) {
   try {
-    const value = JSON.parse(readFileSync(join(dir, 'agent.json'), 'utf8'));
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const value = JSON.parse(readFileSync(file, 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
@@ -238,13 +261,18 @@ function writeAgentFiles(dir, { name, description, body, extra = {}, manifest = 
 // user-authored agents are custom definitions under agents/<id>/AGENT.md.
 export function createAgentEditorApi(deps) {
   const { getConfig, loadAgentDefinition, listCustomAgentIds, saveConfigAndAdopt, setAgentRoute } = deps;
-  const routeFor = (config, id) => effectiveAgentRoute(deps, config, id);
+  // A store bot's route lives in its folder; every other agent's in the config.
+  const ownRoute = (config, id) => {
+    const bot = readBotRoute(resolveDataDir(deps), id);
+    return bot !== undefined ? bot : deps.agentRouteFromConfig(config, id);
+  };
+  const routeFor = (config, id) => effectiveAgentRoute({ ...deps, agentRouteFromConfig: ownRoute }, config, id);
   // `route` falls back to Main; this says whether the agent has a route of
   // its own, so a surface never shows (or saves) the Main fallback as one.
-  const routeConfigured = (config, id) => Boolean(deps.agentRouteFromConfig(config, id));
+  const routeConfigured = (config, id) => Boolean(ownRoute(config, id));
   const shippedDir = (id) => join(deps.rootDir ?? STANDALONE_ROOT, 'agents', id);
   // The manifest in effect: the user's own copy if any, else the shipped one.
-  const manifestDirOf = (dataDir, id) => (hasUserAgentFile(dataDir, id) ? join(dataDir, 'agents', id) : shippedDir(id));
+  const manifestDirOf = (dataDir, id) => (hasUserAgentFile(dataDir, id) ? userDir(dataDir, id) : shippedDir(id));
   const manifestOf = (dataDir, id) => readManifest(manifestDirOf(dataDir, id));
   const avatarOf = (dataDir, id) => normalizeAgentAvatar(manifestOf(dataDir, id).avatar);
   // A saved, archived or restored bot reaches the prompts that embed it: the
@@ -292,7 +320,7 @@ export function createAgentEditorApi(deps) {
   // writes, from the copy in effect. An editor that loaded it can send it back
   // as `expectedRevision`, and a save over a newer copy is refused.
   function definitionRevision(dataDir, id) {
-    const dir = hasUserAgentFile(dataDir, id) ? join(dataDir, 'agents', id) : shippedDir(id);
+    const dir = hasUserAgentFile(dataDir, id) ? userDir(dataDir, id) : shippedDir(id);
     const hash = createHash('sha256');
     for (const name of ['agent.json', 'AGENT.md', PERSONA_FILE]) {
       hash.update(`${name}\0`);
@@ -326,7 +354,7 @@ export function createAgentEditorApi(deps) {
       kind: kindOf(definition),
       disabled: isAgentDisabled(getConfig(), id),
       avatar: avatarOf(dataDir, id),
-      persona: readPersona(hasUserAgentFile(dataDir, id) ? join(dataDir, 'agents', id) : shippedDir(id)),
+      persona: readPersona(hasUserAgentFile(dataDir, id) ? userDir(dataDir, id) : shippedDir(id)),
       revision: definitionRevision(dataDir, id),
     };
   }
@@ -345,7 +373,14 @@ export function createAgentEditorApi(deps) {
         id ||
         availableAgentId(
           name,
-          (candidate) => Boolean(loadAgentDefinition(dataDir, candidate)) || isArchivedAgent(dataDir, candidate)
+          (candidate) =>
+            Boolean(loadAgentDefinition(dataDir, candidate)) ||
+            isArchivedAgent(dataDir, candidate) ||
+            // An id the split copied stays the bot's, even once purged; a
+            // folder in either store keeps its id too.
+            migratedBotIds(dataDir).has(candidate) ||
+            (botStoreActive(dataDir) &&
+              (existsSync(join(dataDir, 'agents', candidate)) || existsSync(botDir(dataDir, candidate))))
         ),
       name,
       description: oneLine(payload.description),
@@ -371,7 +406,21 @@ export function createAgentEditorApi(deps) {
     const kind = creationKind(payload, existed);
     const definition = { name: name || id, description, body };
     const manifest = hiddenManifest(manifestOf(dataDir, id));
-    const dir = join(dataDir, 'agents', id);
+    // With the bot store, a new bot is made in bots/ and a new agent in
+    // agents/; either keeps its `kind` marker, so its kind never rests on
+    // the folder alone (a copy read without the store is still a bot).
+    const storeBot = !existed && kind === BOT_AGENT_KIND && botStoreActive(dataDir);
+    // An id is one definition's in one store: a new bot never takes an id
+    // agents/ holds (an archived agent's included), a new agent never one of
+    // bots/ (or one the split moved there, even if since deleted).
+    if (!existed && botStoreActive(dataDir)) {
+      const taken = storeBot
+        ? existsSync(join(dataDir, 'agents', id))
+        : existsSync(botDir(dataDir, id)) || migratedBotIds(dataDir).has(id);
+      if (taken) throw new Error(`agent id "${id}" is already in use; pick another name`);
+    }
+    const dir = storeBot ? botDir(dataDir, id) : userDir(dataDir, id);
+    const inStore = dir === botDir(dataDir, id);
     // New custom images arrive as checked bytes, stored under content hashes.
     const update = hasOwn(payload, 'avatar') ? avatarUpdate(payload.avatar, dir) : null;
     if (update?.avatar) manifest.avatar = update.avatar;
@@ -389,6 +438,7 @@ export function createAgentEditorApi(deps) {
     // Equal to the shipped agent: keep no copy so it follows the shipped
     // version — unless the manifest (an avatar) or a persona differs.
     const absorbed =
+      !inStore &&
       !persona &&
       stableJson(manifest) === stableJson(hiddenManifest(readManifest(shippedDir(id)))) &&
       absorbSaveEqualToShipped({
@@ -440,7 +490,7 @@ export function createAgentEditorApi(deps) {
     if (isHiddenAgent(id)) throw new Error(`agent "${id}" is internal and cannot be deleted`);
     const builtIn = isFixedAgent(id);
     const dataDir = resolveDataDir(deps);
-    const dir = join(dataDir, 'agents', id);
+    const dir = userDir(dataDir, id);
     if (!hasUserAgentFile(dataDir, id)) {
       if (builtIn) throw new Error(`agent "${id}" has no user override to reset`);
       if (!loadAgentDefinition(dataDir, id)) throw new Error(`agent "${id}" not found`);
@@ -470,7 +520,7 @@ export function createAgentEditorApi(deps) {
     return { id, deleted: true, revertedToBuiltIn: false };
   }
 
-  const isArchivedAgent = (dataDir, id) => existsSync(join(dataDir, 'agents', id, AGENT_DELETED_MARKER));
+  const isArchivedAgent = (dataDir, id) => existsSync(join(userDir(dataDir, id), AGENT_DELETED_MARKER));
 
   /** An archived agent back as it was, under its own id: its AGENT.md moved
    *  back (a starter without a copy of its own returns to the packaged one)
@@ -480,7 +530,7 @@ export function createAgentEditorApi(deps) {
     if (!id || isHiddenAgent(id) || isFixedAgent(id)) throw new Error(`unknown agent "${agentId}"`);
     const dataDir = resolveDataDir(deps);
     if (!isArchivedAgent(dataDir, id)) throw new Error(`agent "${id}" is not deleted`);
-    const dir = join(dataDir, 'agents', id);
+    const dir = userDir(dataDir, id);
     const kept = join(dir, ARCHIVED_AGENT_FILE);
     if (!existsSync(kept) && !existsSync(join(shippedDir(id), 'AGENT.md'))) {
       throw new Error(`agent "${id}" was deleted before deleted agents were kept, so it cannot be restored`);
@@ -501,7 +551,7 @@ export function createAgentEditorApi(deps) {
     const dataDir = resolveDataDir(deps);
     // Never a live agent; one deleted before archiving existed left nothing.
     if (!isArchivedAgent(dataDir, id)) return { id, purged: false };
-    const dir = join(dataDir, 'agents', id);
+    const dir = userDir(dataDir, id);
     rmSync(dir, { recursive: true, force: true });
     clearAgentDefinitionCache(id);
     dropAgentRoute(id);
@@ -522,7 +572,7 @@ export function createAgentEditorApi(deps) {
       ids.map((agentId) => {
         const id = agentEditorId(agentId);
         if (!id || id !== agentId || !isArchivedAgent(dataDir, id)) return [agentId, null];
-        const manifest = readManifest(join(dataDir, 'agents', id));
+        const manifest = readManifest(userDir(dataDir, id));
         return [agentId, { name: oneLine(manifest.name) || id, avatar: normalizeAgentAvatar(manifest.avatar) ?? null }];
       })
     );
@@ -547,9 +597,9 @@ export function createAgentEditorApi(deps) {
     const presence = (agentId) => {
       const id = agentEditorId(agentId);
       if (!id || id !== agentId) return 'unknown';
-      const user = probe(join(dataDir, 'agents', id, 'AGENT.md'));
+      const user = probe(join(userDir(dataDir, id), 'AGENT.md'));
       if (user !== 'absent') return user;
-      const tombstone = probe(join(dataDir, 'agents', id, AGENT_DELETED_MARKER));
+      const tombstone = probe(join(userDir(dataDir, id), AGENT_DELETED_MARKER));
       if (tombstone === 'present') return 'deleted';
       if (tombstone === 'unknown') return 'unknown';
       const shipped = probe(join(rootDir, 'agents', id, 'AGENT.md'));
@@ -566,9 +616,10 @@ export function createAgentEditorApi(deps) {
     const id = agentEditorId(agentId);
     if (!id || isHiddenAgent(id)) return null;
     const dataDir = resolveDataDir(deps);
-    // Mixy's face lives in agents/lead/agent.json, beside no AGENT.md of its own.
+    // Mixy's face lives in its identity folder's agent.json (mixyIdentityDir:
+    // bots/mixy with the bot store, agents/lead before), beside no AGENT.md.
     const lead = id === LEAD_AGENT_ID;
-    const dir = join(dataDir, 'agents', id);
+    const dir = lead ? leadDir() : userDir(dataDir, id);
     // An archived agent's face stays readable for its archived chat.
     const archived = !lead && isArchivedAgent(dataDir, id);
     const avatar = lead
@@ -587,8 +638,10 @@ export function createAgentEditorApi(deps) {
 
   // Mixy (the Lead) has no agent definition to edit: only its PERSONA.md
   // (성격) and AGENT.md (일하는 방식, agent mode only), read by the runtime
-  // from agents/lead/. Saved empty, the file goes.
-  const leadDir = () => join(resolveDataDir(deps), 'agents', LEAD_AGENT_ID);
+  // from Mixy's identity folder: bots/mixy once the bot store is active,
+  // agents/lead before (mixyIdentityDir, agent-store.mjs). Saved empty, the
+  // file goes.
+  const leadDir = () => mixyIdentityDir(resolveDataDir(deps));
   function readLeadFile(file) {
     try {
       return readFileSync(join(leadDir(), file), 'utf8').trim();
@@ -614,16 +667,27 @@ export function createAgentEditorApi(deps) {
   const saveLeadAgentBody = (text) => saveLeadFile('AGENT.md', text);
 
   // Whether Mixy was created (the "대표 에이전트 만들기" first run): the
-  // explicit `created` flag in agents/lead/agent.json. null until decided —
+  // explicit `created` flag in Mixy's agent.json (leadDir). null until decided —
   // the desktop host decides once (an existing profile counts as created).
   // Also Mixy's display name (`name`, read by the runtime's identity line) and
   // face (`avatar`, as every agent manifest): '' / null mean the defaults.
+  // `homeChatted`: whether Mixy's home thread holds any conversation (the
+  // host reads it to tell v1.3.0's never-used automatic Mixy apart).
   function getLeadStatus() {
     const manifest = readManifest(leadDir());
+    // A v1.3.0 automatic Mixy the split left in agents/lead still counts as
+    // decided (its routines keep running) until bots/mixy says otherwise.
+    const legacy = readManifest(join(resolveDataDir(deps), 'agents', LEAD_AGENT_ID)).created;
+    let created = null;
+    if (typeof manifest.created === 'boolean') created = manifest.created;
+    else if (typeof legacy === 'boolean') created = legacy;
     return {
-      created: typeof manifest.created === 'boolean' ? manifest.created : null,
+      created,
       name: oneLine(manifest.name),
       avatar: normalizeAgentAvatar(manifest.avatar) ?? null,
+      homeChatted: homeThreadEvidence(resolveDataDir(deps), LEAD_AGENT_ID).chatted,
+      // Mixy's own model (never the Lead's); null: its thread keeps its own.
+      route: readMixyRoute(resolveDataDir(deps)),
     };
   }
   // Mixy's name and face, chosen in the 대표 에이전트 dialog or its profile:
@@ -648,8 +712,15 @@ export function createAgentEditorApi(deps) {
     return getLeadStatus();
   }
   // Sets the flag (and Mixy's 하는 일 when given); every other key is kept.
+  // A Lead manifest that exists but cannot be read as an object is the
+  // user's and is left alone: nothing is written, the status stays as read.
   function setLeadCreated(created, description) {
     if (typeof created !== 'boolean') throw new TypeError('created must be a boolean');
+    const file = join(leadDir(), 'agent.json');
+    if (existsSync(file) && !readManifestStrict(file)) {
+      process.stderr.write(`[agents] ${file} is not a readable JSON object; Mixy's created flag was not saved\n`);
+      return getLeadStatus();
+    }
     const manifest = readManifest(leadDir());
     manifest.created = created;
     const job = oneLine(description);
@@ -691,7 +762,27 @@ export function createAgentEditorApi(deps) {
     return getAgentConnectorPolicy(id);
   }
 
+  /** The one-time split of bots into bots/ (bot-split-migration.mjs), from
+   *  the config as it is now; the catalogs read the store from here on. */
+  function migrateBotStore() {
+    const dataDir = resolveDataDir(deps);
+    const config = getConfig();
+    const result = migrateBotsToOwnStore({
+      dataDir,
+      shippedRoot: deps.rootDir ?? STANDALONE_ROOT,
+      routeOf: (id) => deps.agentRouteFromConfig(config, id),
+      leadRoute: normalizeWorkflowRoute(deps.resolveRoute(config, {})),
+      // The definitions the split copies or a re-sync replaces go with it.
+      backup: () => backupUserData(dataDir, 'bot-split', { dirs: BOT_SPLIT_BACKUP_DIRS }),
+      log: (line) => process.stderr.write(`${line}\n`),
+    });
+    clearAgentDefinitionCache();
+    listCustomAgentIds?.(dataDir);
+    return result;
+  }
+
   return {
+    migrateBotStore,
     getAgentConnectorPolicy,
     setAgentConnectorPolicy,
     listAgents,

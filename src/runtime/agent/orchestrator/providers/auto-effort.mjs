@@ -31,14 +31,14 @@ export const AUTO_EFFORT_LEVELS = Object.freeze(['easy', 'normal', 'hard', 'very
 const STEP_OF_LEVEL = [-1, 0, 1, 2];
 
 // The chosen level minimises the expected cost under the judge distribution.
-// A miss costs one per level, plus extra for an opposite call and for a
-// needless "very hard" (xhigh). Opposite calls are asymmetric: "easy" for a
-// hard turn degrades the answer, "hard" for an easy turn only costs tokens.
-// On the held-out test splits the heavier under-call cost cut hard-as-easy
-// calls by a third (20 -> 13 of 7,180) for -0.2 points of exact accuracy.
+// A miss costs one per level, plus extra for an opposite call. Opposite calls
+// are asymmetric: "easy" for a hard turn degrades the answer, "hard" for an
+// easy turn only costs tokens. On the held-out test splits the heavier
+// under-call cost cut hard-as-easy calls by a third (20 -> 13 of 7,180) for
+// -0.2 points of exact accuracy. "Very hard" carries no extra cost: an extra
+// penalty there let judge v7 pick xhigh on only 17% of very hard turns.
 export const AUTO_EFFORT_UNDER_OPPOSITE_COST = 3;
 export const AUTO_EFFORT_OVER_OPPOSITE_COST = 1;
-export const AUTO_EFFORT_FALSE_VERY_HARD_COST = 1;
 // Ties keep the default first, then the cheaper side.
 const TIE_ORDER = [1, 0, 2, 3];
 
@@ -49,8 +49,7 @@ function expectedCost(values, level) {
       p *
       (Math.abs(level - actual) +
         (level === 0 && actual >= 2 ? AUTO_EFFORT_UNDER_OPPOSITE_COST : 0) +
-        (actual === 0 && level >= 2 ? AUTO_EFFORT_OVER_OPPOSITE_COST : 0) +
-        (level === 3 && actual < 3 ? AUTO_EFFORT_FALSE_VERY_HARD_COST : 0));
+        (actual === 0 && level >= 2 ? AUTO_EFFORT_OVER_OPPOSITE_COST : 0));
   });
   return cost;
 }

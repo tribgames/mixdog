@@ -195,9 +195,23 @@ async function adoptRoute(deps, persist, next, options, lease) {
     scheduleStatuslineUsageRefresh,
   } = deps;
   const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
+  // The Lead route a conditional fill wrote, until the file confirms it.
+  let filled = null;
   // Provider readiness may outlast the session the selection was made for.
   const adopted = lease.run(
     () => {
+      // Compare-and-set: a route that already has a model (picked while this
+      // selection was resolving) is never replaced. Checked synchronously with
+      // the adopt below, so nothing can set a route in between. A Lead route
+      // another process persisted may not have reached this runtime yet (the
+      // change notification is debounced): the config is re-read from disk
+      // right here, which adopts it and fills the empty route, and that route
+      // is the winner this selection answers with.
+      if (options?.onlyIfEmpty === true) {
+        if (clean(getRoute()?.model)) return false;
+        deps.reloadFullConfig?.();
+        if (clean(getRoute()?.model)) return false;
+      }
       if (options?.sessionOnly === true) {
         // An agent child's route belongs to that session alone: the shared
         // modelSettings bucket (saved effort/Fast per model) and the main
@@ -210,7 +224,9 @@ async function adoptRoute(deps, persist, next, options, lease) {
         // — the session surface's model pick, an heir — keeps it.
         const leadRoute = persist.persistAdoptedModelSettings(selectedRoute, {
           keepMainModel: options?.keepMainModel !== false,
+          onlyIfAbsent: options?.onlyIfEmpty === true,
         });
+        filled = leadRoute;
         setRouteState(resolveRoute(getConfig(), leadRoute ? { model: workflowPresetId('lead') } : selectedRoute));
       }
       return true;
@@ -218,9 +234,13 @@ async function adoptRoute(deps, persist, next, options, lease) {
     () => false
   );
   if (!adopted) return false;
+  // A conditional fill reaches the file only while no Lead route is stored
+  // there (judged under the config file lock). When another process wrote one
+  // after the re-read above, the file's route replaces the fill in the runtime.
+  const replaced = filled && (await deps.confirmLeadFill?.(filled)) === true;
   // The refresh completes against the route just adopted and only while the
   // selection still owns it.
-  await refreshRouteEffort(modelMeta, getRoute(), null, lease);
+  await refreshRouteEffort(replaced ? null : modelMeta, getRoute(), null, lease);
   return lease.run(
     () => {
       refreshStatuslineUsageSnapshot(getRoute());

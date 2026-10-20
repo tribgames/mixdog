@@ -12,9 +12,7 @@ after(() => {
   rmSync(dataDir, { recursive: true, force: true });
 });
 
-const { foldUsageReadout, emptyUsageReadout, MIN_SPEED_MS, MIN_SPEED_OUTPUT_TOKENS } = await import(
-  '../../../shared/usage-readout-totals.mjs'
-);
+const { foldUsageReadout, emptyUsageReadout } = await import('../../../shared/usage-readout-totals.mjs');
 const { usageDeltaEvent } = await import('./loop/usage.mjs');
 const metrics = await import('./manager/usage-metrics.mjs');
 const { _sessionForDisk } = await import('./store/serialize.mjs');
@@ -29,7 +27,14 @@ test('the fold sums prompt split across calls; unmeasured prompts add nothing', 
     null,
     call({ deltaInput: 100, deltaCachedRead: 900, deltaCacheWrite: 50, deltaPrompt: 1050 })
   );
-  assert.deepEqual(totals, { input: 100, cacheRead: 900, cacheWrite: 50, output: 0, speedOutputTokens: 0, speedMs: 0 });
+  assert.deepEqual(totals, {
+    input: 100,
+    cacheRead: 900,
+    cacheWrite: 50,
+    output: 0,
+    requestOutputTokens: 0,
+    requestMs: 0,
+  });
   // Inclusive input (Responses): the cache is inside the reported input.
   totals = foldUsageReadout(totals, call({ deltaInput: 1000, deltaCachedRead: 800, deltaPrompt: 1000 }));
   assert.deepEqual([totals.input, totals.cacheRead, totals.cacheWrite], [300, 1700, 50]);
@@ -48,24 +53,35 @@ test('the output sum counts every call; a record without it never grows a partia
   assert.equal('output' in foldUsageReadout(legacy, call({ deltaOutput: 7 })), false);
 });
 
-test('each call meets the speed floors before it is summed', () => {
+test('every call with positive output and positive duration is summed, as the usage ledger does', () => {
   let totals = emptyUsageReadout();
   totals = foldUsageReadout(totals, call({ deltaOutput: 200 }), 4000);
-  assert.deepEqual([totals.speedOutputTokens, totals.speedMs], [200, 4000]);
-  // Too short in tokens, too short in time, untimed: none enters either sum.
-  totals = foldUsageReadout(totals, call({ deltaOutput: MIN_SPEED_OUTPUT_TOKENS - 1 }), 5000);
-  totals = foldUsageReadout(totals, call({ deltaOutput: 500 }), MIN_SPEED_MS - 1);
+  assert.deepEqual([totals.requestOutputTokens, totals.requestMs], [200, 4000]);
+  // No output, no duration, a non-finite or negative duration: none enters either sum.
+  totals = foldUsageReadout(totals, call({ deltaOutput: 0 }), 5000);
   totals = foldUsageReadout(totals, call({ deltaOutput: 500 }), 0);
-  assert.deepEqual([totals.speedOutputTokens, totals.speedMs], [200, 4000]);
-  totals = foldUsageReadout(totals, call({ deltaOutput: MIN_SPEED_OUTPUT_TOKENS }), MIN_SPEED_MS);
-  assert.deepEqual([totals.speedOutputTokens, totals.speedMs], [220, 4500]);
+  totals = foldUsageReadout(totals, call({ deltaOutput: 500 }), Number.NaN);
+  totals = foldUsageReadout(totals, call({ deltaOutput: 500 }), -10);
+  assert.deepEqual([totals.requestOutputTokens, totals.requestMs], [200, 4000]);
+  // A short or quick reply is a call like any other.
+  totals = foldUsageReadout(totals, call({ deltaOutput: 5 }), 300);
+  assert.deepEqual([totals.requestOutputTokens, totals.requestMs], [205, 4300]);
+  totals = foldUsageReadout(totals, call({ deltaOutput: 1 }), 1);
+  assert.deepEqual([totals.requestOutputTokens, totals.requestMs], [206, 4301]);
 });
 
-test('the usage delta carries the call generation time', () => {
+test('a record saved with the first-token speed keeps it and gains the request-time sums beside it', () => {
+  const legacy = { input: 1, cacheRead: 0, cacheWrite: 0, output: 300, speedOutputTokens: 300, speedMs: 1000 };
+  const totals = foldUsageReadout(legacy, call({ deltaOutput: 200 }), 4000);
+  assert.deepEqual([totals.speedOutputTokens, totals.speedMs], [300, 1000]);
+  assert.deepEqual([totals.requestOutputTokens, totals.requestMs], [200, 4000]);
+});
+
+test('the usage delta carries the call request time', () => {
   const event = (extra) =>
     usageDeltaEvent({ sessionId: 's', iterationIndex: 1, usage: { outputTokens: 30 }, ...extra });
-  assert.equal(event({ generationMs: 1234 }).generationMs, 1234);
-  assert.equal(event({}).generationMs, 0);
+  assert.equal(event({ requestMs: 1234 }).requestMs, 1234);
+  assert.equal(event({}).requestMs, 0);
 });
 
 test('session totals accumulate across turns and tool-loop calls, persist and surface', async () => {
@@ -76,35 +92,26 @@ test('session totals accumulate across turns and tool-loop calls, persist and su
 
   // Turn 1: a tool loop of two model calls.
   metrics.bumpUsageMetricsTurnId(session);
-  await send(
-    1,
-    call({ deltaInput: 100, deltaCacheWrite: 900, deltaPrompt: 1000, deltaOutput: 100, generationMs: 2000 })
-  );
-  await send(
-    2,
-    call({ deltaInput: 50, deltaCachedRead: 950, deltaPrompt: 1000, deltaOutput: 100, generationMs: 2000 })
-  );
+  await send(1, call({ deltaInput: 100, deltaCacheWrite: 900, deltaPrompt: 1000, deltaOutput: 100, requestMs: 2000 }));
+  await send(2, call({ deltaInput: 50, deltaCachedRead: 950, deltaPrompt: 1000, deltaOutput: 100, requestMs: 2000 }));
   // A replayed delta (same turn/epoch/iteration) is not counted twice.
-  await send(
-    2,
-    call({ deltaInput: 50, deltaCachedRead: 950, deltaPrompt: 1000, deltaOutput: 100, generationMs: 2000 })
-  );
+  await send(2, call({ deltaInput: 50, deltaCachedRead: 950, deltaPrompt: 1000, deltaOutput: 100, requestMs: 2000 }));
   assert.deepEqual(session.usageReadout, {
     input: 150,
     cacheRead: 950,
     cacheWrite: 900,
     output: 200,
-    speedOutputTokens: 200,
-    speedMs: 4000,
+    requestOutputTokens: 200,
+    requestMs: 4000,
   });
 
-  // Turn 2 (iteration indices restart): one more call, too short to time.
+  // Turn 2 (iteration indices restart): one more call, with no request time.
   metrics.bumpUsageMetricsTurnId(session);
-  await send(1, call({ deltaInput: 10, deltaCachedRead: 990, deltaPrompt: 1000, deltaOutput: 5, generationMs: 300 }));
-  const { input, cacheRead, cacheWrite, output, speedOutputTokens, speedMs } = session.usageReadout;
+  await send(1, call({ deltaInput: 10, deltaCachedRead: 990, deltaPrompt: 1000, deltaOutput: 5, requestMs: 0 }));
+  const { input, cacheRead, cacheWrite, output, requestOutputTokens, requestMs } = session.usageReadout;
   assert.equal(input + cacheRead + cacheWrite + output, 3000 + 205, 'the total tokens of three calls');
   assert.equal(cacheRead / (input + cacheRead + cacheWrite), 1940 / 3000);
-  assert.equal((speedOutputTokens * 1000) / speedMs, 50);
+  assert.equal((requestOutputTokens * 1000) / requestMs, 50);
 
   // Survives a restart (disk projection) and reaches the status the TUI reads.
   const restored = JSON.parse(JSON.stringify(_sessionForDisk(session)));

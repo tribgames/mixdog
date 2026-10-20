@@ -11,7 +11,10 @@ import { LOCAL_PROVIDER_ID, configureLocalProviderIdleTtl } from '../../runtime/
 import { resolve } from 'node:path';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { LAZY_SECRET_PROVIDERS } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
-import { ensureProviderEnabled, normalizeSystemShellConfig } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import {
+  ensureProviderEnabled,
+  normalizeSystemShellConfig,
+} from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import {
   workflowPresetId,
   normalizeWebSearchProviderId,
@@ -33,7 +36,7 @@ import { createProviderModels } from '../provider-models.mjs';
 import { createProviderUsage } from '../provider-usage.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
-import { outputStyleStatus, webSearchCapableFor } from './shared.mjs';
+import { outputStyleStatus, resolveRoute, webSearchCapableFor } from './shared.mjs';
 
 export function wireProviders(boot) {
   wireConfigLifecycle(boot);
@@ -63,6 +66,10 @@ function wireConfigLifecycle(boot) {
       rt.configHasSecrets = next;
     },
     getRoute: () => rt.route,
+    setRouteState: (next) => {
+      rt.route = next;
+    },
+    resolveRoute,
     cfgMod,
     sharedCfgMod,
     setConfiguredShell,
@@ -82,6 +89,7 @@ function wireConfigLifecycle(boot) {
     seedOutputStyleStatusCache,
     adoptConfig,
     saveConfigAndAdopt,
+    confirmLeadFill,
     scheduleSkillsSave,
     flushSkillsSave,
     scheduleOutputStyleSave,
@@ -98,6 +106,7 @@ function wireConfigLifecycle(boot) {
     seedOutputStyleStatusCache,
     adoptConfig,
     saveConfigAndAdopt,
+    confirmLeadFill,
     scheduleSkillsSave,
     flushSkillsSave,
     scheduleOutputStyleSave,
@@ -106,13 +115,14 @@ function wireConfigLifecycle(boot) {
     ensureFullConfig,
     displayConfig,
     ensureConfigForRouteProvider,
-    persistLeadRoute: (routeLike) => {
+    persistLeadRoute: (routeLike, { onlyIfAbsent = false } = {}) => {
       const leadRoute = normalizeWorkflowRoute(routeLike);
       if (!leadRoute) return null;
       const nextConfig = { ...(rt.config || {}) };
       nextConfig.presets = upsertWorkflowPreset(nextConfig.presets, 'lead', leadRoute);
       nextConfig.default = workflowPresetId('lead');
-      saveConfigAndAdopt(nextConfig);
+      // A conditional fill reaches the file only while no Lead route is stored.
+      saveConfigAndAdopt(nextConfig, { leadFill: onlyIfAbsent });
       return leadRoute;
     },
   });

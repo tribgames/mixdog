@@ -1,5 +1,5 @@
-// Route resolution against the live runtime record: pick a model for a
-// model-less first turn and refresh the route's effort / Fast / context
+// Route resolution against the live runtime record: refuse a model-less first
+// turn (no auto-pick) and refresh the route's effort / Fast / context
 // fields from provider metadata.
 import { ensureProviderEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
@@ -22,17 +22,11 @@ export function createRouteResolution({ rt, collectProviderModels, ensureProvide
     if (routeHasModel()) return rt.route;
     const models = await runAbortable(signal, () => collectProviderModels());
     throwIfAborted(signal);
-    const picked = models[0] || null;
-    if (!picked) {
+    if (!models?.length) {
       throw new Error('No provider models available. Open /providers to sign in, then /model to choose a model.');
     }
-    rt.route = {
-      ...rt.route,
-      provider: picked.provider,
-      model: picked.id,
-      preset: null,
-    };
-    return rt.route;
+    // Never auto-pick: the user chooses the model.
+    throw new Error('No model selected. Choose a model with /model first.');
   }
 
   async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null, signal = null, lease = null) {

@@ -4,8 +4,9 @@
 // use so a rename applies at once. Text shared across agents (tool schemas,
 // other agents' shared prompt block) says "the representative agent" instead,
 // so a rename never changes cached bytes.
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { mixdogGlobalDir, readSafe } from '../context/skill-catalog.mjs';
+import { mixyIdentityDir } from '../../../shared/agent-store.mjs';
 
 export const DEFAULT_MIXY_NAME = 'Mixy';
 
@@ -17,7 +18,9 @@ export function mixyNameOf(manifest) {
 
 export function mixyDisplayName() {
   try {
-    return mixyNameOf(JSON.parse(readSafe(join(mixdogGlobalDir('agents'), 'lead', 'agent.json')) || '{}'));
+    // bots/mixy once Mixy is its own bot, agents/lead before (agent-store.mjs).
+    const dir = mixyIdentityDir(dirname(mixdogGlobalDir('agents')));
+    return mixyNameOf(JSON.parse(readSafe(join(dir, 'agent.json')) || '{}'));
   } catch {
     return DEFAULT_MIXY_NAME;
   }

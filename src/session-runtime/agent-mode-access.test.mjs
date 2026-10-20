@@ -41,9 +41,11 @@ function contactSpawner(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'agents'), { recursive: true });
   writeFileSync(join(root, 'agents', 'worker.md'), '---\ndescription: worker\n---\nWork.\n');
-  writeFileSync(join(root, 'agents', 'other.md'), '---\ndescription: a contact\n---\nPlan trips.\n');
+  writeFileSync(join(root, 'agents', 'other.md'), '---\ndescription: a contact\nkind: bot\n---\nPlan trips.\n');
   // Made on the Workflows page: a sub-agent every Lead may delegate to.
   writeFileSync(join(root, 'agents', 'triage.md'), '---\ndescription: sorts issues\nkind: agent\n---\nSort.\n');
+  // Made before bots existed: no marker, a sub-agent as in v1.2.6.
+  writeFileSync(join(root, 'agents', 'legacy.md'), '---\ndescription: an old role\n---\nHelp.\n');
   const { resolveSpawnPlan } = createSpawnPlanner({
     mgr: { getSession: (id) => SESSIONS.get(id) || null },
     cfgMod: { loadConfig: () => ({}) },
@@ -67,6 +69,7 @@ test('only Mixy delegates to a contact agent; every Lead may use the sub-agents'
     );
     assert.equal((await spawn('worker', caller)).agent, 'worker');
     assert.equal((await spawn('triage', caller)).agent, 'triage', 'a kind: agent role is no contact');
+    assert.equal((await spawn('legacy', caller)).agent, 'legacy', 'an unmarked role is no contact');
   }
   for (const caller of ['sess_home_lead', 'sess_task']) assert.equal((await spawn('other', caller)).agent, 'other');
 });
@@ -118,15 +121,23 @@ test('only Mixy creates, edits or deletes agents from a chat; other agents set o
     defined.map((definition) => definition.id),
     ['helper', 'helper']
   );
-  // Mixy's tools create bots only: no kind marker ever reaches the save.
-  assert.ok(defined.every((definition) => !('kind' in definition)));
-  await assert.rejects(
-    executor.execute(
-      { ...create, definition: { ...create.definition, kind: 'agent' } },
-      { callerSessionId: 'sess_home_lead' }
-    ),
-    /setup\.definition does not accept field\(s\): kind/
+  // Every creation writes an explicit marker: Mixy's chat makes a bot, a
+  // coding Lead a workflow agent; an explicit kind wins.
+  assert.deepEqual(
+    defined.map((definition) => definition.kind),
+    ['bot', 'agent']
   );
+  await executor.execute(
+    { ...create, definition: { ...create.definition, kind: 'agent' } },
+    { callerSessionId: 'sess_home_lead' }
+  );
+  assert.equal(defined.at(-1).kind, 'agent');
+  // An edit never carries the stored kind back into the save.
+  await executor.execute(
+    { action: 'save_definition', definitionKind: 'agent', definition: { id: 'sample', body: 'New' } },
+    { callerSessionId: 'sess_home_lead' }
+  );
+  assert.equal('kind' in defined.at(-1), false);
   const route = (agent) => ({ action: 'set_agent_route', agent, route: { provider: 'openai', model: 'gpt-5' } });
   await assert.rejects(
     executor.execute(route('other'), { callerSessionId: 'sess_home_sample' }),

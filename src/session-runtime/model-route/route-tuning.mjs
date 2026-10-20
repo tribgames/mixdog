@@ -10,7 +10,13 @@ export function createRouteTuning(deps, persist) {
   const { getConfig, getRoute, setRouteState, resolveRoute, lookupModelMeta, refreshRouteEffort } = deps;
 
   /** Save the live route's modelSettings, re-resolve through the lead preset
-   *  when one exists, refresh effort and tune the current session. */
+   *  when one exists, refresh effort and tune the current session.
+   *
+   *  This is not a Main-model write and needs no compare-and-set: it persists
+   *  the LIVE route (read after every await), and only when that route's model
+   *  is already the Main model (persistAdoptedModelSettings: tunesNonMainModel),
+   *  so the lead preset's model is rewritten with itself and never changes. A
+   *  live route without a model normalizes to nothing and writes no preset. */
   async function commitRouteTuning(fastCapable, modelMeta) {
     persist.saveRouteModelSettings(getRoute(), fastCapable);
     const leadRoute = persist.persistAdoptedModelSettings(getRoute());

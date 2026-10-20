@@ -138,6 +138,77 @@ function resetLabel(resetAt) {
   return reset.toDateString() === new Date().toDateString() ? time : `${reset.getMonth() + 1}/${reset.getDate()} ${time}`;
 }
 
+// A refused request that names its model as unknown, retired or not offered
+// to this account. Read only for request-refusal kinds, so a typed overload,
+// quota or auth failure never reads as a missing model.
+const MODEL_REFUSAL_KINDS = new Set(['invalid_request', 'permission', 'unknown']);
+const MODEL_UNAVAILABLE_CODES = new Set(['model_not_found', 'model_not_supported']);
+// The model must be the subject of the refusal, at the start of a line or
+// sentence ("The model `x` does not exist", "models/x is not found", Ollama's
+// `model "x" not found`), or the refusal names it ("Unknown model", "… is not
+// a valid model ID", Anthropic's bare "model: x"). A model merely mentioned
+// beside some other missing thing ("For model x, tool lookup: route not
+// found") does not count.
+const MODEL_REFUSAL_PREDICATE =
+  "(?:(?:is|was|has been)\\s+)?(?:not found|does not exist|doesn'?t exist|not (?:supported|available)|(?:currently\\s+)?unavailable|no longer (?:available|supported)|deprecated|retired|removed)\\b";
+const SENTENCE_START = '(?:^|[.:;!]\\s+)';
+const MODEL_UNAVAILABLE_RE = new RegExp(
+  [
+    // "The model `x` does not exist", "models/x is not found", Vertex
+    // "Publisher Model `…` was not found", Ollama `model "x" not found`.
+    `${SENTENCE_START}(?:(?:the|this|that|requested|selected|publisher)\\s+)*models?(?:\\/\\S+|\\s+[\`'"]?[\\w./:@-]+[\`'"]?)?\\s+${MODEL_REFUSAL_PREDICATE}`,
+    // OpenAI "The 'gpt-x' model is not supported when using Codex …".
+    `${SENTENCE_START}(?:the\\s+)?[\`'"][^\`'"\\n]+[\`'"]\\s+model\\s+${MODEL_REFUSAL_PREDICATE}`,
+    `${SENTENCE_START}(?:unknown|invalid|unsupported) model\\b`,
+    // OpenRouter: no provider serves this model id.
+    `${SENTENCE_START}no endpoints found for [\\w.-]+\\/[\\w.:-]+`,
+    '\\bis not a valid model\\b',
+    '^model: \\S+$',
+  ].join('|'),
+  'im'
+);
+
+/**
+ * True when `error` (or its text) says the requested model is unknown,
+ * retired or not offered to this account: a typed model code, or provider
+ * wording with the model as the subject of the refusal.
+ */
+export function namesUnavailableModel(error) {
+  if (!error) return false;
+  if (typeof error === 'string') return MODEL_UNAVAILABLE_RE.test(error);
+  const codes = [error.code, error.providerErrorCode, error.error?.code, error.providerError?.code];
+  if (codes.some((code) => MODEL_UNAVAILABLE_CODES.has(String(code || '').toLowerCase()))) return true;
+  return [error.message, error.error?.message, error.providerError?.message, error.detail]
+    .filter((text) => typeof text === 'string' && text)
+    .some((text) => MODEL_UNAVAILABLE_RE.test(text));
+}
+const MODEL_UNAVAILABLE_COPY = [
+  'model-unavailable',
+  "This model isn't available for this account.",
+  'Choose another model, or check the model and endpoint in Providers.',
+];
+const NOT_FOUND_SUMMARY = "The provider couldn't find the requested model or endpoint.";
+// A tool definition the provider's schema validator refused (an MCP or custom
+// tool schema), named by the field path or wording each API uses.
+const TOOL_SCHEMA_RE =
+  /invalid schema for (?:function|tool)\b|\btools\.\d+\.(?:custom\.)?input_schema\b|\bfunction_declarations\[\d+\]\.parameters\b|\btools\[\d+\]\.function\.parameters\b|\binvalid (?:tool|function) (?:schema|parameters|definition)\b/i;
+const TOOL_SCHEMA_COPY = [
+  'tool-schema',
+  'The provider rejected a tool definition.',
+  'Disable the tool or MCP server named in the details, then try again.',
+];
+
+// The first line of a provider message worth showing as-is; '' for a stack
+// frame, a markup page or a raw JSON body.
+function firstReadableLine(clean) {
+  const lines = clean
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const first = lines.find((line) => !/^at\s|^\{|^<!doctype|^<html/i.test(line)) || '';
+  return first && !/^[{[]|^<|(?:API|HTTP)\s+[45]\d\d.*[<{]/i.test(first) ? first : '';
+}
+
 // Only legacy items (no persisted descriptor) and untyped strings reach this.
 const LEGACY_TEXT_KINDS = [
   [/The provider usage limit was reached|quota.*(?:hit|exceed)|usage limit/i, 'quota_exhausted'],
@@ -242,6 +313,25 @@ export function describeError(value) {
     summary = 'An attached image exceeds the provider limit.';
     recovery = 'Reduce the image dimensions or number of images, then try again.';
   } else if (
+    clean === MODEL_UNAVAILABLE_COPY[1] ||
+    (MODEL_REFUSAL_KINDS.has(descriptor.kind) &&
+      (MODEL_UNAVAILABLE_CODES.has(code) || MODEL_UNAVAILABLE_RE.test(clean)))
+  ) {
+    [kind, summary, recovery] = MODEL_UNAVAILABLE_COPY;
+  } else if (
+    clean === TOOL_SCHEMA_COPY[1] ||
+    (['invalid_request', 'unknown'].includes(descriptor.kind) && TOOL_SCHEMA_RE.test(clean))
+  ) {
+    [kind, summary, recovery] = TOOL_SCHEMA_COPY;
+  } else if (
+    clean === NOT_FOUND_SUMMARY ||
+    (MODEL_REFUSAL_KINDS.has(descriptor.kind) && (status === 404 || status === 410))
+  ) {
+    // The provider's own words name what is missing; the next step is the same.
+    kind = 'not-found';
+    summary = firstReadableLine(clean) || NOT_FOUND_SUMMARY;
+    recovery = MODEL_UNAVAILABLE_COPY[2];
+  } else if (
     descriptor.kind === 'unknown' &&
     /payload too large|request (?:body )?too large|The request exceeds the size limit/i.test(clean)
   ) {
@@ -272,12 +362,7 @@ export function describeError(value) {
     summary = 'The provider rejected this request.';
     recovery = 'Review the request details before trying again.';
   } else {
-    const lines = clean
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const first = lines.find((line) => !/^at\s|^\{|^<!doctype|^<html/i.test(line)) || '';
-    summary = first && !/^[{[]|^<|(?:API|HTTP)\s+[45]\d\d.*[<{]/i.test(first) ? first : 'Something went wrong.';
+    summary = firstReadableLine(clean) || 'Something went wrong.';
   }
   summary = summary.replace(/\s+/g, ' ').trim() || 'Something went wrong.';
   if (summary.length > SUMMARY_LIMIT) summary = `${summary.slice(0, SUMMARY_LIMIT - 1).trimEnd()}…`;
