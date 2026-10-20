@@ -148,8 +148,10 @@ test('a switch in a conversation gives the next turn the new rules and tools plu
   assert.equal(later.userTurnMessage.content, 'more');
 });
 
-test('switching back before the next turn leaves no notice, but each switch keeps its divider', async () => {
+test('switching back before the next turn leaves no notice, but each switch keeps its divider', async (t) => {
   const { session, api } = await conversationSession();
+  // Both switches in the same millisecond, as on a fast machine.
+  t.mock.method(Date, 'now', () => 1_800_000_000_000);
   await api.setWorkflow('beta', { scope: 'session' });
   await api.setWorkflow('alpha', { scope: 'session' });
   assert.equal(session.workflowSwitch, undefined);

@@ -343,7 +343,17 @@ export function createToolPolicyRefresh({
         to: session.workflow.name,
         at: Date.now(),
       };
-      recordTranscriptBoundary(session, 'workflowSwitches', workflowSwitch, (entry) => entry?.at === workflowSwitch.at);
+      // Two switches can land in the same millisecond (A→B→A): the same
+      // switch is a repeat only when its direction matches too.
+      recordTranscriptBoundary(
+        session,
+        'workflowSwitches',
+        workflowSwitch,
+        (entry) =>
+          entry?.at === workflowSwitch.at &&
+          entry?.fromId === workflowSwitch.fromId &&
+          entry?.toId === workflowSwitch.toId
+      );
     }
     return { appliedToCurrentSession: true, workflow: session.workflow, workflowSwitch };
   }
