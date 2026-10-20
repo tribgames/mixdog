@@ -339,21 +339,9 @@ export function releaseShellJobWorkspace(jobId) {
   if (workspaceLeases.get(key) === leave) workspaceLeases.delete(key);
 }
 
-/** True once `sessionId` closed in this runtime. */
-export function isShellOwnerSessionClosed(sessionId) {
-  return closedOwnerSessions.has(String(sessionId || '').trim());
-}
-
 /** Flag a still-open job record as "termination unconfirmed" for the readouts. */
 export function markShellJobTerminationUnconfirmed(jobId) {
   return patchRunningShellJobRecord(jobId, { terminationUnconfirmed: true });
-}
-
-/** Record the pids a held job's termination watch last found alive, so a
- *  reader in another process can tell a live hold from a stale one. */
-export function noteShellJobSurvivors(jobId, pids) {
-  const survivorPids = (pids || []).map(Number).filter((pid) => Number.isInteger(pid) && pid > 0);
-  return patchRunningShellJobRecord(jobId, { survivorPids });
 }
 
 function patchRunningShellJobRecord(jobId, patch) {

@@ -62,9 +62,9 @@ const identityKey = (entry) => `${entry.pid}:${entry.token ?? ''}`;
  *  leave the process group). `observe()` takes one strict table read and
  *  answers 'running', 'gone' or 'unknown':
  *    - the root is alive (same identity)                     → running
- *    - no complete pre-exit capture exists                   → unknown
  *    - a tracked identity, a descendant still linked to one,
  *      or (POSIX) a member of the command's group is alive   → running
+ *    - no complete pre-exit capture exists                   → unknown
  *    - a tracked process without a creation token is present → unknown
  *  A failed table read rejects; callers treat it as unknown. */
 export function createProcessTreeTracker({ pid, members = [], exitObserved = false } = {}) {
@@ -137,9 +137,9 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
     /** Pre-termination snapshot; call while the root still runs. */
     async capture({ rootExited = false } = {}) {
       if (rootPid <= 0) return false;
-      let table = await readProcessTable({ shared: true });
-      // A shared read may have begun before this root was spawned.
-      if (!table.tokenOf.has(rootPid)) table = await readProcessTable();
+      // Even if an in-flight read saw the root, children may have appeared
+      // since it began. Join the next fresh read before parent links break.
+      const table = await readProcessTable();
       absorb(table, rootIsAlive(table, rootExited));
       return complete;
     },
@@ -159,7 +159,6 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
         live = [{ pid: rootPid, token: rootToken, name: table.nameOf.get(rootPid) || '' }];
         return 'running';
       }
-      if (!complete) return 'unknown';
       let unknown = false;
       for (const entry of tracked.values()) {
         const state = present(table, entry);
@@ -167,7 +166,9 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
         else if (state === null) unknown = true;
       }
       if (live.length > 0) return 'running';
-      return unknown ? 'unknown' : 'gone';
+      // Known survivors can still be swept after an incomplete capture, but
+      // their absence cannot prove that an unobserved descendant is gone.
+      return !complete || unknown ? 'unknown' : 'gone';
     },
   };
 }
@@ -196,21 +197,13 @@ function sweepLiveIdentities(tracker) {
  *  `sweep` (a killed tree): a pass that finds captured identities alive
  *  terminates them and observes again in the same pass, so a cancellation
  *  ends with the tree gone instead of a held folder over live processes.
- *
- *  `ownerClosed`: once the owning session has closed and the root has
- *  exited, a tree without a complete pre-kill snapshot is observed after
- *  exit (what is still linked to the root) instead of answering 'unknown'
- *  forever — no one is left to release it, and the close must end in a
- *  definitive state. `onSurvivors(pids)` reports the pids a pass that is
- *  not 'gone' found alive, whenever that set changes, so out-of-process
- *  readers can tell a live hold from a stale one. */
+ *  A missing pre-kill capture stays unknown even if the owning session
+ *  closes: its lifetime is not evidence that every descendant has exited. */
 export function watchTermination({
   tracker,
   rootExited = () => true,
   onTerminated,
   onUnconfirmed = null,
-  onSurvivors = null,
-  ownerClosed = null,
   releaseRequested = null,
   intervalMs = TERMINATION_RECHECK_MS,
   sweep = false,
@@ -218,7 +211,6 @@ export function watchTermination({
   let timer = null;
   let stopped = false;
   let reportedUnconfirmed = false;
-  let survivorKey = null;
   const stop = () => {
     stopped = true;
     if (timer) clearTimeout(timer);
@@ -234,7 +226,6 @@ export function watchTermination({
     if (releaseRequested?.()) state = 'gone';
     else
       try {
-        if (!tracker.complete && rootExited() && ownerClosed?.()) tracker.acceptExitObservation();
         observation = tracker.observe({ rootExited: rootExited() });
         observation.catch(() => {});
         // A pass that has not answered by the next cadence tick is unknown.
@@ -260,18 +251,6 @@ export function watchTermination({
         onUnconfirmed?.();
       } catch {
         /* presentation only */
-      }
-    }
-    if (state !== 'gone' && onSurvivors) {
-      const pids = tracker.live.map((entry) => entry.pid);
-      const key = pids.join(',');
-      if (key !== survivorKey) {
-        survivorKey = key;
-        try {
-          onSurvivors(pids);
-        } catch {
-          /* presentation only */
-        }
       }
     }
     if (state === 'gone') {

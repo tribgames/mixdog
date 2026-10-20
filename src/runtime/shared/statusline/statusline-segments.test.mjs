@@ -253,14 +253,14 @@ test('a foreground command whose termination is unconfirmed stays listed after i
   }
 });
 
-test('a closed session’s held shell with no live process resolves on the next read', async () => {
+test('a closed session’s unconfirmed shells stay listed until their records retire or complete', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-statusline-orphan-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
   try {
     const dir = join(root, 'shell-jobs');
     mkdirSync(dir, { recursive: true });
-    const write = (jobId, record) => {
+    const write = (jobId, record, ownerPid = process.pid) => {
       writeFileSync(
         join(dir, `${jobId}.json`),
         JSON.stringify({
@@ -272,23 +272,49 @@ test('a closed session’s held shell with no live process resolves on the next 
           ...record,
         })
       );
-      // The owner host (the runtime) is still alive.
-      writeFileSync(join(dir, `${jobId}.owner-${process.pid}`), '');
+      writeFileSync(join(dir, `${jobId}.owner-${ownerPid}`), '');
     };
     const orphan = `job_${Date.now()}_orphan`;
     const survivor = `job_${Date.now()}_survivor`;
+    const deadOwner = `job_${Date.now()}_dead-owner`;
+    // Missing or empty survivor lists cannot confirm a failed observation.
+    // The owner host still owns the hold after its session has closed.
     write(orphan, { pid: 2_147_483_646, command: 'npm test' });
     write(survivor, { pid: 2_147_483_645, survivorPids: [process.pid], command: 'node server.js' });
-    const status = await shellJobsStatusFresh({ clientHostPid: process.pid });
+    write(deadOwner, { pid: process.pid, command: 'stale hold' }, 2_147_483_644);
+    let status = await shellJobsStatusFresh({ clientHostPid: process.pid });
+    const heldIds = new Set([orphan, survivor]);
+    assert.equal(status.count, 2);
     assert.deepEqual(
-      status.orphaned.map((job) => job.taskId),
-      [survivor],
-      'only a hold whose survivor still runs is offered to other sessions'
+      new Set(status.orphaned.map((job) => job.taskId)),
+      heldIds,
+      'both unresolved holds are offered to other sessions, but a dead host owns no hold'
     );
+    assert.deepEqual(new Set(status.sessions['sess-closed'].jobs.map((job) => job.taskId)), heldIds);
+    assert.ok(status.orphaned.every((job) => job.terminationUnconfirmed === true));
+
+    write(orphan, { pid: 2_147_483_646, survivorPids: [], command: 'npm test' });
+    status = await shellJobsStatusFresh({ clientHostPid: process.pid });
     assert.deepEqual(
-      status.sessions['sess-closed'].jobs.map((job) => job.taskId),
-      [survivor]
+      new Set(status.orphaned.map((job) => job.taskId)),
+      heldIds,
+      'an empty observation does not retire the hold'
     );
+
+    // Explicitly releasing a foreground hold retires its record.
+    rmSync(join(dir, `${orphan}.json`));
+    rmSync(join(dir, `${orphan}.owner-${process.pid}`));
+    status = await shellJobsStatusFresh({ clientHostPid: process.pid });
+    assert.equal(status.count, 1);
+    assert.deepEqual(status.orphaned.map((job) => job.taskId), [survivor]);
+
+    // Completion is authoritative even if the last record still names a pid.
+    writeFileSync(join(dir, `${survivor}.done`), '');
+    status = await shellJobsStatusFresh({ clientHostPid: process.pid });
+    assert.equal(status.count, 0);
+    assert.deepEqual(status.jobs, []);
+    assert.deepEqual(status.orphaned || [], []);
+    assert.equal(status.sessions['sess-closed'], undefined);
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;

@@ -13,14 +13,17 @@ mock.module('../../../shared/process-runner.mjs', {
       spawned.push(child);
       return new Promise((resolve, reject) => {
         if (behavior === 'manual') {
-          // Answers when the test says so, with a table naming this process.
-          child.answer = () => {
+          // Answers when the test says so; every valid table names this process.
+          child.answer = (rows = []) => {
             child.alive = false;
-            const row =
-              process.platform === 'win32'
-                ? `${process.pid} 1 node.exe 2026-10-18T00:00:00`
-                : `${process.pid} 1 ${process.pid} S node Sun Oct 18 00:00:00 2026`;
-            resolve({ code: 0, stdout: `${row}\n`, stderr: '' });
+            const stdout = [{ pid: process.pid }, ...rows]
+              .map(({ pid, ppid = 1, pgid = pid }) =>
+                process.platform === 'win32'
+                  ? `${pid} ${ppid} node.exe 2026-10-18T00:00:00`
+                  : `${pid} ${ppid} ${pgid} S node Sun Oct 18 00:00:00 2026`
+              )
+              .join('\n');
+            resolve({ code: 0, stdout, stderr: '' });
           };
           return;
         }
@@ -83,30 +86,38 @@ test('a hung enumerator is killed at the deadline and its snapshot rejected', as
 });
 
 // Runs while no read is in flight (the watch test below leaves one hanging).
-test('concurrent observers share one enumerator at a time, each served by a read begun after it asked', async () => {
+test('captures and observers share a fresh read, preserving children born after an in-flight snapshot', async () => {
   behavior = 'manual';
   spawned.length = 0;
+  const { createProcessTreeTracker } = await import('../tools/lib/shell-descendants.mjs');
+  const root = process.pid + 1_000_000;
+  const child = root + 1;
+  const tracker = createProcessTreeTracker({ pid: root });
   try {
     const first = readProcessTable();
-    // A pre-kill capture may join the running read.
-    const capture = readProcessTable({ shared: true });
-    // Observers asking while it runs must not get it: they share the next one.
+    // The root existed when this read began, but its new child did not.
+    const capture = tracker.capture();
+    // Captures and observers share the next read without parallel enumerators.
     const observers = Array.from({ length: 8 }, () => readProcessTable());
     assert.equal(spawned.length, 1, 'no enumerator is started beside the running one');
-    spawned[0].answer();
+    spawned[0].answer([{ pid: root }]);
     const firstTable = await first;
-    assert.equal(await capture, firstTable);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(spawned.length, 2, 'one more read, begun after the first settled, serves every observer');
-    spawned[1].answer();
+    spawned[1].answer([{ pid: root }, { pid: child, ppid: root }]);
+    assert.equal(await capture, true);
     const tables = await Promise.all(observers);
     assert.ok(tables.every((table) => table === tables[0] && table !== firstTable));
     assert.equal(tables[0].nameOf.has(process.pid), true);
-    // Nothing in flight: the next observer starts its own read at once.
-    const alone = readProcessTable();
+    // After the kill, the child has neither a parent nor a group link to root.
+    const survivor = tracker.observe({ rootExited: true });
     assert.equal(spawned.length, 3);
-    spawned[2].answer();
-    await alone;
+    spawned[2].answer([{ pid: child }]);
+    assert.equal(await survivor, 'running', 'the pre-kill capture must include the new child');
+    assert.deepEqual(tracker.live.map((entry) => entry.pid), [child]);
+    const finished = tracker.observe({ rootExited: true });
+    spawned[3].answer();
+    assert.equal(await finished, 'gone');
   } finally {
     behavior = 'deny';
   }

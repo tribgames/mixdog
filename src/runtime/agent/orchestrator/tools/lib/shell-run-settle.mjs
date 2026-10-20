@@ -8,8 +8,6 @@ import { unregisterOwnedShellTree } from './owned-shell-trees.mjs';
 import {
   adoptShellWorkspaceAdmission,
   clearTerminationHold,
-  isShellOwnerSessionClosed,
-  noteShellJobSurvivors,
   registerTerminationHold,
   takeReleaseRequest,
 } from '../builtin/lib/shell-job-records.mjs';
@@ -62,8 +60,6 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true } =
     sweep: run.killed === true,
     onTerminated: release,
     onUnconfirmed: markNow ? null : () => keepTerminationUnconfirmedRecord(run),
-    onSurvivors: (pids) => void noteShellJobSurvivors(run.foregroundRecordId, pids),
-    ownerClosed: () => isShellOwnerSessionClosed(run.foregroundRecordInput?.ownerSessionId),
     releaseRequested: () => takeReleaseRequest(run.foregroundRecordId),
   });
 }

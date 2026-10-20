@@ -170,7 +170,7 @@ test('a background job left unconfirmed is flagged on its record and can be forc
   assert.equal(done.status, 'completed');
 });
 
-test('closing the owner session of a running job records a final state and lists nothing unconfirmed', async (t) => {
+test('closing a job owner without a snapshot keeps its hold visible until explicit release', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const repo = makeRepo();
   // No identity snapshot ever lands: neither the promotion baseline nor the
@@ -189,21 +189,30 @@ test('closing the owner session of a running job records a final state and lists
   // The session close: owner cancel, then the owner is noted closed.
   await cancelOwnedShellTrees('sess_closing');
   noteShellOwnerSessionClosed('sess_closing');
-  tree.state.next = () => processTable([]);
+  tree.state.next = () => processTable([{ pid: 6402, ppid: 1, token: 'detached-worker', pgid: 6402 }]);
   setTask('job_bg_6400', 'cancelled');
-  await until(() => !isHeld(repo));
   const record = await until(async () => {
     await _shellJobRecordWritesSettledForTest('job_bg_6400');
     const current = await readShellJobRecord('job_bg_6400');
-    return current?.terminal ? current : null;
+    return current?.terminationUnconfirmed || current?.terminal ? current : null;
   });
-  assert.equal(record.status, 'cancelled', 'a definitive final state');
+  assert.equal(record.status, 'running', 'the native root exit cannot confirm an incomplete tree');
+  assert.equal(record.terminationUnconfirmed, true);
+  assert.equal(isHeld(repo), true);
   const status = await shellJobsStatusFresh({ clientHostPid: process.pid });
-  const listed = [...(status.jobs || []), ...(status.orphaned || [])];
-  for (const bucket of Object.values(status.sessions || {})) listed.push(...bucket.jobs);
+  assert.equal(status.orphaned.find((job) => job.taskId === 'job_bg_6400')?.terminationUnconfirmed, true);
+  tree.state.next = () => processTable([]);
+  t.mock.timers.tick(5_000);
+  await flush();
+  assert.equal(isHeld(repo), true, 'an empty later table cannot reconstruct the missing snapshot');
   assert.deepEqual(
-    listed.filter((job) => job.taskId === 'job_bg_6400'),
-    [],
-    'no panel lists it as running or termination unconfirmed'
+    await forceReleaseTerminationHold('job_bg_6400', { callerSessionId: 'viewer', callerCwd: repo }),
+    { released: true }
   );
+  assert.equal(isHeld(repo), false);
+  const done = await readShellJobRecord('job_bg_6400');
+  assert.equal(done.terminal, true);
+  assert.equal(done.status, 'cancelled');
+  const released = await shellJobsStatusFresh({ clientHostPid: process.pid });
+  assert.equal((released.orphaned || []).some((job) => job.taskId === 'job_bg_6400'), false);
 });

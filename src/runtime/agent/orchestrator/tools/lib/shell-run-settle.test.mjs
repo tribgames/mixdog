@@ -440,7 +440,7 @@ test(
 );
 
 test(
-  'a closed session’s tree without a pre-kill snapshot ends once nothing is left after exit',
+  'a closed session without a pre-kill snapshot keeps an unlinked survivor unconfirmed until explicit release',
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
@@ -456,11 +456,22 @@ test(
     noteShellOwnerSessionClosed('closing-blind');
     assert.equal(run.terminationTracker.complete, false);
     exitChild(child, 137);
-    tree.state.next = () => processTable([]);
+    tree.state.next = () => processTable([{ pid: 4501, ppid: 1, token: 'detached-worker', pgid: 4501 }]);
     await settleAndFlush(run);
     await flush();
-    assert.equal(isHeld(repo), false, 'confirmed gone from the post-exit observation');
-    assert.deepEqual(records.retired, ['job_closed_blind'], 'the record never lingers as unconfirmed');
+    assert.equal(run.terminationTracker.complete, false, 'session close cannot supply the missing snapshot');
+    assert.equal(isHeld(repo), true, 'no known survivor is not proof that the tree is gone');
+    assert.equal(records.published.at(-1)?.terminationUnconfirmed, true);
+    assert.deepEqual(records.retired, []);
+    tree.state.next = () => processTable([]);
+    await tick(5_000);
+    assert.equal(isHeld(repo), true, 'an empty later table also cannot recover the lost parent link');
+    assert.deepEqual(
+      await forceReleaseTerminationHold('job_closed_blind', { callerSessionId: 'viewer', callerCwd: repo }),
+      { released: true }
+    );
+    assert.equal(isHeld(repo), false);
+    assert.deepEqual(records.retired, ['job_closed_blind']);
     const reads = tree.state.reads;
     await tick(30_000);
     assert.equal(tree.state.reads, reads, 'the observation loop stopped');
@@ -492,6 +503,13 @@ test(
     assert.equal(isHeld(repo), true, 'held while it still runs');
     tree.state.next = () => processTable([]);
     await tick(5_000);
+    assert.equal(run.terminationTracker.complete, false);
+    assert.equal(isHeld(repo), true, 'sweeping known survivors cannot prove the incomplete tree is gone');
+    assert.deepEqual(records.retired, []);
+    assert.deepEqual(
+      await forceReleaseTerminationHold('job_closed_linked', { callerSessionId: 'viewer', callerCwd: repo }),
+      { released: true }
+    );
     assert.equal(isHeld(repo), false);
     assert.deepEqual(records.retired, ['job_closed_linked']);
   })
