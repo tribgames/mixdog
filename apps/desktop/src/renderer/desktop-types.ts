@@ -48,6 +48,23 @@ export type TranscriptItem = RecordValue & {
   attachments?: Array<{ id: string; kind: 'image' | 'file' | 'text'; name: string; mimeType: string; size: number }>;
   /** Restored rows: each image's stored original, by the `[Image: …]` line that draws it. */
   imageRefs?: Array<{ line: string; ref?: string }>;
+  /** A group-room row (agent-room.mjs): who spoke, a pass, a limit notice,
+   *  or (host overlay) the member speaking now. */
+  room?: TranscriptRoomRow;
+};
+
+export type TranscriptRoomRow = {
+  id?: string;
+  kind: 'user' | 'speech' | 'pass' | 'cap' | 'stopped' | 'interrupted' | 'typing';
+  speaker?: string;
+  name?: string;
+  /** The members a user message or a member's @mention addresses, in order. */
+  to?: string[];
+  toName?: string[];
+  failed?: boolean;
+  limit?: 'rounds' | 'messages';
+  rounds?: number;
+  messages?: number;
 };
 
 export type Approval = RecordValue & {

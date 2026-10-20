@@ -19,7 +19,9 @@ export type PendingPromptItem = TranscriptItem & {
 
 export function settledUserRowCount(items: readonly TranscriptItem[]): number {
   let count = 0;
-  for (const item of items) if (item?.kind === 'user') count += 1;
+  // A group room's user row arrives live as a notice carrying `room.kind:
+  // 'user'` (agent-room-delivery.mjs); it is that prompt's durable row too.
+  for (const item of items) if (item?.kind === 'user' || item?.room?.kind === 'user') count += 1;
   return count;
 }
 
@@ -74,20 +76,25 @@ export function pendingPromptTranscriptItems(
   // The optimistic row is therefore held until its OWN durable row lands.
   const rows: PendingPromptItem[] = [];
   const ordered = [...byId.values()].sort((left, right) => left.submittedAt - right.submittedAt);
-  // Durable user rows already claimed by an earlier optimistic prompt: this
-  // prompt's own row is the (baseline + claimed + 1)-th user row.
-  let claimed = 0;
+  // The last durable user row (by ordinal) an earlier optimistic prompt
+  // claimed. This prompt's own row is the next one past both that claim and
+  // its submit-time baseline — not their sum: a prompt sent after the
+  // previous one settled already counts that row in its baseline, and adding
+  // the claim again kept every later renamed prompt (a group room's) standing
+  // as a second bubble under its own row.
+  let claimedThrough = 0;
   for (const item of ordered) {
+    const baseline = Number(item.settledUserBaseline);
+    const ordinal = Math.max(Number.isFinite(baseline) ? baseline : 0, claimedThrough) + 1;
     if (settledIds.has(String(item.id))) {
-      claimed += 1;
+      claimedThrough = ordinal;
       continue;
     }
     // Id-agnostic safety net: a runtime that renames the submission id still
     // releases the twin once its ordinal user row exists, so a lost id can
     // never strand a permanent ghost bubble.
-    const baseline = Number(item.settledUserBaseline);
-    if (Number.isFinite(baseline) && settledUsers >= baseline + claimed + 1) {
-      claimed += 1;
+    if (Number.isFinite(baseline) && settledUsers >= ordinal) {
+      claimedThrough = ordinal;
       continue;
     }
     rows.push({ ...item, pending: true });

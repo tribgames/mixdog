@@ -6,13 +6,16 @@ import {
   GitCompare,
   Github,
   Globe,
+  IdCard,
   Layers3,
   MessageSquare,
   Network,
   Package,
   PanelsTopLeft,
   Search,
+  Sparkles,
   SquareTerminal,
+  Users,
   Webhook,
 } from 'lucide-react';
 import { t } from './i18n';
@@ -33,6 +36,7 @@ export function createAppSideViewDescriptors(
       'extensions',
       { id: 'extensions', label: t('Extensions'), icon: Package, onPrefetch: () => onPrefetch('extensions') },
     ],
+    ['skills', { id: 'skills', label: t('Skills'), icon: Sparkles, onPrefetch: () => onPrefetch('skills') }],
     ['schedules', { id: 'schedules', label: t('Schedules'), icon: Clock, onPrefetch: () => onPrefetch('schedules') }],
     ['webhooks', { id: 'webhooks', label: t('Webhooks'), icon: Webhook, onPrefetch: () => onPrefetch('webhooks') }],
     ['ports', { id: 'ports', label: t('Ports'), icon: Network }],
@@ -61,7 +65,11 @@ export function createAppSideViewDescriptors(
       },
     ],
     ['visualize', { id: 'visualize', label: t('Visualize'), tooltip: t('Visualize'), icon: Eye }],
-    ['agents', { id: 'agents', label: t('Agents'), icon: Bot, onPrefetch: () => onPrefetch('agents') }],
+    // A home thread's agent panel (프로필 · 루틴); the view id stays 'routines'.
+    ['routines', { id: 'routines', label: t('Profile'), tooltip: t('Profile'), icon: IdCard }],
+    // A group room's panel: members, limits, leave/delete.
+    ['room', { id: 'room', label: t('Room info'), tooltip: t('Room info'), icon: Users }],
+    ['agents', { id: 'agents', label: t('Bots'), icon: Bot, onPrefetch: () => onPrefetch('agents') }],
     ['search', { id: 'search', label: t('Search'), icon: Search, onPrefetch: () => onPrefetch('search') }],
     [
       'source-control',

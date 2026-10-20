@@ -31,12 +31,43 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
     return id;
   };
   const pushNotice = (text, tone = 'info', options = {}) => {
-    const value = polishNoticeText(text);
-    if (!value) return null;
+    // A routine result is a finished sentence, never a raw error to polish;
+    // a group-room row is someone's words, kept verbatim (a pass has none).
+    const value =
+      options.routine || options.room || options.heldRequest ? String(text ?? '').trim() : polishNoticeText(text);
+    if (!value && !options.room) return null;
     const forceTranscript = options.transcript === true;
     if (!forceTranscript) return pushToast(value, tone, options.ttlMs, options);
-    const id = nextId();
-    pushItem({ kind: 'notice', id, text: value, tone });
+    const userRow = options.room?.kind === 'user';
+    // A room user row keeps its message id (the sender's submission id), as a
+    // turn's own prompt row keeps its submission id.
+    const id = (userRow && options.messageId) || nextId();
+    // One row per messageId: a routine's live-only run row (running, delivery
+    // failed) gives way to the row that follows it (routine-result.mjs).
+    if (options.messageId) {
+      const current = getState().items;
+      const items = current.filter((it) => !(it?.kind === 'notice' && it?.messageId === options.messageId));
+      if (items.length !== current.length) set({ items: replaceItems(items, { preserveStreamingTail: true }) });
+    }
+    pushItem({
+      // A group-room row (agent-room.mjs): the user's own words are their
+      // bubble; every member row is a notice the app renders from `room`.
+      kind: userRow ? 'user' : 'notice',
+      id,
+      text: value,
+      ...(userRow ? {} : { tone }),
+      // A schedule result posted into a home thread (routine-result.mjs).
+      ...(options.routine ? { routine: options.routine } : {}),
+      ...(options.room ? { room: options.room } : {}),
+      // A room user row's files, in the fields a prompt row draws them from.
+      ...(userRow && Array.isArray(options.attachments) && options.attachments.length
+        ? { attachments: options.attachments }
+        : {}),
+      ...(userRow && Array.isArray(options.images) && options.images.length ? { images: options.images } : {}),
+      // A held request of an unattended run (human-gate/held-message.mjs).
+      ...(options.heldRequest ? { heldRequest: options.heldRequest } : {}),
+      ...(options.messageId ? { messageId: options.messageId } : {}),
+    });
     return id;
   };
   // Remove a transcript notice previously created via pushNotice(...,

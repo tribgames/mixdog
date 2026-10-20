@@ -1,0 +1,462 @@
+/* Group rooms (design/mockups/agent-group-room). Faces keep their own colours;
+   every icon and control stays silver. */
+
+/* A member's face, and the room face: two to four faces tiled. */
+.agent-room-face {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.agent-room-face > svg,
+.agent-room-face > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* The room face: a cluster of whole round faces in percent of the box, so it
+   scales from the 40px list to the header. Two overlap on the diagonal, three
+   sit in a triangle, four in the corners; past four the last corner reads
+   "+N". */
+.agent-room-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+}
+.agent-room-tile > .agent-room-face,
+.agent-room-more {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--mx-workspace-sheet);
+  box-shadow: 0 0 0 1.5px var(--mx-workspace-sheet);
+}
+.agent-room-tile[data-count="1"] > .agent-room-face {
+  inset: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.agent-room-tile[data-count="2"] > .agent-room-face {
+  width: 68%;
+  height: 68%;
+}
+.agent-room-tile[data-count="2"] > .agent-room-face:first-child {
+  top: 0;
+  left: 0;
+  box-shadow: none;
+}
+.agent-room-tile[data-count="2"] > .agent-room-face:last-child {
+  right: 0;
+  bottom: 0;
+  box-shadow: 0 0 0 2px var(--mx-workspace-sheet);
+}
+.agent-room-tile[data-count="3"] > .agent-room-face {
+  width: 54%;
+  height: 54%;
+}
+.agent-room-tile[data-count="3"] > .agent-room-face:nth-child(1) {
+  top: 0;
+  left: 23%;
+}
+.agent-room-tile[data-count="3"] > .agent-room-face:nth-child(2) {
+  bottom: 0;
+  left: 0;
+}
+.agent-room-tile[data-count="3"] > .agent-room-face:nth-child(3) {
+  right: 0;
+  bottom: 0;
+}
+.agent-room-tile[data-count="4"] > * {
+  width: 48%;
+  height: 48%;
+}
+.agent-room-tile[data-count="4"] > :nth-child(1) {
+  top: 0;
+  left: 0;
+}
+.agent-room-tile[data-count="4"] > :nth-child(2) {
+  top: 0;
+  right: 0;
+}
+.agent-room-tile[data-count="4"] > :nth-child(3) {
+  bottom: 0;
+  left: 0;
+}
+.agent-room-tile[data-count="4"] > :nth-child(4) {
+  right: 0;
+  bottom: 0;
+}
+/* "+N": a neutral silver chip in the last corner. */
+.agent-room-more {
+  display: grid;
+  place-items: center;
+  background: var(--mx-surface-raised, rgba(255, 255, 255, 0.08));
+  color: var(--mx-text-muted);
+  font-size: 22cqmin;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Transcript: who speaks, their words as plain assistant text. */
+.agent-room-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.agent-room-who > .agent-room-face {
+  width: 20px;
+  height: 20px;
+}
+.message.agent-room-speech {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.message.agent-room-speech > .message-body {
+  padding-left: 26px;
+}
+.agent-room-typing > small {
+  margin-left: 4px;
+  color: var(--mx-text-faint, var(--mx-text-muted));
+  font-weight: 400;
+  font-size: 12px;
+}
+.agent-room-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 2px;
+}
+.agent-room-dots > i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .agent-room-dots > i {
+    animation: agent-room-blink 1.2s infinite;
+  }
+  .agent-room-dots > i:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .agent-room-dots > i:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+}
+@keyframes agent-room-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.agent-room-pass {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 2px;
+  color: var(--mx-text-faint, var(--mx-text-muted));
+  font-size: 12px;
+  line-height: 18px;
+}
+.agent-room-pass > .agent-room-face {
+  width: 16px;
+  height: 16px;
+  opacity: 0.55;
+}
+/* A limit stop: a faint line like a pass, with "Continue" as an inline link. */
+.agent-room-cap {
+  flex-wrap: wrap;
+}
+.agent-room-continue {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.agent-room-continue:hover:not(:disabled) {
+  color: var(--mx-text);
+}
+.agent-room-continue:disabled {
+  opacity: var(--mx-op-disabled, 0.5);
+  cursor: default;
+}
+/* An @member mention inside a bubble's words. */
+.agent-room-mention {
+  padding: 0 4px;
+  border-radius: var(--mx-radius-sm, 4px);
+  background: var(--mx-surface-raised, rgba(255, 255, 255, 0.08));
+  color: var(--mx-text);
+  font-weight: 600;
+}
+/* "→ name" on a user bubble addressed to one member. */
+.agent-room-to {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 5px;
+  height: 22px;
+  margin-bottom: 4px;
+  padding: 0 8px 0 4px;
+  border-radius: 11px;
+  background: var(--mx-hover);
+  color: var(--mx-text-soft, var(--mx-text));
+  font-size: 12px;
+  font-weight: 600;
+}
+.agent-room-to > .agent-room-face {
+  width: 16px;
+  height: 16px;
+}
+/* The peer a member's @mention addresses, above its words. */
+.message.agent-room-speech > .agent-room-to {
+  align-self: flex-start;
+  margin: 0 0 0 26px;
+}
+.mx-chat-row .message.agent-room-speech > .agent-room-to {
+  margin-left: 0;
+}
+
+/* Room rows in the Agents pane: the contact row's look, a tiled face. */
+.agent-room-section-divider {
+  align-self: stretch;
+  height: 0;
+  margin: 6px 8px;
+  border: 0;
+  border-top: var(--mx-hairline, 1px) solid var(--mx-border-muted);
+}
+.agent-chat-preview > .agent-room-speaker {
+  color: var(--mx-text-soft, var(--mx-text));
+  font-weight: 500;
+}
+
+/* The new-room dialog and the room panel. */
+.agent-room-dialog-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.agent-room-dialog-hero > .agent-room-tile,
+.agent-room-dialog-hero > .agent-room-tile-empty {
+  width: 64px;
+  height: 64px;
+  flex: none;
+}
+.agent-room-tile-empty {
+  border: 1px dashed var(--mx-border-muted);
+  border-radius: 12px;
+}
+.agent-room-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow: auto;
+}
+.agent-room-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-room-pick:hover,
+.agent-room-pick:focus-visible {
+  background: var(--mx-hover);
+  outline: none;
+}
+.agent-room-pick[aria-pressed="true"] {
+  background: var(--mx-selected, var(--mx-hover));
+}
+.agent-room-pick:disabled {
+  opacity: var(--mx-op-disabled, 0.5);
+  cursor: default;
+}
+.agent-room-pick > .agent-room-face {
+  width: 30px;
+  height: 30px;
+}
+.agent-room-pick > span:last-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.agent-room-pick small {
+  color: var(--mx-text-muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-room-check {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--mx-text-muted);
+  border-radius: 5px;
+  color: var(--mx-surface, #141414);
+}
+.agent-room-pick[aria-pressed="true"] > .agent-room-check {
+  background: var(--mx-text-soft, #e9e9e9);
+  border-color: var(--mx-text-soft, #e9e9e9);
+}
+/* 방 정보 (AgentRoomPanel.tsx): the agent profile panel's frame — its hero,
+   padding (routines.css .agent-profile*) — around the Routines tab's cards
+   and rows. Its actions live in the dock header's ⋯ menu. */
+.agent-room-panel {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.agent-room-panel[hidden] {
+  display: none;
+}
+.agent-room-panel-body {
+  flex: 1;
+}
+.agent-room-panel-body .agent-profile-name {
+  overflow-wrap: anywhere;
+}
+/* Member rows: the face on the card's inner edge, the name right after it,
+   the remove button at the far end (a Routines row's 10px inset). */
+.agent-room-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 6px 6px 10px;
+}
+.agent-room-member + .agent-room-member {
+  box-shadow: inset 0 1px 0 var(--mx-border-muted);
+}
+.agent-room-member > .agent-room-face {
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+/* Setting rows: a Routines row without its tile — text full width and
+   wrapping, the control on its own line under it at the same left edge. */
+.agent-room-setting.conn-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  align-items: start;
+  padding: 10px;
+}
+.agent-room-setting .conn-row-title b,
+.agent-room-setting .conn-row-meta {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.agent-room-setting .conn-row-actions {
+  align-items: center;
+  padding-top: 4px;
+}
+.agent-room-member > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-room-icon-button {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--mx-text-muted);
+  cursor: pointer;
+}
+.agent-room-icon-button:hover:not(:disabled),
+.agent-room-icon-button:focus-visible {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+  outline: none;
+}
+.agent-room-icon-button:disabled {
+  opacity: var(--mx-op-disabled, 0.5);
+  cursor: default;
+}
+.agent-room-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--mx-surface-raised, rgba(255, 255, 255, 0.06));
+}
+.agent-room-stepper > b {
+  min-width: 26px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The composer's member picker (+ menu "Call an agent", /ask). */
+.agent-room-ask-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.agent-room-ask-option[aria-selected="true"] {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.agent-room-ask-option > .agent-room-face {
+  width: 22px;
+  height: 22px;
+}
+
+/* Phones: every control a 44px target, bigger faces. */
+html[data-mixdog-mobile-tabs] .agent-room-icon-button {
+  width: 44px;
+  height: 44px;
+}
+html[data-mixdog-mobile-tabs] .agent-room-member {
+  min-height: 52px;
+}
+html[data-mixdog-mobile-tabs] .agent-room-member > .agent-room-face {
+  width: 38px;
+  height: 38px;
+}
+html[data-mixdog-mobile-tabs] .agent-room-continue,
+html[data-mixdog-mobile-tabs] .agent-room-pick {
+  min-height: 44px;
+}
+/* "추가" keeps its small look; its hit frame reaches the touch minimum
+   (the Routines rows' pseudo-element frame). */
+html[data-mixdog-mobile-tabs] .agent-room-panel-body .conn-group-head > .conn-btn {
+  position: relative;
+  min-width: var(--mx-touch-main);
+}
+html[data-mixdog-mobile-tabs] .agent-room-panel-body .conn-group-head > .conn-btn::after {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc((100% - var(--mx-touch-main)) / 2));
+}
+html[data-mixdog-mobile-tabs] .agent-room-stepper > button {
+  min-width: 44px;
+  min-height: 44px;
+}

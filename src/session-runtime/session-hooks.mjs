@@ -5,6 +5,8 @@
 // facade's hookCommonPayload / currentCwd accessor + the session itself. All
 // properties are non-enumerable/configurable/writable so the loop/manager can
 // read them by name without changing session enumeration.
+import { roomMemberOfSession } from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomMemberToolDecision } from './room-member-gate.mjs';
 
 export function attachSessionHooks(session, { hooks, hookCommonPayload, getCwd }) {
   const identity = (input) => ({
@@ -26,20 +28,26 @@ export function attachSessionHooks(session, { hooks, hookCommonPayload, getCwd }
   // rejection cannot escape the tool loop or the compaction flow.
   const dispatcher = (event, payload) => (input) => hooks.dispatch(event, hookCommonPayload(payload(input)));
 
-  // PreToolUse bridge.
-  define('beforeToolHook', (input, options = {}) =>
-    hooks.beforeTool(
+  // PreToolUse bridge. A group-room member's mutating calls always ask the
+  // user (room-member-gate.mjs), whatever the hooks decided short of a deny.
+  define('beforeToolHook', async (input, options = {}) => {
+    const name = input?.name || input?.tool_name;
+    const args = input?.args || input?.tool_input;
+    const cwd = input?.cwd || getCwd();
+    const decision = await hooks.beforeTool(
       hookCommonPayload({
         ...input,
         session_id: input?.sessionId || input?.session_id || session?.id,
-        tool_name: input?.name || input?.tool_name,
-        tool_input: input?.args || input?.tool_input,
+        tool_name: name,
+        tool_input: args,
         tool_use_id: input?.toolCallId || input?.tool_use_id,
-        cwd: input?.cwd || getCwd(),
+        cwd,
       }),
       options
-    )
-  );
+    );
+    if (!roomMemberOfSession(session?.id)) return decision;
+    return roomMemberToolDecision({ name, args, cwd }, decision);
+  });
   // PostToolUse: bridge runtime tool completions to the standard hook bus.
   define('afterToolHook', dispatcher('PostToolUse', toolPayload));
   // PostToolUseFailure: dispatched by loop.mjs only when a tool execution

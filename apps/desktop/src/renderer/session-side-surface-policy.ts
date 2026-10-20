@@ -62,10 +62,10 @@ export function withSessionDiff(
  *  browser and terminal ride `SessionSideSurface` above; the diff FILE rides
  *  `withSessionDiff`. The list used to live in the pane entry itself, so it
  *  leaked across sessions in the same pane. */
-export type SessionSidePanelView = 'session-diff' | 'visualize';
+export type SessionSidePanelView = 'session-diff' | 'visualize' | 'routines' | 'room';
 
 export const isSessionSidePanelView = (view: unknown): view is SessionSidePanelView =>
-  view === 'session-diff' || view === 'visualize';
+  view === 'session-diff' || view === 'visualize' || view === 'routines' || view === 'room';
 
 export function withSessionPanelView(
   current: ReadonlyMap<string, SessionSidePanelView>,

@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useMemo } from 'react';
+import { useAgentRoom } from './agent-room-store';
+import { MarkdownMentionNamesContext } from './markdown-mentions';
 import { collapseSelectionOnPress, JumpToLatestButton } from './conversation-support';
 import { t } from './i18n';
 import {
@@ -84,18 +86,24 @@ function TranscriptRowContexts({
   turnChangesSurface: TurnChangesSurface | null;
   children: ReactNode;
 }) {
+  const room = useAgentRoom(sessionId);
+  const inRoom = room !== null;
+  const memberNames = room?.memberNames;
+  const mentionNames = useMemo(() => (inRoom ? Object.values(memberNames ?? {}) : null), [inRoom, memberNames]);
   return (
     <MarkdownProjectContext.Provider value={project}>
       <MarkdownSessionContext.Provider value={sessionId}>
-        <MarkdownOpenFileContext.Provider value={openFile ?? null}>
-          <MarkdownOpenFolderContext.Provider value={openFolder ?? null}>
-            <TranscriptDevicesContext.Provider value={multiDevice}>
-              <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
-                <TurnChangesContext.Provider value={turnChangesSurface}>{children}</TurnChangesContext.Provider>
-              </TranscriptViewerDeviceContext.Provider>
-            </TranscriptDevicesContext.Provider>
-          </MarkdownOpenFolderContext.Provider>
-        </MarkdownOpenFileContext.Provider>
+        <MarkdownMentionNamesContext.Provider value={mentionNames}>
+          <MarkdownOpenFileContext.Provider value={openFile ?? null}>
+            <MarkdownOpenFolderContext.Provider value={openFolder ?? null}>
+              <TranscriptDevicesContext.Provider value={multiDevice}>
+                <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
+                  <TurnChangesContext.Provider value={turnChangesSurface}>{children}</TurnChangesContext.Provider>
+                </TranscriptViewerDeviceContext.Provider>
+              </TranscriptDevicesContext.Provider>
+            </MarkdownOpenFolderContext.Provider>
+          </MarkdownOpenFileContext.Provider>
+        </MarkdownMentionNamesContext.Provider>
       </MarkdownSessionContext.Provider>
     </MarkdownProjectContext.Provider>
   );
@@ -122,7 +130,10 @@ export function ConversationTranscript({
   renderRow,
   itemCount,
   cover,
+  intro,
 }: {
+  /** Agent mode: the contact's profile a chat with no messages yet shows. */
+  intro?: ReactNode;
   view: Pick<
     ConversationViewport,
     'viewport' | 'content' | 'follow' | 'setTranscriptAnchorBottomRef' | 'scrollToEndRef'
@@ -147,7 +158,7 @@ export function ConversationTranscript({
   project: string;
   multiDevice: boolean;
   viewerDevice: string | null;
-  renderRow: (row: TranscriptRowModel) => ReactNode;
+  renderRow: (row: TranscriptRowModel, index: number, rows: readonly TranscriptRowModel[]) => ReactNode;
   itemCount: number;
   /** Loading cover over the viewport alone (never the composer dock). */
   cover?: ReactNode;
@@ -217,6 +228,12 @@ export function ConversationTranscript({
             workspace; secondary surfaces keep the quiet letterpress).
             Sessions and transitions never show it. */}
           {showWelcome && welcomeWatermark(visibleWarmPaintHandoff)}
+          {intro &&
+            itemCount === 0 &&
+            pendingPromptCount === 0 &&
+            !source.activeStreamingTail &&
+            !transitioning &&
+            intro}
           {/* ONE mount per session, always with the real rows: a placeholder
             shell mounted first made the virtual core resolve its end anchor
             against an empty list and again on the 0 -> N row swap — the
@@ -240,7 +257,7 @@ export function ConversationTranscript({
                 shouldAnchorBottom={timeline.shouldAnchorTranscriptBottom}
                 markProgrammaticScroll={follow.markProgrammaticScroll}
                 hasScrollGesture={follow.hasScrollGesture}
-                hasTouchScroll={follow.hasTouchScroll}
+                hasTouchScroll={follow.holdsScrollCorrections}
                 onSelectionAutoScroll={follow.handleSelectionAutoScroll}
                 setAnchorBottomRef={view.setTranscriptAnchorBottomRef}
                 scrollToEndRef={view.scrollToEndRef}

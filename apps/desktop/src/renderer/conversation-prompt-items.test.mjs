@@ -10,6 +10,33 @@ import {
   unsettledQueueEntries,
 } from './conversation-prompt-items.ts';
 
+test("a group room's live user row (a notice) releases the sent prompt's pending twin", () => {
+  const settled = [
+    { kind: 'notice', id: 'n1', text: 'hi', room: { kind: 'user', id: 'user_s1' } },
+    { kind: 'notice', id: 'n2', text: 'ok', room: { kind: 'speech', id: 'row_1' } },
+  ];
+  assert.equal(settledUserRowCount(settled), 1);
+  const pending = { id: 's1', kind: 'user', text: 'hi', pending: true, accepted: true, submittedAt: 1 };
+  assert.deepEqual(pendingPromptTranscriptItems([{ ...pending, settledUserBaseline: 0 }], settled), []);
+});
+
+test("a room's later prompt is released by its own renamed row, not held for one more", () => {
+  // Rows renamed by the room (id mismatch): the earlier twin stays in state,
+  // and the second prompt was sent after the first row had settled.
+  const pending = { kind: 'user', pending: true, accepted: true };
+  const optimistic = [
+    { ...pending, id: 's1', text: 'hi', submittedAt: 1, settledUserBaseline: 0 },
+    { ...pending, id: 's2', text: 'hm', submittedAt: 2, settledUserBaseline: 1 },
+  ];
+  const room = (id, text) => ({ kind: 'notice', id, text, room: { kind: 'user', id: `user_${id}` } });
+  const held = (prompts, settled) => pendingPromptTranscriptItems(prompts, settled).map((item) => item.id);
+  assert.deepEqual(held(optimistic, [room('n1', 'hi')]), ['s2']);
+  assert.deepEqual(held(optimistic, [room('n1', 'hi'), room('n2', 'hm')]), []);
+  // Two prompts sent before either settled still wait for a row each.
+  const together = optimistic.map((item) => ({ ...item, settledUserBaseline: 0 }));
+  assert.deepEqual(held(together, [room('n1', 'hi')]), ['s2']);
+});
+
 test('settledUserRowCount counts user rows correctly', () => {
   assert.equal(settledUserRowCount([]), 0);
   assert.equal(

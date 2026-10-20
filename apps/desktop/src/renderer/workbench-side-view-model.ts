@@ -16,6 +16,10 @@ export type WorkbenchSideViewId =
   | 'visualize'
   | 'browser'
   | 'terminal'
+  /** Agent home threads only: the agent's schedules (RoutinesPane). */
+  | 'routines'
+  /** Group rooms only: members, limits, leave/delete (AgentRoomPanel). */
+  | 'room'
   /** Server windows only: the server's ports and their forwards to this PC. */
   | 'ports';
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
@@ -38,9 +42,12 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   'projects',
   'workflows',
   'extensions',
+  'skills',
   'schedules',
   'webhooks',
   'ports',
+  'routines',
+  'room',
   'session-diff',
   'visualize',
   'browser',
@@ -62,12 +69,13 @@ const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ['projects'],
     ['workflows'],
     ['extensions'],
+    ['skills'],
     ['source-control'],
     ['search'],
     ['webhooks'],
     ['ports'],
   ],
-  right: [['session-diff'], ['visualize'], ['browser'], ['terminal'], ['pull-requests']],
+  right: [['routines'], ['room'], ['session-diff'], ['visualize'], ['browser'], ['terminal'], ['pull-requests']],
 };
 
 export function isViewId(value: unknown): value is WorkbenchSideViewId {

@@ -61,6 +61,21 @@ test('pushNotice routes to a toast by default and to the transcript on request',
   surface.clearToastTimers();
 });
 
+test('a live room user row carries its message id; member rows get a fresh id', () => {
+  const { surface, pushed } = createSurface();
+  const room = { kind: 'user', id: 'desktop-submit-1' };
+  assert.equal(
+    surface.pushNotice('hi', 'info', { transcript: true, room, messageId: 'desktop-submit-1' }),
+    'desktop-submit-1'
+  );
+  assert.equal(pushed[0].kind, 'user');
+  assert.equal(pushed[0].id, 'desktop-submit-1');
+  const speech = { kind: 'speech', id: 'm1', speaker: 'gh' };
+  const memberId = surface.pushNotice('ok', 'info', { transcript: true, room: speech, messageId: 'm1' });
+  assert.notEqual(memberId, 'm1');
+  assert.equal(pushed[1].id, memberId);
+});
+
 test('setProgressHint clamps the percent and clears on empty text', () => {
   const { surface, getState } = createSurface();
   surface.setProgressHint('downloading', 'info', 140.6);
