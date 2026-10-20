@@ -141,6 +141,18 @@ test('a phone keeps its recent sessions mounted and switches back by visibility 
   assert.deepEqual(view.mountedSessions(), ['a', 'd']);
 });
 
+test('a phone session whose lane is already loaded mounts in the opening frame, with no skeleton', async (t) => {
+  const view = await mountPhoneWorkspace(t);
+  const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+  t.after(() => defaultSessionLaneStore.clear());
+  defaultSessionLaneStore.apply({ sessionId: 'b', snapshot: { sessionId: 'b', items: [{ id: 'r1', kind: 'user' }] } });
+  await view.render([A, B], A);
+  await view.flushFrame();
+  await view.render([A, B], B);
+  assert.ok(view.conversation('b'), 'the cached rows mount in the tap commit');
+  assert.equal(view.host.ownerDocument.querySelector('.transcript-skeleton'), null, 'no skeleton frame first');
+});
+
 test('a phone keeps two hidden sessions in total, however many panes it has', async (t) => {
   const view = await mountPhoneWorkspace(t);
   const [E] = ['e'].map(session);

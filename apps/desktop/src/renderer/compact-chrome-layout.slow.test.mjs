@@ -11,7 +11,7 @@ test('compact chrome preserves input growth, readable rows and accessible action
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
       loader: 'css',
       contents:
-        '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./desktop/composer-add-menu.css";',
+        '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css"; @import "./desktop/composer-add-menu.css"; @import "./agent-chat.css";',
     },
     outfile: 'compact-chrome.css',
     bundle: true,
@@ -95,9 +95,9 @@ test('compact chrome preserves input growth, readable rows and accessible action
             }),
           };
         });
-        assert.equal(resting.height, 96);
-        assert.equal(resting.inputHeight, 56);
-        assert.equal(resting.footerHeight, 40);
+        assert.equal(resting.height, 42);
+        assert.equal(resting.inputHeight, 42);
+        assert.equal(resting.footerHeight, 0, 'the footer controls sit in the one-line bar (display: contents)');
         assert.equal(resting.overflow, false);
         assert.equal(resting.controlsFit, true);
         await page.evaluate(() => {
@@ -109,8 +109,9 @@ test('compact chrome preserves input growth, readable rows and accessible action
           input: document.querySelector('textarea').getBoundingClientRect().height,
           scrolls: document.querySelector('textarea').scrollHeight > document.querySelector('textarea').clientHeight,
         }));
-        assert.equal(expanded.input, 180);
-        assert.equal(expanded.form, 220);
+        // One line grows to five (agent-chat.css): 5 * 24px lines + 2 * 9px padding.
+        assert.equal(expanded.input, 138);
+        assert.equal(expanded.form, 138);
         assert.equal(expanded.scrolls, true);
       }
     });

@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect } from 'react';
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { Snapshot } from './desktop-types';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { commandShowsActivity } from './transcript-status';
 import { useConversationFollowEffects } from './use-conversation-follow-effects';
 import { useTranscriptRows } from './use-conversation-rows';
@@ -19,6 +20,7 @@ export function useConversationTimeline({
   snapshot,
   pendingItems,
   optimisticActivityStartedAt,
+  liveBand,
   onEntryRevealed,
   onTranscriptHiddenChange,
 }: {
@@ -37,6 +39,7 @@ export function useConversationTimeline({
   snapshot: Snapshot;
   pendingItems: PendingPromptItem[];
   optimisticActivityStartedAt: number;
+  liveBand?: boolean;
   onEntryRevealed?: (sessionKey: string) => void;
   onTranscriptHiddenChange?: (hidden: boolean) => void;
 }) {
@@ -59,8 +62,10 @@ export function useConversationTimeline({
     commandBusy: snapshot.commandBusy,
     commandActivityVisible: commandShowsActivity(snapshot),
     optimisticActivityStartedAt,
+    liveBand,
   });
   const populated = showTimeline && transcriptRows.length > 0;
+  const phone = useMobileRemoteSurface();
   const transcriptRevealed = useTranscriptReveal({
     identity,
     enabled: populated,
@@ -69,6 +74,7 @@ export function useConversationTimeline({
     content,
     scope: conversation,
     hasScrollGesture,
+    eager: phone,
   });
   // A disabled reveal reads as revealed; only populated rows count as an entry.
   useLayoutEffect(() => {

@@ -28,6 +28,7 @@ const HARNESS = `
   const empty = [];
   const rows = Array.from({ length: 40 }, (_, index) => ({
     key: 'message-' + index, _tag: 'AssistantPart',
+    item: { kind: 'assistant', text: 'Message ' + index },
   }));
   function Body({ id }) {
     if (pending.has(id)) throw pending.get(id).promise;

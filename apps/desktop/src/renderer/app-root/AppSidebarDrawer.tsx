@@ -1,9 +1,10 @@
 import type React from 'react';
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo } from 'react';
 import { ActivityRail } from '../ActivityRail';
 import type { DesktopUpdaterState } from '../../shared/contract';
 import type { RailUpdateSettingsTarget } from '../RailUpdateSlot';
 import { useStableEvent } from '../use-stable-event';
+import { OPEN_AGENTS_VIEW_EVENT } from '../mixy-identity';
 import { useEdgeSwipeDrawers } from '../use-edge-swipe-drawers';
 import { isMobileDeviceSurface, useMobileRemoteSurface } from '../mobile-surface';
 import { RemotePcCard, remotePcSurface } from '../RemotePcSwitcher';
@@ -57,6 +58,7 @@ interface AppSidebarDrawerProps {
   sidebarDiff: ReturnType<typeof useAppSideDocks>['sidebarDiff'];
   closeSidebarDiff: () => void;
   openFileTab: (project: string, rel: string, line?: number) => void;
+  mountedSidebarPanels: ReturnType<typeof useAppShellPanels>['mountedSidebarPanels'];
 }
 
 /** The desktop sidebar's footer guide. Phones never render it, so its chunk
@@ -89,8 +91,18 @@ export function AppSidebarDrawer({
   sidebarDiff,
   closeSidebarDiff,
   openFileTab,
+  mountedSidebarPanels,
 }: AppSidebarDrawerProps) {
   const phone = useMobileRemoteSurface();
+  // Hidden destinations keep their last render. Both the desktop idle lane and
+  // a phone's first touch pre-mount the rail pages while they are already
+  // retained hidden; without one more hidden render the pre-mount never
+  // reached them, and the first visit mounted the page behind its placeholder.
+  // Keyed per view, so a mount renders only its own page again.
+  const panelsKey = useCallback(
+    (id: WorkbenchSideViewId) => (mountedSidebarPanels.has(id) ? 'mounted' : ''),
+    [mountedSidebarPanels]
+  );
   useEdgeSwipeDrawers({ sidebarOpen, openSidebar, applySidebarOpen });
   // The rail and the starter guide are memoised; their handlers and items
   // keep one identity across App commits (a session switch is several).
@@ -104,6 +116,15 @@ export function AppSidebarDrawer({
   const openUsageStats = useStableEvent(() => setCommandSurface('stats'));
   const closeSettings = useStableEvent(() => setSettingsOpen(false));
   const selectSideView = useStableEvent(selectWorkbenchSideView);
+  // A routine view with no bot sends the user to make the representative bot.
+  useEffect(() => {
+    const onAgentsView = () => {
+      selectSideView('agents');
+      applySidebarOpen(true);
+    };
+    window.addEventListener(OPEN_AGENTS_VIEW_EVENT, onAgentsView);
+    return () => window.removeEventListener(OPEN_AGENTS_VIEW_EVENT, onAgentsView);
+  }, [selectSideView, applySidebarOpen]);
   const leftLayout = workbenchSideLayout.layout.left;
   const navigationItems = useMemo(
     () =>
@@ -147,6 +168,7 @@ export function AppSidebarDrawer({
         onMoveGroup={moveWorkbenchSideGroup}
         onMoveView={moveWorkbenchSideView}
         renderView={(id, active, titleDragProps) => renderWorkbenchSideView('left', id, active, titleDragProps)}
+        hiddenKey={panelsKey}
         footer={
           // Phones and tablets get no starter guide (welcome, tour, checklist).
           isMobileDeviceSurface() ? undefined : (

@@ -2,11 +2,13 @@ import type React from 'react';
 import type { DesktopModelSelection, DesktopWorkflowState } from '../../shared/contract';
 import type { NavigationSelection } from '../navigation';
 import { PaneWorkspace } from '../PaneWorkspace';
+import type { PaneLeaf } from '../pane-layout';
 import { WorkspaceEmptyState } from '../WorkspaceEmptyState';
 import { DraftConversation } from '../app-snapshot-views';
 import { StableSessionTitle } from '../app-shell-components';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
 import { t } from '../i18n';
+import { useMobileRemoteSurface } from '../mobile-surface';
 import type { usePaneWorkspace } from '../pane-workspace-state';
 import type { useAppSessionTitle } from '../app-shell-session-title';
 import type { useAppProjectCatalog } from '../use-app-project-catalog';
@@ -77,6 +79,8 @@ export interface AppWorkspaceMainProps {
   renderPaneProblems: ReturnType<typeof useAppWorkbenchViews>['renderPaneProblems'];
   activatePaneSurface: ReturnType<typeof useAppPaneChrome>['activatePaneSurface'];
   openDroppedPaths: (leafId: string, paths: string[]) => Promise<void>;
+  /** The left Agents page is showing. */
+  agentsPageOpen: boolean;
 }
 
 export function AppWorkspaceMain({
@@ -127,7 +131,25 @@ export function AppWorkspaceMain({
   renderPaneProblems,
   activatePaneSurface,
   openDroppedPaths,
+  agentsPageOpen,
 }: AppWorkspaceMainProps) {
+  const phone = useMobileRemoteSurface();
+  // The desktop shares one tab strip across every side view, the Agents page
+  // too. With no bot chat selected there (a new-task draft is), the page shows
+  // no draft: its tab leaves the strip (which keeps any real tabs) and its
+  // composer and logo leave the main area. Sessions shows the draft again.
+  const hideDrafts = !phone && agentsPageOpen && navigationSelection.kind === 'new';
+  const renderStrip = hideDrafts
+    ? (leaf: PaneLeaf) => paneStripFor({ ...leaf, tabs: leaf.tabs.filter((tab) => tab.kind !== 'new') })
+    : paneStripFor;
+  const renderConversation: typeof paneConversationSurface = hideDrafts
+    ? (selection, ...rest) =>
+        selection.kind === 'new' ? (
+          <div className="workspace workspace-agents-empty" data-agents-empty="true" />
+        ) : (
+          paneConversationSurface(selection, ...rest)
+        )
+    : paneConversationSurface;
   const workspaceSurface = (
     <div className="workspace">
       {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the header keeps its tag; the label names the current task */}
@@ -193,8 +215,8 @@ export function AppWorkspaceMain({
     <PaneWorkspace
       workspace={paneWorkspace}
       observedSessionIds={observedAgentSessionIds}
-      renderStrip={paneStripFor}
-      renderConversation={paneConversationSurface}
+      renderStrip={renderStrip}
+      renderConversation={renderConversation}
       renderFileEditors={paneFileEditors}
       renderUtilityTabs={paneUtilityTabs}
       renderSideDock={renderPaneSideDock}

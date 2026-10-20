@@ -363,11 +363,23 @@ html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator s
 html[data-mixdog-mobile-tabs] .composer-footer {
   position: relative;
 }
-html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator {
+html[data-mixdog-mobile-tabs] .composer-model-line .session-context-indicator {
   position: static;
 }
-html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-popover {
+html[data-mixdog-mobile-tabs] .composer-model-line .session-context-popover {
   max-width: calc(100vw - 2 * var(--mx-mobile-edge-main));
+}
+/* The line under the card keeps the bar's touch height; the readout is
+   plain text that drops parts (see 15-composer.css) before the model chip
+   gives way. */
+html[data-mixdog-mobile-tabs] .composer-model-line {
+  min-height: var(--mx-touch-main);
+  margin-top: 0;
+  padding-inline: 4px;
+}
+html[data-mixdog-mobile-tabs] .composer-model-line > .composer-usage-readout {
+  height: var(--mx-touch-main);
+  line-height: var(--mx-touch-main);
 }
 html[data-mixdog-mobile-tabs] .dock-scm-commit-back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__close,
@@ -745,6 +757,21 @@ html[data-mixdog-mobile-tabs] .pane-side-dock {
     transform var(--mx-sheet-motion),
     visibility var(--mx-sheet-motion);
 }
+/* The session drawer opens above an open dock sheet (and its terminal/browser
+   surfaces at 151): a chat tapped in it navigates, and the sheet yields as the
+   session's panel view folds, instead of the drawer hiding under the sheet. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
+  z-index: 153;
+}
+html[data-mixdog-mobile-tabs] .sidebar-backdrop {
+  z-index: 152;
+}
+/* Mica clears --mx-workspace-sheet inside the main panel, where the dock
+   lives, so the sheet above resolved to transparent and the chat and the tab
+   strip showed through. The root's solid copy keeps the full-screen sheet opaque. */
+html[data-window-material="mica"][data-mixdog-mobile-tabs] .pane-side-dock {
+  background: var(--mx-sheet-ink);
+}
 /* The closed sheet keeps its box and parks off the right edge so the exit
    runs on the same curve as the entry; the panel inside is already `inert` +
    `aria-hidden`, so nothing is reachable while it sits there. */
@@ -1062,48 +1089,84 @@ html[data-mixdog-mobile-tabs] .utility-dock .agent-session-heading {
 html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page {
   padding-bottom: 8px;
 }
-/* The messenger list at native dp: chat-list rows, finger-sized agent rows
-   and disclosure; the row menu opens by long-press. */
-html[data-mixdog-mobile-tabs]
-  .utility-dock
-  .agent-chat-row:is([data-kind="session"], [data-kind="contact"])
-  .agent-chat-row-main {
-  min-height: 68px;
-  gap: 12px;
-  padding: 10px 8px;
+/* Contacts at native dp, KakaoTalk's phone list: the desktop rule's layout
+   with phone sizes; the row menu opens by long-press. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="contact"] {
+  --agent-contact-avatar-size: 48px;
+  --agent-contact-padding: 10px 10px 10px 12px;
+  --agent-contact-min-height: 72px;
+  --agent-contact-name: 15px;
+  --agent-contact-name-line: 20px;
+  --agent-contact-preview: 13.5px;
+  --agent-contact-preview-line: 18px;
+  /* The time column follows this size (10-rail-pages.css). */
+  --agent-contact-time: 12px;
 }
-html[data-mixdog-mobile-tabs]
-  .utility-dock
-  .agent-chat-row:is([data-kind="session"], [data-kind="contact"])
-  .agent-chat-avatar {
-  width: 44px;
-  height: 44px;
-  flex-basis: 44px;
+/* The new-agent dialog is a bottom sheet: full width, grab bar, 44dp targets
+   and a footer of two equal thumb buttons above the safe area. */
+html[data-mixdog-mobile-tabs] .schedules-dialog-layer:has(> .agent-create-dialog) {
+  align-items: end;
+  padding: max(40px, env(safe-area-inset-top, 0px)) 0 0;
 }
-html[data-mixdog-mobile-tabs]
-  .utility-dock
-  .agent-chat-row:is([data-kind="session"], [data-kind="contact"])
-  .agent-chat-title {
-  font-size: calc(16px * var(--mx-content-scale, 1));
-  line-height: 22px;
+html[data-mixdog-mobile-tabs] .agent-create-dialog {
+  width: 100%;
+  max-height: 100%;
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
 }
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="agent"] .agent-chat-row-main {
+html[data-mixdog-mobile-tabs] .agent-create-dialog::before {
+  content: "";
+  flex: none;
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--mx-text) 25%, transparent);
+}
+html[data-mixdog-mobile-tabs] .agent-create-dialog .agent-create-name,
+html[data-mixdog-mobile-tabs] .agent-create-dialog .agent-create-advanced,
+html[data-mixdog-mobile-tabs] .agent-create-dialog .agent-create-field input {
   min-height: var(--mx-touch);
-  padding-left: calc(30px + var(--agent-chat-depth, 0) * 16px);
 }
-/* A 44dp twisty target centred on the twisty, overlapping the avatar edge and
-   the title start instead of adding width. */
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row {
-  --agent-chat-hit: var(--mx-touch);
-  --agent-chat-hit-x: 48px;
-  --agent-chat-hit-y: 2px;
+html[data-mixdog-mobile-tabs] .agent-create-segments {
+  display: flex;
+  width: 100%;
 }
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="agent"] {
-  --agent-chat-hit-x: calc(46px + var(--agent-chat-depth, 0) * 16px);
-  --agent-chat-hit-y: 0px;
+html[data-mixdog-mobile-tabs] .agent-create-segments > button {
+  flex: 1 1 0;
+  height: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row > .row-overflow {
-  display: none;
+html[data-mixdog-mobile-tabs] .agent-create-dialog .agent-create-field {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+html[data-mixdog-mobile-tabs] .agent-avatar-picker:not([data-compact]) .agent-avatar-options > button {
+  min-height: var(--mx-touch);
+}
+/* A 26dp swatch inside a 44dp target; the pick ring sits around the swatch. */
+html[data-mixdog-mobile-tabs] .agent-avatar-colors {
+  gap: 0;
+}
+html[data-mixdog-mobile-tabs] .agent-avatar-colors > button {
+  width: var(--mx-touch);
+  height: var(--mx-touch);
+  padding: 9px;
+  background-clip: content-box;
+}
+html[data-mixdog-mobile-tabs] .agent-avatar-colors > button[aria-pressed="true"] {
+  box-shadow: none;
+  outline: 2px solid var(--mx-text-soft);
+  outline-offset: -7px;
+}
+html[data-mixdog-mobile-tabs] .agent-create-dialog footer {
+  padding-bottom: max(18px, env(safe-area-inset-bottom, 0px));
+}
+html[data-mixdog-mobile-tabs] .agent-create-dialog footer > button {
+  flex: 1 1 0;
+}
+/* Work rows keep the drawer's original look; only the brand mark grows. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page .agent-pool-row > .sidebar-resource-icon {
+  --agent-brand-size: 28px;
 }
 /* Source Control's ONE action at native dp: the desktop 28px commit row is a
    fingernail band on a phone. The row and its full-width button take the 44dp primary tier. */
@@ -1638,4 +1701,81 @@ html[data-mixdog-mobile-tabs] .dock-file-menu button:active:not(:disabled) {
 }
 html[data-mixdog-mobile-tabs] .dock-file-menu button {
   min-height: var(--mx-touch-row-main);
+}
+
+/* ── Phone main screens, Direction 1 (design/mockups/main-window-polish) ──
+   One bar system, measured from the real main bar: 60px band, centre y 30,
+   logo slot 44 at x 8 (centre 30), 44px pill from x 56, the last right icon
+   centred 26.5 from the edge, no dividers. The session main keeps its
+   structure; its pill, user block and tool card share one step-up tone and
+   the composer lifts slightly. */
+:root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) {
+  --mx-d1-step: #1d1d21;
+  --mx-user-bubble: var(--mx-d1-step);
+  --mx-composer-surface: #1d1d22;
+  --mx-composer-lift: 0 12px 28px -10px #000d;
+  --mx-composer-edge: inset 0 1px 0 #ffffff0a;
+}
+:root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) .workspace-tab-compact-current,
+:root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) .workspace-tab-compact-current:hover:not(:active),
+:root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) .tool-activity .tool-activity-content {
+  background: var(--mx-d1-step);
+}
+/* The list: section labels in place of dividers, Mixy as a raised pinned
+   card, unread as a bold name and a silver count pill, typing as dots. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-divider {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .agent-list-section {
+  margin: 0;
+  padding: 18px 12px 6px;
+  list-style: none;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+/* The card is the row itself, so its hover and selected fills (10-rail-pages)
+   take the same inset and radius instead of a full-width plate behind it. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="contact"][data-agent-contact="lead"] {
+  margin: 0 10px;
+  overflow: hidden;
+  border-radius: 16px;
+}
+html[data-mixdog-mobile-tabs]
+  .utility-dock
+  .agent-chat-row[data-kind="contact"][data-agent-contact="lead"]:not(.selected):not(:hover) {
+  background: #18181d;
+}
+html[data-mixdog-mobile-tabs] .agent-chat-row:has(.agent-chat-status[data-kind="unread"]) .agent-chat-title {
+  font-weight: 750;
+}
+html[data-mixdog-mobile-tabs] .agent-chat-status[data-kind="unread"] {
+  color: #111113;
+  background: #e4e5e8;
+}
+html[data-mixdog-mobile-tabs] .agent-chat-status[data-kind="running"] > :not(.sr-only) {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .agent-chat-status[data-kind="running"]::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  margin-right: 14px;
+  border-radius: 50%;
+  background: #b9bfca;
+  box-shadow:
+    7px 0 #b9bfca,
+    14px 0 #b9bfca;
+  animation: mx-list-typing 1.2s ease-in-out infinite;
+}
+@keyframes mx-list-typing {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-mixdog-mobile-tabs] .agent-chat-status[data-kind="running"]::before {
+    animation: none;
+  }
 }
