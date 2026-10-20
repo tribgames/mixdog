@@ -32,7 +32,7 @@ import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySetti
 import { preloadConnectionInfo } from './connection-info';
 import { preloadDesktopStatus } from './desktop-status-cache';
 import { preloadProviderPanel } from './provider-panel';
-import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
+import { FOCUSABLE_SELECTOR, openModal, portaledMenuOpen, trapTab } from './dialog-modality';
 import { preloadGitPanelInfo } from './git-panel-info';
 import { ServerSettingsScope } from './server-settings-scope';
 import { RemotePcLabel } from '../RemotePcSwitcher';
@@ -185,7 +185,7 @@ export const SettingsView = memo(function SettingsView({
     if (!open) return undefined;
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
-    const restoreBackground = inertBackground((element) => element !== dialog && !element.contains(dialog));
+    const restoreBackground = dialog ? openModal(dialog) : () => {};
     closeRef.current?.focus();
     return () => {
       restoreBackground();

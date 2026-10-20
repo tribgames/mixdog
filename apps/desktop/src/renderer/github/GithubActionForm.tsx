@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { GithubRequest } from '../../shared/contract';
+import { confirmAction } from '../app-confirm';
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 
@@ -125,24 +126,26 @@ export function GithubActionForm({
           next.action === 'workflow.run' || (next.action.startsWith('release.') && next.draft !== true)
             ? `\n${t('This action may trigger a deployment.')}`
             : '';
-        if (
-          !window.confirm(
-            `${t(label)}\n${target}${next.number ? ` #${next.number}` : ''}${next.id ? ` #${next.id}` : ''}${warning}`
-          )
-        )
-          return;
         sending.current = true;
-        setBusy(true);
-        setError('');
-        void onSubmit(next)
-          .then(onClose)
-          .catch((reason) => {
-            setError(String(reason instanceof Error ? reason.message : reason));
-          })
-          .finally(() => {
+        void confirmAction(
+          `${t(label)}\n${target}${next.number ? ` #${next.number}` : ''}${next.id ? ` #${next.id}` : ''}${warning}`
+        ).then((approved) => {
+          if (!approved) {
             sending.current = false;
-            setBusy(false);
-          });
+            return;
+          }
+          setBusy(true);
+          setError('');
+          return onSubmit(next)
+            .then(onClose)
+            .catch((reason) => {
+              setError(String(reason instanceof Error ? reason.message : reason));
+            })
+            .finally(() => {
+              sending.current = false;
+              setBusy(false);
+            });
+        });
       }}
     >
       <h3>{t(label)}</h3>

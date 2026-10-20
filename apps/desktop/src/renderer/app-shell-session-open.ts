@@ -1,7 +1,7 @@
 import { startTransition } from 'react';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import type { DesktopSessionSummary } from '../shared/contract';
-import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { sessionDisplayTitle } from './session-display-title';
 import { t } from './i18n';
 import { defaultSessionLaneStore } from './session-lane-store';
 import { requestSessionRead } from './app-snapshot-views';
@@ -70,7 +70,7 @@ export function useAppSessionOpen({
     startTransition(() =>
       activateSelection(
         selection,
-        pinnedTitle || (session ? sessionSummaryTitle(session, t('Untitled session')) : t('Untitled session')),
+        pinnedTitle || (session ? sessionDisplayTitle(session, t('Untitled session')) : t('Untitled session')),
         replaceKey
       )
     );

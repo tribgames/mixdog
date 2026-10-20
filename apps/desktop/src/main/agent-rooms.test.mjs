@@ -16,9 +16,9 @@ function storedRow({ upload, ...row }) {
 }
 
 const AGENTS = [
-  { id: 'gh', custom: true, label: 'GitHub', route: { provider: 'openai', model: 'gpt-5' } },
-  { id: 'rel', custom: true, label: 'Release', route: { provider: 'openai', model: 'gpt-5' } },
-  { id: 'bench', custom: true, label: 'Bench', route: { provider: 'openai', model: 'gpt-5' } },
+  { id: 'gh', custom: true, kind: 'bot', label: 'GitHub', route: { provider: 'openai', model: 'gpt-5' } },
+  { id: 'rel', custom: true, kind: 'bot', label: 'Release', route: { provider: 'openai', model: 'gpt-5' } },
+  { id: 'bench', custom: true, kind: 'bot', label: 'Bench', route: { provider: 'openai', model: 'gpt-5' } },
 ];
 
 /** A host whose members answer from `script(agentId, prompt)`; '' passes. */
@@ -35,8 +35,12 @@ function harness({
   decide = () => ({ action: 'finish' }),
   // A store save that rejects for the docs it matches.
   saveFails = () => false,
+  agents = AGENTS,
+  mixyRoute = undefined,
 } = {}) {
   const logs = [];
+  /** Every session created, with its create params. */
+  const created = [];
   let clock = 1_000;
   let ids = 0;
   const saved = { doc };
@@ -58,11 +62,13 @@ function harness({
         saved.doc = structuredClone(value);
       },
     },
-    listAgents: async () => AGENTS,
+    listAgents: async () => agents,
     ...(leadName === undefined ? {} : { leadName: async () => leadName }),
     sessionExists: async (id) => sessions.has(id),
-    createSession: async (id) => {
+    ...(mixyRoute === undefined ? {} : { mixyRoute: async () => mixyRoute }),
+    createSession: async (id, params) => {
       sessions.add(id);
+      created.push([id, params]);
     },
     renameSession: async () => {},
     appendRows: async (id, rows) => {
@@ -126,7 +132,7 @@ function harness({
   const idle = async (roomId) => {
     for (let i = 0; i < 2000 && rooms.isRunning(roomId); i += 1) await new Promise((r) => setImmediate(r));
   };
-  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions };
+  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created };
 }
 
 /** A supervisor that hands the turn to the member after the last speaker
@@ -145,6 +151,29 @@ async function room(h, extra = {}) {
   });
   return { sessionId, roomId };
 }
+
+test("a room's log is created on a member's model: a model-less session is never stored", async () => {
+  // Mixy first with no route of its own: the next member's model carries it.
+  const h = harness({ mixyRoute: null });
+  const { sessionId } = await room(h, { members: ['lead', 'rel'] });
+  assert.deepEqual(h.created[0][1].provider, 'openai');
+  assert.equal(h.created[0][0], sessionId);
+  // Mixy's own route wins when it comes first, and Mixy's member thread runs on it too.
+  const mixy = harness({ mixyRoute: { provider: 'anthropic', model: 'opus' } });
+  const made = await room(mixy, { members: ['lead', 'gh'] });
+  assert.equal(mixy.created[0][1].model, 'opus');
+  await mixy.rooms.send(made.sessionId, '@Mixy hello');
+  await mixy.idle(made.roomId);
+  const memberThread = mixy.created.find(([id]) => id !== made.sessionId);
+  assert.equal(memberThread?.[1].model, 'opus', "Mixy's member thread is not model-less");
+});
+
+test('a room whose members have no model cannot be created: the model-required refusal, not a broken room', async () => {
+  const bare = AGENTS.map(({ route: _route, ...row }) => row);
+  const h = harness({ agents: bare, mixyRoute: null });
+  await assert.rejects(() => room(h, { members: ['lead', 'gh'] }), /No model selected/);
+  assert.deepEqual(h.created, []);
+});
 
 test('a renamed representative is listed in its rooms under its name', async () => {
   const rename = async (leadName) => {
@@ -580,6 +609,27 @@ test('a room send writes only to the room and its own member sessions, never a h
     assert.doesNotMatch(id, /^sess_home_/, id);
     assert.ok(id === sessionId || id.includes(roomId), id);
   }
+});
+
+test('after the bot split a room keeps its members: migrated bots and Mixy speak; a member now a workflow agent keeps its name', async () => {
+  // A room made on 1.3.0 with Mixy, a bot (now in bots/, same id) and an old
+  // agent that was shown as a bot then (now a workflow agent: no contact).
+  const before = harness();
+  const { roomId } = await room(before, { members: ['lead', 'gh', 'rel'], maxRounds: 1 });
+  const h = harness({
+    doc: before.saved.doc,
+    agents: AGENTS.filter((agent) => agent.id !== 'rel').concat({ id: 'rel', custom: true, label: 'Release' }),
+    decide: ROTATE,
+  });
+  await h.rooms.ready();
+  const [row] = h.rooms.withRooms([]);
+  assert.deepEqual(row.agentRoom.memberNames, { lead: 'Mixy', gh: 'GitHub', rel: 'Release' });
+  const sessionId = row.id;
+  await h.rooms.send(sessionId, 'hello room');
+  await h.idle(roomId);
+  const speakers = new Set(h.prompts.map((prompt) => prompt.agentId));
+  assert.ok(speakers.has('gh'), 'the migrated bot answers under its unchanged id');
+  for (const id of h.touched) assert.doesNotMatch(id, /^sess_home_/, 'no home thread is touched');
 });
 
 test('a duplicate send is acknowledged once and posts one row', async () => {

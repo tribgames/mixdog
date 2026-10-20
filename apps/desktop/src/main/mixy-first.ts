@@ -1,11 +1,11 @@
 // The "대표 에이전트 먼저" first run, host side.
 //
-// Mixy exists once the explicit `created` flag in agents/lead/agent.json is
-// true (runtime getLeadStatus / setLeadCreated). The flag is decided once per
-// profile: a profile that already has a Mixy home thread, any contact agent or
-// any session is an existing user and is marked created without asking; only
-// a fresh profile with none of them is marked not created and sees the empty
-// Agents pane until the 대표 에이전트 dialog creates Mixy.
+// Mixy exists once the explicit `created` flag in Mixy's agent.json (bots/mixy
+// with the bot store, agents/lead before) is true (runtime getLeadStatus /
+// setLeadCreated). The flag is decided once per
+// profile: only a profile that already has Mixy's home thread is marked
+// created; every other profile, existing users with sessions or agents
+// included, is marked not created and sees the 대표 에이전트 dialog once.
 //
 // New agents greet the user once. The dialogs greet the agents they create;
 // an agent a chat's setup tool created never passes through them, so the host
@@ -13,25 +13,33 @@
 // the seen ids; the first read records the existing ones without greeting).
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 
 export interface MixyStatusDeps {
-  /** Runtime getLeadStatus: `{ created: true | false | null }`. */
+  /** Runtime getLeadStatus: `{ created: true | false | null, name, homeChatted }`. */
   status: unknown;
-  listAgents(): Promise<unknown>;
   /** The user's sessions, Mixy's home thread included even when empty. */
   sessionIds(): Promise<readonly string[]>;
   /** Runtime setLeadCreated. */
   setCreated(created: boolean): Promise<unknown>;
 }
 
-/** Whether Mixy exists, deciding (and persisting) an undecided profile. */
+/** Whether Mixy exists, deciding (and persisting) an undecided profile.
+ *  v1.3.0 marked every existing profile created without asking; such a Mixy
+ *  the user never named nor talked with (`created` with no `name`, and a
+ *  home thread missing or without any conversation) reads as not created,
+ *  so the 대표 에이전트 dialog shows — nothing is rewritten, and completing
+ *  the dialog names it. */
 export async function resolveMixyCreated(deps: MixyStatusDeps): Promise<boolean> {
-  const created = (deps.status as { created?: unknown } | null)?.created;
+  const status = (deps.status ?? {}) as { created?: unknown; name?: unknown; homeChatted?: unknown };
+  const created = status.created;
+  if (created === true && !String(status.name ?? '').trim() && status.homeChatted !== true) return false;
   if (typeof created === 'boolean') return created;
-  const existing = (await deps.sessionIds()).length > 0 || contactAgentRows(await deps.listAgents()).length > 0;
+  const existing = (await deps.sessionIds()).includes(agentHomeSessionId(MIXY_AGENT_ID));
   await deps.setCreated(existing);
-  return existing;
+  // The same answer the next read gives: an unnamed Mixy needs a conversation.
+  return existing && status.homeChatted === true;
 }
 
 /** Custom agent ids of a catalog (`listAgents`), switched off ones included. */
@@ -41,6 +49,12 @@ function customAgentIds(agents: unknown): string[] {
     .filter((row) => row && typeof row === 'object' && (row as { custom?: unknown }).custom === true)
     .map((row) => (row as { id?: unknown }).id)
     .filter((id): id is string => typeof id === 'string' && Boolean(id) && id !== MIXY_AGENT_ID);
+}
+
+/** Whether a catalog route (or its chain) names a model. */
+function hasRouteModel(route: unknown): boolean {
+  const leaf = (Array.isArray(route) ? route[0] : route) as { provider?: unknown; model?: unknown } | null | undefined;
+  return Boolean(leaf?.provider && leaf?.model);
 }
 
 export interface AgentGreetingsDeps {
@@ -85,6 +99,8 @@ export function createAgentGreetings(deps: AgentGreetingsDeps) {
       await deps.write([...ids, ...fresh]);
       for (const row of contactAgentRows(agents)) {
         if (!fresh.includes(row.id)) continue;
+        // Recorded, not greeted: with no model its greeting turn would only fail.
+        if (!hasRouteModel(row.route)) continue;
         await deps
           .greet({ id: row.id, name: String(row.label || row.id), description: String(row.description || '') })
           .catch((error) => console.warn('[mixdog-session] Could not greet the new agent:', error));

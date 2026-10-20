@@ -120,6 +120,9 @@ export interface VisualizeTabView {
   revision: number;
   /** 1-3 panes shown side by side. */
   panes: VisualizePaneView[];
+  /** The live files were removed: the panel shows a notice instead of the
+   *  panes until they are back (the next revision). */
+  missing?: true;
   /** Runtime problems of the tab's HTML panes; absent when there are none. */
   problems?: VisualizeProblem[];
   /** Outside network for the tab's HTML pages (on when a tab opens; the
@@ -309,6 +312,7 @@ export interface VisualizeHostTab {
   /** The working directory every pane and page asset must stay inside. */
   cwd: string;
   panes: VisualizeHostPane[];
+  missing?: true;
   /** Already project-relative (see `VisualizeProblem`). */
   problems?: VisualizeProblem[];
   networkAllowed?: true;
@@ -354,6 +358,10 @@ export const REMOTE_VISUALIZE_CHANGED_EVENT = 'visualizeChanged';
 /** The push lane a remote client registers to receive visualize changes. */
 export const REMOTE_VISUALIZE_LANE = 'visualize';
 
+/** Largest page file a remote client builds into a document; the host gives
+ *  no content identity (no client cache) to a larger one. */
+export const REMOTE_PAGE_MAX_BYTES = 4 * 1024 * 1024;
+
 /** `visualizePaneFile`: what a remote pane loads (`rel` is relative to the
  *  tab's working directory; page assets resolve against it). */
 export interface VisualizeRemotePaneFile {
@@ -362,6 +370,9 @@ export interface VisualizeRemotePaneFile {
   size: number;
   mtimeMs: number;
   rel: string;
+  /** HTML panes: `<live|v<version>>:<sha256 hex of the file's bytes>`, what
+   *  a device's page cache is keyed on (absent from older hosts: no cache). */
+  contentId?: string;
   /** Image/audio/video panes: a lease the encrypted media lane streams
    *  (absent from older hosts and other kinds). */
   mediaAssetId?: string;
@@ -375,6 +386,8 @@ export interface VisualizePaneSource {
   srcdoc?: string;
   /** A page's own path (relative to its root), what its requests resolve against. */
   page?: string;
+  /** A page's host content identity (see VisualizeRemotePaneFile). */
+  contentId?: string;
   /** Serves the page's own `fetch`/XHR of a project file (`reference` as the
    *  page wrote it, resolved against `page`); rejects anything else. */
   fetch?(reference: string): Promise<{ bytes: Uint8Array; mime: string }>;
@@ -431,6 +444,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
           ...(pane.inline && typeof pane.remoteRenderId === 'string' ? { renderId: pane.remoteRenderId } : {}),
           ...(typeof pane.version === 'number' ? { version: pane.version } : {}),
         })),
+        ...(tab.missing === true ? { missing: true as const } : {}),
         ...(problems.length ? { problems } : {}),
         // The device's frame drops its no-outside-network CSP only on this flag.
         ...(tab.networkAllowed === true ? { networkAllowed: true as const } : {}),

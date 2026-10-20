@@ -522,6 +522,55 @@ test('rapid writes settle into one reload and one version, updated in place with
   }
 });
 
+test('a tab whose folder is deleted and recreated shows a removed state, then reloads and re-arms its watch', async () => {
+  const { cwd, cleanup } = workspace();
+  const { deps, events, watched } = fakeDeps({ reloadDebounceMs: 20 });
+  let watches = 0;
+  const watch = deps.watch;
+  deps.watch = (path, onChange) => {
+    watches += 1;
+    return watch(path, onChange);
+  };
+  const service = createVisualizeService(deps);
+  const site = join(cwd, 'site');
+  const latest = () => events.filter((event) => event.state).at(-1).state.tabs[0];
+  const until = async (done) => {
+    for (let waited = 0; waited < 3000 && !done(); waited += 20)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(done(), 'condition not reached in time');
+  };
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    const revision = latest().revision;
+    const armed = watches;
+    // The agent removes the whole folder: the one change event is all the dead watch reports.
+    rmSync(site, { recursive: true, force: true });
+    [...watched.values()][0]();
+    await until(() => latest().missing === true);
+    assert.equal(latest().revision, revision, 'the last view is not replaced by a broken one');
+    assert.deepEqual(
+      remoteVisualizeState({
+        sessionId: 's1',
+        active: 'v1',
+        tabs: [{ ...latest(), remoteLabel: 'x', cwd, panes: [] }],
+      }).tabs[0].missing,
+      true,
+      'a paired device is told too'
+    );
+    // Seconds later the file is written again; no watch event ever arrives.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    mkdirSync(site, { recursive: true });
+    writeFileSync(join(site, 'index.html'), '<h1>back</h1>');
+    await until(() => latest().missing !== true);
+    assert.equal(latest().revision, revision + 1, 'the recreated file reloads the tab');
+    assert.ok(watches > armed, 'the watch is armed again for the new folder');
+    assert.equal(latest().problems, undefined);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
 test('the default debounce waits for 1200ms of quiet', async (t) => {
   const { cwd, cleanup } = workspace();
   const { deps, watched, prepared } = fakeDeps({ reloadDebounceMs: undefined });

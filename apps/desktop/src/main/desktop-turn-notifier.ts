@@ -2,6 +2,7 @@ import type { Notification } from 'electron';
 import { createFinalAnswerWatcher } from './final-answer-watcher';
 import { shouldShowTurnNotification, type TurnCompletion } from './push-turn-events';
 import type { SessionFinalAnswer } from './session-final-answer';
+import { type SessionTitleLabels, sessionTitleLabel } from '../shared/session-title.mjs';
 
 type NativeNotification = Pick<Notification, 'on' | 'show' | 'close'>;
 
@@ -16,6 +17,9 @@ interface DesktopTurnNotifierOptions {
   diagnostic(event: string, details: Record<string, unknown>): void;
   /** A muted agent's sessions raise no notification (agent-notification-mute.ts). */
   isSessionMuted?(sessionId: string): boolean;
+  /** This PC's words for an attachment-only session title (`[Image]` …);
+   *  English when absent. */
+  titleLabels?(): SessionTitleLabels;
 }
 
 /** Completion detection and native delivery share one app-lifetime owner.
@@ -41,7 +45,10 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
     }
     let notification: NativeNotification | undefined;
     try {
-      notification = options.createNotification({ title: completion.title, body: completion.preview });
+      notification = options.createNotification({
+        title: sessionTitleLabel(completion.title, options.titleLabels?.()),
+        body: completion.preview,
+      });
       const current = notification;
       const release = () => {
         live.delete(current);

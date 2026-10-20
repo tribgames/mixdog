@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GithubRequest } from '../../shared/contract';
+import { confirmAction } from '../app-confirm';
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { githubRecord, repositoryFromUrl } from './github-model';
@@ -52,12 +53,16 @@ export function GithubReviewForm({
       onSubmit={(submit) => {
         submit.preventDefault();
         if (sending.current || !target?.sha || !window.mixdogDesktop.githubRequest) return;
-        if (!window.confirm(`${t('Submit review')}\n${target.repo} #${number}\n${event}`)) return;
+        const githubRequest = window.mixdogDesktop.githubRequest.bind(window.mixdogDesktop);
         sending.current = true;
-        setBusy(true);
-        setError('');
-        void window.mixdogDesktop
-          .githubRequest(projectPath, {
+        void confirmAction(`${t('Submit review')}\n${target.repo} #${number}\n${event}`).then((approved) => {
+          if (!approved) {
+            sending.current = false;
+            return;
+          }
+          setBusy(true);
+          setError('');
+          return githubRequest(projectPath, {
             action: 'pr.review',
             repo: target.repo,
             hostname: target.hostname,
@@ -66,17 +71,18 @@ export function GithubReviewForm({
             event,
             body,
           })
-          .then(() => {
-            setBody('');
-            onSubmitted();
-          })
-          .catch((reason) => {
-            setError(String(reason.message || reason));
-          })
-          .finally(() => {
-            sending.current = false;
-            setBusy(false);
-          });
+            .then(() => {
+              setBody('');
+              onSubmitted();
+            })
+            .catch((reason) => {
+              setError(String(reason.message || reason));
+            })
+            .finally(() => {
+              sending.current = false;
+              setBusy(false);
+            });
+        });
       }}
     >
       <h3>{t('Submit review')}</h3>

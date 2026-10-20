@@ -5,7 +5,6 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-import { QueueList } from './composer-support.tsx';
 import {
   hasSendablePromptContent,
   isComposerNewlineChord,
@@ -33,46 +32,6 @@ function installDom() {
     close: restore,
   };
 }
-
-test('queued follow-up rows expose independent edit, steer-now, and remove actions', async () => {
-  const dom = installDom();
-  const actions = [];
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(QueueList, {
-          queued: [
-            { id: 'steer-1', displayText: 'steer this now' },
-            { id: 'slash-1', displayText: '/compact' },
-          ],
-          restoring: false,
-          onEdit: (id) => actions.push(['edit', id]),
-          onSteer: (id) => actions.push(['steer', id]),
-          onRemove: (id) => actions.push(['remove', id]),
-        })
-      );
-    });
-
-    const steer = document.querySelector('[aria-label="Steer queued follow-up now: steer this now"]');
-    assert.equal(steer?.textContent, 'Steer now');
-    assert.equal(steer?.disabled, false);
-    assert.equal(
-      document.querySelector('[aria-label="Steer queued follow-up now: /compact"]')?.disabled,
-      true,
-      'slash commands cannot bypass their command dispatcher'
-    );
-
-    await act(async () => steer.click());
-    await act(async () => document.querySelector('[aria-label="Remove queued follow-up: steer this now"]').click());
-    assert.deepEqual(actions, [
-      ['steer', 'steer-1'],
-      ['remove', 'steer-1'],
-    ]);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
 
 test('queued follow-up Escape behavior keeps queue priority and handoff', () => {
   assert.equal(

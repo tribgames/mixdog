@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -476,7 +477,7 @@ test('large repository confirms once and resends with confirmLarge', async (t) =
   menuReply = menuFor();
   const { trigger } = await mount(t);
   const prompts = [];
-  window.confirm = (text) => (prompts.push(text), true);
+  overrideConfirmAction((text) => (prompts.push(text), true));
   let attempts = 0;
   handlers.requestWorktree = (request) => {
     attempts += 1;
@@ -552,7 +553,7 @@ test('mid-session the chip follows the backend menu, never a stale client-side c
 test('a declined large-repository prompt sends nothing more', async (t) => {
   menuReply = menuFor();
   const { trigger } = await mount(t);
-  window.confirm = () => false;
+  overrideConfirmAction(() => false);
   let attempts = 0;
   handlers.requestWorktree = () => {
     attempts += 1;
@@ -1108,8 +1109,7 @@ test('the dock merge goes through mergeProjectBranch with the confirmed target, 
       ),
     setError: () => {},
   };
-  const originalConfirm = window.confirm;
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   try {
     const actions = branchActions(ctx, {
       branchQuery: '',
@@ -1133,9 +1133,10 @@ test('the dock merge goes through mergeProjectBranch with the confirmed target, 
     actions.mergeIntoCurrent(branch('feature'));
     actions.mergeIntoCurrent(branch('moved'));
     actions.mergeIntoCurrent(branch('clash'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.all(runs);
   } finally {
-    window.confirm = originalConfirm;
+    overrideConfirmAction(null);
   }
   assert.deepEqual(
     calls.filter((call) => call.capability === 'mergeProjectBranch').map((call) => call.args[0]),
@@ -1174,10 +1175,9 @@ test('opening a history commit as a branch is the guarded checkout with a start 
     setError: () => {},
   };
   const originalPrompt = window.prompt;
-  const originalConfirm = window.confirm;
   const names = ['from-history', 'dirty-try'];
   window.prompt = () => names.shift();
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   const entry = { hash: 'a'.repeat(40), shortHash: 'aaaaaaa', subject: 'Base' };
   try {
     const actions = historyCommitActions(ctx, { commitMessage: '', clearCommitDraft() {} });
@@ -1193,6 +1193,7 @@ test('opening a history commit as a branch is the guarded checkout with a start 
     actions.createBranchAtCommit(entry);
     actions.createBranchAtCommit(entry);
     actions.checkoutCommit(entry);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.all(runs);
     // A session working in the folder refuses the detached checkout readably.
     handlers.selectProjectBranch = () => {
@@ -1200,10 +1201,11 @@ test('opening a history commit as a branch is the guarded checkout with a start 
     };
     runs.length = 0;
     actions.checkoutCommit(entry);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.all(runs);
   } finally {
     window.prompt = originalPrompt;
-    window.confirm = originalConfirm;
+    overrideConfirmAction(null);
   }
   assert.deepEqual(
     calls.filter((call) => call.capability === 'selectProjectBranch').map((call) => call.args[0]),

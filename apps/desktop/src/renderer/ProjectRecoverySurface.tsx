@@ -5,6 +5,7 @@ import type {
   ProjectRecoveryResponse,
 } from '../shared/project-recovery';
 import { ProjectRecoveryPanel, type ProjectRecoveryLabels } from './ProjectRecoveryPanel';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { recoveryFailureCode } from '../shared/project-recovery';
 
@@ -111,11 +112,12 @@ export function ProjectRecoverySurface({
           ? t('Restore unchanged batch files? External changes will be preserved.')
           : t('Discard this recovery record and its backups? Project files will not be deleted.');
       const files = action === 'restore' ? detail.files.filter((file) => file.status === 'written') : detail.files;
-      return window.confirm(
+      return confirmAction(
         `${warning}\n\n${projectPath}\n${detail.id}\n${files.length}\n${files
           .slice(0, 10)
           .map((file) => file.relPath)
-          .join('\n')}${files.length > 10 ? '\n…' : ''}`
+          .join('\n')}${files.length > 10 ? '\n…' : ''}`,
+        { danger: action === 'discard', confirmLabel: action === 'restore' ? t('Restore') : t('Discard') }
       );
     },
     [projectPath]

@@ -197,11 +197,13 @@ test('compact chrome preserves input growth, readable rows and accessible action
     await settle();
     const mobile = await page.evaluate(() => ({
       menu: document.querySelector('.row-overflow-menu > button').getBoundingClientRect().height,
-      footer: document.querySelector('.composer-footer').getBoundingClientRect().height,
+      bar: document.querySelector('.composer').getBoundingClientRect().height,
       input: document.querySelector('textarea').getBoundingClientRect().height,
     }));
     assert.ok(mobile.menu >= 44);
-    assert.equal(mobile.footer, 44);
-    assert.equal(mobile.input, 44);
+    // The phone composer is the one-line messenger bar: 44px touch targets
+    // with 6px around them, the footer's controls on the bar's own row.
+    assert.equal(mobile.bar, 56);
+    assert.equal(mobile.input, 56);
   });
 });

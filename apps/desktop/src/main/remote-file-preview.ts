@@ -189,6 +189,35 @@ export async function readPreviewRange(
   }
 }
 
+/** SHA-256 (hex) of the authorized open file's bytes, with its size and
+ *  modification time: a page's content identity for a device's cache. A file
+ *  over `maxBytes` (by the opened handle's size, or by the bytes it really
+ *  has when it grew since) gets no digest; at most `maxBytes + 1` are read. */
+export async function authorizedFileDigest(
+  absolute: string,
+  within: string,
+  maxBytes: number
+): Promise<{ sha256: string | null; mtimeMs: number; size: number }> {
+  const file = await openAuthorizedFile(absolute, within);
+  try {
+    const info = { mtimeMs: file.mtimeMs, size: file.size };
+    if (file.size > maxBytes) return { ...info, sha256: null };
+    const hash = createHash('sha256');
+    const buffer = Buffer.alloc(Math.min(maxBytes + 1, 1024 * 1024));
+    let offset = 0;
+    while (offset <= maxBytes) {
+      const length = Math.min(buffer.length, maxBytes + 1 - offset);
+      const { bytesRead } = await file.handle.read(buffer, 0, length, offset);
+      if (!bytesRead) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+    return { ...info, sha256: offset > maxBytes ? null : hash.digest('hex') };
+  } finally {
+    await file.handle.close();
+  }
+}
+
 /** Size and modification time of the authorized open file, and a media lease
  *  of it: the lane re-authorizes the lease the same way when it serves it. */
 export async function authorizedMediaFile(

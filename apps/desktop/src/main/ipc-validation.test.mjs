@@ -43,6 +43,15 @@ test('a model route selection carries the per-route autoEffort boolean like fast
   assert.throws(() => requiredModelSelection({ ...base, autoEffort: 'off' }), /autoEffort must be a boolean/);
 });
 
+test('a single-model selection stays strict: fallbacks are rejected', () => {
+  const base = { provider: 'openai', model: 'gpt-test', effort: 'high' };
+  assert.throws(() => requiredModelSelection({ ...base, fallbacks: [] }), /unsupported field/);
+  assert.throws(
+    () => requiredModelSelection({ ...base, fallbacks: [{ provider: 'anthropic', model: 'claude-test' }] }),
+    /unsupported field/
+  );
+});
+
 test('saveStarterGuideState passes only a well-formed guide state', () => {
   const save = (state) => requiredDesktopCapabilityRequest({ capability: 'saveStarterGuideState', args: [state] });
   assert.deepEqual(save({ closed: true, welcomed: true, visited: ['provider', 'remote'] }).args, [

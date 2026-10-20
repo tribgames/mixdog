@@ -26,6 +26,8 @@ import {
   turnChangeOpenPath,
   turnChangesTitle,
   turnChangesTotals,
+  allChangesVisualized,
+  unvisualizedChanges,
   useTurnChanges,
   withTranscriptCounts,
   visibleTurnChangeRows,
@@ -416,7 +418,12 @@ function TurnChangesCardBody({
   boundary,
   trailing,
   frame,
-}: { surface: TurnChangesSurface; frame?: (card: ReactNode) => ReactNode } & TurnChangesRef) {
+  visualized,
+}: {
+  surface: TurnChangesSurface;
+  frame?: (card: ReactNode) => ReactNode;
+  visualized?: readonly string[];
+} & TurnChangesRef) {
   const { sessionId } = surface;
   const running = trailing && surface.turnRunning;
   const { reply, adopt, invalidate } = useTurnChanges({ sessionId, checkpointId, boundary, enabled: !running });
@@ -430,6 +437,11 @@ function TurnChangesCardBody({
     [reply, needsCounts, lane]
   );
   if (running || !reply || reply.status !== 'ready' || reply.files.length === 0) return null;
+  // A file the turn showed as a visualize card stands as that card, not as a
+  // diff; Undo still covers the whole turn from this card (or, when every
+  // file was shown, from the visualize card: TurnChangesUndo).
+  const listed = unvisualizedChanges(files, visualized, reply.root);
+  if (listed.length === 0) return null;
 
   const { revision } = reply;
   const blockedReason = surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : '';
@@ -438,9 +450,9 @@ function TurnChangesCardBody({
     activateTurnChange(event, file, surface, reply.root);
   };
   const card = (
-    <section className="turn-changes-card" aria-label={t('Turn changes')} data-file-count={files.length}>
+    <section className="turn-changes-card" aria-label={t('Turn changes')} data-file-count={listed.length}>
       <div className="turn-changes-head">
-        <TurnChangesSummary files={files} activate={activate} />
+        <TurnChangesSummary files={listed} activate={activate} />
         <span className="turn-changes-trail">
           <TurnActionButton
             canUndo={reply.canUndo}
@@ -464,7 +476,7 @@ function TurnChangesCardBody({
         <ErrorNotice className="turn-changes-error" error={mutation.error} onDismiss={() => mutation.setError('')} />
       )}
       <TurnChangesFileList
-        files={files}
+        files={listed}
         renderRow={(file) => (
           <TurnChangesFileRow
             key={file.path}
@@ -494,9 +506,12 @@ function TurnChangesCardBody({
 export const TurnChangesCard = memo(function TurnChangesCard({
   turnChanges,
   frame,
+  visualized,
 }: {
   turnChanges: TurnChangesRef;
   frame?: (card: ReactNode) => ReactNode;
+  /** The files the turn showed as visualize cards (not listed here). */
+  visualized?: readonly string[];
 }) {
   const surface = useContext(TurnChangesContext);
   if (!surface?.sessionId) return null;
@@ -508,6 +523,61 @@ export const TurnChangesCard = memo(function TurnChangesCard({
       boundary={turnChanges.boundary}
       trailing={turnChanges.trailing}
       frame={frame}
+      visualized={visualized}
     />
   );
 });
+
+function TurnChangesUndoBody({
+  surface,
+  checkpointId,
+  boundary,
+  trailing,
+  visualized,
+}: { surface: TurnChangesSurface; visualized: readonly string[] } & TurnChangesRef) {
+  const { sessionId } = surface;
+  const running = trailing && surface.turnRunning;
+  const { reply, adopt, invalidate } = useTurnChanges({ sessionId, checkpointId, boundary, enabled: !running });
+  const mutation = useTurnChangesMutation({ sessionId, checkpointId, busy: surface.busy, adopt, invalidate });
+  const { error, setError } = mutation;
+  useEffect(() => {
+    if (!error) return;
+    showDesktopToast(errorMessageText(error), 'error');
+    setError('');
+  }, [error, setError]);
+  if (running || !reply || reply.status !== 'ready' || !allChangesVisualized(reply.files, visualized, reply.root))
+    return null;
+  const blockedReason = surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : '';
+  return (
+    <TurnActionButton
+      canUndo={reply.canUndo}
+      canReapply={reply.canReapply}
+      reason={reply.reason}
+      blockedReason={blockedReason}
+      onMutate={(capability, file, success) => mutation.mutate(reply.revision, capability, file, success)}
+    />
+  );
+}
+
+/** The turn's Undo / Reapply on its visualize card, when every changed file
+ *  was shown as a visualize card and so the changes card is not drawn. */
+export function TurnChangesUndo({
+  turnChanges,
+  visualized,
+}: {
+  turnChanges: TurnChangesRef;
+  visualized: readonly string[];
+}) {
+  const surface = useContext(TurnChangesContext);
+  if (!surface?.sessionId) return null;
+  return (
+    <TurnChangesUndoBody
+      key={`${surface.sessionId}\u0000${turnChanges.checkpointId}`}
+      surface={surface}
+      checkpointId={turnChanges.checkpointId}
+      boundary={turnChanges.boundary}
+      trailing={turnChanges.trailing}
+      visualized={visualized}
+    />
+  );
+}

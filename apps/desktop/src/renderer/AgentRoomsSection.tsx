@@ -11,7 +11,6 @@ import { type AgentRoomRowModel, agentRoomRows } from './agent-rooms-model';
 import { showDesktopToast } from './desktop-toasts';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
-import { isMobileRemoteSurface } from './mobile-surface';
 import { ProgressSpinner } from './ProgressSpinner';
 import { agentRoomMenuItems } from './agent-profile-actions';
 import { ScmContextMenu, type ScmContextMenuState, contextMenuRowProps } from './ScmContextMenu';
@@ -115,12 +114,7 @@ export function AgentRoomsSection({
   if (!rows.length) return null;
   return (
     <>
-      {/* The phone list labels the section instead (main-window-polish D1). */}
-      {isMobileRemoteSurface() ? (
-        <p className="agent-list-section">{t('Group chats')}</p>
-      ) : (
-        <hr className="agent-chat-divider agent-room-section-divider" aria-label={t('Group rooms')} />
-      )}
+      <hr className="agent-chat-divider agent-room-section-divider" aria-label={t('Group rooms')} />
       <ul className="agent-contact-list" aria-label={t('Group rooms')}>
         {rows.map((row) => (
           <RoomRow
@@ -206,9 +200,9 @@ export function NewRoomDialog({ onClose, onCreated }: { onClose(): void; onCreat
               />
             </div>
             <section className="agent-create-section">
-              <div className="agent-create-field">
+              <div className="agent-create-field agent-room-invite">
                 <span>
-                  {t('Invite from contacts')} · {t('{{count}} selected', { count: picked.length })}
+                  {t('Invite bots')} · {t('{{count}} selected', { count: picked.length })}
                 </span>
                 <div className="agent-room-picks">
                   {contacts.map((contact) => {
@@ -234,17 +228,17 @@ export function NewRoomDialog({ onClose, onCreated }: { onClose(): void; onCreat
                     );
                   })}
                 </div>
+                <small className="agent-room-dialog-tip">
+                  {t('{{min}} to {{max}} members; the room face shows the first four.', {
+                    min: ROOM_MIN_MEMBERS,
+                    max: ROOM_MAX_MEMBERS,
+                  })}
+                </small>
               </div>
             </section>
           </div>
           <footer>
             {error && <ErrorNotice error={error} />}
-            <small className="agent-room-dialog-tip">
-              {t('{{min}} to {{max}} members; the room face shows the first four.', {
-                min: ROOM_MIN_MEMBERS,
-                max: ROOM_MAX_MEMBERS,
-              })}
-            </small>
             <button type="button" className="secondary" disabled={busy} onClick={onClose}>
               {t('Cancel')}
             </button>

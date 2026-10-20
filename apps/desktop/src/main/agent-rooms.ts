@@ -38,7 +38,7 @@ import {
   roomSupervisorRows,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
 import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
-import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
+import { type AgentCatalogRow, MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 import type {
   DesktopAgentRoomSummary,
   DesktopPromptContent,
@@ -84,6 +84,8 @@ export interface AgentRoomDeps {
   listAgents(): Promise<unknown>;
   /** Mixy's display name (agents/lead/agent.json `name`); '' for the default. */
   leadName?(): Promise<string>;
+  /** Mixy's own route (getLeadStatus `route`), null when it has none. */
+  mixyRoute?(): Promise<unknown>;
   sessionExists(sessionId: string): Promise<boolean>;
   createSession(sessionId: string, params: Record<string, unknown>): Promise<void>;
   renameSession(sessionId: string, title: string): Promise<void>;
@@ -263,7 +265,15 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   }
 
   async function refreshNames(): Promise<void> {
-    const rows = contactAgentRows(await deps.listAgents().catch(() => []));
+    // Every user-made definition names its member, a bot or not: a member of
+    // a 1.3.0 room that is a workflow agent now keeps its name.
+    const listed = await deps.listAgents().catch(() => []);
+    const rows = Array.isArray(listed)
+      ? listed.filter((row): row is AgentCatalogRow & { id: string } => {
+          const entry = row as AgentCatalogRow | null;
+          return entry?.custom === true && typeof entry.id === 'string' && Boolean(entry.id);
+        })
+      : [];
     for (const row of rows) names.set(row.id, agentName(row));
     names.set(MIXY_AGENT_ID, await mixyName());
   }
@@ -318,7 +328,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     if (await deps.sessionExists(sessionId)) return sessionId;
     await deps.createSession(sessionId, {
       ...(member.id === MIXY_AGENT_ID
-        ? {}
+        ? routeParams(await deps.mixyRoute?.())
         : { ...routeParams(member.route), sessionProfile: { homeAgent: member.id } }),
       cwd: await deps.taskWorkspace(),
       desktopSession: { classification: 'task', projectPath: null },
@@ -423,6 +433,8 @@ export function createAgentRooms(deps: AgentRoomDeps) {
       name: member.name,
       at: now(),
       text,
+      // The log takes in the files this turn produced (agent-room-delivery.mjs).
+      ...(state.memberSession ? { artifactsFrom: { sessionId: state.memberSession, since: startedAt } } : {}),
     };
     // The one peer the speech addresses: shown on its bubble, and a turn for
     // that peer, never authority.
@@ -524,13 +536,26 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   async function create(input: Record<string, unknown>): Promise<{ sessionId: string; roomId: string }> {
     await ready();
     const config = normalizeRoomConfig(input);
-    const known = new Set([MIXY_AGENT_ID, ...contactAgentRows(await deps.listAgents()).map((row) => row.id)]);
+    const rows = contactAgentRows(await deps.listAgents());
+    const known = new Set([MIXY_AGENT_ID, ...rows.map((row) => row.id)]);
     const missing = config.members.find((id) => !known.has(id));
     if (missing) throw new Error(`Agent "${missing}" is not available.`);
+    // The room's log is a stored session, and a session without a model is
+    // never stored (nothing is auto-picked): it takes the model of the first
+    // member that has one, and a room of members without any cannot start.
+    let logRoute: Record<string, unknown> = {};
+    for (const id of config.members) {
+      logRoute = routeParams(
+        id === MIXY_AGENT_ID ? await deps.mixyRoute?.() : rows.find((row) => row.id === id)?.route
+      );
+      if (logRoute.model) break;
+    }
+    if (!logRoute.model) throw new Error('No model selected. Choose a model for one of the room members first.');
     await refreshNames();
     const roomId = newId();
     const sessionId = roomSessionId(roomId);
     await deps.createSession(sessionId, {
+      ...logRoute,
       cwd: await deps.taskWorkspace(),
       desktopSession: { classification: 'task', projectPath: null },
     });

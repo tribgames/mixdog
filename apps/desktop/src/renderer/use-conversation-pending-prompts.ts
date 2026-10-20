@@ -2,10 +2,10 @@ import { useMemo, useRef, type Dispatch, type SetStateAction } from 'react';
 import { settledUserRowCount, type PendingPromptItem } from './conversation-prompt-items';
 import type { TranscriptItem } from './desktop-types';
 import { useConversationOptimisticPromptRelease } from './use-conversation-optimistic-prompts';
-import { useConversationQueue } from './use-conversation-queue';
+import { useConversationSteering } from './use-conversation-steering';
 
 /** Prompts submitted from this pane that the transcript has not settled yet:
- *  the queue projection, the review scope they open, the goal submission
+ *  the steering projection, the review scope they open, the goal submission
  *  marker, and their release. */
 export function useConversationPendingPrompts({
   optimisticPrompts,
@@ -26,8 +26,8 @@ export function useConversationPendingPrompts({
   const settledUsers = useMemo(() => settledUserRowCount(settledItems), [settledItems]);
   const settledUsersRef = useRef(settledUsers);
   settledUsersRef.current = settledUsers;
-  const queue = useConversationQueue(optimisticPrompts, settledItems, queued);
-  const { transcriptPendingPromptItems } = queue;
+  const steering = useConversationSteering(optimisticPrompts, settledItems, queued);
+  const { transcriptPendingPromptItems } = steering;
   // An idle submit starts the next review scope on its optimistic user row,
   // not one host round-trip later when that row settles. Otherwise the prior
   // turn's review bar/reservation remains fixed above the composer while the
@@ -49,5 +49,5 @@ export function useConversationPendingPrompts({
     settledItems,
     setOptimisticPrompts,
   });
-  return { ...queue, settledUsersRef, reviewItems, goalSubmitScopeRef, goalSubmission, goalSubmissionId };
+  return { ...steering, settledUsersRef, reviewItems, goalSubmitScopeRef, goalSubmission, goalSubmissionId };
 }

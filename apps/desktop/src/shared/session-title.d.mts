@@ -2,6 +2,12 @@ export function stripSessionEnvelope(value: unknown): string;
 export function stripInjectedDisplayText(value: unknown, options?: { dropUnterminated?: boolean }): string;
 export function isSyntheticSessionDisplayText(value: unknown): boolean;
 export function isMediaSessionTitlePlaceholder(value: unknown): boolean;
+export interface SessionTitleLabels {
+  image: string;
+  video: string;
+  file: string;
+}
+export function sessionTitleLabel(title: unknown, labels?: SessionTitleLabels): string;
 export function hasMeaningfulSessionTitleText(value: unknown): boolean;
 export function compactedSessionTitle(value: unknown, fallback?: string): string;
 export function normalizeSessionTitle(value: unknown, fallback?: string, maxLength?: number): string;

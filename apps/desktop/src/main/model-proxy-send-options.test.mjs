@@ -93,6 +93,7 @@ const NOT_SEND_OPTIONS = new Map([
   ['retry-executor.mjs::stopAfterRepeated529', 'withRetry retry-policy argument built by the adapter'],
   ['retry-executor.mjs::overloadFallbackAfter', 'withRetry retry-policy argument built by the adapter'],
   ['retry-executor.mjs::finalOnExhaust', 'withRetry retry-policy argument built by the adapter'],
+  ['retry-executor.mjs::maxRetryAfterMs', 'withRetry retry-policy argument built by the adapter'],
   ['retry-executor.mjs::recycleDispatcherOn5xx', 'withRetry retry-policy argument built by the adapter'],
   ['retry-classification.mjs::retry499', 'classifyError policy argument, never a send option'],
   ['account-pool.mjs::useCredits', 'account-exhaustion helper option built from the pool, never a send option'],

@@ -1,10 +1,8 @@
 import { useAppPaneChrome } from '../use-app-pane-chrome';
-import { isMobileRemoteSurface } from '../mobile-surface';
 import { renderPaneDockStripTrailing } from '../app-shell-side-dock';
 import { LAST_SESSION_KEY } from './use-app-task-lifecycle';
 import { useAppSidebarHub } from './use-app-sidebar-hub';
 import { useAppWorkbenchNavigationHub } from './use-app-workbench-navigation-hub';
-import { showDraftsInSessions } from './bots-page-drafts';
 import type { AppWorkspaceShell } from './use-app-workspace-shell';
 import type { AppNavigationShell } from './use-app-navigation-shell';
 import type { AppSessionLifecycle } from './use-app-session-lifecycle';
@@ -43,19 +41,12 @@ export function useAppWorkbenchHubs(
     setSelection,
     requestedSessionId,
   } = nav;
-  const { tabs, activateSelection } = lifecycle.taskLifecycle;
+  const { tabs, startTask, activateSelection } = lifecycle.taskLifecycle;
   const { startProject, openSettings, renameSession } = commands;
   const { sessionTitle, activeTabKey, toolProjectPath, workbenchWorkspace } = context;
-  const { startTask, navigateTab } = showDraftsInSessions(
-    () => {
-      if (shellPanels.sidebarOpen && sideDocks.activeSideViews.left === 'agents' && !isMobileRemoteSurface()) {
-        selectWorkbenchSideView('sessions');
-      }
-    },
-    { startTask: lifecycle.taskLifecycle.startTask, navigateTab: tabWorkflow.navigateTab }
-  );
   const {
     openFileTab,
+    navigateTab,
     closeTab,
     focusPaneTypingSurface,
     navigateEditorHistory,

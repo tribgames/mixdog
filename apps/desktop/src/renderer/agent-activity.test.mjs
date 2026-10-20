@@ -314,7 +314,6 @@ test('Agent groups can be hidden, stay hidden through pool pushes and remounts, 
     assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.agent-hidden-groups')), []);
     // The contacts read the agent catalog (a read capability); nothing else.
     assert.deepEqual([...new Set(touched)].filter((key) => key !== 'perfLog').sort(), [
-      'githubCliStatus',
       'invokeCapability',
       'listAgentPool',
       'subscribeAgentPool',
@@ -2349,12 +2348,7 @@ test('a nested Agent row opens its exact child session without touching session 
       []
     );
     // The contacts read the agent catalog (a read capability); nothing else.
-    assert.deepEqual([...new Set(touched)].sort(), [
-      'githubCliStatus',
-      'invokeCapability',
-      'listAgentPool',
-      'subscribeAgentPool',
-    ]);
+    assert.deepEqual([...new Set(touched)].sort(), ['invokeCapability', 'listAgentPool', 'subscribeAgentPool']);
     assert.deepEqual(prefetched, ['grand-a', 'great-a', 'lead-a']);
   } finally {
     await act(async () => dom.root.unmount());

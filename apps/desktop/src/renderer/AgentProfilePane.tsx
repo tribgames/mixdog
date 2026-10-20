@@ -450,8 +450,8 @@ export function AgentProfilePane({
       if (mixy) {
         const route = changes.route as DesktopModelSelection | undefined;
         if (route) {
-          // The Lead's Main route, then this thread from its next turn.
-          await api?.setModelRoute?.(route);
+          // Mixy's own route (never the Lead's), then this thread from its next turn.
+          await api?.invokeCapability?.({ capability: 'setAgentRoute', args: [MIXY_AGENT_ID, route] });
           await api?.setModelRoute?.(route, sessionId);
         }
         if (typeof changes.persona === 'string')

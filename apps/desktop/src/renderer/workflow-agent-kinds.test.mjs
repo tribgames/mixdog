@@ -30,7 +30,10 @@ const AGENTS = [
   { id: 'maintainer', label: 'Maintainer', locked: true, disabled: true, route: {} },
   { id: 'worker', custom: true, label: 'Worker', kind: null, route: {} },
   { id: 'triage', custom: true, label: 'Triage', kind: 'agent', route: {} },
-  { id: 'github-watcher', custom: true, label: 'GitHub Watcher', kind: null, route: {} },
+  { id: 'github-watcher', custom: true, label: 'GitHub Watcher', kind: 'bot', route: {} },
+  // Made before bots existed: no marker, a workflow agent as in 1.2.6.
+  { id: 'legacy', custom: true, label: 'Legacy', kind: null, route: {} },
+  { id: 'legacy-off', custom: true, label: 'Legacy Off', kind: null, disabled: true, route: {} },
 ];
 
 test('the Workflows page lists workflow agents, not bots; built-in agents are their own group', async (t) => {
@@ -67,7 +70,7 @@ test('the Workflows page lists workflow agents, not bots; built-in agents are th
       row.getAttribute('aria-label').replace(/^Edit /, '')
     );
   assert.deepEqual(names('Built-in agents'), ['Web Search', 'Maintainer']);
-  assert.deepEqual(names('Agents'), ['Worker', 'Triage']);
+  assert.deepEqual(names('Agents'), ['Worker', 'Triage', 'Legacy', 'Legacy Off']);
 });
 
 test('the Lead agent row sits above the built-in agents and edits the Main route', async (t) => {

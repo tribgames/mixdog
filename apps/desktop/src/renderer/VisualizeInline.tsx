@@ -65,6 +65,9 @@ export function InlinePaneContent({
   }
   return (
     <iframe
+      // A new render is a new frame: changing a loaded frame's srcdoc pushes
+      // an in-frame history entry that takes the phone's Back press.
+      key={state.doc}
       title={pane.label}
       sandbox={INLINE_FRAME_SANDBOX}
       referrerPolicy="no-referrer"

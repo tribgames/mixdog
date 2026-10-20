@@ -576,6 +576,43 @@ test('a server window notifies on this PC: labeled final answers, approvals, lin
   notifier.dispose();
 });
 
+test('a server approval for a session titled by attachments alone names its kind, not [Image]', () => {
+  const listeners = { sessions: new Set(), agents: new Set(), states: new Set(), link: new Set() };
+  const shown = [];
+  const notifier = createServerNotifier({
+    serverName: 'Box',
+    sources: {
+      subscribeSessions: (listener) => subscribeTo(listeners.sessions, listener),
+      subscribeAgentPool: (listener) => subscribeTo(listeners.agents, listener),
+      subscribeSessionStates: (listener) => subscribeTo(listeners.states, listener),
+      subscribeLink: (listener) => subscribeTo(listeners.link, listener),
+      readFinalAnswer: async () => null,
+    },
+    isEnabled: () => true,
+    isSupported: () => true,
+    isForeground: () => false,
+    createNotification: (content) => {
+      const notification = { content, on: () => notification, show: () => shown.push(content), close: () => {} };
+      return notification;
+    },
+    focus: () => {},
+    text: {
+      approvalWaiting: () => '도구가 승인을 기다리고 있습니다.',
+      lostTitle: () => '',
+      lostReconnecting: () => '',
+      lostStopped: () => '',
+      restoredTitle: () => '',
+      restoredBody: () => '',
+    },
+    titleLabels: () => ({ image: '이미지', video: '영상', file: '파일' }),
+    diagnostic: () => {},
+  });
+  publishTo(listeners.sessions, [{ id: 's1', title: '[Image]' }]);
+  publishTo(listeners.states, { sessionId: 's1', snapshot: { toolApproval: { id: 'ap1' } }, frameSource: 'live' });
+  assert.deepEqual(shown, [{ title: 'Box · 이미지', body: '도구가 승인을 기다리고 있습니다.' }]);
+  notifier.dispose();
+});
+
 test('server windows open at quit are reopened at launch; a removed server is skipped', async (t) => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-restore-'));
   t.after(() => rm(userDataPath, { recursive: true, force: true }));

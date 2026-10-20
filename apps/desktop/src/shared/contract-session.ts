@@ -438,6 +438,9 @@ export interface DesktopModelSelection {
   contextPercent?: number;
   /** Exact window (positive integer); overrides contextPercent. */
   contextTokens?: number;
+  /** Compare-and-set: the runtime applies the selection only while the route
+   *  it targets still has no model, so a model picked meanwhile is kept. */
+  onlyIfEmpty?: boolean;
 }
 
 export interface DesktopPromptTextPart {

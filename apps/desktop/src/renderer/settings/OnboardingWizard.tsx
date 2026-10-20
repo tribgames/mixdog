@@ -29,7 +29,7 @@ import { acquireTitleBarDim } from '../titlebar-dim';
 import { waitForDesktopProviders } from '../desktop-provider-retry';
 import { ClientManagedProviders } from './client-managed-providers';
 import { OAuthControl } from './CapabilitySettings';
-import { FOCUSABLE_SELECTOR, inertBackground, portaledMenuOpen, trapTab } from './dialog-modality';
+import { FOCUSABLE_SELECTOR, openModal, portaledMenuOpen, trapTab } from './dialog-modality';
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
 import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
 import { useGithubLoginPolling } from './github-login-polling';
@@ -322,7 +322,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
   useLayoutEffect(() => {
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const layer = layerRef.current;
-    const restoreBackground = inertBackground((element) => element !== layer);
+    const restoreBackground = layer ? openModal(layer) : () => {};
     closeRef.current?.focus();
     return () => {
       restoreBackground();

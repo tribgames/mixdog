@@ -265,6 +265,7 @@ export function AppUpdateBanner() {
   return createPortal(
     <div
       className="mx-toast app-update-banner"
+      data-modal-background
       data-kind={view.kind}
       role={view.role}
       aria-busy={view.kind === 'downloading' || undefined}

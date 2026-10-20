@@ -45,12 +45,30 @@ function stripSessionReference(value) {
   return source.replace(SESSION_REFERENCE_PREFIX, '');
 }
 
-function mediaTitleFallback(value) {
+// The composer's file chips (`[PDF #n: name]`, `[File #n: name]`): an
+// attachment, never title prose; a message of chips alone is titled by the
+// first chip's file name.
+const FILE_CHIP = /\[(?:PDF|File)\s*#\d+:\s*([^\]\r\n]+)\]/gi;
+
+/** Title of a message with attachments and no words: the first attachment's
+ *  file name, or the `[Image]`/`[Video]` placeholder (provisional — a later
+ *  worded title replaces it, and the renderer shows it as the localized kind). */
+function attachmentTitleFallback(value) {
+  const source = String(value ?? '');
   MEDIA_DISPLAY_BLOCK.lastIndex = 0;
-  const match = MEDIA_DISPLAY_BLOCK.exec(String(value ?? ''));
+  const media = MEDIA_DISPLAY_BLOCK.exec(source);
   MEDIA_DISPLAY_BLOCK.lastIndex = 0;
-  if (!match) return '';
-  return String(match[1]).toLowerCase() === 'video' ? '[Video]' : '[Image]';
+  FILE_CHIP.lastIndex = 0;
+  const file = FILE_CHIP.exec(source);
+  FILE_CHIP.lastIndex = 0;
+  if (file && (!media || file.index < media.index)) return file[1].trim();
+  if (!media) return '';
+  return String(media[1]).toLowerCase() === 'video' ? '[Video]' : '[Image]';
+}
+
+function attachmentTitle(value, fallback, maxLength) {
+  const attachment = attachmentTitleFallback(value);
+  return attachment ? normalizeSessionTitle(attachment, fallback, maxLength) : fallback;
 }
 
 function legacyMediaDisplay(value) {
@@ -61,6 +79,18 @@ function legacyMediaDisplay(value) {
     fallback: /^(?:mp4|mov|m4v|webm|mkv|avi)$/i.test(match[1]) ? '[Video]' : '[Image]',
     text: source.slice(match[0].length).trim(),
   };
+}
+
+const ENGLISH_PLACEHOLDER_LABELS = Object.freeze({ image: 'Image', video: 'Video', file: 'File' });
+
+/** How a title is shown to people: a session titled by a message with
+ *  attachments and no words keeps the provisional `[Image]` / `[Video]` /
+ *  `[File]` placeholder (a later worded title replaces it), shown as its
+ *  kind's label in the caller's language (English by default). */
+export function sessionTitleLabel(title, labels = ENGLISH_PLACEHOLDER_LABELS) {
+  const text = String(title ?? '');
+  const kind = /^\[(Image|Video|File)\]$/i.exec(text.trim())?.[1]?.toLowerCase();
+  return kind ? labels[kind] : text;
 }
 
 export function isMediaSessionTitlePlaceholder(value) {
@@ -163,6 +193,7 @@ function cleanSessionTitleText(source) {
     .replace(/<file\b[^>]*>[\s\S]*?<\/file>/gi, ' ')
     .replace(/\[Pasted text\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
     .replace(MEDIA_DISPLAY_BLOCK, ' ')
+    .replace(FILE_CHIP, ' ')
     .replace(/^Reference files:\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -191,7 +222,7 @@ export function generatedSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, m
   const legacyMedia = legacyMediaDisplay(value);
   const title = legacyMedia
     ? normalizeSessionTitle(legacyMedia.text, legacyMedia.fallback || fallback, maxLength)
-    : normalizeSessionTitle(value, mediaTitleFallback(value) || fallback, maxLength);
+    : normalizeSessionTitle(value, attachmentTitle(value, fallback, maxLength), maxLength);
   return hasMeaningfulSessionTitleText(title) ? title : String(fallback);
 }
 
@@ -199,19 +230,21 @@ export function sessionSummaryTitle(session, fallback = DEFAULT_SESSION_TITLE) {
   if (session?.title) {
     const legacyMedia = legacyMediaDisplay(session.title);
     if (legacyMedia) return normalizeSessionTitle(legacyMedia.text, legacyMedia.fallback || fallback);
-    return normalizeSessionTitle(session.title, mediaTitleFallback(session.title) || fallback);
+    return normalizeSessionTitle(session.title, attachmentTitle(session.title, fallback));
   }
   return generatedSessionTitle(session?.preview || '', fallback);
 }
 
 export function promptTitle(prompt, displayText = '') {
-  const mediaPart = Array.isArray(prompt)
-    ? prompt.find((part) => part?.type === 'image' || part?.type === 'video')
+  // No words: the first attachment titles it — a file by its name.
+  const attachmentPart = Array.isArray(prompt)
+    ? prompt.find((part) => part?.type === 'image' || part?.type === 'video' || part?.type === 'file')
     : null;
   let attachmentFallback = '';
-  if (mediaPart?.type === 'video') attachmentFallback = '[Video]';
-  else if (mediaPart?.type === 'image') attachmentFallback = '[Image]';
-  else if (Array.isArray(prompt) && prompt.some((part) => part?.type === 'file')) attachmentFallback = '[File]';
+  if (attachmentPart?.type === 'video') attachmentFallback = '[Video]';
+  else if (attachmentPart?.type === 'image') attachmentFallback = '[Image]';
+  else if (attachmentPart?.type === 'file')
+    attachmentFallback = normalizeSessionTitle(String(attachmentPart.filename || ''), '[File]', 32);
   if (displayText) {
     const visibleTitle = generatedSessionTitle(displayText, '');
     if (visibleTitle) return visibleTitle;

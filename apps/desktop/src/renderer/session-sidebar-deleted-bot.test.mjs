@@ -42,18 +42,10 @@ test("a deleted bot's archived chat: its face and name, restored with its bot, a
   const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const calls = [];
-  const asked = [];
-  const answers = [false, true];
   const view = document.defaultView;
   const invoked = stubDesktop(view);
-  const confirm = view.confirm;
-  view.confirm = (message) => {
-    asked.push(message);
-    return answers.shift();
-  };
-  t.after(() => {
-    view.confirm = confirm;
-  });
+  // The app's themed confirm dialog (never a native window.confirm).
+  view.confirm = () => assert.fail('a native confirm box must not open');
   await act(async () =>
     root.render(
       React.createElement(SessionSidebar, {
@@ -90,10 +82,26 @@ test("a deleted bot's archived chat: its face and name, restored with its bot, a
   );
   assert.deepEqual(calls, [], 'not a plain unarchive');
 
+  const dialog = () => document.querySelector('.settings-confirm-dialog[role="alertdialog"]');
+  const press = (label) =>
+    act(async () => [...dialog().querySelectorAll('button')].find((el) => el.textContent === label).click());
   await act(async () => row.querySelector('.session-row-delete').click());
-  assert.match(asked[0], /Delete Probe for good\? Its conversation history and the bot's remaining data are deleted/);
+  await settle();
+  assert.equal(dialog().querySelector('h3').textContent, 'Delete Probe for good?');
+  assert.match(
+    dialog().querySelector('p').textContent,
+    /^Its conversation history and the bot's remaining data are deleted/
+  );
+  await press('Cancel');
+  await settle();
+  assert.equal(dialog(), null);
   assert.deepEqual(calls, [], 'declined: nothing deleted');
   await act(async () => row.querySelector('.session-row-delete').click());
+  await settle();
+  assert.equal(dialog().querySelector('button.danger').textContent, 'Delete', 'destructive confirm is danger-styled');
+  await press('Delete');
+  await settle();
+  assert.equal(dialog(), null);
   assert.deepEqual(calls, ['delete:sess_home_probe']);
 
   // Its menu restores it too.
@@ -112,16 +120,8 @@ test('a Sessions 봇 row opens the 봇 page contact menu: profile, off, and the 
   const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const view = document.defaultView;
-  const invoked = stubDesktop(view, [{ id: 'watcher', custom: true, definition: { name: 'Watcher' } }]);
-  const asked = [];
-  const confirm = view.confirm;
-  view.confirm = (message) => {
-    asked.push(message);
-    return true;
-  };
-  t.after(() => {
-    view.confirm = confirm;
-  });
+  const invoked = stubDesktop(view, [{ id: 'watcher', custom: true, kind: 'bot', definition: { name: 'Watcher' } }]);
+  view.confirm = () => assert.fail('a native confirm box must not open');
   const opened = [];
   const closedTabs = [];
   const onDeleted = (event) => closedTabs.push(event.detail.sessionId);
@@ -169,7 +169,15 @@ test('a Sessions 봇 row opens the 봇 page contact menu: profile, off, and the 
   items = await openMenu(new view.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true }));
   await act(async () => items.find((el) => el.textContent === 'Delete').click());
   await settle();
-  assert.match(asked[0], /^Delete Watcher\? The bot is archived with its chat, and all its routines stop\./);
+  const dialog = document.querySelector('.settings-confirm-dialog[role="alertdialog"]');
+  assert.equal(dialog.querySelector('h3').textContent, 'Delete Watcher?');
+  assert.match(
+    dialog.querySelector('p').textContent,
+    /^The bot is archived with its chat, and all its routines stop\./
+  );
+  await act(async () => dialog.querySelector('button.danger').click());
+  await settle();
+  assert.equal(document.querySelector('.settings-confirm-dialog'), null);
   assert.deepEqual(
     invoked.filter(([name]) => name === 'deleteAgentDefinition'),
     [['deleteAgentDefinition', ['watcher']]]

@@ -62,7 +62,7 @@ function contactPreview(
   const shown =
     plainPreviewText(
       localizedRoutinePreview(text(session?.lastMessagePreview), session?.lastMessageRoutine) || text(session?.preview)
-    ) || fallback;
+    ) || plainPreviewText(fallback);
   return shown || (mixy ? '' : t('No messages yet'));
 }
 

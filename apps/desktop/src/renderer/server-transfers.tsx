@@ -11,6 +11,7 @@ import { confirmText } from './confirm-text';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
 import { openConfirmedFile } from './file-launch-confirmation';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import {
   downloadServerFile,
@@ -19,7 +20,7 @@ import {
   type ServerDownloadApi,
   type ServerUploadApi,
 } from './server-file-transfer';
-import { isSshConnectionWindow } from './desktop-connection';
+import { desktopConnection, isSshConnectionWindow } from './desktop-connection';
 import './server-transfers.css';
 
 interface TransferRow {
@@ -165,7 +166,12 @@ export async function downloadAndOpenServerFile(
 ): Promise<void> {
   const api = window.mixdogDesktop;
   const name = relPath.replace(/\\/g, '/').split('/').at(-1) || relPath;
-  if (!window.confirm(t('Download {{name}} from the server to this PC and open it?', { name }))) return;
+  if (
+    !(await confirmAction(t('Download {{name}} from the server to this PC and open it?', { name }), {
+      confirmLabel: t('Download'),
+    }))
+  )
+    return;
   const transfer = trackTransfer('download', name, 0);
   try {
     const { path } = await downloadServerFile(downloadApi(api), projectPath, relPath, accessToken, {
@@ -223,21 +229,26 @@ export function useServerFileReveal(reveal: (project: string, rel: string) => vo
 export async function confirmServerDelete(
   api: DesktopApi | undefined,
   projectPath: string,
-  label: string
+  label: string,
+  rels: string[]
 ): Promise<{ permanent: boolean } | null> {
+  // The operation's identity: this window's server, the folder and the exact entries (never the label).
+  const key = `server-delete:${desktopConnection()?.id ?? ''}:${projectPath}:${rels.join('\u0000')}`;
   const trash = await Promise.resolve(api?.serverTrashInfo?.(projectPath)).catch(() => null);
   if (trash?.available) {
-    return window.confirm(
-      t('Move {{name}} to the server trash ({{path}})?', { name: confirmText(label), path: confirmText(trash.path) })
-    )
+    return (await confirmAction(
+      t('Move {{name}} to the server trash ({{path}})?', { name: confirmText(label), path: confirmText(trash.path) }),
+      { danger: true, confirmLabel: t('Delete'), key }
+    ))
       ? { permanent: false }
       : null;
   }
-  return window.confirm(
+  return (await confirmAction(
     t('The server has no trash for this folder. Permanently delete {{name}}? This cannot be undone.', {
       name: label,
-    })
-  )
+    }),
+    { danger: true, confirmLabel: t('Delete'), key }
+  ))
     ? { permanent: true }
     : null;
 }

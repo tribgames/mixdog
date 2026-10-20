@@ -1,7 +1,9 @@
 // The agent actions the profile tab and a contact row's menu share:
 // 켜기/끄기 and 삭제, and the chat's 대화 초기화. Deleting and resetting ask first.
 import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopApi } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import type { AgentContact } from './agent-contacts-model';
 import { forgetArchivedBotIdentity } from './archived-bot-identity';
 import { errorMessageText } from './ErrorNotice';
@@ -14,11 +16,12 @@ export type AgentActionsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'res
 
 export interface AgentActionDeps {
   api?: AgentActionsApi;
-  /** Defaults to the window's confirmation dialog (tests stub it). */
-  confirm?(message: string): boolean;
+  /** Defaults to the app's themed confirm dialog (tests stub it). */
+  confirm?(message: string): boolean | Promise<boolean>;
 }
 
-const ask = (deps: AgentActionDeps, message: string) => (deps.confirm ?? ((text) => window.confirm(text)))(message);
+const ask = (deps: AgentActionDeps, message: string, confirmLabel: string, key: string): boolean | Promise<boolean> =>
+  deps.confirm ? deps.confirm(message) : confirmAction(message, { danger: true, confirmLabel, key });
 
 /** Switch a (non-Mixy) agent on or off; its model stays stored either way. */
 export async function setAgentOn(deps: AgentActionDeps, agentId: string, on: boolean): Promise<boolean> {
@@ -49,7 +52,7 @@ export async function resetConversation(
   const message = t(
     "Reset the conversation? The earlier messages leave this conversation; the bot's memory, routines and settings stay as they are."
   );
-  if (!ask(deps, message)) return false;
+  if (!(await ask(deps, message, t('Reset'), `agent-reset:${scope}`))) return false;
   try {
     const result = (await reset()) as { archivedSessionId?: unknown } | null | undefined;
     showDesktopToast(
@@ -78,7 +81,7 @@ export async function deleteAgent(deps: AgentActionDeps, agentId: string, name: 
     'Delete {{name}}? The bot is archived with its chat, and all its routines stop. Delete it again from Archived to remove it for good.',
     { name }
   );
-  if (!ask(deps, question)) return false;
+  if (!(await ask(deps, question, t('Delete'), `agent-delete:${agentId}`))) return false;
   try {
     await api.invokeCapability({ capability: 'deleteAgentDefinition', args: [agentId] });
     invalidateSidebarReferenceForMutation('deleteAgentDefinition');
@@ -108,15 +111,23 @@ export async function restoreAgent(deps: AgentActionDeps, agentId: string, name:
   }
 }
 
+/** Close every open tab of a room's conversation (it was left or deleted). */
+export function closeRoomTabs(roomId: string): void {
+  window.dispatchEvent(new CustomEvent(BOT_DELETED_EVENT, { detail: { sessionId: roomSessionId(roomId) } }));
+}
+
 /** A group room row's menu (봇 page and the Sessions 봇 section): the room
  *  panel's own ⋯ actions — 대화 초기화, 방 나가기 (archives it), 방 삭제. */
 export function agentRoomMenuItems(
   room: { id: string; running?: unknown },
   deps: AgentActionDeps = {}
 ): ScmContextMenuItem[] {
+  // A room that was left or deleted no longer has a conversation: its open
+  // tabs close, so no pane is left on a session that is gone.
   const act = (action: 'leave' | 'remove') =>
-    Promise.resolve(window.mixdogDesktop?.agentRoomAction?.(action, [room.id])).catch((reason) =>
-      showDesktopToast(errorMessageText(reason), 'error', { scope: `room:${action}:${room.id}` })
+    Promise.resolve(window.mixdogDesktop?.agentRoomAction?.(action, [room.id])).then(
+      () => closeRoomTabs(room.id),
+      (reason) => showDesktopToast(errorMessageText(reason), 'error', { scope: `room:${action}:${room.id}` })
     );
   return [
     {
@@ -136,7 +147,11 @@ export function agentRoomMenuItems(
       danger: true,
       separatorBefore: true,
       onSelect: () => {
-        if (ask(deps, t('Delete this room and its conversation?'))) void act('remove');
+        void Promise.resolve(
+          ask(deps, t('Delete this room and its conversation?'), t('Delete'), `room-delete:${room.id}`)
+        ).then((approved) => {
+          if (approved) return act('remove');
+        });
       },
     },
   ];

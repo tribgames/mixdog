@@ -171,7 +171,7 @@ test('the quota banner is one line between the island and the composer, with no 
   });
   const section = banner(document);
   const order = [...document.querySelector('.composer-region').children].map((child) => child.className);
-  assert.deepEqual(order, ['composer-island-slot', 'composer-quota-card', 'composer-queue-tray', 'composer']);
+  assert.deepEqual(order, ['composer-island-slot', 'composer-quota-card', 'composer']);
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill', 'the island stays a pill');
   assert.ok(section.querySelector('svg.composer-quota-card-icon'), 'warning glyph');
   assert.equal(section.querySelector('.composer-quota-card-title').textContent, translate('Usage limit reached'));

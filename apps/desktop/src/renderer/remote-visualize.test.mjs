@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
+import { createRemotePageCache } from './remote-file-preview.ts';
 import { createRemoteApi } from './remote-shim-api.ts';
 import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
 
@@ -54,7 +57,12 @@ test('a visualize host serves state and commands, and pushes on the visualize la
     const tab = { id: 'v1', label: 'page', revision: 2, panes: [{ kind: 'html', label: 'a', target: 'a', url: '' }] };
     await leg.deliver({
       event: 'visualizeChanged',
-      payload: { sessionId: 's1', state: { sessionId: 'other', tabs: [tab], active: 'v1' }, reveal: true, openUrl: 'x' },
+      payload: {
+        sessionId: 's1',
+        state: { sessionId: 'other', tabs: [tab], active: 'v1' },
+        reveal: true,
+        openUrl: 'x',
+      },
     });
     await leg.deliver({ event: 'visualizeChanged', payload: { sessionId: 's1' } });
     await leg.deliver({ event: 'visualizeChanged', payload: null });
@@ -94,6 +102,83 @@ test('a media pane is read in bounded ranges into a blob URL', async () => {
     assert.equal(source.kind, 'image');
     assert.match(source.url, /^blob:/);
     URL.revokeObjectURL(source.url);
+  });
+});
+
+test('a page is read once per host content identity, on its own pairing only', async (t) => {
+  globalThis.DOMParser = new JSDOM('').window.DOMParser;
+  t.after(() => {
+    delete globalThis.DOMParser;
+  });
+  await withShim({}, async (shim) => {
+    let pairing = 'pairing-a';
+    shim.ctx.visualizePages = createRemotePageCache(() => pairing);
+    const { api, leg } = await connect(shim, true);
+    const page = (body) => `<!doctype html><html><head></head><body>${body}</body></html>`;
+    const id = (scope, html) => `${scope}:${createHash('sha256').update(html).digest('hex')}`;
+    // Size and mtime never change here: only the content identity tells pages apart.
+    // `read` is what the range call returns, or null when no range call is expected.
+    const serve = async (contentId, read) => {
+      const sent = shim.ctx.socket.sent.length;
+      const loading = api.visualizePaneSource('s1', 'v5', 0);
+      const meta = await nextCall(leg, 'visualizePaneFile');
+      await leg.deliver({
+        id: meta.id,
+        ok: true,
+        value: {
+          kind: 'html',
+          mime: 'text/html',
+          size: 60,
+          mtimeMs: 1,
+          rel: 'page.html',
+          ...(contentId ? { contentId } : {}),
+        },
+      });
+      if (read !== null) {
+        const range = await nextCall(leg, 'visualizePaneRange');
+        await leg.deliver({
+          id: range.id,
+          ok: true,
+          value: {
+            data: Buffer.from(read).toString('base64'),
+            mime: 'text/html',
+            offset: 0,
+            size: read.length,
+            mtimeMs: 1,
+          },
+        });
+      }
+      const source = await loading;
+      return { ...source, calls: shim.ctx.socket.sent.length - sent };
+    };
+
+    const one = await serve(id('live', page('one')), page('one'));
+    assert.match(one.srcdoc, /one/);
+    const again = await serve(id('live', page('one')), null);
+    assert.deepEqual([again.srcdoc, again.calls], [one.srcdoc, 1], 'same content: only the metadata call');
+    assert.notEqual(again.fetch, one.fetch, 'a cached page gets this load’s fetch');
+    // Same size and mtime, different bytes.
+    assert.match((await serve(id('live', page('two')), page('two'))).srcdoc, /two/);
+
+    // Kept versions under the same path: each version's own snapshot.
+    assert.match((await serve(id('v1', page('old')), page('old'))).srcdoc, /old/);
+    assert.match((await serve(id('v2', page('new')), page('new'))).srcdoc, /new/);
+    assert.match((await serve(id('v1', page('old')), null)).srcdoc, /old/);
+
+    // No identity from the host, or bytes that are not the hashed ones: never kept.
+    await serve(undefined, page('one'));
+    await serve(undefined, page('one'));
+    assert.match((await serve(id('live', page('xyz')), page('abc'))).srcdoc, /abc/);
+    assert.match((await serve(id('live', page('xyz')), page('xyz'))).srcdoc, /xyz/);
+
+    // Another pairing (server switch, re-pair) or none reuses nothing.
+    pairing = 'pairing-b';
+    assert.match((await serve(id('v1', page('old')), page('old'))).srcdoc, /old/);
+    shim.ctx.visualizePages.clear();
+    assert.match((await serve(id('v1', page('old')), page('old'))).srcdoc, /old/);
+    pairing = null;
+    await serve(id('v1', page('old')), page('old'));
+    await serve(id('v1', page('old')), page('old'));
   });
 });
 

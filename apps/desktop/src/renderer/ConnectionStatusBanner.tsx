@@ -18,6 +18,7 @@ import {
 } from './connection-link-store';
 import { desktopConnection, isSshConnectionWindow } from './desktop-connection';
 import { t } from './i18n';
+import { displaySessionTitle } from './session-display-title';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import { requestConnectionDialog } from './settings/connection-intent';
 import { SshLogDialog } from './settings/ssh-log-dialogs';
@@ -145,10 +146,16 @@ function noticeText(
   if (notice.kind !== 'reattached') return null;
   const lines: string[] = [];
   if (notice.finished.length) {
-    lines.push(t('Finished on the server while away: {{titles}}', { titles: notice.finished.join(', ') }));
+    lines.push(
+      t('Finished on the server while away: {{titles}}', {
+        titles: notice.finished.map(displaySessionTitle).join(', '),
+      })
+    );
   }
   if (notice.continued.length) {
-    lines.push(t('Still running on the server: {{titles}}', { titles: notice.continued.join(', ') }));
+    lines.push(
+      t('Still running on the server: {{titles}}', { titles: notice.continued.map(displaySessionTitle).join(', ') })
+    );
   }
   if (notice.interruptedModelCalls) lines.push(t('A model call in progress was interrupted. It was not retried.'));
   return { title: t('Reconnected to {{name}}', { name: serverName }), lines, tone: 'success' };
@@ -200,7 +207,7 @@ function ServerWindowStatus() {
   const serverName = desktopConnection()?.name ?? '';
   useComposerBlocked(isConnectionDown(view));
   return createPortal(
-    <div className="conn-link-stack">
+    <div className="conn-link-stack" data-modal-background>
       {view && <LinkBanner view={view} serverName={serverName} />}
       <Notices serverName={serverName} />
     </div>,
@@ -251,7 +258,7 @@ function ServerRestoreStatus() {
   }, []);
   if (!entries.length) return null;
   return createPortal(
-    <div className="conn-link-stack">
+    <div className="conn-link-stack" data-modal-background>
       {entries.map((entry) => {
         const failed = entry.phase === 'failed';
         return (

@@ -88,6 +88,19 @@ export class OutsideWorkingDirectoryError extends Error {
   }
 }
 
+/** A file target that no longer exists (deleted, or its folder removed). */
+export class TargetNotFoundError extends Error {
+  constructor(raw: string) {
+    super(`target not found: ${raw}`);
+    this.name = 'TargetNotFoundError';
+  }
+}
+
+/** True when `error` says a tab's file is gone (a missing target, or the
+ *  file system's ENOENT from a later step such as the media stat). */
+export const isFileMissing = (error: unknown): boolean =>
+  error instanceof TargetNotFoundError || (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -297,7 +310,7 @@ export async function resolveVisualizeTarget(cwd: string, raw: string): Promise<
   try {
     real = await realpath(requested);
   } catch {
-    throw new Error(`target not found: ${raw}`);
+    throw new TargetNotFoundError(raw);
   }
   if (!insidePath(realCwd, real)) throw new OutsideWorkingDirectoryError('target', raw);
   if (!(await stat(real)).isFile()) throw new Error(`target is not a file: ${raw}`);

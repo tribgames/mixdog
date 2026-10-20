@@ -5,11 +5,14 @@
  */
 import type { VisualizeServiceContext } from './context';
 import { type FileTarget, realCwdOf, type TabState } from './tab-state';
-import { OutsideWorkingDirectoryError, resolveVisualizeTarget } from './targets';
+import { isFileMissing, OutsideWorkingDirectoryError, resolveVisualizeTarget } from './targets';
 import { heldTurn } from './turn-hold';
 
 /** A file reloads once its writes have gone quiet this long. */
 const RELOAD_DEBOUNCE_MS = 1200;
+/** A tab whose files are gone looks for them again this often: the watch may
+ *  have died with the folder, so it cannot be relied on to report their return. */
+const MISSING_RETRY_MS = 2000;
 
 /** A load started at `stamp` may commit to `tab` only when no load started
  *  later already did: `loadedStamp` only ever grows. */
@@ -37,6 +40,8 @@ export function createReloads(
   const cancelScheduledReload = (tab: TabState): void => {
     if (tab.reloadTimer) clearTimeout(tab.reloadTimer);
     tab.reloadTimer = null;
+    if (tab.retryTimer) clearTimeout(tab.retryTimer);
+    tab.retryTimer = null;
     reloadSettlers.get(tab)?.();
     reloadSettlers.delete(tab);
   };
@@ -71,6 +76,9 @@ export function createReloads(
       const panes = await ctx.panes.preparePanes(targets, cwd, realCwd);
       if (!state.tabs.includes(tab) || superseded()) return;
       const moved = targets.some((target, index) => target.path !== tab.targets[index]?.path);
+      // The files are back: a watch that died with their folder is armed again.
+      const rearm = moved || tab.missing === true;
+      tab.missing = false;
       tab.loadedStamp = stamp;
       tab.realCwd = realCwd;
       tab.targets = targets;
@@ -78,7 +86,7 @@ export function createReloads(
       ctx.leases.claimLeases(tab, panes);
       tab.problems = [];
       ctx.thumbnails.invalidate(tab);
-      if (moved) {
+      if (rearm) {
         for (const stop of tab.unwatch) stop();
         watchTab(sessionId, tab);
       }
@@ -95,39 +103,54 @@ export function createReloads(
         ctx.tabs.closeTab(sessionId, tab.id);
         return;
       }
-      // A file caught mid-write (or briefly gone) keeps its last view; the
-      // next change event retries.
-      console.warn('visualize reload failed:', (error as Error).message);
+      // A file caught mid-write keeps its last view; the next change event
+      // retries. A file that is gone is shown as removed and looked for again
+      // until it returns, whether or not its watch still reports.
+      // A gone file warns once, not on every look while it stays gone.
+      if (!(isFileMissing(error) && tab.missing)) console.warn('visualize reload failed:', (error as Error).message);
+      if (isFileMissing(error)) {
+        if (!tab.missing) {
+          tab.missing = true;
+          ctx.publish(sessionId);
+        }
+        if (tab.retryTimer) clearTimeout(tab.retryTimer);
+        tab.retryTimer = setTimeout(() => {
+          tab.retryTimer = null;
+          if (state.tabs.includes(tab)) scheduleReload(sessionId, tab);
+        }, deps.reloadDebounceMs ?? MISSING_RETRY_MS);
+        tab.retryTimer.unref?.();
+      }
     }
   };
 
+  const scheduleReload = (sessionId: string, tab: TabState): void => {
+    cancelScheduledReload(tab);
+    // An agent turn is editing: the tab is marked now and reloads once
+    // when the turn ends (turn-hold.ts), not after every write.
+    const hold = heldTurn(ctx, sessionId);
+    if (hold) {
+      if (hold.reloads.has(tab)) return;
+      hold.reloads.add(tab);
+      ctx.publish(sessionId, undefined, tab.id);
+      return;
+    }
+    let settle = () => {};
+    const done = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    pendingReloads.add(done);
+    void done.then(() => pendingReloads.delete(done));
+    reloadSettlers.set(tab, settle);
+    tab.reloadTimer = setTimeout(() => {
+      tab.reloadTimer = null;
+      reloadSettlers.delete(tab);
+      void reload(sessionId, tab).finally(settle);
+    }, deps.reloadDebounceMs ?? RELOAD_DEBOUNCE_MS);
+    tab.reloadTimer.unref?.();
+  };
+
   const watchTab = (sessionId: string, tab: TabState): void => {
-    const schedule = () => {
-      cancelScheduledReload(tab);
-      // An agent turn is editing: the tab is marked now and reloads once
-      // when the turn ends (turn-hold.ts), not after every write.
-      const hold = heldTurn(ctx, sessionId);
-      if (hold) {
-        if (hold.reloads.has(tab)) return;
-        hold.reloads.add(tab);
-        ctx.publish(sessionId, undefined, tab.id);
-        return;
-      }
-      let settle = () => {};
-      const done = new Promise<void>((resolve) => {
-        settle = resolve;
-      });
-      pendingReloads.add(done);
-      void done.then(() => pendingReloads.delete(done));
-      reloadSettlers.set(tab, settle);
-      tab.reloadTimer = setTimeout(() => {
-        tab.reloadTimer = null;
-        reloadSettlers.delete(tab);
-        void reload(sessionId, tab).finally(settle);
-      }, deps.reloadDebounceMs ?? RELOAD_DEBOUNCE_MS);
-      tab.reloadTimer.unref?.();
-    };
-    tab.unwatch = tab.targets.map((target) => deps.watch(target.path, schedule));
+    tab.unwatch = tab.targets.map((target) => deps.watch(target.path, () => scheduleReload(sessionId, tab)));
   };
 
   return {

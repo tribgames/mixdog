@@ -1,9 +1,7 @@
 // Composer support surfaces that are not the input itself: the project-context
-// pill, the attachment budget model, prompt-history persistence, and the
-// queued-follow-up list. Composer.tsx holds the editor and its interaction
-// handlers.
-import { CornerDownRight, Folder } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+// pill, the attachment budget model and prompt-history persistence.
+// Composer.tsx holds the editor and its interaction handlers.
+import { Folder } from 'lucide-react';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import {
@@ -14,11 +12,9 @@ import {
 } from '../shared/prompt-limits';
 import { MIXDOG_PROJECT_PATHS_MIME } from './file-drag';
 import { t } from './i18n';
-import { MxIcon } from './MxIcon';
 import { OpenSelect } from './OpenSelect';
 import { contentLocalStorage } from './remote-conversation-privacy';
-import { RowOverflowMenu } from './RowOverflowMenu';
-import { asRecord, displayProject, queueText } from './text-format';
+import { asRecord, displayProject } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { formatPastedTextRef, pastedTextLineCount } from '../../../../src/tui/paste-text-policy.mjs';
 
@@ -48,6 +44,10 @@ export type ComposerAttachment = {
    * the token is appended internally at send time so daemon expansion and
    * transcript folding still work. */
   chipOnly?: boolean;
+  /** SHA-256 of `data`, worked out once when the chip enters a composer
+   *  (`withContentDigest`); `of` is the data it was computed for, so a chip
+   *  whose data changed is hashed again. In memory only, never persisted. */
+  contentDigest?: { of: string; sha256: Promise<string> };
 };
 
 export type ComposerHistoryEntry = {
@@ -143,23 +143,6 @@ export function writePromptHistory(scope: string, entries: ComposerHistoryEntry[
   contentLocalStorage().setItem(promptHistoryStorageKey(scope), JSON.stringify(stored));
 }
 
-export function queuedFollowupPreview(entry: unknown) {
-  return (
-    queueText(entry)
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean) || '[Attachment]'
-  );
-}
-
-function queuedImageCount(entry: unknown) {
-  const record = asRecord(entry);
-  const images = Array.isArray(record?.images) ? record.images.filter(Boolean).length : 0;
-  if (images > 0) return images;
-  const pastedImages = asRecord(record?.pastedImages);
-  return pastedImages ? Object.values(pastedImages).filter(Boolean).length : 0;
-}
-
 export function ProjectContextSelector({
   projects,
   activePath,
@@ -207,105 +190,5 @@ export function ProjectContextSelector({
         }}
       />
     </div>
-  );
-}
-
-export function QueueList({
-  queued,
-  restoring,
-  onEdit,
-  onSteer,
-  onRemove,
-}: {
-  queued?: unknown[];
-  restoring: boolean;
-  onEdit: (id: string) => void;
-  onSteer: (id: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  const items = useRef<HTMLDivElement>(null);
-  const count = Array.isArray(queued) ? queued.length : 0;
-  // The list scrolls past 30dvh; a bottom fade shows only while rows remain
-  // below the fold.
-  useLayoutEffect(() => {
-    const list = items.current;
-    if (!list || !count) return undefined;
-    const update = () => {
-      list.dataset.more = String(list.scrollHeight - list.scrollTop - list.clientHeight > 1);
-    };
-    update();
-    list.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    return () => {
-      list.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
-    };
-  }, [count]);
-  if (!Array.isArray(queued) || queued.length === 0) return null;
-  const label =
-    queued.length === 1 ? t('1 queued follow-up') : t('{{count}} queued follow-ups', { count: queued.length });
-  return (
-    <section className="queue-list" aria-label={label}>
-      {/* biome-ignore lint/a11y/useSemanticElements: the queue container must stay a div; role="list" gives the follow-ups list semantics */}
-      <div className="queue-items" role="list" ref={items}>
-        {queued.map((entry, index) => {
-          const id = String(asRecord(entry)?.id || '');
-          const text = queuedFollowupPreview(entry);
-          const imageCount = queuedImageCount(entry);
-          return (
-            // biome-ignore lint/a11y/useSemanticElements: the queue item must stay a div; role="listitem" gives it list semantics
-            <div className="queue-item" role="listitem" key={id || index}>
-              <CornerDownRight className="queue-item-icon" size={14} aria-hidden="true" />
-              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the clipped message is focusable so keyboard users reach its full-text tooltip */}
-              <span className="queue-item-text" tabIndex={0} data-tooltip={text}>
-                {text}
-              </span>
-              {imageCount > 0 && (
-                // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the span stands for the attached-image count and needs a text alternative
-                <span
-                  className="queue-item-attachments"
-                  aria-label={
-                    imageCount === 1 ? t('1 attached image') : t('{{count}} attached images', { count: imageCount })
-                  }
-                >
-                  <MxIcon name="photo" size={14} />
-                  <span>{imageCount}</span>
-                </span>
-              )}
-              <button
-                type="button"
-                className="queue-steer"
-                disabled={restoring || !id || text.trim().startsWith('/')}
-                onClick={() => onSteer(id)}
-                aria-label={t('Steer queued follow-up now: {{text}}', { text })}
-                data-tooltip={t('Interrupt and steer now')}
-              >
-                {t('Steer now')}
-              </button>
-              <button
-                type="button"
-                className="queue-remove"
-                disabled={restoring || !id}
-                onClick={() => onRemove(id)}
-                aria-label={t('Remove queued follow-up: {{text}}', { text })}
-              >
-                <MxIcon name="delete" size={14} />
-              </button>
-              <RowOverflowMenu
-                label={t('Edit queued follow-up: {{text}}', { text })}
-                items={[
-                  {
-                    id: 'edit',
-                    label: restoring ? t('Editing…') : t('Edit'),
-                    disabled: restoring || !id,
-                    onSelect: () => onEdit(id),
-                  },
-                ]}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </section>
   );
 }

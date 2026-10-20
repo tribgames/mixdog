@@ -146,6 +146,18 @@ export function useConversationComposerActions({
     else showPendingRow();
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
     const acceptedStartedAt = performance.now();
+    // The bubble owns the failed message (and its retry); the composer treats
+    // it as sent.
+    const keepFailedSteer = () => {
+      setOptimisticPrompts((current) =>
+        current.map((item) =>
+          String(item.id) === submissionId
+            ? { ...item, steer: 'failed' as const, retry: { content, options: { ...options, id: submissionId } } }
+            : item
+        )
+      );
+      return true;
+    };
     let accepted: unknown;
     try {
       accepted = await composerActions.current.invokeResult(() =>
@@ -158,9 +170,14 @@ export function useConversationComposerActions({
     } catch (error) {
       if (materializingDraft) suppressDraftSubmitPaintHandoff.current = false;
       if (goalSubmission.current?.id === submissionId) goalSubmission.current = null;
+      if (optimistic.queuedBehindTurn) return keepFailedSteer();
       setOptimisticPrompts((current) => current.filter((item) => String(item.id) !== submissionId));
       throw error;
     }
+    // A message sent behind a running turn already stands in the transcript:
+    // a failed send stays there as "Not sent · Send again" (with the composer
+    // cleared) instead of moving back into the editor.
+    if (accepted !== true && optimistic.queuedBehindTurn) return keepFailedSteer();
     if (accepted !== true && materializingDraft) {
       suppressDraftSubmitPaintHandoff.current = false;
     }
@@ -320,7 +337,12 @@ export function conversationKeyDownCapture(
 }
 
 /** A turn's visualize cards and whether a row already seated them. */
-export type TurnCardsSeat = { cards: ReactNode; placed: boolean };
+export type TurnCardsSeat = {
+  cards: ReactNode;
+  placed: boolean;
+  /** The files the turn showed as visualize cards: its changes card lists none of them. */
+  visualized?: readonly string[];
+};
 
 function errorRowNode(
   row: Extract<TranscriptRowModel, { _tag: 'Error' }>,
@@ -377,7 +399,7 @@ function errorRowNode(
     <>
       {notice}
       {seatTurnCards(turnCards)}
-      <TurnChangesCard turnChanges={row.turnChanges} />
+      <TurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
     </>
   ) : (
     notice
@@ -505,7 +527,7 @@ export function transcriptRowNode(
     <>
       {assistant}
       {seatTurnCards(turnCards)}
-      <TurnChangesCard turnChanges={row.turnChanges} />
+      <TurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
     </>
   ) : (
     assistant

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 // React DOM decides ONCE, at module evaluation, whether the host supports
 // native input events; evaluated without a document it falls back to the IE
@@ -219,10 +220,9 @@ test('a failed delete keeps exactly the failed entry selected and surfaces the m
       },
     },
   });
-  const previousConfirm = window.confirm;
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   t.after(() => {
-    window.confirm = previousConfirm;
+    overrideConfirmAction(null);
   });
   await view.render();
   await click(rowFor('locked.txt'));

@@ -1,5 +1,5 @@
 import type { DesktopModelSelection, DesktopSessionSummary, SessionSnapshot } from '../shared/contract';
-import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { sessionDisplayTitle } from './session-display-title';
 import { t } from './i18n';
 import type { NavigationSelection } from './navigation';
 import type { PaneLeaf } from './pane-layout';
@@ -64,7 +64,7 @@ export async function inheritSessionInPlace(
   const row = rows.find((entry) => entry.id === sessionId);
   const title =
     String(snapshot.desktopSessionTitle || '').trim() ||
-    (row ? sessionSummaryTitle(row, t('Untitled session')) : fallbackTitle) ||
+    (row ? sessionDisplayTitle(row, t('Untitled session')) : fallbackTitle) ||
     t('Untitled session');
 
   // Follow a tab moved to another pane, but never reopen a tab closed while

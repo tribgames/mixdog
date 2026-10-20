@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createECDH, generateKeyPairSync, randomBytes } from 'node:crypto';
 import test from 'node:test';
 import { createPushNotifier } from './push-notifier.ts';
+import { decryptNativePush } from '../shared/native-push-crypto.ts';
 import { generateWebPushKeys } from './web-push.ts';
 
 function subscription() {
@@ -39,6 +40,43 @@ function fixture({ foreground = false, enabled = true } = {}) {
 }
 const update = (toolApproval, frameSource = 'live') => ({ sessionId: 's1', frameSource, snapshot: { toolApproval } });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+test('a session titled by attachments alone is pushed with its kind’s label, never [Image]', async (t) => {
+  const device = createECDH('prime256v1');
+  device.generateKeys();
+  const messages = [];
+  const notifier = createPushNotifier({
+    store: { keys: async () => generateWebPushKeys(), list: async () => [], remove: async () => true },
+    isEnabled: () => true,
+    readFinalAnswer: async () => null,
+    isClientForeground: () => false,
+    native: {
+      list: async () => [
+        {
+          clientId: 'phone-1',
+          platform: 'fcm',
+          token: 'token',
+          publicKey: device.getPublicKey().toString('base64url'),
+          sandbox: false,
+          createdAt: 1,
+        },
+      ],
+      isClientForeground: () => false,
+      send: (message) => messages.push(message) > 0,
+      removeByClient: async () => true,
+    },
+  });
+  t.after(() => notifier.dispose());
+  notifier.onSessions([
+    { id: 's1', title: '[Image]' },
+    { id: 's2', title: 'Fix the release' },
+  ]);
+  notifier.onSessionState(update({ id: 'a1', name: 'shell' }));
+  notifier.onSessionState({ ...update({ id: 'a2', name: 'shell' }), sessionId: 's2' });
+  await settle();
+  const titles = messages.map((message) => decryptNativePush(device.getPrivateKey(), message.mx).title);
+  assert.deepEqual(titles.sort(), ['Fix the release', 'Image']);
+});
 
 test('a new tool approval pushes once to a background client', async (t) => {
   const f = fixture();

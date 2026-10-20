@@ -61,9 +61,11 @@ function RouteControls({
   models,
   disabled,
   composerParity = false,
+  fallbacks,
   onChange,
 }: {
   composerParity?: boolean;
+  fallbacks?: boolean;
   label: string;
   route: RecordValue;
   models: DesktopModelOption[];
@@ -77,6 +79,7 @@ function RouteControls({
         models={models}
         disabled={disabled}
         composerParity={composerParity}
+        fallbacks={fallbacks}
         route={route}
         onChange={onChange}
       />
@@ -426,6 +429,7 @@ export function RouteEditorDialog({
                 models={models}
                 disabled={busy}
                 composerParity={target.modelKind !== 'webSearch'}
+                fallbacks={target.modelKind !== 'main'}
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
               />
             </div>

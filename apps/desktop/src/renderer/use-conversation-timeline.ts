@@ -19,6 +19,7 @@ export function useConversationTimeline({
   draftMode,
   snapshot,
   pendingItems,
+  steerItems,
   optimisticActivityStartedAt,
   liveBand,
   onEntryRevealed,
@@ -38,6 +39,8 @@ export function useConversationTimeline({
   draftMode: boolean;
   snapshot: Snapshot;
   pendingItems: PendingPromptItem[];
+  /** Messages sent while the turn runs that the model has not read yet. */
+  steerItems?: PendingPromptItem[];
   optimisticActivityStartedAt: number;
   liveBand?: boolean;
   onEntryRevealed?: (sessionKey: string) => void;
@@ -57,6 +60,7 @@ export function useConversationTimeline({
     failedTurnKeys: snapshot.failedTurnKeys,
     precomputedTurnKeys: snapshot.transcriptTurnKeys,
     pendingItems,
+    steerItems,
     liveItem,
     busy: snapshot.busy,
     commandBusy: snapshot.commandBusy,

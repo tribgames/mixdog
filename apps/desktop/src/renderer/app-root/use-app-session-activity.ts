@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { isAgentHomeSessionId } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { BOT_DELETED_EVENT } from '../agent-profile-actions';
 import { navigationKey } from '../text-format';
-import { sessionSummaryTitle } from '../../shared/session-title.mjs';
+import { sessionDisplayTitle } from '../session-display-title';
 import type { useAppSessionActions } from '../use-app-session-actions';
 import { isMobileRemoteSurface } from '../mobile-surface';
 import { useShellUpdateReload } from '../use-shell-update-reload';
@@ -59,7 +59,7 @@ export function useAppSessionActivity({
   }, [sessions]);
   useEffect(() => {
     const catalogTitles = new Map(
-      sessions.map((session) => [session.id, sessionSummaryTitle(session, t('Untitled session'))] as const)
+      sessions.map((session) => [session.id, sessionDisplayTitle(session, t('Untitled session'))] as const)
     );
     if (!catalogTitles.size) return;
     setTabs((current) => {

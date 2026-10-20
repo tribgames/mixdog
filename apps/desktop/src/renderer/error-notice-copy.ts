@@ -63,6 +63,20 @@ const copy = new Map<string, () => string>([
     () => t('The requested service tier is unavailable right now.'),
   ],
   ['Switch to the standard tier or try again later.', () => t('Switch to the standard tier or try again later.')],
+  ["This model isn't available for this account.", () => t("This model isn't available for this account.")],
+  [
+    'Choose another model, or check the model and endpoint in Providers.',
+    () => t('Choose another model, or check the model and endpoint in Providers.'),
+  ],
+  [
+    "The provider couldn't find the requested model or endpoint.",
+    () => t("The provider couldn't find the requested model or endpoint."),
+  ],
+  ['The provider rejected a tool definition.', () => t('The provider rejected a tool definition.')],
+  [
+    'Disable the tool or MCP server named in the details, then try again.',
+    () => t('Disable the tool or MCP server named in the details, then try again.'),
+  ],
 ]);
 
 const TOOL_SURFACE_CODE = 'TOOL_SURFACE_EXCEEDS_CONTEXT';
@@ -172,6 +186,30 @@ export function localizeToolSurfaceError(details: string): { summary: string; re
     else body.push(localizeToolSurfaceLine(line));
   }
   return { summary: `${headline} (${TOOL_SURFACE_CODE})`, recovery, body: body.join('\n') };
+}
+
+const ROUTE_FALLBACK_REASONS = new Map<string, () => string>([
+  ['usage limit reached', () => t('usage limit reached')],
+  ['not included in the plan', () => t('not included in the plan')],
+  ['out of credits', () => t('out of credits')],
+  ['rate-limited', () => t('rate-limited')],
+  ['unavailable', () => t('unavailable')],
+  ['sign-in failed', () => t('sign-in failed')],
+  ['access denied', () => t('access denied')],
+  ['model not available', () => t('model not available')],
+  ['context too long', () => t('context too long')],
+]);
+const ROUTE_FALLBACK_NOTICE_RE = new RegExp(
+  `^(.+) (${[...ROUTE_FALLBACK_REASONS.keys()].join('|')}) — switched to (.+)\\.$`
+);
+
+/** The runtime's model-fallback notice (`<from> <reason> — switched to <to>.`)
+ *  in the UI language; null for any other notice. */
+export function localizeRouteFallbackNotice(text: string): string | null {
+  const match = ROUTE_FALLBACK_NOTICE_RE.exec(text);
+  if (!match) return null;
+  const reason = ROUTE_FALLBACK_REASONS.get(match[2])?.() ?? match[2];
+  return t('{{from}} {{reason}} — switched to {{to}}.', { from: match[1], reason, to: match[3] });
 }
 
 /** The next-step line of a described error, in the UI language. */

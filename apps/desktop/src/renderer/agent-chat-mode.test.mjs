@@ -657,11 +657,13 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
   const form = host.querySelector('form.composer');
   assert.equal(form.dataset.chatMode, 'agent');
   assert.equal(form.querySelector('.route-controls'), null, 'no model control inside the bar');
+  // A room's members each use their own model: no picker and no context gauge.
   const line = form.nextElementSibling;
-  assert.equal(line?.className, 'composer-model-line', 'the line sits under the bar');
-  assert.ok(line.querySelector('#readout') && line.querySelector('#gauge'), 'readout and gauge are shown');
-  // The chip edits the agent's route (agent-chat-route.ts), like the profile pane.
-  assert.equal(line.querySelector('.model-trigger')?.disabled, false);
+  assert.equal(line?.className, 'composer-model-line', 'the readout line sits under the bar');
+  assert.ok(line.querySelector('#readout'), 'the readout stays');
+  assert.equal(line.querySelector('.route-controls, .model-trigger, #gauge, .composer-model-aside'), null);
+  assert.ok(form.querySelector('.composer-footer .composer-tool'), 'the room keeps its add menu');
+  assert.ok(form.querySelector('.composer-footer .send-button'), 'the room keeps send');
 
   await type('/');
   assert.equal(document.getElementById('composer-slash-palette'), null);
@@ -701,8 +703,19 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
   await key('Enter');
   assert.equal(host.querySelector('.mx-chat-tag')?.textContent, `@${second}`);
 
-  // A 1:1 thread's `@` opens nothing (yet).
-  await render(composerProps(calls, { agentMode: true, sessionId: HOME, identityScope: HOME }));
+  // A bot's 1:1 chat keeps its model control and context gauge, and its `@` opens nothing (yet).
+  await render(
+    composerProps(calls, {
+      agentMode: true,
+      sessionId: HOME,
+      identityScope: HOME,
+      modelAside: React.createElement('i', { id: 'gauge' }),
+    })
+  );
+  const botLine = host.querySelector('form.composer').nextElementSibling;
+  assert.ok(botLine.querySelector('#gauge'), 'the bot chat shows the context gauge');
+  // The chip edits the agent's route (agent-chat-route.ts), like the profile pane.
+  assert.equal(botLine.querySelector('.model-trigger')?.disabled, false);
   await type('@b');
   assert.equal(document.getElementById('composer-room-ask-palette'), null);
   assert.equal(document.getElementById('composer-mention-palette'), null);
@@ -845,9 +858,13 @@ test('desktop agent rows open as tabs like sessions; the phone slot helper keeps
 test('a visualize open leaves one card at turn end, above the changed-files line; an earlier card opens its own version', async (t) => {
   const { resyncVisualizeStates } = await import('./visualize-store.ts');
   const { TurnChangesContext } = await import('./TurnChangesCard.tsx');
+  const { resetTurnChangesCache } = await import('./turn-changes-model.ts');
   const render = rowHarness(t);
   const SESSION = 'sess_home_lead';
   const commands = [];
+  // The turn's changed files (the visualized `site/a.html` is not one of them
+  // until the last check: a visualized file shows as its card, not a diff).
+  let changedPaths = ['src/b.ts'];
   // The card's own picture reads (`thumbnail`) are not what is checked here.
   const sent = {
     get length() {
@@ -872,7 +889,14 @@ test('a visualize open leaves one card at turn end, above the changed-files line
         checkpointId: 'cp',
         revision: 1,
         root: 'C:/p',
-        files: [{ path: 'a.html', status: 'M', additions: 1, deletions: 0, state: 'applied', revertable: true }],
+        files: changedPaths.map((path) => ({
+          path,
+          status: 'M',
+          additions: 1,
+          deletions: 0,
+          state: 'applied',
+          revertable: true,
+        })),
         canUndo: true,
         canReapply: false,
       },
@@ -948,17 +972,25 @@ test('a visualize open leaves one card at turn end, above the changed-files line
     return render(React.createElement(Rows));
   };
   const host = () => document.querySelector('main');
-  const cards = () => [...host().querySelectorAll('.transcript-visualize-card[data-artifact="visualize"]')];
+  const cards = () => [...host().querySelectorAll('.transcript-visualize-tile')];
+  const turnCards = () => [...host().querySelectorAll('.transcript-visualize-turn[data-artifact="visualize"]')];
 
   resyncVisualizeStates([tabAt(1)]);
   await show([user('u1', DAY1), open('e', 100)]);
   assert.equal(cards().length, 1);
   const [first] = cards();
   assert.ok(first.closest('.mx-chat-row[data-side="aside"]'), 'in the bubble column');
-  assert.ok(first.classList.contains('is-compact'), 'at the bubble column width');
-  assert.equal(first.querySelector('.transcript-visualize-copy > b').textContent, '요금제 시안');
-  assert.match(first.querySelector('.transcript-visualize-copy > small').textContent, /^HTML · Version 1/);
-  assert.equal(first.querySelector('.transcript-visualize-open').textContent, 'View');
+  assert.ok(first.closest('.transcript-visualize-turn').classList.contains('is-compact'), 'at the bubble column width');
+  assert.equal(first.querySelector('b').textContent, '요금제 시안');
+  assert.match(first.querySelector('small').textContent, /^Version 1/);
+  assert.equal(
+    first.closest('.transcript-visualize-turn').querySelector('.transcript-visualize-title').textContent,
+    'Visualizations 1'
+  );
+  assert.equal(
+    first.closest('.transcript-visualize-turn').querySelector('.transcript-visualize-all').textContent,
+    'Show all'
+  );
   assert.doesNotMatch(host().innerHTML, /tool-activity/);
 
   // A later turn opens the tab again (v2): two cards, the earlier on v1;
@@ -978,11 +1010,9 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   assert.ok(changes.querySelector('.turn-changes-view'), 'with its own actions');
   assert.ok(rows.at(-1).contains(changes), 'the changed-files card closes the turn');
   assert.ok(rows.at(-2).contains(cards()[1]), 'the visualize card sits right above it');
+  assert.equal(turnCards().length, 2, 'one card per turn');
   assert.equal(rows.at(-3)?.dataset.side, 'agent', 'both under the reply');
-  assert.equal(
-    cards()[0].querySelector('.transcript-visualize-copy > small').textContent,
-    'HTML · Version 1 · Earlier version'
-  );
+  assert.equal(cards()[0].querySelector('small').textContent, 'Version 1 · Earlier version');
   // Each card on its own version's picture: the newest from the tab, the
   // earlier one kept by the host for version 1 (never the tab's v2 picture).
   assert.deepEqual(
@@ -997,7 +1027,7 @@ test('a visualize open leaves one card at turn end, above the changed-files line
     ]
   );
   sent.length = 0;
-  await act(async () => cards()[0].querySelector('button').click());
+  await act(async () => cards()[0].click());
   assert.deepEqual(
     sent.map((command) => [command.action, command.tabId, command.version]),
     [
@@ -1006,7 +1036,7 @@ test('a visualize open leaves one card at turn end, above the changed-files line
     ]
   );
   sent.length = 0;
-  await act(async () => cards()[1].querySelector('button').click());
+  await act(async () => cards()[1].click());
   assert.deepEqual(
     sent.map((command) => command.action),
     ['activate'],
@@ -1016,8 +1046,8 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   // Coding mode seats the same turn-end card (not compact), outside the tool group.
   await show([user('u1', DAY1), open('g', 300)], false);
   assert.equal(host().querySelector('.is-compact'), null);
-  assert.ok(host().querySelector('.transcript-visualize-card'));
-  assert.equal(host().querySelector('.tool-activity .transcript-visualize-card'), null);
+  assert.ok(host().querySelector('.transcript-visualize-turn'));
+  assert.equal(host().querySelector('.tool-activity .transcript-visualize-tile'), null);
 
   // No card while the turn runs, in either mode: not under its live band
   // (thinking), not under a streaming reply.
@@ -1058,6 +1088,33 @@ test('a visualize open leaves one card at turn end, above the changed-files line
     assert.ok(errorChanges, `changes card (agentMode ${agentMode})`);
     assert.ok(follows(cards()[0], errorChanges), `card above the changes (agentMode ${agentMode})`);
   }
+
+  // The changed file is the one the turn visualized: its card stands in for
+  // the diff, so no changes card (either mode), and the card carries the Undo.
+  changedPaths = ['site/a.html'];
+  resetTurnChangesCache();
+  for (const agentMode of [true, false]) {
+    await show([user('u1', DAY1), open('f', 200), answer], agentMode);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.equal(cards().length, 1, `the visualize card stays (agentMode ${agentMode})`);
+    assert.equal(host().querySelector('.turn-changes-card'), null, `no changes card (agentMode ${agentMode})`);
+    assert.equal(
+      turnCards()[0].querySelector('.turn-changes-action')?.textContent,
+      'Undo',
+      `Undo on the card (agentMode ${agentMode})`
+    );
+  }
+  // Another file changed too: the changes card lists only that one, and Undo stays there.
+  changedPaths = ['site/a.html', 'src/b.ts'];
+  resetTurnChangesCache();
+  await show([user('u1', DAY1), open('f', 200), answer], false);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  assert.deepEqual(
+    [...host().querySelectorAll('.turn-changes-base')].map((node) => node.textContent),
+    ['b.ts']
+  );
+  assert.equal(turnCards()[0].querySelector('.turn-changes-action'), null);
+  assert.ok(host().querySelector('.turn-changes-card .turn-changes-action'));
 });
 
 test('a visualize card follows the whole reply: text before the call, the call, text after it (coding and agent mode)', async (t) => {
@@ -1128,7 +1185,7 @@ test('a visualize card follows the whole reply: text before the call, the call, 
     [...document.querySelectorAll('main *')].find((node) => node.children.length === 0 && node.textContent === label);
   for (const agentMode of [false, true]) {
     await show([user('u1', DAY1), before, open, after], agentMode);
-    const card = document.querySelector('main .transcript-visualize-card[data-artifact="visualize"]');
+    const card = document.querySelector('main .transcript-visualize-turn');
     assert.ok(card, `the card is drawn (agentMode ${agentMode})`);
     assert.ok(
       follows(textNode('before-text'), card),
@@ -1140,15 +1197,151 @@ test('a visualize card follows the whole reply: text before the call, the call, 
     );
     // The call is the last row of the turn: the card closes it, under the earlier text.
     await show([user('u1', DAY1), before, open], agentMode);
-    const closing = document.querySelector('main .transcript-visualize-card[data-artifact="visualize"]');
+    const closing = document.querySelector('main .transcript-visualize-turn');
     assert.ok(closing, `a turn ending on the call still draws it (agentMode ${agentMode})`);
     assert.ok(follows(textNode('before-text'), closing), `under the text before the call (agentMode ${agentMode})`);
     // While the reply after the call streams, no card shows above or beside it.
     await show([user('u1', DAY1), before, open, { ...after, active: true, live: true }], agentMode);
     assert.equal(
-      document.querySelectorAll('main .transcript-visualize-card').length,
+      document.querySelectorAll('main .transcript-visualize-turn').length,
       0,
       `none while streaming (agentMode ${agentMode})`
+    );
+  }
+});
+
+test('a turn leaves ONE visualize card: a tile per distinct tab on its final version, Show all brings them all up, the first last', async (t) => {
+  const { resyncVisualizeStates } = await import('./visualize-store.ts');
+  const render = rowHarness(t);
+  const SESSION = 'sess_home_lead_turncard';
+  const commands = [];
+  const previous = window.mixdogDesktop;
+  window.mixdogDesktop = {
+    ...previous,
+    visualizeCommand: async (command) => {
+      if (command.action !== 'thumbnail') commands.push(command);
+      return undefined;
+    },
+  };
+  t.after(() => {
+    window.mixdogDesktop = previous;
+    resyncVisualizeStates([]);
+  });
+  const tab = (id, label, file, extra = {}) => ({
+    id,
+    label,
+    revision: 2,
+    panes: [{ target: file }],
+    versions: [{ n: 1 }, { n: 2 }],
+    ...extra,
+  });
+  // v1 is shown in the panel (and has a page problem); v2 is open behind it; v3 was closed.
+  const seed = () =>
+    resyncVisualizeStates([
+      {
+        sessionId: SESSION,
+        active: 'v1',
+        tabs: [tab('v1', 'Login', 'a.html', { problems: [{ message: 'x' }] }), tab('v2', 'Settings', 'b.html')],
+      },
+    ]);
+
+  const call = (id, file, tabId, label, at) => ({
+    id,
+    kind: 'tool',
+    name: 'visualize',
+    args: { action: 'open', input: { targets: [file], label } },
+    result: `Showing ${file} (html) in the side panel as tab ${tabId}.`,
+    status: 'done',
+    startedAt: at,
+    completedAt: at + 1,
+  });
+  const rows = [
+    user('u1', DAY1),
+    {
+      _tag: 'ToolActivity',
+      key: 'g1',
+      turnKey: 'f',
+      items: [call('c1', 'a.html', 'v1', 'Login', 100), call('c2', 'b.html', 'v2', 'Settings', 110)],
+    },
+    {
+      _tag: 'ToolActivity',
+      key: 'g2',
+      turnKey: 'f',
+      // The same tab opened again later in the turn: still one tile.
+      items: [call('c3', 'a.html', 'v1', 'Login', 120), call('c4', 'c.html', 'v3', 'Closed one', 130)],
+    },
+    { ...reply('done', DAY1), turnKey: 'f' },
+  ];
+  for (const agentMode of [false, true]) {
+    seed();
+    commands.length = 0;
+    const options = {
+      snapshot: { sessionId: SESSION },
+      disclosureScope: SESSION,
+      readOnly: false,
+      transitioning: false,
+      renderAssistantRow: undefined,
+      onOpenSettings() {},
+      settledItems: [],
+      settledTurnKeys: [],
+      optimisticActivityStartedAt: 0,
+      submit: async () => true,
+      questionCard: null,
+      approvalCard: null,
+    };
+    function Rows() {
+      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
+      return React.createElement(
+        'div',
+        null,
+        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
+      );
+    }
+    await render(React.createElement(Rows));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    const cards = [...document.querySelectorAll('main .transcript-visualize-turn')];
+    assert.equal(cards.length, 1, `one card for the turn (agentMode ${agentMode})`);
+    assert.equal(cards[0].classList.contains('is-compact'), agentMode);
+    assert.equal(cards[0].querySelector('.transcript-visualize-title').textContent, 'Visualizations 3');
+    const tiles = [...cards[0].querySelectorAll('.transcript-visualize-tile')];
+    assert.deepEqual(
+      tiles.map((tile) => tile.dataset.visualizeTab),
+      ['v2', 'v1', 'v3'],
+      'a tile per tab; the reopened one counted once'
+    );
+    assert.deepEqual(
+      tiles.map((tile) => [tile.classList.contains('is-shown'), tile.classList.contains('is-closed')]),
+      [
+        [false, false],
+        [true, false],
+        [false, true],
+      ]
+    );
+    assert.equal(tiles[1].querySelector('small').textContent, 'Version 2 · Showing');
+    assert.equal(tiles[2].querySelector('small').textContent, 'Closed');
+    assert.ok(tiles[1].querySelector('.transcript-visualize-badge.is-problem'), 'page problems badge');
+    // A tile reveals its own tab; a closed one opens again.
+    await act(async () => tiles[0].click());
+    assert.deepEqual(
+      commands.map((command) => [command.action, command.tabId]),
+      [['activate', 'v2']]
+    );
+    commands.length = 0;
+    await act(async () => tiles[2].click());
+    assert.deepEqual(
+      commands.map((command) => [command.action, command.tabId, command.targets]),
+      [['reopen', 'v3', ['c.html']]]
+    );
+    // Show all: every tab comes up, the first tile's tab shown last.
+    commands.length = 0;
+    await act(async () => cards[0].querySelector('.transcript-visualize-all').click());
+    assert.deepEqual(
+      commands.map((command) => [command.action, command.tabId]),
+      [
+        ['reopen', 'v3'],
+        ['activate', 'v1'],
+        ['activate', 'v2'],
+      ]
     );
   }
 });

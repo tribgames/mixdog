@@ -345,12 +345,6 @@ html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator >
   min-width: var(--mx-touch-main);
   flex-basis: var(--mx-touch-main);
 }
-/* The ring hugs the model label instead of floating mid-box: the 44 hit box
-   stays, its extra width is spent to the RIGHT of the mark. */
-html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator > button {
-  justify-items: start;
-  padding-left: 2px;
-}
 html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator svg {
   width: calc(36px * 15 / 28);
   height: calc(36px * 15 / 28);
@@ -375,7 +369,9 @@ html[data-mixdog-mobile-tabs] .composer-model-line .session-context-popover {
 html[data-mixdog-mobile-tabs] .composer-model-line {
   min-height: var(--mx-touch-main);
   margin-top: 0;
-  padding-inline: 4px;
+  /* The bar's own 6px inset: the ring box (44, ring centred) then sits under
+     the send disc, and the readout under the attach +. */
+  padding-inline: 6px;
 }
 html[data-mixdog-mobile-tabs] .composer-model-line > .composer-usage-readout {
   height: var(--mx-touch-main);
@@ -1095,12 +1091,6 @@ html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="contact"]
   --agent-contact-avatar-size: 48px;
   --agent-contact-padding: 10px 10px 10px 12px;
   --agent-contact-min-height: 72px;
-  --agent-contact-name: 15px;
-  --agent-contact-name-line: 20px;
-  --agent-contact-preview: 13.5px;
-  --agent-contact-preview-line: 18px;
-  /* The time column follows this size (10-rail-pages.css). */
-  --agent-contact-time: 12px;
 }
 /* The new-agent dialog is a bottom sheet: full width, grab bar, 44dp targets
    and a footer of two equal thumb buttons above the safe area. */
@@ -1414,7 +1404,6 @@ html[data-mixdog-mobile-tabs] .session-row-status {
 }
 html[data-mixdog-mobile-tabs] .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .row-overflow-trigger,
-html[data-mixdog-mobile-tabs] .queue-list .queue-remove,
 html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-menu {
   width: var(--mx-touch-row);
   height: var(--mx-touch-row);
@@ -1712,29 +1701,17 @@ html[data-mixdog-mobile-tabs] .dock-file-menu button {
 :root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) {
   --mx-d1-step: #1d1d21;
   --mx-user-bubble: var(--mx-d1-step);
-  --mx-composer-surface: #1d1d22;
-  --mx-composer-lift: 0 12px 28px -10px #000d;
-  --mx-composer-edge: inset 0 1px 0 #ffffff0a;
+  /* The composer keeps the PC surface, outline and lift tokens: a phone-only
+     #1d1d22 plate with a 4% top highlight matched the user bubble and drew no
+     edge, so the bar read as an unframed, off-tone strip. */
 }
 :root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) .workspace-tab-compact-current,
 :root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) .workspace-tab-compact-current:hover:not(:active),
 :root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) .tool-activity .tool-activity-content {
   background: var(--mx-d1-step);
 }
-/* The list: section labels in place of dividers, Mixy as a raised pinned
-   card, unread as a bold name and a silver count pill, typing as dots. */
-html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-divider {
-  display: none;
-}
-html[data-mixdog-mobile-tabs] .agent-list-section {
-  margin: 0;
-  padding: 18px 12px 6px;
-  list-style: none;
-  color: var(--mx-text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 16px;
-}
+/* The list keeps the PC's hairline dividers and no section labels; Mixy is
+   a raised card, unread a bold name and a silver count pill, typing dots. */
 /* The card is the row itself, so its hover and selected fills (10-rail-pages)
    take the same inset and radius instead of a full-width plate behind it. */
 html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="contact"][data-agent-contact="lead"] {
@@ -1746,9 +1723,6 @@ html[data-mixdog-mobile-tabs]
   .utility-dock
   .agent-chat-row[data-kind="contact"][data-agent-contact="lead"]:not(.selected):not(:hover) {
   background: #18181d;
-}
-html[data-mixdog-mobile-tabs] .agent-chat-row:has(.agent-chat-status[data-kind="unread"]) .agent-chat-title {
-  font-weight: 750;
 }
 html[data-mixdog-mobile-tabs] .agent-chat-status[data-kind="unread"] {
   color: #111113;

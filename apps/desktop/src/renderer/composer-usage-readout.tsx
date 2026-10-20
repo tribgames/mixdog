@@ -19,21 +19,24 @@ export interface SessionUsageTotals {
   cacheWrite: number;
   /** Output of every call; null on a record saved before the sum existed. */
   output: number | null;
-  /** Output of the calls long enough to time (floors applied per call). */
+  /** Output of the timed calls (positive output and positive duration). */
   speedOutputTokens: number;
-  /** Generation time of those calls: first visible token → end of response. */
+  /** Request time of those calls: request start → end of response. */
   speedMs: number;
 }
 
 // The figures follow the common convention of local model servers, desktop
 // model runners and coding agents' usage footers:
-// - speed is the decode rate: output tokens (reasoning included, as every
-//   provider counts it in output) over the time from the first streamed
-//   delta to the end of the response. The wait for the first token is
-//   latency, not speed, so it stays out. The runtime sums the tokens and the
-//   times of the calls that meet its per-call floors before dividing here (a
-//   token-weighted rate, not a mean of rates); a reply too short to time
-//   says nothing about the model's speed and never enters the sums.
+// - speed is the usage dialog's throughput: output tokens (reasoning included,
+//   as every provider counts it in output) over the request's wall time, from
+//   the request start to the end of the response, the wait for the first
+//   token included (the usage ledger's duration_ms). The runtime sums the
+//   tokens and the times of every call with positive output and positive
+//   duration (the usage ledger's eligibility) before dividing here (summed
+//   tokens over summed durations: a duration-weighted rate, not a mean of
+//   per-call rates); an untimed call never enters the sums. A record saved before this
+//   definition (first token → end, speedOutputTokens/speedMs) is read only
+//   until a request-timed call lands.
 // - cache hit is the cache-read share of the whole prompt,
 //   read / (fresh input + cache read + cache write), summed over the session;
 //   it stays hidden until the session has read from the cache at all.
@@ -56,17 +59,18 @@ function count(value: unknown): number {
 export function sessionUsageTotals(stats: unknown): SessionUsageTotals | null {
   const totals = asRecord(asRecord(stats)?.usageReadout);
   if (!totals) return null;
+  const requestMs = count(totals.requestMs);
   return {
     input: count(totals.input),
     cacheRead: count(totals.cacheRead),
     cacheWrite: count(totals.cacheWrite),
     output: totals.output == null ? null : count(totals.output),
-    speedOutputTokens: count(totals.speedOutputTokens),
-    speedMs: count(totals.speedMs),
+    speedOutputTokens: requestMs > 0 ? count(totals.requestOutputTokens) : count(totals.speedOutputTokens),
+    speedMs: requestMs > 0 ? requestMs : count(totals.speedMs),
   };
 }
 
-/** Timed output tokens per second of generation time; null with no timed call. */
+/** Timed output tokens per second of request time; null with no timed call. */
 export function outputTokensPerSecond(totals: SessionUsageTotals | null): number | null {
   if (!totals || totals.speedMs <= 0 || totals.speedOutputTokens <= 0) return null;
   return (totals.speedOutputTokens * 1000) / totals.speedMs;
@@ -108,7 +112,7 @@ export function formatCompactTokens(value: number): string {
   return `${rounded}${COMPACT_UNITS[unit]}`;
 }
 
-/** The streaming call's rate (spinner.liveCall: its first token's time, the
+/** The streaming call's rate (spinner.liveCall: its request's start time, the
  *  runtime's token estimate so far and the time of that sample), or null
  *  between calls and before MIN_LIVE_MS / MIN_LIVE_TOKENS. */
 export function liveTokensPerSecond(spinner: unknown): number | null {
@@ -134,6 +138,8 @@ export interface ReadoutItem {
   label: string;
   /** The worded form shown while the line has room (`665.8k tokens`). */
   word: string;
+  /** Worded form only: a `·` follows, spaced like the gap after it. */
+  separator?: boolean;
 }
 
 export interface ReadoutParts {
@@ -231,7 +237,8 @@ export function readoutVariants(
   const worded = full.map((item, index) => ({
     ...item,
     icon: null,
-    text: index < full.length - 1 ? `${item.word} ·` : item.word,
+    text: item.word,
+    separator: index < full.length - 1,
   }));
   return [worded, ...variants];
 }
@@ -266,6 +273,11 @@ function ReadoutItems({ items }: { items: ReadoutItem[] }): ReactNode {
           <Icon size={ICON_WIDTH} aria-hidden="true" />
         ) : null}
         {item.text}
+        {item.separator ? (
+          <span className="composer-readout-sep" aria-hidden="true">
+            ·
+          </span>
+        ) : null}
       </span>
     );
   });
@@ -314,6 +326,7 @@ export function FittedReadout({
       const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
       const itemWidth = (item: ReadoutItem) =>
         textWidth(font, item.text) +
+        (item.separator ? ITEM_GAP + textWidth(font, '·') : 0) +
         (item.icon === 'dot' ? DOT_WIDTH + ICON_GAP : item.icon ? ICON_WIDTH + ICON_GAP : 0);
       setShown(
         fittingVariant(

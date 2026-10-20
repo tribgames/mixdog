@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { registerMobileBack } from '../mobile-back';
@@ -10,6 +10,7 @@ import { t } from '../i18n';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
 import type { SettingsConfirmation } from './capability-data';
+import { openModal } from './dialog-modality';
 
 export function Group({
   title,
@@ -238,8 +239,11 @@ export function SettingsConfirmDialog({
   options,
   onClose,
   portal = false,
+  returnFocus,
 }: {
   options: SettingsConfirmation;
+  /** Where focus goes on close; defaults to the element focused on open. */
+  returnFocus?: Element | null;
   onClose(): void;
   /** Render into document.body. A sidebar host must: the sidebar scroll's
    *  fade mask and isolation clip a fixed layer to the sidebar, which left
@@ -248,10 +252,40 @@ export function SettingsConfirmDialog({
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const opener = useRef<Element | null>(
+    returnFocus ?? (typeof document === 'undefined' ? null : document.activeElement)
+  );
+  const id = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Modal: focus moves in (Cancel for a destructive ask, else the primary
+  // action), the rest of the page is inert, and closing hands focus back.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only; the options at open decide the initial focus.
   useEffect(() => {
-    cancelRef.current?.focus();
+    const releaseModal = dialogRef.current ? openModal(dialogRef.current) : () => {};
+    (options.danger || !options.onConfirm ? cancelRef : confirmRef).current?.focus();
+    const from = opener.current;
+    return () => {
+      releaseModal();
+      // Never focus a control that is gone, disabled, or still inert behind
+      // another modal.
+      const usable = (element: Element | null | undefined): element is HTMLElement =>
+        Boolean(
+          element?.isConnected &&
+            !(element as HTMLButtonElement).disabled &&
+            !element.closest('[inert]') &&
+            typeof (element as HTMLElement).focus === 'function'
+        );
+      // The opener, else the focused pane's composer, else another visible
+      // composer; nothing if none is usable.
+      const visible = (element: HTMLElement) => element.getClientRects().length > 0;
+      const composers = [
+        ...document.querySelectorAll<HTMLElement>('.pane-cell.is-focused .composer textarea'),
+        ...document.querySelectorAll<HTMLElement>('.composer textarea'),
+      ];
+      [from, ...composers.filter(visible)].find(usable)?.focus();
+    };
   }, []);
   // Fullscreen scrim: the native caption controls dim with it.
   useEffect(() => acquireTitleBarDim(), []);
@@ -268,6 +302,17 @@ export function SettingsConfirmDialog({
         if (event.target === event.currentTarget) onClose();
       }}
       onKeyDown={(event) => {
+        if (event.key === 'Tab') {
+          const stops = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])];
+          const first = stops[0];
+          const last = stops[stops.length - 1];
+          const active = document.activeElement;
+          if (!stops.includes(active as HTMLElement) || (event.shiftKey ? active === first : active === last)) {
+            event.preventDefault();
+            (event.shiftKey ? last : first)?.focus();
+          }
+          return;
+        }
         if (event.key !== 'Escape') return;
         event.preventDefault();
         event.stopPropagation();
@@ -275,20 +320,21 @@ export function SettingsConfirmDialog({
       }}
     >
       <section
+        ref={dialogRef}
         className="settings-confirm-dialog"
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="settings-confirm-title"
-        aria-describedby="settings-confirm-description"
+        aria-labelledby={`${id}-title`}
+        aria-describedby={`${id}-description`}
         data-settings-nested-dialog
       >
         <header>
-          <h3 id="settings-confirm-title">{options.title}</h3>
+          <h3 id={`${id}-title`}>{options.title}</h3>
           <button type="button" aria-label={t('Close confirmation')} data-settings-nested-close onClick={onClose}>
             <X aria-hidden="true" size={16} />
           </button>
         </header>
-        <p id="settings-confirm-description">{options.description}</p>
+        <p id={`${id}-description`}>{options.description}</p>
         <footer>
           {options.onConfirm ? (
             <>

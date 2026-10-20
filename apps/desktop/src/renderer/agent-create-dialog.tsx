@@ -9,6 +9,7 @@ import { Star, X } from 'lucide-react';
 import { type FormEvent, useId, useMemo, useState } from 'react';
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
 import type { AgentAvatarState } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { BOT_AGENT_KIND } from '../../../../src/runtime/shared/agent-route-config.mjs';
 import {
   type AvatarImages,
   MascotAvatar,
@@ -77,7 +78,10 @@ export function AgentCreateForm({
   const [draft, setDraft] = useState<AvatarStatesDraft>({});
   const [previewState, setPreviewState] = useState<AgentAvatarState>('idle');
   const custom = avatarKind === 'image';
-  const ready = Boolean(name.trim() && (!custom || draft.idle));
+  // A bot without a model could not take a turn (nothing is auto-picked): with
+  // models to choose from, the dialog does not save without one.
+  const modelChosen = Boolean(route.provider && route.model);
+  const ready = Boolean(name.trim() && (!custom || draft.idle) && (modelChosen || models.length === 0));
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready || busy) return;
@@ -89,7 +93,7 @@ export function AgentCreateForm({
         ...(custom ? { avatar: customAvatarPayload(draft) } : {}),
         ...(!custom && !isSignatureDefault(avatar) ? { avatar } : {}),
         description: description.trim(),
-        ...(route.provider && route.model ? { route } : {}),
+        ...(modelChosen ? { route } : {}),
         ...(persona.trim() ? { persona: persona.trim() } : {}),
         ...(body.trim() ? { body: body.trim() } : {}),
       });
@@ -99,7 +103,7 @@ export function AgentCreateForm({
       name: name.trim(),
       description: description.trim(),
       avatar: custom ? customAvatarPayload(draft) : avatar,
-      ...(route.provider && route.model ? { route } : {}),
+      ...(modelChosen ? { route } : {}),
       ...(persona.trim() ? { persona: persona.trim() } : {}),
       body: body.trim() || agentBodyFromBrief(name, description),
     });
@@ -246,10 +250,11 @@ export function AgentCreateDialog({
     const description = String(payload.description || '');
     let id = '';
     if (representative) {
-      if (!(await createMixy(api, run, payload))) return;
+      if (!(await createMixy(run, payload))) return;
       id = MIXY_AGENT_ID;
     } else {
-      const saved = await run('saveAgentDefinition', [payload]);
+      // A bot for good: the marker is written once, at creation (isContactAgentId).
+      const saved = await run('saveAgentDefinition', [{ ...payload, kind: BOT_AGENT_KIND }]);
       if (saved === undefined) return;
       id = String((saved as RecordValue | null)?.id || '');
     }
@@ -259,7 +264,16 @@ export function AgentCreateDialog({
     try {
       // The representative's greeting is the welcome guide: it gets the setup facts.
       const facts = representative ? await mixyGreetingFacts(api) : undefined;
-      const sessionId = await greetNewAgent(api, { id, name, description, mixy: representative, facts });
+      // Without a model the greeting turn would only fail: the thread opens
+      // quiet and the user chooses a model in it.
+      const sessionId = await greetNewAgent(api, {
+        id,
+        name,
+        description,
+        mixy: representative,
+        facts,
+        greet: Boolean(payload.route),
+      });
       if (sessionId) onCreated?.(sessionId, name);
     } catch (reason) {
       showDesktopToast(errorMessageText(reason), 'error');

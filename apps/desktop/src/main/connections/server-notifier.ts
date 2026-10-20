@@ -11,6 +11,7 @@ import type {
 import type { Notification } from 'electron';
 import { createDesktopTurnNotifier } from '../desktop-turn-notifier';
 import type { SessionFinalAnswer } from '../session-final-answer';
+import { type SessionTitleLabels, sessionTitleLabel } from '../../shared/session-title.mjs';
 
 type NativeNotification = ReturnType<ServerNotifierOptions['createNotification']>;
 
@@ -39,6 +40,9 @@ export interface ServerNotifierOptions {
   focus(sessionId?: string): void;
   /** The fixed texts, in this PC's UI language at the moment they show. */
   text: ServerNotifierText;
+  /** This PC's words for an attachment-only session title (`[Image]` …);
+   *  English when absent. */
+  titleLabels?(): SessionTitleLabels;
   diagnostic(event: string, details: Record<string, unknown>): void;
   setTimeout?: (callback: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
@@ -112,6 +116,7 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
     ...(options.playSound ? { playSound: options.playSound } : {}),
     readFinalAnswer: options.sources.readFinalAnswer,
     openSession: (sessionId) => options.focus(sessionId),
+    ...(options.titleLabels ? { titleLabels: options.titleLabels } : {}),
     diagnostic: (event, details) => options.diagnostic(`server-turn-notification-${event}`, details),
   });
 
@@ -128,7 +133,10 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
     if (!key || key === previous || update.frameSource === 'replay') return;
     if (!options.isEnabled() || options.isForeground()) return;
     show(
-      { title: label(titles.get(sessionId) || options.serverName), body: options.text.approvalWaiting() },
+      {
+        title: label(sessionTitleLabel(titles.get(sessionId) || options.serverName, options.titleLabels?.())),
+        body: options.text.approvalWaiting(),
+      },
       sessionId
     );
   };

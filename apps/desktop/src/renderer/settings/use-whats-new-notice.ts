@@ -6,6 +6,7 @@ import { type ComponentType, useCallback, useEffect, useRef, useState } from 're
 
 import { isMobileDeviceSurface } from '../mobile-surface';
 import { useStarterGuideBlocking } from '../starter-guide-gate';
+import { useAnyModalOpen } from './dialog-modality';
 import type { ChangelogRelease } from './changelog';
 import { markWhatsNewSeen, peekWhatsNew, reportWhatsNew, type WhatsNewStatus } from './whats-new';
 
@@ -54,7 +55,11 @@ export function useWhatsNewNotice(
   const closeNotice = useCallback(() => setNotice(null), []);
   // The starter welcome covers the window; the notice would sit hidden under
   // it and be consumed unseen, so it waits until the welcome is dismissed.
-  const covered = useStarterGuideBlocking();
+  // Any open modal (a confirm, Settings) does the same, and the notice would
+  // otherwise open and take focus underneath or over it.
+  const guideOpen = useStarterGuideBlocking();
+  const modalOpen = useAnyModalOpen();
+  const covered = guideOpen || modalOpen;
   const handled = useRef(false);
   useEffect(() => {
     if (status === 'pending') return;

@@ -70,6 +70,11 @@ export interface TabState {
   panes: VisualizePaneView[];
   unwatch: Array<() => void>;
   reloadTimer: NodeJS.Timeout | null;
+  /** The live files are gone (deleted, or their folder removed): the tab shows
+   *  a "file was removed" notice and retries until they are back. */
+  missing?: boolean;
+  /** Retries a failed reload (see reloads.ts); not a pending reload. */
+  retryTimer?: NodeJS.Timeout | null;
   /** Distinct runtime problems since the last reload (replaced, never mutated). */
   problems: VisualizeProblem[];
   /** Bumps on every report, repeats included: a page still erroring is not settled. */
@@ -252,6 +257,7 @@ export function view(tab: TabState): VisualizeTabView {
     label: tab.label,
     revision: tab.revision,
     panes: displayedPanes(tab),
+    ...(tab.missing && !tab.shown ? { missing: true as const } : {}),
     ...(tab.problems.length ? { problems: tab.problems } : {}),
     ...(tab.allowNetwork ? { networkAllowed: true as const } : {}),
     ...versionFields(tab),

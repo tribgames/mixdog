@@ -54,12 +54,14 @@ export function useReadingAnchor({
   // One pre-paint write of a corrected reading offset. The spacer grows FIRST:
   // virtualizer.scrollToOffset clamped the target against the previous
   // scrollHeight, and older pages then dropped the reader a whole page.
-  // A page landing always writes natively: held as a row offset near the top,
-  // it would leave the fling no native room toward the page it just loaded.
-  // Late sizes of landed rows during a touch scroll are held instead (see
-  // transcript-list-touch-deviation).
+  // While the reader is touch/momentum scrolling, no scrollTop is written, at
+  // any native offset (also near the top): a native write cut the phone's
+  // fling short and the held position then jumped (Android: 처음 들어가 위로
+  // 넘기면 올라가다 멈추고 점프). A page landing and the late sizes of landed
+  // rows are held as a row offset instead, and one settle write lands after
+  // the scroll stops (see transcript-list-touch-deviation).
   const writeReadingOffset = useCallback(
-    (instance: TranscriptVirtualizer, target: number, landing: boolean) => {
+    (instance: TranscriptVirtualizer, target: number) => {
       const element = viewport.current;
       if (!element) return;
       if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
@@ -67,7 +69,7 @@ export function useReadingAnchor({
       const core = coreScrollState(instance);
       core.scrollAdjustments = 0;
       core.scrollOffset = top;
-      if (!landing && deviation.hold(top)) {
+      if (deviation.hold(top)) {
         core._intendedScrollOffset = null;
       } else {
         deviation.drop();
@@ -126,7 +128,6 @@ export function useReadingAnchor({
       const start = instance.measurementsCache[at]?.start ?? 0;
       const reading = logicalScrollOffset(instance);
       let target = reading;
-      const absolute = landing || hold.start === null;
       if (landing || hold.start === null) target = start - hold.offset;
       else if (Math.abs(start - hold.start) >= 0.5) {
         target = reading + (start - hold.start);
@@ -138,7 +139,7 @@ export function useReadingAnchor({
       if (transcriptScrollDiagnosticsEnabled()) {
         logTranscriptScroll('reading-anchor', { from: reading, to: target, index: at, start, landing });
       }
-      writeReadingOffset(instance, target, absolute);
+      writeReadingOffset(instance, target);
     },
     [flushDeferredResizes, indexForPendingKey, readingAnchorHeld, writeReadingOffset, virtualizerRef]
   );

@@ -93,7 +93,13 @@ function mount(t, { created, name = '' }) {
         React.createElement(AgentActivityPane, {
           active: true,
           sessions: [],
-          agentsPageFocus: { focused: null, focusedTabCount: 0, openSessionIds: [] },
+          // The page focus a caller once handed over (a coding session in use,
+          // no home tab): showing the pane must never act on it.
+          agentsPageFocus: {
+            focused: { kind: 'session', id: 'work-1' },
+            focusedTabCount: 1,
+            openSessionIds: ['work-1'],
+          },
           readComposerModel: () => ({ provider: 'openai', model: 'test-model' }),
           onOpenSession: (id, title) => opened.push([id, title]),
         })
@@ -206,7 +212,14 @@ test('creating a renamed representative saves its name and face, then it greets 
   await submit();
   const saves = calls
     .filter(([call]) =>
-      ['saveLeadIdentity', 'saveLeadPersona', 'saveLeadAgentBody', 'setModelRoute', 'setLeadCreated'].includes(call)
+      [
+        'saveLeadIdentity',
+        'saveLeadPersona',
+        'saveLeadAgentBody',
+        'setModelRoute',
+        'setAgentRoute',
+        'setLeadCreated',
+      ].includes(call)
     )
     .map((call) => call.slice(0, 3));
   assert.deepEqual(saves, [
@@ -220,7 +233,8 @@ test('creating a renamed representative saves its name and face, then it greets 
     ],
     ['saveLeadPersona', '존댓말로 짧게'],
     ['saveLeadAgentBody', '# Navi\n\nHelp first.'],
-    ['setModelRoute', { provider: 'openai', model: 'test-model' }],
+    // Mixy's own model: the Lead's Main route is never set.
+    ['setAgentRoute', 'lead', { provider: 'openai', model: 'test-model' }],
     ['setLeadCreated', true, 'Primary assistant'],
   ]);
   assert.equal(
@@ -271,4 +285,21 @@ test('a profile with a renamed representative never sees the empty state and lis
   await act(async () => plus(document).click());
   await settle();
   assert.deepEqual(menuLabels(document), ['New bot', 'New group room']);
+});
+
+test('showing the Bots page opens no tab: with Mixy created, only a row click opens its thread', async (t) => {
+  // User: going from Sessions to Bots jumped the main area to a bot chat.
+  const { document, calls, opened, render } = mount(t, { created: true, name: 'Momo' });
+  await render();
+  await render();
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+  assert.deepEqual(opened, [], 'no tab opened or activated by showing the page');
+  assert.equal(
+    calls.some(([call]) => call === 'openAgentHome'),
+    false
+  );
+  const row = await waitFor(() => document.querySelector('[data-agent-contact="lead"]'));
+  await act(async () => row.querySelector('button, [role="button"]').click());
+  await settle();
+  assert.deepEqual(opened, [['sess_home_lead', 'Momo']], 'a row click opens it');
 });

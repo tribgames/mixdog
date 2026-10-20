@@ -29,13 +29,13 @@ test('the chat names the agent it acts as', () => {
   assert.equal(agentOfChatSession('sess_task_1'), '');
 });
 
-test("Mixy's chip writes the Main route, as its profile pane does", async () => {
+test("Mixy's chip writes Mixy's own route, never the Lead's Main route, as its profile pane does", async () => {
   const api = fakeApi();
   const seen = [];
   const stop = subscribeAgentRouteChange((agentId) => seen.push(agentId));
   assert.equal(await persistAgentChatRoute('sess_home_lead', selection, api), true);
   stop();
-  assert.deepEqual(api.calls, [['setModelRoute', selection]]);
+  assert.deepEqual(api.calls, [['setAgentRoute', 'lead', selection]]);
   assert.deepEqual(seen, ['lead'], 'an open profile pane re-reads');
 });
 

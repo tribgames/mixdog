@@ -411,11 +411,15 @@ function RemotePaneContent({
   load,
   networkAllowed,
   marks,
+  revision = 0,
 }: {
   pane: VisualizePaneView;
   sessionId: string;
   tabId: string;
   index: number;
+  /** A page pane stays mounted across revisions and reads its file again
+   *  (the same page keeps its frame); other panes remount per revision. */
+  revision?: number;
   load: NonNullable<DesktopApi['visualizePaneSource']>;
   /** The desktop user allowed outside network for this tab's pages. */
   networkAllowed: boolean;
@@ -439,8 +443,10 @@ function RemotePaneContent({
   );
   const pagesUnavailable = useCallback(() => setPagesFailed(true), []);
   // A media-lane URL embeds the media session: a reconnect resolves it again.
-  const mediaEpoch = useMediaSessionEpoch();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new media session is a trigger
+  // Only media panes use the lane; a page keeps its frame across reconnects.
+  const sessionEpoch = useMediaSessionEpoch();
+  const mediaEpoch = pane.kind === 'image' || pane.kind === 'audio' || pane.kind === 'video' ? sessionEpoch : 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new media session and a page's revision are triggers
   useEffect(() => {
     if (asPages) return undefined;
     let alive = true;
@@ -463,9 +469,17 @@ function RemotePaneContent({
       alive = false;
       if (url.startsWith('blob:')) URL.revokeObjectURL(url);
     };
-  }, [load, sessionId, tabId, index, asPages, mediaEpoch]);
+  }, [load, sessionId, tabId, index, asPages, mediaEpoch, revision]);
   const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
   const srcdoc = source?.srcdoc;
+  // A revision's load is a new source object; the frame reloads only for a
+  // different page (content identity, document, path), while the page's
+  // fetch handler follows the latest load.
+  const pageId = source?.contentId;
+  const pagePath = source?.page;
+  const servesFetches = !!source?.fetch;
+  const fetchRef = useRef(source?.fetch);
+  fetchRef.current = source?.fetch;
   // Marks change with the tab state; the page reloads to show the new set.
   const marksKey = JSON.stringify(marks);
   // Pages run at once, as on the desktop, and under the desktop's network
@@ -475,18 +489,21 @@ function RemotePaneContent({
   // annotation overlay ride inside the page: nothing on this client can reach
   // into the opaque frame. The page bridge answers the page's own fetch/XHR
   // of its project files.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: marksKey stands for marks
+  // biome-ignore lint/correctness/useExhaustiveDependencies: marksKey stands for marks; pageId is the page's identity
   useEffect(() => {
     if (!frame || srcdoc === undefined) return undefined;
-    const fetcher = source?.fetch;
     let page = withVisualizeOverlay(withVisualizeFeedbackScript(srcdoc), marks);
-    if (fetcher && source?.page !== undefined) page = withPageFetchBridge(page, source.page);
+    if (servesFetches && pagePath !== undefined) page = withPageFetchBridge(page, pagePath);
     page = withFrameZoomBridge(page);
     const unload = loadSandboxedPage(
       frame,
       networkAllowed ? withBlockedNetworkReporter(page) : withBlockedNetwork(page)
     );
-    const unserve = fetcher ? servePageFetches(frame, fetcher) : undefined;
+    const unserve = servesFetches
+      ? servePageFetches(frame, (reference) =>
+          fetchRef.current ? fetchRef.current(reference) : Promise.reject(new Error('The page is not loaded.'))
+        )
+      : undefined;
     const unzoom = serveFrameZoom(frame);
     // Reporting stays on either way: the frame's own CSP refuses some requests even when the tab allows network.
     const unblocked = serveBlockedNetwork(frame, (url, resource) =>
@@ -498,7 +515,7 @@ function RemotePaneContent({
       unzoom();
       unblocked();
     };
-  }, [frame, srcdoc, source, marksKey, networkAllowed, sessionId, tabId, index]);
+  }, [frame, srcdoc, pageId, pagePath, servesFetches, marksKey, networkAllowed, sessionId, tabId, index]);
   if (asPages) return <RemoteDocumentPages label={pane.label} read={pages} onFail={pagesUnavailable} />;
   if (error && pane.inline) {
     // The interactive page could not be built here: the static render stands in.
@@ -915,7 +932,15 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
                   const showSource = live && extras.sourceOn && visualizePaneHasSource(pane);
                   let content: ReactNode;
                   let buffered = false;
-                  if (showSource) {
+                  if (live && shown.missing) {
+                    // Desktop and paired device alike: the host reloads the tab (a new
+                    // revision) as soon as the file is back.
+                    content = (
+                      <div className="visualize-empty" role="status">
+                        {t('This file was removed. The tab reloads when it is back.')}
+                      </div>
+                    );
+                  } else if (showSource) {
                     content = <VisualizeSource pane={pane} sessionId={sessionId} tabId={shown.id} index={index} />;
                   } else if (pane.kind === 'inline') {
                     // Inline content travels in the tab state (host and remote
@@ -927,12 +952,16 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
                       />
                     );
                   } else if (remoteSource) {
+                    // A page keeps its frame until the new revision's page is
+                    // read (unchanged content: no reload at all).
+                    buffered = pane.kind === 'html' && !pane.inline;
                     content = (
                       <RemotePaneContent
                         pane={pane}
                         sessionId={sessionId}
                         tabId={shown.id}
                         index={index}
+                        revision={buffered ? shown.revision : 0}
                         load={remoteSource}
                         networkAllowed={shown.networkAllowed === true}
                         marks={visualizePaneMarks(shown.annotations, index)}

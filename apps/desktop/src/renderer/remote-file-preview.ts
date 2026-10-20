@@ -6,6 +6,7 @@
 import type { DesktopApi } from '../shared/contract';
 import {
   MAX_VISUALIZE_SOURCE_BYTES,
+  REMOTE_PAGE_MAX_BYTES,
   type VisualizePaneSource,
   type VisualizePaneText,
   type VisualizeRemotePaneFile,
@@ -45,7 +46,7 @@ type Call = <T = unknown>(method: string, params?: unknown[]) => Promise<T>;
 export const REMOTE_PREVIEW_CHUNK_BYTES = 2 * 1024 * 1024;
 /** Largest file previewed whole in the browser; blob URLs hold it in memory. */
 const REMOTE_PREVIEW_MAX_FILE_BYTES = 64 * 1024 * 1024;
-const PAGE_MAX_BYTES = 4 * 1024 * 1024;
+const PAGE_MAX_BYTES = REMOTE_PAGE_MAX_BYTES;
 const PAGE_ASSET_MAX_BYTES = 2 * 1024 * 1024;
 const PAGE_TOTAL_MAX_BYTES = 16 * 1024 * 1024;
 const PAGE_MAX_ASSETS = 64;
@@ -539,8 +540,11 @@ export async function readRemoteVisualizePane(
   sessionId: string,
   tabId: string,
   index: number,
-  laneUrl?: (assetId: string, variant?: string) => string
+  laneUrl?: (assetId: string, variant?: string) => string,
+  /** This connection's built pages (none: every page is read). */
+  pages?: RemotePageCache
 ): Promise<VisualizePaneSource> {
+  // The host authorizes every load here (containment re-checked), cached or not.
   const meta = await call<VisualizeRemotePaneFile>('visualizePaneFile', [sessionId, tabId, index]);
   // The page builder and the whole-file reader speak the preview range call;
   // route it to the pane's own range method.
@@ -551,11 +555,23 @@ export async function readRemoteVisualizePane(
     return call<T>('visualizePaneRange', [sessionId, tabId, params[1], params[3], params[4], index]);
   };
   if (meta.kind === 'html') {
+    // A revision bump with the same content (a reopen, a reload racing an
+    // open, a reconnect) reuses the page this connection already built; only
+    // the host's content identity keys it.
+    const { contentId } = meta;
+    const srcdoc =
+      pages && contentId
+        ? await pages.page([sessionId, tabId, index, meta.rel, contentId].join('\0'), () =>
+            buildKeptPage(paneCall, meta.rel, contentId)
+          )
+        : await buildPageSrcdoc(paneCall, '', meta.rel, null);
     return {
       kind: 'html',
-      srcdoc: await buildPageSrcdoc(paneCall, '', meta.rel, null),
+      srcdoc,
       page: meta.rel,
-      // The page's own fetch/XHR: resolved against the page here, contained
+      ...(contentId ? { contentId } : {}),
+      // The page's own fetch/XHR, over this load's call (never a cached
+      // one): resolved against the page here, contained
       // and typed by the host exactly like an inlined asset.
       fetch: async (reference) => {
         const path = resolvePageReference(meta.rel, reference);
@@ -574,6 +590,81 @@ export async function readRemoteVisualizePane(
     throw new Error('This file is too large to preview over remote access.');
   const file = await readRemoteFile(paneCall, ['', meta.rel, null], REMOTE_PREVIEW_MAX_FILE_BYTES);
   return { kind: meta.kind, url: URL.createObjectURL(new Blob(file.parts as BlobPart[], { type: meta.mime })) };
+}
+
+const REMOTE_PAGE_CACHE_LIMIT = 6;
+
+/** Built remote HTML pages of one authenticated connection, keyed by tab,
+ *  pane and the host's content identity, in use order. `scope` names the
+ *  pairing (server, device, keys): another one drops every page, and none
+ *  keeps nothing. Only page text is kept; a page's fetch always goes over
+ *  the load that asked for it. */
+export function createRemotePageCache(scope: () => string | null) {
+  let owner: string | null = null;
+  const pages = new Map<string, Promise<string>>();
+  return {
+    clear(): void {
+      pages.clear();
+    },
+    /** The page for `key`, built once per connection; `build` says whether
+     *  its result may be kept. */
+    page(key: string, build: () => Promise<{ srcdoc: string; keep: boolean }>): Promise<string> {
+      const current = scope();
+      if (current !== owner) {
+        pages.clear();
+        owner = current;
+      }
+      if (current === null) return build().then((page) => page.srcdoc);
+      const kept = pages.get(key);
+      if (kept) {
+        pages.delete(key);
+        pages.set(key, kept);
+        return kept;
+      }
+      const built = build();
+      const srcdoc = built.then((page) => page.srcdoc);
+      pages.set(key, srcdoc);
+      while (pages.size > REMOTE_PAGE_CACHE_LIMIT) pages.delete(pages.keys().next().value as string);
+      const drop = () => {
+        if (pages.get(key) === srcdoc) pages.delete(key);
+      };
+      void built.then((page) => {
+        if (!page.keep) drop();
+      }, drop);
+      return srcdoc;
+    },
+  };
+}
+export type RemotePageCache = ReturnType<typeof createRemotePageCache>;
+
+/** A page built for the cache: kept only when it inlined no other file (it
+ *  is only as fresh as those) and was built from exactly the bytes the host
+ *  hashed into `contentId`. */
+async function buildKeptPage(
+  paneCall: Call,
+  rel: string,
+  contentId: string
+): Promise<{ srcdoc: string; keep: boolean }> {
+  const parts: Uint8Array[] = [];
+  let read = 0;
+  let exact = true;
+  const recording: Call = async <T>(method: string, params: unknown[] = []) => {
+    const value = await paneCall<T>(method, params);
+    if (params[1] !== rel || params[3] !== read) {
+      exact = false;
+    } else {
+      const bytes = bytesFromBase64((value as RangeResult).data);
+      parts.push(bytes);
+      read += bytes.length;
+    }
+    return value;
+  };
+  const srcdoc = await buildPageSrcdoc(recording, '', rel, null);
+  const subtle = globalThis.crypto?.subtle;
+  if (!exact || !subtle) return { srcdoc, keep: false };
+  const digest = new Uint8Array(await subtle.digest('SHA-256', new Uint8Array(concat(parts))));
+  const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return { srcdoc, keep: hex === contentId.slice(contentId.lastIndexOf(':') + 1) };
 }
 
 /** An HTML pane's source for a paired client's source view: the start of the

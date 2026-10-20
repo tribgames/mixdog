@@ -14,6 +14,7 @@ import type {
 } from '../shared/contract';
 import { DESKTOP_WORKTREE_ERROR_CODES } from '../shared/contract';
 import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds, rectFrom } from './anchored-panel';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 
 export interface WorktreeFailure {
@@ -389,7 +390,7 @@ export function takeWorktreeIntent(key: string): boolean {
 export async function submitDraftWithWorktree<T>(
   send: (worktree: DesktopNewTaskWorktree | undefined) => Promise<T>,
   worktree: boolean,
-  confirm: (message: string) => boolean = (message) => window.confirm(message)
+  confirm: (message: string) => boolean | Promise<boolean> = (message) => confirmAction(message)
 ): Promise<T | null> {
   if (!worktree) return send(undefined);
   try {
@@ -398,7 +399,7 @@ export async function submitDraftWithWorktree<T>(
     } catch (reason) {
       const failure = worktreeFailure(reason);
       if (failure.code !== 'WORKTREE_LARGE_REPO_CONFIRM') throw reason;
-      if (!confirm(largeRepoPrompt(failure))) return null;
+      if (!(await confirm(largeRepoPrompt(failure)))) return null;
       return await send({ confirmLarge: true });
     }
   } catch (reason) {

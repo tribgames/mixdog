@@ -23,13 +23,14 @@ const AGENTS = [
   {
     id: 'github-watcher',
     custom: true,
+    kind: 'bot',
     description: 'Watches the repository',
     definition: { name: 'GitHub Watcher' },
     route: { provider: 'anthropic', model: 'claude-x' },
     avatar: { kind: 'mascot', variant: 'perky-calm-collar', color: '#5b9bff' },
   },
-  { id: 'translator', custom: true, label: 'Translator', route: { provider: 'openai', model: 'gpt-5' } },
-  { id: 'off', custom: true, disabled: true, label: 'Off' },
+  { id: 'translator', custom: true, kind: 'bot', label: 'Translator', route: { provider: 'openai', model: 'gpt-5' } },
+  { id: 'off', custom: true, kind: 'bot', disabled: true, label: 'Off' },
   // Shipped starter roles are sub-agents, never contacts, even when on.
   { id: 'worker', custom: true, label: 'Worker', route: { provider: 'openai', model: 'gpt-5' } },
   { id: 'reviewer', custom: true, label: 'Reviewer', route: { provider: 'openai', model: 'gpt-5' } },
@@ -57,17 +58,34 @@ test('contacts are only the agents the user made: no shipped starter or Maintain
   );
 });
 
-test('a Workflows-page agent (kind: agent) is never a contact; an unmarked custom agent is', () => {
+test('only a kind: bot agent is a contact; a Workflows-page agent or an unmarked custom agent never is', () => {
   const rows = [
     ...AGENTS,
     { id: 'triage', custom: true, kind: 'agent', label: 'Triage', route: { provider: 'openai', model: 'gpt-5' } },
-    { id: 'concierge', custom: true, kind: null, label: 'Concierge' },
+    { id: 'legacy', custom: true, kind: null, label: 'Legacy' },
   ];
   assert.deepEqual(
     contactAgentRows(rows).map((row) => row.id),
-    ['github-watcher', 'translator', 'concierge']
+    ['github-watcher', 'translator']
   );
-  assert.ok(!agentContacts(rows, [], new Map()).some((contact) => contact.agentId === 'triage'));
+  const contacts = agentContacts(rows, [], new Map()).map((contact) => contact.agentId);
+  assert.ok(!contacts.includes('triage') && !contacts.includes('legacy'));
+});
+
+test('a live home thread of an agent that is no contact (a former 1.3.0 bot, a switched-off bot) lists in Sessions', async () => {
+  const { contactHomeAgentIds, listsAsSession } = await import('./session-sidebar-agents.ts');
+  const rows = [...AGENTS, { id: 'legacy', custom: true, kind: null, label: 'Legacy' }];
+  assert.equal(contactHomeAgentIds(undefined), null, 'unknown until the catalog loads');
+  const ids = contactHomeAgentIds(rows);
+  assert.deepEqual([...ids].sort(), ['github-watcher', 'lead', 'translator']);
+  // Before the catalog loads every live home stays hidden, as before.
+  assert.equal(listsAsSession(home('legacy'), null), false);
+  assert.equal(listsAsSession(home('legacy'), ids), true, 'the chat with a former bot stays reachable');
+  assert.equal(listsAsSession(home('off'), ids), true, 'a switched-off bot keeps its chat reachable');
+  assert.equal(listsAsSession(home('github-watcher'), ids), false, 'a bot chat is its contact row');
+  assert.equal(listsAsSession(home('lead'), ids), false, "Mixy's chat is its contact row");
+  assert.equal(listsAsSession(home('github-watcher', { archived: true }), ids), true);
+  assert.equal(listsAsSession(work, ids), true);
 });
 
 test('contacts list Mixy first, then the user-facing agents in catalog order', () => {

@@ -5,13 +5,11 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
 const HARNESS = `
-  import { Suspense, useContext, useLayoutEffect, useRef, useState } from 'react';
+  import { Suspense, useLayoutEffect, useRef, useState } from 'react';
   import { createRoot } from 'react-dom/client';
-  import { createPortal, flushSync } from 'react-dom';
+  import { flushSync } from 'react-dom';
   import { BtwCard } from './BtwCard';
   import { ComposerDock } from './ComposerDock';
-  import { ComposerQueueTrayContext } from './composer-island-state';
-  import { QueueList } from './composer-support';
   import { SessionGoalIsland } from './SessionGoalIsland';
   import { TranscriptList } from './TranscriptList';
   import { useTranscriptFollow } from './use-transcript-follow';
@@ -40,22 +38,9 @@ const HARNESS = `
   }
   const quotaCard = { resetAt: Date.now() + 3_600_000, otherAccount: false, reserved: false, busy: false };
   const btwCard = { question: 'A side question?', status: 'failed', text: '', error: 'The side answer failed.' };
-  const queued = [
-    { id: 'q1', displayText: 'Queued follow-up' },
-    { id: 'q2', displayText: 'Another queued follow-up' },
-  ];
-  // Composer portals its queued follow-ups into the dock's tray.
-  function Queue({ shown }) {
-    const tray = useContext(ComposerQueueTrayContext);
-    if (!tray || !shown) return null;
-    return createPortal(
-      <QueueList queued={queued} restoring={false} onEdit={() => {}} onSteer={() => {}} onRemove={() => {}} />,
-      tray
-    );
-  }
   function Harness({ session }) {
     const [state, setState] = useState({
-      goal: false, approval: false, quota: false, btw: false, queue: false, revision: 0,
+      goal: false, approval: false, quota: false, btw: false, revision: 0,
     });
     const viewport = useRef(null), content = useRef(null);
     const scrollToEndRef = useRef(() => {}), setAnchorBottomRef = useRef(() => {});
@@ -120,7 +105,6 @@ const HARNESS = `
         quotaCard={state.quota ? quotaCard : null}
         reviewItems={empty} reviewActive reviewBusy={false}
         reviewSessionId={session} reviewCwd="C:/fixture">
-        <Queue shown={state.queue} />
         {state.btw && <BtwCard card={btwCard} onClose={() => {}} onRetry={() => {}} />}
         <form className="composer">
           <textarea aria-label="Composer" defaultValue="Fixture input" />
@@ -273,8 +257,6 @@ function dockChanges(page) {
     ['quota card closes', change({ quota: false })],
     ['/btw card opens', change({ btw: true })],
     ['/btw card closes', change({ btw: false })],
-    ['queue tray opens', change({ queue: true })],
-    ['queue tray closes', change({ queue: false })],
     ['textarea grows', () => page.evaluate(() => window.fixture.type('one\ntwo\nthree\nfour\nfive\nsix'))],
     ['textarea clears', () => page.evaluate(() => window.fixture.type(''))],
   ];

@@ -307,6 +307,7 @@ const MODEL_SELECTION_KEYS = new Set([
   'modelParameters',
   'contextPercent',
   'contextTokens',
+  'onlyIfEmpty',
 ]);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
@@ -1392,6 +1393,10 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   const modelParameters = selection.modelParameters;
   const contextPercent = selection.contextPercent;
   const contextTokens = selection.contextTokens;
+  const onlyIfEmpty = selection.onlyIfEmpty;
+  if (onlyIfEmpty !== undefined && typeof onlyIfEmpty !== 'boolean') {
+    throw new TypeError('selection.onlyIfEmpty must be a boolean.');
+  }
   if (
     contextTokens !== undefined &&
     (typeof contextTokens !== 'number' || !Number.isSafeInteger(contextTokens) || contextTokens < 1)
@@ -1435,6 +1440,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
     ...(modelParameters === undefined ? {} : { modelParameters: { ...(modelParameters as Record<string, string>) } }),
     ...(contextPercent === undefined ? {} : { contextPercent }),
     ...(contextTokens === undefined ? {} : { contextTokens }),
+    ...(onlyIfEmpty === true ? { onlyIfEmpty } : {}),
   };
 }
 

@@ -254,6 +254,17 @@
   border: 1px dashed var(--mx-border-muted);
   border-radius: 12px;
 }
+.agent-create-field.agent-room-invite {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.agent-room-dialog-tip {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: 1.45;
+}
 .agent-room-picks {
   display: flex;
   flex-direction: column;

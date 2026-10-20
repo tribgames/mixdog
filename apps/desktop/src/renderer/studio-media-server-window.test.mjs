@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { installTestDom } from './test-support/test-dom.mjs';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -38,11 +39,10 @@ function serverWindow(t, { grant = false } = {}) {
     openMediaAsset: async (id) => calls.local.push(['open', id]),
     openMediaFolder: async (id) => calls.local.push(['folder', id]),
   };
-  const confirm = window.confirm;
-  window.confirm = (message) => {
+  overrideConfirmAction((message) => {
     calls.confirms.push(message);
     return false;
-  };
+  });
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
     value: { writeText: async (text) => calls.copied.push(text) },
@@ -51,7 +51,7 @@ function serverWindow(t, { grant = false } = {}) {
   window.addEventListener(SERVER_FILE_REVEAL_EVENT, onReveal);
   t.after(() => {
     window.removeEventListener(SERVER_FILE_REVEAL_EVENT, onReveal);
-    window.confirm = confirm;
+    overrideConfirmAction(null);
     delete window.mixdogDesktop;
   });
   return { api, calls, assetPath };

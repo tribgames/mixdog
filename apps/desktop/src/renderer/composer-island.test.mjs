@@ -6,6 +6,7 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 // Transitive component imports load react-dom before mount() runs. Give its
 // one-time event-support detection a DOM; each test still owns a fresh window.
@@ -14,7 +15,6 @@ after(restoreBootstrapDom);
 const [
   { ComposerDock },
   { clearBranchSegmentCache },
-  { QueueList },
   { defaultSessionLaneStore },
   { pendingSessionDiffFileRequest },
   { t: translate },
@@ -22,7 +22,6 @@ const [
 ] = await Promise.all([
   import('./ComposerDock.tsx'),
   import('./WorktreeIslandSegment.tsx'),
-  import('./composer-support.tsx'),
   import('./session-lane-store.ts'),
   import('./session-diff-focus.ts'),
   import('./i18n.ts'),
@@ -133,9 +132,9 @@ test('a draft keeps its context bar; a session mounts the island slot even when 
   const slot = document.querySelector('.composer-island-slot');
   assert.ok(slot);
   assert.equal(document.querySelectorAll('.composer-island-seg').length, 0, 'nothing to carry, no segment');
-  // Order: the slot sits above the queue tray, which sits above the input.
+  // Order: the slot sits right above the input; no tray between them.
   const children = [...document.querySelector('.composer-region').children].map((node) => node.className);
-  assert.deepEqual(children, ['composer-island-slot', 'composer-queue-tray', 'composer']);
+  assert.deepEqual(children, ['composer-island-slot', 'composer']);
 });
 
 test('background jobs show as one segment, expand to rows, collapse on Escape and end without a flash', async (t) => {
@@ -521,53 +520,6 @@ test('a pending approval takes over the island; a flash notice replaces any left
   assert.equal(document.querySelector('.composer-island-flash').textContent, 'Resolved on another device');
 });
 
-test('queued follow-up rows read icon, text, then Steer now, trash and a menu whose Edit edits', async (t) => {
-  const { root, document } = mount(t);
-  const edits = [];
-  await act(async () =>
-    root.render(
-      React.createElement(QueueList, {
-        queued: [{ id: 'q1', displayText: 'report coverage too' }],
-        restoring: false,
-        onEdit: (id) => edits.push(id),
-        onSteer() {},
-        onRemove() {},
-      })
-    )
-  );
-  const row = document.querySelector('.queue-item');
-  assert.deepEqual(
-    [...row.children].map((node) => node.getAttribute('class')),
-    [
-      'lucide lucide-corner-down-right queue-item-icon',
-      'queue-item-text',
-      'queue-steer',
-      'queue-remove',
-      'row-overflow',
-    ]
-  );
-  const text = row.querySelector('.queue-item-text');
-  assert.equal(text.textContent, 'report coverage too');
-  assert.equal(text.dataset.tooltip, 'report coverage too', 'the full message is in the tooltip');
-  assert.equal(text.tabIndex, 0, 'focus reaches the tooltip too');
-  const steer = row.querySelector('.queue-steer');
-  assert.equal(steer.textContent, translate('Steer now'));
-  assert.equal(steer.querySelector('svg'), null);
-  assert.ok(row.querySelector('.queue-remove svg'), 'Remove is a trash icon');
-  assert.equal(row.querySelector('.queue-remove').textContent, '');
-  // No standalone Edit button; Edit lives in the ⋯ menu.
-  assert.equal([...row.querySelectorAll('button')].filter((b) => b.textContent === translate('Edit')).length, 0);
-  await act(async () => row.querySelector('.row-overflow-trigger').click());
-  const items = [...document.querySelectorAll('.row-overflow-menu [role="menuitem"]')];
-  assert.deepEqual(
-    items.map((item) => item.textContent),
-    [translate('Edit')]
-  );
-  await act(async () => items[0].click());
-  assert.deepEqual(edits, ['q1']);
-  assert.equal(document.querySelector('.row-overflow-menu'), null, 'the menu closes after Edit');
-});
-
 test('a shell whose termination is unconfirmed reads so and is released only after confirmation', async (t) => {
   const { root, document, window } = mount(t);
   const releases = [];
@@ -582,10 +534,10 @@ test('a shell whose termination is unconfirmed reads so and is released only aft
   };
   let confirmAnswer = false;
   const prompts = [];
-  window.confirm = (message) => {
+  overrideConfirmAction((message) => {
     prompts.push(message);
     return confirmAnswer;
-  };
+  });
   await publish({
     shellJobs: {
       count: 1,
@@ -676,7 +628,7 @@ test('a stop that ends termination-unconfirmed offers release, and the release w
     releases.push(args);
     return { released: true };
   };
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   const job = { taskId: 'j9', command: 'npm run dev', cwd: '/work/cart-service', startedAt: Date.now() - 5_000 };
   await publish({ shellJobs: { count: 1, jobs: [job] } });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
@@ -2219,8 +2171,8 @@ test('while work runs the menu opens without a warning and no switch starts', as
     [],
     'nothing is scheduled or sent'
   );
-  // Queued composer input, a running agent, a running shell: each locks.
-  await render({ queuedInput: true });
+  // An unread message sent behind the turn, a running agent, a running shell: each locks.
+  await render({ pendingInput: true });
   await open();
   assert.ok(locked());
   await render({});

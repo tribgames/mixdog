@@ -1,7 +1,7 @@
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from 'react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
-import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { displaySessionTitle, sessionDisplayTitle } from './session-display-title';
 import { WorkspaceTabStrip, type NavigationSelection, type WorkspaceSelection, type WorkspaceTab } from './navigation';
 import type { PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -69,7 +69,9 @@ export function useAppPaneChrome({
     switch (selection.kind) {
       case 'session': {
         const row = sessions.find((session) => session.id === selection.id);
-        return row ? sessionSummaryTitle(row, t('Untitled session')) : selection.title || t('Session');
+        return row
+          ? sessionDisplayTitle(row, t('Untitled session'))
+          : displaySessionTitle(selection.title || '') || t('Session');
       }
       case 'file':
         return selection.rel.split('/').at(-1) || selection.rel;
@@ -96,7 +98,10 @@ export function useAppPaneChrome({
     const home = selection.kind === 'session' && !deletedBot ? agentHomeTitle(selection.id, homeAgents.agents) : null;
     if (home) return home;
     const registered = tabs.find((tab) => tab.key === key);
-    return registered?.title || selectionTitle(selection);
+    // A registered session title may be a stored one (startup restore, a
+    // persisted tab): an attachment placeholder reads as its kind.
+    const title = registered?.title && selection.kind === 'session' ? displaySessionTitle(registered.title) : '';
+    return title || registered?.title || selectionTitle(selection);
   };
 
   const activatePaneSurface = (paneSelection: WorkspaceSelection) => {

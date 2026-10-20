@@ -680,6 +680,89 @@ html[data-window-material="mica"] .transcript-shell {
   font-size: var(--mx-font-micro);
   opacity: 0.8;
 }
+/* The line under a message sent while a turn runs (transcript-steer-status.tsx):
+   one small text action until the model reads it, a muted ✓ once it has. The
+   ✕ keeps its place, transparent, so showing it on hover moves nothing; it
+   stays in the tab order and shows on keyboard focus. Touch (`data-touch`:
+   coarse pointer or the phone client) has no hover, so there it always shows. */
+.message.user .message-steer {
+  min-height: 20px;
+  margin: 4px 2px 0 0;
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  line-height: var(--mx-line-meta);
+}
+.message-steer-note {
+  padding: 0 4px;
+}
+.message-steer[data-steer="failed"] .message-steer-note {
+  color: var(--mx-danger);
+}
+.message-steer-action,
+.message-steer-cancel {
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.message-steer-action {
+  padding: 1px 6px;
+}
+.message-steer-cancel {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--mx-icon-muted);
+  opacity: 0;
+}
+.message.user:hover .message-steer-cancel,
+.message.user:focus-within .message-steer-cancel,
+.message-steer-cancel:focus-visible,
+.message-steer[data-touch] .message-steer-cancel {
+  opacity: 1;
+}
+.message-steer[data-touch] .message-steer-cancel {
+  width: 44px;
+  height: 44px;
+}
+.message.user .message-steer[data-touch] {
+  min-height: 44px;
+}
+.message-steer-action:hover:not(:disabled),
+.message-steer-action:focus-visible,
+.message-steer-cancel:hover,
+.message-steer-cancel:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  outline: 0;
+}
+.message-steer-action:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.message.user .message-steer-read {
+  margin: 4px 8px 0 0;
+  align-self: flex-end;
+  display: inline-flex;
+  color: var(--mx-icon-muted);
+  opacity: 0.7;
+}
+/* Phone: the text takes the touch tier; Send now a 44px tap target. */
+html[data-mixdog-mobile-tabs] .message.user .message-steer {
+  font-size: 13px;
+}
+.message-steer[data-touch] .message-steer-action {
+  min-height: 44px;
+  padding: 0 10px;
+}
 .message.user .message-source {
   margin: 0 6px 3px 0;
   color: var(--mx-text-muted);

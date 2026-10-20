@@ -136,6 +136,23 @@ test('a failed or cancelled turn still shows what it opened', async () => {
   }
 });
 
+test('a Lead gone idle ends its turn while its child agents still run', async () => {
+  const t = setup();
+  try {
+    await t.service.observeTurns([{ id: SESSION, working: true, leadWorking: true }]);
+    await t.run('open', { targets: ['site/a.html'] });
+    assert.equal(t.reveals().length, 0);
+    // The roster omits leadWorking for an idle Lead; `working` still counts its agents.
+    await t.service.observeTurns([{ id: SESSION, working: true, agentWorking: true }]);
+    assert.equal(t.reveals().length, 1, 'the turn ended: its tab shows and its cards appear');
+    // An agent working alone never starts a turn of the Lead.
+    await t.service.observeTurns([{ id: 'other', working: true, agentWorking: true }]);
+    assert.equal(t.reveals().length, 1);
+  } finally {
+    t.cleanup();
+  }
+});
+
 test('outside a turn an open shows at once, as before', async () => {
   const t = setup();
   try {

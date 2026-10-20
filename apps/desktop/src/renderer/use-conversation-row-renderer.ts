@@ -25,12 +25,12 @@ import { ConnectorChatCard, connectorCardIds } from './connector-card';
 import { useRoomContacts } from './agent-room-parts';
 import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
 import type { ConversationProps } from './conversation-pane-props';
-import { transcriptRowNode } from './conversation-support';
+import { type TurnCardsSeat, transcriptRowNode } from './conversation-support';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
 import { ToolVisualizeCards } from './transcript-visualize-card';
 import { TurnChangesCard } from './TurnChangesCard';
-import { visualizeCardCalls } from './visualize-card-model';
+import { visualizeCardCalls, visualizedTargets } from './visualize-card-model';
 import { useConversationRetry } from './use-conversation-retry';
 
 /** Renders one transcript row with the pane's retry and disclosure scope. */
@@ -81,7 +81,7 @@ export function useConversationRowRenderer({
   // A line outside any run, in the bubble column (tool-round records, cards).
   const asideRow = (children: ReactNode): ReactNode =>
     createElement(AgentChatRow, { place: null, member: null }, children);
-  const rowNode = (row: TranscriptRowModel, seat?: { cards: ReactNode; placed: boolean }): ReactNode =>
+  const rowNode = (row: TranscriptRowModel, seat?: TurnCardsSeat): ReactNode =>
     transcriptRowNode(row, {
       turnCards: seat,
       quietTools: agentMode,
@@ -99,8 +99,8 @@ export function useConversationRowRenderer({
       questionCard,
       approvalCard,
     });
-  // Agent mode: a turn's visualize opens leave one card per tab under its last
-  // row, once the turn ends (transcript-visualize-card.tsx), above the turn's
+  // Agent mode: a turn's visualize opens leave one card, a tile per tab, under
+  // its last row, once the turn ends (transcript-visualize-card.tsx), above the turn's
   // changed-files line when the row has one.
   const renderTranscriptRow = (
     row: TranscriptRowModel,
@@ -108,16 +108,31 @@ export function useConversationRowRenderer({
     rows: readonly TranscriptRowModel[] = [row]
   ): ReactNode => {
     const tools = turnEndToolItems(rows, index);
+    // The turn's changed-files card (on its reply or error row) lists no file
+    // its visualize cards showed; Undo moves onto them when none is left.
+    const turnChanges = rows.find(
+      (other) =>
+        other.turnKey === row.turnKey && (other._tag === 'AssistantPart' || other._tag === 'Error') && other.turnChanges
+    );
+    const changesRef =
+      turnChanges && (turnChanges._tag === 'AssistantPart' || turnChanges._tag === 'Error')
+        ? turnChanges.turnChanges
+        : undefined;
+    const visualized = changesRef
+      ? visualizedTargets(
+          rows.flatMap((other) => (other._tag === 'ToolActivity' && other.turnKey === row.turnKey ? other.items : []))
+        )
+      : undefined;
     const cards =
       tools && visualizeCardCalls(tools).length
         ? createElement(
             ToolVisualizeCards,
             agentMode
-              ? { items: tools, sessionId: disclosureScope, compact: true, frame: asideRow }
-              : { items: tools, sessionId: disclosureScope }
+              ? { items: tools, sessionId: disclosureScope, compact: true, frame: asideRow, turnChanges: changesRef }
+              : { items: tools, sessionId: disclosureScope, turnChanges: changesRef }
           )
         : null;
-    const seat = { cards, placed: false };
+    const seat = { cards, placed: false, visualized };
     const node = renderRow(row, index, rows, seat);
     return cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
   };
@@ -126,7 +141,7 @@ export function useConversationRowRenderer({
     index: number,
     rows: readonly TranscriptRowModel[],
     /** The turn's visualize cards: placed above its changed-files line. */
-    seat: { cards: ReactNode; placed: boolean }
+    seat: TurnCardsSeat
   ): ReactNode => {
     // A `setup connect_connector` call leaves its connect card under the round.
     const connectorIds = row._tag === 'ToolActivity' && !readOnly ? connectorCardIds(row.items) : [];
@@ -234,7 +249,7 @@ export function useConversationRowRenderer({
           null,
           bubble,
           seat.cards,
-          createElement(TurnChangesCard, { turnChanges: changes, frame: asideRow })
+          createElement(TurnChangesCard, { turnChanges: changes, frame: asideRow, visualized: seat.visualized })
         )
       : bubble;
     return line;

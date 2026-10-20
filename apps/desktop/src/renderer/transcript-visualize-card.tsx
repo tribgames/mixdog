@@ -1,10 +1,11 @@
-// The chat card of a `visualize` open, one row: the picture of its version
-// (taken when its turn ended; the kind's icon without one), its title, kind
-// and version, where it is (shown in the panel, updated behind another tab,
-// an earlier version, closed), page problems, and one button that shows the
-// tab on the card's version in the session's side panel — or opens it again
-// once closed. Coding mode draws it under the tool group, agent mode in the
-// bubble column. Remote clients draw the same card from their mirrored state.
+// The chat card of a turn's `visualize` opens: ONE card per Lead turn, stamped
+// under the reply once the turn ended (like the changed-files card) on each
+// tab's final version. A tile per distinct panel tab: the picture of its
+// version, its title, version and where it is (shown in the panel, updated
+// behind another tab, an earlier version, closed); a tile shows its tab in
+// the session's side panel (or opens it again once closed), "Show all" brings
+// every tab of the turn up. Coding mode draws it under the reply, agent mode
+// in the bubble column. Remote clients draw it from their mirrored state.
 import {
   AlertTriangle,
   BarChart3,
@@ -13,6 +14,7 @@ import {
   FileText,
   FileType,
   Image,
+  LayoutGrid,
   type LucideIcon,
   Music,
   PenTool,
@@ -33,7 +35,6 @@ import {
   type VisualizeCardKind,
   visualizeCardCalls,
   visualizeCardKind,
-  visualizeCardKindLabel,
   visualizeCardLiveThumbnail,
   visualizeCardNewest,
   visualizeCardOwnVersion,
@@ -43,7 +44,11 @@ import {
   visualizeCardThumbnailLine,
   visualizeCardVersion,
   visualizeInlineKindLabel,
+  visualizedTargets,
 } from './visualize-card-model';
+import { TurnChangesUndo } from './TurnChangesCard';
+import type { TurnChangesRef } from './turn-changes-model';
+import type { VisualizeTabView } from '../shared/visualize';
 import {
   readVisualizeVersionThumbnail,
   reopenVisualizeContent,
@@ -53,6 +58,7 @@ import {
   useVisualizeState,
   useVisualizeHeldSince,
   useVisualizeUpdatedTabs,
+  visualizeStateFor,
 } from './visualize-store';
 import './transcript-visualize-card.css';
 
@@ -71,17 +77,47 @@ const KIND_ICONS: Record<VisualizeCardKind, LucideIcon> = {
   split: Columns3,
 };
 
-function VisualizeCard({
+/** The version a card stands for: the newest card follows its tab, an earlier
+ *  one keeps the version its own turn ended on (an open that named no version
+ *  on a tab that keeps them made its first). */
+function cardVersion(
+  sessionId: string,
+  call: VisualizeCardCall,
+  tab: VisualizeTabView | null,
+  newest: boolean
+): number {
+  return visualizeCardOwnVersion(sessionId, call, visualizeCardVersion(tab), newest) || (tab?.versions?.length ? 1 : 0);
+}
+
+/** Show the call's tab on the card's version in the side panel, or open it
+ *  again when it was closed (no agent turn). */
+function openCall(sessionId: string, call: VisualizeCardCall): Promise<void> {
+  const tab = visualizeCardTab(visualizeStateFor(sessionId), call);
+  if (tab) {
+    const newest = visualizeCardNewest(sessionId, call);
+    const version = cardVersion(sessionId, call, tab, newest);
+    revealVisualizeTab(sessionId, tab.id);
+    const live = tab.versions?.at(-1)?.n;
+    const target = !newest && version && version !== live ? version : null;
+    if ((tab.version ?? null) !== target) showVisualizeVersion(sessionId, tab.id, target);
+    return Promise.resolve();
+  }
+  return call.content
+    ? reopenVisualizeContent(sessionId, call.tabId, call.content, call.label)
+    : reopenVisualizeTargets(sessionId, call.tabId, call.targets, call.label);
+}
+
+/** One tile of the turn's card: the picture of the tab's version, its title,
+ *  version and where it is. Drawn only once the turn ended (ToolVisualizeCards). */
+function VisualizeTile({
   call,
   sessionId,
-  compact = false,
+  onOpen,
 }: {
   call: VisualizeCardCall;
   sessionId: string;
-  /** Agent mode: the same card in the bubble column, at its width. */
-  compact?: boolean;
+  onOpen: (call: VisualizeCardCall) => void;
 }) {
-  // Drawn only once the turn ended (ToolVisualizeCards): the tab as revealed.
   const state = useVisualizeState(sessionId);
   const updatedTabs = useVisualizeUpdatedTabs(sessionId);
   const newest = useSyncExternalStore(
@@ -89,17 +125,12 @@ function VisualizeCard({
     () => visualizeCardNewest(sessionId, call),
     () => true
   );
-  const [error, setError] = useState('');
   const tab = visualizeCardTab(state, call);
   const closed = tab === null;
-  // The newest card follows its tab; an earlier one keeps the version its
-  // own turn ended on.
-  // (An open that named no version on a tab that keeps them made its first.)
-  const version =
-    visualizeCardOwnVersion(sessionId, call, visualizeCardVersion(tab), newest) || (tab?.versions?.length ? 1 : 0);
-  // The picture of this card's own version, taken when its turn ended: from
-  // the tab while it has it, else the copy saved under that version (a closed
-  // card, an earlier one, a restart), else asked of the host once.
+  const version = cardVersion(sessionId, call, tab, newest);
+  // The picture of this version, taken when its turn ended: from the tab while
+  // it has it, else the copy saved under that version (a closed tile, an
+  // earlier one, a restart), else asked of the host once.
   const tabId = tab?.id ?? '';
   const thumbnail = usePersistedThumbnail(
     sessionId,
@@ -121,77 +152,111 @@ function VisualizeCard({
   else if (!newest) status = t('Earlier version');
   else if (updatedTabs.has(call.tabId)) status = t('Updated');
   else if (shown) status = t('Showing');
-  const meta = [visualizeCardKindLabel(kind), version ? `${t('Version')} ${version}` : ''].filter(Boolean).join(' · ');
-  // The tab on this card's version: an earlier card shows the version its
-  // turn ended on, the newest goes back to live.
-  const open = () => {
-    setError('');
-    if (tab) {
-      revealVisualizeTab(sessionId, tab.id);
-      const live = tab.versions?.at(-1)?.n;
-      const target = !newest && version && version !== live ? version : null;
-      if ((tab.version ?? null) !== target) showVisualizeVersion(sessionId, tab.id, target);
-      return;
-    }
-    const reopened = call.content
-      ? reopenVisualizeContent(sessionId, call.tabId, call.content, call.label)
-      : reopenVisualizeTargets(sessionId, call.tabId, call.targets, call.label);
-    reopened.catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
-  };
-  const button = (
+  const meta = [version ? `${t('Version')} ${version}` : '', status].filter(Boolean).join(' · ');
+  return (
     <button
       type="button"
-      className="transcript-visualize-open"
+      className={`transcript-visualize-tile${closed ? ' is-closed' : ''}${shown ? ' is-shown' : ''}`}
       title={closed ? t('Open again in the side panel') : t('Show in the side panel')}
+      data-visualize-card={closed ? 'closed' : newest ? 'open' : 'folded'}
+      data-visualize-tab={call.tabId}
+      data-version={version || undefined}
+      data-kind={kind.kind}
       onPointerDown={(event) => event.stopPropagation()}
-      onClick={open}
+      onClick={() => onOpen(call)}
     >
-      {closed ? t('Open again') : t('View')}
-    </button>
-  );
-  return (
-    <div className="transcript-visualize-card-wrap">
-      <div
-        className={`transcript-visualize-card${compact ? ' is-compact' : ''}${closed ? ' is-closed' : ''}${shown ? ' is-shown' : ''}`}
-        data-artifact="visualize"
-        data-visualize-card={closed ? 'closed' : newest ? 'open' : 'folded'}
-        data-visualize-tab={call.tabId}
-        data-version={version || undefined}
-        data-kind={kind.kind}
-      >
-        <span className="transcript-visualize-thumb" aria-hidden="true">
-          {thumbnail ? (
-            <img src={thumbnail} alt="" draggable={false} />
-          ) : (
-            // Never a blank box: the kind's icon on a tint of the title's own.
-            <span
-              className="transcript-visualize-monogram"
-              style={{ '--monogram-hue': monogramHue(title) } as CSSProperties}
-            >
-              <Icon size={22} strokeWidth={1.8} />
-            </span>
-          )}
-        </span>
-        <span className="transcript-visualize-copy">
-          <b title={title}>{title}</b>
-          <small title={meta}>
-            {meta}
-            {status ? <span className="transcript-visualize-status"> · {status}</span> : null}
-          </small>
-        </span>
+      <span className="transcript-visualize-thumb" aria-hidden="true">
+        {thumbnail ? (
+          <img src={thumbnail} alt="" draggable={false} />
+        ) : (
+          // Never a blank box: the kind's icon on a tint of the title's own.
+          <span
+            className="transcript-visualize-monogram"
+            style={{ '--monogram-hue': monogramHue(title) } as CSSProperties}
+          >
+            <Icon size={22} strokeWidth={1.8} />
+          </span>
+        )}
         {problems ? (
           <span className="transcript-visualize-badge is-problem" title={t('Page problems')}>
             <AlertTriangle size={12} aria-hidden="true" />
             {problems}
           </span>
         ) : null}
-        {button}
-      </div>
-      {error ? <span className="transcript-visualize-error">{error}</span> : null}
-    </div>
+      </span>
+      <b title={title}>{title}</b>
+      <small title={meta}>
+        {version ? `${t('Version')} ${version}` : ''}
+        {status ? (
+          <span className="transcript-visualize-status">
+            {version ? ' · ' : ''}
+            {status}
+          </span>
+        ) : null}
+      </small>
+    </button>
   );
 }
 
+/** The turn's one card, in the changed-files card's frame: a header (icon,
+ *  "Visualizations N", the turn's Undo when it stands in for the changes, and
+ *  "Show all") over a grid of tiles, one per panel tab on its final version. */
+function VisualizeTurnCard({
+  calls,
+  sessionId,
+  compact = false,
+  undo,
+}: {
+  calls: readonly VisualizeCardCall[];
+  sessionId: string;
+  /** Agent mode: the same card in the bubble column, at its width. */
+  compact?: boolean;
+  /** The turn's Undo, when this card stands in for every file the turn changed. */
+  undo?: ReactNode;
+}) {
+  const [error, setError] = useState('');
+  const run = (list: readonly VisualizeCardCall[]) => {
+    setError('');
+    void (async () => {
+      for (const call of list) await openCall(sessionId, call);
+    })().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
+  };
+  // Every tab of the turn comes up, the first one shown last.
+  const showAll = () => run([...calls].reverse());
+  const count = t('Visualizations {{n}}', { n: calls.length });
+  return (
+    <section
+      className={`transcript-visualize-turn${compact ? ' is-compact' : ''}`}
+      aria-label={count}
+      data-artifact="visualize"
+      data-visualize-count={calls.length}
+    >
+      <div className="transcript-visualize-head">
+        <span className="transcript-visualize-icon" aria-hidden="true">
+          <LayoutGrid size={14} />
+        </span>
+        <strong className="transcript-visualize-title">{count}</strong>
+        <span className="transcript-visualize-trail">
+          {undo}
+          <button
+            type="button"
+            className="transcript-visualize-all"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={showAll}
+          >
+            {t('Show all')}
+          </button>
+        </span>
+      </div>
+      <div className="transcript-visualize-tiles">
+        {calls.map((call) => (
+          <VisualizeTile key={call.id} call={call} sessionId={sessionId} onOpen={(one) => run([one])} />
+        ))}
+      </div>
+      {error ? <span className="transcript-visualize-error">{error}</span> : null}
+    </section>
+  );
+}
 /** Under a tool group: one card per panel tab its `visualize` opens showed. */
 export function ToolVisualizeCards({
   items,
@@ -199,7 +264,11 @@ export function ToolVisualizeCards({
   compact = false,
   frame,
   turnKey = '',
+  turnChanges,
 }: {
+  /** The turn's changed-files card: when every file it changed is shown by
+   *  these cards, that card is not drawn and the last card carries its Undo. */
+  turnChanges?: TurnChangesRef;
   items: readonly TranscriptItem[];
   sessionId: string;
   /** Agent mode's cards in the bubble column (VisualizeCard `compact`). */
@@ -234,11 +303,14 @@ export function ToolVisualizeCards({
   const shown = superseded ? calls.filter((call) => !superseded.split('\n').includes(call.id)) : calls;
   if (!sessionId || !shown.length) return null;
   const cards = (
-    <div className="transcript-visualize-cards">
-      {shown.map((call) => (
-        <VisualizeCard key={call.id} call={call} sessionId={sessionId} compact={compact} />
-      ))}
-    </div>
+    <VisualizeTurnCard
+      calls={shown}
+      sessionId={sessionId}
+      compact={compact}
+      undo={
+        turnChanges ? <TurnChangesUndo turnChanges={turnChanges} visualized={visualizedTargets(items)} /> : undefined
+      }
+    />
   );
   return frame ? frame(cards) : cards;
 }

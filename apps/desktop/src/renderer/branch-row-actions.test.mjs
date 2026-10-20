@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 installTestDom();
 const { createRoot } = await import('react-dom/client');
 const { BranchRowActions } = await import('./branch-row-actions.tsx');
@@ -72,10 +73,10 @@ async function fixture(t, over = {}) {
 
 test('branch actions inspect without switching, and merge sends confirmed commit identities', async (t) => {
   const f = await fixture(t);
-  window.confirm = () => false;
+  overrideConfirmAction(() => false);
   await act(async () => f.button('Merge into main').click());
   assert.equal(f.calls.length, 1);
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   await f.open();
   await act(async () => f.button('Merge into main').click());
   assert.deepEqual(f.calls.at(-1), {
@@ -99,7 +100,7 @@ test('refusals read exactly like the runtime (TUI, remote) in English and are tr
   const { DESKTOP_WORKTREE_REFUSAL_REASONS } = await import('../shared/contract.ts');
   assert.deepEqual([...DESKTOP_WORKTREE_REFUSAL_REASONS].sort(), Object.keys(WORKTREE_REFUSAL_REASONS).sort());
   const f = await fixture(t);
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   const inspect = window.mixdogDesktop.invokeCapability;
   const shown = async (reason) => {
     window.mixdogDesktop.invokeCapability = inspect;

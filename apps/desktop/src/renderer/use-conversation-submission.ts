@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { nextComposerSubmissionId } from './composer-draft';
 import { useConversationPaneComposerActions } from './conversation-pane-composer-actions';
 import type { ConversationProps } from './conversation-pane-props';
 import { promptWaitsBehindActiveTurn, type PendingPromptItem } from './conversation-prompt-items';
@@ -67,9 +68,9 @@ export function useConversationSubmission(
     routeSnapshot: pane.routeSnapshot,
     onInheritSession: pane.onInheritSession,
   });
-  // TUI parity: a prompt only reads as "Queued" when it actually waits behind
-  // an active turn. An idle submit — including a draft's first prompt, whose
-  // atomic RPC spans session materialization — renders as a normal user row.
+  // A prompt sent behind an active turn is a steering message the turn reads
+  // at its next step boundary. An idle submit — including a draft's first
+  // prompt, whose atomic RPC spans session materialization — starts a turn.
   const queuedBehindTurnAtSubmit = useRef(false);
   queuedBehindTurnAtSubmit.current = promptWaitsBehindActiveTurn(draftMode, pane.snapshot);
   const pending = useConversationPendingPrompts({
@@ -96,5 +97,34 @@ export function useConversationSubmission(
     settledUsersRef: pending.settledUsersRef,
     suppressDraftSubmitPaintHandoff,
   });
-  return { ...pending, actions };
+  // A slash command sent while a turn runs that the session holds for the
+  // turn's end (/compact) shows inline as a held message until the turn ends.
+  const [heldCommands, setHeldCommands] = useState<PendingPromptItem[]>([]);
+  const busy = Boolean(pane.snapshot.busy);
+  useEffect(() => {
+    if (!busy) setHeldCommands((current) => (current.length ? [] : current));
+  }, [busy]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: transcriptSessionKey is the reset trigger; the body does not read it
+  useEffect(() => setHeldCommands((current) => (current.length ? [] : current)), [transcriptSessionKey]);
+  const holdSlashCommand = useCallback((text: string) => {
+    setHeldCommands((current) => [
+      ...current,
+      {
+        id: nextComposerSubmissionId(),
+        kind: 'user',
+        text,
+        pending: true,
+        accepted: true,
+        submittedAt: Date.now(),
+        queuedBehindTurn: true,
+        steer: 'held',
+        steerLocal: true,
+      },
+    ]);
+  }, []);
+  const steerItems = useMemo(
+    () => (heldCommands.length ? [...pending.steerItems, ...heldCommands] : pending.steerItems),
+    [heldCommands, pending.steerItems]
+  );
+  return { ...pending, steerItems, holdSlashCommand, actions };
 }

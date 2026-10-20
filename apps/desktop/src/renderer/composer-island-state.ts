@@ -66,7 +66,3 @@ export function useComposerIslandTab(tab: Exclude<ComposerIslandTab, ''>): [bool
     },
   ];
 }
-
-/** Portal target for the queued follow-up tray: the dock owns where the tray
- *  sits (attached to the composer's top edge, under the island). */
-export const ComposerQueueTrayContext = createContext<HTMLElement | null>(null);

@@ -75,7 +75,13 @@ test('a legacy webhook without a stored parser lists and opens as the same parse
 async function mountWithAgents(t, webhooks) {
   const calls = [];
   const agents = [
-    { id: 'github-watcher', label: 'GitHub Watcher', definition: { name: 'GitHub Watcher' }, custom: true },
+    {
+      id: 'github-watcher',
+      label: 'GitHub Watcher',
+      definition: { name: 'GitHub Watcher' },
+      custom: true,
+      kind: 'bot',
+    },
   ];
   const api = {
     async invokeCapability(request) {

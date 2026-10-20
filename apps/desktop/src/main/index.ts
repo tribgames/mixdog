@@ -771,6 +771,8 @@ const playNotificationSound = async (): Promise<string> => {
     desktopBrand.appId
   );
 };
+/** An attachment-only session title (`[Image]` …) in this PC's UI language. */
+const nativeSessionTitleLabels = () => ({ image: nativeT('Image'), video: nativeT('Video'), file: nativeT('File') });
 const turnNotifier = createDesktopTurnNotifier({
   isEnabled: () => turnNotificationsEnabled,
   isSupported: () => Notification.isSupported(),
@@ -795,6 +797,7 @@ const turnNotifier = createDesktopTurnNotifier({
   },
   // The host's per-agent mute (written by the desktop service, same profile).
   isSessionMuted: (sessionId) => isSessionMutedOnDisk(agentNotificationMutePath(app.getPath('userData')), sessionId),
+  titleLabels: nativeSessionTitleLabels,
 });
 let unsubscribeTurnNotifier: (() => void) | null = null;
 /** A server window's notifications fire on this PC, labeled with the server
@@ -834,6 +837,7 @@ function createServerWindowNotifier(window: BrowserWindow, connection: DesktopCo
       restoredTitle: () => nativeT('Reconnected to {{name}}'),
       restoredBody: () => nativeT('The server window is working again.'),
     },
+    titleLabels: nativeSessionTitleLabels,
     diagnostic: (event, details) => diagnostics?.write(event, { ...details, connection: 'ssh' }),
   });
 }

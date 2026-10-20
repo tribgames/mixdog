@@ -17,6 +17,7 @@ import {
 import { createPortal } from 'react-dom';
 
 import type { DesktopBranchMenu } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { BranchRowActions } from './branch-row-actions';
 import { useMobileBack } from './mobile-back';
@@ -366,7 +367,7 @@ export function useBranchMenuActions({
         } catch (reason) {
           const failure = worktreeFailure(reason);
           if (failure.code === 'WORKTREE_LARGE_REPO_CONFIRM' && !extra.confirmLarge) {
-            if (!window.confirm(largeRepoPrompt(failure))) return false;
+            if (!(await confirmAction(largeRepoPrompt(failure)))) return false;
             extra = { ...extra, confirmLarge: true };
             continue;
           }

@@ -12,7 +12,6 @@ import React, {
   type ReactNode,
   type SetStateAction,
 } from 'react';
-import { createPortal } from 'react-dom';
 import type {
   DesktopAbortOptions,
   DesktopModelSelection,
@@ -27,11 +26,12 @@ import { touchPrimaryPointer } from './surface-input-focus';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs';
 
-// Project-context pill, attachment budget, prompt history and the queued
-// follow-up list live in composer-support.tsx.
-import { ATTACHMENT_ACCEPT, COMPOSER_PLACEHOLDERS, QueueList, pastedTextFields } from './composer-support';
+// Project-context pill, attachment budget and prompt history live in
+// composer-support.tsx.
+import { ATTACHMENT_ACCEPT, COMPOSER_PLACEHOLDERS, pastedTextFields } from './composer-support';
 import { ComposerPastedTextDialog } from './ComposerPastedTextDialog';
-import { ComposerQueueTrayContext } from './composer-island-state';
+import type { PendingPromptItem } from './conversation-prompt-items';
+import { SteerContext } from './steer-actions';
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
@@ -43,7 +43,6 @@ import { useComposerDictation } from './use-composer-dictation';
 import { useComposerAttachments } from './use-composer-attachments';
 import { useComposerCapability } from './use-composer-capability';
 import { useComposerExternalDraft } from './use-composer-external-draft';
-import { useComposerQueue } from './use-composer-queue';
 import { useComposerPromptRestore } from './use-composer-prompt-restore';
 import { useComposerSubmission } from './use-composer-submission';
 import { useComposerKeyboard } from './use-composer-keyboard';
@@ -54,6 +53,7 @@ import { useComposerMessageSelector } from './use-composer-message-selector';
 import { useComposerNotice } from './use-composer-notice';
 import { useComposerPalettes } from './use-composer-palettes';
 import { createSlashExecutor } from './composer-slash-executor';
+import { backfillAgentChatRoute } from './agent-chat-route';
 import { BtwCard, useBtwCard } from './BtwCard';
 import { readCachedModelCatalog } from './model-catalog-cache';
 import { modelOffersUltrafast } from './model-route-utils';
@@ -258,10 +258,12 @@ export type ComposerProps = {
   modelAside?: ReactNode;
   /** The line under the card's left end: the last turn's speed and cache hit. */
   usageReadout?: ReactNode;
-  queued?: unknown[];
-  hiddenQueueIds?: Array<string | number>;
+  /** Messages sent while the turn runs that the model has not read yet. */
+  steerItems?: PendingPromptItem[];
   pendingSubmissionIds?: Array<string | number>;
   onQueuedRestored?: (ids: string[]) => void;
+  /** A slash command sent mid-turn that the session holds for the turn's end. */
+  onSlashHeld?: (text: string) => void;
   /** A prompt another device cancelled, handed back to the device that sent it. */
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   /** Rewindable user prompts (oldest → newest) for the Esc-Esc selector. */
@@ -287,8 +289,6 @@ export type ComposerProps = {
   paneActive?: boolean;
   /** Replaces the rotating placeholder (a pending question: sending answers it). */
   placeholderOverride?: string;
-  /** Set while a question waits: "Steer now" on a plain queued follow-up answers it. */
-  answerQuestion?: ((reply: string) => Promise<unknown>) | null;
   /** Agent mode: a one-line messenger bar with the agent's route shown
    *  read-only under it; `/` and `$` are plain text, and `@` tags the room
    *  member who answers. */
@@ -323,11 +323,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onRoutePreferenceApplied,
     modelAside,
     usageReadout,
-    queued,
-    hiddenQueueIds,
+    steerItems,
     pendingSubmissionIds,
     onQueuedRestored,
-    answerQuestion,
+    onSlashHeld,
     promptRestore,
     userMessages,
     submit,
@@ -358,6 +357,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   }, []);
   const [composerFocused, setComposerFocused] = useState(false);
   const activeIdentityScope = useRef(identityScope);
+  const recoveryScopeRef = useRef(recoveryScope);
+  recoveryScopeRef.current = recoveryScope;
   const skillSelection = useComposerSkill(identityScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const paletteAnchor = useRef<HTMLFormElement>(null);
@@ -436,32 +437,48 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     applySnapshot,
     sessionId,
   });
-  const queueTray = useContext(ComposerQueueTrayContext);
-  const queue = useComposerQueue({
-    queued,
-    hiddenQueueIds,
-    pendingSubmissionIds,
-    draftMode,
-    turnBusy,
-    draftRef,
-    setDraft,
-    textarea,
-    composingRef,
-    historyNavigation: history.navigation,
-    invokeCapability,
-    abort,
-    restoredAttachments,
-    mergeRestoredAttachments,
-    showNotice: showComposerNotice,
-    onQueuedRestored,
-    answerQuestion,
-    scope: historyScope,
-  });
+  // The message selector's rewind holds the editor while it runs; a scope
+  // switch releases it.
+  const [restoring, setRestoring] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: historyScope is the reset trigger; the body does not read it
+  useEffect(() => setRestoring(false), [historyScope]);
+  // The prompt this pane sent last that has not settled: Esc interrupts it
+  // before the busy snapshot paints.
+  const pendingSubmissionId =
+    !draftMode && Array.isArray(pendingSubmissionIds)
+      ? String(pendingSubmissionIds[pendingSubmissionIds.length - 1] || '').trim()
+      : '';
+  // A message taken back from the transcript (✕ on an unread bubble, an
+  // answer that did not go out) returns to this editor.
+  const steer = useContext(SteerContext);
+  useEffect(() => {
+    if (!steer) return undefined;
+    const handoff: typeof steer.draft.current = {
+      scope: () => activeIdentityScope.current,
+      recoveryScope: () => recoveryScopeRef.current,
+      restore(value, { ifEmpty = false, notice } = {}) {
+        if (ifEmpty && (draftRef.current.trim() || attachmentsRef.current.length > 0)) return false;
+        const restored = restoredAttachments(value, String(value.text || ''));
+        const text = mergeRestoredAttachments(restored.attachments, restored.text);
+        const next = [text, draftRef.current].filter(Boolean).join('\n');
+        draftRef.current = next;
+        setDraft(next);
+        history.navigation.current = { index: -1, seed: '' };
+        if (notice) showComposerNotice(notice);
+        window.setTimeout(() => textarea.current?.focus(), 0);
+        return true;
+      },
+    };
+    steer.draft.current = handoff;
+    return () => {
+      if (steer.draft.current === handoff) steer.draft.current = null;
+    };
+  }, [steer, attachmentsRef, restoredAttachments, mergeRestoredAttachments, showComposerNotice, history.navigation]);
   useComposerPromptRestore({ promptRestore, setDraft, draftRef, textarea, onQueuedRestored });
   const selector = useComposerMessageSelector({
     userMessages,
-    restoring: queue.restoring,
-    setRestoring: queue.setRestoring,
+    restoring,
+    setRestoring,
     invokeCapability,
     setDraft,
     textarea,
@@ -573,8 +590,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     placeholderOverride ||
     composerPlaceholder({
       hasConversation,
-      turnBusy,
-      commandBusy,
       fallback: COMPOSER_PLACEHOLDERS[0],
     });
   // Autosize is CSS-native now (field-sizing: content). The old layout-effect
@@ -587,7 +602,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     setDraggingFiles(false);
   }, [transitioning]);
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
-  // Lets the Agents page tell an untouched New Task tab from one in use.
+  // Lets a message taken back tell an empty composer from one in use.
   const holdsContent = Boolean(draft.trim()) || attachments.length > 0;
   useEffect(() => {
     noteComposerContent(identityScope, holdsContent);
@@ -639,14 +654,23 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onOpenSettings,
     onOpenCommandSurface: props.onOpenCommandSurface,
     onInherit: props.onInherit,
+    onSlashHeld,
   });
+
+  // A bot chat that already runs on a model gives its still-empty bot route
+  // that model (never overwriting a configured route).
+  useEffect(() => {
+    if (!agentMode || !sessionId || !provider || !model) return;
+    void backfillAgentChatRoute(sessionId, { provider, model, ...(effort ? { effort } : {}) }).catch(() => {});
+  }, [agentMode, sessionId, provider, model, effort]);
 
   const { send, stop } = useComposerSubmission({
     turnBusy,
     commandBusy,
     draftMode,
-    queued,
+    queued: steerItems,
     recoveryScope,
+    identityScope,
     textarea,
     draftRef,
     attachmentsRef,
@@ -674,6 +698,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onSkillSubmitted: skillSelection.submitted,
     sessionId,
     plainText: agentMode,
+    modelMissing: !(provider && model),
   });
   // Pins and picks queued from the session's visualize panel make a message
   // sendable on their own.
@@ -701,16 +726,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       attachmentsRef,
       replaceAttachments,
     },
-    queue: {
-      pendingSubmissionId: queue.pendingSubmissionId,
-      hasRestorableMessages: queue.hasRestorableQueuedMessages,
-      restore: (source) => {
-        void queue.restoreQueue('', source);
-      },
-    },
     runtime: {
       turnBusy,
       draftMode,
+      pendingSubmissionId,
       attachments,
       escapeClearAt: escapeClearAtRef,
       showNotice: showComposerNotice,
@@ -726,7 +745,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     },
   });
   // A dictation in flight owns the send disc even during a running turn, so
-  // the take is queued/steered instead of the press interrupting the turn.
+  // the take is sent into the turn instead of the press interrupting it.
   const stopOnly =
     dictation.dictationState === 'idle' &&
     !feedbackPending &&
@@ -820,20 +839,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const goalDisabled = turnBusy || commandBusy || submitting;
   return (
     <>
-      {/* The queue's actions need this composer's draft, but the tray itself
-          belongs to the dock: attached to the input's top edge, under the
-          island. */}
-      {queueTray &&
-        createPortal(
-          <QueueList
-            queued={queue.visibleQueued}
-            restoring={queue.restoring}
-            onEdit={(id) => void queue.restoreQueue(id, 'queue-row')}
-            onSteer={(id) => void queue.steerQueuedNow(id)}
-            onRemove={(id) => void queue.discardQueued(id)}
-          />,
-          queueTray
-        )}
       <ComposerBanners draggingFiles={draggingFiles} transitioning={transitioning} dropTarget={dropTargetRef.current} />
       {btw.card && <BtwCard card={btw.card} onClose={btw.close} onRetry={btw.retry} />}
       <form
@@ -999,8 +1004,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           goalDisabled={goalDisabled}
           executeSlash={executeSlash}
           transitioning={transitioning}
-          commandBusy={commandBusy}
-          turnBusy={turnBusy}
           paneActive={paneActive}
           hasConversation={hasConversation}
           submitting={submitting}
@@ -1021,6 +1024,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
         usageReadout={usageReadout}
         modelAside={modelAside}
         agentMode={agentMode}
+        room={Boolean(roomMembers)}
         transitioning={transitioning}
         commandBusy={commandBusy}
         paneActive={paneActive}

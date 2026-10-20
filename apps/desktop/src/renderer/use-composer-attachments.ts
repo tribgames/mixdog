@@ -18,11 +18,12 @@ import {
 } from './composer-attachments';
 import { t } from './i18n';
 import { MAX_COMPOSER_ATTACHMENTS, pastedTextFields, type ComposerAttachment } from './composer-support';
-import { insertComposerToken, takeRejectedComposerSubmissionRecoveries } from './composer-draft';
+import { insertComposerToken, takeRejectedComposerSubmissionRecoveries, withContentDigest } from './composer-draft';
 import {
   absolutePathTokens,
   foldAttachmentTokens,
   projectMentionTokens,
+  renumberRestoredAttachments,
   restoreAttachmentsFromRecord,
 } from './composer-attachment-restore';
 import { useComposerFileDrop } from './use-composer-file-drop';
@@ -128,7 +129,10 @@ export function useComposerAttachments({
     [reportDroppedNames]
   );
 
-  const replaceAttachments = useCallback((next: ComposerAttachment[]) => {
+  const replaceAttachments = useCallback((incoming: ComposerAttachment[]) => {
+    // Every chip entering the composer starts its content digest once (the
+    // send's retry identity); a chip that already has one is kept as is.
+    const next = incoming.map(withContentDigest);
     for (const attachment of next) {
       attachmentSequence.current = Math.max(attachmentSequence.current, attachment.id + 1);
     }
@@ -421,14 +425,17 @@ export function useComposerAttachments({
     (restored: ComposerAttachment[], restoredText: string) => {
       if (!restored.length) return restoredText;
       const next = [...attachmentsRef.current];
-      let nextText = restoredText;
+      // Restored chips join this composer's ids: none takes over a live chip
+      // or an id its sequence hands out later; their tokens follow.
+      const renumbered = renumberRestoredAttachments(
+        restored,
+        restoredText,
+        next.map((attachment) => attachment.id),
+        attachmentSequence
+      );
+      let nextText = renumbered.text;
       let firstError = '';
-      for (const attachment of restored) {
-        const index = next.findIndex((entry) => entry.id === attachment.id && entry.kind === attachment.kind);
-        if (index >= 0) {
-          next[index] = attachment;
-          continue;
-        }
+      for (const attachment of renumbered.attachments) {
         const policyError = attachmentPolicyError(next, attachment);
         if (policyError) {
           firstError ||= policyError;

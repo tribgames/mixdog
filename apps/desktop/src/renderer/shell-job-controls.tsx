@@ -8,6 +8,7 @@ import {
   type ShellStopState,
 } from './background-jobs-model';
 import { confirmText } from './confirm-text';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { formatWorkElapsed } from './transcript-primitives';
@@ -34,12 +35,13 @@ export function useShellStops(sessionId: string) {
       if (!row.taskId) return;
       if (
         row.terminationUnconfirmed &&
-        !window.confirm(
+        !(await confirmAction(
           t(
             'Release {{command}} anyway? Its processes may still be running; the folder will no longer be protected from them.',
             { command: confirmText(row.label) }
-          )
-        )
+          ),
+          { danger: true, confirmLabel: t('Release anyway') }
+        ))
       )
         return;
       const kind: ShellRequest['kind'] = row.terminationUnconfirmed ? 'release' : 'stop';

@@ -13,6 +13,7 @@ import { t } from './i18n';
 import { useMixyCreated } from './mixy-first';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { useStableEvent } from './use-stable-event';
+import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 
 /** A room row with its members' labels resolved, ready for the section. */
 export type SidebarRoomRow = AgentRoomRowModel & { members: RoomMemberLabel[] };
@@ -61,5 +62,24 @@ export function useSidebarAgents(
   const openAgentProfileOf = useStableEvent((contact: AgentContact) => {
     void openAgent(contact).then(openAgentProfile);
   });
-  return { contacts, rooms, openRoom, openAgent, openAgentProfile: openAgentProfileOf };
+  const contactHomeIds = useMemo(() => contactHomeAgentIds(values.agents), [values.agents]);
+  return { contacts, rooms, openRoom, openAgent, openAgentProfile: openAgentProfileOf, contactHomeIds };
+}
+
+/** The agents whose home thread is a contact row (Mixy and every listed bot);
+ *  null until the catalog is loaded. Any other agent's home — a former bot
+ *  that is a workflow agent again, or a bot switched off — stays a session. */
+export function contactHomeAgentIds(agents: unknown): ReadonlySet<string> | null {
+  if (agents === undefined) return null;
+  return new Set([MIXY_AGENT_ID, ...contactAgentRows(agents).map((row) => row.id)]);
+}
+
+/** Whether a session row lists in Sessions as far as agent homes go: not a
+ *  home, an archived one, or the home of an agent that is no contact. */
+export function listsAsSession(
+  session: Pick<DesktopSessionSummary, 'agentHome' | 'archived'>,
+  contactHomeIds: ReadonlySet<string> | null
+): boolean {
+  if (!session.agentHome || session.archived) return true;
+  return contactHomeIds !== null && !contactHomeIds.has(session.agentHome);
 }

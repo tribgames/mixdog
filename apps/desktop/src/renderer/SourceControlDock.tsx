@@ -6,6 +6,7 @@ import { sourceControlErrorToastText } from './SourceControlErrorNotice';
 import { useErrorToast } from './notifications';
 import { commitImmediateOverlay } from './immediate-overlay';
 import type { DesktopGitFile, DesktopGitLogEntry, DesktopGitStatus } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { isSshConnectionWindow } from './desktop-connection';
 import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
@@ -301,8 +302,13 @@ export function SourceControlDock({
       });
     };
     const discardActionFiles = () => {
-      if (!window.confirm(discardPrompt(file, actionFiles.length))) return;
-      void run(`revert:${file.path}`, () => discardFiles(ctx, actionFiles), clearSelected);
+      void confirmAction(discardPrompt(file, actionFiles.length), {
+        key: `discard:${projectPath}:${actionFiles.map((entry) => entry.path).join('\u0000')}`,
+        danger: true,
+        confirmLabel: t('Discard'),
+      }).then((approved) => {
+        if (approved) return run(`revert:${file.path}`, () => discardFiles(ctx, actionFiles), clearSelected);
+      });
     };
     const fileMenuItems = () =>
       changedFileMenuItems({
@@ -360,14 +366,17 @@ export function SourceControlDock({
 
   const discardAllChanges = () => {
     const targets = files.filter((file) => !file.conflicted);
-    if (
-      !targets.length ||
-      !window.confirm(
-        t('Discard all {{count}} working tree changes? This cannot be undone.', { count: targets.length })
-      )
-    )
-      return;
-    void run('discard-all', () => discardFiles(ctx, targets), clearSelected);
+    if (!targets.length) return;
+    void confirmAction(
+      t('Discard all {{count}} working tree changes? This cannot be undone.', { count: targets.length }),
+      {
+        key: `discard-all:${projectPath}`,
+        danger: true,
+        confirmLabel: t('Discard'),
+      }
+    ).then((approved) => {
+      if (approved) return run('discard-all', () => discardFiles(ctx, targets), clearSelected);
+    });
   };
   const toggleViewSortMenu = (point: MenuPoint) => {
     commitImmediateOverlay(() =>

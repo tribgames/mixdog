@@ -10,9 +10,10 @@ import {
   ROOM_MIN_MEMBERS,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopAgentRoomSummary } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { RoomAvatar, RoomMemberFace, useRoomContacts } from './agent-room-parts';
 import { useAgentRoom } from './agent-room-store';
-import { resetConversation } from './agent-profile-actions';
+import { closeRoomTabs, resetConversation } from './agent-profile-actions';
 import { usePublishDockPanelActions } from './dock-panel-actions';
 import type { DockAction } from './pane-dock-chrome';
 import { showDesktopToast } from './desktop-toasts';
@@ -83,7 +84,7 @@ function RoomPanelBody({ room, leafId, active }: { room: DesktopAgentRoomSummary
   };
   const update = (patch: Record<string, unknown>) => void act('update', [room.id, patch]);
   const closeRoom = async (action: 'leave' | 'remove') => {
-    if (await act(action, [room.id])) window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
+    if (await act(action, [room.id])) closeRoomTabs(room.id);
   };
   const closeRoomRef = useRef(closeRoom);
   closeRoomRef.current = closeRoom;
@@ -122,7 +123,13 @@ function RoomPanelBody({ room, leafId, active }: { room: DesktopAgentRoomSummary
         separatorBefore: true,
         disabled: busy,
         onSelect: () => {
-          if (window.confirm(t('Delete this room and its conversation?'))) void closeRoomRef.current('remove');
+          void confirmAction(t('Delete this room and its conversation?'), {
+            key: `room-delete:${room.id}`,
+            danger: true,
+            confirmLabel: t('Delete'),
+          }).then((approved) => {
+            if (approved) return closeRoomRef.current('remove');
+          });
         },
       },
     ],

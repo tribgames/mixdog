@@ -4,6 +4,8 @@ import {
   generatedSessionTitle,
   hasMeaningfulSessionTitleText,
   normalizeSessionTitle,
+  promptTitle,
+  sessionSummaryTitle,
   sessionTitleNormalizationStats,
 } from './session-title.mjs';
 
@@ -34,6 +36,21 @@ const EDGE = [
   '!!! ???',
   '# Session\nCwd: /a\nModel: m\nWorkflow: w\nreal title',
 ];
+
+test('a title of file chips alone is the first file name; words win; image-only stays provisional', () => {
+  // The runtime and the catalog keep the composer's chip text as a title or preview.
+  assert.equal(generatedSessionTitle('[PDF #1: report.pdf]\n[File #2: main.ts]', ''), 'report.pdf');
+  assert.equal(sessionSummaryTitle({ title: '[File #3: budget.xlsx]' }), 'budget.xlsx');
+  assert.equal(sessionSummaryTitle({ preview: 'review these\n[PDF #1: report.pdf]' }), 'review these');
+  assert.equal(
+    promptTitle([{ type: 'file', data: 'x', mimeType: 'application/pdf', filename: 'report.pdf' }]),
+    'report.pdf'
+  );
+  assert.equal(promptTitle([{ type: 'image', data: 'x', mimeType: 'image/png' }]), '[Image]');
+  assert.equal(promptTitle([{ type: 'file', data: 'x', mimeType: 'application/pdf' }]), '[File]');
+  assert.equal(generatedSessionTitle('[Image #1]', ''), '[Image]');
+  assert.equal(generatedSessionTitle('[File] notes', ''), '[File] notes', 'a literal bracket stays');
+});
 
 test('memoized output equals uncached output for edge inputs', () => {
   for (const input of EDGE) {

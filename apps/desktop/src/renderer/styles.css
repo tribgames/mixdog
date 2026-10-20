@@ -529,23 +529,6 @@ button {
 .effort-control select {
   height: 28px;
 }
-.queue-list,
-.queue-items {
-  display: flex;
-  flex-direction: column;
-}
-.queue-item {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-.queue-item-text {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .inline-error {
   display: flex;
   align-items: flex-start;

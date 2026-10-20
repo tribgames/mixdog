@@ -282,6 +282,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
   const adoptApproval = async (credential: string, material: RelayE2EEPairingMaterial): Promise<boolean> => {
     if (!(await persistApproval(credential, material))) return false;
     ctx.rosterCache.clear();
+    ctx.visualizePages.clear();
     ctx.token = credential;
     ctx.e2eePairing = material;
     // Claim approval already minted this browser's credential server-side.
@@ -320,6 +321,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
   const resetApprovalAndAsk = (message: string): void => {
     ctx.viewBaselines.clear();
     ctx.rosterCache.clear();
+    ctx.visualizePages.clear();
     ctx.resetDeltaState();
     clearRemoteConnectionState();
     try {

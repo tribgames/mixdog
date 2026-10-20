@@ -6,8 +6,13 @@ import { desktopSessionSummaries } from './desktop-state.ts';
 
 const AGENTS = [
   { id: 'maintainer', locked: true, route: { provider: 'openai', model: 'gpt-5' } },
-  { id: 'github-watcher', custom: true, route: { provider: 'anthropic', model: 'claude-x', effort: 'high' } },
-  { id: 'off', custom: true, disabled: true, route: { provider: 'openai', model: 'gpt-5' } },
+  {
+    id: 'github-watcher',
+    custom: true,
+    kind: 'bot',
+    route: { provider: 'anthropic', model: 'claude-x', effort: 'high' },
+  },
+  { id: 'off', custom: true, kind: 'bot', disabled: true, route: { provider: 'openai', model: 'gpt-5' } },
 ];
 
 function missing(sessionId) {
@@ -329,6 +334,44 @@ test('a refused route refresh never blocks opening the thread', async () => {
   } finally {
     console.warn = warn;
   }
+});
+
+test("Mixy's thread keeps sess_home_lead and runs on Mixy's own route, never the Lead's", async () => {
+  const id = 'sess_home_lead';
+  const mixyRoute = { provider: 'openai-oauth', model: 'gpt-6' };
+  // A migrated Mixy with history: reused as is, switched to its own model.
+  const host = fakeHost({ stored: new Set([id]), routes: { [id]: { provider: 'anthropic-oauth', model: 'opus' } } });
+  const homes = createAgentHomeSessions({ ...host.deps, mixyRoute: async () => mixyRoute });
+  assert.deepEqual(await homes.open('lead'), { sessionId: id });
+  assert.deepEqual(host.calls.creates, [], 'the thread with its history is reused, never recreated');
+  assert.deepEqual(host.calls.routes, [[id, mixyRoute]]);
+  // No thread yet (the 대표 에이전트 dialog's first greeting): made on Mixy's route.
+  const fresh = fakeHost();
+  const created = createAgentHomeSessions({ ...fresh.deps, mixyRoute: async () => mixyRoute });
+  await created.open('lead');
+  assert.deepEqual(fresh.calls.creates[0].params.provider, 'openai-oauth');
+  assert.equal(fresh.calls.creates[0].params.sessionProfile, undefined, 'Mixy stays the Lead role');
+  // Mixy with no own route: its thread keeps whatever it runs on.
+  const plain = fakeHost({ stored: new Set([id]), routes: { [id]: { provider: 'anthropic-oauth', model: 'opus' } } });
+  await createAgentHomeSessions({ ...plain.deps, mixyRoute: async () => null }).open('lead');
+  assert.deepEqual(plain.calls.routes, []);
+});
+
+test('a migrated bot reopens its existing thread (history kept) on its own stored route', async () => {
+  const id = 'sess_home_github-watcher';
+  const host = fakeHost({
+    stored: new Set([id]),
+    routes: { [id]: { provider: 'anthropic', model: 'claude-x', effort: 'high' } },
+  });
+  assert.deepEqual(await host.homes.open('github-watcher'), { sessionId: id });
+  assert.deepEqual(host.calls.creates, []);
+  assert.deepEqual(host.calls.routes, [], 'already on its route');
+  // A reclassified pre-1.3 agent is no contact: its old thread is not resolved
+  // as a bot home (it lists in Sessions instead) and is never archived.
+  await assert.rejects(
+    fakeHost({ stored: new Set(['sess_home_old-helper']) }).homes.open('old-helper'),
+    /not available/
+  );
 });
 
 test('reopening a contact brings its thread back from the archive', async () => {

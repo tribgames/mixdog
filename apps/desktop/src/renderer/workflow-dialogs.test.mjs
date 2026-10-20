@@ -13,6 +13,7 @@ const { createRoot } = await import('react-dom/client');
 const { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog, agentBodyFromBrief } = await import(
   './workflow-dialogs.tsx'
 );
+const { requiredModelSelection } = await import('../main/ipc-validation.ts');
 test.after(() => dom.window.close());
 
 test('the default AGENT.md of a new agent is conversational, not a worker contract', () => {
@@ -87,6 +88,58 @@ test('fallback rows add empty, block saving, reorder with tuning, and remove', a
   assert.equal(dialog.querySelectorAll('.route-chain-row').length, 2);
   assert.equal(dialog.querySelector('.route-chain-hint'), null);
   assert.equal(dialog.querySelector('button[type="submit"]').disabled, false);
+});
+
+test('Lead is a single-model route: no fallback UI, and a changed option saves a plain valid selection', async (t) => {
+  const render = harness(t);
+  const effortModel = {
+    ...route,
+    display: 'Test model',
+    effortOptions: [
+      { value: 'low', label: 'low' },
+      { value: 'high', label: 'high' },
+    ],
+  };
+  const saved = [];
+  await render(
+    React.createElement(RouteEditorDialog, {
+      target: {
+        id: 'lead',
+        label: 'Lead',
+        modelKind: 'main',
+        capability: 'setModelRoute',
+        readOnlyDefinition: false,
+        route: { ...route, effort: 'low' },
+      },
+      models: [effortModel, { provider: 'gemini', model: 'other', display: 'Other', effortOptions: [] }],
+      busy: false,
+      onCancel() {},
+      onSave: (value) => saved.push(value),
+    })
+  );
+  const dialog = document.querySelector('[role="dialog"]');
+  assert.equal(dialog.querySelector('[aria-label="Add fallback model"]'), null);
+  assert.equal(dialog.querySelector('.route-chain-handle'), null);
+  assert.equal(dialog.querySelector('.route-chain-remove'), null);
+  assert.equal(dialog.querySelector('.route-chain-unavailable'), null);
+  assert.doesNotMatch(dialog.textContent, /first model is used first|fallback/i);
+  assert.equal(dialog.querySelectorAll('.route-chain-row').length, 1);
+
+  const rowByLabel = (label) =>
+    [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.includes(label));
+  await act(async () => dialog.querySelector('.model-trigger').click());
+  await act(async () => rowByLabel('Reasoning effort').click());
+  const high = [...document.querySelectorAll('[role="menuitemradio"]')].find((item) =>
+    item.textContent.includes('high')
+  );
+  await act(async () => high.click());
+  await act(async () =>
+    dialog.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  );
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].effort, 'high');
+  assert.equal('fallbacks' in saved[0], false);
+  assert.deepEqual(requiredModelSelection(saved[0]), saved[0]);
 });
 
 function harness(t) {

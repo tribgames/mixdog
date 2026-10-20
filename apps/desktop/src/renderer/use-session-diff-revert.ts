@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { confirmText } from './confirm-text';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import type { useSessionDiffRefresh } from './use-session-diff-refresh';
 
@@ -44,25 +45,26 @@ export function useSessionDiffRevert({
   const canRevertPath = (path: string) => Boolean(!busy && turnReview?.paths.has(path));
   const revertFile = (path: string) => {
     if (!turnReview || !canRevertPath(path)) return;
-    if (
-      !window.confirm(
-        t('Revert {{file}} to the start of the turn? This discards its changes.', { file: confirmText(path) })
-      )
-    )
-      return;
-    setRevertError('');
-    void window.mixdogDesktop
-      .invokeCapability?.({
-        capability: 'revertTurnReviewFile',
-        args: [path, turnReview.checkpointId],
-        sessionId,
-      })
-      .then(() => {
-        // Every Git surface (Source Control, the Changes chip) re-reads.
-        window.dispatchEvent(new Event('mixdog:git-changed'));
-        return refresh(true);
-      })
-      .catch((reason: unknown) => setRevertError(reason instanceof Error ? reason.message : String(reason)));
+    const { checkpointId } = turnReview;
+    void confirmAction(
+      t('Revert {{file}} to the start of the turn? This discards its changes.', { file: confirmText(path) }),
+      { danger: true, confirmLabel: t('Revert') }
+    ).then((approved) => {
+      if (!approved) return;
+      setRevertError('');
+      return window.mixdogDesktop
+        .invokeCapability?.({
+          capability: 'revertTurnReviewFile',
+          args: [path, checkpointId],
+          sessionId,
+        })
+        .then(() => {
+          // Every Git surface (Source Control, the Changes chip) re-reads.
+          window.dispatchEvent(new Event('mixdog:git-changed'));
+          return refresh(true);
+        })
+        .catch((reason: unknown) => setRevertError(reason instanceof Error ? reason.message : String(reason)));
+    });
   };
   return { canRevertPath, revertFile };
 }

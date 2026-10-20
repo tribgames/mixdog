@@ -22,6 +22,7 @@
   "Enter the 6-digit code shown on your PC.",
   "File",
   "Force Reload",
+  "Image",
   "Importing conversations is available only on this PC.",
   "Keep running",
   "Minimize",
@@ -60,6 +61,7 @@
   "This page was not opened: sign-in pages must use HTTPS.",
   "Toggle Full Screen",
   "Undo",
+  "Video",
   "View",
   "Window",
   "Your active task remains in the desktop host. Reload the interface to continue."

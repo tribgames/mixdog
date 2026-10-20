@@ -15,6 +15,7 @@ import {
   onVisualizeRevealRequested,
   openVisualizePageLink,
   resetVisualizePanelMemory,
+  reopenVisualizeContent,
   reopenVisualizeTargets,
   restoreVisualizeVersion,
   revealVisualizeTab,
@@ -641,3 +642,201 @@ test('the turn end lifts the hold even when its final state changes nothing', ()
   assert.equal(visualizeHeldSince('same'), null);
   assert.ok(emits >= 1, 'cards hear that the turn ended');
 });
+
+/** A tab showing `target`, with kept versions 1..n. */
+const fileTab = (id, target, n) => ({
+  ...versioned(id, n),
+  label: target,
+  panes: [{ kind: 'html', label: target, target, url: '' }],
+});
+
+/** Runs `body` as a phone (412 px, touch, iPhone UA) whose host records commands in `sent`. */
+async function asPhone(body) {
+  const restore = withLocalStorage();
+  const sent = [];
+  const reveals = [];
+  const previousWindow = globalThis.window;
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  let failNext = false;
+  globalThis.window = {
+    innerWidth: 412,
+    matchMedia: () => ({ matches: true }),
+    mixdogDesktop: {
+      visualizeCommand: async (command) => {
+        sent.push(command);
+        if (failNext) {
+          failNext = false;
+          throw new Error('refused');
+        }
+        return {};
+      },
+    },
+  };
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile', maxTouchPoints: 5 },
+  });
+  const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+  try {
+    resetVisualizePanelMemory();
+    await body({ sent, reveals, failOnce: () => (failNext = true) });
+  } finally {
+    stop();
+    globalThis.window = previousWindow;
+    if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator);
+    else delete globalThis.navigator;
+    restore();
+  }
+}
+
+const open = (sessionId, tabs, active, tab = active) =>
+  applyVisualizeEvent({ sessionId, state: { sessionId, tabs, active }, reveal: true, tab });
+
+test('phone: agent opens and updates never show the panel or move its selection; others wear the dot', () =>
+  asPhone(({ sent, reveals }) => {
+    open('ph', [versioned('v1', 1)], 'v1');
+    assert.deepEqual(reveals, []);
+    assert.deepEqual(
+      visualizeStateFor('ph').tabs.map((t) => t.id),
+      ['v1'],
+      'the tab exists for the card'
+    );
+    // A second page (main made it active) and an update of the first.
+    open('ph', [versioned('v1', 1), versioned('v2', 1)], 'v2');
+    open('ph', [versioned('v1', 2), versioned('v2', 1)], 'v2', 'v1');
+    // A plain file-change push with main's active elsewhere keeps it too.
+    applyVisualizeEvent({
+      sessionId: 'ph',
+      state: { sessionId: 'ph', tabs: [versioned('v1', 2), versioned('v2', 2)], active: 'v2' },
+      updated: 'v2',
+    });
+    assert.deepEqual(reveals, []);
+    assert.equal(visualizeStateFor('ph').active, 'v1', 'the local selection stays');
+    assert.equal(visualizeStateFor('ph').tabs[0].versions.at(-1).n, 2, 'the newest state is kept');
+    assert.deepEqual([...visualizeUpdatedTabs('ph')], ['v2']);
+    assert.deepEqual(sent, [], 'nothing is activated on the host');
+    // The user taps v2's tile: the panel opens on it.
+    revealVisualizeTab('ph', 'v2');
+    assert.deepEqual(reveals, ['ph']);
+    assert.equal(visualizeStateFor('ph').active, 'v2');
+    assert.equal(visualizeUpdatedTabs('ph').has('v2'), false);
+    // Panel open: an update of the shown tab lands in place on it.
+    setVisualizePanelOnScreen('ph', true);
+    open('ph', [versioned('v1', 2), versioned('v2', 3)], 'v2');
+    assert.equal(visualizeStateFor('ph').active, 'v2');
+    assert.equal(visualizeStateFor('ph').tabs[1].versions.at(-1).n, 3);
+  }));
+
+test('phone: a reconnect resync neither shows the panel nor moves the selection', () =>
+  asPhone(async ({ reveals }) => {
+    open('rs', [versioned('v1', 1), versioned('v2', 1)], 'v1');
+    resyncVisualizeStates([{ sessionId: 'rs', tabs: [versioned('v1', 1), versioned('v2', 2)], active: 'v2' }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(reveals, []);
+    assert.equal(visualizeStateFor('rs').active, 'v1');
+    assert.deepEqual([...visualizeUpdatedTabs('rs')], ['v2']);
+  }));
+
+test('phone: a tap on a closed tile opens the panel only for the open of exactly that target', () =>
+  asPhone(async ({ sent, reveals, failOnce }) => {
+    open('ro', [fileTab('v1', 'a.html', 1)], 'v1');
+    await reopenVisualizeTargets('ro', 'v9', ['c.html']);
+    assert.equal(sent.at(-1).action, 'reopen');
+    // An unrelated agent open does not consume it.
+    open('ro', [fileTab('v1', 'a.html', 1), fileTab('v2', 'b.html', 1)], 'v2');
+    assert.deepEqual(reveals, []);
+    // The reopened tab (a new id) does, once.
+    open('ro', [fileTab('v1', 'a.html', 1), fileTab('v2', 'b.html', 1), fileTab('v3', 'c.html', 1)], 'v3');
+    assert.deepEqual(reveals, ['ro']);
+    assert.equal(visualizeStateFor('ro').active, 'v3');
+    open('ro', [fileTab('v1', 'a.html', 1), fileTab('v2', 'b.html', 1), fileTab('v3', 'c.html', 2)], 'v3');
+    assert.deepEqual(reveals, ['ro'], 'the next open of it does not');
+
+    // A target already live is shown at once; nothing is sent or kept.
+    reveals.length = 0;
+    sent.length = 0;
+    await reopenVisualizeTargets('ro', 'v8', ['b.html']);
+    assert.deepEqual(reveals, ['ro']);
+    assert.equal(visualizeStateFor('ro').active, 'v2');
+    assert.ok(!sent.some((command) => command.action === 'reopen'));
+
+    // A failed request leaves nothing behind.
+    reveals.length = 0;
+    failOnce();
+    await assert.rejects(reopenVisualizeTargets('ro', 'v7', ['d.html']), /refused/);
+    open('ro', [fileTab('v2', 'b.html', 1), fileTab('v4', 'd.html', 1)], 'v4');
+    assert.deepEqual(reveals, []);
+
+    // An expired one neither.
+    const realNow = Date.now;
+    try {
+      await reopenVisualizeTargets('ro', 'v6', ['e.html']);
+      Date.now = () => realNow() + 16_000;
+      open('ro', [fileTab('v2', 'b.html', 1), fileTab('v5', 'e.html', 1)], 'v5');
+      assert.deepEqual(reveals, []);
+    } finally {
+      Date.now = realNow;
+    }
+  }));
+
+test('phone: All visuals opens a live entry at once and waits only for a closed one', () =>
+  asPhone(async ({ sent, reveals }) => {
+    const history = [
+      { id: 'h-live', label: 'a.html', kind: 'html', versions: 1, at: 1, open: true },
+      { id: 'h-closed', label: 'flow', kind: 'mermaid', versions: 1, at: 0, open: false },
+    ];
+    applyVisualizeEvent({
+      sessionId: 'hv',
+      state: { sessionId: 'hv', tabs: [fileTab('v1', 'a.html', 1)], active: 'v1', history },
+    });
+    await openVisualizeHistory('hv', 'h-live');
+    assert.deepEqual(reveals, ['hv'], 'shown without waiting for a reveal');
+    assert.deepEqual(sent.at(-1), { sessionId: 'hv', tabId: '', action: 'history', entry: 'h-live' });
+    // Nothing waits: a later agent open of a.html stays closed.
+    const withHistory = (tabs, active) =>
+      applyVisualizeEvent({
+        sessionId: 'hv',
+        state: { sessionId: 'hv', tabs, active, history },
+        reveal: true,
+        tab: active,
+      });
+    withHistory([fileTab('v1', 'a.html', 2)], 'v1');
+    assert.deepEqual(reveals, ['hv']);
+    await openVisualizeHistory('hv', 'h-closed');
+    withHistory([fileTab('v1', 'a.html', 2), { ...versioned('v2', 1), label: 'flow' }], 'v2');
+    assert.deepEqual(reveals, ['hv', 'hv']);
+  }));
+
+test('phone: two untitled diagrams are told apart by their source, like the host does', () =>
+  asPhone(async ({ sent, reveals }) => {
+    const a = { kind: 'mermaid', source: 'graph TD; A-->B' };
+    const b = { kind: 'mermaid', source: 'graph TD; C-->D' };
+    const inlineTab = (id, content) => ({
+      ...versioned(id, 1),
+      label: 'Mermaid diagram',
+      panes: [{ kind: 'inline', label: 'Mermaid diagram', target: 'inline mermaid', url: '', inline: content }],
+    });
+    open('in', [inlineTab('v1', a)], 'v1');
+    // B is closed: tapping it asks the host to reopen it, not A.
+    await reopenVisualizeContent('in', 'v2', b);
+    assert.deepEqual(reveals, []);
+    assert.deepEqual(sent.at(-1), {
+      sessionId: 'in',
+      tabId: 'v2',
+      action: 'reopen',
+      targets: [],
+      content: b,
+    });
+    // An update of A does not answer it; the reopened B does.
+    open('in', [inlineTab('v1', a)], 'v1');
+    assert.deepEqual(reveals, []);
+    open('in', [inlineTab('v1', a), inlineTab('v3', b)], 'v3');
+    assert.deepEqual(reveals, ['in']);
+    assert.equal(visualizeStateFor('in').active, 'v3');
+    // A live untitled diagram with the same source is shown at once.
+    sent.length = 0;
+    await reopenVisualizeContent('in', 'v9', { ...a });
+    assert.deepEqual(reveals, ['in', 'in']);
+    assert.equal(visualizeStateFor('in').active, 'v1');
+    assert.ok(!sent.some((command) => command.action === 'reopen'));
+  }));

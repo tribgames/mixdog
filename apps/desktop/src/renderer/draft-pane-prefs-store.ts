@@ -96,6 +96,41 @@ export const draftModelSelectionFromSnapshot = (snapshot: Snapshot): DesktopMode
   };
 };
 
+/** An empty Lead (Main) route takes the model last used in a new task, once;
+ *  nothing used leaves it empty (the composer then opens the model picker on
+ *  send). A route that already has a model is never overwritten: the runtime
+ *  applies the selection only while the route is still empty (compare-and-set,
+ *  no read here to race a pick made meanwhile). Answers whether it applied and
+ *  the Lead route in force afterwards (the winner when it was skipped). */
+export async function backfillLeadRoute({
+  last,
+  setModelRoute,
+}: {
+  last: DraftPanePrefs | null;
+  setModelRoute(selection: DesktopModelSelection): Promise<Snapshot>;
+}): Promise<{ applied: boolean; route: DesktopModelSelection | null }> {
+  const used = last?.modelSelection;
+  if (!used?.provider || !used.model) return { applied: false, route: null };
+  const route = draftModelSelectionFromSnapshot(await setModelRoute({ ...used, onlyIfEmpty: true }));
+  return { applied: sameRouteModel(route, used), route };
+}
+
+const sameRouteModel = (a: DesktopModelSelection | null | undefined, b: DesktopModelSelection | null | undefined) =>
+  Boolean(a && b && a.provider === b.provider && a.model === b.model);
+
+/** A skipped backfill means another route already is the Lead route. The
+ *  last-used cache that still holds the model the backfill tried (nobody staged
+ *  another since) follows that route, so no window or phone keeps showing and
+ *  submitting a stale model. Null when nothing changes. */
+export function followLeadRoute(
+  last: DraftPanePrefs | null,
+  tried: DesktopModelSelection,
+  route: DesktopModelSelection | null
+): DraftPanePrefs | null {
+  if (!last || !route || !sameRouteModel(last.modelSelection, tried) || sameRouteModel(route, tried)) return null;
+  return { ...last, modelSelection: route };
+}
+
 /** The last-used cache from storage. `legacy` means a v1 key answered and the
  *  caller must write the current keys back right away. */
 export function readStoredLastNewTaskPrefs(): { value: DraftPanePrefs | null; legacy: boolean } {

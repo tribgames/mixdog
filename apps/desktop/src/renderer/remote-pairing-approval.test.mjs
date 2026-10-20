@@ -110,6 +110,7 @@ async function installPairing(t, { indexedDB, storage = {} } = {}) {
     reconnectTimer: null,
     approvalVerificationInFlight: false,
     rosterCache: { clear() {} },
+    visualizePages: { clear() {} },
     viewBaselines: { clear() {} },
     resetDeltaState() {},
     connect: () => {

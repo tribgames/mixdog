@@ -6,6 +6,7 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import { promptTitle } from '../shared/session-title.mjs';
+import { displaySessionTitle } from './session-display-title';
 import type { NavigationSelection } from './navigation';
 import type { PaneLeaf } from './pane-layout';
 import { asRecord, navigationKey } from './text-format';
@@ -182,14 +183,14 @@ export function useAppSubmitRouting({
             } satisfies DesktopSessionSummary);
             if (draftStillSelected()) {
               navigationEpoch.current += 1;
-              activateSelection(sessionSelection, title, draftKey);
+              activateSelection(sessionSelection, displaySessionTitle(title), draftKey);
               setNewTaskDeferred(false);
             } else {
               // The ACK belongs to the pane/draft that dispatched it. A focus
               // change while it was in flight may not redirect the promotion or
               // pull the user back from the pane they moved to.
               promoteSelectionInLeaf(route.leafId, sessionSelection, draftKey);
-              registerWorkspaceSelection(sessionSelection, title, draftKey);
+              registerWorkspaceSelection(sessionSelection, displaySessionTitle(title), draftKey);
             }
           }
         }

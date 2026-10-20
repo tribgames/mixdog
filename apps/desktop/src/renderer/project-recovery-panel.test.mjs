@@ -7,6 +7,7 @@ import { ProjectRecoveryPanel, recoveryMayRestore } from './ProjectRecoveryPanel
 import { ProjectRecoverySurface } from './ProjectRecoverySurface.tsx';
 import { ProjectRecoveryNotice } from './ProjectRecoveryNotice.tsx';
 import { requiredProjectRecoveryRequest, recoveryFailureCode, recoveryFailureRecord } from '../shared/project-recovery.ts';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 const id = '12345678-abcd-abcd-abcd-123456789abc';
 const revision = 'a'.repeat(64);
@@ -242,10 +243,10 @@ test('the Files recovery surface invokes the host API only after inspection and 
         return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
       },
     };
-    window.confirm = (text) => {
+    overrideConfirmAction((text) => {
       confirmations.push(text);
       return true;
-    };
+    });
   });
   assert.deepEqual(requests, [['/project-a', { action: 'list' }]], 'closed discovery reads metadata only');
   assert.match(ui.document.body.textContent, /need review/);
@@ -425,7 +426,7 @@ test('automatic refresh does not reopen an initial record after explicit discard
   let records = [detail];
   const requests = [];
   const ui = await mount(t, { initialRecordId: id }, ProjectRecoverySurface, (window) => {
-    window.confirm = () => true;
+    overrideConfirmAction(() => true);
     window.mixdogDesktop = { projectRecovery: async (_project, input) => {
       requests.push(input);
       if (input.action === 'discard') records = [];

@@ -4,7 +4,6 @@ import type { Root } from 'react-dom/client';
 import { ComposerDock } from '../../src/renderer/ComposerDock';
 import { ComposerBanners } from '../../src/renderer/ComposerBanners';
 import { AttachmentChips } from '../../src/renderer/composer-surfaces';
-import { QueueList } from '../../src/renderer/composer-support';
 import { ApprovalCard } from '../../src/renderer/ApprovalCard';
 import { SessionGoalIsland } from '../../src/renderer/SessionGoalIsland';
 import { TranscriptList } from '../../src/renderer/TranscriptList';
@@ -22,7 +21,6 @@ type State = {
   context: boolean;
   goal: boolean;
   attachments: boolean;
-  queue: boolean;
 };
 
 function Harness({ state, session }: { state: State; session: string }) {
@@ -88,8 +86,6 @@ function Harness({ state, session }: { state: State; session: string }) {
         reviewSessionId={session}
         reviewCwd=""
       >
-        <QueueList queued={state.queue ? [{ id: 'queued', text: 'A queued follow-up' }] : []}
-          restoring={false} onEdit={noop} onSteer={noop} onRemove={noop} />
         <ComposerBanners draggingFiles={false} transitioning={false} dropTarget={null} />
         <form className="composer">
           {state.attachments && <AttachmentChips attachments={[{
@@ -126,7 +122,7 @@ export async function runHeightChangesProbe(root: Root) {
         const session = `height-${width}-${count}-${reading ? 'reader' : 'tail'}`;
         let state: State = {
           width, height: 680, count, prompt: '', approval: false, context: false, goal: false,
-          attachments: false, queue: false,
+          attachments: false,
         };
         const render = () => flushSync(() => root.render(<Harness key={session} state={state} session={session} />));
         render();
@@ -150,16 +146,14 @@ export async function runHeightChangesProbe(root: Root) {
           ['draft-promotion', { context: false }],
           ['attachment-add', { attachments: true }],
           ['attachment-remove', { attachments: false }],
-          ['queue-add', { queue: true }],
-          ['queue-remove', { queue: false }],
           ['goal-open', { goal: true }],
           ['goal-close', { goal: false }],
           ['keyboard-or-panel-open', { height: 420 }],
           ['keyboard-or-panel-close', { height: 680 }],
           ['pane-narrow', { width: 320 }],
           ['pane-restore', { width }],
-          ['combined-grow', { prompt: 'One\nTwo\nThree', queue: true, attachments: true, context: true }],
-          ['combined-submit', { prompt: '', queue: false, attachments: false, context: false }],
+          ['combined-grow', { prompt: 'One\nTwo\nThree', attachments: true, context: true }],
+          ['combined-submit', { prompt: '', attachments: false, context: false }],
         ];
         for (const [label, change] of steps) {
           const name = `${session}/${label}`;

@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { DockHeaderRow } from './pane-dock-chrome.tsx';
 import { visualizeVersionActions } from './VisualizePanelExtras.tsx';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 const versions = [
   { n: 1, at: 1000 },
@@ -20,7 +21,7 @@ async function mount(tab, { confirm = () => true, setNotice = () => {} } = {}) {
     expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'window'],
   });
   const sent = [];
-  window.confirm = confirm;
+  overrideConfirmAction(confirm);
   window.mixdogDesktop = { visualizeCommand: async (command) => (sent.push(command), {}) };
   const action = visualizeVersionActions('s1', tab, setNotice);
   const root = createRoot(document.getElementById('root'));

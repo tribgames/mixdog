@@ -90,7 +90,7 @@ const plugins = [
 
 test('every item kind lands in exactly one group', () => {
   const groups = groupConnectors(servers, plugins);
-  assert.equal(groups.catalog.length, 15, 'Google Calendar and Drive are not listed without a server');
+  assert.equal(groups.catalog.length, 14, 'Google Calendar and Drive are not listed without a server');
   assert.ok(!groups.catalog.some((row) => row.entry.ownKey));
   const withCalendar = groupConnectors([{ name: 'google-calendar', connector: 'google-calendar' }], []);
   assert.deepEqual(
@@ -103,7 +103,11 @@ test('every item kind lands in exactly one group', () => {
     [...names].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
   );
   assert.equal(groups.catalog.find((row) => row.entry.id === 'notion').server.name, 'notion-2');
-  assert.equal(groups.catalog.find((row) => row.entry.id === 'github').server, null, 'GitHub is the built-in CLI');
+  assert.equal(
+    groups.catalog.some((row) => row.entry.id === 'github'),
+    false,
+    'GitHub is the GitHub CLI, not a connector'
+  );
   assert.deepEqual(
     groups.custom.map((server) => server.name),
     ['broken', 'notion', 'off', 'unitymcp'],
@@ -462,36 +466,6 @@ test('once the list shows the connection, the row follows the host alone (a sign
   assert.notEqual(rowOf(host, 'notion').querySelector('.sidebar-resource-tag')?.textContent, 'Connected');
   await act(async () => root.unmount());
   host.remove();
-});
-
-test('GitHub connects only after confirming the account gh runs as; forgetting it never touches gh', async () => {
-  const { githubConnection, confirmGithubConnector, forgetGithubConnector } = await import('../github-connector.ts');
-  const info = (status, account) => ({ status, account });
-  assert.equal(githubConnection(info({ installed: true, authenticated: false })).state, 'signed-out');
-  const signedIn = info({ installed: true, authenticated: true, login: 'octo' }, { login: 'octo' });
-  assert.deepEqual(githubConnection(signedIn, ''), {
-    state: 'unconfirmed',
-    host: 'github.com',
-    login: 'octo',
-    activeLogin: '',
-  });
-  assert.equal(githubConnection(signedIn, 'octo').state, 'connected');
-  // gh's active account changed since: confirm again.
-  assert.equal(githubConnection(signedIn, 'someone-else').state, 'unconfirmed');
-  // An environment token runs as another account: that one is shown and confirmed.
-  const envToken = info({ installed: true, authenticated: true, login: 'octo' }, { login: 'ci-bot' });
-  assert.deepEqual(githubConnection(envToken, ''), {
-    state: 'unconfirmed',
-    host: 'github.com',
-    login: 'ci-bot',
-    activeLogin: 'octo',
-  });
-  calls.length = 0;
-  confirmGithubConnector('octo');
-  assert.equal(githubConnection(signedIn).state, 'connected');
-  forgetGithubConnector();
-  assert.equal(githubConnection(signedIn).state, 'unconfirmed');
-  assert.deepEqual(calls, [], 'no gh sign-in, switch or logout is called');
 });
 
 test('a catalog 연결 changes the row on the click itself, before the host made the server', async () => {

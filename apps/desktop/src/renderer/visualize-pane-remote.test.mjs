@@ -190,6 +190,65 @@ test('a remote page document blocks outside origins like the desktop, until the 
   }
 });
 
+test('a new revision of the same page content keeps its frame; fetches go to the newest load', async () => {
+  const original = remote.source;
+  const loads = [];
+  const fetched = [];
+  const pageOf = (contentId, srcdoc) => async () => {
+    const load = loads.push(contentId);
+    return {
+      kind: 'html',
+      srcdoc,
+      page: 'a.html',
+      contentId,
+      fetch: async (reference) => {
+        fetched.push([load, reference]);
+        return { bytes: new Uint8Array([1]), mime: 'text/plain' };
+      },
+    };
+  };
+  remote.source = pageOf('live:aaa', '<p>same</p>');
+  putTab({ id: 'r6', label: 'a.html', revision: 1, panes: [page] });
+  const root = await mount();
+  try {
+    const { frame } = await framedDocument();
+    // A reload hands the frame a document again once it says it is ready.
+    const documents = () => {
+      const sent = [];
+      frame.contentWindow.postMessage = (message) => sent.push(message);
+      window.dispatchEvent(
+        new window.MessageEvent('message', { data: { type: 'mixdog-preview-ready' }, source: frame.contentWindow })
+      );
+      return sent.filter((message) => message?.type === 'mixdog-preview-document').length;
+    };
+    await act(async () => putTab({ id: 'r6', label: 'a.html', revision: 2, panes: [page] }));
+    await settle();
+    assert.equal(loads.length, 2, 'the new revision was read');
+    assert.equal(document.querySelector('.visualize-pane-content iframe'), frame);
+    assert.equal(documents(), 0, 'the frame did not reload');
+    frame.contentWindow.postMessage = () => {};
+    await act(async () =>
+      window.dispatchEvent(
+        new window.MessageEvent('message', {
+          data: { type: 'mixdog-page-fetch', id: 1, reference: 'data.json' },
+          source: frame.contentWindow,
+        })
+      )
+    );
+    await settle();
+    assert.deepEqual(fetched, [[2, 'data.json']], 'the newest load serves the page fetch');
+
+    // Different content: the frame loads the new page.
+    remote.source = pageOf('live:bbb', '<p>other</p>');
+    await act(async () => putTab({ id: 'r6', label: 'a.html', revision: 3, panes: [page] }));
+    await settle();
+    assert.equal(documents(), 1, 'the frame reloaded');
+  } finally {
+    remote.source = original;
+    await act(async () => root.unmount());
+  }
+});
+
 test('a remote PDF pane shows page images; without them it falls back to the blob frame', async () => {
   putTab({
     id: 'r2',

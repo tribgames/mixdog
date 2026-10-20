@@ -9,6 +9,7 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import {
   type DesktopVisualizeEvent,
+  REMOTE_PAGE_MAX_BYTES,
   remoteVisualizeState,
   type VisualizeHostEvent,
   type VisualizeHostPane,
@@ -23,7 +24,7 @@ import { requiredSessionId } from './desktop-state';
 import { requiredString, requiredVisualizeTabCommand } from './ipc-validation';
 import { pageAssetType } from './local-page-server';
 import { projectEntryPathIn } from './project-files';
-import { authorizedMediaFile, readPreviewRange, withAuthorizedFile } from './remote-file-preview';
+import { authorizedFileDigest, authorizedMediaFile, readPreviewRange, withAuthorizedFile } from './remote-file-preview';
 import { assertNotSensitive } from './remote-sensitive-paths';
 
 type RemoteMethod = (params: unknown[]) => unknown;
@@ -64,6 +65,25 @@ function hostState(value: unknown): VisualizeHostState | null {
 /** The daemon's copy of main's visualize tabs. */
 export function createRemoteVisualizeMirror() {
   let sessions = new Map<string, VisualizeHostState>();
+  // The card picture each tab's last forwarded event carried. A change event
+  // repeats a picture never: every tab's ≤60 KB picture in every publish made
+  // the state the bulk of the relay traffic (a card keeps the picture it got;
+  // one it missed asks the host for its version's picture).
+  let forwarded = new Map<string, string>();
+  const withoutRepeatedThumbnails = (state: VisualizeSessionState): VisualizeSessionState => {
+    const next = new Map<string, string>();
+    const tabs = state.tabs.map((tab) => {
+      const key = `${state.sessionId}\0${tab.id}`;
+      if (!tab.thumbnail) return tab;
+      next.set(key, tab.thumbnail);
+      if (forwarded.get(key) !== tab.thumbnail) return tab;
+      const { thumbnail: _thumbnail, thumbnailVersion: _version, ...rest } = tab;
+      return rest;
+    });
+    for (const key of forwarded.keys()) if (key.startsWith(`${state.sessionId}\0`)) forwarded.delete(key);
+    forwarded = new Map([...forwarded, ...next]);
+    return { ...state, tabs };
+  };
   return {
     /** One change from main; returns the client-safe event to forward. */
     apply(value: unknown): DesktopVisualizeEvent | null {
@@ -79,7 +99,7 @@ export function createRemoteVisualizeMirror() {
       if (!state && !openUrl) return null;
       return {
         sessionId,
-        ...(state ? { state: remoteVisualizeState({ ...state, sessionId }) } : {}),
+        ...(state ? { state: withoutRepeatedThumbnails(remoteVisualizeState({ ...state, sessionId })) } : {}),
         ...(event.reveal === true ? { reveal: true } : {}),
         ...(event.reveal === true && typeof event.tab === 'string' && event.tab ? { tab: event.tab } : {}),
         ...(state && typeof event.updated === 'string' && event.updated ? { updated: event.updated } : {}),
@@ -232,6 +252,22 @@ export function createRemoteVisualizeMethods(deps: {
       const root = await realpath(rootOf(tab, pane));
       const rel = relative(root, pane.path).split(sep).join('/');
       const served = await servedFile(tab, rel, deps.invokeDesktopOperation, pane);
+      if (pane.kind === 'html') {
+        // A page's content identity (its root's version + the bytes' hash)
+        // keys the device's page cache.
+        // A page larger than a client builds gets none.
+        const page = await authorizedFileDigest(served.absolute, served.within, REMOTE_PAGE_MAX_BYTES);
+        return {
+          kind: pane.kind,
+          mime: served.mime,
+          size: page.size,
+          mtimeMs: page.mtimeMs,
+          rel,
+          ...(page.sha256
+            ? { contentId: `${pane.version === undefined ? 'live' : `v${pane.version}`}:${page.sha256}` }
+            : {}),
+        };
+      }
       // Media also gets a lease the encrypted media lane streams (seekable,
       // no whole-file read); a client without the lane reads ranges.
       const streamable = pane.kind === 'image' || pane.kind === 'audio' || pane.kind === 'video';

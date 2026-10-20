@@ -144,10 +144,31 @@ function approvalPreviewPaths(snapshot: SessionSnapshot): string[] {
   });
 }
 
+/** Host paths of the files a task report returned (`routine.files`, written
+ *  by the runtime after its own containment check, never by a model): the
+ *  path links its row draws. */
+function returnedFilePaths(snapshot: SessionSnapshot): string[] {
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+  return items.flatMap((item) => {
+    const routine = item?.kind === 'notice' ? recordOf(item.routine) : null;
+    if (routine?.kind !== 'task' || !Array.isArray(routine.files)) return [];
+    return routine.files.flatMap((file) => {
+      const path = recordOf(file)?.path;
+      return typeof path === 'string' && isAbsolute(path) && !NETWORK_PATH.test(path) ? [resolve(path)] : [];
+    });
+  });
+}
+
 /** Every absolute host path the session's settled assistant rows link, plus
- *  its pending approval's preview images. */
+ *  its pending approval's preview images and its task reports' returned files. */
 export function sessionLinkedPaths(snapshot: SessionSnapshot, cwd: string): string[] {
-  return [...new Set([...approvalPreviewPaths(snapshot), ...assistantLinkedPaths(snapshot, cwd)])];
+  return [
+    ...new Set([
+      ...approvalPreviewPaths(snapshot),
+      ...assistantLinkedPaths(snapshot, cwd),
+      ...returnedFilePaths(snapshot),
+    ]),
+  ];
 }
 
 /** Most strings of one tool row scanned, and paths kept for one session. */
@@ -255,7 +276,8 @@ const ATTACHMENT_ID = /^[a-f0-9]{64}$/;
 
 /** The attachments the session's USER rows carry, by content hash: the
  *  message metadata's `attachments` and, for rows sent before that was
- *  recorded, the images' own `attachmentRef` / `imageRefs`. Nothing else in a
+ *  recorded, the images' own `attachmentRef` / `imageRefs`; plus the files a
+ *  task report or a member's room speech returned. Nothing else in a
  *  transcript names an attachment the host will serve. */
 export function sessionAttachments(snapshot: SessionSnapshot): Map<string, SessionAttachment> {
   const found = new Map<string, SessionAttachment>();
@@ -271,7 +293,13 @@ export function sessionAttachments(snapshot: SessionSnapshot): Map<string, Sessi
     });
   };
   for (const item of items) {
-    if (item?.kind !== 'user') continue;
+    // The runtime's own rows that return files a bot or agent produced: a task
+    // report (`routine.kind: 'task'`) and a member's room speech.
+    const returned =
+      item?.kind === 'notice' &&
+      ((item.routine as Record<string, unknown> | undefined)?.kind === 'task' ||
+        (item.room as Record<string, unknown> | undefined)?.kind === 'speech');
+    if (item?.kind !== 'user' && !returned) continue;
     for (const entry of Array.isArray(item.attachments) ? (item.attachments as Array<Record<string, unknown>>) : []) {
       add(entry?.id, entry as Partial<SessionAttachment>);
     }

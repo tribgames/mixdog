@@ -1,4 +1,5 @@
 import { type Dispatch, type SetStateAction, useCallback, useState } from 'react';
+import { alertAction, confirmAction } from './app-confirm';
 import { t } from './i18n';
 import type { StudioCleanupRequest } from './studio-cleanup';
 import { removeStudioAssetReferences, type StudioReferenceStore } from './studio-draft-cache';
@@ -62,10 +63,10 @@ export function useStudioSelection({
         | undefined;
       const ids = Array.isArray(preview?.ids) ? preview.ids : [];
       if (!ids.length) {
-        window.alert(t('No items to delete.'));
+        await alertAction(t('No items to delete.'));
         return;
       }
-      if (!window.confirm(confirmText(ids.length))) return;
+      if (!(await confirmAction(confirmText(ids.length), { danger: true, confirmLabel: t('Delete') }))) return;
       const result = (await callCapability(api, 'deleteMediaAssets', [{ ids }])) as { ids?: string[] } | undefined;
       const removed = Array.isArray(result?.ids) ? result.ids : [];
       const gone = new Set(removed);

@@ -21,6 +21,7 @@ import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItem
 import type { TranscriptItem } from './desktop-types';
 import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
+import { localizeRouteFallbackNotice } from './error-notice-copy';
 import { VISUALIZE_TWEAKS_MARK } from './visualize-feedback-store';
 import MarkdownBody from './MarkdownBody';
 import {
@@ -39,6 +40,7 @@ import { usePacedTranscriptText } from './use-paced-transcript-text';
 import { type BackgroundWorkCounts, CompletionStatus } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
 import { ToolCard } from './transcript-tool-ui';
+import { SteerStatus } from './transcript-steer-status';
 import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -159,18 +161,39 @@ function stripImageTokens(text: string): string {
     .trim();
 }
 
+/** The runtime spells an image part as a bare `[Image]` line in a prompt's
+ *  display text (the model and the terminal read it so). A row that draws the
+ *  images as thumbnails drops those lines instead of repeating them as words. */
+function stripImagePlaceholders(text: string): string {
+  if (!text.includes('[Image]')) return text;
+  return text
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '[Image]')
+    .join('\n')
+    .trim();
+}
+
 interface PastedTextChip {
   name: string;
   token: string;
-  lines: number;
+  /** Null when the count is unknown. */
+  lines: number | null;
 }
 
 function extractPastedTextMarkers(text: string): { text: string; chips: PastedTextChip[] } {
   const chips: PastedTextChip[] = [];
-  const stripped = String(text || '').replace(/ ?(\[Pasted text #\d+ \+(\d+) lines\]) ?/g, (_match, token, lines) => {
-    chips.push({ name: `Pasted text · ${lines} lines`, token, lines: Number(lines) });
-    return ' ';
-  });
+  // A restored paste whose line count was not worked out reads `[Pasted text #n]`.
+  const stripped = String(text || '').replace(
+    / ?(\[Pasted text #\d+(?: \+(\d+) lines)?\]) ?/g,
+    (_match, token, lines) => {
+      chips.push(
+        lines === undefined
+          ? { name: 'Pasted text', token, lines: null }
+          : { name: `Pasted text · ${lines} lines`, token, lines: Number(lines) }
+      );
+      return ' ';
+    }
+  );
   if (chips.length === 0) return { text, chips };
   const cleaned = stripped
     .split(/\r?\n/)
@@ -543,7 +566,7 @@ function SentAttachments({
             kind="pasted"
             name={chip.name}
             content={stored.kind === 'pasted-text' ? stored.text : undefined}
-            meta={t('{{count}} lines', { count: chip.lines })}
+            meta={chip.lines === null ? undefined : t('{{count}} lines', { count: chip.lines })}
             menu={menuProps(() => ({ ...sentPastedTextSource(chip.token, chip.name, item.id), stored: hostFile }))}
           />
         );
@@ -573,6 +596,62 @@ function SentAttachments({
           />
         );
       })}
+    </div>
+  );
+}
+
+/** The files a bot's or agent's turn returned (a task report, a member's room
+ *  speech), from the row's stored attachment records: images as thumbnails,
+ *  the rest as file cards that open from the store. */
+export function ReturnedAttachments({ records }: { records: TranscriptItem['attachments'] }) {
+  const session = useContext(MarkdownSessionContext);
+  const openFile = useContext(MarkdownOpenFileContext);
+  const { menuProps, menuElement } = useAttachmentContextMenu(openFile);
+  const list = Array.isArray(records) ? records : [];
+  if (!list.length) return null;
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
+    <div className="message-attachments" role="group" aria-label={t('Attachments')}>
+      {list.map((record) => {
+        if (record.kind === 'image') {
+          return (
+            <SentImageCard
+              key={record.id}
+              session={session}
+              attachmentRef={record.id}
+              name={record.name}
+              menuProps={menuProps}
+            />
+          );
+        }
+        const kind = record.kind === 'text' ? 'text-file' : record.mimeType === 'application/pdf' ? 'pdf' : 'office';
+        const source = { kind, name: record.name, stored: storedAttachmentRef(session, record.id) } as const;
+        return (
+          <AttachmentCard
+            key={record.id}
+            kind={kind === 'text-file' ? 'text' : kind}
+            name={record.name}
+            menu={menuProps(source)}
+            onOpen={() => openAttachmentSource(source, openFile)}
+          />
+        );
+      })}
+      {menuElement}
+    </div>
+  );
+}
+
+/** The returned files no attachment could carry (too large, or a type no
+ *  prompt takes, such as a video): links to their paths, drawn as file chips. */
+function ReturnedFileLinks({ files }: { files: unknown }) {
+  const links = (Array.isArray(files) ? files : [])
+    .map((file) => asRecord(file))
+    .filter((file) => file && !file.id && typeof file.path === 'string' && file.path)
+    .map((file) => `- [${String(file?.name || 'file').replace(/[[\]]/g, '')}](<${String(file?.path)}>)`);
+  if (!links.length) return null;
+  return (
+    <div className="message-body">
+      <MarkdownBody text={links.join('\n')} copyControl={CopyControl} />
     </div>
   );
 }
@@ -635,12 +714,28 @@ export const TranscriptRow = memo(
       return <CompletionStatus item={item} backgroundWork={backgroundWork} />;
     }
     if (item.kind === 'notice') {
-      if (item.room) return <RoomTranscriptRow item={item} />;
+      if (item.room) {
+        return (
+          <>
+            <RoomTranscriptRow item={item} />
+            {/* The files a member's turn produced, under its speech. */}
+            {item.room.kind === 'speech' ? <ReturnedAttachments records={item.attachments} /> : null}
+          </>
+        );
+      }
       // A held request of an unattended run waits as an approval card.
       const held = asRecord(item.heldRequest);
       if (held?.status === 'pending') return <HeldRequestCard held={held} sessionId={sessionScope} />;
       const task = asRecord(item.routine);
-      if (task?.kind === 'task') return <AgentTaskLine routine={task} />;
+      if (task?.kind === 'task') {
+        return (
+          <>
+            <AgentTaskLine routine={task} />
+            <ReturnedAttachments records={item.attachments} />
+            <ReturnedFileLinks files={task.files} />
+          </>
+        );
+      }
       const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
       const routine = routineNoticeText(item.routine);
       return (
@@ -648,7 +743,7 @@ export const TranscriptRow = memo(
           {routine ??
             (item.text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.'
               ? t('The model refused to respond (safety refusal) — retry or rephrase your prompt.')
-              : item.text)}
+              : (localizeRouteFallbackNotice(String(item.text || '')) ?? item.text))}
         </div>
       );
     }
@@ -685,7 +780,8 @@ export const TranscriptRow = memo(
     const attachedImages = user && Array.isArray(item.images) ? item.images : [];
     const imageMarkers = user ? extractImageMarkers(text) : { text, chips: [] };
     const markerChips = attachedImages.length > 0 ? [] : imageMarkers.chips;
-    const userDisplayText = attachedImages.length > 0 ? stripImageTokens(imageMarkers.text) : imageMarkers.text;
+    const userDisplayText =
+      attachedImages.length > 0 ? stripImagePlaceholders(stripImageTokens(imageMarkers.text)) : imageMarkers.text;
     const pastedFold = user
       ? extractPastedTextMarkers(userDisplayText)
       : { text: userDisplayText, chips: [] as PastedTextChip[] };
@@ -752,6 +848,7 @@ export const TranscriptRow = memo(
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
           )}
+          {user && <SteerStatus item={item} />}
           {showFooter && completion && (
             // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.
             <footer className="response-footer" role="group" aria-label={t('Response details')}>

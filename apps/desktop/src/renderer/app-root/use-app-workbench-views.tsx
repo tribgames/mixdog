@@ -423,19 +423,6 @@ export function useAppWorkbenchViews({
         onOpenPullRequest={closingDrawerFirst(closeDrawer, dockOpenPullRequest)}
         onOpenLeadSession={closingDrawerFirst(closeDrawer, dockOpenLeadSession)}
         onOpenAgentSession={closingDrawerFirst(closeDrawer, dockOpenAgentSession)}
-        agentsPageFocus={
-          // Only once startup restore settled: a fresh start must not race
-          // the restored tabs.
-          tab === 'agents' && side === 'left' && !pane && desktopBootReady
-            ? {
-                focused: dockSelection ?? null,
-                focusedTabCount: dockLeaf?.tabs.length ?? 0,
-                openSessionIds: paneWorkspace.leaves.flatMap((leaf) =>
-                  leaf.tabs.flatMap((paneTab) => (paneTab.kind === 'session' ? [paneTab.id] : []))
-                ),
-              }
-            : null
-        }
       />
     );
   };

@@ -17,6 +17,7 @@ export function RouteChainEditor({
   disabled,
   composerParity,
   label,
+  fallbacks: allowFallbacks = true,
   onChange,
 }: {
   route: RecordValue;
@@ -24,14 +25,16 @@ export function RouteChainEditor({
   disabled: boolean;
   composerParity: boolean;
   label: string;
+  /** false for single-model routes (Lead): no fallback UI, and the saved value is a plain selection. */
+  fallbacks?: boolean;
   onChange(route: RecordValue): void;
 }) {
-  const rows = routeChain(route);
+  const rows = allowFallbacks ? routeChain(route) : routeChain(route).slice(0, 1);
   const list = useRef<HTMLDivElement>(null);
   const grabbed = useRef<number | null>(null);
   const save = (next: RecordValue[]) => {
     const [primary, ...fallbacks] = next;
-    onChange({ ...primary, fallbacks });
+    onChange(allowFallbacks ? { ...primary, fallbacks } : primary);
   };
   const move = (from: number, to: number) => {
     if (disabled || to < 0 || to >= rows.length || from === to) return;
@@ -53,18 +56,20 @@ export function RouteChainEditor({
       <header className="route-chain-heading">
         <div className="schedules-field">
           <span>{t('Model')}</span>
-          <small>{t('The first model is used first. If it fails, the next model is used.')}</small>
+          {allowFallbacks && <small>{t('The first model is used first. If it fails, the next model is used.')}</small>}
         </div>
-        <button
-          type="button"
-          className="route-chain-add"
-          disabled={disabled || !canAdd}
-          aria-label={t('Add fallback model')}
-          title={t('Add fallback model')}
-          onClick={() => save([...rows, {}])}
-        >
-          <Plus size={14} aria-hidden="true" />
-        </button>
+        {allowFallbacks && (
+          <button
+            type="button"
+            className="route-chain-add"
+            disabled={disabled || !canAdd}
+            aria-label={t('Add fallback model')}
+            title={t('Add fallback model')}
+            onClick={() => save([...rows, {}])}
+          >
+            <Plus size={14} aria-hidden="true" />
+          </button>
+        )}
       </header>
       <ol className="route-chain-list">
         {rows.map((entry, index) => (
@@ -74,44 +79,46 @@ export function RouteChainEditor({
             key={index}
             data-route-index={index}
           >
-            <button
-              type="button"
-              className="route-chain-handle"
-              disabled={disabled || rows.length < 2}
-              aria-label={t('Reorder model {{number}}', { number: index + 1 })}
-              title={t('Drag or use Alt + arrow keys to reorder')}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                grabbed.current = index;
-                event.currentTarget.setPointerCapture(event.pointerId);
-              }}
-              onPointerMove={(event) => {
-                if (grabbed.current === null) return;
-                const elements = list.current?.querySelectorAll<HTMLElement>('.route-chain-row');
-                elements?.forEach((element, target) => {
-                  const rect = element.getBoundingClientRect();
-                  if (event.clientY >= rect.top && event.clientY < rect.bottom && grabbed.current !== null)
-                    move(grabbed.current, target);
-                });
-              }}
-              onPointerUp={() => {
-                grabbed.current = null;
-              }}
-              onPointerCancel={() => {
-                grabbed.current = null;
-              }}
-              onLostPointerCapture={() => {
-                grabbed.current = null;
-              }}
-              onKeyDown={(event) => {
-                if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-                event.preventDefault();
-                move(index, index + (event.key === 'ArrowUp' ? -1 : 1));
-                grabbed.current = null;
-              }}
-            >
-              <GripVertical size={14} aria-hidden="true" />
-            </button>
+            {allowFallbacks && (
+              <button
+                type="button"
+                className="route-chain-handle"
+                disabled={disabled || rows.length < 2}
+                aria-label={t('Reorder model {{number}}', { number: index + 1 })}
+                title={t('Drag or use Alt + arrow keys to reorder')}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  grabbed.current = index;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={(event) => {
+                  if (grabbed.current === null) return;
+                  const elements = list.current?.querySelectorAll<HTMLElement>('.route-chain-row');
+                  elements?.forEach((element, target) => {
+                    const rect = element.getBoundingClientRect();
+                    if (event.clientY >= rect.top && event.clientY < rect.bottom && grabbed.current !== null)
+                      move(grabbed.current, target);
+                  });
+                }}
+                onPointerUp={() => {
+                  grabbed.current = null;
+                }}
+                onPointerCancel={() => {
+                  grabbed.current = null;
+                }}
+                onLostPointerCapture={() => {
+                  grabbed.current = null;
+                }}
+                onKeyDown={(event) => {
+                  if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                  event.preventDefault();
+                  move(index, index + (event.key === 'ArrowUp' ? -1 : 1));
+                  grabbed.current = null;
+                }}
+              >
+                <GripVertical size={14} aria-hidden="true" />
+              </button>
+            )}
             <ModelRouteEditor
               ariaLabel={`${label} ${index + 1}`}
               disabled={disabled}
@@ -145,7 +152,7 @@ export function RouteChainEditor({
       {rows.length > 1 && !routeChainComplete(route) && (
         <small className="route-chain-hint">{t('Fallback models must use different providers.')}</small>
       )}
-      {!hasAvailableProvider && (
+      {allowFallbacks && !hasAvailableProvider && (
         <small className="route-chain-unavailable" role="status">
           {t('No other providers are available to add.')}
         </small>

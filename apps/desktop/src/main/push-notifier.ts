@@ -14,6 +14,7 @@ import { encryptWebPushPayload, sendWebPush } from './web-push';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import type { DesktopSessionStateUpdate } from '../shared/contract-session';
 import type { SessionFinalAnswer } from './session-final-answer';
+import { sessionTitleLabel } from '../shared/session-title.mjs';
 
 type PushReason = NativePushReason;
 
@@ -137,11 +138,14 @@ const VAPID_SUBJECT = 'mailto:support@tribgames.com';
 
 export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   const deliver = async (
-    completion: TurnCompletion,
+    turn: TurnCompletion,
     reason: PushReason = 'turn-finished',
     showWhenForeground = false,
     approvalId?: string
   ): Promise<void> => {
+    // An attachment-only title (`[Image]` …) goes out as its kind's label.
+    // This process has no UI language (see the body below): English.
+    const completion = { ...turn, title: sessionTitleLabel(turn.title) };
     // A muted agent's pushes are all silenced (agent-notification-mute.ts);
     // nothing in-app depends on this path.
     if (options.isSessionMuted?.(completion.sessionId)) {

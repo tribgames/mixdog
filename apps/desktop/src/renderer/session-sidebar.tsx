@@ -5,6 +5,7 @@ import {
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { projectIdentity } from './project-catalog-cache';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import type { NavigationSelection } from './nav-types';
 import { RECENT_SESSION_INITIAL_ROWS, RECENT_SESSION_PAGE_ROWS, useSidebarListScroll } from './session-sidebar-scroll';
@@ -56,7 +57,7 @@ import { ScmContextMenu } from './ScmContextMenu';
 import type { ProjectSessionGroup } from './session-sidebar-sections';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { useStableEvent } from './use-stable-event';
-import { useSidebarAgents } from './session-sidebar-agents';
+import { listsAsSession, useSidebarAgents } from './session-sidebar-agents';
 import type { AgentContact } from './agent-contacts-model';
 import { agentContactMenuItems, agentRoomMenuItems, restoreAgent } from './agent-profile-actions';
 import type { SidebarRoomRow } from './session-sidebar-agents';
@@ -248,7 +249,8 @@ function useSessionEditor(
 function useSessionOrdering(
   sessions: readonly DesktopSessionSummary[],
   hasSessionSurface: boolean,
-  showAgents: boolean
+  showAgents: boolean,
+  contactHomeIds: ReadonlySet<string> | null
 ) {
   const allRows = useMemo(
     () =>
@@ -256,9 +258,9 @@ function useSessionOrdering(
         ? []
         : sessions
             .filter((session) => showAgents || !session.agentSession)
-            // A live agent home thread is that agent's contact (Agents pane);
-            // only an archived one, whose agent is gone, lists here.
-            .filter((session) => !session.agentHome || session.archived)
+            // A live contact's home thread is its row on the Agents pane; an
+            // archived one, or one whose agent is no contact (anymore), lists here.
+            .filter((session) => listsAsSession(session, contactHomeIds))
             // So is a group room (its row sits under the contacts) and,
             // always, a room member's own session.
             .filter((session) => !roomIdOfSession(session.id) || session.archived)
@@ -269,7 +271,7 @@ function useSessionOrdering(
               const rightActivityAt = Number(right.activityAt) || right.updatedAt;
               return rightActivityAt - leftActivityAt || left.id.localeCompare(right.id);
             }),
-    [hasSessionSurface, sessions, showAgents]
+    [hasSessionSurface, sessions, showAgents, contactHomeIds]
   );
   const [orderPrefs, setOrderPrefs] = useState(readOrderPrefs);
   const [customOrders, setCustomOrders] = useState(readCustomOrders);
@@ -653,7 +655,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     // A deleted bot's archived chat goes for good with the bot: asked in plain words.
     const row = sessions.find((session) => session.id === sessionId);
     if (row?.agentDeleted === true) {
-      if (window.confirm(permanentBotDeleteMessage(sessionLabel(row)))) void onDeleteSession(sessionId).catch(() => {});
+      void confirmAction(permanentBotDeleteMessage(sessionLabel(row)), {
+        key: `bot-delete-forever:${sessionId}`,
+        danger: true,
+        confirmLabel: t('Delete'),
+      }).then((approved) => {
+        if (approved) return onDeleteSession(sessionId).catch(() => {});
+      });
       return;
     }
     guardBusy(
@@ -666,6 +674,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
   const { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize } = useSidebarWidth();
   const { showAgents, updateShowAgents } = useSidebarSessionFilter();
+  const agents = useSidebarAgents(sessions, unreadSessionIds, open && hasSessionSurface, onOpenAgent);
   const {
     allRows,
     orderPrefs,
@@ -676,9 +685,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     rows,
     updateOrderPrefs,
     updateCustomOrders,
-  } = useSessionOrdering(sessions, hasSessionSurface, showAgents);
+  } = useSessionOrdering(sessions, hasSessionSurface, showAgents, agents.contactHomeIds);
   const openState = useSidebarOpenState(allRows);
-  const agents = useSidebarAgents(sessions, unreadSessionIds, open && hasSessionSurface, onOpenAgent);
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived), [allRows]);
   const automationRows = useMemo(
     () => openState.automationGroups.flatMap(({ runs }) => runs),

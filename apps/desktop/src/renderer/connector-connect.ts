@@ -425,7 +425,6 @@ export async function connectCatalogConnector(
   // Neither: the connector's first server, as before.
   { add = false, server: target = '' }: { add?: boolean; server?: string } = {}
 ): Promise<void> {
-  if (entry.backend.kind === 'builtin') throw new Error(`${entry.name} is a built-in feature`);
   const placeholder = placeholderKey(entry.id);
   let viaOAuth = entry.backend.kind === 'oauth' && !appPassword;
   const starting: ConnectorLoginState = {

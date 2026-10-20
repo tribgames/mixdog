@@ -23,7 +23,7 @@ export function GithubDetail({
   item: GithubRecord;
   comments: GithubRecord[];
   busy: boolean;
-  onAction(input: Partial<GithubRequest> & Pick<GithubRequest, 'action'>): void;
+  onAction(input: Partial<GithubRequest> & Pick<GithubRequest, 'action'>, label: string, danger?: boolean): void;
   onForm(input: Partial<GithubRequest> & Pick<GithubRequest, 'action'>): void;
   onLogs(): void;
   onClose(): void;
@@ -31,8 +31,8 @@ export function GithubDetail({
   const number = Number(item.number);
   const id = Number(item.id);
   const url = githubItemUrl(item);
-  const action = (label: string, input: Parameters<typeof onAction>[0]) => (
-    <button type="button" disabled={busy} onClick={() => onAction(input)}>
+  const action = (label: string, input: Parameters<typeof onAction>[0], danger = false) => (
+    <button type="button" disabled={busy} onClick={() => onAction(input, t(label), danger)}>
       {t(label)}
     </button>
   );
@@ -99,7 +99,7 @@ export function GithubDetail({
             </button>
             {item.state === 'closed'
               ? action('Reopen issue', { action: 'issue.reopen', number })
-              : action('Close issue', { action: 'issue.close', number })}
+              : action('Close issue', { action: 'issue.close', number }, true)}
           </>
         )}
         {section === 'actions' && (
@@ -109,7 +109,7 @@ export function GithubDetail({
             </button>
             {action('Re-run all jobs', { action: 'run.rerun', id })}
             {action('Re-run failed jobs', { action: 'run.rerun', id, failed: true })}
-            {item.status !== 'completed' && action('Cancel run', { action: 'run.cancel', id })}
+            {item.status !== 'completed' && action('Cancel run', { action: 'run.cancel', id }, true)}
           </>
         )}
         {section === 'workflows' && (

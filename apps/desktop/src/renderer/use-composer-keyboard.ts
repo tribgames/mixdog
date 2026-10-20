@@ -85,14 +85,11 @@ interface ComposerKeyboardOptions {
     attachmentsRef: RefObject<ComposerAttachment[]>;
     replaceAttachments(attachments: ComposerAttachment[]): void;
   };
-  queue: {
-    pendingSubmissionId: string;
-    hasRestorableMessages(): boolean;
-    restore(source: DesktopRendererComposerActionDiagnostic['source']): void;
-  };
   runtime: {
     turnBusy: boolean;
     draftMode?: boolean;
+    /** The prompt this pane sent last that has not settled yet. */
+    pendingSubmissionId: string;
     attachments: ComposerAttachment[];
     escapeClearAt: RefObject<number>;
     showNotice(message: string): void;
@@ -115,7 +112,6 @@ export function useComposerKeyboard({
   skillMention,
   selector,
   history,
-  queue,
   runtime,
   ime,
   actions,
@@ -332,11 +328,13 @@ export function useComposerKeyboard({
       const escapeIntent = classifyPromptEscape({
         interruptActive: shouldInterruptPrompt({
           turnBusy: runtime.turnBusy,
-          pendingSubmissionId: queue.pendingSubmissionId,
+          pendingSubmissionId: runtime.pendingSubmissionId,
           draftMode: runtime.draftMode,
         }),
         hasSelection: element.selectionStart !== element.selectionEnd,
-        hasQueuedMessages: queue.hasRestorableMessages(),
+        // Messages sent behind a turn live in the transcript, not a queue
+        // the editor takes back.
+        hasQueuedMessages: false,
         hasMessages: selector.messages.length > 0,
         value: draft.value || (runtime.attachments.length ? 'attachment' : ''),
         lastClearPressAt: runtime.escapeClearAt.current,
@@ -346,15 +344,12 @@ export function useComposerKeyboard({
         event.preventDefault();
         void actions.stop(
           Boolean(draft.value || runtime.attachments.length),
-          runtime.turnBusy ? '' : queue.pendingSubmissionId
+          runtime.turnBusy ? '' : runtime.pendingSubmissionId
         );
       } else if (escapeIntent.action === 'collapse-selection') {
         event.preventDefault();
         const end = element.selectionEnd;
         window.setTimeout(() => element.setSelectionRange(end, end), 0);
-      } else if (escapeIntent.action === 'restore-queue') {
-        event.preventDefault();
-        queue.restore('escape');
       } else if (escapeIntent.action === 'arm-clear') {
         event.preventDefault();
         runtime.showNotice(t('Esc again to clear'));
@@ -376,7 +371,7 @@ export function useComposerKeyboard({
         selector.openSelector();
       }
     },
-    [actions, draft, history, queue, runtime, selector]
+    [actions, draft, history, runtime, selector]
   );
 
   const onKeyDown = useCallback(
@@ -441,7 +436,6 @@ export function useComposerKeyboard({
         handleEscape(event);
         return;
       }
-      const queueAvailable = queue.hasRestorableMessages();
       const historyIntent = shouldNavigatePromptHistory({
         key: event.key,
         value: draft.value,
@@ -452,13 +446,7 @@ export function useComposerKeyboard({
         metaKey: event.metaKey,
         altKey: event.altKey,
         historyActive: history.navigation.current.index >= 0,
-        allowNonEmpty: event.key === 'ArrowUp' && queueAvailable,
       });
-      if (event.key === 'ArrowUp' && historyIntent && !event.altKey && queueAvailable) {
-        event.preventDefault();
-        queue.restore('arrow-up');
-        return;
-      }
       if (event.key === 'ArrowUp' && historyIntent && history.entries.length) {
         event.preventDefault();
         const navigation = history.navigation.current;
@@ -502,7 +490,6 @@ export function useComposerKeyboard({
       navigateMessageSelector,
       navigateSkillMentionPalette,
       navigateSlashPalette,
-      queue,
       runtime,
     ]
   );

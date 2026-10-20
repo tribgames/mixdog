@@ -31,7 +31,7 @@
 .mx-chat-intro > b {
   color: var(--mx-text);
   font-size: 17px;
-  font-weight: 600;
+  font-weight: var(--mx-weight-semibold);
   line-height: 24px;
 }
 .mx-chat-intro > span {
@@ -60,6 +60,9 @@
 html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   --mx-chat-face: 32px;
   --mx-agent-bubble-max: 86%;
+  /* Bubbles sit 16px in from the composer bar's edge like the PC thread; the
+     coding transcript's 12 + 12 text inset left a 24px gutter. */
+  --transcript-text-inset: 4px;
 }
 .mx-chat-day {
   display: flex;
@@ -71,8 +74,8 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: color-mix(in srgb, var(--mx-text) 7%, transparent);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--mx-font-micro);
+  line-height: var(--mx-line-meta);
 }
 .mx-chat-row {
   display: flex;
@@ -109,9 +112,9 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-chat-name {
   margin: 0 0 1px 2px;
   color: var(--mx-text-soft);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 18px;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-meta);
 }
 .mx-chat-line {
   display: flex;
@@ -129,9 +132,9 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-chat-time {
   flex: none;
   color: var(--mx-text-muted);
-  font-size: 12px;
+  font-size: var(--mx-font-micro);
   font-variant-numeric: tabular-nums;
-  line-height: 16px;
+  line-height: var(--mx-line-meta);
   white-space: nowrap;
 }
 /* The bubbles: the same message rows, framed. */
@@ -159,7 +162,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   position: relative;
   padding: 8px 12px;
   border-radius: var(--mx-radius-xl);
-  line-height: 22px;
+  line-height: var(--mx-line-body, 24px);
   overflow-wrap: anywhere;
 }
 .mx-chat-row[data-side="agent"] .message.assistant > .message-body {
@@ -205,7 +208,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 }
 /* A turn's changed files: coding mode's card in the bubble column, as wide
    as the visualize card above it (transcript-visualize-card.css). The turn's
-   stack — reply, visualize cards, this card — is spaced by the transcript's
+   stack — reply, visualize card, this card — is spaced by the transcript's
    8px part step; the turn gap follows the stack. */
 .mx-chat-row .turn-changes-card {
   box-sizing: border-box;
@@ -219,7 +222,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   width: var(--mx-agent-bubble-max);
   max-width: 100%;
   color: var(--mx-text-muted);
-  font-size: 12px;
+  font-size: var(--mx-font-micro);
 }
 .mx-routine-trigger-head {
   display: flex;
@@ -241,7 +244,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 }
 .mx-routine-trigger-name > strong {
   overflow: hidden;
-  font-weight: 600;
+  font-weight: var(--mx-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -256,7 +259,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   padding: 8px 12px;
   border-left: 2px solid var(--mx-border-muted);
   color: var(--mx-text-soft);
-  font-size: 13px;
+  font-size: var(--mx-font-meta);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 320px;
@@ -279,7 +282,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-soft);
   background: var(--mx-hover);
-  font-size: 12px;
+  font-size: var(--mx-font-micro);
   line-height: 18px;
 }
 .mx-routine-chip[data-status="failed"],
@@ -296,7 +299,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-routine-time {
   flex: none;
   color: var(--mx-text-muted);
-  font-size: 12px;
+  font-size: var(--mx-font-micro);
   font-variant-numeric: tabular-nums;
 }
 .mx-routine-older {
@@ -313,7 +316,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   color: var(--mx-text-muted);
   background: none;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--mx-font-micro);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -375,7 +378,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   color: var(--mx-text-soft);
   background: none;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--mx-font-micro);
   cursor: pointer;
 }
 .mx-routine-foot {
@@ -397,7 +400,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   color: var(--mx-text);
   background: var(--mx-hover);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--mx-font-meta);
   cursor: pointer;
 }
 .mx-routine-action[data-quiet] {
@@ -418,7 +421,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   align-items: center;
   gap: 6px;
   color: var(--mx-text-muted);
-  font-size: 13px;
+  font-size: var(--mx-font-meta);
   line-height: 18px;
   opacity: 0.85;
 }
@@ -435,20 +438,6 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   color: var(--mx-text);
   text-decoration: underline;
 }
-/* A task session an agent created, under its contact (agent-task-line.tsx). */
-.agent-task-row > button {
-  width: 100%;
-  padding: 2px 12px 2px 64px;
-  border: 0;
-  background: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.agent-task-row > button:hover,
-.agent-task-row > button:focus-visible {
-  color: var(--mx-text);
-}
 /* The typing bubble stands where the reply will land: under an earlier
    bubble it takes the reply's own 8px part step (12-transcript.css), not
    coding mode's 16px status-slot lead, so the reply replaces it in place. */
@@ -461,7 +450,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  height: var(--mx-line-body, 24px);
   color: var(--mx-text-muted);
   /* Top-aligned, the dots fill one 22px line exactly (on the baseline they
      made it 24): the bubble is as tall as the one-line reply replacing it. */
@@ -471,7 +460,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
    bare "## ") keeps one line, the typing bubble's height: it collapsed to its
    16px padding and the followed transcript dropped 16px at every reply start. */
 .mx-chat-row[data-side="agent"] .message.assistant.streaming > .message-body {
-  min-height: calc(22px + 2 * 8px);
+  min-height: calc(var(--mx-line-body, 24px) + 2 * 8px);
 }
 .mx-chat-dots > i {
   width: 6px;
@@ -531,8 +520,12 @@ html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer) {
 
 /* ── Composer: one-line messenger bar ──
    The single source of the bar on PC: the agent composer everywhere, and the
-   coding composer on PC (phones keep their own rows). */
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) {
+   coding composer on phone and PC alike. */
+:is(
+  .composer[data-chat-mode="agent"],
+  html:not([data-mixdog-mobile-tabs]) .composer,
+  html[data-mixdog-mobile-tabs] .composer
+) {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
@@ -544,26 +537,50 @@ html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer) {
   /* The coding composer's own card corner, not a pill. */
   border-radius: var(--mx-radius-sheet);
 }
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer)
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
   > :not(.composer-input-row, .composer-footer) {
   flex: 0 0 100%;
   order: -1;
 }
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) > .composer-input-row {
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
+  > .composer-input-row {
   display: flex;
   flex: 1 1 0;
   align-items: center;
   order: 1;
   min-width: 0;
 }
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) > .composer-footer {
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
+  > .composer-footer {
   display: contents;
 }
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) .composer-text-field {
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
+  .composer-text-field {
   flex: 1 1 auto;
   min-width: 0;
 }
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) textarea {
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
+  textarea {
   min-height: 42px;
   /* The empty bar is 42px at every chat text size: the vertical padding gives
      back what the scaled line grows past 24px (24 + 2*9 = 42), never below 0.
@@ -578,20 +595,34 @@ html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer) {
    their own size (15-composer.css, 23-route-editor.css); only their place
    changes: bottom-aligned, the same inset from the pill's edges, so a
    growing draft keeps them on the last line. */
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer)
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
   > .composer-footer
   > .composer-tool {
   order: 0;
   margin: var(--mx-chat-bar-inset) 0 var(--mx-chat-bar-inset) var(--mx-chat-bar-inset);
   border-radius: var(--mx-radius-pill);
 }
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) .composer-primary-actions {
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
+  .composer-primary-actions {
   order: 2;
   align-items: center;
   gap: 2px;
   margin: var(--mx-chat-bar-inset) var(--mx-chat-bar-inset) var(--mx-chat-bar-inset) 0;
 }
-:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) .composer-mic {
+:is(
+    .composer[data-chat-mode="agent"],
+    html:not([data-mixdog-mobile-tabs]) .composer,
+    html[data-mixdog-mobile-tabs] .composer
+  )
+  .composer-mic {
   margin-right: 0;
 }
 .mx-chat-tag {
@@ -603,17 +634,17 @@ html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer) {
   color: #9fd2ff;
   background: color-mix(in srgb, var(--mx-accent) 18%, transparent);
   font: inherit;
-  font-weight: 600;
+  font-weight: var(--mx-weight-semibold);
   line-height: 22px;
   cursor: pointer;
 }
 /* The phone's 44px touch discs (07-mobile-chrome.css) sit 6px in a 56px pill. */
-html[data-mixdog-mobile-tabs] .composer[data-chat-mode="agent"] {
+html[data-mixdog-mobile-tabs] .composer.composer {
   --mx-chat-bar-inset: 6px;
   min-height: 56px;
   border-radius: var(--mx-radius-sheet);
 }
-html[data-mixdog-mobile-tabs] .composer[data-chat-mode="agent"] textarea {
+html[data-mixdog-mobile-tabs] .composer.composer textarea {
   min-height: 56px;
   padding: 16px 6px;
 }

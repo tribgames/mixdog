@@ -4,6 +4,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -581,8 +582,7 @@ test('Studio select-all covers unloaded pages, so a bulk delete empties the tab'
       throw new Error(`unexpected capability: ${capability}`);
     },
   };
-  const confirm = window.confirm;
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   const studio = await renderStudio(api, memoryReferenceStore());
   const { host } = studio;
   const button = (label) => [...host.querySelectorAll('button')].find((entry) => entry.textContent.trim() === label);
@@ -602,7 +602,7 @@ test('Studio select-all covers unloaded pages, so a bulk delete empties the tab'
     assert.equal(tiles(), 0, 'no next page refills the grid');
   } finally {
     await studio.unmount();
-    window.confirm = confirm;
+    overrideConfirmAction(null);
   }
 });
 

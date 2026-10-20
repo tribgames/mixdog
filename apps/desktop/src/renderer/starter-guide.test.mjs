@@ -14,7 +14,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import('react-dom/client');
 const { StarterGuide } = await import('./StarterGuide.tsx');
 const { resetSidebarReferenceCache } = await import('./sidebar-reference-cache.ts');
-const { inertBackground } = await import('./settings/dialog-modality.ts');
+const { openModal } = await import('./settings/dialog-modality.ts');
 const { tourCardPosition } = await import('./StarterTour.tsx');
 const { setCachedConnectionInfo } = await import('./settings/connection-info.ts');
 const { publishMixyStatus, resetMixyStatus, settleMixyDialog } = await import('./mixy-identity.ts');
@@ -358,9 +358,12 @@ test('the welcome card waits for onboarding, then starts the tour on the first o
   assert.equal(JSON.parse(window.localStorage.getItem('mixdog.desktop.starter-guide.v1')).welcomed, true);
   // Settings opens in the same commit and inerts the page behind it; the
   // tour that points into Settings must stay clickable.
-  const restore = inertBackground(() => true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const restore = openModal(host);
   assert.notEqual(document.querySelector('.starter-tour').inert, true);
   restore();
+  host.remove();
 });
 
 test('postponing the welcome keeps the pill for later', async (t) => {

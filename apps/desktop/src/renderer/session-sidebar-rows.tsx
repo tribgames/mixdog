@@ -12,7 +12,7 @@ import {
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import type { SessionAttention } from '../shared/session-attention';
-import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { sessionDisplayTitle } from './session-display-title';
 import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
 import { RoomMemberFace } from './agent-room-parts';
 import { useArchivedBotIdentities } from './archived-bot-identity';
@@ -25,7 +25,7 @@ import type { usePersistedListOrder } from './use-persisted-list-order';
 const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 
 export function sessionLabel(session: DesktopSessionSummary) {
-  return sessionSummaryTitle(session, t('Untitled session'));
+  return sessionDisplayTitle(session, t('Untitled session'));
 }
 
 /** The question before a deleted bot's archived chat is deleted for good. */

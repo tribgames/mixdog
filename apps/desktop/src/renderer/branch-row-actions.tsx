@@ -3,6 +3,7 @@ import type React from 'react';
 import { useCallback, useRef, useState } from 'react';
 import type { DesktopBranchActionState, DesktopBranchManagementAction } from '../shared/contract';
 import { showDesktopToast } from './desktop-toasts';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { ScmContextMenu, type ScmContextMenuItem } from './ScmContextMenu';
 import { invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
@@ -76,7 +77,11 @@ export function BranchRowActions({
               branch,
               target: state.target ?? '',
             });
-    if (!window.confirm(message)) return;
+    const confirmed = await confirmAction(message, {
+      danger: action !== 'merge',
+      key: `branch-${action}:${projectPath}:${branch}`,
+    });
+    if (!confirmed) return;
     setBusy(true);
     setNotice('');
     try {

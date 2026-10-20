@@ -396,6 +396,126 @@ test('a touch fling never has scrollTop written under it: a correction is held a
   }
 });
 
+test('a page landing under a touch fling far from the top is held as a row offset, not written under the fling', async () => {
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const sessionKey = 'touch-landing';
+  const items = turnItems(20);
+  const heights = new Map();
+  const project = (from) => {
+    const window = items.slice(from);
+    const { rows } = projectSettledTranscriptRows({
+      sessionKey,
+      items: window,
+      turnKeys: transcriptTurnKeys(window),
+      failedTurns: new Set(),
+    });
+    for (const row of rows) heights.set(row.key, rowHeight(row));
+    return rows;
+  };
+  let touching = false;
+  const mount = await mountTranscript(
+    heights,
+    sessionKey,
+    () => touching,
+    () => touching
+  );
+  try {
+    await mount.render(project(6 * 10));
+    await mount.settle();
+    // Pages are asked for viewports ahead: the reader is still far below the top.
+    await mount.scrollTo(8 * VIEWPORT);
+    const paged = project(6 * 6);
+    const survivors = new Set(paged.map((row) => row.key));
+    const before = mount.firstVisible(survivors);
+    assert.ok(before, 'a surviving row is in view');
+    const native = mount.viewport.scrollTop;
+    touching = true;
+    const writesBefore = mount.writes();
+    await mount.render(paged);
+    assert.equal(mount.writes(), writesBefore, 'no scrollTop write lands inside the fling');
+    assert.equal(mount.viewport.scrollTop, native, 'the fling keeps the native offset');
+    assert.ok(mount.deviation() > 0, 'the landing is held as the row offset');
+    const held = mount.firstVisible(new Set([before.key]));
+    assert.equal(held?.key, before.key);
+    assert.ok(Math.abs(held.offset - before.offset) <= 1, `held ${held.offset} vs ${before.offset}`);
+    assert.equal(mount.overlaps(), 0, 'the first painted frame draws no row over another');
+    // scrollend: the hold lands as one write and the reader stays put.
+    touching = false;
+    await mount.settle();
+    assert.equal(mount.deviation(), 0, 'no row offset outlives the touch scroll');
+    const landed = mount.firstVisible(new Set([before.key]));
+    assert.equal(landed?.key, before.key);
+    assert.ok(Math.abs(landed.offset - before.offset) <= 1, `landed ${landed.offset} vs ${before.offset}`);
+    assert.equal(mount.overlaps(), 0);
+  } finally {
+    await mount.cleanup();
+  }
+});
+
+for (const [where, readerTop] of [
+  ['at the very top', 0],
+  ['below the top but within four viewports', 2 * VIEWPORT],
+]) {
+  test(`a page landing under a touch or momentum scroll ${where} writes no scrollTop and settles once`, async () => {
+    const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+    const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+    const sessionKey = `touch-landing-near-top-${readerTop}`;
+    const items = turnItems(20);
+    const heights = new Map();
+    const project = (from) => {
+      const window = items.slice(from);
+      const { rows } = projectSettledTranscriptRows({
+        sessionKey,
+        items: window,
+        turnKeys: transcriptTurnKeys(window),
+        failedTurns: new Set(),
+      });
+      for (const row of rows) heights.set(row.key, rowHeight(row));
+      return rows;
+    };
+    let touching = false;
+    const mount = await mountTranscript(
+      heights,
+      sessionKey,
+      () => touching,
+      () => touching
+    );
+    try {
+      await mount.render(project(6 * 10 + 4));
+      await mount.settle();
+      await mount.scrollTo(readerTop);
+      const paged = project(6 * 6 + 2);
+      const survivors = new Set(paged.map((row) => row.key));
+      const before = mount.firstVisible(survivors);
+      assert.ok(before, 'a surviving row is in view');
+      const native = mount.viewport.scrollTop;
+      touching = true;
+      const writesBefore = mount.writes();
+      await mount.render(paged);
+      assert.equal(mount.writes(), writesBefore, 'no scrollTop write lands while the user scrolls');
+      assert.equal(mount.viewport.scrollTop, native, 'the native offset is untouched');
+      assert.ok(mount.deviation() > 0, 'the content shift is absorbed as a row offset');
+      const held = mount.firstVisible(new Set([before.key]));
+      assert.equal(held?.key, before.key);
+      assert.ok(Math.abs(held.offset - before.offset) <= 1, `held ${held.offset} vs ${before.offset}`);
+      // Late sizes of the landed rows keep being held while the scroll lasts.
+      await mount.measure();
+      assert.equal(mount.writes(), writesBefore, 'still no scrollTop write mid-scroll');
+      // Scrolling stops: one settle correction, no row offset left behind.
+      touching = false;
+      await mount.settle();
+      assert.equal(mount.deviation(), 0, 'no row offset outlives the scroll');
+      assert.equal(mount.writes(), writesBefore + 1, 'the settle lands as exactly one write');
+      const landed = mount.firstVisible(new Set([before.key]));
+      assert.equal(landed?.key, before.key);
+      assert.ok(Math.abs(landed.offset - before.offset) <= 1, `landed ${landed.offset} vs ${before.offset}`);
+    } finally {
+      await mount.cleanup();
+    }
+  });
+}
+
 test('a row first measured across the viewport top grows upward, not into the rows in view', async () => {
   const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
   const { transcriptTurnKeys } = await import('./renderer-logic.mjs');

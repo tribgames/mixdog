@@ -154,7 +154,6 @@ export function AppShellLayout({
               renderPaneProblems={renderPaneProblems}
               activatePaneSurface={activatePaneSurface}
               openDroppedPaths={openDroppedPaths}
-              agentsPageOpen={sidebarOpen && activeSideViews.left === 'agents'}
             />
           </main>
           <SessionBrowserParkingHost controller={sessionPaneSurfaces.browserSurfaces} />

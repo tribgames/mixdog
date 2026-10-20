@@ -37,6 +37,7 @@ import {
   remotePairingKeys,
   type RemotePairingKeys,
 } from './remote-pairing-recovery';
+import { createRemotePageCache, type RemotePageCache } from './remote-file-preview';
 import { createRemoteSessionInbox } from './remote-session-inbox';
 import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './remote-shim-payload-limit';
 import type { createRemotePairingScreen } from './remote-pairing-screen';
@@ -217,6 +218,8 @@ export interface RemoteShimCollaborators {
   sessionsDecoder: ReturnType<typeof createKeyedListDeltaDecoder<DesktopSessionSummary>>;
   agentPoolDecoder: ReturnType<typeof createKeyedListDeltaDecoder<DesktopAgentPoolRow>>;
   rosterCache: ReturnType<typeof createRemoteRosterCache<DesktopSessionSummary>>;
+  /** Visualize pages built over this pairing (memory-only). */
+  visualizePages: RemotePageCache;
   // State pushes ride the same identity-prefix items delta the desktop IPC
   // uses (state-delta.ts): reassemble full snapshots here, and ask the
   // desktop for a resync when a patch does not match our base revision
@@ -434,6 +437,12 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     reconnectTimer: null,
     backgroundGraceTimer: null,
   };
+  // The authenticated pairing (server, device, keys) per-connection caches
+  // are keyed to; none without one.
+  const pairingScope = (): string | null =>
+    ctx.e2eePairing
+      ? [ctx.serverBase, ctx.deviceId, ctx.e2eePairing.serverPublicKey, ctx.e2eePairing.pairingSecret].join('\n')
+      : null;
   const collaborators: RemoteShimCollaborators = {
     pending,
     limits: createRelayPayloadLimits({ pending, showToast: showRemoteToast }),
@@ -465,16 +474,15 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     // never keeps on the device (remote-conversation-privacy.ts).
     rosterCache: createRemoteRosterCache<DesktopSessionSummary>({
       storage: null,
-      scope: () =>
-        ctx.e2eePairing
-          ? [ctx.serverBase, ctx.deviceId, ctx.e2eePairing.serverPublicKey, ctx.e2eePairing.pairingSecret].join('\n')
-          : null,
+      scope: pairingScope,
       decoder: sessionsDecoder,
       onMismatch: () => {
         reportRemoteConnectionIssue('sessions-gap');
         ctx.requestResync();
       },
     }),
+    // Another pairing (re-pair, another desktop, signed out) reads none of it.
+    visualizePages: createRemotePageCache(pairingScope),
     stateDecoder: createSnapshotDeltaDecoder(),
     sessionStateDecoders: new Map(),
     compactFrames: createCompactTranscriptExpander(),

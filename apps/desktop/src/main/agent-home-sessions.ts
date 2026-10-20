@@ -13,6 +13,8 @@ import { isSessionMissingError } from './session-final-answer';
 export interface AgentHomeDeps {
   /** The agent catalog (`listAgents`). */
   listAgents(): Promise<unknown>;
+  /** Mixy's own route (getLeadStatus `route`), null when it has none. */
+  mixyRoute?(): Promise<unknown>;
   /** Resolves when the session exists (live or stored); rejects with a
    *  session-missing error when it does not. */
   readSession(sessionId: string): Promise<unknown>;
@@ -111,7 +113,11 @@ export function createAgentHomeSessions(deps: AgentHomeDeps) {
     if (!sessionId) throw new TypeError('agent id is invalid.');
     let route: Record<string, unknown> = {};
     let params: Record<string, unknown> = {};
-    if (agentId !== MIXY_AGENT_ID) {
+    if (agentId === MIXY_AGENT_ID) {
+      // Mixy runs on its own model (bots/mixy), never the Lead's route.
+      route = routeParams(await deps.mixyRoute?.());
+      params = { ...route };
+    } else {
       const row = contactAgentRows(await deps.listAgents()).find((agent) => agent.id === agentId);
       if (!row) throw new Error(`Agent "${agentId}" is not available.`);
       route = routeParams(row.route);

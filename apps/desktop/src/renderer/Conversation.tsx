@@ -19,6 +19,7 @@ import { useConversationRowRenderer } from './use-conversation-row-renderer';
 import { useConversationSubmission } from './use-conversation-submission';
 import { useConversationTranscriptSource } from './use-conversation-transcript-source';
 import { useConversationViewport } from './use-conversation-viewport';
+import { SteerContext, useSteerActions } from './steer-actions';
 
 export function Conversation(props: ConversationProps) {
   const {
@@ -74,6 +75,20 @@ export function Conversation(props: ConversationProps) {
     suppressDraftSubmitPaintHandoff,
   });
   const { actions, optimisticActivityStartedAt, transcriptPendingPromptItems: pendingItems } = submission;
+  // A waiting question is read at action time (the island resolves it below).
+  const answerQuestionRef = useRef<((reply: string) => Promise<unknown>) | null>(null);
+  const steer = useSteerActions({
+    steerItems: submission.steerItems,
+    busy: Boolean(snapshot.busy),
+    sessionId: draftMode ? '' : routeSessionId,
+    invokeResult: actions.composerInvokeResult,
+    applySnapshot: actions.composerApplySnapshot,
+    abort: actions.composerAbort,
+    submit: actions.composerSubmit,
+    answerQuestion: answerQuestionRef,
+    onTaken: actions.composerQueuedRestored,
+  });
+  const steerItems = steer.visibleSteerItems;
   const timeline = useConversationTimeline({
     view,
     source,
@@ -81,6 +96,7 @@ export function Conversation(props: ConversationProps) {
     draftMode,
     snapshot,
     pendingItems,
+    steerItems,
     optimisticActivityStartedAt,
     // A group room's band holds only the approval card its member waits on
     // (use-conversation-row-renderer.ts); its typing bubble is a room row.
@@ -120,68 +136,71 @@ export function Conversation(props: ConversationProps) {
     pendingPromptCount: pendingItems.length,
     actions,
   });
+  answerQuestionRef.current = island.answerQuestion ?? null;
   const routeProject = String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '');
-  const itemCount = source.liveItemCount + pendingItems.length;
+  const itemCount = source.liveItemCount + pendingItems.length + steerItems.length;
 
   return (
-    <section
-      className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
-      ref={view.conversation}
-      data-chat-mode={agentMode ? 'agent' : undefined}
-      data-transcript-entering={timeline.transcriptRevealed ? undefined : 'true'}
-      onKeyDownCapture={(event) =>
-        conversationKeyDownCapture(event, {
-          readOnly,
-          viewport: view.viewport,
-          onTranscriptKey: view.follow.handleKeyDown,
-        })
-      }
-    >
-      <ConversationTranscript
-        view={view}
-        source={source}
-        timeline={timeline}
-        links={links}
-        sessionKey={transcriptSessionKey}
-        busy={Boolean(snapshot.busy || snapshot.commandBusy)}
-        draftMode={draftMode}
-        routeSessionId={routeSessionId}
-        activeProjectPath={activeProjectPath}
-        transitioning={transitioning}
-        pendingPromptCount={pendingItems.length}
-        visibleWarmPaintHandoff={visibleWarmPaintHandoff}
-        project={routeProject}
-        multiDevice={approvals.multiDevice}
-        viewerDevice={approvals.viewerDevice}
-        renderRow={renderTranscriptRow}
-        itemCount={itemCount}
-        cover={props.transcriptCover}
-        intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
-      />
-      {/* The dock is the column's in-flow sibling below the viewport: its
-          height changes resize the viewport, never the virtual geometry. */}
-      {!readOnly && (
-        <ConversationComposerDock
-          {...props}
+    <SteerContext.Provider value={readOnly ? null : steer.context}>
+      <section
+        className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
+        ref={view.conversation}
+        data-chat-mode={agentMode ? 'agent' : undefined}
+        data-transcript-entering={timeline.transcriptRevealed ? undefined : 'true'}
+        onKeyDownCapture={(event) =>
+          conversationKeyDownCapture(event, {
+            readOnly,
+            viewport: view.viewport,
+            onTranscriptKey: view.follow.handleKeyDown,
+          })
+        }
+      >
+        <ConversationTranscript
+          view={view}
+          source={source}
+          timeline={timeline}
+          links={links}
+          sessionKey={transcriptSessionKey}
+          busy={Boolean(snapshot.busy || snapshot.commandBusy)}
           draftMode={draftMode}
-          draftId={draftId}
-          agentMode={agentMode}
-          reviewActive={reviewActive}
-          dropTargetRef={view.conversation}
-          routeProject={routeProject}
-          island={island}
-          submission={submission}
-          settledItems={settledItems}
-          openFile={links.openFile}
-          recoveryScope={source.transcriptIdentity.current}
-          hasConversation={itemCount > 0 || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0)}
+          routeSessionId={routeSessionId}
+          activeProjectPath={activeProjectPath}
+          transitioning={transitioning}
+          pendingPromptCount={pendingItems.length}
+          visibleWarmPaintHandoff={visibleWarmPaintHandoff}
+          project={routeProject}
+          multiDevice={approvals.multiDevice}
+          viewerDevice={approvals.viewerDevice}
+          renderRow={renderTranscriptRow}
+          itemCount={itemCount}
+          cover={props.transcriptCover}
+          intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
         />
-      )}
-      {botDeleted && (
-        <p className="conversation-deleted-notice" role="status">
-          {t('This bot was deleted.')}
-        </p>
-      )}
-    </section>
+        {/* The dock is the column's in-flow sibling below the viewport: its
+          height changes resize the viewport, never the virtual geometry. */}
+        {!readOnly && (
+          <ConversationComposerDock
+            {...props}
+            draftMode={draftMode}
+            draftId={draftId}
+            agentMode={agentMode}
+            reviewActive={reviewActive}
+            dropTargetRef={view.conversation}
+            routeProject={routeProject}
+            island={island}
+            submission={submission}
+            settledItems={settledItems}
+            openFile={links.openFile}
+            recoveryScope={source.transcriptIdentity.current}
+            hasConversation={itemCount > 0 || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0)}
+          />
+        )}
+        {botDeleted && (
+          <p className="conversation-deleted-notice" role="status">
+            {t('This bot was deleted.')}
+          </p>
+        )}
+      </section>
+    </SteerContext.Provider>
   );
 }

@@ -37,6 +37,7 @@ import {
   type ExplorerRow,
 } from './explorer-tree-model';
 import { COMPOSER_PROJECT_PATHS_MIME } from './composer-support';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { openEditorFileExternally } from './editor-external-file';
@@ -663,10 +664,16 @@ export const FilesRootPane = memo(function FilesRootPane({
       // delete it names as such. Never this PC's recycle bin.
       let options: { permanent: boolean } | undefined;
       if (isSshConnectionWindow()) {
-        const confirmed = await confirmServerDelete(api, projectPath, label);
+        const confirmed = await confirmServerDelete(api, projectPath, label, rels);
         if (!confirmed) return;
         options = confirmed;
-      } else if (!window.confirm(t('Move {{name}} to the Recycle Bin?', { name: label }))) return;
+      } else if (
+        !(await confirmAction(t('Move {{name}} to the Recycle Bin?', { name: label }), {
+          danger: true,
+          confirmLabel: t('Delete'),
+        }))
+      )
+        return;
       setMutationError('');
       const { failed, firstError } = await trashExplorerEntries({ api, projectPath, rels, options });
       // Only what survived the delete stays selected, ready for a retry.
@@ -724,7 +731,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         rels.length === 1
           ? `'${rels[0].split('/').at(-1)}'`
           : t('the following {{count}} items', { count: rels.length });
-      if (!window.confirm(t('Are you sure you want to move {{name}}?', { name: label }))) return;
+      if (!(await confirmAction(t('Are you sure you want to move {{name}}?', { name: label })))) return;
     }
     const { failed, firstError } = await transferExplorerEntries({
       api,

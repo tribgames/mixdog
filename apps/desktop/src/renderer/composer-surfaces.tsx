@@ -8,7 +8,7 @@ import { AttachmentCard, composerCardKind, composerCardMeta } from './attachment
 import { openAttachmentSource, useAttachmentContextMenu, type AttachmentOpenFile } from './attachment-context-menu';
 import { CapabilityIcon } from './CapabilityIcon';
 import type { SkillMentionResult } from './composer-skill-mentions';
-import { queuedFollowupPreview, type ComposerAttachment } from './composer-support';
+import type { ComposerAttachment } from './composer-support';
 import { ComposerPalette } from './ComposerPalette';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
@@ -22,22 +22,27 @@ type Panel = RefObject<HTMLDivElement | null>;
 
 export function composerPlaceholder({
   hasConversation,
-  turnBusy,
-  commandBusy,
   fallback,
 }: {
   hasConversation: boolean;
-  turnBusy: boolean;
-  commandBusy: boolean;
   fallback: string;
 }): string {
   // User request: one stable placeholder — no rotating variants — and once a
   // session has content the composer shows NO hint copy at all; instructional
-  // placeholders belong to the empty new-task state.
+  // placeholders belong to the empty new-task state. A message sent while a
+  // turn runs is an ordinary send, so the turn changes nothing here.
   if (hasConversation) return '';
-  if (turnBusy) return t('Steer the active turn or queue a follow-up…');
-  if (commandBusy) return t('Queue a message after the current command…');
   return t(fallback);
+}
+
+/** A message's first non-empty line. */
+function firstLinePreview(text: string): string {
+  return (
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || '[Attachment]'
+  );
 }
 
 function preventFocusSteal(event: React.MouseEvent) {
@@ -82,7 +87,7 @@ export function MessageSelectorPalette({
           onMouseEnter={() => setIndex(rowIndex)}
           onClick={() => onSelect(message.id)}
         >
-          <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
+          <span>{oneLine(firstLinePreview(message.text), 90)}</span>
         </button>
       ))}
     </ComposerPalette>
@@ -475,8 +480,6 @@ export function SendButton({
   stopOnly,
   voiceSend,
   submitting,
-  turnBusy,
-  commandBusy,
   transitioning,
   hasConversation,
   dictationState,
@@ -489,8 +492,6 @@ export function SendButton({
   stopOnly: boolean;
   voiceSend: boolean;
   submitting: boolean;
-  turnBusy: boolean;
-  commandBusy: boolean;
   transitioning: boolean;
   hasConversation: boolean;
   dictationState: DictationState;
@@ -516,13 +517,9 @@ export function SendButton({
   if (stopOnly) label = t('Stop generation');
   else if (voiceSend) label = t('Stop dictation and send');
   else if (submitting) label = hasConversation ? t('Sending message') : t('Starting session');
-  else if (turnBusy) label = t('Queue or steer active turn');
-  else if (commandBusy) label = t('Queue after current command');
   let tooltip = t('Send · Enter');
   if (stopOnly) tooltip = t('Stop');
   else if (voiceSend) tooltip = t('Stop and send');
-  else if (turnBusy) tooltip = t('Queue or steer · Enter');
-  else if (commandBusy) tooltip = t('Queue after command · Enter');
   let glyph = <ArrowUp size={16} />;
   if (stopOnly) glyph = <MxIcon name="stop" size={16} />;
   else if (submitting) glyph = <ProgressSpinner className="composer-mic-spinner" size={16} />;

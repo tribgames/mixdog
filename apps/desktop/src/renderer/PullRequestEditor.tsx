@@ -2,6 +2,7 @@
 import { ArrowUpRight, Check, FileText, GitMerge, ListChecks, MessageSquare, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopPullRequestDetail } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { ErrorNotice } from './ErrorNotice';
@@ -170,9 +171,12 @@ export function PullRequestEditor({
                     disabled={Boolean(busy)}
                     onClick={() => {
                       const action = mergeActionLabel(mergeMethod);
-                      if (!window.confirm(t('{{action}} pull request #{{number}}?', { action, number: detail.number })))
-                        return;
-                      void run('merge', () => api?.ghPrMerge?.(projectPath, detail.number, mergeMethod));
+                      void confirmAction(t('{{action}} pull request #{{number}}?', { action, number: detail.number }), {
+                        confirmLabel: action,
+                      }).then((approved) => {
+                        if (approved)
+                          return run('merge', () => api?.ghPrMerge?.(projectPath, detail.number, mergeMethod));
+                      });
                     }}
                   >
                     {busy === 'merge' ? (

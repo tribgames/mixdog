@@ -51,7 +51,7 @@ export type ConversationComposerDockProps = Pick<
   island: ConversationIsland;
   submission: Pick<
     ConversationSubmission,
-    'goalSubmissionId' | 'reviewItems' | 'composerQueued' | 'pendingPromptIds' | 'actions'
+    'goalSubmissionId' | 'reviewItems' | 'steerItems' | 'pendingPromptIds' | 'holdSlashCommand' | 'actions'
   >;
   settledItems: TranscriptItem[];
   openFile: ComponentProps<typeof Composer>['onOpenFile'];
@@ -205,7 +205,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       onOpenSessionDiff={onOpenSessionDiff}
       onOpenAgentSession={onOpenAgentSession}
       workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
-      queuedInput={!draftMode && submission.composerQueued.length > 0}
+      pendingInput={!draftMode && submission.steerItems.length > 0}
       showProjectSelector={showProjectSelector && !agentMode}
       agentMode={agentMode}
       reviewItems={submission.reviewItems}
@@ -251,14 +251,13 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
           )
         }
         agentMode={agentMode}
-        queued={submission.composerQueued}
-        hiddenQueueIds={submission.pendingPromptIds}
+        steerItems={submission.steerItems}
         pendingSubmissionIds={submission.pendingPromptIds}
         onQueuedRestored={actions.composerQueuedRestored}
+        onSlashHeld={submission.holdSlashCommand}
         promptRestore={draftMode ? null : (routeSnapshot.promptRestore ?? null)}
         userMessages={userMessages}
         submit={submit}
-        answerQuestion={answerQuestion}
         placeholderOverride={dismissQuestion ? t('Sending answers the question') : undefined}
         abort={actions.composerAbort}
         invokeResult={actions.composerInvokeResult}

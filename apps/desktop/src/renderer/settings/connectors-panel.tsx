@@ -6,7 +6,6 @@ import { Blocks, ChevronDown, ChevronRight, Plug, Plus } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   type ConnectorCatalogEntry,
-  connectorById,
   connectorMultiAccount,
   GMAIL_APP_PASSWORD,
 } from '../../../../../src/runtime/shared/connector-catalog.mjs';
@@ -43,12 +42,6 @@ import {
 import { errorMessage } from '../editor-pane-session-errors';
 import { applyGoogleOwnKey, parseGoogleClientJson, revertGoogleOwnKey, usesGoogleOwnKey } from '../google-own-key';
 import { ErrorNotice } from '../ErrorNotice';
-import {
-  confirmGithubConnector,
-  forgetGithubConnector,
-  type GithubConnection,
-  useGithubConnection,
-} from '../github-connector';
 import { ConnectorStep } from '../connector-step';
 import { t } from '../i18n';
 import { showDesktopToast } from '../notifications';
@@ -56,7 +49,6 @@ import { record } from '../record-utils';
 import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { SidebarLoadingDialog } from '../sidebar-dialog';
 import { SidebarResourceTitle, type SidebarResourceTag } from '../sidebar-resource-row';
-import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { Group, ListEmpty } from './capability-controls';
 import { label, rows, sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
 import {
@@ -262,14 +254,12 @@ function useRowState({
 function CatalogRow({
   entry,
   server,
-  github,
   locked,
   onConnect,
   onOpen,
 }: {
   entry: ConnectorCatalogEntry;
   server: Row | null;
-  github: GithubConnection | null;
   locked: boolean;
   onConnect(): void;
   onOpen(): void;
@@ -284,25 +274,6 @@ function CatalogRow({
     locked,
     onOpen,
   });
-  if (entry.backend.kind === 'builtin') {
-    const connected = github?.state === 'connected';
-    return (
-      <ConnectorRow
-        id={entry.id}
-        icon={<ConnectorIcon id={entry.id} name={entry.name} />}
-        title={entry.name}
-        tag={connected ? { label: t('Connected'), tone: 'ok' } : null}
-        line={connected ? `${github?.host} · ${github?.login}` : ''}
-        status={connectorRowView(connected ? { connected } : null, null).status}
-        action={
-          <ExtensionAction disabled={locked && !connected} onClick={connected ? onOpen : onConnect}>
-            {connected ? t('Manage') : t('Connect')}
-          </ExtensionAction>
-        }
-        onOpen={onOpen}
-      />
-    );
-  }
   return (
     <ConnectorRow
       id={entry.id}
@@ -408,113 +379,7 @@ function accountLine(entry: ConnectorCatalogEntry | null, server: Row): string {
   return mcpRowDescription(server);
 }
 
-type DetailTarget =
-  | { kind: 'catalog'; id: string }
-  | { kind: 'server'; name: string }
-  | { kind: 'plugin'; id: string }
-  | { kind: 'github' }
-  | { kind: 'git' };
-
-/** GitHub (the GitHub CLI's sign-in): before it counts as connected, the host
- *  and the account gh actually runs as are confirmed. Another account is
- *  switched in gh by the user; Mixdog never switches or logs out gh. */
-function GithubConnectorDialog({
-  github,
-  onOpenGit,
-  onClose,
-}: {
-  github: GithubConnection | null;
-  onOpenGit(): void;
-  onClose(): void;
-}) {
-  const entry = connectorById('github');
-  const connected = github?.state === 'connected';
-  const signedIn = Boolean(github && github.state !== 'signed-out');
-  const close = onClose;
-  return (
-    <ExtensionDetailDialog
-      width="compact"
-      className="connectors-detail-dialog connectors-github-dialog"
-      titleId="connectors-github-title"
-      icon={entry ? <ConnectorIcon id={entry.id} name={entry.name} className="connector-tile-dialog" /> : null}
-      title="GitHub"
-      titleStatus={connected ? { label: t('Connected'), tone: 'ok' } : { label: t('Not connected yet'), tone: 'muted' }}
-      footer={
-        <>
-          {connected && (
-            <button
-              type="button"
-              className="danger"
-              onClick={() => {
-                forgetGithubConnector();
-                showDesktopToast(t('Disconnected GitHub. The GitHub CLI stays signed in.'), 'info');
-                close();
-              }}
-            >
-              {t('Disconnect')}
-            </button>
-          )}
-          <button type="button" className="secondary" onClick={close}>
-            {t('Close')}
-          </button>
-          {!connected && signedIn && github && (
-            <button
-              type="button"
-              onClick={() => {
-                confirmGithubConnector(github.login);
-                showDesktopToast(t('Connected to {{name}}', { name: 'GitHub' }), 'success');
-                close();
-              }}
-            >
-              {t('Connect')}
-            </button>
-          )}
-        </>
-      }
-      onClose={close}
-    >
-      {!github && <ExtensionNote role="status">{t('Checking…')}</ExtensionNote>}
-      {github && !signedIn && (
-        <ExtensionNote>
-          {t('The GitHub CLI is not signed in. Sign in under Git & GitHub, then connect.')}{' '}
-          <button type="button" className="connectors-link" onClick={onOpenGit}>
-            {t('Open Git & GitHub')}
-          </button>
-        </ExtensionNote>
-      )}
-      {github && signedIn && (
-        <ExtensionSection title={t('Account')}>
-          <ExtensionItemList>
-            <ExtensionItemRow
-              icon={entry ? <ConnectorIcon id={entry.id} name={entry.name} /> : null}
-              title={`${github.host} · ${github.login}`}
-              description={
-                connected
-                  ? t('Agents use this account through the GitHub CLI.')
-                  : t('Connects as {{login}}', { login: github.login })
-              }
-              tone={connected ? 'ok' : undefined}
-            />
-          </ExtensionItemList>
-          {github.activeLogin && (
-            <ExtensionNote>
-              {t('A token in the environment runs as {{login}}; the GitHub CLI’s active account is {{active}}.', {
-                login: github.login,
-                active: github.activeLogin,
-              })}
-            </ExtensionNote>
-          )}
-          <p className="connectors-hint">
-            {t('To use another account, switch it in the GitHub CLI (gh auth switch), then connect again.')}{' '}
-            <button type="button" className="connectors-link" onClick={onOpenGit}>
-              {t('Open Git & GitHub')}
-            </button>
-          </p>
-        </ExtensionSection>
-      )}
-    </ExtensionDetailDialog>
-  );
-}
+type DetailTarget = { kind: 'catalog'; id: string } | { kind: 'server'; name: string } | { kind: 'plugin'; id: string };
 
 /** One account of a catalog connector: its address (or server name), its own
  *  state, and one ⋯ menu with its 앱 비밀번호 바꾸기 / 계정 전환 / 로그아웃 /
@@ -1437,19 +1302,12 @@ export function ConnectorsPanel(context: PanelContext) {
     closeCreate?.();
   };
   const [editor, setEditor] = useState<{ name: string; server: Row | null } | 'new' | null>(null);
-  // Re-probed whenever the GitHub dialog opens, so it confirms gh's current account.
-  const [githubProbe, setGithubProbe] = useState(0);
-  const github = useGithubConnection(githubProbe);
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshExtensions is stable per panel; a connect elsewhere (chat card) re-reads the lists.
   useEffect(() => {
     const refresh = () => void refreshExtensions();
     window.addEventListener(CONNECTORS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(CONNECTORS_CHANGED_EVENT, refresh);
   }, []);
-  const openGithub = () => {
-    setGithubProbe((value) => value + 1);
-    setDetail({ kind: 'github' });
-  };
   const lockedToast = () => showDesktopToast(manageOnHostNote(), 'info');
   const openAppPassword = (entry: ConnectorCatalogEntry, server: Row | null) => {
     if (connectLocked) return lockedToast();
@@ -1469,7 +1327,6 @@ export function ConnectorsPanel(context: PanelContext) {
   };
   const connectCatalog = (entry: ConnectorCatalogEntry, server: Row | null = null) => {
     if (connectLocked) return lockedToast();
-    if (entry.backend.kind === 'builtin') return openGithub();
     if (entry.backend.kind === 'apiKey') return setKeyEntry(entry);
     // Gmail is app-password only: an app-password server is reconnected, else a new account is added.
     if (entry.id === 'gmail') return openAppPassword(entry, appPasswordAccount(server) ? server : null);
@@ -1515,17 +1372,7 @@ export function ConnectorsPanel(context: PanelContext) {
     groups.packages.find((entry) => String(entry.plugin.id || entry.plugin.name) === id);
 
   let dialog: ReactNode = null;
-  if (detail?.kind === 'git') {
-    dialog = <BuiltInFeaturesPanel {...context} initialFeature="git" onDetailClose={() => setDetail(null)} />;
-  } else if (detail?.kind === 'github') {
-    dialog = (
-      <GithubConnectorDialog
-        github={github}
-        onOpenGit={() => setDetail({ kind: 'git' })}
-        onClose={() => setDetail(null)}
-      />
-    );
-  } else if (detail?.kind === 'catalog') {
+  if (detail?.kind === 'catalog') {
     const row = groups.catalog.find((entry) => entry.entry.id === detail.id);
     if (row) {
       dialog = (
@@ -1599,12 +1446,9 @@ export function ConnectorsPanel(context: PanelContext) {
             key={entry.id}
             entry={entry}
             server={server}
-            github={entry.backend.kind === 'builtin' ? github : null}
             locked={connectLocked}
             onConnect={() => connectCatalog(entry, server)}
-            onOpen={() =>
-              entry.backend.kind === 'builtin' ? openGithub() : setDetail({ kind: 'catalog', id: entry.id })
-            }
+            onOpen={() => setDetail({ kind: 'catalog', id: entry.id })}
           />
         ))}
       </Group>

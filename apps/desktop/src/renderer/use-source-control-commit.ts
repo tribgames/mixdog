@@ -2,6 +2,7 @@
 // (button, split menu, title menu) goes through.
 import { useState } from 'react';
 import type { DesktopGitFile, DesktopGitStatus } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { sourceControlCommitSelection } from './source-control-commit-selection';
 import { partialStagingWarning } from './source-control-confirmations';
@@ -52,7 +53,7 @@ export function useSourceControlCommit({
       );
     }
     const selection = sourceControlCommitSelection(files, fresh.files, isIncluded);
-    if (selection.partiallyStaged.length && !window.confirm(partialStagingWarning(selection.partiallyStaged)))
+    if (selection.partiallyStaged.length && !(await confirmAction(partialStagingWarning(selection.partiallyStaged))))
       return null;
     return selection.paths;
   };

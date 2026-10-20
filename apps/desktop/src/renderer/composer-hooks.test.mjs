@@ -19,9 +19,11 @@ window.mixdogDesktop = {
 };
 
 const { useComposerAttachments } = await import('./use-composer-attachments.ts');
-const { useComposerQueue } = await import('./use-composer-queue.ts');
 const { useComposerSubmission } = await import('./use-composer-submission.ts');
 const { useComposerKeyboard } = await import('./use-composer-keyboard.ts');
+const { submissionRetryKey, takeRejectedComposerSubmissionRecoveries } = await import('./composer-draft.ts');
+const { sha256Bytes, sha256Hex } = await import('./sha256.ts');
+const hex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 const { useComposerShareIntake } = await import('./use-composer-share-intake.ts');
 const { publishSharedIntake, resetSharedIntake } = await import('./share-target-intake.ts');
 
@@ -109,62 +111,6 @@ test('attachment hook keeps state, refs, draft tokens, and reset in sync', async
   }
 });
 
-test('queue hook restores a queued draft and resets busy state when scope changes', async () => {
-  let current;
-  const restoredIds = [];
-  const invokeCapability = async (capability) => {
-    assert.equal(capability, 'restoreQueued');
-    return { count: 1, text: 'queued draft', ids: ['q1'] };
-  };
-  function Harness({ scope }) {
-    const [draft, setDraft] = useState('');
-    const draftRef = useRef(draft);
-    draftRef.current = draft;
-    const textarea = useRef(null);
-    const composingRef = useRef(false);
-    const historyNavigation = useRef({ index: -1, seed: '' });
-    current = {
-      draft,
-      ...useComposerQueue({
-        queued: [{ id: 'q1', text: 'queued draft' }],
-        hiddenQueueIds: [],
-        pendingSubmissionIds: [],
-        draftMode: false,
-        turnBusy: false,
-        draftRef,
-        setDraft,
-        textarea,
-        composingRef,
-        historyNavigation,
-        invokeCapability,
-        abort: async () => undefined,
-        restoredAttachments: (_value, text) => ({ attachments: [], text }),
-        mergeRestoredAttachments: (_attachments, text) => text,
-        showNotice() {},
-        onQueuedRestored: (ids) => restoredIds.push(...ids),
-        scope,
-      }),
-    };
-    return React.createElement('textarea', { ref: textarea, value: draft, readOnly: true });
-  }
-  const mounted = mountHarness(Harness, { scope: 'session-a' });
-  try {
-    await mounted.render({ scope: 'session-a' });
-    await act(async () => {
-      await current.restoreQueue('q1');
-    });
-    assert.equal(current.draft, 'queued draft');
-    assert.deepEqual(restoredIds, ['q1']);
-
-    await act(async () => current.setRestoring(true));
-    assert.equal(current.restoring, true);
-    await mounted.render({ scope: 'session-b' });
-    assert.equal(current.restoring, false);
-  } finally {
-    await mounted.cleanup();
-  }
-});
-
 test('submission hook commits accepted text and restores interrupted text', async () => {
   let current;
   let submitted;
@@ -236,6 +182,429 @@ test('submission hook commits accepted text and restores interrupted text', asyn
     });
     assert.equal(current.draft, 'interrupted');
   } finally {
+    await mounted.cleanup();
+  }
+});
+
+test('an ambiguous failure restored onto a colliding chip id is renumbered and resent under the same submission id', async () => {
+  let current;
+  const sends = [];
+  let failFirst;
+  function Harness() {
+    const [draft, setDraft] = useState('review this');
+    const [, setSubmitting] = useState(false);
+    const [submissionRecoveryVersion, setSubmissionRecoveryVersion] = useState(0);
+    const draftRef = useRef(draft);
+    draftRef.current = draft;
+    const textarea = useRef(null);
+    const historyNavigation = useRef({ index: -1, seed: '' });
+    const transitioningRef = useRef(false);
+    const attachments = useComposerAttachments({
+      draftRef,
+      setDraft,
+      textarea,
+      historyNavigation,
+      transitioningRef,
+      projectScope: 'C:/Project/demo',
+      recoveryScope: 'session-retry',
+      submissionRecoveryVersion,
+      dropTargetRef: useRef(null),
+    });
+    current = {
+      draft,
+      ...attachments,
+      ...useComposerSubmission({
+        turnBusy: false,
+        commandBusy: false,
+        draftMode: false,
+        queued: [],
+        recoveryScope: 'session-retry',
+        textarea,
+        draftRef,
+        attachmentsRef: attachments.attachmentsRef,
+        pendingLoads: { current: 0 },
+        transitioningRef,
+        composingRef: useRef(false),
+        submittingRef: useRef(false),
+        submissionRetryRef: useRef(null),
+        mountedRef: useRef(true),
+        historyNavigation,
+        setDraft,
+        setSubmitting,
+        setSubmissionRecoveryVersion,
+        clearNotice() {},
+        setAttachmentError() {},
+        removeAttachments: attachments.removeAttachments,
+        mergeRestoredAttachments: attachments.mergeRestoredAttachments,
+        restoredAttachments: attachments.restoredAttachments,
+        executeSlash: async () => true,
+        rememberPrompt() {},
+        submit: (content, options) => {
+          sends.push({ content, options });
+          if (sends.length === 1) {
+            return new Promise((_resolve, reject) => {
+              failFirst = () => reject(new Error('connection interrupted'));
+            });
+          }
+          return Promise.resolve(true);
+        },
+        abort: async () => ({}),
+      }),
+    };
+    return React.createElement('textarea', { ref: textarea, value: draft, readOnly: true });
+  }
+  const mounted = mountHarness(Harness, {});
+  const pdf = {
+    id: 1,
+    name: 'report.pdf',
+    kind: 'pdf',
+    mimeType: 'application/pdf',
+    data: 'JVBERi0xLjQ=',
+    token: '[PDF #1: report.pdf]',
+    chipOnly: true,
+  };
+  try {
+    await mounted.render({});
+    await act(async () => current.replaceAttachments([pdf]));
+    // The send goes out; it is unknown whether it arrived when it fails.
+    let first;
+    await act(async () => {
+      first = current.send();
+    });
+    // Meanwhile a new chip takes id 1 in the cleared composer.
+    const image = { id: 1, name: 'shot.png', kind: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=', token: '' };
+    await act(async () => current.replaceAttachments([image]));
+    await act(async () => {
+      failFirst();
+      await first;
+    });
+    const restoredPdf = current.attachments.find((attachment) => attachment.kind === 'pdf');
+    assert.ok(restoredPdf, 'the failed message came back');
+    assert.notEqual(restoredPdf.id, 1, 'it was renumbered past the live chip');
+    assert.equal(restoredPdf.token, `[PDF #${restoredPdf.id}: report.pdf]`);
+    assert.equal(current.draft, 'review this');
+    // The user drops the new chip and sends the same message again.
+    await act(async () => current.removeAttachment(current.attachments.find((attachment) => attachment.id === 1)));
+    await act(async () => {
+      await current.send();
+    });
+    assert.equal(sends.length, 2);
+    assert.equal(sends[1].options.id, sends[0].options.id, 'same message, same submission id');
+    assert.deepEqual(
+      sends[1].content,
+      sends[0].content.map((part) =>
+        part.type === 'text' ? { ...part, text: part.text.replace('#1', `#${restoredPdf.id}`) } : part
+      )
+    );
+  } finally {
+    await mounted.cleanup();
+  }
+});
+
+test('the retry key tells apart contents a 32-bit hash confuses; same content, same key', async () => {
+  // An equal-length FNV-1a 32-bit collision pair.
+  const [left, right] = ['S3cCAAAA', 'wBADAAAA'];
+  const fnv = (value) => {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  };
+  assert.equal(fnv(left), fnv(right), 'the pair really collides under FNV-1a');
+  const chip = (data, id = 1) => ({
+    id,
+    name: 'shot.png',
+    kind: 'image',
+    mimeType: 'image/png',
+    data,
+    token: '',
+  });
+  const key = (data, id) => submissionRetryKey(['', 'look'], [chip(data, id)]);
+  assert.notEqual(await key(left), await key(right));
+  assert.equal(await key(left, 1), await key(left, 7), 'chip ids are not part of it');
+});
+
+test('a chip’s content digest is worked out once, when it enters the composer', async () => {
+  const subtle = globalThis.crypto.subtle;
+  const original = subtle.digest;
+  let digests = 0;
+  subtle.digest = function digest(...args) {
+    digests += 1;
+    return original.apply(this, args);
+  };
+  let current;
+  function Harness() {
+    const [draft, setDraft] = useState('');
+    const draftRef = useRef(draft);
+    draftRef.current = draft;
+    current = useComposerAttachments({
+      draftRef,
+      setDraft,
+      textarea: useRef(null),
+      historyNavigation: useRef({ index: -1, seed: '' }),
+      transitioningRef: useRef(false),
+      projectScope: 'C:/Project/demo',
+      recoveryScope: 'session-digest',
+      submissionRecoveryVersion: 0,
+      dropTargetRef: useRef(null),
+    });
+    return null;
+  }
+  const mounted = mountHarness(Harness, {});
+  try {
+    await mounted.render({});
+    const file = {
+      id: 1,
+      name: 'notes.txt',
+      kind: 'text',
+      mimeType: 'text/plain',
+      data: 'notes',
+      token: '[File #1: notes.txt]',
+      source: 'file',
+      chipOnly: true,
+    };
+    await act(async () => current.replaceAttachments([file]));
+    assert.equal(digests, 1);
+    const [added] = current.attachmentsRef.current;
+    const first = await submissionRetryKey(['', file.token], [added]);
+    // Re-set, renumbered on a restore, and keyed again: no new digest.
+    await act(async () => current.replaceAttachments([...current.attachmentsRef.current]));
+    await act(async () => current.replaceAttachments([{ ...added, id: 4, token: '[File #4: notes.txt]' }]));
+    const moved = current.attachmentsRef.current[0];
+    assert.equal(await submissionRetryKey(['', moved.token], [moved]), first);
+    assert.equal(digests, 1, 'one digest for the chip, however often it is copied or keyed');
+    // Changed data is hashed again, once.
+    await act(async () => current.replaceAttachments([{ ...moved, data: 'other notes' }]));
+    assert.equal(digests, 2);
+    assert.notEqual(await submissionRetryKey(['', moved.token], current.attachmentsRef.current), first);
+  } finally {
+    subtle.digest = original;
+    await mounted.cleanup();
+  }
+});
+
+/** The composer's attachment and submission hooks on one draft, sending into
+ *  the conversation its props name. */
+function sendingComposer(sends, initialDraft) {
+  const view = { current: null };
+  function Harness({ scope, identity = scope, recovery = `pane:${scope}`, session = scope }) {
+    const [draft, setDraft] = useState(initialDraft);
+    const [, setSubmitting] = useState(false);
+    const [submissionRecoveryVersion, setSubmissionRecoveryVersion] = useState(0);
+    const draftRef = useRef(draft);
+    draftRef.current = draft;
+    const textarea = useRef(null);
+    const historyNavigation = useRef({ index: -1, seed: '' });
+    const transitioningRef = useRef(false);
+    const attachments = useComposerAttachments({
+      draftRef,
+      setDraft,
+      textarea,
+      historyNavigation,
+      transitioningRef,
+      projectScope: 'C:/Project/demo',
+      recoveryScope: recovery,
+      submissionRecoveryVersion,
+      dropTargetRef: useRef(null),
+    });
+    view.current = {
+      draft,
+      ...attachments,
+      ...useComposerSubmission({
+        turnBusy: false,
+        commandBusy: false,
+        draftMode: false,
+        queued: [],
+        recoveryScope: recovery,
+        identityScope: identity,
+        sessionId: session,
+        textarea,
+        draftRef,
+        attachmentsRef: attachments.attachmentsRef,
+        pendingLoads: { current: 0 },
+        transitioningRef,
+        composingRef: useRef(false),
+        submittingRef: useRef(false),
+        submissionRetryRef: useRef(null),
+        mountedRef: useRef(true),
+        historyNavigation,
+        setDraft,
+        setSubmitting,
+        setSubmissionRecoveryVersion,
+        clearNotice() {},
+        setAttachmentError() {},
+        removeAttachments: attachments.removeAttachments,
+        mergeRestoredAttachments: attachments.mergeRestoredAttachments,
+        restoredAttachments: attachments.restoredAttachments,
+        executeSlash: async () => true,
+        rememberPrompt() {},
+        submit: async (content, options) => {
+          sends.push({ scope, content, options });
+          return true;
+        },
+        abort: async () => ({}),
+      }),
+    };
+    return React.createElement('textarea', { ref: textarea, value: draft, readOnly: true });
+  }
+  return { view, mounted: mountHarness(Harness, {}) };
+}
+
+const notesFile = (data = 'notes body') => ({
+  id: 1,
+  name: 'notes.txt',
+  kind: 'text',
+  mimeType: 'text/plain',
+  data,
+  token: '[File #1: notes.txt]',
+  source: 'file',
+  chipOnly: true,
+});
+
+test('a session switch while a send waits for its digests sends nothing and leaves the draft as it was', async () => {
+  const subtle = globalThis.crypto.subtle;
+  const original = subtle.digest;
+  const held = [];
+  subtle.digest = function digest(...args) {
+    return new Promise((resolve) => held.push(() => resolve(original.apply(this, args))));
+  };
+  const sends = [];
+  const { view, mounted } = sendingComposer(sends, 'message for A');
+  try {
+    await mounted.render({ scope: 'A' });
+    await act(async () => view.current.replaceAttachments([notesFile()]));
+    let sending;
+    await act(async () => {
+      sending = view.current.send();
+    });
+    // The user switches to B while the digest is still being worked out.
+    await mounted.render({ scope: 'B' });
+    await act(async () => {
+      for (const release of held) release();
+      await sending;
+    });
+    assert.deepEqual(sends, [], 'nothing went to A or B');
+    assert.equal(view.current.draft, 'message for A', 'the draft was not cleared');
+    assert.deepEqual(
+      view.current.attachments.map((attachment) => [attachment.id, attachment.data]),
+      [[1, 'notes body']],
+      'its chip was not removed'
+    );
+    assert.deepEqual(takeRejectedComposerSubmissionRecoveries('pane:A'), []);
+    assert.deepEqual(takeRejectedComposerSubmissionRecoveries('pane:B'), []);
+  } finally {
+    subtle.digest = original;
+    await mounted.cleanup();
+  }
+});
+
+test('draft A → draft B in the same pane while a send waits for its digests sends nothing and keeps A', async () => {
+  const subtle = globalThis.crypto.subtle;
+  const original = subtle.digest;
+  const held = [];
+  subtle.digest = function digest(...args) {
+    return new Promise((resolve) => held.push(() => resolve(original.apply(this, args))));
+  };
+  const sends = [];
+  const { view, mounted } = sendingComposer(sends, 'message for draft A');
+  // Two new-task drafts: no session, the same recovery scope; only the
+  // composer's identity tells them apart.
+  const draft = (id) => ({ scope: id, identity: `draft:${id}`, recovery: 'new-task', session: '' });
+  try {
+    await mounted.render(draft('a'));
+    await act(async () => view.current.replaceAttachments([notesFile()]));
+    let sending;
+    await act(async () => {
+      sending = view.current.send();
+    });
+    await mounted.render(draft('b'));
+    await act(async () => {
+      for (const release of held) release();
+      await sending;
+    });
+    assert.deepEqual(sends, [], "A's message never goes out with B's routing");
+    assert.equal(view.current.draft, 'message for draft A');
+    assert.deepEqual(
+      view.current.attachments.map((attachment) => [attachment.id, attachment.data]),
+      [[1, 'notes body']]
+    );
+    assert.deepEqual(takeRejectedComposerSubmissionRecoveries('new-task'), []);
+    // Unchanged conversation: the same send goes out.
+    await mounted.render(draft('b'));
+    await act(async () => {
+      sending = view.current.send();
+    });
+    await act(async () => {
+      for (const release of held.splice(0)) release();
+      await sending;
+    });
+    assert.equal(sends.length, 1);
+  } finally {
+    subtle.digest = original;
+    await mounted.cleanup();
+  }
+});
+
+test('sha256Hex matches Web Crypto, and works without crypto.subtle (plain-http phone)', async () => {
+  const subtle = globalThis.crypto.subtle;
+  const web = async (value) =>
+    Array.from(new Uint8Array(await subtle.digest('SHA-256', new TextEncoder().encode(value))), (byte) =>
+      byte.toString(16).padStart(2, '0')
+    ).join('');
+  assert.equal(
+    hex(sha256Bytes(new TextEncoder().encode('abc'))),
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+  );
+  for (const value of ['', 'abc', 'a'.repeat(55), 'a'.repeat(56), 'a'.repeat(64), '한글 ✓'.repeat(500)]) {
+    assert.equal(hex(sha256Bytes(new TextEncoder().encode(value))), await web(value), `${value.length} chars`);
+  }
+  Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
+  const sends = [];
+  const { view, mounted } = sendingComposer(sends, 'look');
+  try {
+    assert.equal(await sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    await mounted.render({ scope: 'A' });
+    await act(async () => view.current.replaceAttachments([notesFile()]));
+    await act(async () => {
+      await view.current.send();
+    });
+    assert.equal(sends.length, 1, 'the send went out');
+    assert.equal(view.current.draft, '');
+    assert.deepEqual(view.current.attachments, []);
+  } finally {
+    delete globalThis.crypto.subtle;
+    await mounted.cleanup();
+  }
+  assert.equal(globalThis.crypto.subtle, subtle);
+});
+
+test('a failing Web Crypto digest falls back and never surfaces as an unhandled rejection', async () => {
+  const subtle = globalThis.crypto.subtle;
+  const original = subtle.digest;
+  subtle.digest = () => Promise.reject(new Error('digest unavailable'));
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  const sends = [];
+  const { view, mounted } = sendingComposer(sends, 'look');
+  try {
+    await mounted.render({ scope: 'A' });
+    // A digest is started and nobody awaits it for a while.
+    await act(async () => view.current.replaceAttachments([notesFile()]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const key = await submissionRetryKey(['look'], view.current.attachmentsRef.current);
+    subtle.digest = original;
+    assert.equal(key, await submissionRetryKey(['look'], [notesFile()]), 'the fallback digest is the SHA-256');
+    await act(async () => {
+      await view.current.send();
+    });
+    assert.equal(sends.length, 1);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    subtle.digest = original;
+    process.off('unhandledRejection', onUnhandled);
     await mounted.cleanup();
   }
 });
@@ -378,14 +747,10 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
           attachmentsRef,
           replaceAttachments() {},
         },
-        queue: {
-          pendingSubmissionId: '',
-          hasRestorableMessages: () => false,
-          restore() {},
-        },
         runtime: {
           turnBusy: false,
           draftMode: false,
+          pendingSubmissionId: '',
           attachments: [],
           escapeClearAt,
           showNotice() {},

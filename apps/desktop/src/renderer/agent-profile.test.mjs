@@ -258,7 +258,7 @@ test('a save over an agent changed elsewhere is refused; the edits stay until "�
   assert.equal(persona().value, '', 'the reload shows the stored profile');
 });
 
-test("Mixy's name and face are editable; its model goes to the Lead route, the rest to agents/lead", async (t) => {
+test("Mixy's name and face are editable; its model is its own (never the Lead route), the rest its own files", async (t) => {
   const render = harness(t);
   const { api, calls } = fakeApi(null);
   await render(React.createElement(AgentProfilePane, { sessionId: 'sess_home_lead', active: true, api, models }));
@@ -311,11 +311,14 @@ test("Mixy's name and face are editable; its model goes to the Lead route, the r
     profile.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
   );
   await settle();
+  // Mixy's own route first — never the Lead's Main route — then its thread.
+  const own = calls.filter(([name]) => name === 'setAgentRoute');
+  assert.equal(own.length, 1);
+  assert.equal(own[0][1], 'lead');
+  assert.equal(own[0][2].model, 'second-model');
   const routes = calls.filter(([name]) => name === 'setModelRoute');
-  assert.equal(routes.length, 2);
-  assert.equal(routes[0][1].model, 'second-model');
-  assert.equal(routes[0][2], undefined, 'first the Lead Main route');
-  assert.equal(routes[1][2], 'sess_home_lead', 'then its own thread');
+  assert.equal(routes.length, 1, 'the Lead Main route is never written');
+  assert.equal(routes[0][2], 'sess_home_lead', 'only its own thread');
   assert.ok(calls.some(([name, text]) => name === 'saveLeadPersona' && text === '존댓말로 답합니다.'));
   assert.ok(calls.some(([name, text]) => name === 'saveLeadAgentBody' && text === '메일부터 확인합니다.'));
   const identity = calls.find(([call]) => call === 'saveLeadIdentity');

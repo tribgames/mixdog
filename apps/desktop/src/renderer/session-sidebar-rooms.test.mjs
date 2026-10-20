@@ -77,6 +77,9 @@ test('a room row opens its menu on right-click: reset, leave, delete', async (t)
     items.map((item) => item.id),
     ['room-reset', 'room-leave', 'room-delete']
   );
+  const { BOT_DELETED_EVENT } = await import('./agent-profile-actions.ts');
+  const closed = [];
+  window.addEventListener(BOT_DELETED_EVENT, (event) => closed.push(event.detail.sessionId));
   items[1].onSelect();
   items[2].onSelect();
   await act(async () => {});
@@ -84,4 +87,6 @@ test('a room row opens its menu on right-click: reset, leave, delete', async (t)
     ['leave', 'abc123'],
     ['remove', 'abc123'],
   ]);
+  // The deleted/left room's open tab closes, so no pane stays on a gone session.
+  assert.deepEqual(closed, ['sess_room_abc123', 'sess_room_abc123']);
 });

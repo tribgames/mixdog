@@ -51,7 +51,8 @@ export function useComposerHistory({
       if (!prompt) return;
       const retained = submittedAttachments
         .filter((attachment) => attachment.kind === 'text' && attachment.token && prompt.includes(attachment.token))
-        .map((attachment) => ({ ...attachment }));
+        // The in-memory content digest never goes into stored history.
+        .map(({ contentDigest: _digest, ...attachment }) => attachment);
       const entry: ComposerHistoryEntry = {
         text: prompt,
         ...(retained.length ? { attachments: retained } : {}),

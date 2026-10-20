@@ -5,6 +5,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { installTestDom } from '../test-support/test-dom.mjs';
+const { overrideConfirmAction } = await import('../app-confirm.tsx');
 
 registerHooks({
   resolve(specifier, context, next) {
@@ -138,7 +139,7 @@ test('write forms require confirmation and block a second submit while the first
   const pending = deferred();
   const writes = [];
   let closed = 0;
-  window.confirm = () => false;
+  overrideConfirmAction(() => false);
   const rendered = await mount(
     React.createElement(GithubActionForm, {
       request: { action: 'issue.create', repo: 'owner/demo', title: '한글 제목', body: '내용' },
@@ -158,7 +159,7 @@ test('write forms require confirmation and block a second submit while the first
         .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     await act(async () => submit());
     assert.equal(writes.length, 0);
-    window.confirm = () => true;
+    overrideConfirmAction(() => true);
     await act(async () => {
       submit();
       submit();
@@ -177,7 +178,7 @@ test('PR approval submits the displayed repository and commit, then refreshes on
   const requests = [];
   let refreshed = 0;
   const sha = 'b'.repeat(40);
-  window.confirm = () => true;
+  overrideConfirmAction(() => true);
   window.mixdogDesktop = {
     githubRequest: async (_cwd, input) => {
       requests.push(input);

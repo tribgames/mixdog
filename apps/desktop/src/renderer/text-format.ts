@@ -96,12 +96,6 @@ export function oneLine(value: unknown, max = 180) {
   return text.length > max ? `${text.slice(0, Math.max(1, max - 1)).trimEnd()}…` : text;
 }
 
-export function queueText(value: unknown): string {
-  if (typeof value === 'string') return value;
-  const record = asRecord(value);
-  return String(record?.displayText || record?.text || record?.prompt || 'Queued request');
-}
-
 export function formatElapsed(value: unknown): string {
   const elapsedMs = Math.max(0, Number(value) || 0);
   if (elapsedMs < 1_000) return '';

@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { ComposerQueueTrayContext, IslandSegmentPending } from './composer-island-state';
+import { IslandSegmentPending } from './composer-island-state';
 import {
   ComposerIsland,
   type ComposerIslandFlash,
@@ -64,8 +64,9 @@ interface ComposerDockProps {
   onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
   /** The session's live workspace: a git checkout adds the island's branch segment. */
   workspace?: DesktopSessionWorkspace | null;
-  /** Composer input waits in the queue: the branch segment cannot switch. */
-  queuedInput?: boolean;
+  /** A message sent behind the running turn waits to be read: the branch
+   *  segment cannot switch. */
+  pendingInput?: boolean;
   children: ReactNode;
 }
 
@@ -74,8 +75,7 @@ interface ComposerDockProps {
  * last child. A New Task draft keeps its project/workflow/mode context bar; a
  * session gets the composer island in a fixed slot instead (Goal, background
  * jobs, changed files, a waiting quota resume, tool approval, flashes), then
- * the quota card, then the queued follow-up tray attached to the composer's
- * top edge.
+ * the quota card.
  *
  * The dock is an in-flow sibling below the transcript viewport: every member
  * takes its real height (an empty island slot none), and the transcript
@@ -100,7 +100,7 @@ export function ComposerDock({
   onOpenSessionDiff,
   onOpenAgentSession,
   workspace,
-  queuedInput = false,
+  pendingInput = false,
   children,
 }: ComposerDockProps) {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
@@ -116,7 +116,6 @@ export function ComposerDock({
     return () => window.clearTimeout(timer);
   }, [worktreeFlash]);
   const [moduleFailure, setModuleFailure] = useState<{ error: unknown } | null>(null);
-  const [queueTray, setQueueTray] = useState<HTMLDivElement | null>(null);
   // The draft context bar's height as last committed (0 once it is gone): the
   // island that replaces it in the next commit (the draft's first submit)
   // mounts at that height, so the swap moves nothing even when the new
@@ -273,7 +272,7 @@ export function ComposerDock({
           onOpenAgentSession={openAgentSession}
           goal={goal}
           files={agentMode ? undefined : files}
-          workBusy={reviewBusy || queuedInput}
+          workBusy={reviewBusy || pendingInput}
           branch={agentMode ? undefined : branch}
           git={agentMode ? undefined : git}
           approval={approval}
@@ -293,8 +292,7 @@ export function ComposerDock({
         />
       )}
       {!showProjectSelector && quotaCard ? <ComposerQuotaCard card={quotaCard} /> : null}
-      <div className="composer-queue-tray" ref={setQueueTray} />
-      <ComposerQueueTrayContext.Provider value={queueTray}>{children}</ComposerQueueTrayContext.Provider>
+      {children}
     </div>
   );
 }

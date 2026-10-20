@@ -8,6 +8,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import type { VisualizeHistoryItem, VisualizePaneView, VisualizeSessionState } from '../shared/visualize';
 import { dismissDesktopToast, showDesktopToast } from './desktop-toasts';
 import { fileDownloadFailureMessage } from './file-download-transfer';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
 import { downloadBlob, visualizePaneHasSource, visualizeSourceFileName } from './visualize-source';
@@ -125,10 +126,12 @@ export function visualizeVersionActions(
           assets: assets.join(', '),
         })
       : t('Restore v{{n}}? This overwrites {{files}} in the project.', { n: snapshot, files });
-    if (!window.confirm(message)) return;
-    restoreVisualizeVersion(sessionId, tab.id, snapshot, assets).catch((reason: unknown) =>
-      setNotice({ error: true, text: messageOf(reason) })
-    );
+    void confirmAction(message, { confirmLabel: t('Restore'), danger: true }).then((approved) => {
+      if (!approved) return;
+      return restoreVisualizeVersion(sessionId, tab.id, snapshot, assets).catch((reason: unknown) =>
+        setNotice({ error: true, text: messageOf(reason) })
+      );
+    });
   };
   const list = [...(tab.versions ?? [])].reverse();
   const items: DockAction[] = [];

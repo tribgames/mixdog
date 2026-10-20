@@ -1,4 +1,5 @@
 import type { ComposerAttachment } from './composer-support';
+import { sha256Hex } from './sha256';
 
 let submissionSequence = 0;
 let recoverySequence = 0;
@@ -130,8 +131,53 @@ export function draftWithRestoredPrompt(current: string, restored: string): stri
   return [restored, current].filter(Boolean).join('\n');
 }
 
-export function submissionRetryKey(text: string, attachments: readonly ComposerAttachment[]): string {
-  return JSON.stringify([text, attachments.map((attachment) => String(attachment.id))]);
+/** The chip with the SHA-256 of its data started: the same chip when its
+ *  digest is already for this data, so a digest is worked out once per chip
+ *  (copies made by renumbering or folding keep it). */
+export function withContentDigest(attachment: ComposerAttachment): ComposerAttachment {
+  if (attachment.contentDigest?.of === attachment.data) return attachment;
+  return { ...attachment, contentDigest: { of: attachment.data, sha256: sha256Hex(attachment.data) } };
+}
+
+function contentDigest(attachment: ComposerAttachment): Promise<string> {
+  return attachment.contentDigest?.of === attachment.data
+    ? attachment.contentDigest.sha256
+    : sha256Hex(attachment.data);
+}
+
+/**
+ * Identity of a send's content for "Send again": the same message resent
+ * keeps its submission id, so a send that failed ambiguously (it may have
+ * arrived) is never posted twice, and a changed one never takes the old id.
+ * Chip ids are not part of it — a restored chip may be renumbered — so each
+ * attachment token in the text stands as its place in the attachment list,
+ * and each attachment as what it holds: its SHA-256 and length (awaited when
+ * the chip's digest is still being worked out).
+ */
+export async function submissionRetryKey(
+  texts: readonly string[],
+  attachments: readonly ComposerAttachment[]
+): Promise<string> {
+  const digests = await Promise.all(attachments.map(contentDigest));
+  const places = new Map<string, number>();
+  attachments.forEach((attachment, place) => {
+    if (attachment.token && !places.has(attachment.token)) places.set(attachment.token, place);
+  });
+  const pattern = places.size
+    ? new RegExp([...places.keys()].map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
+    : null;
+  return JSON.stringify([
+    pattern ? texts.map((text) => text.replace(pattern, (token) => `\u0000${places.get(token)}\u0000`)) : texts,
+    attachments.map((attachment, place) => [
+      attachment.kind,
+      attachment.name,
+      attachment.mimeType,
+      attachment.source ?? '',
+      attachment.metadataText ?? '',
+      attachment.data.length,
+      digests[place],
+    ]),
+  ]);
 }
 
 export function insertComposerToken(

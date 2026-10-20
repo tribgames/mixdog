@@ -15,6 +15,13 @@ export type TranscriptItem = RecordValue & {
   agent?: string;
   /** Device that submitted this prompt (user rows only). */
   device?: string;
+  /** A message the model read inside its running turn (user rows only). */
+  steered?: boolean;
+  /** A message sent while a turn runs that the model has not read yet: it
+   *  waits for the next step boundary (`pending`), runs after the turn (a
+   *  slash command, `held`), is being sent now (`sending`), or could not be
+   *  sent (`failed`). */
+  steer?: 'pending' | 'held' | 'sending' | 'failed';
   /** The turn checkpoint a `user` prompt opened or a `turndone` closed. */
   checkpointId?: string;
   /** A row a compaction took out of the model context: display-only. */
@@ -44,7 +51,8 @@ export type TranscriptItem = RecordValue & {
   callErrorCount?: number;
   exitErrorCount?: number;
   images?: Array<{ id?: number | null; name?: string; mimeType?: string; bytes?: number; attachmentRef?: string }>;
-  /** User rows: the attachments the message carries, by the content hash the host stores them under. */
+  /** User rows: the attachments the message carries, by the content hash the host stores them under;
+   *  task reports and room speech: the files the turn returned. */
   attachments?: Array<{ id: string; kind: 'image' | 'file' | 'text'; name: string; mimeType: string; size: number }>;
   /** Restored rows: each image's stored original, by the `[Image: …]` line that draws it. */
   imageRefs?: Array<{ line: string; ref?: string }>;

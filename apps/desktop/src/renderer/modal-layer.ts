@@ -1,10 +1,5 @@
-type IsolationState = {
-  owners: Set<number>;
-  inert: boolean;
-  ariaHidden: string | null;
-};
+import { openModal } from './settings/dialog-modality';
 
-const isolation = new WeakMap<HTMLElement, IsolationState>();
 const stack: number[] = [];
 const surfaces = new Map<number, HTMLElement>();
 let sequence = 0;
@@ -27,30 +22,17 @@ function refreshStacking() {
 }
 
 /**
- * Coordinates modal ownership across independently portaled renderer surfaces.
- * Isolation is reference-counted per element and only restored while the
- * attributes still have the values assigned by this registry.
+ * Coordinates stacking across independently portaled renderer surfaces. Page
+ * isolation is not done here: a layer that isolates (a non-empty `elements`)
+ * registers its surface with the one modality owner, settings/dialog-modality,
+ * which alone sets and restores `inert` for every modal kind.
  */
 export function acquireModalLayer(elements: Iterable<HTMLElement>): ModalLayerHandle {
   const id = ++sequence;
-  const owned = Array.from(new Set(elements));
+  const isolates = Array.from(elements).length > 0;
   let released = false;
+  let closeModal: (() => void) | null = null;
   stack.push(id);
-
-  for (const element of owned) {
-    let state = isolation.get(element);
-    if (!state) {
-      state = {
-        owners: new Set(),
-        inert: element.inert,
-        ariaHidden: element.getAttribute('aria-hidden'),
-      };
-      isolation.set(element, state);
-    }
-    state.owners.add(id);
-    element.inert = true;
-    element.setAttribute('aria-hidden', 'true');
-  }
 
   return {
     isTop: () => !released && stack.at(-1) === id,
@@ -58,6 +40,8 @@ export function acquireModalLayer(elements: Iterable<HTMLElement>): ModalLayerHa
       if (released) return;
       if (element) surfaces.set(id, element);
       else surfaces.delete(id);
+      closeModal?.();
+      closeModal = isolates && element ? openModal(element) : null;
       refreshStacking();
     },
     release() {
@@ -67,18 +51,8 @@ export function acquireModalLayer(elements: Iterable<HTMLElement>): ModalLayerHa
       if (index >= 0) stack.splice(index, 1);
       surfaces.delete(id);
       refreshStacking();
-      for (const element of owned) {
-        const state = isolation.get(element);
-        if (!state) continue;
-        state.owners.delete(id);
-        if (state.owners.size > 0) continue;
-        isolation.delete(element);
-        if (element.inert === true) element.inert = state.inert;
-        if (element.getAttribute('aria-hidden') === 'true') {
-          if (state.ariaHidden == null) element.removeAttribute('aria-hidden');
-          else element.setAttribute('aria-hidden', state.ariaHidden);
-        }
-      }
+      closeModal?.();
+      closeModal = null;
     },
   };
 }

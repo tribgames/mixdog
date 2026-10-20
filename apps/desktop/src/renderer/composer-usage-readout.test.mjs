@@ -22,7 +22,7 @@ const {
 } = await import('./composer-usage-readout.tsx');
 
 // Session-cumulative totals as the runtime persists them (the speed sums
-// already hold only the calls that met the per-call floors).
+// already hold only the calls with positive output and positive duration).
 const totals = {
   input: 1200,
   cacheRead: 38000,
@@ -32,7 +32,7 @@ const totals = {
   speedMs: 15000,
 };
 
-test('tok/s is timed output over generation time; cache hit is read over the whole prompt', () => {
+test('tok/s is timed output over request time; cache hit is read over the whole prompt', () => {
   const usage = sessionUsageTotals({ usageReadout: totals });
   assert.equal(outputTokensPerSecond(usage), 48);
   assert.equal(cacheHitShare(usage), 38000 / (1200 + 38000 + 2100));
@@ -43,6 +43,28 @@ test('tok/s is timed output over generation time; cache hit is read over the who
   assert.equal(usageReadoutText(sessionUsageTotals({})), null);
   assert.equal(outputTokensPerSecond(null), null);
   assert.equal(cacheHitShare(null), null);
+});
+
+test('tok/s is the request-time rate (first-token wait included); a record without it falls back to the older speed', () => {
+  const base = { input: 1200, cacheRead: 38000, cacheWrite: 2100, output: 800 };
+  // Saved before the request-time sums: the first-token speed still reads.
+  assert.equal(
+    outputTokensPerSecond(sessionUsageTotals({ usageReadout: { ...base, speedOutputTokens: 720, speedMs: 4000 } })),
+    180
+  );
+  // Request-time sums take over, ignoring the older pair: 720 tokens over 8 s.
+  const both = {
+    ...base,
+    speedOutputTokens: 720,
+    speedMs: 4000,
+    requestOutputTokens: 720,
+    requestMs: 8000,
+  };
+  assert.equal(outputTokensPerSecond(sessionUsageTotals({ usageReadout: both })), 90);
+  assert.equal(
+    outputTokensPerSecond(sessionUsageTotals({ usageReadout: { ...base, requestOutputTokens: 500, requestMs: 5000 } })),
+    100
+  );
 });
 
 test('total tokens sum input, cache read, cache write and output; compact like 12.3k / 1.2M', () => {
@@ -95,7 +117,7 @@ test('the figures are the session sums, not a mean of per-turn rates', () => {
 
 test('the streaming call shows its own live rate, past the floors, in place of the session speed', () => {
   const live = (outputTokens, at, startedAt = 10_000) => ({ active: true, liveCall: { startedAt, outputTokens, at } });
-  // 300 estimated tokens over 4 s since its first token.
+  // 300 estimated tokens over 4 s since its request started.
   assert.equal(liveTokensPerSecond(live(300, 14_000)), 75);
   // Not before 50 estimated tokens and 1.5 s of streaming.
   assert.equal(liveTokensPerSecond(live(49, 20_000)), null);
@@ -119,10 +141,14 @@ test('the streaming call shows its own live rate, past the floors, in place of t
         onOpenUsage() {},
       })
     );
-  assert.match(render(live(300, 14_000)), /42\.1k tokens ·<\/span>.*~75 tok\/s ·<\/span>.*Cache hit 92\.0%<\/span>/);
-  assert.match(render(live(500, 15_000)), /~100 tok\/s ·<\/span>/);
+  const sep = '<span class="composer-readout-sep" aria-hidden="true">·</span>';
+  assert.match(
+    render(live(300, 14_000)),
+    new RegExp(`42\\.1k tokens${sep}</span>.*~75 tok/s${sep}</span>.*Cache hit 92\\.0%</span>`)
+  );
+  assert.match(render(live(500, 15_000)), new RegExp(`~100 tok/s${sep}</span>`));
   // When the call ends the spinner drops its live call and the session figure returns.
-  assert.match(render({ active: true, liveCall: null }), />48 tok\/s ·<\/span>/);
+  assert.match(render({ active: true, liveCall: null }), new RegExp(`>48 tok/s${sep}</span>`));
 });
 
 test('the readout hides until the session reported usage, then is one button with no hover card', () => {
@@ -150,7 +176,8 @@ test('the readout hides until the session reported usage, then is one button wit
 test('a narrowing line drops cache hit first, then the token total, tok/s last', () => {
   const parts = usageReadoutParts(sessionUsageTotals({ usageReadout: totals }));
   const variants = readoutVariants(parts);
-  const texts = (list) => list.map((items) => items.map((item) => item.text).join(' '));
+  const texts = (list) =>
+    list.map((items) => items.map((item) => (item.separator ? `${item.text} ·` : item.text)).join(' '));
   // Worded first (room to spare), then the icon form, then fewer parts.
   assert.deepEqual(texts(variants), [
     '42.1k tokens · 48 tok/s · Cache hit 92.0%',
@@ -188,6 +215,6 @@ test('each coding item carries its full words as tooltip and accessible name', (
   assert.match(html, /title="Total tokens 42\.1k" aria-label="Total tokens 42\.1k"/);
   // Room to spare: the worded form, no icons; the icon form is the next variant.
   assert.doesNotMatch(html, /<svg/);
-  assert.match(html, /42\.1k tokens ·/);
+  assert.match(html, /42\.1k tokens<span class="composer-readout-sep" aria-hidden="true">·<\/span>/);
   assert.ok(readoutVariants(parts)[1].every((item) => item.icon));
 });

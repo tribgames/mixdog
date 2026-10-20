@@ -157,3 +157,27 @@ test('a downgrade neither shows nor acknowledges anything', async (t) => {
   assert.deepEqual(steps, ['downgrade']);
   assert.equal(window.localStorage.getItem(SEEN_VERSION_KEY), '4.5.0');
 });
+
+test('the notice waits while any modal is open and shows once it closes', async (t) => {
+  const { openModal } = await import('./dialog-modality.ts');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const closeModal = openModal(host);
+  t.after(() => {
+    closeModal();
+    host.remove();
+  });
+  const { acknowledged, container } = await mount(t, {
+    version: '5.1.0',
+    seen: '5.0.0',
+    prepare: async () => release('5.1.0'),
+  });
+  assert.equal(container.querySelector('.notice'), null, 'not shown over a modal');
+  assert.deepEqual(acknowledged, []);
+  closeModal();
+  await act(async () => {
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(container.querySelector('.notice')?.textContent, 'v5.1.0');
+  assert.deepEqual(acknowledged, ['5.1.0']);
+});

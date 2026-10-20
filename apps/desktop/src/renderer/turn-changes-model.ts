@@ -306,6 +306,48 @@ export function visibleTurnChangeRows(files: readonly TurnChangesFile[], expande
   };
 }
 
+/** A file's identity: its full path resolved against the record's root (a
+ *  changed file is root-relative, a visualized target is root-relative or
+ *  absolute), separators and `.`/`..` normalized, and case-folded on drive
+ *  paths (Windows). Two names are one file only when these are equal, so
+ *  `index.html` is never `site/index.html`. */
+function fileIdentity(root: string, path: string): string {
+  const clean = (value: string) => value.replace(/\\/g, '/');
+  let full = clean(path);
+  if (!full.startsWith('/') && !/^[a-z]:\//i.test(full) && root) full = `${clean(root).replace(/\/+$/, '')}/${full}`;
+  const parts: string[] = [];
+  for (const part of full.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  }
+  const resolved = `${full.startsWith('/') ? '/' : ''}${parts.join('/')}`;
+  return /^[a-z]:\//i.test(full) ? resolved.toLowerCase() : resolved;
+}
+
+/** The files a turn's changes card lists: those its visualize cards did not
+ *  already show (a visualized file stands as its card, not as a diff). `root`
+ *  is the reply's root the changed paths are relative to. */
+export function unvisualizedChanges(
+  files: readonly TurnChangesFile[],
+  visualized: readonly string[] | undefined,
+  root: string
+): readonly TurnChangesFile[] {
+  if (!visualized?.length) return files;
+  const shown = new Set(visualized.map((target) => fileIdentity(root, target)));
+  return files.filter((file) => !shown.has(fileIdentity(root, file.path)));
+}
+
+/** Whether every changed file was shown as a visualize card (the changes card
+ *  is then not drawn; Undo moves onto the visualize card). */
+export function allChangesVisualized(
+  files: readonly TurnChangesFile[],
+  visualized: readonly string[] | undefined,
+  root: string
+) {
+  return files.length > 0 && unvisualizedChanges(files, visualized, root).length === 0;
+}
+
 /** Whether the file exists on disk in its current state. */
 export function turnChangeFileExists(file: TurnChangesFile): boolean {
   if (file.status === 'D') return file.state === 'reverted';

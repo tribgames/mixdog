@@ -126,14 +126,17 @@ export function createTurnHolds(
   return {
     setTurnActive,
     /** One push of the session roster: a session's turn runs while its Lead
-     *  works; a session that left the roster has no turn. */
-    observeTurns(sessions: ReadonlyArray<{ id: string; working?: boolean; leadWorking?: boolean }>): Promise<void> {
+     *  works; a session that left the roster has no turn. The roster omits
+     *  `leadWorking` while the Lead is idle, and its `working` also counts the
+     *  Lead's child agents: reading `working` held the turn (and every chat
+     *  card of it) for as long as a background agent ran. */
+    observeTurns(sessions: ReadonlyArray<{ id: string; leadWorking?: boolean }>): Promise<void> {
       const present = new Set<string>();
       const changes: Promise<void>[] = [];
       for (const session of sessions) {
         if (!session?.id) continue;
         present.add(session.id);
-        changes.push(setTurnActive(session.id, Boolean(session.leadWorking ?? session.working)));
+        changes.push(setTurnActive(session.id, session.leadWorking === true));
       }
       for (const sessionId of [...holds.keys()]) {
         if (!present.has(sessionId)) changes.push(setTurnActive(sessionId, false));

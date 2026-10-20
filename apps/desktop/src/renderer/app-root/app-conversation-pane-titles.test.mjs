@@ -113,6 +113,39 @@ test('Korean pane titles localize app fallbacks and keep custom titles literal',
   }
 });
 
+test('headers never show an attachment-only title as [Image]: pinned pane titles and registered tab titles', async (t) => {
+  setUiLanguagePreference('ko');
+  await initUiLanguage();
+  t.after(async () => {
+    setUiLanguagePreference('en');
+    await initUiLanguage();
+  });
+  const renderer = makeRenderer([{ id: 'listed', title: '[Video]', projectPath: '/projects/a' }]);
+  const titleOf = (selection) => renderer(selection, true, () => {}, 'leaf').props.title;
+  assert.equal(titleOf({ kind: 'session', id: 'pinned', title: '[Image]' }), '이미지');
+  assert.equal(titleOf({ kind: 'session', id: 'listed' }), '영상');
+  assert.equal(titleOf({ kind: 'session', id: 'pinned', title: 'Fix the release' }), 'Fix the release');
+
+  // Not listed yet: the header falls back to the tab's registered title.
+  function Header({ title }) {
+    const { visibleSessionTitle } = useAppSessionTitle({
+      navigationSelection: { kind: 'session', id: 'unlisted' },
+      sessions: [],
+      tabs: [{ key: 'session:unlisted', title, selection: { kind: 'session', id: 'unlisted' } }],
+      renameSession() {},
+    });
+    return React.createElement('h1', null, visibleSessionTitle);
+  }
+  for (const [title, expected] of [
+    ['[Image]', '이미지'],
+    ['[File]', '파일'],
+    ['Fix the release', 'Fix the release'],
+  ]) {
+    document.body.innerHTML = renderToStaticMarkup(React.createElement(Header, { title }));
+    assert.equal(document.querySelector('h1').textContent, expected);
+  }
+});
+
 test('background session refresh preserves localized fallback and custom tab titles', async (context) => {
   setUiLanguagePreference('ko');
   await initUiLanguage();

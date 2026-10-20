@@ -170,3 +170,34 @@ test('only settled assistant rows link; approval preview images are included', (
     false
   );
 });
+
+test("a task report's returned files are linked paths and attachments; other notices name none", async () => {
+  const { sessionAttachments } = await import('./transcript-file-links.ts');
+  const cwd = resolve('/work/project');
+  const id = 'a'.repeat(64);
+  const record = { id, attachmentRef: id, kind: 'image', name: 'chart.png', mimeType: 'image/png', size: 3 };
+  const snapshot = {
+    items: [
+      {
+        kind: 'notice',
+        routine: { kind: 'task', files: [{ path: resolve('/work/project/clip.mp4') }, { path: 'relative.txt' }] },
+        attachments: [record],
+      },
+      // A notice that is no task report (or a room pass) lends nothing.
+      {
+        kind: 'notice',
+        routine: { kind: 'schedule', files: [{ path: resolve('/etc/x') }] },
+        attachments: [{ ...record, id: 'b'.repeat(64) }],
+      },
+      { kind: 'notice', room: { kind: 'speech' }, attachments: [{ ...record, id: 'c'.repeat(64) }] },
+    ],
+  };
+  const linked = sessionLinkedPaths(snapshot, cwd);
+  assert.ok(linked.includes(resolve('/work/project/clip.mp4')));
+  assert.equal(linked.includes(resolve('/etc/x')), false);
+  assert.equal(
+    linked.some((path) => path.endsWith('relative.txt')),
+    false
+  );
+  assert.deepEqual([...sessionAttachments(snapshot).keys()], [id, 'c'.repeat(64)]);
+});

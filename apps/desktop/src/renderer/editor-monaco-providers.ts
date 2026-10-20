@@ -1,4 +1,5 @@
 import { monaco } from './monaco-setup';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 // @ts-expect-error The Peek submenu registry is internal and has no declarations.
 import { MenuId, MenuRegistry } from 'monaco-editor/esm/vs/platform/actions/common/actions.js';
@@ -178,13 +179,13 @@ export async function applyLspWorkspaceEdit(
   if (
     confirmationLabel &&
     groups.size > 1 &&
-    !window.confirm(
+    !(await confirmAction(
       t('{{action}} will update {{locations}} locations in {{files}} files. Continue?', {
         action: confirmationLabel,
         locations: editCount,
         files: groups.size,
       })
-    )
+    ))
   ) {
     return false;
   }

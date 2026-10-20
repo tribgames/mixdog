@@ -40,6 +40,7 @@ export function ComposerModelLine({
   usageReadout,
   modelAside,
   agentMode = false,
+  room = false,
   transitioning,
   commandBusy,
   paneActive,
@@ -49,10 +50,14 @@ export function ComposerModelLine({
   usageReadout?: ReactNode;
   modelAside: ComposerProps['modelAside'];
   agentMode?: boolean;
+  /** A group room: its members each use their own model, so the line shows
+   *  neither the model picker nor the context gauge. */
+  room?: boolean;
   transitioning: boolean;
   commandBusy: boolean;
   paneActive: boolean;
 }) {
+  if (room) return usageReadout ? <div className="composer-model-line">{usageReadout}</div> : null;
   return (
     <div className="composer-model-line">
       {usageReadout}
@@ -64,7 +69,7 @@ export function ComposerModelLine({
           // Model writes are queued by the session API. A preceding write must
           // not disable the next selection while its acknowledgement travels.
           modelDisabled={transitioning}
-          answersModelPickerRequests={paneActive && !agentMode}
+          answersModelPickerRequests={paneActive}
           // Effort/Fast stay live during a turn: the running turn already
           // captured its own effort/fast at turn start, so a change here lands
           // on the NEXT turn instead of being locked out. Only session-command
@@ -105,8 +110,6 @@ export function ComposerFooter({
   goalDisabled,
   executeSlash,
   transitioning,
-  commandBusy,
-  turnBusy,
   paneActive,
   hasConversation,
   submitting,
@@ -144,8 +147,6 @@ export function ComposerFooter({
   goalDisabled: boolean;
   executeSlash: (command: string) => Promise<boolean>;
   transitioning: boolean;
-  commandBusy: boolean;
-  turnBusy: boolean;
   paneActive: boolean;
   hasConversation: boolean;
   submitting: boolean;
@@ -217,8 +218,6 @@ export function ComposerFooter({
           stopOnly={stopOnly}
           voiceSend={voiceSend}
           submitting={submitting}
-          turnBusy={turnBusy}
-          commandBusy={commandBusy}
           transitioning={transitioning}
           hasConversation={hasConversation}
           dictationState={dictation.dictationState}

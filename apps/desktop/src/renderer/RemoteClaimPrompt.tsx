@@ -76,6 +76,7 @@ export function RemoteClaimPrompt() {
   return createPortal(
     <div
       className="remote-claim-notice"
+      data-modal-background
       role="status"
       style={strip?.height ? { top: Math.round(strip.bottom + 16) } : undefined}
     >

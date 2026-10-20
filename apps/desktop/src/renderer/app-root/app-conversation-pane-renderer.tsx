@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { DesktopModelSelection } from '../../shared/contract';
-import { sessionSummaryTitle } from '../../shared/session-title.mjs';
+import { displaySessionTitle, sessionDisplayTitle } from '../session-display-title';
 import { t } from '../i18n';
 import { chatLinkMainTabMode, getLinkPreview } from '../link-preview-preference';
 import type { NavigationSelection } from '../navigation';
@@ -212,9 +212,9 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
     let paneTitle = t('New task');
     if (paneSessionId) {
       if (pinnedPaneTitle) {
-        paneTitle = pinnedPaneTitle;
+        paneTitle = displaySessionTitle(pinnedPaneTitle);
       } else if (sessionRow) {
-        paneTitle = sessionSummaryTitle(sessionRow, t('Untitled session'));
+        paneTitle = sessionDisplayTitle(sessionRow, t('Untitled session'));
       } else {
         paneTitle = t('Untitled session');
       }

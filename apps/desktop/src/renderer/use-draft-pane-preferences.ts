@@ -5,10 +5,12 @@ import type { Snapshot } from './desktop-types';
 import { mergeRoutePreference, routePreferenceStore } from './app-route-preference';
 import { navigationKey } from './text-format';
 import {
+  backfillLeadRoute,
   type DraftPanePrefs,
   type ResolvedDraftPrefs,
   draftModelSelectionFromSnapshot,
   emptyDraftPanePrefs,
+  followLeadRoute,
   readStoredDraftPaneEntries,
   readStoredLastNewTaskPrefs,
   rememberSnapshotModelSeed,
@@ -170,10 +172,32 @@ export function useDraftPanePreferences({
       // Migrated values live in memory only until something is staged: write
       // them under the current keys right away.
       if (last.legacy || entries.legacy) persistDraftPanePrefs();
+      const api = window.mixdogDesktop;
+      const tried = lastNewTaskPrefs.current?.modelSelection;
+      if (api?.setModelRoute && tried) {
+        void backfillLeadRoute({
+          last: lastNewTaskPrefs.current,
+          setModelRoute: (selection) => api.setModelRoute(selection) as unknown as Promise<Snapshot>,
+        })
+          .then(({ route }) => {
+            // Skipped because another route already is the Lead route: the
+            // drafts without an explicit pick follow it instead of the cache.
+            const next = followLeadRoute(lastNewTaskPrefs.current, tried, route);
+            if (!next?.modelSelection) return;
+            lastNewTaskPrefs.current = next;
+            const draftKey = focusedDraftKey(selectionRef.current);
+            if (!draftKey || !draftPanePrefs.current.get(draftKey)?.modelSelection) {
+              setNewTaskModelSelection(next.modelSelection);
+            }
+            persistDraftPanePrefs();
+            repaintDrafts();
+          })
+          .catch(() => {});
+      }
     } catch {
       /* best-effort */
     }
-  }, [persistDraftPanePrefs, repaintDrafts]);
+  }, [persistDraftPanePrefs, repaintDrafts, selectionRef, setNewTaskModelSelection]);
   const stageNewTaskProject = useCallback(
     (projectPath: string) => {
       const next = String(projectPath || '').trim();

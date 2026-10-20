@@ -15,6 +15,8 @@ const PREVIEW_DOCUMENT = 'mixdog-preview-document';
 export const PREVIEW_LINK = 'mixdog-preview-link';
 const PREVIEW_READY_TIMEOUT_MS = 3000;
 const MAX_LINK_LENGTH = 8192;
+/** Frames loadSandboxedPage navigated once already. */
+const loadedFrames = new WeakSet<HTMLIFrameElement>();
 
 /** The in-page half of link handling (plain ES5, no `</script`). A link
  *  click would navigate the frame itself away from the page, onto an address
@@ -31,7 +33,15 @@ const PREVIEW_LINK_SCRIPT = `(function () {
     while (node && !(node.nodeType === 1 && /^(a|area)$/i.test(node.nodeName) && (node.hasAttribute('href') || node.hasAttribute('xlink:href')))) node = node.parentNode;
     if (!node) return;
     var raw = String(node.getAttribute('href') || node.getAttribute('xlink:href') || '').trim();
-    if (raw.charAt(0) === '#' || /^javascript:/i.test(raw)) return;
+    if (/^javascript:/i.test(raw)) return;
+    if (raw.charAt(0) === '#') {
+      // Replaced, not pushed: an in-frame history entry would take the
+      // phone's Back press meant for the app's panel. (A page that calls
+      // history.pushState itself still adds one; its own Back/Forward needs it.)
+      event.preventDefault();
+      try { location.replace(raw); } catch (error) {}
+      return;
+    }
     event.preventDefault();
     var href;
     try { href = new URL(raw, document.baseURI).href; } catch (error) { return; }
@@ -88,7 +98,13 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
     frame.srcdoc = srcdoc;
   }, PREVIEW_READY_TIMEOUT_MS);
   window.addEventListener('message', onMessage);
-  frame.src = PREVIEW_FRAME_PATH;
+  // A frame that already shows a page reloads in place by replacing its
+  // entry: a pushed in-frame entry would take the phone's next Back press
+  // meant for the panel (the top window sees no popstate for it).
+  const shown = frame.contentWindow && loadedFrames.has(frame);
+  loadedFrames.add(frame);
+  if (shown) frame.contentWindow?.location.replace(new URL(PREVIEW_FRAME_PATH, window.location.href).href);
+  else frame.src = PREVIEW_FRAME_PATH;
   return () => {
     clearTimeout(fallbackTimer);
     window.removeEventListener('message', onMessage);

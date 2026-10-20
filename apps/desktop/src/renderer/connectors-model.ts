@@ -52,8 +52,7 @@ export function groupConnectors(servers: readonly Row[], plugins: readonly Row[]
   const catalog = [...CONNECTOR_CATALOG]
     .sort((a, b) => byName(a.name, b.name))
     .map((entry) => {
-      const mine =
-        entry.backend.kind === 'builtin' ? [] : userServers.filter((server) => text(server.connector) === entry.id);
+      const mine = userServers.filter((server) => text(server.connector) === entry.id);
       return { entry, server: mine[0] ?? null, servers: mine };
     })
     // Own-key-only services (Google Calendar/Drive) show once a server exists:

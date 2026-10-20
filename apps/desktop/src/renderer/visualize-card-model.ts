@@ -314,10 +314,16 @@ export function monogramHue(title: string): number {
 const normalized = (path: string) => path.replace(/\\/g, '/').replace(/^\.\//, '');
 /** Same file: equal, or one is the other's project-relative tail (a remote
  *  client sees cwd-relative targets where the agent may have named absolute ones). */
-function sameTarget(a: string, b: string): boolean {
+export function sameTarget(a: string, b: string): boolean {
   const left = normalized(a);
   const right = normalized(b);
   return left === right || left.endsWith(`/${right}`) || right.endsWith(`/${left}`);
+}
+
+/** The files a turn's tool rounds showed as visualize cards (finished opens
+ *  only): a changed file among them is shown by its card, not as a diff. */
+export function visualizedTargets(items: readonly TranscriptItem[]): string[] {
+  return visualizeCardCalls(items).flatMap((call) => (call.pending ? [] : call.targets));
 }
 
 /** The live panel tab a card stands for: its id, showing the same files.

@@ -1,52 +1,127 @@
-/* A `visualize` open in the chat, one row: the picture of its version (96×60,
-   72×45 on a phone), title, kind and version and where it is, with one button
-   that shows it in the session's side panel (or opens it again). Agent mode
-   seats the same card in the bubble column, ending on the bubbles' edge. */
-.transcript-visualize-cards {
-  display: grid;
-  gap: 6px;
+/* A turn's `visualize` opens in the chat, ONE card: the changed-files card's
+   frame (header surface, hairline, 44px header) with the icon, "Visualizations
+   N", the turn's Undo (when it stands in for the changed files) and "Show all",
+   over a grid of tiles: the picture of each tab's final version (16:10), its
+   title, version and where it is. Agent mode seats the same card in the bubble
+   column, ending on the bubbles' edge. */
+.transcript-visualize-turn {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
   /* Coding mode: at the turn's end, the same 16px step the changed-files card
      takes under the reply (27-search-review.css). */
   margin: 16px 0 0;
-}
-.transcript-visualize-card-wrap {
-  display: grid;
-  gap: 2px;
-}
-.transcript-visualize-card {
-  box-sizing: border-box;
-  width: min(100%, 500px);
-  min-height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px;
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
 }
-.transcript-visualize-card.is-shown,
-.transcript-visualize-card.is-compact {
+/* The frame is drawn over the children, as on the changed-files card. */
+.transcript-visualize-turn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  pointer-events: none;
 }
 /* The bubble column's widest line (72%, 86% on a phone); a narrow column
-   gives the card up to its whole width before the title has to shrink. */
-.transcript-visualize-card.is-compact {
+   gives the card up to its whole width. Agent chat: one 8px part step under
+   the reply (agent-chat.css). */
+.transcript-visualize-turn.is-compact {
   width: clamp(min(100%, 300px), var(--mx-agent-bubble-max, 72%), 100%);
 }
-/* Agent chat: under the reply, one 8px part step apart (agent-chat.css). */
-.mx-chat-row .transcript-visualize-cards {
-  gap: var(--mx-space-2);
+.mx-chat-row .transcript-visualize-turn {
   margin: var(--mx-space-2) 0 0;
 }
-.transcript-visualize-card.is-closed .transcript-visualize-thumb {
-  opacity: 0.55;
+.transcript-visualize-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 8px 6px 12px;
+  background: var(--mx-card-header-surface);
+  border-radius: var(--mx-radius-lg) var(--mx-radius-lg) 0 0;
+}
+.transcript-visualize-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
+}
+.transcript-visualize-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--mx-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-visualize-trail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Ghost button: hairline border, no fill (as the changed-files card's). */
+.transcript-visualize-all {
+  display: inline-flex;
+  align-items: center;
+  height: calc(26px * var(--mx-content-scale, 1));
+  padding: 0 10px;
+  border: var(--mx-hairline) solid var(--mx-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-text-soft);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.transcript-visualize-all:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.transcript-visualize-all:focus-visible,
+.transcript-visualize-tile:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.transcript-visualize-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+}
+html[data-mixdog-mobile-tabs] .transcript-visualize-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+html[data-mixdog-mobile-tabs] .transcript-visualize-head {
+  padding-left: 10px;
+}
+.transcript-visualize-tile {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .transcript-visualize-thumb {
-  flex: 0 0 auto;
-  width: 96px;
-  height: 60px;
+  position: relative;
+  aspect-ratio: 16 / 10;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -54,15 +129,15 @@
   color: var(--mx-icon-muted);
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
-html[data-mixdog-mobile-tabs] .transcript-visualize-card {
-  gap: 10px;
+.transcript-visualize-tile:hover .transcript-visualize-thumb {
+  box-shadow: 0 0 0 1px var(--mx-border);
 }
-html[data-mixdog-mobile-tabs] .transcript-visualize-thumb {
-  width: 72px;
-  height: 45px;
+/* The tab on screen in the panel: an accent ring. */
+.transcript-visualize-tile.is-shown .transcript-visualize-thumb {
+  box-shadow: 0 0 0 1.5px var(--mx-text-accent);
 }
-html[data-mixdog-mobile-tabs] .transcript-visualize-open {
-  padding: 0 9px;
+.transcript-visualize-tile.is-closed .transcript-visualize-thumb {
+  opacity: 0.55;
 }
 .transcript-visualize-monogram {
   display: grid;
@@ -79,25 +154,20 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-open {
   object-fit: cover;
   object-position: top left;
 }
-.transcript-visualize-copy {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: grid;
-  gap: 1px;
-}
-.transcript-visualize-copy > b,
-.transcript-visualize-copy > small {
+.transcript-visualize-tile > b,
+.transcript-visualize-tile > small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.transcript-visualize-copy > b {
+.transcript-visualize-tile > b {
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-ui);
 }
-.transcript-visualize-copy > small {
+.transcript-visualize-tile > small {
+  margin-top: -4px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
@@ -105,11 +175,13 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-open {
 .transcript-visualize-status {
   color: var(--mx-text-accent);
 }
-.transcript-visualize-card.is-closed .transcript-visualize-status {
+.transcript-visualize-tile.is-closed .transcript-visualize-status {
   color: var(--mx-text-muted);
 }
 .transcript-visualize-badge {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 4px;
+  right: 4px;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -118,32 +190,15 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-open {
   font-size: var(--mx-font-meta);
   line-height: calc(18px * var(--mx-content-scale, 1));
   font-variant-numeric: tabular-nums;
+  background: var(--mx-card-header-surface, rgba(0, 0, 0, 0.6));
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .transcript-visualize-badge.is-problem {
   color: var(--mx-warning, #b7791f);
 }
-.transcript-visualize-open {
-  flex: 0 0 auto;
-  min-height: 28px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  font: inherit;
-  font-size: var(--mx-font-meta);
-  white-space: nowrap;
-  background: var(--mx-hover);
-  cursor: pointer;
-}
-.transcript-visualize-open:hover {
-  background: var(--mx-pressed);
-}
-.transcript-visualize-open:focus-visible {
-  outline: 2px solid var(--mx-text-accent);
-  outline-offset: 1px;
-}
 .transcript-visualize-error {
+  display: block;
+  padding: 0 12px 10px;
   color: var(--mx-danger, #d9534f);
   font-size: var(--mx-font-meta);
   overflow-wrap: anywhere;

@@ -489,18 +489,23 @@ export function projectSettledTranscriptRows({
   };
 }
 
-/** Per-tick half: pending prompts, the live tail, and the thinking row are
- *  appended onto the memoized settled rows without mutating them. */
+/** Per-tick half: pending prompts, the live tail, the messages sent while the
+ *  turn runs, and the thinking row are appended onto the memoized settled rows
+ *  without mutating them. */
 export function appendLiveTranscriptRows({
   sessionKey,
   settled,
   pendingItems = [],
+  steerItems = [],
   liveItem,
   thinking = false,
 }: {
   sessionKey: string;
   settled: SettledTranscriptProjection;
-  pendingItems?: readonly (TranscriptItem & { queuedBehindTurn?: boolean })[];
+  pendingItems?: readonly TranscriptItem[];
+  /** Sent while the turn runs, not read yet: user bubbles after the live
+   *  output, where their durable rows land once the model reads them. */
+  steerItems?: readonly TranscriptItem[];
   liveItem?: TranscriptItem | null;
   thinking?: boolean;
 }): TranscriptRowModel[] {
@@ -511,9 +516,7 @@ export function appendLiveTranscriptRows({
     toolGroupKeys: new Set(),
   };
   const itemCount = settled.itemCount;
-  const activePrompts = pendingItems.filter((item) => item.queuedBehindTurn !== true);
-  const queuedPrompts = pendingItems.filter((item) => item.queuedBehindTurn === true);
-  activePrompts.forEach((item, index) => {
+  pendingItems.forEach((item, index) => {
     pushBuilderItem(builder, sessionKey, item, itemCount + index, `pending:${String(item.id ?? index)}`);
   });
 
@@ -539,33 +542,37 @@ export function appendLiveTranscriptRows({
     });
     builder.previousRowWasUser = false;
   }
-  if (thinking) {
-    beginBuilderTurn(builder, sessionKey, activeTurnKey);
-    builder.rows.push({
-      _tag: 'Thinking',
-      key: thinkingRowKey(sessionKey, activeTurnKey),
-      turnKey: activeTurnKey,
-      active: true,
-    });
-    builder.previousRowWasUser = false;
-  }
 
-  let newest = builder.rows.length - 1;
-  while (newest >= 0 && builder.rows[newest]._tag === 'Thinking') newest -= 1;
+  // The live output stays the newest part while messages wait below it: they
+  // are not output, so its streamed text keeps revealing at its own pace.
+  const newest = builder.rows.length - 1;
   const newestRow = builder.rows[newest];
   if (newestRow?._tag === 'AssistantPart' && newestRow.item.kind === 'assistant') {
     builder.rows[newest] = { ...newestRow, newest: true };
   }
 
-  queuedPrompts.forEach((item, index) => {
+  steerItems.forEach((item, index) => {
     pushBuilderItem(
       builder,
       sessionKey,
       item,
-      itemCount + activePrompts.length + index,
+      itemCount + pendingItems.length + index,
       `pending:${String(item.id ?? index)}`
     );
   });
+  // The working row stays last, in the turn of the newest message: the turn
+  // the model continues once it reads that message (no gap between them).
+  if (thinking) {
+    const thinkingTurnKey = steerItems.length ? builder.currentTurnKey : activeTurnKey;
+    beginBuilderTurn(builder, sessionKey, thinkingTurnKey);
+    builder.rows.push({
+      _tag: 'Thinking',
+      key: thinkingRowKey(sessionKey, thinkingTurnKey),
+      turnKey: thinkingTurnKey,
+      active: true,
+    });
+    builder.previousRowWasUser = false;
+  }
   return builder.rows;
 }
 

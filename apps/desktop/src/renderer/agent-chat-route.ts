@@ -1,6 +1,7 @@
 // The agent chat's model chip writes where the agent profile pane does, so
-// the two never disagree: Mixy's model is the Main route (the pane's own
-// setModelRoute), another agent's is its stored agent route (setAgentRoute,
+// the two never disagree: Mixy's model is its own route (setAgentRoute on
+// its id, stored in bots/mixy — never the Lead's Main route), another agent's
+// is its stored agent route (setAgentRoute,
 // which owns model, effort, fast, Auto, model parameters and the context
 // window). The chip's session write lands first; this mirrors it onto the
 // agent and tells an open profile pane to re-read.
@@ -25,6 +26,28 @@ export function subscribeAgentRouteChange(listener: (agentId: string) => void): 
   return () => listeners.delete(listener);
 }
 
+/** A bot whose chat already runs on a model but whose own route is empty keeps
+ *  that model as its route (never auto-picked from the catalog). A configured
+ *  route is never overwritten: the runtime stores it only while the agent still
+ *  has none (compare-and-set, no read here to race a pick made meanwhile) and
+ *  keeps an off agent off. Answers whether it persisted. */
+export async function backfillAgentChatRoute(
+  sessionId: string,
+  selection: DesktopModelSelection,
+  api: RouteApi | undefined = window.mixdogDesktop
+): Promise<boolean> {
+  const agentId = agentOfChatSession(sessionId);
+  if (!agentId || !selection.provider || !selection.model || !api?.invokeCapability) return false;
+  const saved = await api.invokeCapability<Record<string, unknown>>({
+    capability: 'setAgentRoute',
+    args: [agentId, { ...selection, onlyIfEmpty: true }],
+  });
+  if (record(saved?.value).skipped === true) return false;
+  if (agentId !== MIXY_AGENT_ID) invalidateSidebarReferenceForMutation('setAgentRoute');
+  for (const listener of [...listeners]) listener(agentId);
+  return true;
+}
+
 export async function persistAgentChatRoute(
   sessionId: string,
   selection: DesktopModelSelection,
@@ -33,7 +56,8 @@ export async function persistAgentChatRoute(
   const agentId = agentOfChatSession(sessionId);
   if (!agentId || !selection.provider || !selection.model || !api) return false;
   if (agentId === MIXY_AGENT_ID) {
-    await api.setModelRoute?.(selection);
+    // Mixy's own model (bots/mixy): never the Lead's Main route.
+    await api.invokeCapability?.({ capability: 'setAgentRoute', args: [MIXY_AGENT_ID, selection] });
   } else {
     // Picking a model is also the agent's "on" switch: an agent that is off stays off.
     const stored = await api.invokeCapability?.<Record<string, unknown>>({

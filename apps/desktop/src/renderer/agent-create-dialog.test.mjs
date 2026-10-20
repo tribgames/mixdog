@@ -114,6 +114,7 @@ test('내 이미지 takes one image per motion state: idle required, the rest op
   await render(
     React.createElement(AgentCreateForm, {
       models,
+      initialRoute: { provider: 'openai', model: 'test-model' },
       busy: false,
       prepareImage: async () => uploads.shift(),
       onCancel() {},
@@ -206,6 +207,7 @@ test('"성격과 일하는 방식" expands to PERSONA.md (empty) and AGENT.md (d
   await render(
     React.createElement(AgentCreateForm, {
       models,
+      initialRoute: { provider: 'openai', model: 'test-model' },
       busy: false,
       onCancel() {},
       onSave: (payload) => saved.push(payload),
@@ -285,6 +287,8 @@ test('creating from the dialog greets once and opens the home thread', async (t)
   dom.window.mixdogDesktop = {
     invokeCapability: async ({ capability, args }) => {
       calls.push(['capability', capability]);
+      // A dialog-made agent is a bot: the explicit marker, never "unmarked = bot".
+      if (capability === 'saveAgentDefinition') assert.equal(args[0].kind, 'bot');
       if (capability === 'saveAgentDefinition') return { value: { id: 'github-watcher', name: args[0].name } };
       return { value: null };
     },
@@ -303,6 +307,7 @@ test('creating from the dialog greets once and opens the home thread', async (t)
   let closed = 0;
   await render(
     React.createElement(AgentCreateDialog, {
+      initialRoute: { provider: 'openai', model: 'test-model' },
       onClose: () => (closed += 1),
       onCreated: (sessionId, name) => opened.push([sessionId, name]),
     })
@@ -323,4 +328,54 @@ test('creating from the dialog greets once and opens the home thread', async (t)
     ]
   );
   assert.deepEqual(opened, [['sess_home_github-watcher', 'GitHub Watcher']]);
+});
+
+test('with models to choose from, Create waits for a model too; without any it saves model-less', async (t) => {
+  const render = harness(t);
+  const saved = [];
+  await render(
+    React.createElement(AgentCreateForm, {
+      models,
+      busy: false,
+      onCancel() {},
+      onSave: (payload) => saved.push(payload),
+    })
+  );
+  await type(dialog().querySelector('.agent-create-name'), 'Buddy');
+  assert.equal(createButton().disabled, true, 'a named bot still needs a model');
+  await render(
+    React.createElement(AgentCreateForm, {
+      models: [],
+      busy: false,
+      onCancel() {},
+      onSave: (payload) => saved.push(payload),
+    })
+  );
+  await type(dialog().querySelector('.agent-create-name'), 'Buddy');
+  assert.equal(createButton().disabled, false, 'no model exists to choose: signing in comes first');
+  await act(async () =>
+    dialog()
+      .querySelector('form')
+      .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  );
+  assert.equal(saved[0].route, undefined);
+});
+
+test('an agent created without a model opens its thread without the failing greeting turn', async () => {
+  const calls = [];
+  const sessionId = await greetNewAgent(
+    {
+      openAgentHome: async (id) => {
+        calls.push(['open', id]);
+        return { sessionId: `sess_home_${id}` };
+      },
+      submitToSession: async () => {
+        calls.push(['submit']);
+        return true;
+      },
+    },
+    { id: 'ddd', name: 'ddd', description: '', greet: false }
+  );
+  assert.equal(sessionId, 'sess_home_ddd');
+  assert.deepEqual(calls, [['open', 'ddd']]);
 });

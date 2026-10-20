@@ -18,10 +18,18 @@ export interface AgentGreetingApi {
  *  the thread's session id ('' when the host has no home threads). */
 export async function greetNewAgent(
   api: AgentGreetingApi,
-  agent: { id: string; name: string; description: string; mixy?: boolean; facts?: readonly string[] }
+  agent: {
+    id: string;
+    name: string;
+    description: string;
+    mixy?: boolean;
+    facts?: readonly string[];
+    /** False for an agent without a model: its thread opens without the kickoff. */
+    greet?: boolean;
+  }
 ): Promise<string> {
   const sessionId = (await api.openAgentHome?.(agent.id))?.sessionId ?? '';
-  if (!sessionId) return '';
+  if (!sessionId || agent.greet === false) return sessionId;
   await api.submitToSession(
     sessionId,
     agentGreetingKickoff({

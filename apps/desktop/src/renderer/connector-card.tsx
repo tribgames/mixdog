@@ -18,7 +18,6 @@ import {
 import { ConnectorIcon } from './connector-icon';
 import { ConnectorLoginDialogs } from './connector-login-dialogs';
 import { connectorIdentity, connectorRowView } from './connectors-model';
-import { useGithubConnection } from './github-connector';
 import { ConnectorStep } from './connector-step';
 import { flattenedToolActivityItems } from './transcript-tool-core';
 import type { TranscriptItem } from './desktop-types';
@@ -88,7 +87,7 @@ export function ConnectorChatCard({ id }: { id: string }) {
       showDesktopToast(manageOnHostNote(), 'info');
       return;
     }
-    // A key or the built-in GitHub sign-in happens on the 커넥터 tab.
+    // A key happens on the 커넥터 tab.
     if (entry.backend.kind !== 'oauth') {
       openConnectorsTab();
       return;
@@ -136,14 +135,8 @@ export function ConnectorChatCard({ id }: { id: string }) {
  *  marks overlapped; opens the 커넥터 tab. */
 export function ConnectorsPill() {
   const servers = useMcpServers();
-  // The GitHub catalog row is the GitHub CLI sign-in, connected once confirmed.
-  const github = useGithubConnection()?.state === 'connected';
-  const connected = [
-    ...(github ? [connectorById('github')] : []),
-    ...(servers ?? []).map((row) =>
-      row.connected === true && row.source !== 'plugin' ? connectorById(row.connector) : null
-    ),
-  ]
+  const connected = (servers ?? [])
+    .map((row) => (row.connected === true && row.source !== 'plugin' ? connectorById(row.connector) : null))
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
     .sort((a, b) => a.name.localeCompare(b.name));
   const shown = connected.slice(0, 4);

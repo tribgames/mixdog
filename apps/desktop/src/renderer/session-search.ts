@@ -1,7 +1,7 @@
 // Session search: one popup over the session catalog, opened from the
 // Sessions header.
 import type { DesktopSessionContentMatch, DesktopSessionSummary } from '../shared/contract';
-import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { sessionDisplayTitle } from './session-display-title';
 
 export const SESSION_SEARCH_OPEN_EVENT = 'mixdog:open-session-search';
 
@@ -64,7 +64,7 @@ export function sessionSearchResults(
       needle
         ? matchesQuery(
             [
-              sessionSummaryTitle(session, ''),
+              sessionDisplayTitle(session, ''),
               session.preview,
               session.cwd,
               session.projectPath,

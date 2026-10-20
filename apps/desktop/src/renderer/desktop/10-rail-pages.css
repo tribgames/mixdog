@@ -920,13 +920,15 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .utility-dock .agent-chat-row[data-kind="contact"] {
   /* 3px a mascot cell. */
   --agent-contact-avatar-size: 48px;
-  --agent-contact-padding: 9px 10px 9px 12px;
+  --agent-contact-padding: 8px 10px 8px 12px;
   --agent-contact-min-height: 64px;
-  --agent-contact-name: 13px;
-  --agent-contact-name-line: 18px;
-  --agent-contact-preview: 12px;
-  --agent-contact-preview-line: 16px;
-  --agent-contact-time: 11px;
+  /* The app's own scale: name = UI size, time and preview = meta size, each
+     on a fixed line so every row is the same height. */
+  --agent-contact-name: var(--mx-font-ui);
+  --agent-contact-name-line: var(--mx-line-ui);
+  --agent-contact-preview: var(--mx-font-meta);
+  --agent-contact-preview-line: var(--mx-line-meta);
+  --agent-contact-time: var(--mx-font-meta);
   /* Fits the widest COMPACT time label of the locale ("오후 12:59", "어제",
      "12월 28일"), measured once in em of the time size with tabular figures
      (agent-chat-summary.ts); an older numeric date wraps inside it. */
@@ -957,7 +959,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   grid-row: 1;
   align-self: baseline;
   font-size: var(--agent-contact-name);
-  font-weight: 700;
+  font-weight: var(--mx-weight-semibold);
   line-height: var(--agent-contact-name-line);
 }
 /* The right column: one stack of time then status, hugging the top, so the
@@ -974,6 +976,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 }
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-chat-time {
   margin: 0;
+  color: var(--mx-text-muted);
   font-size: var(--agent-contact-time);
   line-height: var(--agent-contact-name-line);
 }
@@ -990,6 +993,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   overflow: hidden;
   white-space: normal;
   overflow-wrap: anywhere;
+  color: var(--mx-text-muted);
   font-size: var(--agent-contact-preview);
   line-height: var(--agent-contact-preview-line);
 }
@@ -1040,9 +1044,16 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-chat-status[data-kind="unread"] {
   box-sizing: border-box;
   padding: 0 5px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
   white-space: nowrap;
+}
+/* Unread: a stronger name and a brighter preview; the count pill is the status. */
+.utility-dock .agent-chat-row:has(.agent-chat-status[data-kind="unread"]) .agent-chat-title {
+  font-weight: var(--mx-weight-strong);
+}
+.utility-dock .agent-chat-row:has(.agent-chat-status[data-kind="unread"]) .agent-chat-preview {
+  color: var(--mx-text-soft);
 }
 .utility-dock .agent-chat-avatar > .agent-contact-mascot {
   width: 100%;

@@ -13,15 +13,11 @@ if (!outDir) throw new Error('usage: island-layout-check.mjs <outDir>');
 mkdirSync(outDir, { recursive: true });
 
 const HARNESS = `
-  import { useState } from 'react';
-  import { createPortal, flushSync } from 'react-dom';
+  import { flushSync } from 'react-dom';
   import { createRoot } from 'react-dom/client';
-  import { useContext } from 'react';
   import { ComposerDock } from './ComposerDock';
   import { SessionGoalIsland } from './SessionGoalIsland';
   import { ApprovalCard } from './ApprovalCard';
-  import { QueueList } from './composer-support';
-  import { ComposerQueueTrayContext } from './composer-island-state';
 
   const files = [
     { path: 'src/payments/client.ts', status: 'M', additions: 62, deletions: 18 },
@@ -42,11 +38,8 @@ const HARNESS = `
     id: 'goal', title, objective: title, status: 'active', tasksTotal: 5, tasksCompleted: 3,
     tasks: [{ id: 't', text: 'Check layout', status: 'in_progress' }],
   } });
-  function Composer({ queued }) {
-    const tray = useContext(ComposerQueueTrayContext);
+  function Composer() {
     return <>
-      {tray && queued.length ? createPortal(<QueueList queued={queued} restoring={false}
-        onEdit={() => {}} onSteer={() => {}} onRemove={() => {}} />, tray) : null}
       <form className="composer"><textarea aria-label="Composer" defaultValue="" placeholder="메시지 입력…" />
         <div className="composer-footer"><button type="button" className="composer-tool">+</button>
           <span className="model-trigger">Claude Opus 5.5 High</span></div></form>
@@ -59,11 +52,9 @@ const HARNESS = `
       empty: {},
       goalFiles: { goal: goal('결제 모듈을 새 API로 이전'), review: true },
       crowded: { goal: goal('결제 모듈을 새 API로 이전하고 웹훅 서명 검증까지 마무리'), review: true, mismatch: true },
-      approval: { goal: goal('결제 모듈 이전'), approval: true, queued: ['테스트 끝나면 커버리지도 알려줘'] },
+      approval: { goal: goal('결제 모듈 이전'), approval: true },
       flash: { flash: true },
-      queue: { queued: ['테스트 끝나면 커버리지도 알려줘', '그리고 README의 결제 설정 부분도 새 API 기준으로 고쳐줘', '세 번째 대기 메시지', '네 번째 대기 메시지'] },
     }[name];
-    const queued = (s.queued || []).map((text, i) => ({ id: 'q' + i, text }));
     flushSync(() => root.render(
       <section className="conversation" key={name}>
         <div className="transcript-shell"><div className="transcript"><div className="thread" /></div></div>
@@ -75,7 +66,7 @@ const HARNESS = `
           quotaCard={s.mismatch ? { resetAt: Date.now() + 3_600_000, otherAccount: false, reserved: false, busy: false, onToggleResume() {} } : null}
           reviewItems={s.review ? reviewItems : []} reviewActive reviewBusy={false} reviewSessionId="s1" reviewCwd="C:/fixture"
           onOpenSessionDiff={() => {}}>
-          <Composer queued={queued} />
+          <Composer />
         </ComposerDock>
       </section>));
   };
@@ -86,7 +77,7 @@ const VIEWPORTS = [
   { name: 'pc-narrow', width: 720, height: 800 },
   { name: 'phone', width: 390, height: 844, mobile: true },
 ];
-const SCENARIOS = ['draft', 'empty', 'goalFiles', 'crowded', 'approval', 'flash', 'queue'];
+const SCENARIOS = ['draft', 'empty', 'goalFiles', 'crowded', 'approval', 'flash'];
 
 const MEASURE = () => {
   const box = (el) => {

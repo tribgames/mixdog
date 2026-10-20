@@ -9,6 +9,7 @@ import { SessionDiffPane } from './SessionDiffPane.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { DiffHeaderControls, diffModeActions } from './diff-header-controls.tsx';
 import { DockHeaderRow, splitDockActions } from './pane-dock-chrome.tsx';
+const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 const h = React.createElement;
 
@@ -151,7 +152,7 @@ test('revert sends the turn checkpoint and is disabled while the session is busy
   const sessionId = 'sd-revert';
   const calls = [];
   const view = await mount(h(SessionDiffPane, { sessionId, active: true, onClose() {} }), (win) => {
-    win.confirm = () => true;
+    overrideConfirmAction(() => true);
     win.mixdogDesktop = {
       invokeCapability: async (request) => {
         calls.push(request);

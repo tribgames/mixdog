@@ -67,8 +67,15 @@ test('desktopPromptDisplayText extracts display text or fallbacks', () => {
       { type: 'image', filename: 'screenshot.png' },
       { type: 'file', filename: 'doc.txt' },
     ]),
-    'Look at this:\n[Image]\n[File: doc.txt]'
+    // The image draws from the row's `images`; the file as its chip token.
+    'Look at this:\n[File #1: doc.txt]'
   );
+  assert.equal(
+    desktopPromptDisplayText([{ type: 'file', filename: 'report.pdf', mimeType: 'application/pdf' }]),
+    '[PDF #1: report.pdf]'
+  );
+  // Images alone: no words at all, never "[Image]" or a fallback label.
+  assert.equal(desktopPromptDisplayText([{ type: 'image' }, { type: 'image' }]), '');
 });
 
 test('pendingPromptImages maps pasted images options into transcript image structures', () => {

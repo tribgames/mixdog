@@ -5,6 +5,7 @@ import { Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, Check, Minus,
 import type React from 'react';
 import { useRef } from 'react';
 import type { DesktopGitFile } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -109,8 +110,12 @@ export function OperationBanner({
         type="button"
         disabled={Boolean(busy)}
         onClick={() => {
-          if (!window.confirm(t('Abort the {{operation}} operation?', { operation: label }))) return;
-          onAbort();
+          void confirmAction(t('Abort the {{operation}} operation?', { operation: label }), {
+            danger: true,
+            confirmLabel: t('Abort'),
+          }).then((approved) => {
+            if (approved) onAbort();
+          });
         }}
       >
         {t('Abort')}

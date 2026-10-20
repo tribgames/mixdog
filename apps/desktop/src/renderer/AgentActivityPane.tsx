@@ -14,7 +14,6 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { InitialSurface } from './InitialSurface';
-import { AgentTaskRows } from './agent-task-line';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
 import { ScmContextMenu, type ScmContextMenuState, contextMenuRowProps } from './ScmContextMenu';
 import { ConnectorsPill } from './connector-card';
@@ -26,7 +25,7 @@ import {
   type DesktopAgentActivityState,
 } from '../shared/agent-activity';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
-import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { sessionDisplayTitle } from './session-display-title';
 import { t } from './i18n';
 import { agentElapsedText } from './agent-row-meta';
 import { useClock } from './use-clock';
@@ -47,13 +46,9 @@ import { defaultSessionLaneStore } from './session-lane-store';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
-import { type AgentsPageFocus, mixyDefaultPlan } from './agent-home-default';
 import { MixyEmptyState, useMixyFirstPane } from './mixy-first';
-import { mixyName } from './mixy-identity';
-import { composerScopeHasContent } from './composer-draft';
-import { isMobileRemoteSurface } from './mobile-surface';
 import { isAgentChatSession } from './agent-chat-mode';
-import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   AGENT_POOL_RECONCILE_MS,
   agentActivityGroups,
@@ -539,7 +534,7 @@ function AgentActivityGroup({
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
-  const title = sessionSummaryTitle(group.session, t('Untitled session'));
+  const title = sessionDisplayTitle(group.session, t('Untitled session'));
   const expanded = expandedSessionIds.has(group.ownerId);
   // Any agent of the group still working — the Lead or a descendant — makes
   // the session name shimmer, so a folded group still reads as live.
@@ -695,43 +690,6 @@ function useContactAgents(active: boolean, sessions: readonly DesktopSessionSumm
   return values.agents;
 }
 
-/** Each time the desktop Agents page shows (once the catalog is ready), Mixy
- *  becomes the selection unless a home thread already holds the focus; see
- *  mixyDefaultPlan. Phones keep the list first. */
-function useMixyDefaultSelection(
-  active: boolean,
-  sessionsReady: boolean,
-  focus: AgentsPageFocus | null,
-  open: ((sessionId: string, title: string, ownerSessionId: string, replaceKey?: string) => void) | undefined
-): void {
-  const latest = useRef({ focus, open });
-  latest.current = { focus, open };
-  const pending = useRef(false);
-  const ready = focus !== null;
-  useEffect(() => {
-    pending.current = active;
-  }, [active]);
-  useEffect(() => {
-    if (!active || !sessionsReady || !ready || !pending.current) return;
-    const { focus: page, open: openSession } = latest.current;
-    if (!page || !openSession) return;
-    pending.current = false;
-    const plan = mixyDefaultPlan(page, {
-      mobile: isMobileRemoteSurface(),
-      draftHasContent: composerScopeHasContent,
-    });
-    if (plan.kind === 'focus') openSession(plan.sessionId, mixyName(), plan.sessionId);
-    if (plan.kind !== 'open') return;
-    void Promise.resolve(window.mixdogDesktop?.openAgentHome?.(MIXY_AGENT_ID))
-      .then((home) => {
-        if (home?.sessionId) openSession(home.sessionId, mixyName(), home.sessionId, plan.replaceKey);
-      })
-      .catch(() => {
-        /* the Mixy row stays one click away */
-      });
-  }, [active, sessionsReady, ready]);
-}
-
 export function AgentActivityPane({
   active,
   sessions,
@@ -742,7 +700,6 @@ export function AgentActivityPane({
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
-  agentsPageFocus = null,
   readComposerModel,
 }: {
   active: boolean;
@@ -763,13 +720,9 @@ export function AgentActivityPane({
   onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string, replaceKey?: string): void;
-  /** The left Agents page's view of the focused pane (desktop): showing the
-   *  page makes Mixy the default selection. */
-  agentsPageFocus?: AgentsPageFocus | null;
 }): React.ReactElement {
-  // Before Mixy exists (mixy-first.tsx) nothing opens its thread.
+  // Showing this page never opens or switches a tab: only a row click does.
   const mixyFirst = useMixyFirstPane(active);
-  useMixyDefaultSelection(active && mixyFirst.mixyCreated === true, sessionsReady, agentsPageFocus, onOpenSession);
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
   // Rows the user cleared ("Clear finished") stay out of every group.
   const agents = useVisibleAgentPool(
@@ -845,7 +798,6 @@ export function AgentActivityPane({
         .toLowerCase()
         .includes(needle)
     );
-  const phoneList = isMobileRemoteSurface();
   const shownContacts = contacts.filter(
     (contact) => !(mixyFirst.empty && contact.mixy) && matches(contact.name, contact.preview)
   );
@@ -858,13 +810,13 @@ export function AgentActivityPane({
     readComposerModel?.() ??
     null;
   // The agent page lists agents and their chats only: an ordinary coding
-  // session's work stays with that session (agent-created task sessions show
-  // as task rows under their contact, AgentTaskRows).
+  // session's work stays with that session (agent-created task sessions are
+  // listed with the other sessions, not under their contact).
   const visibleGroups = groups.filter(
     (group) =>
       isAgentChatSession(group.ownerId) &&
       !hiddenOwnerIds.has(group.ownerId) &&
-      matches(sessionSummaryTitle(group.session, ''), group.session.preview, group.session.lastMessagePreview)
+      matches(sessionDisplayTitle(group.session, ''), group.session.preview, group.session.lastMessagePreview)
   );
   // The Sessions header's action classes; "+" is rightmost, as on every
   // page: search, ⋯, +.
@@ -944,15 +896,8 @@ export function AgentActivityPane({
       )}
       {mixyFirst.empty && shownContacts.length === 0 && <MixyEmptyState onCreate={() => mixyFirst.openMixyDialog()} />}
       <ul className="agent-contact-list" aria-label={t('Bots')}>
-        {shownContacts.map((contact, index) => (
+        {shownContacts.map((contact) => (
           <Fragment key={contact.agentId}>
-            {/* Phone list (main-window-polish Direction 1): section labels in
-                place of dividers — the pinned Mixy, then the contacts. */}
-            {phoneList && (index === 0 || shownContacts[index - 1]?.mixy) && (
-              <li className="agent-list-section" aria-hidden="true">
-                {contact.mixy ? t('Pinned') : t('Contacts')}
-              </li>
-            )}
             <AgentContactRow
               contact={contact}
               // The deterministic id: an empty home thread has no catalog row yet.
@@ -961,7 +906,6 @@ export function AgentActivityPane({
               onOpenMenu={setMenu}
               onProfile={(row) => void openContact(row).then((sessionId) => openAgentProfile(sessionId))}
             />
-            <AgentTaskRows sessions={sessions} agentId={contact.agentId} onOpenSession={onOpenSession} />
           </Fragment>
         ))}
       </ul>

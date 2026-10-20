@@ -180,6 +180,31 @@ test('coding order: reply, then the visualize cards, then the changes card', () 
   assert.equal(seat.placed, true);
 });
 
+test('the changes card is handed the files the turn visualized, on reply and error rows alike', () => {
+  const visualized = ['design/mockups/app-skins/index.html'];
+  const reply = project([
+    { kind: 'user', id: 'u1', text: 'one', checkpointId: 'cp-1' },
+    { kind: 'assistant', id: 'a1', text: 'done' },
+    { kind: 'turndone', id: 'd1', status: 'complete' },
+  ]).find((row) => row.turnChanges);
+  const card = seatedChildren(reply, { cards: 'VISUALIZE', placed: false, visualized }).find(
+    (child) => child?.type === TurnChangesCard
+  );
+  assert.equal(card.props.visualized, visualized);
+  const failed = project(
+    [
+      { kind: 'user', id: 'u1', text: 'one', checkpointId: 'cp-1' },
+      { kind: 'error', id: 'e1', text: 'boom' },
+      { kind: 'turndone', id: 'd1', status: 'failed' },
+    ],
+    ['turn:u1']
+  ).find((row) => row._tag === 'Error' && row.turnChanges);
+  const errorCard = seatedChildren(failed, { cards: 'VISUALIZE', placed: false, visualized }).find(
+    (child) => child?.type === TurnChangesCard
+  );
+  assert.equal(errorCard.props.visualized, visualized);
+});
+
 test('coding order on an error row: notice, then the visualize cards, then the changes card', () => {
   const rows = project(
     [

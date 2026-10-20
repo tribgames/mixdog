@@ -1,7 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { DesktopModelSelection, DesktopSessionSummary, DesktopWorkspaceFolder } from '../shared/contract';
 import { AgentActivityPane } from './AgentActivityPane';
-import type { AgentsPageFocus } from './agent-home-default';
 import { DesktopLoadingSurface } from './RendererRecovery';
 import type { PullRequestOpenHandler } from './PullRequestsPane';
 import { SearchPane } from './SearchPane';
@@ -90,7 +89,6 @@ export const UtilityDock = memo(function UtilityDock({
   onOpenLeadSession,
   onOpenAgentSession,
   readComposerModel,
-  agentsPageFocus = null,
   entering = false,
   contentReady = true,
   prewarm = false,
@@ -130,9 +128,6 @@ export const UtilityDock = memo(function UtilityDock({
   onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string, replaceKey?: string): void;
   /** The composer's current model: a new agent from the Agents pane starts on it. */
   readComposerModel?(): DesktopModelSelection | null;
-  /** The left Agents page's view of the focused pane: Mixy becomes the
-   *  default selection when the page shows (desktop only). */
-  agentsPageFocus?: AgentsPageFocus | null;
   /** Surface re-entry: render already-open, without the slide-in replay. */
   entering?: boolean;
   /** The shell may pre-mount at width 0; defer the expensive selected body. */
@@ -261,7 +256,6 @@ export const UtilityDock = memo(function UtilityDock({
                 onPrefetchSession={onPrefetchSession}
                 onOpenLeadSession={onOpenLeadSession}
                 onOpenSession={onOpenAgentSession}
-                agentsPageFocus={agentsPageFocus}
                 readComposerModel={readComposerModel}
               />
             </DockPane>

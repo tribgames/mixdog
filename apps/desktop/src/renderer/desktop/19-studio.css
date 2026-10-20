@@ -1020,6 +1020,53 @@
   border-radius: 0;
   box-shadow: none;
 }
+/* A relay surface whose PC never answered at boot (RemoteConnectionBanner):
+   the loading mark gives way to a plain state over the same band. */
+.remote-unreachable {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 24px) 20px calc(env(safe-area-inset-bottom, 0px) + 24px);
+  background: var(--mx-window-band);
+  color: var(--mx-text);
+  text-align: center;
+}
+.remote-unreachable-title {
+  margin: 0;
+  font-size: var(--mx-font-page-title);
+  font-weight: 700;
+  line-height: 1.4;
+}
+.remote-unreachable-sub {
+  max-width: 340px;
+  margin: 0 0 16px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-body);
+  line-height: 1.5;
+  word-break: keep-all;
+}
+.remote-unreachable-btn {
+  width: 100%;
+  max-width: 340px;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--mx-text);
+  color: var(--mx-window-band);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.remote-unreachable-btn.sec {
+  min-height: 44px;
+  background: transparent;
+  color: var(--mx-text-muted);
+}
 /* Native/PWA splash and the in-app watermark use different coordinate
    spaces. Never show both marks at once: the cover exits first, then the
    final content-space mark fades in without appearing to jump position. */

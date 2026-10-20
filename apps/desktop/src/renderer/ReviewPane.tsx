@@ -1,5 +1,6 @@
 import { ChevronDown, FileDiff, MoreHorizontal } from 'lucide-react';
 import { Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { confirmAction } from './app-confirm';
 import { t, uiFormatLocale } from './i18n';
 import { isSshConnectionWindow } from './desktop-connection';
 import { downloadAndOpenServerFile, revealFileFromWindow } from './server-transfers';
@@ -542,9 +543,14 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
               const warning = target.untracked
                 ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
                 : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
-              if (!window.confirm(warning)) return;
-              if (openFile === target.path) setOpenFile('');
-              void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, 'all'));
+              void confirmAction(warning, {
+                danger: true,
+                confirmLabel: target.untracked ? t('Delete file') : t('Revert changes'),
+              }).then((approved) => {
+                if (!approved) return;
+                if (openFile === target.path) setOpenFile('');
+                return act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, 'all'));
+              });
             }}
           >
             {menu.file.untracked ? t('Delete file') : t('Revert changes')}

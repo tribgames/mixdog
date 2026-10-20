@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopModelSelection, DesktopWorkflowState, SessionSnapshot } from '../../shared/contract';
-import { sessionSummaryTitle } from '../../shared/session-title.mjs';
+import { sessionDisplayTitle } from '../session-display-title';
 import type { NavigationSelection, WorkspaceTab } from '../navigation';
 import { canSplitPaneSize, type PaneLeaf } from '../pane-layout';
 import type { usePaneWorkspace } from '../pane-workspace-state';
@@ -307,7 +307,7 @@ export function useAppTaskLifecycle({
     if (actualSession) {
       activateSelection(
         { kind: 'session', id: actualSessionId },
-        sessionSummaryTitle(actualSession, t('Untitled session'))
+        sessionDisplayTitle(actualSession, t('Untitled session'))
       );
     } else if (actualProject) {
       const project = projects.find((item) => item.path === actualProject);
@@ -354,7 +354,7 @@ export function useAppTaskLifecycle({
           sourceTitle: () => {
             const row = sessions.find((entry) => entry?.id === sourceSessionId);
             return row
-              ? sessionSummaryTitle(row, t('Untitled session'))
+              ? sessionDisplayTitle(row, t('Untitled session'))
               : tabs.find((tab) => tab.key === `session:${sourceSessionId}`)?.title || '';
           },
           refreshSessions,

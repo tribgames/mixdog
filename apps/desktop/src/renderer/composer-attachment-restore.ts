@@ -5,7 +5,7 @@ import { asRecord } from './text-format';
 
 /** Ids for restored attachments: keep a stored id when it is free, otherwise
  *  allocate past every reserved id and advance the composer's sequence. */
-function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current: number }) {
+export function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current: number }) {
   return (rawId: number) => {
     let id = rawId > 0 ? rawId : sequence.current;
     while (reservedIds.has(id)) id = Math.max(id + 1, sequence.current++);
@@ -81,6 +81,15 @@ export function restoreAttachmentsFromRecord(
       token,
       source,
     });
+  }
+  // The runtime's display text spells each image part as a bare `[Image]`
+  // line; the restored image chips stand for them.
+  if (restored.some((attachment) => attachment.kind === 'image') && textValue.includes('[Image]')) {
+    textValue = textValue
+      .split('\n')
+      .filter((line) => line.trim() !== '[Image]')
+      .join('\n')
+      .trim();
   }
   textValue = restoreFileAttachments(value, textValue, restored, uniqueId);
   return { attachments: restored, text: textValue };
@@ -166,6 +175,33 @@ function restoreFileAttachments(
         .join('\n')
         .trim()
     : textValue;
+}
+
+/**
+ * Give restored attachments ids of the composer they join: an id no live chip
+ * holds is kept (so a refused send restores under the same retry key) and the
+ * composer's sequence moves past it; a taken one gets the next free id. Each
+ * renumbered chip's `#n` token is rewritten, in the chip and in the text, in
+ * one pass so one rename never lands on another's token.
+ */
+export function renumberRestoredAttachments(
+  incoming: readonly ComposerAttachment[],
+  text: string,
+  liveIds: Iterable<number>,
+  sequence: { current: number }
+): { attachments: ComposerAttachment[]; text: string } {
+  const allocate = createRestoredIdAllocator(new Set(liveIds), sequence);
+  const renamed = new Map<string, string>();
+  const attachments = incoming.map((attachment) => {
+    const id = allocate(attachment.id);
+    if (id === attachment.id) return attachment;
+    const token = attachment.token ? attachment.token.replace(`#${attachment.id}`, () => `#${id}`) : '';
+    if (attachment.token) renamed.set(attachment.token, token);
+    return { ...attachment, id, token };
+  });
+  if (!renamed.size) return { attachments, text };
+  const pattern = new RegExp([...renamed.keys()].map(escapeRegExp).join('|'), 'g');
+  return { attachments, text: text.replace(pattern, (token) => renamed.get(token) ?? token) };
 }
 
 /** Lift every occurrence of each attachment's bracket token out of a restored

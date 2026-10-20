@@ -10,6 +10,7 @@ import type {
   DesktopSelectProjectBranchInput,
   DesktopSelectProjectBranchResult,
 } from '../shared/contract';
+import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { resetModePrompt } from './source-control-confirmations';
 import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal, reasonText } from './source-control-support';
@@ -149,7 +150,9 @@ export async function checkoutProjectCommit(projectPath: string, commit: string)
   return `HEAD is now at ${String(result.commit || commit).slice(0, 8)} (detached).`;
 }
 
-async function guardedProjectCheckout(input: DesktopSelectProjectBranchInput): Promise<DesktopSelectProjectBranchResult> {
+async function guardedProjectCheckout(
+  input: DesktopSelectProjectBranchInput
+): Promise<DesktopSelectProjectBranchResult> {
   try {
     return await invokeWorktree<DesktopSelectProjectBranchResult>('selectProjectBranch', [input]);
   } catch (reason) {
@@ -174,7 +177,9 @@ export async function mergeProjectBranch(projectPath: string, branch: string, ta
   }
   if (result.upToDate) return 'Already up to date.';
   if (!result.merged) {
-    throw new Error(worktreeFailureText({ code: 'MERGE_CONFLICT', message: '', details: { files: result.conflicts ?? [] } }));
+    throw new Error(
+      worktreeFailureText({ code: 'MERGE_CONFLICT', message: '', details: { files: result.conflicts ?? [] } })
+    );
   }
   return `Merged ${branch} into ${result.target} (${String(result.commit).slice(0, 8)}).`;
 }
@@ -209,8 +214,13 @@ export function branchActions(
       void run(`branch-rename:${branch.name}`, () => api?.gitRenameBranch?.(projectPath, branch.name, nextName.trim()));
     },
     deleteBranch: (branch: DesktopGitBranch) => {
-      if (!window.confirm(t('Delete local branch "{{branch}}"?', { branch: branch.name }))) return;
-      void run(`branch-delete:${branch.name}`, () => api?.gitDeleteBranch?.(projectPath, branch.name));
+      void confirmAction(t('Delete local branch "{{branch}}"?', { branch: branch.name }), {
+        key: `branch-delete:${projectPath}:${branch.name}`,
+        danger: true,
+        confirmLabel: t('Delete'),
+      }).then((approved) => {
+        if (approved) void run(`branch-delete:${branch.name}`, () => api?.gitDeleteBranch?.(projectPath, branch.name));
+      });
     },
     createBranchFromFilter: () => {
       // Seed the create-branch flow with the current filter text.
@@ -223,20 +233,20 @@ export function branchActions(
     // their turns wait meanwhile; the backend preflights conflicts, merges
     // with --no-ff and never leaves a half-merged repository.
     mergeIntoCurrent: (branch: DesktopGitBranch) => {
-      if (
-        !window.confirm(
-          t('Merge "{{branch}}" into "{{target}}" with a merge commit?', { branch: branch.name, target: currentBranch })
-        )
-      )
-        return;
-      void run(
-        `branch-merge:${branch.name}`,
-        () => mergeProjectBranch(projectPath, branch.name, currentBranch),
-        () => {
-          closePicker();
-          exitMergeMode();
-        }
-      );
+      void confirmAction(
+        t('Merge "{{branch}}" into "{{target}}" with a merge commit?', { branch: branch.name, target: currentBranch }),
+        { confirmLabel: t('Merge') }
+      ).then((approved) => {
+        if (!approved) return;
+        void run(
+          `branch-merge:${branch.name}`,
+          () => mergeProjectBranch(projectPath, branch.name, currentBranch),
+          () => {
+            closePicker();
+            exitMergeMode();
+          }
+        );
+      });
     },
   };
 }
@@ -247,8 +257,15 @@ function commitTitle(entry: DesktopGitLogEntry): string {
 
 /** Every destructive history action confirms first, and the prompt NAMES the
  *  commit it is about to touch (short SHA + subject). */
-function confirmCommit(entry: DesktopGitLogEntry, question: string): boolean {
-  return window.confirm(`${question}\n\n${entry.shortHash}  ${commitTitle(entry)}`);
+function confirmCommit(entry: DesktopGitLogEntry, question: string, danger = false): Promise<boolean> {
+  return confirmAction(`${question}\n\n${entry.shortHash}  ${commitTitle(entry)}`, { danger });
+}
+
+/** `proceed` runs only once the commit prompt is confirmed. */
+function ifConfirmed(entry: DesktopGitLogEntry, question: string, proceed: () => void, danger = false): void {
+  void confirmCommit(entry, question, danger).then((approved) => {
+    if (approved) proceed();
+  });
 }
 
 function namedPrompt(message: string): string | null {
@@ -258,7 +275,7 @@ function namedPrompt(message: string): string | null {
 /** Ask for the reset mode before confirmation; `hard` states what it
  *  destroys. */
 function resetToCommit(ctx: SourceControlActionContext, entry: DesktopGitLogEntry) {
-  const { api, projectPath, run, setError } = ctx;
+  const { setError } = ctx;
   const answer = window.prompt(resetModePrompt(entry.shortHash), 'mixed');
   if (answer === null) return;
   const modes = ['soft', 'mixed', 'hard'] as const;
@@ -273,7 +290,11 @@ function resetToCommit(ctx: SourceControlActionContext, entry: DesktopGitLogEntr
           'Reset the branch to this commit with --hard? Every change after it, staged or not, is destroyed and cannot be recovered.'
         )
       : t('Reset the branch to this commit with --{{mode}}?', { mode });
-  if (!confirmCommit(entry, question)) return;
+  ifConfirmed(entry, question, () => resetConfirmed(ctx, entry, mode), mode === 'hard');
+}
+
+function resetConfirmed(ctx: SourceControlActionContext, entry: DesktopGitLogEntry, mode: 'soft' | 'mixed' | 'hard') {
+  const { api, projectPath, run } = ctx;
   void run(`reset:${entry.hash}`, async () => {
     const reset = (confirmedDirty: boolean) => api?.gitResetToCommit?.(projectPath, entry.hash, mode, confirmedDirty);
     try {
@@ -286,7 +307,10 @@ function resetToCommit(ctx: SourceControlActionContext, entry: DesktopGitLogEntr
       // main side waits for. Anything else is a real Git failure and keeps
       // travelling to the error banner.
       if (!isDirtyResetRefusal(reason)) throw reason;
-      if (!window.confirm(`${reasonText(reason)}\n\n${entry.shortHash}  ${commitTitle(entry)}`)) return undefined;
+      if (
+        !(await confirmAction(`${reasonText(reason)}\n\n${entry.shortHash}  ${commitTitle(entry)}`, { danger: true }))
+      )
+        return undefined;
       return await reset(true);
     }
   });
@@ -303,20 +327,29 @@ export function historyCommitActions(
       const question = t(
         'Revert the changes in this commit? A new commit that undoes them is created on the current branch.'
       );
-      if (!confirmCommit(entry, question)) return;
-      void run(`revert-commit:${entry.hash}`, () => api?.gitRevertCommit?.(projectPath, entry.hash));
+      ifConfirmed(
+        entry,
+        question,
+        () => void run(`revert-commit:${entry.hash}`, () => api?.gitRevertCommit?.(projectPath, entry.hash))
+      );
     },
     cherryPickCommit: (entry: DesktopGitLogEntry) => {
-      if (!confirmCommit(entry, t('Cherry-pick this commit onto the current branch?'))) return;
-      void run(`cherry-pick:${entry.hash}`, () => api?.gitCherryPickCommit?.(projectPath, entry.hash));
+      ifConfirmed(
+        entry,
+        t('Cherry-pick this commit onto the current branch?'),
+        () => void run(`cherry-pick:${entry.hash}`, () => api?.gitCherryPickCommit?.(projectPath, entry.hash))
+      );
     },
     checkoutCommit: (entry: DesktopGitLogEntry) => {
       const question = t(
         'Check this commit out? HEAD becomes DETACHED: new commits belong to no branch until one is created from them.'
       );
-      if (!confirmCommit(entry, question)) return;
       // The guarded project checkout: dirty folder, sessions working there, repo lock.
-      void run(`checkout-commit:${entry.hash}`, () => checkoutProjectCommit(projectPath, entry.hash));
+      ifConfirmed(
+        entry,
+        question,
+        () => void run(`checkout-commit:${entry.hash}`, () => checkoutProjectCommit(projectPath, entry.hash))
+      );
     },
     createTagAt: (entry: DesktopGitLogEntry) => {
       const name = namedPrompt(
@@ -332,8 +365,12 @@ export function historyCommitActions(
     /** `Delete tag <name>` — the reference names the tag in the item itself
      *  and one item per tag replaces its submenu. */
     deleteTagAt: (entry: DesktopGitLogEntry, tag: string) => {
-      if (!confirmCommit(entry, t('Delete tag "{{tag}}"? The tag is removed locally.', { tag }))) return;
-      void run(`tag-delete:${tag}`, () => api?.gitDeleteTag?.(projectPath, tag));
+      ifConfirmed(
+        entry,
+        t('Delete tag "{{tag}}"? The tag is removed locally.', { tag }),
+        () => void run(`tag-delete:${tag}`, () => api?.gitDeleteTag?.(projectPath, tag)),
+        true
+      );
     },
     /** `Amend commit…` / `Undo commit…` belong to the MOST RECENT commit
      *  only, and undo additionally to a local one. */
@@ -341,12 +378,18 @@ export function historyCommitActions(
       const question = commitMessage.trim()
         ? t('Amend this commit with the message in the commit form?')
         : t('Amend this commit with the currently included changes?');
-      if (!confirmCommit(entry, question)) return;
-      void run('amend', () => api?.gitAmend?.(projectPath, commitMessage.trim() || undefined), clearCommitDraft);
+      ifConfirmed(
+        entry,
+        question,
+        () => void run('amend', () => api?.gitAmend?.(projectPath, commitMessage.trim() || undefined), clearCommitDraft)
+      );
     },
     undoCommitAt: (entry: DesktopGitLogEntry) => {
-      if (!confirmCommit(entry, t('Undo this commit and keep all of its changes staged?'))) return;
-      void run('undo-commit', () => api?.gitUndoLastCommit?.(projectPath));
+      ifConfirmed(
+        entry,
+        t('Undo this commit and keep all of its changes staged?'),
+        () => void run('undo-commit', () => api?.gitUndoLastCommit?.(projectPath))
+      );
     },
     /** `branch-` prefix so run() reloads the branch list too. */
     createBranchAtCommit: (entry: DesktopGitLogEntry) => {

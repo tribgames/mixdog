@@ -1,26 +1,31 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { open as openFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import test from 'node:test';
 
 import { REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser.ts';
 import {
+  REMOTE_PAGE_MAX_BYTES,
   REMOTE_VISUALIZE_CHANGED_EVENT,
   REMOTE_VISUALIZE_LANE,
   VISUALIZE_REMOTE_DESKTOP_EVENT,
 } from '../shared/visualize.ts';
 import { leasedMediaFile } from './media-leases.ts';
-import { REMOTE_PREVIEW_MAX_READ_BYTES } from './remote-file-preview.ts';
+import { authorizedFileDigest, REMOTE_PREVIEW_MAX_READ_BYTES } from './remote-file-preview.ts';
 import { createRemoteMethods } from './remote-methods.ts';
 import { createRelayClientLifecycle } from './remote-relay-client-lifecycle.ts';
 import { clientViewsSessionLane } from './remote-relay-clients.ts';
@@ -113,6 +118,25 @@ function fixture(cwd, outside) {
   });
   return { methods, mirror, requests, operations };
 }
+
+test('a change event carries a card picture only when it is new or changed; a snapshot carries all', () => {
+  const mirror = createRemoteVisualizeMirror();
+  const [state] = hostSnapshot(join(tmpdir(), 'w-project'));
+  const picture = (text) => `data:image/png;base64,${Buffer.from(text).toString('base64')}`;
+  const withPicture = (thumbnail) => ({
+    ...state,
+    tabs: state.tabs.map((tab, index) => (index === 0 ? { ...tab, thumbnail, thumbnailVersion: 1 } : tab)),
+  });
+  const first = mirror.apply({ sessionId: 's1', state: withPicture(picture('a')) });
+  assert.equal(first.state.tabs[0].thumbnail, picture('a'));
+  assert.equal(first.state.tabs[0].thumbnailVersion, 1);
+  const repeated = mirror.apply({ sessionId: 's1', state: withPicture(picture('a')) });
+  assert.equal('thumbnail' in repeated.state.tabs[0], false, 'an unchanged picture is not sent again');
+  assert.equal('thumbnailVersion' in repeated.state.tabs[0], false);
+  const changed = mirror.apply({ sessionId: 's1', state: withPicture(picture('b')) });
+  assert.equal(changed.state.tabs[0].thumbnail, picture('b'));
+  assert.equal(mirror.replace([withPicture(picture('b'))])[0].tabs[0].thumbnail, picture('b'));
+});
 
 test('the mirror forwards a path-free state and keeps the paths to itself', () => {
   const mirror = createRemoteVisualizeMirror();
@@ -214,7 +238,19 @@ test('pane content: pages, their assets, media and converted documents', async (
       size: 59,
       mtimeMs: page.mtimeMs,
       rel: 'site/index.html',
+      contentId: `live:${createHash('sha256')
+        .update(readFileSync(join(cwd, 'site', 'index.html')))
+        .digest('hex')}`,
     });
+    // A same-size edit within one mtime tick still changes the identity.
+    const pagePath = join(cwd, 'site', 'index.html');
+    const before = statSync(pagePath);
+    writeFileSync(pagePath, readFileSync(pagePath, 'utf8').replace('stylesheet', 'STYLESHEET'));
+    utimesSync(pagePath, before.atime, before.mtime);
+    const edited = await methods.visualizePaneFile(['s1', 'v1', 0]);
+    assert.equal(edited.size, page.size);
+    assert.notEqual(edited.contentId, page.contentId);
+    writeFileSync(pagePath, readFileSync(pagePath, 'utf8').replace('STYLESHEET', 'stylesheet'));
     assert.match(text(await methods.visualizePaneRange(['s1', 'v1', 'site/index.html', 0, 100])), /stylesheet/);
     // The page's relative assets are served for an HTML tab only.
     assert.equal(text(await methods.visualizePaneRange(['s1', 'v1', 'site/style.css', 0, 100])), 'h1{}');
@@ -407,6 +443,11 @@ test('a kept version is served from its snapshot folder with the same containmen
 
     const meta = await methods.visualizePaneFile(['s1', 'v9', 0]);
     assert.equal(meta.rel, 'site/index.html');
+    // Same path, different roots: each pane's identity names its version and its own bytes.
+    const digest = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
+    assert.equal(meta.contentId, `v1:${digest(join(snapshot, 'site', 'index.html'))}`);
+    const liveMeta = await methods.visualizePaneFile(['s1', 'v9', 1]);
+    assert.equal(liveMeta.contentId, `live:${digest(join(cwd, 'site', 'index.html'))}`);
     assert.match(text(await methods.visualizePaneRange(['s1', 'v9', meta.rel, 0, 100, 0])), /old$/);
     // The pane index scopes page assets to that pane's root.
     assert.equal(text(await methods.visualizePaneRange(['s1', 'v9', 'site/style.css', 0, 100, 0])), 'old{}');
@@ -434,6 +475,54 @@ test('a kept version is served from its snapshot folder with the same containmen
     await assert.rejects(methods.visualizePaneRange(['s1', 'v9', 'site/style.css', 0, 10, 2]), /closed/);
     await assert.rejects(methods.visualizePaneRange(['s1', 'v9', 'site/style.css', 0, 10, 6]), /pane index/);
   } finally {
+    cleanup();
+  }
+});
+
+test('a page over the client page cap gets no content identity', async () => {
+  const { cwd, outside, cleanup } = workspace();
+  const { methods } = fixture(cwd, outside);
+  try {
+    writeFileSync(join(cwd, 'site', 'index.html'), Buffer.alloc(REMOTE_PAGE_MAX_BYTES + 1, 0x61));
+    const page = await methods.visualizePaneFile(['s1', 'v1', 0]);
+    assert.deepEqual([page.kind, page.size, page.contentId], ['html', REMOTE_PAGE_MAX_BYTES + 1, undefined]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a page digest reads at most one byte past the cap, even from a file that grew after its open', async () => {
+  const { cwd, cleanup } = workspace();
+  const file = join(cwd, 'grow.html');
+  writeFileSync(file, 'x'.repeat(64));
+  const probe = await openFile(file);
+  const handles = Object.getPrototypeOf(probe);
+  await probe.close();
+  const { stat, read } = handles;
+  let readBytes = 0;
+  handles.read = async function (...args) {
+    const result = await read.apply(this, args);
+    readBytes += result.bytesRead;
+    return result;
+  };
+  try {
+    // Larger than the cap when opened: no digest, nothing read.
+    assert.equal((await authorizedFileDigest(file, cwd, 20)).sha256, null);
+    assert.equal(readBytes, 0);
+    // The opened handle says 16 bytes; the file has 64 by the time it is read.
+    handles.stat = async function (options) {
+      const info = await stat.call(this, options);
+      return options?.bigint ? info : Object.assign(info, { size: 16 });
+    };
+    const grown = await authorizedFileDigest(file, cwd, 20);
+    assert.deepEqual([grown.size, grown.sha256, readBytes], [16, null, 21]);
+    readBytes = 0;
+    const whole = await authorizedFileDigest(file, cwd, 64);
+    assert.equal(whole.sha256, createHash('sha256').update('x'.repeat(64)).digest('hex'));
+    assert.equal(readBytes, 64);
+  } finally {
+    handles.stat = stat;
+    handles.read = read;
     cleanup();
   }
 });

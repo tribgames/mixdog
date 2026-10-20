@@ -63,6 +63,20 @@ function harness(t, extraOptions = {}) {
   return { notifier, state, notifications, events, opened, finish, tick };
 }
 
+test('a session titled by attachments alone is notified with its kind in this PC’s language', async (t) => {
+  const h = harness(t, { titleLabels: () => ({ image: '이미지', video: '영상', file: '파일' }) });
+  h.finish({ title: '[Image]' });
+  await h.tick(300);
+  assert.equal(h.notifications[0].content.title, '이미지');
+});
+
+test('without labels an attachment-only title is notified in English', async (t) => {
+  const h = harness(t);
+  h.finish({ title: '[Video]' });
+  await h.tick(300);
+  assert.equal(h.notifications[0].content.title, 'Video');
+});
+
 test('a restored background completion produces one native notification with plain text and opens its session', async (t) => {
   const h = harness(t);
   h.finish();

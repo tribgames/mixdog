@@ -58,6 +58,9 @@ type SlashExecutorDeps = {
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
   /** /fork (alias /inherit) runs the carry in place, like the context card's button. */
   onInherit?: () => Promise<boolean>;
+  /** A command the session holds for the running turn's end (/compact):
+   *  it shows in the transcript until then. */
+  onSlashHeld?: (text: string) => void;
 };
 
 type SlashRun = { deps: SlashExecutorDeps; failed: boolean };
@@ -106,7 +109,7 @@ async function runSlashCommand(
   if (name === 'project') deps.onOpenProjects();
   else if (name === 'resume' && argument) deps.onResumeSession(argument);
   else if (name === 'resume') deps.onOpenSessions();
-  else if (name === 'compact') await commandCapability(run, 'compact');
+  else if (name === 'compact') await runCompact(run, rawName);
   else if (name === 'doctor') deps.onOpenCommandSurface('doctor');
   else if (name === 'settings') deps.onOpenSettings();
   // Desktop /quit leaves THIS task, not the app (user): it rides the same
@@ -123,6 +126,13 @@ async function runSlashCommand(
   else if (command.surface) deps.onOpenCommandSurface(command.surface);
   else if (command.settingsRow) deps.onOpenSettings(command.settingsRow);
   return undefined;
+}
+
+// /compact during a turn is scheduled by the session for the turn's end.
+async function runCompact(run: SlashRun, rawName: string) {
+  const busy = run.deps.turnBusy;
+  await commandCapability(run, 'compact');
+  if (busy && !run.failed) run.deps.onSlashHeld?.(`/${rawName}`);
 }
 
 // A draft pane only answers the read-only commands and the effort change

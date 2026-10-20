@@ -16,165 +16,19 @@ import { realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+import {
+  matchesSensitivePath,
+  type SensitiveScope,
+  sensitivePathSegments,
+} from '../../../../src/runtime/shared/sensitive-path-rules.mjs';
 import { LocalAccessDeniedError } from './local-access-denied';
 
 export const SENSITIVE_PATH_MESSAGE =
   'This file can hold credentials or secrets, so it cannot be accessed from a remote device.';
 
-/** A directory with this name anywhere on the path holds credentials. `.git`
- *  is one of them: its config carries remotes with embedded tokens and
- *  credential helpers, and its objects hold every secret ever committed. */
-const SECRET_DIRECTORIES = new Set([
-  '.ssh',
-  '.gnupg',
-  '.aws',
-  '.azure',
-  '.kube',
-  '.mozilla',
-  '.password-store',
-  '.git',
-]);
-
-/** Consecutive segments anywhere on the path that name a credential store:
- *  CLI configs, browser profiles and OS credential stores. */
-const SECRET_SEQUENCES: readonly (readonly string[])[] = [
-  // Tool credentials in the user's home.
-  ['.docker', 'config.json'],
-  ['.config', 'gcloud'],
-  ['appdata', 'roaming', 'gcloud'],
-  ['.config', 'gh'],
-  ['appdata', 'roaming', 'github cli'],
-  ['.config', 'git', 'credentials'],
-  ['.cargo', 'credentials'],
-  ['.cargo', 'credentials.toml'],
-  ['.terraform.d', 'credentials.tfrc.json'],
-  ['.claude', '.credentials.json'],
-  ['.codex', 'auth.json'],
-  ['.gemini', 'oauth_creds.json'],
-  // Browser profiles: cookies, saved logins, session tokens.
-  ['google', 'chrome', 'user data'],
-  ['microsoft', 'edge', 'user data'],
-  ['bravesoftware', 'brave-browser'],
-  ['chromium', 'user data'],
-  ['vivaldi', 'user data'],
-  ['opera software'],
-  ['mozilla', 'firefox'],
-  ['application support', 'google', 'chrome'],
-  ['application support', 'microsoft edge'],
-  ['application support', 'firefox'],
-  ['application support', 'chromium'],
-  ['application support', 'bravesoftware'],
-  ['application support', 'vivaldi'],
-  ['library', 'safari'],
-  ['library', 'cookies'],
-  ['.config', 'google-chrome'],
-  ['.config', 'chromium'],
-  ['.config', 'microsoft-edge'],
-  ['.config', 'bravesoftware'],
-  ['.config', 'vivaldi'],
-  ['snap', 'firefox'],
-  ['snap', 'chromium'],
-  ['.var', 'app', 'org.mozilla.firefox'],
-  ['.var', 'app', 'com.google.chrome'],
-  // OS credential stores.
-  ['microsoft', 'credentials'],
-  ['microsoft', 'protect'],
-  ['microsoft', 'vault'],
-  ['windows', 'system32', 'config'],
-  ['library', 'keychains'],
-  ['.local', 'share', 'keyrings'],
-  ['.local', 'share', 'kwalletd'],
-  ['etc', 'shadow'],
-  ['etc', 'gshadow'],
-  ['etc', 'ssh'],
-  ['etc', 'ssl', 'private'],
-];
-
-const KEY_EXTENSIONS = new Set([
-  '.pem',
-  '.key',
-  '.p12',
-  '.pfx',
-  '.p8',
-  '.ppk',
-  '.jks',
-  '.keystore',
-  '.kdbx',
-  '.keychain',
-  '.keychain-db',
-]);
-const CREDENTIAL_FILES = new Set([
-  '.netrc',
-  '_netrc',
-  '.npmrc',
-  '.pypirc',
-  '.git-credentials',
-  '.pgpass',
-  '.vault-token',
-  '.htpasswd',
-  '.dockercfg',
-  '.envrc',
-  '.s3cfg',
-  'kubeconfig',
-]);
-/** Dotenv files: `.env`, `.env.<stage>[.<more>]` and `<stage>.env`. */
-const ENV_FILE = /^(?:\.env(?:\.[^.]{1,64}){0,4}|[^.]{1,64}(?:\.[^.]{1,64}){0,3}\.env)$/;
-/** The exact dotenv templates checked in on purpose; they hold no secrets.
- *  Nothing else is exempt, whatever it ends with. */
-const ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template', '.env.dist']);
-/** OpenSSH private keys (`id_ed25519`, `id_rsa_work`, `id_ecdsa_sk`): no
- *  extension, so the public `.pub` half and documents named after a key
- *  type (`id_rsa_notes.md`) are not keys. */
-const SSH_PRIVATE_KEY = /^id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?(?:[_-][^._-]{1,32}){0,2}$/;
-/** A copy an editor or tool leaves beside a file (`x.bak`, `x.old`, `x~`,
- *  `x.1`): it holds what the original holds. */
-const BACKUP_SUFFIX = /(?:\.(?:bak|backup|old|orig|prev|save|sav|swp|swo|tmp|copy|\d{1,3})|~)$/;
-const MAX_BACKUP_SUFFIXES = 3;
-
-/** The name a backup copy was made of (`.npmrc.bak.1` → `.npmrc`). */
-function backupOriginal(name: string): string {
-  let original = name;
-  for (let strip = 0; strip < MAX_BACKUP_SUFFIXES; strip += 1) {
-    const next = original.replace(BACKUP_SUFFIX, '');
-    if (next === original || !next) break;
-    original = next;
-  }
-  return original;
-}
-
-/** A file whose own name says it holds a secret, wherever it lives: a
- *  credential file, a dotenv file, a key or keystore, or a backup of one. */
-function secretFileName(name: string): boolean {
-  const original = backupOriginal(name);
-  if (CREDENTIAL_FILES.has(original)) return true;
-  if (ENV_FILE.test(original)) return !ENV_TEMPLATES.has(original);
-  const dot = original.lastIndexOf('.');
-  if (dot >= 0 && KEY_EXTENSIONS.has(original.slice(dot))) return true;
-  return SSH_PRIVATE_KEY.test(original);
-}
-
-// Mixdog's own state. Its home and data folders also hold what tools write
-// (tool results, shell output, media), which stay reachable; only the files
-// and folders that carry provider tokens, API keys, pairing and bridge secrets
-// are denied.
-const MIXDOG_SECRET_DIRECTORIES = new Set([
-  'secrets',
-  'mcp-oauth',
-  'provider-accounts',
-  'telegram',
-  'relay-data',
-  'dev-profile',
-]);
-const MIXDOG_SECRET_FILE =
-  /^\.?(mixdog-config|provider-accounts|relay-hook-device|auth\.json|[a-z0-9-]+-oauth(-credentials)?\.json|[a-z0-9-]+-bridge\.json)/;
-const MIXDOG_SECRET_EXTENSIONS = new Set(['.dpapi', '.token']);
-
-function mixdogSecret(rest: readonly string[]): boolean {
-  if (rest.some((segment) => MIXDOG_SECRET_DIRECTORIES.has(segment))) return true;
-  const name = rest[rest.length - 1] ?? '';
-  const dot = name.lastIndexOf('.');
-  return MIXDOG_SECRET_FILE.test(name) || MIXDOG_SECRET_EXTENSIONS.has(dot >= 0 ? name.slice(dot) : '');
-}
+// The name and segment rules themselves are shared with the runtime's
+// attachment hand-offs (src/runtime/shared/sensitive-path-rules.mjs); this
+// module adds the registered private roots and async canonicalization.
 
 /** Folders the process registers as wholly private (the Electron profile
  *  holds cookies, device and pairing keys), minus the named subfolders. */
@@ -187,28 +41,6 @@ export function registerSensitiveRoot(root: string, except: readonly string[] = 
     resolve(root),
     except.map((name) => name.toLowerCase())
   );
-}
-
-/** The segments of a path as the rules compare them: no extended-path prefix,
- *  no NTFS stream suffix, no trailing dots or spaces, lower case. */
-function segmentsOf(path: string): string[] {
-  return path
-    .replace(/^[\\/]{2}[?.][\\/]/, '')
-    .split(/[\\/]+/)
-    .map((segment) =>
-      segment
-        .split(':')[0]
-        .replace(/[. ]+$/, '')
-        .toLowerCase()
-    )
-    .filter(Boolean);
-}
-
-function hasRun(segments: readonly string[], run: readonly string[]): boolean {
-  for (let start = 0; start + run.length <= segments.length; start += 1) {
-    if (run.every((segment, offset) => segments[start + offset] === segment)) return true;
-  }
-  return false;
 }
 
 /** The path with every existing link resolved; the part that does not exist
@@ -263,13 +95,12 @@ function canonicalPathSync(path: string): string {
   return join(canonicalPathSync(parent), absolute.slice(parent.length).replace(/^[\\/]+/, ''));
 }
 
-interface Scope {
-  root: string[];
-  /** Subfolders of the root that stay reachable. */
-  except: readonly string[];
-  /** Whole tree (a registered private root) or Mixdog's secret subset. */
-  whole: boolean;
-}
+type Scope = SensitiveScope;
+const segmentsOf = sensitivePathSegments;
+// A paired device's own request (the user opening a file) may read the
+// dotenv templates; automatic bot/agent transfers never may.
+const matches = (path: string, within: readonly Scope[]): boolean =>
+  matchesSensitivePath(path, within, { envTemplates: true });
 
 /** Everything the deny list knows beyond names, as plain data: Mixdog's home
  *  and data folders and the registered private roots. It is read in the
@@ -341,25 +172,6 @@ async function scopes(policy: SensitivePolicy): Promise<Scope[]> {
     }
   }
   return found;
-}
-
-function matches(path: string, within: readonly Scope[]): boolean {
-  const segments = segmentsOf(resolve(path));
-  const name = segments[segments.length - 1] ?? '';
-  if (segments.some((segment) => SECRET_DIRECTORIES.has(segment))) return true;
-  if (secretFileName(name) || SECRET_SEQUENCES.some((run) => hasRun(segments, run))) return true;
-  const containing = within.filter(
-    ({ root }) => root.length > 0 && root.every((segment, index) => segments[index] === segment)
-  );
-  // Mixdog's home and data folders follow Mixdog's own rule even inside a
-  // registered private root: a dev or isolated profile keeps them in the app
-  // profile, and the tool output and media there stay reachable.
-  const own = containing.filter(({ whole }) => !whole);
-  if (own.length) return own.some(({ root }) => mixdogSecret(segments.slice(root.length)));
-  return containing.some(({ root, except }) => {
-    const rest = segments.slice(root.length);
-    return rest.length > 0 && !except.includes(rest[0]);
-  });
 }
 
 /** A predicate over CANONICAL paths (a folder walk's entries), under

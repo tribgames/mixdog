@@ -20,7 +20,7 @@
   z-index: 10;
   /* Never taller than the pane: when the dock's members need more than the
      pane holds, the dock shrinks, and inside it only the island slot gives
-     up room (it scrolls). Composer, quota, /btw and queue keep their size. */
+     up room (it scrolls). Composer, quota and /btw keep their size. */
   flex: 0 1 auto;
   min-height: 0;
   display: flex;
@@ -1875,6 +1875,10 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .composer-readout-item > svg {
   flex: none;
 }
+/* The worded form's `·`: 5px + the item's 3px gap = the 8px gap after it. */
+.composer-readout-sep {
+  margin-left: 5px;
+}
 .composer-readout-dot {
   flex: none;
   width: 6px;
@@ -3069,175 +3073,6 @@ button.attachment-card-file {
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
-/* Queued follow-ups: a rail inset one card radius on each side of the prompt card, with
-   rounded top corners, whose lower edge tucks one card radius under the
-   card, so the card keeps all four corners (the Codex composer rail). Rows are
-   32px; the list grows to 30% of the viewport, then scrolls with a bottom
-   fade. */
-.composer-queue-tray:empty {
-  display: none;
-}
-.queue-list {
-  position: relative;
-  z-index: 0;
-  /* Inset by the card's own corner radius, so the rail's sides meet the
-     card's straight top edge instead of landing inside its corner curve. */
-  margin: 0 var(--mx-radius-sheet) calc(-1 * var(--mx-radius-sheet));
-  padding-bottom: var(--mx-radius-sheet);
-  overflow: hidden;
-  border: 0;
-  border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  /* The card's edge ink, so the seam where the rail meets the card reads as
-     one line weight. */
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
-  animation: queue-tray-rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-@keyframes queue-tray-rise {
-  from {
-    transform: translateY(8px);
-    opacity: 0.4;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .queue-list {
-    animation: none;
-  }
-}
-.composer-region:has(> .composer-queue-tray .queue-list) .composer {
-  position: relative;
-  z-index: 1;
-}
-.queue-items {
-  max-height: 30dvh;
-  padding: 2px 6px 2px 12px;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-.queue-items::-webkit-scrollbar {
-  display: none;
-}
-.queue-items[data-more="true"] {
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
-}
-.queue-item {
-  height: 32px;
-  flex: none;
-  gap: 8px;
-  padding: 0;
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
-}
-.queue-item + .queue-item {
-  border-top: var(--mx-hairline) solid var(--mx-border-muted);
-}
-.queue-item-icon {
-  flex: none;
-  color: var(--mx-text-muted);
-  opacity: 0.7;
-}
-.queue-item-text {
-  color: var(--mx-text-muted);
-  border-radius: var(--mx-radius-sm);
-}
-.queue-item-text:focus-visible {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-  outline: 0;
-}
-.queue-item-attachments {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.queue-steer,
-.queue-remove,
-.queue-item .row-overflow-trigger {
-  height: 24px;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text-muted);
-  background: transparent;
-  cursor: pointer;
-}
-.queue-steer {
-  padding: 0 8px;
-  color: var(--mx-accent);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-}
-.queue-remove,
-.queue-item .row-overflow-trigger {
-  width: 24px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-}
-.queue-item .row-overflow {
-  margin-inline-start: 0;
-}
-.queue-item .row-overflow-trigger svg {
-  width: 14px;
-  height: 14px;
-}
-.queue-remove:hover:not(:disabled),
-.queue-remove:focus-visible,
-.queue-item .row-overflow-trigger:hover,
-.queue-item .row-overflow-trigger:focus-visible {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-  outline: 0;
-}
-.queue-steer:hover:not(:disabled),
-.queue-steer:focus-visible {
-  background: var(--mx-hover);
-  outline: 0;
-}
-.queue-steer:disabled,
-.queue-remove:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
-}
-/* Phone: the tray's rows and their touch targets take the touch tier like
-   the island does. Rows are one step taller than the 36px row-tier targets so the hairline never clips them. */
-html[data-mixdog-mobile-tabs] .queue-items {
-  padding: 2px 6px 2px 12px;
-}
-html[data-mixdog-mobile-tabs] .queue-item {
-  height: 40px;
-  gap: 8px;
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
-}
-html[data-mixdog-mobile-tabs] .queue-item-icon,
-html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-remove, .row-overflow-trigger) svg {
-  width: 14px;
-  height: 14px;
-}
-html[data-mixdog-mobile-tabs] .queue-item-attachments {
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-minor);
-}
-html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-steer, .queue-remove, .row-overflow-trigger) {
-  height: var(--mx-touch-row-main);
-  min-height: var(--mx-touch-row-main);
-}
-html[data-mixdog-mobile-tabs] .queue-list .queue-item :is(.queue-remove, .row-overflow-trigger) {
-  width: var(--mx-touch-row-main);
-  min-width: var(--mx-touch-row-main);
-  flex-basis: var(--mx-touch-row-main);
-  margin: 0;
-}
-html[data-mixdog-mobile-tabs] .queue-list .queue-steer {
-  padding-inline: 8px;
-  font-size: 13px;
-}
 .composer {
   z-index: 1;
 }
@@ -3322,8 +3157,10 @@ html[data-mixdog-mobile-tabs] .queue-list .queue-steer {
   transform: rotate(180deg);
 }
 
-/* /btw side-question tray: docked on the composer card's top edge like the
-   queue tray (same inset, tuck and edge ink), never part of the transcript. */
+/* /btw side-question tray: a rail inset one card radius on each side of the
+   prompt card, with rounded top corners, whose lower edge tucks one card
+   radius under the card, so the card keeps all four corners; never part of
+   the transcript. */
 .btw-card {
   position: relative;
   z-index: 0;
@@ -3334,7 +3171,13 @@ html[data-mixdog-mobile-tabs] .queue-list .queue-steer {
   background: var(--mx-bg-base);
   border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
-  animation: queue-tray-rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: btw-tray-rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes btw-tray-rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0.4;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .btw-card {
@@ -3429,7 +3272,7 @@ html[data-mixdog-mobile-tabs] .queue-list .queue-steer {
 .btw-body .markdown hr {
   margin: 12px 0;
 }
-/* More answer below the fold: fade the bottom edge like the queue tray. */
+/* More answer below the fold: fade the bottom edge. */
 .btw-body[data-more="true"] {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }

@@ -1,6 +1,6 @@
 // One tab strip for every side view: a bot opened from the Sessions sidebar
 // becomes a tab of the shared strip (its name and face) while the Sessions
-// view stays, and the Bots and Schedules views keep the strip above the main area.
+// view stays.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -25,6 +25,7 @@ const AGENTS = [
   {
     id: 'github-watcher',
     custom: true,
+    kind: 'bot',
     definition: { name: 'GitHub Watcher' },
     route: { provider: 'anthropic', model: 'claude-x' },
     avatar: { kind: 'mascot', variant: 'perky-calm-collar', color: '#5b9bff' },
@@ -38,9 +39,7 @@ window.mixdogDesktop = {
 const { usePaneWorkspace } = await import('../pane-workspace-state.ts');
 const { useAppPaneChrome } = await import('../use-app-pane-chrome.tsx');
 const { useAppWorkbenchViews } = await import('./use-app-workbench-views.tsx');
-const { AppWorkspaceMain } = await import('./AppWorkspaceMain.tsx');
 const { navigationKey } = await import('../text-format.ts');
-const { showDraftsInSessions } = await import('./bots-page-drafts.ts');
 
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
 
@@ -172,198 +171,4 @@ test('a bot clicked in the Sessions sidebar opens as a tab of the shared strip; 
   assert.equal(tab.querySelector('.workspace-tab-main > span:last-child').textContent, 'GitHub Watcher');
   assert.ok(tab.querySelector('.workspace-tab-main > .mx-chat-tab-face svg'), 'the tab carries the bot’s face');
   assert.ok(strip.querySelector('.workspace-tab-new'), 'the strip keeps its +');
-});
-
-test('a new-task draft shown from the Bots page opens in Sessions and keeps its tab', async (t) => {
-  // User: with a first new tab open, a second tab (a bot chat) in use, going
-  // back to the first new tab made it vanish from the strip (탭 날라감).
-  const { host, root } = mountRoot(t);
-  let workspace = null;
-  let select = null;
-  function Harness() {
-    workspace = usePaneWorkspace(null);
-    const [botsPage, setBotsPage] = React.useState(true);
-    const [selection, setSelection] = React.useState({ kind: 'new' });
-    select = setSelection;
-    const selectionRef = React.useRef(selection);
-    selectionRef.current = selection;
-    // The app's entries: the draft becomes the selection of the focused pane.
-    const show = (next) => {
-      setSelection(next);
-      workspace.openInFocused(next);
-    };
-    const entries = showDraftsInSessions(() => setBotsPage(false), {
-      startTask: (draft) => show(draft?.kind === 'new' ? draft : { kind: 'new', draftId: 'fresh' }),
-      navigateTab: (tab) => show(tab.selection),
-    });
-    const chrome = useAppPaneChrome({
-      tabs: [],
-      sessions: [],
-      paneWorkspace: workspace,
-      dirtyFileKeys: new Set(),
-      workingSessionIds: new Set(),
-      unreadSessionIds: new Set(),
-      selectionRef,
-      viewedSessionRef: { current: '' },
-      unreadViewedSessionRef: { current: '' },
-      setSelection,
-      startTask: entries.startTask,
-      activateSelection() {},
-      openFileTab() {},
-      startProject() {},
-      navigateTab: entries.navigateTab,
-      closeTab() {},
-      pinPaneTab() {},
-      renameSession: async () => {},
-      lastSessionStorageKey: 'test:last-session',
-    });
-    return React.createElement(AppWorkspaceMain, {
-      navigationSelection: selection,
-      visibleSessionTitle: '',
-      selection,
-      projects: [],
-      errors: [],
-      paneWorkspace: workspace,
-      observedAgentSessionIds: [],
-      paneStripFor: chrome.paneStripFor,
-      paneConversationSurface: (shown) =>
-        React.createElement('div', { className: 'test-conversation' }, navigationKey(shown)),
-      paneFileEditors: null,
-      paneUtilityTabs: null,
-      renderPaneSideDock: () => null,
-      renderPaneProblems: () => null,
-      activatePaneSurface() {},
-      openDroppedPaths: async () => {},
-      agentsPageOpen: botsPage,
-    });
-  }
-  await act(async () => root.render(React.createElement(Harness)));
-  const stripKeys = () => [...host.querySelectorAll('.workspace-tab[data-tab-key]')].map((tab) => tab.dataset.tabKey);
-  const activeKey = () => host.querySelector('.workspace-tab.active')?.dataset.tabKey;
-  const shownDrafts = () =>
-    [...host.querySelectorAll('.test-conversation')].filter((node) => node.textContent.startsWith('new:'));
-
-  // Bots: a new tab beside the bot chat in use.
-  const chat = { kind: 'session', id: 'sess_home_github-watcher' };
-  await act(async () => workspace.openInFocused(chat));
-  await act(async () => workspace.openInFocused({ kind: 'new', draftId: 'first' }));
-  await act(async () => {
-    workspace.openInFocused(chat);
-    select(chat);
-  });
-  await settle();
-  const tabs = ['session:sess_home_github-watcher', 'new:first'];
-  assert.deepEqual(stripKeys(), tabs);
-
-  // Back to the new tab: Sessions shows it, still on the strip.
-  await act(async () => host.querySelector('.workspace-tab[data-tab-key="new:first"] .workspace-tab-main').click());
-  assert.deepEqual(stripKeys(), tabs);
-  assert.equal(activeKey(), 'new:first');
-  assert.equal(shownDrafts().length, 1, 'its composer is back');
-  assert.equal(host.querySelector('[data-agents-empty]'), null);
-});
-
-test('the strip’s + on the Bots page opens its new task in Sessions', async (t) => {
-  const { host, root } = mountRoot(t);
-  const calls = [];
-  function Harness() {
-    const workspace = usePaneWorkspace(null);
-    const entries = showDraftsInSessions(() => calls.push('leaveBotsPage'), {
-      startTask: () => calls.push('startTask'),
-      navigateTab: () => calls.push('navigateTab'),
-    });
-    const chrome = useAppPaneChrome({
-      tabs: [],
-      sessions: [],
-      paneWorkspace: workspace,
-      dirtyFileKeys: new Set(),
-      workingSessionIds: new Set(),
-      unreadSessionIds: new Set(),
-      selectionRef: { current: { kind: 'new' } },
-      viewedSessionRef: { current: '' },
-      unreadViewedSessionRef: { current: '' },
-      setSelection() {},
-      startTask: entries.startTask,
-      activateSelection() {},
-      openFileTab() {},
-      startProject() {},
-      navigateTab: entries.navigateTab,
-      closeTab() {},
-      pinPaneTab() {},
-      renameSession: async () => {},
-      lastSessionStorageKey: 'test:last-session',
-    });
-    return React.createElement('div', null, ...workspace.leaves.map((leaf) => chrome.paneStripFor(leaf)));
-  }
-  await act(async () => root.render(React.createElement(Harness)));
-  await act(async () => host.querySelector('.workspace-tab-new').click());
-  assert.deepEqual(calls, ['leaveBotsPage', 'startTask']);
-  // A session tab is not a draft: Bots stays.
-  calls.length = 0;
-  showDraftsInSessions(() => calls.push('leaveBotsPage'), {
-    startTask() {},
-    navigateTab: () => calls.push('navigateTab'),
-  }).navigateTab({ key: 'session:sess_a', title: '', selection: { kind: 'session', id: 'sess_a' } });
-  assert.deepEqual(calls, ['navigateTab']);
-});
-
-test('the Bots and Schedules views keep the tab strip above the main area', async (t) => {
-  const { host, root } = mountRoot(t);
-  let workspace = null;
-  function Harness({ agentsPageOpen }) {
-    workspace = usePaneWorkspace(null);
-    return React.createElement(AppWorkspaceMain, {
-      // The focused pane's draft tab is active.
-      navigationSelection: { kind: 'new' },
-      visibleSessionTitle: 'New task',
-      selection: { kind: 'new' },
-      projects: [],
-      errors: [],
-      paneWorkspace: workspace,
-      observedAgentSessionIds: [],
-      paneStripFor: (leaf) =>
-        leaf.tabs.length
-          ? React.createElement('div', { className: 'test-strip' }, leaf.tabs.map(navigationKey).join(','))
-          : null,
-      paneConversationSurface: (selection) =>
-        React.createElement('div', { className: 'test-conversation' }, navigationKey(selection)),
-      paneFileEditors: null,
-      paneUtilityTabs: null,
-      renderPaneSideDock: () => null,
-      renderPaneProblems: () => null,
-      activatePaneSurface() {},
-      openDroppedPaths: async () => {},
-      agentsPageOpen,
-    });
-  }
-  const render = (agentsPageOpen) => act(async () => root.render(React.createElement(Harness, { agentsPageOpen })));
-  const strip = () => host.querySelector('.test-strip')?.textContent ?? null;
-  const shownDrafts = () =>
-    [...host.querySelectorAll('.test-conversation')].filter((node) => node.textContent.startsWith('new:'));
-
-  // Bots with only the untouched new-task draft: an empty main area, no
-  // draft tab, composer or logo.
-  await render(true);
-  assert.equal(workspace.leaves.length, 1);
-  assert.equal(strip(), null, 'no draft tab and no strip without real tabs');
-  assert.equal(shownDrafts().length, 0, 'no draft composer');
-  assert.ok(host.querySelector('[data-agents-empty]'), 'an empty main area');
-
-  // Schedules (any other side view), and Sessions again: the draft is back.
-  await render(false);
-  assert.equal(strip(), 'new:default', 'the shared strip shows its tabs');
-  assert.equal(shownDrafts().length, 1);
-  assert.equal(host.querySelector('[data-agents-empty]'), null);
-
-  // Real tabs beside the active draft: Bots keeps them in the strip, without the draft.
-  await act(async () => workspace.openInFocused({ kind: 'session', id: 'sess_real' }));
-  await act(async () => workspace.openInFocused({ kind: 'new', draftId: 'second' }));
-  const keys = workspace.leaves[0].tabs.map(navigationKey);
-  assert.ok(keys.includes('session:sess_real') && keys.some((key) => key.startsWith('new:')), keys.join(','));
-  await render(true);
-  assert.equal(strip(), 'session:sess_real', 'the strip keeps its real tabs only');
-  assert.equal(shownDrafts().length, 0);
-  assert.ok(host.querySelector('[data-agents-empty]'));
-  await render(false);
-  assert.equal(strip(), keys.join(','));
 });

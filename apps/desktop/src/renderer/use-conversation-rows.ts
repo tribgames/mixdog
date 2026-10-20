@@ -48,6 +48,7 @@ export function useTranscriptRows({
   failedTurnKeys,
   precomputedTurnKeys,
   pendingItems,
+  steerItems,
   liveItem,
   busy,
   commandBusy,
@@ -62,6 +63,8 @@ export function useTranscriptRows({
   failedTurnKeys: string[] | undefined;
   precomputedTurnKeys: unknown;
   pendingItems: PendingPromptItem[];
+  /** Messages sent while the turn runs that the model has not read yet. */
+  steerItems?: PendingPromptItem[];
   liveItem: TranscriptItem | null;
   busy: boolean | undefined;
   commandBusy: boolean | undefined;
@@ -103,6 +106,7 @@ export function useTranscriptRows({
         sessionKey: identity,
         settled: settledProjection,
         pendingItems,
+        steerItems,
         liveItem,
         thinking:
           liveBand &&
@@ -116,6 +120,7 @@ export function useTranscriptRows({
       optimisticActivityStartedAt,
       settledProjection,
       pendingItems,
+      steerItems,
       busy,
       turnSettled,
       commandBusy,

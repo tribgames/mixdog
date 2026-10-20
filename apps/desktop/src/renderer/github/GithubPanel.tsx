@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GithubRequest, GithubResult } from '../../shared/contract';
+import { confirmAction } from '../app-confirm';
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { useSurfaceActive } from '../surface-activity';
@@ -166,15 +167,14 @@ export function GithubPanel({
       setBusy(false);
     }
   };
-  const action = (input: GithubRequest) => {
+  const action = (input: GithubRequest, label: string, danger = false) => {
     const warning = input.action === 'run.rerun' ? `\n${t('This action may trigger a deployment.')}` : '';
-    if (
-      !window.confirm(
-        `${input.action}\n${repoRef.current}${input.number ? ` #${input.number}` : ''}${input.id ? ` #${input.id}` : ''}${warning}`
-      )
-    )
-      return;
-    void mutate(input).catch((reason) => setError(String(reason.message || reason)));
+    void confirmAction(
+      `${label}\n${repoRef.current}${input.number ? ` #${input.number}` : ''}${input.id ? ` #${input.id}` : ''}${warning}`,
+      { danger }
+    ).then((approved) => {
+      if (approved) return mutate(input).catch((reason) => setError(String(reason.message || reason)));
+    });
   };
   const beginForm = (input: GithubRequest) => {
     if (!repoRef.current && !['repo.create', 'repo.clone'].includes(input.action)) {

@@ -209,6 +209,19 @@ export function isRemoteConnectionOutage(boot: boolean): boolean {
   return false;
 }
 
+/** The relay's latest answer was that the PC has no live leg (its own close). */
+export function isRemoteDesktopOffline(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.dataset.mixdogRemoteDesktop === 'offline';
+}
+
+/** A manual retry: the PC's last reported absence stands only once the relay
+ *  says so again. */
+export function forgetRemoteDesktopOffline(): void {
+  if (!isRemoteDesktopOffline()) return;
+  delete document.documentElement.dataset.mixdogRemoteDesktop;
+  window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
+}
+
 export function subscribeRemoteConnectionState(listener: () => void): () => void {
   if (typeof window === 'undefined') return () => {};
   // Released from the window it was added to, even after a rebind.

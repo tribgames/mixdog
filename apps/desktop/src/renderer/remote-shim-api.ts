@@ -453,7 +453,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       await connect();
       if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
       // Media panes stream on the encrypted media lane when it answers.
-      return readRemoteVisualizePane(call, sessionId, tabId, index, laneUrl);
+      return readRemoteVisualizePane(call, sessionId, tabId, index, laneUrl, ctx.visualizePages);
     },
     visualizePanePages: async (sessionId, tabId, index, options) => {
       await connect();

@@ -319,17 +319,95 @@ test('a redial counts toward the calm indicator; a sync on a live socket does no
   });
 });
 
-test('a cold boot has nothing on screen, so every wait counts there', async () => {
+const unreachableElement = () => document.querySelector('.remote-unreachable');
+const unreachableButtons = () =>
+  [...document.querySelectorAll('.remote-unreachable button')].map((button) => button.textContent);
+
+test('a cold boot has nothing on screen, so every wait counts there and ends in the unreachable state', async () => {
   await withBanner(
     async ({ timers, fire, setState }) => {
       await setState('connecting');
       assert.ok(timers.pendingDisconnect);
       await setState('syncing');
       await fire('pendingDisconnect');
-      assert.ok(indicatorElement());
+      // Issue #134: no endless loading mark — a plain state with a retry.
+      assert.equal(indicatorElement(), null);
+      assert.equal(unreachableElement()?.getAttribute('role'), 'alert');
+      assert.equal(document.querySelector('.remote-unreachable-title').textContent, 'Can’t connect to your PC');
+      assert.equal(
+        document.querySelector('.remote-unreachable-sub').textContent,
+        'Your PC needs to be on with Mixdog running.'
+      );
+      assert.deepEqual(unreachableButtons(), ['Try again'], 'no PC list to return to outside the phone app');
     },
     { boot: true }
   );
+});
+
+test('a cold boot the relay answers "PC offline" shows the unreachable state at once; Try again redials', async () => {
+  await withBanner(
+    async ({ timers, fire, setState }) => {
+      await setState('connecting');
+      await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+      assert.ok(unreachableElement(), 'the relay’s own answer ends the wait without the countdown');
+      assert.equal(timers.pendingDisconnect, null);
+      let wakes = 0;
+      const onWake = () => wakes++;
+      window.addEventListener('mixdog:remote-wake', onWake);
+      await act(async () => document.querySelector('.remote-unreachable button').click());
+      window.removeEventListener('mixdog:remote-wake', onWake);
+      assert.equal(wakes, 1);
+      assert.equal(unreachableElement(), null, 'the loading mark is the retry in progress');
+      assert.ok(timers.pendingDisconnect, 'the retry starts a fresh countdown');
+      // Still offline: the relay says so again.
+      await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+      assert.ok(unreachableElement());
+      // Another failure after it keeps the state up; only a connection ends it.
+      await act(async () => reportRemoteConnectionIssue('websocket-error'));
+      assert.ok(unreachableElement());
+      await setState('connected');
+      assert.equal(unreachableElement(), null, 'connected: the cover only waits for the first paint');
+      await fire('pendingRecovery');
+      assert.equal(unreachableElement(), null);
+    },
+    { boot: true }
+  );
+});
+
+test('in the phone app the unreachable state goes back to the app’s PC list', async () => {
+  const calls = [];
+  window.mixdogNative = {
+    platform: 'android',
+    version: '1.3.1',
+    call: async (method) => {
+      calls.push(method);
+      return true;
+    },
+  };
+  try {
+    await withBanner(
+      async ({ setState }) => {
+        await setState('connecting');
+        await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+        assert.deepEqual(unreachableButtons(), ['Try again', 'Choose another PC']);
+        await act(async () => document.querySelectorAll('.remote-unreachable button')[1].click());
+        assert.deepEqual(calls, ['openHostPicker']);
+      },
+      { boot: true }
+    );
+  } finally {
+    delete window.mixdogNative;
+  }
+});
+
+test('a live session never turns the PC-offline answer into a blocking state', async () => {
+  await withBanner(async ({ timers, setState }) => {
+    await setState('reconnecting');
+    await act(async () => reportRemoteConnectionIssue('websocket-closed', undefined, REMOTE_DESKTOP_OFFLINE_CLOSE));
+    assert.equal(unreachableElement(), null);
+    assert.equal(indicatorElement(), null, 'the calm countdown still runs');
+    assert.ok(timers.pendingDisconnect);
+  });
 });
 
 test('a cold boot that connects quickly never shows the indicator', async () => {
