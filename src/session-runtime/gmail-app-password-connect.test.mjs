@@ -14,7 +14,7 @@ const PASSWORD = 'abcdwxyzabcdwxyz';
 function harness(t, { initial = {}, reject = null } = {}) {
   let config = { mcpServers: { ...initial } };
   const keychain = new Map();
-  const seen = { verified: [], forgotten: [], oauthCleared: [] };
+  const seen = { verified: [], forgotten: [], oauthCleared: [], clientSecrets: [] };
   const glue = createMcpGlue({ getConfig: () => config, getCurrentCwd: () => process.cwd(), mcpClient: {}, state: {} });
   const api = createResourceApi({
     getConfig: () => config,
@@ -41,6 +41,9 @@ function harness(t, { initial = {}, reject = null } = {}) {
     clearMcpServerOAuth: async (cfg) => {
       seen.oauthCleared.push(cfg.url);
       return { revoked: true };
+    },
+    saveOAuthClientSecret: async (url, secret) => {
+      seen.clientSecrets.push([url, secret]);
     },
     gmailAppPassword: {
       async save(email, password) {
@@ -113,6 +116,11 @@ test('switching the Google sign-in to an app password keeps the server and drops
   assert.equal(saved.oauthClientId, undefined);
   assert.doesNotMatch(JSON.stringify(saved), new RegExp(PASSWORD));
   assert.deepEqual(h.seen.oauthCleared, ['https://gmail.mixdog.invalid/mcp']);
+  assert.deepEqual(
+    h.seen.clientSecrets,
+    [['https://gmail.mixdog.invalid/mcp', '']],
+    'the old client secret is forgotten'
+  );
   // An edit without a password keeps the stored one.
   await h.api.saveMcpServer({ name: 'gmail', originalName: 'gmail', timeoutMs: 90_000 });
   assert.equal(h.seen.verified.length, 1);

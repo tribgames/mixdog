@@ -89,6 +89,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     startMcpServerOAuthSwitch,
     commitMcpServerOAuthSwitch,
     gmailAppPassword = { save: saveGmailAppPassword, forget: forgetGmailAppPassword },
+    saveOAuthClientSecret = saveMcpOAuthClientSecret,
   } = deps;
 
   const reconnectOne = async (name) => {
@@ -162,8 +163,8 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
   const storeOAuthClientSecret = async (input, cfg, previous = {}) => {
     if (!cfg?.url) return;
     const secret = typeof input.oauthClientSecret === 'string' ? input.oauthClientSecret.trim() : '';
-    if (cfg.oauthClientId && secret) await saveMcpOAuthClientSecret(cfg.url, secret);
-    else if (!cfg.oauthClientId && previous.oauthClientId) await saveMcpOAuthClientSecret(previous.url || cfg.url, '');
+    if (cfg.oauthClientId && secret) await saveOAuthClientSecret(cfg.url, secret);
+    else if (!cfg.oauthClientId && previous.oauthClientId) await saveOAuthClientSecret(previous.url || cfg.url, '');
   };
   // Gmail with an app password (connector-catalog.mjs GMAIL_APP_PASSWORD): the
   // password is checked with Gmail before anything is saved and goes to the
