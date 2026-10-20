@@ -20,7 +20,6 @@ Added a bot system, support for more connectors including Gmail via app password
 
 - Changed the PC composer to a one-line input bar that grows with longer prompts.
 - Changed long session lists and long transcripts to scroll more smoothly.
-- Changed the phone layout: bot chats use the session tab bar, side panels are opaque, and the drawer opens above panels.
 - Changed session diff views to fold unchanged lines and drop missing-file banners.
 - Changed phone app updates to download in the background, with status in Settings and the activity rail.
 - Adjusted the visualize side panel to widen across the same range as the browser panel.

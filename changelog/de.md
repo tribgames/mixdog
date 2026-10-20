@@ -19,7 +19,6 @@ Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passw
 
 - PC-Composer zu einer einzeiligen Eingabeleiste geändert, die bei längeren Prompts mitwächst.
 - Lange Sitzungslisten und lange Transkripte so geändert, dass sie flüssiger scrollen.
-- Telefon-Layout geändert: Bot-Chats nutzen die Sitzungs-Tab-Leiste, Seitenleisten sind undurchsichtig und die Schublade öffnet sich über den Panels.
 - Sitzungs-Diff-Ansichten so geändert, dass unveränderte Zeilen eingeklappt und Banner für fehlende Dateien entfernt werden.
 - Telefon-App-Updates so geändert, dass sie im Hintergrund heruntergeladen werden, mit Statusanzeige in den Einstellungen und der Aktivitätsleiste.
 - Visualize-Seitenleiste so angepasst, dass sie sich über denselben Bereich wie das Browser-Panel verbreitern lässt.

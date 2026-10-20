@@ -19,7 +19,6 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 
 - Đã thay đổi trình soạn thảo trên máy tính thành thanh nhập một dòng mở rộng theo các lời nhắc dài hơn.
 - Đã thay đổi danh sách phiên dài và bản ghi chép dài để cuộn mượt mà hơn.
-- Đã thay đổi bố cục trên điện thoại: cuộc trò chuyện với bot dùng thanh tab phiên, các bảng bên mờ đục và ngăn kéo mở phía trên các bảng.
 - Đã thay đổi chế độ xem khác biệt của phiên để thu gọn các dòng không đổi và bỏ các biểu ngữ tệp bị thiếu.
 - Đã thay đổi bản cập nhật ứng dụng điện thoại để tải xuống trong nền, kèm trạng thái hiển thị trong Cài đặt và thanh hoạt động.
 - Đã điều chỉnh bảng bên visualize để mở rộng trong cùng phạm vi với bảng trình duyệt.

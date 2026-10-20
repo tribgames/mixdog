@@ -19,7 +19,6 @@ Aggiunti un sistema di bot e il supporto a più connettori, tra cui Gmail con pa
 
 - Modificato il compositore su PC in una barra di immissione a riga singola che si espande con prompt più lunghi.
 - Modificati i lunghi elenchi di sessioni e le trascrizioni estese per uno scorrimento più fluido.
-- Modificato il layout per smartphone: le chat con i bot usano la barra delle schede di sessione, i pannelli laterali sono opachi e il cassetto si apre sopra i pannelli.
 - Modificate le viste diff di sessione per comprimere le righe non modificate e rimuovere i banner per i file mancanti.
 - Modificati gli aggiornamenti dell'app per smartphone per essere scaricati in background, con lo stato visibile in Impostazioni e nella barra delle attività.
 - Regolato il pannello laterale visualize per estendersi nello stesso intervallo del pannello del browser.

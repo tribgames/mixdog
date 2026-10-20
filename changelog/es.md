@@ -20,7 +20,6 @@ Se añadió un sistema de bots, compatibilidad con más conectores, como Gmail m
 
 - Se cambió el compositor de PC a una barra de entrada de una sola línea que se expande con mensajes más largos.
 - Se cambiaron las listas largas de sesiones y las transcripciones extensas para que se desplacen con mayor fluidez.
-- Se cambió el diseño en teléfonos: los chats de bots usan la barra de pestañas de sesión, los paneles laterales son opacos y el cajón se abre sobre los paneles.
 - Se cambiaron las vistas de diferencias de sesión para plegar líneas sin cambios y quitar los avisos de archivos faltantes.
 - Se cambiaron las actualizaciones de la aplicación móvil para descargarse en segundo plano, con estado en Configuración y en la barra de actividad.
 - Se ajustó el panel lateral de visualize para ampliarse en el mismo rango que el panel del navegador.

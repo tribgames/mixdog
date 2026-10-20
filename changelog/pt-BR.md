@@ -19,7 +19,6 @@ Adicionado um sistema de bots, suporte a mais conectores, incluindo o Gmail com 
 
 - Alterado o compositor no PC para uma barra de entrada de linha única que se expande com mensagens mais longas.
 - Alteradas as listas longas de sessões e transcrições extensas para rolarem de forma mais suave.
-- Alterado o layout em celulares: chats de bots usam a barra de abas da sessão, painéis laterais são opacos e a gaveta se abre sobre os painéis.
 - Alteradas as visualizações de diferenças da sessão para recolher linhas não modificadas e remover avisos de arquivos ausentes.
 - Alteradas as atualizações do app para celular para serem baixadas em segundo plano, com status em Configurações e na barra de atividades.
 - Ajustado o painel lateral visualize para alargar no mesmo intervalo do painel do navegador.

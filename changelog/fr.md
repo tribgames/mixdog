@@ -20,7 +20,6 @@ Ajout d'un système de bots, prise en charge de nouveaux connecteurs, dont Gmail
 
 - Modification du compositeur sur PC en une barre de saisie sur une seule ligne qui s'agrandit avec les invites plus longues.
 - Modification des longues listes de sessions et des transcriptions volumineuses pour un défilement plus fluide.
-- Modification de la disposition sur téléphone : les discussions de bots utilisent la barre d'onglets de session, les panneaux latéraux sont opaques et le tiroir s'ouvre au-dessus des panneaux.
 - Modification des vues de diff de session pour replier les lignes inchangées et supprimer les bannières de fichiers manquants.
 - Modification des mises à jour de l'application mobile pour se télécharger en arrière-plan, avec affichage de l'état dans Paramètres et la barre d'activité.
 - Ajustement du panneau latéral visualize pour s'élargir sur la même plage que le volet du navigateur.
