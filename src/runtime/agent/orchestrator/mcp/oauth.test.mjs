@@ -1,3 +1,4 @@
+import '../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
@@ -18,10 +19,14 @@ import {
   createMcpOAuth as buildOAuth,
   hasStoredMcpOAuthTokens,
   isMcpOAuthReauthenticationRequired,
+  commitMcpOAuthSwitch,
   MCP_OAUTH_CALLBACK_MAX_BYTES,
   mcpOAuthAccount,
   parsePastedMcpOAuthCallback,
+  startMcpOAuthSwitch,
+  storedMcpOAuthIdentity,
 } from './oauth.mjs';
+import { canForceAccountChoice, identityFromTokenResponse, withAccountParams } from './oauth-account.mjs';
 import { createMcpOAuthLogins } from '../../../../session-runtime/mcp-oauth-login.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE } from '../providers/lib/oauth-page.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
@@ -1348,7 +1353,13 @@ test('remote sign-in: a no-browser begin returns the URL and a pasted callback c
   assert.deepEqual(await logins.complete(begun.flowId, pasted), { flowId: begun.flowId, state: 'complete' });
   assert.equal(server.exchanges(), 1);
   assert.deepEqual(completed, ['paste']);
-  assert.deepEqual(getMcpServerOAuthState({ type: 'http', url: server.url }), { signedIn: true });
+  // The fixture's token response names nobody: no identity is invented.
+  assert.deepEqual(getMcpServerOAuthState({ type: 'http', url: server.url }), {
+    signedIn: true,
+    account: '',
+    workspace: '',
+    forcedAccountChoice: false,
+  });
   // The loopback listener is closed and the flow answered once.
   await assert.rejects(fetch(redirect));
   await assert.rejects(logins.complete(begun.flowId, pasted), /no longer pending/);
@@ -1378,4 +1389,185 @@ test('remote sign-in: a pasted denial fails the flow without echoing it; a paste
   // Below the registry too: no login of that server waits for a callback.
   assert.throws(() => second.completeMcpLogin('cancelled', pasted, { scopeId }), /not waiting for a callback/);
   assert.equal(cancelled.exchanges(), 0);
+});
+
+// The token endpoint names the account (an OIDC id_token) for these tests.
+const idToken = (claims) => ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.');
+function namingFetch(email) {
+  const fetchImpl = async (input, init = {}) => {
+    const response = await fetch(input, init);
+    if (!String(init.body ?? '').includes('grant_type=authorization_code') || !response.ok) return response;
+    const body = await response.json();
+    return new Response(JSON.stringify({ ...body, id_token: idToken({ email: email.value }) }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  return fetchImpl;
+}
+function countingStore() {
+  const store = memoryStore();
+  store.reads = 0;
+  store.writes = 0;
+  const get = store.getSecretAsync;
+  const set = store.setSecretAsync;
+  store.getSecretAsync = async (key) => {
+    store.reads++;
+    return get(key);
+  };
+  store.setSecretAsync = async (key, value) => {
+    store.writes++;
+    return set(key, value);
+  };
+  return store;
+}
+
+test('the account parameters are only the documented ones, per provider and mode', () => {
+  const at = (url, mode) => Object.fromEntries(withAccountParams(url, mode).searchParams);
+  const google = 'https://accounts.google.com/o/oauth2/v2/auth?state=s';
+  assert.equal(at(google, 'connect').prompt, 'select_account');
+  assert.equal(at('https://github.com/login/oauth/authorize?state=s', 'connect').prompt, 'select_account');
+  // A normal connect adds nothing where the chooser is not the documented choice.
+  for (const url of [
+    'https://auth.atlassian.com/authorize?state=s',
+    'https://mcp.notion.com/authorize?state=s',
+    'https://www.dropbox.com/oauth2/authorize?state=s',
+  ]) {
+    assert.equal(at(url, 'connect').prompt, undefined);
+  }
+  assert.equal(at('https://auth.atlassian.com/authorize?state=s', 'switch').prompt, 'consent');
+  assert.equal(at('https://mcp.linear.app/authorize?state=s', 'switch').prompt, 'consent');
+  assert.equal(at('https://www.dropbox.com/oauth2/authorize?state=s', 'switch').force_reapprove, 'true');
+  // Asana is not in the catalog: its authorization URL gets nothing added.
+  assert.deepEqual(at('https://app.asana.com/-/oauth_authorize?state=s', 'switch'), { state: 's' });
+  assert.deepEqual(at('https://mcp.notion.com/authorize?state=s', 'switch'), { state: 's' });
+  // A repair keeps the same account: nothing is added.
+  assert.deepEqual(at(google, 'reauth'), { state: 's' });
+  // The SDK's consent for offline access is kept beside the chooser.
+  assert.equal(at(`${google}&prompt=consent`, 'connect').prompt, 'consent select_account');
+  assert.equal(canForceAccountChoice('https://mcp.notion.com/authorize'), false);
+  assert.equal(canForceAccountChoice('https://www.dropbox.com/oauth2/authorize'), true);
+});
+
+test('the identity is read from the token response only, never guessed', () => {
+  assert.deepEqual(identityFromTokenResponse({ id_token: idToken({ email: 'a@example.com' }) }), {
+    account: 'a@example.com',
+    workspace: '',
+  });
+  assert.deepEqual(
+    identityFromTokenResponse({ workspace_name: 'Acme', owner: { user: { person: { email: 'n@acme.io' } } } }),
+    { account: 'n@acme.io', workspace: 'Acme' }
+  );
+  assert.deepEqual(identityFromTokenResponse({ team: { name: 'Acme Slack' } }), {
+    account: '',
+    workspace: 'Acme Slack',
+  });
+  assert.equal(identityFromTokenResponse({ access_token: 't', token_type: 'Bearer' }), null);
+  assert.equal(identityFromTokenResponse({ id_token: 'not-a-jwt' }), null);
+});
+
+test('a sign-in stores who it is, and reads the keychain only when the stored entry changed', async (t) => {
+  const server = await fixture(t);
+  const store = countingStore();
+  const email = { value: 'first@example.com' };
+  t.after(() => clearMcpOAuth({ url: server.url, credentialStore: store }));
+  const oauth = buildOAuth({
+    url: server.url,
+    credentialStore: store,
+    interactive: true,
+    fetchImpl: namingFetch(email),
+    openBrowser: (href) => server.approve(href),
+  });
+  t.after(() => oauth.close());
+  assert.equal((await oauth.fetch(server.url)).status, 405);
+  assert.equal(server.exchanges(), 1);
+  // Each keychain read is a DPAPI PowerShell round trip on Windows: an entry
+  // this process just wrote is never re-read, and the discovery is no write
+  // of its own.
+  assert.ok(store.reads <= 3, `keychain reads: ${store.reads}`);
+  assert.equal(store.writes, 2, 'the registration and the tokens; discovery rides along');
+  const stored = JSON.parse([...store.values.values()][0]);
+  assert.deepEqual(stored.identity, { account: 'first@example.com', workspace: '' });
+  assert.ok(stored.discovery?.authorizationServerMetadata, 'the discovery is stored with them');
+  assert.deepEqual(storedMcpOAuthIdentity(server.url), {
+    account: 'first@example.com',
+    workspace: '',
+    forcedChoice: false,
+  });
+});
+
+test('계정 바꾸기 is transactional: a cancel changes nothing; a commit can be rolled back', async (t) => {
+  const server = await fixture(t);
+  const store = memoryStore();
+  const email = { value: 'first@example.com' };
+  const fetchImpl = namingFetch(email);
+  t.after(() => clearMcpOAuth({ url: server.url, credentialStore: store }));
+  const oauth = buildOAuth({
+    url: server.url,
+    credentialStore: store,
+    interactive: true,
+    fetchImpl,
+    openBrowser: (href) => server.approve(href),
+  });
+  t.after(() => oauth.close());
+  await oauth.fetch(server.url);
+  const before = [...store.values.values()][0];
+  const registrations = server.registrations();
+
+  // Cancelled at the sign-in page: the stored sign-in is untouched.
+  let opened;
+  const openedOnce = new Promise((resolve) => {
+    opened = resolve;
+  });
+  const launch = async (href) => opened(href);
+  launch.accountMode = 'switch';
+  const cancelled = startMcpOAuthSwitch({ url: server.url, launch, credentialStore: store, fetchImpl });
+  await openedOnce;
+  cancelled.cancel();
+  await assert.rejects(cancelled.done);
+  assert.equal([...store.values.values()][0], before);
+
+  // Completed: nothing is stored until the commit, which keeps the client.
+  email.value = 'second@example.com';
+  const approving = async (href) => server.approve(href);
+  approving.accountMode = 'switch';
+  const switched = startMcpOAuthSwitch({ url: server.url, launch: approving, credentialStore: store, fetchImpl });
+  const signIn = await switched.done;
+  assert.deepEqual(signIn.identity, { account: 'second@example.com', workspace: '' });
+  assert.equal([...store.values.values()][0], before, 'the old sign-in stays until committed');
+  assert.equal(server.registrations(), registrations, 'the existing client registration is reused');
+  const rollback = await commitMcpOAuthSwitch({ url: server.url, signIn, credentialStore: store });
+  assert.equal(JSON.parse([...store.values.values()][0]).identity.account, 'second@example.com');
+  assert.equal(storedMcpOAuthIdentity(server.url).account, 'second@example.com');
+  await rollback();
+  assert.equal(JSON.parse([...store.values.values()][0]).identity.account, 'first@example.com');
+  assert.equal(storedMcpOAuthIdentity(server.url).account, 'first@example.com');
+});
+
+test('disconnect revokes the grant only through an advertised revocation endpoint', async () => {
+  const url = 'https://revoke.example/mcp';
+  const account = mcpOAuthAccount(url);
+  const posted = [];
+  const fetchImpl = async (endpoint, init) => {
+    posted.push([endpoint, String(init.body)]);
+    return new Response('', { status: 200 });
+  };
+  const entry = (metadata) =>
+    JSON.stringify({
+      url,
+      revision: 'r',
+      tokens: { access_token: 'a', refresh_token: 'r1', token_type: 'Bearer' },
+      clientInformation: { client_id: 'c1' },
+      discovery: { authorizationServerMetadata: metadata },
+    });
+  const store = memoryStore(new Map([[account, entry({ revocation_endpoint: 'https://revoke.example/revoke' })]]));
+  assert.deepEqual(await clearMcpOAuth({ url, credentialStore: store, revoke: true, fetchImpl }), { revoked: true });
+  assert.deepEqual(posted, [['https://revoke.example/revoke', 'token=r1&token_type_hint=refresh_token&client_id=c1']]);
+  assert.equal(store.values.size, 0, 'the local secrets are gone either way');
+  // No documented endpoint: nothing is sent, and the caller is told so.
+  posted.length = 0;
+  const bare = memoryStore(new Map([[account, entry({})]]));
+  assert.deepEqual(await clearMcpOAuth({ url, credentialStore: bare, revoke: true, fetchImpl }), { revoked: false });
+  assert.deepEqual(posted, []);
+  assert.equal(bare.values.size, 0);
 });

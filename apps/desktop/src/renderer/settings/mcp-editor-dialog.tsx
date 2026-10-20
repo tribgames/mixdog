@@ -222,7 +222,8 @@ function McpPairListEditor({
 
 export function McpEditorDialog({
   server,
-  busy,
+  busy: busyProp,
+  readOnly = false,
   scopeField,
   takenNames = [],
   onClose,
@@ -235,6 +236,8 @@ export function McpEditorDialog({
 }: {
   server: RecordValue | null;
   busy: boolean;
+  /** A plugin-owned server: its config is shown, never edited here. */
+  readOnly?: boolean;
   scopeField?: ReactNode;
   takenNames?: string[];
   onClose(): void;
@@ -250,6 +253,8 @@ export function McpEditorDialog({
   onProbe?(config: RecordValue): Promise<RecordValue | undefined>;
 }) {
   const editing = Boolean(server);
+  // Every field locks with a read-only config; Close stays usable.
+  const busy = busyProp || readOnly;
   const name = String(server?.name || '');
   const config = record(server?.config);
   const initialTransport = mcpTransport(config);
@@ -348,6 +353,10 @@ export function McpEditorDialog({
         payload.headers = mcpPairRecord(headers, t('Headers'));
         payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
         payload.env_http_headers = mcpPairRecord(envHeaders, t('Environment-backed headers'));
+        payload.oauthClientId = String(data.get('mcp-oauth-client-id') || '').trim();
+        // Sent only when typed: the host keeps it in the keychain, never here.
+        const secret = String(data.get('mcp-oauth-client-secret') || '').trim();
+        if (secret) payload.oauthClientSecret = secret;
       }
       setFormError('');
       void Promise.resolve(onSave(payload))
@@ -385,15 +394,15 @@ export function McpEditorDialog({
       footer={
         <>
           {formError && <ErrorNotice error={formError} />}
-          {editing && onRemove && (
+          {editing && onRemove && !readOnly && (
             <button type="button" className="danger" disabled={busy} onClick={onRemove}>
               {t('Remove')}
             </button>
           )}
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            {t(autoDetect ? 'Close' : 'Cancel')}
+          <button type="button" className="secondary" disabled={busyProp} onClick={onClose}>
+            {t(autoDetect || readOnly ? 'Close' : 'Cancel')}
           </button>
-          {!autoDetect && (
+          {!autoDetect && !readOnly && (
             <button type="submit" disabled={busy}>
               {t('Save')}
             </button>
@@ -429,10 +438,20 @@ export function McpEditorDialog({
         </ExtensionItemList>
       )}
       {editing ? scopeField : null}
-      <ExtensionField label={t('Name')} note={t('Shown in the MCP server list.')}>
+      <ExtensionField
+        label={t('Name')}
+        note={
+          editing
+            ? t('The server id stays fixed: agent and project switches refer to it.')
+            : t('Shown in the MCP server list.')
+        }
+      >
         <input
           name="mcp-name"
           defaultValue={name}
+          // The id never changes once saved: a rename would orphan the
+          // per-agent and per-project connector switches keyed by it.
+          readOnly={editing}
           required
           // biome-ignore lint/a11y/noAutofocus: the dialog's first field takes focus when creating.
           autoFocus={!editing}
@@ -601,6 +620,30 @@ export function McpEditorDialog({
               busy={busy}
               onChange={setEnvHeaders}
             />
+            <ExtensionField
+              label={t('OAuth client ID')}
+              note={t('Your own app registered with the service. Empty: Mixdog’s, or one registered automatically.')}
+            >
+              <input
+                name="mcp-oauth-client-id"
+                defaultValue={String(config.oauthClientId || '')}
+                autoComplete="off"
+                disabled={busy}
+                spellCheck={false}
+              />
+            </ExtensionField>
+            <ExtensionField
+              label={t('OAuth client secret')}
+              note={t('Kept in the system keychain. Leave empty to keep the saved one.')}
+            >
+              <input
+                name="mcp-oauth-client-secret"
+                type="password"
+                autoComplete="off"
+                disabled={busy}
+                spellCheck={false}
+              />
+            </ExtensionField>
           </Fragment>
         )
       )}

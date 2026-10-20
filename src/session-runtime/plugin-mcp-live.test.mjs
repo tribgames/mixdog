@@ -326,7 +326,8 @@ test('ordinary MCP edits refuse plugin servers; set_extension_scope still applie
   assert.deepEqual(row.inheritedScope, [other]);
   assert.equal(row.activeHere, false);
   await one.api.setExtensionScope('plugins', 'context7', []);
-  await one.api.setExtensionScope('mcp', 'plugin-context7', [cwd]);
+  // "Only in this project" for a connector is gone: projects switch it off instead.
+  await assert.rejects(one.api.setExtensionScope('mcp', 'plugin-context7', [cwd]), /switched off per project/);
   assert.equal(one.row('plugin-context7').activeHere, true);
   // Reconnect works by name for a plugin server.
   client.log.length = 0;
@@ -641,7 +642,9 @@ test('with MCP disabled, removing a server keeps OAuth credentials a disabled pl
   });
   const cleared = [];
   const one = runtime(t, shared, fakeClient(), {
-    cwd: shared.dir('a'), scopeId: 'one', clearMcpServerOAuth: async (cfg) => cleared.push(cfg.url),
+    cwd: shared.dir('a'),
+    scopeId: 'one',
+    clearMcpServerOAuth: async (cfg) => cleared.push(cfg.url),
   });
   assert.deepEqual(one.glue.resolveMcpCatalog().servers, {}, 'nothing connects with MCP disabled');
   await one.api.removeMcpServer('mine');

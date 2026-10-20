@@ -17,7 +17,8 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Load full schemas for missing deferred tool names/aliases; batch needed names in one call.',
+  description:
+    'Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -72,7 +73,7 @@ export const SESSION_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  trigger: 'Session lookup/control, title, compact, fork, Project and worktrees.',
+  trigger: 'Session lookup/control, coding task sessions, title, compact, fork, Project and worktrees.',
   description:
     'Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion. Cancel/delete and worktree actions require the user’s request. Other actions affect only the current session.',
   inputSchema: {
@@ -87,6 +88,7 @@ export const SESSION_TOOL = {
           'send',
           'cancel',
           'delete',
+          'create',
           'rename',
           'compact',
           'fork',
@@ -100,9 +102,9 @@ export const SESSION_TOOL = {
           'prune-worktrees',
         ],
         description:
-          'status defaults to current; list pages sessions; read returns latest items; send queues prompt; cancel stops the turn; delete removes the session. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
+          'status defaults to current; list pages sessions; read returns latest items; send queues prompt; cancel stops the turn; delete removes the session. create (agent conversations) starts a visible coding task session from brief and reports its turns back; unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
       },
-      title: { type: 'string', description: 'rename: new current-session title.' },
+      title: { type: 'string', description: 'rename: new current-session title; create: task title.' },
       session_id: {
         type: 'string',
         description:
@@ -143,6 +145,10 @@ export const SESSION_TOOL = {
         description: 'remove-worktree: allow uncommitted/unmerged work only when explicitly requested.',
       },
       value: { type: 'boolean', description: 'favorite/archive: on or off.' },
+      brief: { type: 'string', description: 'create: self-contained instruction, the first message.' },
+      project: { type: 'string', description: 'create: registered Project name or existing directory.' },
+      model: { type: 'string', description: 'create: provider/model or preset; default route otherwise.' },
+      notify: { type: 'boolean', description: 'create: report results back, default true.' },
     },
     additionalProperties: false,
   },

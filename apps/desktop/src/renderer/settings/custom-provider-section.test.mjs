@@ -462,7 +462,8 @@ const ROWS = [
   { id: 'acme-2', manual: false, hidden: true, customReasoning: {} },
 ];
 const withRows = (extra = {}) => ({ ...CUSTOM, models: ROWS, ...extra });
-const OVERRIDDEN = { 'acme-1': { maxOutputTokens: 9, reasoning: { levels: [] } } };
+// Consistent with ROWS, as the runtime's effective rows always are.
+const OVERRIDDEN = { 'acme-1': { maxOutputTokens: 9, reasoning: { levels: ['low', 'high'] } } };
 const modelCheckbox = (text) =>
   [...document.querySelectorAll('label')].find((l) => l.textContent === text).querySelector('input');
 
@@ -819,6 +820,62 @@ test('reopening a model editor after a save shows the saved values and keeps uns
   assert.equal(document.querySelector('.settings-model-editor input[id$="-contextWindow"]').value, '12345');
   await click(editorBtn('Cancel'));
   assert.equal(field('Display name').value, 'Draft name');
+});
+
+test('saving the provider before the panel reloads keeps a model save made in this form', async (t) => {
+  const calls = [];
+  const saved = { 'acme-1': { manual: true, contextWindow: 12345 } };
+  const { render } = mount(t, {
+    calls,
+    // The panel's reload has not landed: the form still holds the pre-save overrides.
+    api: [withRows()],
+    handlers: {
+      updateCustomProviderModel: () => withRows({ modelOverrides: saved }),
+      saveCustomProvider: (input) => input,
+    },
+  });
+  await render();
+  await click(button('Edit'));
+  await type(field('Display name'), 'Draft name');
+  await click(button('Edit model acme-1'));
+  await type(document.querySelector('.settings-model-editor input[id$="-contextWindow"]'), '12345');
+  await click(editorBtn('Save'));
+  await click(button('Edit model acme-1'));
+  assert.ok(!button('Reset Context window to inherited').disabled, 'the reopened editor knows the saved override');
+  await click(editorBtn('Cancel'));
+  await submit();
+  const input = calls.find((c) => c.capability === 'saveCustomProvider').args[0];
+  assert.equal(input.name, 'Draft name');
+  assert.deepEqual(input.modelOverrides, saved);
+});
+
+test('reopening a discovered model after a save shows the saved values, not the discovery row', async (t) => {
+  const calls = [];
+  const saved = { contextWindow: 12345, name: 'Saved name', reasoning: { levels: ['high'] } };
+  const { render } = mount(t, {
+    calls,
+    api: [withRows()],
+    handlers: {
+      discoverCustomProviderModels: () => ({ models: ROWS }),
+      updateCustomProviderModel: () => withRows({ modelOverrides: { ...CUSTOM.modelOverrides, 'acme-1': saved } }),
+    },
+  });
+  await render();
+  await click(button('Edit'));
+  await click(button('Refresh models'));
+  await click(button('Edit model acme-1'));
+  const input = (key) => document.querySelector(`.settings-model-editor input[id$="-${key}"]`);
+  await type(input('contextWindow'), '12345');
+  await type(input('name'), 'Saved name');
+  await click([...document.querySelectorAll('.settings-model-chip')].find((c) => c.textContent === 'low'));
+  await click(editorBtn('Save'));
+  await click(button('Edit model acme-1'));
+  assert.equal(input('contextWindow').value, '12345');
+  assert.equal(input('name').value, 'Saved name');
+  assert.deepEqual(
+    [...document.querySelectorAll('.settings-model-chip[aria-pressed=true]')].map((c) => c.textContent),
+    ['high']
+  );
 });
 
 test('refresh with an empty model list shows the empty-result message', async (t) => {

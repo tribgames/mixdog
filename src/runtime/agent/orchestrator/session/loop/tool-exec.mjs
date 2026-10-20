@@ -14,7 +14,7 @@ import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-own
 import { runWithLocalSearchTelemetry } from '../../tools/builtin/local-search-telemetry.mjs';
 import { throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { prepareToolCall } from './tool-exec/call-prep.mjs';
-import { applyBeforeToolHook, applyShellElevationGate } from './tool-exec/before-hook.mjs';
+import { applyBeforeToolHook, applyConnectorApproval, applyShellElevationGate } from './tool-exec/before-hook.mjs';
 import { dispatchToolCall } from './tool-exec/dispatch.mjs';
 import { applyAfterToolHook } from './tool-exec/after-hook.mjs';
 import { runReadOnlyIoWithDeadline } from './tool-exec/read-only-deadline.mjs';
@@ -50,8 +50,16 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     executeOpts,
     beforeToolHook: hookFrom(executeOpts, sessionRef, 'beforeToolHook'),
     toolApprovalHook,
+    mcpScopeId: sessionRef?.mcpScopeId || null,
   });
   if (hooked.denial) return hooked.denial;
+  const connectorDenied = await applyConnectorApproval(hooked, {
+    agentId: sessionRef?.agent,
+    callerSessionId,
+    executeOpts,
+    toolApprovalHook,
+  });
+  if (connectorDenied) return connectorDenied.denial;
   // A decision can settle after its turn was cancelled. It must never
   // authorize a new mutation, even if the hook ignores the abort signal.
   throwIfAborted(executeOpts.signal);

@@ -1,0 +1,394 @@
+/* Extensions → 커넥터 (design/mockups/connectors). Brand marks sit on a
+   neutral light tile in their own colour; every other surface keeps the
+   shell's silver ink. */
+.connector-tile {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: #e8e9ec;
+  color: #4b4e55;
+}
+.connector-tile > svg {
+  width: 12px;
+  height: 12px;
+}
+.connector-tile > b {
+  font-size: 10px;
+  font-weight: var(--mx-weight-semibold);
+  line-height: 1;
+}
+.extensions-row-icon > .connector-tile {
+  margin: auto;
+}
+.extensions-item-icon > .connector-tile {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.extensions-item-icon > .connector-tile > svg {
+  width: 14px;
+  height: 14px;
+}
+.extensions-dialog-icon > .connector-tile-dialog {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+.extensions-dialog-icon > .connector-tile-dialog > svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* A list row: the open button and, beside it, the row's one action. */
+.connectors-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.connectors-row > .extensions-row {
+  min-width: 0;
+  flex: 1;
+}
+.connectors-row-action {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+/* The rail hides row descriptions; a connector row keeps its one live line
+   (the inline sign-in, a failure's reason, a package's connection count). */
+.session-sidebar-panels .extensions-pane .connectors-row .extensions-row .utilities-row-copy > small {
+  grid-column: 2;
+  display: block;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The live step of a sign-in: the shared row spinner before its words. */
+.connectors-row-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.connectors-row-step > .schedules-row-spinner {
+  flex: none;
+}
+.connectors-row[data-row-status="failed"] .utilities-row-copy > small {
+  color: var(--mx-danger);
+}
+/* A step or a failure is read in full: up to two lines instead of an ellipsis. */
+.session-sidebar-panels
+  .extensions-pane
+  .connectors-row:is([data-row-status="pending"], [data-row-status="failed"])
+  .extensions-row
+  .utilities-row-copy
+  > small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+}
+/* Just connected: the row's surface flashes once in the ok tone. */
+.connectors-row[data-just-connected="true"] {
+  border-radius: 6px;
+  animation: connectors-row-connected 1.6s ease-out 1;
+}
+@keyframes connectors-row-connected {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--mx-success) 16%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connectors-row[data-just-connected="true"] {
+    animation: none;
+    background: color-mix(in srgb, var(--mx-success) 12%, transparent);
+  }
+}
+.connectors-row[data-nested="true"] {
+  padding-left: 20px;
+}
+.connectors-row[data-connector-row="add-custom-connector"] b {
+  color: var(--mx-text-soft);
+}
+
+.connectors-can-do {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.connectors-hint {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.connectors-link {
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  color: var(--mx-text-soft);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.connectors-link:hover {
+  color: var(--mx-text);
+}
+.connectors-fold {
+  margin-top: 4px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.connectors-fold:hover {
+  color: var(--mx-text);
+}
+.extensions-dialog .extensions-dialog-actions .connectors-footer-advanced {
+  margin-right: auto;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.extensions-dialog .extensions-dialog-actions .connectors-footer-advanced:hover {
+  color: var(--mx-text);
+}
+.extensions-dialog
+  .extensions-dialog-actions
+  .connectors-footer-advanced:has(+ :is(.danger, .connectors-footer-advanced)) {
+  margin-right: 0;
+}
+.connectors-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 16px;
+  counter-reset: connectors-step;
+}
+.connectors-steps > li {
+  counter-increment: connectors-step;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+}
+.connectors-steps > li::before {
+  content: counter(connectors-step);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.connectors-step-body {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.connectors-step-body > .schedules-field {
+  justify-self: stretch;
+}
+.connectors-footer-spacer {
+  margin-right: auto;
+  gap: 14px;
+  display: flex;
+  align-items: center;
+}
+.connectors-kind-choice {
+  display: grid;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+
+/* The chat connect card. */
+.connector-chat-card {
+  max-width: 360px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--mx-radius-lg);
+  box-shadow: var(--mx-card-outline);
+}
+.connector-chat-card > .connector-tile-card {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.connector-chat-card > .connector-tile-card > svg {
+  width: 16px;
+  height: 16px;
+}
+.connector-chat-card > .sidebar-resource-tag {
+  height: 16px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--mx-radius-pill);
+  font-size: var(--mx-font-micro);
+  line-height: 1;
+  white-space: nowrap;
+}
+.connector-chat-card > .sidebar-resource-tag[data-tone="ok"] {
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
+}
+.connector-chat-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+}
+.connector-chat-copy > b {
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+}
+.connector-chat-copy > small {
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Agents pane's "커넥터" pill: the guide pill's shape, marks overlapped. */
+/* The page's 8px inset plus its 8px scrollbar track leave the pill 2px in
+   and 6px short of the guide's 10px panel inset; pull it out to match. */
+.agent-activity-page > .connectors-pill {
+  margin: auto calc(-1 * var(--mx-scrollbar-gutter) + 2px) 0 2px;
+  padding-top: 12px;
+}
+.connectors-pill-state {
+  min-width: 0;
+  margin-left: auto;
+  padding-right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.connectors-pill-logos {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+.connectors-pill-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connectors-pill-logos > .connector-tile-pill {
+  width: 18px;
+  height: 18px;
+  margin-left: -5px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--mx-bg-base);
+}
+.connectors-pill-logos > .connector-tile-pill:first-child {
+  margin-left: 0;
+}
+.connectors-pill-logos > .connector-tile-pill > svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Per-agent / per-project switches: the catalog row's icon, name and padding,
+   the switch on the right. */
+.connector-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.connector-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--mx-rail-row-padding, 6px) 0;
+  font-size: var(--mx-font-ui);
+}
+.connector-switch-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  color: var(--mx-icon-muted);
+}
+.connector-switch-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--mx-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connector-switches-empty {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.connector-switches-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-text-soft);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.connector-switches-link:hover {
+  color: var(--mx-text);
+}
+
+/* Phone: rows and their buttons are touch targets. */
+html[data-mixdog-mobile-tabs] .connectors-row > .extensions-row {
+  min-height: 44px;
+}
+html[data-mixdog-mobile-tabs] .connectors-row-action > .extensions-action,
+html[data-mixdog-mobile-tabs] .connector-chat-card > .extensions-action {
+  min-width: 44px;
+  min-height: 44px;
+}

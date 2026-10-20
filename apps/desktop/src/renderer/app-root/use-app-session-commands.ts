@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from '../remote-claim-events';
+import { OPEN_CONNECTORS_EVENT } from '../connector-connect';
 import {
   IMPORT_CATALOGS_CHANGED_EVENT,
   OPEN_IMPORTED_SESSION_EVENT,
@@ -134,6 +135,12 @@ export function useAppSessionCommands(
     const open = () => openSettings('connection');
     window.addEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
     return () => window.removeEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
+  }, [openSettings]);
+  // The Agents pane's 커넥터 pill and a chat connect card open Extensions → 커넥터.
+  useEffect(() => {
+    const open = () => openSettings('mcp');
+    window.addEventListener(OPEN_CONNECTORS_EVENT, open);
+    return () => window.removeEventListener(OPEN_CONNECTORS_EVENT, open);
   }, [openSettings]);
 
   const { setSettingsOpen } = shellPanels;

@@ -27,12 +27,13 @@ function invalidateForToolSurfaceMigration(session) {
 }
 
 /**
- * After a surface re-apply outside a request (resume, provider switch)
- * migrated the exposure: the first send of the next turn carries the tag.
+ * After a surface re-apply outside a request (resume, provider switch, a
+ * workflow switch: `intent`) changed the request prefix: the first send of the
+ * next turn carries the tag.
  */
-export function markToolSurfaceMigrated(session) {
+export function markToolSurfaceMigrated(session, intent = TOOL_SURFACE_MIGRATION_INTENT) {
   invalidateForToolSurfaceMigration(session);
-  session.pendingCacheBreakIntent = TOOL_SURFACE_MIGRATION_INTENT;
+  session.pendingCacheBreakIntent = intent;
 }
 
 /** Provider switch: rebuild the surface for `provider`, migrating bridge ↔ native. */

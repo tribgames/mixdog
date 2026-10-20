@@ -4,6 +4,8 @@
 import { clean } from './session-text.mjs';
 import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
 import { applyInitialDeferredToolManifestToBp2 } from '../context/collect.mjs';
+import { listedDeferredToolNames } from '../context/deferred-tools.mjs';
+import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
 import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
 import { isDeferredToolAvailable, isToolPermittedBySessionPolicy } from './deferred-tool-availability.mjs';
@@ -259,6 +261,17 @@ function expandSelectionNames(names) {
   return [...new Set(out)];
 }
 
+/**
+ * The tools of `tools` that `mcp__<server>` stands for (the deferred manifest
+ * lists MCP servers, not their tools); [] for any other name. Callers try an
+ * exact tool name first.
+ */
+export function mcpServerSelection(tools, requested) {
+  const server = /^mcp__(.+)$/i.exec(clean(requested))?.[1]?.toLowerCase();
+  if (!server) return [];
+  return (tools || []).filter((tool) => String(parseMcpToolName(tool)?.server || '').toLowerCase() === server);
+}
+
 function storedDeferredToolNames(session) {
   for (const source of [session?.deferredDiscoveredTools, session?.deferredSelectedTools]) {
     const names = parseToolSelection(source);
@@ -430,8 +443,11 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
     // manifest, or the bridge roster + guidance. History stays as is.
     session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
     applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
-    const rendered = renderedDeferredManifest(session);
-    session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
+    session.deferredAnnouncedTools = listedDeferredToolNames(
+      session,
+      deferredPoolToolNames(session),
+      renderedDeferredManifest(session)
+    );
   }
   if (!session.deferredToolBp2Applied && session.messages?.some((m) => m?.role === 'system')) {
     if (!session.mcpServerInstructions || typeof session.mcpServerInstructions !== 'object') {
@@ -519,8 +535,11 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   // Pre-mark ONLY the names that ACTUALLY landed in the rebuilt BP2 manifest as
   // announced; anything the manifest could not advertise stays un-announced so
   // the turn-boundary late reminder can still surface it.
-  const rendered = renderedDeferredManifest(session);
-  session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
+  session.deferredAnnouncedTools = listedDeferredToolNames(
+    session,
+    deferredPoolToolNames(session),
+    renderedDeferredManifest(session)
+  );
   session.updatedAt = Date.now();
   return true;
 }
@@ -726,7 +745,15 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
   const already = [];
   const blocked = [];
   const missing = [];
-  for (const rawName of exact ? [...new Set(names)] : expandSelectionNames(names)) {
+  const requested = exact
+    ? names
+    : expandSelectionNames(names).flatMap((raw) => {
+        const key = clean(raw);
+        if (byName.has(key) || byName.has(key.toLowerCase())) return [key];
+        const members = mcpServerSelection(catalog, key).map((tool) => clean(tool?.name));
+        return members.length ? members : [key];
+      });
+  for (const rawName of new Set(requested)) {
     const requestedName = clean(rawName);
     const tool = byName.get(requestedName) || byName.get(requestedName.toLowerCase());
     const name = clean(tool?.name);

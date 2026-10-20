@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import keychain from '../../../../lib/keychain-cjs.cjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
@@ -12,8 +12,10 @@ import {
   TOKENS_FLAG,
   createCredentialCache,
   credentialFile,
+  readIdentityFile,
   readStoredCredentials,
   withCredentialLock,
+  writeIdentityFile,
   writeRevisionMarker,
 } from './oauth-credentials.mjs';
 import { createLoginFlow } from './oauth-login.mjs';
@@ -55,18 +57,198 @@ export function hasStoredMcpOAuthTokens(url) {
   }
 }
 
+/** Who the stored sign-in of one MCP server URL belongs to, without a keychain
+ *  read: `{ account, workspace, forcedChoice }` (empty strings when the server
+ *  named nobody), or null when signed out. */
+export function storedMcpOAuthIdentity(url) {
+  return readIdentityFile(mcpOAuthAccount(normalizeMcpTransportUrl(url)));
+}
+
+// RFC 7009 revocation of the stored grant, only where the authorization server
+// advertises its revocation endpoint (RFC 8414 metadata): it revokes the token
+// this client was issued, nothing workspace-wide. True when the server
+// confirmed it.
+async function revokeStoredGrant(saved, fetchImpl) {
+  let value;
+  try {
+    value = JSON.parse(saved);
+  } catch {
+    return false;
+  }
+  const endpoint = value?.discovery?.authorizationServerMetadata?.revocation_endpoint;
+  const token = value?.tokens?.refresh_token || value?.tokens?.access_token;
+  const clientId = value?.clientInformation?.client_id;
+  if (typeof endpoint !== 'string' || !/^https:\/\//.test(endpoint) || !token || !clientId) return false;
+  const body = new URLSearchParams({
+    token,
+    token_type_hint: value.tokens.refresh_token ? 'refresh_token' : 'access_token',
+    client_id: clientId,
+  });
+  if (value.clientInformation.client_secret) body.set('client_secret', value.clientInformation.client_secret);
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      redirect: 'error',
+      signal: AbortSignal.timeout(5_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Log out of one MCP server URL: delete its stored tokens and client
  *  registration and drop them from live connections, which then need an
- *  explicit reconnect to log in again. */
-export async function clearMcpOAuth({ url, credentialStore = keychain }) {
+ *  explicit reconnect to log in again. With `revoke`, the grant is first
+ *  revoked at the authorization server where it documents a revocation
+ *  endpoint. Resolves `{ revoked }`. */
+export async function clearMcpOAuth({ url, credentialStore = keychain, revoke = false, fetchImpl = fetch }) {
   url = normalizeMcpTransportUrl(url);
   const account = mcpOAuthAccount(url);
+  let revoked = false;
   await withCredentialLock(account, async () => {
+    const saved = await readStoredCredentials(credentialStore, account);
+    if (revoke && saved != null) revoked = await revokeStoredGrant(saved, fetchImpl);
     await writeRevisionMarker(account, null);
-    if ((await readStoredCredentials(credentialStore, account)) != null)
-      await credentialStore.deleteSecretAsync(account);
+    if (saved != null) await credentialStore.deleteSecretAsync(account);
+    await writeIdentityFile(account, null);
   });
   scopes.get(credentialStore)?.get(url)?.oauth.clear();
+  return { revoked };
+}
+
+async function storeEntry(account, url, value, credentialStore) {
+  const revision = randomBytes(16).toString('hex');
+  const { tokens, clientInformation, redirectUrl, discovery, identity } = value;
+  await writeRevisionMarker(account, revision, Boolean(tokens));
+  await credentialStore.setSecretAsync(
+    account,
+    JSON.stringify({ url, revision, tokens, clientInformation, redirectUrl, discovery, identity })
+  );
+  await writeIdentityFile(account, value);
+}
+
+/**
+ * 계정 바꾸기 for one MCP server URL, transactionally: a browser sign-in with
+ * the provider's documented account choice that runs beside the stored
+ * sign-in, reusing its client registration and discovery but never its tokens,
+ * and stores nothing. `done` resolves the new sign-in (`{ tokens, identity, … }`)
+ * or rejects (cancel, denial, timeout), leaving the stored sign-in and every
+ * live connection as they were. `answer(pasted)` completes it with a pasted
+ * redirect URL (remote sign-in); `cancel()` aborts it.
+ */
+export function startMcpOAuthSwitch({
+  url,
+  launch,
+  serverName,
+  credentialStore = keychain,
+  fetchImpl = fetch,
+  timeoutMs = MCP_OAUTH_TIMEOUT_MS,
+  oauthClient = null,
+}) {
+  url = normalizeMcpTransportUrl(url);
+  const lifetime = new AbortController();
+  const creds = {
+    tokens: undefined,
+    clientInformation: undefined,
+    redirectUrl: undefined,
+    discovery: undefined,
+    identity: undefined,
+    // Never null: the in-memory entry always exists.
+    observed: 'switch',
+  };
+  // An in-memory entry: a registration made during the switch stays here
+  // until the commit stores it with the tokens.
+  const cache = {
+    creds,
+    held: new Set(),
+    ready: async () => {},
+    adoptStored: async () => {},
+    update: async (change) => {
+      change();
+      return true;
+    },
+    withLock: (fn) => fn(),
+  };
+  const flow = {
+    listener: undefined,
+    state: undefined,
+    verifier: undefined,
+    allowBrowser: false,
+    browserOpened: false,
+    launchBrowser: launch,
+    finishCallback: undefined,
+  };
+  const provider = createOAuthProvider({
+    cache,
+    flow,
+    lifetimeSignal: lifetime.signal,
+    client: oauthClient,
+    credentialStore,
+  });
+  const loginFlow = createLoginFlow({
+    url,
+    cache,
+    flow,
+    provider,
+    lifetimeSignal: lifetime.signal,
+    openBrowser: launch,
+    fetchImpl,
+    timeoutMs,
+  });
+  const done = (async () => {
+    const saved = await readStoredCredentials(credentialStore, mcpOAuthAccount(url));
+    if (saved) {
+      const value = JSON.parse(saved);
+      if (value.url === url) {
+        creds.clientInformation = value.clientInformation;
+        creds.redirectUrl = value.redirectUrl;
+        creds.discovery = value.discovery;
+      }
+    }
+    await loginFlow.login({}, lifetime.signal, true, launch, undefined, serverName);
+    const { tokens, clientInformation, redirectUrl, discovery, identity } = creds;
+    if (!tokens) throw new Error('MCP OAuth login failed, cancelled, or timed out');
+    return { tokens, clientInformation, redirectUrl, discovery, identity: identity ?? null };
+  })();
+  return {
+    done,
+    answer(pasted) {
+      if (!flow.finishCallback || !flow.browserOpened || !flow.state || !creds.redirectUrl) {
+        throw new Error(MCP_OAUTH_CALLBACK_NOT_PENDING);
+      }
+      const { code } = parsePastedMcpOAuthCallback(pasted, { redirectUrl: creds.redirectUrl, state: flow.state });
+      loginFlow.stopListening();
+      loginFlow.answerCallback(code);
+    },
+    cancel() {
+      lifetime.abort();
+      flow.finishCallback?.();
+      loginFlow.closeListener();
+    },
+  };
+}
+
+/** Store the sign-in a switch returned as the URL's sign-in; resolves a
+ *  `rollback()` that restores the previous one (or none). Live connections
+ *  adopt either through the revision marker on their next request. */
+export async function commitMcpOAuthSwitch({ url, signIn, credentialStore = keychain }) {
+  url = normalizeMcpTransportUrl(url);
+  const account = mcpOAuthAccount(url);
+  let previous = null;
+  await withCredentialLock(account, async () => {
+    previous = await readStoredCredentials(credentialStore, account);
+    await storeEntry(account, url, signIn, credentialStore);
+  });
+  return () =>
+    withCredentialLock(account, async () => {
+      if (previous) return storeEntry(account, url, JSON.parse(previous), credentialStore);
+      await writeRevisionMarker(account, null);
+      await credentialStore.deleteSecretAsync(account);
+      await writeIdentityFile(account, null);
+    });
 }
 
 // The keychain is the only durable store. Exact URLs, including query strings,
@@ -166,6 +348,7 @@ function createSharedOAuth({
   openBrowser = openInBrowser,
   fetchImpl = fetch,
   timeoutMs = MCP_OAUTH_TIMEOUT_MS,
+  oauthClient = null,
 }) {
   const lifetime = new AbortController();
   const cache = createCredentialCache({ url, credentialStore, account: mcpOAuthAccount(url) });
@@ -179,7 +362,13 @@ function createSharedOAuth({
     launchBrowser: openBrowser,
     finishCallback: undefined,
   };
-  const provider = createOAuthProvider({ cache, flow, lifetimeSignal: lifetime.signal });
+  const provider = createOAuthProvider({
+    cache,
+    flow,
+    lifetimeSignal: lifetime.signal,
+    client: oauthClient,
+    credentialStore,
+  });
   const { login, stopListening, closeListener, answerCallback } = createLoginFlow({
     url,
     cache,

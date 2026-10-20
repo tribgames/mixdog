@@ -7,6 +7,7 @@ import {
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
 import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
+import { CONNECTOR_IDS } from '../../runtime/shared/connector-catalog.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
@@ -110,6 +111,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_plugin_enabled: 'name enabled',
   remove_plugin: 'name',
   enable_plugin_mcp: 'name',
+  connect_connector: 'connector',
   set_worktree_settings: 'worktree',
   ...SETUP_EXTENDED_ACTION_FIELDS,
 });
@@ -345,6 +347,12 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           description: 'set_disabled_skills: full list of disabled skill names.',
         },
         source: { type: 'string', description: 'add_plugin: Git URL, owner/repo, or local path.' },
+        connector: {
+          type: 'string',
+          enum: [...CONNECTOR_IDS],
+          description:
+            'connect_connector: catalog service to connect. Shows the user a connect card in this conversation (one-click sign-in or a key sheet in Desktop); it never connects by itself.',
+        },
         kind: {
           type: 'string',
           enum: ['skills', 'mcp', 'plugins', ...MEDIA_KINDS],

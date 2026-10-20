@@ -30,6 +30,11 @@ export function createResourceApi(deps) {
       if (!EXTENSION_SCOPE_KINDS.includes(scopeKind)) {
         throw new Error(`extension scope kind must be one of ${EXTENSION_SCOPE_KINDS.join(', ')}`);
       }
+      // A connector is on in every project unless a project switches it off
+      // (setProjectConnectorEnabled); "only in this project" no longer exists.
+      if (scopeKind === 'mcp') {
+        throw new Error('MCP servers are switched off per project in Project settings (setProjectConnectorEnabled)');
+      }
       let key = clean(name);
       if (!key) throw new Error('extension name is required');
       // Plugin scopes are keyed by registry id; a name must resolve to it.

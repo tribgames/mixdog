@@ -171,7 +171,8 @@ test('bridge tool definitions are the shared load_tool and call_tool: static, cl
         openWorldHint: false,
         agentHidden: true,
       },
-      description: 'Load full schemas for missing deferred tool names/aliases; batch needed names in one call.',
+      description:
+        'Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -190,7 +191,11 @@ test('bridge tool definitions are the shared load_tool and call_tool: static, cl
   const names = collected.standaloneTools.map((tool) => tool.name);
   assert.equal(names.includes('call_tool'), false);
   for (const name of ['search_tools', 'call_tool']) {
-    assert.equal(collected.internalToolDefs.some((tool) => tool.name === name), false, name);
+    assert.equal(
+      collected.internalToolDefs.some((tool) => tool.name === name),
+      false,
+      name
+    );
   }
   assert.deepEqual(Object.keys(collected), ['standaloneTools', 'internalToolDefs', 'agentToolNames']);
 });
@@ -220,7 +225,9 @@ test('load_tool describes without loading and reports missing and blocked names'
   assert.deepEqual(result.blocked, [{ name: 'apply_patch', reason: 'readonly mode' }]);
   assert.equal(result.continueWith, null);
   assert.equal(session.tools.length, toolsBefore.length);
-  session.tools.forEach((tool, index) => assert.equal(tool, toolsBefore[index]));
+  session.tools.forEach((tool, index) => {
+    assert.equal(tool, toolsBefore[index]);
+  });
   assert.equal(session.deferredCallableTools, undefined);
   // The legacy string form and aliases stay accepted.
   assert.deepEqual(
@@ -231,6 +238,46 @@ test('load_tool describes without loading and reports missing and blocked names'
     describeBridgeTools(session, { names: ['websearch'] }).entries.map((entry) => entry.name),
     ['web_fetch']
   );
+});
+
+test('load_tool describes every tool of a connector by server name, within the target cap; call_tool runs them', () => {
+  const notion = ['search', 'create_page', 'update_page'].map((tool) => def(`mcp__notion__${tool}`));
+  const big = Array.from({ length: BRIDGE_LIMITS.continuationMaxTargets + 3 }, (_, i) =>
+    def(`mcp__big__t${String(i).padStart(2, '0')}`, { readOnly: true, description: 'x' })
+  );
+  const catalog = [...notion, ...big, def('mcp__other__ping')];
+  const session = bridgeSession({ catalog, deferredMcpToolNames: catalog.map((tool) => tool.name) });
+  const result = describeBridgeTools(session, { names: ['mcp__notion'] });
+  assert.deepEqual(result.entries.map((entry) => entry.name).sort(), notion.map((tool) => tool.name).sort());
+  assert.deepEqual(result.missing, []);
+  assert.equal(result.omitted, undefined);
+  // Exact names keep resolving to one tool.
+  assert.deepEqual(
+    describeBridgeTools(session, { names: ['mcp__other__ping'] }).entries.map((entry) => entry.name),
+    ['mcp__other__ping']
+  );
+  // A server past the continuation cap describes the first definitions and lists the rest.
+  let page = describeBridgeTools(session, { names: 'mcp__big' });
+  const described = [];
+  for (;;) {
+    described.push(...page.entries.filter((entry) => entry.complete).map((entry) => entry.name));
+    if (!page.continueWith) break;
+    page = describeBridgeTools(session, page.continueWith);
+    assert.equal(page.error, undefined);
+  }
+  assert.equal(described.length, BRIDGE_LIMITS.continuationMaxTargets);
+  assert.equal(
+    new Set([...described, ...(describeBridgeTools(session, { names: 'mcp__big' }).omitted || [])]).size,
+    big.length
+  );
+  // call_tool runs a described server tool through the ordinary pipeline.
+  const call = resolveExecutionToolCall(
+    { id: 'C', name: 'call_tool', arguments: { name: 'mcp__notion__search', arguments: { value: 'q' } } },
+    session
+  );
+  assert.equal(call.name, 'mcp__notion__search');
+  assert.deepEqual(call.arguments, { value: 'q' });
+  assert.match(resolveBridgeTarget(session, 'mcp__notion').error.code, /TOOL_NOT_FOUND/);
 });
 
 test('load_tool validates names and continuation tokens', () => {
@@ -292,7 +339,10 @@ test('a token mixed with other content inside one names element is refused, and 
   if (body.length % 4 !== 0) {
     const sibling = alphabet[(alphabet.indexOf(last) + 1) % 64];
     const noncanonical = `${BRIDGE_CONTINUATION_PREFIX}${body.slice(0, -1)}${sibling}`;
-    assert.deepEqual(Buffer.from(noncanonical.slice(BRIDGE_CONTINUATION_PREFIX.length), 'base64url'), Buffer.from(body, 'base64url'));
+    assert.deepEqual(
+      Buffer.from(noncanonical.slice(BRIDGE_CONTINUATION_PREFIX.length), 'base64url'),
+      Buffer.from(body, 'base64url')
+    );
     assert.equal(code([noncanonical]), 'INVALID_CONTINUATION');
   }
 });
@@ -304,12 +354,17 @@ test('review: a forged token naming more definitions than a request can resolve 
     `${BRIDGE_CONTINUATION_PREFIX}${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`;
   const max = BRIDGE_LIMITS.continuationMaxTargets;
   // 8 names, each an alias of the widest alias.
-  assert.equal(max, BRIDGE_LIMITS.describeMaxNames * Math.max(...Object.values(DEFERRED_SELECT_ALIASES).map((m) => m.length)));
+  assert.equal(
+    max,
+    BRIDGE_LIMITS.describeMaxNames * Math.max(...Object.values(DEFERRED_SELECT_ALIASES).map((m) => m.length))
+  );
   // As many unique valid positions as fit just under the decode limit: a
   // well-formed token whose next continuation would outgrow the limit.
   const indexes = [];
   let index = 100;
-  while (forge({ v: 2, t: [...indexes, index], r: 'f'.repeat(16), o: 0 }).length <= BRIDGE_LIMITS.continuationMaxChars) {
+  while (
+    forge({ v: 2, t: [...indexes, index], r: 'f'.repeat(16), o: 0 }).length <= BRIDGE_LIMITS.continuationMaxChars
+  ) {
     indexes.push(index);
     index += 1;
   }
@@ -475,7 +530,10 @@ test('renderToolSearch: bridge sessions describe, native sessions keep the loade
     JSON.parse(renderToolSearch({}, native, 'lead')).error,
     'load_tool requires names:["exact_tool_name", ...] (deferred tool names/aliases).'
   );
-  assert.match(JSON.parse(renderToolSearch({ query: 'fetch' }, native, 'lead')).error, /^load_tool is a loader, not a search: "fetch"/);
+  assert.match(
+    JSON.parse(renderToolSearch({ query: 'fetch' }, native, 'lead')).error,
+    /^load_tool is a loader, not a search: "fetch"/
+  );
 });
 
 test('call_tool resolves one deferred target and rejects recursion, eager and unknown targets', () => {
@@ -504,12 +562,15 @@ test('the execution projection keeps the wire call and target identity', () => {
   const session = bridgeSession({ catalog: [def('web_fetch', { readOnly: true })] });
   const wire = { id: 'X', name: 'call_tool', arguments: { name: 'web_fetch', arguments: { url: 'https://a.test' } } };
   const call = resolveExecutionToolCall(wire, session);
-  assert.deepEqual({ ...call, wireCall: undefined }, {
-    id: 'X',
-    name: 'web_fetch',
-    arguments: { url: 'https://a.test' },
-    wireCall: undefined,
-  });
+  assert.deepEqual(
+    { ...call, wireCall: undefined },
+    {
+      id: 'X',
+      name: 'web_fetch',
+      arguments: { url: 'https://a.test' },
+      wireCall: undefined,
+    }
+  );
   assert.deepEqual(call.wireCall, wire);
   assert.ok(Object.isFrozen(call.wireCall) && Object.isFrozen(call.wireCall.arguments.arguments));
   call.arguments.url = 'https://mutated.test';
@@ -544,9 +605,7 @@ test('review: continuation tokens bind schema revisions; forged offsets inside a
     catalog: [{ ...emoji, inputSchema: { type: 'object', properties: { other: { type: 'string' } } } }],
   });
   assert.equal(describeBridgeTools(changed, { names: token }).error.code, 'CATALOG_CHANGED');
-  const payload = JSON.parse(
-    Buffer.from(token.slice(BRIDGE_CONTINUATION_PREFIX.length), 'base64url').toString('utf8')
-  );
+  const payload = JSON.parse(Buffer.from(token.slice(BRIDGE_CONTINUATION_PREFIX.length), 'base64url').toString('utf8'));
   const text = JSON.stringify({
     name: emoji.name,
     description: emoji.description,
@@ -596,7 +655,10 @@ test('review: an unresolved tool mode still refuses a deferred mutating tool in 
     const session = bridgeSession({ catalog: [def('apply_patch')], toolSpec: null, toolExposureMode });
     const denial = prepareDeferredToolCallThrough(session, 'apply_patch');
     assert.match(denial.deny, /without a resolved tool mode/, String(toolExposureMode));
-    assert.equal(session.tools.some((tool) => tool.name === 'apply_patch'), false);
+    assert.equal(
+      session.tools.some((tool) => tool.name === 'apply_patch'),
+      false
+    );
   }
 });
 
@@ -664,9 +726,14 @@ test('bridge handlers answer within the calling session scope', async () => {
   const described = JSON.parse(
     await handlers.load_tool({ names: ['worker_only_tool'] }, { callerCtx: { callerSession: worker } })
   );
-  assert.deepEqual(described.entries.map((entry) => entry.name), ['worker_only_tool']);
+  assert.deepEqual(
+    described.entries.map((entry) => entry.name),
+    ['worker_only_tool']
+  );
   // A caller outside bridge mode keeps the loader, within its own scope.
-  const legacy = JSON.parse(await handlers.load_tool({ names: ['web_fetch'] }, { callerCtx: { callerSession: native } }));
+  const legacy = JSON.parse(
+    await handlers.load_tool({ names: ['web_fetch'] }, { callerCtx: { callerSession: native } })
+  );
   assert.equal(legacy.entries, undefined);
   assert.deepEqual(legacy.missing, ['web_fetch']);
   // The retired search_tools has no handler.
@@ -726,16 +793,28 @@ test('a name that is no tool is a keyword search over the tools this session can
   assert.equal(JSON.stringify(result).includes('secret_web'), false);
   // Mixed with an exact name: the name describes, the keyword searches.
   const mixed = search({ names: ['db_query', 'page'] });
-  assert.deepEqual(mixed.entries.map((entry) => entry.name), ['db_query']);
-  assert.deepEqual(mixed.matches[0].tools.map((tool) => tool.name), ['web_fetch']);
+  assert.deepEqual(
+    mixed.entries.map((entry) => entry.name),
+    ['db_query']
+  );
+  assert.deepEqual(
+    mixed.matches[0].tools.map((tool) => tool.name),
+    ['web_fetch']
+  );
   // A keyword nothing matches is reported missing.
   assert.deepEqual(search({ names: ['zzz'] }).missing, ['zzz']);
   // Read-only mode hides tools it could not run.
   const readonly = search({ names: ['networking'] }, { mode: 'readonly' });
-  assert.deepEqual(readonly.matches[0].tools.map((tool) => tool.name), ['web_fetch']);
+  assert.deepEqual(
+    readonly.matches[0].tools.map((tool) => tool.name),
+    ['web_fetch']
+  );
   // A denied tool is never listed.
   const denied = bridgeSession({
-    catalog: [def('web_fetch', { readOnly: true, description: 'Fetch networking.' }), def('web_post', { description: 'Post networking.' })],
+    catalog: [
+      def('web_fetch', { readOnly: true, description: 'Fetch networking.' }),
+      def('web_post', { description: 'Post networking.' }),
+    ],
     disallowedTools: ['web_post'],
   });
   assert.deepEqual(

@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { normalizeMcpTransportUrl } from './client-config.mjs';
+import { identityFromTokenResponse } from './oauth-account.mjs';
 import { answerOAuthCallback } from './oauth-callback.mjs';
 import { anySignal, loginFailed, reauthenticationRequired } from './oauth-shared.mjs';
 
@@ -49,12 +50,34 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
     flow.browserOpened = false;
     flow.launchBrowser = browser || openBrowser;
     const signal = AbortSignal.any([lifetimeSignal, requestSignal, AbortSignal.timeout(timeoutMs)]);
-    const safeFetch = (input, init = {}) =>
-      fetchImpl(normalizeMcpTransportUrl(input), {
+    // Who this login's tokens belong to (oauth-account.mjs): the SDK keeps only
+    // the token fields, so the token endpoint's answer is read here.
+    flow.identity = undefined;
+    const safeFetch = async (input, init = {}) => {
+      const response = await fetchImpl(normalizeMcpTransportUrl(input), {
         ...init,
         redirect: 'error',
         signal: anySignal(signal, init.signal),
       });
+      if (response.ok && /(^|&)grant_type=/.test(String(init.body ?? ''))) {
+        flow.identity = identityFromTokenResponse(
+          await response
+            .clone()
+            .json()
+            .catch(() => null)
+        );
+      }
+      return response;
+    };
+    // The caller's progress hooks (mcp-oauth-login.mjs): the callback arrived,
+    // then the tokens are stored.
+    const progress = (hook) => {
+      try {
+        browser?.[hook]?.();
+      } catch {
+        /* progress reporting never fails the login */
+      }
+    };
     let abort;
     const callback = new Promise((resolve, reject) => {
       const finish = (code) => (code ? resolve(code) : reject(loginFailed()));
@@ -72,9 +95,10 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
       // refreshed (and rotated) the tokens this request was rejected with:
       // decide on the stored credentials, under the cross-process lock.
       const result = await cache.withLock(async () => {
-        cache.adopt(await cache.readStored());
+        await cache.adoptStored();
         if (creds.tokens && creds.tokens.access_token !== attemptedToken?.access_token) return 'AUTHORIZED';
-        if (!interactive && (!creds.tokens?.refresh_token || !creds.clientInformation || !creds.redirectUrl)) {
+        const registered = provider.preRegistered || creds.clientInformation;
+        if (!interactive && (!creds.tokens?.refresh_token || !registered || !creds.redirectUrl)) {
           throw reauthenticationRequired();
         }
         flow.state = randomBytes(32).toString('base64url');
@@ -85,16 +109,17 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
       if (result === 'REDIRECT') {
         const code = await callback;
         signal.throwIfAborted();
+        progress('onCallback');
         const exchanged = await cache.withLock(async () => {
           // The entry this login registered in is gone only after a log-out
           // since it began, which wins: never recreate it.
-          const saved = await cache.readStored();
-          if (!saved) throw loginFailed();
-          cache.adopt(saved);
+          await cache.adoptStored();
+          if (creds.observed === null) throw loginFailed();
           return auth(provider, { ...options, authorizationCode: code });
         });
         if (exchanged !== 'AUTHORIZED') throw loginFailed();
       }
+      progress('onAuthorized');
       signal.throwIfAborted();
     } catch (error) {
       // SDK errors may contain authorization server response bodies/secrets.

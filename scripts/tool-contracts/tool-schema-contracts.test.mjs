@@ -457,9 +457,9 @@ test('session and memory schemas stay minimal and direct', () => {
     !/Cancel\/delete and worktree actions require the user/i.test(SESSION_TOOL.description || '') ||
     !/Shell cd does not switch Project/i.test(sessionProps.path?.description || '') ||
     Object.keys(sessionProps).join(',') !==
-      'action,title,session_id,prompt,limit,cursor,offset,text_offset,item_id,path,compact,force,value' ||
+      'action,title,session_id,prompt,limit,cursor,offset,text_offset,item_id,path,compact,force,value,brief,project,model,notify' ||
     sessionProps.action?.enum?.join(',') !==
-      'status,list,read,send,cancel,delete,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
+      'status,list,read,send,cancel,delete,create,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
     !/cannot target the caller/i.test(sessionProps.session_id?.description || '') ||
     sessionProps.limit?.minimum !== 1 ||
     sessionProps.limit?.maximum !== 100 ||
@@ -482,7 +482,7 @@ test('session and memory schemas stay minimal and direct', () => {
     !/standing user preferences/i.test(memoryTool?.description || '') ||
     // Direct curated memory and the revisioned per-project edit/delete index.
     Object.keys(memoryProps).sort().join(',') !==
-      'id,include_inactive,index_revision,limit,offset,op,project_id,summary' ||
+      'agent_id,id,include_inactive,index_revision,limit,offset,op,project_id,summary' ||
     memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list' ||
     memoryTool?.inputSchema?.required?.join(',') !== 'op' ||
     memoryProps.id?.type !== 'integer' ||

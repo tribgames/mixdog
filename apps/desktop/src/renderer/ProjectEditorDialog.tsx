@@ -3,6 +3,7 @@ import { type Dispatch, forwardRef, type SetStateAction, useImperativeHandle, us
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
+import { ConnectorSwitchList, type ConnectorSwitchApi } from './connector-switches';
 import { ErrorNotice } from './ErrorNotice';
 import { projectIdentity } from './project-catalog-cache';
 import { ExtensionDetailDialog, ExtensionField, ExtensionSection } from './settings/extension-detail';
@@ -379,11 +380,16 @@ export interface ProjectEditorDialogProps {
   onRename(path: string, alias: string): void;
   onRemove(path: string): void;
   onMemoryControl?(input: Record<string, unknown>): Promise<unknown>;
+  /** Reads and saves the project's connector switches (tests stub it). */
+  connectorApi?: ConnectorSwitchApi;
 }
 
 /** Project / common-memory editor dialog. Owns its state and is opened by path. */
 export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, ProjectEditorDialogProps>(
-  function ProjectEditorDialog({ active = true, projects, onRename, onRemove, onMemoryControl }, ref) {
+  function ProjectEditorDialog(
+    { active = true, projects, onRename, onRemove, onMemoryControl, connectorApi = window.mixdogDesktop },
+    ref
+  ) {
     // Common and project memory share one editor and one injection store.
     const [editTarget, setEditTarget] = useState<ProjectEditTarget | null>(null);
     const [editName, setEditName] = useState('');
@@ -552,6 +558,11 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
               onChange={(event) => setEditName(event.currentTarget.value)}
             />
           </ExtensionField>
+        )}
+        {editTarget.path !== null && (
+          <ExtensionSection title={t('Connectors')}>
+            <ConnectorSwitchList api={connectorApi} kind="project" target={editTarget.path} />
+          </ExtensionSection>
         )}
         {onMemoryControl && (
           <ExtensionSection

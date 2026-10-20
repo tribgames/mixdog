@@ -66,9 +66,9 @@ function manualModels(provider: RecordValue | undefined): CustomModel[] {
 
 // The v2 overrides to save: every stored override kept (so per-model
 // settings survive), `manual` set exactly for the listed manual models.
-function overridesWithManual(provider: RecordValue | undefined, manual: CustomModel[]): RecordValue {
+function overridesWithManual(overrides: RecordValue, manual: CustomModel[]): RecordValue {
   const out: RecordValue = {};
-  for (const [id, override] of Object.entries(record(provider?.modelOverrides))) {
+  for (const [id, override] of Object.entries(overrides)) {
     const { manual: _manual, ...rest } = record(override);
     if (Object.keys(rest).length) out[id] = rest;
   }
@@ -181,6 +181,11 @@ function CustomProviderForm({
     shownModelsKey.current = modelsKey;
     setRows(provider ? customModels(provider) : []);
   }, [modelsKey, provider]);
+  // A model save stores that model's override at once, but `provider` keeps
+  // the earlier overrides until the panel's reload lands; saving the provider
+  // from them would undo the model save. The save's answer wins per model.
+  const [savedOverrides, setSavedOverrides] = useState<RecordValue>({});
+  const overrides = { ...record(provider?.modelOverrides), ...savedOverrides };
   const existing = manualModels(provider);
   const [keyless, setKeyless] = useState(provider?.auth === 'none');
   // Discovery errors come from discoverCustomProviderModels (Refresh models).
@@ -258,7 +263,7 @@ function CustomProviderForm({
       protocol,
       baseURL: baseURL.trim(),
       auth: keyless ? 'none' : 'key',
-      modelOverrides: overridesWithManual(provider, withDraft),
+      modelOverrides: overridesWithManual(overrides, withDraft),
     };
     if (provider) input.id = provider.id;
     if (!keyless && envMode) {
@@ -665,8 +670,14 @@ function CustomProviderForm({
           providerId={String(provider.id)}
           protocol={protocol}
           row={rows.find((row) => row.id === editingModel) as unknown as RecordValue}
-          override={record(record(provider.modelOverrides)[editingModel])}
+          override={record(overrides[editingModel])}
           run={run}
+          onSaved={(saved) => {
+            // `run` answers nothing when it could not run; keep what is known then.
+            if (!saved.modelOverrides) return;
+            const override = record(record(saved.modelOverrides)[editingModel]);
+            setSavedOverrides((previous) => ({ ...previous, [editingModel]: override }));
+          }}
           onClose={() => setEditingModel(null)}
         />
       )}

@@ -1,5 +1,7 @@
 // Deferred-pool and MCP-instruction manifests injected into BP2.
-import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
+import { accountOfInstructions } from '../../../shared/connector-accounts.mjs';
+import { connectorTrigger } from '../../../shared/connector-triggers.mjs';
+import { parseMcpToolName, titleCaseMcpServer } from '../../../shared/tool-primitives.mjs';
 import { isToolBridgeEnabled, TOOL_BRIDGE_GUIDANCE } from '../runtime-core/tool-exposure.mjs';
 
 export function compactPromptManifestText(value, max = 250) {
@@ -100,11 +102,8 @@ function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
 /**
  * Per-server MCP initialize instructions for deferred-pool tools only.
  * Empty when no instructions or no matching deferred MCP tools → omit block.
- * Emits ONLY the server heading + instruction body: the per-server tool names
- * are deliberately NOT repeated here — every pool tool is already listed once
- * (with its description) in <available-deferred-tools>, and re-listing ~30
- * names per server doubled the MCP share of the BP2 prefix (2026-08-05 audit).
- * Server membership stays evident from the mcp__<server>__ name prefix.
+ * Emits ONLY the server heading + instruction body: tool names are never
+ * listed — <available-deferred-tools> names each server once (mcp__<server>).
  */
 function buildMcpInstructionsManifest(mcpServerInstructions, poolNames, catalog = []) {
   const map = mcpServerInstructions && typeof mcpServerInstructions === 'object' ? mcpServerInstructions : {};
@@ -163,18 +162,82 @@ function rebuildDeferredToolManifestBlock(text, manifest) {
   return out;
 }
 
-function deferredManifestEntries(session, pool) {
-  const descByName = new Map();
+function catalogByName(session) {
+  const byName = new Map();
   for (const tool of Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []) {
     const name = String(tool?.name || '').trim();
-    // Skill-style selection trigger when the tool declares one; else its description.
-    if (name && !descByName.has(name)) descByName.set(name, String(tool?.trigger || tool?.description || ''));
+    if (name && !byName.has(name)) byName.set(name, tool);
   }
+  return byName;
+}
+
+// MCP tools are listed once per server: load_tool loads every tool of
+// `mcp__<server>`. Tool definitions carry their server (shortened names
+// cannot be parsed).
+const mcpServerOf = (byName, name) => parseMcpToolName(byName.get(String(name).trim()) || name)?.server || '';
+const mcpServerLineName = (server) => `mcp__${server}`;
+const firstSentence = (text) => {
+  const flat = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (flat.split(/(?<=[.!?])\s/, 1)[0] || flat).replace(/[.!?]+$/, '');
+};
+
+// A catalog connector's curated trigger; else the server's MCP instructions;
+// else its tools' leading descriptions (name order); else its name. Derived
+// lines are compacted to at most 100 characters, ellipsis included.
+function mcpServerTrigger(server, tools, instructions) {
+  // A multi-account connector's server names its account (connector-accounts.mjs).
+  const account = accountOfInstructions(instructions?.[server]);
+  const curated = connectorTrigger(server);
+  if (curated) return account ? `${curated} Account: ${account}` : curated;
+  const instruction = String(instructions?.[server] || '').replace(/[<>]/g, '');
+  const described = [...tools]
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
+    .map((tool) => firstSentence(String(tool?.description || '').replace(/[<>]/g, '')))
+    .filter(Boolean)
+    .join('; ');
+  const derived = instruction.trim() ? instruction : described;
+  return derived ? compactPromptManifestText(derived, 98) : `${titleCaseMcpServer(server)} MCP server tools.`;
+}
+
+function deferredManifestEntries(session, pool) {
+  const byName = catalogByName(session);
   const skillRoutedNames = skillRoutedToolNames(session.messages);
-  return pool.map((name) => ({
-    name,
-    description: skillRoutedNames.has(String(name).trim()) ? '' : descByName.get(String(name).trim()) || '',
-  }));
+  const entries = [];
+  const servers = new Map();
+  for (const name of pool) {
+    const key = String(name).trim();
+    const tool = byName.get(key);
+    const server = mcpServerOf(byName, name);
+    if (server) {
+      if (!servers.has(server)) servers.set(server, []);
+      servers.get(server).push(tool || { name: key });
+      continue;
+    }
+    // Skill-style selection trigger when the tool declares one; else its description.
+    entries.push({
+      name,
+      description: skillRoutedNames.has(key) ? '' : String(tool?.trigger || tool?.description || ''),
+    });
+  }
+  for (const [server, tools] of servers) {
+    entries.push({
+      name: mcpServerLineName(server),
+      description: mcpServerTrigger(server, tools, session.mcpServerInstructions),
+    });
+  }
+  return entries;
+}
+
+/** The pool names `rendered` lists: by their own line, or their MCP server's. */
+export function listedDeferredToolNames(session, poolNames, rendered) {
+  const byName = catalogByName(session);
+  const text = String(rendered || '');
+  return (Array.isArray(poolNames) ? poolNames : []).filter((name) => {
+    const server = mcpServerOf(byName, name);
+    return text.includes(server ? `- ${mcpServerLineName(server)}: ` : name);
+  });
 }
 
 function composeDeferredBp2Manifest(session, pool) {

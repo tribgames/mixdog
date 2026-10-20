@@ -3396,7 +3396,7 @@
    "first": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -3442,7 +3442,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -3496,7 +3496,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -3518,7 +3518,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -3590,7 +3590,7 @@
    "afterLoad": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -3636,7 +3636,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -3698,7 +3698,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -3728,7 +3728,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -3812,7 +3812,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "# Session"
      ],
      "tools": [
@@ -3858,7 +3858,7 @@
       ],
       [
        "load_tool",
-       "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+       "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
       ],
       [
        "Skill",
@@ -3920,7 +3920,7 @@
       ],
       [
        "load_tool",
-       "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+       "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
       ],
       [
        "Skill",
@@ -3950,7 +3950,7 @@
       },
       {
        "type": "text",
-       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
        "cache_control": {
         "type": "ephemeral",
         "ttl": "1h"
@@ -4023,7 +4023,7 @@
    "firstTurnFold": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- mcp__late__lookup: Look something up.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -4069,7 +4069,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -4123,7 +4123,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -4145,7 +4145,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- mcp__late__lookup: Look something up.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4214,7 +4214,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "# Session"
      ],
      "tools": [
@@ -4260,7 +4260,7 @@
       ],
       [
        "load_tool",
-       "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+       "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
       ],
       [
        "Skill",
@@ -4318,7 +4318,7 @@
       ],
       [
        "load_tool",
-       "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+       "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
       ],
       [
        "Skill",
@@ -4344,7 +4344,7 @@
       },
       {
        "type": "text",
-       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
        "cache_control": {
         "type": "ephemeral",
         "ttl": "1h"
@@ -4422,7 +4422,7 @@
    "allowlisted": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -4468,7 +4468,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -4522,7 +4522,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -4544,7 +4544,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4609,7 +4609,7 @@
    "denied": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -4651,7 +4651,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -4705,7 +4705,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -4731,7 +4731,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4797,7 +4797,7 @@
    "readonly": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- shell: Run programs, builds, tests and computation. Never use shell commands or scripts for work covered...\n- task: Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- shell: Run programs, builds, tests and computation. Never use shell commands or scripts for work covered...\n- task: Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -4827,7 +4827,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -4865,7 +4865,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -4887,7 +4887,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- shell: Run programs, builds, tests and computation. Never use shell commands or scripts for work covered...\n- task: Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- shell: Run programs, builds, tests and computation. Never use shell commands or scripts for work covered...\n- task: Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4948,7 +4948,7 @@
    "switchSameFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -4994,7 +4994,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -5052,7 +5052,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -5078,7 +5078,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -5147,7 +5147,7 @@
    "switchOtherFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -5193,7 +5193,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -5243,7 +5243,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -5307,7 +5307,7 @@
    "first": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -5349,7 +5349,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -5395,7 +5395,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -5458,7 +5458,7 @@
    "afterLoad": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -5500,7 +5500,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -5546,7 +5546,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -5621,7 +5621,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "# Session"
      ],
      "tools": [
@@ -5663,7 +5663,7 @@
       ],
       [
        "load_tool",
-       "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+       "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
       ],
       [
        "Skill",
@@ -5709,7 +5709,7 @@
       ],
       [
        "tool_search",
-       "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
       ],
       [
        "Skill",
@@ -5773,7 +5773,7 @@
    "firstTurnFold": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- mcp__late__lookup: Look something up.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -5815,7 +5815,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -5861,7 +5861,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -5921,7 +5921,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "# Session"
      ],
      "tools": [
@@ -5963,7 +5963,7 @@
       ],
       [
        "load_tool",
-       "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+       "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
       ],
       [
        "Skill",
@@ -6009,7 +6009,7 @@
       ],
       [
        "tool_search",
-       "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
       ],
       [
        "Skill",
@@ -6078,7 +6078,7 @@
    "allowlisted": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -6120,7 +6120,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -6166,7 +6166,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -6222,7 +6222,7 @@
    "denied": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -6260,7 +6260,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -6302,7 +6302,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -6359,7 +6359,7 @@
    "readonly": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- shell: Run programs, builds, tests and computation. Never use shell commands or scripts for work covered...\n- task: Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- shell: Run programs, builds, tests and computation. Never use shell commands or scripts for work covered...\n- task: Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -6389,7 +6389,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -6423,7 +6423,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -6476,7 +6476,7 @@
    "switchSameFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -6518,7 +6518,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -6564,7 +6564,7 @@
      ],
      [
       "tool_search",
-      "89f4a5e47921fd06bf1f210c28616e2a8dcab9e6fcf87f95bc141e44c91a3371"
+      "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
      [
       "Skill",
@@ -6624,7 +6624,7 @@
    "switchOtherFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
      "# Session"
     ],
     "tools": [
@@ -6666,7 +6666,7 @@
      ],
      [
       "load_tool",
-      "48aa559b9b121d1e0af159a43de33a7c14ad266c2fd7357ccbe292e080ab17d7"
+      "19ea77b1505641cf6fb4162cd1d3fc81846e77b1415f7e14878743325520c661"
      ],
      [
       "Skill",
@@ -6720,7 +6720,7 @@
      ],
      [
       "load_tool",
-      "0a53c1339bc512f3201edfbc60c5896600bf1d5e4e1f75575ca434819c2c20f6"
+      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
      ],
      [
       "Skill",
@@ -6746,7 +6746,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github__create_issue: Open an issue.\n- mcp__github__list_issues: List repository issues.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session status, rename the title, compact, fork into a new session, switch Project, worktrees.\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>\n\n<mcp-instructions>\n## github\nPrefer list_issues before create_issue.\n</mcp-instructions>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"

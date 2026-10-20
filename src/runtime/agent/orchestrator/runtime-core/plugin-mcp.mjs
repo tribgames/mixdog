@@ -23,6 +23,7 @@ const MCP_TRANSPORT_FIELDS = new Set([
   'env_http_headers',
   'env_vars',
   'autoDetect',
+  'oauthClientId',
 ]);
 
 // Every spelling resolveMcpStartupTimeoutMs / resolveMcpCallTimeoutMs reads.

@@ -68,7 +68,12 @@ function leadSession(provider, extra = {}) {
 }
 
 const requestTools = (session) =>
-  snapshotProviderRequestTools({ provider: session.provider, tools: session.tools, session, messages: session.messages });
+  snapshotProviderRequestTools({
+    provider: session.provider,
+    tools: session.tools,
+    session,
+    messages: session.messages,
+  });
 
 test('a realistic built-in catalog exposes only the core and the bridge on bridge providers', (t) => {
   const native = leadSession('anthropic-oauth');
@@ -84,7 +89,10 @@ test('a realistic built-in catalog exposes only the core and the bridge on bridg
     assert.ok(catalogNames.has('web_fetch') && catalogNames.has('office') && catalogNames.has('browser'));
     // The fixed prompt carries the native roster, then the bridge guidance.
     const bp2 = session.messages[1].content;
-    assert.match(bp2, /<\/available-deferred-tools>\n\n<tool-bridge>\n[^\n]*call_tool[^\n]*load_tool[^\n]*\n<\/tool-bridge>$/);
+    assert.match(
+      bp2,
+      /<\/available-deferred-tools>\n\n<tool-bridge>\n[^\n]*call_tool[^\n]*load_tool[^\n]*\n<\/tool-bridge>$/
+    );
     for (const name of ['web_fetch', 'office', 'browser']) assert.match(bp2, new RegExp(`^- ${name}: `, 'm'));
     assert.equal(bp2.match(/<available-deferred-tools>/g).length, 1);
     assert.doesNotMatch(bp2, /^- (call_tool|search_tools|load_tool)\b/m);
@@ -140,7 +148,13 @@ test('a bridge roster never lists tools its allowlist, denied tools or read-only
   assert.equal(listed.includes('browser'), false, 'denied');
 
   // Read-only: only read-only tools are listed.
-  const readonly = { provider: 'gemini', model: 'fixture-model', toolSpec: 'readonly', tools: builtins.slice(), messages: systemMessages() };
+  const readonly = {
+    provider: 'gemini',
+    model: 'fixture-model',
+    toolSpec: 'readonly',
+    tools: builtins.slice(),
+    messages: systemMessages(),
+  };
   applyDeferredToolSurface(readonly, 'readonly', standaloneTools, { provider: 'gemini' });
   const catalog = new Map(readonly.deferredToolCatalog.map((tool) => [tool.name, tool]));
   const readonlyListed = rosterNames(readonly);
@@ -285,7 +299,7 @@ test('bridge MCP connect, reconnect and removal append delta notices and keep pr
   const mcp = { name: 'mcp__late__run', description: 'Run.', inputSchema: { type: 'object', properties: {} } };
   refreshInitialDeferredMcpSurface(session, [mcp]);
   assert.equal(tools(), before.tools, 'first-turn MCP fold');
-  assert.match(rosterOf(session), /^- mcp__late__run: Run\.$/m);
+  assert.match(rosterOf(session), /^- mcp__late: Run$/m);
   reconcileDeferredMcpToolCatalog(session, [mcp]);
   assert.equal(session.pendingDeferredToolDelta, undefined, 'the initial roster already announced it');
   before.prompt = prompt();
@@ -351,7 +365,11 @@ test('switching bridge ↔ native rebuilds the surface and guidance and keeps di
   assert.ok(session.deferredDiscoveredTools.includes('web_fetch'));
   const history = [
     { role: 'user', content: 'fetch it' },
-    { role: 'assistant', content: '', toolCalls: [{ id: 'h1', name: 'web_fetch', arguments: { url: 'https://a.test' } }] },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'h1', name: 'web_fetch', arguments: { url: 'https://a.test' } }],
+    },
     { role: 'tool', toolCallId: 'h1', content: 'body' },
   ];
   session.messages.push(...structuredClone(history));

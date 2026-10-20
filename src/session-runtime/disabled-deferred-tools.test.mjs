@@ -101,7 +101,7 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
     // Request bytes stay; the allowed tool joins the initial roster in place
     // (bridge sessions exactly like native, followed by the bridge guidance).
     assert.equal(JSON.stringify(requestTools(session)), eagerBefore);
-    assert.ok(session.messages[1].content.includes(`- ${allowed.name}`));
+    assert.ok(session.messages[1].content.includes(`- mcp__policy: ${allowed.name}`));
     if (!native) assert.match(session.messages[1].content, /<\/available-deferred-tools>\n\n<tool-bridge>/);
 
     const loaded = JSON.parse(renderToolSearch({ names: [blocked.name, allowed.name] }, session, 'lead'));

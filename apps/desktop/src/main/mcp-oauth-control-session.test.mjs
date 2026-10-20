@@ -123,6 +123,7 @@ test('a remote sign-in survives the control session being replaced between begin
   assert.deepEqual(await call('getMcpOAuthLoginStatus', [begun.flowId]), {
     flowId: begun.flowId,
     state: 'pending',
+    step: 'browser',
     url: AUTH_URL,
   });
   // An invalid paste throws (and replaces the control session once more); the

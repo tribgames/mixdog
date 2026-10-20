@@ -70,6 +70,9 @@ export function createMcpServerInput({ mcpClient, getCurrentCwd }) {
       if (bearerTokenEnvVar) config.bearer_token_env_var = bearerTokenEnvVar;
       const envHeaders = coerceStringRecord(input.env_http_headers || input.envHttpHeaders);
       if (envHeaders) config.env_http_headers = envHeaders;
+      // The user's own OAuth client (앱 번호); its secret never lands here.
+      const oauthClientId = clean(input.oauthClientId);
+      if (oauthClientId) config.oauthClientId = oauthClientId;
       return config;
     };
     const url = clean(input.url);

@@ -20,6 +20,8 @@ Full license texts live in `LICENSES/`:
   notice referenced by the generated files.
 - `LICENSES/browser-import-NOTICE.txt` — source and license boundary for the
   optional GPL Chrome password import sidecar.
+- `LICENSES/simple-icons-CC0-1.0.txt` — the CC0 1.0 dedication of the Simple
+  Icons brand marks used for connectors.
 - Tidy engine license texts listed in the Tidy engines section below.
 
 ## MIT
@@ -132,6 +134,23 @@ Its training data includes requests from SWE-chat
 (<https://huggingface.co/datasets/cfahlgren1/SWE-chat>), made available under
 the Open Data Commons Attribution License 1.0, and from DataClaw exports that
 their authors published on the Hugging Face Hub under the MIT License.
+
+## CC0-1.0
+
+### Simple Icons 16.35.0
+
+<https://simpleicons.org> · <https://github.com/simple-icons/simple-icons>
+
+The connector brand marks in
+`apps/desktop/src/renderer/connectors-brand-icons.ts` carry Simple Icons path
+data and brand colours unmodified (Airtable, Blender, Confluence, Discord,
+Dropbox, Figma, GitHub, Gmail, Google Calendar, Google Drive, Hugging Face,
+Jira, Linear, Notion, PostgreSQL, Sentry, Stripe, Supabase, Telegram, Trello,
+Unity, Vercel); Unity's mark is drawn in black, as its listed colour is white.
+Simple Icons is dedicated to the public domain under CC0 1.0; each
+mark remains the trademark of its owner and is shown only to name that
+service. Slack is not in Simple Icons and its mark is not openly licensed, so
+it is shown as a letter tile. Full text: `LICENSES/simple-icons-CC0-1.0.txt`.
 
 ## GPL-3.0-only
 

@@ -51,3 +51,48 @@ test('opening project settings by path shows the dialog while no Projects panel 
   assert.ok(document.querySelector('.projects-edit-dialog'), 'dialog shows for the opened project');
   assert.equal(document.querySelector('input[name="project-alias"]').value, 'alpha');
 });
+
+test('project settings switch a connector off for the project; every other one stays on', async (t) => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  const calls = [];
+  let rows = [
+    { id: 'github', enabled: true },
+    { id: 'notion', enabled: true },
+  ];
+  const connectorApi = {
+    invokeCapability: async ({ capability, args }) => {
+      calls.push([capability, ...args]);
+      if (capability === 'setProjectConnectorEnabled') {
+        rows = rows.map((row) => (row.id === args[1] ? { ...row, enabled: args[2] } : row));
+      }
+      return { value: rows };
+    },
+  };
+  const ref = React.createRef();
+  await act(async () =>
+    root.render(React.createElement(ProjectEditorDialog, { ref, projects, connectorApi, onRename() {}, onRemove() {} }))
+  );
+  await act(async () => ref.current.open('/work/alpha'));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const list = document.querySelector('[data-connector-switches="project"]');
+  assert.ok(list);
+  assert.deepEqual(calls[0], ['getProjectConnectors', '/work/alpha']);
+  const inputs = () => [...list.querySelectorAll('input[type="checkbox"]')];
+  assert.deepEqual(
+    inputs().map((input) => input.checked),
+    [true, true]
+  );
+  await act(async () => inputs()[0].click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.deepEqual(calls.at(-1), ['setProjectConnectorEnabled', '/work/alpha', 'github', false]);
+  assert.deepEqual(
+    inputs().map((input) => input.checked),
+    [false, true]
+  );
+});

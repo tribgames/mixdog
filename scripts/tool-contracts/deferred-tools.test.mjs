@@ -194,6 +194,27 @@ test('native provider loading keeps the base tool surface byte-stable', () => {
   }
 });
 
+test('load_tool loads every tool of a connector by server name; exact names still work', () => {
+  const mcp = (name) => ({ name, description: `${name}.`, inputSchema: { type: 'object', properties: {} } });
+  const serverTools = ['mcp__notion__search', 'mcp__notion__create_page', 'mcp__notion__update_page'];
+  const session = {
+    provider: 'openai-oauth',
+    tools: [TOOL_SEARCH_TOOL],
+    deferredToolCatalog: [TOOL_SEARCH_TOOL, ...serverTools.map(mcp), mcp('mcp__linear__list_issues')],
+    deferredDiscoveredTools: [],
+    deferredCallableTools: ['load_tool'],
+    deferredProviderMode: 'native',
+    deferredNativeTools: true,
+  };
+  const byServer = JSON.parse(__renderToolSearchForTest({ names: ['mcp__Notion', 'mcp__nope'] }, session, 'full'));
+  assert.deepEqual([...byServer.loaded].sort(), [...serverTools].sort());
+  assert.deepEqual(byServer.missing, ['mcp__nope']);
+  assert.deepEqual([...byServer.nativeToolSearch.toolReferences].sort(), [...serverTools].sort());
+  assert.equal(session.deferredCallableTools.includes('mcp__linear__list_issues'), false);
+  const exact = JSON.parse(__renderToolSearchForTest({ names: ['mcp__linear__list_issues'] }, session, 'full'));
+  assert.deepEqual(exact.loaded, ['mcp__linear__list_issues']);
+});
+
 test('readonly blocks, missing names, and MCP status reporting', () => {
   const readonlyReportingSession = {
     tools: [TOOL_SEARCH_TOOL],
@@ -506,7 +527,7 @@ test('BP2 omits descriptions only for tools routed by visible skills, preserving
   const manifest = session.messages[1].content;
   assert.match(manifest, /^- office$/m);
   assert.match(manifest, /^- github: Manage GitHub repositories\.$/m);
-  assert.match(manifest, /^- mcp__docs__read: Read a remote document\.$/m);
+  assert.match(manifest, /^- mcp__docs: Read a remote document$/m);
   assert.deepEqual(session.deferredToolCatalog, originalCatalog);
 
   // Removing the visible skill restores discovery guidance on rebuild.

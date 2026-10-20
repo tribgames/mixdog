@@ -32,9 +32,11 @@ test('the HEAD fixture exercises every native-visible path', () => {
     assert.match(bp2, /<available-deferred-tools>/);
     assert.match(bp2, /<mcp-instructions>/);
     assert.ok(scenario.first.tools.some(([name]) => name === 'load_tool'));
-    assert.ok(scenario.afterLoad.tools.length > scenario.first.tools.length || scenario.afterLoad.state.discovered.length);
+    assert.ok(
+      scenario.afterLoad.tools.length > scenario.first.tools.length || scenario.afterLoad.state.discovered.length
+    );
     assert.match(scenario.lateMcp.connected.content, /mcp__late__lookup/);
-    assert.match(scenario.firstTurnFold.system[1], /mcp__late__lookup/);
+    assert.match(scenario.firstTurnFold.system[1], /^- mcp__late: /m);
     assert.match(scenario.skillLoading.text, /office/);
     for (const text of Object.values(scenario.denials)) assert.equal(typeof text === 'string' || text === null, true);
     assert.match(scenario.denials.unresolvedMode, /load it with load_tool/);

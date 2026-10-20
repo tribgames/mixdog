@@ -2,6 +2,7 @@
 // servers plus the servers registered plugins declare (resolved live, with
 // explicit owner metadata), per-server config reads, and the live/failed rollup.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { connectorOfServer, gmailAppPasswordAccount } from '../../runtime/shared/connector-catalog.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
 import { resolveMcpServerCatalog } from './plugin-servers.mjs';
 
@@ -142,9 +143,16 @@ export function createMcpServerCatalog({
         source: sources[name] || 'config',
       };
       if (authRequired) row.authRequired = true;
+      // The catalog service this server connects (connector-catalog.mjs):
+      // its marker.
+      const connector = entry.owner ? '' : connectorOfServer(cfg);
+      if (connector) row.connector = connector;
       const oauth = mcpClient.getMcpServerOAuthState?.(cfg);
       // Why the last sign-in did not complete (already credential-scrubbed).
       if (oauth) row.oauth = authRequired && fail?.msg ? { ...oauth, lastError: fail.msg } : oauth;
+      // Gmail connected with an app password: the account it runs as.
+      const appPasswordAccount = gmailAppPasswordAccount(cfg);
+      if (appPasswordAccount) row.appPassword = { account: appPasswordAccount };
       if (entry.owner) {
         row.owner = entry.owner;
         row.pluginEnabled = entry.pluginEnabled;

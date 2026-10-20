@@ -83,10 +83,12 @@ test('beginMcpOAuthLogin returns the authorization URL, then completes after the
   const begun = await h.api.beginMcpOAuthLogin('remote', { openBrowser: false });
   assert.match(begun.flowId, /^mcp_oauth_/);
   assert.deepEqual(begun, { flowId: begun.flowId, state: 'pending', url: AUTH_URL });
-  // A pending flow's status keeps its URL (a remote client re-renders from it).
+  // A pending flow's status keeps its URL (a remote client re-renders from it)
+  // and names the step it waits for.
   assert.deepEqual(h.api.getMcpOAuthLoginStatus(begun.flowId), {
     flowId: begun.flowId,
     state: 'pending',
+    step: 'browser',
     url: AUTH_URL,
   });
   assert.equal(h.calls[0].only, 'remote');
@@ -142,7 +144,10 @@ test('completeMcpOAuthLogin answers the pending flow with the pasted URL and res
   await assert.rejects(h.api.completeMcpOAuthLogin(begun.flowId, 'garbage'), /invalid/);
   assert.equal(h.api.getMcpOAuthLoginStatus(begun.flowId).state, 'pending');
   const callback = 'http://127.0.0.1:1/oauth/callback?code=c&state=s';
-  assert.deepEqual(await h.api.completeMcpOAuthLogin(begun.flowId, callback), { flowId: begun.flowId, state: 'complete' });
+  assert.deepEqual(await h.api.completeMcpOAuthLogin(begun.flowId, callback), {
+    flowId: begun.flowId,
+    state: 'complete',
+  });
   assert.deepEqual(pasted, [['remote', callback]]);
   await assert.rejects(h.api.completeMcpOAuthLogin(begun.flowId, callback), /no longer pending/);
   await assert.rejects(h.api.completeMcpOAuthLogin('mcp_oauth_missing', callback), /not found/);
@@ -301,7 +306,12 @@ test('a flow begun in one runtime is read, completed and cancelled from another,
     completeCallback: () => assert.fail('the other runtime never answers'),
   });
   const begun = await flowOwner.begin('remote', { openBrowser: false });
-  assert.deepEqual(other.status(begun.flowId), { flowId: begun.flowId, state: 'pending', url: AUTH_URL });
+  assert.deepEqual(other.status(begun.flowId), {
+    flowId: begun.flowId,
+    state: 'pending',
+    step: 'browser',
+    url: AUTH_URL,
+  });
   assert.deepEqual(await other.complete(begun.flowId, 'http://127.0.0.1:1/cb?code=c&state=s'), {
     flowId: begun.flowId,
     state: 'complete',
@@ -322,6 +332,101 @@ test('a reconnect that needs no login completes immediately and a failure before
   const begun = await ok.begin('remote');
   assert.deepEqual(begun, { flowId: begun.flowId, state: 'complete' });
   assert.deepEqual(completed, ['remote']);
-  const down = createMcpOAuthLogins({ connect: async () => ({ connected: false, error: 'fetch failed' }), cancel: () => {} });
+  const down = createMcpOAuthLogins({
+    connect: async () => ({ connected: false, error: 'fetch failed' }),
+    cancel: () => {},
+  });
   await assert.rejects(down.begin('remote'), /fetch failed/);
+});
+
+test('a status read with `since` follows each step as it happens: browser → connecting → tools → complete', async () => {
+  let launch;
+  let finish;
+  const peers = [];
+  const logins = createMcpOAuthLogins({
+    connect: (_name, opened) =>
+      new Promise((resolve) => {
+        launch = opened;
+        finish = resolve;
+        opened(AUTH_URL);
+      }),
+    cancel: () => {},
+    // The other runtimes' reconnect never holds up the flow's completion.
+    onComplete: () => new Promise((resolve) => peers.push(resolve)),
+    openBrowser: () => {},
+  });
+  const begun = await logins.begin('remote', { openBrowser: false });
+  assert.equal(launch.accountMode, 'connect');
+  const seen = [];
+  const watch = async (since) => {
+    const next = await logins.status(begun.flowId, { since, waitMs: 5_000 });
+    seen.push(next.step ? `${next.state}:${next.step}` : next.state);
+    return next.state === 'pending' ? watch(`${next.state}:${next.step}`) : next;
+  };
+  const started = Date.now();
+  const watching = watch('pending:browser');
+  launch.onCallback();
+  await new Promise((resolve) => setImmediate(resolve));
+  launch.onAuthorized();
+  await new Promise((resolve) => setImmediate(resolve));
+  finish({ connected: true });
+  assert.deepEqual(await watching, { flowId: begun.flowId, state: 'complete' });
+  assert.deepEqual(seen, ['pending:connecting', 'pending:tools', 'complete']);
+  assert.ok(Date.now() - started < 1_000, 'each step arrives without waiting out the read');
+  assert.equal(peers.length, 1, 'the peers reconnect after the flow already reports complete');
+  // An unchanged flow answers after at most waitMs.
+  const next = await logins.begin('other', { openBrowser: false });
+  const before = Date.now();
+  assert.equal((await logins.status(next.flowId, { since: 'pending:browser', waitMs: 30 })).step, 'browser');
+  assert.ok(Date.now() - before >= 25);
+  assert.throws(() => logins.status(next.flowId, { since: 1, waitMs: 1 }), /since must be a string/);
+});
+
+test('a sign-in nobody finishes times out with its own reason; begin refuses an unknown mode', async () => {
+  const logins = createMcpOAuthLogins({
+    connect: (_name, launch) =>
+      new Promise((resolve) => {
+        logins.finish = resolve;
+        launch(AUTH_URL);
+      }),
+    cancel: () => logins.finish({ connected: false, error: 'MCP OAuth login failed, cancelled, or timed out' }),
+    openBrowser: () => {},
+    loginTimeoutMs: 20,
+  });
+  const begun = await logins.begin('remote', { openBrowser: false });
+  const settledView = await logins.status(begun.flowId, { since: 'pending:browser', waitMs: 2_000 });
+  assert.deepEqual(settledView, {
+    flowId: begun.flowId,
+    state: 'failed',
+    error: 'MCP OAuth sign-in timed out',
+    reason: 'timeout',
+  });
+  await assert.rejects(logins.begin('remote', { mode: 'other' }), /mode must be/);
+});
+
+test('계정 바꾸기 runs the switch handler with its own abort and paste answer; a cancel changes nothing', async () => {
+  const events = [];
+  let release;
+  const logins = createMcpOAuthLogins({
+    connect: async () => assert.fail('a switch never reconnects interactively'),
+    cancel: () => assert.fail('a switch is aborted through its own handler'),
+    async switchAccount(_name, launch, attempt) {
+      assert.equal(launch.accountMode, 'switch');
+      attempt.abort = () => {
+        events.push('abort');
+        release(new Error('MCP OAuth login cancelled'));
+      };
+      attempt.answer = (url) => events.push(`answer:${url}`);
+      await launch(AUTH_URL);
+      await new Promise((_resolve, reject) => {
+        release = reject;
+      });
+    },
+    openBrowser: () => {},
+  });
+  const begun = await logins.begin('remote', { openBrowser: false, mode: 'switch' });
+  const answered = logins.complete(begun.flowId, 'http://127.0.0.1:1/oauth/callback?code=c&state=s');
+  assert.deepEqual(await logins.cancel(begun.flowId), { flowId: begun.flowId, state: 'cancelled' });
+  assert.equal((await answered).state, 'cancelled');
+  assert.deepEqual(events, ['answer:http://127.0.0.1:1/oauth/callback?code=c&state=s', 'abort']);
 });

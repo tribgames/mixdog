@@ -70,7 +70,8 @@ test('deferred listing attributes a shortened tool to its server for MCP instruc
   applyInitialDeferredToolManifestToBp2(session, [SHORT]);
   const bp2 = session.messages[1].content;
   assert.match(bp2, new RegExp(`## ${SERVER}\\nUse the docs server for pages\\.`));
-  assert.match(bp2, new RegExp(SHORT));
+  assert.match(bp2, new RegExp(`^- mcp__${SERVER}: Use the docs server for pages\\.$`, 'm'));
+  assert.doesNotMatch(bp2, new RegExp(SHORT));
 });
 
 test('a skill dependency of type mcp loads the shortened tools of that server', () => {

@@ -14,6 +14,7 @@ import {
   deferredCatalogUnion,
   filterSessionToolPolicy,
   isReadonlySelectable,
+  mcpServerSelection,
   toolSearchMatches,
 } from './tool-catalog.mjs';
 import { parseToolSelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
@@ -249,8 +250,9 @@ function describeNames(raw) {
   return names;
 }
 
-// Requested names → available tools; an alias that names no tool expands to
-// its members (existing load_tool alias compatibility).
+// Requested names → available tools; an alias or `mcp__<server>` that names no
+// tool expands to its members (existing load_tool alias compatibility).
+// Definitions past the continuation target cap are listed as omitted.
 function resolveDescribeTargets(session, names, mode, available) {
   const eagerNames = eagerToolNames(session);
   const targets = [];
@@ -271,13 +273,15 @@ function resolveDescribeTargets(session, names, mode, available) {
       add(tool);
       continue;
     }
-    const members = (DEFERRED_SELECT_ALIASES[requested.toLowerCase()] || [])
+    const aliased = (DEFERRED_SELECT_ALIASES[requested.toLowerCase()] || [])
       .map((member) => lookupByName(available, member))
       .filter(Boolean);
+    const members = aliased.length ? aliased : mcpServerSelection(available, requested);
     if (members.length) members.forEach(add);
     else missing.push(requested);
   }
-  return { targets, missing, blocked };
+  const omitted = targets.splice(BRIDGE_LIMITS.continuationMaxTargets).map((tool) => clean(tool?.name));
+  return { targets, missing, blocked, omitted };
 }
 
 const SEARCH_MAX_MATCHES = 20;
@@ -367,6 +371,7 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   let missing = [];
   let blocked = [];
   let matches = [];
+  let omitted = [];
   if (continuation) {
     targets = continuationTargets(session, continuation.indexes, available, mode);
     if (!targets) return catalogChanged();
@@ -378,10 +383,11 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
         `names must be 1-${BRIDGE_LIMITS.describeMaxNames} exact tool names of at most ${BRIDGE_LIMITS.nameMaxChars} characters.${syntaxHint}`
       );
     }
-    ({ targets, missing, blocked } = resolveDescribeTargets(session, names, mode, available));
+    ({ targets, missing, blocked, omitted } = resolveDescribeTargets(session, names, mode, available));
     ({ matches, missing } = searchKeywords(session, missing, mode, available));
   }
-  const found = matches.length ? { matches } : {};
+  // Omitted names are described by a later request naming them.
+  const found = { ...(matches.length ? { matches } : {}), ...(omitted.length ? { omitted } : {}) };
   const docs = targets.map((tool) => {
     const document = toolDocument(tool);
     return {

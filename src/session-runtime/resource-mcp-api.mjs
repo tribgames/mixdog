@@ -11,6 +11,9 @@ import { resolveMcpOAuthUrl } from '../runtime/agent/orchestrator/mcp/client-con
 import { withAdoptedCopies, withPinnedCollisionNames, withPluginServerIntent } from './mcp-glue/plugin-servers.mjs';
 import { findRegisteredPlugin } from './resource-plugins-api.mjs';
 import { createMcpOAuthLogins } from './mcp-oauth-login.mjs';
+import { connectorById, gmailAppPasswordAccount, gmailAppPasswordValue } from '../runtime/shared/connector-catalog.mjs';
+import { saveMcpOAuthClientSecret } from '../runtime/agent/orchestrator/mcp/oauth-client.mjs';
+import { forgetGmailAppPassword, saveGmailAppPassword } from '../runtime/connectors/gmail-app-password.mjs';
 
 /** The URL a server's OAuth credentials are stored under, or null. */
 function oauthUrlOf(cfg) {
@@ -83,8 +86,16 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     completeMcpLogin,
     getMcpServerOAuthState = () => null,
     probeMcpServerAuth,
+    startMcpServerOAuthSwitch,
+    commitMcpServerOAuthSwitch,
+    gmailAppPassword = { save: saveGmailAppPassword, forget: forgetGmailAppPassword },
   } = deps;
 
+  const reconnectOne = async (name) => {
+    const status = await connectConfiguredMcp({ only: name, enabled: true });
+    const row = status?.servers?.find((server) => server.name === name);
+    return { connected: row?.connected === true, error: row?.error || null };
+  };
   // Explicit OAuth sign-in: the one interactive MCP connect. On success the
   // other runtimes reconnect the server non-interactively with the new tokens.
   const oauthLogins = createMcpOAuthLogins({
@@ -95,6 +106,22 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     },
     cancel: (name) => cancelMcpLogin(name),
     completeCallback: completeMcpLogin,
+    // 계정 바꾸기, transactionally: the working connection stays until the new
+    // sign-in succeeded and connects; a cancel or failure changes nothing, and
+    // a new sign-in that cannot connect is rolled back.
+    async switchAccount(name, launch, attempt) {
+      const cfg = resolveMcpCatalog().servers[name];
+      const switching = startMcpServerOAuthSwitch(cfg, launch, name);
+      attempt.abort = () => switching.cancel();
+      attempt.answer = (callbackUrl) => switching.answer(callbackUrl);
+      const signIn = await switching.done;
+      const rollback = await commitMcpServerOAuthSwitch(cfg, signIn);
+      const outcome = await reconnectOne(name);
+      if (outcome.connected) return outcome;
+      await rollback();
+      await reconnectOne(name);
+      return { connected: false, error: outcome.error || 'The new sign-in could not connect' };
+    },
     onComplete: (name) => sync.announce('mcp', { detail: { mcpChanges: [{ name, enabled: true }] } }),
   });
   /** The effective config of a server that signs in with MCP OAuth (HTTP/SSE
@@ -130,6 +157,49 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     const owned = name ? pluginMcpServer(name) : null;
     if (owned) throw pluginOwnedError(name, owned.owner);
   };
+  // The user's OAuth client secret (custom connector → 고급 설정 → 비밀값)
+  // goes to the keychain only; clearing the client id forgets it.
+  const storeOAuthClientSecret = async (input, cfg, previous = {}) => {
+    if (!cfg?.url) return;
+    const secret = typeof input.oauthClientSecret === 'string' ? input.oauthClientSecret.trim() : '';
+    if (cfg.oauthClientId && secret) await saveMcpOAuthClientSecret(cfg.url, secret);
+    else if (!cfg.oauthClientId && previous.oauthClientId) await saveMcpOAuthClientSecret(previous.url || cfg.url, '');
+  };
+  // Gmail with an app password (connector-catalog.mjs GMAIL_APP_PASSWORD): the
+  // password is checked with Gmail before anything is saved and goes to the
+  // keychain only. A new connection needs one; an edit without one keeps it.
+  const storeGmailAppPassword = async (input, cfg, required) => {
+    const account = gmailAppPasswordAccount(cfg);
+    if (!account) return;
+    const password = gmailAppPasswordValue(input.appPassword);
+    if (password) await gmailAppPassword.save(account, password);
+    else if (required || input.appPassword !== undefined) {
+      throw new Error('GMAIL_APP_PASSWORD_FORMAT: An app password has 16 characters.');
+    }
+  };
+  // A server's OAuth tokens and client registration go with it, unless another
+  // configured server (plugin or disabled ones included, even with MCP
+  // disabled for this runtime) still uses them through the same exact URL.
+  // `signIn` tells the caller what happened to the sign-in: `removed` (local
+  // secrets deleted, `revoked` when the provider confirmed the revocation
+  // too), `shared` (another server still uses it), or none (null).
+  const releaseOAuth = async (cfg) => {
+    const url = oauthUrlOf(cfg);
+    if (!url) return null;
+    if (Object.values(resolveConfiguredMcpCatalog().servers).some((other) => oauthUrlOf(other) === url)) {
+      return { signIn: 'shared', revoked: false };
+    }
+    const { revoked = false } = (await clearMcpServerOAuth(cfg, { revoke: true })) || {};
+    return { signIn: 'removed', revoked };
+  };
+  // An app password is deleted once no configured server uses its account.
+  const forgetUnusedGmailAppPassword = async (account) => {
+    if (!account) return false;
+    const servers = Object.values(resolveConfiguredMcpCatalog().servers);
+    if (servers.some((cfg) => gmailAppPasswordAccount(cfg) === account)) return false;
+    await gmailAppPassword.forget(account);
+    return true;
+  };
   // Peers reload config from disk on receipt: land the write before publishing.
   const persisted = async () => {
     await flushSkillsSave?.();
@@ -164,11 +234,18 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     async beginMcpOAuthLogin(name, options = {}) {
       const { serverName, cfg } = await oauthServerConfig(name);
       if (cfg.enabled === false) throw new Error(`MCP server is disabled: ${serverName}`);
+      // `mode`: `connect` (a normal authorization), `reauth` (repair the same
+      // connection; a refresh is tried first) or `switch` (계정 바꾸기).
+      if (options?.mode === 'switch' && !getMcpServerOAuthState(cfg)?.signedIn) {
+        throw new Error(`MCP server "${serverName}" is not signed in`);
+      }
       return oauthLogins.begin(serverName, options);
     },
-    /** `{ flowId, state: 'pending' | 'complete' | 'failed' | 'cancelled', error? }` */
-    getMcpOAuthLoginStatus(flowId) {
-      return oauthLogins.status(flowId);
+    /** `{ flowId, state: 'pending' | 'complete' | 'failed' | 'cancelled',
+     *  step?, error?, reason? }`; with `{ since, waitMs }` it resolves on the
+     *  flow's next change (mcp-oauth-login.mjs). */
+    getMcpOAuthLoginStatus(flowId, options) {
+      return oauthLogins.status(flowId, options);
     },
     cancelMcpOAuthLogin(flowId) {
       return oauthLogins.cancel(flowId);
@@ -186,8 +263,9 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       const { serverName, cfg } = await oauthServerConfig(name);
       // A begin issued meanwhile waits until the credentials are gone.
       return oauthLogins.cancelServer(serverName, async () => {
-        await clearMcpServerOAuth(cfg);
-        return sync.reconnectMcpAndAnnounce({ only: serverName, enabled: cfg.enabled !== false });
+        const { revoked = false } = (await clearMcpServerOAuth(cfg, { revoke: true })) || {};
+        const status = await sync.reconnectMcpAndAnnounce({ only: serverName, enabled: cfg.enabled !== false });
+        return { ...status, revoked };
       });
     },
     /** `{ auth: 'oauth' | 'none' | 'configured' | 'unreachable', error? }` for an
@@ -203,10 +281,18 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     },
     async addMcpServer(input = {}) {
       const { name, config: serverConfig } = normalizeMcpServerInput(input);
+      // A catalog connector's server keeps its catalog id (connector-catalog.mjs).
+      const connector = clean(input.connector);
+      if (connector) {
+        if (!connectorById(connector)) throw new Error(`Unknown connector: ${connector}`);
+        serverConfig.connector = connector;
+      }
       const servers = userServers();
       if (Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
       const owned = pluginMcpServer(name);
       if (owned) throw new Error(`MCP server already exists: ${name} (provided by plugin "${owned.owner.id}")`);
+      await storeOAuthClientSecret(input, serverConfig);
+      await storeGmailAppPassword(input, serverConfig, true);
       saveServers({ ...servers, [name]: serverConfig });
       const status = await sync.reconnectMcpAndAnnounce({ only: name, enabled: serverConfig.enabled !== false });
       return { name, status };
@@ -232,7 +318,14 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       }
       if (originalName && originalName !== name) delete servers[originalName];
       servers[name] = mergeMcpServerConfig(existing, normalizedInput.config);
+      await storeOAuthClientSecret(input, servers[name], existing);
+      await storeGmailAppPassword(input, servers[name], false);
       saveServers(servers);
+      const previousAccount = gmailAppPasswordAccount(existing);
+      const account = gmailAppPasswordAccount(servers[name]);
+      if (previousAccount !== account) await forgetUnusedGmailAppPassword(previousAccount);
+      // Gmail switched from the Google sign-in to an app password keeps no sign-in.
+      if (account && !previousAccount) await releaseOAuth(existing);
       const status = await sync.reconnectMcpAndAnnounce({
         only: name,
         enabled: servers[name].enabled !== false,
@@ -252,15 +345,15 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       delete servers[serverName];
       saveServers(servers);
       const status = await sync.reconnectMcpAndAnnounce({ drop: [serverName] });
-      // A removed server keeps no OAuth tokens or client registration, unless
-      // another configured server (plugin or disabled ones included, even
-      // with MCP disabled for this runtime) still uses them through the same
-      // exact URL.
-      const url = oauthUrlOf(removed);
-      if (url && !Object.values(resolveConfiguredMcpCatalog().servers).some((cfg) => oauthUrlOf(cfg) === url)) {
-        await clearMcpServerOAuth(removed);
+      // A removed server keeps no sign-in another server does not share: an
+      // app password leaves the keychain (it is revoked at Google only).
+      const account = gmailAppPasswordAccount(removed);
+      if (account) {
+        const forgotten = await forgetUnusedGmailAppPassword(account);
+        return { ...status, signIn: forgotten ? 'removed' : 'shared', revoked: false };
       }
-      return status;
+      const released = await releaseOAuth(removed);
+      return released ? { ...status, ...released } : status;
     },
     async setMcpServerEnabled(name, enabled) {
       const serverName = clean(name);

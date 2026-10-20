@@ -22,8 +22,9 @@ import { ROUTE_TOOL_ORDER } from '../../runtime-core/tool-catalog-data.mjs';
 // the sort overhead on ~30 tools is negligible.
 function _getMcpTools(mcpScopeId = null, cwd = null) {
   // Project scope: servers limited to other project roots stay connected
-  // but leave this session's schema (session-runtime/extension-scopes).
-  const mcp = filterMcpToolsForSession(getMcpTools(mcpScopeId) || [], cwd);
+  // but leave this session's schema (session-runtime/extension-scopes). An
+  // agent's connectors apply at dispatch, never here.
+  const mcp = filterMcpToolsForSession(getMcpTools(mcpScopeId) || [], cwd, null);
   // `public:false` tools stay registered in internal-tools for runtime
   // rewrites/dispatch, but must never enter any model-visible schema (Lead
   // full/mcp included). Filter before mapping because the projection below

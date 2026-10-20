@@ -5,6 +5,9 @@
  */
 import { readServicePort } from '../../../shared/service-discovery.mjs';
 import { createMcpOAuth } from './oauth.mjs';
+import { mcpOAuthClientFor } from './oauth-client.mjs';
+import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
+import { gmailAppPasswordService, withGmailAppPasswordMcp } from '../../../connectors/gmail-app-password.mjs';
 import {
   AUTO_DETECT_PORTS,
   expandEnvVars,
@@ -138,12 +141,18 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
       : createMcpOAuth({
           url,
           serverName: name,
+          oauthClient: mcpOAuthClientFor(cfg, url),
           ...oauthOptions,
+          // A built-in Google connector is answered in-process.
+          ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp(oauthOptions?.fetchImpl) } : {}),
           // SSE advertises its POST endpoint on the authenticated event stream.
           // No other path on the origin is allowed to receive this server's token.
           isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
         });
-    transport = new Transport(new URL(url), oauth ? { fetch: oauth.fetch } : opts);
+    // Gmail with an app password is answered in-process too (its account
+    // header is the configured authentication; the password is in the keychain).
+    const local = !oauth && gmailAppPasswordService(url) ? { ...opts, fetch: withGmailAppPasswordMcp() } : opts;
+    transport = new Transport(new URL(url), oauth ? { fetch: oauth.fetch } : local);
     if (oauth) {
       transport.oauth = oauth;
       const close = transport.close.bind(transport);
