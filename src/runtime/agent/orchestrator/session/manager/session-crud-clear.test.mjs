@@ -107,6 +107,55 @@ test('a clear that carries a compact summary forward keeps it and does not fork'
   assert.equal(storedSessions().length, before + 1, 'no fork for a summary-only transcript');
 });
 
+test('archiveAs keeps the outgoing transcript under that id, durable before the wipe', async () => {
+  const id = 'sess_home_github-watcher';
+  const archiveAs = `sess_${process.pid}_${Date.now()}_archive`;
+  const transcript = [
+    { role: 'system', content: 'memory layer' },
+    { role: 'user', content: 'watch the repo' },
+    { role: 'assistant', content: 'on it' },
+  ];
+  await plantSession(id, transcript);
+  const cleared = await clearSessionMessages(id, { archiveAs, compact: true });
+  assert.equal(cleared.id, id, 'the home keeps its fixed id');
+  assert.deepEqual(cleared.messages, [{ role: 'system', content: 'memory layer' }]);
+  const archived = storedSessions().find((s) => s.id === archiveAs);
+  assert.ok(archived, 'the copy is on disk when the clear returns');
+  assert.deepEqual(
+    archived.messages.map((m) => m.content),
+    transcript.map((m) => m.content),
+    'the whole transcript, never compacted first'
+  );
+  // The id must be fresh: an existing session, a home id or junk refuses.
+  await plantSession(id, transcript);
+  for (const bad of [archiveAs, 'sess_home_lead', '../x', id]) {
+    await assert.rejects(clearSessionMessages(id, { archiveAs: bad }), /archiveAs|already exists/);
+  }
+  assert.equal(storedSessions().find((s) => s.id === id).messages.length, 3, 'a refused clear wipes nothing');
+});
+
+test('fork: false clears without a copy; an archiveAs clear still keeps one', async () => {
+  const id = `sess_clear_nofork_${process.pid}_${Date.now()}`;
+  const before = storedSessions().length;
+  await plantSession(id, [
+    { role: 'system', content: 'memory layer' },
+    { role: 'user', content: 'room turn' },
+    { role: 'assistant', content: 'said' },
+  ]);
+  const cleared = await clearSessionMessages(id, { fork: false });
+  assert.deepEqual(cleared.messages, [{ role: 'system', content: 'memory layer' }]);
+  drainSessionStore();
+  assert.equal(storedSessions().length, before + 1, 'no fork beside the cleared session');
+
+  await plantSession(id, [{ role: 'user', content: 'again' }]);
+  const archiveAs = `sess_${process.pid}_${Date.now()}_nofork_archive`;
+  await clearSessionMessages(id, { fork: false, archiveAs });
+  assert.ok(
+    storedSessions().find((s) => s.id === archiveAs),
+    'archiveAs wins over fork: false'
+  );
+});
+
 test('clear refuses unknown and closed sessions', async () => {
   assert.equal(await clearSessionMessages('sess_clear_missing'), false);
   const id = `sess_clear_closed_${process.pid}_${Date.now()}`;

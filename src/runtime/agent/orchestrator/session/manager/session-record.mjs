@@ -70,6 +70,20 @@ export function sessionOriginFields(opts, { profile, presetObj, providerCacheOpt
     // scheduler/daily-standup, webhook/github-push, lead/worker.
     sourceType: opts.sourceType || null,
     sourceName: opts.sourceName || null,
+    // The agent a schedule/webhook run acts for: whose memory it may write
+    // (session-runtime/services/memory-access.mjs). Absent on other sessions.
+    ...(opts.ownerAgentId ? { ownerAgentId: String(opts.ownerAgentId) } : {}),
+    // A coding task session an agent created (session create): who asked, from
+    // which thread, the request, and the title it was given.
+    ...(opts.taskOrigin
+      ? {
+          taskOrigin: opts.taskOrigin,
+          title: opts.taskOrigin.title,
+          titleLocked: true,
+          titleSource: 'ai',
+          titleUpdatedAt: Date.now(),
+        }
+      : {}),
     // Provider-scoped unified cache key — one shard per provider,
     // shared across all roles / sources (agent/maintenance/mcp/
     // scheduler/webhook). Role or source-specific context must be
@@ -137,6 +151,8 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     selectedContextWindow: opts.selectedContextWindow || null,
     agent: opts.agent,
     owner: opts.owner || 'user',
+    // 'agent' | 'coding' (session/agent-mode.mjs), resolved at creation.
+    sessionMode: opts.sessionMode,
     bp3CoreContext: prompt.sessionMarkerCore,
     promptIdentity: prompt.promptIdentity,
     callerDisallowedTools: [...(opts.callerDisallowedTools ?? opts.disallowedTools ?? [])],

@@ -107,6 +107,9 @@ export function sessionRemoteMethods(
     },
     setSessionArchived: ([sessionId, archived]) => sidebar.setSessionArchived(sessionId, archived),
     openAgentHome: ([agentId]) => host.openAgentHome(requiredString(agentId, 'agentId', 200)),
+    resetAgentHome: ([agentId]) => host.resetAgentHome(requiredString(agentId, 'agentId', 200)),
+    agentRoomAction: ([action, args]) =>
+      host.agentRoomAction(requiredString(action, 'action', 32), Array.isArray(args) ? args : []),
     setSessionFavorite: ([sessionId, favorite]) => sidebar.setSessionFavorite(sessionId, favorite),
     setSessionProject: ([sessionId, projectPath]) => sidebar.setSessionProject(sessionId, projectPath),
     deleteSession: async ([sessionId]) => {
@@ -154,6 +157,12 @@ export function sessionRemoteMethods(
         ...requiredToolApprovalDecision(decision),
         device: await connectionDevice(),
       }),
+    // Per-agent push mute (profile panel, contact menu on a paired phone).
+    getAgentNotificationMute: ([agentId]) => host.getAgentNotificationMute(requiredString(agentId, 'agent id', 200)),
+    setAgentNotificationMute: ([agentId, muted]) => {
+      if (typeof muted !== 'boolean') throw new TypeError('muted must be a boolean.');
+      return host.setAgentNotificationMute(requiredString(agentId, 'agent id', 200), muted);
+    },
     inheritSession: ([sourceSessionId, selection, options]) =>
       host.inheritSession(
         requiredSessionId(sourceSessionId),

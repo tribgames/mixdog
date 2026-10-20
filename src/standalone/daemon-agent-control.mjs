@@ -8,8 +8,6 @@
 // this control exists — the host takes `execute` as a constructor option), and
 // `cwd`. Output: { canonicalAgentTool, execute }.
 
-import { deliverAutomationCompletion } from '../session-runtime/automation-agents.mjs';
-
 export function createCanonicalAgentControl({ getSessionService, getSessionRuntimeHost, cwd }) {
   let canonicalAgentToolPromise = null;
 
@@ -34,12 +32,7 @@ export function createCanonicalAgentControl({ getSessionService, getSessionRunti
           isKeychainPrewarmReady: () => true,
           sessionSurface: sessionService.agentSurface,
           notifySessionCompletion(ownerSessionId, text, meta = {}) {
-            // A schedule/webhook run owns no session runtime; its own
-            // agent-result waiter takes the completions it is owed.
-            return (
-              getSessionRuntimeHost()?.notifySessionCompletion?.(ownerSessionId, text, meta) === true ||
-              deliverAutomationCompletion(ownerSessionId, text, meta)
-            );
+            return getSessionRuntimeHost()?.notifySessionCompletion?.(ownerSessionId, text, meta) === true;
           },
         });
       })

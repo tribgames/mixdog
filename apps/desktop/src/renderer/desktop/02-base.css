@@ -239,7 +239,6 @@ html[data-mx-input="pointer"] .composer-tool:focus-visible:not(:hover) {
 }
 /* Dialog titles tighten 15px headings to -0.13px. */
 .settings-confirm-dialog > header h3,
-.approval-heading b,
 .settings-group > header h3 {
   letter-spacing: var(--mx-tracking-tight);
 }

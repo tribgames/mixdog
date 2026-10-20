@@ -28,6 +28,7 @@ import { mintSessionId } from './session-id.mjs';
 import { hideCompactionArchive } from '../compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
+import { isAgentHomeSessionId } from '../agent-home.mjs';
 
 /** Force-flush session metrics to disk. */
 export async function flushSessionMetrics(sessionId) {
@@ -207,9 +208,12 @@ function clearTokenAccounting(session, messages, keep, beforeMessageTokens) {
 // Fork the outgoing transcript to a separate resumable session BEFORE the wipe,
 // so the conversation about to be discarded stays reachable via /resume under a
 // fresh id. Best-effort: any failure here must never block the clear itself.
-function forkOutgoingTranscript(session, messages, now) {
+// `archiveAs` names the fork (an agent home's "대화 새로 시작": the host
+// archives that id before the clear) and makes it durable first: the returned
+// promise settles once the copy is on disk, and the wipe waits on it.
+function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
   try {
-    const forkId = mintSessionId();
+    const forkId = archiveAs || mintSessionId();
     const fork = {
       ...session,
       id: forkId,
@@ -234,6 +238,15 @@ function forkOutgoingTranscript(session, messages, now) {
       delete fork.compaction.archive;
     }
     setLiveSession(fork);
+    if (archiveAs) {
+      return saveSessionAsync(fork).then(
+        () => evictLiveSession(forkId),
+        (err) => {
+          evictLiveSession(forkId);
+          throw err;
+        }
+      );
+    }
     void saveSessionAsync(fork)
       .then(() => {
         // The fork is a cold snapshot kept for /resume. Once durable on
@@ -247,8 +260,22 @@ function forkOutgoingTranscript(session, messages, now) {
         writeStderrBestEffort(`[session] clear-fork save failed (sess=${forkId}): ${err?.message || err}\n`);
       });
   } catch (err) {
+    if (archiveAs) throw err;
     writeStderrBestEffort(`[session] clear-fork failed (sess=${session.id}): ${err?.message || err}\n`);
   }
+}
+
+const ARCHIVE_ID = /^sess_[A-Za-z0-9_-]{8,200}$/;
+
+/** The fork id a clear was asked to archive under, '' when none. */
+function clearArchiveId(value, sessionId) {
+  if (value === undefined || value === null || value === '') return '';
+  const id = String(value);
+  if (!ARCHIVE_ID.test(id) || id === sessionId || isAgentHomeSessionId(id)) {
+    throw new Error('clear: archiveAs must be a fresh session id');
+  }
+  if (loadSession(id)) throw new Error(`clear: session ${id} already exists`);
+  return id;
 }
 
 export async function clearSessionMessages(sessionId, options = {}) {
@@ -257,7 +284,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
   // Don't resurrect a closed session just to clear its messages.
   if (session.closed === true) return false;
   const clearOptions = options && typeof options === 'object' ? options : {};
-  const compact = clearOptions.compact === true;
+  const archiveAs = clearArchiveId(clearOptions.archiveAs, sessionId);
+  // An archived reset keeps the whole transcript: never compacted first.
+  const compact = clearOptions.compact === true && !archiveAs;
   const currentMessages = Array.isArray(session.messages) ? session.messages : [];
   const beforeMessageTokens = estimateMessagesTokens(currentMessages);
   const { messages, clearCompactError } = compact
@@ -275,8 +304,14 @@ export async function clearSessionMessages(sessionId, options = {}) {
   // content the live session retains via the summary, so the fork duplicated
   // it as a confusing extra Recent row ("Re-attached after compaction…" —
   // user report). Plain /clear (no summary kept) still forks.
+  // `fork: false` (a room member's reset: the room's own log keeps the
+  // conversation) skips the copy; an `archiveAs` clear always keeps one.
   const summaryCarriedForward = keep.some(isCompactSummaryMessage);
-  if (hasUserConversationMessage(messages) && !summaryCarriedForward) forkOutgoingTranscript(session, messages, now);
+  const keepCopy = clearOptions.fork !== false || Boolean(archiveAs);
+  if (keepCopy && hasUserConversationMessage(messages) && !summaryCarriedForward) {
+    const fork = forkOutgoingTranscript(session, messages, now, archiveAs);
+    if (archiveAs) await fork;
+  }
 
   session.messages = keep;
   // Clear truncates the transcript wholesale; drop the provider prefix

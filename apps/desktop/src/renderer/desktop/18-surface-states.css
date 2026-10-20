@@ -132,6 +132,14 @@
   min-height: 28px;
   padding: 0 12px;
 }
+/* A deleted bot's chat: this line stands where the composer was. */
+.conversation-deleted-notice {
+  margin: 0;
+  padding: 14px 16px 18px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  text-align: center;
+}
 /* Navigation progress is delayed globally: warm/short switches stay visually
    silent, while a genuinely slow cold load still gains a bounded indicator.
    Only the cold-boot window cover opts out: it owns the window from the first

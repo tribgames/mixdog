@@ -19,6 +19,18 @@ Lead executes all work directly and never delegates on its own judgment.
 Only when the user explicitly asks for delegation, load the deferred \`agent\`
 tool and brief each agent as the Lead rules describe.`;
 
+/** Agent mode's fixed delegation block, in place of the orchestration mode. */
+export const AGENT_MODE_DELEGATION = `# Delegation
+
+Handle conversation yourself. Delegate specialised work to sub-agents. Hand
+substantial coding to a new coding-mode task session (\`session create\`) with
+a self-contained brief: start it when already requested, otherwise suggest it. Then relay the
+result in your own words.`;
+
+/** Mixy only: it also routes requests to the user's contact agents. */
+export const MIXY_CONTACTS_INTRO = `You also coordinate the user's contact agents: route a request to the
+contact best suited for it with the same kind of brief.`;
+
 export function orchestrationInstructions(value) {
   const mode = normalizeOrchestrationMode(value);
   if (mode === 'none') return SOLO;

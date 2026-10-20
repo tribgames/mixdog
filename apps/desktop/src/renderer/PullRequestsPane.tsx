@@ -2,7 +2,7 @@
 // for the dock, with the metadata and tab hierarchy in the editor.
 // Data and actions are backed by the gh CLI IPC chain.
 
-import { GitPullRequestArrow, Github, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopPullRequestEntry } from '../shared/contract';
@@ -340,7 +340,6 @@ export function PullRequestsPane({
               )}
               {categories === null && readError && (
                 <div className="dock-pr-empty" role="status">
-                  <Github size={24} aria-hidden="true" />
                   <b>{t('Pull requests are temporarily unavailable')}</b>
                   <span>{t('Refresh when the project is ready.')}</span>
                 </div>
@@ -352,7 +351,6 @@ export function PullRequestsPane({
               )}
               {pullRequestViews && visiblePullRequests.length === 0 && (
                 <div className="dock-pr-empty" role="status">
-                  <GitPullRequestArrow size={24} aria-hidden="true" />
                   <b>{emptyTitle}</b>
                   <span>{emptyMessage}</span>
                   {!filter && listView === 'open' && !onDefaultBranch && currentBranch && api?.ghPrCreate && (

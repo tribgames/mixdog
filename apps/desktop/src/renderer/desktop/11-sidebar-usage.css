@@ -586,6 +586,11 @@
   height: 16px;
   color: var(--mx-icon-muted);
 }
+/* A deleted bot's archived chat leads with the face the bot left. */
+.session-row-bot-face {
+  width: 16px;
+  height: 16px;
+}
 .session-row-fork-icon[data-fork="root"] {
   color: var(--mx-text-accent);
 }

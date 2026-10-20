@@ -19,9 +19,9 @@ test('standing memory lists curated records by scope, page and activity', async 
   const sqlite = new DatabaseSync(':memory:');
   try {
     sqlite.exec(`
-      CREATE TABLE core_entries (id INTEGER, project_id TEXT, element TEXT, summary TEXT, status TEXT);
+      CREATE TABLE core_entries (id INTEGER, project_id TEXT, element TEXT, summary TEXT, status TEXT, agent_id TEXT);
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-      INSERT INTO core_entries VALUES
+      INSERT INTO core_entries(id, project_id, element, summary, status) VALUES
         (1, 'mixdog', 'Archived', 'Old rule', 'archived'),
         (2, NULL, 'Common', 'Common preference', NULL),
         (3, 'mixdog', 'Active', 'Project preference', 'active'),

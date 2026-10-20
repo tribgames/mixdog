@@ -86,11 +86,11 @@ test('cold lists expose a neutral pending state on their very first render', asy
     import('./sidebar-reference-cache.ts'),
   ]);
   const cases = [
-    [ProjectsPane, { projects: [], projectsReady: false, selectedProjectPath: '' }, /No projects yet/],
-    [SchedulesPane, {}, /No scheduled tasks yet/],
+    [ProjectsPane, { projects: [], projectsReady: false, selectedProjectPath: '' }, /No projects\./],
+    [SchedulesPane, {}, /No schedules\./],
     [WebhooksPane, {}, /No webhooks/],
     [WorkflowsPane, {}, /No workflows/],
-    [AgentActivityPane, { sessions: [], sessionsReady: false }, /Loading activity|No agents are running/],
+    [AgentActivityPane, { sessions: [], sessionsReady: false }, /Loading activity|No bots\./],
     [SessionDiffPane, { sessionId: 'cold-diff' }, /No changes from this session|0 files changed|Loading session diff/],
     [
       SessionSidebar,
@@ -102,7 +102,7 @@ test('cold lists expose a neutral pending state on their very first render', asy
         onNewTask() {},
         onResumeSession() {},
       },
-      /Loading sessions|No sessions/,
+      /Loading sessions|No sessions\./,
     ],
     [
       SourceControlDock,
@@ -253,7 +253,7 @@ test('Projects distinguishes an unknown catalog from a confirmed empty result an
   await view.render(React.createElement(ProjectsPane, props));
   assert.ok(view.host.querySelector('[aria-busy="true"]'));
   await view.render(React.createElement(ProjectsPane, { ...props, projectsReady: true }));
-  assert.match(view.host.textContent, /No projects yet/);
+  assert.match(view.host.textContent, /No projects\./);
   await view.render(
     React.createElement(ProjectsPane, {
       ...props,
@@ -304,7 +304,10 @@ test('agent data arriving before the session catalog cannot announce no running 
   assert.ok(view.host.querySelector('[aria-busy="true"]'));
   assert.doesNotMatch(view.host.textContent, /No agents/);
   await view.render(React.createElement(AgentActivityPane, { ...props, sessionsReady: true }));
-  assert.match(view.host.textContent, /No agents are running/);
+  // Ready and idle: Mixy is listed and the work section shows nothing.
+  assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
+  assert.match(view.host.textContent, /Mixy/);
+  assert.doesNotMatch(view.host.textContent, /No agents/);
 });
 
 test('orchestration selector inherits its mode and stages all four choices without changing workflow', async (t) => {

@@ -237,6 +237,23 @@ export function createSessionService({
     return stopPromise;
   }
 
+  /** Whether the runtime hosting `sessionId` is mid-turn or holds queued input. */
+  function liveSessionBusy(sessionId) {
+    const owner = projection.sessionOwner(sessionId);
+    return Boolean(owner) && retention.stateBusy(owner.runtime?.getState?.());
+  }
+
+  /** Show a transcript notice in the hosted runtime of `sessionId` (no turn)
+   *  and publish it to its views; false when no runtime hosts it. */
+  function pushLiveSessionNotice(sessionId, { text, tone = 'info', ...options } = {}) {
+    const owner = projection.sessionOwner(sessionId);
+    if (typeof owner?.runtime?.pushNotice !== 'function') return false;
+    owner.runtime.pushNotice(text, tone, { ...options, transcript: true });
+    const step = projection.advance(owner);
+    if (step.changed) projection.publishStep(owner, step);
+    return true;
+  }
+
   function getStatus() {
     const busy = retention.liveBusyCount();
     let watched = 0;
@@ -282,6 +299,8 @@ export function createSessionService({
     },
     methods: {
       ...calls,
+      liveSessionBusy,
+      pushLiveSessionNotice,
       stop,
       startQuotaResume: () => quotaResume?.start(),
       runDueQuotaResumes: () => quotaResume?.tick() ?? Promise.resolve(),

@@ -12,10 +12,11 @@ const { createSessionTurnCalls } = await import('./session-turns.mjs');
 
 const b64 = (text) => Buffer.from(text).toString('base64');
 
-function harness() {
+function harness(session = null) {
   const submitted = [];
   const runtime = {
     provider: 'anthropic',
+    session,
     submitAsync: async (prompt, options) => {
       submitted.push({ prompt, options });
       return true;
@@ -71,6 +72,23 @@ test('a desktop send and a paired-device send both record their attachments in t
     submitted[0].options.transcriptMeta.attachments.map((entry) => entry.id),
     submitted[1].options.transcriptMeta.attachments.map((entry) => entry.id)
   );
+});
+
+test('a bot room runs only /compact and /clear: any other leading slash is message text', async () => {
+  const { calls, submitted } = harness({ id: 'sess_home_gh', sessionMode: 'agent' });
+  for (const prompt of ['/model gpt-5', '/new', '/Users/example/python-learn 봐줘', '/compact', ' /CLEAR now']) {
+    await calls.submitSession({ sessionId: 'sess_home_gh', prompt, options: {} });
+  }
+  assert.deepEqual(
+    submitted.map(({ options }) => options.skipSlashCommands === true),
+    [true, true, true, false, false]
+  );
+});
+
+test('a coding session leaves the slash decision to the queue', async () => {
+  const { calls, submitted } = harness({ id: 's1', sessionMode: 'coding' });
+  await calls.submitSession({ sessionId: 's1', prompt: '/model gpt-5', options: {} });
+  assert.equal('skipSlashCommands' in submitted[0].options, false);
 });
 
 test('a prompt without attachments adds no attachment metadata', async () => {

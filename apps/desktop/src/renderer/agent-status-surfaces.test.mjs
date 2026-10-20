@@ -17,6 +17,7 @@ const [
   { resetDismissedShellJobsCache },
   { quietCueText },
   { LiveActivity },
+  { publishAgentModeSessions },
 ] = await Promise.all([
   import('../shared/agent-activity.ts'),
   import('./agent-row-meta.ts'),
@@ -28,7 +29,16 @@ const [
   import('./background-jobs-dismissed-store.ts'),
   import('./quiet-cue.tsx'),
   import('./transcript-status.tsx'),
+  import('./agent-chat-mode.ts'),
 ]);
+
+// The Agents pane lists agent-mode chats only (AgentActivityPane `visibleGroups`
+// filters on isAgentChatSession; an ordinary coding session's work stays with
+// that session), so the owner session of these pool rows is published as one.
+function publishAgentModeOwner(t, id) {
+  publishAgentModeSessions([{ id, sessionMode: 'agent' }]);
+  t.after(() => publishAgentModeSessions([]));
+}
 
 const NOW = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
@@ -109,6 +119,7 @@ test('a failed or watchdog-stopped agent is failed with its reason, never a comp
 });
 
 test('the Agents pane shows the failure with its reason, and Clear finished removes settled rows only', async (t) => {
+  publishAgentModeOwner(t, 'lead-a');
   const { root, document, window, publishPool } = mount(t);
   const sessions = [{ id: 'lead-a', title: 'Lead A', preview: '', updatedAt: 1, messageCount: 1 }];
   await act(async () => root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
@@ -176,6 +187,7 @@ test('the composer island counts failures, and Clear finished leaves only work t
 });
 
 test('agent rows show no quiet or wait-reason line, however long a running agent is quiet', async (t) => {
+  publishAgentModeOwner(t, 'lead-a');
   const { root, document, window, publishPool } = mount(t);
   const sessions = [{ id: 'lead-a', title: 'Lead A', preview: '', updatedAt: 1, messageCount: 1 }];
   await act(async () => root.render(React.createElement(AgentActivityPane, { active: false, sessions })));

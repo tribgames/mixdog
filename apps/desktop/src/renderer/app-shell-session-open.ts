@@ -13,7 +13,7 @@ interface SessionOpenProps {
   sessions: DesktopSessionSummary[];
   tabs: WorkspaceTab[];
   finishPendingConversationHandoff: () => void;
-  activateSelection: (selection: NavigationSelection, title: string) => void;
+  activateSelection: (selection: NavigationSelection, title: string, replaceKey?: string) => void;
   /** Shows the session's tab in the focused strip ahead of the transition. */
   announceOpen: (selection: NavigationSelection) => void;
 }
@@ -28,7 +28,8 @@ export function useAppSessionOpen({
   activateSelection,
   announceOpen,
 }: SessionOpenProps) {
-  const openSession = async (sessionId: string, _force = false, fallbackTitle = ''): Promise<void> => {
+  /** `replaceKey`: the tab the session takes the place of (an untouched draft). */
+  const openSession = async (sessionId: string, _force = false, fallbackTitle = '', replaceKey = ''): Promise<void> => {
     const navigationToken = ++navigationEpoch.current;
     closeSidebarForNavigation();
     setRequestedSessionId(sessionId);
@@ -64,11 +65,13 @@ export function useAppSessionOpen({
     // under that pane's first long tasks). Rendering the incoming pane
     // (transcript, dock) is a transition, so it yields to input and the
     // outgoing pane stays on screen, whole, until the new one commits.
-    announceOpen(selection);
+    // A replacing open swaps the tab in place; announcing would add a second.
+    if (!replaceKey) announceOpen(selection);
     startTransition(() =>
       activateSelection(
         selection,
-        pinnedTitle || (session ? sessionSummaryTitle(session, t('Untitled session')) : t('Untitled session'))
+        pinnedTitle || (session ? sessionSummaryTitle(session, t('Untitled session')) : t('Untitled session')),
+        replaceKey
       )
     );
   };

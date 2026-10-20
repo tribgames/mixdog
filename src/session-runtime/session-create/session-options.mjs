@@ -8,6 +8,8 @@ import { STANDALONE_ROOT, pluginDataDir } from '../runtime-paths.mjs';
 import { readAgentFrontmatterPermission } from '../services/agent-tool/helpers.mjs';
 import { LEAD_DISALLOWED_TOOLS } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { HEADLESS_TOOL_PROFILE } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { MIXY_AGENT_ID } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 
 // Ownership and permission fields an agent-owned session inherits from its profile.
 function agentOwnedSessionFields(sessionProfile) {
@@ -32,18 +34,30 @@ export function sessionOptions(deps, coreMemoryContext) {
   // Load the active WORKFLOW.md pack once for both summary + context block.
   const {
     summary: workflow,
-    context: leadWorkflowContext,
+    leadPromptParts,
     packContext,
     orchestrationMode,
   } = activeWorkflowContext(rt.config, dataDir);
   const sessionProfile = rt.sessionProfile && typeof rt.sessionProfile === 'object' ? rt.sessionProfile : null;
   const agentOwned = sessionProfile?.owner === 'agent' || sessionProfile?.visibility === 'agent-only';
+  // Agent or coding mode, from the one resolver (agent-mode.mjs).
+  const { mode: sessionMode, agentId: actingAgent } = resolveSessionMode({
+    sessionId: rt.reservedSessionId,
+    profile: sessionProfile,
+  });
   // An agent's home thread: a user conversation that runs AS that agent (its
   // AGENT.md role and permission); route comes with the create call.
   const homeAgent = agentOwned ? '' : clean(sessionProfile?.homeAgent);
   const homePermission = homeAgent ? readAgentFrontmatterPermission(homeAgent, dataDir, STANDALONE_ROOT) : null;
-  // Agent-owned sessions keep the Active Workflow block only.
-  const workflowContext = agentOwned ? packContext : leadWorkflowContext;
+  // A coding task session an agent created (session create): the user's own
+  // Lead, tagged with its origin; `sourceName` lets the Agents list file it.
+  const taskOrigin = agentOwned ? null : sessionProfile?.taskOrigin || null;
+  // Every session leads BP3 with the Active Workflow block; a Lead adds its
+  // orchestration and catalog slices (coding, agent mode or Mixy's).
+  const workflowContext = packContext;
+  const leadWorkflowParts = agentOwned
+    ? undefined
+    : leadPromptParts({ agentMode: sessionMode === AGENT_MODE, mixy: actingAgent === MIXY_AGENT_ID });
   const callerDisallowedTools = [
     ...(agentOwned ? [] : LEAD_DISALLOWED_TOOLS),
     ...(!agentOwned && rt.disallowDelegation ? ['agent'] : []),
@@ -66,7 +80,12 @@ export function sessionOptions(deps, coreMemoryContext) {
       : rt.toolProfile === HEADLESS_TOOL_PROFILE
         ? 'exec'
         : 'lead',
-    sourceName: agentOwned ? sessionProfile?.sourceName || sessionProfile?.agent || 'agent' : 'main',
+    sourceName: agentOwned
+      ? sessionProfile?.sourceName || sessionProfile?.agent || 'agent'
+      : taskOrigin
+        ? `agent:${taskOrigin.agentId}`
+        : 'main',
+    ...(taskOrigin ? { taskOrigin } : {}),
     ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
     clientHostPid: sessionProfile?.clientHostPid || process.pid,
     mcpScopeId: rt.mcpScopeId,
@@ -77,6 +96,8 @@ export function sessionOptions(deps, coreMemoryContext) {
     coreMemoryContext,
     workflow,
     workflowContext,
+    ...(leadWorkflowParts ? { leadWorkflowParts } : {}),
+    sessionMode,
     orchestrationMode,
     fast: rt.route.fast === true,
     autoEffort: rt.route.autoEffort !== false,

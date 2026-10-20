@@ -58,8 +58,10 @@ export function createSpawnPreparer({
   ensureProvider,
   sessionSurface = null,
   refreshTagsFromSessions,
+  mgr = null,
 }) {
   const { resolveSpawnPlan, spawnSessionSpec } = createSpawnPlanner({
+    mgr,
     cfgMod,
     dataDir,
     STANDALONE_SOURCE_ROOT,

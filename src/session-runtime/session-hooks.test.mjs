@@ -23,12 +23,12 @@ function attach() {
   return { session, dispatched, beforeCalls };
 }
 
-test('session hook bridges stay non-enumerable and carry the standard payload', () => {
+test('session hook bridges stay non-enumerable and carry the standard payload', async () => {
   const { session, dispatched, beforeCalls } = attach();
   assert.deepEqual(Object.keys(session), ['id']);
 
   assert.equal(
-    session.beforeToolHook({ name: 'read', args: { a: 1 }, toolCallId: 'call-1' }, { blocking: true }),
+    await session.beforeToolHook({ name: 'read', args: { a: 1 }, toolCallId: 'call-1' }, { blocking: true }),
     'before'
   );
   assert.deepEqual(beforeCalls, [

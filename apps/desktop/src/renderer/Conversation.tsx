@@ -1,4 +1,8 @@
 import { useRef } from 'react';
+import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { useAgentChatSession, useDeletedBotSession } from './agent-chat-mode';
+import { t } from './i18n';
+import { AgentChatIntro } from './agent-chat-header';
 import { conversationKeyDownCapture } from './conversation-support';
 import { ConversationTranscript } from './conversation-pane-transcript';
 import { useConversationPaintHandoff } from './conversation-pane-paint-handoff';
@@ -26,7 +30,7 @@ export function Conversation(props: ConversationProps) {
     draftMode = false,
     draftId = '',
     renderAssistantRow,
-    readOnly = false,
+    readOnly: readOnlyView = false,
     reviewActive = true,
     warmPaintHandoff = false,
     transcriptPending = false,
@@ -36,6 +40,10 @@ export function Conversation(props: ConversationProps) {
   // Every effect below runs in the order its hook is called here: viewport,
   // approvals, paint handoff, prompt release (submission), timeline, quota.
   const routeSessionId = String(routeSnapshot.sessionId || '');
+  const agentMode = useAgentChatSession(draftMode ? '' : routeSessionId);
+  // A deleted bot's chat stays to read: no composer, cards or retries.
+  const botDeleted = useDeletedBotSession(draftMode ? '' : routeSessionId);
+  const readOnly = readOnlyView || botDeleted;
   const transcriptSessionKey = draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task');
   const view = useConversationViewport({ transcriptSessionKey, transcriptPending });
   // Pane-local session runtime addressing: abort and tool approvals always target the
@@ -74,6 +82,9 @@ export function Conversation(props: ConversationProps) {
     snapshot,
     pendingItems,
     optimisticActivityStartedAt,
+    // A group room's band holds only the approval card its member waits on
+    // (use-conversation-row-renderer.ts); its typing bubble is a room row.
+    liveBand: !roomIdOfSession(routeSessionId) || Boolean(!readOnly && approvals.approvalCard),
     onEntryRevealed,
     onTranscriptHiddenChange,
   });
@@ -89,6 +100,8 @@ export function Conversation(props: ConversationProps) {
     optimisticActivityStartedAt,
     submit: actions.composerSubmit,
     questionCard: readOnly ? null : approvals.questionCard,
+    approvalCard: readOnly ? null : approvals.approvalCard,
+    agentMode,
   });
   const links = useConversationLinkSurfaces(props, {
     // Per-turn changed-files cards. A read-only view mounts none: their
@@ -114,6 +127,7 @@ export function Conversation(props: ConversationProps) {
     <section
       className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
       ref={view.conversation}
+      data-chat-mode={agentMode ? 'agent' : undefined}
       data-transcript-entering={timeline.transcriptRevealed ? undefined : 'true'}
       onKeyDownCapture={(event) =>
         conversationKeyDownCapture(event, {
@@ -142,6 +156,7 @@ export function Conversation(props: ConversationProps) {
         renderRow={renderTranscriptRow}
         itemCount={itemCount}
         cover={props.transcriptCover}
+        intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
       />
       {/* The dock is the column's in-flow sibling below the viewport: its
           height changes resize the viewport, never the virtual geometry. */}
@@ -150,6 +165,7 @@ export function Conversation(props: ConversationProps) {
           {...props}
           draftMode={draftMode}
           draftId={draftId}
+          agentMode={agentMode}
           reviewActive={reviewActive}
           dropTargetRef={view.conversation}
           routeProject={routeProject}
@@ -160,6 +176,11 @@ export function Conversation(props: ConversationProps) {
           recoveryScope={source.transcriptIdentity.current}
           hasConversation={itemCount > 0 || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0)}
         />
+      )}
+      {botDeleted && (
+        <p className="conversation-deleted-notice" role="status">
+          {t('This bot was deleted.')}
+        </p>
       )}
     </section>
   );

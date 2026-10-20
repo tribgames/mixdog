@@ -10,6 +10,8 @@ import { paneDropDirection, paneDropPosition } from './pane-drop-zone';
 import { createNewTaskPaneLeaf, type PaneWorkspaceState } from './pane-workspace-storage';
 import { usePaneWorkspaceState } from './use-pane-workspace-restore';
 import { navigationKey } from './text-format';
+import { isAgentChatSession } from './agent-chat-mode';
+import { isMobileRemoteSurface } from './mobile-surface';
 import {
   activateTabInPaneLeaf,
   canSplitPaneSize,
@@ -103,8 +105,26 @@ function openInFocusedState(
       }
     }
   }
-  const layout = openTabInPaneLeaf(prev.layout, prev.focusedLeafId, selection, replaceKey, options);
+  // On the phone agent mode opens no tabs (agent-chat-mode.ts): a pane shows
+  // one agent chat at a time, so picking another agent or room takes the
+  // place of the chat the pane already holds, and shows it. The desktop opens
+  // each chat as its own tab.
+  const slot =
+    !replaceKey &&
+    isMobileRemoteSurface() &&
+    agentChatSlotKey(findPaneLeaf(prev.layout, prev.focusedLeafId), selection);
+  let layout = openTabInPaneLeaf(prev.layout, prev.focusedLeafId, selection, slot || replaceKey, options);
+  if (slot) layout = activateTabInPaneLeaf(layout, prev.focusedLeafId, navigationKey(selection));
   return layout === prev.layout ? prev : { ...prev, layout };
+}
+
+/** The pane's other agent chat that `selection` (an agent chat) replaces. */
+export function agentChatSlotKey(leaf: PaneLeaf | null, selection: WorkspaceSelection): string {
+  if (!leaf || selection.kind !== 'session' || !isAgentChatSession(selection.id)) return '';
+  const key = navigationKey(selection);
+  if (leaf.tabs.some((tab) => navigationKey(tab) === key)) return '';
+  const held = leaf.tabs.find((tab) => tab.kind === 'session' && isAgentChatSession(tab.id));
+  return held ? navigationKey(held) : '';
 }
 
 function openInLeafState(

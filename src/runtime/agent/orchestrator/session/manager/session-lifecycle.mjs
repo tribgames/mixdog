@@ -9,6 +9,7 @@ import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, s
 import { _liveSessions } from '../store/live-state.mjs';
 import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
+import { AGENT_MODE, resolveSessionMode, sessionModeOf } from '../agent-mode.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
 import { loadConfig } from '../../config.mjs';
 import {
@@ -19,6 +20,7 @@ import {
 import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../runtime-core/config-helpers.mjs';
 import { _buildBaseRules } from './rules-cache.mjs';
 import { composeSessionSystem, seedSessionMessages } from './session-prompt-composition.mjs';
+import { agentProfileRevision, leadRosterRevision } from '../../context/role-instructions.mjs';
 import {
   _prepareResumeTools,
   delegationDisabled,
@@ -206,12 +208,22 @@ function logSessionSurface({ resolvedAgent, toolPermission, tools }) {
   }
 }
 
-export function createSession(opts) {
-  const presetObj = opts.preset && typeof opts.preset === 'object' ? opts.preset : null;
-  const resolved = resolveAgentRuntimeProfile(opts, presetObj);
+export function createSession(createOpts) {
+  const presetObj = createOpts.preset && typeof createOpts.preset === 'object' ? createOpts.preset : null;
+  const resolved = resolveAgentRuntimeProfile(createOpts, presetObj);
   const { profile } = resolved;
-  const route = resolveSessionRoute(opts, presetObj, profile);
+  const route = resolveSessionRoute(createOpts, presetObj, profile);
   const { providerName, modelName, provider, toolPreset, id } = route;
+  // Agent or coding mode (agent-mode.mjs), resolved once and persisted. An
+  // agent-mode Lead acts as its agent: a schedule/webhook run that names only
+  // its `ownerAgentId` gets that agent's role, persona and connector policy
+  // (all keyed by `session.agent`), as its home thread does.
+  const sessionMode = sessionModeOf({ ...createOpts, id });
+  const actingAgent = resolveSessionMode({ session: { ...createOpts, id } }).agentId;
+  const opts =
+    sessionMode === AGENT_MODE && !createOpts.agent && actingAgent
+      ? { ...createOpts, agent: actingAgent, sessionMode }
+      : { ...createOpts, sessionMode };
   const routeFallbacks = normalizeWorkflowRoute({
     provider: providerName,
     model: modelName,
@@ -227,7 +239,10 @@ export function createSession(opts) {
   // Scoped to explicit-breakpoint (Anthropic-family) providers only.
   const providerCacheOpts = resolved.providerCacheOpts || buildSessionProviderCacheOpts(providerName, id, opts.agent);
   const surface = resolveSessionToolSurface(opts, { profile, toolPreset, modelName });
-  const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface });
+  // The agent profile the prompt is composed from, read first: an edit landing
+  // during composition leaves the stamp behind, never ahead (refreshAgentProfile).
+  const agentProfile = surface.ownerIsAgent ? '' : agentProfileRevision(surface.resolvedAgent);
+  const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode });
   const messages = seedSessionMessages(prompt, opts.files);
   logSessionSurface(surface);
   const contextMeta = resolveSessionContextMeta(provider, modelName, {
@@ -246,6 +261,11 @@ export function createSession(opts) {
     origin: sessionOriginFields(opts, { profile, presetObj, providerCacheOpts, surface }),
   });
   session.providerCacheOptsOverride = Boolean(resolved.providerCacheOpts);
+  if (agentProfile) {
+    session.agentProfileRevision = agentProfile;
+    // The bot roster its prompt lists (a Lead's catalog slices).
+    session.agentRosterRevision = leadRosterRevision(opts.leadWorkflowParts);
+  }
   if (routeFallbacks?.length) session.routeFallbacks = routeFallbacks;
   // A non-native agent sends core + bridge, built from its filtered tools.
   applyAgentToolExposure(session);
@@ -532,6 +552,8 @@ export async function resumeSession(sessionId, preset, options = {}) {
   ensureCodexWireSessionId(session);
   if (!_applyDesktopResumeScope(session, options)) return null;
   if (!session.owner) session.owner = 'user';
+  // Records from before the mode existed get it resolved and stamped.
+  session.sessionMode = sessionModeOf(session);
   if (Object.hasOwn(options, 'mcpScopeId')) {
     session.mcpScopeId = String(options.mcpScopeId || '').trim() || null;
   }

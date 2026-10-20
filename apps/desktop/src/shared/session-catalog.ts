@@ -22,8 +22,8 @@ function sessionSummaryVisibleEqual(left: DesktopSessionSummary, right: DesktopS
     // the whole desktop tree.
     if (key === 'updatedAt') continue;
     // A workspace record is rebuilt with every catalog; equal content keeps the row.
-    if (key === 'workspace') {
-      if (JSON.stringify(left.workspace ?? null) !== JSON.stringify(right.workspace ?? null)) return false;
+    if (key === 'workspace' || key === 'agentRoom') {
+      if (JSON.stringify(left[key] ?? null) !== JSON.stringify(right[key] ?? null)) return false;
       continue;
     }
     if ((left as unknown as Record<string, unknown>)[key] !== (right as unknown as Record<string, unknown>)[key])

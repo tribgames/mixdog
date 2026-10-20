@@ -181,6 +181,28 @@ test('openAgentHome resolves the same home thread on the desktop and a paired de
   assert.equal(calls.length, 2);
 });
 
+test('resetAgentHome starts the same home thread over on the desktop and a paired device', async () => {
+  const calls = [];
+  const host = {
+    resetAgentHome: async (agentId) => {
+      calls.push(agentId);
+      return { sessionId: `sess_home_${agentId}`, archivedSessionId: 'sess_archive' };
+    },
+  };
+  const handlers = new Map();
+  registerSessionIpc({ handle: (channel, listener) => handlers.set(channel, listener), host });
+  const desktop = (agentId) => handlers.get(DESKTOP_IPC.resetAgentHome)({}, agentId);
+  const remote = createRemoteMethods({ host }).resetAgentHome;
+  const expected = { sessionId: 'sess_home_lead', archivedSessionId: 'sess_archive' };
+  assert.deepEqual(await desktop('lead'), expected);
+  assert.deepEqual(await remote(['lead']), expected);
+  for (const bad of [undefined, 42, 'x'.repeat(201)]) {
+    await assert.rejects(async () => desktop(bad));
+    await assert.rejects(async () => remote([bad]));
+  }
+  assert.deepEqual(calls, ['lead', 'lead']);
+});
+
 test('a file outside every project gets the same grant answers on the desktop and a paired device', async () => {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-grant-parity-')));
   const file = join(folder, 'report.txt');

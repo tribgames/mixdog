@@ -225,6 +225,8 @@ function wireInternalTools(boot) {
     getConfig: () => rt.config,
     notifySessionUi,
     getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
+    getCallerSession: (sessionId) =>
+      sessionId === rt.session?.id ? rt.session : boot.mgr?.getSession?.(sessionId) || null,
     flushSettings: () => boot.flushAllConfigSavesAsync({ requireSaved: true }),
   });
   const disposeInternalTools = internalTools.setInternalToolsProvider({
@@ -250,6 +252,7 @@ function wireInternalTools(boot) {
       runNativeWebSearch: (...a) => boot.runNativeWebSearch(...a),
       activeToolSurface: boot.activeToolSurface,
       mcpStatus: boot.mcpStatus,
+      awaitMcpConnect: () => boot.awaitInitialMcpConnect?.(),
       skillToolContent: boot.skillToolContent,
       // Late-bound: the workspace authority is built with the API slices.
       getWorkspaceApi: () => boot.workspaceApi || null,

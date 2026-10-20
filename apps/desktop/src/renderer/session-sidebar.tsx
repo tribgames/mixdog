@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  roomIdOfSession,
+  roomMemberOfSession,
+} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { projectIdentity } from './project-catalog-cache';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
@@ -23,7 +27,7 @@ import {
   type SidebarSectionContext,
 } from './session-sidebar-render';
 import { sessionAttentionOf, useSessionAttentionIndex } from './session-attention-index';
-import { sessionLabel } from './session-sidebar-rows';
+import { permanentBotDeleteMessage, sessionLabel } from './session-sidebar-rows';
 import {
   MIN_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
@@ -52,6 +56,10 @@ import { ScmContextMenu } from './ScmContextMenu';
 import type { ProjectSessionGroup } from './session-sidebar-sections';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { useStableEvent } from './use-stable-event';
+import { useSidebarAgents } from './session-sidebar-agents';
+import type { AgentContact } from './agent-contacts-model';
+import { agentContactMenuItems, agentRoomMenuItems, restoreAgent } from './agent-profile-actions';
+import type { SidebarRoomRow } from './session-sidebar-agents';
 
 /** The "work in progress" confirmation: archiving or deleting a busy session
  *  waits for it; `run` is the action the confirm button performs. */
@@ -181,6 +189,8 @@ function useSessionEditor(
   // One session can render in several lists (a project folder and Recent);
   // the editor belongs to the one row the user started it from.
   const [editingRowKey, setEditingRowKey] = useState('');
+  // The edited session itself: a windowed list keeps its row mounted.
+  const [editingSessionId, setEditingSessionId] = useState('');
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
   const [sessionTitleInvalid, setSessionTitleInvalid] = useState(false);
   const [confirmingSessionId, setConfirmingSessionId] = useState('');
@@ -188,11 +198,13 @@ function useSessionEditor(
   const openSessionEditor = useCallback((session: DesktopSessionSummary, rowKey: string) => {
     setConfirmingSessionId('');
     setEditingRowKey(rowKey);
+    setEditingSessionId(session.id);
     setSessionTitleDraft(sessionLabel(session));
     setSessionTitleInvalid(false);
   }, []);
   const closeSessionEditor = useCallback(() => {
     setEditingRowKey('');
+    setEditingSessionId('');
     setSessionTitleDraft('');
     setSessionTitleInvalid(false);
   }, []);
@@ -217,6 +229,7 @@ function useSessionEditor(
   }, [confirmingSessionId, sessions]);
   return {
     editingRowKey,
+    editingSessionId,
     sessionTitleDraft,
     setSessionTitleDraft,
     sessionTitleInvalid,
@@ -246,6 +259,10 @@ function useSessionOrdering(
             // A live agent home thread is that agent's contact (Agents pane);
             // only an archived one, whose agent is gone, lists here.
             .filter((session) => !session.agentHome || session.archived)
+            // So is a group room (its row sits under the contacts) and,
+            // always, a room member's own session.
+            .filter((session) => !roomIdOfSession(session.id) || session.archived)
+            .filter((session) => !roomMemberOfSession(session.id))
             .filter((session) => session.classification === 'task' || session.classification === 'project')
             .sort((left, right) => {
               const leftActivityAt = Number(left.activityAt) || left.updatedAt;
@@ -555,6 +572,8 @@ interface SessionSidebarProps {
   onNewStudio(): void;
   onPrefetchSession?(sessionId: string): Promise<boolean>;
   onResumeSession(sessionId: string): void;
+  /** Opens an agent's chat on the Agents page. */
+  onOpenAgent?(sessionId: string, title: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
   /** Archive: the row leaves Recent but the session file stays. */
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
@@ -588,6 +607,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   onNewStudio,
   onPrefetchSession,
   onResumeSession,
+  onOpenAgent,
   onRenameSession,
   onArchiveSession,
   onFavoriteSession,
@@ -618,19 +638,31 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     setBusyPrompt({ kind, count: busyIds.length, name: first ? sessionLabel(first) : '', run: confirmedRun });
   });
   const archiveSession = useStableEvent((sessionId: string, archived: boolean) => {
+    // Restoring a deleted bot's archived chat restores the bot; the host
+    // brings its chat back out of 보관됨.
+    const row = archived ? undefined : sessions.find((session) => session.id === sessionId);
+    if (row?.agentDeleted === true && row.agentHome) {
+      return restoreAgent({}, row.agentHome, sessionLabel(row)).then(() => undefined);
+    }
     if (!archived || !isBusy(sessionId)) return onArchiveSession(sessionId, archived);
     guardBusy('archive', [sessionId], () => void onArchiveSession(sessionId, true).catch(() => {}));
     return Promise.resolve();
   });
   // Idle: arm the row's inline confirm. Busy: the dialog is the confirmation.
-  const requestDelete = useStableEvent((sessionId: string) =>
+  const requestDelete = useStableEvent((sessionId: string) => {
+    // A deleted bot's archived chat goes for good with the bot: asked in plain words.
+    const row = sessions.find((session) => session.id === sessionId);
+    if (row?.agentDeleted === true) {
+      if (window.confirm(permanentBotDeleteMessage(sessionLabel(row)))) void onDeleteSession(sessionId).catch(() => {});
+      return;
+    }
     guardBusy(
       'delete',
       [sessionId],
       () => editor.setConfirmingSessionId(sessionId),
       () => void onDeleteSession(sessionId).catch(() => {})
-    )
-  );
+    );
+  });
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
   const { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize } = useSidebarWidth();
   const { showAgents, updateShowAgents } = useSidebarSessionFilter();
@@ -646,6 +678,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     updateCustomOrders,
   } = useSessionOrdering(sessions, hasSessionSurface, showAgents);
   const openState = useSidebarOpenState(allRows);
+  const agents = useSidebarAgents(sessions, unreadSessionIds, open && hasSessionSurface, onOpenAgent);
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived), [allRows]);
   const automationRows = useMemo(
     () => openState.automationGroups.flatMap(({ runs }) => runs),
@@ -732,7 +765,15 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   });
   useSidebarBootSurface(open, sessionsReady);
   const requestPrefetch = useSessionPrefetch(onPrefetchSession, open, sessionsReady, visibleRecentRows);
-  const { contextMenu, closeContextMenu, openSessionMenu, openProjectMenu, projectRenameEditor } = useSidebarMenus({
+  const {
+    contextMenu,
+    menuOriginId,
+    closeContextMenu,
+    openSessionMenu,
+    openProjectMenu,
+    openMenu,
+    projectRenameEditor,
+  } = useSidebarMenus({
     onResumeSession,
     onOpenSessionInSplit,
     onInheritSession,
@@ -754,6 +795,25 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onRenameProject,
     onOpenProjectSettings,
   });
+  // A bot row: the 봇 page's own contact menu (프로필 보기, 끄기, 삭제).
+  const openAgentMenu = useStableEvent((contact: AgentContact, point: { x: number; y: number }) =>
+    openMenu({
+      label: t('Actions for {{title}}', { title: contact.name }),
+      ...point,
+      items: agentContactMenuItems(contact, {
+        onOpen: (row) => void agents.openAgent(row),
+        onProfile: agents.openAgentProfile,
+      }),
+    })
+  );
+  // A group room row: the room panel's own actions (agentRoomMenuItems).
+  const openRoomMenu = useStableEvent((row: SidebarRoomRow, point: { x: number; y: number }) =>
+    openMenu({
+      label: t('Actions for {{title}}', { title: row.name }),
+      ...point,
+      items: agentRoomMenuItems(row.room),
+    })
+  );
   const attentionOf = (sessionId: string) =>
     sessionAttentionOf(attentionIndex, sessionId, {
       running: workingSessionIds?.has(sessionId) === true,
@@ -781,7 +841,32 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   };
   const renderOrderedRow = (session: DesktopSessionSummary, listKey?: string, rowScope?: string, fork?: ForkRowRole) =>
     renderSessionRow(session, listKey, rowContext, rowScope, fork);
+  // Rows a windowed list keeps mounted wherever the reader scrolls: the
+  // selected session, an inline rename, a delete in progress and the last
+  // session menu's origin (focused and dragged rows are pinned by the list
+  // itself).
+  const selectedId = selection.kind === 'session' ? selection.id : '';
+  const pinnedSessionIds = useMemo(
+    () =>
+      new Set(
+        [
+          selectedId,
+          editor.editingSessionId,
+          editor.confirmingSessionId,
+          editor.deletingSessionId,
+          menuOriginId,
+        ].filter(Boolean)
+      ),
+    [selectedId, editor.editingSessionId, editor.confirmingSessionId, editor.deletingSessionId, menuOriginId]
+  );
   const sectionContext: SidebarSectionContext = {
+    agentContacts: agents.contacts,
+    agentRooms: agents.rooms,
+    onOpenRoom: agents.openRoom,
+    selection,
+    onOpenAgent: agents.openAgent,
+    onOpenAgentMenu: openAgentMenu,
+    onOpenRoomMenu: openRoomMenu,
     sectionOrder,
     openState,
     folders,
@@ -800,6 +885,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     archivedSentinelRef,
     setArchivedRowLimit,
     ...bulk,
+    scrollerRef: recentScrollerRef,
+    pinnedSessionIds,
     openProjectMenu,
     projectRenameEditor,
     renderOrderedRow,

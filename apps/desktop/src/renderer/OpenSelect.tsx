@@ -14,6 +14,8 @@ interface OpenSelectOption {
   disabled?: boolean;
   /** A rule above this option, setting it (and those after it) apart. */
   separatorBefore?: boolean;
+  /** Shown before the label (an agent's face). */
+  leading?: React.ReactNode;
 }
 
 interface OpenSelectProps {
@@ -375,6 +377,7 @@ export function OpenSelect({
                   onMouseEnter={() => setActive(index)}
                   onClick={() => select(option.value)}
                 >
+                  {option.leading && <span className="mx-select-leading">{option.leading}</span>}
                   <span>{option.label}</span>
                   {option.value === current && <MxIcon name="check-small" size={16} />}
                 </button>

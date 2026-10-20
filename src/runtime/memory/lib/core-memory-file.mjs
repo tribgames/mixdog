@@ -44,6 +44,7 @@ function normalizeCuratedEntry(row) {
     indexRevision: row?.indexRevision ?? row?.index_revision ?? null,
     summary,
     projectId: normalizeProjectId(row?.projectId ?? row?.project_id),
+    agentId: normalizeProjectId(row?.agentId ?? row?.agent_id),
     updatedAt: finiteNumber(row?.updatedAt ?? row?.updated_at),
   };
 }
@@ -115,7 +116,7 @@ export async function refreshCoreMemoryFile(db, dataDir) {
   const revision = reserveRevision(dataDir);
   const directory = await syncCoreMemoryIndexes(db);
   const curatedResult = await db.query(`
-      SELECT id, summary, project_id, updated_at
+      SELECT id, summary, project_id, agent_id, updated_at
       FROM core_entries
       WHERE status IS NULL OR status = 'active'
       ORDER BY project_id NULLS FIRST, id ASC
@@ -129,16 +130,23 @@ export async function refreshCoreMemoryFile(db, dataDir) {
   );
 }
 
-export function readSessionCoreMemoryPayload(dataDir, cwd) {
+/** Common, then the `cwd` project's, then agent `agentId`'s own entries (none
+ *  without an agent); the caller's byte budget cuts from the end. */
+export function readSessionCoreMemoryPayload(dataDir, cwd, agentId = '') {
   const file = readCoreMemoryFile(dataDir);
   if (!file) return null;
   const projectId = resolveProjectScope(cwd);
-  const inScope = (entry) => entry.projectId === null || entry.projectId === projectId;
-  const curated = file.curated.filter(inScope).sort((a, b) => {
-    if (a.projectId === null && b.projectId !== null) return -1;
-    if (a.projectId !== null && b.projectId === null) return 1;
-    return a.id - b.id;
-  });
+  const agent = normalizeProjectId(agentId);
+  const rank = (entry) => {
+    if (entry.agentId !== null) return agent !== null && entry.agentId === agent ? 2 : -1;
+    if (entry.projectId === null) return 0;
+    return entry.projectId === projectId ? 1 : -1;
+  };
+  const curated = file.curated
+    .map((entry) => ({ entry, rank: rank(entry) }))
+    .filter(({ rank: value }) => value >= 0)
+    .sort((a, b) => a.rank - b.rank || a.entry.id - b.entry.id)
+    .map(({ entry }) => entry);
   return {
     projectId,
     revision: file.revision,

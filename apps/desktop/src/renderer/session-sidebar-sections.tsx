@@ -1,6 +1,10 @@
-import { ChevronDown, ChevronRight, type FolderPlus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, type FolderPlus, Plus, Star } from 'lucide-react';
+import { AgentAvatar } from './agent-avatar';
+import type { AgentContact } from './agent-contacts-model';
+import { RoomAvatar } from './agent-room-parts';
+import type { SidebarRoomRow } from './session-sidebar-agents';
 import { MxIcon } from './MxIcon';
-import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
+import { contextMenuRowProps, elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 import type { usePersistedListOrder } from './use-persisted-list-order';
 import React, { useContext } from 'react';
 import { createPortal } from 'react-dom';
@@ -157,7 +161,7 @@ export function automationsSection({
   workingSessionIds,
   unreadSessionIds,
   headerProps,
-  renderSessionRow,
+  renderRuns,
 }: {
   headerProps?: ReorderProps;
   groups: AutomationGroup[];
@@ -170,7 +174,7 @@ export function automationsSection({
   onToggleGroup(key: string): void;
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
-  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+  renderRuns(runs: readonly DesktopSessionSummary[]): React.ReactNode;
 }) {
   return (
     <section
@@ -251,7 +255,119 @@ export function automationsSection({
                     />
                   )}
                 </button>
-                {expanded && <div className="automation-group-past">{runs.map(renderSessionRow)}</div>}
+                {expanded && <div className="automation-group-past">{renderRuns(runs)}</div>}
+              </div>
+            );
+          })}
+        </nav>
+      )}
+    </section>
+  );
+}
+
+/** Agents section: one single-line row per agent (face + name, a dot for an
+ *  unread reply), opening that agent's chat on the Agents page. Right-click
+ *  or Menu / Shift+F10 opens the 봇 page's contact menu. */
+export function agentsSection({
+  contacts,
+  rooms = [],
+  onOpenRoom,
+  open,
+  onToggleOpen,
+  selectedSessionId,
+  onOpenAgent,
+  onOpenMenu,
+  onOpenRoomMenu,
+}: {
+  contacts: readonly AgentContact[];
+  /** Group rooms, in the 봇 page's order; listed right under the bots. */
+  rooms?: readonly SidebarRoomRow[];
+  onOpenRoom?(row: SidebarRoomRow): void;
+  open: boolean;
+  onToggleOpen(): void;
+  selectedSessionId: string;
+  onOpenAgent(contact: AgentContact): void;
+  onOpenMenu?(contact: AgentContact, point: { x: number; y: number }): void;
+  onOpenRoomMenu?(row: SidebarRoomRow, point: { x: number; y: number }): void;
+}) {
+  return (
+    <section className="sidebar-recent sidebar-agents" aria-label={t('Bots')}>
+      <div className="sidebar-category-header">
+        <button
+          type="button"
+          className="sidebar-recent-heading sidebar-heading-toggle"
+          aria-expanded={open}
+          onClick={onToggleOpen}
+        >
+          <span>{t('Bots')}</span>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+      </div>
+      {open && (
+        <nav className="session-list agent-session-list" aria-label={t('Bots')}>
+          {contacts.map((contact) => {
+            const selected = Boolean(contact.session) && contact.session?.id === selectedSessionId;
+            return (
+              <div
+                key={contact.agentId}
+                className={`session-row agent-session-row${selected ? ' selected' : ''}`}
+                data-agent-contact={contact.agentId}
+                {...(onOpenMenu ? contextMenuRowProps((point) => onOpenMenu(contact, point)) : {})}
+              >
+                <button
+                  type="button"
+                  className="session-row-main"
+                  aria-current={selected ? 'page' : undefined}
+                  aria-haspopup={onOpenMenu ? 'menu' : undefined}
+                  onClick={() => onOpenAgent(contact)}
+                >
+                  <span className="session-agent-avatar">
+                    <AgentAvatar
+                      agentId={contact.agentId}
+                      avatar={contact.avatar}
+                      className="agent-contact-mascot"
+                      priority={2}
+                    />
+                    {contact.mixy && (
+                      <span className="agent-contact-badge" title={t('Representative bot')}>
+                        <Star size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+                      </span>
+                    )}
+                  </span>
+                  <span className="session-row-copy">
+                    <b>{contact.name}</b>
+                  </span>
+                </button>
+                {contact.indicator?.kind === 'unread' && <SessionRowUnreadDot name={contact.name} />}
+              </div>
+            );
+          })}
+          {rooms.map((row) => {
+            const selected = row.sessionId === selectedSessionId;
+            const { indicator } = row;
+            return (
+              <div
+                key={row.sessionId}
+                className={`session-row agent-session-row${selected ? ' selected' : ''}`}
+                data-agent-room={row.room.id}
+                {...(onOpenRoomMenu ? contextMenuRowProps((point) => onOpenRoomMenu(row, point)) : {})}
+              >
+                <button
+                  type="button"
+                  className="session-row-main"
+                  aria-current={selected ? 'page' : undefined}
+                  aria-haspopup={onOpenRoomMenu ? 'menu' : undefined}
+                  onClick={() => onOpenRoom?.(row)}
+                >
+                  <span className="session-agent-avatar">
+                    <RoomAvatar members={row.members} />
+                  </span>
+                  <span className="session-row-copy">
+                    <b>{row.name}</b>
+                  </span>
+                </button>
+                {indicator?.kind === 'running' && <SessionRowStatusIcon status="running" name={row.name} />}
+                {indicator?.kind === 'unread' && <SessionRowUnreadDot name={row.name} />}
               </div>
             );
           })}
@@ -368,7 +484,7 @@ export function recentSection({
           {!sessionsReady && rowCount === 0 ? (
             <InitialSurface />
           ) : (
-            sessionsReady && rowCount === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>
+            sessionsReady && rowCount === 0 && <p className="sidebar-section-empty">{t('No sessions.')}</p>
           )}
           {renderRows(allRows, visibleRows.length)}
           {hasMoreRows && (
@@ -585,7 +701,7 @@ function projectFolderGroup(
       </div>
       {expanded && (
         <div className="project-group-sessions">
-          {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>}
+          {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions.')}</p>}
           {renderRows(group.rows, limit, group.key)}
           {group.rows.length > limit && (
             <button type="button" className="session-row project-group-more" onClick={() => onShowMore(group.key)}>

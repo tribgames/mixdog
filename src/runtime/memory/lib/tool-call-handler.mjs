@@ -58,6 +58,8 @@ export function createToolCallHandler({ handleSearch, handleMemoryAction }) {
           // Hint only — never a filter. Marks the caller's own session as
           // "(current)" in the multi-session grouped browse output.
           ...(a.currentSessionId ? { currentSessionId: a.currentSessionId } : {}),
+          // The calling session's scope: its own agent pool joins the core leg.
+          ...(a.memory_caller ? { memory_caller: a.memory_caller } : {}),
         };
         const result = await handleSearch(searchArgs, signal);
         const cappedText = capRecallText(result.text);

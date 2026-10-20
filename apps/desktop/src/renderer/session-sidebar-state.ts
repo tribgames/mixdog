@@ -82,6 +82,7 @@ export function useSidebarOpenState(allRows: DesktopSessionSummary[]) {
   const sectionIsOpen = (id: string) => isOpen(sectionOpen, id, SECTION_OPEN_DEFAULTS[id] ?? true);
   const toggleSection = (id: string) =>
     updateSectionOpen((current) => toggleOpen(current, id, SECTION_OPEN_DEFAULTS[id] ?? true));
+  const agentsOpen = sectionIsOpen('agents');
   const favoritesOpen = sectionIsOpen('favorites');
   const recentOpen = sectionIsOpen('recent');
   const projectsOpen = sectionIsOpen('projects');
@@ -107,6 +108,7 @@ export function useSidebarOpenState(allRows: DesktopSessionSummary[]) {
   return {
     forkOpen,
     toggleFork,
+    agentsOpen,
     favoritesOpen,
     recentOpen,
     projectsOpen,

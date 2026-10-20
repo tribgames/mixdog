@@ -16,6 +16,22 @@ export const DEFAULT_DISABLED_AGENT_IDS = Object.freeze([
 // runs only once the user turns it on and picks its model.
 export const DEFAULT_DISABLED_AGENT_ROSTER = Object.freeze([...DEFAULT_DISABLED_AGENT_IDS, 'maintainer']);
 
+/** The AGENT.md frontmatter `kind` the Workflows page writes when it creates
+ *  an agent: a workflow delegation role, never a contact (봇). */
+export const WORKFLOW_AGENT_KIND = 'agent';
+
+/** A contact agent (a 봇): one the user made — not Mixy ('lead'), not a
+ *  shipped role (the starter sub-agents Worker, Reviewer, … and the
+ *  Maintainer), and not marked `kind: agent` (made on the Workflows page).
+ *  `kind` is the definition's frontmatter `kind`; an unmarked custom agent
+ *  stays a contact. The one rule for the runtime (delegation, agent catalogs)
+ *  and the desktop (contacts, agent lists). */
+export function isContactAgentId(value, kind) {
+  const id = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  const marked = typeof kind === 'string' && kind.trim().toLowerCase() === WORKFLOW_AGENT_KIND;
+  return Boolean(id) && id !== 'lead' && !DEFAULT_DISABLED_AGENT_ROSTER.includes(id) && !marked;
+}
+
 function record(value) {
   return isPlainObject(value) ? value : {};
 }

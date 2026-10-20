@@ -2,18 +2,23 @@
 // one a messenger row over its home thread. Built only from the agent catalog,
 // the session catalog (the host stamps each home thread with its agent) and
 // the agent pool the pane already reads.
-import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
+import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { type AgentAvatarValue, agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
+import { MIXY_AGENT_ID, agentRowName, contactAgentRows } from '../shared/agent-contacts';
 import type { DesktopSessionSummary } from '../shared/contract';
 import type { AgentActivityNode } from './agent-activity-model';
-import { type AgentChatIndicator, agentSessionChatSummary } from './agent-chat-summary';
+import { type AgentChatIndicator, agentGroupIndicator } from './agent-chat-summary';
 import { t } from './i18n';
+import { mixyAvatar, mixyName } from './mixy-identity';
+import { localizedRoutinePreview } from './routine-notice';
 
 export interface AgentContact {
   agentId: string;
   name: string;
   mixy: boolean;
-  /** The provider of the model the agent runs on (its avatar); '' for Mixy. */
-  provider: string;
+  /** The face it shows: its own pick (mascot or image), else a mascot fixed by its id. */
+  avatar: AgentAvatarValue;
   /** The home thread, once it holds a conversation. */
   session: DesktopSessionSummary | null;
   preview: string;
@@ -23,11 +28,6 @@ export interface AgentContact {
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
-function routeProvider(route: unknown): string {
-  const leaf = Array.isArray(route) ? route[0] : route;
-  return leaf && typeof leaf === 'object' ? text((leaf as { provider?: unknown }).provider) : '';
-}
-
 /** The row's one trailing status: attention > error > running > unread. */
 function contactIndicator(
   session: DesktopSessionSummary | null,
@@ -35,17 +35,35 @@ function contactIndicator(
   unreadSessionIds: ReadonlySet<string> | undefined
 ): AgentChatIndicator {
   if (!session) return null;
-  const pooled = nodes?.length ? agentSessionChatSummary(session.id, nodes, unreadSessionIds).indicator : null;
+  const pooled = nodes?.length ? agentGroupIndicator(session.id, nodes, unreadSessionIds) : null;
   if (pooled && pooled.kind !== 'unread') return pooled;
   if (session.working) return { kind: 'running' };
   if (!unreadSessionIds?.has(session.id)) return null;
-  return { kind: 'unread', count: Math.max(1, session.messageCount - (session.readMessageCount ?? 0)) };
+  // The raw unseen count, a whole number of at least 1; the row caps how it shows it.
+  const unseen = Math.floor((Number(session.messageCount) || 0) - (Number(session.readMessageCount) || 0));
+  return { kind: 'unread', count: Math.max(1, unseen) };
 }
 
-function contactPreview(indicator: AgentChatIndicator, session: DesktopSessionSummary | null, fallback: string) {
+function contactPreview(
+  indicator: AgentChatIndicator,
+  session: DesktopSessionSummary | null,
+  fallback: string,
+  mixy: boolean
+) {
   if (indicator?.kind === 'attention') return t('Waiting for approval');
   if (indicator?.kind === 'running') return t('Working');
-  return text(session?.preview) || fallback || t('No messages yet');
+  // The thread's latest message; a catalog row from before that field (or a
+  // cold-scanned one) falls back to its first prompt. Mixy is the default
+  // thread: an empty one is normal, so its row shows no placeholder (the
+  // thread carries the empty state). A routine result reads in the user's
+  // language, as its transcript notice does.
+  // Every path reads as plain text: a stored preview from before the host
+  // stripped markdown still shows no `**`.
+  const shown =
+    plainPreviewText(
+      localizedRoutinePreview(text(session?.lastMessagePreview), session?.lastMessageRoutine) || text(session?.preview)
+    ) || fallback;
+  return shown || (mixy ? '' : t('No messages yet'));
 }
 
 /** Contacts in list order. `groups` are the pool's Lead groups by owner id. */
@@ -62,7 +80,7 @@ export function agentContacts(
   const contact = (
     agentId: string,
     name: string,
-    provider: string,
+    storedAvatar: unknown,
     description: string,
     mixy: boolean
   ): AgentContact => {
@@ -72,20 +90,34 @@ export function agentContacts(
       agentId,
       name,
       mixy,
-      provider,
+      avatar: agentAvatar(agentId, storedAvatar),
       session,
-      preview: contactPreview(indicator, session, description),
+      preview: contactPreview(indicator, session, description, mixy),
       at: session ? Number(session.activityAt) || session.updatedAt : 0,
       indicator,
     };
   };
-  // Mixy's name is a brand name: the same in every locale.
   return [
-    contact(MIXY_AGENT_ID, 'Mixy', '', '', true),
-    ...contactAgentRows(agents).map((row) => {
-      const definition = row.definition && typeof row.definition === 'object' ? row.definition : {};
-      const name = text((definition as { name?: unknown }).name) || text(row.label) || row.id;
-      return contact(row.id, name, routeProvider(row.route), text(row.description), false);
-    }),
+    contact(MIXY_AGENT_ID, mixyName(), mixyAvatar(), '', true),
+    ...contactAgentRows(agents).map((row) =>
+      contact(row.id, agentDisplayName(row), row.avatar, text(row.description), false)
+    ),
   ];
+}
+
+function agentDisplayName(row: { id: string; label?: unknown; definition?: unknown }): string {
+  return agentRowName(row) || row.id;
+}
+
+/** A home thread's tab title: its agent's name, never a title from the
+ *  thread's first prompt; null for every other session. Before the catalog
+ *  has the agent, its id stands in. */
+export function agentHomeTitle(sessionId: string, agents: unknown): string | null {
+  const agentId = agentIdOfHomeSession(sessionId);
+  if (!agentId) return null;
+  if (agentId === MIXY_AGENT_ID) return mixyName();
+  const row = Array.isArray(agents)
+    ? (agents as Array<{ id?: unknown }>).find((entry) => entry && entry.id === agentId)
+    : undefined;
+  return row ? agentDisplayName({ ...row, id: agentId }) : agentId;
 }

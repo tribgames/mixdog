@@ -140,15 +140,26 @@ function modelSwitchAnchorIndex(messages) {
  *  (like an inheritance boundary): the transcript shows it live and after a
  *  restore, and the model conversation gains no synthetic message. */
 export function recordModelSwitchBoundary(session, boundary) {
+  return recordTranscriptBoundary(
+    session,
+    'modelSwitches',
+    boundary,
+    (entry) => entry?.at === boundary.at && entry?.modelId === boundary.modelId
+  );
+}
+
+/** A display-only boundary appended to `meta[field]` of the switch anchor
+ *  message (model and workflow switches); `same` finds an already recorded one. */
+export function recordTranscriptBoundary(session, field, boundary, same) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
   const index = modelSwitchAnchorIndex(messages);
   if (index < 0) return false;
   const anchor = messages[index];
-  const switches = Array.isArray(anchor.meta?.modelSwitches) ? anchor.meta.modelSwitches : [];
-  if (switches.some((entry) => entry?.at === boundary.at && entry?.modelId === boundary.modelId)) return true;
+  const switches = Array.isArray(anchor.meta?.[field]) ? anchor.meta[field] : [];
+  if (switches.some(same)) return true;
   // Replace the message object: the session save worker detects changed
   // messages by reference identity, so an in-place meta edit is never saved.
-  messages[index] = { ...anchor, meta: { ...anchor.meta, modelSwitches: [...switches, boundary] } };
+  messages[index] = { ...anchor, meta: { ...anchor.meta, [field]: [...switches, boundary] } };
   return true;
 }
 

@@ -4,9 +4,13 @@
 // carry all four to the provider with their cache tiers.
 import { buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
 import { configuredInstructionFilesMode, loadInstructionFilesContext } from '../../context/instruction-files.mjs';
+import { agentModeIdentityLine } from '../../context/role-instructions.mjs';
+import { AGENT_MODE, isRoutineSource, sessionModeOf } from '../agent-mode.mjs';
+import { MIXY_AGENT_ID } from '../agent-home.mjs';
 import {
   _buildBaseRules,
   _buildAgentRules,
+  _buildAgentModeRules,
   _buildLeadRules,
   _buildLeadMetaContext,
   _buildLeadLanguageContext,
@@ -81,8 +85,9 @@ export function buildWorkspacePromptContext(session, cwd) {
   ];
   return {
     environmentContext: buildShellEnvironmentContext({ cwd }, ownerIsAgent, tools),
+    // Agent mode never carries project instruction files.
     instructionFilesContext:
-      session?.skipInstructionFiles === true
+      session?.skipInstructionFiles === true || sessionModeOf(session) === AGENT_MODE
         ? undefined
         : loadInstructionFilesContext({ mode: configuredInstructionFilesMode(), cwd }),
   };
@@ -90,26 +95,57 @@ export function buildWorkspacePromptContext(session, cwd) {
 
 // BP1/BP2/BP3 rule blocks plus the volatile environment, composed into the
 // four system blocks; environmentTailContext is the persisted env tail.
-export function sessionRolePromptFields(identity, { ownerIsAgent, toolFreeRole, delegationFree }) {
+// A Lead's BP3 rule slices, ordered for prefix sharing (composeSystemPrompt):
+// LEAD.md's common lines first; then the mode block (coding: LEAD.md's two
+// passages; agent mode: their conversational variants and AGENT_MODE.md);
+// then Mixy's MIXY.md; last the per-session tail — routine line, identity.
+// Agent mode is a Lead created as an agent (agent-mode.mjs).
+export function sessionRolePromptFields(
+  identity,
+  { ownerIsAgent, toolFreeRole, delegationFree, sessionMode, routine = false }
+) {
   const skipRules = identity.skipAgentRules || toolFreeRole;
+  const lead = !ownerIsAgent && !skipRules;
+  const agentMode = lead && sessionMode === AGENT_MODE;
+  const mixy = (identity.agent || MIXY_AGENT_ID) === MIXY_AGENT_ID;
   let roleRules = '';
   if (!skipRules) {
     roleRules = ownerIsAgent
       ? _buildAgentRules(identity.agentRulesProfile)
       : _buildLeadRules({ includeLeadBrief: !delegationFree });
   }
+  const identityLine = agentMode
+    ? agentModeIdentityLine(identity.agent || MIXY_AGENT_ID)
+    : lead
+      ? _buildLeadRules({ includeLeadBrief: !delegationFree, part: 'identity' })
+      : '';
   return {
     roleRules,
+    ...(lead
+      ? {
+          leadModeRules: _buildLeadRules({ includeLeadBrief: !delegationFree, part: agentMode ? 'agent' : 'coding' }),
+          identityContext: identityLine ? `# Identity\n\n${identityLine}` : '',
+        }
+      : {}),
+    ...(agentMode
+      ? {
+          agentModeRules: _buildAgentModeRules({ part: 'conduct' }),
+          ...(mixy ? { mixyRules: _buildAgentModeRules({ part: 'mixy' }) } : {}),
+          ...(routine ? { routineRules: _buildAgentModeRules({ part: 'routine' }) } : {}),
+        }
+      : {}),
     userPrompt: identity.systemPrompt,
-    // A Lead carries no role section; an agent's home thread (a user session
-    // running as that agent) carries its own AGENT.md role.
-    skipRoleCatalog: !ownerIsAgent && (!identity.agent || identity.agent === 'lead'),
+    // A coding Lead carries no role section; an agent's home thread (a user
+    // session running as that agent) carries its own AGENT.md role, and Mixy
+    // in agent mode its optional agents/lead/AGENT.md.
+    skipRoleCatalog: !ownerIsAgent && (!identity.agent || identity.agent === 'lead') && !(agentMode && mixy),
     agent: identity.agent,
     profile: { skip: identity.profileSkip },
   };
 }
 
-export function composeSessionSystem(opts, { profile, providerName, modelName, surface }) {
+export function composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode }) {
+  const agentMode = sessionMode === AGENT_MODE;
   const { ownerIsAgent, resolvedAgent, skills } = surface;
   // A tool-free hidden role (a one-shot classifier or title writer) carries
   // only its own role rules: the shared tool policy and the worker conduct
@@ -132,9 +168,15 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     agent: resolvedAgent,
     agentRulesProfile: surface.agentRulesProfile,
   };
-  const roleFields = sessionRolePromptFields(promptIdentity, { ownerIsAgent, toolFreeRole, delegationFree });
+  const roleFields = sessionRolePromptFields(promptIdentity, {
+    ownerIsAgent,
+    toolFreeRole,
+    delegationFree,
+    sessionMode,
+    routine: isRoutineSource(opts.sourceType),
+  });
   const leadOnly = !skipAgentRules && !ownerIsAgent;
-  const metaContext = leadOnly ? _buildLeadMetaContext() : '';
+  const metaContext = leadOnly ? _buildLeadMetaContext({ includeOutputStyle: !agentMode }) : '';
   // Lead-only response language; closes the environment block so no English
   // system text (session/shell/git lines) follows it.
   const languageContext = leadOnly ? _buildLeadLanguageContext() : '';
@@ -148,9 +190,10 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   // already sit at the end of this string to stay last after a refresh.
   const environmentTailContext = [shellEnvironmentContext, languageContext].filter(Boolean).join('\n\n---\n\n');
   // User instruction files (AGENTS.md / CLAUDE.md, global then the project
-  // root's); a tool-free role and a profile skipping `claudemd` get none.
+  // root's); a tool-free role, a profile skipping `claudemd` and agent mode
+  // get none.
   const instructionFilesContext =
-    toolFreeRole || profile?.skip?.claudemd
+    toolFreeRole || profile?.skip?.claudemd || agentMode
       ? ''
       : loadInstructionFilesContext({ mode: configuredInstructionFilesMode(), cwd: opts.cwd });
   const composed = composeSystemPrompt({
@@ -159,6 +202,8 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     metaContext: metaContext || undefined,
     languageContext: languageContext || undefined,
     workflowContext: opts.workflowContext || null,
+    // The workflow's orchestration and agent-catalog slices (workflow/context.mjs leadPromptParts).
+    ...(ownerIsAgent ? {} : opts.leadWorkflowParts),
     coreMemoryContext: opts.coreMemoryContext || null,
     instructionFilesContext: instructionFilesContext || null,
     skillManifest: buildSkillManifest(skills),

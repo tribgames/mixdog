@@ -53,6 +53,7 @@ export function useTranscriptRows({
   commandBusy,
   commandActivityVisible,
   optimisticActivityStartedAt,
+  liveBand = true,
 }: {
   identity: string;
   sessionKey: string;
@@ -66,6 +67,10 @@ export function useTranscriptRows({
   commandBusy: boolean | undefined;
   commandActivityVisible: boolean;
   optimisticActivityStartedAt: number;
+  /** Whether the live band paints anything. A group room's typing bubble is
+   *  its own row; its band would be an empty row, laid out at the flat row
+   *  estimate before it measures 0. */
+  liveBand?: boolean;
 }) {
   const failedTurns = useMemo(() => new Set(failedTurnKeys || []), [failedTurnKeys]);
   const turnKeys = Array.isArray(precomputedTurnKeys) ? (precomputedTurnKeys as string[]) : null;
@@ -99,12 +104,15 @@ export function useTranscriptRows({
         settled: settledProjection,
         pendingItems,
         liveItem,
-        thinking: Boolean(
-          (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
-        ),
+        thinking:
+          liveBand &&
+          Boolean(
+            (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
+          ),
       }),
     [
       identity,
+      liveBand,
       optimisticActivityStartedAt,
       settledProjection,
       pendingItems,

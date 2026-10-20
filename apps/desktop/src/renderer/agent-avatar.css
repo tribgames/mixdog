@@ -1,0 +1,94 @@
+/* The pixel avatar's motion states (agent-avatar.tsx, avatar-motion.ts;
+   design/mockups/mixy-art §3–5). Only transform and opacity move, in steps;
+   at most one avatar holds a moving state at a time. */
+.mx-av {
+  overflow: visible;
+}
+/* idle (the chat header only): a blink every few seconds. */
+.mx-av[data-state="idle"] .eyes-open {
+  animation: mx-av-blink-open 5.2s step-end infinite;
+}
+.mx-av[data-state="idle"] .eyes-shut {
+  animation: mx-av-blink-shut 5.2s step-end infinite;
+}
+@keyframes mx-av-blink-open {
+  0%,
+  92% {
+    opacity: 1;
+  }
+  93%,
+  96% {
+    opacity: 0;
+  }
+  97%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes mx-av-blink-shut {
+  0%,
+  92% {
+    opacity: 0;
+  }
+  93%,
+  96% {
+    opacity: 1;
+  }
+  97%,
+  100% {
+    opacity: 0;
+  }
+}
+/* typing (the typing bubble, a working list row): the head bobs one cell. */
+.mx-av[data-state="typing"] .bob {
+  animation: mx-av-bob 0.8s step-end infinite;
+}
+@keyframes mx-av-bob {
+  0% {
+    transform: none;
+  }
+  50% {
+    transform: translateY(1px);
+  }
+}
+/* message (a list row): one bounce when a new message arrives. */
+.mx-av[data-state="message"] {
+  animation: mx-av-pop 0.96s step-end 1;
+}
+@keyframes mx-av-pop {
+  0% {
+    transform: none;
+  }
+  10% {
+    transform: translateY(-2px);
+  }
+  20% {
+    transform: translateY(-4px);
+  }
+  30% {
+    transform: translateY(-5px);
+  }
+  40% {
+    transform: translateY(-3px);
+  }
+  50% {
+    transform: none;
+  }
+  62% {
+    transform: translateY(-2px);
+  }
+  74%,
+  100% {
+    transform: none;
+  }
+}
+/* A hidden window pauses the one moving avatar; reduced motion keeps every
+   avatar on its still frame. */
+html[data-mx-av-paused] :is(.mx-av, .mx-av *) {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.mx-av, .mx-av *) {
+    animation: none !important;
+  }
+}

@@ -54,6 +54,7 @@ import { createResourceApi } from '../resource-api.mjs';
 import { createModelRouteApi } from '../model-route-api.mjs';
 import { createWorkflowAgentsApi } from '../workflow-agents-api.mjs';
 import { createToolPolicyRefresh } from '../tool-policy-refresh.mjs';
+import { subscribeAgentProfileChanges } from '../agent-profile-changes.mjs';
 import { loadInstructionFilesContext } from '../../runtime/agent/orchestrator/context/instruction-files.mjs';
 import { createSessionTurnApi } from '../session-turn-api.mjs';
 import { createGoalFacadeApi } from '../goal-facade-api.mjs';
@@ -110,10 +111,20 @@ export function wireApis(boot) {
   }
   boot.disposeGlobalExtensionSubscription = () => {
     boot.disposeConfigSync?.();
+    boot.disposeAgentProfileChanges();
     boot.resourceApi.disposeGlobalExtensionSubscription?.();
   };
   boot.modelRouteApi = modelRouteApiFor(boot);
   boot.workflowAgentsApi = workflowAgentsApiFor(boot);
+  // Connector allow lists (agent lists, MCP project scopes) become the
+  // equivalent "switched off" lists once; a later connector is on everywhere.
+  if (!boot.params.initialConfig || typeof boot.params.initialConfig !== 'object') {
+    try {
+      boot.workflowAgentsApi.migrateConnectorPolicies();
+    } catch (error) {
+      bootProfile('connector-policy:migrate-failed', { error: error?.message || String(error) });
+    }
+  }
   boot.workspaceApi = workspaceApiFor(boot);
   boot.sessionTurnApi = sessionTurnApiFor(boot);
   const getFacadeSessionId = () => boot.rt.session?.id || boot.rt.reservedSessionId || null;
@@ -132,24 +143,36 @@ export function wireApis(boot) {
 
 function wireToolPolicyRefresh(boot) {
   const { rt, cfgMod } = boot;
-  const { refreshEmptySessionToolPolicy } = createToolPolicyRefresh({
-    getSession: () => rt.session,
-    getRoute: () => rt.route,
-    getMode: () => rt.mode,
-    getConfig: () => rt.config,
-    getDataDir: () => dataDirOf(cfgMod),
-    getActiveTurnCount: () => rt.activeTurnCount || 0,
-    modelStandaloneTools: boot.modelStandaloneTools,
-    featureDisallowedTools: boot.featureDisallowedTools,
-    loadCoreMemoryContext: boot.loadCoreMemoryContext,
-    loadInstructionFilesContext: (session) =>
-      session.skipInstructionFiles
-        ? ''
-        : loadInstructionFilesContext({ mode: rt.config?.instructionFiles, cwd: session.cwd }),
-    activeWorkflowContext: workflowHelpers.activeWorkflowContext,
-    invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
-  });
+  const { refreshEmptySessionToolPolicy, switchSessionWorkflow, refreshAgentProfile, applyPendingAgentProfile } =
+    createToolPolicyRefresh({
+      getSession: () => rt.session,
+      getRoute: () => rt.route,
+      getMode: () => rt.mode,
+      getConfig: () => rt.config,
+      getDataDir: () => dataDirOf(cfgMod),
+      getActiveTurnCount: () => rt.activeTurnCount || 0,
+      modelStandaloneTools: boot.modelStandaloneTools,
+      featureDisallowedTools: boot.featureDisallowedTools,
+      loadCoreMemoryContext: boot.loadCoreMemoryContext,
+      loadInstructionFilesContext: (session) =>
+        session.skipInstructionFiles
+          ? ''
+          : loadInstructionFilesContext({ mode: rt.config?.instructionFiles, cwd: session.cwd }),
+      activeWorkflowContext: workflowHelpers.activeWorkflowContext,
+      invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
+    });
   boot.refreshEmptySessionToolPolicy = refreshEmptySessionToolPolicy;
+  boot.switchSessionWorkflow = switchSessionWorkflow;
+  boot.refreshAgentProfile = refreshAgentProfile;
+  boot.applyPendingAgentProfile = applyPendingAgentProfile;
+  // A saved bot reaches this runtime's thread when its prompt embeds it (it
+  // runs as that bot, or lists it); the rebuilt prompt is saved with the session.
+  const profileChanges = subscribeAgentProfileChanges(async () => {
+    if (!(await refreshAgentProfile())) return;
+    saveSession(rt.session);
+    boot.invalidateContextStatusCache();
+  });
+  boot.disposeAgentProfileChanges = profileChanges.unsubscribe;
 }
 
 // Built-in install adapters. Memory downloads and loads the embedding model at
@@ -425,6 +448,7 @@ function lifecycleApiFor(boot) {
     invalidateContextStatusCache: boot.invalidateContextStatusCache,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     applyResolvedCwd: boot.applyResolvedCwd,
+    refreshAgentProfile: boot.refreshAgentProfile,
     // Created after the lifecycle API, so resolved at call time.
     cleanupDeletedSessionWorktree: (sessionId) => boot.workspaceApi?.cleanupDeletedSession?.(sessionId),
     resolveRoute,
@@ -458,7 +482,9 @@ function resourceApiFor(boot) {
     connectConfiguredMcp: boot.connectConfiguredMcp,
     cancelMcpLogin: boot.cancelMcpLogin,
     completeMcpLogin: boot.completeMcpLogin,
-    clearMcpServerOAuth: (cfg) => boot.mcpClient.clearMcpServerOAuth(cfg),
+    clearMcpServerOAuth: (cfg, options) => boot.mcpClient.clearMcpServerOAuth(cfg, options),
+    startMcpServerOAuthSwitch: (cfg, launch, name) => boot.mcpClient.startMcpServerOAuthSwitch(cfg, launch, name),
+    commitMcpServerOAuthSwitch: (cfg, signIn) => boot.mcpClient.commitMcpServerOAuthSwitch(cfg, signIn),
     getMcpServerOAuthState: (cfg) => boot.mcpClient.getMcpServerOAuthState(cfg),
     probeMcpServerAuth: (cfg) => boot.mcpClient.probeMcpServerAuth(cfg),
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
@@ -473,6 +499,7 @@ function resourceApiFor(boot) {
     skillContent: boot.skillContent,
     addGlobalSkill: boot.addGlobalSkill,
     saveSkillDocument: boot.saveSkillDocument,
+    removeGlobalSkill: boot.removeGlobalSkill,
     invalidateSkills: boot.invalidateSkills,
     getDisabledSkills: () => settingsApi.getDisabledSkills(),
     setDisabledSkills: (names) => settingsApi.setDisabledSkills(names),
@@ -542,6 +569,9 @@ function workflowAgentsApiFor(boot) {
     saveConfigAndAdopt: boot.saveConfigAndAdopt,
     ensureProvidersReady: boot.ensureProvidersReady,
     displayConfig: boot.displayConfig,
+    mcpStatus: () => boot.mcpStatus(),
+    resolveConfiguredMcpCatalog: () => boot.resolveConfiguredMcpCatalog(),
+    getMcpTools: () => boot.mcpClient.getMcpTools(rt.mcpScopeId),
     agentRouteFromConfig,
     loadAgentDefinition: workflowHelpers.loadAgentDefinition,
     listCustomAgentIds: workflowHelpers.listCustomAgentIds,
@@ -555,6 +585,7 @@ function workflowAgentsApiFor(boot) {
     invalidateContextStatusCache: boot.invalidateContextStatusCache,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     refreshEmptySessionToolPolicy: boot.refreshEmptySessionToolPolicy,
+    switchSessionWorkflow: boot.switchSessionWorkflow,
   });
 }
 
@@ -596,6 +627,7 @@ function sessionTurnApiFor(boot) {
   const { rt, tunables, remoteTranscript, routePreparation } = boot;
   return createSessionTurnApi({
     applyPendingRoute: () => boot.modelRouteApi.applyPendingRoute(),
+    applyPendingAgentProfile: boot.applyPendingAgentProfile,
     prepareTurnWorkspace: boot.workspaceApi.prepareTurnWorkspace,
     admitTurnWorkspace: boot.workspaceApi.admitTurnWorkspace,
     getSession: () => rt.session,

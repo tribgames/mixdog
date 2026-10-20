@@ -70,7 +70,7 @@ test('injected runtimes receive the caller context each tool expects', async () 
   const ctx = { callerCwd: 'D:/proj', callerSessionId: 'caller-9', signal, clientHostPid: 42 };
 
   assert.equal(await execute('setup', { action: 'status' }, ctx), 'setup:ok');
-  assert.deepEqual(calls.at(-1), ['setup', { action: 'status' }, { signal }]);
+  assert.deepEqual(calls.at(-1), ['setup', { action: 'status' }, { signal, callerSessionId: 'caller-9' }]);
 
   assert.equal(await execute('recall', { query: 'q' }, ctx), 'memory:ok');
   assert.equal(calls.at(-1)[0], 'memory');

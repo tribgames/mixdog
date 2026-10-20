@@ -1127,9 +1127,13 @@ div.diff-tailwindcss-wrapper .diff-line {
   margin: auto;
   padding: 0;
 }
+.review-scroll:has(> .review-empty-state) {
+  display: flex;
+  flex-direction: column;
+}
 .review-empty-state {
   width: min(100%, 800px);
-  margin: 0 auto;
+  margin: auto;
   display: grid;
   gap: 12px;
   justify-items: center;

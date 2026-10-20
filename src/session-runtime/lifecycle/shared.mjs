@@ -4,6 +4,7 @@
  */
 import { hasUserConversationMessage } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { isAgentHomeSessionId } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { isRoomThreadSessionId } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
 
 export { SESSION_ID_PATTERN } from '../../runtime/agent/orchestrator/runtime-core/session-id.mjs';
 
@@ -21,9 +22,10 @@ export function isScratchConversation(messages, liveTurnMessages) {
 }
 
 /** An agent's home thread is never scratch: a blank one is tombstoned on no
- *  close, so its fixed id stays open for the next visit. */
+ *  close, so its fixed id stays open for the next visit. Neither is a group
+ *  room's log or member session (agent-room.mjs), whose ids are fixed too. */
 export function isScratchSession(session) {
-  if (isAgentHomeSessionId(session?.id)) return false;
+  if (isAgentHomeSessionId(session?.id) || isRoomThreadSessionId(session?.id)) return false;
   return isScratchConversation(session?.messages, session?.liveTurnMessages);
 }
 

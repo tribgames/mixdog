@@ -79,9 +79,12 @@ test('archived sessions page without narrowing bulk actions', async () => {
     await click('[data-action-id="confirm-delete-all-archived"]');
     assert.deepEqual(new Set(deleted), new Set(sessions.map(({ id }) => id)));
 
-    for (let attempts = 0; rows() < sessions.length && attempts < 10; attempts++) await page();
-    assert.equal(rows(), sessions.length);
-    assert.equal(document.querySelector('.archived-session-list .session-list-sentinel'), null);
+    const sentinel = () => document.querySelector('.archived-session-list .session-list-sentinel');
+    for (let attempts = 0; sentinel() && attempts < 10; attempts++) await page();
+    assert.equal(sentinel(), null, 'every page is revealed');
+    // The revealed list is windowed: rows past the viewport are spacers.
+    assert.ok(rows() < sessions.length, 'only the rows near the viewport are mounted');
+    assert.ok(document.querySelector('.archived-session-list .session-list-spacer'));
 
     await click('.sidebar-archived-toggle');
     await render({ selection: { kind: 'session', id: sessions.at(-1).id } });

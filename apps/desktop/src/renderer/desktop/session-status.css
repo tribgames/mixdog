@@ -22,23 +22,14 @@
 .session-attention-glyph[data-status="failed"] {
   color: var(--mx-status-failed);
 }
-/* Waiting on its own background work (hourglass, amber): not working, not
-   blocked on the user either. */
+/* Waiting on its own background work: the same spinner and colour as running. */
 .session-attention-glyph[data-status="waiting"] {
-  color: var(--mx-warning);
+  color: var(--mx-status-running);
 }
 
 /* Tabs: the glyph slot carries the status. */
 .workspace-tab-main .workspace-tab-status {
   color: var(--mx-status-running);
-}
-/* An icon-only tab hides its label spans; the status glyph and the progress
-   spinner stand in for the icon, so they stay. */
-@container (max-width: 48px) {
-  .workspace-tab-main .session-attention-glyph,
-  .workspace-tab-main .workspace-tab-status {
-    display: inline-flex;
-  }
 }
 .workspace-tab-unread-dot,
 .session-row-unread-dot,

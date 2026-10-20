@@ -1,4 +1,5 @@
 import { useAppPaneChrome } from '../use-app-pane-chrome';
+import { isMobileRemoteSurface } from '../mobile-surface';
 import { renderPaneDockStripTrailing } from '../app-shell-side-dock';
 import { LAST_SESSION_KEY } from './use-app-task-lifecycle';
 import { useAppSidebarHub } from './use-app-sidebar-hub';
@@ -85,6 +86,12 @@ export function useAppWorkbenchHubs(
         closePaneRightRegion,
         focusLeaf: paneWorkspace.focusLeaf,
       }),
+    // The desktop Bots page shows no new-task draft: + opens it in Sessions.
+    beforeNewTask: () => {
+      if (shellPanels.sidebarOpen && sideDocks.activeSideViews.left === 'agents' && !isMobileRemoteSurface()) {
+        selectWorkbenchSideView('sessions');
+      }
+    },
     lastSessionStorageKey: LAST_SESSION_KEY,
   });
   const { focusedLeafForShortcuts, tabSwitcher, quickAccessProjectPath, quickAccessRecentFiles, workbenchCommands } =

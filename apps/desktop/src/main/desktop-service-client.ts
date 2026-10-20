@@ -1,5 +1,6 @@
 import type {
   DesktopAbortOptions,
+  DesktopAgentMemoryEntry,
   DesktopAgentPoolRow,
   DesktopSessionContentMatch,
   DesktopCapability,
@@ -77,8 +78,7 @@ const DEFAULT_RESTART_STABLE_MS = 30_000;
  *  15-30 s recover on their own, so the notice waits twice the longest observed
  *  stall: by then at least a dozen attempts have failed and the outage is lasting. */
 const DEFAULT_FAILURE_NOTICE_DELAY_MS = 60_000;
-const PROCESS_FAILURE_NOTICE_TEXT =
-  'The service connection has been lost for a while. Still retrying automatically.';
+const PROCESS_FAILURE_NOTICE_TEXT = 'The service connection has been lost for a while. Still retrying automatically.';
 const PROCESS_FAILURE_TOAST_ID = 'service-connection-stopped';
 
 /** The daemon lane carries arguments as JSON, which turns an omitted trailing
@@ -872,6 +872,18 @@ export class DesktopServiceClient implements DesktopService {
   openAgentHome(agentId: string): Promise<{ sessionId: string }> {
     return this.invoke('openAgentHome', [agentId]);
   }
+  resetAgentHome(agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }> {
+    return this.invoke('resetAgentHome', [agentId]);
+  }
+  listAgentMemory(agentId: string): Promise<DesktopAgentMemoryEntry[]> {
+    return this.invoke('listAgentMemory', [agentId]);
+  }
+  deleteAgentMemory(agentId: string, entry: Pick<DesktopAgentMemoryEntry, 'id' | 'indexRevision'>): Promise<void> {
+    return this.invoke('deleteAgentMemory', [agentId, entry]);
+  }
+  agentRoomAction(action: string, args: unknown[]): Promise<unknown> {
+    return this.invoke('agentRoomAction', [action, args]);
+  }
   deleteSession(sessionId: string): Promise<unknown> {
     return this.invoke('deleteSession', [sessionId]);
   }
@@ -927,6 +939,12 @@ export class DesktopServiceClient implements DesktopService {
   }
   resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
     return this.invoke('resolveToolApprovalForSession', [sessionId, id, decision]);
+  }
+  getAgentNotificationMute(agentId: string): Promise<boolean> {
+    return this.invoke('getAgentNotificationMute', [agentId]);
+  }
+  setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean> {
+    return this.invoke('setAgentNotificationMute', [agentId, muted]);
   }
   listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return this.invokeRead('listProviderModels', [options]);

@@ -413,6 +413,9 @@ html[data-mixdog-mobile-tabs] .browser-tab-list > .dock-header-chip:not(:only-ch
 .dock-header-menu > button:hover:not(:disabled) {
   background: var(--mx-hover);
 }
+.dock-header-menu > button.danger {
+  color: var(--mx-danger);
+}
 .dock-header-menu > button:disabled {
   color: var(--mx-text-muted);
   cursor: default;

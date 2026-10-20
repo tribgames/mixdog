@@ -1,34 +1,59 @@
-import { Bot, ChevronRight, CircleX, Star } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleAlert, CircleX, Plus, Search, Star } from 'lucide-react';
 import type React from 'react';
-import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  Fragment,
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { InitialSurface } from './InitialSurface';
+import { AgentTaskRows } from './agent-task-line';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
-import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
+import { ScmContextMenu, type ScmContextMenuState, contextMenuRowProps } from './ScmContextMenu';
+import { ConnectorsPill } from './connector-card';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
-import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
-import { desktopAgentActivityState, type DesktopAgentActivityState } from '../shared/agent-activity';
+import type { DesktopAgentPoolRow, DesktopModelSelection, DesktopSessionSummary } from '../shared/contract';
+import {
+  desktopAgentActivityState,
+  hasPendingDesktopAgentWork,
+  type DesktopAgentActivityState,
+} from '../shared/agent-activity';
+import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { agentElapsedText } from './agent-row-meta';
 import { useClock } from './use-clock';
 import { clearableAgentTreeRows, dismissFinishedAgentRows, useVisibleAgentPool } from './agent-dismiss';
 import { AgentProviderMark, AgentRouteSummary, useSessionDragSource } from './agent-row-parts';
-import {
-  type AgentChatIndicator,
-  agentChatElapsed,
-  agentChatTimeLabel,
-  agentFailureText,
-  agentNodeState,
-  agentRowName,
-  agentSessionChatSummary,
-} from './agent-chat-summary';
+import { type AgentChatIndicator, agentChatTimeLabel, agentRowName } from './agent-chat-summary';
 import { ProgressSpinner } from './ProgressSpinner';
-import { timeMs } from './transcript-primitives';
+import { AgentPaneAddMenu, AgentRoomsSection } from './AgentRoomsSection';
+import { TextShimmer } from './transcript-primitives';
 import { type AgentContact, agentContacts } from './agent-contacts-model';
-import { MixdogMark } from './mixdog-mark';
+import { AgentAvatar } from './agent-avatar';
+import { type AvatarMotionState, useNewMessagePulse } from './avatar-motion';
+import { openAgentProfile } from './agent-panel-tab';
+import { agentContactMenuItems } from './agent-profile-actions';
+import { EMPTY_SNAPSHOT } from './desktop-types';
+import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
+import { defaultSessionLaneStore } from './session-lane-store';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
+import { type AgentsPageFocus, mixyDefaultPlan } from './agent-home-default';
+import { MixyEmptyState, useMixyFirstPane } from './mixy-first';
+import { mixyName } from './mixy-identity';
+import { composerScopeHasContent } from './composer-draft';
+import { isMobileRemoteSurface } from './mobile-surface';
+import { isAgentChatSession } from './agent-chat-mode';
+import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   AGENT_POOL_RECONCILE_MS,
   agentActivityGroups,
@@ -51,6 +76,12 @@ export {
   preloadAgentPool,
 } from './agent-activity-model';
 
+// Loaded on "+" only: the Workflows editor graph stays out of every bundle
+// that reaches this pane (the composer island among them).
+const AgentCreateDialog = lazy(() =>
+  import('./agent-create-dialog').then((module) => ({ default: module.AgentCreateDialog }))
+);
+
 /** A running row's clock: the caller's when it supplies one, otherwise a
  *  one-second tick owned by the leaf that reads it, so only that leaf
  *  re-renders each second, not its row or pane. */
@@ -59,25 +90,17 @@ function useRowClock(state: DesktopAgentActivityState, clock: number | undefined
   return clock ?? now;
 }
 
-/** The row's right-column text; `compact` (the Agents list) keeps a running
- *  clock to its largest unit. */
+/** The row's right-column text. */
 function AgentRowElapsed({
   state,
   agent,
   clock,
-  compact = false,
 }: {
   state: DesktopAgentActivityState;
   agent: DesktopAgentPoolRow;
   clock?: number;
-  compact?: boolean;
 }): React.ReactElement {
-  const now = useRowClock(state, clock);
-  const turn = timeMs(agent.turnStartedAt);
-  const elapsed =
-    compact && turn && (state === 'running' || state === 'waiting')
-      ? agentChatElapsed(now - turn)
-      : agentElapsedText(state, agent, now);
+  const elapsed = agentElapsedText(state, agent, useRowClock(state, clock));
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name
     <time
@@ -206,13 +229,36 @@ export const AgentPoolRow = memo(function AgentPoolRow({
   );
 });
 
-/** The row's single trailing status (see AgentChatIndicator). */
-function AgentChatStatus({ indicator, id }: { indicator: AgentChatIndicator; id: string }) {
+/** An unread count as its pill shows it: capped at "99+". */
+export function unreadBadgeLabel(count: number): string {
+  return count > 99 ? '99+' : String(Math.max(1, Math.floor(count)));
+}
+
+/** The row's single trailing status (see AgentChatIndicator). Attention has
+ *  no pill: the preview line already says what the agent waits for; a
+ *  contact row (`attentionMark`) also shows a mark in its status cell. */
+function AgentChatStatus({
+  indicator,
+  id,
+  attentionMark = false,
+}: {
+  indicator: AgentChatIndicator;
+  id: string;
+  attentionMark?: boolean;
+}) {
   if (!indicator) return null;
+  if (indicator.kind === 'attention' && attentionMark) {
+    return (
+      <span id={id} className="agent-chat-status" data-kind="attention-mark">
+        <CircleAlert size={14} aria-hidden="true" />
+        <span className="sr-only">{t('Waiting for approval')}</span>
+      </span>
+    );
+  }
   if (indicator.kind === 'attention') {
     return (
-      <span id={id} className="agent-chat-status" data-kind="attention">
-        {t('Needs attention')}
+      <span id={id} className="sr-only">
+        {t('Waiting for approval')}
       </span>
     );
   }
@@ -235,151 +281,147 @@ function AgentChatStatus({ indicator, id }: { indicator: AgentChatIndicator; id:
   return (
     <span id={id} className="agent-chat-status" data-kind="unread">
       <span className="sr-only">{t('Unread')} </span>
-      {indicator.count}
+      {unreadBadgeLabel(indicator.count)}
     </span>
-  );
-}
-
-/** A session row's time: the running turn's elapsed while it works, otherwise
- *  the moment the group last started or settled work. */
-function AgentChatTime({ lead, live, at }: { lead: DesktopAgentPoolRow | null; live: boolean; at: number }) {
-  const ticking = live && Boolean(lead && timeMs(lead.turnStartedAt));
-  const now = useClock(ticking);
-  const text = ticking && lead ? agentChatElapsed(now - timeMs(lead.turnStartedAt)) : agentChatTimeLabel(at);
-  return (
-    <time className="agent-chat-time" data-live={ticking ? 'true' : undefined}>
-      {text}
-    </time>
-  );
-}
-
-/** The twisty painted before the title of a row with agents below it. */
-function AgentChatTwisty({ expanded }: { expanded: boolean }) {
-  return (
-    <span className="agent-chat-twisty" data-expanded={expanded ? 'true' : undefined} aria-hidden="true">
-      <ChevronRight size={12} />
-    </span>
-  );
-}
-
-/** The twisty's hit area: a transparent button laid over the twisty and the
- *  avatar edge (no width of its own). Arrow keys on the row do the same; the
- *  button stays out of the tab order. */
-function AgentChatToggle({
-  expanded,
-  label,
-  leadSessionId,
-  onToggle,
-}: {
-  expanded: boolean;
-  label: string;
-  leadSessionId?: string;
-  onToggle(): void;
-}) {
-  return (
-    <button
-      type="button"
-      className="agent-chat-toggle"
-      tabIndex={-1}
-      aria-label={`${expanded ? t('Fold') : t('Unfold')}: ${label}`}
-      aria-expanded={expanded}
-      data-lead-session-id={leadSessionId}
-      onClick={onToggle}
-    />
   );
 }
 
 const AGENT_TREE_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']);
 
-type AgentChatTreeItem = {
-  roving: { tabIndex: number; onFocus(): void };
-  level: number;
-};
-
-/** One child agent: a compact row of the same shell, with its role/tag, model
- *  route, lifecycle and elapsed. */
-function AgentMemberRow({
-  node,
-  ownerSessionId,
-  state,
-  expanded,
-  item,
-  onToggle,
+/** One owner group rendered as a real ARIA tree: roving tab focus, Arrow
+ *  Up/Down through the painted rows, Arrow Right/Left to open, close and climb
+ *  the hierarchy, Home/End to its ends. Every `aria-expanded` here reports the
+ *  state the surface actually paints — including a row whose subtree is folded
+ *  away with its group. */
+function AgentActivityTree({
+  group,
+  label,
+  groupExpanded,
+  expandedSessionIds,
+  onSetExpanded,
+  unreadSessionIds,
+  onExpandGroup,
+  onCollapseGroup,
   onPrefetchSession,
+  onOpenLeadSession,
   onOpenSession,
 }: {
-  node: AgentActivityNode;
-  ownerSessionId: string;
-  state: DesktopAgentActivityState;
-  expanded: boolean;
-  item: AgentChatTreeItem;
-  onToggle(): void;
+  group: { ownerId: string; nodes: readonly AgentActivityNode[] };
+  label: string;
+  groupExpanded: boolean;
+  expandedSessionIds: ReadonlySet<string>;
+  onSetExpanded(sessionId: string, expanded: boolean): void;
+  unreadSessionIds?: ReadonlySet<string>;
+  onExpandGroup?(): void;
+  onCollapseGroup?(): void;
   onPrefetchSession?(sessionId: string): void;
+  onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
-}) {
-  const { agent, sessionId } = node;
-  const name = agentRowName(agent, false);
-  const tabTitle = agentTabTitle(agent, agentRoleLabel(agent.agent || agent.tag));
-  const hasChildren = node.children.length > 0;
-  const { dragProps, clickSuppressed } = useSessionDragSource(sessionId, tabTitle);
-  const prefetch = () => {
-    if (sessionId) onPrefetchSession?.(sessionId);
+}): React.ReactElement {
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const [focusedSessionId, setFocusedSessionId] = useState('');
+  const descendantCount = useMemo(
+    () => flattenAgentActivityNodes(group.nodes).filter((node) => node.sessionId !== group.ownerId).length,
+    [group.nodes, group.ownerId]
+  );
+  const rows = useMemo(() => {
+    const visible = visibleAgentTreeRows(group.nodes, expandedSessionIds);
+    // A collapsed GROUP keeps exactly the owner's own row: every descendant,
+    // at any generation, folds away with it.
+    return groupExpanded ? visible : visible.filter((node) => node.sessionId === group.ownerId);
+  }, [expandedSessionIds, group.nodes, group.ownerId, groupExpanded]);
+  const focusedIndex = rows.findIndex((node) => node.sessionId === focusedSessionId);
+  const activeIndex = focusedIndex >= 0 ? focusedIndex : 0;
+  const rowExpanded = (node: AgentActivityNode): boolean => groupExpanded && expandedSessionIds.has(node.sessionId);
+  const focusRow = (index: number): void => {
+    const node = rows[Math.min(Math.max(index, 0), rows.length - 1)];
+    if (!node) return;
+    setFocusedSessionId(node.sessionId);
+    treeRef.current?.querySelector<HTMLElement>(`[data-agent-session-id="${node.sessionId}"]`)?.focus();
+  };
+  const setRowCollapsed = (sessionId: string, collapsed: boolean): void => {
+    setFocusedSessionId(sessionId);
+    onSetExpanded(sessionId, !collapsed);
+  };
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!AGENT_TREE_KEYS.has(event.key)) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const originId =
+      (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-agent-session-id]')?.dataset.agentSessionId ||
+      '';
+    const found = rows.findIndex((node) => node.sessionId === originId);
+    const index = found >= 0 ? found : activeIndex;
+    const node = rows[index];
+    if (!node) return;
+    event.preventDefault();
+    if (event.key === 'ArrowDown') {
+      focusRow(index + 1);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      focusRow(index - 1);
+      return;
+    }
+    if (event.key === 'Home') {
+      focusRow(0);
+      return;
+    }
+    if (event.key === 'End') {
+      focusRow(rows.length - 1);
+      return;
+    }
+    const hasChildren = node.children.length > 0;
+    if (event.key === 'ArrowRight') {
+      // The root row of a folded group opens the group itself: that fold is
+      // the only thing hiding its subtree.
+      if (!groupExpanded && node.sessionId === group.ownerId) {
+        onExpandGroup?.();
+        return;
+      }
+      if (!hasChildren) return;
+      if (!rowExpanded(node)) {
+        setRowCollapsed(node.sessionId, false);
+        return;
+      }
+      // Expanded: its first child is the next row in depth-first order.
+      focusRow(index + 1);
+      return;
+    }
+    if (hasChildren && rowExpanded(node)) {
+      setRowCollapsed(node.sessionId, true);
+      return;
+    }
+    const parentIndex = rows.findIndex((row) => row.sessionId === node.parentSessionId);
+    if (parentIndex >= 0) {
+      focusRow(parentIndex);
+      return;
+    }
+    if (groupExpanded) onCollapseGroup?.();
   };
   return (
-    <div
-      className="agent-chat-row"
-      data-kind="agent"
-      role="none"
-      style={{ '--agent-chat-depth': item.level - 2 } as React.CSSProperties}
-    >
-      <button
-        type="button"
-        className="agent-chat-row-main agent-pool-row"
-        data-agent-tag={agent.tag || undefined}
-        data-agent-session-id={sessionId || undefined}
-        data-agent-parent-session-id={node.parentSessionId || undefined}
-        data-agent-depth={item.level - 1}
-        role="treeitem"
-        aria-level={item.level}
-        aria-posinset={node.posInSet}
-        aria-setsize={node.setSize}
-        aria-expanded={hasChildren ? expanded : undefined}
-        aria-label={name}
-        tabIndex={item.roving.tabIndex}
-        disabled={!sessionId}
-        {...dragProps}
-        onPointerEnter={prefetch}
-        onFocus={() => {
-          item.roving.onFocus();
-          prefetch();
-        }}
-        onPointerDown={prefetch}
-        onClick={() => {
-          if (!sessionId || clickSuppressed()) return;
-          onOpenSession?.(sessionId, tabTitle, ownerSessionId);
-        }}
-      >
-        <span className="agent-chat-avatar">
-          <AgentProviderMark agent={agent} size={14} />
-        </span>
-        <span className="agent-chat-body">
-          <span className="agent-chat-line">
-            {hasChildren && <AgentChatTwisty expanded={expanded} />}
-            <b className="agent-chat-title agent-pool-name">{name}</b>
-            <AgentRowElapsed state={state} agent={agent} compact />
-          </span>
-          <span className="agent-chat-line">
-            {state === 'failed' ? (
-              <small className="agent-chat-preview" data-state="failed">
-                {agentFailureText(agent)}
-              </small>
-            ) : (
-              <AgentRouteSummary agent={agent} />
-            )}
-          </span>
-        </span>
-      </button>
-      {hasChildren && <AgentChatToggle expanded={expanded} label={name} onToggle={onToggle} />}
+    <div ref={treeRef} className="schedules-list" role="tree" aria-label={label} onKeyDown={onKeyDown}>
+      {rows.map((node, index) => (
+        <AgentPoolRow
+          key={poolRowKey(node.agent, index)}
+          agent={node.agent}
+          depth={node.depth}
+          parentSessionId={node.parentSessionId}
+          hasChildren={node.children.length > 0}
+          expanded={rowExpanded(node)}
+          posInSet={node.posInSet}
+          setSize={node.setSize}
+          tabIndex={index === activeIndex ? 0 : -1}
+          ownerSessionId={group.ownerId}
+          descendantCount={descendantCount}
+          unread={unreadSessionIds?.has(node.sessionId) === true}
+          waitingForTasks={flattenAgentActivityNodes(node.children).some(({ agent }) =>
+            hasPendingDesktopAgentWork(agent)
+          )}
+          onPrefetchSession={onPrefetchSession}
+          onOpenLeadSession={onOpenLeadSession}
+          onOpenSession={onOpenSession}
+        />
+      ))}
     </div>
   );
 }
@@ -473,19 +515,16 @@ function expandedAgentActivityIds(
   );
 }
 
-/** One Lead session as a messenger row — avatar, bold title, time, a preview
- *  of what it is doing and one status — with its agents folded beneath it as
- *  compact rows of the same shell. The group is one ARIA tree: roving tab
- *  focus, Arrow Up/Down through the painted rows, Arrow Right/Left to open,
- *  close and climb, Home/End to its ends. Every `aria-expanded` reports what
- *  the surface actually paints. Right-click, Menu/Shift+F10 and a touch
- *  long-press open the row's overflow menu. */
-function AgentChatGroup({
+/** One Lead session's group: its bold title with a collapse chevron and the
+ *  group's own menu (the `…`, right-click, Menu/Shift+F10 and a touch
+ *  long-press), over the Lead row and one row per child agent. */
+function AgentActivityGroup({
   group,
   expandedSessionIds,
   unreadSessionIds,
   setSessionExpanded,
   hideGroup,
+  onOpenMenu,
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
@@ -495,210 +534,103 @@ function AgentChatGroup({
   unreadSessionIds?: ReadonlySet<string>;
   setSessionExpanded(sessionId: string, expanded: boolean): void;
   hideGroup(ownerId: string): void;
+  onOpenMenu(menu: ScmContextMenuState): void;
   onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
-  const { ownerId } = group;
   const title = sessionSummaryTitle(group.session, t('Untitled session'));
-  const treeRef = useRef<HTMLDivElement | null>(null);
-  const [focusedSessionId, setFocusedSessionId] = useState('');
-  const describedBy = useId();
-  const lead = group.nodes.find((node) => node.sessionId === ownerId) ?? null;
-  // Under a Lead row its children are the members; without one the top rows are.
-  const members = lead ? lead.children : group.nodes;
-  const levelOffset = lead ? 1 : 2;
-  const groupExpanded = expandedSessionIds.has(ownerId);
-  const summary = useMemo(
-    () => agentSessionChatSummary(ownerId, group.nodes, unreadSessionIds),
-    [group.nodes, ownerId, unreadSessionIds]
-  );
-  const rows = useMemo(
-    () => (groupExpanded ? visibleAgentTreeRows(members, expandedSessionIds) : []),
-    [expandedSessionIds, groupExpanded, members]
-  );
-  const rowIds = [ownerId, ...rows.map((node) => node.sessionId)];
-  const activeIndex = Math.max(0, rowIds.indexOf(focusedSessionId));
-  const avatarAgent = lead?.agent ?? group.agents[0];
-  const { dragProps, clickSuppressed } = useSessionDragSource(ownerId, title);
-  const setGroupExpanded = (expanded: boolean) => setSessionExpanded(ownerId, expanded);
-  const focusRow = (index: number): void => {
-    const id = rowIds[Math.min(Math.max(index, 0), rowIds.length - 1)];
-    if (!id) return;
-    setFocusedSessionId(id);
-    treeRef.current?.querySelector<HTMLElement>(`[data-agent-session-id="${id}"]`)?.focus();
-  };
-  const setRowExpanded = (sessionId: string, expanded: boolean): void => {
-    setFocusedSessionId(sessionId);
-    setSessionExpanded(sessionId, expanded);
-  };
-  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (!AGENT_TREE_KEYS.has(event.key)) return;
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const origin = (event.target as HTMLElement | null)?.closest<HTMLElement>('[role="treeitem"]');
-    if (!origin) return;
-    const found = rowIds.indexOf(origin.dataset.agentSessionId || '');
-    const index = found >= 0 ? found : activeIndex;
-    event.preventDefault();
-    const moves: Partial<Record<string, number>> = {
-      ArrowDown: index + 1,
-      ArrowUp: index - 1,
-      Home: 0,
-      End: rowIds.length - 1,
-    };
-    const target = moves[event.key];
-    if (target !== undefined) {
-      focusRow(target);
-      return;
-    }
-    const node = index > 0 ? rows[index - 1] : undefined;
-    if (!node) {
-      // The session row: its fold is the whole group's.
-      if (event.key === 'ArrowLeft') {
-        if (groupExpanded) setRowExpanded(ownerId, false);
-      } else if (!groupExpanded) {
-        if (members.length > 0) setRowExpanded(ownerId, true);
-      } else focusRow(1);
-      return;
-    }
-    const hasChildren = node.children.length > 0;
-    const expanded = expandedSessionIds.has(node.sessionId);
-    if (event.key === 'ArrowRight') {
-      if (!hasChildren) return;
-      // Expanded: its first child is the next row in depth-first order.
-      if (expanded) focusRow(index + 1);
-      else setRowExpanded(node.sessionId, true);
-      return;
-    }
-    if (hasChildren && expanded) {
-      setRowExpanded(node.sessionId, false);
-      return;
-    }
-    // Climb to the parent row; a top member's parent is the session row.
-    focusRow(Math.max(0, rowIds.indexOf(node.parentSessionId)));
-  };
-  const roving = (sessionId: string, index: number) => ({
-    tabIndex: index === activeIndex ? 0 : -1,
-    onFocus: () => setFocusedSessionId(sessionId),
-  });
-  const clearable = clearableAgentTreeRows(group.nodes);
-  const prefetch = () => onPrefetchSession?.(ownerId);
+  const expanded = expandedSessionIds.has(group.ownerId);
+  // Any agent of the group still working — the Lead or a descendant — makes
+  // the session name shimmer, so a folded group still reads as live.
+  const working = group.agents.some((agent) => desktopAgentActivityState(agent) === 'running');
+  const setGroupCollapsed = (collapsed: boolean): void => setSessionExpanded(group.ownerId, !collapsed);
+  const label = t('Actions for {{title}}', { title });
+  const items = [
+    { id: 'hide-agent-group', label: t('Hide this group'), onSelect: () => hideGroup(group.ownerId) },
+    {
+      id: 'clear-finished-agents',
+      label: t('Clear finished'),
+      disabled: clearableAgentTreeRows(group.nodes).length === 0,
+      onSelect: () => dismissFinishedAgentRows(clearableAgentTreeRows(group.nodes)),
+    },
+  ];
+  const menuProps = contextMenuRowProps((point) => onOpenMenu({ label, ...point, items }));
   return (
-    <section className="agent-chat-group" data-agent-owner-session-id={ownerId}>
-      <div ref={treeRef} className="agent-chat-tree" role="tree" aria-label={title} onKeyDown={onKeyDown}>
-        <div className="agent-chat-row" data-kind="session" role="none" {...rowOverflowHostProps()}>
-          <button
-            type="button"
-            className="agent-chat-row-main agent-pool-row"
-            data-agent-tag={lead?.agent.tag || undefined}
-            data-agent-session-id={ownerId}
-            data-agent-depth={0}
-            data-state={summary.state}
-            role="treeitem"
-            aria-level={1}
-            aria-posinset={1}
-            aria-setsize={1}
-            aria-expanded={members.length > 0 ? groupExpanded : undefined}
-            aria-label={title}
-            aria-describedby={`${describedBy}-preview ${describedBy}-status`}
-            tabIndex={activeIndex === 0 ? 0 : -1}
-            {...dragProps}
-            onPointerEnter={prefetch}
-            onFocus={() => {
-              setFocusedSessionId(ownerId);
-              prefetch();
-            }}
-            onPointerDown={prefetch}
-            onClick={() => {
-              if (!clickSuppressed()) onOpenLeadSession?.(ownerId);
-            }}
-          >
-            <span className="agent-chat-avatar">
-              <AgentProviderMark agent={avatarAgent} size={20} />
-            </span>
-            <span className="agent-chat-body">
-              <span className="agent-chat-line">
-                {members.length > 0 && <AgentChatTwisty expanded={groupExpanded} />}
-                <b className="agent-chat-title">{title}</b>
-                <AgentChatTime
-                  lead={lead?.agent ?? null}
-                  live={summary.state === 'running' || summary.state === 'waiting'}
-                  at={group.stamp}
-                />
-              </span>
-              <span className="agent-chat-line">
-                <span id={`${describedBy}-preview`} className="agent-chat-preview">
-                  <span className="agent-chat-state" data-state={summary.state}>
-                    {summary.stateText}
-                  </span>
-                  {summary.preview.slice(summary.stateText.length)}
-                </span>
-                <AgentChatStatus indicator={summary.indicator} id={`${describedBy}-status`} />
-              </span>
-            </span>
-          </button>
-          {members.length > 0 && (
-            <AgentChatToggle
-              expanded={groupExpanded}
-              label={title}
-              leadSessionId={ownerId}
-              onToggle={() => setGroupExpanded(!groupExpanded)}
-            />
-          )}
-          <RowOverflowMenu
-            label={t('Actions for {{title}}', { title })}
-            items={[
-              {
-                id: 'open-agent-session',
-                label: t('Open in tab'),
-                onSelect: () => onOpenLeadSession?.(ownerId),
-              },
-              {
-                id: 'hide-agent-group',
-                label: t('Hide this group'),
-                separatorBefore: true,
-                onSelect: () => hideGroup(ownerId),
-              },
-              {
-                id: 'clear-finished-agents',
-                label: t('Clear finished'),
-                disabled: clearable.length === 0,
-                onSelect: () => {
-                  dismissFinishedAgentRows(clearableAgentTreeRows(group.nodes));
-                },
-              },
-            ]}
-          />
-        </div>
-        {rows.map((node, index) => (
-          <AgentMemberRow
-            key={poolRowKey(node.agent, index)}
-            node={node}
-            ownerSessionId={ownerId}
-            state={agentNodeState(node, unreadSessionIds)}
-            expanded={expandedSessionIds.has(node.sessionId)}
-            item={{ roving: roving(node.sessionId, index + 1), level: node.depth + levelOffset }}
-            onToggle={() => setRowExpanded(node.sessionId, !expandedSessionIds.has(node.sessionId))}
-            onPrefetchSession={onPrefetchSession}
-            onOpenSession={onOpenSession}
-          />
-        ))}
+    <section className="workflows-models agent-activity-group" data-agent-owner-session-id={group.ownerId}>
+      <div className="workflows-section-head" {...rowOverflowHostProps()} {...menuProps}>
+        <button
+          type="button"
+          className="agent-session-heading"
+          aria-label={title}
+          aria-expanded={expanded}
+          data-lead-session-id={group.ownerId}
+          onClick={() => setGroupCollapsed(expanded)}
+        >
+          <h2>
+            <TextShimmer text={title} active={working} />
+          </h2>
+          <span className="agent-session-chevron" aria-hidden="true">
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </span>
+        </button>
+        <RowOverflowMenu label={label} items={items} />
       </div>
+      <AgentActivityTree
+        group={group}
+        label={title}
+        groupExpanded={expanded}
+        expandedSessionIds={expandedSessionIds}
+        onSetExpanded={setSessionExpanded}
+        unreadSessionIds={unreadSessionIds}
+        onExpandGroup={() => setGroupCollapsed(false)}
+        onCollapseGroup={() => setGroupCollapsed(true)}
+        onPrefetchSession={onPrefetchSession}
+        onOpenLeadSession={onOpenLeadSession}
+        onOpenSession={onOpenSession}
+      />
     </section>
   );
 }
 
 /** One contact: an agent as a messenger row over its home thread — avatar
- *  (Mixy's logo with its star, else the model's provider), display name,
+ *  (its mascot; Mixy's carries a star), display name,
  *  time, last-message preview and the one trailing status. */
-function AgentContactRow({ contact, onOpen }: { contact: AgentContact; onOpen(contact: AgentContact): void }) {
+function AgentContactRow({
+  contact,
+  selected,
+  onOpen,
+  onOpenMenu,
+  onProfile,
+}: {
+  contact: AgentContact;
+  selected: boolean;
+  onOpen(contact: AgentContact): void;
+  onOpenMenu(menu: ScmContextMenuState): void;
+  onProfile(contact: AgentContact): void;
+}) {
   const describedBy = useId();
   const { dragProps, clickSuppressed } = useSessionDragSource(contact.session?.id ?? '', contact.name);
+  const items = agentContactMenuItems(contact, { onOpen, onProfile });
+  // The face bobs while the agent works and bounces once on a new message.
+  const arrived = useNewMessagePulse(contact.indicator?.kind === 'unread' ? contact.indicator.count : 0);
+  let faceState: AvatarMotionState = contact.indicator?.kind === 'running' ? 'typing' : 'still';
+  if (arrived) faceState = 'message';
   return (
-    <li className="agent-chat-row" data-kind="contact" data-agent-contact={contact.agentId} {...rowOverflowHostProps()}>
+    <li
+      className={`agent-chat-row${selected ? ' selected' : ''}`}
+      data-kind="contact"
+      data-agent-contact={contact.agentId}
+      data-name-only={contact.preview || contact.indicator || contact.at > 0 ? undefined : 'true'}
+      {...contextMenuRowProps((point) =>
+        onOpenMenu({ label: t('Actions for {{title}}', { title: contact.name }), ...point, items })
+      )}
+    >
       <button
         type="button"
         className="agent-chat-row-main"
+        aria-current={selected ? 'page' : undefined}
+        aria-haspopup="menu"
         aria-label={contact.name}
         aria-describedby={`${describedBy}-preview ${describedBy}-status`}
         {...dragProps}
@@ -707,35 +639,42 @@ function AgentContactRow({ contact, onOpen }: { contact: AgentContact; onOpen(co
         }}
       >
         <span className="agent-chat-avatar">
-          {contact.mixy ? (
-            <MixdogMark className="agent-contact-logo" />
-          ) : (
-            <AgentProviderMark agent={{ provider: contact.provider || null }} size={20} />
-          )}
+          <AgentAvatar
+            agentId={contact.agentId}
+            avatar={contact.avatar}
+            className="agent-contact-mascot"
+            state={faceState}
+            priority={2}
+          />
           {contact.mixy && (
-            <span className="agent-contact-badge" title={t('Primary assistant')}>
-              <Star size={9} aria-hidden="true" />
-              <span className="sr-only">{t('Primary assistant')}</span>
+            <span className="agent-contact-badge" title={t('Representative bot')}>
+              {/* A filled glyph: an outlined star blurs at badge size. */}
+              <Star size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+              <span className="sr-only">{t('Representative bot')}</span>
             </span>
           )}
         </span>
-        <span className="agent-chat-body">
-          <span className="agent-chat-line">
-            <b className="agent-chat-title">{contact.name}</b>
-            <time className="agent-chat-time">{agentChatTimeLabel(contact.at)}</time>
-          </span>
-          <span className="agent-chat-line">
+        {/* KakaoTalk layout, a 2×2 grid: name | time, then the preview (up
+            to two lines) | status. The right column is reserved, so the
+            preview never runs under the time or the badge. A name-only row
+            (no messages, no status) has only the name, centred on the face. */}
+        <span className="agent-chat-body agent-contact-body">
+          <b className="agent-chat-title">{contact.name}</b>
+          {contact.preview && (
             <span id={`${describedBy}-preview`} className="agent-chat-preview">
               {contact.preview}
             </span>
-            <AgentChatStatus indicator={contact.indicator} id={`${describedBy}-status`} />
-          </span>
+          )}
+          {/* The right column: time over the one status. Without a status it
+              sits on the name line; with one the pair centres on the row. */}
+          {(contact.at > 0 || contact.indicator) && (
+            <span className="agent-contact-aside" data-has-status={contact.indicator ? 'true' : undefined}>
+              {contact.at > 0 && <time className="agent-chat-time">{agentChatTimeLabel(contact.at)}</time>}
+              <AgentChatStatus indicator={contact.indicator} id={`${describedBy}-status`} attentionMark />
+            </span>
+          )}
         </span>
       </button>
-      <RowOverflowMenu
-        label={t('Actions for {{title}}', { title: contact.name })}
-        items={[{ id: 'open-agent-contact', label: t('Open in tab'), onSelect: () => onOpen(contact) }]}
-      />
     </li>
   );
 }
@@ -756,28 +695,81 @@ function useContactAgents(active: boolean, sessions: readonly DesktopSessionSumm
   return values.agents;
 }
 
+/** Each time the desktop Agents page shows (once the catalog is ready), Mixy
+ *  becomes the selection unless a home thread already holds the focus; see
+ *  mixyDefaultPlan. Phones keep the list first. */
+function useMixyDefaultSelection(
+  active: boolean,
+  sessionsReady: boolean,
+  focus: AgentsPageFocus | null,
+  open: ((sessionId: string, title: string, ownerSessionId: string, replaceKey?: string) => void) | undefined
+): void {
+  const latest = useRef({ focus, open });
+  latest.current = { focus, open };
+  const pending = useRef(false);
+  const ready = focus !== null;
+  useEffect(() => {
+    pending.current = active;
+  }, [active]);
+  useEffect(() => {
+    if (!active || !sessionsReady || !ready || !pending.current) return;
+    const { focus: page, open: openSession } = latest.current;
+    if (!page || !openSession) return;
+    pending.current = false;
+    const plan = mixyDefaultPlan(page, {
+      mobile: isMobileRemoteSurface(),
+      draftHasContent: composerScopeHasContent,
+    });
+    if (plan.kind === 'focus') openSession(plan.sessionId, mixyName(), plan.sessionId);
+    if (plan.kind !== 'open') return;
+    void Promise.resolve(window.mixdogDesktop?.openAgentHome?.(MIXY_AGENT_ID))
+      .then((home) => {
+        if (home?.sessionId) openSession(home.sessionId, mixyName(), home.sessionId, plan.replaceKey);
+      })
+      .catch(() => {
+        /* the Mixy row stays one click away */
+      });
+  }, [active, sessionsReady, ready]);
+}
+
 export function AgentActivityPane({
   active,
-  showGroupActions = false,
   sessions,
   sessionsReady = true,
+  selectedSessionId = '',
+  headerActionSlot = null,
   unreadSessionIds,
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
+  agentsPageFocus = null,
+  readComposerModel,
 }: {
   active: boolean;
+  /** The composer's current model, read when "+" opens a new agent. */
+  readComposerModel?(): DesktopModelSelection | null;
+  /** Retained for callers; the pane's actions show with or without a title. */
   showGroupActions?: boolean;
   sessions: readonly DesktopSessionSummary[];
   sessionsReady?: boolean;
   activeSessionIds?: readonly string[];
+  /** The focused tab's session (the session sidebar's selection). */
+  selectedSessionId?: string;
+  /** The dock header's action row: search and "+" render there. */
+  headerActionSlot?: HTMLElement | null;
   /** Recent-list unread set: an idle row whose session is unseen reads as
    *  "완료" until the session is actually opened. */
   unreadSessionIds?: ReadonlySet<string>;
   onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
-  onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
+  onOpenSession?(sessionId: string, title: string, ownerSessionId: string, replaceKey?: string): void;
+  /** The left Agents page's view of the focused pane (desktop): showing the
+   *  page makes Mixy the default selection. */
+  agentsPageFocus?: AgentsPageFocus | null;
 }): React.ReactElement {
+  // Before Mixy exists (mixy-first.tsx) nothing opens its thread.
+  const mixyFirst = useMixyFirstPane(active);
+  useMixyDefaultSelection(active && mixyFirst.mixyCreated === true, sessionsReady, agentsPageFocus, onOpenSession);
   const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
   // Rows the user cleared ("Clear finished") stay out of every group.
   const agents = useVisibleAgentPool(
@@ -799,22 +791,30 @@ export function AgentActivityPane({
   // A home thread's work belongs to its contact row, not to the work sessions.
   const { groups, homeNodes } = useMemo(() => splitAgentHomeGroups(allGroups), [allGroups]);
   const contactAgents = useContactAgents(active, sessions);
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  // The new-agent dialog, open with the model it starts on.
+  const [creating, setCreating] = useState<{ route: DesktopModelSelection | null } | null>(null);
+  const needle = searching ? query.trim().toLowerCase() : '';
   const contacts = useMemo(
     () => agentContacts(contactAgents, sessions, homeNodes, unreadSessionIds),
     [contactAgents, homeNodes, sessions, unreadSessionIds]
   );
-  const openContact = async (contact: AgentContact): Promise<void> => {
+  const openContact = async (contact: AgentContact): Promise<string> => {
     try {
       // The host stamps a home thread with its agent; a contact without one
       // yet asks the host, which resolves (and on first open creates) it.
       const sessionId =
         contact.session?.id ?? (await window.mixdogDesktop?.openAgentHome?.(contact.agentId))?.sessionId ?? '';
       if (sessionId) onOpenSession?.(sessionId, contact.name, sessionId);
+      return sessionId;
     } catch (error) {
       showDesktopToast(
         t('Could not open {{name}}: {{error}}', { name: contact.name, error: errorMessageText(error) }),
         'error'
       );
+      return '';
     }
   };
   useEffect(() => {
@@ -837,39 +837,169 @@ export function AgentActivityPane({
         <InitialSurface />
       </div>
     );
-  const visibleGroups = groups.filter((group) => !hiddenOwnerIds.has(group.ownerId));
+  // Local search over what the rows show: names and preview lines.
+  const matches = (...texts: Array<string | undefined>) =>
+    !needle ||
+    texts.some((value) =>
+      String(value || '')
+        .toLowerCase()
+        .includes(needle)
+    );
+  const phoneList = isMobileRemoteSurface();
+  const shownContacts = contacts.filter(
+    (contact) => !(mixyFirst.empty && contact.mixy) && matches(contact.name, contact.preview)
+  );
+  // The focused session's composer runs on its lane's model; a draft or the
+  // engine snapshot answers otherwise.
+  const composerRoute = () =>
+    (selectedSessionId
+      ? draftModelSelectionFromSnapshot(defaultSessionLaneStore.get(selectedSessionId) ?? EMPTY_SNAPSHOT)
+      : null) ??
+    readComposerModel?.() ??
+    null;
+  // The agent page lists agents and their chats only: an ordinary coding
+  // session's work stays with that session (agent-created task sessions show
+  // as task rows under their contact, AgentTaskRows).
+  const visibleGroups = groups.filter(
+    (group) =>
+      isAgentChatSession(group.ownerId) &&
+      !hiddenOwnerIds.has(group.ownerId) &&
+      matches(sessionSummaryTitle(group.session, ''), group.session.preview, group.session.lastMessagePreview)
+  );
+  // The Sessions header's action classes; "+" is rightmost, as on every
+  // page: search, ⋯, +.
+  const headerActions = (
+    <>
+      <button
+        type="button"
+        className="session-panel-action"
+        aria-label={t('Search')}
+        data-tooltip={t('Search')}
+        aria-pressed={searching}
+        onClick={() => {
+          setSearching((value) => !value);
+          setQuery('');
+        }}
+      >
+        <Search size={16} aria-hidden="true" />
+      </button>
+      <AgentGroupsMenu />
+      {/* "+": new agent, or new group room (AgentRoomsSection); before Mixy
+          exists, always the 대표 에이전트 dialog. */}
+      {mixyFirst.empty ? (
+        <button
+          type="button"
+          className="session-panel-action"
+          aria-label={t('Create representative bot')}
+          data-tooltip={t('Create representative bot')}
+          onClick={() => mixyFirst.openMixyDialog()}
+        >
+          <Plus size={16} aria-hidden="true" />
+        </button>
+      ) : (
+        <AgentPaneAddMenu onOpenSession={onOpenSession} onNewAgent={() => setCreating({ route: composerRoute() })} />
+      )}
+    </>
+  );
   return (
     <div className="schedules-page agent-activity-page">
-      {showGroupActions && (
-        <div className="agent-group-toolbar">
-          <AgentGroupsMenu />
-        </div>
+      {headerActionSlot ? (
+        createPortal(headerActions, headerActionSlot)
+      ) : (
+        <div className="agent-group-toolbar session-panel-header-actions">{headerActions}</div>
       )}
-      <ul className="agent-contact-list" aria-label={t('Agents')}>
-        {contacts.map((contact) => (
-          <AgentContactRow key={contact.agentId} contact={contact} onOpen={(row) => void openContact(row)} />
+      {searching && (
+        <input
+          className="agent-pane-search"
+          type="search"
+          // biome-ignore lint/a11y/noAutofocus: the search button opens this field to type into
+          autoFocus
+          value={query}
+          placeholder={t('Search')}
+          aria-label={t('Search')}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setSearching(false);
+          }}
+        />
+      )}
+      {creating && (
+        <Suspense fallback={null}>
+          <AgentCreateDialog
+            initialRoute={creating.route}
+            onClose={() => setCreating(null)}
+            onCreated={(sessionId, name) => onOpenSession?.(sessionId, name, sessionId)}
+          />
+        </Suspense>
+      )}
+      {mixyFirst.creatingMixy && (
+        <Suspense fallback={null}>
+          <AgentCreateDialog
+            representative
+            initialRoute={composerRoute()}
+            onClose={() => mixyFirst.closeMixyDialog()}
+            onCreated={(sessionId, name) => onOpenSession?.(sessionId, name, sessionId)}
+          />
+        </Suspense>
+      )}
+      {mixyFirst.empty && shownContacts.length === 0 && <MixyEmptyState onCreate={() => mixyFirst.openMixyDialog()} />}
+      <ul className="agent-contact-list" aria-label={t('Bots')}>
+        {shownContacts.map((contact, index) => (
+          <Fragment key={contact.agentId}>
+            {/* Phone list (main-window-polish Direction 1): section labels in
+                place of dividers — the pinned Mixy, then the contacts. */}
+            {phoneList && (index === 0 || shownContacts[index - 1]?.mixy) && (
+              <li className="agent-list-section" aria-hidden="true">
+                {contact.mixy ? t('Pinned') : t('Contacts')}
+              </li>
+            )}
+            <AgentContactRow
+              contact={contact}
+              // The deterministic id: an empty home thread has no catalog row yet.
+              selected={Boolean(selectedSessionId) && agentHomeSessionId(contact.agentId) === selectedSessionId}
+              onOpen={(row) => void openContact(row)}
+              onOpenMenu={setMenu}
+              onProfile={(row) => void openContact(row).then((sessionId) => openAgentProfile(sessionId))}
+            />
+            <AgentTaskRows sessions={sessions} agentId={contact.agentId} onOpenSession={onOpenSession} />
+          </Fragment>
         ))}
       </ul>
-      <h3 className="agent-chat-section-label">{t('Work sessions')}</h3>
-      {visibleGroups.length === 0 && (
-        <p className="schedules-empty agent-activity-empty">
-          <Bot size={28} aria-hidden="true" />
-          <span>{groups.length > 0 ? t('All agent groups are hidden.') : t('No agents are running.')}</span>
+      <AgentRoomsSection
+        sessions={sessions}
+        needle={needle}
+        selectedSessionId={selectedSessionId}
+        unreadSessionIds={unreadSessionIds}
+        onOpenSession={onOpenSession}
+      />
+      {/* Work sessions follow the contacts after a hairline, no heading. With
+          contacts present, no work shows nothing at all; the centred empty
+          state is only for a pane with neither. */}
+      {visibleGroups.length > 0 && contacts.length > 0 && (
+        <hr className="agent-chat-divider" aria-label={t('Work sessions')} />
+      )}
+      {visibleGroups.length === 0 && contacts.length === 0 && !mixyFirst.empty && (
+        <p className="utility-dock-empty agent-activity-empty">
+          <span>{t('No bots.')}</span>
         </p>
       )}
       {visibleGroups.map((group) => (
-        <AgentChatGroup
+        <AgentActivityGroup
           key={group.ownerId}
           group={group}
           expandedSessionIds={expandedSessionIds}
           unreadSessionIds={unreadSessionIds}
           setSessionExpanded={setSessionExpanded}
           hideGroup={hideGroup}
+          onOpenMenu={setMenu}
           onPrefetchSession={onPrefetchSession}
           onOpenLeadSession={onOpenLeadSession}
           onOpenSession={onOpenSession}
         />
       ))}
+      <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
+      {/* The pane's foot, above 시작 가이드: opens Extensions → 커넥터. */}
+      {!mixyFirst.empty && <ConnectorsPill />}
     </div>
   );
 }

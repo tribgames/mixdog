@@ -14,6 +14,7 @@ import { compareRecallByScore, compareRecallNewestFirst } from './recall-order.m
 import { throwIfAborted } from './memory-cycle-shared.mjs';
 import { expandRecallEventContext } from './recall-event-context.mjs';
 import { insertTraceEvents } from './trace-store.mjs';
+import { normalizeMemoryCaller } from './core-memory-access.mjs';
 import {
   annotateRecallRootContext,
   boundRecallRowsToTemporal,
@@ -305,6 +306,7 @@ export async function searchByQuery({
     : await recallCoreRows(retrievalQuery, {
         projectScope,
         category,
+        agentId: normalizeMemoryCaller(args.memory_caller).agentId,
         limit: retrievalLimit,
         tsFrom: temporal?.startMs,
         tsTo: temporal?.endMs,

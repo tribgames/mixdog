@@ -46,6 +46,10 @@ export function createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, m
         signal: signalFor(callerCtx),
       });
     },
-    setup: async (args, { callerCtx }) => await setupTool.execute(args || {}, { signal: signalFor(callerCtx) }),
+    setup: async (args, { callerCtx }) =>
+      await setupTool.execute(args || {}, {
+        signal: signalFor(callerCtx),
+        callerSessionId: callerCtx?.callerSessionId || null,
+      }),
   };
 }

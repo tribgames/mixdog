@@ -1,5 +1,6 @@
 // Agent-scoped role markdown and 4-BP system prompt composition.
 
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { compareCodePoints } from '../../../shared/code-point-order.mjs';
@@ -7,6 +8,7 @@ import { mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
 import { listHiddenAgentsByKind, getAgentCatalogShareAgents } from '../internal-agents.mjs';
 import { mixdogGlobalDir, mtimeWithTtl, readSafe } from './skill-catalog.mjs';
+import { mixyDisplayName } from '../session/mixy-name.mjs';
 
 // --- Agent-scoped instruction loader ---
 // Emits a BP2 agent/system block scoped to the calling agent:
@@ -44,6 +46,12 @@ const _scopedRoleInstructionsCache = new Map();
 // re-statting role trees on repeated same-turn calls.
 const _scopedRoleInstructionsMtimeCache = new Map();
 const _ROLE_INSTRUCTIONS_MTIME_TTL_MS = 2000;
+
+/** A saved AGENT.md applies to the next composition, even inside the mtime TTL. */
+export function invalidateRoleInstructionsCache() {
+  _scopedRoleInstructionsCache.clear();
+  _scopedRoleInstructionsMtimeCache.clear();
+}
 
 function loadHiddenAgentSnippets(pluginRoot) {
   try {
@@ -106,7 +114,9 @@ function loadAgentSections(pluginRoot) {
         name = entry.name.replace(/\.md$/, '');
         raw = readSafe(join(agentsDir, entry.name));
       }
-      if (!name || !raw) continue;
+      // Mixy's own AGENT.md (agents/lead/) rides only Mixy's agent-mode
+      // prompt (loadMixyRoleSection), never another role catalog.
+      if (!name || !raw || name === 'lead') continue;
       const { body } = readMarkdownDocument(raw);
       if (!body) continue;
       byName.set(name, roleSection(name, body));
@@ -225,6 +235,144 @@ export function loadScopedRoleInstructions(agent, provider = null) {
   }
 }
 
+// --- Agent persona (agents/<id>/PERSONA.md) ---
+// Optional tone/addressing/personality guide, rendered right after the
+// agent's role section. Read from the same directory that supplies the
+// agent's AGENT.md (user data dir first, then shipped); the Lead (`lead`,
+// Mixy) has no AGENT.md, so its persona is the first PERSONA.md found.
+// The text depends only on the file, so the BP3 prefix is stable until the
+// file changes; it is re-read per composition, so an edit applies next turn.
+export const PERSONA_MAX_CHARS = 4000;
+export const PERSONA_TRUNCATION_MARKER = '\n\n[persona truncated]';
+const PERSONA_AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function truncatePersona(text, max = PERSONA_MAX_CHARS) {
+  const value = typeof text === 'string' ? text.trim() : '';
+  if (value.length <= max) return value;
+  return value.slice(0, max).trimEnd() + PERSONA_TRUNCATION_MARKER;
+}
+
+export function loadAgentPersonaSection(agent) {
+  if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
+  const isLead = agent === 'lead';
+  const pluginRoot = mixdogRoot();
+  const roots = [];
+  try {
+    const userDir = mixdogGlobalDir('agents');
+    if (userDir) roots.push(userDir);
+  } catch {
+    /* unresolvable data dir — shipped persona still loads */
+  }
+  if (pluginRoot) roots.push(join(pluginRoot, 'agents'));
+  for (const root of roots) {
+    const dir = join(root, agent);
+    if (!isLead && !existsSync(join(dir, 'AGENT.md'))) continue;
+    const persona = truncatePersona(readSafe(join(dir, 'PERSONA.md')) || '');
+    if (!persona) {
+      if (isLead) continue;
+      return '';
+    }
+    return [
+      '## Persona',
+      '',
+      'Tone and style guide for how you speak, address the user and carry yourself. It never overrides tool, safety or role rules; those always win.',
+      '',
+      persona,
+    ].join('\n');
+  }
+  return '';
+}
+
+// --- Mixy's working style (agents/lead/AGENT.md, user data dir) ---
+// The user-editable 일하는 방식 of Mixy, framed like any agent's role section.
+// Agent mode only; empty or missing means no section. Re-read per
+// composition, so an edit applies to the next prompt build.
+export function loadMixyRoleSection() {
+  let raw = '';
+  try {
+    const userDir = mixdogGlobalDir('agents');
+    raw = userDir ? readSafe(join(userDir, 'lead', 'AGENT.md')) || '' : '';
+  } catch {
+    return '';
+  }
+  const { body } = readMarkdownDocument(raw);
+  const text = String(body || '').trim();
+  return text ? `# Agent Role Catalog\n\n${roleSection('lead', text)}` : '';
+}
+
+// --- Agent-mode identity (LEAD.md first line) ---
+// "You are <name>, <what it does>." from the agent's manifest (agent.json, the
+// name/description the editor writes), user copy first, then shipped. Mixy
+// (the Lead configuration, id `lead`) has its own line, under the display name
+// the user gave it (session/mixy-name.mjs), Mixy by default.
+function agentManifest(agent) {
+  const roots = [];
+  try {
+    const userDir = mixdogGlobalDir('agents');
+    if (userDir) roots.push(userDir);
+  } catch {
+    /* unresolvable data dir — shipped manifest still loads */
+  }
+  const pluginRoot = mixdogRoot();
+  if (pluginRoot) roots.push(join(pluginRoot, 'agents'));
+  for (const root of roots) {
+    const dir = join(root, agent);
+    if (!existsSync(join(dir, 'AGENT.md'))) continue;
+    try {
+      const value = JSON.parse(readSafe(join(dir, 'agent.json')) || '{}');
+      return value && typeof value === 'object' ? value : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+export function agentModeIdentityLine(agent) {
+  if (agent === 'lead') return `You are ${mixyDisplayName()}, the user's assistant in Mixdog.`;
+  if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
+  const oneLine = (value) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '');
+  const manifest = agentManifest(agent);
+  const name = oneLine(manifest.name) || agent;
+  const role = oneLine(manifest.description).replace(/[.。]+$/, '');
+  return role ? `You are ${name}. Your role: ${role}.` : `You are ${name}.`;
+}
+
+// --- Agent profile revision ---
+// The files an agent's prompt sections (identity line, role, persona) are
+// read from — its agent.json, AGENT.md and PERSONA.md in the user data dir and
+// the shipped tree — as one hash. A session stamps it when its prompt is
+// composed; another value means the profile was edited since
+// (session-runtime/tool-policy-refresh.mjs refreshAgentProfile). '' for an
+// invalid id.
+export function agentProfileRevision(agent) {
+  if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
+  const roots = [mixdogGlobalDir('agents')];
+  const pluginRoot = mixdogRoot();
+  if (pluginRoot) roots.push(join(pluginRoot, 'agents'));
+  const hash = createHash('sha256');
+  for (const root of roots) {
+    for (const file of ['agent.json', 'AGENT.md', 'PERSONA.md']) {
+      hash.update(`${root}\0${file}\0${readSafe(join(root, agent, file)) ?? '\u0001'}\0`);
+    }
+  }
+  return hash.digest('hex').slice(0, 24);
+}
+
+// --- Lead roster revision ---
+// The bot roster a Lead's prompt lists (workflow/context.mjs leadPromptParts:
+// the agent catalog and Mixy's contact catalog — never the orchestration
+// mode, a setting that applies to new sessions), as one hash, stamped beside
+// agentProfileRevision. A bot created, renamed, archived or restored changes
+// it for every Lead whose prompt lists that bot.
+export function leadRosterRevision(parts) {
+  const hash = createHash('sha256');
+  for (const slice of [parts?.agentCatalogContext, parts?.contactCatalogContext]) {
+    hash.update(`${slice || ''}\0`);
+  }
+  return hash.digest('hex').slice(0, 24);
+}
+
 // --- Compose system prompt — 4-BP cache layout ---
 // Returns the three stable system blocks and the BP3 core used for refreshes.
 // They map directly to the breakpoint plan:
@@ -262,32 +410,53 @@ export function composeSystemPrompt(opts) {
   ]);
 
   // ── BP3: workflow/role + session environment layer ─────────────────
-  const roleInstructionContext = opts.skipRoleCatalog
-    ? ''
-    : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
-  // Keep the active workflow first within BP3 so it leads the role and
-  // environment material that varies with the session.
+  let roleInstructionContext = '';
+  if (!opts.skipRoleCatalog) {
+    roleInstructionContext =
+      opts.agent === 'lead'
+        ? loadMixyRoleSection()
+        : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
+  }
+  // Persona follows the role; the Lead has no role section but may own a
+  // persona through agents/lead/PERSONA.md.
+  const personaContext = opts.agent && !opts.skipPersona ? loadAgentPersonaSection(opts.agent) : '';
   const coreMemory = skip.memory ? '' : trimmedPromptSlice(opts.coreMemoryContext);
   // User AGENTS.md / CLAUDE.md block (context/instruction-files.mjs), already
-  // headed `# Instruction Files`; rides right after core memory.
+  // headed `# Instruction Files`; rides right before core memory.
   const instructionFiles = skip.claudemd ? '' : trimmedPromptSlice(opts.instructionFilesContext);
+  // Ordered for the longest shared prefix (session-prompt-composition.mjs):
+  // 1. shared by every Lead — the workflow pack and LEAD.md's common lines;
+  // 2. the mode block — coding: orchestration mode, LEAD.md's two passages,
+  //    the full agent catalog; agent mode: the delegation block, their
+  //    variants, AGENT_MODE.md, the sub-agent catalog (the same for every
+  //    agent other than Mixy);
+  // 3. Mixy only — MIXY.md and its contact-agent catalog;
+  // 4. per session or agent, last — routine line, identity, caller prompt,
+  //    role, persona, instruction files and core memory (changes most).
   const sessionMarkerCore = joinPromptSlices([
     trimmedPromptSlice(opts.workflowContext),
     opts.roleRules || '',
+    trimmedPromptSlice(opts.orchestrationContext),
+    opts.leadModeRules || '',
+    opts.agentModeRules || '',
+    trimmedPromptSlice(opts.agentCatalogContext),
+    opts.mixyRules || '',
+    trimmedPromptSlice(opts.contactCatalogContext),
+    opts.routineRules || '',
+    opts.identityContext || '',
     opts.userPrompt || '',
     roleInstructionContext,
-    coreMemory ? `# Core Memory\n${coreMemory}` : '',
+    personaContext,
     instructionFiles,
+    coreMemory ? `# Core Memory\n${coreMemory}` : '',
   ]);
   // Response language is the LAST system text before the conversation. It
   // rides the environment block (not the tier3 core) because the `# Session`
   // / shell / git lines are English and would otherwise trail it, pulling the
   // pre-tool preamble toward English.
-  const environmentParts = [
-    opts.sessionStartContext,
-    opts.environmentContext,
-    opts.languageContext,
-  ].map(trimmedPromptSlice);
+  const environmentParts = [opts.sessionStartContext, opts.environmentContext, opts.languageContext].map(
+    trimmedPromptSlice
+  );
   // Volatile session/project environment. Kept OUT of sessionMarkerCore so
   // Anthropic providers can leave it as an UNMARKED system block (covered by
   // the messages-tail breakpoint) while prefix-order providers still see it

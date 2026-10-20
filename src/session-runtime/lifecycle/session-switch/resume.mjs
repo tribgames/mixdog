@@ -60,6 +60,7 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
     getStandaloneTools,
     beginRoutePreparation,
     clearRoutePreparation,
+    refreshAgentProfile,
   } = deps;
 
   function restoreResumedToolSurface(target, targetRoute) {
@@ -165,6 +166,9 @@ export function createSessionResume(deps, { ingestSessionIntoMemory, closeSurfac
     // preparation temporarily dropped loaded tools and invalidated the
     // provider-aligned context baseline.
     restoreResumedToolSurface(resumed, resumedRoute);
+    // A thread running as an agent whose profile was edited while no runtime
+    // held it takes the saved profile now (tool-policy-refresh.mjs).
+    await refreshAgentProfile?.({ trigger: 'resume' });
     const finishRoutePreparation = routePreparation(resumed, resumedRoute);
     if (typeof beginRoutePreparation === 'function') {
       beginRoutePreparation(finishRoutePreparation);

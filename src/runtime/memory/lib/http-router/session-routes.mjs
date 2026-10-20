@@ -29,8 +29,9 @@ function prewarmRecallEmbedding(log, reason = 'session-start') {
   }
 }
 
-const ACTIVE_CORE_ROWS = `SELECT id, summary FROM core_entries WHERE project_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`;
-const SCOPED_CORE_ROWS = `SELECT id, summary FROM core_entries WHERE project_id = $1 AND (status IS NULL OR status = 'active') ORDER BY id ASC`;
+// Agent pools never ride this payload (core-memory-access.mjs).
+const ACTIVE_CORE_ROWS = `SELECT id, summary FROM core_entries WHERE project_id IS NULL AND agent_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`;
+const SCOPED_CORE_ROWS = `SELECT id, summary FROM core_entries WHERE project_id = $1 AND agent_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`;
 
 export function createSessionRoutes({ getDb, log }) {
   async function buildSessionCoreMemoryPayload(cwd) {

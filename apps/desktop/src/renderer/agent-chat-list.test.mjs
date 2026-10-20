@@ -1,6 +1,6 @@
-// The messenger-style Agents list: one row per Lead session with a preview,
-// a single prioritized status, a fold for its agents and an overflow menu that
-// a right-click or a touch long-press opens.
+// The Agents pane's work section: a collapsible group per Lead session (its
+// own menu by `…`, right-click or touch long-press), the Lead row and one row
+// per child agent; plus the status and time helpers the contact rows use.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';
@@ -12,15 +12,17 @@ after(restoreBootstrapDom);
 const [
   { AgentActivityPane },
   { agentActivityGroups },
-  { agentSessionChatSummary, agentChatTimeLabel, agentChatElapsed },
+  { agentGroupIndicator, agentChatTimeLabel, agentChatTimeColumnLabels },
   { installTouchGestures },
   { resetDismissedShellJobsCache },
+  { publishAgentModeSessions },
 ] = await Promise.all([
   import('./AgentActivityPane.tsx'),
   import('./agent-activity-model.ts'),
   import('./agent-chat-summary.ts'),
   import('./touch-gestures.ts'),
   import('./background-jobs-dismissed-store.ts'),
+  import('./agent-chat-mode.ts'),
 ]);
 
 const NOW = Date.now();
@@ -47,61 +49,81 @@ const worker = (tag, overrides = {}) => ({
 const running = { status: 'running', stage: 'running', turnStartedAt: NOW - 5_000 };
 const sessions = [{ id: 'lead-a', title: 'Fix the release', preview: '', updatedAt: 1, messageCount: 1 }];
 
-function summary(pool, unread = []) {
+function indicator(pool, unread = []) {
   const [group] = agentActivityGroups(pool, (id) => id === 'lead-a');
-  return agentSessionChatSummary('lead-a', group.nodes, new Set(unread));
+  return agentGroupIndicator('lead-a', group.nodes, new Set(unread));
 }
 
-test('the status slot shows exactly one indicator: approval > failure > running > unread, nothing when read', () => {
+test("a home thread's work gives its contact exactly one status: approval > failure > running > unread, nothing when read", () => {
   const approval = worker('ask', { ...running, awaitingUser: 'approval' });
   const failed = worker('crash', { status: 'failed', stage: 'failed', failureReason: 'stalled' });
   const busy = worker('busy', running);
-  assert.deepEqual(summary([lead(), approval, failed, busy], ['lead-a']).indicator, { kind: 'attention' });
-  assert.deepEqual(summary([lead(), failed, busy], ['lead-a']).indicator, { kind: 'error' });
-  assert.deepEqual(summary([lead(), busy], ['lead-a']).indicator, { kind: 'running' });
+  assert.deepEqual(indicator([lead(), approval, failed, busy], ['lead-a']), { kind: 'attention' });
+  assert.deepEqual(indicator([lead(), failed, busy], ['lead-a']), { kind: 'error' });
+  assert.deepEqual(indicator([lead(), busy], ['lead-a']), { kind: 'running' });
   // The Lead's own work runs the spinner too.
-  assert.deepEqual(summary([lead(running)]).indicator, { kind: 'running' });
+  assert.deepEqual(indicator([lead(running)]), { kind: 'running' });
   // Unread counts every unseen session of the group, the Lead's included.
-  assert.deepEqual(summary([lead(), worker('done')], ['lead-a', 's-done']).indicator, { kind: 'unread', count: 2 });
-  assert.equal(summary([lead(), worker('done')]).indicator, null);
+  assert.deepEqual(indicator([lead(), worker('done')], ['lead-a', 's-done']), { kind: 'unread', count: 2 });
+  assert.equal(indicator([lead(), worker('done')]), null);
 });
 
-test('the preview line names what the session is doing now', () => {
-  const busy = summary([lead(running), worker('a', running), worker('b', running), worker('c')]);
-  assert.equal(busy.preview, 'Working · 3 agents');
-  assert.equal(busy.memberCount, 3);
-  assert.equal(summary([lead(), worker('a', running)]).preview, 'Waiting for tasks · 1 agent');
-  assert.equal(summary([lead()]).preview, 'Idle');
-  assert.equal(summary([lead()], ['lead-a']).preview, 'Completed');
-  // A blocked or failed member speaks for the group, by name and reason.
-  assert.equal(
-    summary([lead(running), worker('ask', { ...running, awaitingUser: 'approval' })]).preview,
-    'Worker · ask · Waiting for approval'
-  );
-  const crashed = summary([lead(), worker('crash', { status: 'failed', stage: 'failed', failureReason: 'stalled' })]);
-  assert.equal(crashed.state, 'failed');
-  assert.equal(crashed.preview, 'Worker · crash · Stopped: no progress');
-  assert.equal(
-    summary([lead({ status: 'failed', stage: 'failed', failureReason: 'process-restart' })]).preview,
-    'Interrupted by app restart'
-  );
-  // No Lead row: the busiest member names the group.
-  assert.equal(summary([worker('a', running), worker('b')]).preview, 'Working · 2 agents');
-  assert.equal(summary([lead(), worker('done')]).preview, 'Idle · 1 agent');
-});
+const at = (...parts) => new Date(...parts).getTime();
+// Every branch, in English and Korean: today's clock, Yesterday, this year's
+// month and day, an earlier year's full date; New Year's Day still calls the
+// day before "Yesterday", and two days back crosses into the previous year.
+const TIME_LABELS = {
+  en: {
+    today: /^2:08\sPM$/u,
+    yesterday: 'Yesterday',
+    thisYear: 'Oct 17',
+    pastYear: '10/17/2025',
+    newYearsEve: 'Yesterday',
+    lastYear: '12/30/2025',
+  },
+  ko: {
+    today: /^오후 2:08$/u,
+    yesterday: '어제',
+    thisYear: '10월 17일',
+    pastYear: '2025. 10. 17.',
+    newYearsEve: '어제',
+    lastYear: '2025. 12. 30.',
+  },
+};
 
-test('row times are compact: clock today, Yesterday, month/day, and elapsed in one unit', () => {
-  const now = new Date(2026, 9, 19, 15, 0).getTime();
-  assert.equal(agentChatTimeLabel(new Date(2026, 9, 19, 11, 4).getTime(), now), '11:04');
-  assert.equal(agentChatTimeLabel(new Date(2026, 9, 18, 23, 59).getTime(), now), 'Yesterday');
-  assert.equal(agentChatTimeLabel(new Date(2026, 9, 17, 9, 0).getTime(), now), '10/17');
-  assert.equal(agentChatTimeLabel(0, now), '');
-  assert.equal(agentChatElapsed(5_000), '5s');
-  assert.equal(agentChatElapsed(134_000), '2m');
-  assert.equal(agentChatElapsed(3_700_000), '1h');
-});
+for (const [language, expected] of Object.entries(TIME_LABELS)) {
+  test(`contact row times follow the messenger rules in ${language}`, async (t) => {
+    const { default: i18n } = await import('./i18n.ts');
+    const previous = i18n.language;
+    t.after(() => i18n.changeLanguage(previous));
+    if (language !== 'en') {
+      const { readFileSync } = await import('node:fs');
+      const catalog = JSON.parse(readFileSync(new URL(`./locales/${language}.json`, import.meta.url), 'utf8'));
+      i18n.addResourceBundle(language, 'translation', catalog);
+    }
+    await i18n.changeLanguage(language);
+    const now = at(2026, 9, 19, 15, 0);
+    assert.match(agentChatTimeLabel(at(2026, 9, 19, 14, 8), now), expected.today);
+    assert.equal(agentChatTimeLabel(at(2026, 9, 18, 23, 59), now), expected.yesterday);
+    assert.equal(agentChatTimeLabel(at(2026, 9, 17, 9, 0), now), expected.thisYear);
+    assert.equal(agentChatTimeLabel(at(2025, 9, 17, 9, 0), now), expected.pastYear);
+    const newYear = at(2026, 0, 1, 9, 0);
+    assert.equal(agentChatTimeLabel(at(2025, 11, 31, 23, 0), newYear), expected.newYearsEve);
+    assert.equal(agentChatTimeLabel(at(2025, 11, 30, 23, 0), newYear), expected.lastYear);
+    assert.equal(agentChatTimeLabel(0, now), '');
+    // The time column is sized to these: a clock, "Yesterday", a month-day.
+    const labels = agentChatTimeColumnLabels();
+    assert.ok(labels.some((label) => /12:59/.test(label)));
+    assert.ok(labels.includes(expected.yesterday));
+    if (language === 'ko') assert.ok(labels.includes('12월 28일'));
+  });
+}
 
-function mount(t, pool, props = {}) {
+// The work groups: an agent-mode session's work lists on the page; an
+// ordinary coding session's (`ordinary`) stays with that session.
+function mount(t, pool, props = {}, { ordinary = false } = {}) {
+  publishAgentModeSessions(ordinary ? [] : [{ id: 'lead-a', sessionMode: 'agent' }]);
+  t.after(() => publishAgentModeSessions([]));
   const { dom, root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
     expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'navigator'],
@@ -130,96 +152,102 @@ function mount(t, pool, props = {}) {
   return { document: dom.window.document, window: dom.window, opened, render };
 }
 
-test('a session row shows the unread count badge and nothing else in its slot', async (t) => {
-  const { document, render } = mount(t, [lead(), worker('done')]);
-  await render({ unreadSessionIds: new Set(['lead-a', 's-done']) });
-  const row = document.querySelector('[data-agent-session-id="lead-a"]');
-  const slots = [...row.querySelectorAll('.agent-chat-status')];
-  assert.deepEqual(
-    slots.map((slot) => [slot.dataset.kind, slot.textContent]),
-    [['unread', 'Unread 2']]
-  );
-  // Once read, a finished session shows no status at all.
-  await render({ unreadSessionIds: new Set() });
-  assert.equal(row.querySelectorAll('.agent-chat-status').length, 0);
-});
-
-test('a waiting-for-approval session shows the attention pill without a spinner', async (t) => {
-  const { document, render } = mount(t, [lead(running), worker('ask', { ...running, awaitingUser: 'approval' })]);
-  await render();
-  const slots = [...document.querySelectorAll('[data-agent-session-id="lead-a"] .agent-chat-status')];
-  assert.deepEqual(
-    slots.map((slot) => slot.dataset.kind),
-    ['attention']
-  );
-  assert.equal(slots[0].textContent, 'Needs attention');
-  assert.equal(document.querySelector('[data-agent-session-id="lead-a"] .progress-spinner'), null);
-});
-
-test('the chevron folds and unfolds the agents beneath a session row', async (t) => {
+test('a group starts collapsed: header and Lead row (with its member badge) show, children are hidden', async (t) => {
   const { document, render, opened } = mount(t, [lead(running), worker('a', running), worker('b')]);
   await render();
-  const toggle = document.querySelector('.agent-chat-toggle[data-lead-session-id="lead-a"]');
-  const row = document.querySelector('[data-agent-session-id="lead-a"]');
+  const heading = document.querySelector('.agent-session-heading[data-lead-session-id="lead-a"]');
+  assert.equal(heading.getAttribute('aria-expanded'), 'false');
+  assert.equal(heading.textContent, 'Fix the release');
+  const leadRow = document.querySelector('[data-agent-session-id="lead-a"]');
+  assert.ok(leadRow, 'the Lead row stays visible while collapsed');
+  assert.equal(leadRow.querySelector('.agent-pool-name').textContent, 'Lead');
+  assert.equal(leadRow.querySelector('.dock-review-count').textContent, '2');
   assert.equal(document.querySelector('[data-agent-session-id="s-a"]'), null);
-  assert.equal(row.getAttribute('aria-expanded'), 'false');
-  // The twisty sits before the title, only on rows with agents beneath them.
-  assert.equal(row.querySelector('.agent-chat-twisty').nextElementSibling.className, 'agent-chat-title');
-  await act(async () => toggle.click());
-  assert.equal(row.querySelector('.agent-chat-twisty').dataset.expanded, 'true');
-  assert.equal(document.querySelector('[data-agent-session-id="s-a"] .agent-chat-twisty'), null);
-  assert.equal(row.getAttribute('aria-expanded'), 'true');
-  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
-  const members = [...document.querySelectorAll('[data-kind="agent"] [role="treeitem"]')];
-  assert.deepEqual(
-    members.map((member) => [member.dataset.agentSessionId, member.getAttribute('aria-level')]),
-    [
-      ['s-a', '2'],
-      ['s-b', '2'],
-    ]
-  );
-  // Each member keeps its mark, name, route line, state and drag source.
-  assert.ok(members[0].querySelector('.sidebar-resource-icon'));
-  assert.equal(members[0].getAttribute('aria-label'), 'Worker · a');
-  assert.ok(members[0].querySelector('.agent-route-summary'));
-  assert.equal(members[1].querySelector('.agent-activity-elapsed').dataset.state, 'idle');
-  assert.equal(members[0].getAttribute('draggable'), 'true');
-  await act(async () => members[0].click());
+  // Expanding reveals every child row: mark, role · tag, route and right-aligned state.
+  await act(async () => heading.click());
+  assert.equal(heading.getAttribute('aria-expanded'), 'true');
+  const child = document.querySelector('[data-agent-session-id="s-a"]');
+  assert.ok(child.querySelector('.sidebar-resource-icon'));
+  assert.equal(child.getAttribute('aria-label'), 'Worker · a');
+  assert.ok(child.querySelector('.agent-route-summary'));
+  assert.equal(child.lastElementChild.className, 'agent-activity-status');
+  assert.equal(document.querySelector('[data-agent-session-id="s-b"] .agent-activity-elapsed').dataset.state, 'idle');
+  await act(async () => child.click());
   assert.deepEqual(opened, [['agent', 's-a']]);
-  await act(async () => toggle.click());
+  await act(async () => heading.click());
   assert.equal(document.querySelector('[data-agent-session-id="s-a"]'), null);
-  assert.equal(row.getAttribute('aria-expanded'), 'false');
+  assert.ok(document.querySelector('[data-agent-session-id="lead-a"]'));
 });
 
-test('the row overflow menu opens in a tab, hides the group and clears finished agents', async (t) => {
-  const { document, render, opened } = mount(t, [lead(), worker('done'), worker('busy', running)]);
+test('an agent waiting for approval shows its state text, never a pill', async (t) => {
+  const { document, render } = mount(t, [lead(running), worker('ask', { ...running, awaitingUser: 'approval' })]);
+  await render();
+  await act(async () => document.querySelector('.agent-session-heading').click());
+  const state = document.querySelector('[data-agent-session-id="s-ask"] .agent-activity-elapsed');
+  assert.ok(state.textContent.trim());
+  assert.equal(document.querySelector('.agent-chat-status'), null);
+});
+
+test("the group's own menu hides the group and clears finished agents", async (t) => {
+  const { document, render } = mount(t, [lead(), worker('done'), worker('busy', running)]);
   await render();
   const openMenu = () =>
     act(async () => document.querySelector('[data-agent-owner-session-id="lead-a"] .row-overflow-trigger').click());
   const select = (id) => act(async () => document.querySelector(`[data-action-id="${id}"]`).click());
   await openMenu();
-  assert.deepEqual(
-    [...document.querySelectorAll('.row-overflow-menu [data-action-id]')].map((item) => item.dataset.actionId),
-    ['open-agent-session', 'hide-agent-group', 'clear-finished-agents']
-  );
-  await select('open-agent-session');
-  assert.deepEqual(opened, [['lead', 'lead-a']]);
-  await openMenu();
+  assert.ok(document.querySelector('[data-action-id="hide-agent-group"]'));
+  assert.ok(document.querySelector('[data-action-id="clear-finished-agents"]'));
   await select('clear-finished-agents');
-  assert.equal(
-    document.querySelector('[data-agent-session-id="lead-a"] .agent-chat-preview').textContent,
-    'Waiting for tasks · 1 agent'
-  );
+  await act(async () => document.querySelector('.agent-session-heading').click());
+  assert.equal(document.querySelector('[data-agent-session-id="s-done"]'), null);
+  assert.ok(document.querySelector('[data-agent-session-id="s-busy"]'));
   await openMenu();
   await select('hide-agent-group');
   assert.equal(document.querySelector('[data-agent-owner-session-id="lead-a"]'), null);
-  assert.match(document.body.textContent, /All agent groups are hidden/);
+  // Under the contacts, hidden work shows nothing: no line, no divider.
+  assert.doesNotMatch(document.body.textContent, /All agent groups are hidden/);
+  assert.equal(document.querySelector('.agent-chat-divider'), null);
 });
 
-test('the empty list says no agents are running', async (t) => {
+test('the pane lists agents, then group rooms, without ordinary session work', async (t) => {
+  const room = {
+    id: 'sess_room_abc123',
+    title: 'Release check',
+    preview: '',
+    updatedAt: 2,
+    messageCount: 3,
+    lastMessagePreview: 'Looks good',
+    agentRoom: {
+      id: 'abc123',
+      name: 'Release check',
+      members: ['lead', 'gh'],
+      maxRounds: 3,
+      maxMessages: 8,
+      shareTools: false,
+      lastSpeaker: 'user',
+    },
+  };
+  const { document, render, opened } = mount(t, [lead()], { sessions: [...sessions, room] }, { ordinary: true });
+  await render();
+  const order = [
+    ...document.querySelectorAll('[data-agent-contact], [data-agent-room], [data-agent-owner-session-id]'),
+  ].map((node) => (node.dataset.agentContact ? 'agent' : node.dataset.agentRoom ? 'room' : 'work'));
+  assert.deepEqual([...new Set(order)], ['agent', 'room']);
+  assert.equal(document.querySelector('.agent-chat-divider:not(.agent-room-section-divider)'), null);
+  const row = document.querySelector('[data-agent-room="abc123"]');
+  assert.match(row.textContent, /Release check/);
+  assert.match(row.textContent, /Looks good/);
+  await act(async () => row.querySelector('button').click());
+  assert.deepEqual(opened.at(-1), ['agent', 'sess_room_abc123']);
+});
+
+test('under the contacts, an empty work list shows nothing', async (t) => {
   const { document, render } = mount(t, []);
   await render();
-  assert.match(document.querySelector('.agent-activity-empty').textContent, /No agents are running\./);
+  assert.ok(document.querySelector('[data-agent-contact="lead"]'), 'Mixy is listed');
+  assert.equal(document.querySelector('.agent-activity-empty'), null, 'no centred empty state under contacts');
+  assert.equal(document.querySelector('.agent-chat-divider'), null, 'no divider without work');
+  assert.doesNotMatch(document.body.textContent, /No agents are running/);
 });
 
 function touch(window, type, target, { x = 10, y = 10 } = {}) {
@@ -234,26 +262,16 @@ function touch(window, type, target, { x = 10, y = 10 } = {}) {
   target.dispatchEvent(event);
 }
 
-test('a touch long-press on a row opens its overflow menu without opening the session; a tap opens it', async (t) => {
-  const { document, window, render, opened } = mount(t, [lead(), worker('done')]);
+test('a touch long-press on a group header opens the group menu without folding it', async (t) => {
+  const { document, window, render } = mount(t, [lead(), worker('done')]);
   t.after(installTouchGestures(window, 20));
   await render();
-  const row = document.querySelector('[data-agent-session-id="lead-a"]');
-  touch(window, 'pointerdown', row);
+  const heading = document.querySelector('.agent-session-heading');
+  touch(window, 'pointerdown', heading);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
-  assert.ok(document.querySelector('.row-overflow-menu'), 'the long-press opened the row menu');
-  touch(window, 'pointerup', row);
-  await act(async () => row.click());
-  assert.deepEqual(opened, [], 'the release after a long-press opens nothing');
-  await act(async () => document.querySelector('[data-action-id="open-agent-session"]').click());
-  assert.deepEqual(opened, [['lead', 'lead-a']]);
-
-  // A quick tap still opens the session.
-  touch(window, 'pointerdown', row);
-  touch(window, 'pointerup', row);
-  await act(async () => row.click());
-  assert.deepEqual(opened, [
-    ['lead', 'lead-a'],
-    ['lead', 'lead-a'],
-  ]);
+  assert.ok(document.querySelector('.dock-scm-context-menu'), 'the long-press opened the group menu');
+  assert.ok(document.querySelector('.dock-scm-context-menu [data-action-id="hide-agent-group"]'));
+  touch(window, 'pointerup', heading);
+  await act(async () => heading.click());
+  assert.equal(heading.getAttribute('aria-expanded'), 'false', 'the release after a long-press folds nothing');
 });

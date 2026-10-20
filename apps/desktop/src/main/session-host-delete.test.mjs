@@ -52,6 +52,66 @@ test('a daemon "Session is not available" failure is a no-op, other failures sti
   await assert.rejects(new SessionHostLifecycle(broken.owner).deleteSession('s1'), /could not be deleted/);
 });
 
+test("deleting a deleted bot's archived chat removes the bot's remaining data and the history for good", async () => {
+  const retired = new Set(['sess_home_probe']);
+  const { owner, calls } = ownerWith({
+    rows: () => [{ id: 'sess_home_probe' }, { id: 'sess_home_live' }],
+    control: () => true,
+  });
+  owner.sessionMetadata.isRetired = async (id) => retired.has(id);
+  const host = new SessionHostLifecycle(owner);
+  await host.deleteSession('sess_home_probe');
+  assert.deepEqual(
+    calls.filter(([name]) => name !== 'forget' && name !== 'publish'),
+    [
+      ['purgeAgentDefinition', ['probe']],
+      ['deleteSession', ['sess_home_probe']],
+    ]
+  );
+  // A live bot's chat (or any other session) never purges a bot.
+  calls.length = 0;
+  await host.deleteSession('sess_home_live');
+  assert.deepEqual(
+    calls.filter(([name]) => name === 'purgeAgentDefinition'),
+    []
+  );
+});
+
+test('restoring a deleted bot brings its chat back out of 보관됨 before the reply', async () => {
+  const marks = [];
+  const owner = {
+    client: {},
+    callOptions: () => ({}),
+    publication: { projections: new Map() },
+    sessionMetadata: {
+      load: async () => {},
+      isRetired: async () => true,
+      setRetired: async (id, value) => {
+        marks.push(['retired', id, value]);
+        return true;
+      },
+      setArchived: async (id, value) => {
+        marks.push(['archived', id, value]);
+        return true;
+      },
+    },
+    publishCatalogs: async () => {},
+    invokeControlResult: async (name, args) => {
+      marks.push([name, args]);
+      return { value: { id: 'probe', name: 'Probe' }, snapshot: null };
+    },
+  };
+  const host = new SessionHostLifecycle(owner);
+  host.republishSessionCatalog = async () => {};
+  const { value } = await host.invokeCapability('restoreAgentDefinition', ['probe']);
+  assert.equal(value.id, 'probe');
+  assert.deepEqual(marks, [
+    ['restoreAgentDefinition', ['probe']],
+    ['retired', 'sess_home_probe', false],
+    ['archived', 'sess_home_probe', false],
+  ]);
+});
+
 test('remote deleteSession swallows a missing-session error from the host', async () => {
   const methods = createRemoteMethods({
     host: {

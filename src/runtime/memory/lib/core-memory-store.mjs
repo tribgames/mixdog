@@ -1,6 +1,7 @@
-
 // User-curated core memory store — native PG-backed via core_entries table.
-// Per-project entries distinguished by project_id column (NULL = COMMON).
+// Per-project entries distinguished by project_id column (NULL = COMMON); an
+// agent's own pool by agent_id (its project_id stays NULL). Every mutation
+// checks its caller against the pool (core-memory-access.mjs).
 // Explicit add/edit/delete operations affect only the requested entry.
 // Generated conversation history never enters this store automatically.
 
@@ -10,6 +11,11 @@ import { getDatabase } from './memory.mjs';
 import { VALID_CATEGORY } from './memory-categories.mjs';
 import { checkedConnect } from './pg/adapter.mjs';
 import { findCoreKeyRows } from './core-memory-uniqueness.mjs';
+import { assertCoreWrite, corePoolLabel, normalizeMemoryCaller } from './core-memory-access.mjs';
+
+// The advisory-lock key of one pool.
+const poolLockKey = (projectId, agentId) =>
+  agentId ? `core:agent:${agentId}` : `core:${projectId == null ? 'COMMON' : projectId}`;
 
 const CORE_ELEMENT_DERIVE_LENGTH = 40;
 
@@ -74,7 +80,6 @@ function _getDb(dataDir) {
   return db;
 }
 
-
 // NOTE: boot-time core id compaction was REMOVED. Resequencing core_entries.id
 // to 1..N rewrote primary keys that are handed out as stable `core:N`
 // references, so after a restart a retained reference pointed at a different
@@ -83,7 +88,7 @@ function _getDb(dataDir) {
 
 export async function listCore(dataDir, projectId = null) {
   const db = _getDb(dataDir);
-  const cols = `id, element, summary, category, project_id, created_at, updated_at`;
+  const cols = `id, element, summary, category, project_id, agent_id, created_at, updated_at`;
   // Only live cores enter recall/review — archived (superseded) rows are
   // retired but retained for audit. Legacy NULL status = active.
   const live = `(status IS NULL OR status = 'active')`;
@@ -92,7 +97,9 @@ export async function listCore(dataDir, projectId = null) {
     return r.rows;
   }
   if (projectId === null) {
-    const r = await db.query(`SELECT ${cols} FROM core_entries WHERE project_id IS NULL AND ${live} ORDER BY id ASC`);
+    const r = await db.query(
+      `SELECT ${cols} FROM core_entries WHERE project_id IS NULL AND agent_id IS NULL AND ${live} ORDER BY id ASC`
+    );
     return r.rows;
   }
   const r = await db.query(`SELECT ${cols} FROM core_entries WHERE project_id = $1 AND ${live} ORDER BY id ASC`, [
@@ -110,8 +117,10 @@ function serializeCoreMutation(fn) {
   return run;
 }
 
-export function addCore(dataDir, input, projectId) {
-  return serializeCoreMutation(() => _addCoreImpl(dataDir, input, projectId));
+/** `options`: `agentId` selects that agent's pool (projectId must be null);
+ *  `caller` is the normalized-or-raw memory caller (absent: the host). */
+export function addCore(dataDir, input, projectId, options = {}) {
+  return serializeCoreMutation(() => _addCoreImpl(dataDir, input, projectId, options));
 }
 export function editCore(dataDir, id, patch) {
   return serializeCoreMutation(() => _editCoreImpl(dataDir, id, patch));
@@ -120,9 +129,12 @@ export function deleteCore(dataDir, id, options = {}) {
   return serializeCoreMutation(() => _deleteCoreImpl(dataDir, id, options));
 }
 
-async function _addCoreImpl(dataDir, input, projectId) {
+async function _addCoreImpl(dataDir, input, projectId, { agentId = null, caller } = {}) {
   if (projectId === undefined)
     throw new Error('addCore: projectId required — pass null for COMMON pool, or slug string for scoped pool');
+  if (agentId && projectId !== null) throw new Error('agent memory has no project scope');
+  const pool = { projectId, agentId: agentId || null };
+  assertCoreWrite(normalizeMemoryCaller(caller), 'add', pool);
   const {
     element: el,
     summary: sm,
@@ -141,30 +153,29 @@ async function _addCoreImpl(dataDir, input, projectId) {
   try {
     await client.query('BEGIN');
     await client.query(`SET LOCAL lock_timeout = '5s'`);
-    const poolKey = `core:${projectId == null ? 'COMMON' : projectId}`;
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey]);
-    const collisions = await findCoreKeyRows(client, projectId, el);
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolLockKey(projectId, pool.agentId)]);
+    const collisions = await findCoreKeyRows(client, projectId, el, null, pool.agentId);
     if (collisions.length) {
       if (collisions.length !== 1 || collisions[0].status !== 'archived') {
         throw new Error(
-          `core entry already exists: project=${projectId ?? 'COMMON'} element=${JSON.stringify(el.slice(0, 200))}; use an explicit edit/delete`
+          `core entry already exists: ${corePoolLabel(pool)} element=${JSON.stringify(el.slice(0, 200))}; use an explicit edit/delete`
         );
       }
       const revived = await client.query(
         `UPDATE core_entries SET summary = $1, category = $2,
            status = 'active', archived_at = NULL, updated_at = $3
          WHERE id = $4
-         RETURNING id, element, summary, category, project_id, created_at, updated_at`,
+         RETURNING id, element, summary, category, project_id, agent_id, created_at, updated_at`,
         [sm, cat, now, collisions[0].id]
       );
       await client.query('COMMIT');
       return { ...revived.rows[0], revived_from_archived: true };
     }
     const r = await client.query(
-      `INSERT INTO core_entries(element, summary, category, project_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-      [el, sm, cat, projectId, now, now]
+      `INSERT INTO core_entries(element, summary, category, project_id, agent_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, element, summary, category, project_id, agent_id, created_at, updated_at`,
+      [el, sm, cat, projectId, pool.agentId, now, now]
     );
     await client.query('COMMIT');
     return r.rows[0];
@@ -187,6 +198,10 @@ async function _editCoreImpl(dataDir, id, patch) {
   if (Object.hasOwn(patch, 'expectedProjectId') && (patch.expectedProjectId ?? null) !== (cur.project_id ?? null)) {
     throw new Error(`entry id=${numId} is not in project ${patch.expectedProjectId ?? 'COMMON'}`);
   }
+  if (Object.hasOwn(patch, 'expectedAgentId') && (patch.expectedAgentId ?? null) !== (cur.agent_id ?? null)) {
+    throw new Error(`entry id=${numId} is not in ${corePoolLabel({ agentId: patch.expectedAgentId })}`);
+  }
+  const agentId = cur.agent_id ?? null;
   const incoming = normalizeCoreInput(patch);
   const newElement = incoming.element ?? cur.element;
   const newSummary = incoming.summary ?? cur.summary;
@@ -194,6 +209,10 @@ async function _editCoreImpl(dataDir, id, patch) {
   const newProjectId = Object.hasOwn(patch, 'targetProjectId')
     ? (patch.targetProjectId ?? null)
     : (cur.project_id ?? null);
+  if (agentId && newProjectId !== null) throw new Error('agent memory has no project scope');
+  const caller = normalizeMemoryCaller(patch.caller);
+  assertCoreWrite(caller, 'edit', { projectId: cur.project_id ?? null, agentId });
+  if (newProjectId !== (cur.project_id ?? null)) assertCoreWrite(caller, 'edit', { projectId: newProjectId, agentId });
   const { errors } = normalizeCoreInput(
     {
       element: newElement,
@@ -237,10 +256,7 @@ async function _editCoreImpl(dataDir, id, patch) {
   try {
     await client.query('BEGIN');
     await client.query(`SET LOCAL lock_timeout = '5s'`);
-    const poolKeys = [
-      `core:${cur.project_id == null ? 'COMMON' : cur.project_id}`,
-      `core:${newProjectId == null ? 'COMMON' : newProjectId}`,
-    ].sort();
+    const poolKeys = [poolLockKey(cur.project_id, agentId), poolLockKey(newProjectId, agentId)].sort();
     for (const poolKey of new Set(poolKeys)) {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey]);
     }
@@ -254,14 +270,15 @@ async function _editCoreImpl(dataDir, id, patch) {
       fresh.summary !== cur.summary ||
       fresh.category !== cur.category ||
       (fresh.project_id ?? null) !== (cur.project_id ?? null) ||
+      (fresh.agent_id ?? null) !== agentId ||
       Number(fresh.updated_at ?? 0) !== Number(cur.updated_at ?? 0)
     ) {
       throw new Error(`core entry id=${numId} changed concurrently — re-read and retry`);
     }
     if (newElement !== cur.element || projectChanged) {
-      if ((await findCoreKeyRows(client, newProjectId, newElement, numId)).length) {
+      if ((await findCoreKeyRows(client, newProjectId, newElement, numId, agentId)).length) {
         throw new Error(
-          `core entry already exists: project=${newProjectId ?? 'COMMON'} element=${JSON.stringify(newElement.slice(0, 200))}`
+          `core entry already exists: ${corePoolLabel({ projectId: newProjectId, agentId })} element=${JSON.stringify(newElement.slice(0, 200))}`
         );
       }
     }
@@ -294,13 +311,19 @@ async function _deleteCoreImpl(dataDir, id, options = {}) {
   const numId = Number(id);
   if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required');
   const db = _getDb(dataDir);
-  const scoped = Object.hasOwn(options, 'expectedProjectId');
-  const r = scoped
-    ? await db.query(`DELETE FROM core_entries WHERE id = $1 AND project_id IS NOT DISTINCT FROM $2 RETURNING *`, [
-        numId,
-        options.expectedProjectId,
-      ])
-    : await db.query(`DELETE FROM core_entries WHERE id = $1 RETURNING *`, [numId]);
+  const cur = (await db.query(`SELECT project_id, agent_id FROM core_entries WHERE id = $1`, [numId])).rows[0];
+  const pool = { projectId: cur?.project_id ?? null, agentId: cur?.agent_id ?? null };
+  const expected = (key, value) => !Object.hasOwn(options, key) || (options[key] ?? null) === value;
+  if (!cur || !expected('expectedProjectId', pool.projectId) || !expected('expectedAgentId', pool.agentId)) {
+    throw new Error(`no entry with id=${numId}`);
+  }
+  assertCoreWrite(normalizeMemoryCaller(options.caller), 'delete', pool);
+  // The pool just authorized: a concurrent move out of it deletes nothing.
+  const r = await db.query(
+    `DELETE FROM core_entries WHERE id = $1
+       AND project_id IS NOT DISTINCT FROM $2 AND agent_id IS NOT DISTINCT FROM $3 RETURNING *`,
+    [numId, pool.projectId, pool.agentId]
+  );
   if (r.rows.length === 0) throw new Error(`no entry with id=${numId}`);
   return r.rows[0];
 }

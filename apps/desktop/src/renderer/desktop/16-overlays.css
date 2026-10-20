@@ -39,7 +39,9 @@
 .mx-menu-item[aria-selected="true"]:focus-visible {
   box-shadow: var(--mx-list-focus-ring);
 }
-.mx-menu-item span {
+/* The label only: a leading face (OpenSelect `leading`) keeps its own size,
+   and the spans that draw it are not labels. */
+.mx-menu-item > span:not(.mx-select-leading) {
   min-width: 0;
   flex: 1;
   overflow: hidden;

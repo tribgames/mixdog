@@ -172,13 +172,8 @@ export function ProjectListSection({
       )}
       <ScmContextMenu state={contextMenu} onClose={closeContextMenu} />
       {(projectsReady || projects.length > 0) && visible.length === 0 && (
-        <div className="schedules-empty">
-          <Folder size={40} aria-hidden="true" />
-          <p>
-            {projects.length
-              ? t('No projects match the current search.')
-              : t('No projects yet. Add a folder to make it available in Mixdog.')}
-          </p>
+        <div className="utility-dock-empty">
+          <p>{t('No projects.')}</p>
         </div>
       )}
     </>

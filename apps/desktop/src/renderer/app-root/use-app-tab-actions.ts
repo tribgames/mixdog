@@ -39,7 +39,7 @@ interface UseAppTabActionsOptions {
     preview?: boolean,
     mode?: 'preview' | 'pinned'
   ) => void;
-  openSession: (sessionId: string, force?: boolean, title?: string) => Promise<void>;
+  openSession: (sessionId: string, force?: boolean, title?: string, replaceKey?: string) => Promise<void>;
   activeProjectPath: string;
   /** Opens the project file search (quick open). */
   openQuickOpen: () => void;
@@ -120,7 +120,6 @@ export function useAppTabActions({
     surfaces: sessionPaneSurfaces,
     prefetch: prefetchBrowserPane,
     select: paneSideDocks.select,
-    temporarySelect: paneSideDocks.temporarySelect,
   });
 
   const openBrowserInMain = useStableEvent((request: BrowserMainRequest) => {
@@ -229,11 +228,13 @@ export function useAppTabActions({
   const dockOpenLeadSession = useStableEvent((sessionId: string) => {
     void openSession(sessionId);
   });
-  const dockOpenAgentSession = useStableEvent((sessionId: string, title: string, _ownerSessionId: string) => {
-    const childSessionId = String(sessionId || '').trim();
-    if (!childSessionId) return;
-    void openSession(childSessionId, false, String(title || '').trim());
-  });
+  const dockOpenAgentSession = useStableEvent(
+    (sessionId: string, title: string, _ownerSessionId: string, replaceKey?: string) => {
+      const childSessionId = String(sessionId || '').trim();
+      if (!childSessionId) return;
+      void openSession(childSessionId, false, String(title || '').trim(), replaceKey ?? '');
+    }
+  );
 
   const chooseFileTab = async (leafId = paneWorkspace.focusedLeafId) => {
     void prefetchEditorPane().catch(() => {});

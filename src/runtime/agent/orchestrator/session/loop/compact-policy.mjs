@@ -17,6 +17,7 @@ import { HANDOFF_TIMEOUT_MAX_MS } from '../compact/constants.mjs';
 import { envFlag, envPositiveInt } from '../../../../shared/env.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
+import { isAgentModeSession } from '../agent-mode.mjs';
 import { providerInputExcludesCache, providerNativePdf } from '../../providers/registry.mjs';
 import { contentMediaBytes, contentMediaCount } from '../../providers/media-normalization.mjs';
 import { splitProtectedContext } from '../compact/messages.mjs';
@@ -133,7 +134,8 @@ function effectiveContextWindowPercent(sessionRef, cfg) {
 export function resolveWorkerCompactPolicy(sessionRef, tools) {
   if (!sessionRef) return null;
   const cfg = sessionRef.compaction || {};
-  const auto = cfg.auto !== false && envFlag('MIXDOG_AGENT_COMPACT_AUTO', true);
+  // Agent mode always compacts on its own: the user is never asked to.
+  const auto = (cfg.auto !== false || isAgentModeSession(sessionRef)) && envFlag('MIXDOG_AGENT_COMPACT_AUTO', true);
   if (!auto) return { auto: false };
   const { contextWindow, boundaryTokens } = compactBoundaryFor(sessionRef, cfg);
   if (!boundaryTokens) return null;

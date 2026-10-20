@@ -2,6 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { desktopSessionSummaries } from './desktop-state';
 
+test('an agent home holding only routine results stays in the catalog with its last line', () => {
+  const base = {
+    cwd: 'C:\\workspace\\unclassified',
+    desktopSession: { classification: 'task', projectPath: null },
+    title: '',
+    preview: '',
+    realTurnCount: 0,
+    lastUsedAt: 7,
+    lastMessagePreview: '⏱ Schedule · nightly — ok',
+  };
+  const summaries = desktopSessionSummaries([
+    { ...base, id: 'sess_home_lead', messageCount: 1 },
+    { ...base, id: 'sess_home_empty', messageCount: 0 },
+    { ...base, id: 'sess_scratch', messageCount: 1 },
+  ]);
+  assert.deepEqual(
+    summaries.map((row) => row.id),
+    ['sess_home_lead']
+  );
+  assert.equal(summaries[0].agentHome, 'lead');
+  assert.equal(summaries[0].messageCount, 1);
+  assert.equal(summaries[0].activityAt, 7);
+  assert.equal(summaries[0].lastMessagePreview, '⏱ Schedule · nightly — ok');
+});
+
 test('the session catalog follows execution cwd instead of a stale project label', () => {
   const rows = [
     {
@@ -75,7 +100,9 @@ test('synthetic-only, resume-scratch and legacy rows are told apart by durable p
 });
 
 test('a transcript of only a [truncated] marker and an interrupted assistant row stays hidden end to end', async () => {
-  const { _sessionSummary } = await import('../../../../src/runtime/agent/orchestrator/session/store-summary-index.mjs');
+  const { _sessionSummary } = await import(
+    '../../../../src/runtime/agent/orchestrator/session/store-summary-index.mjs'
+  );
   const { listLeadSessions } = await import('../../../../src/session-runtime/lifecycle/session-catalog.mjs');
   const stored = {
     id: 'sess_truncated_only',

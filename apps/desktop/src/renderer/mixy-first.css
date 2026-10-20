@@ -1,0 +1,44 @@
+/* 대표 에이전트 mode of the new-agent dialog: the star on the chosen face. */
+.mixy-create-face {
+  position: relative;
+  display: inline-flex;
+}
+.mixy-create-face > .agent-contact-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mx-bg-layer-2);
+  box-shadow: 0 0 0 2px var(--mx-bg-layer-1);
+  color: #f2c94c;
+}
+
+/* The Agents pane before Mixy exists: .utility-dock-empty centres the line
+   and this button. */
+.mixy-empty-create {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-text);
+  color: var(--mx-bg-base);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mixy-empty-create:hover {
+  background-image: linear-gradient(rgb(128 128 128 / 20%), rgb(128 128 128 / 20%));
+}
+.mixy-empty-create:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+@media (pointer: coarse) {
+  .mixy-empty-create {
+    min-height: 44px;
+  }
+}

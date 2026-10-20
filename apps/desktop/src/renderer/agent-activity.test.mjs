@@ -30,6 +30,27 @@ import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store.ts';
 import { shellJobsStatusEqual } from '../shared/shell-jobs-status.ts';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu } from './agent-group-visibility.tsx';
 import i18n from './i18n.ts';
+import { publishAgentModeSessions } from './agent-chat-mode.ts';
+
+// The pane lists agent-mode sessions' work only; these owners are agent chats
+// (`internal-control` stays an ordinary session on purpose).
+publishAgentModeSessions(
+  [
+    'lead-a',
+    'lead-b',
+    'lead-w',
+    'lead-o',
+    'lead-shell',
+    'lead-empty',
+    'child-a',
+    'ghost-a',
+    'unrelated',
+    'older-idle',
+    'newest-idle',
+    'first',
+    'second',
+  ].map((id) => ({ id, sessionMode: 'agent' }))
+);
 
 function installDom() {
   const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' }, expose: ['navigator'] });
@@ -147,14 +168,18 @@ test('the Agents row switches to data-state=waiting on a pool push and back to r
     },
   };
   const sessions = [{ id: 'lead-w', title: 'lead-w', preview: '', updatedAt: 1, messageCount: 1 }];
-  const state = () => leadState('lead-w')?.getAttribute('data-state');
+  const state = () =>
+    document.querySelector('[data-agent-session-id="lead-w"] .agent-activity-elapsed')?.getAttribute('data-state');
   try {
     await act(async () => dom.root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
     await expandAllAgentGroups();
     assert.equal(state(), 'running');
     await act(async () => push([row({ awaitingTask: 'wait' })]));
     assert.equal(state(), 'waiting');
-    assert.equal(leadState('lead-w').textContent, 'Waiting for tasks');
+    assert.equal(
+      document.querySelector('[data-agent-session-id="lead-w"] .agent-activity-elapsed').textContent,
+      'Waiting for tasks'
+    );
     await act(async () => push([row()]));
     assert.equal(state(), 'running');
     await act(async () => push([row({ status: 'idle', stage: 'idle', awaitingTask: 'background' })]));
@@ -191,8 +216,7 @@ test('a Lead row never shows an old origin through running → waiting → woken
     },
   };
   const sessions = [{ id: 'lead-o', title: 'lead-o', preview: '', updatedAt: 1, messageCount: 1 }];
-  const time = () => document.querySelector('[data-agent-session-id="lead-o"] .agent-chat-time');
-  const text = () => time()?.textContent;
+  const text = () => document.querySelector('[data-agent-session-id="lead-o"] .agent-activity-elapsed')?.textContent;
   try {
     await act(async () => dom.root.render(React.createElement(AgentActivityPane, { active: false, sessions })));
     await expandAllAgentGroups();
@@ -201,13 +225,10 @@ test('a Lead row never shows an old origin through running → waiting → woken
     await act(async () => push([row({ turnStartedAt: turn1, awaitingTask: 'wait' })]));
     assert.match(text(), /^10m/);
     await act(async () => push([row({ status: 'idle', stage: 'idle', turnStartedAt: null })]));
-    // At rest the row names its state in the preview and shows no clock.
-    assert.equal(leadState('lead-o').textContent, 'Idle');
-    assert.equal(time().dataset.live, undefined);
-    // Woken by the completion: the first running snapshot has no turn stamp,
-    // so no elapsed clock runs from an old origin.
+    assert.equal(text(), 'Idle');
+    // Woken by the completion: the first running snapshot has no turn stamp.
     await act(async () => push([row({ turnStartedAt: null })]));
-    assert.equal(time().dataset.live, undefined);
+    assert.equal(text(), '');
     await act(async () => push([row({ turnStartedAt: turn2 })]));
     assert.match(text(), /^[0-9]s$/);
     // Reconnect resync: a snapshot without the stamp, then a stale one.
@@ -220,11 +241,6 @@ test('a Lead row never shows an old origin through running → waiting → woken
     dom.close();
   }
 });
-
-/** A session row's state words in its preview line, with their data-state. */
-function leadState(ownerId) {
-  return document.querySelector(`[data-agent-session-id="${ownerId}"] .agent-chat-state`);
-}
 
 async function expandAllAgentGroups() {
   await act(async () => window.dispatchEvent(new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: true })));
@@ -289,13 +305,16 @@ test('Agent groups can be hidden, stay hidden through pool pushes and remounts, 
     assert.equal(document.querySelector('[data-agent-owner-session-id="lead-a"]'), null);
     await click('[data-agent-owner-session-id="lead-b"] .row-overflow-trigger');
     await click('[data-action-id="hide-agent-group"]');
-    assert.match(document.body.textContent, /All agent groups are hidden/);
+    // Mixy is always a contact, so hidden work leaves no empty-state line.
+    assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 0);
+    assert.doesNotMatch(document.body.textContent, /All agent groups are hidden/);
     await click('.agent-group-toolbar .row-overflow-trigger');
     await click('[data-action-id="restore-agent-groups"]');
     assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 2);
     assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.agent-hidden-groups')), []);
     // The contacts read the agent catalog (a read capability); nothing else.
     assert.deepEqual([...new Set(touched)].filter((key) => key !== 'perfLog').sort(), [
+      'githubCliStatus',
       'invokeCapability',
       'listAgentPool',
       'subscribeAgentPool',
@@ -967,6 +986,7 @@ test("Agents groups every active session and renders each session's live agents"
     assert.doesNotMatch(document.body.textContent, /internal-control/);
     assert.match(document.body.textContent, /Idle/);
     assert.doesNotMatch(document.body.textContent, /Idle task/);
+    assert.match(document.body.textContent, /Lead/);
     assert.match(document.body.textContent, /Researcher · research/);
     assert.ok(document.querySelector('[data-agent-session-id="lead-a"]'));
     assert.ok(document.querySelector('[data-agent-session-id="child-a"]'));
@@ -983,15 +1003,13 @@ test("Agents groups every active session and renders each session's live agents"
     await act(async () => firstHeading.click());
     assert.equal(firstHeading.getAttribute('aria-expanded'), 'true');
     assert.ok(document.querySelector('[data-agent-session-id="child-a"]'));
-    const runningRow = document.querySelector('[data-agent-session-id="lead-a"]');
-    // The session row: elapsed at the right, the work in its preview, one spinner.
-    assert.match(runningRow.querySelector('.agent-chat-time').textContent, /^\d/);
-    assert.equal(runningRow.querySelector('.agent-chat-preview').textContent, 'Working · 1 agent');
-    assert.deepEqual(
-      [...runningRow.querySelectorAll('.agent-chat-status')].map((status) => status.dataset.kind),
-      ['running']
-    );
-    const idleRow = document.querySelector('[data-agent-session-id="child-b"]');
+    assert.equal(document.querySelectorAll('.workflows-agent-summary-row .projects-row-icon').length, 0);
+    const runningRow = document.querySelector('[data-agent-session-id="lead-a"]').closest('.schedules-row');
+    assert.equal(runningRow.querySelector('.agent-activity-status [role=status]'), null);
+    assert.equal(runningRow.lastElementChild.className, 'agent-activity-status');
+    assert.doesNotMatch(runningRow.querySelector('.agent-activity-elapsed').textContent, /Working/);
+    assert.match(runningRow.querySelector('.agent-activity-elapsed').textContent, /^\d/);
+    const idleRow = document.querySelector('[data-agent-session-id="child-b"]').closest('.schedules-row');
     // A resting agent reports rest only: idle duration carries no information
     // (user decision), so the label is the bare state word.
     assert.equal(idleRow.querySelector('.agent-activity-elapsed').textContent, 'Idle');
@@ -1080,7 +1098,7 @@ test('Agents keep sibling statuses independent under one owner', async () => {
         .querySelector(`[data-agent-session-id="${sessionId}"] .agent-activity-elapsed`)
         ?.getAttribute('data-state');
     await expandAllAgentGroups();
-    assert.equal(leadState('lead-a').getAttribute('data-state'), 'waiting');
+    assert.equal(state('lead-a'), 'waiting');
     assert.equal(state('child-running'), 'running');
     assert.equal(state('child-completed'), 'done');
     assert.equal(state('child-idle'), 'idle');
@@ -1138,8 +1156,7 @@ test('Korean Agents pane shows unread completion and idle after reading, regardl
     );
   };
   const assertStatus = (id, state, text) => {
-    const row = document.querySelector(`[data-agent-session-id="${id}"]`);
-    const status = row.querySelector('.agent-chat-state') ?? row.querySelector('.agent-activity-elapsed');
+    const status = document.querySelector(`[data-agent-session-id="${id}"] .agent-activity-elapsed`);
     assert.equal(status.dataset.state, state);
     assert.equal(status.textContent, text);
   };
@@ -1204,7 +1221,7 @@ for (const outcome of ['idle', 'cancelled']) {
     };
     const row = (id) => document.querySelector(`[data-agent-session-id="${id}"]`);
     const assertStatus = (id, state, text) => {
-      const status = row(id).querySelector('.agent-chat-state') ?? row(id).querySelector('.agent-activity-elapsed');
+      const status = row(id).querySelector('.agent-activity-elapsed');
       assert.equal(status.dataset.state, state);
       assert.equal(status.textContent, text);
     };
@@ -1331,10 +1348,14 @@ test('Agents order sessions by last idle moment and flag unseen completions', as
       node.getAttribute('data-agent-owner-session-id')
     );
     assert.deepEqual(owners, ['newest-idle', 'older-idle']);
-    const done = leadState('newest-idle');
+    const done = document
+      .querySelector('[data-agent-session-id="newest-idle"]')
+      .querySelector('.agent-activity-elapsed');
     assert.equal(done.getAttribute('data-state'), 'done');
     assert.equal(done.textContent, 'Completed');
-    const idle = leadState('older-idle');
+    const idle = document
+      .querySelector('[data-agent-session-id="older-idle"]')
+      .querySelector('.agent-activity-elapsed');
     assert.equal(idle.getAttribute('data-state'), 'idle');
     assert.equal(idle.textContent, 'Idle');
   } finally {
@@ -2059,13 +2080,7 @@ for (const inlineActions of [false, true]) {
       );
     const row = (id) => document.querySelector(`[data-agent-session-id="${id}"]`);
     const heading = (id) => document.querySelector(`[data-lead-session-id="${id}"]`);
-    // The count of agents beneath a session rides its preview line.
-    const badge = (id) => {
-      const count = row(id)
-        .querySelector('.agent-chat-preview')
-        ?.textContent.match(/ · (\d+) agents?$/)?.[1];
-      return count ? { textContent: count } : null;
-    };
+    const badge = (id) => row(id).querySelector('.dock-review-count');
     const visibleIds = () =>
       [...document.querySelectorAll('[data-agent-session-id]')].map((entry) => entry.dataset.agentSessionId).sort();
     const menuAction = async (action) => {
@@ -2080,8 +2095,9 @@ for (const inlineActions of [false, true]) {
       assert.equal(row('lead-a').getAttribute('aria-expanded'), 'false');
       // Count all five descendants, including nested and idle rows, not the Lead.
       assert.equal(badge('lead-a').textContent, '5');
+      assert.equal(badge('lead-a').previousElementSibling.textContent, 'Lead');
       assert.equal(badge('lead-empty'), null);
-      await act(async () => row('lead-a').click());
+      await act(async () => badge('lead-a').click());
       assert.deepEqual(opened, ['lead-a']);
       assert.equal(heading('lead-a').getAttribute('aria-expanded'), 'false');
 
@@ -2192,7 +2208,7 @@ test('the Agent window renders the Parent-Child tree and folds every generation'
     });
 
     await expandAllAgentGroups();
-    const tree = document.querySelector('[data-agent-owner-session-id="lead-a"] [role="tree"]');
+    const tree = document.querySelector('.agent-activity-page .schedules-list');
     assert.equal(tree.getAttribute('role'), 'tree');
     assert.equal(tree.getAttribute('aria-label'), 'First task');
     const rowAt = (sessionId) => document.querySelector(`[data-agent-session-id="${sessionId}"]`);
@@ -2333,7 +2349,12 @@ test('a nested Agent row opens its exact child session without touching session 
       []
     );
     // The contacts read the agent catalog (a read capability); nothing else.
-    assert.deepEqual([...new Set(touched)].sort(), ['invokeCapability', 'listAgentPool', 'subscribeAgentPool']);
+    assert.deepEqual([...new Set(touched)].sort(), [
+      'githubCliStatus',
+      'invokeCapability',
+      'listAgentPool',
+      'subscribeAgentPool',
+    ]);
     assert.deepEqual(prefetched, ['grand-a', 'great-a', 'lead-a']);
   } finally {
     await act(async () => dom.root.unmount());

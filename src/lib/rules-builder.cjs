@@ -361,17 +361,64 @@ function buildRouteRulesContent({
   return omitToolRoutes(parts.join('\n'), omitTools, allowTools);
 }
 
-function buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief = true }) {
+// LEAD.md is split for BP3 prefix sharing (every Lead shares `common`; the
+// mode-variant passages and the identity line move later):
+// - `common`: every line but the identity line and the two passages below;
+// - `coding` / `agent`: those two passages as bullets — LEAD.md's own text
+//   for coding mode, the conversational variants for agent mode;
+// - `identity`: the coding identity sentence ("You are Mixdog, …").
+const LEAD_IDENTITY_LINE = /^- (You are Mixdog, a coding agent\.)\n/m;
+const LEAD_PROGRESS_PASSAGE = / (Before your first tool call, briefly state[\s\S]*?narration or plan repeats\.)/;
+const LEAD_REPORT_PASSAGE = / (On an agent report, review its diff[\s\S]*?not a completed request\.)/;
+const AGENT_MODE_PROGRESS =
+  '- Just answer conversation. Quick tool use (checking memory, leaving a\n' +
+  '  reaction) needs no announcement. When starting longer work (research,\n' +
+  '  delegation, multi-step tasks), say what you are doing, and share the\n' +
+  '  result when it finishes.';
+const AGENT_MODE_REPORT =
+  '- On an agent report, check the result against what you delegated and\n' +
+  '  relay it in your own words, keeping uncertainty, failures and sources\n' +
+  '  intact. Review a diff only when you delegated code.';
+
+function buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief = true, part = 'common' }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
-  const lead = readOptional(path.join(RULES_DIR, 'lead', 'LEAD.md'));
-  if (!lead) return '';
+  const raw = readOptional(path.join(RULES_DIR, 'lead', 'LEAD.md'));
+  if (!raw) return '';
   // Delegation-free sessions (headless, no delegatable agents) never expose the `agent` tool,
   // so Lead guidance marked `<!-- tools: agent -->` (briefing, completion
   // notifications) is dropped there and kept verbatim for delegating workflows.
-  return omitToolRoutes(lead, includeLeadBrief ? [] : ['agent']);
+  const lead = omitToolRoutes(raw, includeLeadBrief ? [] : ['agent']);
+  if (part === 'identity') return lead.match(LEAD_IDENTITY_LINE)?.[1] || '';
+  const progress = lead.match(LEAD_PROGRESS_PASSAGE);
+  const report = lead.match(LEAD_REPORT_PASSAGE);
+  if (part === 'coding' || part === 'agent') {
+    const agentMode = part === 'agent';
+    const bullets = [
+      progress && (agentMode ? AGENT_MODE_PROGRESS : `- ${progress[1]}`),
+      report && (agentMode ? AGENT_MODE_REPORT : `- ${report[1]}`),
+    ].filter(Boolean);
+    return bullets.length ? `# Progress and Reports\n\n${bullets.join('\n')}` : '';
+  }
+  return lead.replace(LEAD_IDENTITY_LINE, '').replace(LEAD_PROGRESS_PASSAGE, '').replace(LEAD_REPORT_PASSAGE, '');
 }
 
-function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
+// The agent-mode rule files (rules/agent-mode/): `conduct` (AGENT_MODE.md,
+// every agent-mode Lead), `mixy` (MIXY.md, Mixy only) and `routine`
+// (ROUTINE.md, schedule/webhook runs only).
+const AGENT_MODE_PARTS = {
+  conduct: ['AGENT_MODE.md', ''],
+  // Neutral heading: the user may rename Mixy (its identity line says the name).
+  mixy: ['MIXY.md', '# Your Role\n\n'],
+  routine: ['ROUTINE.md', '# Routine Run\n\n'],
+};
+
+function buildAgentModeContent({ PLUGIN_ROOT, part = 'conduct' }) {
+  const [file, heading] = AGENT_MODE_PARTS[part] || AGENT_MODE_PARTS.conduct;
+  const body = readOptional(path.join(PLUGIN_ROOT, 'rules', 'agent-mode', file)).trim();
+  return body ? `${heading}${body}` : '';
+}
+
+function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR, includeOutputStyle = true }) {
   const parts = [];
 
   const profilePreferences = buildProfilePreferencesContent(DATA_DIR);
@@ -382,7 +429,8 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
   // (workflow, role, persona, memory, session lines) sits between it and the
   // first reply.
 
-  const outputStyle = loadOutputStyle({ PLUGIN_ROOT, DATA_DIR });
+  // Agent mode answers by AGENT_MODE.md alone; the coding Output Style stays out.
+  const outputStyle = includeOutputStyle ? loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) : '';
   if (outputStyle) parts.push(outputStyle);
 
   return parts.join('\n\n');
@@ -430,6 +478,7 @@ module.exports = {
   buildSharedToolContent,
   buildRouteRulesContent,
   buildLeadRoleContent,
+  buildAgentModeContent,
   buildLeadMetaContent,
   buildLeadLanguageContent,
   buildAgentRoleContent,

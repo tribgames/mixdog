@@ -80,6 +80,7 @@ export const DESKTOP_CAPABILITIES = [
   'skillContent',
   'addSkill',
   'saveSkill',
+  'removeSkill',
   'reloadSkills',
   'pluginsStatus',
   'reloadPlugins',
@@ -133,8 +134,33 @@ export const DESKTOP_CAPABILITIES = [
   'createWorkflow',
   'deleteWorkflow',
   'getAgentDefinition',
+  'archivedAgentIdentities',
+  'getAgentAvatarImage',
+  'getAgentConnectors',
+  'listConnectors',
+  'listConnectorTools',
+  'setAgentConnectors',
+  // Connector switches ("사용할 커넥터"): `[{ id, enabled }]` per installed
+  // connector; every one is on unless switched off for the agent / project.
+  'setAgentConnectorEnabled',
+  'setAgentConnectorToolPermission',
+  'getProjectConnectors',
+  'setProjectConnectorEnabled',
+  // Per-agent action-kind permissions: getAgentPermissions(agentId) →
+  // DesktopAgentPermission[]; setAgentPermission(agentId, action, mode).
+  'getAgentPermissions',
+  'setAgentPermission',
+  'getLeadPersona',
+  'saveLeadPersona',
+  'getLeadAgentBody',
+  'saveLeadAgentBody',
+  'getLeadStatus',
+  'setLeadCreated',
+  'saveLeadIdentity',
   'saveAgentDefinition',
   'deleteAgentDefinition',
+  // A deleted (archived) bot back as it was; its routines stay off.
+  'restoreAgentDefinition',
   'listProviders',
   'listProviderModels',
   'getProviderSetup',
@@ -171,6 +197,8 @@ export const DESKTOP_CAPABILITIES = [
   'deleteSchedule',
   'setScheduleEnabled',
   'runScheduleNow',
+  'runWebhookNow',
+  'retryRoutineDelivery',
   'testWebhook',
   'saveWebhook',
   'deleteWebhook',
@@ -240,6 +268,16 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getWorkflowPack',
   'getOrchestrationMode',
   'getAgentDefinition',
+  'archivedAgentIdentities',
+  'getAgentAvatarImage',
+  'getAgentConnectors',
+  'getProjectConnectors',
+  'getAgentPermissions',
+  'listConnectors',
+  'listConnectorTools',
+  'getLeadPersona',
+  'getLeadAgentBody',
+  'getLeadStatus',
   'getOutputStyle',
   'listOutputStyles',
   'listThemes',
@@ -284,6 +322,15 @@ export interface DesktopCapabilityReadRequest {
 }
 
 export type DesktopCapabilityReadResult = { ok: true; value: unknown } | { ok: false; error: string };
+
+/** One row of an agent's "권한" table (human-gate/store.mjs): an action kind
+ *  and whether the agent asks, may (`allow`, "다시 묻지 않기") or is blocked.
+ *  `rememberable: false` (payment, delete) never takes `allow`. */
+export interface DesktopAgentPermission {
+  action: 'comment' | 'review' | 'message' | 'email' | 'publish' | 'form' | 'payment' | 'delete' | 'trash';
+  mode: 'ask' | 'allow' | 'block';
+  rememberable: boolean;
+}
 
 /** One recorded file of a turn's changes. */
 export interface TurnChangesFile {

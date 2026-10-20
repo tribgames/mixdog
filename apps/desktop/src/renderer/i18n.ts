@@ -4,6 +4,7 @@
 // a difference. locales/*.json supply the translations; `npm run i18n:sync`
 // keeps every catalog in step with renderer, native and boot-recovery usage.
 import i18next from 'i18next';
+import { markKoValue, resolveKoParticles } from '../shared/ko-particle';
 import pluralSources from './ui-plurals.json';
 
 import { hasLocalDisplayChoice, markHostDisplayChoice, markLocalDisplayChoice } from './display-preference-source';
@@ -200,8 +201,20 @@ export function subscribeUiLanguage(listener: () => void): () => void {
   return () => i18next.off('languageChanged', listener);
 }
 
+/** t() options that are i18next settings, not interpolated values. */
+const I18NEXT_OPTIONS = new Set(['defaultValue', 'lng', 'lngs', 'ns', 'context', 'keyPrefix', 'postProcess']);
+
 export function t(key: string, options?: Record<string, unknown>): string {
-  return String(i18next.t(key, options));
+  if (!options || !i18next.language?.startsWith('ko')) return String(i18next.t(key, options));
+  // Korean: a dual particle after a name ("{{name}}을(를)") becomes the one
+  // its last syllable takes (shared/ko-particle.ts).
+  const marked = Object.fromEntries(
+    Object.entries(options).map(([name, value]) => [
+      name,
+      typeof value === 'string' && !I18NEXT_OPTIONS.has(name) ? markKoValue(value) : value,
+    ])
+  );
+  return resolveKoParticles(String(i18next.t(key, marked)));
 }
 
 /** Translate a runtime-composed phrase ONLY when the active catalog really

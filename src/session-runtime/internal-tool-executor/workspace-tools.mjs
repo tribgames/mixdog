@@ -5,8 +5,20 @@ import { resolve } from 'node:path';
 import { listProjects } from '../../runtime/shared/projects.mjs';
 import { applySessionSidebarChange } from '../../runtime/shared/session-sidebar-host.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { scheduleCallerScope } from '../services/schedule-access.mjs';
 
 const USER_TITLE_ERROR = 'session: the user already titled this session; the title was not changed';
+
+/** The agent an attended agent conversation (an agent's home thread) acts as;
+ *  '' for every other caller: delegated workers, coding sessions (task
+ *  sessions included) and unattended schedule/webhook runs. */
+function attendedAgentOf(session) {
+  const { mode, agentId } = resolveSessionMode({ session });
+  const { kind } = scheduleCallerScope(session);
+  return mode === AGENT_MODE && (kind === 'human' || kind === 'agent') ? agentId : '';
+}
 
 export function createWorkspaceToolHandlers({
   rt,
@@ -65,12 +77,29 @@ export function createWorkspaceToolHandlers({
   const session = async (args, { callerCtx, callerCwd }) => {
     const action = clean(args?.action || (args?.path ? 'set-project' : 'status')).toLowerCase();
     const target = clean(args?.session_id);
-    if (['list', 'read', 'send', 'cancel', 'delete'].includes(action) || (action === 'status' && target)) {
+    if (['list', 'read', 'send', 'cancel', 'delete', 'create'].includes(action) || (action === 'status' && target)) {
       const callerSessionId = assertLead(action, callerCtx);
+      const callerAgentId = attendedAgentOf(rt.session);
+      if (action === 'create' && !callerAgentId) {
+        throw new Error(
+          'session: create belongs to an agent conversation; delegated workers, coding task sessions and schedule/webhook runs cannot create task sessions'
+        );
+      }
+      // A task session reaches its agent only through its reported result.
+      const origin = rt.session?.taskOrigin;
+      if (
+        action === 'send' &&
+        origin &&
+        (target === origin.sessionId || agentIdOfHomeSession(target) === origin.agentId)
+      ) {
+        throw new Error('session: a task session reports to its agent only through its result');
+      }
       if (typeof executeSessionControl !== 'function') {
         throw new Error('session: cross-session control is unavailable in this runtime');
       }
-      return JSON.stringify(await executeSessionControl({ ...args, action }, { callerSessionId }));
+      return JSON.stringify(
+        await executeSessionControl({ ...args, action }, { callerSessionId, callerAgentId, callerCwd })
+      );
     }
     if (target && target !== assertLead(action, callerCtx)) {
       throw new Error(`session: action=${action} only applies to the current session`);

@@ -239,6 +239,10 @@ const api: DesktopApi = {
   setQuotaAutoResume: (enabled) => invokeIpc(DESKTOP_IPC.setQuotaAutoResume, enabled),
   setSessionArchived: (sessionId, archived) => invokeIpc(DESKTOP_IPC.setSessionArchived, sessionId, archived),
   openAgentHome: (agentId) => invokeIpc(DESKTOP_IPC.openAgentHome, agentId),
+  resetAgentHome: (agentId) => invokeIpc(DESKTOP_IPC.resetAgentHome, agentId),
+  listAgentMemory: (agentId) => invokeIpc(DESKTOP_IPC.listAgentMemory, agentId),
+  deleteAgentMemory: (agentId, entry) => invokeIpc(DESKTOP_IPC.deleteAgentMemory, agentId, entry),
+  agentRoomAction: (action, args) => invokeIpc(DESKTOP_IPC.agentRoomAction, action, args),
   setSessionFavorite: (sessionId, favorite) => invokeIpc(DESKTOP_IPC.setSessionFavorite, sessionId, favorite),
   setSessionProject: (sessionId, projectPath) => invokeIpc(DESKTOP_IPC.setSessionProject, sessionId, projectPath),
   deleteSession: (sessionId) => invokeIpc(DESKTOP_IPC.deleteSession, sessionId),
@@ -556,6 +560,10 @@ const api: DesktopApi = {
   abortSession: (sessionId, options) => invokeIpc(DESKTOP_IPC.abortSession, sessionId, options),
   resolveToolApprovalForSession: (sessionId, id, decision) =>
     invokeIpc(DESKTOP_IPC.resolveToolApprovalForSession, sessionId, id, decision),
+  provideSecretInput: (requestId, value) => invokeIpc(DESKTOP_IPC.provideSecretInput, requestId, value),
+  takeoverReady: (sessionId, id) => invokeIpc(DESKTOP_IPC.takeoverReady, sessionId, id),
+  getAgentNotificationMute: (agentId) => invokeIpc(DESKTOP_IPC.getAgentNotificationMute, agentId),
+  setAgentNotificationMute: (agentId, muted) => invokeIpc(DESKTOP_IPC.setAgentNotificationMute, agentId, muted),
   resyncSessionState: (sessionId) => ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId),
   subscribeSessionState: (listener) => {
     const decoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
@@ -647,6 +655,11 @@ const api: DesktopApi = {
   browserCredentialSuggestions: (sessionId) => invokeIpc(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
   browserCredentialFill: (sessionId, credentialId) =>
     invokeIpc(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId),
+  browserSignedInSites: () => invokeIpc(DESKTOP_IPC.browserSignedInSites),
+  browserSignOutSite: (site) => invokeIpc(DESKTOP_IPC.browserSignOutSite, site),
+  browserClearSignIns: () => invokeIpc(DESKTOP_IPC.browserClearSignIns),
+  browserLoginOpen: (sessionId, id) => invokeIpc(DESKTOP_IPC.browserLoginOpen, sessionId, id),
+  browserLoginStatus: (sessionId, id) => invokeIpc(DESKTOP_IPC.browserLoginStatus, sessionId, id),
   browserPageIdentity: (url, options) => invokeIpc(DESKTOP_IPC.browserPageIdentity, url, options?.preview === true),
   onBrowserPageIdentityChanged: (listener) => subscribeIpc(DESKTOP_IPC.browserPageIdentityChanged, listener),
   invokeCapability: (request) => invokeIpc(DESKTOP_IPC.invokeCapability, request),

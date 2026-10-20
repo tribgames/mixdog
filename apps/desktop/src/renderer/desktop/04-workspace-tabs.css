@@ -195,13 +195,17 @@
   }
 }
 @container (max-width: 48px) {
-  .workspace-tab-main span,
+  /* Only the TITLE span drops: the spinner (and the waiting mark around it)
+     is a span too, and hiding every span left a working tab a blank cell. */
+  .workspace-tab-main > span:not(.progress-spinner-turn, .session-attention-glyph),
   /* Doubled class beats the later base `display: block`: the dot would ride
      the sliver edge half-clipped. */
   .workspace-tab .workspace-tab-unread-dot {
     display: none;
   }
-  .workspace-tab:not(.active) .workspace-tab-main {
+  /* Every icon-only cell, the active one included, centres its lone glyph;
+     the active tab's hover padding still steps it aside for the floating X. */
+  .workspace-tab .workspace-tab-main {
     flex: 1;
     justify-content: center;
     margin-left: -10px;

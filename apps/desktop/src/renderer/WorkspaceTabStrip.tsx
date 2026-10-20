@@ -34,6 +34,8 @@ import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
 import { RemotePcBrandDot } from './RemotePcSwitcher';
 import { MixdogMark } from './mixdog-mark';
+import { isAgentChatSession } from './agent-chat-mode';
+import { AgentChatTabFace } from './agent-chat-header';
 import { useTabStripReveal } from './use-tab-strip-reveal';
 import {
   acceptPaneDrag,
@@ -123,6 +125,10 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
       return <Terminal size={size} />;
     case 'browser':
       return <Globe size={15} />;
+    case 'session':
+      // A bot chat's tab carries the bot's face.
+      if (isAgentChatSession(tab.selection.id)) return <AgentChatTabFace sessionId={tab.selection.id} />;
+      return <MessageCircle size={size} />;
     default:
       // Chat/new-task tabs keep the bubble icon (user: 탭 앞 아이콘은 롤백).
       return <MessageCircle size={size} />;
@@ -157,8 +163,9 @@ function workspaceTabHomeButton() {
 
 /** Phone title pill (user decision (a): 제목 알약은 그대로): the run of tabs
  *  has no room on a phone, so ONE label names the active tab — sessions live
- *  in the left drawer. Tapping does nothing; long-press keeps the tab menu
- *  for closing. The + and the dock toggles beside it are the desktop's. */
+ *  in the left drawer. Tapping re-selects the active tab (on an agent's home
+ *  thread that opens its profile); long-press keeps the tab menu for
+ *  closing. The + and the dock toggles beside it are the desktop's. */
 function workspaceMobileTabPill({
   tabs,
   activeKey,
@@ -166,7 +173,9 @@ function workspaceMobileTabPill({
   workingSessionIds,
   pendingNewTask,
   setTabMenu,
+  onSelectTab,
 }: {
+  onSelectTab(tab: WorkspaceTab): void;
   tabs: WorkspaceTab[];
   activeKey: string;
   activeBusy: boolean;
@@ -183,6 +192,9 @@ function workspaceMobileTabPill({
       type="button"
       className="workspace-tab-compact-current"
       data-tooltip={activeTab?.title}
+      onClick={() => {
+        if (activeTab && !pendingNewTask && activeTab.key === activeKey) onSelectTab(activeTab);
+      }}
       onContextMenu={(event) => {
         if (!activeTab) return;
         event.preventDefault();
@@ -926,6 +938,7 @@ export function WorkspaceTabStrip({
           workingSessionIds,
           pendingNewTask: newTaskTappedFrom !== null && newTaskTappedFrom === activeKey,
           setTabMenu,
+          onSelectTab: selectTab,
         })}
       {!mobile && (
         <nav

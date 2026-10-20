@@ -1,13 +1,16 @@
 /**
  * memory-action-handlers/core-actions.mjs — `core`: user-curated core memory
  * add / edit / delete / list against the core store, with the
- * session-injection snapshot republished after every mutation.
+ * session-injection snapshot republished after every mutation. The caller
+ * (`memory_caller`) decides which pools it may read and write
+ * (core-memory-access.mjs); the store enforces the writes again.
  */
 import { addCore, editCore, deleteCore, normalizeCoreInput, normalizeCoreOp } from '../core-memory-store.mjs';
 import { resolveProjectScope } from '../project-id-resolver.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { listManagedMemories, formatManagedMemories } from '../core-memory-management.mjs';
 import { publicCoreMemoryIdentity, resolveCoreMemoryIndex } from '../core-memory-index.mjs';
+import { assertCoreRead, corePoolLabel, normalizeMemoryCaller, validAgentId } from '../core-memory-access.mjs';
 
 const CORE_OPS = ['add', 'edit', 'delete', 'list'];
 
@@ -47,6 +50,20 @@ function normalizedWriteArgs(args, op, projectId) {
   };
 }
 
+// `agent_id` selects an agent's own pool instead of a project: "self" is the
+// caller's, another id the pool Mixy or the host manages.
+function coreAgentId(args, caller) {
+  const raw = typeof args.agent_id === 'string' ? args.agent_id.trim() : '';
+  if (!raw) return null;
+  if (raw.toLowerCase() === 'self') {
+    if (!caller.agentId) throw new Error('this session has no agent memory');
+    return caller.agentId;
+  }
+  const agentId = validAgentId(raw);
+  if (!agentId) throw new Error(`agent_id "${raw}" is not an agent id`);
+  return agentId;
+}
+
 function editTargetProjectId(args, projectId) {
   if (Object.hasOwn(args, 'target_project_id')) {
     const value = String(args.target_project_id ?? '').trim();
@@ -67,33 +84,44 @@ export function createCoreActions({
   const describe = async (entry) =>
     `(${await publicCoreMemoryIdentity(getDb(), entry)}): ${entry.element} — ${entry.summary.slice(0, 200)}`;
 
+  // `pool` is `{ projectId, agentId }`; an agent pool's projectId is null.
   const ops = {
-    async list(_coreDataDir, args, projectId) {
-      const page = await listManagedMemories(getDb(), projectId, args);
+    async list(_coreDataDir, args, { projectId, agentId }, caller) {
+      assertCoreRead(caller, agentId);
+      const page = await listManagedMemories(getDb(), projectId, { ...args, agent_id: agentId });
       return { text: args.format === 'json' ? JSON.stringify(page) : formatManagedMemories(page), ...page };
     },
-    async add(coreDataDir, args, projectId) {
-      const entry = await addCoreImpl(coreDataDir, args, projectId);
+    async add(coreDataDir, args, { projectId, agentId }, caller) {
+      const entry = await addCoreImpl(coreDataDir, args, projectId, { agentId, caller });
       await refreshCoreMemoryFile('core-add');
       return { text: `core added ${await describe(entry)}` };
     },
-    async edit(coreDataDir, args, projectId) {
-      const targetProjectId = editTargetProjectId(args, projectId);
-      const recordId = await resolveCoreMemoryIndex(getDb(), projectId, args.id, args.index_revision);
+    async edit(coreDataDir, args, { projectId, agentId }, caller) {
+      if (agentId && (Object.hasOwn(args, 'target_project_id') || args.target_cwd)) {
+        throw new Error('agent memory has no project scope');
+      }
+      const targetProjectId = agentId ? null : editTargetProjectId(args, projectId);
+      const recordId = await resolveCoreMemoryIndex(getDb(), projectId, args.id, args.index_revision, agentId);
       const entry = await editCoreImpl(coreDataDir, recordId, {
         ...args,
         expectedProjectId: projectId,
+        expectedAgentId: agentId,
         targetProjectId,
+        caller,
       });
       await refreshCoreMemoryFile('core-edit');
       return { text: `core edited ${await describe(entry)}` };
     },
-    async delete(coreDataDir, args, projectId) {
-      const recordId = await resolveCoreMemoryIndex(getDb(), projectId, args.id, args.index_revision);
-      const removed = await deleteCoreImpl(coreDataDir, recordId, { expectedProjectId: projectId });
+    async delete(coreDataDir, args, { projectId, agentId }, caller) {
+      const recordId = await resolveCoreMemoryIndex(getDb(), projectId, args.id, args.index_revision, agentId);
+      const removed = await deleteCoreImpl(coreDataDir, recordId, {
+        expectedProjectId: projectId,
+        expectedAgentId: agentId,
+        caller,
+      });
       await refreshCoreMemoryFile('core-delete');
       return {
-        text: `core deleted (project=${projectId ?? 'COMMON'} id=${args.id}): ${removed.element}. Remaining indices were compacted; list memories before the next write.`,
+        text: `core deleted (${corePoolLabel({ projectId, agentId })} id=${args.id}): ${removed.element}. Remaining indices were compacted; list memories before the next write.`,
       };
     },
   };
@@ -106,8 +134,10 @@ export function createCoreActions({
     }
     const coreDataDir = typeof dataDir === 'string' ? dataDir : resolvePluginData();
     if (!coreDataDir) return { text: 'core: memory data dir is not initialized', isError: true };
-    const projectId = coreProjectId(args);
+    const caller = normalizeMemoryCaller(args.memory_caller);
     try {
+      const agentId = coreAgentId(args, caller);
+      const projectId = agentId ? null : coreProjectId(args);
       if (args.source && args.source !== 'curated') {
         return { text: 'memory manages user-curated entries only; use recall for generated history.', isError: true };
       }
@@ -119,7 +149,7 @@ export function createCoreActions({
       if (projectId === '*' && op !== 'list') {
         return { text: `core ${op}: project_id "*" only valid for op="list"`, isError: true };
       }
-      return await ops[op](coreDataDir, args, projectId);
+      return await ops[op](coreDataDir, args, { projectId, agentId }, caller);
     } catch (e) {
       return { text: `core ${op} failed: ${e.message}`, isError: true };
     }

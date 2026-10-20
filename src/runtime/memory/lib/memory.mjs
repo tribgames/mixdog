@@ -15,7 +15,12 @@ import { ensureCoreKeyIndex } from './core-memory-uniqueness.mjs';
 import { ensureScoreSchema } from './memory-schema/score-params.mjs';
 import { ensureEntriesSchema } from './memory-schema/entries.mjs';
 import { ensureEntryTriggers } from './memory-schema/entry-triggers.mjs';
-import { ensureCoreEntriesSchema, ensureMetaSchema, stampBootstrapMeta } from './memory-schema/core-and-meta.mjs';
+import {
+  ensureCoreAgentColumn,
+  ensureCoreEntriesSchema,
+  ensureMetaSchema,
+  stampBootstrapMeta,
+} from './memory-schema/core-and-meta.mjs';
 import { VALID_CATEGORY } from './memory-categories.mjs';
 
 const dbs = new Map();
@@ -366,6 +371,7 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
   // Legacy NULL status remains active; obsolete generated metadata is untouched.
   await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS status text`);
   await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS archived_at bigint`);
+  await ensureCoreAgentColumn(db);
 
   await ensureCoreKeyIndex(db);
 

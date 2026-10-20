@@ -31,6 +31,7 @@ import { bumpUsageMetricsEpoch } from './manager/usage-metrics.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
 import { scheduleCompactionArchive, stampCompactionMessageIds } from './compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
+import { isAgentModeSession } from './agent-mode.mjs';
 import { applyPendingWorkspaceReroot } from './manager/prompt-utils.mjs';
 import { backfillFallbackSessionTitle } from './manager/session-fallback-title.mjs';
 import {
@@ -335,6 +336,32 @@ function reportCompactFailure(ctx, run, compactErr) {
 // Detection is narrow on purpose — signal.aborted or a true AbortError — so
 // the recall pipeline's SYNTHETIC "…aborted: memory … ; head preserved"
 // failure (a real compact failure, message text aside) still escalates.
+function isGenuineCompactOverflow(compactErr) {
+  return (
+    compactErr?.code === 'AGENT_CONTEXT_OVERFLOW' ||
+    compactErr?.name === 'AgentContextOverflowError' ||
+    isContextOverflowError(compactErr)
+  );
+}
+
+// Agent mode retries a failed compaction quietly: the first ordinary failure
+// in a turn neither ends the send nor reaches the user — the context is still
+// under the model's boundary, and the next send's pre-send pass compacts
+// again. A second failure, an abort or a genuine overflow takes the normal path.
+function retryCompactQuietly(ctx, run, compactErr) {
+  const { state } = ctx;
+  // `opts` is the turn's loop options (one per turn; each send builds a new state).
+  if (!isAgentModeSession(state.sessionRef) || !state.opts || state.opts.quietCompactRetryUsed) return false;
+  if (isCompactAbort(state.signal, compactErr) || isGenuineCompactOverflow(compactErr)) return false;
+  state.opts.quietCompactRetryUsed = true;
+  acknowledgeGoalReminder(state.sessionRef, run);
+  reportCompactFailure(ctx, run, compactErr);
+  writeStderrBestEffort(
+    `[loop] pre-send compact failed; retrying on the next send (sess=${state.sessionId || 'unknown'}): ${compactErr?.message || compactErr}\n`
+  );
+  return true;
+}
+
 function throwCompactFailure(ctx, run, compactErr) {
   const { state, compactPolicy, decision } = ctx;
   const { sessionRef, sessionId, signal, model } = state;
@@ -353,11 +380,7 @@ function throwCompactFailure(ctx, run, compactErr) {
   // compact failure, not "latest turn cannot fit" — mislabeling it as
   // overflow hides the real cause and misroutes downstream overflow
   // handling. Surface an explicit compact-failed error.
-  const genuineOverflow =
-    compactErr?.code === 'AGENT_CONTEXT_OVERFLOW' ||
-    compactErr?.name === 'AgentContextOverflowError' ||
-    isContextOverflowError(compactErr);
-  if (genuineOverflow) {
+  if (isGenuineCompactOverflow(compactErr)) {
     throw agentContextOverflowError(
       {
         stage: 'pre_send',
@@ -513,6 +536,10 @@ async function compactBeforeSend(ctx) {
     }
     run.summaryChanged = messagesArrayChanged(messages, run.compacted);
   } catch (compactErr) {
+    if (retryCompactQuietly(ctx, run, compactErr)) {
+      await setStage(opts, 'requesting');
+      return;
+    }
     throwCompactFailure(ctx, run, compactErr);
   }
   await setStage(opts, 'requesting');

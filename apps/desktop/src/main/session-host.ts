@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import {
+  agentNotificationMutePath,
+  createAgentNotificationMuteStore,
+  type AgentNotificationMuteStore,
+} from './agent-notification-mute';
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalPath } from '../../../../src/runtime/shared/worktrees/paths.mjs';
 
 import type {
   DesktopAbortOptions,
+  DesktopAgentMemoryEntry,
   DesktopAgentPoolRow,
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -32,7 +38,15 @@ import {
 } from '../../../../src/runtime/attachments/store.mjs';
 import { isActiveDesktopAgentEntry } from '../shared/agent-activity';
 import { desktopSessionSummaries } from './desktop-state';
-import { sessionFinalAnswer, withSessionMissingCode, type SessionFinalAnswer } from './session-final-answer';
+import type { RoomDecision } from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
+import { type AgentRooms, createAgentRoomFileStore, createAgentRooms } from './agent-rooms';
+import { deleteAgentMemory, listAgentMemory } from './agent-memory';
+import {
+  isSessionMissingError,
+  sessionFinalAnswer,
+  withSessionMissingCode,
+  type SessionFinalAnswer,
+} from './session-final-answer';
 import type { DesktopService, SerializableDesktopServiceOptions } from './desktop-service-contract';
 import { mixdogDataDirectory } from './computer/shared/common';
 import { SessionHostCatalog, catalogRelevantStoreEntry } from './session-host-catalog';
@@ -97,6 +111,8 @@ export class SessionHost implements DesktopService {
   private readonly publication: SessionHostPublication;
   private readonly transport: SessionHostTransport;
   private readonly lifecycle: SessionHostLifecycle;
+  /** Group rooms: their records, and the members' turns in flight. */
+  private readonly agentRooms: AgentRooms;
   private readonly catalog: SessionHostCatalog;
   private readonly sessionViews = new SessionViewRegistry();
   private readonly visibleSessionIds = this.sessionViews.visible;
@@ -207,6 +223,7 @@ export class SessionHost implements DesktopService {
       pendingCatalogSessionIds: this.pendingCatalogSessionIds,
       sessionMetadata: this.sessionMetadata,
       transcriptWindows: this.transcriptWindows,
+      agentGreetingsPath: join(options.userDataPath, 'agent-greetings.json'),
       isDisposed: () => this.disposed,
       callOptions: (callId, timeoutMs) => this.callOptions(callId, timeoutMs),
       taskWorkspace: () => this.taskWorkspace(),
@@ -247,6 +264,58 @@ export class SessionHost implements DesktopService {
       sessionCatalog: () => this.sessionCatalog(),
       publishSessionCatalog: (sessions) => this.publishSessionCatalog(sessions),
       publishCatalogs: () => this.catalog.publishCatalogs(),
+    });
+    this.agentRooms = createAgentRooms({
+      store: createAgentRoomFileStore(join(options.userDataPath, 'agent-rooms.json')),
+      listAgents: () => this.transport.invokeControl('listAgents', []),
+      leadName: async () =>
+        String(((await this.transport.invokeControl('getLeadStatus', [])) as { name?: unknown } | null)?.name || ''),
+      sessionExists: async (sessionId) => {
+        try {
+          await this.readSession(sessionId, false, false);
+          return true;
+        } catch (error) {
+          if (isSessionMissingError(error)) return false;
+          throw error;
+        }
+      },
+      createSession: async (sessionId, params) => {
+        const created = await this.sessionClient.create(
+          { ...params, sessionId },
+          this.callOptions(`session-create:${sessionId}`)
+        );
+        if (sessionIdOf(created.sessionId) !== sessionId) throw new Error('Room returned a mismatched session id.');
+        this.publication.applySessionResult(sessionId, created, false);
+      },
+      renameSession: (sessionId, title) => this.lifecycle.renameSession(sessionId, title),
+      appendRows: (sessionId, rows) => this.transport.invokeControl('appendRoomRows', [sessionId, rows]),
+      readItems: async (sessionId) => (await this.readSession(sessionId, false, false))?.items ?? [],
+      // A member's turn goes in as any chat prompt does; the user's files in it
+      // are already stored references, which the daemon intake takes as they are.
+      submit: (sessionId, prompt) => this.lifecycle.submitToSession(sessionId, prompt as DesktopPromptContent, {}),
+      readSnapshot: (sessionId) => this.readSession(sessionId, false, false),
+      decideTurn: async (input) =>
+        ((await this.transport.invokeControl('decideRoomTurn', [input])) as RoomDecision | null) ?? null,
+      abort: async (sessionId) => {
+        await this.lifecycle.abortSession(sessionId, {});
+      },
+      approve: (sessionId, approvalId, decision) =>
+        this.lifecycle.resolveToolApprovalForSession(sessionId, approvalId, decision),
+      deleteSession: async (sessionId) => {
+        await this.lifecycle.deleteSession(sessionId);
+      },
+      setArchived: (sessionId, archived) => this.lifecycle.setSessionArchived(sessionId, archived),
+      startOver: (sessionId) => this.lifecycle.startSessionOver(sessionId),
+      resetMember: (sessionId) => this.lifecycle.resetSessionConversation(sessionId, { fork: false }),
+      taskWorkspace: () => this.taskWorkspace(),
+      republish: (sessionId) => {
+        const projection = this.publication.projections.get(sessionId);
+        if (projection) this.publishSession(sessionId, projection.snapshot);
+      },
+      republishCatalog: () => {
+        if (this.sessionCatalogLoaded) this.publishSessionCatalog(this.sessionCatalog());
+        else void this.catalog.publishCatalogs();
+      },
     });
   }
 
@@ -300,6 +369,10 @@ export class SessionHost implements DesktopService {
     host.shellJobsPoller.start();
     // Secure the receipts folder now, off the first submission's path.
     void host.newTaskRequests.prepare();
+    // A group-room exchange a restart cut off is marked interrupted, never resumed.
+    void host.agentRooms
+      .recover()
+      .catch((error) => console.warn('[mixdog-rooms] Could not recover group rooms:', error));
     return host;
   }
 
@@ -357,11 +430,12 @@ export class SessionHost implements DesktopService {
     if (!snapshot || typeof snapshot !== 'object') return snapshot;
     const shellJobs = this.shellJobsPoller.statusFor(sessionId, this.sessionCwd(sessionId));
     const hostShellJobs = this.shellJobsPoller.status;
-    return {
+    // A group room's log also shows its members' exchange in flight.
+    return this.agentRooms.decorate(sessionId, {
       ...snapshot,
       shellJobs: { ...shellJobs, jobs: [...shellJobs.jobs] },
       hostShellJobs: { ...hostShellJobs, jobs: [...hostShellJobs.jobs] },
-    };
+    });
   }
 
   private publishShellJobChanges(sessionIds: readonly string[], everySession = false): void {
@@ -750,6 +824,43 @@ export class SessionHost implements DesktopService {
     return this.lifecycle.openAgentHome(agentId);
   }
 
+  private notificationMuteStore: AgentNotificationMuteStore | null = null;
+  private get notificationMutes(): AgentNotificationMuteStore {
+    this.notificationMuteStore ??= createAgentNotificationMuteStore(
+      agentNotificationMutePath(this.options.userDataPath)
+    );
+    return this.notificationMuteStore;
+  }
+
+  /** Per-agent push mute (agent-notification-mute.ts): pushes only, in-app state untouched. */
+  async getAgentNotificationMute(agentId: string): Promise<boolean> {
+    return this.notificationMutes.isMuted(agentId);
+  }
+
+  async setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean> {
+    return this.notificationMutes.setMuted(agentId, muted);
+  }
+
+  /** Local (push notifier): whether the agent `sessionId` belongs to is muted. */
+  isSessionNotificationMuted(sessionId: string): boolean {
+    return this.notificationMutes.isSessionMuted(sessionId);
+  }
+
+  async resetAgentHome(agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }> {
+    return this.lifecycle.resetAgentHome(agentId);
+  }
+
+  async listAgentMemory(agentId: string): Promise<DesktopAgentMemoryEntry[]> {
+    return listAgentMemory((method, args) => this.transport.invokeControl(method, args), agentId);
+  }
+
+  async deleteAgentMemory(
+    agentId: string,
+    entry: Pick<DesktopAgentMemoryEntry, 'id' | 'indexRevision'>
+  ): Promise<void> {
+    return deleteAgentMemory((method, args) => this.transport.invokeControl(method, args), agentId, entry);
+  }
+
   async deleteSession(sessionId: string): Promise<SessionSnapshot> {
     return this.lifecycle.deleteSession(sessionId);
   }
@@ -808,15 +919,41 @@ export class SessionHost implements DesktopService {
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions = {}
   ): Promise<boolean> {
+    // A group room's composer (any surface) posts into the room, which runs
+    // its members; the log session itself never runs a turn.
+    if (this.agentRooms.isRoom(sessionIdOf(sessionId))) {
+      return this.agentRooms.send(sessionIdOf(sessionId), prompt, String(options.id || ''), options);
+    }
     return this.lifecycle.submitToSession(sessionId, prompt, options);
   }
 
   async abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
+    if (this.agentRooms.isRoom(sessionIdOf(sessionId))) {
+      return { aborted: this.agentRooms.stop(sessionIdOf(sessionId)), restoreText: '', restoredSubmissionIds: [] };
+    }
     return this.lifecycle.abortSession(sessionId, options);
   }
 
   async resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
+    if (this.agentRooms.isRoom(sessionIdOf(sessionId))) {
+      return this.agentRooms.approve(sessionIdOf(sessionId), id, decision);
+    }
     return this.lifecycle.resolveToolApprovalForSession(sessionId, id, decision);
+  }
+
+  /** Group rooms (agent-rooms.ts): `create` (config) → `{ sessionId }`,
+   *  `update` (roomId, patch), `continue` (roomId), `leave` (roomId),
+   *  `reset` (roomId) → `{ archivedSessionId }`, `remove` (roomId). */
+  async agentRoomAction(action: string, args: unknown[] = []): Promise<unknown> {
+    const [first, second] = args;
+    const roomId = typeof first === 'string' ? first : '';
+    if (action === 'create') return this.agentRooms.create((first ?? {}) as Record<string, unknown>);
+    if (action === 'update') return this.agentRooms.update(roomId, (second ?? {}) as Record<string, unknown>);
+    if (action === 'continue') return this.agentRooms.proceed(roomId);
+    if (action === 'leave') return this.agentRooms.leave(roomId);
+    if (action === 'reset') return this.agentRooms.reset(roomId);
+    if (action === 'remove') return this.agentRooms.remove(roomId);
+    throw new TypeError(`Unknown room action "${action}".`);
   }
 
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
@@ -867,8 +1004,12 @@ export class SessionHost implements DesktopService {
   private sessionCatalog(): DesktopSessionSummary[] {
     return this.sessionMetadata.withReadCursors(
       this.sessionMetadata.withFavoriteFlags(
-        this.sessionMetadata.withArchiveFlags(
-          desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+        this.sessionMetadata.withRetiredFlags(
+          this.sessionMetadata.withArchiveFlags(
+            this.agentRooms.withRooms(
+              desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+            )
+          )
         )
       )
     );

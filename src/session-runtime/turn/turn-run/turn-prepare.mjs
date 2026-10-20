@@ -24,6 +24,7 @@ export function createTurnPreparation({
   prepareTurnWorkspace,
   admitTurnWorkspace,
   applyPendingRoute,
+  applyPendingAgentProfile,
 }) {
   const scopedMcpTools = (session) => scopedMcpToolsFor(session, getConfig());
 
@@ -131,6 +132,8 @@ export function createTurnPreparation({
       assertSessionAdmission?.();
     }
     const modelSwitch = applyPendingRoute?.();
+    // An agent profile saved while the previous turn ran applies from this one.
+    await applyPendingAgentProfile?.();
     options.onRouteApplied?.(getSession());
     if (modelSwitch) options.onModelSwitch?.(modelSwitch);
     ensureSessionTranscriptWriter?.();

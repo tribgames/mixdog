@@ -66,6 +66,8 @@ import type {
 import type {
   DesktopBrowserCredentialFillResult,
   DesktopBrowserCredentialSuggestion,
+  DesktopBrowserSignedInSite,
+  DesktopBrowserLoginStatus,
   DesktopBrowserGuestViewportChange,
   DesktopBrowserHistoryEntry,
   DesktopBrowserImportProgress,
@@ -161,6 +163,14 @@ export * from './contract-ssh';
 export * from './contract-connection-link';
 
 export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
+
+/** One entry of an agent's own memory pool: `id` and `indexRevision` address
+ *  it for a delete (the pool's list version; a stale one is refused). */
+export interface DesktopAgentMemoryEntry {
+  id: number;
+  indexRevision: string;
+  summary: string;
+}
 
 /** Small, last-writer-wins UI projection shared by Electron and paired web
  * clients. Pane geometry remains local; `selection` is the first visual pane. */
@@ -447,6 +457,17 @@ export interface DesktopApi {
   /** The agent contact's one home thread, resolved by the host from the agent
    *  id and created on its first open; the same id on every device. */
   openAgentHome?(agentId: string): Promise<{ sessionId: string }>;
+  /** "대화 새로 시작": the same home id, now empty; the conversation so far is
+   *  kept archived under `archivedSessionId` (null when it had no turns). */
+  resetAgentHome?(agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }>;
+  /** "이 에이전트가 기억하는 것": the agent's own memory pool, every entry. */
+  listAgentMemory?(agentId: string): Promise<DesktopAgentMemoryEntry[]>;
+  /** Delete one entry of the agent's own memory (a list's `id`/`indexRevision`). */
+  deleteAgentMemory?(agentId: string, entry: Pick<DesktopAgentMemoryEntry, 'id' | 'indexRevision'>): Promise<void>;
+  /** Group rooms: `create` ({ name, members }) → `{ sessionId, roomId }`,
+   *  `update` (roomId, patch), `continue` (roomId) runs another bounded
+   *  batch, `leave` (roomId) archives it, `remove` (roomId) deletes it. */
+  agentRoomAction?(action: string, args: unknown[]): Promise<unknown>;
   setSessionFavorite?(sessionId: string, favorite: boolean): Promise<void>;
   /** Move a session to a registered project path ('' = no project, the task
    *  workspace) by changing its working folder. Refused while its turn runs
@@ -777,6 +798,16 @@ export interface DesktopApi {
   submitToSession(sessionId: string, prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   abortSession(sessionId: string, options?: DesktopAbortOptions): Promise<unknown>;
   resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean>;
+  /** Secret input card: hands the value to this PC's main process for the
+   *  request id; it is filled into the target field and never leaves this
+   *  PC. Desktop only (absent on paired remote clients). */
+  provideSecretInput?(requestId: string, value: string): Promise<boolean>;
+  /** Resolves true once the agent is stopped for takeover `id` (its commands
+   *  refused, in-flight work drained), false when it ends first. Desktop only. */
+  takeoverReady?(sessionId: string, id: string): Promise<boolean>;
+  /** Per-agent push mute (profile panel, contact menu): pushes only. */
+  getAgentNotificationMute(agentId: string): Promise<boolean>;
+  setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean>;
   /** Per-session live snapshot lane covering every pooled session runtime. */
   subscribeSessionState(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
@@ -901,6 +932,17 @@ export interface DesktopApi {
   /** Current session's Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(sessionId: string): Promise<DesktopBrowserCredentialSuggestion[]>;
   browserCredentialFill?(sessionId: string, credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
+  /** "로그인 유지 중인 사이트": site names and cookie counts, never values. */
+  browserSignedInSites?(): Promise<DesktopBrowserSignedInSite[]>;
+  /** 로그아웃: that site's cookies and page storage. */
+  browserSignOutSite?(site: string): Promise<number>;
+  /** 전체 지우기: every sign-in, all site storage and the data imported from Chrome. */
+  browserClearSignIns?(): Promise<void>;
+  /** A login takeover's sign-in window, bound to takeover `id` of `sessionId`
+   *  as this PC saw it: opens (or focuses) it once the agent is stopped and
+   *  resolves with how it ended. Desktop only; a phone shows the pending state. */
+  browserLoginOpen?(sessionId: string, id: string): Promise<DesktopBrowserLoginStatus>;
+  browserLoginStatus?(sessionId: string, id: string): Promise<DesktopBrowserLoginStatus>;
   /** What the in-app browser saw of `url` (or of its site), or null.
    *  `preview`: a page card asks, so a missing thumbnail is fetched from the
    *  page's own preview and announced through onBrowserPageIdentityChanged. */

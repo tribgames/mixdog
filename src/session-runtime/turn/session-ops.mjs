@@ -29,15 +29,22 @@ export function createSessionOps(deps) {
     } catch {}
   }
 
+  // `rebuildPrompt` (an agent chat's "대화 초기화"): refused while a turn
+  // runs, and the emptied session's prompt and tool surface are then rebuilt
+  // from the current rules, as a new session's are (refreshEmptySessionToolPolicy).
   async function clear(options = {}) {
     const session = getSession();
     if (!session?.id) return false;
+    const rebuild = options.rebuildPrompt === true;
+    if (rebuild && getActiveTurnCount() > 0) throw new Error('The session is running a turn; wait for it to finish.');
     const cleared = await mgr.clearSessionMessages(session.id, options);
     if (!cleared) return false;
     setSession(typeof cleared === 'object' ? cleared : mgr.getSession(session.id) || session);
     if (options.recoverAgent === true) recoverAgentWorkers();
+    let promptRebuilt = false;
+    if (rebuild) promptRebuilt = (await refreshEmptySessionToolPolicy?.())?.appliedToCurrentSession === true;
     invalidateContextStatusCache();
-    return true;
+    return rebuild ? { promptRebuilt } : true;
   }
 
   // Message-selector rewind: drop the chosen user prompt and everything

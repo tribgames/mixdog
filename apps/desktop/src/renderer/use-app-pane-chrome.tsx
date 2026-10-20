@@ -7,8 +7,15 @@ import type { PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { t } from './i18n';
 import { browserTabTitle, displayProject, navigationKey } from './text-format';
+import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeTitle } from './agent-contacts-model';
+import { openAgentProfile } from './agent-panel-tab';
+import { isDeletedBotSession } from './agent-chat-mode';
+import { useSidebarReferences } from './sidebar-reference-cache';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
+
+const HOME_TITLE_REFERENCE_KEYS = ['agents'] as const;
 
 export function useAppPaneChrome({
   tabs,
@@ -30,6 +37,7 @@ export function useAppPaneChrome({
   pinPaneTab,
   renameSession,
   stripTrailing,
+  beforeNewTask,
   lastSessionStorageKey,
 }: {
   tabs: WorkspaceTab[];
@@ -52,8 +60,14 @@ export function useAppPaneChrome({
   renameSession(sessionId: string, title: string): Promise<void>;
   /** Right-edge strip controls per leaf (desktop status island). */
   stripTrailing?(leaf: PaneLeaf): ReactNode;
+  /** Runs before the strip's + starts a new task (the side view it shows in). */
+  beforeNewTask?(): void;
   lastSessionStorageKey: string;
 }) {
+  // A home thread's tab is its agent's name, also after a reload: the agent
+  // catalog is read only while such a tab is open.
+  const homeTabOpen = tabs.some((tab) => tab.selection.kind === 'session' && isAgentHomeSessionId(tab.selection.id));
+  const { values: homeAgents } = useSidebarReferences(window.mixdogDesktop, HOME_TITLE_REFERENCE_KEYS, homeTabOpen);
   const selectionTitle = (selection: WorkspaceSelection): string => {
     switch (selection.kind) {
       case 'session': {
@@ -80,6 +94,10 @@ export function useAppPaneChrome({
     }
   };
   const stripTitleFor = (key: string, selection: WorkspaceSelection): string => {
+    // A deleted bot's chat carries the bot's name as its own title (host).
+    const deletedBot = selection.kind === 'session' && isDeletedBotSession(selection.id);
+    const home = selection.kind === 'session' && !deletedBot ? agentHomeTitle(selection.id, homeAgents.agents) : null;
+    if (home) return home;
     const registered = tabs.find((tab) => tab.key === key);
     return registered?.title || selectionTitle(selection);
   };
@@ -116,8 +134,10 @@ export function useAppPaneChrome({
   const paneStripFor = (leaf: PaneLeaf) => {
     // An open announced in this commit shows its tab before the pane renders.
     const shown = paneWorkspace.stripLeaf(leaf);
-    if (shown.tabs.length === 0) return null;
-    const leafTabs = shown.tabs.map((selection) => {
+    // A bot chat is a tab of the shared strip like any session, on the phone too.
+    const stripTabs = shown.tabs;
+    if (stripTabs.length === 0) return null;
+    const leafTabs = stripTabs.map((selection) => {
       const key = navigationKey(selection);
       return {
         key,
@@ -139,6 +159,17 @@ export function useAppPaneChrome({
         paneId={leaf.id}
         trailing={stripTrailing?.(leaf)}
         onSelectTab={(tab) => {
+          // The agent's name on its open home tab (the phone's thread header
+          // too) opens its profile.
+          if (
+            tab.key === shown.activeKey &&
+            tab.selection.kind === 'session' &&
+            isAgentHomeSessionId(tab.selection.id)
+          ) {
+            paneWorkspace.focusLeaf(leaf.id);
+            openAgentProfile(tab.selection.id);
+            return;
+          }
           paneWorkspace.focusLeaf(leaf.id);
           paneWorkspace.activateTab(leaf.id, tab.key);
           navigateTab(tab);
@@ -149,6 +180,7 @@ export function useAppPaneChrome({
         onRenameSession={renameSession}
         onNewTask={() => {
           paneWorkspace.focusLeaf(leaf.id);
+          beforeNewTask?.();
           startTask();
         }}
       />

@@ -20,7 +20,7 @@ test('direct CORE add/edit/delete preserve other entries and never require an LL
   sqlite.exec(`
     CREATE TABLE core_entries (
       id INTEGER PRIMARY KEY, element TEXT, summary TEXT, category TEXT, project_id TEXT,
-      created_at INTEGER, updated_at INTEGER, status TEXT, archived_at INTEGER
+      created_at INTEGER, updated_at INTEGER, status TEXT, archived_at INTEGER, agent_id TEXT
     );
   `);
   database = {

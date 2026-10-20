@@ -25,6 +25,9 @@ import type { IpcHandle as Handle } from './ipc';
 import { hostDeviceName } from './session-device';
 import { sessionSidebarActions } from './session-sidebar-actions';
 import type { RemoteHostWindows } from './remote-host-windows';
+import { requiredAgentMemoryEntry } from './agent-memory';
+import { secretInputs } from './secret-input';
+import { takeoverGate } from './takeover-gate';
 
 interface SessionIpcOptions {
   handle: Handle;
@@ -95,6 +98,16 @@ export function registerSessionIpc({
     sidebar.setSessionArchived(sessionId, archived)
   );
   handle(DESKTOP_IPC.openAgentHome, (_event, agentId) => host.openAgentHome(requiredString(agentId, 'agentId', 200)));
+  handle(DESKTOP_IPC.resetAgentHome, (_event, agentId) => host.resetAgentHome(requiredString(agentId, 'agentId', 200)));
+  handle(DESKTOP_IPC.listAgentMemory, (_event, agentId) =>
+    host.listAgentMemory(requiredString(agentId, 'agentId', 200))
+  );
+  handle(DESKTOP_IPC.deleteAgentMemory, (_event, agentId, entry) =>
+    host.deleteAgentMemory(requiredString(agentId, 'agentId', 200), requiredAgentMemoryEntry(entry))
+  );
+  handle(DESKTOP_IPC.agentRoomAction, (_event, action, args) =>
+    host.agentRoomAction(requiredString(action, 'action', 32), Array.isArray(args) ? args : [])
+  );
   handle(DESKTOP_IPC.setSessionFavorite, (_event, sessionId, favorite) =>
     sidebar.setSessionFavorite(sessionId, favorite)
   );
@@ -198,6 +211,21 @@ function registerSessionRoutingIpc({ handle, host }: Pick<SessionIpcOptions, 'ha
   handle(DESKTOP_IPC.abortSession, (_event, sessionId, options) =>
     host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options))
   );
+  // The secret card's value stays in this process (secret-input.ts): never
+  // forwarded to the host, logged or echoed back.
+  handle(DESKTOP_IPC.provideSecretInput, (_event, requestId, value) =>
+    secretInputs.provide(requiredString(requestId, 'secret request id', 120), typeof value === 'string' ? value : '')
+  );
+  handle(DESKTOP_IPC.takeoverReady, (_event, sessionId, id) =>
+    takeoverGate.ready(requiredSessionId(sessionId), requiredString(id, 'takeover id', 200))
+  );
+  handle(DESKTOP_IPC.getAgentNotificationMute, (_event, agentId) =>
+    host.getAgentNotificationMute(requiredString(agentId, 'agent id', 200))
+  );
+  handle(DESKTOP_IPC.setAgentNotificationMute, (_event, agentId, muted) => {
+    if (typeof muted !== 'boolean') throw new TypeError('muted must be a boolean.');
+    return host.setAgentNotificationMute(requiredString(agentId, 'agent id', 200), muted);
+  });
   handle(DESKTOP_IPC.resolveToolApprovalForSession, (_event, sessionId, id, input) =>
     host.resolveToolApprovalForSession(
       requiredSessionId(sessionId),

@@ -23,7 +23,15 @@ import type {
 } from '../shared/contract';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import { projectIdentity } from '../shared/project-identity';
-import { createAgentHomeSessions } from './agent-home-sessions';
+import {
+  agentHomeSessionId,
+  agentIdOfHomeSession,
+} from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { MIXY_AGENT_ID } from '../shared/agent-contacts';
+import { agentGreetingKickoff } from '../shared/agent-greeting';
+import { createAgentHomeSessions, startSessionOver } from './agent-home-sessions';
+import { agentGreetingsFileStore, createAgentGreetings, resolveMixyCreated } from './mixy-first';
+import { disableAgentSchedules } from './agent-schedules';
 import { createBranchMenuCache } from './branch-menu-cache';
 import { createInFlightJoin, createProviderModelsCache } from './provider-models-cache';
 import { SLOW_READ_CAPABILITIES } from './remote-call-queue';
@@ -47,6 +55,9 @@ export type SessionWorkspaceResolution = {
   desktopSession: { classification: 'project'; projectPath: string } | { classification: 'task'; projectPath: null };
 };
 
+/** A fresh, unused session id for an archived copy (a reset's old conversation). */
+const mintArchiveId = () => `sess_${process.pid}_${Date.now()}_${randomUUID().replaceAll('-', '')}`;
+
 export interface SessionHostLifecycleOwner {
   readonly client: SessionClient;
   readonly publication: SessionHostPublication;
@@ -57,6 +68,8 @@ export interface SessionHostLifecycleOwner {
   readonly pendingCatalogSessionIds: Set<string>;
   readonly sessionMetadata: DesktopSessionMetadata;
   readonly transcriptWindows: SessionTranscriptWindows;
+  /** agent-greetings.json in the app profile (mixy-first.ts). */
+  readonly agentGreetingsPath: string;
   isDisposed(): boolean;
   callOptions(callId?: string, timeoutMs?: number): SessionCallOptions;
   taskWorkspace(): Promise<string>;
@@ -303,17 +316,107 @@ export class SessionHostLifecycle {
       if (sessionIdOf(created.sessionId) !== sessionId) throw new Error('Agent home returned a mismatched session id.');
       this.owner.applySessionResult(sessionId, created);
     },
+    setRoute: async (sessionId, route) => {
+      await this.owner.invokeSession(sessionId, 'setRoute', [{ ...route, sessionOnly: true }]);
+    },
     setArchived: (sessionId, archived) => this.setSessionArchived(sessionId, archived),
+    isRetired: (sessionId) => this.owner.sessionMetadata.isRetired(sessionId),
+    // The catalog marks a retired home (`agentDeleted`): re-project it.
+    setRetired: async (sessionId, retired) => {
+      if (await this.owner.sessionMetadata.setRetired(sessionId, retired)) await this.republishSessionCatalog();
+    },
+    nameRetired: async (sessionId, name) => {
+      await this.owner.sessionMetadata.load();
+      this.owner.sessionMetadata.rememberRetiredTitle(sessionId, name);
+    },
+    archivedAgentName: async (agentId) => {
+      const identities = await this.owner.invokeControl('archivedAgentIdentities', [[agentId]]);
+      const identity = (identities as Record<string, { name?: unknown } | null> | null)?.[agentId];
+      return typeof identity?.name === 'string' ? identity.name : '';
+    },
     knownSessionIds: () => [
       ...new Set([...this.owner.storedSessionIds(), ...this.owner.publication.projections.keys()]),
     ],
     agentPresence: (agentIds) => this.owner.invokeControl('agentDefinitionPresence', [agentIds]),
     taskWorkspace: () => this.owner.taskWorkspace(),
+    disableAgentSchedules: (agentId) =>
+      disableAgentSchedules((method, args) => this.owner.invokeControl(method, args), agentId),
+    clearSession: (sessionId, archiveAs) => this.resetSessionConversation(sessionId, { archiveAs }),
+    mintArchiveId,
   });
+
+  /** "대화 초기화" of one session: cleared in place (session-ops clear) with
+   *  its prompt rebuilt from the current rules; `archiveAs` keeps the old
+   *  transcript, `fork: false` keeps none. Refused while it runs a turn. */
+  async resetSessionConversation(sessionId: string, options: { archiveAs?: string; fork?: false }): Promise<void> {
+    const live = this.owner.publication.projections.get(sessionId)?.snapshot;
+    if (live?.busy || live?.commandBusy) {
+      throw new Error('The agent is running a turn; wait for it to finish before resetting the conversation.');
+    }
+    const { value } = await this.owner.invokeSession(sessionId, 'clear', [{ ...options, rebuildPrompt: true }]);
+    if (value === false) throw new Error('The conversation could not be reset; try again in a moment.');
+    if ((value as { promptRebuilt?: unknown } | null)?.promptRebuilt === false) {
+      console.warn(`[mixdog-session] ${sessionId} was reset, but its prompt could not be rebuilt.`);
+    }
+    // Every open view of it shows the emptied conversation now: a full read,
+    // published, replaces the rows it held.
+    await this.owner.readSession(sessionId, true).catch((error) => {
+      console.warn(`[mixdog-session] Could not republish ${sessionId} after its reset:`, error);
+    });
+    void this.owner.publishCatalogs();
+  }
+
+  /** A room log's fresh start: the conversation so far kept archived. */
+  startSessionOver(sessionId: string): Promise<string | null> {
+    return startSessionOver(
+      {
+        readSession: (id) => this.owner.readSession(id, false, false),
+        setArchived: (id, archived) => this.setSessionArchived(id, archived),
+        clearSession: (id, archiveAs) => this.resetSessionConversation(id, { archiveAs }),
+        mintArchiveId,
+      },
+      sessionId
+    );
+  }
+
+  private agentGreetingsValue: ReturnType<typeof createAgentGreetings> | null = null;
+  private get agentGreetings(): ReturnType<typeof createAgentGreetings> {
+    this.agentGreetingsValue ??= createAgentGreetings({
+      ...agentGreetingsFileStore(this.owner.agentGreetingsPath),
+      listAgents: () => this.owner.invokeControl('listAgents', []),
+      greet: async (agent) => {
+        const { sessionId } = await this.agentHomes.open(agent.id);
+        await this.submitToSession(sessionId, agentGreetingKickoff(agent), { kickoff: true });
+      },
+    });
+    return this.agentGreetingsValue;
+  }
+
+  /** getLeadStatus with the once-per-profile decision applied (mixy-first.ts). */
+  private async leadStatus(status: unknown): Promise<Record<string, unknown>> {
+    const created = await resolveMixyCreated({
+      status,
+      listAgents: () => this.owner.invokeControl('listAgents', []),
+      sessionIds: async () => {
+        const mixyHome = agentHomeSessionId(MIXY_AGENT_ID);
+        return [
+          ...(await this.owner.listSessions()).map((session) => session.id),
+          ...this.owner.storedSessionIds().filter((id) => id === mixyHome),
+        ];
+      },
+      setCreated: (value) => this.owner.invokeControl('setLeadCreated', [value]),
+    });
+    return { ...(status && typeof status === 'object' ? status : {}), created };
+  }
 
   /** The agent's one home thread, created on its first open. */
   async openAgentHome(agentId: string): Promise<{ sessionId: string }> {
     return this.agentHomes.open(agentId);
+  }
+
+  /** Start the agent's home thread over (agent-home-sessions.ts reset). */
+  async resetAgentHome(agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }> {
+    return this.agentHomes.reset(agentId);
   }
 
   private async retireAgentHomes(retire: () => Promise<void>): Promise<void> {
@@ -336,6 +439,11 @@ export class SessionHostLifecycle {
 
   async deleteSession(sessionId: string): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
+    // A deleted bot's archived chat deleted again: the bot goes for good too.
+    const archivedBot = agentIdOfHomeSession(id);
+    if (archivedBot && (await this.owner.sessionMetadata.isRetired(id))) {
+      await this.owner.invokeControl('purgeAgentDefinition', [archivedBot]);
+    }
     // Deleting a missing or already-deleted session is a no-op, never an error
     // surfaced to the UI; stale local state for it is still dropped below.
     if ((await this.owner.listSessions()).some((row) => row.id === id)) {
@@ -794,6 +902,10 @@ export class SessionHostLifecycle {
     const existing = this.submissions.get(key);
     if (existing) return existing;
     const run = (async () => {
+      // A deleted bot's chat is kept to read, never to talk to.
+      if (agentIdOfHomeSession(id) && (await this.owner.sessionMetadata.isRetired(id))) {
+        throw new Error('This bot was deleted.');
+      }
       const prior = this.owner.publication.projections.get(id);
       // The submitting device rides the prompt's transcript metadata. A remote
       // call arrives with the name the host read from the authenticated
@@ -931,7 +1043,27 @@ export class SessionHostLifecycle {
     if (capability === 'deleteAgentDefinition') {
       const deletedId = (result.value as { id?: unknown } | null)?.id;
       if (typeof deletedId === 'string') void this.retireAgentHomes(() => this.agentHomes.retire([deletedId]));
-    } else if (capability === 'listAgents') void this.retireAgentHomes(() => this.agentHomes.reconcile());
+    } else if (capability === 'restoreAgentDefinition') {
+      // Its chat is back (out of 보관됨, writable) before the reply.
+      const restoredId = (result.value as { id?: unknown } | null)?.id;
+      if (typeof restoredId === 'string') await this.agentHomes.restore(restoredId);
+    } else if (capability === 'listAgents') {
+      void this.retireAgentHomes(() => this.agentHomes.reconcile());
+      // An agent a chat's setup tool just created greets the user.
+      const agents = result.value;
+      void this.agentGreetings
+        .reconcile(agents)
+        .catch((error) => console.warn('[mixdog-session] Could not check for new agents:', error));
+    } else if (capability === 'saveAgentDefinition') {
+      // The dialog that saved it greets it (or it already existed).
+      const savedId = (result.value as { id?: unknown } | null)?.id;
+      if (typeof savedId === 'string')
+        await this.agentGreetings
+          .noteCreated(savedId)
+          .catch((error) => console.warn('[mixdog-session] Could not record the new agent:', error));
+    } else if (capability === 'getLeadStatus' && !sessionId) {
+      result = { ...result, value: await this.leadStatus(result.value) };
+    }
     return {
       value: copyCapabilityValue(result.value) as T,
       snapshot: result.snapshot,

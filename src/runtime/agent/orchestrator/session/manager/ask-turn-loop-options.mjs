@@ -8,6 +8,7 @@ import { createAskSteeringDrain } from './ask-turn-steering-drain.mjs';
 import { updateSessionStage, markSessionStreamDelta } from './runtime-liveness.mjs';
 import { codexWireSendOpts } from './session-id.mjs';
 import { persistIterationMetrics } from './usage-metrics.mjs';
+import { isAgentModeSession } from '../agent-mode.mjs';
 
 const optionalFn = (value) => (typeof value === 'function' ? value : undefined);
 const relay = (fn, ...args) => {
@@ -184,7 +185,8 @@ export function buildAgentLoopOptions({
     onCompactEvent: (event) => {
       checkpoint.refreshContextState();
       checkpoint.schedule(true);
-      relay(askOpts?.onCompactEvent, event);
+      // Agent mode compacts silently: no compaction notice reaches the host.
+      if (!isAgentModeSession(session)) relay(askOpts?.onCompactEvent, event);
     },
     // Pre-send gauge sync. Defined only when a host listens so the loop
     // never computes a display number nobody reads.

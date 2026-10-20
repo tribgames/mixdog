@@ -227,6 +227,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     setQuotaAutoResume: (enabled) => call('setQuotaAutoResume', [enabled]),
     setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),
     openAgentHome: (agentId: string) => call('openAgentHome', [agentId]),
+    resetAgentHome: (agentId: string) => call('resetAgentHome', [agentId]),
+    agentRoomAction: (action: string, args: unknown[]) => call('agentRoomAction', [action, args]),
     setSessionFavorite: (sessionId: string, favorite: boolean) => call('setSessionFavorite', [sessionId, favorite]),
     setSessionProject: (sessionId: string, projectPath: string) => call('setSessionProject', [sessionId, projectPath]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
@@ -406,6 +408,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
+    getAgentNotificationMute: (agentId) => call('getAgentNotificationMute', [agentId]),
+    setAgentNotificationMute: (agentId, muted) => call('setAgentNotificationMute', [agentId, muted]),
     subscribeSessionState: (listener) => sessionInbox.subscribe(listener),
     inheritSession: (sourceSessionId, selection, options) =>
       call('inheritSession', [sourceSessionId, hostSelection(selection ?? null), options ?? null]),

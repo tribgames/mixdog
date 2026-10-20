@@ -1,0 +1,619 @@
+/* Agent mode (agent-chat-mode.ts): the tab face, the bubble transcript and
+   the one-line messenger composer. Every rule is scoped to agent mode
+   (.mx-chat-*, [data-chat-mode="agent"]), so coding mode paints unchanged. */
+
+/* A bot chat's tab glyph (WorkspaceTabStrip): its face on the glyph's box;
+   the face keeps its own colours. */
+.workspace-tab-main > .mx-chat-tab-face,
+.workspace-tab-compact-current > .mx-chat-tab-face {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+/* An empty chat's profile intro, centred in the empty thread. */
+.mx-chat-intro {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+}
+.mx-chat-intro > .mx-chat-intro-face {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 6px;
+}
+.mx-chat-intro > b {
+  color: var(--mx-text);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 24px;
+}
+.mx-chat-intro > span {
+  max-width: 360px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting, 13px);
+  line-height: 18px;
+}
+/* ── Transcript: KakaoTalk-style runs ── */
+.conversation[data-chat-mode="agent"] {
+  --mx-chat-face: 36px;
+  /* The bubble column's left edge; the decision cards (15-composer.css) and
+     compact rows line up on it. */
+  --mx-agent-bubble-inset: calc(var(--mx-chat-face) + 10px);
+  /* The bubble column's widest line, of the column: rich bubbles and every
+     card (question, approval, answered record) end on this one edge. */
+  --mx-agent-bubble-max: 72%;
+}
+/* A row brought into view (keyboard, focus, scrollIntoView) stops below the
+   top scroll fade (12-transcript.css, 32px) under the header island, never
+   inside it; the thread's own top padding (44px, the virtual timeline's
+   scroll inset) keeps the first row clear at rest the same way. */
+.conversation[data-chat-mode="agent"] .transcript {
+  scroll-padding-top: 44px;
+}
+html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
+  --mx-chat-face: 32px;
+  --mx-agent-bubble-max: 86%;
+}
+.mx-chat-day {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 14px;
+}
+.mx-chat-day > span {
+  padding: 3px 12px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: color-mix(in srgb, var(--mx-text) 7%, transparent);
+  font-size: 12px;
+  line-height: 16px;
+}
+.mx-chat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.mx-chat-row > .mx-chat-face {
+  width: var(--mx-chat-face);
+  height: var(--mx-chat-face);
+  flex: none;
+}
+/* The run's face keeps its 36px slot; the mascot inside is 32px, a whole
+   2px a cell. */
+.mx-chat-row > .mx-chat-face > svg.mx-av {
+  width: 32px;
+  height: 32px;
+}
+.mx-chat-column {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+/* A run's later bubbles, tool rounds and notices sit in the bubble column. */
+.mx-chat-row:not([data-side="user"]):not(:has(> .mx-chat-face)) > .mx-chat-column {
+  /* The inset's own value: the variable is zeroed on this element below. */
+  padding-left: calc(var(--mx-chat-face) + 10px);
+  /* The column already holds the inset the decision cards would add. */
+  --mx-agent-bubble-inset: 0px;
+}
+.mx-chat-name {
+  margin: 0 0 1px 2px;
+  color: var(--mx-text-soft);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.mx-chat-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.mx-chat-row[data-side="user"] .mx-chat-line {
+  flex-direction: row-reverse;
+}
+.mx-chat-row:is([data-side="aside"], :not([data-side])) .mx-chat-line {
+  display: block;
+}
+.mx-chat-time {
+  flex: none;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: nowrap;
+}
+/* The bubbles: the same message rows, framed. */
+/* The row's wrapper (the live part's box) hugs its bubble, so the time
+   follows the bubble's edge. */
+.mx-chat-row[data-side="agent"] .mx-chat-line > :not(.mx-chat-time) {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(480px, var(--mx-agent-bubble-max));
+}
+.mx-chat-row[data-side="agent"] .mx-chat-line > :has(.message-body :is(pre, ul, ol, table, h1, h2, h3, blockquote)) {
+  max-width: var(--mx-agent-bubble-max);
+}
+/* An answered question's record: the cards' width (15-composer.css reads the
+   same variable for the live question and approval cards). */
+.mx-chat-row .ask-user-record {
+  width: var(--mx-agent-bubble-max);
+}
+.mx-chat-row[data-side="agent"] .message.assistant {
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+}
+.mx-chat-row :is(.message.assistant, .message.user) > .message-body {
+  position: relative;
+  padding: 8px 12px;
+  border-radius: var(--mx-radius-xl);
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.mx-chat-row[data-side="agent"] .message.assistant > .message-body {
+  background: var(--mx-bg-layer-1);
+}
+.mx-chat-row[data-side="user"] .message.user {
+  max-width: 70%;
+  margin-left: 0;
+}
+.mx-chat-row[data-side="user"] .message.user > .message-body {
+  color: #fff;
+  background: color-mix(in srgb, var(--mx-accent) 20%, var(--mx-user-bubble));
+}
+/* The tail: on a run's first bubble only. */
+.mx-chat-row[data-first] :is(.message.assistant, .message.user) > .message-body::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 10px;
+  background: inherit;
+}
+.mx-chat-row[data-side="agent"][data-first] .message.assistant > .message-body {
+  border-top-left-radius: 3px;
+}
+.mx-chat-row[data-side="agent"][data-first] .message.assistant > .message-body::before {
+  left: -6px;
+  clip-path: polygon(100% 0, 100% 100%, 0 0);
+}
+.mx-chat-row[data-side="user"][data-first] .message.user > .message-body {
+  border-top-right-radius: 3px;
+}
+.mx-chat-row[data-side="user"][data-first] .message.user > .message-body::before {
+  right: -6px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+/* A routine card (agent-chat-row.tsx AgentRoutineCard): the question card's
+   frame, head and foot at the bubble column's width. */
+.mx-chat-row[data-card="routine"] .mx-chat-line > .mx-routine-card {
+  width: var(--mx-agent-bubble-max);
+  max-width: var(--mx-agent-bubble-max);
+  margin: 0;
+}
+/* A turn's changed files: coding mode's card in the bubble column, as wide
+   as the visualize card above it (transcript-visualize-card.css). The turn's
+   stack — reply, visualize cards, this card — is spaced by the transcript's
+   8px part step; the turn gap follows the stack. */
+.mx-chat-row .turn-changes-card {
+  box-sizing: border-box;
+  width: clamp(min(100%, 300px), var(--mx-agent-bubble-max, 72%), 100%);
+  margin: var(--mx-space-2) 0 0;
+}
+/* A routine fire's marker row (AgentRoutineTrigger): the routine's glyph and
+   name as one compact line where a user bubble would be, its instructions
+   behind "Show more". */
+.mx-routine-trigger {
+  width: var(--mx-agent-bubble-max);
+  max-width: 100%;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+}
+.mx-routine-trigger-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mx-routine-trigger-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 10px;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-soft);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.mx-routine-trigger-name > strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-routine-trigger-event {
+  color: var(--mx-text-muted);
+}
+.mx-routine-trigger-head > .mx-routine-more {
+  margin-top: 0;
+}
+.mx-routine-trigger-body {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--mx-border-muted);
+  color: var(--mx-text-soft);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.mx-routine-head {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.question-card .question-icon.mx-routine-icon {
+  color: var(--mx-text-soft);
+}
+.mx-routine-chip {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-soft);
+  background: var(--mx-hover);
+  font-size: 12px;
+  line-height: 18px;
+}
+.mx-routine-chip[data-status="failed"],
+.mx-routine-older [data-status="failed"] {
+  color: var(--mx-danger, #f06a6a);
+}
+.mx-routine-chip[data-status="failed"] {
+  background: color-mix(in srgb, var(--mx-danger, #f06a6a) 14%, transparent);
+}
+.mx-routine-chip[data-status="login"] {
+  color: var(--mx-warning, #e0b34a);
+  background: color-mix(in srgb, var(--mx-warning, #e0b34a) 14%, transparent);
+}
+.mx-routine-time {
+  flex: none;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.mx-routine-older {
+  margin: 0;
+  padding: 4px 12px 0;
+  list-style: none;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.mx-routine-older button {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0;
+  border: 0;
+  color: var(--mx-text-muted);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.mx-routine-older .mx-routine-body {
+  padding: 0 0 6px;
+}
+.mx-routine-body {
+  padding: 10px 12px 8px;
+}
+.mx-routine-summary {
+  overflow-wrap: anywhere;
+}
+.mx-routine-summary > * > :first-child {
+  margin-top: 0;
+}
+.mx-routine-summary > * > :last-child {
+  margin-bottom: 0;
+}
+/* Three lines while folded; inline code reads as plain words there. */
+.mx-routine-summary:not([data-open]) {
+  display: -webkit-box;
+  max-height: calc(3 * var(--mx-line-minor, 20px));
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.mx-routine-summary:not([data-open]) :is(pre, ul, ol, h1, h2, h3, blockquote, table) {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+}
+.mx-routine-summary:not([data-open]) code {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+}
+/* "실행 중…" with the typing dots; the muted note ("알릴 내용 없음", "결과
+   전달 실패 · 다시 시도") in the body's place. */
+.mx-routine-body[role="status"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mx-text-muted);
+}
+.mx-routine-note {
+  color: var(--mx-text-muted);
+}
+.mx-routine-chip[data-status="delivery"] {
+  color: var(--mx-warning, #e0b34a);
+  background: color-mix(in srgb, var(--mx-warning, #e0b34a) 14%, transparent);
+}
+.mx-routine-more {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  color: var(--mx-text-soft);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mx-routine-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 8px;
+}
+.mx-routine-foot[hidden] {
+  display: none;
+}
+.mx-routine-action {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.mx-routine-action[data-quiet] {
+  color: var(--mx-text-soft);
+  background: none;
+}
+.mx-routine-action:hover,
+.mx-routine-action:focus-visible {
+  background: var(--mx-active, var(--mx-hover));
+}
+.mx-routine-head:hover strong,
+.mx-routine-older button:hover {
+  text-decoration: underline;
+}
+/* A routine failure: one faint system line, with its retry. */
+.mx-chat-routine-failed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  line-height: 18px;
+  opacity: 0.85;
+}
+.mx-chat-routine-failed > button {
+  padding: 0;
+  border: 0;
+  color: var(--mx-text-soft);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.mx-chat-routine-failed > button:hover,
+.mx-chat-routine-failed > button:focus-visible {
+  color: var(--mx-text);
+  text-decoration: underline;
+}
+/* A task session an agent created, under its contact (agent-task-line.tsx). */
+.agent-task-row > button {
+  width: 100%;
+  padding: 2px 12px 2px 64px;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-task-row > button:hover,
+.agent-task-row > button:focus-visible {
+  color: var(--mx-text);
+}
+/* The live band with nothing to show (the reply is streaming above it)
+   takes no room: an empty 16px band rode down under the growing text and
+   counted as layout shift. */
+.conversation[data-chat-mode="agent"] .transcript-virtual-row-content[data-tag="Thinking"]:empty {
+  padding: 0;
+}
+/* The typing bubble: three dots in the agent's bubble while it works;
+   static under reduced motion. */
+.mx-chat-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  color: var(--mx-text-muted);
+  /* Top-aligned, the dots fill one 22px line exactly (on the baseline they
+     made it 24): the bubble is as tall as the one-line reply replacing it. */
+  vertical-align: top;
+}
+/* A streaming reply that has painted nothing yet (the pacer's first frame, a
+   bare "## ") keeps one line, the typing bubble's height: it collapsed to its
+   16px padding and the followed transcript dropped 16px at every reply start. */
+.mx-chat-row[data-side="agent"] .message.assistant.streaming > .message-body {
+  min-height: calc(22px + 2 * 8px);
+}
+.mx-chat-dots > i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mx-chat-dots > i {
+    animation: mx-chat-typing 1.2s ease-in-out infinite;
+  }
+  .mx-chat-dots > i:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .mx-chat-dots > i:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+@keyframes mx-chat-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+/* The time sits outside the bubble, so the reply's footer stays out. */
+.mx-chat-row .response-footer {
+  display: none;
+}
+/* A room member's words: the run carries the face and name. */
+.mx-chat-row .message.agent-room-speech > .agent-room-who {
+  display: none;
+}
+.mx-chat-row .message.agent-room-speech > .message-body {
+  padding-left: 12px;
+}
+html[data-mixdog-mobile-tabs] .mx-chat-row[data-side="agent"] .mx-chat-line > :not(.mx-chat-time) {
+  max-width: 80%;
+}
+html[data-mixdog-mobile-tabs]
+  .mx-chat-row[data-side="agent"]
+  .mx-chat-line
+  > :has(.message-body :is(pre, ul, ol, table, h1, h2, h3, blockquote)) {
+  max-width: var(--mx-agent-bubble-max);
+}
+
+/* PC: the usage line under the bar sits close to the window floor,
+   in the agent and the coding composer alike. */
+html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer) {
+  padding-bottom: 2px;
+}
+
+/* ── Composer: one-line messenger bar ──
+   The single source of the bar on PC: the agent composer everywhere, and the
+   coding composer on PC (phones keep their own rows). */
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  min-height: 42px;
+  /* The pill's own edge: the + and the send disc keep --mx-chat-bar-inset
+     from it on every side they touch. */
+  --mx-chat-bar-inset: 7px;
+  padding: 0;
+  /* The coding composer's own card corner, not a pill. */
+  border-radius: var(--mx-radius-sheet);
+}
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer)
+  > :not(.composer-input-row, .composer-footer) {
+  flex: 0 0 100%;
+  order: -1;
+}
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) > .composer-input-row {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  order: 1;
+  min-width: 0;
+}
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) > .composer-footer {
+  display: contents;
+}
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) .composer-text-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) textarea {
+  min-height: 42px;
+  /* The empty bar is 42px at every chat text size: the vertical padding gives
+     back what the scaled line grows past 24px (24 + 2*9 = 42), never below 0.
+     field-sizing sizes an empty box by its placeholder line, so an
+     uncompensated 27.6px line at "Large" made the bar 45.6px. */
+  --mx-composer-pad-y: clamp(0px, calc((42px - var(--mx-line-body, 24px)) / 2), 9px);
+  /* One line that grows to five. */
+  max-height: calc(5 * var(--mx-line-body, 24px) + 2 * var(--mx-composer-pad-y));
+  padding: var(--mx-composer-pad-y) 6px;
+}
+/* The + and the send/stop disc are the coding composer's own buttons at
+   their own size (15-composer.css, 23-route-editor.css); only their place
+   changes: bottom-aligned, the same inset from the pill's edges, so a
+   growing draft keeps them on the last line. */
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer)
+  > .composer-footer
+  > .composer-tool {
+  order: 0;
+  margin: var(--mx-chat-bar-inset) 0 var(--mx-chat-bar-inset) var(--mx-chat-bar-inset);
+  border-radius: var(--mx-radius-pill);
+}
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) .composer-primary-actions {
+  order: 2;
+  align-items: center;
+  gap: 2px;
+  margin: var(--mx-chat-bar-inset) var(--mx-chat-bar-inset) var(--mx-chat-bar-inset) 0;
+}
+:is(.composer[data-chat-mode="agent"], html:not([data-mixdog-mobile-tabs]) .composer) .composer-mic {
+  margin-right: 0;
+}
+.mx-chat-tag {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  color: #9fd2ff;
+  background: color-mix(in srgb, var(--mx-accent) 18%, transparent);
+  font: inherit;
+  font-weight: 600;
+  line-height: 22px;
+  cursor: pointer;
+}
+/* The phone's 44px touch discs (07-mobile-chrome.css) sit 6px in a 56px pill. */
+html[data-mixdog-mobile-tabs] .composer[data-chat-mode="agent"] {
+  --mx-chat-bar-inset: 6px;
+  min-height: 56px;
+  border-radius: var(--mx-radius-sheet);
+}
+html[data-mixdog-mobile-tabs] .composer[data-chat-mode="agent"] textarea {
+  min-height: 56px;
+  padding: 16px 6px;
+}

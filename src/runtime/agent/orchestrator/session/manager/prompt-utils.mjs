@@ -207,29 +207,46 @@ function bp3SliceAt(text, heading) {
 
 /**
  * Replace the workspace-scoped tail of a BP3 core (composeSystemPrompt order:
- * …, `# Core Memory`, `# Instruction Files`). The instruction-files slice is
- * always last and may itself contain separators, so it is cut by position;
- * the core-memory slice is one separator-free part. `undefined` keeps a slice,
- * an empty string drops it.
+ * …, `# Instruction Files`, `# Core Memory`). Core memory is the last,
+ * separator-free part; the instruction-files slice before it may itself
+ * contain separators, so both are cut by position. A core from before that
+ * order (memory, then instruction files) is read too and written in the
+ * current order. `undefined` keeps a slice, an empty string drops it.
  * @param {string} core
  * @param {{ coreMemoryContext?: string, instructionFilesContext?: string }} slices
  */
 export function replaceWorkspaceCoreSlices(core, { coreMemoryContext, instructionFilesContext } = {}) {
+  let { head, instructionFiles, memory } = splitWorkspaceCoreSlices(core);
+  if (coreMemoryContext !== undefined) {
+    const value = trimmedSlice(coreMemoryContext);
+    memory = value ? `${CORE_MEMORY_HEADING}${value}` : '';
+  }
+  if (instructionFilesContext !== undefined) instructionFiles = trimmedSlice(instructionFilesContext);
+  return [head, instructionFiles, memory].filter((part) => part?.trim()).join(BP3_PART_SEPARATOR);
+}
+
+/** A BP3 core's `{ head, instructionFiles, memory }` (each '' when absent). */
+function splitWorkspaceCoreSlices(core) {
   let head = String(core || '');
+  let memory = '';
+  const memoryAt = bp3SliceAt(head, CORE_MEMORY_HEADING);
+  if (memoryAt) {
+    memory = head.slice(memoryAt.start);
+    head = head.slice(0, memoryAt.cut);
+    const legacy = memory.indexOf(`${BP3_PART_SEPARATOR}${INSTRUCTION_FILES_HEADING}`);
+    if (legacy >= 0) {
+      const instructions = memory.slice(legacy + BP3_PART_SEPARATOR.length);
+      memory = memory.slice(0, legacy);
+      head = head ? `${head}${BP3_PART_SEPARATOR}${instructions}` : instructions;
+    }
+  }
   let instructionFiles = '';
   const instructionAt = bp3SliceAt(head, INSTRUCTION_FILES_HEADING);
   if (instructionAt) {
     instructionFiles = head.slice(instructionAt.start);
     head = head.slice(0, instructionAt.cut);
   }
-  let parts = head ? head.split(BP3_PART_SEPARATOR) : [];
-  if (coreMemoryContext !== undefined) {
-    parts = parts.filter((part) => !part.startsWith(CORE_MEMORY_HEADING));
-    const memory = trimmedSlice(coreMemoryContext);
-    if (memory) parts.push(`${CORE_MEMORY_HEADING}${memory}`);
-  }
-  if (instructionFilesContext !== undefined) instructionFiles = trimmedSlice(instructionFilesContext);
-  return [...parts, instructionFiles].filter((part) => part?.trim()).join(BP3_PART_SEPARATOR);
+  return { head, instructionFiles, memory };
 }
 
 /**
@@ -286,9 +303,7 @@ function textOf(message) {
  */
 function presentedWorkspace(session) {
   const core = session.bp3EnvSplit === true ? textOf(bp3SystemMessage(session)) : String(session.bp3CoreContext || '');
-  const instructionAt = bp3SliceAt(core, INSTRUCTION_FILES_HEADING);
-  const head = instructionAt ? core.slice(0, instructionAt.cut) : core;
-  const memory = (head ? head.split(BP3_PART_SEPARATOR) : []).find((part) => part.startsWith(CORE_MEMORY_HEADING));
+  const { instructionFiles, memory } = splitWorkspaceCoreSlices(core);
   const tail = typeof session.bp3EnvironmentContext === 'string' ? session.bp3EnvironmentContext : '';
   const facts = tail.split(BP3_PART_SEPARATOR)[0] || '';
   const promptText = [textOf(bpEnvSystemMessage(session)), textOf(bp3SystemMessage(session))].join('\n');
@@ -297,8 +312,21 @@ function presentedWorkspace(session) {
     cwd: cwd ? cwd.trim() : null,
     environmentContext: facts.startsWith('- ') ? facts.trim() : '',
     coreMemoryContext: memory ? memory.slice(CORE_MEMORY_HEADING.length).trim() : '',
-    instructionFilesContext: instructionAt ? core.slice(instructionAt.start).trim() : '',
+    instructionFilesContext: instructionFiles.trim(),
   };
+}
+
+/**
+ * A rebuilt BP3 core head (composed without workspace slices) followed by the
+ * instruction-files and core-memory slices the session's prompt presents now,
+ * so a rebuild of the rest of the core (a mid-conversation workflow switch)
+ * leaves what the model was told about its workspace — and any staged
+ * workspaceReroot — as it was.
+ */
+export function withPresentedWorkspaceSlices(session, nextHead) {
+  const core = session.bp3EnvSplit === true ? textOf(bp3SystemMessage(session)) : String(session.bp3CoreContext || '');
+  const { instructionFiles, memory } = splitWorkspaceCoreSlices(core);
+  return [nextHead, instructionFiles, memory].filter((part) => part?.trim()).join(BP3_PART_SEPARATOR);
 }
 
 const WORKSPACE_SLICES = ['environmentContext', 'coreMemoryContext', 'instructionFilesContext'];

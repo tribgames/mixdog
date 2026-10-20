@@ -14,6 +14,7 @@ import { deleteSession } from '../session-delete.mjs';
 import { markSessionClosed } from '../lifecycle-barriers.mjs';
 import { BLANK_SCRATCH_MAX_AGE_MS, RUNNING_STALL_MS, readSweepRecord } from './sweep-record.mjs';
 import { isAgentHomeSessionId } from '../../agent-home.mjs';
+import { isRoomThreadSessionId } from '../../agent-room.mjs';
 
 /** The AUTHORITATIVE on-disk fields, falling back to the best-effort (and
  *  possibly stale) summary row only where the record lacks them — a stale row
@@ -147,8 +148,8 @@ function closeIdleRecord(ctx, row, eff, { lastActive }) {
 function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
   const { plan, now, tally } = ctx;
   // An agent's home thread is permanent, blank or not: no idle close, no
-  // blank-scratch prune, no retention cap.
-  if (isAgentHomeSessionId(row.id)) {
+  // blank-scratch prune, no retention cap. So are a group room's sessions.
+  if (isAgentHomeSessionId(row.id) || isRoomThreadSessionId(row.id)) {
     tally.remaining++;
     return;
   }

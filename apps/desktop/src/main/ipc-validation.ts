@@ -69,10 +69,11 @@ export function requiredVisualizeTabCommand(value: unknown): DesktopVisualizeTab
     action !== 'render' &&
     action !== 'blocked' &&
     action !== 'history' &&
-    action !== 'export'
+    action !== 'export' &&
+    action !== 'thumbnail'
   ) {
     throw new TypeError(
-      'visualize command action must be activate, close, version, restore, network, reopen, render, blocked, history, or export.'
+      'visualize command action must be activate, close, version, restore, network, reopen, render, blocked, history, export, or thumbnail.'
     );
   }
   if (action === 'history') {
@@ -97,6 +98,13 @@ export function requiredVisualizeTabCommand(value: unknown): DesktopVisualizeTab
   if (action === 'render') return visualizeRenderCommand(base, command);
   if (action === 'blocked') return visualizeBlockedCommand(base, command);
   if (action === 'restore') return visualizeRestoreCommand(base, command);
+  if (action === 'thumbnail') {
+    const { version } = command;
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 1_000_000) {
+      throw new TypeError('visualize thumbnail version is invalid.');
+    }
+    return { ...base, action, version };
+  }
   return { ...base, action };
 }
 
@@ -285,6 +293,7 @@ const SUBMIT_OPTION_KEYS = new Set([
   'priority',
   'pastedImages',
   'pastedTexts',
+  'kickoff',
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode', 'worktree']);
@@ -302,7 +311,25 @@ const MODEL_SELECTION_KEYS = new Set([
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
 const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
-const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason', 'answers', 'reply']);
+// A secret value has no key here: it travels only through provideSecretInput.
+const TOOL_APPROVAL_KEYS = new Set([
+  'approved',
+  'reason',
+  'answers',
+  'reply',
+  'response',
+  'editedArgs',
+  'remember',
+  'scope',
+]);
+const TOOL_APPROVAL_RESPONSES = new Set<string>([
+  'approve',
+  'deny',
+  'edit-and-approve',
+  'provide-secret',
+  'skip',
+  'done',
+]);
 const TOGGLEABLE_BUILTIN_TOOLS = new Set([
   'git',
   'office',
@@ -375,7 +402,7 @@ const CAPABILITY_ARITY = {
   removeMcpServer: [1, 1],
   setMcpServerEnabled: [2, 2],
   beginMcpOAuthLogin: [1, 2],
-  getMcpOAuthLoginStatus: [1, 1],
+  getMcpOAuthLoginStatus: [1, 2],
   cancelMcpOAuthLogin: [1, 1],
   completeMcpOAuthLogin: [2, 2],
   signOutMcpServer: [1, 1],
@@ -387,6 +414,7 @@ const CAPABILITY_ARITY = {
   skillContent: [1, 1],
   addSkill: [1, 1],
   saveSkill: [1, 1],
+  removeSkill: [1, 1],
   reloadSkills: [0, 0],
   pluginsStatus: [0, 0],
   reloadPlugins: [0, 0],
@@ -413,7 +441,7 @@ const CAPABILITY_ARITY = {
   getOutputStyle: [0, 0],
   listOutputStyles: [0, 0],
   setOutputStyle: [1, 1],
-  setWorkflow: [1, 1],
+  setWorkflow: [1, 2],
   getOrchestrationMode: [0, 0],
   setOrchestrationMode: [1, 1],
   getWorkflowPack: [1, 1],
@@ -421,8 +449,28 @@ const CAPABILITY_ARITY = {
   createWorkflow: [1, 1],
   deleteWorkflow: [1, 1],
   getAgentDefinition: [1, 1],
+  getAgentAvatarImage: [1, 1],
+  archivedAgentIdentities: [1, 1],
+  getAgentConnectors: [1, 1],
+  listConnectors: [0, 0],
+  listConnectorTools: [1, 1],
+  setAgentConnectors: [2, 2],
+  setAgentConnectorEnabled: [3, 3],
+  getProjectConnectors: [1, 1],
+  setProjectConnectorEnabled: [3, 3],
+  setAgentConnectorToolPermission: [4, 4],
+  getAgentPermissions: [1, 1],
+  setAgentPermission: [3, 3],
+  getLeadPersona: [0, 0],
+  saveLeadPersona: [1, 1],
+  getLeadAgentBody: [0, 0],
+  saveLeadAgentBody: [1, 1],
+  getLeadStatus: [0, 0],
+  setLeadCreated: [1, 2],
+  saveLeadIdentity: [1, 1],
   saveAgentDefinition: [1, 1],
   deleteAgentDefinition: [1, 1],
+  restoreAgentDefinition: [1, 1],
   listThemes: [0, 0],
   getTheme: [0, 0],
   setTheme: [1, 2],
@@ -473,6 +521,8 @@ const CAPABILITY_ARITY = {
   deleteSchedule: [1, 1],
   setScheduleEnabled: [2, 2],
   runScheduleNow: [1, 1],
+  runWebhookNow: [1, 1],
+  retryRoutineDelivery: [2, 2],
   testWebhook: [1, 1],
   saveWebhook: [1, 1],
   deleteWebhook: [1, 1],
@@ -998,6 +1048,9 @@ export function requiredSubmitOptions(value: unknown): DesktopSubmitOptions {
   if (input.retryFailedTurn !== undefined && typeof input.retryFailedTurn !== 'boolean') {
     throw new TypeError('submit retryFailedTurn is invalid.');
   }
+  if (input.kickoff !== undefined && typeof input.kickoff !== 'boolean') {
+    throw new TypeError('submit kickoff is invalid.');
+  }
   const priority = input.priority;
   if (priority !== undefined && priority !== 'now' && priority !== 'next' && priority !== 'later') {
     throw new TypeError('submit priority is invalid.');
@@ -1421,6 +1474,33 @@ export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecisi
     }
     result.reply = decision.reply.trim();
   }
+  if (decision.response !== undefined) {
+    if (!TOOL_APPROVAL_RESPONSES.has(decision.response)) throw new TypeError('decision.response is invalid.');
+    result.response = decision.response;
+  }
+  if (decision.remember !== undefined) {
+    if (!['once', 'agent', 'always'].includes(decision.remember)) throw new TypeError('decision.remember is invalid.');
+    result.remember = decision.remember;
+  }
+  if (decision.scope !== undefined) {
+    if (typeof decision.scope !== 'string' || decision.scope.length > 200) {
+      throw new TypeError('decision.scope is invalid.');
+    }
+    result.scope = decision.scope;
+  }
+  if (decision.editedArgs !== undefined) {
+    const edited = decision.editedArgs as unknown;
+    if (
+      !edited ||
+      typeof edited !== 'object' ||
+      Array.isArray(edited) ||
+      Object.keys(edited).length > 8 ||
+      Object.values(edited).some((value) => typeof value !== 'string' || value.length > 40_000)
+    ) {
+      throw new TypeError('decision.editedArgs is invalid.');
+    }
+    result.editedArgs = { ...(edited as Record<string, string>) };
+  }
   return result;
 }
 
@@ -1722,6 +1802,7 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
     value === 'computerControl' ||
     value === 'computerObserveOnly' ||
     value === 'browserControl' ||
+    value === 'browserAutoSignIn' ||
     value === 'computerInstalled' ||
     value === 'browserInstalled'
   )

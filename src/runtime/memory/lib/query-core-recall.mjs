@@ -35,12 +35,20 @@ function appendTimeWindow(where, params, tsFrom, tsTo) {
   }
 }
 
-export async function recallCoreRows(db, query, { projectScope, category, limit, tsFrom, tsTo } = {}) {
+/** `agentId`: the caller's own agent pool joins the result; no other agent's
+ *  pool ever does (core-memory-access.mjs). */
+export async function recallCoreRows(db, query, { projectScope, category, limit, tsFrom, tsTo, agentId = '' } = {}) {
   const terms = coreRecallTerms(query);
   if (terms.length === 0) return [];
 
   const params = [];
   const where = [];
+  if (agentId) {
+    params.push(agentId);
+    where.push(`(agent_id IS NULL OR agent_id = $${params.length})`);
+  } else {
+    where.push('agent_id IS NULL');
+  }
   const scope = normalizeRecallProjectScope(projectScope);
   let scopeClause = scope;
   if (scope === null) scopeClause = 'common';

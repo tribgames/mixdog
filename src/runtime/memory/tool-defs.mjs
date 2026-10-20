@@ -59,6 +59,11 @@ export const TOOL_DEFS = [
           description:
             'Pool: omit for the current Project, "common" for common memory, or a Project slug; "*" is list only.',
         },
+        agent_id: {
+          type: 'string',
+          description:
+            'Agent memory instead of project_id: "self" is your own pool, read and injected only for you; an unattended run writes only there. The representative agent (lead) may list or delete another agent\'s by its id.',
+        },
       },
       additionalProperties: false,
       required: ['op'],

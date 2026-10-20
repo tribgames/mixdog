@@ -352,6 +352,16 @@ export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceR
   );
 }
 
+const _frontmatterKindCache = new Map(); // key -> { value, atMs }
+
+/** The agent definition's frontmatter `kind` (isContactAgentId reads it), or
+ *  null when it sets none. */
+export function readAgentFrontmatterKind(agent, dataDir, standaloneSourceRoot) {
+  return cachedFrontmatterValue(_frontmatterKindCache, agent, dataDir, standaloneSourceRoot, (fm) =>
+    typeof fm.kind === 'string' && fm.kind.trim() ? fm.kind.trim() : null
+  );
+}
+
 /** The agent definition's `firstResponseTimeoutMs` (a non-negative integer;
  *  0 disables the first-response deadline), or null when it sets none. */
 export function readAgentFirstResponseTimeoutMs(agent, dataDir, standaloneSourceRoot) {

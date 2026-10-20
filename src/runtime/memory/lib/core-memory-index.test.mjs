@@ -9,9 +9,9 @@ import { createMemoryActionHandlers } from './memory-action-handlers.mjs';
 function fixture() {
   const sql = new DatabaseSync(':memory:');
   sql.exec(`
-    CREATE TABLE core_entries(id INTEGER PRIMARY KEY, project_id TEXT, status TEXT, element TEXT, summary TEXT);
+    CREATE TABLE core_entries(id INTEGER PRIMARY KEY, project_id TEXT, status TEXT, element TEXT, summary TEXT, agent_id TEXT);
     CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
-    INSERT INTO core_entries VALUES
+    INSERT INTO core_entries(id, project_id, status, element, summary) VALUES
       (81, NULL, 'active', 'Common', 'Common preference'),
       (150, 'alpha', 'active', 'First', 'First alpha memory'),
       (170, 'alpha', 'active', 'Second', 'Second alpha memory'),
@@ -67,7 +67,9 @@ test('real scoped indices persist, compact independently, append on move, and re
     assert.equal(await resolveCoreMemoryIndex(db, 'alpha', 1, remaining.index_revision), 170);
     assert.equal(indexedCoreRecord({ id: 200, project_id: 'beta' }, compacted).index_revision, beta.index_revision);
 
-    sql.exec("INSERT INTO core_entries VALUES(201, 'alpha', 'active', 'New', 'New alpha memory')");
+    sql.exec(
+      "INSERT INTO core_entries(id, project_id, status, element, summary) VALUES(201, 'alpha', 'active', 'New', 'New alpha memory')"
+    );
     const added = await syncCoreMemoryIndexes(db);
     assert.equal(indexedCoreRecord({ id: 201, project_id: 'alpha' }, added).id, 2);
     sql.exec("UPDATE core_entries SET project_id='alpha' WHERE id=81");
@@ -75,7 +77,9 @@ test('real scoped indices persist, compact independently, append on move, and re
     assert.equal(indexedCoreRecord({ id: 81, project_id: 'alpha' }, moved).id, 3);
     assert.equal(indexedCoreRecord({ id: 170, project_id: 'alpha' }, moved).id, 1);
     await assert.rejects(resolveCoreMemoryIndex(db, null, 1, common.index_revision), /indices changed/);
-    sql.exec("INSERT INTO core_entries VALUES(202, NULL, 'active', 'New common', 'New common memory')");
+    sql.exec(
+      "INSERT INTO core_entries(id, project_id, status, element, summary) VALUES(202, NULL, 'active', 'New common', 'New common memory')"
+    );
     assert.equal(indexedCoreRecord({ id: 202, project_id: null }, await syncCoreMemoryIndexes(db)).id, 1);
     sql.exec("UPDATE core_entries SET status='archived' WHERE id=170");
     const archived = await syncCoreMemoryIndexes(db);

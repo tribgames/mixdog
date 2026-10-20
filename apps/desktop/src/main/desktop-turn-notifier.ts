@@ -14,6 +14,8 @@ interface DesktopTurnNotifierOptions {
   playSound?(): Promise<string>;
   openSession(sessionId: string): void;
   diagnostic(event: string, details: Record<string, unknown>): void;
+  /** A muted agent's sessions raise no notification (agent-notification-mute.ts). */
+  isSessionMuted?(sessionId: string): boolean;
 }
 
 /** Completion detection and native delivery share one app-lifetime owner.
@@ -31,6 +33,10 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
     }
     if (!shouldShowTurnNotification(completion, options.isForeground())) {
       report('suppressed', completion, { reason: 'foreground' });
+      return;
+    }
+    if (options.isSessionMuted?.(completion.sessionId)) {
+      report('suppressed', completion, { reason: 'agent-muted' });
       return;
     }
     let notification: NativeNotification | undefined;

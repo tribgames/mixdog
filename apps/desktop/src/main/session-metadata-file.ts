@@ -21,6 +21,9 @@ interface SessionMetadataMaps {
    *  written, preserved on disk as stored. */
   projects: Record<string, string>;
   reads: Record<string, SessionReadCursor>;
+  /** Agent home threads already archived for their agent's deletion: a later
+   *  check leaves them as they are (a hand restore stays restored). */
+  retired: Record<string, number>;
   /** A stored title that no longer matches the current generator was rewritten
    *  in memory; the caller persists it. */
   rewritten: boolean;
@@ -67,24 +70,20 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
     return result;
   };
   const legacy = parsed.version !== 2;
-  const archived = emptyMap<number>();
-  const archivedRaw = legacy ? null : parsed.archived;
-  if (archivedRaw && typeof archivedRaw === 'object' && !Array.isArray(archivedRaw)) {
-    for (const [id, value] of Object.entries(archivedRaw as Record<string, unknown>)) {
+  // Session id → positive epoch-ms stamp.
+  const stampMap = (raw: unknown): Record<string, number> => {
+    const result = emptyMap<number>();
+    if (legacy || !raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+    for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
       if (!isSessionId(id)) continue;
       const at = Number(value);
-      if (Number.isFinite(at) && at > 0) archived[id] = at;
+      if (Number.isFinite(at) && at > 0) result[id] = at;
     }
-  }
-  const favorites = emptyMap<number>();
-  const favoritesRaw = legacy ? null : parsed.favorites;
-  if (favoritesRaw && typeof favoritesRaw === 'object' && !Array.isArray(favoritesRaw)) {
-    for (const [id, value] of Object.entries(favoritesRaw as Record<string, unknown>)) {
-      if (!isSessionId(id)) continue;
-      const at = Number(value);
-      if (Number.isFinite(at) && at > 0) favorites[id] = at;
-    }
-  }
+    return result;
+  };
+  const archived = stampMap(parsed.archived);
+  const favorites = stampMap(parsed.favorites);
+  const retired = stampMap(parsed.retired);
   const projects = emptyMap<string>();
   const projectsRaw = legacy ? null : parsed.projects;
   if (projectsRaw && typeof projectsRaw === 'object' && !Array.isArray(projectsRaw)) {
@@ -112,6 +111,7 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
     favorites,
     projects,
     reads,
+    retired,
     rewritten: !legacy && rewritten,
   };
 }
@@ -127,6 +127,8 @@ export async function writeSessionMetadata(
     favorites: Record<string, number>;
     projects: Record<string, string>;
     reads: Record<string, SessionReadCursor>;
+    /** Optional: callers and fixtures predating home-thread retirement omit it. */
+    retired?: Record<string, number>;
   }
 ): Promise<void> {
   const target = join(root, FILE_NAME);
@@ -138,6 +140,7 @@ export async function writeSessionMetadata(
     ...(Object.keys(maps.favorites).length ? { favorites: maps.favorites } : {}),
     ...(Object.keys(maps.projects).length ? { projects: maps.projects } : {}),
     ...(Object.keys(maps.reads).length ? { reads: maps.reads } : {}),
+    ...(maps.retired && Object.keys(maps.retired).length ? { retired: maps.retired } : {}),
   };
   await writeJsonAtomicAsync(target, payload, { secret: true });
 }

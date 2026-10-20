@@ -1,20 +1,26 @@
 import { SESSION_ID_PATTERN } from '../runtime/agent/orchestrator/runtime-core/session-id.mjs';
 import { sessionListOutput, sessionReadOutput, SESSION_TOOL_OUTPUT_BYTES } from './session-tool-output.mjs';
+import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
 
 const TARGET_ACTIONS = new Set(['status', 'read', 'send', 'cancel', 'delete']);
 const MUTATING_ACTIONS = new Set(['send', 'cancel', 'delete']);
 
 /** Model-facing session operations over the same service used by desktop and TUI. */
-export function createSessionControl({ getSessionService }) {
+export function createSessionControl({
+  getSessionService,
+  agentTasks = createAgentTaskSessions({ getSessionService }),
+}) {
   return async function executeSessionControl(args = {}, context = {}) {
     const action = args.action;
-    if (action !== 'list' && !TARGET_ACTIONS.has(action)) {
+    if (action !== 'list' && action !== 'create' && !TARGET_ACTIONS.has(action)) {
       throw new Error(`session: unsupported remote action "${action}"`);
     }
     const caller = context.callerSessionId;
     if (typeof caller !== 'string' || !SESSION_ID_PATTERN.test(caller)) {
       throw new Error('session: caller session is required');
     }
+    // `callerAgentId`: set only for an attended agent conversation (workspace-tools.mjs).
+    if (action === 'create') return agentTasks.create(args, context);
     const sessionId = typeof args.session_id === 'string' ? args.session_id.trim() : '';
     if (TARGET_ACTIONS.has(action) && (typeof sessionId !== 'string' || !SESSION_ID_PATTERN.test(sessionId))) {
       throw new Error(`session: session_id is required for action=${action}`);
@@ -45,6 +51,9 @@ export function createSessionControl({ getSessionService }) {
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) {
         throw new Error('session: prompt is required for action=send');
       }
+      // The agent's follow-up in a task session it created reports back too.
+      const origin = await agentTasks.originFor(sessionId, context.callerAgentId);
+      if (origin) return { sessionId, accepted: await agentTasks.send(sessionId, args.prompt, origin) };
       const result = await service.submitSession({
         sessionId,
         prompt: args.prompt,

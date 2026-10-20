@@ -2,10 +2,13 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 
 // Legacy conflicting keys remain visible and editable. Never choose a winner
 // or delete user-curated content just to install a constraint during startup.
+// The key is the pool (project_id, agent_id) plus element: an agent may keep
+// the same element as common memory. It replaced the (project_id, element)
+// index, which is dropped once the pool key is in place.
 export async function ensureCoreKeyIndex(db) {
   const conflicts = await db.query(`
-    SELECT project_id, element, COUNT(*) AS count
-    FROM core_entries GROUP BY project_id, element HAVING COUNT(*) > 1
+    SELECT project_id, agent_id, element, COUNT(*) AS count
+    FROM core_entries GROUP BY project_id, agent_id, element HAVING COUNT(*) > 1
     LIMIT 1
   `);
   if (conflicts.rows.length) {
@@ -16,8 +19,9 @@ export async function ensureCoreKeyIndex(db) {
   }
   try {
     await db.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS core_entries_unique_proj_elem ON core_entries (project_id, element) NULLS NOT DISTINCT`
+      `CREATE UNIQUE INDEX IF NOT EXISTS core_entries_unique_pool_elem ON core_entries (project_id, agent_id, element) NULLS NOT DISTINCT`
     );
+    await db.exec(`DROP INDEX IF EXISTS core_entries_unique_proj_elem`);
     return true;
   } catch (error) {
     if (error.code !== '23505') throw error;
@@ -30,15 +34,15 @@ export async function ensureCoreKeyIndex(db) {
 
 // Called under the store's per-pool advisory lock. This also protects writes
 // while a legacy database still has conflicts and cannot install the index.
-export async function findCoreKeyRows(db, projectId, element, exceptId = null) {
+export async function findCoreKeyRows(db, projectId, element, exceptId = null, agentId = null) {
   const result = await db.query(
     `
     SELECT id, status FROM core_entries
-    WHERE project_id IS NOT DISTINCT FROM $1 AND element = $2
+    WHERE project_id IS NOT DISTINCT FROM $1 AND agent_id IS NOT DISTINCT FROM $4 AND element = $2
       AND ($3::bigint IS NULL OR id <> $3)
     ORDER BY id LIMIT 2 FOR UPDATE
   `,
-    [projectId, element, exceptId]
+    [projectId, element, exceptId, agentId]
   );
   return result.rows;
 }

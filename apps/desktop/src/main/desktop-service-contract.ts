@@ -1,5 +1,6 @@
 import type {
   DesktopAbortOptions,
+  DesktopAgentMemoryEntry,
   DesktopAgentPoolRow,
   DesktopSessionContentMatch,
   DesktopCapability,
@@ -79,6 +80,12 @@ export interface DesktopService {
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   /** The agent contact's one home thread (agent-home-sessions.ts). */
   openAgentHome(agentId: string): Promise<{ sessionId: string }>;
+  resetAgentHome(agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }>;
+  /** An agent's own memory pool for its profile (agent-memory.ts). */
+  listAgentMemory(agentId: string): Promise<DesktopAgentMemoryEntry[]>;
+  deleteAgentMemory(agentId: string, entry: Pick<DesktopAgentMemoryEntry, 'id' | 'indexRevision'>): Promise<void>;
+  /** Group rooms (agent-rooms.ts): create, update, continue, leave, remove. */
+  agentRoomAction(action: string, args: unknown[]): Promise<unknown>;
   setSessionFavorite(sessionId: string, favorite: boolean): unknown;
   setSessionProject(sessionId: string, projectPath: string): unknown;
   deleteSession(sessionId: string): unknown;
@@ -122,6 +129,12 @@ export interface DesktopService {
     id: string,
     decision: ToolApprovalDecision
   ): boolean | Promise<boolean>;
+  /** Per-agent push mute: every phone/desktop push of that agent is silenced;
+   *  unread counts, attention marks and held-request cards are untouched. */
+  getAgentNotificationMute(agentId: string): Promise<boolean>;
+  setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean>;
+  /** In-process only (the relay's push notifier); not an RPC method. */
+  isSessionNotificationMuted?(sessionId: string): boolean;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
   /** Optional sessionId targets a pane; omitted routes through the control
    *  session for settings that are not owned by a conversation. */
@@ -179,6 +192,10 @@ export const DESKTOP_SERVICE_METHODS = [
   'setQuotaAutoResume',
   'setSessionArchived',
   'openAgentHome',
+  'resetAgentHome',
+  'listAgentMemory',
+  'deleteAgentMemory',
+  'agentRoomAction',
   'setSessionFavorite',
   'setSessionProject',
   'deleteSession',
@@ -190,6 +207,8 @@ export const DESKTOP_SERVICE_METHODS = [
   'submitToSession',
   'abortSession',
   'resolveToolApprovalForSession',
+  'getAgentNotificationMute',
+  'setAgentNotificationMute',
   'listProviderModels',
   'setModelRoute',
   'setFast',

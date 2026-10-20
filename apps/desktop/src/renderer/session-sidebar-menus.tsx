@@ -72,6 +72,7 @@ function sessionMenuItems(
   if (onInheritSession && !archived) {
     items.push({ id: 'inherit', label: t('Fork session'), onSelect: () => onInheritSession(session.id) });
   }
+  // A deleted bot's archived chat restores the bot with it (session-sidebar.tsx).
   if (archived) {
     items.push({
       id: 'restore',
@@ -196,9 +197,15 @@ function projectMenuItems(
  *  or project folder), plus the inline project rename a folder menu starts. */
 export function useSidebarMenus(actions: SessionMenuActions & ProjectMenuActions) {
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
+  // The session whose row opened the last session menu (right-click, long-press,
+  // Menu key). A windowed list keeps that row mounted: the menu hands focus
+  // back to it on close, and Rename/Delete run on it after the menu is gone,
+  // so the pin outlives the menu until another menu opens.
+  const [menuOriginId, setMenuOriginId] = useState('');
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   // One identity for the memoised rows; the menu reads the current actions.
   const openSessionMenu = useStableEvent((session: DesktopSessionSummary, point: MenuPoint, rowKey: string) => {
+    setMenuOriginId(session.id);
     setContextMenu({ label: sessionLabel(session), ...point, items: sessionMenuItems(session, rowKey, actions) });
   });
   const [projectRename, setProjectRename] = useState<ProjectRename | null>(null);
@@ -215,8 +222,14 @@ export function useSidebarMenus(actions: SessionMenuActions & ProjectMenuActions
     if (alias && alias !== current.original) actions.onRenameProject?.(group.path, alias);
   };
   const openProjectMenu = (group: ProjectSessionGroup, point: MenuPoint) => {
+    setMenuOriginId('');
     setContextMenu({ label: group.name, ...point, items: projectMenuItems(group, actions, setProjectRename) });
   };
+  /** Any other row's menu on the same surface (a bot row's contact menu). */
+  const openMenu = useCallback((menu: ScmContextMenuState) => {
+    setMenuOriginId('');
+    setContextMenu(menu);
+  }, []);
   const projectRenameEditor = projectRename && {
     key: projectRename.key,
     draft: projectRename.draft,
@@ -227,5 +240,13 @@ export function useSidebarMenus(actions: SessionMenuActions & ProjectMenuActions
       setProjectRename(null);
     },
   };
-  return { contextMenu, closeContextMenu, openSessionMenu, openProjectMenu, projectRenameEditor };
+  return {
+    contextMenu,
+    menuOriginId,
+    closeContextMenu,
+    openSessionMenu,
+    openProjectMenu,
+    openMenu,
+    projectRenameEditor,
+  };
 }

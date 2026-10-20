@@ -374,6 +374,7 @@ export function PaneSurfaceCover({
   transitionKey,
   hold = false,
   skeleton = false,
+  revealOnReady = false,
 }: {
   ready: boolean;
   label: string;
@@ -386,10 +387,15 @@ export function PaneSurfaceCover({
   /** Paint a transcript skeleton at once instead of the delayed brand mark
    *  (the phone, where the first rows cross the relay). */
   skeleton?: boolean;
+  /** `ready` already means settled, composed content (the conversation's
+   *  entry reveal waits for stable rows, fonts and dock chrome): the cover
+   *  leaves in that commit. The generic font and composed-frame settle on top
+   *  held the cover over the first messages for several more frames. */
+  revealOnReady?: boolean;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
   const holding = useSurfaceHold(hold);
-  if (revealed && !holding) return null;
+  if ((revealed || (revealOnReady && ready)) && !holding) return null;
   if (skeleton) return <TranscriptSkeletonCover label={label} />;
   return (
     <div className="pane-surface-cover">
@@ -456,9 +462,15 @@ export function PersistentPanePortal({
   className = '',
   retained = false,
   onPointerDownCapture,
+  owner = '',
   children,
 }: {
   targetId: string;
+  /** The surface's owner key: one host per owner in a slot. A host an
+   *  earlier mount of the same owner left behind (a hot reload that remounted
+   *  this component) is removed on attach, so two copies never paint over
+   *  each other. */
+  owner?: string;
   className?: string;
   /** Kept mounted but neither painted nor interactive (`data-retained`):
    *  its layout, scroll offsets and rows survive for an instant return. */
@@ -533,6 +545,12 @@ export function PersistentPanePortal({
         // A scroll still in flight is read before the move detaches it.
         if (host.isConnected) settleScrollOffsets.current();
         movePersistentPaneHost(host, target, scrollOffsets);
+      }
+      if (owner) {
+        host.dataset.owner = owner;
+        for (const stale of target.querySelectorAll<HTMLElement>(':scope > .persistent-pane-surface')) {
+          if (stale !== host && stale.dataset.owner === owner) stale.remove();
+        }
       }
       // Portal children run their layout effects before their owner's layout
       // effect. Keep a fresh surface unmounted until its host is physically in

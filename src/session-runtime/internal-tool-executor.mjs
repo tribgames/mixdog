@@ -30,6 +30,7 @@ export function createInternalToolExecutor({
   runNativeWebSearch,
   activeToolSurface,
   mcpStatus,
+  awaitMcpConnect,
   skillToolContent,
   getWorkspaceApi,
   getSessionManager,
@@ -49,6 +50,7 @@ export function createInternalToolExecutor({
       runNativeWebSearch,
       activeToolSurface,
       mcpStatus,
+      awaitMcpConnect,
       skillToolContent,
     }),
     ...createWorkspaceToolHandlers({

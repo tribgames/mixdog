@@ -13,6 +13,7 @@ export const LEGACY_EXPANDED_PROJECTS_KEY = 'mixdog:session-sidebar-expanded-pro
 
 /** Sections open by default except Archived. */
 export const SECTION_OPEN_DEFAULTS: Readonly<Record<string, boolean>> = {
+  agents: true,
   projects: true,
   favorites: true,
   recent: true,

@@ -1,4 +1,4 @@
-import { AlertTriangle, CircleX, Hourglass } from 'lucide-react';
+import { AlertTriangle, CircleX } from 'lucide-react';
 import type { SessionAttention } from '../shared/session-attention';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -19,15 +19,23 @@ export function SessionAttentionGlyph({
   className: string;
 }) {
   if (status !== 'needs-you' && status !== 'failed' && status !== 'waiting') return null;
-  let label = t('{{name}} has a failure', { name });
-  let Glyph = CircleX;
-  if (status === 'needs-you') {
-    label = t('{{name}} needs you', { name });
-    Glyph = AlertTriangle;
-  } else if (status === 'waiting') {
-    label = `${name}: ${t('Waiting for tasks')}`;
-    Glyph = Hourglass;
+  // Waiting on its own background work still reads as working: the plain
+  // spinner, labelled with the waiting state.
+  if (status === 'waiting') {
+    return (
+      <span
+        className={`session-attention-glyph ${className}`}
+        data-status={status}
+        role="status"
+        aria-label={`${name}: ${t('Waiting for tasks')}`}
+      >
+        <ProgressSpinner size={size} aria-hidden="true" />
+      </span>
+    );
   }
+  const needsYou = status === 'needs-you';
+  const label = needsYou ? t('{{name}} needs you', { name }) : t('{{name}} has a failure', { name });
+  const Glyph = needsYou ? AlertTriangle : CircleX;
   return (
     <span className={`session-attention-glyph ${className}`} data-status={status} role="status" aria-label={label}>
       <Glyph size={size} aria-hidden="true" />

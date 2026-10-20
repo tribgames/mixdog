@@ -1,6 +1,7 @@
 // Which agents are contacts in the Agents pane: the host resolves home threads
 // for exactly these, and every surface lists exactly these.
 import { MIXY_AGENT_ID } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { isContactAgentId } from '../../../../src/runtime/shared/agent-route-config.mjs';
 
 export { MIXY_AGENT_ID };
 
@@ -13,15 +14,34 @@ export interface AgentCatalogRow {
   description?: unknown;
   route?: unknown;
   definition?: unknown;
+  /** The agent's `agent.json` avatar pick, if any. */
+  avatar?: unknown;
+  /** AGENT.md frontmatter `kind`: `agent` marks a Workflows-page agent. */
+  kind?: unknown;
 }
 
-/** The user-facing agents: custom definitions the user has not switched off.
- *  Fixed slots (memory upkeep) are system roles; hidden roles never list. */
+const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+/** A catalog row's display name: its definition's name, else its label, else its id. */
+export function agentRowName(row: AgentCatalogRow): string {
+  const definition = row.definition && typeof row.definition === 'object' ? row.definition : {};
+  return text((definition as { name?: unknown }).name) || text(row.label) || text(row.id);
+}
+
+/** Whether a catalog row is a contact (봇), by the runtime's one rule. */
+export function isContactAgentRow(row: AgentCatalogRow): boolean {
+  return isContactAgentId(row.id, row.kind);
+}
+
+/** The user-facing agents (봇): user-made definitions the user has not
+ *  switched off. Shipped roles — the starter sub-agents and the Maintainer —
+ *  and agents made on the Workflows page (`kind: agent`) are never contacts,
+ *  by the runtime's own rule (isContactAgentId); hidden roles never list. */
 export function contactAgentRows(agents: unknown): Array<AgentCatalogRow & { id: string }> {
   if (!Array.isArray(agents)) return [];
   return agents.filter((row): row is AgentCatalogRow & { id: string } => {
     if (!row || typeof row !== 'object') return false;
-    const { id, custom, disabled } = row as AgentCatalogRow;
-    return custom === true && disabled !== true && typeof id === 'string' && Boolean(id) && id !== MIXY_AGENT_ID;
+    const { custom, disabled } = row as AgentCatalogRow;
+    return custom === true && disabled !== true && isContactAgentRow(row as AgentCatalogRow);
   });
 }

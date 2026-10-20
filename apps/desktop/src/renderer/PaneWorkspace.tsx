@@ -86,7 +86,9 @@ const MOBILE_RETAINED_CONVERSATIONS = 2;
  *
  *  `deferMount`: a cold session on a phone paints its transcript skeleton in
  *  the opening frame and mounts the Conversation (rows, composer, dock) in the
- *  next one, so the tap answers at once. The gate follows the selection, not
+ *  next one, so the tap answers at once. A session whose lane is already on
+ *  the phone mounts at once: its rows paint in the opening commit instead of
+ *  behind a skeleton frame. The gate follows the selection, not
  *  the owner: an owner handed from one session to a cold one closes it again,
  *  while a draft that became its session keeps its Conversation. */
 const RetainedConversation = memo(
@@ -250,13 +252,14 @@ export function PaneWorkspace({
           <PersistentPanePortal
             key={owner}
             targetId={paneConversationSlotId(leaf.id)}
+            owner={owner}
             className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
             retained={retained}
           >
             <RetainedConversation
               retained={retained}
               selectionKey={selectionKey}
-              deferMount={mobileSurface && active.kind === 'session'}
+              deferMount={mobileSurface && active.kind === 'session' && defaultSessionLaneStore.get(active.id) === null}
             >
               {renderConversation(active, focused && !handoff && !parked && !retained, focusPane, leaf.id, warm)}
             </RetainedConversation>

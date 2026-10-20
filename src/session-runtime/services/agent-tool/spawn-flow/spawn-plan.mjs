@@ -9,6 +9,7 @@ import {
   agentDefinitionExists,
   clean,
   normalizeAgentName,
+  readAgentFrontmatterKind,
   readAgentFrontmatterPermission,
   resolvePrompt,
   terminalPidForContext,
@@ -18,8 +19,13 @@ import { normalizeAgentPermission } from '../../../../runtime/shared/markdown-fr
 import { resolveAgentSpawnPreset } from '../spawn-preset.mjs';
 import { AGENT_OWNER } from '../../../../runtime/agent/orchestrator/agent-owner.mjs';
 import { workspaceCwdLock } from '../../../workspace/admission-gate.mjs';
+import { isContactAgentId } from '../../../../runtime/agent/orchestrator/runtime-core/workflow-ids.mjs';
+import { AGENT_MODE, resolveSessionMode } from '../../../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { MIXY_AGENT_ID } from '../../../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { mixyDisplayName } from '../../../../runtime/agent/orchestrator/session/mixy-name.mjs';
 
 export function createSpawnPlanner({
+  mgr = null,
   cfgMod,
   dataDir,
   STANDALONE_SOURCE_ROOT,
@@ -44,6 +50,18 @@ export function createSpawnPlanner({
     if (isAgentDisabled(config, agent)) {
       throw new Error(`agent spawn: agent "${agent}" is turned off`);
     }
+    // Only Mixy hands work to a contact agent; any other agent-mode Lead
+    // delegates to sub-agents alone (its catalog lists no contact either).
+    if (isContactAgentId(agent, readAgentFrontmatterKind(agent, dataDir, STANDALONE_SOURCE_ROOT))) {
+      const callerId = clean(context?.callerSessionId || context?.sessionId);
+      const caller = (callerId && mgr?.getSession?.(callerId)) || null;
+      const { mode, agentId } = resolveSessionMode({ session: caller, sessionId: callerId });
+      if (mode === AGENT_MODE && agentId !== MIXY_AGENT_ID) {
+        throw new Error(
+          `agent spawn: only ${mixyDisplayName()} (the representative agent) can hand work to the contact agent "${agent}"; delegate to a sub-agent instead`
+        );
+      }
+    }
     const agentPermission = readAgentFrontmatterPermission(agent, dataDir, STANDALONE_SOURCE_ROOT);
     const agentPerm = normalizeAgentPermission(agentPermission) || null;
     const { presetName, preset } = resolveAgentSpawnPreset(config, args);
@@ -56,10 +74,7 @@ export function createSpawnPlanner({
     // Workers share their Lead's execution root. While the Lead runs in its
     // worktree, that root is locked: neither args.cwd nor an inherited
     // (pre-transition) cwd can send a worker elsewhere.
-    const lockedCwd = workspaceCwdLock([
-      context?.ownerSessionId,
-      context?.callerSessionId || context?.sessionId,
-    ]);
+    const lockedCwd = workspaceCwdLock([context?.ownerSessionId, context?.callerSessionId || context?.sessionId]);
     const baseCwd = resolve(lockedCwd || callerCwd || defaultCwd || process.cwd());
     const workerCwd = !lockedCwd && clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
     const prompt = await resolvePrompt(args, workerCwd);

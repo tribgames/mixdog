@@ -27,6 +27,21 @@ test('a latched-revealed cover returns while its transcript stays hidden', async
   assert.equal(view.document.querySelector('.pane-surface-cover'), null);
 });
 
+test('a conversation cover leaves in the commit its settled rows become ready', async (t) => {
+  const view = await mount(t);
+  await view.render({ ready: false, skeleton: true, revealOnReady: true });
+  assert.ok(view.document.querySelector('.transcript-skeleton'), 'the skeleton paints while no rows exist');
+  await view.render({ ready: true, skeleton: true, revealOnReady: true });
+  assert.equal(
+    view.document.querySelector('.pane-surface-cover'),
+    null,
+    'no font or composed-frame settle holds the skeleton over the first messages'
+  );
+  await view.render({ ready: false, transitionKey: 'b' });
+  await view.render({ ready: true, transitionKey: 'b' });
+  assert.ok(view.document.querySelector('.pane-surface-cover'), 'a wide pane still settles behind its cover');
+});
+
 test('a warm revisit that reveals inside the grace never flashes the cover', async (t) => {
   const view = await mount(t);
   await view.render({ ready: true });

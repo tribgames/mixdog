@@ -16,6 +16,8 @@ type RowOverflowMenuItem = {
   label: string;
   onSelect?(): void;
   disabled?: boolean;
+  /** Native tooltip, e.g. why the item is disabled. */
+  title?: string;
   danger?: boolean;
   closeOnSelect?: boolean;
   checked?: boolean;
@@ -157,6 +159,7 @@ function renderRowOverflowItem({
         undefined
       }
       disabled={item.disabled}
+      title={item.title}
       onClick={() => {
         if (submenu) {
           setPath((current) => [...current, index]);

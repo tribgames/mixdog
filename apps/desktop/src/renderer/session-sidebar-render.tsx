@@ -13,7 +13,10 @@ import { listOrderId, type SessionOrderPrefs } from './session-order';
 import { SessionSidebarRow, type SessionRowReorder } from './session-sidebar-rows';
 import { loadStudioViewModule } from './studio-loader';
 import { RECENT_SESSION_INITIAL_ROWS } from './session-sidebar-scroll';
+import type { AgentContact } from './agent-contacts-model';
+import type { SidebarRoomRow } from './session-sidebar-agents';
 import {
+  agentsSection,
   archivedSection,
   automationsSection,
   favoritesSection,
@@ -24,6 +27,7 @@ import {
 } from './session-sidebar-sections';
 import type { useProjectFolderState, useSidebarOpenState } from './session-sidebar-state';
 import type { usePersistedListOrder } from './use-persisted-list-order';
+import { VirtualSessionRows, type VirtualRowItem } from './session-sidebar-virtual-rows';
 
 const prefetchStudioIntent = () => {
   void loadStudioViewModule().catch(() => undefined);
@@ -211,24 +215,57 @@ function renderForkRows(
   listKey?: string,
   rowScope?: string
 ) {
-  return groupForkRows(rows, limit).map(({ session, forks }) => {
-    if (forks.length === 0) return ctx.renderOrderedRow(session, listKey, rowScope);
+  return renderSessionItems(ctx, forkRowItems(ctx, rows, limit), listKey, rowScope);
+}
+
+/** One rendered row of a session list: the session and its fork role. */
+interface SessionRowItem extends VirtualRowItem {
+  session: DesktopSessionSummary;
+  fork?: ForkRowRole;
+}
+
+/** `rows` flattened into the rows they render as fork groups (whole groups,
+ *  covering at most `limit` rows): each original, then its forks while expanded. */
+function forkRowItems(
+  ctx: SidebarSectionContext,
+  rows: readonly DesktopSessionSummary[],
+  limit: number | undefined
+): SessionRowItem[] {
+  return groupForkRows(rows, limit).flatMap(({ session, forks }): SessionRowItem[] => {
+    const item = (row: DesktopSessionSummary, fork?: ForkRowRole) => ({
+      key: row.id,
+      sessionId: row.id,
+      session: row,
+      fork,
+    });
+    if (forks.length === 0) return [item(session)];
     const expanded = isOpen(ctx.openState.forkOpen, session.id);
-    return (
-      <Fragment key={session.id}>
-        {ctx.renderOrderedRow(session, listKey, rowScope, { kind: 'root', expanded })}
-        {expanded &&
-          forks.map((fork, index) =>
-            ctx.renderOrderedRow(fork, listKey, rowScope, {
-              kind: 'child',
-              n: index + 1,
-              rootId: session.id,
-              last: index === forks.length - 1,
-            })
-          )}
-      </Fragment>
-    );
+    return [
+      item(session, { kind: 'root', expanded }),
+      ...(expanded
+        ? forks.map((fork, index) =>
+            item(fork, { kind: 'child', n: index + 1, rootId: session.id, last: index === forks.length - 1 })
+          )
+        : []),
+    ];
   });
+}
+
+/** A session list's rows, windowed to the scroller viewport once it is long. */
+function renderSessionItems(
+  ctx: SidebarSectionContext,
+  items: readonly SessionRowItem[],
+  listKey?: string,
+  rowScope?: string
+) {
+  return (
+    <VirtualSessionRows
+      items={items}
+      scrollerRef={ctx.scrollerRef}
+      pinnedIds={ctx.pinnedSessionIds}
+      renderItem={(item) => ctx.renderOrderedRow(item.session, listKey, rowScope, item.fork)}
+    />
+  );
 }
 
 /** The panel title row; other panels portal their primary action into its slot. */
@@ -329,6 +366,18 @@ export function sessionsSurface({
         </button>
       </nav>
       <div className="session-sidebar-scroll" ref={scrollerRef} onScroll={onScroll}>
+        {(sectionContext.agentContacts.length > 0 || sectionContext.agentRooms.length > 0) &&
+          agentsSection({
+            contacts: sectionContext.agentContacts,
+            rooms: sectionContext.agentRooms,
+            onOpenRoom: sectionContext.onOpenRoom,
+            open: sectionContext.openState.agentsOpen,
+            onToggleOpen: () => sectionContext.openState.toggleSection('agents'),
+            selectedSessionId: sectionContext.selection.kind === 'session' ? sectionContext.selection.id : '',
+            onOpenAgent: sectionContext.onOpenAgent,
+            onOpenMenu: sectionContext.onOpenAgentMenu,
+            onOpenRoomMenu: sectionContext.onOpenRoomMenu,
+          })}
         {sectionIds.map((section) => (
           <Fragment key={section}>{renderSidebarSection(section, sectionContext)}</Fragment>
         ))}
@@ -375,6 +424,13 @@ export function sessionOrderMenuItems(
 }
 
 export interface SidebarSectionContext {
+  agentContacts: readonly AgentContact[];
+  agentRooms: readonly SidebarRoomRow[];
+  onOpenRoom(row: SidebarRoomRow): void;
+  selection: NavigationSelection;
+  onOpenAgent(contact: AgentContact): void;
+  onOpenAgentMenu?(contact: AgentContact, point: { x: number; y: number }): void;
+  onOpenRoomMenu?(row: SidebarRoomRow, point: { x: number; y: number }): void;
   sectionOrder: Pick<ListOrder, 'getReorderProps'>;
   openState: ReturnType<typeof useSidebarOpenState>;
   folders: Omit<ReturnType<typeof useProjectFolderState>, 'updateProjectOpen'>;
@@ -399,6 +455,10 @@ export interface SidebarSectionContext {
     archived: boolean
   ): Promise<void>;
   deleteAllArchived(): Promise<void>;
+  /** The Sessions scroller every list windows against. */
+  scrollerRef: React.RefObject<HTMLDivElement | null>;
+  /** Sessions whose rows stay mounted however far they scroll away. */
+  pinnedSessionIds: ReadonlySet<string>;
   openProjectMenu: ProjectsSectionProps['onFolderMenu'];
   projectRenameEditor: ProjectsSectionProps['rename'];
   renderOrderedRow(
@@ -419,7 +479,7 @@ export interface SidebarSectionContext {
 /** One session category through its section builder; the heading row is its
  *  drag handle for the persisted category order. */
 function renderSidebarSection(section: string, ctx: SidebarSectionContext): React.ReactNode {
-  const { openState, folders, rows, automationRows, archivedRows, bulkAction, renderOrderedRow } = ctx;
+  const { openState, folders, rows, automationRows, archivedRows, bulkAction } = ctx;
   const { onAddProject, onNewProjectTask, onNewTask, unreadSessionIds } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
   const renderUnorderedRows: RenderForkRows = (list, limit) => renderForkRows(ctx, list, limit, undefined, section);
@@ -475,7 +535,13 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
           workingSessionIds: ctx.workingSessionIds,
           unreadSessionIds,
           headerProps,
-          renderSessionRow: (session) => renderOrderedRow(session, undefined, section),
+          renderRuns: (runs) =>
+            renderSessionItems(
+              ctx,
+              runs.map((session) => ({ key: session.id, sessionId: session.id, session })),
+              undefined,
+              section
+            ),
         })
       );
     case 'recent':

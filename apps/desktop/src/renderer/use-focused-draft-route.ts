@@ -31,9 +31,23 @@ type FocusedDraftRoute = {
   paint(resolved: ResolvedDraftPrefs, options?: { projectPath?: boolean }): void;
 };
 
+// The model the focused draft composer paints, readable outside the App tree
+// (the Agents pane's "+" starts a new agent on it).
+let focusedDraftModel: DesktopModelSelection | null = null;
+export const focusedDraftModelSelection = (): DesktopModelSelection | null => focusedDraftModel;
+
 export function useFocusedDraftRoute(): FocusedDraftRoute {
   const [projectPath, projectPathRef, setProjectPath] = useMirroredState('');
-  const [modelSelection, modelSelectionRef, setModelSelection] = useMirroredState<DesktopModelSelection | null>(null);
+  const [modelSelection, modelSelectionRef, setMirroredModelSelection] = useMirroredState<DesktopModelSelection | null>(
+    null
+  );
+  const setModelSelection = useCallback(
+    (next: DesktopModelSelection | null) => {
+      focusedDraftModel = next;
+      setMirroredModelSelection(next);
+    },
+    [setMirroredModelSelection]
+  );
   const [workflow, workflowRef, setWorkflow] = useMirroredState<DesktopWorkflowState | null>(null);
   const paint = useCallback(
     (resolved: ResolvedDraftPrefs, options: { projectPath?: boolean } = {}) => {

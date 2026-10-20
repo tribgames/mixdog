@@ -21,7 +21,18 @@ export async function ensureCoreEntriesSchema(db) {
     )
   `);
   await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_project_idx ON core_entries(project_id)`);
+  await ensureCoreAgentColumn(db);
   await ensureCoreKeyIndex(db);
+}
+
+// An agent's own pool (core-memory-access.mjs): agent_id names it and its
+// project_id stays NULL. Existing rows keep NULL, i.e. common/project memory.
+// Idempotent; runs on every boot before the pool key index.
+export async function ensureCoreAgentColumn(db) {
+  await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS agent_id TEXT`);
+  await db.exec(
+    `CREATE INDEX IF NOT EXISTS core_entries_agent_idx ON core_entries(agent_id) WHERE agent_id IS NOT NULL`
+  );
 }
 
 export async function ensureMetaSchema(db) {

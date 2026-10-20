@@ -44,13 +44,31 @@ test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases an
   assert.match(rebuilt.text, /embeddings=0/);
 
   // This index belongs to the freshly allocated test cluster, never a live DB.
-  await db.exec('DROP INDEX core_entries_unique_proj_elem');
+  // Agent memory isolation: the pool key replaced the project key, and an
+  // agent pool may hold an element common memory also holds.
+  assert.equal((await db.query(`SELECT to_regclass('core_entries_unique_proj_elem') AS idx`)).rows[0].idx, null);
+  const { addCore, deleteCore } = await import('./core-memory-store.mjs');
+  const common = await addCore(directory, { summary: 'Shared element', category: 'preference' }, null);
+  const own = await addCore(directory, { summary: 'Shared element', category: 'preference' }, null, {
+    agentId: 'reviewer',
+    caller: { kind: 'headless', agentId: 'reviewer' },
+  });
+  assert.equal(own.agent_id, 'reviewer');
+  await deleteCore(directory, own.id);
+  await deleteCore(directory, common.id);
+  // A store from before agent pools: no agent_id column (dropping it drops
+  // the pool key index too).
+  await db.exec('ALTER TABLE core_entries DROP COLUMN agent_id');
   await db.query(`INSERT INTO core_entries(element,summary,category,project_id,created_at,updated_at)
     VALUES ('legacy-key','First approved preference','preference',NULL,1,1),
            ('legacy-key','Second approved preference','preference',NULL,2,2)`);
   const beforeCore = (await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows;
   await ensureCurrentSchemaExtensions(db, 384, identity);
   assert.deepEqual((await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows, beforeCore);
+  assert.deepEqual(
+    (await db.query('SELECT agent_id FROM core_entries ORDER BY id')).rows.map((row) => row.agent_id),
+    [null, null]
+  );
   assert.equal(await ensureCoreKeyIndex(db), false);
 
   const vector = [1, ...Array(383).fill(0)];

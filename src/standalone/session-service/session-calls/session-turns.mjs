@@ -11,6 +11,9 @@ import {
 } from '../../../runtime/attachments/store.mjs';
 import { providerNativePdf } from '../../../runtime/agent/orchestrator/providers/registry.mjs';
 import { cancelBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
+import { isAgentModeSession } from '../../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { recognisedAgentRoomSlash } from '../../../tui/app/slash-commands.mjs';
+import { promptContentText } from '../../../tui/session/queue-helpers.mjs';
 
 /** Whether an abort on this session is an Agent cancelling its own turn: the
  *  catalog knows it, the runtime declares agent-only visibility, or it is a
@@ -75,6 +78,12 @@ export function createSessionTurnCalls(ctx) {
           ...(entry.runtime.externalAction === true ? { sender: 'user' } : {}),
         },
       };
+    }
+    // A bot's conversation room runs only its own /compact and /clear (the
+    // composer's rule): every other leading `/` is message text for the model.
+    if (isAgentModeSession(entry.runtime.session ?? { id })) {
+      const text = typeof intake.prompt === 'string' ? intake.prompt : promptContentText(intake.prompt);
+      if (!recognisedAgentRoomSlash(text)) submissionOptions = { ...submissionOptions, skipSlashCommands: true };
     }
     const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, submissionOptions));
     if (accepted === true) {

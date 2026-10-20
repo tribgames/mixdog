@@ -54,7 +54,9 @@ export async function viewSyncHost({ runTurns = false } = {}) {
           };
         },
         async create({ sessionId }) {
-          state.creates++;
+          // Counts user sessions only: the host's id-less control session
+          // (agent-rooms recovery, lead name lookups) is created on demand too.
+          if (sessionId !== undefined) state.creates++;
           return full(records.get(sessionId) ?? put(sessionId, ''));
         },
         async read({ sessionId, baseRevision }) {

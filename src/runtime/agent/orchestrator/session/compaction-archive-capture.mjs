@@ -29,6 +29,7 @@ import { getStoreDir } from './store/session-paths.mjs';
 import { forgetSessionSaveBaseline } from './store/save-worker.mjs';
 import { messageIdOf, stampMessageIds } from './message-ids.mjs';
 import { restoreTranscriptItems } from './transcript-restore/restore.mjs';
+import { isAgentModeSession } from './agent-mode.mjs';
 import {
   COMPACTION_ARCHIVE_MAX_BYTES,
   COMPACTION_DIVIDER_LABEL,
@@ -163,7 +164,7 @@ function storedHistoryMessage(message) {
  *  (compactionArchiveProjection messages) as stored history restores it,
  *  namespaced and marked archived, then the divider. Empty when nothing
  *  visible left. */
-export function compactionSegmentItems(messages, { sessionId, seq, at }) {
+export function compactionSegmentItems(messages, { sessionId, seq, at, divider = true }) {
   const restored = restoreTranscriptItems(messages.map(storedHistoryMessage), { sessionId });
   if (!restored.length) return [];
   const prefix = `hist_${sessionId}_`;
@@ -171,6 +172,8 @@ export function compactionSegmentItems(messages, { sessionId, seq, at }) {
     const id = String(item?.id ?? '');
     return { ...item, id: `arch${seq}_${id.startsWith(prefix) ? id.slice(prefix.length) : id}`, archived: true };
   });
+  // Agent mode compacts silently: its transcript gets no compaction notice.
+  if (!divider) return items;
   items.push({
     kind: 'statusdone',
     id: `arch${seq}_divider`,
@@ -321,9 +324,10 @@ export function scheduleCompactionArchive({
   const clearedThrough = Math.max(0, Math.floor(Number(previous.clearedThrough) || 0));
   const epoch = compactionArchiveDeleteEpoch(id);
   session.compaction.archive = { ...previous, nextSeq: seq + 1 };
+  const divider = !isAgentModeSession(session);
   const run = async () => {
     await new Promise((resolve) => setImmediate(resolve));
-    const items = compactionSegmentItems(projection.messages, { sessionId: id, seq, at });
+    const items = compactionSegmentItems(projection.messages, { sessionId: id, seq, at, divider });
     if (!items.length) return null;
     const segments = await appendSegment({ sessionId: id, seq, at, items, clearedThrough, maxBytes, epoch });
     const archive = session.compaction?.archive;

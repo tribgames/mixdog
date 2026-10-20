@@ -13,6 +13,9 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { DesktopSessionSummary } from '../shared/contract';
 import type { SessionAttention } from '../shared/session-attention';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { RoomMemberFace } from './agent-room-parts';
+import { useArchivedBotIdentities } from './archived-bot-identity';
 import { SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';
 import { t } from './i18n';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
@@ -23,6 +26,25 @@ const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 
 export function sessionLabel(session: DesktopSessionSummary) {
   return sessionSummaryTitle(session, t('Untitled session'));
+}
+
+/** The question before a deleted bot's archived chat is deleted for good. */
+export function permanentBotDeleteMessage(name: string): string {
+  return t(
+    "Delete {{name}} for good? Its conversation history and the bot's remaining data are deleted and cannot be restored.",
+    { name }
+  );
+}
+
+/** The face a deleted bot left (archived-bot-identity.ts), else its id's default. */
+function DeletedBotFace({ agentId }: { agentId: string }) {
+  const identity = useArchivedBotIdentities().get(agentId);
+  return (
+    <RoomMemberFace
+      member={{ id: agentId, name: identity?.name ?? agentId, avatar: identity?.avatar ?? agentAvatar(agentId, null) }}
+      className="session-row-bot-face"
+    />
+  );
 }
 
 /** Display-only title of the n-th fork; the stored title is unchanged. */
@@ -201,6 +223,8 @@ const SessionRow = React.memo(function SessionRow({
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
   const label = forkNumber ? forkDisplayTitle(sessionLabel(session), forkNumber) : sessionLabel(session);
+  // A deleted bot's archived chat: the bot's face before its name.
+  const deletedBot = session.agentDeleted === true ? session.agentHome || '' : '';
   const titleRef = useRef<HTMLElement>(null);
   const [overflowing, setOverflowing] = useState(false);
   // Only a title that does not fit fades at the row edge.
@@ -379,6 +403,7 @@ const SessionRow = React.memo(function SessionRow({
         {forkKind === 'child' && (
           <CornerDownRight className="session-row-fork-icon" data-fork="child" size={16} aria-hidden="true" />
         )}
+        {deletedBot && <DeletedBotFace agentId={deletedBot} />}
         <span className="session-row-copy">
           <b ref={titleRef} data-overflow={overflowing || undefined}>
             {label}
@@ -424,6 +449,7 @@ const SessionRow = React.memo(function SessionRow({
             confirmation. */}
         {(session.archived === true || confirmingDelete) && (
           <>
+            {/* A deleted bot's chat restores the bot with it (session-sidebar.tsx). */}
             <button
               type="button"
               className={`session-row-action ${confirmingDelete ? 'session-row-delete-cancel' : 'session-row-restore'}`}

@@ -1,8 +1,11 @@
 import type React from 'react';
+import { useEffect } from 'react';
+import { agentIdOfHomeSession } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopProjectSummary, DesktopWorkspaceFolder } from '../../shared/contract';
 import { SessionSidebar, type NavigationSelection } from '../navigation';
 import { paneActiveSelection, type PaneLeaf } from '../pane-layout';
 import { navigationKey } from '../text-format';
+import { useStableEvent } from '../use-stable-event';
 import type { usePaneWorkspace } from '../pane-workspace-state';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from '../sidebar-view-layout';
 import type { SidebarPanelKey } from '../app-shell-components';
@@ -11,7 +14,15 @@ import { PhoneDeferredMount } from '../phone-deferred-mount';
 import type { SessionDiffPane as SessionDiffPaneComponent } from '../SessionDiffPane';
 import type { ServerPortsPanel as ServerPortsPanelComponent } from '../ServerPortsPanel';
 import { useDeferredModule } from '../deferred-module';
-import { serverPortsPanelModule, sessionDiffPaneModule, visualizePaneModule } from '../first-screen-deferred';
+import {
+  agentRoomPanelModule,
+  routinesPaneModule,
+  serverPortsPanelModule,
+  sessionDiffPaneModule,
+  visualizePaneModule,
+} from '../first-screen-deferred';
+import type { RoutinesPane as RoutinesPaneComponent } from '../RoutinesPane';
+import type { AgentRoomPanel as AgentRoomPanelComponent } from '../AgentRoomPanel';
 import type { VisualizePane as VisualizePaneComponent } from '../VisualizePane';
 import { DesktopLoadingSurface } from '../RendererRecovery';
 import { prefetchDiffView } from '../lazy-widgets';
@@ -44,6 +55,7 @@ import { resolveLocalLink } from '../local-link-resolver';
 import { isAbsolutePath } from '../session-diff-model';
 import { sideFileKey } from '../side-file-tabs';
 import { closingDrawerFirst } from './drawer-navigation';
+import { isMobileRemoteSurface } from '../mobile-surface';
 
 // The Visualize panel is never part of the first screen, and its source view
 // statically pulls the whole highlight.js core and language set: kept out of
@@ -68,6 +80,17 @@ function SessionDiffPane(props: React.ComponentProps<typeof SessionDiffPaneCompo
   ) : (
     loading
   );
+}
+
+function RoutinesPane(props: React.ComponentProps<typeof RoutinesPaneComponent> & { leafId?: string }) {
+  const module = useDeferredModule(routinesPaneModule, { bootSurface: props.active ? 'routines' : undefined });
+  // The home thread's agent panel: 프로필 · 루틴.
+  return module ? <module.AgentPanel {...props} /> : <DesktopLoadingSurface label={t('Loading view…')} />;
+}
+
+function AgentRoomPanel(props: React.ComponentProps<typeof AgentRoomPanelComponent>) {
+  const module = useDeferredModule(agentRoomPanelModule);
+  return module ? <module.AgentRoomPanel {...props} /> : <DesktopLoadingSurface label={t('Loading view…')} />;
 }
 
 function ServerPortsPanel(props: React.ComponentProps<typeof ServerPortsPanelComponent>) {
@@ -121,7 +144,7 @@ export interface UseAppWorkbenchViewsOptions {
   dockOpenDiff: (project: string, rel: string, request: SourceControlDiffRequest) => void;
   dockOpenPullRequest: PullRequestOpenHandler;
   dockOpenLeadSession: (sessionId: string) => void;
-  dockOpenAgentSession: (sessionId: string, title: string, ownerSessionId: string) => void;
+  dockOpenAgentSession: (sessionId: string, title: string, ownerSessionId: string, replaceKey?: string) => void;
   /** Phone drawer close (no-op on wide layouts); left-drawer results close it. */
   closeSidebarForNavigation?: () => void;
   renameProjectEntry: (projectPath: string, relPath: string, newName: string) => Promise<void>;
@@ -241,6 +264,12 @@ export function useAppWorkbenchViews({
   setProblemsCollapseNonce,
   openProblemQuickFix,
 }: UseAppWorkbenchViewsOptions) {
+  // A bot row in the Sessions sidebar opens its chat as a tab and the
+  // Sessions view stays; the phone keeps its full-screen Bots page.
+  const sidebarOpenAgent = useStableEvent((sessionId: string, title: string) => {
+    if (isMobileRemoteSurface()) selectWorkbenchSideView('agents');
+    dockOpenAgentSession(sessionId, title, sessionId);
+  });
   const renderWorkbenchSideView = (
     side: WorkbenchSide,
     id: WorkbenchSideViewId,
@@ -274,6 +303,7 @@ export function useAppWorkbenchViews({
       onNewStudio: sidebarNewStudio,
       onPrefetchSession: window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined,
       onResumeSession: sidebarResumeSession,
+      onOpenAgent: sidebarOpenAgent,
       onRenameSession: renameSession,
       onArchiveSession: archiveSession,
       onFavoriteSession: favoriteSession,
@@ -318,6 +348,15 @@ export function useAppWorkbenchViews({
         />
       );
     }
+    if (id === 'routines') {
+      if (!pane) return null;
+      // The dock draws this panel view's header (title + fold X).
+      return <RoutinesPane sessionId={pane.sessionId} active={active} leafId={pane.leafId} />;
+    }
+    if (id === 'room') {
+      if (!pane) return null;
+      return <AgentRoomPanel sessionId={pane.sessionId} active={active} leafId={pane.leafId} />;
+    }
     if (id === 'visualize') {
       if (!pane) return null;
       return (
@@ -348,6 +387,7 @@ export function useAppWorkbenchViews({
         sessions={sessions}
         sessionsReady={sessionCatalogReady}
         activeSessionIds={observedAgentSessionIds}
+        selectedSessionId={sidebarSelection.kind === 'session' ? sidebarSelection.id : ''}
         unreadSessionIds={unreadSessionIds}
         onPrefetchSession={prefetchSession}
         projectPath={pane?.projectPath || quickAccessProjectPath}
@@ -383,6 +423,19 @@ export function useAppWorkbenchViews({
         onOpenPullRequest={closingDrawerFirst(closeDrawer, dockOpenPullRequest)}
         onOpenLeadSession={closingDrawerFirst(closeDrawer, dockOpenLeadSession)}
         onOpenAgentSession={closingDrawerFirst(closeDrawer, dockOpenAgentSession)}
+        agentsPageFocus={
+          // Only once startup restore settled: a fresh start must not race
+          // the restored tabs.
+          tab === 'agents' && side === 'left' && !pane && desktopBootReady
+            ? {
+                focused: dockSelection ?? null,
+                focusedTabCount: dockLeaf?.tabs.length ?? 0,
+                openSessionIds: paneWorkspace.leaves.flatMap((leaf) =>
+                  leaf.tabs.flatMap((paneTab) => (paneTab.kind === 'session' ? [paneTab.id] : []))
+                ),
+              }
+            : null
+        }
       />
     );
   };
@@ -407,6 +460,18 @@ export function useAppWorkbenchViews({
     ? paneProjectPathFor(focusedPaneForDockPrewarm)
     : quickAccessProjectPath;
   const dockBodyWarm = useAppDockWarmup(desktopBootReady, focusedPaneDockProjectPath);
+  // A bot tab turning active warms its profile panel's data (and chunk), so
+  // opening the panel paints the stored profile in its first frame.
+  const focusedSelection = focusedPaneForDockPrewarm ? paneActiveSelection(focusedPaneForDockPrewarm) : null;
+  const activeBotSessionId =
+    focusedSelection?.kind === 'session' && agentIdOfHomeSession(focusedSelection.id) ? focusedSelection.id : '';
+  useEffect(() => {
+    if (!activeBotSessionId) return;
+    void routinesPaneModule
+      .load()
+      .then((module) => module.prefetchAgentProfile(window.mixdogDesktop, activeBotSessionId))
+      .catch(() => {});
+  }, [activeBotSessionId]);
 
   const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) =>
     renderPaneSideDockView(leaf, focused, {
