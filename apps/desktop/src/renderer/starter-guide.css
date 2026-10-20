@@ -9,6 +9,9 @@
   flex: none;
   margin: 8px 10px 10px;
   display: grid;
+  /* A narrow panel shrinks the pill and ellipsizes its text instead of
+     letting the no-wrap text widen the column past the panel edge. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .starter-guide button {
