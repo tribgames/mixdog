@@ -6,11 +6,20 @@ export const ACTIVITY_RAIL_PIN_IDS = [
   'workflows',
   'projects',
   'extensions',
+  'skills',
   'source-control',
   'search',
   'webhooks',
 ] as const;
-export const DEFAULT_ACTIVITY_RAIL_PINS = ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions'];
+export const DEFAULT_ACTIVITY_RAIL_PINS = [
+  'sessions',
+  'agents',
+  'schedules',
+  'workflows',
+  'projects',
+  'extensions',
+  'skills',
+];
 
 export interface ActivityRailPinsState {
   pins: string[];

@@ -96,6 +96,63 @@ test('switching side groups preserves mounted controls, drafts and scroll positi
   assert.equal(document.querySelector('[data-view="sessions"]'), session);
 });
 
+test('a per-view hidden key renders only the hidden view it changed for', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement'] });
+  const groups = [['sessions'], ['schedules'], ['skills']];
+  const descriptors = new Map(groups.flat().map((id) => [id, { id, label: id, icon: () => null }]));
+  const renders = new Map();
+  const render = (mounted) =>
+    act(async () =>
+      root.render(
+        React.createElement(WorkbenchSidePanel, {
+          side: 'left',
+          open: true,
+          embedded: true,
+          groups,
+          activeRoot: 'sessions',
+          descriptors,
+          onSelect() {},
+          onMoveGroup() {},
+          onMoveView() {},
+          renderView: (id) => {
+            renders.set(id, (renders.get(id) ?? 0) + 1);
+            return React.createElement('div', { 'data-view': id }, mounted.has(id) ? 'rows' : '');
+          },
+          hiddenKey: (id) => (mounted.has(id) ? 'mounted' : ''),
+        })
+      )
+    );
+  // Visiting each view retains it hidden.
+  await render(new Set());
+  for (const id of ['schedules', 'skills']) {
+    await act(async () =>
+      root.render(
+        React.createElement(WorkbenchSidePanel, {
+          side: 'left',
+          open: true,
+          embedded: true,
+          groups,
+          activeRoot: id,
+          descriptors,
+          onSelect() {},
+          onMoveGroup() {},
+          onMoveView() {},
+          renderView: (view) => React.createElement('div', { 'data-view': view }),
+        })
+      )
+    );
+  }
+  await render(new Set());
+  const skills = renders.get('skills') ?? 0;
+  await render(new Set(['schedules']));
+  assert.equal(
+    document.querySelector('[data-view="schedules"]').textContent,
+    'rows',
+    'the pre-mount reaches the hidden view'
+  );
+  assert.equal(renders.get('skills') ?? 0, skills, 'other hidden views keep their last render');
+});
+
 test('unchanged side views skip rendering while their drag handles stay current', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root' });
   let renders = 0;
@@ -191,6 +248,7 @@ test('a corrupt or missing persisted layout falls back to the defaults', () => {
     ['projects'],
     ['workflows'],
     ['extensions'],
+    ['skills'],
     ['source-control'],
     ['search'],
     ['webhooks'],

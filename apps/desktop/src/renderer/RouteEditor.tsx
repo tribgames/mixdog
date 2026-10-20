@@ -54,6 +54,10 @@ interface RouteEditorProps {
   /** Side the sheet opens toward: `above` for the composer's pill at the
    *  bottom of the screen, `below` for a dialog or settings field. */
   placement?: 'above' | 'below';
+  /** The pill edge the sheet lines up with: `start` where the pill grows
+   *  rightwards (it leads its row), `end` where it sits at its row's right
+   *  end and grows leftwards. */
+  align?: 'start' | 'end';
   /** Only the focused conversation's composer sets this; it is the single
    *  responder to the open-model-picker event. */
   answersModelPickerRequests?: boolean;
@@ -218,6 +222,7 @@ export function RouteEditor({
   onOpenSheet,
   answersModelPickerRequests = false,
   placement = 'above',
+  align = 'start',
 }: RouteEditorProps) {
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -377,6 +382,7 @@ export function RouteEditor({
     effortCount: effortOptions.length,
     sheetHeight,
     placement,
+    align,
     pane,
     setSheetBox,
     setFlyoutBox,
@@ -780,6 +786,7 @@ export function RouteEditor({
               } as CSSProperties
             }
             data-placement={panelBox.placement}
+            data-align={align}
             data-drilled={drilled ? '' : undefined}
             data-state={closing ? 'closing' : 'open'}
           >

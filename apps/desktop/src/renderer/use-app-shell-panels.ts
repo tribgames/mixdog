@@ -23,6 +23,7 @@ import { DEFAULT_PROBLEMS_PANEL_FILTER, type ProblemsPanelFilter } from './Workb
 import {
   createExtensionsPane,
   createProjectsPane,
+  createSkillsPane,
   createSchedulesPane,
   createWebhooksPane,
   createWorkflowsPane,
@@ -31,6 +32,7 @@ import {
 } from './app-shell-components';
 import { useSidePanelOpenFlip } from './app-side-panel-flip';
 import { usePageHideFlush } from './layout-persistence';
+import { NEW_SCHEDULE_REQUEST_EVENT } from './routine-editor-request';
 import { BOTTOM_SHEET_QUERY, NARROW_SHELL_QUERY, useResponsiveShellBands } from './use-responsive-shell-bands';
 
 const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
@@ -297,6 +299,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     projects: createProjectsPane(),
     workflows: createWorkflowsPane(),
     extensions: createExtensionsPane(),
+    skills: createSkillsPane(),
   }));
   const markSidebarPanelFailed = useCallback((panel: SidebarPanelKey) => {
     setFailedSidebarPanels((current) => {
@@ -312,6 +315,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
         if (panel === 'webhooks') return { ...current, webhooks: createWebhooksPane() };
         if (panel === 'projects') return { ...current, projects: createProjectsPane() };
         if (panel === 'workflows') return { ...current, workflows: createWorkflowsPane() };
+        if (panel === 'skills') return { ...current, skills: createSkillsPane() };
         return { ...current, extensions: createExtensionsPane() };
       });
       setFailedSidebarPanels((current) => {
@@ -336,6 +340,11 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setProjectsOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
+  // A bot room's "루틴 만들기" opens the panel; the panel opens its editor.
+  useEffect(() => {
+    window.addEventListener(NEW_SCHEDULE_REQUEST_EVENT, openSchedules);
+    return () => window.removeEventListener(NEW_SCHEDULE_REQUEST_EVENT, openSchedules);
+  }, [openSchedules]);
   // Inbound-webhooks panel: same session-panel concept as Schedules
   // (user decision — moved out of the settings dialog).
   const [webhooksOpen, setWebhooksOpen] = useState(false);

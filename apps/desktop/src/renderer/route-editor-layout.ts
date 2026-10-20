@@ -104,6 +104,7 @@ export function useRouteLayout({
   effortCount,
   sheetHeight,
   placement,
+  align,
   pane,
   setSheetBox,
   setFlyoutBox,
@@ -117,6 +118,8 @@ export function useRouteLayout({
   /** `above` for the composer's pill at the bottom of the screen; `below`
    *  for a dialog or settings field. */
   placement: 'above' | 'below';
+  /** The pill edge the sheet shares (RouteEditor `align`). */
+  align: 'start' | 'end';
   pane: RouteSheetPane | null;
   setSheetBox: Dispatch<SetStateAction<RoutePanelBox | null>>;
   setFlyoutBox: Dispatch<SetStateAction<RoutePanelBox | null>>;
@@ -148,9 +151,9 @@ export function useRouteLayout({
       if (remeasure || labelWidth.current === null) {
         labelWidth.current = trigger.current ? naturalTriggerWidth(trigger.current) : ROUTE_PANEL_WIDTH;
       }
-      return routeSheetBox(triggerRect, sheetHeight, viewport, labelWidth.current, placement, 'start');
+      return routeSheetBox(triggerRect, sheetHeight, viewport, labelWidth.current, placement, align);
     },
-    [sheetHeight, labelWidth, trigger, placement]
+    [sheetHeight, labelWidth, trigger, placement, align]
   );
 
   /** Place the sheet and, when a pane is open, its flyout or drilled box. */

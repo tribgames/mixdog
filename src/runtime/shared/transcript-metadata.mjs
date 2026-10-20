@@ -2,6 +2,7 @@
 // These pure helpers keep live rows, persisted messages and restored rows on
 // the same field contract without rewriting older display-only transcripts.
 import { displayModelName } from './model-display.mjs';
+import { routineTriggerField } from './routine-trigger.mjs';
 
 export function transcriptRouteMetadataFields(value) {
   if (!value || typeof value !== 'object') return {};
@@ -76,8 +77,17 @@ export function persistedUserTranscriptMetadata(value) {
     // The turn's change-record key (the outer prompt id), so a restored user
     // row still addresses its turn's Undo/Reapply.
     ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
+    // Every submission a merged queued batch delivered as this turn.
+    ...submissionIdsField(value.submissionIds),
     ...attachmentsField(value.attachments),
+    // A routine fire delivered as this turn (routine-trigger.mjs).
+    ...routineTriggerField(value),
   };
+}
+
+function submissionIdsField(value) {
+  const ids = Array.isArray(value) ? value.filter((id) => typeof id === 'string' && id) : [];
+  return ids.length ? { submissionIds: ids } : {};
 }
 
 function attachmentsField(value) {

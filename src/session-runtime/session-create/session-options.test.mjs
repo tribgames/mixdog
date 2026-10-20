@@ -16,7 +16,13 @@ function optionsFor(toolProfile, sessionProfile = null) {
         currentCwd: process.cwd(),
       },
       cfgMod: { getPluginData: () => process.cwd() },
-      activeWorkflowContext: () => ({ summary: null, context: '', packContext: '', orchestrationMode: 'none' }),
+      activeWorkflowContext: () => ({
+        summary: null,
+        context: '',
+        packContext: '',
+        leadPromptParts: () => ({}),
+        orchestrationMode: 'none',
+      }),
       featureDisallowedTools: () => [],
     },
     null

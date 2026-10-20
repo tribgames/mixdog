@@ -26,6 +26,7 @@ export const SETUP_EXTENDED_ACTION_FIELDS = Object.freeze({
   save_automation: 'automationKind entry',
   delete_automation: 'automationKind name',
   set_automation_enabled: 'automationKind name enabled',
+  run_automation: 'automationKind name',
   set_webhook_config: 'webhook',
   set_desktop_settings: 'desktop',
   set_appearance: 'appearance',
@@ -51,6 +52,7 @@ export const SETUP_ACTIVITY_RAIL_PIN_IDS = Object.freeze([
   'workflows',
   'projects',
   'extensions',
+  'skills',
   'source-control',
   'search',
   'webhooks',
@@ -172,13 +174,7 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       timezone: text,
       days: { ...text, description: 'Schedule day selector, e.g. weekdays or mon,wed,fri.' },
       parser: { type: 'string', enum: ['github', 'generic', 'stripe', 'sentry'] },
-      model: {
-        ...text,
-        description:
-          'Required for new schedules; no default-model fallback. Use provider/model[@effort][+fast][+noauto][?parameter=value] (+noauto: Auto reasoning off; absent = on) or an existing preset name. On overwrite, omission preserves the saved model, which must be non-empty.',
-      },
       cwd: text,
-      workflow: text,
       attachments: {
         type: 'array',
         maxItems: 8,
@@ -197,6 +193,11 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
         ),
       },
       enabled: boolean,
+      owner: {
+        ...text,
+        description:
+          "The bot id that owns the schedule or webhook; each run is a turn in that bot's chat, where it replies with the result. The bot must exist (no representative bot yet = refused). New entries default to the bot of the calling thread (the representative bot = lead); on overwrite, omission keeps the owner.",
+      },
       overwrite: { ...boolean, description: 'Explicitly update an existing entry; omitted fields are preserved.' },
     },
     ['name']
@@ -213,6 +214,7 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     usagePinned: boolean,
     usageRailShortLong: boolean,
     computerObserveOnly: boolean,
+    browserAutoSignIn: boolean,
     notificationVolume: {
       type: 'integer',
       minimum: 0,

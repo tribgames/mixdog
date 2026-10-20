@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
@@ -13,14 +14,41 @@ import {
 import {
   canonicalizeAgentRouteStorage,
   isAgentDisabled,
+  WORKFLOW_AGENT_KIND,
   withAgentDisabled,
 } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId, effectiveAgentRoute, oneLine, resolveDataDir } from './shared.mjs';
+import { publishAgentProfileChange } from '../agent-profile-changes.mjs';
 import { absorbSaveEqualToShipped } from '../../runtime/shared/shipped-definitions.mjs';
+import {
+  AGENT_AVATAR_DIR,
+  AGENT_AVATAR_IMAGE_FILE,
+  AGENT_AVATAR_STATES,
+  agentAvatarImageProblem,
+  agentAvatarStatePath,
+  avatarImageInfo,
+  avatarPosterFile,
+  normalizeAgentAvatar,
+} from '../../runtime/shared/agent-avatar.mjs';
+import {
+  parseConnectorPolicy,
+  readConnectorsFile,
+  storedConnectorPolicy,
+} from '../../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
+
+/** A policy given to save → its stored form (null removes the field). Only a
+ *  deny-list policy `{ off, tools? }` is accepted; anything else throws. */
+function connectorPolicyInput(value) {
+  if (Array.isArray(value)) throw new Error('connectors must be { off: [connector id…], tools? } or null');
+  return storedConnectorPolicy(parseConnectorPolicy(value));
+}
 import { STANDALONE_ROOT } from '../runtime-paths.mjs';
 
 const isFixedAgent = (id) => FIXED_AGENT_SLOTS.some((agent) => agent.id === id);
 const hasUserAgentFile = (dataDir, id) => existsSync(join(dataDir, 'agents', id, 'AGENT.md'));
+// An archived (deleted) agent's AGENT.md, moved aside beside the tombstone:
+// no loader reads it, and restoring moves it back.
+const ARCHIVED_AGENT_FILE = 'AGENT.md.archived';
 
 // Frontmatter the editor does not show (e.g. `permission`), taken from the
 // definition in effect: the user's own copy if any, else the shipped one.
@@ -29,13 +57,181 @@ function hiddenFrontmatter(definition) {
   return rest;
 }
 
-function writeAgentFiles(dir, { name, description, body, extra = {} }) {
+// The definition's persisted `kind` marker (isContactAgentId reads it), or
+// null: only the Workflows page's create writes one (`kind: agent`).
+function kindOf(definition) {
+  const kind = definition?.frontmatter?.kind;
+  return typeof kind === 'string' && kind.trim() ? kind.trim() : null;
+}
+
+// A save's `kind`: given only when creating, and only as the workflow-agent
+// marker. Unmarked agents are contacts (봇); a kind never changes later.
+function creationKind(payload, existed) {
+  if (!hasOwn(payload, 'kind')) return null;
+  if (existed) throw new Error("an agent's kind is set when it is created and cannot change");
+  if (payload.kind !== WORKFLOW_AGENT_KIND) throw new Error(`agent kind must be "${WORKFLOW_AGENT_KIND}" or absent`);
+  return WORKFLOW_AGENT_KIND;
+}
+
+function readManifest(dir) {
+  try {
+    const value = JSON.parse(readFileSync(join(dir, 'agent.json'), 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+// Manifest keys the editor does not show (e.g. `avatar`). `entry` and `id`
+// go: the editor always writes AGENT.md, and the directory names the agent.
+function hiddenManifest(manifest) {
+  const { id: _id, name: _name, description: _description, entry: _entry, ...rest } = manifest;
+  return rest;
+}
+
+const PERSONA_FILE = 'PERSONA.md';
+const LEAD_AGENT_ID = 'lead';
+/** The code (and message prefix, which survives IPC) of a stale save. */
+export const AGENT_DEFINITION_CONFLICT = 'AGENT_DEFINITION_CONFLICT';
+const LEAD_PERSONA_MAX_BYTES = 256 * 1024;
+
+function readPersona(dir) {
+  try {
+    return readFileSync(join(dir, PERSONA_FILE), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+const IMAGE_DATA_URL = /^data:image\/(png|gif|webp);base64,/;
+
+// One uploaded image (a data URL) as checked bytes. Only a real PNG, GIF or
+// WebP whose bytes match its declared type passes: no markup (SVG) is ever
+// stored, and the image is never inlined anywhere but an <img>.
+function avatarImageUpload(dataUrl, label) {
+  const match = typeof dataUrl === 'string' ? IMAGE_DATA_URL.exec(dataUrl) : null;
+  if (!match) throw new Error(`${label} must be a PNG, GIF or WebP image`);
+  const bytes = Buffer.from(dataUrl.slice(match[0].length), 'base64');
+  const problem = agentAvatarImageProblem(bytes);
+  if (problem) throw new Error(`${label} ${problem}`);
+  const info = avatarImageInfo(bytes);
+  if (info.format !== match[1]) throw new Error(`${label} must be a PNG, GIF or WebP image`);
+  return { bytes, info };
+}
+
+// The `avatar` of a save → the record to store and the image files to write
+// (paths under the agent's folder). A custom avatar's state is either a kept
+// file name or a new upload `{ data, poster? }`: an animated upload brings its
+// still first frame (a PNG) for reduced motion and paused views. The older
+// `{ kind: 'image', data }` is an upload of idle alone. null clears the avatar.
+function avatarUpdate(value, dir) {
+  if (value == null) return { avatar: null, writes: [] };
+  const custom =
+    value.kind === 'image' && typeof value.data === 'string'
+      ? { kind: 'custom', states: { idle: { data: value.data } } }
+      : value;
+  const writes = [];
+  let avatar;
+  if (custom.kind === 'custom' && custom.states && typeof custom.states === 'object') {
+    const states = {};
+    for (const state of AGENT_AVATAR_STATES) {
+      const entry = custom.states[state];
+      if (entry == null || typeof entry === 'string') {
+        if (entry) states[state] = entry;
+        continue;
+      }
+      const label = `agent avatar ${state} image`;
+      const { bytes, info } = avatarImageUpload(entry?.data, label);
+      const file = `${state}-${createHash('sha256').update(bytes).digest('hex').slice(0, 12)}.${info.format}`;
+      writes.push({ path: agentAvatarStatePath(file), bytes });
+      if (info.animated) {
+        const poster = avatarImageUpload(entry.poster, `${label}'s first frame`);
+        if (poster.info.format !== 'png' || poster.info.animated)
+          throw new Error(`${label}'s first frame must be a still PNG`);
+        writes.push({ path: agentAvatarStatePath(avatarPosterFile(file)), bytes: poster.bytes });
+      }
+      states[state] = file;
+    }
+    avatar = normalizeAgentAvatar({ kind: 'custom', states });
+    if (!avatar) throw new Error('agent avatar needs an idle image');
+  } else {
+    avatar = normalizeAgentAvatar(value);
+    if (!avatar) throw new Error('agent avatar must be a known mascot or an uploaded image');
+  }
+  const written = new Set(writes.map((write) => write.path));
+  for (const file of avatar.kind === 'custom' ? Object.values(avatar.states) : []) {
+    const path = agentAvatarStatePath(file);
+    if (!written.has(path) && !existsSync(join(dir, path))) throw new Error('agent avatar image was not found');
+  }
+  return { avatar, writes };
+}
+
+// Writes an update's images, then drops every avatar image the stored avatar
+// no longer names (the older single image beside AGENT.md included).
+function syncAvatarFiles(dir, avatar, writes) {
+  for (const { path, bytes } of writes) {
+    mkdirSync(join(dir, AGENT_AVATAR_DIR), { recursive: true });
+    writeFileSync(join(dir, path), bytes);
+  }
+  const keep = new Set(
+    avatar?.kind === 'custom'
+      ? Object.values(avatar.states).flatMap((file) => [
+          agentAvatarStatePath(file),
+          agentAvatarStatePath(avatarPosterFile(file)),
+        ])
+      : []
+  );
+  for (const name of readdirSync(dir)) {
+    if (AGENT_AVATAR_IMAGE_FILE.test(name) && !keep.has(name)) rmSync(join(dir, name), { force: true });
+  }
+  if (!existsSync(join(dir, AGENT_AVATAR_DIR))) return;
+  for (const name of readdirSync(join(dir, AGENT_AVATAR_DIR))) {
+    if (!keep.has(`${AGENT_AVATAR_DIR}/${name}`)) rmSync(join(dir, AGENT_AVATAR_DIR, name), { force: true });
+  }
+}
+
+// One state image as a data URL, with its still first frame ('' when it has
+// none): checked again on read, so a hand-placed file never reaches an <img>
+// unless it is an image the editor would have accepted.
+function readAvatarImage(dir, file) {
+  const read = (path) => {
+    try {
+      const bytes = readFileSync(join(dir, path));
+      if (agentAvatarImageProblem(bytes)) return null;
+      const info = avatarImageInfo(bytes);
+      return { info, url: `data:image/${info.format};base64,${bytes.toString('base64')}` };
+    } catch {
+      return null;
+    }
+  };
+  const image = read(agentAvatarStatePath(file));
+  if (!image) return null;
+  const poster =
+    image.info.animated && !AGENT_AVATAR_IMAGE_FILE.test(file)
+      ? read(agentAvatarStatePath(avatarPosterFile(file)))
+      : null;
+  return {
+    file,
+    url: image.url,
+    poster: poster && poster.info.format === 'png' && !poster.info.animated ? poster.url : '',
+  };
+}
+
+const stableJson = (value) =>
+  JSON.stringify(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, value[key]])
+  );
+
+function writeAgentFiles(dir, { name, description, body, extra = {}, manifest = {} }) {
   const meta = { name, ...(description ? { description } : {}) };
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'AGENT.md'), serializeFrontmatterDoc({ ...meta, ...extra }, body));
   // loadAgentDefinition prefers the manifest for name/description.
-  writeFileSync(join(dir, 'agent.json'), `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(join(dir, 'agent.json'), `${JSON.stringify({ ...meta, ...manifest }, null, 2)}\n`);
   rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
+  rmSync(join(dir, ARCHIVED_AGENT_FILE), { force: true });
 }
 
 // Agent catalog + editor surface: fixed services stay built-in; starter and
@@ -43,6 +239,21 @@ function writeAgentFiles(dir, { name, description, body, extra = {} }) {
 export function createAgentEditorApi(deps) {
   const { getConfig, loadAgentDefinition, listCustomAgentIds, saveConfigAndAdopt, setAgentRoute } = deps;
   const routeFor = (config, id) => effectiveAgentRoute(deps, config, id);
+  // `route` falls back to Main; this says whether the agent has a route of
+  // its own, so a surface never shows (or saves) the Main fallback as one.
+  const routeConfigured = (config, id) => Boolean(deps.agentRouteFromConfig(config, id));
+  const shippedDir = (id) => join(deps.rootDir ?? STANDALONE_ROOT, 'agents', id);
+  // The manifest in effect: the user's own copy if any, else the shipped one.
+  const manifestDirOf = (dataDir, id) => (hasUserAgentFile(dataDir, id) ? join(dataDir, 'agents', id) : shippedDir(id));
+  const manifestOf = (dataDir, id) => readManifest(manifestDirOf(dataDir, id));
+  const avatarOf = (dataDir, id) => normalizeAgentAvatar(manifestOf(dataDir, id).avatar);
+  // A saved, archived or restored bot reaches the prompts that embed it: the
+  // fresh scan republishes the shared bot list the Lead rosters read (a new id
+  // is in it at once), then every runtime is told.
+  async function announceBotChange(dataDir) {
+    listCustomAgentIds?.(dataDir);
+    await publishAgentProfileChange();
+  }
 
   function listAgents() {
     const dataDir = resolveDataDir(deps);
@@ -52,6 +263,7 @@ export function createAgentEditorApi(deps) {
       locked: true,
       userOverride: hasUserAgentFile(dataDir, agent.id),
       route: routeFor(config, agent.id),
+      routeConfigured: routeConfigured(config, agent.id),
       disabled: isAgentDisabled(config, agent.id),
       definition: loadAgentDefinition(dataDir, agent.id),
     }));
@@ -66,11 +278,32 @@ export function createAgentEditorApi(deps) {
         custom: true,
         userOverride: hasUserAgentFile(dataDir, id),
         route: routeFor(config, id),
+        routeConfigured: routeConfigured(config, id),
+        kind: kindOf(definition),
         disabled: isAgentDisabled(config, id),
+        avatar: avatarOf(dataDir, id),
         definition,
       };
     });
     return [...fixed, ...custom];
+  }
+
+  // The stored definition's revision: a hash of the three files an editor
+  // writes, from the copy in effect. An editor that loaded it can send it back
+  // as `expectedRevision`, and a save over a newer copy is refused.
+  function definitionRevision(dataDir, id) {
+    const dir = hasUserAgentFile(dataDir, id) ? join(dataDir, 'agents', id) : shippedDir(id);
+    const hash = createHash('sha256');
+    for (const name of ['agent.json', 'AGENT.md', PERSONA_FILE]) {
+      hash.update(`${name}\0`);
+      try {
+        hash.update(readFileSync(join(dir, name)));
+      } catch {
+        hash.update('\u0001absent');
+      }
+      hash.update('\0');
+    }
+    return hash.digest('hex').slice(0, 24);
   }
 
   function getAgentDefinition(agentId) {
@@ -89,7 +322,12 @@ export function createAgentEditorApi(deps) {
       custom: !isFixedAgent(id),
       userOverride: hasUserAgentFile(dataDir, id),
       route: routeFor(getConfig(), id),
+      routeConfigured: routeConfigured(getConfig(), id),
+      kind: kindOf(definition),
       disabled: isAgentDisabled(getConfig(), id),
+      avatar: avatarOf(dataDir, id),
+      persona: readPersona(hasUserAgentFile(dataDir, id) ? join(dataDir, 'agents', id) : shippedDir(id)),
+      revision: definitionRevision(dataDir, id),
     };
   }
 
@@ -102,7 +340,13 @@ export function createAgentEditorApi(deps) {
     const name = oneLine(payload.name);
     if (!name && !id) throw new Error('agent name must not be empty');
     return {
-      id: id || availableAgentId(name, (candidate) => Boolean(loadAgentDefinition(dataDir, candidate))),
+      // An archived agent keeps its id: its chat is never handed to a new one.
+      id:
+        id ||
+        availableAgentId(
+          name,
+          (candidate) => Boolean(loadAgentDefinition(dataDir, candidate)) || isArchivedAgent(dataDir, candidate)
+        ),
       name,
       description: oneLine(payload.description),
     };
@@ -113,25 +357,67 @@ export function createAgentEditorApi(deps) {
     if (!body) throw new Error('AGENT.md body must not be empty');
     const dataDir = resolveDataDir(deps);
     const { id, name, description } = resolveSaveTarget(payload, dataDir);
+    // Opt-in (the agent profile): without `expectedRevision` the last write
+    // wins, as for the Workflows editor and the setup tool.
+    if (hasOwn(payload, 'expectedRevision') && String(payload.expectedRevision) !== definitionRevision(dataDir, id)) {
+      const conflict = new Error(`${AGENT_DEFINITION_CONFLICT}: agent "${id}" changed since it was loaded`);
+      conflict.code = AGENT_DEFINITION_CONFLICT;
+      throw conflict;
+    }
     const current = loadAgentDefinition(dataDir, id);
     const existed = Boolean(current);
+    // Made anew under an archived agent's id (never restored): its kept route goes.
+    const reclaimed = !existed && isArchivedAgent(dataDir, id);
+    const kind = creationKind(payload, existed);
     const definition = { name: name || id, description, body };
-    // Equal to the shipped agent: keep no copy so it follows the shipped version.
-    const absorbed = absorbSaveEqualToShipped({
-      rootDir: deps.rootDir ?? STANDALONE_ROOT,
-      dataDir,
-      dir: 'agents',
-      id,
-      entry: 'AGENT.md',
-      files: ['AGENT.md', 'agent.json'],
-      definition,
-    });
-    if (!absorbed) writeAgentFiles(join(dataDir, 'agents', id), { ...definition, extra: hiddenFrontmatter(current) });
+    const manifest = hiddenManifest(manifestOf(dataDir, id));
+    const dir = join(dataDir, 'agents', id);
+    // New custom images arrive as checked bytes, stored under content hashes.
+    const update = hasOwn(payload, 'avatar') ? avatarUpdate(payload.avatar, dir) : null;
+    if (update?.avatar) manifest.avatar = update.avatar;
+    else if (update) delete manifest.avatar;
+    // Connectors: a policy replaces the saved one, null removes the field
+    // (every connector on), absent leaves it as saved.
+    if (hasOwn(payload, 'connectors')) {
+      const connectors = connectorPolicyInput(payload.connectors);
+      if (connectors) manifest.connectors = connectors;
+      else delete manifest.connectors;
+    }
+    // PERSONA.md (tone, how it addresses the user): written when given and
+    // non-empty, removed when given empty, untouched when absent.
+    const persona = hasOwn(payload, 'persona') ? String(payload.persona ?? '').trim() : null;
+    // Equal to the shipped agent: keep no copy so it follows the shipped
+    // version — unless the manifest (an avatar) or a persona differs.
+    const absorbed =
+      !persona &&
+      stableJson(manifest) === stableJson(hiddenManifest(readManifest(shippedDir(id)))) &&
+      absorbSaveEqualToShipped({
+        rootDir: deps.rootDir ?? STANDALONE_ROOT,
+        dataDir,
+        dir: 'agents',
+        id,
+        entry: 'AGENT.md',
+        files: ['AGENT.md', 'agent.json'],
+        definition,
+      });
+    if (!absorbed) {
+      // Hidden frontmatter (the `kind` marker included) survives every edit.
+      const extra = kind ? { ...hiddenFrontmatter(current), kind } : hiddenFrontmatter(current);
+      writeAgentFiles(dir, { ...definition, extra, manifest });
+      if (persona) writeFileSync(join(dir, PERSONA_FILE), `${persona}\n`);
+      else if (persona === '') rmSync(join(dir, PERSONA_FILE), { force: true });
+      // Only the images the manifest names stay.
+      syncAvatarFiles(dir, normalizeAgentAvatar(manifest.avatar), update?.writes ?? []);
+    }
     clearAgentDefinitionCache(id);
+    if (reclaimed) dropAgentRoute(id);
     // A newly created agent starts enabled; a stale roster entry left by an
     // earlier agent of the same id must not disable it.
     if (!existed && isAgentDisabled(getConfig(), id)) saveConfigAndAdopt(withAgentDisabled(getConfig(), id, false));
     if (payload.route) await setAgentRoute(id, payload.route);
+    // Its threads take the saved persona, AGENT.md and name, and the Leads
+    // listing it (a new bot, a new name) their roster, from their next turn.
+    await announceBotChange(dataDir);
     return getAgentDefinition(id);
   }
 
@@ -162,18 +448,84 @@ export function createAgentEditorApi(deps) {
     // Agents are global (no workflow rosters): deleting a custom agent removes
     // it from every surface at once — catalog, editor, routes, and spawn (the
     // spawn path rejects unknown agent ids).
+    if (builtIn) {
+      rmSync(dir, { recursive: true, force: true });
+      clearAgentDefinitionCache(id);
+      const sourceFallback = loadAgentDefinition(dataDir, id);
+      // Its threads, and the Leads listing it, take the shipped definition.
+      await announceBotChange(dataDir);
+      return { id, deleted: true, revertedToBuiltIn: Boolean(sourceFallback) };
+    }
+    // A custom agent is archived: its AGENT.md (what makes it an agent
+    // anywhere) moves aside, the tombstone keeps the packaged copy of a
+    // starter from coming back, and the rest (agent.json: name and face,
+    // persona, memory, its model and on/off) stays for its archived chat —
+    // until restoreAgentDefinition brings it back or purgeAgentDefinition.
+    mkdirSync(dir, { recursive: true });
+    if (existsSync(join(dir, 'AGENT.md'))) renameSync(join(dir, 'AGENT.md'), join(dir, ARCHIVED_AGENT_FILE));
+    writeFileSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
+    clearAgentDefinitionCache(id);
+    // The Leads listing it drop it from their roster from their next turn.
+    await announceBotChange(dataDir);
+    return { id, deleted: true, revertedToBuiltIn: false };
+  }
+
+  const isArchivedAgent = (dataDir, id) => existsSync(join(dataDir, 'agents', id, AGENT_DELETED_MARKER));
+
+  /** An archived agent back as it was, under its own id: its AGENT.md moved
+   *  back (a starter without a copy of its own returns to the packaged one)
+   *  and the tombstone gone. Its routines stay off (the host). */
+  async function restoreAgentDefinition(agentId) {
+    const id = agentEditorId(agentId);
+    if (!id || isHiddenAgent(id) || isFixedAgent(id)) throw new Error(`unknown agent "${agentId}"`);
+    const dataDir = resolveDataDir(deps);
+    if (!isArchivedAgent(dataDir, id)) throw new Error(`agent "${id}" is not deleted`);
+    const dir = join(dataDir, 'agents', id);
+    const kept = join(dir, ARCHIVED_AGENT_FILE);
+    if (!existsSync(kept) && !existsSync(join(shippedDir(id), 'AGENT.md'))) {
+      throw new Error(`agent "${id}" was deleted before deleted agents were kept, so it cannot be restored`);
+    }
+    if (existsSync(kept)) renameSync(kept, join(dir, 'AGENT.md'));
+    rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
+    clearAgentDefinitionCache(id);
+    // Back in the roster of the Leads that list it, from their next turn.
+    await announceBotChange(dataDir);
+    return getAgentDefinition(id);
+  }
+
+  /** Deleting an archived agent again: everything it left goes for good. A
+   *  starter keeps only its tombstone, so its packaged copy stays gone. */
+  async function purgeAgentDefinition(agentId) {
+    const id = agentEditorId(agentId);
+    if (!id || isHiddenAgent(id) || isFixedAgent(id)) throw new Error(`unknown agent "${agentId}"`);
+    const dataDir = resolveDataDir(deps);
+    // Never a live agent; one deleted before archiving existed left nothing.
+    if (!isArchivedAgent(dataDir, id)) return { id, purged: false };
+    const dir = join(dataDir, 'agents', id);
     rmSync(dir, { recursive: true, force: true });
     clearAgentDefinitionCache(id);
-    const sourceFallback = loadAgentDefinition(dataDir, id);
-    // Shipped starter agents are custom, not fixed. Persist an explicit
-    // tombstone so deleting one does not fall back to the packaged copy.
-    if (!builtIn && sourceFallback) {
+    dropAgentRoute(id);
+    if (loadAgentDefinition(dataDir, id)) {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
       clearAgentDefinitionCache(id);
     }
-    if (!builtIn) dropAgentRoute(id);
-    return { id, deleted: true, revertedToBuiltIn: builtIn && Boolean(sourceFallback) };
+    return { id, purged: true };
+  }
+
+  /** The name and face an archived (deleted) agent left, per id; null for
+   *  any id that is not archived. Its chat lists under them. */
+  function archivedAgentIdentities(agentIds = []) {
+    const dataDir = resolveDataDir(deps);
+    const ids = Array.isArray(agentIds) ? agentIds.filter((id) => typeof id === 'string') : [];
+    return Object.fromEntries(
+      ids.map((agentId) => {
+        const id = agentEditorId(agentId);
+        if (!id || id !== agentId || !isArchivedAgent(dataDir, id)) return [agentId, null];
+        const manifest = readManifest(join(dataDir, 'agents', id));
+        return [agentId, { name: oneLine(manifest.name) || id, avatar: normalizeAgentAvatar(manifest.avatar) ?? null }];
+      })
+    );
   }
 
   // Whether each agent's definition is on disk, decided per id from the files
@@ -207,5 +559,156 @@ export function createAgentEditorApi(deps) {
     return Object.fromEntries(ids.map((id) => [id, presence(id)]));
   }
 
-  return { listAgents, getAgentDefinition, saveAgentDefinition, deleteAgentDefinition, agentDefinitionPresence };
+  // A custom avatar's images as data URLs by state, read on demand: the
+  // catalog rows (which also reach the setup tool's model output) carry only
+  // file names, and the images themselves never go to a model.
+  function getAgentAvatarImage(agentId) {
+    const id = agentEditorId(agentId);
+    if (!id || isHiddenAgent(id)) return null;
+    const dataDir = resolveDataDir(deps);
+    // Mixy's face lives in agents/lead/agent.json, beside no AGENT.md of its own.
+    const lead = id === LEAD_AGENT_ID;
+    const dir = join(dataDir, 'agents', id);
+    // An archived agent's face stays readable for its archived chat.
+    const archived = !lead && isArchivedAgent(dataDir, id);
+    const avatar = lead
+      ? normalizeAgentAvatar(readManifest(leadDir()).avatar)
+      : archived
+        ? normalizeAgentAvatar(readManifest(dir).avatar)
+        : avatarOf(dataDir, id);
+    if (avatar?.kind !== 'custom' || (!lead && !archived && !hasUserAgentFile(dataDir, id))) return null;
+    const states = {};
+    for (const [state, file] of Object.entries(avatar.states)) {
+      const image = readAvatarImage(dir, file);
+      if (image) states[state] = image;
+    }
+    return states.idle ? { states } : null;
+  }
+
+  // Mixy (the Lead) has no agent definition to edit: only its PERSONA.md
+  // (성격) and AGENT.md (일하는 방식, agent mode only), read by the runtime
+  // from agents/lead/. Saved empty, the file goes.
+  const leadDir = () => join(resolveDataDir(deps), 'agents', LEAD_AGENT_ID);
+  function readLeadFile(file) {
+    try {
+      return readFileSync(join(leadDir(), file), 'utf8').trim();
+    } catch {
+      return '';
+    }
+  }
+  function saveLeadFile(file, text) {
+    const value = String(text ?? '').trim();
+    if (Buffer.byteLength(value) > LEAD_PERSONA_MAX_BYTES) throw new Error(`${file} is larger than 256 KB`);
+    const dir = leadDir();
+    if (value) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, file), `${value}\n`);
+    } else rmSync(join(dir, file), { force: true });
+    // Mixy's threads take it from their next turn (the save answers at once).
+    void publishAgentProfileChange();
+    return readLeadFile(file);
+  }
+  const getLeadPersona = () => readLeadFile(PERSONA_FILE);
+  const saveLeadPersona = (text) => saveLeadFile(PERSONA_FILE, text);
+  const getLeadAgentBody = () => readLeadFile('AGENT.md');
+  const saveLeadAgentBody = (text) => saveLeadFile('AGENT.md', text);
+
+  // Whether Mixy was created (the "대표 에이전트 만들기" first run): the
+  // explicit `created` flag in agents/lead/agent.json. null until decided —
+  // the desktop host decides once (an existing profile counts as created).
+  // Also Mixy's display name (`name`, read by the runtime's identity line) and
+  // face (`avatar`, as every agent manifest): '' / null mean the defaults.
+  function getLeadStatus() {
+    const manifest = readManifest(leadDir());
+    return {
+      created: typeof manifest.created === 'boolean' ? manifest.created : null,
+      name: oneLine(manifest.name),
+      avatar: normalizeAgentAvatar(manifest.avatar) ?? null,
+    };
+  }
+  // Mixy's name and face, chosen in the 대표 에이전트 dialog or its profile:
+  // a name '' and an avatar null go back to the defaults; absent keys are kept.
+  function saveLeadIdentity(payload = {}) {
+    const dir = leadDir();
+    const manifest = readManifest(dir);
+    if (hasOwn(payload, 'name')) {
+      const name = oneLine(payload.name);
+      if (name.length > 64) throw new Error('name must be 64 characters or fewer');
+      if (name) manifest.name = name;
+      else delete manifest.name;
+    }
+    const update = hasOwn(payload, 'avatar') ? avatarUpdate(payload.avatar, dir) : null;
+    if (update?.avatar) manifest.avatar = update.avatar;
+    else if (update) delete manifest.avatar;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'agent.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    syncAvatarFiles(dir, normalizeAgentAvatar(manifest.avatar), update?.writes ?? []);
+    // The name is in Mixy's prompt (its identity line); the face is not.
+    if (hasOwn(payload, 'name')) void publishAgentProfileChange();
+    return getLeadStatus();
+  }
+  // Sets the flag (and Mixy's 하는 일 when given); every other key is kept.
+  function setLeadCreated(created, description) {
+    if (typeof created !== 'boolean') throw new TypeError('created must be a boolean');
+    const manifest = readManifest(leadDir());
+    manifest.created = created;
+    const job = oneLine(description);
+    if (job) manifest.description = job;
+    mkdirSync(leadDir(), { recursive: true });
+    writeFileSync(join(leadDir(), 'agent.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    return getLeadStatus();
+  }
+
+  // The agent's connector policy (see runtime/.../mcp/agent-connectors.mjs),
+  // or null when its definition has none: every connector is on. Read as the
+  // runtime reads it: a broken file or field is DENY_ALL_CONNECTORS, never
+  // "every connector".
+  function getAgentConnectorPolicy(agentId) {
+    const id = agentEditorId(agentId);
+    if (!id) throw new Error(`unknown agent "${agentId}"`);
+    if (isHiddenAgent(id)) throw new Error(`agent "${id}" is internal and cannot be edited`);
+    const dataDir = resolveDataDir(deps);
+    if (id === LEAD_AGENT_ID) return readConnectorsFile(join(leadDir(), 'agent.json'));
+    if (!loadAgentDefinition(dataDir, id)) throw new Error(`agent "${agentId}" not found`);
+    return readConnectorsFile(join(manifestDirOf(dataDir, id), 'agent.json'));
+  }
+  // Replaces the policy (null removes the field). Every other key — avatar,
+  // persona, frontmatter — is kept; for Mixy only its agent.json is touched.
+  async function setAgentConnectorPolicy(agentId, connectors) {
+    const id = agentEditorId(agentId);
+    const next = connectorPolicyInput(connectors);
+    getAgentConnectorPolicy(id);
+    if (id === LEAD_AGENT_ID) {
+      const manifest = readManifest(leadDir());
+      if (next) manifest.connectors = next;
+      else delete manifest.connectors;
+      mkdirSync(leadDir(), { recursive: true });
+      writeFileSync(join(leadDir(), 'agent.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    } else {
+      const { name, description, body } = loadAgentDefinition(resolveDataDir(deps), id);
+      await saveAgentDefinition({ id, name, description, body, connectors: next });
+    }
+    return getAgentConnectorPolicy(id);
+  }
+
+  return {
+    getAgentConnectorPolicy,
+    setAgentConnectorPolicy,
+    listAgents,
+    getAgentDefinition,
+    getAgentAvatarImage,
+    getLeadPersona,
+    saveLeadPersona,
+    getLeadAgentBody,
+    saveLeadAgentBody,
+    getLeadStatus,
+    setLeadCreated,
+    saveLeadIdentity,
+    saveAgentDefinition,
+    deleteAgentDefinition,
+    restoreAgentDefinition,
+    purgeAgentDefinition,
+    archivedAgentIdentities,
+    agentDefinitionPresence,
+  };
 }

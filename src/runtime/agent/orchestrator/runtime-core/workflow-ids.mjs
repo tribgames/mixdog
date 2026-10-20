@@ -15,6 +15,8 @@ export const BUILTIN_SLOT_AGENT_IDS = new Set(
   FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id)
 );
 export const STARTER_AGENT_ORDER = new Map(DEFAULT_DISABLED_AGENT_IDS.map((id, index) => [id, index]));
+// Only Mixy delegates to contacts (agent-route-config.mjs isContactAgentId).
+export { isContactAgentId } from '../../../shared/agent-route-config.mjs';
 export const DEFAULT_WORKFLOW_ID = 'default';
 
 // Loaded AGENT.md definitions, keyed `${dir}\n${agentId}`.

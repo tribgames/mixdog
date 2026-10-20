@@ -23,7 +23,6 @@ class WebhookServer {
       },
     });
     this.sessionDispatcher = createWebhookSessionDispatcher({
-      getConfig: () => this.config,
       getBridgeDispatch: () => this.bridgeDispatch,
     });
     this.requestHandler = createWebhookRequestHandler({

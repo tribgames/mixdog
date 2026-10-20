@@ -1,5 +1,6 @@
 import { createOnboardingApi } from './workflow-agents-api/onboarding.mjs';
 import { createAgentEditorApi } from './workflow-agents-api/agent-editor.mjs';
+import { createAgentConnectorsApi } from './workflow-agents-api/agent-connectors.mjs';
 import { createAgentRouteApi } from './workflow-agents-api/agent-route.mjs';
 import { createWorkflowPacksApi } from './workflow-agents-api/workflow-packs.mjs';
 import { createStyleAndModeApi } from './workflow-agents-api/style-and-mode.mjs';
@@ -11,9 +12,11 @@ import { createStyleAndModeApi } from './workflow-agents-api/style-and-mode.mjs'
 // getOnboardingStatus from the composed runtime API through `this`.
 export function createWorkflowAgentsApi(deps) {
   const routeApi = createAgentRouteApi(deps);
+  const editorApi = createAgentEditorApi({ ...deps, setAgentRoute: routeApi.setAgentRoute });
   return {
     ...createOnboardingApi(deps),
-    ...createAgentEditorApi({ ...deps, setAgentRoute: routeApi.setAgentRoute }),
+    ...editorApi,
+    ...createAgentConnectorsApi(deps, editorApi),
     ...routeApi,
     ...createWorkflowPacksApi(deps),
     ...createStyleAndModeApi(deps),

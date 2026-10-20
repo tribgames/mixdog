@@ -77,6 +77,8 @@ import { createStoredSessionViews } from './daemon-stored-session-views.mjs';
 import * as quotaResumeStore from '../runtime/shared/quota-resume-store.mjs';
 import { registerWorktreeCacheCleanups } from '../runtime/shared/worktrees/cache-cleanups.mjs';
 import { createInlineSessionRuntimeHost } from './session-runtime-inline-host.mjs';
+import { recoverScheduleResults, setAgentHomeLiveSurface } from '../session-runtime/agent-home-delivery.mjs';
+import { recoverRoutineDeliveries } from '../session-runtime/owned-automation-run.mjs';
 import { getStandaloneMemoryRuntime } from '../session-runtime/services/memory-runtime-proxy.mjs';
 import { registerTranscriptPurgeHook } from '../session-runtime/session-transcript-purge.mjs';
 import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
@@ -95,7 +97,6 @@ import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
 import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
 import { createSessionControl } from './daemon-session-control.mjs';
 import { flushAllIndexWrites } from '../session-runtime/services/agent-tool/index-write-queue.mjs';
-import { registerAutomationAgentTool } from '../session-runtime/automation-agents.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -925,9 +926,6 @@ async function main() {
     cwd: CWD,
   });
   canonicalAgentControl = agentControl;
-  // Schedules and webhooks run headless here; their sessions reach the same
-  // canonical agent control through the automation tool scope.
-  registerAutomationAgentTool(agentControl.execute);
   const requestedRuntimeMode = String(process.env.MIXDOG_SESSION_RUNTIME_MODE || '')
     .trim()
     .toLowerCase();
@@ -984,6 +982,22 @@ async function main() {
     },
     log,
   });
+  // Schedule results reach an open home thread at once (and wait out its turn).
+  setAgentHomeLiveSurface({
+    busy: (sessionId) => sessionService.liveSessionBusy(sessionId),
+    notice: (sessionId, notice) => sessionService.pushLiveSessionNotice(sessionId, notice),
+    // A task session's result (session create): the agent relays it in one turn.
+    wake: (sessionId, prompt) =>
+      sessionService.submitSession({ sessionId, prompt, options: { mode: 'prompt', kickoff: true } }),
+    // A routine fire: one queued turn in its bot's thread (routine-home-turn.mjs).
+    submit: async (sessionId, prompt, options) =>
+      (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,
+    abort: (sessionId) => sessionService.abortSession({ sessionId }),
+  });
+  // Results queued before a restart are posted now; results a finished run
+  // could not queue (kept on its routine's record) are queued again.
+  recoverScheduleResults().catch((error) => log(`routine results recovery failed: ${error?.message || error}`));
+  recoverRoutineDeliveries().catch((error) => log(`routine delivery recovery failed: ${error?.message || error}`));
   sessionTransport = createSessionTransport({
     // ctx carries the CLIENT token: the session service refcounts views across
     // processes with it, so a terminal exiting cannot destroy the session a

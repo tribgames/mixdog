@@ -274,7 +274,11 @@ test('the creation boundary refreshes before memory/tools/workflow, but skips an
     },
     reg: { getProvider: () => ({}) },
     cfgMod: f.cfgMod,
-    activeWorkflowContext: (config) => ({ summary: config.workflow, context: config.workflow.active }),
+    activeWorkflowContext: (config) => ({
+      summary: config.workflow,
+      packContext: config.workflow.active,
+      leadPromptParts: () => ({}),
+    }),
     hooks: { emit() {}, dispatch: async () => ({}) },
     hookCommonPayload: (value) => value,
     mcpClient: { getMcpTools: () => [] },

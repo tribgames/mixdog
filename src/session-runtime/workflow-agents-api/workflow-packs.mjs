@@ -48,11 +48,21 @@ export function createWorkflowPacksApi(deps) {
     }));
   }
 
-  async function setWorkflow(workflowId) {
+  // `{ scope: 'session' }` (the composer's selector in a session): a session
+  // with a conversation switches alone from its next turn
+  // (switchSessionWorkflow) and the configured workflow — the default for new
+  // sessions — stays as it is. Without a conversation, and without the
+  // scope, the choice becomes the configured workflow and an empty session
+  // picks it up in place, as before.
+  async function setWorkflow(workflowId, options = {}) {
     const requested = normalizeWorkflowId(workflowId, DEFAULT_WORKFLOW_ID);
     const id = requested === 'solo' ? DEFAULT_WORKFLOW_ID : requested;
     const pack = loadWorkflowPack(resolveDataDir(deps), id);
     if (!pack || pack.id !== id) throw new Error(`workflow "${workflowId}" not found`);
+    if (options?.scope === 'session') {
+      const switched = await deps.switchSessionWorkflow?.(id);
+      if (switched) return { ...switched.workflow, ...switched };
+    }
     saveActiveWorkflow(id);
     const applied = await deps.refreshEmptySessionToolPolicy?.();
     deps.invalidatePreSessionToolSurface?.();

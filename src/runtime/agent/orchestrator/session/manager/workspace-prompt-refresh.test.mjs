@@ -171,7 +171,10 @@ test('removed instruction files and memory are announced as no longer applying; 
   refreshSessionWorkspaceContext(same, {
     cwd: 'C:/elsewhere',
     coreMemoryContext: '- old project memo',
-    instructionFilesContext: presented.slice(presented.indexOf('# Instruction Files')),
+    instructionFilesContext: presented.slice(
+      presented.indexOf('# Instruction Files'),
+      presented.indexOf(`${SEP}# Core Memory`)
+    ),
   });
   const folderOnly = snapshotPendingWorkspaceNotice(same).content;
   assert.match(folderOnly, /^<system-reminder>\n# Working Folder Changed\nThe working folder is now C:\/elsewhere\./);
@@ -282,7 +285,7 @@ test('a re-root applies the staged workspace to the system prompt and retires th
     const view = { messages };
     assert.equal(
       tier(view, 'tier3'),
-      ['# Active Workflow: Solo', '# General', '# Core Memory\n- worktree memo', NEXT.instructionFilesContext].join(SEP)
+      ['# Active Workflow: Solo', '# General', NEXT.instructionFilesContext, '# Core Memory\n- worktree memo'].join(SEP)
     );
     assert.match(tier(view, 'env'), new RegExp(`^# Session\\nCwd: ${WORKTREE}\\nModel: `));
     assert.doesNotMatch(tier(view, 'env'), /C:\/repo/);
@@ -308,8 +311,8 @@ test('a session without a conversation is re-rooted in place', () => {
       [
         '# Active Workflow: Solo',
         '# General',
-        '# Core Memory\n- worktree memo',
         '# Instruction Files\n\n## C:/data/worktrees-v1/abc/fix/AGENTS.md\n\nnew rule',
+        '# Core Memory\n- worktree memo',
       ].join(SEP),
       'superseded blocks are replaced, not accumulated'
     );
@@ -344,7 +347,14 @@ test('undefined slices are kept (workers keep their memory layout) and the legac
   const kept = replaceWorkspaceCoreSlices(`# Role${SEP}# Core Memory\n- memo${SEP}# Instruction Files\n\nold`, {
     instructionFilesContext: '# Instruction Files\n\nnew',
   });
-  assert.equal(kept, `# Role${SEP}# Core Memory\n- memo${SEP}# Instruction Files\n\nnew`);
+  // A core in the older order (memory, then instruction files) comes back in the current one.
+  assert.equal(kept, `# Role${SEP}# Instruction Files\n\nnew${SEP}# Core Memory\n- memo`);
+  assert.equal(
+    replaceWorkspaceCoreSlices(`# Role${SEP}# Instruction Files\n\nold${SEP}x${SEP}# Core Memory\n- memo`, {
+      coreMemoryContext: '- new memo',
+    }),
+    `# Role${SEP}# Instruction Files\n\nold${SEP}x${SEP}# Core Memory\n- new memo`
+  );
   assert.equal(
     replaceWorkspaceCoreSlices('# Role', { coreMemoryContext: '- memo' }),
     `# Role${SEP}# Core Memory\n- memo`

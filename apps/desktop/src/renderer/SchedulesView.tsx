@@ -1,44 +1,54 @@
-import { AlarmClock, ChevronRight, Plus, Search, X } from 'lucide-react';
-import { useMemo, useState, type FormEvent } from 'react';
+import { Plus, Search, X } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
 
-import type { DesktopApi, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
+import type { DesktopApi, DesktopProjectSummary } from '../shared/contract';
 import type { RecordValue } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import { InitialSurface } from './InitialSurface';
-import { filterConfiguredModels } from './model-catalog';
-import { ModelRouteEditor } from './ModelRouteEditor';
-import { parseModelRef, preferredModelEffort, preferredModelParameters } from './model-route-utils';
+import {
+  AutomationAgentPicker,
+  RoutineNeedsBot,
+  RoutineSortChips,
+  RoutineSideGroups,
+  automationAgentOf,
+  automationRunFields,
+  routinePausedText,
+  useAutomationAgents,
+} from './automation-agent-picker';
 import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
-import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
-import { SidebarResourceTitle } from './sidebar-resource-row';
+import { RoutineItem, relativeTime } from './routine-list-item';
+import {
+  type Cadence,
+  type FrequencyKind,
+  SCHEDULE_SORTS,
+  type ScheduleSort,
+  frequencyFromCron,
+  routinePaused,
+  scheduleCadence,
+  scheduleGroups,
+  useSortChoice,
+} from './routine-sideview-model';
+import { routineRows } from './routines-model';
+import { useNewScheduleRequest } from './routine-editor-request';
+import { RoomMemberFace } from './agent-room-parts';
+import './routines.css';
 import {
   AutomationAttachButton,
   AutomationAttachmentChips,
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { ModelRouteLabel, normalizeModelOptions } from './provider-display';
-import {
-  automationAutoEffortSuffix,
-  automationFastSuffix,
-  automationProjectOptions,
-  automationRouteSummary,
-  automationWorkflowOptions,
-  splitModelRoute,
-} from './automation-editor-support';
+import { automationProjectOptions } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
-import { usePersistedListOrder } from './use-persisted-list-order';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { CompactSwitch } from './settings/capability-controls';
 
-type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
-
-type FrequencyKind = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'once';
+type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects'>>;
 
 const frequencyOptions = (): Array<{ value: FrequencyKind; label: string }> => [
   { value: 'hourly', label: t('Hourly') },
@@ -78,9 +88,9 @@ interface ScheduleDraft {
   weekday: string;
   at: string;
   cwd: string;
-  workflow: string;
   attachments: AutomationAttachment[];
-  model: string;
+  /** The bot it belongs to: each run is a turn in that bot's chat. */
+  agent: string;
   instructions: string;
   enabled: boolean;
 }
@@ -88,34 +98,6 @@ interface ScheduleDraft {
 function datetimeLocalValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-// Recognize the cron shapes the frequency dropdown can produce so existing
-// schedules prefill the same controls; anything else falls back to Daily.
-function frequencyFromCron(cron: string): {
-  kind: FrequencyKind;
-  minute: string;
-  clock: string;
-  weekday: string;
-  matched: boolean;
-} {
-  const fallback = { kind: 'daily' as FrequencyKind, minute: '0', clock: '09:00', weekday: '1', matched: false };
-  const parts = String(cron || '')
-    .trim()
-    .split(/\s+/);
-  if (parts.length !== 5) return fallback;
-  const [minute, hour, dom, month, dow] = parts;
-  const numeric = (value: string) => /^\d{1,2}$/.test(value);
-  if (numeric(minute) && hour === '*' && dom === '*' && month === '*' && dow === '*') {
-    return { ...fallback, kind: 'hourly', minute, matched: true };
-  }
-  if (numeric(minute) && numeric(hour) && dom === '*' && month === '*') {
-    const clock = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
-    if (dow === '*') return { ...fallback, kind: 'daily', clock, matched: true };
-    if (dow === '1-5') return { ...fallback, kind: 'weekdays', clock, matched: true };
-    if (/^[0-6]$/.test(dow)) return { ...fallback, kind: 'weekly', clock, weekday: dow, matched: true };
-  }
-  return fallback;
 }
 
 // The cron expression for a repeating frequency, read from the editor's
@@ -133,7 +115,7 @@ function scheduleCron(frequency: FrequencyKind, field: (name: string) => string,
 }
 
 // Human schedule line for list rows (e.g. "Weekdays at 08:00").
-function describeSchedule(schedule: RecordValue): string {
+export function describeSchedule(schedule: RecordValue): string {
   if (schedule.whenAt) {
     const at = new Date(String(schedule.whenAt));
     return Number.isNaN(at.getTime())
@@ -159,38 +141,35 @@ function describeSchedule(schedule: RecordValue): string {
   return t('Daily at {{time}}', { time: parsed.clock });
 }
 
-// Sub-line: schedule first, then model, project, and paused state.
-function scheduleMeta(schedule: RecordValue) {
-  const scheduleLabel = describeSchedule(schedule);
-  const route = automationRouteSummary(String(schedule.model || ''));
-  const cwd = String(schedule.cwd || '');
-  const cwdLabel = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() || cwd : '';
-  return (
-    <>
-      {scheduleLabel}
-      {route && (
-        <>
-          {' '}
-          · <ModelRouteLabel
-            model={route.model}
-            effort={route.effort}
-            fast={route.fast}
-            ultra={route.ultra}
-            blue={route.blue}
-            autoEffortCapable={route.autoEffortCapable}
-            autoEffort={route.autoEffort}
-          />
-        </>
-      )}
-      {cwdLabel && <> · {cwdLabel}</>}
-    </>
-  );
+const scheduleSortOptions = (): Array<{ value: ScheduleSort; label: string }> => [
+  { value: 'next', label: t('Next run') },
+  { value: 'cadence', label: t('Cadence') },
+  { value: 'bot', label: t('By bot') },
+];
+
+/** A 주기 group's title. */
+function cadenceLabel(cadence: Cadence): string {
+  if (cadence === 'custom') return t('Other');
+  return frequencyOptions().find((option) => option.value === cadence)?.label ?? cadence;
+}
+
+/** When in its cadence a schedule runs (its group names the cadence). */
+function cadenceTime(schedule: RecordValue): string {
+  const cadence = scheduleCadence(schedule);
+  if (cadence === 'once' || cadence === 'custom') return describeSchedule(schedule);
+  const parsed = frequencyFromCron(String(schedule.whenCron || ''));
+  if (cadence === 'hourly') return `:${parsed.minute.padStart(2, '0')}`;
+  if (cadence === 'weekly') {
+    const day = weekdayOptions().find((option) => option.value === parsed.weekday)?.label ?? '';
+    return `${day} ${parsed.clock}`;
+  }
+  return parsed.clock;
 }
 
 // Map the engine's schedule display shape (channel-admin scheduleToDisplay)
 // onto editable form state. Results always deliver to the app session; the
 // messaging-channel delivery target is retired.
-function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
+function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string): ScheduleDraft {
   const source = record(schedule);
   const parsedAt = source.whenAt ? new Date(String(source.whenAt)) : null;
   const cron = String(source.whenCron || '');
@@ -206,24 +185,20 @@ function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
     weekday: parsed.weekday,
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
     cwd: String(source.cwd || ''),
-    // New-task parity: an automation always carries a workflow; legacy rows
-    // without one edit as the Default pack.
-    workflow: String(source.workflow || 'default'),
     attachments: attachmentsFromRecords(source.attachments),
-    model: String(source.model || ''),
+    agent: automationAgentOf(schedule, defaultAgent),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
   };
 }
 
 function ScheduleEditor({
+  api,
   draft,
   editing,
   busy,
   running = false,
-  models,
   projects,
-  workflows,
   error = '',
   onCancel,
   onSave,
@@ -231,13 +206,12 @@ function ScheduleEditor({
   onRun,
   onDelete,
 }: {
+  api: SchedulesApi | undefined;
   draft: ScheduleDraft;
   editing: boolean;
   busy: boolean;
   running?: boolean;
-  models: DesktopModelOption[];
   projects: DesktopProjectSummary[];
-  workflows: Array<{ value: string; label: string }>;
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
@@ -247,23 +221,11 @@ function ScheduleEditor({
 }) {
   const [frequency, setFrequency] = useState<FrequencyKind>(draft.frequency);
   const [weekday, setWeekday] = useState(draft.weekday);
-  const initialModel = parseModelRef(draft.model);
-  const [model, setModel] = useState(initialModel.route);
-  const [effort, setEffort] = useState(initialModel.effort);
-  const [fast, setFast] = useState(initialModel.fast);
-  const [autoEffort, setAutoEffort] = useState(initialModel.autoEffort);
-  const [modelParameters, setModelParameters] = useState(initialModel.modelParameters);
+  const [agent, setAgent] = useState(draft.agent);
   const [cwd, setCwd] = useState(draft.cwd);
-  const [workflow, setWorkflow] = useState(draft.workflow);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [enabled, setEnabled] = useState(draft.enabled);
   const [formError, setFormError] = useState('');
-  const { provider: modelProvider, id: modelId } = splitModelRoute(model);
-  const selected = models.find((option) => option.provider === modelProvider && option.model === modelId);
-  const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
-    ? effort
-    : preferredModelEffort(selected) || '';
-  const selectedModelParameters = preferredModelParameters(selected, modelParameters);
   const projectOptions = automationProjectOptions(projects, cwd);
   return (
     <SidebarDialogLayer onClose={onCancel}>
@@ -295,25 +257,15 @@ function ScheduleEditor({
             event.preventDefault();
             const data = new FormData(event.currentTarget);
             const text = (name: string) => String(data.get(name) || '').trim();
-            if (!model) {
-              setFormError(t('Choose a model for this schedule.'));
-              return;
-            }
             setFormError('');
-            const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
-            const fastSuffix = automationFastSuffix(selected, effortValue, selectedModelParameters, fast);
-            const parameterSuffix = Object.keys(selectedModelParameters).length
-              ? `?${new URLSearchParams(selectedModelParameters).toString()}`
-              : '';
             onSave({
               name: editing ? draft.name : text('schedule-name'),
               description: draft.description,
               ...(frequency === 'once'
                 ? { at: text('schedule-at') }
                 : { time: scheduleCron(frequency, text, weekday) }),
-              model: `${model}${effortSuffix}${fastSuffix}${automationAutoEffortSuffix(autoEffort)}${parameterSuffix}`,
+              ...automationRunFields(agent),
               ...(cwd ? { cwd } : {}),
-              ...(workflow ? { workflow } : {}),
               ...(attachments.length ? { attachments } : {}),
               instructions: text('schedule-instructions'),
               enabled,
@@ -355,44 +307,16 @@ function ScheduleEditor({
                 onChange={setAttachments}
                 onError={setFormError}
               />
-              <ModelRouteEditor
-                models={models}
+              <AutomationAgentPicker
+                api={api}
+                value={agent}
                 disabled={busy}
-                ariaLabel={t('Schedule model')}
-                autoEffortSwitch
-                value={{
-                  provider: modelProvider,
-                  model: modelId,
-                  ...(effortValue ? { effort: effortValue } : {}),
-                  fast,
-                  autoEffort,
-                  modelParameters: selectedModelParameters,
-                }}
-                onChange={(selection) => {
-                  setModel(`${selection.provider}/${selection.model}`);
-                  setEffort(String(selection.effort || ''));
-                  setFast(selection.fast === true);
-                  setAutoEffort(selection.autoEffort !== false);
-                  setModelParameters(selection.modelParameters || {});
+                ariaLabel={t('Schedule bot')}
+                onChange={(next) => {
+                  setAgent(next);
                   setFormError('');
                 }}
               />
-              {/* Same flat, right-aligned workflow control as the chat
-                composer (effort-control/workflow-control skin) — including its
-                rule: a single pack is not a choice, so the control is omitted
-                and the draft keeps the workflow it already carries. */}
-              {workflows.length > 1 && (
-                <div className="effort-control workflow-control">
-                  <OpenSelect
-                    variant="route"
-                    ariaLabel={t('Schedule workflow')}
-                    value={workflow}
-                    disabled={busy}
-                    options={workflows}
-                    onChange={setWorkflow}
-                  />
-                </div>
-              )}
             </div>
           </div>
           <div className="schedules-field">
@@ -496,13 +420,7 @@ function ScheduleEditor({
 
 // Shared, process-wide reference keys. channelSetup is first: it carries the
 // schedule rows, so it alone decides whether this panel has anything to paint.
-const SCHEDULE_REFERENCE_KEYS = [
-  'channelSetup',
-  'quickProviderModels',
-  'providerSetup',
-  'projects',
-  'workflows',
-] as const satisfies readonly SidebarReferenceKey[];
+const SCHEDULE_REFERENCE_KEYS = ['channelSetup', 'projects'] as const satisfies readonly SidebarReferenceKey[];
 
 // Scheduled-tasks panel (rail -> Schedules): a compact searchable list in the
 // session-panel area, plus a popup editor.
@@ -520,14 +438,11 @@ export function SchedulesPane({
   // silently underneath the rows that are already there.
   const { values, loading, completeMutation } = useSidebarReferences(api, SCHEDULE_REFERENCE_KEYS, active);
   const setup = values.channelSetup;
-  // Same configured-provider semantics as the Workflows panel: a disconnected
-  // provider's models never reach the picker.
-  const models = useMemo(
-    () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), values.providerSetup),
-    [values.quickProviderModels, values.providerSetup]
-  );
+  // Routines are bot-based: with no bot at all, none can be made.
+  const bots = useAutomationAgents(api, active);
+  const noBot = bots.ready && bots.members.length === 0;
+  const defaultAgent = bots.members[0]?.id ?? '';
   const projects = values.projects;
-  const workflows = useMemo(() => automationWorkflowOptions(values.workflows), [values.workflows]);
   // Host-scoped completion invalidates the keys a capability made untrue and
   // reads through once, unless the app already rebound hosts.
   const { pending, error, setError, run } = useSidebarCapabilityRunner({
@@ -538,6 +453,11 @@ export function SchedulesPane({
   });
   const [query, setQuery] = useState('');
   const [editor, setEditor] = useState<{ name: string; draft: ScheduleDraft } | null>(null);
+  // A bot room's "루틴 만들기": the new-schedule editor with that bot preselected.
+  useNewScheduleRequest(active, (agentId) => {
+    setError('');
+    setEditor({ name: '', draft: scheduleDraft(undefined, agentId) });
+  });
   const [runningName, setRunningName] = useState('');
   // The editor portals to document.body, so the sidebar's inert/aria-hidden
   // does not reach it: a collapsed sidebar — or another destination taking the
@@ -548,20 +468,14 @@ export function SchedulesPane({
   const busy = Boolean(pending) || loading;
 
   const schedules = rows(setup.schedules);
-  const scheduleOrder = usePersistedListOrder(
-    'mixdog.sidebar-order.schedules.v1',
-    schedules.map((schedule) => String(schedule.name))
-  );
-  const orderedSchedules = scheduleOrder.orderedIds
-    .map((name) => schedules.find((schedule) => String(schedule.name) === name))
-    .filter((schedule): schedule is RecordValue => Boolean(schedule));
+  const [sort, setSort] = useSortChoice<ScheduleSort>('mixdog.sidebar-sort.schedules.v1', SCHEDULE_SORTS, 'next');
   const runNow = async (name: string) => {
     if (!api?.invokeCapability || runningName) return;
     setRunningName(name);
     setError('');
     try {
       await api.invokeCapability({ capability: 'runScheduleNow', args: [name] });
-      showDesktopToast(t('"{{name}}" ran — see Automations in the sidebar.', { name }), 'success');
+      showDesktopToast(t('"{{name}}" finished. Its result is in the bot\'s chat.', { name }), 'success');
       void completeMutation('runScheduleNow');
       notifySessionsRefresh();
     } catch (reason) {
@@ -573,9 +487,9 @@ export function SchedulesPane({
     }
   };
   const text = query.trim().toLowerCase();
-  const visible = orderedSchedules.filter((schedule) => {
+  const visible = schedules.filter((schedule) => {
     if (!text) return true;
-    return [schedule.name, schedule.description, schedule.time, schedule.model]
+    return [schedule.name, schedule.description, schedule.time, bots.label(automationAgentOf(schedule)).name]
       .map((value) => String(value || '').toLowerCase())
       .join(' ')
       .includes(text);
@@ -593,18 +507,21 @@ export function SchedulesPane({
       aria-hidden={active ? undefined : true}
     >
       <div className="schedules-page">
-        {/* Title and primary action live in the sidebar panel header. */}
-        <SidebarPanelAction
-          active={active}
-          label={t('New schedule')}
-          icon={Plus}
-          className="schedules-add"
-          disabled={busy}
-          onClick={() => {
-            setError('');
-            setEditor({ name: '', draft: scheduleDraft(undefined) });
-          }}
-        />
+        {/* Title and primary action live in the sidebar panel header; with no
+          bot there is nothing to add yet. */}
+        {!noBot && (
+          <SidebarPanelAction
+            active={active}
+            label={t('New schedule')}
+            icon={Plus}
+            className="schedules-add"
+            disabled={busy}
+            onClick={() => {
+              setError('');
+              setEditor({ name: '', draft: scheduleDraft(undefined, defaultAgent) });
+            }}
+          />
+        )}
         <div className="schedules-search">
           <Search size={14} aria-hidden="true" />
           <input
@@ -614,16 +531,22 @@ export function SchedulesPane({
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
         </div>
-        {active && editor && (
+        {active && editor && noBot && (
+          <SidebarDialogLayer onClose={() => setEditor(null)}>
+            <section className="schedules-dialog" role="dialog" aria-modal="true" aria-label={t('New schedule')}>
+              <RoutineNeedsBot />
+            </section>
+          </SidebarDialogLayer>
+        )}
+        {active && editor && !noBot && (
           <ScheduleEditor
+            api={api}
             key={editor.name || '(new)'}
             draft={editor.draft}
             editing={Boolean(editor.name)}
             busy={busy}
             running={runningName === editor.name}
-            models={models}
             projects={projects}
-            workflows={workflows}
             error={error}
             onCancel={() => {
               setError('');
@@ -646,49 +569,66 @@ export function SchedulesPane({
         {/* Reserve the first-read list, without claiming it is empty. Cached
           rows stay visible while their background refresh runs. */}
         {loading && <InitialSurface />}
-        {!loading && visible.length > 0 && (
-          <div className="schedules-list">
-            {visible.map((schedule) => {
-              const name = String(schedule.name);
-              const enabled = schedule.enabled !== false;
-              const running = runningNames?.has(name) === true;
-              return (
-                <button
-                  type="button"
-                  key={name}
-                  className="schedules-row utilities-row sidebar-resource-row"
-                  data-enabled={enabled ? 'true' : 'false'}
-                  disabled={busy}
-                  onClick={() => {
-                    setError('');
-                    setEditor({ name, draft: scheduleDraft(schedule) });
-                  }}
-                  {...scheduleOrder.getReorderProps(name)}
-                >
-                  <span className="sidebar-resource-icon" aria-hidden="true">
-                    {running ? (
-                      <ProgressSpinner size={12} className="schedules-row-spinner" />
-                    ) : (
-                      <AlarmClock size={16} />
-                    )}
-                  </span>
-                  <span className="schedules-row-copy utilities-row-copy">
-                    <SidebarResourceTitle
-                      label={name}
-                      tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null}
-                    />
-                    <small>{scheduleMeta(schedule)}</small>
-                  </span>
-                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
+        {!loading && !noBot && schedules.length > 0 && (
+          <RoutineSortChips value={sort} options={scheduleSortOptions()} onChange={setSort} />
         )}
-        {!loading && visible.length === 0 && (
-          <div className="schedules-empty">
-            <AlarmClock size={40} aria-hidden="true" />
-            <p>{schedules.length ? t('No schedules match your search.') : t('No scheduled tasks yet.')}</p>
+        {!loading && noBot && <RoutineNeedsBot />}
+        {!loading && visible.length > 0 && (
+          <RoutineSideGroups
+            groups={scheduleGroups(
+              visible,
+              sort,
+              bots.members.map((member) => member.id)
+            )}
+            title={(group) => cadenceLabel(String(group.key).replace('cadence:', '') as Cadence)}
+            bot={bots.label}
+          >
+            {(schedule) => {
+              const name = String(schedule.name);
+              const owner = automationAgentOf(schedule);
+              const bot = bots.label(owner);
+              // routineRows keeps the routine tab's state (last run, auto-pause).
+              const row = routineRows([schedule], owner)[0];
+              const paused = routinePausedText(schedule, row.pausedAfter);
+              const when =
+                sort === 'bot'
+                  ? [describeSchedule(schedule), paused || (row.nextAt !== null ? relativeTime(row.nextAt) : '')]
+                  : sort === 'cadence'
+                    ? [bot.name, cadenceTime(schedule), paused]
+                    : [
+                        bot.name,
+                        paused || (row.nextAt !== null ? relativeTime(row.nextAt) : describeSchedule(schedule)),
+                      ];
+              return (
+                <RoutineItem
+                  key={name}
+                  name={name}
+                  enabled={row.enabled}
+                  held={routinePaused(schedule)}
+                  last={row.last}
+                  detail={when.filter(Boolean).join(' · ')}
+                  health={row}
+                  leading={
+                    sort === 'bot' ? undefined : <RoomMemberFace member={bot} className="automation-agent-face" />
+                  }
+                  running={runningNames?.has(name) === true || runningName === name}
+                  busy={busy}
+                  onOpen={() => {
+                    setError('');
+                    setEditor({ name, draft: scheduleDraft(schedule, defaultAgent) });
+                  }}
+                  onToggle={(enabled) => void run('setScheduleEnabled', [name, enabled], 'toast')}
+                  onRun={() => void runNow(name)}
+                  onRetryDelivery={() => void run('retryRoutineDelivery', ['schedule', name], 'toast')}
+                  onDelete={() => void run('deleteSchedule', [name], 'toast')}
+                />
+              );
+            }}
+          </RoutineSideGroups>
+        )}
+        {!loading && !noBot && visible.length === 0 && (
+          <div className="utility-dock-empty">
+            <p>{t('No schedules.')}</p>
           </div>
         )}
       </div>

@@ -84,6 +84,8 @@ export function isContextAckMessage(message, previous = null) {
 }
 
 const SYNTHETIC_USER_SOURCES = new Set([
+  // A schedule's output posted into its owner's home thread: untrusted data.
+  'schedule-result',
   'goal-continuation',
   'goal-closeout',
   'compact-context',

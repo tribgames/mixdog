@@ -1,43 +1,44 @@
-import { Check, ChevronRight, Copy, Plus, Search, Webhook, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Check, Copy, Plus, Search, X } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import type { DesktopApi, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
+import type { DesktopApi, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
 import { InitialSurface } from './InitialSurface';
-import { filterConfiguredModels } from './model-catalog';
-import { ModelRouteEditor } from './ModelRouteEditor';
-import { parseModelRef, preferredModelEffort, preferredModelParameters } from './model-route-utils';
+import {
+  AutomationAgentPicker,
+  RoutineNeedsBot,
+  RoutineSideGroups,
+  RoutineSortChips,
+  automationAgentOf,
+  automationRunFields,
+  routinePausedText,
+  useAutomationAgents,
+} from './automation-agent-picker';
+import { RoomMemberFace } from './agent-room-parts';
 import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
-import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
-import { SidebarResourceTitle } from './sidebar-resource-row';
+import { RoutineItem, relativeTime } from './routine-list-item';
+import { WEBHOOK_SORTS, type WebhookSort, routinePaused, useSortChoice, webhookGroups } from './routine-sideview-model';
+import { webhookRoutineRows } from './routines-model';
+import './routines.css';
 import {
   AutomationAttachButton,
   AutomationAttachmentChips,
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { ModelRouteLabel, normalizeModelOptions } from './provider-display';
-import {
-  automationAutoEffortSuffix,
-  automationFastSuffix,
-  automationProjectOptions,
-  automationRouteSummary,
-  automationWorkflowOptions,
-  splitModelRoute,
-} from './automation-editor-support';
+import { automationProjectOptions } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
 import { copyTextToClipboard } from './text-format';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
-import { usePersistedListOrder } from './use-persisted-list-order';
 import { CompactSwitch } from './settings/capability-controls';
 import type { RecordValue } from './desktop-types';
 
-type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
+type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects'>>;
 
 const parserOptions = () => [
   { value: 'generic', label: t('Generic JSON') },
@@ -46,19 +47,24 @@ const parserOptions = () => [
   { value: 'sentry', label: 'Sentry' },
 ];
 
+/** The display name of a webhook's payload format (its sender). */
+export function webhookSourceLabel(parser: string): string {
+  return parserOptions().find((option) => option.value === parser)?.label ?? parser;
+}
+
 interface WebhookDraft {
   name: string;
   description: string;
   parser: string;
-  model: string;
+  /** The bot it belongs to: each run is a turn in that bot's chat. */
+  agent: string;
   cwd: string;
-  workflow: string;
   attachments: AutomationAttachment[];
   instructions: string;
   enabled: boolean;
 }
 
-function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
+function webhookDraft(webhook: RecordValue | undefined, defaultAgent: string): WebhookDraft {
   const source = record(webhook);
   return {
     name: String(source.name || ''),
@@ -68,45 +74,12 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
     // value, so the editor must open a legacy row as the same parser the list
     // shows — and save it back unchanged.
     parser: String(source.parser || 'github'),
-    model: String(source.model || ''),
+    agent: automationAgentOf(webhook, defaultAgent),
     cwd: String(source.cwd || ''),
-    // New-task parity: an automation always carries a workflow; legacy rows
-    // without one edit as the Default pack.
-    workflow: String(source.workflow || 'default'),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
   };
-}
-
-// Sub-line (Schedules parity): payload format, then model and project; a
-// missing secret is flagged last.
-function webhookMeta(webhook: RecordValue) {
-  const parser = String(webhook.parser || 'github');
-  const route = automationRouteSummary(String(webhook.model || ''));
-  const cwd = String(webhook.cwd || '');
-  const cwdLabel = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() || cwd : '';
-  return (
-    <>
-      {parser}
-      {route && (
-        <>
-          {' '}
-          · <ModelRouteLabel
-            model={route.model}
-            effort={route.effort}
-            fast={route.fast}
-            ultra={route.ultra}
-            blue={route.blue}
-            autoEffortCapable={route.autoEffortCapable}
-            autoEffort={route.autoEffort}
-          />
-        </>
-      )}
-      {cwdLabel && <> · {cwdLabel}</>}
-      {webhook.secretSet !== true && <> · {t('secret missing')}</>}
-    </>
-  );
 }
 
 function endpointUrl(publicBase: string, name: string): string {
@@ -250,12 +223,11 @@ function WebhookTestRow({
 }
 
 function WebhookEditor({
+  api,
   draft,
   editing,
   busy,
-  models,
   projects,
-  workflows,
   publicBase,
   secret,
   error = '',
@@ -265,12 +237,11 @@ function WebhookEditor({
   onDelete,
   onTest,
 }: {
+  api: WebhooksApi | undefined;
   draft: WebhookDraft;
   editing: boolean;
   busy: boolean;
-  models: DesktopModelOption[];
   projects: DesktopProjectSummary[];
-  workflows: Array<{ value: string; label: string }>;
   publicBase: string;
   secret: string;
   error?: string;
@@ -282,7 +253,6 @@ function WebhookEditor({
 }) {
   const [parser, setParser] = useState(draft.parser);
   const [cwd, setCwd] = useState(draft.cwd);
-  const [workflow, setWorkflow] = useState(draft.workflow);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [enabled, setEnabled] = useState(draft.enabled);
   // EDIT never reveals the stored secret; rotation mints a replacement that
@@ -313,19 +283,8 @@ function WebhookEditor({
   };
   const previewUrl = urlName.trim() ? endpointUrl(publicBase, urlName.trim()) : '';
   const shownUrl = editing ? endpointUrl(publicBase, draft.name) : previewUrl;
-  const initialModel = parseModelRef(draft.model);
-  const [model, setModel] = useState(initialModel.route);
-  const [effort, setEffort] = useState(initialModel.effort);
-  const [fast, setFast] = useState(initialModel.fast);
-  const [autoEffort, setAutoEffort] = useState(initialModel.autoEffort);
-  const [modelParameters, setModelParameters] = useState(initialModel.modelParameters);
+  const [agent, setAgent] = useState(draft.agent);
   const [formError, setFormError] = useState('');
-  const { provider: modelProvider, id: modelId } = splitModelRoute(model);
-  const selected = models.find((option) => option.provider === modelProvider && option.model === modelId);
-  const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
-    ? effort
-    : preferredModelEffort(selected) || '';
-  const selectedModelParameters = preferredModelParameters(selected, modelParameters);
   const projectOptions = automationProjectOptions(projects, cwd);
   return (
     <SidebarDialogLayer onClose={onCancel}>
@@ -358,11 +317,6 @@ function WebhookEditor({
             const data = new FormData(event.currentTarget);
             const text = (name: string) => String(data.get(name) || '').trim();
             setFormError('');
-            const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
-            const fastSuffix = automationFastSuffix(selected, effortValue, selectedModelParameters, fast);
-            const parameterSuffix = Object.keys(selectedModelParameters).length
-              ? `?${new URLSearchParams(selectedModelParameters).toString()}`
-              : '';
             // A NEW webhook persists the displayed pre-minted secret; an EDIT
             // sends a secret only after an explicit Regenerate (the store
             // preserves the existing secret on plain overwrite).
@@ -374,9 +328,8 @@ function WebhookEditor({
               // Session-only delivery (user decision, schedules parity): every
               // webhook fire runs as a fresh New-task session — no channel
               // target, so saving a legacy channel webhook converts it.
-              ...(model ? { model: `${model}${effortSuffix}${fastSuffix}${automationAutoEffortSuffix(autoEffort)}${parameterSuffix}` } : {}),
+              ...automationRunFields(agent),
               ...(cwd ? { cwd } : {}),
-              ...(workflow ? { workflow } : {}),
               ...(attachments.length ? { attachments } : {}),
               ...(effectiveSecret ? { secret: effectiveSecret } : {}),
               instructions: text('webhook-instructions'),
@@ -420,43 +373,16 @@ function WebhookEditor({
                 onChange={setAttachments}
                 onError={setFormError}
               />
-              <ModelRouteEditor
-                models={models}
+              <AutomationAgentPicker
+                api={api}
+                value={agent}
                 disabled={busy}
-                ariaLabel={t('Webhook model')}
-                autoEffortSwitch
-                value={{
-                  provider: modelProvider,
-                  model: modelId,
-                  ...(effortValue ? { effort: effortValue } : {}),
-                  fast,
-                  autoEffort,
-                  modelParameters: selectedModelParameters,
-                }}
-                onChange={(selection) => {
-                  setModel(`${selection.provider}/${selection.model}`);
-                  setEffort(String(selection.effort || ''));
-                  setFast(selection.fast === true);
-                  setAutoEffort(selection.autoEffort !== false);
-                  setModelParameters(selection.modelParameters || {});
+                ariaLabel={t('Webhook bot')}
+                onChange={(next) => {
+                  setAgent(next);
                   setFormError('');
                 }}
               />
-              {/* Same flat, right-aligned workflow control as the chat
-                composer (effort-control/workflow-control skin) — including its
-                rule: a single pack is not a choice, so the control is omitted
-                and the draft keeps the workflow it already carries. */}
-              {workflows.length > 1 && (
-                <div className="effort-control workflow-control">
-                  <OpenSelect
-                    ariaLabel={t('Webhook workflow')}
-                    value={workflow}
-                    disabled={busy}
-                    options={workflows}
-                    onChange={setWorkflow}
-                  />
-                </div>
-              )}
             </div>
           </div>
           <div className="schedules-field">
@@ -553,15 +479,9 @@ function WebhookEditor({
   );
 }
 
-// Same shared keys as Schedules: both panels read one channel setup, one quick
-// model catalog, one project list and one workflow list.
-const WEBHOOK_REFERENCE_KEYS = [
-  'channelSetup',
-  'quickProviderModels',
-  'providerSetup',
-  'projects',
-  'workflows',
-] as const satisfies readonly SidebarReferenceKey[];
+// Same shared keys as Schedules: both panels read one channel setup, one
+// project list (the agent picker reads the agents).
+const WEBHOOK_REFERENCE_KEYS = ['channelSetup', 'projects'] as const satisfies readonly SidebarReferenceKey[];
 
 // Inbound-webhooks panel (rail -> Webhooks): the Schedules grammar — a
 // compact session-panel list with search, drag reorder, and a popup editor.
@@ -578,14 +498,11 @@ export function WebhooksPane({
   // never cached (it is minted or rotated in the editor, never read back).
   const { values, loading, completeMutation } = useSidebarReferences(api, WEBHOOK_REFERENCE_KEYS, active);
   const setup = values.channelSetup;
-  // Configured-provider filtering matches Schedules and Workflows: models from
-  // a disconnected provider never enter the picker.
-  const models = useMemo(
-    () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), values.providerSetup),
-    [values.quickProviderModels, values.providerSetup]
-  );
+  // Routines are bot-based: with no bot at all, none can be made.
+  const bots = useAutomationAgents(api, active);
+  const noBot = bots.ready && bots.members.length === 0;
+  const defaultAgent = bots.members[0]?.id ?? '';
   const projects = values.projects;
-  const workflows = useMemo(() => automationWorkflowOptions(values.workflows), [values.workflows]);
   const { pending, error, setError, run } = useSidebarCapabilityRunner({
     api,
     completeMutation,
@@ -601,19 +518,29 @@ export function WebhooksPane({
   const busy = Boolean(pending) || loading;
 
   const webhooks = rows(setup.webhooks);
-  // Schedules parity: drag to reorder, order kept per device.
-  const webhookOrder = usePersistedListOrder(
-    'mixdog.sidebar-order.webhooks.v1',
-    webhooks.map((webhook) => String(webhook.name))
-  );
-  const orderedWebhooks = webhookOrder.orderedIds
-    .map((name) => webhooks.find((webhook) => String(webhook.name) === name))
-    .filter((webhook): webhook is RecordValue => Boolean(webhook));
+  const [sort, setSort] = useSortChoice<WebhookSort>('mixdog.sidebar-sort.webhooks.v1', WEBHOOK_SORTS, 'recent');
+  const [runningName, setRunningName] = useState('');
+  // "Run now" re-runs the latest received event in the owner bot's chat.
+  const runNow = async (name: string) => {
+    if (!api?.invokeCapability || runningName) return;
+    setRunningName(name);
+    try {
+      await api.invokeCapability({ capability: 'runWebhookNow', args: [name] });
+      showDesktopToast(t('"{{name}}" finished. Its result is in the bot\'s chat.', { name }), 'success');
+    } catch (reason) {
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+        scope: `webhook:run:${name}`,
+      });
+    } finally {
+      setRunningName('');
+      void completeMutation('runWebhookNow');
+    }
+  };
   const publicBase = String(record(setup.webhook).publicUrl || '');
   const text = query.trim().toLowerCase();
-  const visible = orderedWebhooks.filter((webhook) => {
+  const visible = webhooks.filter((webhook) => {
     if (!text) return true;
-    return [webhook.name, webhook.description, webhook.parser, webhook.model, webhook.channel]
+    return [webhook.name, webhook.description, webhook.parser, bots.label(automationAgentOf(webhook)).name]
       .map((value) => String(value || '').toLowerCase())
       .join(' ')
       .includes(text);
@@ -639,25 +566,27 @@ export function WebhooksPane({
     >
       <div className="schedules-page">
         {/* Title and primary action live in the sidebar panel header. */}
-        <SidebarPanelAction
-          active={active}
-          label={t('New webhook')}
-          icon={Plus}
-          className="webhooks-add"
-          disabled={busy}
-          onClick={() => {
-            setError('');
-            // Pre-mint the signing secret so the popup shows URL + secret with
-            // copy buttons BEFORE the first save (user decision).
-            try {
-              setEditor({ name: '', draft: webhookDraft(undefined), secret: generateSigningSecret() });
-            } catch (reason) {
-              showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
-                scope: 'webhook:secret',
-              });
-            }
-          }}
-        />
+        {!noBot && (
+          <SidebarPanelAction
+            active={active}
+            label={t('New webhook')}
+            icon={Plus}
+            className="webhooks-add"
+            disabled={busy}
+            onClick={() => {
+              setError('');
+              // Pre-mint the signing secret so the popup shows URL + secret with
+              // copy buttons BEFORE the first save (user decision).
+              try {
+                setEditor({ name: '', draft: webhookDraft(undefined, defaultAgent), secret: generateSigningSecret() });
+              } catch (reason) {
+                showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+                  scope: 'webhook:secret',
+                });
+              }
+            }}
+          />
+        )}
         <div className="schedules-search">
           <Search size={14} aria-hidden="true" />
           <input
@@ -667,15 +596,21 @@ export function WebhooksPane({
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
         </div>
-        {active && editor && (
+        {active && editor && noBot && (
+          <SidebarDialogLayer onClose={() => setEditor(null)}>
+            <section className="schedules-dialog" role="dialog" aria-modal="true" aria-label={t('New webhook')}>
+              <RoutineNeedsBot />
+            </section>
+          </SidebarDialogLayer>
+        )}
+        {active && editor && !noBot && (
           <WebhookEditor
+            api={api}
             key={editor.name || '(new)'}
             draft={editor.draft}
             editing={Boolean(editor.name)}
             busy={busy}
-            models={models}
             projects={projects}
-            workflows={workflows}
             publicBase={publicBase}
             secret={editor.secret}
             error={error}
@@ -710,42 +645,79 @@ export function WebhooksPane({
         {/* No loading flash: the list area stays empty until the first snapshot
           lands (Schedules-page grammar). */}
         {loading && <InitialSurface />}
-        {!loading && visible.length > 0 && (
-          <div className="schedules-list">
-            {visible.map((webhook) => {
-              const name = String(webhook.name);
-              const enabled = webhook.enabled !== false;
-              const running = runningNames?.has(name) === true;
-              return (
-                <button
-                  type="button"
-                  key={name}
-                  className="schedules-row utilities-row sidebar-resource-row"
-                  data-enabled={enabled ? 'true' : 'false'}
-                  disabled={busy}
-                  onClick={() => openEditor(name, webhookDraft(webhook))}
-                  {...webhookOrder.getReorderProps(name)}
-                >
-                  <span className="sidebar-resource-icon" aria-hidden="true">
-                    {running ? <ProgressSpinner size={12} className="schedules-row-spinner" /> : <Webhook size={16} />}
-                  </span>
-                  <span className="schedules-row-copy utilities-row-copy">
-                    <SidebarResourceTitle
-                      label={name}
-                      tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null}
-                    />
-                    <small>{webhookMeta(webhook)}</small>
-                  </span>
-                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
+        {!loading && !noBot && webhooks.length > 0 && (
+          <RoutineSortChips
+            value={sort}
+            options={[
+              { value: 'recent', label: t('Latest event') },
+              { value: 'bot', label: t('By bot') },
+            ]}
+            onChange={setSort}
+          />
         )}
-        {!loading && visible.length === 0 && (
-          <div className="schedules-empty">
-            <Webhook size={40} aria-hidden="true" />
-            <p>{webhooks.length ? t('No webhooks match your search.') : t('No inbound webhooks yet.')}</p>
+        {!loading && noBot && <RoutineNeedsBot />}
+        {!loading && visible.length > 0 && (
+          <RoutineSideGroups
+            groups={webhookGroups(
+              visible,
+              sort,
+              bots.members.map((member) => member.id)
+            )}
+            title={() => ''}
+            bot={bots.label}
+          >
+            {(webhook) => {
+              const name = String(webhook.name);
+              const owner = automationAgentOf(webhook);
+              const bot = bots.label(owner);
+              // webhookRoutineRows keeps the routine tab's state (last run, auto-pause).
+              const row = webhookRoutineRows([webhook], owner)[0];
+              const paused = routinePausedText(webhook, row.pausedAfter);
+              const event =
+                row.eventAt !== null
+                  ? sort === 'bot'
+                    ? t('{{source}} events · Latest {{time}}', {
+                        source: webhookSourceLabel(row.parser),
+                        time: relativeTime(row.eventAt),
+                      })
+                    : relativeTime(row.eventAt)
+                  : t('No events');
+              const detail = [
+                sort === 'bot' ? '' : bot.name,
+                event,
+                paused,
+                webhook.secretSet !== true ? t('secret missing') : '',
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                <RoutineItem
+                  key={name}
+                  name={name}
+                  enabled={row.enabled}
+                  held={routinePaused(webhook)}
+                  last={row.last}
+                  detail={detail}
+                  health={row}
+                  runBlocked={row.hasPayload ? '' : t('No payload received yet.')}
+                  leading={
+                    sort === 'bot' ? undefined : <RoomMemberFace member={bot} className="automation-agent-face" />
+                  }
+                  running={runningNames?.has(name) === true || runningName === name}
+                  busy={busy}
+                  onOpen={() => openEditor(name, webhookDraft(webhook, defaultAgent))}
+                  onToggle={(enabled) => void run('setWebhookEnabled', [name, enabled], 'toast')}
+                  onRun={() => void runNow(name)}
+                  onRetryDelivery={() => void run('retryRoutineDelivery', ['webhook', name], 'toast')}
+                  onDelete={() => void run('deleteWebhook', [name], 'toast')}
+                />
+              );
+            }}
+          </RoutineSideGroups>
+        )}
+        {!loading && !noBot && visible.length === 0 && (
+          <div className="utility-dock-empty">
+            <p>{t('No webhooks.')}</p>
           </div>
         )}
       </div>

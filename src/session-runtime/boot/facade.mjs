@@ -85,17 +85,14 @@ function reserveSessionId(boot, id) {
 }
 
 // Every session's 2 s status pulse lands here; activeWorkflowSummary reads
-// through the process-wide shared caches, so no per-session file I/O.
+// through the process-wide shared caches, so no per-session file I/O. A
+// session presents its own workflow (set at creation, or switched in it);
+// the configured one is the default for new sessions.
 function currentWorkflow(boot) {
   const { rt, cfgMod } = boot;
   const active = workflowHelpers.activeWorkflowSummary(rt.config, dataDirOf(cfgMod));
-  if (rt.session?.workflow && typeof rt.session.workflow === 'object') {
-    const current = rt.session.workflow;
-    return current?.id && active?.id && current.id !== active.id
-      ? { ...active, currentSession: current, appliedToCurrentSession: false }
-      : active;
-  }
-  return active;
+  const current = rt.session?.workflow;
+  return current?.id && active?.id && current.id !== active.id ? current : active;
 }
 
 function facadeGetters(boot) {

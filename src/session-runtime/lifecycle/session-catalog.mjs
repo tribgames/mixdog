@@ -3,6 +3,8 @@
  * catalog: durable visibility filter, lead-shape heuristics and preview rows.
  */
 import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
+import { normalizeRoutineProvenance } from '../../runtime/agent/orchestrator/session/routine-result.mjs';
+import { sessionModeOf } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
 import {
   isAgentOnlySession,
   isRootLeadSession,
@@ -70,9 +72,12 @@ export function leadSessionRow(s, working = false) {
   if (!agentSession && !isLeadShaped(s, owner, sourceType)) return null;
   const { preview, messageCount, realTurnCount } = previewOf(s);
   if (!preview && messageCount === 0) return null;
+  const lastMessageRoutine = normalizeRoutineProvenance(s.lastMessageRoutine);
   return {
     id: s.id,
     agent: s.agent || null,
+    // 'agent' | 'coding' (agent-mode.mjs): the desktop renders agent-mode chats.
+    sessionMode: sessionModeOf(s),
     owner,
     visibility: isAgentOnlySession(s) ? 'agent-only' : 'ordinary',
     ownerSessionId: s.ownerSessionId || s.parentSessionId || null,
@@ -92,6 +97,10 @@ export function leadSessionRow(s, working = false) {
     messageCount,
     title: cleanSessionPreview(s.title || '', 100),
     preview,
+    // The latest user or assistant line (an agent contact's row shows it).
+    ...(s.lastMessagePreview ? { lastMessagePreview: String(s.lastMessagePreview) } : {}),
+    // That line's routine provenance: clients label a routine result by it.
+    ...(lastMessageRoutine ? { lastMessageRoutine } : {}),
     // Working indicator: the in-memory runtime state ALONE is the liveness
     // signal. The persisted lastHeartbeatAt JSON field (refreshed by the final
     // save) must not be folded in — it outlives the turn it describes.

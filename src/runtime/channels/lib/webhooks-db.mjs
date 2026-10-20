@@ -17,6 +17,7 @@
 import { ensurePgInstance, withSchemaBootstrapLock } from '../../memory/lib/pg/adapter.mjs';
 import { createPgSchemaDb } from '../../shared/pg-schema-db.mjs';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
+import { ROUTINE_LIMITS } from '../../shared/routine-limits.mjs';
 
 const SCHEMA = 'webhooks';
 
@@ -40,6 +41,23 @@ ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS workflow text;
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS attachments jsonb;
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS delivery text;
 ALTER TABLE webhooks.endpoints ALTER COLUMN role SET DEFAULT '';
+-- Agent ownership: each endpoint's results post into its owner's home
+-- thread; endpoints from before ownership become Mixy's ('lead').
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS owner_agent_id text NOT NULL DEFAULT 'lead';
+-- Legacy columns model, workflow and run_as_agent are no longer read or written (kept, not dropped, to avoid a risky migration).
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS run_as_agent boolean NOT NULL DEFAULT false;
+-- The latest received event (its payload kept for a manual re-run) and the
+-- outcome stamps of the runs it started.
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS last_event_at timestamptz;
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS last_payload jsonb;
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS last_success_at timestamptz;
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS last_failed_at timestamptz;
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS last_skipped_at timestamptz;
+-- Failed runs in a row (schedules parity): a success, an edit or switching it
+-- back on resets it; at ROUTINE_LIMITS.pauseAfterFailures it switches off.
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS consecutive_failures integer NOT NULL DEFAULT 0;
+-- Results of finished runs not yet queued for the owner's home thread, by run id.
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS result_delivery jsonb;
 CREATE TABLE IF NOT EXISTS webhooks.deliveries (
   endpoint        text NOT NULL,
   delivery_id     text NOT NULL,
@@ -66,8 +84,10 @@ const getDb = createPgSchemaDb({
 // Row <-> def mapping
 // ---------------------------------------------------------------------------
 
+// The stored payload itself is never projected here (readEndpointLastPayload
+// is its only read path); rows carry a presence flag.
 const ENDPOINT_COLS =
-  'name, description, channel_id, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled, created_at, updated_at';
+  'name, description, channel_id, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id, last_event_at, last_success_at, last_failed_at, last_skipped_at, consecutive_failures, result_delivery, (last_payload IS NOT NULL) AS has_last_payload, created_at, updated_at';
 
 function rowToEndpoint(row) {
   if (!row) return null;
@@ -75,10 +95,8 @@ function rowToEndpoint(row) {
     name: row.name,
     description: row.description,
     channelId: row.channel_id,
-    model: row.model,
     parser: row.parser,
     cwd: row.cwd,
-    workflow: row.workflow,
     attachments: row.attachments || null,
     delivery: row.delivery || null,
     // Never project the plaintext secret through list/load config paths;
@@ -87,6 +105,14 @@ function rowToEndpoint(row) {
     secretSet: Boolean(row.secret && String(row.secret).trim()),
     instructions: row.instructions,
     enabled: row.enabled,
+    ownerAgentId: row.owner_agent_id || 'lead',
+    lastEventAt: row.last_event_at || null,
+    lastSuccessAt: row.last_success_at || null,
+    lastFailedAt: row.last_failed_at || null,
+    lastSkippedAt: row.last_skipped_at || null,
+    consecutiveFailures: Number(row.consecutive_failures) || 0,
+    resultDelivery: row.result_delivery || null,
+    hasLastPayload: row.has_last_payload === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -156,33 +182,34 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
     def.description ?? '',
     def.channelId ?? null,
     '',
-    def.model ?? null,
     def.parser ?? null,
     def.secret ?? null,
     def.cwd ?? null,
-    def.workflow ?? null,
     def.attachments ? JSON.stringify(def.attachments) : null,
     def.delivery ?? null,
     def.instructions ?? '',
     def.enabled ?? true,
+    def.ownerAgentId || 'lead',
   ];
+  // The last event and run stamps survive an edit: they describe deliveries,
+  // not the definition.
   const { rows } = await db.query(
     `INSERT INTO webhooks.endpoints
-       (name, description, channel_id, role, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       (name, description, channel_id, role, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (name) DO UPDATE SET
+       owner_agent_id = EXCLUDED.owner_agent_id,
        description  = EXCLUDED.description,
        channel_id   = EXCLUDED.channel_id,
        role         = EXCLUDED.role,
-       model        = EXCLUDED.model,
        parser       = EXCLUDED.parser,
        secret       = EXCLUDED.secret,
        cwd          = EXCLUDED.cwd,
-       workflow     = EXCLUDED.workflow,
        attachments  = EXCLUDED.attachments,
        delivery     = EXCLUDED.delivery,
        instructions = EXCLUDED.instructions,
        enabled      = EXCLUDED.enabled,
+       consecutive_failures = 0,
        updated_at   = now()
      RETURNING ${ENDPOINT_COLS}`,
     params
@@ -190,13 +217,76 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
   return rowToEndpoint(rows[0]);
 }
 
+/** Switching an endpoint back on clears its failure streak. */
 export async function setEndpointEnabled(name, enabled, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
-    `UPDATE webhooks.endpoints SET enabled = $2, updated_at = now() WHERE name = $1 RETURNING ${ENDPOINT_COLS}`,
+    `UPDATE webhooks.endpoints
+        SET enabled = $2, consecutive_failures = CASE WHEN $2 THEN 0 ELSE consecutive_failures END, updated_at = now()
+      WHERE name = $1 RETURNING ${ENDPOINT_COLS}`,
     [name, !!enabled]
   );
   return rowToEndpoint(rows[0]);
+}
+
+/** Record a received event: its time and payload (`{ body, headers }`), kept
+ *  so the app can re-run the endpoint on it. */
+export async function recordEndpointEvent(name, payload, at = new Date(), { dataDir } = {}) {
+  const db = await getDb(dataDir);
+  await db.query(
+    'UPDATE webhooks.endpoints SET last_event_at = $2, last_payload = $3, updated_at = now() WHERE name = $1',
+    [name, at, JSON.stringify(payload ?? null)]
+  );
+}
+
+/** The payload of the latest received event, or null before the first. */
+export async function readEndpointLastPayload(name, { dataDir } = {}) {
+  if (!name) return null;
+  const db = await getDb(dataDir);
+  const { rows } = await db.query('SELECT last_payload FROM webhooks.endpoints WHERE name = $1', [name]);
+  return rows[0]?.last_payload ?? null;
+}
+
+const RUN_STAMPS = Object.freeze({
+  success: 'last_success_at',
+  failed: 'last_failed_at',
+  skipped: 'last_skipped_at',
+});
+
+/** Stamp a run outcome ('success' | 'failed' | 'skipped') on the endpoint. A
+ *  success clears the failure streak; the failure reaching the pause limit
+ *  switches the endpoint off (the receiver refuses a disabled endpoint). */
+export async function markEndpointRun(name, outcome, at = new Date(), { dataDir } = {}) {
+  const column = RUN_STAMPS[outcome];
+  if (!column) throw new Error(`markEndpointRun: unknown outcome "${outcome}"`);
+  const db = await getDb(dataDir);
+  if (outcome === 'failed') {
+    await db.query(
+      `UPDATE webhooks.endpoints
+          SET last_failed_at = $2, consecutive_failures = consecutive_failures + 1,
+              enabled = enabled AND consecutive_failures + 1 < $3
+        WHERE name = $1`,
+      [name, at, ROUTINE_LIMITS.pauseAfterFailures]
+    );
+    return;
+  }
+  const streak = outcome === 'success' ? ', consecutive_failures = 0' : '';
+  await db.query(`UPDATE webhooks.endpoints SET ${column} = $2${streak} WHERE name = $1`, [name, at]);
+}
+
+/** Set (`entry`) or clear (null) the undelivered result of run `runId`. */
+export async function recordEndpointDelivery(name, runId, entry, { dataDir } = {}) {
+  const db = await getDb(dataDir);
+  await db.query(
+    entry
+      ? `UPDATE webhooks.endpoints
+            SET result_delivery = COALESCE(result_delivery, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb)
+          WHERE name = $1`
+      : `UPDATE webhooks.endpoints
+            SET result_delivery = NULLIF(COALESCE(result_delivery, '{}'::jsonb) - $2::text, '{}'::jsonb)
+          WHERE name = $1`,
+    entry ? [name, runId, JSON.stringify(entry)] : [name, runId]
+  );
 }
 
 export async function deleteEndpoint(name, { dataDir } = {}) {

@@ -1,0 +1,559 @@
+/* Routines tile of an agent home thread (RoutinesPane.tsx): the connection
+   settings' rows and groups, sized for the side dock like the Ports panel. */
+.routines-pane {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 8px 12px 16px;
+}
+.routines-pane:has(> .utility-dock-empty) {
+  display: flex;
+  flex-direction: column;
+}
+/* One grouped list per kind: rows share the container, split by hairlines. */
+.routines-pane .conn-list {
+  overflow: hidden;
+}
+.routines-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 8px 4px 8px 12px;
+}
+.routines-row + .routines-row {
+  box-shadow: inset 0 1px 0 var(--mx-border-muted);
+}
+.routines-row:hover {
+  background: var(--mx-hover);
+}
+/* Status dot: green ok, red failed, grey paused; running swaps in the spinner. */
+.routines-dot {
+  width: 7px;
+  height: 7px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mx-success);
+}
+.routines-row[data-state="failed"] .routines-dot {
+  background: var(--mx-danger);
+}
+.routines-row[data-state="paused"] .routines-dot {
+  background: var(--mx-text-faint);
+}
+.routines-row[data-state="running"] .routines-dot {
+  background: transparent;
+  color: var(--mx-text-muted);
+  overflow: visible;
+}
+.routines-main {
+  min-width: 0;
+}
+.routines-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.routines-title > b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+}
+.routines-row[data-state="paused"] .routines-title > b {
+  color: var(--mx-text-muted);
+}
+.routines-tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 14%, transparent);
+  font-size: var(--mx-font-meta);
+  line-height: 17px;
+}
+.routines-sub {
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.routines-row .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+}
+.routines-row > .routines-main {
+  display: block;
+}
+.routines-sub {
+  display: block;
+}
+/* A row that opens its editor: the name and line are one flat button. */
+.routines-open {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.routines-open:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+  border-radius: var(--mx-radius-sm);
+}
+/* A row led by its bot's face: the dot moves into the title. */
+.routines-row[data-leading] {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  padding-left: 10px;
+}
+.routines-row[data-leading] .automation-agent-face {
+  width: 20px;
+  height: 20px;
+}
+.routines-title > .routines-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+}
+/* The side Schedules / Webhooks lists (SchedulesView, WebhooksView): sort
+   chips under the search field, then flat or grouped lists of routine rows. */
+.routine-sort-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 2px 12px;
+}
+.routine-sort-chips > button {
+  height: 24px;
+  padding: 0 10px;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: 999px;
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.routine-sort-chips > button[aria-selected="true"] {
+  border-color: transparent;
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+.routine-sort-chips > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.routine-side-groups {
+  display: flex;
+  flex-direction: column;
+}
+.routine-side-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 4px 6px;
+  color: var(--mx-text-soft);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+}
+.routine-side-head:first-child {
+  margin-top: 0;
+}
+.routine-side-head > .automation-agent-face {
+  width: 16px;
+  height: 16px;
+}
+.routine-side-head > .routine-side-count {
+  color: var(--mx-text-faint);
+  font-weight: var(--mx-weight-regular);
+}
+.routine-side-list {
+  overflow: hidden;
+  border-radius: var(--mx-radius-lg);
+  box-shadow: var(--mx-card-outline);
+}
+html[data-mixdog-mobile-tabs] .routine-sort-chips > button {
+  height: var(--mx-touch);
+}
+/* Phone: the ⋯ reaches the 44dp touch minimum. */
+html[data-mixdog-mobile-tabs] .routines-row .row-overflow-trigger {
+  width: var(--mx-touch-main);
+  height: var(--mx-touch-main);
+}
+/* The agent panel (RoutinesPane.tsx AgentPanel): 프로필 · 루틴 tabs over
+   the profile form (AgentProfilePane.tsx) or the routines. */
+.agent-panel {
+  /* Anchors the profile's pinned 적용 bar. */
+  position: relative;
+  --agent-profile-bar: 52px;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.agent-panel[hidden] {
+  display: none;
+}
+.agent-panel-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.agent-panel-view[hidden] {
+  display: none;
+}
+.agent-panel-view > .routines-pane,
+.agent-panel-view > .agent-profile {
+  flex: 1;
+}
+.agent-panel-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  margin: 6px 12px 0;
+  padding: 3px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+}
+.agent-panel-tabs > button {
+  flex: 1 1 0;
+  height: 26px;
+  border: 0;
+  border-radius: calc(var(--mx-radius-md) - 1px);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+.agent-panel-tabs > button[aria-selected="true"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+.agent-panel-tabs > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.agent-profile {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* The bottom room is always reserved for the pinned 적용 bar, so it
+     appears over empty space and nothing above it moves. */
+  padding: 14px 12px calc(16px + var(--agent-profile-bar));
+}
+.agent-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.agent-profile-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.agent-profile-face {
+  position: relative;
+  display: inline-flex;
+  margin-bottom: 4px;
+}
+.agent-profile-avatar {
+  width: 80px;
+  height: 80px;
+}
+/* 내 이미지: one row per motion state. */
+.agent-avatar-states {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.agent-avatar-states > ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-avatar-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border-radius: var(--mx-radius-md);
+}
+.agent-avatar-state:is([data-selected], [data-dragging]) {
+  background: var(--mx-hover);
+}
+.agent-avatar-state-thumb {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  border: 1px dashed var(--mx-border);
+  border-radius: var(--mx-radius-sm);
+  background: transparent;
+  overflow: hidden;
+  cursor: pointer;
+}
+.agent-avatar-state-thumb > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.agent-avatar-state-thumb[data-fallback] > img {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+.agent-avatar-state-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.agent-avatar-state-text > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+}
+.agent-avatar-state-text > small,
+.agent-avatar-states > p {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.agent-avatar-state > button:not(.agent-avatar-state-thumb) {
+  flex: none;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.agent-profile-avatar.agent-avatar-image {
+  border-radius: var(--mx-radius-md);
+}
+.agent-profile-face > .agent-contact-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #f2c94c;
+  background: var(--mx-bg-panel, var(--mx-bg-base));
+}
+.agent-profile-name {
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+}
+.agent-profile-description {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.agent-profile-face-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.agent-profile-face-editor > :not(.agent-create-segments) {
+  align-self: stretch;
+}
+/* The dialog's field plate, for the dock. */
+.agent-profile input:where(:not([type="checkbox"], [type="radio"], [type="file"])),
+.agent-profile textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+}
+.agent-profile textarea {
+  min-height: 84px;
+  padding: 8px;
+  font-family: var(--mx-font-prose);
+  line-height: var(--mx-line-ui);
+  resize: vertical;
+}
+.agent-profile textarea.agent-create-instructions {
+  min-height: 160px;
+}
+.agent-profile :is(input, textarea):focus {
+  outline-color: var(--mx-focus);
+}
+.agent-profile :is(input, textarea)::placeholder {
+  color: var(--mx-text-faint);
+}
+/* Everything fits the dock width (225px and up): nothing sets a min-width
+   wider than the column, and there is no horizontal scroll. */
+.agent-panel,
+.agent-profile,
+.agent-profile-form,
+.agent-profile .agent-create-section,
+.agent-profile .agent-create-field,
+.agent-profile .agent-instruction-editor {
+  min-width: 0;
+  max-width: 100%;
+}
+.agent-profile {
+  overflow-x: hidden;
+}
+.agent-panel-tabs > button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-profile .agent-avatar-colors {
+  gap: 8px;
+}
+/* The model row: the trigger truncates the model name, never the column. */
+.agent-profile .agent-create-field > :not(span) {
+  min-width: 0;
+  max-width: 100%;
+}
+.agent-profile .model-trigger {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.agent-profile .model-trigger > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 성격 PERSONA.md · 파일 불러오기: the action wraps under the label when the
+   column is too narrow for both. */
+.agent-profile .agent-instruction-head {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.agent-profile .agent-instruction-head > :is(label, code) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The dock column is narrow: labels sit over their fields. */
+.agent-profile .agent-create-field {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+/* A refused save: one muted line, the reload as an inline text button. */
+.agent-profile-conflict {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.agent-profile-conflict > button {
+  padding: 0;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+html[data-mixdog-mobile-tabs] .agent-profile-conflict > button {
+  min-height: var(--mx-touch);
+}
+/* Pinned to the panel's bottom edge (the scroller is not its containing
+   block, so it never scrolls away); shown only while there are edits. */
+.agent-profile-footer {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--mx-sheet-surface, var(--mx-window-band, var(--mx-bg-deep)));
+  box-shadow: 0 -1px 0 var(--mx-border);
+}
+/* When the edit takes effect: muted, ahead of the buttons. */
+.agent-profile-footer-note {
+  margin-right: auto;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.agent-profile-footer > button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+.agent-profile-footer > button[type="submit"] {
+  color: var(--mx-bg-base);
+  background: var(--mx-text);
+}
+.agent-profile .agent-profile-footer > button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.agent-profile .agent-profile-footer > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+/* Phone: the panel is the dock's bottom sheet; every target is 44dp. */
+html[data-mixdog-mobile-tabs] .agent-panel-tabs > button,
+html[data-mixdog-mobile-tabs] .agent-profile input:where(:not([type="file"])),
+html[data-mixdog-mobile-tabs] .agent-profile .agent-create-segments > button,
+html[data-mixdog-mobile-tabs] .agent-profile .agent-instruction-head > button,
+html[data-mixdog-mobile-tabs] .agent-profile-footer > button {
+  min-height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .agent-profile-footer > button {
+  flex: 1 1 0;
+  justify-content: center;
+}
+html[data-mixdog-mobile-tabs] .agent-profile-footer-note {
+  flex-basis: 100%;
+}
+html[data-mixdog-mobile-tabs] .agent-panel {
+  /* Buttons, padding, and the note's own line above them. */
+  --agent-profile-bar: calc(var(--mx-touch) + 42px + env(safe-area-inset-bottom, 0px));
+}

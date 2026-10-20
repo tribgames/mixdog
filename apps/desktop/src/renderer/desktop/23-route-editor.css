@@ -117,6 +117,13 @@
 .route-sheet[data-placement="below"] {
   transform-origin: top left;
 }
+/* A pill at its row's right end grows leftwards: the sheet shares its RIGHT edge. */
+.route-sheet[data-align="end"][data-placement="above"] {
+  transform-origin: bottom right;
+}
+.route-sheet[data-align="end"][data-placement="below"] {
+  transform-origin: top right;
+}
 /* Codex-style pill: while the sheet is open the trigger expands to the sheet
    width (inline width per frame drives the transition); the chevron slides
    to the pill's right edge. */

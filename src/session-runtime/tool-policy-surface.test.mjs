@@ -540,7 +540,8 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
         source: 'built-in',
         delegatesAgents: false,
       },
-      context: '# Active Workflow: Solo — Lead works alone.',
+      packContext: '# Active Workflow: Solo — Lead works alone.',
+      leadPromptParts: () => ({}),
     }),
     invalidatePreSessionToolSurface: () => {},
   });
@@ -626,8 +627,8 @@ test('policy refresh preserves serialized role identity, custom instructions and
       },
       activeWorkflowContext: () => ({
         summary: { id: 'solo', delegatesAgents: false },
-        context: '# Active Workflow: New',
         packContext: '# Active Workflow: New',
+        leadPromptParts: () => ({}),
       }),
     });
     assert.equal((await refresh.refreshEmptySessionToolPolicy()).appliedToCurrentSession, true);
@@ -682,7 +683,8 @@ test('refresh leaves a conversation session frozen', async () => {
     loadCoreMemoryContext: async () => '',
     activeWorkflowContext: () => ({
       summary: { id: 'solo', delegatesAgents: false },
-      context: '# Active Workflow: Solo',
+      packContext: '# Active Workflow: Solo',
+      leadPromptParts: () => ({}),
     }),
     invalidatePreSessionToolSurface: () => {},
   });
@@ -722,7 +724,8 @@ function notificationRefresh(session, { activeTurns = () => 0, loadCoreMemoryCon
     loadCoreMemoryContext,
     activeWorkflowContext: () => ({
       summary: { id: 'solo', delegatesAgents: false },
-      context: '# Active Workflow: Solo',
+      packContext: '# Active Workflow: Solo',
+      leadPromptParts: () => ({}),
     }),
     invalidatePreSessionToolSurface: () => {},
   }).refreshEmptySessionToolPolicy;

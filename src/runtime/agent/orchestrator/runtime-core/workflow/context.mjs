@@ -2,8 +2,8 @@
 // (active pack + orchestration instructions + delegatable agent catalog).
 import { clean } from '../session-text.mjs';
 import { configuredOrchestrationMode } from '../../../../shared/orchestration.mjs';
-import { orchestrationInstructions } from '../orchestration.mjs';
-import { DEFAULT_WORKFLOW_ID, normalizeWorkflowId } from '../workflow-ids.mjs';
+import { AGENT_MODE_DELEGATION, MIXY_CONTACTS_INTRO, orchestrationInstructions } from '../orchestration.mjs';
+import { DEFAULT_WORKFLOW_ID, isContactAgentId, normalizeWorkflowId } from '../workflow-ids.mjs';
 
 export function createWorkflowContext({ packs, agents }) {
   function workflowSummary(pack, { hasAgents = true } = {}) {
@@ -43,26 +43,53 @@ export function createWorkflowContext({ packs, agents }) {
     return lines.join('\n\n');
   }
 
-  function orchestrationContextBlock(config, dir) {
+  // Name + description only: the AGENT.md body is the worker's own system
+  // prompt and rides in the worker session at spawn time — repeating it in
+  // the Lead prompt only bloats context. Lead picks agents by description
+  // (a when-to-use signal); orchestration carries the delegation rules.
+  function agentCatalog(dir, ids) {
+    return ids
+      .map((id) => agents.loadAgentDefinition(dir, id))
+      .filter(Boolean)
+      .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
+      .join('\n');
+  }
+
+  // A Lead's workflow slices for BP3 (composeSystemPrompt orders them):
+  // - coding: the orchestration mode block and the full agent catalog;
+  // - agent mode: the fixed delegation block (no per-agent setting) and the
+  //   sub-agent catalog — identical for every agent, so their prompts share
+  //   it — plus, for Mixy only, the contact-agent catalog.
+  function leadPromptParts(config, dir, { agentMode = false, mixy = false } = {}) {
     const mode = configuredOrchestrationMode(config);
-    const agentIds = agents.delegatableAgentIds(config, dir);
-    // Solo without agents has nothing to delegate to on request either.
-    if (mode === 'none' && !agentIds.length) return '';
-    const lines = [orchestrationInstructions(mode)];
-    const agentBlocks = agentIds.map((id) => agents.loadAgentDefinition(dir, id)).filter(Boolean);
-    if (agentBlocks.length) {
-      lines.push('# Available Agents');
-      // Name + description only: the AGENT.md body is the worker's own system
-      // prompt and rides in the worker session at spawn time — repeating it in
-      // the Lead prompt only bloats context. Lead picks agents by description
-      // (a when-to-use signal); orchestration carries the delegation rules.
-      lines.push(
-        agentBlocks
-          .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
-          .join('\n')
-      );
+    const ids = agents.delegatableAgentIds(config, dir);
+    if (!agentMode) {
+      const catalog = agentCatalog(dir, ids);
+      return {
+        // Solo without agents has nothing to delegate to on request either.
+        orchestrationContext: mode === 'none' && !ids.length ? '' : orchestrationInstructions(mode),
+        agentCatalogContext: catalog ? `# Available Agents\n\n${catalog}` : '',
+        contactCatalogContext: '',
+      };
     }
-    return lines.join('\n\n');
+    const isContact = (id) => isContactAgentId(id, agents.loadAgentDefinition(dir, id)?.frontmatter?.kind);
+    const subAgents = agentCatalog(
+      dir,
+      ids.filter((id) => !isContact(id))
+    );
+    const contacts = mixy ? agentCatalog(dir, ids.filter(isContact)) : '';
+    return {
+      // An agent-mode Lead without agents has no one to delegate to at all.
+      orchestrationContext: subAgents || contacts ? AGENT_MODE_DELEGATION : '',
+      agentCatalogContext: subAgents ? `# Available Agents\n\n${subAgents}` : '',
+      contactCatalogContext: contacts ? `# Contact Agents\n\n${MIXY_CONTACTS_INTRO}\n\n${contacts}` : '',
+    };
+  }
+
+  // The coding Lead's combined block (orchestration + catalog), as before.
+  function orchestrationContextBlock(config, dir) {
+    const { orchestrationContext, agentCatalogContext } = leadPromptParts(config, dir);
+    return [orchestrationContext, agentCatalogContext].filter(Boolean).join('\n\n');
   }
 
   // Single-pass variant: loads the active WORKFLOW.md pack once and derives both
@@ -81,6 +108,9 @@ export function createWorkflowContext({ packs, agents }) {
       // orchestration instructions / agent catalog.
       packContext,
       context: [packContext, orchestrationContextBlock(config, dir)].filter(Boolean).join('\n\n'),
+      // A Lead's BP3 slices beside the pack: `{ agentMode, mixy }` picks the
+      // coding, agent or Mixy variant (session/agent-mode.mjs).
+      leadPromptParts: (options) => leadPromptParts(config, dir, options),
     };
   }
 

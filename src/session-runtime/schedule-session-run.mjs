@@ -1,71 +1,37 @@
 /**
- * Run a schedule as a VISIBLE Mixdog session instead of a hidden agent
- * dispatch. Shared by the engine run-now capability and the channels-worker
- * scheduler so both paths leave the same trail: a resumable session with
- * owner 'user' + sourceType 'schedule' (admitted by the lead-session list
- * filter as its own type, so it shows in desktop Recent / TUI resume), the
- * schedule's provider/model route, and the schedule's project cwd.
+ * Run a schedule fire: its instructions become one turn in its owner bot's
+ * home thread (routine-home-turn.mjs), under the owned-routine guards
+ * (owned-automation-run.mjs). Shared by the engine's "Run now" and the
+ * channels-worker scheduler.
  */
-import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
-import { createSession } from '../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
-import { askSession } from '../runtime/agent/orchestrator/session/manager/ask-session.mjs';
-import { modelRouteFields, parseScheduleModelRef } from '../runtime/shared/schedule-model-ref.mjs';
-import { migrateCodexRoute } from '../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs';
-import { automationWorkflowOpts } from './automation-workflow.mjs';
-import { runAutomationTurns } from './automation-agents.mjs';
-import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
-
-/** Resolve schedule.model into a {provider,model,effort?,fast?} route. */
-function scheduleRouteFromModelRef(modelRef, config = null) {
-  const ref = parseScheduleModelRef(modelRef);
-  // A model the provider catalog superseded runs on its successor.
-  if (ref && typeof ref === 'object') return migrateCodexRoute(ref);
-  const cfg = config || loadConfig({ secrets: false });
-  const preset = cfg.presets?.find((p) => p.id === ref || p.name === ref);
-  if (!preset) {
-    throw new Error(`schedule model "${ref}" is neither a provider/model route nor a known preset name`);
-  }
-  return modelRouteFields(preset);
-}
+import { markScheduleSkipped } from '../runtime/channels/lib/schedules-db.mjs';
+import { runOwnedAutomation } from './owned-automation-run.mjs';
+import { runRoutineTurn } from './routine-home-turn.mjs';
 
 /**
- * Create the visible schedule session and run the prompt in it.
- * `prompt` overrides schedule.prompt when the caller (channels worker) has
- * already resolved/wrapped the prompt body; the override is used verbatim
- * while the fallback gets a small origin header.
+ * One fire of `schedule`. `prompt` overrides schedule.prompt when the caller
+ * (channels worker) already resolved the body; `attended` marks a person's
+ * "Run now" (no failure backoff).
  */
-export async function runScheduleSession(schedule, { config = null, prompt: promptOverride = null } = {}) {
-  if (!schedule?.name) throw new Error('runScheduleSession: schedule row required');
-  const prompt = String(promptOverride ?? schedule.prompt ?? '').trim();
-  if (!prompt) throw new Error(`schedule "${schedule.name}" has no instructions`);
-  if (!schedule.model) {
-    throw new Error(`schedule "${schedule.name}" has no model configured — edit it and choose a model first`);
-  }
-  const route = scheduleRouteFromModelRef(schedule.model, config);
-  const cwd = schedule.cwd ? String(schedule.cwd) : null;
-  // Every fire is a fresh New task (user decision): one prompt, the
-  // schedule's model/workflow/project, a brand-new session in the sidebar
-  // Automations section (newest per name wins there).
-  const session = createSession({
-    ...modelRouteFields(route),
-    owner: 'user',
-    sourceType: 'schedule',
-    sourceName: schedule.name,
-    ...(cwd ? { cwd } : {}),
-    desktopSession: cwd
-      ? { classification: 'project', projectPath: cwd }
-      : { classification: 'task', projectPath: null },
-    ...automationWorkflowOpts(schedule.workflow),
-  });
-  // The user message is the schedule's instructions verbatim: the desktop
-  // title/preview derive from it, so no "[Scheduled task: …]" header noise.
-  // Stored attachments ride along as composer-style content parts.
-  const content = automationPromptContent(prompt, schedule.attachments);
-  // Agents the run delegates to report back; each result is the next turn.
-  const result = await runAutomationTurns(
-    session.id,
-    () => askSession(session.id, content, null, null, cwd || undefined),
-    (completions, askOpts) => askSession(session.id, completions, null, null, cwd || undefined, undefined, askOpts)
+export async function runScheduleSession(schedule, { attended = false, prompt = null, signal = null } = {}) {
+  const body = String(prompt ?? schedule.prompt ?? '').trim();
+  return runOwnedSchedule(
+    schedule,
+    ({ signal: runSignal }) =>
+      runRoutineTurn({
+        kind: 'schedule',
+        name: schedule.name,
+        ownerAgentId: schedule.ownerAgentId,
+        prompt: body,
+        attachments: schedule.attachments,
+        cwd: schedule.cwd || null,
+        signal: runSignal,
+      }),
+    { attended, signal }
   );
-  return { sessionId: session.id, result: String(result?.content || '') };
+}
+
+/** One owned run of `schedule` (owned-automation-run.mjs). */
+export function runOwnedSchedule(schedule, run, { recordSkip = markScheduleSkipped, ...deps } = {}) {
+  return runOwnedAutomation('schedule', schedule, run, { recordSkip, ...deps });
 }

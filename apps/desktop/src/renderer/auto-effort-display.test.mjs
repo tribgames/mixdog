@@ -83,11 +83,15 @@ test('Workflows sidebar rows (agents and default agents) show Auto for capable m
   resetSidebarReferenceCache();
   adoptSidebarReferenceHost(api);
   updateSidebarReference('workflows', []);
+  // WorkflowsView `ownRoute`: a row shows its model only when the agent's own
+  // route is configured (routeConfigured: true); otherwise it reads "Default".
+  // `isContactAgentRow`: an unmarked custom id (heavy, maxed) is a bot listed on
+  // the Bots page, so the Workflows-page agents carry `kind: 'agent'`.
   updateSidebarReference('agents', [
-    { id: 'worker', label: 'Worker', route: route('alpha', 'capable', 'medium') },
-    { id: 'heavy', label: 'Heavy', route: route('alpha', 'plain', 'high') },
-    { id: 'maxed', label: 'Maxed', route: route('alpha', 'capable', 'max') },
-    { id: 'maintainer', label: 'Maintainer', route: route('alpha', 'capable', 'low') },
+    { id: 'worker', label: 'Worker', routeConfigured: true, route: route('alpha', 'capable', 'medium') },
+    { id: 'heavy', label: 'Heavy', kind: 'agent', routeConfigured: true, route: route('alpha', 'plain', 'high') },
+    { id: 'maxed', label: 'Maxed', kind: 'agent', routeConfigured: true, route: route('alpha', 'capable', 'max') },
+    { id: 'maintainer', label: 'Maintainer', routeConfigured: true, route: route('alpha', 'capable', 'low') },
   ]);
   updateSidebarReference('webSearchRoute', route('alpha', 'capable', 'low'));
   updateSidebarReference('webSearchModels', [option('alpha', 'capable', true)]);

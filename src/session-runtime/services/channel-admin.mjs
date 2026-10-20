@@ -23,13 +23,14 @@ import {
   setEndpointEnabled as dbSetEndpointEnabled,
 } from '../../runtime/channels/lib/webhooks-db.mjs';
 import { normalizeAutomationAttachments } from '../../runtime/shared/automation-attachments.mjs';
-import { migrateCodexModelRef } from '../../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs';
+import { assertRoutineOwner, routineOwnerProblem } from '../routine-owner.mjs';
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/shared/schedule-time.mjs';
 import { pgClusterExists } from '../../runtime/memory/lib/pg/adapter.mjs';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tunnel.mjs';
 import { WEBHOOK_TEST_FIELD, WEBHOOK_TEST_HEADER } from '../../runtime/channels/lib/webhook/request-handler.mjs';
+import { MIXY_AGENT_ID, agentHomeSessionId } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -187,7 +188,7 @@ function parseAtDatetime(at) {
 // Map the store's def shape onto the flat display shape every schedule reader
 // (channelSetup, renderChannelStatus, TUI pickers) consumes: `.time` renders
 // the cron or the one-shot datetime, `.route` the channel/session target.
-function scheduleToDisplay(s) {
+function scheduleToDisplay(s, ownerProblem = '') {
   return {
     name: s.name,
     description: s.description || '',
@@ -195,26 +196,85 @@ function scheduleToDisplay(s) {
     whenAt: s.whenAt || undefined,
     whenCron: s.whenCron || undefined,
     timezone: s.timezone || undefined,
-    // Shown (and re-saved by the editor) on the catalog successor of a superseded model.
-    model: s.model ? migrateCodexModelRef(s.model) : undefined,
     cwd: s.cwd || undefined,
-    workflow: s.workflow || undefined,
     attachments: s.attachments || undefined,
     enabled: s.enabled !== false,
     instructions: s.prompt,
     route: 'session',
+    // The bot it belongs to: each run is a turn in that bot's chat.
+    owner: s.ownerAgentId || MIXY_AGENT_ID,
+    // Why it is paused for its owner (routine-owner.mjs); absent when it runs.
+    ...(ownerProblem ? { ownerProblem } : {}),
+    nextFireAt: isoOrUndefined(s.nextFireAt),
+    lastSuccessAt: isoOrUndefined(s.lastSuccessAt),
+    lastFailedAt: isoOrUndefined(s.lastFailedAt),
+    lastSkippedAt: isoOrUndefined(s.lastSkippedAt),
+    ...routineHealth(s),
+  };
+}
+
+// Failures in a row (the routine pauses itself at the limit) and the results
+// of finished runs still not queued for the owner: `{ count, failed, error }`,
+// `failed` when the queue refused one (the app offers a retry).
+function routineHealth(row) {
+  const entries = Object.values(row.resultDelivery || {}).filter(Boolean);
+  const refused = entries.filter((entry) => entry.state === 'failed').at(-1);
+  return {
+    consecutiveFailures: Number(row.consecutiveFailures) || 0,
+    ...(entries.length
+      ? {
+          undelivered: {
+            count: entries.length,
+            failed: Boolean(refused),
+            ...(refused?.error ? { error: String(refused.error) } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function isoOrUndefined(value) {
+  if (!value) return undefined;
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
+}
+
+// A schedule's or webhook's owner: an explicit agent id, else the saved owner
+// on an overwrite, else Mixy.
+function scheduleOwner(owner, existing) {
+  const value = String(owner ?? '').trim();
+  if (value) {
+    if (!agentHomeSessionId(value)) throw new Error(`schedule owner "${value}" is not a valid agent id`);
+    return value;
+  }
+  return existing?.ownerAgentId || MIXY_AGENT_ID;
+}
+
+/** Each owner's problem (routine-owner.mjs), probed once per owner. */
+function ownerProblems() {
+  const seen = new Map();
+  return (ownerAgentId) => {
+    const owner = ownerAgentId || MIXY_AGENT_ID;
+    if (!seen.has(owner))
+      seen.set(
+        owner,
+        routineOwnerProblem(owner).catch(() => '')
+      );
+    return seen.get(owner);
   };
 }
 
 export async function listSchedules() {
   const rows = await dbListSchedules();
-  return rows.map(scheduleToDisplay);
+  const problemOf = ownerProblems();
+  return Promise.all(rows.map(async (row) => scheduleToDisplay(row, await problemOf(row.ownerAgentId))));
 }
 
 // Register or update a schedule in the PG store. Recurring input maps `time`
 // (+ optional `days`) to a cron; one-shot input maps an `at` datetime; the two
 // are mutually exclusive (also enforced by the store's when_at/when_cron XOR).
-// Every schedule runs as a visible app session and requires a model.
+// Every schedule runs as a turn in its owner bot's chat; a bot that does not
+// exist (no representative bot yet, an archived bot) cannot own one.
 export async function saveSchedule({
   name,
   description = '',
@@ -222,26 +282,26 @@ export async function saveSchedule({
   at,
   timezone,
   days,
-  model,
   cwd,
-  workflow,
   attachments,
   enabled,
   instructions,
+  owner,
   overwrite = false,
 } = {}) {
   const id = assertScheduleName(name);
   const body = String(instructions || '').trim();
   if (!body) throw new Error('schedule instructions are required');
-  const scheduleModel = String(model || '').trim();
-  if (!scheduleModel) throw new Error('schedule model is required — choose a model before saving');
   const hasTime = time != null && String(time).trim() !== '';
   const hasAt = at != null && String(at).trim() !== '';
   if (hasTime && hasAt) throw new Error('provide either `time` (recurring) or `at` (one-shot), not both');
   if (!hasTime && !hasAt) throw new Error('either `time` (recurring cron) or `at` (one-shot datetime) is required');
-  if (overwrite !== true && (await dbGetSchedule(id))) {
+  const existing = await dbGetSchedule(id);
+  if (overwrite !== true && existing) {
     throw new Error(`schedule "${id}" already exists`);
   }
+  const ownerAgentId = scheduleOwner(owner, existing);
+  await assertRoutineOwner(ownerAgentId);
   const whenCron = hasTime ? validateScheduleCron(foldDaysIntoCron(normalizeCron(time), days)) : null;
   const whenAt = hasAt ? parseAtDatetime(at) : null;
   const scheduleTimezone = hasTime ? resolveScheduleTimezone(timezone) : null;
@@ -253,14 +313,13 @@ export async function saveSchedule({
     timezone: scheduleTimezone,
     target: 'session',
     channelId: null,
-    model: scheduleModel,
     cwd: cwd ? String(cwd).trim() : null,
-    workflow: workflow ? String(workflow).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
     delivery: 'app',
     prompt: body,
     enabled: enabled !== false,
     nextFireAt: whenAt,
+    ownerAgentId,
   });
   automationProbe.invalidate();
   return scheduleToDisplay(saved);
@@ -287,13 +346,13 @@ export async function setScheduleEnabled(name, enabled) {
 // store's migration hook.
 async function listWebhooks() {
   const endpoints = await dbListEndpoints();
-  return endpoints.map((ep) => ({
+  const problemOf = ownerProblems();
+  const problems = await Promise.all(endpoints.map((ep) => problemOf(ep.ownerAgentId)));
+  return endpoints.map((ep, index) => ({
     name: ep.name,
     description: ep.description || '',
     parser: ep.parser || 'github',
-    ...(ep.model ? { model: migrateCodexModelRef(ep.model) } : {}),
     ...(ep.cwd ? { cwd: ep.cwd } : {}),
-    ...(ep.workflow ? { workflow: ep.workflow } : {}),
     ...(ep.attachments ? { attachments: ep.attachments } : {}),
     enabled: ep.enabled,
     // The store never projects the plaintext secret through list paths; it
@@ -302,6 +361,16 @@ async function listWebhooks() {
     secret: undefined,
     instructions: ep.instructions,
     route: 'session',
+    // The bot it belongs to: each run is a turn in that bot's chat.
+    owner: ep.ownerAgentId || MIXY_AGENT_ID,
+    ...(problems[index] ? { ownerProblem: problems[index] } : {}),
+    lastEventAt: isoOrUndefined(ep.lastEventAt),
+    lastSuccessAt: isoOrUndefined(ep.lastSuccessAt),
+    lastFailedAt: isoOrUndefined(ep.lastFailedAt),
+    lastSkippedAt: isoOrUndefined(ep.lastSkippedAt),
+    // Whether "Run now" has a received payload to re-run (never the payload).
+    hasLastPayload: ep.hasLastPayload === true,
+    ...routineHealth(ep),
   }));
 }
 
@@ -310,12 +379,11 @@ export async function saveWebhook({
   description = '',
   parser = 'github',
   secret,
-  model,
   cwd,
-  workflow,
   attachments,
   enabled,
   instructions,
+  owner,
   overwrite = false,
 } = {}) {
   const id = assertName(name, 'webhook name');
@@ -327,9 +395,12 @@ export async function saveWebhook({
   }
   const body = String(instructions || '').trim();
   if (!body) throw new Error('webhook instructions are required');
-  if (overwrite !== true && (await dbLoadEndpoint(id))) {
+  const existing = await dbLoadEndpoint(id);
+  if (overwrite !== true && existing) {
     throw new Error(`webhook "${id}" already exists`);
   }
+  const ownerAgentId = scheduleOwner(owner, existing);
+  await assertRoutineOwner(ownerAgentId);
   // Secret semantics: an explicit value always wins; an EMPTY value on an
   // overwrite PRESERVES the stored secret (editing instructions must not
   // silently rotate the key the external service was configured with); only
@@ -343,23 +414,21 @@ export async function saveWebhook({
     description: String(description || '').trim(),
     parser: nextParser,
     channelId: null,
-    model: model ? String(model).trim() : null,
     cwd: cwd ? String(cwd).trim() : null,
-    workflow: workflow ? String(workflow).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
     delivery: 'app',
     secret: secretValue,
     instructions: body,
     enabled: enabled !== false,
+    ownerAgentId,
   });
   automationProbe.invalidate();
   return {
     name: id,
+    owner: saved.ownerAgentId || ownerAgentId,
     description: saved.description,
     parser: saved.parser,
-    ...(saved.model ? { model: saved.model } : {}),
     ...(saved.cwd ? { cwd: saved.cwd } : {}),
-    ...(saved.workflow ? { workflow: saved.workflow } : {}),
     ...(saved.attachments ? { attachments: saved.attachments } : {}),
     ...(enabled === false ? { enabled: false } : {}),
     secret: secretValue,

@@ -9,6 +9,12 @@ import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
 import { executeExtendedSetupAction, publicAutomation, publicHookRule, validateMcpInput } from './extended-actions.mjs';
+import {
+  assertAgentEditorAccess,
+  assertInteractiveCaller,
+  assertOwnAgentSettings,
+  scheduleCallerScope,
+} from '../services/schedule-access.mjs';
 import { SETUP_DESKTOP_UNCLAIMED, createSetupUiRequests } from './ui-requests.mjs';
 import {
   SETUP_ACTIONS,
@@ -20,7 +26,10 @@ import {
 } from './tool-defs.mjs';
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { CONNECTOR_IDS, connectorById } from '../../runtime/shared/connector-catalog.mjs';
 import profileConfig from '../../runtime/shared/profile-config.cjs';
+
+const AGENT_DEFINITION_ACTIONS = new Set(['create_definition', 'save_definition', 'delete_definition']);
 
 const PROFILE_VALUE_IDS = Object.freeze({
   language: profileConfig.PROFILE_LANGUAGES.map((entry) => entry.id),
@@ -35,6 +44,7 @@ const ACTION_APPLIES_TO = {
   save_automation: 'the automation worker; scheduled runs follow the saved timing',
   delete_automation: 'future automation runs',
   set_automation_enabled: 'future automation runs',
+  run_automation: "one run now; its result posts into the owning agent's thread",
   set_webhook_config: 'the webhook worker after configuration reload',
   add_hook_rule: 'subsequent tool calls; no restart required',
   set_hook_rule_enabled: 'subsequent tool calls; no restart required',
@@ -55,9 +65,10 @@ const OPEN_TARGET_HINTS = Object.freeze({
   autoclear: 'Desktop: Settings → Context · TUI: /autoclear',
   memory:
     'Desktop: Extensions → Plugin → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory',
-  mcp: 'Desktop: Extensions → Skill tab → MCP · TUI: /mcp',
-  skills: 'Desktop: Extensions → Skill tab → Skills · TUI: /skills',
-  plugins: 'Desktop: Extensions → Plugin tab → Plugins · TUI: /plugins',
+  mcp: 'Desktop: Extensions → Connectors tab · TUI: /mcp',
+  skills: 'Desktop: Skills (activity rail) · TUI: /skills',
+  plugins:
+    'Desktop: Extensions → Extensions tab (plugins that bring MCP servers: Connectors tab → Custom connectors) · TUI: /plugins',
   update: 'Desktop: Settings → System → Update · TUI: /update',
   usage: 'Desktop: /usage in the composer · TUI: /usage',
   doctor: 'Desktop: Settings → System → Doctor, or /doctor in the composer · TUI: /doctor',
@@ -133,6 +144,7 @@ function publicProviderRows(setup) {
       pick(row, {
         reauthRequired: row.reauthRequired === true,
         expiresAt: row.expiresAt || null,
+        plan: row.plan || null,
       })
     ),
     local: (setup?.local || []).map((row) =>
@@ -167,6 +179,7 @@ function configuredProviderRows(rows, accountCount) {
         kind,
         authenticated: row.authenticated,
         status: row.status,
+        ...(kind === 'oauth' ? { plan: row.plan || null } : {}),
         ...(row.reauthRequired ? { reauthRequired: true } : {}),
         ...accounts,
       });
@@ -627,6 +640,25 @@ const SETUP_ACTION_HANDLERS = {
   remove_plugin: async (rt, args) => ({
     plugin: (await rt.removePlugin(requireText(args.name, 'name')))?.plugin || null,
   }),
+  // The chat path of the one-click connect: the attached Desktop renders this
+  // call as a connect card (agent-chat connector card) that runs the same flow
+  // as Extensions → 커넥터. Nothing is connected here.
+  connect_connector: async (rt, args) => {
+    const entry = connectorById(requireText(args.connector, 'connector'));
+    if (!entry || entry.ownKey) throw new Error(`connector must be one of ${CONNECTOR_IDS.join(', ')}`);
+    const server = (rt.mcpStatus?.()?.servers || []).find((row) => row.connector === entry.id) || null;
+    const connected = entry.backend.kind === 'builtin' ? null : server?.connected === true;
+    return {
+      connector: entry.id,
+      name: entry.name,
+      backend: entry.backend.kind,
+      ...(server ? { server: server.name } : {}),
+      connected,
+      note: connected
+        ? `${entry.name} is already connected.`
+        : `A connect card for ${entry.name} is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards.`,
+    };
+  },
   enable_plugin_mcp: async (rt, args) => {
     const name = requireText(args.name, 'name');
     const plugin = ((await rt.pluginsStatus())?.plugins || []).find((row) => row.name === name || row.id === name);
@@ -645,6 +677,7 @@ const READ_ONLY_SETUP_ACTIONS = new Set([
   'open',
   'list_models',
   'get_mcp_server',
+  'connect_connector',
   'read_definition',
   'search_local_models',
   'inspect_hf_model',
@@ -656,6 +689,7 @@ const BACKGROUND_SETUP_ACTIONS = new Set([
   'maintain_local_model',
   'cancel_local_installation',
   'reconnect_mcp',
+  'run_automation',
 ]);
 
 function setupMutationReceipt(action, result) {
@@ -671,7 +705,16 @@ function setupMutationReceipt(action, result) {
   );
 }
 
-export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, getSessionId, flushSettings }) {
+/** `getCallerSession(id)` returns the calling session's record (null when it
+ *  cannot be resolved): automation actions authorize by its provenance. */
+export function createSetupToolExecutor({
+  getApi,
+  getConfig,
+  notifySessionUi,
+  getSessionId,
+  getCallerSession,
+  flushSettings,
+}) {
   const desktop = createSetupUiRequests({ notifySessionUi, getSessionId });
   const api = () => {
     const facade = getApi?.();
@@ -701,12 +744,31 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     };
   }
 
-  async function execute(args, { signal }) {
+  async function execute(args, { signal, callerSessionId }) {
     signal?.throwIfAborted();
     const requestDesktop = (request) => desktop.request(request, { signal });
     const action = validateSetupInput(args);
+    // The session that made this call, not just the runtime's own Lead.
+    const sessionId = clean(callerSessionId) || clean(getSessionId?.());
+    const caller = (sessionId && getCallerSession?.(sessionId)) || null;
+    // A headless run (schedule, webhook, delegated agent) only reads settings:
+    // it never creates agents, definitions or automations, nor changes any
+    // other setting. Hosts without session provenance (no getCallerSession)
+    // skip this gate; automation actions still refuse an unknown caller.
+    if (getCallerSession && !READ_ONLY_SETUP_ACTIONS.has(action)) {
+      const scope = scheduleCallerScope(caller);
+      assertInteractiveCaller(scope, action);
+      // Agent definitions (contacts) change only from Mixy; another agent's
+      // home changes only its own agent settings.
+      if (AGENT_DEFINITION_ACTIONS.has(action) && args.definitionKind === 'agent') {
+        assertAgentEditorAccess(scope, caller, action);
+      }
+      if (action === 'set_agent_route') assertOwnAgentSettings(scope, args.agent, action);
+    }
     const rt = action === 'status' || action === 'open' ? null : api();
-    if (!Object.hasOwn(SETUP_ACTION_HANDLERS, action)) return executeExtendedSetupAction(rt, args, requestDesktop);
+    if (!Object.hasOwn(SETUP_ACTION_HANDLERS, action)) {
+      return executeExtendedSetupAction(rt, args, requestDesktop, { sessionId, caller });
+    }
     return SETUP_ACTION_HANDLERS[action](rt, args, { requestDesktop, readStatus, openSurface });
   }
 

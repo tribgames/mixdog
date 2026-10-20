@@ -128,7 +128,7 @@ const STATUS_FILE = getStatusPath(INSTANCE_ID);
 const statusState = new JsonStateFile(STATUS_FILE, {});
 statusState.ensure();
 const scheduler = new Scheduler(config.nonInteractive ?? [], config.interactive ?? []);
-// Schedules fire as visible sessions; the session runner belongs to the
+// A schedule fire is a turn in its owner bot's chat; the runner belongs to the
 // session-runtime layer, so this worker entry injects it (lazy, like webhooks).
 scheduler.setScheduleRunner(async (schedule, opts) => {
   const { runScheduleSession } = await import('../../../session-runtime/schedule-session-run.mjs');
@@ -216,25 +216,22 @@ scheduler.setInjectReadyCheck(() => bridgeRuntimeConnected && currentOwnerState(
 function wireWebhookHandlers() {
   if (!webhookServer) return;
   webhookServer.setEventPipeline(eventPipeline);
-  // Webhook fires run as sessions (schedules parity); the Automations
-  // session row is the only surface (channel relay retired).
-  webhookServer.setBridgeDispatch(
-    async ({ prompt, skillSelection, model, cwd, workflow, attachments, context, signal }) => {
-      const { runWebhookSession } = await import('../../../session-runtime/webhook-session-run.mjs');
-      const run = await runWebhookSession({
-        name: context?.endpoint || 'webhook',
-        model: model || null,
-        cwd: cwd || null,
-        workflow: workflow || null,
-        attachments: attachments || null,
-        // Dispatch-timeout cancellation only works if the signal reaches the run.
-        signal: signal || null,
-        prompt,
-        skillSelection,
-      });
-      return run;
-    }
-  );
+  // A webhook fire is a turn in its owner bot's chat (webhook-session-run.mjs).
+  webhookServer.setBridgeDispatch(async ({ prompt, skillSelection, cwd, attachments, context, signal }) => {
+    const { runWebhookSession } = await import('../../../session-runtime/webhook-session-run.mjs');
+    const run = await runWebhookSession({
+      name: context?.endpoint || 'webhook',
+      ownerAgentId: context?.owner || null,
+      cwd: cwd || null,
+      attachments: attachments || null,
+      event: context?.event || '',
+      // Dispatch-timeout cancellation only works if the signal reaches the run.
+      signal: signal || null,
+      prompt,
+      skillSelection,
+    });
+    return run;
+  });
 }
 function wireEventQueueHandlers(eventQueue) {
   if (!eventQueue) return;

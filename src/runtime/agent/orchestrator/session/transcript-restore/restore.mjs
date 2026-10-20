@@ -38,8 +38,12 @@ import {
 } from '../../../../shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../../../shared/tool-status.mjs';
 import { transcriptAttachmentFields, transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
+import { routineTriggerField } from '../../../../shared/routine-trigger.mjs';
 import { isImportedMessage } from '../imported-message.mjs';
 import { isContextAckMessage } from '../compact/user-message-kind.mjs';
+import { isRoutineResultMessage, routineResultNotice } from '../routine-result.mjs';
+import { heldRequestNotice, isHeldRequestMessage } from '../human-gate/held-message.mjs';
+import { isRoomRowMessage, roomRowItem } from '../agent-room.mjs';
 
 /** A failed turn's recorded end: its route, reason and quota stop, the same
  *  fields the live turndone carries. */
@@ -86,6 +90,8 @@ function restoredTranscriptMetadata(message) {
     // The attachments this prompt carried, by content hash: a restored row
     // opens/downloads them by id from the attachment store.
     ...transcriptAttachmentFields(value),
+    // A routine fire this turn delivered: painted as its marker row.
+    ...routineTriggerField(value),
     // Skills this user turn explicitly loaded (header selection or `$name`).
     ...(Array.isArray(value.appliedSkills) && value.appliedSkills.length
       ? { appliedSkills: value.appliedSkills.filter((name) => typeof name === 'string' && name) }
@@ -332,7 +338,8 @@ function mergeRestoredToolItems(items) {
 function restoredMessageItemUpperBound(message) {
   const boundaries =
     (Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0) +
-    (Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches.length : 0);
+    (Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches.length : 0) +
+    (Array.isArray(message?.meta?.workflowSwitches) ? message.meta.workflowSwitches.length : 0);
   const completionCount =
     Number(Boolean(message?.meta?.transcript?.completion)) +
     (Array.isArray(message?.meta?.transcript?.previousCompletions)
@@ -377,6 +384,20 @@ function restoredUserTranscriptItems(message, nextId) {
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
   // blocks must not restore as user bubbles in any client.
   if (message?.meta === 'skill' || message?.meta === 'hook') return [];
+  // A schedule's result in its owner's home thread: a notice row.
+  // A held request of an unattended run (human-gate/held-message.mjs) likewise.
+  if (isRoutineResultMessage(message) || isHeldRequestMessage(message)) {
+    const { messageId, at } = restoredTranscriptMetadata(message);
+    return [
+      {
+        kind: 'notice',
+        id: nextId(),
+        ...(isHeldRequestMessage(message) ? heldRequestNotice(message) : routineResultNotice(message)),
+        ...(messageId ? { messageId } : {}),
+        ...(at ? { at } : {}),
+      },
+    ];
+  }
   // Imported prose renders verbatim: never a control row, card or display rewrite.
   if (isImportedMessage(message)) {
     const text = (typeof message.content === 'string' ? message.content : toolResultText(message.content)).trim();
@@ -440,6 +461,19 @@ export function modelSwitchItem(id, boundary) {
   };
 }
 
+/** The transcript row of a mid-conversation workflow switch (live and restored). */
+export function workflowSwitchItem(id, boundary) {
+  return {
+    kind: 'statusdone',
+    id,
+    status: 'workflow-switched',
+    label: 'Workflow switched',
+    from: boundary.from,
+    to: boundary.to,
+    at: boundary.at,
+  };
+}
+
 function restoreTranscriptRange(messages, start, sessionId) {
   const items = [];
   const pendingToolCalls = new Map();
@@ -450,6 +484,11 @@ function restoreTranscriptRange(messages, start, sessionId) {
     // let a tail-only restore skip the prefix without first counting every old
     // projected item.
     const restoredId = () => `hist_${sessionId}_${index}_${++part}`;
+    // A group room's posted row (agent-room.mjs): one bubble or notice row.
+    if (isRoomRowMessage(message)) {
+      items.push(roomRowItem(message, restoredId()));
+      continue;
+    }
     if (message?.role === 'user') {
       items.push(...restoredUserTranscriptItems(message, restoredId));
     } else if (message?.role === 'assistant' && !isContextAckMessage(message, messages[index - 1])) {
@@ -476,6 +515,10 @@ function restoreTranscriptRange(messages, start, sessionId) {
     for (const boundary of Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches : []) {
       if (!boundary?.provider || !boundary?.modelId) continue;
       items.push(modelSwitchItem(restoredId(), boundary));
+    }
+    for (const boundary of Array.isArray(message?.meta?.workflowSwitches) ? message.meta.workflowSwitches : []) {
+      if (!boundary?.to) continue;
+      items.push(workflowSwitchItem(restoredId(), boundary));
     }
     if (message?.meta?.transcript?.previousCompletions?.length) {
       const events = items.slice(eventStart);

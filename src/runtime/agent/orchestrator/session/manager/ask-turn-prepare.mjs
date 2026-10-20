@@ -19,6 +19,7 @@ import {
   snapshotPendingWorkspaceNotice,
   snapshotPendingSetupNotice,
 } from './prompt-utils.mjs';
+import { snapshotPendingWorkflowNotice } from './workflow-switch-notice.mjs';
 import { codexWireSendOpts } from './session-id.mjs';
 import { _tryBridgeExplicitPrefetch } from './prefetch-bridge.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
@@ -180,7 +181,11 @@ export async function buildUserTurn({
   const workspaceNotice = snapshotPendingWorkspaceNotice(session);
   // What preparing a new worktree linked, installed, ran, failed or skipped.
   const setupNotice = snapshotPendingSetupNotice(session);
+  // A mid-conversation workflow switch: the prompt and tools were rebuilt
+  // for the new workflow; this turn tells the model once.
+  const workflowNotice = snapshotPendingWorkflowNotice(session);
   const reminderBlock = [
+    workflowNotice?.content || '',
     workspaceNotice?.content || '',
     setupNotice?.content || '',
     currentTimeBlock ? `<system-reminder>\n# Current Time\n${currentTimeBlock}\n</system-reminder>` : '',
@@ -209,6 +214,7 @@ export async function buildUserTurn({
     historyMessages,
     deferredToolDelta,
     goalReminder,
+    workflowNotice,
     workspaceNotice,
     setupNotice,
     userTurnMessage,

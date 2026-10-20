@@ -6,6 +6,7 @@ import type {
 } from '../shared/contract';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { normalizeRoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
 
 // A user prompt plus an assistant reply: the smallest persisted conversation.
 const MIN_CONVERSATION_MESSAGE_COUNT = 2;
@@ -132,6 +133,8 @@ export function desktopSessionSummaries(
       const projectPath = classification === 'project' ? workspace?.projectPath || cwd || storedProjectPath : '';
       if (classification === 'project' && (!projectPath || projectPath.includes('\0'))) return [];
       const preview = String(row.preview || '').trim();
+      const lastMessagePreview = String(row.lastMessagePreview || '').trim();
+      const lastMessageRoutine = normalizeRoutineProvenance(row.lastMessageRoutine);
       const id = String(row.id || '');
       const manualTitle = normalizeSessionTitle(names[id] || '', '');
       const sharedTitle = generatedSessionTitle(row.title || '', '');
@@ -177,7 +180,18 @@ export function desktopSessionSummaries(
         messageCount >= MIN_CONVERSATION_MESSAGE_COUNT &&
         row.detachedReason !== 'cli-resume' &&
         (realTurnCount === null || realTurnCount >= 1);
-      if (!previewTitle && !manualTitle && !sharedTitle && !legacyDesktopTitle && !hadConversation) return [];
+      // An agent home thread is a contact's chat, titled by its agent: a home
+      // that holds only routine results (no real turn, no first-prompt
+      // preview) still belongs in the catalog the Agents pane reads.
+      if (
+        !previewTitle &&
+        !manualTitle &&
+        !sharedTitle &&
+        !legacyDesktopTitle &&
+        !hadConversation &&
+        !(agentHome && messageCount > 0)
+      )
+        return [];
       return [
         {
           id,
@@ -203,6 +217,11 @@ export function desktopSessionSummaries(
           ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
           ...(workspace ? { workspace } : {}),
           ...(agentHome ? { agentHome } : {}),
+          // A coding task session an agent created (session create).
+          ...(sourceType === 'lead' && sourceName.startsWith('agent:') ? { taskAgent: sourceName.slice(6) } : {}),
+          ...(row.sessionMode === 'agent' ? { sessionMode: 'agent' as const } : {}),
+          ...(lastMessagePreview ? { lastMessagePreview } : {}),
+          ...(lastMessagePreview && lastMessageRoutine ? { lastMessageRoutine } : {}),
         },
       ];
     })

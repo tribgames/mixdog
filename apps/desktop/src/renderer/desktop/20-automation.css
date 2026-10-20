@@ -158,6 +158,21 @@
   gap: 2px;
   padding: 0 8px;
 }
+/* The agent picker's faces: on its trigger and on each menu row. */
+.automation-agent-face {
+  width: 18px;
+  height: 18px;
+}
+.automation-agent-picker .mx-select-leading,
+.mx-menu-item > .mx-select-leading {
+  display: inline-flex;
+  flex: none;
+}
+/* With no bot, a routine view holds the line and the representative bot's
+   action in place of its editor. */
+.schedules-dialog > .routine-needs-bot {
+  padding: 24px 16px;
+}
 /* Attachment chips inside the automation editors reuse the composer chip
    look; the container just needs its own flow inside the dialog card. */
 .schedules-attachments {
@@ -506,19 +521,7 @@
 .row-overflow-menu button.danger {
   color: var(--mx-danger);
 }
-.schedules-empty {
-  flex: 1;
-  display: grid;
-  align-content: center;
-  gap: 10px;
-  justify-items: center;
-  padding: 24px 0 48px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-ui);
-}
-.schedules-empty svg {
-  color: var(--mx-icon-muted);
-}
+.utility-dock-empty p,
 .schedules-empty p {
   margin: 0;
 }
@@ -1288,4 +1291,293 @@
 .schedules-field > small.workflows-route-required {
   margin-top: 6px;
   color: var(--mx-warning);
+}
+
+/* New agent (the Agents pane "+"): the face and name on top, then the model
+   and the job; AGENT.md waits behind "Advanced". */
+.agent-create-dialog {
+  --mx-editor-width: 440px;
+  --mx-dialog-max-height: 760px;
+}
+.agent-create-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.agent-create-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.agent-create-preview {
+  width: 80px;
+  height: 80px;
+}
+.agent-create-dialog .agent-create-name {
+  width: 100%;
+  min-height: 40px;
+  text-align: center;
+}
+/* 기본 / 커스텀: a two-item segmented control under the name. */
+.agent-create-segments {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+}
+.agent-create-segments > button {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: calc(var(--mx-radius-md) - 1px);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+.agent-create-segments > button[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+.agent-create-segments > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+/* An uploaded face: a square image, cover-cropped, small radius. */
+.agent-avatar-image {
+  display: block;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--mx-radius-sm);
+}
+.agent-create-preview.agent-avatar-image {
+  border-radius: var(--mx-radius-md);
+}
+.agent-create-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--mx-text) 8%, transparent);
+}
+.agent-create-section > h3 {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+}
+.agent-create-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.agent-create-field > * {
+  min-width: 0;
+}
+.agent-create-field > span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.agent-create-advanced {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.agent-create-advanced > svg {
+  flex: none;
+  color: var(--mx-icon-muted);
+  transition: transform var(--mx-motion-ink);
+}
+.agent-create-advanced[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+.agent-create-advanced:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.agent-create-dialog .agent-create-instructions {
+  width: 100%;
+  min-height: 120px;
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  resize: vertical;
+}
+
+/* 성격과 일하는 방식: PERSONA.md (a soft prose field) over AGENT.md, each
+   with its label, a mono file hint and a right-aligned "파일 불러오기". */
+.agent-instruction-editors {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.agent-instruction-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.agent-instruction-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.agent-instruction-head > label {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+}
+.agent-instruction-head > code {
+  color: var(--mx-text-faint);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-micro);
+}
+.agent-instruction-head > button {
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.agent-instruction-head > button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.agent-instruction-head > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.schedules-dialog .agent-instruction-editor textarea.agent-persona-input {
+  width: 100%;
+  min-height: 84px;
+  height: 84px;
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  resize: vertical;
+}
+.schedules-dialog .workflows-md-field .agent-instruction-editor textarea.agent-create-instructions {
+  min-height: 220px;
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+
+/* The mascot picker (design/mockups/mixy-art §1): 강아지 / 친구들, then the
+   kind, accessory and expression rows of chips (a 16px face, 1px a cell, and
+   its name), then the colour row. */
+.agent-avatar-picker {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.agent-avatar-row {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.agent-avatar-row-label {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.agent-avatar-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+:is(.agent-avatar-options, .agent-avatar-picker) > button:not(.agent-avatar-colors > button) {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+:is(.agent-avatar-options, .agent-avatar-picker) > button:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+:is(.agent-avatar-options, .agent-avatar-picker) > button[aria-pressed="true"] {
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 1px var(--mx-rail-item-outline-active);
+}
+:is(.agent-avatar-options, .agent-avatar-picker) > button > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+:is(.agent-avatar-options, .agent-avatar-picker) > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.agent-avatar-colors {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+.agent-avatar-colors > button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--agent-avatar-swatch);
+  cursor: pointer;
+}
+.agent-avatar-colors > button[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px var(--mx-popup-bg),
+    0 0 0 4px var(--mx-text-soft);
+}
+.agent-avatar-colors > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+:is(.agent-avatar-options, .agent-avatar-colors, .agent-avatar-picker) > button:disabled {
+  cursor: default;
+}
+/* The Workflows agent editor's compact rows. */
+.agent-avatar-picker[data-compact] {
+  gap: 8px;
+}
+.agent-avatar-picker[data-compact] .agent-avatar-options {
+  gap: 4px;
+}
+.agent-avatar-picker[data-compact] .agent-avatar-options > button {
+  min-height: 24px;
+  font-size: var(--mx-font-meta);
+}
+.agent-avatar-picker[data-compact] .agent-avatar-colors {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.agent-avatar-picker[data-compact] .agent-avatar-colors > button {
+  width: 20px;
+  height: 20px;
 }

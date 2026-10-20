@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 
 /** Bumped whenever the table layout or a codec changes: the DB is then
  *  dropped and backfilled again from the JSON catalog. */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 9;
 /** PRAGMA application_id ('MXSC'): a file without it is not this catalog. */
 export const APPLICATION_ID = 0x4d585343;
 
@@ -59,6 +59,12 @@ const FIELDS = [
   ['inheritedFromSessionId', 'inherited_from_session_id', 'loose'],
   // Real human turns (null for a row written before schema 5).
   ['realTurnCount', 'real_turn_count', 'loose'],
+  // The last conversational message, one line (schema 7).
+  ['lastMessagePreview', 'last_message_preview', 'text'],
+  // That line's routine provenance, or null (schema 8).
+  ['lastMessageRoutine', 'last_message_routine', 'json'],
+  // 'agent' | 'coding' (session/agent-mode.mjs) (schema 9).
+  ['sessionMode', 'session_mode', 'loose'],
 ];
 
 const COLUMN_TYPES = { text: 'TEXT', real: 'REAL', int: 'INTEGER', bool: 'INTEGER', json: 'TEXT', optjson: 'TEXT' };

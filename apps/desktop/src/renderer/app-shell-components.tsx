@@ -1,7 +1,8 @@
 import type React from 'react';
-import { lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type ComponentType, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
-import { useDeferredModule } from './deferred-module';
+import { type DeferredModule, deferredModule, useDeferredModule } from './deferred-module';
+import { InitialSurface } from './InitialSurface';
 import { EditorTextPlaceholder, useEditorTextPlaceholder } from './editor-text-placeholder';
 import { GitDiffPane } from './GitDiffPane';
 import { editorPaneModule, type TerminalPane, terminalPaneModule, type EditorPaneProps } from './lazy-widgets';
@@ -104,8 +105,9 @@ const loadWebhooksViewModule = () => import('./WebhooksView');
 const loadProjectsViewModule = () => import('./ProjectsView');
 const loadWorkflowsViewModule = () => import('./WorkflowsView');
 const loadExtensionsViewModule = () => import('./ExtensionsView');
+const loadSkillsViewModule = () => import('./SkillsView');
 
-export type SidebarPanelKey = 'schedules' | 'webhooks' | 'projects' | 'workflows' | 'extensions';
+export type SidebarPanelKey = 'schedules' | 'webhooks' | 'projects' | 'workflows' | 'extensions' | 'skills';
 type SidebarPanelLoaderGate = (panel: SidebarPanelKey) => Promise<unknown>;
 
 function gateSidebarPanelModule<T>(panel: SidebarPanelKey, load: () => Promise<T>): Promise<T> {
@@ -117,25 +119,46 @@ function gateSidebarPanelModule<T>(panel: SidebarPanelKey, load: () => Promise<T
   return gate ? Promise.resolve(gate(panel)).then(load) : load();
 }
 
+// Deferred modules, not React.lazy: a lazy component suspends on its first
+// render even when its chunk already loaded, and React then holds the
+// Suspense placeholder for its ~300ms reveal throttle. A loaded deferred module
+// renders in the same commit as the click.
+const sidebarPanelModules = {
+  schedules: deferredModule(() => gateSidebarPanelModule('schedules', loadSchedulesViewModule)),
+  webhooks: deferredModule(() => gateSidebarPanelModule('webhooks', loadWebhooksViewModule)),
+  projects: deferredModule(() => gateSidebarPanelModule('projects', loadProjectsViewModule)),
+  workflows: deferredModule(() => gateSidebarPanelModule('workflows', loadWorkflowsViewModule)),
+  extensions: deferredModule(() => gateSidebarPanelModule('extensions', loadExtensionsViewModule)),
+  skills: deferredModule(() => gateSidebarPanelModule('skills', loadSkillsViewModule)),
+};
+
 export const loadSidebarPanelModule = {
-  schedules: () => gateSidebarPanelModule('schedules', loadSchedulesViewModule),
-  webhooks: () => gateSidebarPanelModule('webhooks', loadWebhooksViewModule),
-  projects: () => gateSidebarPanelModule('projects', loadProjectsViewModule),
-  workflows: () => gateSidebarPanelModule('workflows', loadWorkflowsViewModule),
-  extensions: () => gateSidebarPanelModule('extensions', loadExtensionsViewModule),
+  schedules: () => sidebarPanelModules.schedules.load(),
+  webhooks: () => sidebarPanelModules.webhooks.load(),
+  projects: () => sidebarPanelModules.projects.load(),
+  workflows: () => sidebarPanelModules.workflows.load(),
+  extensions: () => sidebarPanelModules.extensions.load(),
+  skills: () => sidebarPanelModules.skills.load(),
 } as const;
 
-// A rejected lazy loader stays cached, so each retry needs a fresh component.
-export const createSchedulesPane = () =>
-  lazy(() => loadSidebarPanelModule.schedules().then((module) => ({ default: module.SchedulesPane })));
-export const createWebhooksPane = () =>
-  lazy(() => loadSidebarPanelModule.webhooks().then((module) => ({ default: module.WebhooksPane })));
-export const createProjectsPane = () =>
-  lazy(() => loadSidebarPanelModule.projects().then((module) => ({ default: module.ProjectsPane })));
-export const createWorkflowsPane = () =>
-  lazy(() => loadSidebarPanelModule.workflows().then((module) => ({ default: module.WorkflowsPane })));
-export const createExtensionsPane = () =>
-  lazy(() => loadSidebarPanelModule.extensions().then((module) => ({ default: module.ExtensionsPane })));
+/** A rail pane rendered from its deferred module: synchronous once loaded,
+ *  the neutral first-read surface until then. A failed import throws to the
+ *  panel boundary; its retry builds a fresh pane, whose load starts again. */
+function deferredSidebarPane<M, P extends object>(module: DeferredModule<M>, pick: (loaded: M) => ComponentType<P>) {
+  return function DeferredSidebarPane(props: P) {
+    const loaded = useDeferredModule(module);
+    if (!loaded) return <InitialSurface />;
+    const Pane = pick(loaded);
+    return <Pane {...props} />;
+  };
+}
+
+export const createSchedulesPane = () => deferredSidebarPane(sidebarPanelModules.schedules, (m) => m.SchedulesPane);
+export const createWebhooksPane = () => deferredSidebarPane(sidebarPanelModules.webhooks, (m) => m.WebhooksPane);
+export const createProjectsPane = () => deferredSidebarPane(sidebarPanelModules.projects, (m) => m.ProjectsPane);
+export const createWorkflowsPane = () => deferredSidebarPane(sidebarPanelModules.workflows, (m) => m.WorkflowsPane);
+export const createExtensionsPane = () => deferredSidebarPane(sidebarPanelModules.extensions, (m) => m.ExtensionsPane);
+export const createSkillsPane = () => deferredSidebarPane(sidebarPanelModules.skills, (m) => m.SkillsPane);
 
 const EDITOR_COVER_MAX_MS = 900;
 const TERMINAL_COVER_MAX_MS = 2_000;

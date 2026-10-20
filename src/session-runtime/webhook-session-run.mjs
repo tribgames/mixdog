@@ -1,83 +1,65 @@
 /**
- * Run an inbound webhook as a VISIBLE Mixdog session (schedules parity, user
- * decision): no Lead-context injection, no channel forward — every fire is a
- * fresh New task with the endpoint's prompt/model/workflow/project, owned by
- * 'user' + sourceType 'webhook' (sidebar Automations section, newest per
- * name). Invoked from the channels worker's webhook dispatch.
+ * Run an inbound webhook: the endpoint's instructions and the fenced event
+ * payload become one turn in its owner bot's home thread
+ * (routine-home-turn.mjs). Invoked from the channels worker's webhook
+ * dispatch and the app's "Run now".
  */
-import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
-import { createSession } from '../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
-import { askSession } from '../runtime/agent/orchestrator/session/manager/ask-session.mjs';
-import { modelRouteFields, parseScheduleModelRef } from '../runtime/shared/schedule-model-ref.mjs';
-import { migrateCodexRoute } from '../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs';
-import { automationWorkflowOpts } from './automation-workflow.mjs';
-import { runAutomationTurns } from './automation-agents.mjs';
-import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
+import { markEndpointRun } from '../runtime/channels/lib/webhooks-db.mjs';
+import { runOwnedAutomation } from './owned-automation-run.mjs';
+import { runRoutineTurn } from './routine-home-turn.mjs';
 
-/** Endpoint model ref wins; the maintenance.webhook route is the fallback. */
-function webhookRoute(modelRef) {
-  if (modelRef) {
-    const ref = parseScheduleModelRef(modelRef);
-    // A model the provider catalog superseded runs on its successor.
-    if (ref && typeof ref === 'object') return migrateCodexRoute(ref);
+/**
+ * One run of the endpoint in its owner's thread (Mixy when absent): a run
+ * while the previous one of the same endpoint is still going is skipped (and
+ * stamped), and every outcome is stamped on the endpoint. `prompt` carries the
+ * fenced payload; `skillSelection` only the endpoint's instructions.
+ */
+export async function runWebhookSession({ ownerAgentId = null, ...options }, deps = {}) {
+  const name = String(options.name || '').trim();
+  const { markRun = markEndpointRun, run = runWebhookTurn, ...ownedDeps } = deps;
+  const stamp = (outcome) =>
+    markRun(name, outcome, new Date()).catch((error) =>
+      process.stderr.write(`mixdog webhook: ${name} ${outcome} stamp failed: ${error?.message || error}\n`)
+    );
+  let outcome;
+  try {
+    // The dispatch's cancellation reaches the run as `signal`.
+    outcome = await runOwnedAutomation(
+      'webhook',
+      { name, ownerAgentId },
+      ({ signal }) => run({ ...options, ownerAgentId, signal }),
+      { recordSkip: () => stamp('skipped'), signal: options.signal || null, ...ownedDeps }
+    );
+  } catch (error) {
+    await stamp('failed');
+    throw error;
   }
-  const cfg = loadConfig({ secrets: false });
-  const maintenance = cfg?.maintenance?.webhook;
-  if (maintenance?.provider && maintenance?.model) return modelRouteFields(maintenance);
-  throw new Error('webhook run has no model: set one on the endpoint or configure maintenance.webhook');
+  if (!outcome.skipped) await stamp('success');
+  return outcome;
 }
 
-export async function runWebhookSession({
+/** One turn in the owner's thread; `skillSelection` absent selects nothing. */
+function runWebhookTurn({
   name,
-  model = null,
   prompt,
+  ownerAgentId = null,
   cwd = null,
-  workflow = null,
   attachments = null,
-  signal = null,
-  // Endpoint-authored instructions: the run's ONLY skill-selection input.
-  // `prompt` also carries the fenced external payload, which must never
-  // select a skill; absent means nothing selects.
+  event = '',
   skillSelection = '',
+  signal = null,
 }) {
   const endpoint = String(name || '').trim();
-  const body = String(prompt || '').trim();
   if (!endpoint) throw new Error('runWebhookSession: endpoint name required');
-  if (!body) throw new Error(`webhook "${endpoint}" has no prompt body`);
-  // The dispatcher's cancellation (delivery timeout) has to reach the run
-  // itself: an already-cancelled dispatch must not even create a session.
-  if (signal?.aborted) throw signal.reason ?? new Error('webhook dispatch aborted');
-  const route = webhookRoute(model);
-  const projectCwd = cwd ? String(cwd) : null;
-  const session = createSession({
-    ...modelRouteFields(route),
-    owner: 'user',
-    sourceType: 'webhook',
-    sourceName: endpoint,
-    ...(projectCwd ? { cwd: projectCwd } : {}),
-    desktopSession: projectCwd
-      ? { classification: 'project', projectPath: projectCwd }
-      : { classification: 'task', projectPath: null },
-    ...automationWorkflowOpts(workflow),
+  return runRoutineTurn({
+    kind: 'webhook',
+    name: endpoint,
+    ownerAgentId,
+    prompt,
+    skillSelection: String(skillSelection ?? ''),
+    attachments,
+    cwd,
+    event,
+    signal,
   });
-  // The user message leads with the endpoint's instructions, so Recent titles
-  // read as the user-authored intent rather than payload noise.
-  // Stored attachments ride along as composer-style content parts.
-  const content = automationPromptContent(body, attachments);
-  // askOpts.signal is the parent-abort link: it is cascaded onto the turn
-  // controller, so aborting it stops the in-flight provider/tool work instead
-  // of leaving a timed-out delivery's session running with live side effects.
-  const ask = (turnContent, askOpts) =>
-    askSession(session.id, turnContent, null, null, projectCwd || undefined, undefined, {
-      ...askOpts,
-      ...(signal ? { signal } : {}),
-    });
-  // Agents the run delegates to report back; each result is the next turn
-  // (runAutomationTurns marks those turns as task notifications).
-  const result = await runAutomationTurns(
-    session.id,
-    () => ask(content, { skillSelection: String(skillSelection ?? '') }),
-    ask
-  );
-  return { sessionId: session.id, result: String(result?.content || '') };
 }

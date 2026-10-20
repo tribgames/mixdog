@@ -1,8 +1,13 @@
 import { logWebhook } from './log.mjs';
-import { updateDeliveryStatus } from '../webhooks-db.mjs';
+import { recordEndpointEvent, updateDeliveryStatus } from '../webhooks-db.mjs';
 import { UNTRUSTED_MARKER, scrubFenceMarker } from './untrusted-fence.mjs';
 
 const DISPATCH_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** The headers a run's prompt shows (and a stored event keeps). */
+function promptHeaders(headers) {
+  return Object.fromEntries(Object.entries(headers || {}).filter(([k]) => k.startsWith('x-') || k === 'content-type'));
+}
 
 function buildFencedPayload(body, headers) {
   // Trust boundary: webhook body + headers are external input and must be
@@ -11,8 +16,7 @@ function buildFencedPayload(body, headers) {
   const _UNTRUSTED = UNTRUSTED_MARKER;
   const payload = scrubFenceMarker(JSON.stringify(body, null, 2));
   const headersSummary = scrubFenceMarker(
-    Object.entries(headers)
-      .filter(([k]) => k.startsWith('x-') || k === 'content-type')
+    Object.entries(promptHeaders(headers))
       .map(([k, v]) => `${k}: ${v}`)
       .join('\n')
   );
@@ -33,6 +37,14 @@ ${payload}
 function webhookRunPrompt(instructions, body, headers) {
   const trusted = String(instructions ?? '');
   return { prompt: `${trusted}\n\n${buildFencedPayload(body, headers)}`, skillSelection: trusted };
+}
+
+/** A short label of the event for the routine marker in the bot's chat
+ *  (display only, never model-visible): the sender's event type and action. */
+function webhookEventSummary(headers, body) {
+  const field = (value) => (typeof value === 'string' ? value.trim() : '');
+  const type = field(headers?.['x-github-event']) || field(headers?.['sentry-hook-resource']) || field(body?.type);
+  return [type, field(body?.action)].filter(Boolean).join(' · ').slice(0, 120);
 }
 
 function trackDispatch({ name, deliveryId, dispatchP, controller }) {
@@ -63,7 +75,10 @@ function trackDispatch({ name, deliveryId, dispatchP, controller }) {
     { once: true }
   );
   dispatchP.then(
-    () => finish('done', {}, `${name}: webhook session run dispatched (id=${deliveryId})`),
+    (run) =>
+      run?.skipped
+        ? finish('skipped', {}, `${name}: previous run still in progress; skipped (id=${deliveryId})`)
+        : finish('done', {}, `${name}: webhook session run dispatched (id=${deliveryId})`),
     (err) =>
       finish(
         'failed',
@@ -73,8 +88,8 @@ function trackDispatch({ name, deliveryId, dispatchP, controller }) {
   );
 }
 
-function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
-  async function dispatchSessionRun(name, model, fullPrompt, headers, deliveryId, res, extra = {}) {
+function createWebhookSessionDispatcher({ getBridgeDispatch }) {
+  async function dispatchSessionRun(name, fullPrompt, deliveryId, res, extra = {}) {
     await updateDeliveryStatus(name, deliveryId, 'processing');
     // Session dispatch must not be allowed to hang forever — without a
     // ceiling a stuck LLM call leaves the delivery in `processing`
@@ -88,13 +103,10 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
     const controller = new AbortController();
     const dispatchP = Promise.resolve(
       getBridgeDispatch()({
-        model: model || null,
         prompt: fullPrompt,
         signal: controller.signal,
-        // Endpoint-scoped project/workflow (New-task parity): the webhook row's
-        // cwd/workflow define the created session, not the worker's global cwd.
-        cwd: extra.cwd || getConfig()?.cwd || null,
-        workflow: extra.workflow || null,
+        // The endpoint's project folder, named to the bot in the turn.
+        cwd: extra.cwd || null,
         attachments: extra.attachments || null,
         delivery: extra.delivery || null,
         // Trusted skill-selection input: only the endpoint-authored
@@ -104,8 +116,10 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
         context: {
           source: 'webhook',
           endpoint: name,
+          // The bot whose chat the run is a turn in.
+          owner: extra.owner || null,
           deliveryId,
-          event: headers['x-github-event'] || null,
+          event: extra.event || null,
         },
       })
     );
@@ -116,12 +130,18 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
 
   async function dispatchEndpoint({ name, body, headers, res, deliveryId, endpoint }) {
     try {
-      const { model, instructions, cwd, workflow, attachments, delivery } = endpoint;
+      const { instructions, cwd, attachments, delivery, ownerAgentId } = endpoint;
       const run = webhookRunPrompt(instructions, body, headers);
       if (!getBridgeDispatch()) throw new Error(`[webhook] session dispatch requires bridgeDispatch`);
-      await dispatchSessionRun(name, model || null, run.prompt, headers, deliveryId, res, {
+      // Kept for the app's "Run now", which re-runs the latest event. Losing
+      // the record never blocks the delivery itself.
+      await recordEndpointEvent(name, { body, headers: promptHeaders(headers) }).catch((e) =>
+        logWebhook(`${name}: event record failed: ${e?.message || e}`)
+      );
+      await dispatchSessionRun(name, run.prompt, deliveryId, res, {
+        owner: ownerAgentId || null,
         cwd: cwd || null,
-        workflow: workflow || null,
+        event: webhookEventSummary(headers, body),
         attachments: attachments || null,
         delivery: delivery || null,
         skillSelection: run.skillSelection,
@@ -137,4 +157,4 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
   return { dispatchEndpoint };
 }
 
-export { buildFencedPayload, createWebhookSessionDispatcher, webhookRunPrompt };
+export { buildFencedPayload, createWebhookSessionDispatcher, promptHeaders, webhookEventSummary, webhookRunPrompt };

@@ -1,6 +1,8 @@
 import { SETUP_EXTENDED_PROPERTIES, SETUP_DESKTOP_ACTIONS } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { OPENAI_COMPAT_PRESETS } from '../../runtime/agent/orchestrator/providers/openai-compat-presets.mjs';
+import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { assertAutomationAccess, scheduleCallerScope } from '../services/schedule-access.mjs';
 
 const own = (value, key) => Object.hasOwn(value || {}, key);
 const pick = (value, keys) => Object.fromEntries(keys.filter((key) => own(value, key)).map((key) => [key, value[key]]));
@@ -203,6 +205,26 @@ async function saveDefinition(rt, args) {
   return creating ? rt.addSkill(next) : rt.saveSkill({ ...next, originalName: current.originalName });
 }
 
+async function automationRow(rt, kind, name) {
+  const status = await rt.getChannelSetup();
+  return status[kind === 'schedule' ? 'schedules' : 'webhooks'].find((row) => row.name === name) || null;
+}
+
+/** Authorize one automation action for the calling session (`context.caller`,
+ *  its session record; null when it could not be resolved) — schedule-access.mjs. */
+async function authorizeAutomation(rt, context, { kind, action, current, owner = '' }) {
+  const scope = scheduleCallerScope(context.caller);
+  const transfer = String(owner ?? '').trim();
+  const agents = transfer && scope.kind === 'human' ? await rt.listAgents() : [];
+  assertAutomationAccess(scope, {
+    kind,
+    action,
+    current,
+    owner: transfer,
+    agentIds: (Array.isArray(agents) ? agents : []).map((agent) => agent?.id).filter(Boolean),
+  });
+}
+
 export const EXTENDED_SETUP_HANDLERS = Object.freeze({
   set_local_context: (rt, args) => rt.setLocalProviderContext(args.modelId, args.localContextWindow),
   async list_models(rt, args) {
@@ -238,22 +260,29 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
     return {
       ...result,
       recovery:
-        'User-authored definition files are deleted. A built-in override may revert to its built-in definition.',
+        args.definitionKind === 'workflow'
+          ? 'User-authored definition files are deleted. A built-in override may revert to its built-in definition.'
+          : 'A custom agent or bot is archived with its chat and its routines are switched off; the user can restore it from Sessions → Archived, or delete it there for good. A built-in override reverts to its built-in definition.',
     };
   },
-  async save_automation(rt, args) {
+  async save_automation(rt, args, context = {}) {
     const kind = args.automationKind;
     const input = args.entry;
     if (kind === 'webhook' && ['time', 'at', 'timezone', 'days'].some((key) => own(input, key))) {
-      throw new Error('Schedule timing fields are not accepted for webhooks');
+      throw new Error('Schedule fields (timing) are not accepted for webhooks');
     }
     if (kind === 'schedule' && own(input, 'parser')) throw new Error('parser is a webhook-only field');
     let previous = {};
     if (input.overwrite) {
-      const status = await rt.getChannelSetup();
-      previous = status[kind === 'schedule' ? 'schedules' : 'webhooks'].find((row) => row.name === input.name);
+      previous = await automationRow(rt, kind, input.name);
       if (!previous) throw new Error(`${kind} "${input.name}" does not exist`);
     }
+    await authorizeAutomation(rt, context, {
+      kind,
+      action: input.overwrite ? 'edit' : 'create',
+      current: input.overwrite ? previous : null,
+      owner: input.owner,
+    });
     const next = { ...pick(previous, entryKeys), ...input };
     if (kind === 'schedule') {
       if (previous.whenAt && !own(input, 'time') && !own(input, 'at')) {
@@ -262,6 +291,11 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
       }
       if (own(input, 'time') && !own(input, 'at')) delete next.at;
       if (own(input, 'at') && !own(input, 'time')) delete next.time;
+    }
+    // An automation created from an agent's home thread belongs to that agent.
+    if (!input.overwrite && !own(input, 'owner')) {
+      const homeAgent = agentIdOfHomeSession(context.sessionId);
+      if (homeAgent) next.owner = homeAgent;
     }
     const result = kind === 'schedule' ? await rt.saveSchedule(next) : await rt.saveWebhook(next);
     return {
@@ -275,18 +309,42 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
         : {}),
     };
   },
-  async delete_automation(rt, args) {
-    const status = await rt.getChannelSetup();
-    const rows = status[args.automationKind === 'schedule' ? 'schedules' : 'webhooks'];
-    if (!rows.some((row) => row.name === args.name)) throw new Error('Automation entry not found');
+  async delete_automation(rt, args, context = {}) {
+    const current = await automationRow(rt, args.automationKind, args.name);
+    if (!current) throw new Error('Automation entry not found');
+    await authorizeAutomation(rt, context, { kind: args.automationKind, action: 'delete', current });
     const result =
       args.automationKind === 'schedule' ? await rt.deleteSchedule(args.name) : await rt.deleteWebhook(args.name);
     return { ...result, recovery: 'The automation record is deleted; recreating it requires its definition.' };
   },
-  set_automation_enabled: (rt, args) =>
-    args.automationKind === 'schedule'
+  async set_automation_enabled(rt, args, context = {}) {
+    const current = await automationRow(rt, args.automationKind, args.name);
+    if (!current) throw new Error('Automation entry not found');
+    const action = args.enabled === false ? 'pause' : 'resume';
+    await authorizeAutomation(rt, context, { kind: args.automationKind, action, current });
+    return args.automationKind === 'schedule'
       ? rt.setScheduleEnabled(args.name, args.enabled)
-      : rt.setWebhookEnabled(args.name, args.enabled),
+      : rt.setWebhookEnabled(args.name, args.enabled);
+  },
+  // Starts the run and returns at once: the run is its own session, and its
+  // result posts into the owning agent's thread when it ends. A webhook
+  // re-runs on its latest received payload.
+  async run_automation(rt, args, context = {}) {
+    const kind = args.automationKind;
+    const current = await automationRow(rt, kind, args.name);
+    if (!current) throw new Error('Automation entry not found');
+    await authorizeAutomation(rt, context, { kind, action: 'run', current });
+    if (kind === 'webhook' && current.hasLastPayload !== true) {
+      throw new Error(`webhook "${args.name}" has not received a payload yet`);
+    }
+    const run = kind === 'webhook' ? rt.runWebhookNow(args.name) : rt.runScheduleNow(args.name);
+    void Promise.resolve(run).catch(() => {});
+    return {
+      name: args.name,
+      started: true,
+      note: "The run is its own session; its result posts into the owning agent's thread when it finishes.",
+    };
+  },
   async set_developer_option(rt, args) {
     const option = rt
       .getDeveloperSettings()
@@ -360,9 +418,9 @@ function hookRuleAt(rt, index) {
   return publicHookRule(rule);
 }
 
-export async function executeExtendedSetupAction(rt, args, requestDesktop) {
+export async function executeExtendedSetupAction(rt, args, requestDesktop, context = {}) {
   if (SETUP_DESKTOP_ACTIONS.includes(args.action)) return requestDesktop(args);
   const handler = EXTENDED_SETUP_HANDLERS[args.action];
   if (!handler) throw new Error(`setup: unhandled action "${args.action}"`);
-  return handler(rt, args);
+  return handler(rt, args, context);
 }

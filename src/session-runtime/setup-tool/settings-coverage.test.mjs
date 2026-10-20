@@ -30,8 +30,16 @@ import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 import { saveSchedule } from '../services/channel-admin.mjs';
 import { createStandaloneHookBus } from '../services/hook-bus.mjs';
 
+// The caller is an ordinary Lead session (the human's own) unless a test says otherwise.
+const LEAD_CALLER = { id: 'sess_lead_fixture', owner: 'user' };
 const run = async (api, args, options = {}) =>
-  JSON.parse(await createSetupToolExecutor({ getApi: () => api, ...options }).execute(args));
+  JSON.parse(
+    await createSetupToolExecutor({
+      getApi: () => api,
+      getCallerSession: (id) => (id === LEAD_CALLER.id ? LEAD_CALLER : null),
+      ...options,
+    }).execute(args, { callerSessionId: LEAD_CALLER.id })
+  );
 
 test('every registered action field is exposed, and every extended action has an implementation', () => {
   const fields = SETUP_TOOL_DEFS[0].inputSchema.properties;
@@ -367,62 +375,28 @@ test('definition partial edits preserve names and bodies not requested for chang
   );
 });
 
-test('schedule creation rejects missing or blank models', async () => {
-  for (const modelFields of [{}, { model: '' }, { model: ' \t ' }]) {
+test("a schedule or webhook takes no model: every run is a turn in its bot's chat", async () => {
+  for (const automationKind of ['schedule', 'webhook']) {
     await assert.rejects(
       run(
         { saveSchedule },
         {
           action: 'save_automation',
-          automationKind: 'schedule',
-          entry: {
-            name: 'missing-model',
-            instructions: 'Test schedule',
-            at: '2035-01-01T09:00:00.000Z',
-            ...modelFields,
-          },
+          automationKind,
+          entry: { name: 'with-model', instructions: 'Test', model: 'openai/gpt-5' },
         }
       ),
-      /schedule model is required/
+      /does not accept field\(s\): model/
     );
   }
 });
 
-test('schedule edits reject a missing saved model or explicitly clearing a saved model', async () => {
-  for (const savedModel of [undefined, 'openai/audit-model']) {
-    for (const modelFields of [{}, { model: '' }, { model: ' \t ' }]) {
-      if (savedModel && !Object.hasOwn(modelFields, 'model')) continue;
-      const api = {
-        saveSchedule,
-        getChannelSetup: async () => ({
-          schedules: [
-            {
-              name: 'fixture',
-              instructions: 'Keep prompt',
-              whenAt: '2035-01-01T09:00:00.000Z',
-              model: savedModel,
-            },
-          ],
-        }),
-      };
-      await assert.rejects(
-        run(api, {
-          action: 'save_automation',
-          automationKind: 'schedule',
-          entry: { name: 'fixture', overwrite: true, description: 'New', ...modelFields },
-        }),
-        /schedule model is required/
-      );
-    }
-  }
-});
-
-test('automation partial edits preserve model, one-shot timing and attachments; signing secrets never reach receipts', async () => {
+test('automation partial edits preserve the owner, one-shot timing and attachments; signing secrets never reach receipts', async () => {
   const attachment = { kind: 'text', name: 'keep.txt', data: 'attachment-canary' };
   const entry = {
     name: 'fixture',
     instructions: 'Keep prompt',
-    model: 'openai/audit-model',
+    owner: 'reviewer',
     whenAt: '2035-01-01T09:00:00.000Z',
     time: 'at 2035-01-01T09:00:00.000Z',
     attachments: [attachment],
@@ -451,7 +425,8 @@ test('automation partial edits preserve model, one-shot timing and attachments; 
   assert.deepEqual(received.attachments, [attachment]);
   assert.equal(received.enabled, false);
   assert.equal(received.instructions, entry.instructions);
-  assert.equal(received.model, entry.model);
+  assert.equal(received.owner, 'reviewer');
+  assert.equal(Object.hasOwn(received, 'model'), false);
   assert.doesNotMatch(JSON.stringify(result), /attachment-canary/);
   const hook = await run(api, {
     action: 'save_automation',

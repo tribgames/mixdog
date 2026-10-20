@@ -58,13 +58,18 @@ export function CustomModelEditor({
   override?: RecordValue;
   run: (capability: any, args?: unknown[], key?: string, refresh?: boolean, ...rest: any[]) => Promise<unknown>;
   onClose(): void;
-  onSaved?(patch: Patch): void;
+  /** Receives the save's answer: the provider row as stored. */
+  onSaved?(provider: RecordValue): void;
 }) {
   const uid = useId();
   const modelId = String(row.id);
   const ov = override ?? {};
   const ovReasoning = record(ov.reasoning);
-  const custom = record(row.customReasoning);
+  // The stored override is what the model runs with, also when `row` predates
+  // it: discovered rows reload only on the next discovery.
+  const current: RecordValue = { ...row, ...ov };
+  if (Array.isArray(ovReasoning.levels)) current.reasoningLevels = ovReasoning.levels;
+  const custom = { ...record(row.customReasoning), ...ovReasoning };
   // Top-level patch and reasoning patch; a null value means "reset".
   const [patch, setPatch] = useState<Patch>({});
   const [reasoning, setReasoning] = useState<Patch>({});
@@ -87,16 +92,16 @@ export function CustomModelEditor({
   };
   const inherited = (key: string) => has(patch, key) && patch[key] === null;
 
-  const hidden = has(patch, 'hidden') && patch.hidden !== null ? Boolean(patch.hidden) : row.hidden === true;
+  const hidden = has(patch, 'hidden') && patch.hidden !== null ? Boolean(patch.hidden) : current.hidden === true;
   const text = (key: 'name' | 'contextWindow' | 'maxOutputTokens', rowKey: string) => {
     if (has(patch, key) && patch[key] !== null) return String(patch[key]);
     if (inherited(key)) return '';
-    return row[rowKey] === undefined || row[rowKey] === null ? '' : String(row[rowKey]);
+    return current[rowKey] === undefined || current[rowKey] === null ? '' : String(current[rowKey]);
   };
   const levels: ReasoningLevel[] =
     has(reasoning, 'levels') && reasoning.levels !== null
       ? (reasoning.levels as ReasoningLevel[])
-      : effectiveLevels(row);
+      : effectiveLevels(current);
   const wireFormat =
     has(reasoning, 'wireFormat') && reasoning.wireFormat !== null
       ? String(reasoning.wireFormat)
@@ -160,8 +165,15 @@ export function CustomModelEditor({
     }
     setSaving(true);
     try {
-      await run('updateCustomProviderModel', [providerId, modelId, out], `custom-model-${uid}`, true, true, 'throw');
-      onSaved?.(out);
+      const saved = await run(
+        'updateCustomProviderModel',
+        [providerId, modelId, out],
+        `custom-model-${uid}`,
+        true,
+        true,
+        'throw'
+      );
+      onSaved?.(record(saved));
       onClose();
     } catch (reason) {
       setError(errorMessage(reason));

@@ -30,7 +30,6 @@ const { ModelRouteEditor } = await import('./ModelRouteEditor.tsx');
 const { ModelRouteLabel } = await import('./provider-display.tsx');
 const { publishAutoEffort } = await import('./auto-effort-store.ts');
 const { parseModelRef } = await import('./model-route-utils.ts');
-const { automationAutoEffortSuffix, automationRouteSummary } = await import('./automation-editor-support.ts');
 
 const option = (autoEffortCapable, extra = {}) => ({
   provider: 'anthropic',
@@ -141,7 +140,9 @@ test('labels show Auto only when the master is on and the route did not opt out'
   });
   const text = async (props) => {
     await act(async () =>
-      root.render(React.createElement(ModelRouteLabel, { model: 'Opus', effort: 'high', autoEffortCapable: true, ...props }))
+      root.render(
+        React.createElement(ModelRouteLabel, { model: 'Opus', effort: 'high', autoEffortCapable: true, ...props })
+      )
     );
     return host.textContent;
   };
@@ -176,18 +177,13 @@ test('a host without per-route Auto hides the switch and never gets autoEffort o
   assert.equal(selections.length, 1);
   assert.equal(selections[0].model, 'plain');
   assert.equal(Object.hasOwn(selections[0], 'autoEffort'), false, 'an ordinary pick sends no autoEffort');
-  assert.equal(automationAutoEffortSuffix(false), '', 'no +noauto for a host that would misread it');
 });
 
-test('automation routes store the opt-out as a +noauto suffix and read it back', () => {
-  assert.equal(automationAutoEffortSuffix(true), '');
-  assert.equal(automationAutoEffortSuffix(false), '+noauto');
+test('a stored model route reads its +noauto opt-out back', () => {
   const off = parseModelRef('anthropic/opus@high+fast+noauto?serviceTier=priority');
   assert.deepEqual(
     { route: off.route, effort: off.effort, fast: off.fast, autoEffort: off.autoEffort },
     { route: 'anthropic/opus', effort: 'high', fast: true, autoEffort: false }
   );
   assert.equal(parseModelRef('anthropic/opus@high').autoEffort, true);
-  assert.equal(automationRouteSummary('anthropic/opus@high+noauto').autoEffort, false);
-  assert.equal(automationRouteSummary('anthropic/opus@high').autoEffort, true);
 });

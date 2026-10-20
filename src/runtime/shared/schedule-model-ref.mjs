@@ -1,13 +1,12 @@
-// schedule.model wire format shared by the channels-worker scheduler and the
-// engine-side run-now dispatch: either a config.presets id/name (legacy) or a
-// direct "provider/model[@effort][+fast][+noauto][?parameter=value]" route string
-// written by the desktop schedule editor (`+noauto`: Auto effort off for the
-// route; absent means on). Slash-form values become direct route
-// objects, which agent-dispatch consumes without a presets lookup.
-// The optional route fields an automation run carries, from a preset, a
-// maintenance slot or a parsed route ref. One shape so schedule and webhook
-// runs cannot drift when a field is added. modelParameters is copied so a
-// stored preset can never be mutated through the run.
+// Model route-ref wire format (task sessions, provider model caches): either a
+// config.presets id/name (legacy) or a direct
+// "provider/model[@effort][+fast][+noauto][?parameter=value]" route string
+// (`+noauto`: Auto effort off for the route; absent means on). Slash-form
+// values become direct route objects, which agent-dispatch consumes without a
+// presets lookup.
+// The optional route fields a run carries, from a preset, a maintenance slot
+// or a parsed route ref. modelParameters is copied so a stored preset can
+// never be mutated through the run.
 export function modelRouteFields(slot = {}) {
   return {
     provider: slot.provider,

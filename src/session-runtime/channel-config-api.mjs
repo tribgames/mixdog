@@ -10,8 +10,18 @@ import {
   setWebhookConfigAsync,
   testWebhook,
 } from './services/channel-admin.mjs';
-import { getSchedule } from '../runtime/channels/lib/schedules-db.mjs';
+import { getSchedule, markScheduleFailure, markScheduleSuccess } from '../runtime/channels/lib/schedules-db.mjs';
+import { loadEndpointConfig, readEndpointLastPayload } from '../runtime/channels/lib/webhooks-db.mjs';
+import { webhookEventSummary, webhookRunPrompt } from '../runtime/channels/lib/webhook/session-dispatch.mjs';
 import { runScheduleSession } from './schedule-session-run.mjs';
+import { runWebhookSession } from './webhook-session-run.mjs';
+import { retryRoutineDelivery } from './owned-automation-run.mjs';
+
+/** Why a "Run now" did not run: its owner bot is missing, or a run is going. */
+function skippedRunMessage(name, outcome) {
+  if (outcome.reason === 'owner') return `"${name}" is paused: ${outcome.message}`;
+  return `"${name}" is still running; this run was skipped`;
+}
 
 // Webhook/schedule config surface. The mutating admin helpers are imported
 // directly here and the runtime injects only the closure-owned callbacks
@@ -78,10 +88,48 @@ export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAut
       const id = String(name || '').trim();
       const schedule = await getSchedule(id);
       if (!schedule) throw new Error(`schedule "${id}" does not exist`);
-      // Runs in the engine process as a VISIBLE schedule session, so it works
-      // even while the channels worker is off and the run lands in Recent.
-      const { sessionId, result } = await runScheduleSession(schedule);
-      return { name: schedule.name, ok: true, sessionId, result };
+      // Runs in the engine process as a turn in the owner bot's chat, so it
+      // works even while the channels worker is off.
+      let outcome;
+      try {
+        // Asked for by a person: no failure backoff.
+        outcome = await runScheduleSession(schedule, { attended: true });
+      } catch (error) {
+        await markScheduleFailure(schedule.name, new Date()).catch(() => {});
+        throw error;
+      }
+      if (outcome.skipped) throw new Error(skippedRunMessage(schedule.name, outcome));
+      // The run's outcome shows as the schedule's last run, like a timed fire.
+      await markScheduleSuccess(schedule.name, new Date()).catch(() => {});
+      return { name: schedule.name, ok: true, sessionId: outcome.sessionId, result: outcome.result };
+    },
+    // Re-runs the endpoint on its latest received payload, with its current
+    // instructions, behind the same untrusted-data fence as a live delivery.
+    async runWebhookNow(name) {
+      const id = String(name || '').trim();
+      const endpoint = await loadEndpointConfig(id);
+      if (!endpoint) throw new Error(`webhook "${id}" does not exist`);
+      const payload = await readEndpointLastPayload(id);
+      if (!payload) throw new Error(`webhook "${id}" has not received a payload yet`);
+      const run = webhookRunPrompt(endpoint.instructions, payload.body ?? {}, payload.headers ?? {});
+      const outcome = await runWebhookSession(
+        {
+          name: endpoint.name,
+          ownerAgentId: endpoint.ownerAgentId,
+          cwd: endpoint.cwd || null,
+          attachments: endpoint.attachments || null,
+          event: webhookEventSummary(payload.headers ?? {}, payload.body ?? {}),
+          prompt: run.prompt,
+          skillSelection: run.skillSelection,
+        },
+        { attended: true }
+      );
+      if (outcome.skipped) throw new Error(skippedRunMessage(endpoint.name, outcome));
+      return { name: endpoint.name, ok: true, sessionId: outcome.sessionId, result: outcome.result };
+    },
+    // Queues again the result a finished run could not deliver; never reruns it.
+    async retryRoutineDelivery(kind, name) {
+      return retryRoutineDelivery(kind, String(name || '').trim());
     },
   };
 }

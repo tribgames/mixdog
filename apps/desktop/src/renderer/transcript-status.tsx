@@ -1,4 +1,4 @@
-import { ArrowLeftRight, FoldVertical, GitFork, ListTree, X } from 'lucide-react';
+import { ArrowLeftRight, FoldVertical, GitFork, ListTree, Workflow, X } from 'lucide-react';
 import { memo, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
@@ -613,6 +613,19 @@ export function CompletionStatus({
         <span>
           {t('Switched to {{model}}', {
             model: modelDisplayName(String(item.modelId || ''), String(item.provider || '')),
+          })}
+        </span>
+      </div>
+    );
+  }
+  if (item.kind === 'statusdone' && item.status === 'workflow-switched') {
+    return (
+      <div className="compaction-divider" role="status">
+        <Workflow className="compaction-icon" size={16} aria-hidden="true" />
+        <span>
+          {t('Switched the workflow {{from}} → {{to}}', {
+            from: String(item.from || ''),
+            to: String(item.to || ''),
           })}
         </span>
       </div>

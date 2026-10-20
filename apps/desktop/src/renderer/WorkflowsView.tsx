@@ -1,8 +1,10 @@
 import { Bot, ChevronRight, Globe, Layers3, Plus } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { DesktopApi, DesktopModelOption } from '../shared/contract';
+import type { DesktopApi, DesktopModelOption, DesktopModelSelection } from '../shared/contract';
 import { t } from './i18n';
+import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
+import type { Snapshot } from './desktop-types';
 import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { preferredModelEffort, routeOption } from './model-route-utils';
@@ -14,6 +16,8 @@ import {
   normalizeModelOptions,
   routeDaybreakBlue,
 } from './provider-display';
+import { WORKFLOW_AGENT_KIND } from '../../../../src/runtime/shared/agent-route-config.mjs';
+import { isContactAgentRow } from '../shared/agent-contacts';
 import { record } from './record-utils';
 import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { SidebarLoadingDialog } from './sidebar-dialog';
@@ -25,7 +29,9 @@ import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog, type RouteEditorTarget } from './workflow-dialogs';
 import type { RecordValue } from './desktop-types';
 
-type WorkflowsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
+type WorkflowsApi = Partial<
+  Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'getSnapshot' | 'setModelRoute'>
+>;
 
 type AgentRouteSummary = {
   model: string;
@@ -117,12 +123,20 @@ function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
 // no editable definition and never appear in a workflow's agent subset.
 const DEFAULT_AGENT_IDS = new Set(['maintainer', 'explore']);
 
+/** The agent's own route. The catalog's `route` falls back to Main, so a role
+ *  the user never set would otherwise read (and save) as pinned to Main. */
+function ownRoute(row: RecordValue | undefined): RecordValue {
+  return row?.routeConfigured === true ? record(row.route) : {};
+}
+
 interface AgentSummary {
   id: string;
   label: string;
   description: string;
   custom: boolean;
   userOverride: boolean;
+  /** A bot (agent-mode contact), listed on the Bots page instead. */
+  contact: boolean;
 }
 
 // listWorkflows/listAgents/quickProviderModels are the same shared snapshots
@@ -159,6 +173,22 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     armDelete?: boolean;
   } | null>(null);
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  // The Lead's model is the Main route: what a new coding session starts on.
+  // Nothing is stored here; it is read from, and written back to, the host.
+  const [mainRoute, setMainRoute] = useState<RecordValue>({});
+  useEffect(() => {
+    if (!active || !api?.getSnapshot) return;
+    let live = true;
+    void api
+      .getSnapshot()
+      .then((snapshot) => {
+        if (live) setMainRoute({ ...draftModelSelectionFromSnapshot(snapshot as unknown as Snapshot) });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [active, api]);
   const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
   const [loadingEditor, setLoadingEditor] = useState<{ kind: 'workflow' | 'agent'; title: string } | null>(null);
   const detailRequestRef = useRef(0);
@@ -221,6 +251,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
           description: String(record(agent.definition).description || agent.description || ''),
           custom: agent.custom === true,
           userOverride: agent.userOverride === true,
+          contact: isContactAgentRow(agent),
         }))
         .filter((agent) => agent.id),
     [agents]
@@ -229,7 +260,8 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   const maintainerRow = agents.find((agent) => String(agent.id || '') === 'maintainer');
   const exploreAgent = agentRoster.find((agent) => agent.id === 'explore');
   const exploreRow = agents.find((agent) => String(agent.id || '') === 'explore');
-  const editableAgents = agentRoster.filter((agent) => !DEFAULT_AGENT_IDS.has(agent.id));
+  // Bots (agent-mode contacts) are not delegation roles.
+  const editableAgents = agentRoster.filter((agent) => !DEFAULT_AGENT_IDS.has(agent.id) && !agent.contact);
   const workflowOrder = usePersistedListOrder(
     'mixdog.sidebar-order.workflows.v1',
     workflows.map((workflow) => String(workflow.id || ''))
@@ -258,7 +290,8 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
       const result = await api.invokeCapability<RecordValue>({ capability: 'getAgentDefinition', args: [id] });
       if (detailRequestRef.current !== requestId) return;
       setError('');
-      setAgentEditor({ agent: record(result?.value), deletable, armDelete });
+      const agent = record(result?.value);
+      setAgentEditor({ agent: { ...agent, route: ownRoute(agent) }, deletable, armDelete });
     } catch (reason) {
       if (detailRequestRef.current !== requestId) return;
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
@@ -269,7 +302,11 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     }
   };
   const saveAgent = async (payload: RecordValue) => {
-    const result = await run('saveAgentDefinition', [payload]);
+    // Created here, it is a workflow agent for good: the marker is written
+    // once, at creation (isContactAgentId reads it).
+    const result = await run('saveAgentDefinition', [
+      agentEditor?.agent ? payload : { ...payload, kind: WORKFLOW_AGENT_KIND },
+    ]);
     if (result !== undefined) {
       setAgentEditor(null);
       showDesktopToast(t('Saved agent "{{name}}".', { name: String(payload.name || payload.id) }), 'success');
@@ -284,6 +321,18 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   };
   const saveRoute = async (route: RecordValue) => {
     if (!routeEditor) return;
+    if (routeEditor.capability === 'setModelRoute') {
+      try {
+        const snapshot = await api?.setModelRoute?.(route as unknown as DesktopModelSelection);
+        if (snapshot) setMainRoute({ ...draftModelSelectionFromSnapshot(snapshot as unknown as Snapshot) });
+        setError('');
+        setRouteEditor(null);
+        showDesktopToast(t('Saved "{{name}}" route.', { name: routeEditor.label }), 'success');
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+      return;
+    }
     const args = routeEditor.capability === 'setWebSearchRoute' ? [route] : [routeEditor.id, route];
     const result = await run(routeEditor.capability, args);
     if (result !== undefined) {
@@ -312,7 +361,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   };
   const renderAgentRow = (agent: AgentSummary) => {
     const row = agents.find((entry) => String(entry.id) === agent.id);
-    const route = record(row?.route);
+    const route = ownRoute(row);
     const disabled = row?.disabled === true;
     const menuItems: ScmContextMenuState['items'] = [
       {
@@ -359,11 +408,12 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   // Built-in shared-service agents (explore, maintainer): route-only rows.
   const renderDefaultAgentRow = (agent: AgentSummary, row: RecordValue | undefined) => {
     const disabled = row?.disabled === true;
+    const route = ownRoute(row);
     const openRoute = () =>
       setRouteEditor({
         id: agent.id,
         label: agent.label,
-        route: record(row?.route),
+        route,
         disabled,
         capability: 'setAgentRoute',
         modelKind: 'agent',
@@ -373,7 +423,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
       });
     const menuItems: ScmContextMenuState['items'] = [
       { id: 'settings', label: t('Agent settings'), onSelect: later(openRoute) },
-      agentToggleItem(agent.id, disabled, record(row?.route)),
+      agentToggleItem(agent.id, disabled, route),
     ];
     return (
       <button
@@ -389,10 +439,10 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
         {...contextMenuRowProps((point) => openRowMenu(agent.label, point, menuItems))}
         {...defaultAgentOrder.getReorderProps(agent.id)}
       >
-        <AgentRowIcon route={record(row?.route)} />
+        <AgentRowIcon route={route} />
         <span className="schedules-row-copy utilities-row-copy">
           <SidebarResourceTitle label={agent.label} tag={disabled ? { label: t('Disabled'), tone: 'muted' } : null} />
-          <AgentRouteSummaryView summary={agentRouteSummary(record(row?.route), models)} />
+          <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
         </span>
         <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
       </button>
@@ -533,15 +583,48 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
               </div>
             )}
             {workflows.length === 0 && (
-              <div className="schedules-empty">
-                <Layers3 size={40} aria-hidden="true" />
-                <p>{t('No workflow packs found.')}</p>
+              <div className="utility-dock-empty">
+                <p>{t('No workflows.')}</p>
               </div>
             )}
           </section>
-          <section className="workflows-models" aria-label={t('Default agents')}>
-            <h2>{t('Default agents')}</h2>
-            <p>{t('Shared models without editable agent definitions.')}</p>
+          {/* The Lead runs on the Main route; its instructions come from the
+              selected work-rules pack, so this row edits the model only. */}
+          <section className="workflows-models" aria-label={t('Lead agent')}>
+            <h2>{t('Lead agent')}</h2>
+            <div className="schedules-list">
+              <button
+                type="button"
+                className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
+                data-agent-id="lead"
+                data-tooltip={t('Agent settings')}
+                disabled={busy}
+                aria-label={t('Edit {{name}}', { name: 'Lead' })}
+                onClick={() =>
+                  setRouteEditor({
+                    id: 'lead',
+                    label: 'Lead',
+                    route: mainRoute,
+                    capability: 'setModelRoute',
+                    modelKind: 'main',
+                    description: '',
+                    readOnlyDefinition: false,
+                  })
+                }
+              >
+                <AgentRowIcon route={mainRoute} />
+                <span className="schedules-row-copy utilities-row-copy">
+                  <b>Lead</b>
+                  <AgentRouteSummaryView summary={agentRouteSummary(mainRoute, models)} />
+                </span>
+                <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </section>
+          {/* Built-in agents (Web Search, Explore, Maintainer) are read-only
+              helpers, a group of their own above the delegation roles. */}
+          <section className="workflows-models" aria-label={t('Built-in agents')}>
+            <h2>{t('Built-in agents')}</h2>
             <div className="schedules-list">
               <button
                 type="button"
@@ -596,7 +679,6 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 <Plus size={16} aria-hidden="true" />
               </button>
             </div>
-            <p>{t('Starter and custom roles with editable definitions and models.')}</p>
             <div className="schedules-list">{orderedEditableAgents.map(renderAgentRow)}</div>
           </section>
         </>

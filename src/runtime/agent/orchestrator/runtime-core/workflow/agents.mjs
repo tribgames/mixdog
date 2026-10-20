@@ -29,7 +29,8 @@ function* scanCustomAgentIds(userRoot, shippedRoot) {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const id = normalizeWorkflowId(entry.name);
-      if (!id || AGENT_ROLE_IDS.has(id) || isHiddenAgent(id)) continue;
+      // `lead` is Mixy's own folder (PERSONA.md, AGENT.md), never an agent.
+      if (!id || id === 'lead' || AGENT_ROLE_IDS.has(id) || isHiddenAgent(id)) continue;
       if (root !== userRoot && (yield { op: 'exists', path: join(userRoot, id, AGENT_DELETED_MARKER) })) continue;
       if (!(yield { op: 'exists', path: join(root, entry.name, 'AGENT.md') })) continue;
       ids.add(id);
@@ -101,6 +102,8 @@ export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, n
         permission: normalizeAgentPermissionOrNone(doc.frontmatter.permission),
         frontmatter: doc.frontmatter,
         body,
+        // Optional PERSONA.md beside AGENT.md (same dir, same cache entry).
+        persona: (readTextSafe(join(d, 'PERSONA.md')) || '').trim(),
       };
       setAgentDefinitionCache(cacheKey, definition);
       return definition;

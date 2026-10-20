@@ -1,3 +1,4 @@
+import '../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Scheduler } from './scheduler.mjs';
@@ -21,10 +22,33 @@ function bareScheduler(overrides = {}) {
   );
 }
 
-test('fireTimedPrompt skips a schedule whose previous run is still in progress', async () => {
-  const scheduler = bareScheduler({ running: new Set(['daily']) });
-  const fired = await scheduler.fireTimedPrompt({ name: 'daily', model: 'm' }, 'non-interactive', 'p');
+test('fireTimedPrompt skips a schedule whose previous run is still in progress and records the skip', async () => {
+  const skips = [];
+  const scheduler = bareScheduler({
+    running: new Set(['daily']),
+    persistSkip: async (name, at) => skips.push([name, at]),
+    scheduleRunner: () => assert.fail('an overlapping fire must not start a run'),
+  });
+  const schedule = { name: 'daily' };
+  const fired = await scheduler.fireTimedPrompt(schedule, 'non-interactive', 'p');
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(fired, false);
+  assert.equal(skips.length, 1);
+  assert.equal(skips[0][0], 'daily');
+  assert.equal(schedule.lastSkippedAt, skips[0][1].toISOString());
+});
+
+test('a cron fire skipped by the run path counts as a skip, not a failed run', async () => {
+  const scheduler = bareScheduler({
+    cronJobs: new Map(),
+    deferred: new Map(),
+    scheduleRunner: async () => ({ skipped: true, sessionId: null, result: '' }),
+  });
+  const schedule = { name: 'daily', prompt: 'p' };
+  const fired = await scheduler.fireTimedPrompt(schedule, 'non-interactive', 'p', { awaitDispatch: true });
+  assert.equal(fired, false);
+  assert.ok(schedule.lastSkippedAt, 'the skip is stamped on the schedule');
+  assert.equal(scheduler.running.has('daily'), false);
 });
 
 test('an interactive fire enqueues into the Lead session when a seat is attached', async () => {
@@ -94,11 +118,29 @@ test('triggerManual reports unknown, running, fired and non-fired schedules', as
   ]);
 });
 
-test('a schedule without a model is rejected before any dispatch', async () => {
-  const notices = [];
-  const scheduler = bareScheduler({ notifyFailure: (_schedule, message) => notices.push(message) });
-  const fired = await scheduler.fireTimedPrompt({ name: 'nomodel' }, 'non-interactive', 'p');
-  assert.equal(fired, false);
+test("a schedule needs no model: the fire goes to its run path (a turn in its bot's chat)", async () => {
+  const runs = [];
+  const scheduler = bareScheduler({
+    scheduleRunner: async (schedule, opts) => {
+      runs.push([schedule.name, opts.prompt]);
+      return { sessionId: 'sess_home_lead', result: 'done' };
+    },
+  });
+  const fired = await scheduler.fireTimedPrompt({ name: 'nomodel' }, 'non-interactive', 'p', { awaitDispatch: true });
+  assert.equal(fired, true);
+  assert.deepEqual(runs, [['nomodel', 'p']]);
   assert.equal(scheduler.running.has('nomodel'), false);
-  assert.match(notices[0], /missing "model"/);
+});
+
+test('a fire whose bot is missing is a paused skip, never a failed run', async () => {
+  const scheduler = bareScheduler({
+    cronJobs: new Map(),
+    deferred: new Map(),
+    scheduleRunner: async () => ({ skipped: true, reason: 'owner', message: 'Create the representative bot first.' }),
+  });
+  const schedule = { name: 'briefing', prompt: 'p' };
+  const fired = await scheduler.fireTimedPrompt(schedule, 'non-interactive', 'p', { awaitDispatch: true });
+  assert.equal(fired, false);
+  assert.ok(schedule.lastSkippedAt);
+  assert.equal(schedule.lastFailedAt, undefined);
 });
