@@ -22,11 +22,12 @@ export async function openHostFlow(
   const link = extractPairingLink(url);
   if (!link || !deps.isCurrent()) return;
   const previous = deps.getBook();
-  deps.setBook(rememberHost(previous, link, deps.now(), redeemed?.name));
+  const mine = rememberHost(previous, link, deps.now(), redeemed?.name);
+  deps.setBook(mine);
   await deps.saveBook();
-  if (!deps.isCurrent()) return rollback(deps, previous);
+  if (!deps.isCurrent()) return rollback(deps, previous, mine);
   await deps.syncOrigins();
-  if (!deps.isCurrent()) return rollback(deps, previous);
+  if (!deps.isCurrent()) return rollback(deps, previous, mine);
   if (redeemed) deps.onRedeemed(redeemed.name);
   // The one-time ticket rides the fragment (never sent to the relay with the
   // page request); the relay web app uses it for its first claim.
@@ -34,7 +35,10 @@ export async function openHostFlow(
   deps.navigate(redeemed ? `${link.url}#pair=${redeemed.ticket}${hostParam}` : link.url);
 }
 
-async function rollback(deps: OpenHostDeps, previous: HostBook): Promise<void> {
+/** Undo this attempt's book, unless a newer open already replaced it (that
+ *  open owns the book now, and restoring ours would drop its host). */
+async function rollback(deps: OpenHostDeps, previous: HostBook, mine: HostBook): Promise<void> {
+  if (deps.getBook() !== mine) return;
   deps.setBook(previous);
   await deps.saveBook();
   await deps.syncOrigins();

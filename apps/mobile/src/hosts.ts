@@ -67,6 +67,59 @@ export function forgetHost(book: HostBook, url: string): HostBook {
   return { hosts, last: book.last === url ? '' : book.last };
 }
 
+/** How long a launch waits for the relays to say which PCs are online. */
+export const PRESENCE_TIMEOUT_MS = 3_000;
+
+/** Which saved hosts have their PC connected to the relay right now, by host
+ *  URL: one request per relay origin. A relay that cannot answer (offline,
+ *  too old, throttled) leaves its hosts out — unknown, not offline. Mirrors
+ *  apps/desktop/src/main/remote-hosts.ts `fetchHostPresence`. */
+export async function fetchHostPresence(
+  hosts: PairedHost[],
+  doFetch: typeof fetch = fetch
+): Promise<Map<string, boolean>> {
+  const byOrigin = new Map<string, PairedHost[]>();
+  for (const host of hosts) {
+    const origin = new URL(host.url).origin;
+    byOrigin.set(origin, [...(byOrigin.get(origin) ?? []), host]);
+  }
+  const online = new Map<string, boolean>();
+  await Promise.all(
+    [...byOrigin].map(async ([origin, group]) => {
+      try {
+        const response = await doFetch(`${origin}/pair-code/presence`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: group.map((host) => host.deviceId) }),
+          signal: AbortSignal.timeout(PRESENCE_TIMEOUT_MS),
+        });
+        if (!response.ok) return;
+        const body = (await response.json()) as { online?: unknown };
+        if (!body.online || typeof body.online !== 'object') return;
+        const states = body.online as Record<string, unknown>;
+        for (const host of group) online.set(host.url, states[host.deviceId] === true);
+      } catch {
+        /* unreachable relay: state unknown */
+      }
+    })
+  );
+  return online;
+}
+
+/** The PC to open at launch, or '' for the saved-PC list. A single saved PC
+ *  opens at once, as always (no network wait). With more than one, the last
+ *  PC opens unless its relay says it is offline — then the list is the first
+ *  screen, so an offline PC never holds the app on an endless load while
+ *  another one is up. A relay that cannot answer keeps the last PC. */
+export async function launchTarget(
+  book: HostBook,
+  presence: () => Promise<Map<string, boolean>>
+): Promise<string> {
+  if (!book.last) return '';
+  if (book.hosts.length < 2) return book.last;
+  return (await presence()).get(book.last) === false ? '' : book.last;
+}
+
 /** Tolerant load: anything unexpected in storage yields an empty book. */
 export function readHostBook(raw: string | null | undefined): HostBook {
   try {

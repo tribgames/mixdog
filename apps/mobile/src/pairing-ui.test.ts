@@ -18,6 +18,7 @@ const BANNED = /desktop|데스크톱|relay|릴레이|pairing|페어링|main PC|�
 const noHooks: Hooks = {
   onAction() {},
   onCodeInput() {},
+  onOpenHost() {},
 };
 
 function paint(state: (typeof PREVIEW_STATES)[number], codeValue = '') {
@@ -62,7 +63,44 @@ test('start: v4 copy, QR primary + keypad secondary, text-only buttons, no saved
     ]
   );
   assert.equal(empty.querySelector('.mxp-link, .mxp-pc, .mxp-section, .mxp-back'), null);
-  assert.ok(!PREVIEW_STATES.some((state) => /pcs/u.test(state)), 'no saved-PC previews');
+});
+
+test('start with saved PCs: one row per PC, last used marked, tap opens it; scan and code stay as text buttons', () => {
+  for (const s of [STRINGS.ko, STRINGS.en]) {
+    const dom = new JSDOM('<!doctype html><div id="screen"></div>');
+    const root = dom.window.document.getElementById('screen') as HTMLElement;
+    const state = stateForPreview('start-with-pcs', s);
+    const opened: string[] = [];
+    renderPairing(root, { view: viewFor(state, s), state, strings: s, codeValue: '' }, { ...noHooks, onOpenHost: (url) => opened.push(url) });
+    assert.equal(root.querySelector('.mxp-title')?.textContent, s.pickHeading);
+    assert.ok(root.querySelector('.mxp-block.pcs'));
+    const rows = [...root.querySelectorAll<HTMLButtonElement>('.mxp-extra button.mxp-pc')];
+    assert.deepEqual(
+      rows.map((row) => [row.querySelector('.mxp-pc-name')?.textContent, row.querySelector('.mxp-pc-meta')?.textContent, row.classList.contains('last')]),
+      [
+        ['Home PC', `${s.pcLast} · ${s.pcOffline}`, true],
+        ['Office PC', s.pcOnline, false],
+      ]
+    );
+    rows[1].click();
+    assert.deepEqual(opened, [state.pcs?.[1].url]);
+    assert.deepEqual(
+      [...root.querySelectorAll<HTMLButtonElement>('.mxp-actions button')].map((b) => [b.dataset.action, b.classList.contains('sec')]),
+      [
+        ['scan', true],
+        ['enter-code', true],
+      ]
+    );
+  }
+  assert.equal(STRINGS.ko.pcLast, '마지막으로 사용');
+  // Unknown presence shows no state; an update offer takes the start step over.
+  const unknown = { step: 'start' as const, pcs: [{ url: 'u', name: 'Desk', last: false }] };
+  const dom = new JSDOM('<!doctype html><div id="screen"></div>');
+  const root = dom.window.document.getElementById('screen') as HTMLElement;
+  renderPairing(root, { view: viewFor(unknown, STRINGS.en), state: unknown, strings: STRINGS.en, codeValue: '' }, noHooks);
+  assert.equal(root.querySelector('.mxp-pc-meta'), null);
+  assert.equal(viewFor({ ...unknown, update: { version: '9.9.9', phase: 'available' } }, STRINGS.en).extra, 'update');
+  assert.equal(viewFor({ step: 'start', pcs: [] }, STRINGS.en).title, STRINGS.en.heading, 'no saved PC: the connect screen');
 });
 
 test('every step renders one fixed block: logo 48px slot, title, subtitle, 80px middle slot, same DOM order', () => {

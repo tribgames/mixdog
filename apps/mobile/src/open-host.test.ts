@@ -40,6 +40,17 @@ test('an uncancelled attempt saves the host and navigates', async () => {
   assert.ok(h.nav[0].includes('#pair=t'));
 });
 
+test('a superseded attempt leaves the newer attempt’s book alone', async () => {
+  const h = harness('save');
+  const OTHER = `${DEFAULT_RELAY_ORIGIN}/d/fedcba9876543210fedcba9876543210/`;
+  const first = openHostFlow(h.deps, URL_);
+  // A newer open replaces the book while the first one is still saving.
+  h.deps.setBook({ hosts: [], last: OTHER });
+  await first;
+  assert.deepEqual(h.nav, []);
+  assert.equal(h.book().last, OTHER);
+});
+
 for (const point of ['save', 'sync'] as const) {
   test(`Cancel during ${point} neither navigates nor keeps the host`, async () => {
     const h = harness(point);

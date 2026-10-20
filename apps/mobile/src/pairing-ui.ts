@@ -6,6 +6,7 @@
 
 export const PREVIEW_STATES = [
   'start-empty',
+  'start-with-pcs',
   'code',
   'code-error',
   'code-ratelimited',
@@ -75,6 +76,11 @@ export const STRINGS = {
     installQr: 'That QR installs the app. Enter the code shown on the PC.',
     preparing: 'Preparing the QR scanner… try again in a moment.',
     scanFailed: 'Could not scan. Connect with a code instead.',
+    pickHeading: 'Choose a PC',
+    pickNote: 'Tap the PC to connect to, or add another one.',
+    pcLast: 'Last used',
+    pcOnline: 'Online',
+    pcOffline: 'Offline',
   },
   ko: {
     heading: 'PC에 연결',
@@ -126,6 +132,11 @@ export const STRINGS = {
     installQr: '이 QR은 앱 설치용입니다. PC에 보이는 코드를 입력하세요.',
     preparing: 'QR 스캐너를 준비하는 중… 잠시 후 다시 시도하세요.',
     scanFailed: '스캔하지 못했습니다. 코드로 연결하세요.',
+    pickHeading: 'PC 선택',
+    pickNote: '연결할 PC를 누르거나 다른 PC를 추가하세요.',
+    pcLast: '마지막으로 사용',
+    pcOnline: '온라인',
+    pcOffline: '오프라인',
   },
 };
 export type StringKey = keyof typeof STRINGS.en;
@@ -142,6 +153,19 @@ export interface ScreenState {
   pc?: string;
   /** A code is being redeemed: the input and button wait for the answer. */
   busy?: boolean;
+  /** The PCs saved on this phone, most recent first; the start step lists them. */
+  pcs?: SavedPc[];
+  /** URL of the saved PC being opened from the list: the rows wait for it. */
+  opening?: string;
+}
+
+export interface SavedPc {
+  url: string;
+  name: string;
+  /** The PC the app opened last. */
+  last: boolean;
+  /** Whether it is online now; absent while unknown. */
+  online?: boolean;
 }
 
 export type UpdatePhase = 'available' | 'downloading' | 'downloaded' | 'installing' | 'failed';
@@ -166,7 +190,7 @@ export interface View {
   sub: string;
   /** The part of `sub` shown bold (the PC name). */
   subBold?: string;
-  extra: 'update' | 'code' | 'wait' | 'none';
+  extra: 'update' | 'code' | 'wait' | 'pcs' | 'none';
   error: string;
   /** Buttons top to bottom: the primary first, then text buttons. */
   actions: Action[][];
@@ -191,6 +215,19 @@ function updateActions(phase: UpdatePhase, s: Strings): Action[][] {
 /** What each step shows. Title, subtitle and actions exist for every step. */
 export function viewFor(state: ScreenState, s: Strings): View {
   const base = { extra: 'none', error: state.error ?? '' } as const;
+  if (state.step === 'start' && !state.update && state.pcs?.length) {
+    // The saved PCs are the choices; scanning or a code adds another one.
+    return {
+      ...base,
+      title: s.pickHeading,
+      sub: s.pickNote,
+      extra: 'pcs',
+      // While one PC opens, the only other choice is to stop it.
+      actions: state.opening
+        ? [[act('cancel', s.cancel, false)]]
+        : [[act('scan', s.scan, false)], [act('enter-code', s.enterCode, false)]],
+    };
+  }
   if (state.step === 'start') {
     return {
       ...base,
@@ -263,6 +300,14 @@ export function stateForPreview(name: PreviewState, s: Strings): ScreenState {
   switch (name) {
     case 'start-empty':
       return { step: 'start' };
+    case 'start-with-pcs':
+      return {
+        step: 'start',
+        pcs: [
+          { url: 'https://relay.example/d/0a1b2c3d4e5f60718293a4b5c6d7e8f9/', name: 'Home PC', last: true, online: false },
+          { url: 'https://relay.example/d/f9e8d7c6b5a4938271605f4e3d2c1b0a/', name: 'Office PC', last: false, online: true },
+        ],
+      };
     case 'code':
       return { step: 'code' };
     case 'code-error':
@@ -295,6 +340,8 @@ export function previewFromLocation(
 export interface Hooks {
   onAction(id: Action['id']): void;
   onCodeInput(digits: string): void;
+  /** A saved PC was tapped. */
+  onOpenHost(url: string): void;
 }
 
 export interface RenderInput {
@@ -409,6 +456,31 @@ export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hook
     const error = el(doc, 'p', 'mxp-error', view.error);
     error.setAttribute('role', 'alert');
     extra.append(error);
+  }
+  if (view.extra === 'pcs') {
+    block.classList.add('pcs');
+    const s = input.strings;
+    for (const pc of input.state.pcs ?? []) {
+      const row = el(doc, 'button', 'mxp-step mxp-pc') as HTMLButtonElement;
+      row.type = 'button';
+      row.dataset.action = 'open-pc';
+      row.dataset.url = pc.url;
+      row.classList.toggle('last', pc.last);
+      const busy = input.state.opening === pc.url;
+      row.disabled = Boolean(input.state.opening);
+      row.classList.toggle('busy', busy);
+      if (busy) row.setAttribute('aria-busy', 'true');
+      const meta = busy
+        ? s.connecting
+        : [
+            ...(pc.last ? [s.pcLast] : []),
+            ...(pc.online === undefined ? [] : [pc.online ? s.pcOnline : s.pcOffline]),
+          ].join(' · ');
+      row.append(el(doc, 'span', 'mxp-pc-name', pc.name));
+      if (meta) row.append(el(doc, 'span', 'mxp-pc-meta', meta));
+      row.addEventListener('click', () => hooks.onOpenHost(pc.url));
+      extra.append(row);
+    }
   }
   if (view.extra === 'wait') {
     const row = el(doc, 'p', 'mxp-wait');

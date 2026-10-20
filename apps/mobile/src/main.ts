@@ -12,6 +12,8 @@ import {
   DEFAULT_RELAY_ORIGIN,
   emptyHostBook,
   extractPairingLink,
+  fetchHostPresence,
+  launchTarget,
   parseCodeInput,
   redeemCode,
   readHostBook,
@@ -73,6 +75,8 @@ document.documentElement.lang = korean ? 'ko' : 'en';
 const screen = document.getElementById('screen') as HTMLElement;
 trackKeyboardInset(screen);
 let book: HostBook = emptyHostBook();
+// Which saved PCs their relays last reported online (by host URL).
+let presence = new Map<string, boolean>();
 let ui: ScreenState = { step: 'start' };
 let codeValue = '';
 let previewing = false;
@@ -83,8 +87,10 @@ let launching = false;
 // Last native update status seen, to tell a finished download from a re-read.
 let lastUpdateStatus = '';
 let redeeming = false;
-// Bumped by Cancel: a redemption that finishes later must not save or navigate.
-let pairingAttempt = 0;
+// One generation for every open (launch, saved-PC tap, QR, code): each open
+// takes a new one and so supersedes any older one, Cancel bumps it, and only
+// the current generation may save the book or navigate.
+let openGeneration = 0;
 /** How long the bundled screen may sit on "waiting" after asking to open the
  *  relay page; a page that loads replaces this one well before that. */
 const NAVIGATION_TIMEOUT_MS = 20_000;
@@ -97,15 +103,104 @@ let navigating = false;
 
 function render(): void {
   drawn = true;
-  renderPairing(
-    screen,
-    { view: viewFor(ui, strings), state: ui, strings, codeValue },
-    hooks
-  );
+  // The start step lists the saved PCs (a preview brings its own).
+  const state: ScreenState = previewing
+    ? ui
+    : {
+        ...ui,
+        pcs: book.hosts.map((host) => ({
+          url: host.url,
+          name: host.name,
+          last: host.url === book.last,
+          online: presence.get(host.url),
+        })),
+      };
+  renderPairing(screen, { view: viewFor(state, strings), state, strings, codeValue }, hooks);
 }
 
+async function readPresence(): Promise<Map<string, boolean>> {
+  presence = await fetchHostPresence(book.hosts, relayFetch);
+  return presence;
+}
+
+/** Open the saved PC the launch rule picks; when it picks none (the last PC
+ *  is offline and others are saved), the saved-PC list is the first screen. */
+async function launch(): Promise<void> {
+  const attempt = ++openGeneration;
+  launching = true;
+  try {
+    const target = await launchTarget(book, readPresence);
+    if (target && attempt === openGeneration) await openHost(target, undefined, attempt);
+  } catch {
+    // Opening the saved PC failed: fall through to the picker.
+  }
+  launching = false;
+  if (!navigating && attempt === openGeneration) render();
+}
+
+/** A tap on a saved PC. One open at a time: the rows wait (the tapped one
+ *  shows it is connecting) until it navigates or is cancelled. */
+async function openSaved(url: string): Promise<void> {
+  if (previewing || ui.opening || redeeming) return;
+  const attempt = ++openGeneration;
+  ui = { ...ui, opening: url, error: '' };
+  armBack(true);
+  render();
+  try {
+    await openHost(url, undefined, attempt);
+  } catch {
+    // Could not save the choice: the list takes taps again.
+  }
+  if (attempt === openGeneration && !navigating) {
+    ui = { ...ui, opening: undefined };
+    armBack(false);
+    render();
+  }
+}
+
+/** Stop whatever open is running and return to the first screen. */
+function cancelOpen(): void {
+  if (ui.step === 'waiting' || ui.step === 'waiting-offline' || ui.opening) window.stop();
+  openGeneration += 1;
+  redeeming = false;
+  navigating = false;
+  window.clearTimeout(navigationWatchdog);
+  go('start');
+}
+
+// Android Back (MainActivity BACK_SCRIPT) pops the current history entry when
+// its state has `mixdogBack` set. This page keeps at most ONE entry of its
+// own above the load entry, pushed the first time the screen leaves the plain
+// list, and only ever retargets it with replaceState: `mixdogBack: true`
+// while Back should cancel (code, scan result, waiting, a saved-PC open),
+// false on the plain list. The page itself never traverses history, so no
+// traversal of its own can arrive late and cancel a newer step.
+let backEntry = false; // our entry is the current history entry
+let backArmed = false;
+function armBack(on: boolean): void {
+  if (!backEntry) {
+    if (!on) return;
+    window.history.pushState({ mixdogBack: true }, '');
+    backEntry = true;
+  } else if (on !== backArmed) {
+    window.history.replaceState({ mixdogBack: on }, '');
+  }
+  backArmed = on;
+}
+// Only Back leaves our entry (to the load entry below it). An armed entry
+// cancels; the next step that needs Back pushes the one entry again.
+window.addEventListener('popstate', () => {
+  const state = window.history.state as { mixdogBack?: unknown } | null;
+  if (!backEntry || typeof state?.mixdogBack === 'boolean') return;
+  backEntry = false;
+  const armed = backArmed;
+  backArmed = false;
+  if (armed) cancelOpen();
+});
+
 function go(step: Step, extra: { result?: ResultKind; error?: string } = {}): void {
-  ui = { ...ui, step, result: extra.result, error: extra.error ?? '', busy: false };
+  armBack(step !== 'start');
+  ui = { ...ui, step, result: extra.result, error: extra.error ?? '', busy: false, opening: undefined };
   render();
 }
 
@@ -129,8 +224,8 @@ async function syncOrigins(): Promise<void> {
 
 async function openHost(
   url: string,
-  redeemed?: { name: string; ticket: string },
-  attempt?: number
+  redeemed: { name: string; ticket: string } | undefined,
+  attempt: number
 ): Promise<void> {
   await openHostFlow(
     {
@@ -140,7 +235,7 @@ async function openHost(
       },
       saveBook,
       syncOrigins,
-      isCurrent: () => attempt === undefined || attempt === pairingAttempt,
+      isCurrent: () => attempt === openGeneration,
       onRedeemed: (name) => {
         ui = { ...ui, pc: name || undefined };
         go('waiting');
@@ -152,8 +247,9 @@ async function openHost(
         // browser) leaves this page alive: end the wait with an error + retry.
         window.clearTimeout(navigationWatchdog);
         navigationWatchdog = window.setTimeout(() => {
-          if (attempt !== undefined && attempt !== pairingAttempt) return;
-          if (!drawn || ui.step === 'waiting' || ui.step === 'waiting-offline') go('result', { result: 'network-error' });
+          if (attempt !== openGeneration) return;
+          if (!drawn || ui.opening || ui.step === 'waiting' || ui.step === 'waiting-offline')
+            go('result', { result: 'network-error' });
         }, NAVIGATION_TIMEOUT_MS);
       },
       now: Date.now,
@@ -169,13 +265,13 @@ async function connectWithCode(): Promise<void> {
   const code = parseCodeInput(codeValue);
   if (!code || redeeming) return;
   redeeming = true;
-  const attempt = ++pairingAttempt;
+  const attempt = ++openGeneration;
   // Immediate pending state: input and button wait for the one redemption.
   ui = { ...ui, busy: true };
   render();
   try {
     const result = await redeemCode(DEFAULT_RELAY_ORIGIN, code, relayFetch);
-    if (attempt !== pairingAttempt) return;
+    if (attempt !== openGeneration) return;
     if (result.ok) {
       await openHost(result.link.url, { name: result.name, ticket: result.ticket }, attempt);
     } else if (result.reason === 'invalid') {
@@ -188,7 +284,7 @@ async function connectWithCode(): Promise<void> {
       go('result', { result: 'network-error' });
     }
   } finally {
-    if (attempt === pairingAttempt) {
+    if (attempt === openGeneration) {
       redeeming = false;
       ui = { ...ui, busy: false };
     }
@@ -217,7 +313,7 @@ async function connectFrom(text: string): Promise<void> {
     go('start', { error: strings.notLink });
     return;
   }
-  await openHost(link.url);
+  await openHost(link.url, undefined, ++openGeneration);
 }
 
 async function scan(): Promise<void> {
@@ -374,11 +470,7 @@ function onAction(id: Action['id']): void {
       void connectWithCode();
       break;
     case 'cancel':
-      if (ui.step === 'waiting' || ui.step === 'waiting-offline') window.stop();
-      pairingAttempt += 1;
-      redeeming = false;
-      window.clearTimeout(navigationWatchdog);
-      go('start');
+      cancelOpen();
       break;
     case 'retry':
       go('start');
@@ -392,7 +484,7 @@ function onAction(id: Action['id']): void {
       break;
     case 'update-later':
       dismissUpdate();
-      if (!manage && book.last) void openHost(book.last);
+      if (!manage && book.last) void launch();
       else render();
       break;
   }
@@ -402,6 +494,9 @@ const hooks = {
   onAction,
   onCodeInput(digits: string) {
     codeValue = digits;
+  },
+  onOpenHost(url: string) {
+    void openSaved(url);
   },
 };
 
@@ -445,15 +540,11 @@ async function boot(): Promise<void> {
   // its progress. Only an offer that needs the user (Install, retry) stops here.
   const holds = ui.update !== undefined && ui.update.phase !== 'downloading';
   if (holds) render();
-  if (!manage && !holds && book.last) {
-    launching = true;
-    try {
-      await openHost(book.last);
-    } catch {
-      // Opening the saved PC failed: fall through to the picker.
-    }
-    launching = false;
-    if (!navigating && !drawn) render();
+  if (!manage && !holds && book.last) await launch();
+  else if (book.hosts.length > 0) {
+    // The list is on screen: mark which saved PCs are online.
+    await readPresence();
+    if (ui.step === 'start' && !navigating) render();
   }
 }
 
