@@ -51,7 +51,7 @@ async function withList(run) {
   const root = createRoot(viewport);
   try {
     const { TranscriptList } = await import('./TranscriptList.tsx');
-    const render = (rows) =>
+    const render = (rows, renderRow = (row) => React.createElement('div', null, row.key)) =>
       act(async () => {
         root.render(
           React.createElement(TranscriptList, {
@@ -61,7 +61,7 @@ async function withList(run) {
             content: { current: null },
             shouldAnchorBottom: true,
             scrollToEndRef: { current: () => {} },
-            renderRow: (row) => React.createElement('div', null, row.key),
+            renderRow,
             markProgrammaticScroll: () => {},
             hasScrollGesture: () => false,
             onSelectionAutoScroll: () => {},
@@ -79,8 +79,18 @@ async function withList(run) {
         stepBefore: row.dataset.stepBefore ?? '',
       };
     };
+    // A row's spacing marks by index (a row that renders nothing has no text).
+    const marks = (index) => {
+      const row = viewport.querySelector(`.transcript-virtual-row-content[data-index="${index}"]`);
+      assert.ok(row, `row ${index}`);
+      return Object.entries({ ...row.dataset })
+        .filter(([name]) => name !== 'slot' && name !== 'index' && name !== 'tag')
+        .map(([name]) => name)
+        .sort()
+        .join(' ');
+    };
     const spacerHeight = () => viewport.querySelector('.transcript-virtual-space')?.style.height ?? '';
-    await run({ render, spacing, heights, spacerHeight });
+    await run({ render, spacing, marks, heights, spacerHeight });
   } finally {
     await act(async () => root.unmount());
     dom.window.close();
@@ -111,6 +121,43 @@ test('rows appended below a reply part or tool card leave the rows above unchang
     await render([user, reply, tools, final]);
     assert.deepEqual(spacing('s:a2'), finalBefore, 'the settled reply keeps its box when the band goes');
     assert.deepEqual(spacing('s:u'), { turnEnd: '', bandLead: '', stepBefore: '' });
+  });
+});
+
+// A bot chat renders a turn's tool rounds and its unfinished reply parts as
+// nothing while the typing bubble (the band) stands for the reply. Those rows
+// take no step, and the band and the reply that replaces it step from the row
+// above that paints: stepping from the empty rows moved the typing bubble 8px
+// per tool round (16px under the first part), and the reply then landed 16px
+// above it, so the thread jumped while the reply was generated.
+test('rows that render nothing take no step; the band and the reply step from the painted row above', async () => {
+  await withList(async ({ render, marks }) => {
+    const hidden = new Set(['s:tools', 's:a2']);
+    const agentRow = (row) => (hidden.has(row.key) ? null : React.createElement('div', null, row.key));
+    // Right after the prompt: the band takes no step.
+    await render([user, thinking], agentRow);
+    assert.equal(marks(1), 'turnEnd');
+    // A reply part opens and a tool round runs, both unpainted: the band stays.
+    await render([user, final, tools, thinking], agentRow);
+    assert.equal(marks(1), 'blank');
+    assert.equal(marks(2), 'blank');
+    assert.equal(marks(3), 'turnEnd', 'the band keeps the step it had under the prompt');
+    // The reply lands whole where the band stood: no step under the prompt.
+    hidden.delete('s:a2');
+    await render([user, tools, final, thinking], agentRow);
+    assert.equal(marks(1), 'blank');
+    assert.equal(marks(2), '', 'the reply steps from the prompt, not from the hidden tool round');
+    assert.equal(marks(3), 'bandLead turnEnd');
+    // Under a painted reply, hidden rows still leave the band its lead, and the
+    // next reply its part step from that reply.
+    hidden.add('s:a2');
+    await render([user, reply, tools, final, thinking], agentRow);
+    assert.equal(marks(2), 'blank');
+    assert.equal(marks(3), 'blank');
+    assert.equal(marks(4), 'bandLead turnEnd');
+    hidden.delete('s:a2');
+    await render([user, reply, tools, final, thinking], agentRow);
+    assert.equal(marks(3), 'stepBefore');
   });
 });
 

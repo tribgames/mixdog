@@ -374,6 +374,11 @@ html[data-window-material="mica"] .transcript-shell {
 .transcript-virtual-row-content[data-tag="Thinking"][data-band-lead="true"] {
   padding-top: 16px;
 }
+/* A row that renders nothing (an agent chat's tool round or unfinished reply,
+   TranscriptList.tsx) takes no room: the row below steps from the row above. */
+.transcript-virtual-row-content[data-blank="true"] {
+  padding: 0;
+}
 .transcript-turn-gap {
   height: 20px;
 }

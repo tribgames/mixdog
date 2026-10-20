@@ -218,6 +218,13 @@ export function TranscriptList({
   // The core's visible range (overscan excluded), current after the read above.
   const visible = virtualizer.range;
   useMarkdownPrefetch(rows, visible?.startIndex ?? -1, visible?.endIndex ?? -1);
+  // Each row's node, rendered once per commit: a row's step reads whether the
+  // rows above it paint anything.
+  const nodes = new Map<number, ReactNode>();
+  const nodeAt = (index: number): ReactNode => {
+    if (!nodes.has(index)) nodes.set(index, renderRow(rows[index] as TranscriptRowModel, index, rows));
+    return nodes.get(index);
+  };
   return (
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel
@@ -228,7 +235,7 @@ export function TranscriptList({
           virtualRow,
           rows,
           measureRow,
-          renderRow,
+          nodeAt,
           visible !== null && (virtualRow.index < visible.startIndex || virtualRow.index > visible.endIndex)
         )
       )}
@@ -238,17 +245,29 @@ export function TranscriptList({
 
 const noTouchScroll = () => false;
 
+const paintsNothing = (node: ReactNode) => node === null || node === undefined || node === false;
+
 function renderVirtualRow(
   virtualRow: VirtualItem,
   rows: readonly TranscriptRowModel[],
   measureRow: ReturnType<typeof useTranscriptRowRegistration>['measureRow'],
-  renderRow: TranscriptListProps['renderRow'],
+  nodeAt: (index: number) => ReactNode,
   offscreen: boolean
 ) {
   const row = rows[virtualRow.index];
   if (!row) return null;
+  const node = nodeAt(virtualRow.index);
+  // A row that renders nothing (an agent chat's tool round or unfinished
+  // reply) takes no room and no step, and the row below it steps from the
+  // nearest row above that paints: stepping from the empty rows, every hidden
+  // tool round moved the agent's typing bubble 8px and the reply then landed
+  // 16px above it, so the thread shook while the reply was generated.
+  const blank = paintsNothing(node);
+  let above = virtualRow.index - 1;
+  while (above >= 0 && paintsNothing(nodeAt(above))) above -= 1;
   const next = rows[virtualRow.index + 1];
-  const previous = rows[virtualRow.index - 1]?._tag;
+  const before = rows[above];
+  const previous = blank ? undefined : before?._tag;
   // The live band under a reply part or tool card is the same 40px status
   // slot as the completion footer that replaces it (12-transcript.css): the
   // row above it takes no step, the band leads in itself.
@@ -261,10 +280,9 @@ function renderVirtualRow(
     tag === 'AssistantPart' || tag === 'ToolActivity' || tag === 'Error';
   const bandLead = row._tag === 'Thinking' && leadsBand(previous);
   const stepBefore = !bandLead && row._tag !== 'TurnGap' && part(previous);
-  const turnEnd = !part(row._tag) && (!next || next._tag === 'TurnGap');
+  const turnEnd = !blank && !part(row._tag) && (!next || next._tag === 'TurnGap');
   // A turn's changed-files card closes its stack: a row after it in the same
   // turn takes the turn gap, never the 8px part step (12-transcript.css).
-  const before = rows[virtualRow.index - 1];
   const afterChanges =
     stepBefore && (before?._tag === 'AssistantPart' || before?._tag === 'Error') && Boolean(before.turnChanges);
   return (
@@ -297,11 +315,10 @@ function renderVirtualRow(
         data-band-lead={bandLead ? 'true' : undefined}
         data-step-before={stepBefore ? 'true' : undefined}
         data-after-changes={afterChanges ? 'true' : undefined}
+        data-blank={blank ? 'true' : undefined}
       >
         {/* The live reply's pacer reads the same mark (use-paced-transcript-text). */}
-        <TranscriptRowOffscreenContext.Provider value={offscreen}>
-          {renderRow(row, virtualRow.index, rows)}
-        </TranscriptRowOffscreenContext.Provider>
+        <TranscriptRowOffscreenContext.Provider value={offscreen}>{node}</TranscriptRowOffscreenContext.Provider>
       </div>
     </div>
   );

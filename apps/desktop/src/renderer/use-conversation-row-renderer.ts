@@ -142,6 +142,9 @@ export function useConversationRowRenderer({
     if (row._tag === 'Thinking') {
       // A turn waiting on the user's answer is not typing.
       const typing = !inRoom && !questionCard && !approvalCard && agentTypingShown(rows, index);
+      // Nothing to show (the reply right above is whole): no row content, so
+      // the list gives the band no room (TranscriptList.tsx).
+      if (!typing && !approvalCard) return null;
       return createElement(AgentTypingRow, {
         member: typing ? label(homeAgent) : null,
         lead: agentTypingLead(rows, index, ''),
@@ -222,6 +225,8 @@ export function useConversationRowRenderer({
     // The turn's changed files: coding mode's own card under its reply (or the
     // error that ended it), in the bubble column, below the turn's visualize cards.
     const changes = row._tag === 'AssistantPart' || row._tag === 'Error' ? row.turnChanges : undefined;
+    // A turn status row ("Response complete", compaction) shows nothing.
+    if (place?.side === 'hidden' && !changes) return null;
     if (changes) seat.placed = true;
     const line = changes
       ? createElement(

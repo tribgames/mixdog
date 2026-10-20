@@ -348,6 +348,54 @@ test('a bot chat shows a reply whole when complete (dots while it streams); a co
   assert.doesNotMatch(coding, /mx-chat/);
 });
 
+test('a bot chat row that shows nothing renders no node, so the list gives it no room or step', async (t) => {
+  const render = rowHarness(t);
+  const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
+  const whole = { ...reply('a1', DAY1), live: true };
+  const streaming = { ...reply('a2', DAY1), live: true, item: { ...reply('a2', DAY1).item, streaming: true } };
+  const toolRound = {
+    _tag: 'ToolActivity',
+    key: 'tools',
+    turnKey: 't',
+    items: [{ kind: 'tool', id: 'tc1', name: 'shell', args: { command: 'ls' }, status: 'done', at: DAY1 }],
+  };
+  const turnDone = {
+    _tag: 'AssistantPart',
+    key: 'td',
+    turnKey: 't',
+    item: { kind: 'turndone', id: 'd2', status: 'done', elapsedMs: 12000 },
+  };
+  const nodes = (rows) => {
+    const out = [];
+    function Rows() {
+      const { renderTranscriptRow } = useConversationRowRenderer({
+        snapshot: { sessionId: HOME, busy: true },
+        disclosureScope: HOME,
+        readOnly: true,
+        transitioning: false,
+        renderAssistantRow: undefined,
+        onOpenSettings() {},
+        settledItems: [],
+        settledTurnKeys: [],
+        optimisticActivityStartedAt: DAY1,
+        submit: async () => true,
+        questionCard: null,
+        approvalCard: null,
+        agentMode: true,
+      });
+      out.length = 0;
+      for (const [index, row] of rows.entries()) out.push(renderTranscriptRow(row, index, rows) !== null);
+      return null;
+    }
+    return render(React.createElement(Rows)).then(() => out);
+  };
+  // The unfinished part and the tool round paint nothing; the band paints the typing bubble.
+  assert.deepEqual(await nodes([user('u1', DAY1), streaming, toolRound, thinking]), [true, false, false, true]);
+  // Under a whole reply the band shows nothing; a turn status row never shows.
+  assert.deepEqual(await nodes([user('u1', DAY1), whole, thinking]), [true, true, false]);
+  assert.deepEqual(await nodes([user('u1', DAY1), reply('a1', DAY1), turnDone]), [true, true, false]);
+});
+
 test('coding mode renders its rows exactly as before; agent mode frames them', async (t) => {
   const render = rowHarness(t);
   const rows = [user('u1', DAY1), reply('a1', DAY1)];
