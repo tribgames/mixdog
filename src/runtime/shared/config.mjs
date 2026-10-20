@@ -328,7 +328,14 @@ function readAll() {
   // marker yet) is a recovery case too; without a verifiable backup reads stay
   // empty and RMW writes refuse (see readAllForRmW).
   if (isUserDataRecoveryExpected(resolvePluginData())) {
-    const restored = loadLatestMixdogConfigFromBackup(resolvePluginData());
+    let restored = null;
+    try {
+      restored = loadLatestMixdogConfigFromBackup(resolvePluginData());
+    } catch (err) {
+      // A transient backup read failure: this read stays empty and the next
+      // one retries (an RMW write refuses instead).
+      process.stderr.write(`[config] backup restore lookup failed: ${err.message}\n`);
+    }
     if (restored && isPlainObject(restored)) {
       const config = canonicalizeUnifiedConfig(restored);
       persistRestoredConfig(config);

@@ -61,23 +61,90 @@ function scopeDirFor(dataDir) {
 let lastBackupMs = 0;
 let backupSeq = 0;
 
-// Claims `<iso-ms>-<10-digit seq>-<reason>` with an exclusive mkdir, so names
-// sort by timestamp, then sequence, and an existing backup is never reused
-// (EEXIST retries with the next sequence). The clamp keeps a backwards clock
-// from reordering this process's backups.
+// `<iso-ms>-<10-digit seq>-<reason>`; an older build's name has no sequence.
+const BACKUP_NAME_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-(?:(\d{10})-)?/;
+
+// The newest backup order among `names` (time, then sequence). An older
+// build's name sorts after every sequenced name of its millisecond, so its
+// sequence counts as unbounded. Names that are no backup's are ignored.
+function newestBackupOrder(names) {
+  let ms = 0;
+  let seq = -1;
+  for (const name of names) {
+    const match = BACKUP_NAME_RE.exec(name);
+    if (!match) continue;
+    const time = Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`);
+    if (!Number.isFinite(time)) continue;
+    const order = match[6] === undefined ? Number.POSITIVE_INFINITY : Number(match[6]);
+    if (time > ms || (time === ms && order > seq)) {
+      ms = time;
+      seq = order;
+    }
+  }
+  return { ms, seq };
+}
+
+// A name that sorts after every backup in `names`, whichever process wrote
+// them and whatever its clock said: the backup a restore picks as the newest
+// is then the one written last, and pruning never takes it.
+function nextBackupName(names, reason) {
+  const newest = newestBackupOrder(names);
+  lastBackupMs = Math.max(Date.now(), lastBackupMs, newest.ms);
+  if (lastBackupMs === newest.ms) {
+    if (newest.seq === Number.POSITIVE_INFINITY) lastBackupMs += 1;
+    else backupSeq = Math.max(backupSeq, newest.seq + 1);
+  }
+  const time = new Date(lastBackupMs).toISOString().replace(/[:.]/g, '-');
+  return `${time}-${String(backupSeq++).padStart(10, '0')}-${safeReason(reason)}`;
+}
+
+// The scope's backup directory names. A reservation lists the scope first and
+// a listing failure throws: an order guessed without it could sort before the
+// newest backup.
+function scopeBackupNames(entries) {
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+}
+
+// Claims the next name with an exclusive mkdir (EEXIST retries after it).
+// Returns the claimed dir and the scope's names including it, which pruning
+// reuses instead of listing the scope again.
 function reserveBackupDir(scopeDir, reason) {
   mkdirSync(scopeDir, { recursive: true });
+  const names = scopeBackupNames(readdirSync(scopeDir, { withFileTypes: true }));
   for (;;) {
-    lastBackupMs = Math.max(Date.now(), lastBackupMs);
-    const time = new Date(lastBackupMs).toISOString().replace(/[:.]/g, '-');
-    const backupDir = join(scopeDir, `${time}-${String(backupSeq++).padStart(10, '0')}-${safeReason(reason)}`);
+    const name = nextBackupName(names, reason);
+    names.push(name);
     try {
-      mkdirSync(backupDir);
-      return backupDir;
+      mkdirSync(join(scopeDir, name));
+      return { backupDir: join(scopeDir, name), names };
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
     }
   }
+}
+
+async function reserveBackupDirAsync(scopeDir, reason) {
+  await mkdirP(scopeDir, { recursive: true });
+  const names = scopeBackupNames(await readdirP(scopeDir, { withFileTypes: true }));
+  for (;;) {
+    const name = nextBackupName(names, reason);
+    names.push(name);
+    try {
+      await mkdirP(join(scopeDir, name));
+      return { backupDir: join(scopeDir, name), names };
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+  }
+}
+
+// The names past the newest `keep`, never the just-written backup.
+function backupsToPrune(names, own, keep = 40) {
+  return [...names]
+    .sort()
+    .reverse()
+    .slice(keep)
+    .filter((name) => name !== own);
 }
 
 function safeReason(reason) {
@@ -197,14 +264,30 @@ function isStructurallyCompleteMixdogConfigBackup(parsed) {
   return true;
 }
 
-/** Backup directory names in `dir`, newest first; empty when unreadable. */
-function backupDirsNewestFirst(dir) {
+// A backup that is absent, not a backup, or not JSON is no backup; any other
+// failure (EIO, EACCES, EMFILE…) is transient and must not pass for one.
+function isAbsentBackupError(error) {
+  return error instanceof SyntaxError || error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
+}
+
+/** Backup directory names in `dir`, newest first; empty when absent, throws on other failures. */
+function listBackupDirsNewestFirst(dir) {
   try {
     return readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
       .reverse();
+  } catch (error) {
+    if (isAbsentBackupError(error)) return [];
+    throw error;
+  }
+}
+
+/** Backup directory names in `dir`, newest first; empty when unreadable. */
+function backupDirsNewestFirst(dir) {
+  try {
+    return listBackupDirsNewestFirst(dir);
   } catch {
     return [];
   }
@@ -213,7 +296,8 @@ function backupDirsNewestFirst(dir) {
 /**
  * A backup is restorable only when its manifest names this data dir and this
  * incarnation of it. Legacy unscoped backups carry no manifest, so they stay
- * on disk but never match.
+ * on disk but never match. A transient read failure throws: skipping the
+ * backup would restore an older one instead.
  */
 function readRestorableConfig(backupDir, dataDirKey, instanceId) {
   try {
@@ -222,20 +306,21 @@ function readRestorableConfig(backupDir, dataDirKey, instanceId) {
     if (manifest.instanceId !== instanceId) return null;
     const parsed = JSON.parse(readFileSync(join(backupDir, 'mixdog-config.json'), 'utf8'));
     return isStructurallyCompleteMixdogConfigBackup(parsed) ? parsed : null;
-  } catch {
-    return null;
+  } catch (error) {
+    if (isAbsentBackupError(error)) return null;
+    throw error;
   }
 }
 
 function findRestorableConfig(dataDir, instanceId) {
   const key = normalizeDataDir(dataDir);
   const scopeDir = scopeDirFor(dataDir);
-  for (const name of backupDirsNewestFirst(scopeDir)) {
+  for (const name of listBackupDirsNewestFirst(scopeDir)) {
     const parsed = readRestorableConfig(join(scopeDir, name), key, instanceId);
     if (parsed) return parsed;
   }
   const root = getBackupRoot();
-  for (const name of backupDirsNewestFirst(root)) {
+  for (const name of listBackupDirsNewestFirst(root)) {
     if (name.startsWith(SCOPE_PREFIX)) continue;
     const parsed = readRestorableConfig(join(root, name), key, instanceId);
     if (parsed) return parsed;
@@ -245,13 +330,15 @@ function findRestorableConfig(dataDir, instanceId) {
 
 // Per-process restore lookup, keyed by data dir. A hit is reused while the
 // backup root and the marker's instanceId are unchanged; this process's own
-// backups invalidate it.
+// backups invalidate it, and a `fresh` lookup (an RMW write, which another
+// process's newer backup may precede) always rescans.
 const restoreLookupCache = new Map();
 
 /**
  * Newest structurally complete mixdog-config.json backed up from THIS data
  * dir (skips degenerate single-section snapshots from a prior failed RMW).
  * Never another data dir's config, and nothing for an uninitialized one.
+ * Throws on a transient read failure, which is never cached.
  */
 export function loadLatestMixdogConfigFromBackup(dataDir, options) {
   const instanceId = readInitInstanceId(dataDir);
@@ -259,7 +346,8 @@ export function loadLatestMixdogConfigFromBackup(dataDir, options) {
   const key = normalizeDataDir(dataDir);
   const root = getBackupRoot();
   let hit = restoreLookupCache.get(key);
-  if (!hit || hit.root !== root || hit.instanceId !== instanceId) {
+  if (options?.fresh || !hit || hit.root !== root || hit.instanceId !== instanceId) {
+    restoreLookupCache.delete(key);
     hit = { root, instanceId, config: findRestorableConfig(dataDir, instanceId) };
     restoreLookupCache.set(key, hit);
   }
@@ -297,8 +385,8 @@ function copyTree(src, dst, copied) {
 }
 
 /** Prune one data dir's scope only; other scopes and legacy entries stay. */
-function pruneBackups(scopeDir, keep = 40) {
-  for (const name of backupDirsNewestFirst(scopeDir).slice(keep)) {
+function pruneBackups(scopeDir, names, own) {
+  for (const name of backupsToPrune(names, own)) {
     try {
       rmSync(join(scopeDir, name), { recursive: true, force: true });
     } catch {}
@@ -368,7 +456,7 @@ export function backupUserData(dataDir, reason = 'snapshot') {
   if (skipBackups()) return { dir: null, copied: [] };
   if (!dataDir || !existsSync(dataDir)) return { dir: null, copied: [] };
   const scopeDir = scopeDirFor(dataDir);
-  const backupDir = reserveBackupDir(scopeDir, reason);
+  const { backupDir, names } = reserveBackupDir(scopeDir, reason);
   const copied = [];
   for (const rel of USER_DATA_FILES) {
     const src = join(dataDir, rel);
@@ -380,7 +468,7 @@ export function backupUserData(dataDir, reason = 'snapshot') {
   }
   if (copied.length > 0) {
     finishBackup(dataDir, backupDir, reason);
-    pruneBackups(scopeDir);
+    pruneBackups(scopeDir, names, basename(backupDir));
     if (process.env.MIXDOG_SETUP_QUIET !== '1') {
       process.stderr.write(`[user-data-backup] ${reason}: copied ${copied.length} file(s) to ${backupDir}\n`);
     }
@@ -408,18 +496,8 @@ async function copyTreeAsync(src, dst, copied) {
   copied.push(dst);
 }
 
-async function pruneBackupsAsync(scopeDir, keep = 40) {
-  let entries = [];
-  try {
-    entries = (await readdirP(scopeDir, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort()
-      .reverse();
-  } catch {
-    return;
-  }
-  for (const name of entries.slice(keep)) {
+async function pruneBackupsAsync(scopeDir, names, own) {
+  for (const name of backupsToPrune(names, own)) {
     try {
       await rmP(join(scopeDir, name), { recursive: true, force: true });
     } catch {}
@@ -430,7 +508,7 @@ export async function backupUserDataAsync(dataDir, reason = 'snapshot') {
   if (skipBackups()) return { dir: null, copied: [] };
   if (!dataDir || !existsSync(dataDir)) return { dir: null, copied: [] };
   const scopeDir = scopeDirFor(dataDir);
-  const backupDir = reserveBackupDir(scopeDir, reason);
+  const { backupDir, names } = await reserveBackupDirAsync(scopeDir, reason);
   const copied = [];
   for (const rel of USER_DATA_FILES) {
     const src = join(dataDir, rel);
@@ -442,7 +520,7 @@ export async function backupUserDataAsync(dataDir, reason = 'snapshot') {
   }
   if (copied.length > 0) {
     finishBackup(dataDir, backupDir, reason);
-    await pruneBackupsAsync(scopeDir);
+    await pruneBackupsAsync(scopeDir, names, basename(backupDir));
     if (process.env.MIXDOG_SETUP_QUIET !== '1') {
       process.stderr.write(`[user-data-backup] ${reason}: copied ${copied.length} file(s) to ${backupDir}\n`);
     }

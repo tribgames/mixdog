@@ -347,3 +347,154 @@ for (const kind of ['sync', 'async']) {
     assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v1');
   });
 }
+
+// A writer that starts after `a` wrote: its own module state, as in another process.
+let writerGeneration = 0;
+const otherProcess = () => import(`./user-data-guard.mjs?writer=${++writerGeneration}`);
+const backupsOf = (backupRoot, scopes) => readdirSync(join(backupRoot, scopes()[0]));
+
+for (const kind of ['sync', 'async']) {
+  for (const shift of [0, -1_000]) {
+    test(`a later ${kind} writer's backup restores as the newest with a ${shift}ms clock shift`, async (t) => {
+      const { dir } = sandbox(t);
+      const now = Date.now();
+      t.mock.timers.enable({ apis: ['Date'], now });
+      const a = dir('a');
+      writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+      for (let i = 0; i < 3; i += 1) backupUserData(a, 'snapshot');
+      t.mock.timers.setTime(now + shift);
+      const later = await otherProcess();
+      writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+      await (kind === 'sync' ? later.backupUserData : later.backupUserDataAsync)(a, 'a-reason');
+      assert.equal(later.loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+      assert.equal(loadLatestMixdogConfigFromBackup(a, { fresh: true }).agent.tag, 'v2');
+    });
+  }
+
+  test(`a later ${kind} writer keeps its backup when the retention ring is full`, async (t) => {
+    const { dir, backupRoot, scopes } = sandbox(t);
+    const now = Date.now();
+    t.mock.timers.enable({ apis: ['Date'], now });
+    const a = dir('a');
+    writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+    for (let i = 0; i < 40; i += 1) backupUserData(a, 'snapshot');
+    t.mock.timers.setTime(now - 60_000);
+    const later = await otherProcess();
+    writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+    const written = await (kind === 'sync' ? later.backupUserData : later.backupUserDataAsync)(a, 'snapshot');
+    assert.equal(existsSync(written.dir), true);
+    assert.equal(backupsOf(backupRoot, scopes).length, 40);
+    assert.equal(later.loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+  });
+}
+
+test('ordering follows an older build name and ignores names that are no backup', async (t) => {
+  const { dir, backupRoot, scopes } = sandbox(t);
+  const now = Date.parse('2026-01-01T00:00:00.000Z');
+  t.mock.timers.enable({ apis: ['Date'], now });
+  // A writer whose clock never ran ahead of `now`.
+  const writer = await otherProcess();
+  const a = dir('a');
+  writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+  const scope = join(backupDir(writer.backupUserData(a, 'snapshot')), '..');
+  // An older build's unsequenced name at this very millisecond sorts after
+  // every sequenced one; a later backup must still sort after it.
+  const instanceId = markUserDataInitialized(a);
+  writeLegacyBackup(scope, '2026-01-01T00-00-00-000Z-legacy', complete('legacy'), { dataDir: a, instanceId });
+  // Neither an impossible date nor an unrelated name or a file moves the order.
+  mkdirSync(join(scope, '2026-99-99T99-99-99-999Z-0000000000-bogus'));
+  mkdirSync(join(scope, 'unrelated'));
+  writeFileSync(join(scope, 'note.txt'), 'x');
+  writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+  const written = writer.backupUserData(a, 'snapshot');
+  assert.match(basename(written.dir), /^2026-01-01T00-00-00-001Z-/);
+  assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+  assert.ok(backupsOf(backupRoot, scopes).includes(basename(written.dir)));
+});
+
+function backupDir(result) {
+  assert.ok(result.dir);
+  return result.dir;
+}
+
+test('a fresh restore lookup sees a newer backup another writer made after a cached one', async (t) => {
+  const { dir } = sandbox(t);
+  const a = dir('a');
+  writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+  backupUserData(a, 'snapshot');
+  assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v1');
+  const other = await otherProcess();
+  writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+  other.backupUserData(a, 'snapshot');
+  // A plain read may reuse this process's lookup; an RMW write never does.
+  assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v1');
+  assert.equal(loadLatestMixdogConfigFromBackup(a, { fresh: true }).agent.tag, 'v2');
+  assert.equal(loadLatestMixdogConfigFromBackup(a).agent.tag, 'v2');
+
+  // The RMW path: a write over a missing config builds on the newest backup.
+  const third = await otherProcess();
+  writeFileSync(configFile(a), JSON.stringify(complete('v3')));
+  third.backupUserData(a, 'snapshot');
+  use(a);
+  rmSync(configFile(a));
+  updateSection('ui', { theme: 'after' });
+  assert.equal(JSON.parse(readFileSync(configFile(a), 'utf8')).agent.tag, 'v3');
+});
+
+function failingFs(t, method, matches) {
+  const original = fs[method];
+  let armed = true;
+  fs[method] = (path, ...args) => {
+    if (armed && matches(String(path))) {
+      throw Object.assign(new Error(`EIO: i/o error, ${method} '${path}'`), { code: 'EIO' });
+    }
+    return original(path, ...args);
+  };
+  syncBuiltinESMExports();
+  const restore = () => {
+    armed = false;
+    fs[method] = original;
+    syncBuiltinESMExports();
+  };
+  t.after(restore);
+  return restore;
+}
+
+for (const [label, method, target] of [
+  ['listing the scope', 'readdirSync', (path, { scope }) => path === scope],
+  ['reading the newest manifest', 'readFileSync', (path, { newest }) => path === join(newest, 'backup.json')],
+  ['reading the newest config', 'readFileSync', (path, { newest }) => path === join(newest, 'mixdog-config.json')],
+]) {
+  test(`a transient failure ${label} is never taken for an older or a missing backup`, (t) => {
+    const { dir } = sandbox(t);
+    const a = dir('a');
+    writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+    backupUserData(a, 'snapshot');
+    writeFileSync(configFile(a), JSON.stringify(complete('v2')));
+    const newest = backupDir(backupUserData(a, 'snapshot'));
+    const scope = join(newest, '..');
+    const restore = failingFs(t, method, (path) => target(path, { scope, newest }));
+    assert.throws(() => loadLatestMixdogConfigFromBackup(a, { fresh: true }), { code: 'EIO' });
+    // A plain read stays empty instead of restoring v1, and caches nothing.
+    use(a);
+    rmSync(configFile(a));
+    assert.deepEqual(readConfig(), {});
+    restore();
+    assert.equal(tag(), 'v2');
+  });
+}
+
+test('a backup is not written when its scope cannot be listed', (t) => {
+  const { dir } = sandbox(t);
+  const a = dir('a');
+  writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+  const first = backupDir(backupUserData(a, 'snapshot'));
+  const scope = join(first, '..');
+  const restore = failingFs(t, 'readdirSync', (path) => path === scope);
+  assert.throws(() => backupUserData(a, 'snapshot'), { code: 'EIO' });
+  restore();
+  assert.deepEqual(
+    fs.readdirSync(scope).filter((name) => name !== basename(first)),
+    []
+  );
+});
