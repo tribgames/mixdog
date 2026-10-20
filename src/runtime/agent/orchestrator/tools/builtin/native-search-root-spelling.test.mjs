@@ -82,12 +82,21 @@ async function assertSingleCopies(real, alias) {
 
   writeFileSync(join(real, 'sub', 'c.txt'), 'needle\n');
   writeFileSync(join(real, 'a.txt'), 'needle\nchanged\n');
+  // Listing and grep keep separate inventories (`--hidden` is part of the
+  // key), and each is current only once the watcher has delivered the change.
+  // A listing that re-reads the folder for an earlier event can show c.txt
+  // before grep's cached inventory hears about it — macOS FSEvents delivers
+  // late enough for that — so each waits for the change on its own.
   const listed = await until(
     () => listFiles(alias),
     (lines) => lines.some((line) => line.endsWith('c.txt'))
   );
   assert.deepEqual(listed, ['./a.txt', './sub/b.txt', './sub/c.txt']);
-  assert.deepEqual(await grepNeedle(alias, alias), under('a.txt', join('sub', 'b.txt'), join('sub', 'c.txt')));
+  const grepped = await until(
+    () => grepNeedle(alias, alias),
+    (lines) => lines.some((line) => line.endsWith('c.txt:needle'))
+  );
+  assert.deepEqual(grepped, under('a.txt', join('sub', 'b.txt'), join('sub', 'c.txt')));
 }
 
 test('a stale inventory snapshot is dropped once before the first server loads it', { skip }, async () => {
