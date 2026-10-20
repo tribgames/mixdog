@@ -4,6 +4,42 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Bản vá ổn định cho các sự cố phát hiện từ bản 1.3.0, cùng bộ đánh giá mức suy luận được nâng cấp.
+
+Chúng tôi rất tiếc vì bản cập nhật 1.3.0 đã đặt lại một số dữ liệu quy trình công việc của một số người dùng.
+
+### Thay đổi
+
+- Đã thay đổi tin nhắn gửi trong lúc tác vụ đang chạy để hiển thị ngay trong cuộc trò chuyện, kèm theo **Gửi ngay** cho đến khi chúng được đọc; hàng đợi phía trên trình soạn thảo đã được gỡ bỏ.
+- Đã thay đổi thẻ phê duyệt cho hành động gửi ra ngoài để chỉ xuất hiện khi bot gửi, đăng hoặc xóa; các phiên lập trình sẽ không hỏi nữa.
+- Đã thay đổi bot đại diện và Lead để duy trì các mô hình riêng biệt, và việc gửi khi chưa có mô hình sẽ mở bộ chọn mô hình thay vì tự động chọn một mô hình.
+- Đã thay đổi bot và tác nhân để chuyển tiếp tệp đính kèm và tệp đã tạo khi bàn giao công việc cho nhau.
+- Đã thay đổi thẻ visualize thành một thẻ cho mỗi tác vụ, tập hợp các trang đã mở dưới dạng hình thu nhỏ.
+- Đã thay đổi các hộp thoại xác nhận chẳng hạn như xóa từ mặc định của Windows sang các hộp thoại phù hợp với chủ đề ứng dụng.
+- Đã gỡ bỏ bộ chọn mô hình và chỉ báo ngữ cảnh khỏi trình soạn thảo phòng bot.
+- Đã thay đổi GitHub để không còn là một bộ kết nối; tính năng này sử dụng trực tiếp GitHub CLI đã đăng nhập.
+- Đã điều chỉnh thông báo lỗi để hiển thị lỗi rõ ràng thay vì thông báo thô khi mô hình không khả dụng hoặc khóa không hợp lệ.
+- Đã điều chỉnh kiểu đầu ra để câu trả lời chọn đoạn văn, bảng hoặc danh sách phù hợp với nội dung.
+- Đã thay đổi tok/s của trình soạn thảo để tính cả thời gian chờ token đầu tiên, khớp với cửa sổ Mức sử dụng.
+- Đã thay đổi mức suy luận tự động để sử dụng bộ đánh giá suy luận tự động v7, cho kết quả phù hợp với xếp hạng tham chiếu thường xuyên hơn so với v6.
+
+### Sửa lỗi
+
+- Đã sửa lỗi lưu tùy chọn mô hình của Lead thất bại với "model selection contains an unsupported field" (#132).
+- Đã sửa lỗi các cuộc trò chuyện với bot thất bại với "provider message prefix changed outside compaction".
+- Đã sửa lỗi mô hình Lead bị trống sau khi cập nhật lên 1.3.0; giờ đây nó sẽ lấy mô hình bạn đã sử dụng gần nhất trong tác vụ mới, và các bot vẫn giữ mô hình đã trò chuyện cùng.
+- Đã sửa lỗi các tác nhân tùy chỉnh cũ hiển thị dưới dạng bot sau khi cập nhật lên 1.3.0.
+- Đã sửa lỗi tính cách của bot đại diện bị rò rỉ vào các phiên lập trình.
+- Đã sửa lỗi bot đại diện không báo cáo lại sau khi bàn giao công việc cho phiên khác; các báo cáo giờ đây vẫn tiếp tục sau khi khởi động lại.
+- Đã sửa lỗi các phiên tác vụ của tác nhân do bot đại diện tạo mở ra với mô hình trống ("Chọn mô hình").
+- Đã sửa lỗi việc chuyển sang trang Bot thay thế vùng chính bằng cuộc trò chuyện của bot đại diện.
+- Đã sửa lỗi trình soạn thảo không nhận dữ liệu nhập sau khi xóa một phòng bot.
+- Đã sửa lỗi các tác nhân không chuyển sang mô hình tiếp theo khi mô hình đầu tiên đạt giới hạn sử dụng.
+- Đã sửa lỗi điện thoại tải vô tận khi PC được kết nối đang tắt; giờ đây nó thông báo không thể kết nối và cho phép bạn thử lại (#134).
+- Đã sửa lỗi cuộn trên điện thoại bị dừng hoặc giật khi tải các tin nhắn trước đó.
+- Đã sửa lỗi bảng visualize mở chậm trên điện thoại.
+- Đã sửa lỗi Gemini 4 Argon thất bại với mã 404 khi đăng nhập bằng Antigravity.
+
 ## v1.3.0 - 2026-10-20
 
 Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gmail qua mật khẩu ứng dụng, và cải thiện độ ổn định của ứng dụng.

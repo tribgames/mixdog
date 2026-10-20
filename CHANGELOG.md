@@ -5,6 +5,42 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+A stabilization patch for issues found since 1.3.0, with an upgraded reasoning-effort judge.
+
+We're sorry that the 1.3.0 update reset some workflow data for some users.
+
+### Changes
+
+- Changed messages sent during a running task to appear in the chat right away, with **Send now** until they are read; the queue above the composer is gone.
+- Changed outbound approval cards to appear only when a bot sends, posts or deletes; coding sessions no longer ask.
+- Changed the representative bot and Lead to keep separate models, and sending without a model to open the model picker instead of choosing one automatically.
+- Changed bots and agents to pass attachments and produced files along when they hand work to each other.
+- Changed visualize cards to one card per task, gathering the pages it opened as thumbnails.
+- Changed confirmation dialogs such as delete from the Windows default to dialogs that match the app theme.
+- Removed the model picker and context indicator from the bot room composer.
+- Changed GitHub to no longer be a connector; it uses the signed-in GitHub CLI directly.
+- Adjusted error notices to give a clear error instead of the raw message when a model is unavailable or a key is invalid.
+- Adjusted output styles so replies pick paragraphs, tables or lists to fit the content.
+- Changed the composer's tok/s to count the wait for the first token, matching the Usage window.
+- Changed Auto reasoning effort to use effort judge v7, which agrees with reference ratings more often than v6.
+
+### Bug fixes
+
+- Fixed saving Lead's model options failing with "model selection contains an unsupported field" (#132).
+- Fixed bot chats failing with "provider message prefix changed outside compaction".
+- Fixed an empty Lead model after updating to 1.3.0; it now takes the model you last used in a new task, and bots keep the model they chatted with.
+- Fixed older custom agents showing up as bots after updating to 1.3.0.
+- Fixed the representative bot's persona leaking into coding sessions.
+- Fixed the representative bot not reporting back after handing work to another session; reports now continue after a restart.
+- Fixed agent task sessions created by the representative bot opening with an empty model ("Select model").
+- Fixed switching to the Bots page replacing the main area with the representative bot's chat.
+- Fixed the composer not accepting input after deleting a bot room.
+- Fixed agents not moving to their next model when the first one hit its usage limit.
+- Fixed the phone loading forever when the connected PC was off; it now says it can't connect and lets you retry (#134).
+- Fixed phone scrolling stopping or jumping while earlier messages loaded.
+- Fixed the visualize panel opening slowly on the phone.
+- Fixed Gemini 4 Argon failing with 404 when signed in with Antigravity.
+
 ## v1.3.0 - 2026-10-20
 
 Added a bot system, support for more connectors including Gmail via app password, and improved client stability.

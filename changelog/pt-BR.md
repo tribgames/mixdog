@@ -4,6 +4,42 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Um patch de estabilização para problemas encontrados desde a versão 1.3.0, com um avaliador de esforço de raciocínio atualizado.
+
+Pedimos desculpas pelo fato de a atualização 1.3.0 ter redefinido dados de fluxo de trabalho para alguns usuários.
+
+### Alterações
+
+- Alteradas as mensagens enviadas durante uma tarefa em andamento para aparecerem no chat imediatamente, com **Enviar agora** até serem lidas; a fila acima do compositor foi removida.
+- Alterados os cartões de aprovação para ações externas para aparecerem apenas quando um bot envia, publica ou exclui; as sessões de código não perguntam mais.
+- Alterados o bot representativo e o Lead para manterem modelos separados, e enviar sem um modelo abre o seletor de modelos em vez de escolher um automaticamente.
+- Alterados os bots e agentes para repassarem anexos e arquivos gerados ao transferirem tarefas entre si.
+- Alterados os cartões de visualize para um cartão por tarefa, reunindo as páginas abertas como miniaturas.
+- Alteradas as caixas de diálogo de confirmação, como exclusão, do padrão do Windows para caixas que combinam com o tema do app.
+- Removidos o seletor de modelos e o indicador de contexto do compositor das salas de bots.
+- Alterado o GitHub para não ser mais um conector; ele agora usa diretamente a GitHub CLI conectada.
+- Ajustados os avisos de erro para fornecerem um erro claro em vez da mensagem bruta quando um modelo estiver indisponível ou uma chave for inválida.
+- Ajustados os estilos de saída para que as respostas escolham parágrafos, tabelas ou listas adequados ao conteúdo.
+- Alterado o tok/s do compositor para contar a espera pelo primeiro token, correspondendo à janela de Uso.
+- Alterado o esforço de raciocínio automático para usar o avaliador de raciocínio automático v7, que concorda com as avaliações de referência com mais frequência que a v6.
+
+### Correções de bugs
+
+- Corrigida a falha ao salvar opções de modelo do Lead com "model selection contains an unsupported field" (#132).
+- Corrigidas as falhas nos chats de bots com "provider message prefix changed outside compaction".
+- Corrigido o modelo do Lead vazio após atualizar para a 1.3.0; ele agora assume o modelo usado pela última vez em uma nova tarefa, e os bots mantêm o modelo com o qual conversaram.
+- Corrigidos agentes personalizados antigos aparecendo como bots após atualizar para a 1.3.0.
+- Corrigida a personalidade do bot representativo vazando para sessões de código.
+- Corrigido o bot representativo não reportando de volta após transferir trabalho para outra sessão; os relatórios agora continuam após reiniciar.
+- Corrigidas as sessões de tarefas de agentes criadas pelo bot representativo que abriam com um modelo vazio ("Selecionar modelo").
+- Corrigida a alternância para a página Bots que substituía a área principal pelo chat do bot representativo.
+- Corrigido o compositor não aceitando entrada após excluir uma sala de bots.
+- Corrigidos os agentes que não avançavam para o próximo modelo quando o primeiro atingia seu limite de uso.
+- Corrigido o carregamento infinito no telefone quando o PC conectado estava desligado; agora informa que não foi possível conectar e permite tentar novamente (#134).
+- Corrigida a rolagem no telefone travando ou saltando enquanto mensagens anteriores eram carregadas.
+- Corrigida a abertura lenta do painel visualize no telefone.
+- Corrigida a falha do Gemini 4 Argon com 404 ao fazer login com Antigravity.
+
 ## v1.3.0 - 2026-10-20
 
 Adicionado um sistema de bots, suporte a mais conectores, incluindo o Gmail com senha de app, e mais estabilidade no cliente.

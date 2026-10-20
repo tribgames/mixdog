@@ -5,6 +5,42 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Un parche de estabilización para los problemas detectados desde 1.3.0, con un evaluador de esfuerzo de razonamiento actualizado.
+
+Lamentamos que la actualización a 1.3.0 haya restablecido algunos datos de flujo de trabajo para algunos usuarios.
+
+### Cambios
+
+- Se cambiaron los mensajes enviados durante una tarea en curso para que aparezcan en el chat de inmediato, con **Enviar ahora** hasta que se lean; la cola sobre el compositor desapareció.
+- Se cambiaron las tarjetas de aprobación para acciones salientes para que aparezcan solo cuando un bot envía, publica o elimina; las sesiones de programación ya no preguntan.
+- Se cambiaron el bot representativo y Lead para mantener modelos separados, y que enviar sin un modelo abra el selector de modelos en lugar de elegir uno automáticamente.
+- Se cambiaron los bots y agentes para transferir adjuntos y archivos producidos al pasarse trabajo entre sí.
+- Se cambiaron las tarjetas de visualize a una tarjeta por tarea, agrupando las páginas abiertas como miniaturas.
+- Se cambiaron los cuadros de diálogo de confirmación, como el de eliminación, del valor predeterminado de Windows a cuadros que coinciden con el tema de la aplicación.
+- Se eliminaron el selector de modelos y el indicador de contexto del compositor de las salas de bots.
+- Se cambió GitHub para que ya no sea un conector; ahora usa directamente la CLI de GitHub con la sesión iniciada.
+- Se ajustaron los avisos de error para mostrar un error claro en lugar del mensaje en bruto cuando un modelo no está disponible o una clave no es válida.
+- Se ajustaron los estilos de salida para que las respuestas elijan párrafos, tablas o listas según el contenido.
+- Se cambió el cálculo de tok/s del compositor para incluir la espera del primer token, coincidiendo con la ventana de Uso.
+- Se cambió el esfuerzo de razonamiento automático para utilizar el evaluador de razonamiento automático v7, que coincide con las valoraciones de referencia más a menudo que la versión v6.
+
+### Correcciones de errores
+
+- Se corrigió el error al guardar las opciones de modelo de Lead con "model selection contains an unsupported field" (#132).
+- Se corrigió que los chats de bots fallaran con "provider message prefix changed outside compaction".
+- Se corrigió que el modelo de Lead quedara vacío tras actualizar a 1.3.0; ahora adopta el modelo utilizado por última vez en una tarea nueva, y los bots conservan el modelo con el que chatearon.
+- Se corrigió que los agentes personalizados antiguos aparecieran como bots tras actualizar a 1.3.0.
+- Se corrigió que la personalidad del bot representativo se filtrara en las sesiones de programación.
+- Se corrigió que el bot representativo no informara de vuelta tras transferir trabajo a otra sesión; los informes ahora continúan después de un reinicio.
+- Se corrigió que las sesiones de tareas de agentes creadas por el bot representativo se abrieran con un modelo vacío ("Seleccionar modelo").
+- Se corrigió que al cambiar a la página de Bots se reemplazara el área principal con el chat del bot representativo.
+- Se corrigió que el compositor no aceptara entradas después de eliminar una sala de bots.
+- Se corrigió que los agentes no pasaran a su siguiente modelo cuando el primero alcanzaba su límite de uso.
+- Se corrigió que el teléfono cargara indefinidamente cuando el PC conectado estaba apagado; ahora indica que no puede conectarse y permite reintentar (#134).
+- Se corrigió que el desplazamiento en teléfonos se detuviera o saltara mientras se cargaban los mensajes anteriores.
+- Se corrigió que el panel de visualize se abriera lentamente en el teléfono.
+- Se corrigió que Gemini 4 Argon fallara con 404 al iniciar sesión con Antigravity.
+
 ## v1.3.0 - 2026-10-20
 
 Se añadió un sistema de bots, compatibilidad con más conectores, como Gmail mediante contraseña de aplicación, y una mayor estabilidad del cliente.

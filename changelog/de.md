@@ -4,6 +4,42 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Ein Stabilisierungs-Patch für Probleme, die seit 1.3.0 aufgetreten sind, mit einem verbesserten Beurteiler für den Reasoning-Aufwand.
+
+Wir bitten um Entschuldigung, dass das Update auf 1.3.0 bei einigen Benutzern Workflow-Daten zurückgesetzt hat.
+
+### Änderungen
+
+- Während einer laufenden Aufgabe gesendete Nachrichten so geändert, dass sie sofort im Chat erscheinen, mit **Jetzt senden**, bis sie gelesen werden; die Warteschlange über dem Composer entfällt.
+- Genehmigungskarten für externe Aktionen so geändert, dass sie nur erscheinen, wenn ein Bot sendet, postet oder löscht; Coding-Sitzungen fragen nicht mehr nach.
+- Repräsentativen Bot und Lead so geändert, dass sie getrennte Modelle behalten, und das Senden ohne Modell die Modellauswahl öffnet, statt automatisch eines auszuwählen.
+- Bots und Agenten so geändert, dass sie Anhänge und erstellte Dateien weitergeben, wenn sie sich gegenseitig Aufgaben übergeben.
+- visualize-Karten auf eine Karte pro Aufgabe geändert, die die geöffneten Seiten als Miniaturbilder zusammenfasst.
+- Bestätigungsdialoge wie beim Löschen vom Windows-Standard auf Dialoge umgestellt, die zum App-Design passen.
+- Modellauswahl und Kontextanzeige aus dem Composer von Bot-Räumen entfernt.
+- GitHub so geändert, dass es kein Connector mehr ist; es verwendet direkt die angemeldete GitHub CLI.
+- Fehlerhinweise angepasst, um bei nicht verfügbarem Modell oder ungültigem Schlüssel eine klare Fehlermeldung statt der Rohmeldung anzuzeigen.
+- Ausgabestile so angepasst, dass Antworten je nach Inhalt Absätze, Tabellen oder Listen wählen.
+- tok/s des Composers so geändert, dass das Warten auf das erste Token mitgezählt wird, passend zum Nutzungsfenster.
+- Automatischen Reasoning-Aufwand so geändert, dass der Auto-Reasoning-Bewerter v7 verwendet wird, der häufiger als v6 mit Referenzbewertungen übereinstimmt.
+
+### Fehlerbehebungen
+
+- Behoben: Das Speichern der Modelloptionen von Lead schlug mit "model selection contains an unsupported field" fehl (#132).
+- Behoben: Bot-Chats schlugen mit "provider message prefix changed outside compaction" fehl.
+- Behoben: Nach der Aktualisierung auf 1.3.0 war das Lead-Modell leer; es übernimmt nun das in einer neuen Aufgabe zuletzt verwendete Modell, und Bots behalten das Modell, mit dem sie gechattet haben.
+- Behoben: Ältere benutzerdefinierte Agenten wurden nach der Aktualisierung auf 1.3.0 als Bots angezeigt.
+- Behoben: Die Persona des repräsentativen Bots floss in Coding-Sitzungen ein.
+- Behoben: Der repräsentative Bot erstattete nach der Übergabe von Aufgaben an eine andere Sitzung keinen Bericht; Berichte werden nun auch nach einem Neustart fortgesetzt.
+- Behoben: Vom repräsentativen Bot erstellte Agent-Aufgabensitzungen öffneten sich mit leerem Modell ("Modell auswählen").
+- Behoben: Beim Wechsel zur Bots-Seite wurde der Hauptbereich durch den Chat des repräsentativen Bots ersetzt.
+- Behoben: Der Composer nahm nach dem Löschen eines Bot-Raums keine Eingaben mehr an.
+- Behoben: Agenten wechselten nicht zum nächsten Modell, wenn das erste sein Nutzungslimit erreichte.
+- Behoben: Auf dem Telefon wurde endlos geladen, wenn der verbundene PC ausgeschaltet war; es meldet nun, dass keine Verbindung möglich ist, und erlaubt einen erneuten Versuch (#134).
+- Behoben: Das Scrollen auf dem Telefon stockte oder sprang, während frühere Nachrichten geladen wurden.
+- Behoben: Das visualize-Panel öffnete sich auf dem Telefon nur langsam.
+- Behoben: Gemini 4 Argon schlug bei Anmeldung über Antigravity mit 404 fehl.
+
 ## v1.3.0 - 2026-10-20
 
 Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passwort und eine stabilere Client-App.

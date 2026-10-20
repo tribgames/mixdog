@@ -5,6 +5,42 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Un correctif de stabilisation pour les problèmes rencontrés depuis la 1.3.0, avec un juge d'effort de raisonnement amélioré.
+
+Nous sommes désolés que la mise à jour 1.3.0 ait réinitialisé certaines données de workflow pour certains utilisateurs.
+
+### Modifications
+
+- Modification des messages envoyés pendant une tâche en cours pour qu'ils apparaissent immédiatement dans la discussion, avec **Envoyer maintenant** jusqu'à ce qu'ils soient lus ; la file d'attente au-dessus du compositeur disparaît.
+- Modification des cartes d'approbation pour actions sortantes pour qu'elles n'apparaissent que lorsqu'un bot envoie, publie ou supprime ; les sessions de codage ne demandent plus de confirmation.
+- Modification du bot représentatif et de Lead pour conserver des modèles distincts, et faire en sorte que l'envoi sans modèle ouvre le sélecteur de modèles au lieu d'en choisir un automatiquement.
+- Modification des bots et des agents pour transmettre les pièces jointes et les fichiers générés lorsqu'ils se passent du travail.
+- Modification des cartes visualize à raison d'une carte par tâche, regroupant les pages ouvertes sous forme de miniatures.
+- Modification des boîtes de dialogue de confirmation comme la suppression, passant du style par défaut de Windows à des boîtes adaptées au thème de l'application.
+- Suppression du sélecteur de modèles et de l'indicateur de contexte du compositeur des salons de bots.
+- Modification de GitHub qui n'est plus un connecteur ; il utilise directement la CLI GitHub connectée.
+- Ajustement des notifications d'erreur afin d'afficher une erreur explicite au lieu du message brut lorsqu'un modèle est indisponible ou qu'une clé est invalide.
+- Ajustement des styles de sortie afin que les réponses adoptent des paragraphes, des tableaux ou des listes selon le contenu.
+- Modification du calcul des tok/s du compositeur pour prendre en compte l'attente du premier jeton, conformément à la fenêtre Utilisation.
+- Modification de l'effort de raisonnement automatique pour utiliser l'évaluateur de raisonnement automatique v7, en accord plus fréquent avec les évaluations de référence que la version v6.
+
+### Corrections de bugs
+
+- Correction de l'enregistrement des options de modèle de Lead qui échouait avec "model selection contains an unsupported field" (#132).
+- Correction des discussions de bots qui échouaient avec "provider message prefix changed outside compaction".
+- Correction du modèle Lead vide après la mise à jour vers 1.3.0 ; il reprend désormais le dernier modèle utilisé dans une nouvelle tâche, et les bots conservent le modèle avec lequel ils ont discuté.
+- Correction des anciens agents personnalisés qui s'affichaient comme des bots après la mise à jour vers 1.3.0.
+- Correction de la personnalité du bot représentatif qui s'immisçait dans les sessions de codage.
+- Correction du bot représentatif qui ne transmettait pas son rapport après avoir délégué du travail à une autre session ; les rapports reprennent désormais après un redémarrage.
+- Correction des sessions de tâche d'agent créées par le bot représentatif qui s'ouvraient avec un modèle vide ("Sélectionner un modèle").
+- Correction du passage à la page Bots qui remplaçait la zone principale par la discussion du bot représentatif.
+- Correction du compositeur qui n'acceptait plus de saisie après la suppression d'un salon de bots.
+- Correction des agents qui ne passaient pas à leur modèle suivant lorsque le premier atteignait sa limite d'utilisation.
+- Correction du chargement infini sur téléphone lorsque le PC connecté était éteint ; il indique désormais qu'il ne peut pas se connecter et permet de réessayer (#134).
+- Correction du défilement sur téléphone qui s'arrêtait ou sautait lors du chargement des messages précédents.
+- Correction de l'ouverture lente du panneau visualize sur le téléphone.
+- Correction de Gemini 4 Argon qui échouait avec 404 lors d'une connexion avec Antigravity.
+
 ## v1.3.0 - 2026-10-20
 
 Ajout d'un système de bots, prise en charge de nouveaux connecteurs, dont Gmail par mot de passe d'application, et meilleure stabilité du client.
