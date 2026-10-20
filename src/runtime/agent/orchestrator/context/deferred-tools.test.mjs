@@ -178,12 +178,11 @@ test('the deferred manifest is byte-identical across sessions and pool orders', 
   const second = build([...names].reverse(), { id: 'two', agentId: 'beta', cwd: '/b' });
   assert.equal(first, second);
   assert.match(first, /^- mcp__notion: Notion pages/m);
-  assert.equal(connectorTrigger('github'), '');
   assert.match(first, /^- mcp__custom: Run a job$/m);
 });
 
 test('curated connector triggers are single English lines within 100 characters', () => {
-  assert.equal(Object.keys(CONNECTOR_TRIGGERS).length, 16);
+  assert.equal(Object.keys(CONNECTOR_TRIGGERS).length, 17);
   for (const [id, line] of Object.entries(CONNECTOR_TRIGGERS)) {
     assert.ok(line.length <= CONNECTOR_TRIGGER_MAX_CHARS, `${id}: ${line.length}`);
     assert.match(line, /^[\x20-\x7e]+$/, id);

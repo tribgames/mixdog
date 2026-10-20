@@ -19,7 +19,13 @@ import { createResourceApi } from './resource-api.mjs';
 import { createSetupToolExecutor } from './setup-tool/executor.mjs';
 
 test('the catalog uses the curated deferred-tool ids and declares every backend', () => {
-  assert.deepEqual(CONNECTOR_CATALOG.map((entry) => entry.id).sort(), Object.keys(CONNECTOR_TRIGGERS).sort());
+  // `github` keeps a trigger for user-added GitHub MCP servers but is not a catalog connector.
+  assert.deepEqual(
+    CONNECTOR_CATALOG.map((entry) => entry.id).sort(),
+    Object.keys(CONNECTOR_TRIGGERS)
+      .filter((id) => id !== 'github')
+      .sort()
+  );
   // Google Calendar and Drive are offered only to a user with their own Google key.
   assert.deepEqual(
     CONNECTOR_CATALOG.filter((entry) => entry.ownKey).map((entry) => entry.id),

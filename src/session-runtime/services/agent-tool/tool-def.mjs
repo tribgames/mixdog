@@ -58,7 +58,7 @@ export const AGENT_TOOL = {
         items: { type: 'string' },
         maxItems: 8,
         description:
-          'spawn/send: files the agent receives as real attachments (images, PDF/Office, text): an attachment of this conversation by its file name (a user upload) or id (a reported file’s [attachment:id]), or a file path inside your folders. Its result lists the files it produced by path; forward those by path.',
+          "spawn/send: files to attach (images, PDF/Office, text): a conversation attachment's file name or [attachment:id], or a path inside your folders. Produced files come back as paths; forward them by path.",
       },
       model: {
         type: 'string',

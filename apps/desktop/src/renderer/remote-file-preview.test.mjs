@@ -525,8 +525,10 @@ test('a link in a previewed page is handed to the app instead of blanking the fr
     [{ type: PREVIEW_LINK, href: 'https://example.com/' }, '*'],
     [{ type: PREVIEW_LINK, href: 'https://relay.test/other.html' }, '*'],
   ]);
-  // In-page anchors, script links and clicks the page handles stay its own.
-  assert.equal(page.click('#hash'), false);
+  // In-page anchors stay in the page, but move by replacing the frame's history
+  // entry (so phone Back still closes the panel); script links and clicks the
+  // page handles stay its own.
+  assert.equal(page.click('#hash'), true);
   assert.equal(page.click('#js'), false);
   page.click('#own');
   assert.equal(page.sent.length, 2);
