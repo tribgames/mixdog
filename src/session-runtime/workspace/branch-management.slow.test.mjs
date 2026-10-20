@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { createWorkspaceTransitions } from './transitions.mjs';
@@ -199,6 +201,66 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
     assert.ok(probed);
   });
 }
+
+test('mergeProjectBranch preserves a live foreign turn when its shared ledger is damaged', { timeout: 20000 }, async (t) => {
+  const repo = makeRepo();
+  const { source, merge } = await ENTRY_POINTS.mergeProjectBranch(repo);
+  commitFile(source.path, 'feature.txt', 'feature\n');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const child = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import { admitTurn } from ${JSON.stringify(new URL('./admission-gate.mjs', import.meta.url).href)};
+        const leave = await admitTurn({ sessionId: 'foreign-turn', cwd: () => process.argv[1] });
+        process.on('message', (message) => {
+          if (message === 'ping') process.send('alive');
+          if (message === 'release') { leave(); process.exit(0); }
+        });
+        process.send('active');
+      `,
+      repo,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+  );
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = once(child, 'exit');
+    child.kill();
+    await exited;
+  });
+  assert.equal((await once(child, 'message'))[0], 'active');
+  await assert.rejects(merge(), {
+    code: 'WORKTREE_BUSY_JOBS',
+    details: { reason: 'folder-in-use' },
+  });
+
+  const path = join(repo, '.git', 'mixdog-workspace-admission.json');
+  const intact = readFileSync(path);
+  const damaged = Buffer.alloc(intact.length);
+  writeFileSync(path, damaged);
+  await assert.rejects(merge(), {
+    code: 'WORKTREE_BUSY_JOBS',
+    details: { reason: 'workspace-admission-unreadable' },
+  });
+  assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
+  assert.equal(existsSync(join(repo, 'feature.txt')), false);
+  assert.deepEqual(readFileSync(path), damaged);
+  const alive = once(child, 'message');
+  child.send('ping');
+  assert.equal((await alive)[0], 'alive');
+
+  // The fixture owns the exact original record; no lease changed while its
+  // bytes were damaged. After restoring it, the same child can release normally.
+  writeFileSync(path, intact);
+  const exited = once(child, 'exit');
+  child.send('release');
+  assert.deepEqual(await exited, [0, null]);
+  assert.equal((await merge()).merged, true);
+  assert.equal(git(repo, 'rev-parse', 'HEAD^2'), git(source.path, 'rev-parse', 'HEAD'));
+});
 
 test('mergeWorkspace never moves its session: cleanup is refused while the session works in the folder', async () => {
   const repo = makeRepo();

@@ -44,6 +44,31 @@ workflow dispatch needs Actions permission, and notifications require the
 account's notifications scope. A permission failure is not treated as an empty
 list. Authentication is managed in the plugin details.
 
+## Workspace activity recovery
+
+"Workspace activity cannot be verified. Nothing was changed." can mean the
+repository's shared activity ledger is unreadable or damaged. Mixdog preserves
+that file and refuses new work and workspace changes: its missing contents
+cannot establish whether another profile still has a running turn, background
+command, or branch change. Valid records still reclaim leases whose processes
+are confirmed dead; restarting alone does not repair a damaged record.
+
+To recover a damaged ledger:
+
+1. Finish or stop all Mixdog work using the repository **and its linked
+   worktrees**, including background commands in every profile. Stop those
+   runtimes so new work cannot enter during recovery; closing a window alone
+   may leave its runtime or commands running.
+2. From a checkout, locate the shared Git directory with
+   `git rev-parse --path-format=absolute --git-common-dir`. Inspect and preserve
+   its `mixdog-workspace-admission.json` file.
+3. If permissions or storage errors prevented the read, restore access instead
+   of resetting the ledger. If the contents are damaged and all work is stopped,
+   manually move **only that file** to a separate name for inspection, then
+   restart Mixdog. The absent ledger can now start empty without losing live
+   ownership. Do not delete the Git directory or substitute an older ledger
+   snapshot that may omit still-running work.
+
 ## Reference review
 
 Reference repositories: `github-desktop` and

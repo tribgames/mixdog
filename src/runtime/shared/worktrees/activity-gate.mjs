@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { readFileSync, renameSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { withFileLockSync, writeJsonAtomicSync } from '../atomic-file.mjs';
 import { isPidAliveOrUnknown } from '../pid-liveness.mjs';
@@ -35,15 +35,11 @@ export function isExternalCheckout(folder) {
 }
 
 /**
- * Reads the ledger under its lock. A missing ledger is empty. A ledger that is
- * not JSON is a torn write (a crash or power loss after the rename committed
- * the file's size but not its bytes leaves it NUL-filled on NTFS): nothing in
- * it can be recovered and every lease it held belongs to a process that died
- * with it, so refusing forever would only lock the project out. It is moved
- * aside as `<FILE>.corrupt-<time>` for inspection and admission starts over
- * empty. A ledger that cannot be read at all (permissions, I/O, a directory in
- * its place) is not an empty one and still refuses, as does one that moves
- * aside unsuccessfully: an unreadable file is never overwritten.
+ * Reads the ledger under its lock. Only a missing file is empty. Corruption
+ * cannot prove that its readers or management holders have stopped, including
+ * work in other profiles. Preserve unreadable bytes in place and refuse every
+ * mutation: moving them aside would let the next caller mistake ENOENT for an
+ * unused workspace. Valid records still reclaim only pids proven dead below.
  */
 function readLedger(path) {
   let text;
@@ -56,12 +52,7 @@ function readLedger(path) {
   try {
     return JSON.parse(text);
   } catch {
-    try {
-      renameSync(path, `${path}.corrupt-${Date.now()}`);
-    } catch {
-      throw worktreeRefusal('workspace-admission-unreadable');
-    }
-    return { version: 1, leases: [] };
+    throw worktreeRefusal('workspace-admission-unreadable');
   }
 }
 
