@@ -1,6 +1,7 @@
 // `*** Update File: X` + `*** Move to: Y` with no hunks is a pure move — the
 // V4A spelling of `git mv` — and its outcome is fully specified by the two
 // paths.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

@@ -1,3 +1,4 @@
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,8 @@ test('list meta adds line counts for text files only', async () => {
     writeFileSync(join(dir, 'bin.dat'), Buffer.from([0, 1, 2, 0, 255, 0, 10, 10]));
     writeFileSync(join(dir, 'big.txt'), 'x\n'.repeat(1_100_000));
     const out = await executeBuiltinTool('list', { path: dir, meta: true }, dir);
-    const row = (name) => out.split('\n').find((line) => line.startsWith(`${name}\t`) || line.includes(`${name}\tfile`));
+    const row = (name) =>
+      out.split('\n').find((line) => line.startsWith(`${name}\t`) || line.includes(`${name}\tfile`));
     assert.match(row('three.txt'), /\tfile\t6\t[^\t]+\t[^\t]+\t3$/);
     assert.match(row('nonl.txt'), /\tfile\t3\t[^\t]+\t[^\t]+\t2$/);
     assert.match(row('bin.dat'), /\tfile\t8\t[^\t]+\t[^\t]+$/);
@@ -54,7 +56,8 @@ const SLEEP_SEC = process.platform === 'win32' ? 'Start-Sleep -Seconds' : 'sleep
 
 test('shell wait_ms keeps a ~15s command in the foreground', { timeout: 60_000 }, async () => {
   const out = String(
-    (await executeBuiltinTool('shell', { command: `${SLEEP_SEC} 15; echo done-wait`, wait_ms: 30000 }, process.cwd())).result
+    (await executeBuiltinTool('shell', { command: `${SLEEP_SEC} 15; echo done-wait`, wait_ms: 30000 }, process.cwd()))
+      .result
   );
   assert.match(out, /done-wait/);
   assert.doesNotMatch(out, /task_id/);

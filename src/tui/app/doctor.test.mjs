@@ -1,3 +1,4 @@
+import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,7 +63,10 @@ test('a stopped channel worker is idle without automation and a warning with it'
 
   const idle = await channelsCheck({
     getChannelSetup: async () => ({
-      schedules: [{ name: 'nightly', enabled: false }, { name: 'once', enabled: true, status: 'done' }],
+      schedules: [
+        { name: 'nightly', enabled: false },
+        { name: 'once', enabled: true, status: 'done' },
+      ],
       webhooks: [{ name: 'deploy', enabled: false }],
     }),
   });
@@ -145,8 +149,21 @@ test('structured rows carry summary counts and the command that fixes each probl
   assert.deepEqual(
     result.checks.map((check) => check.id),
     [
-      'mixdog', 'node', 'providers', 'mcp', 'memory', 'localProvider', 'builtins', 'voice',
-      'automation', 'skills', 'plugins', 'hooks', 'data', 'config', 'logs',
+      'mixdog',
+      'node',
+      'providers',
+      'mcp',
+      'memory',
+      'localProvider',
+      'builtins',
+      'voice',
+      'automation',
+      'skills',
+      'plugins',
+      'hooks',
+      'data',
+      'config',
+      'logs',
     ]
   );
   assert.deepEqual(result.summary, { ok: 13, warn: 1, fail: 1 });
@@ -165,22 +182,35 @@ async function rowOf(id, overrides) {
 
 test('local provider row: not installed, disabled, failed, empty and healthy', async () => {
   const local = (value) => ({ getToolModuleSettings: () => ({ localProvider: value }) });
-  assert.deepEqual(
-    (await rowOf('localProvider', local({ installed: false, enabled: false }))).detail,
-    'not installed'
-  );
+  assert.deepEqual((await rowOf('localProvider', local({ installed: false, enabled: false }))).detail, 'not installed');
   assert.equal((await rowOf('localProvider', local({ installed: true, enabled: false }))).level, 'ok');
   const models = [{ installed: true }];
   const failed = await rowOf(
     'localProvider',
-    local({ installed: true, enabled: true, models, installations: [{ state: 'complete', updatedAt: 1 }, { state: 'failed', updatedAt: 2, error: 'secret' }] })
+    local({
+      installed: true,
+      enabled: true,
+      models,
+      installations: [
+        { state: 'complete', updatedAt: 1 },
+        { state: 'failed', updatedAt: 2, error: 'secret' },
+      ],
+    })
   );
   assert.equal(failed.level, 'warn');
   assert.deepEqual(failed.fix, { command: '/providers' });
   assert.doesNotMatch(failed.detail, /secret/);
   const recovered = await rowOf(
     'localProvider',
-    local({ installed: true, enabled: true, models, installations: [{ state: 'failed', updatedAt: 1 }, { state: 'complete', updatedAt: 2 }] })
+    local({
+      installed: true,
+      enabled: true,
+      models,
+      installations: [
+        { state: 'failed', updatedAt: 1 },
+        { state: 'complete', updatedAt: 2 },
+      ],
+    })
   );
   assert.equal(recovered.level, 'ok');
   const empty = await rowOf('localProvider', local({ installed: true, enabled: true, models: [], installations: [] }));
@@ -199,7 +229,9 @@ test('voice row: disabled ok, uninstalled warns, installed ok', async () => {
   const warn = await rowOf('voice', { getVoiceStatus: () => ({ enabled: true, installed: false, components: {} }) });
   assert.equal(warn.level, 'warn');
   assert.deepEqual(warn.fix, { hint: 'reinstall voice from Extensions' });
-  const noModel = await rowOf('voice', { getVoiceStatus: () => ({ enabled: true, installed: true, components: { model: false } }) });
+  const noModel = await rowOf('voice', {
+    getVoiceStatus: () => ({ enabled: true, installed: true, components: { model: false } }),
+  });
   assert.equal(noModel.level, 'warn');
   assert.equal((await rowOf('voice')).level, 'ok');
 });

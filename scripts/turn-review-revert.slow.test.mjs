@@ -4,6 +4,7 @@
 // review that loses its revert source silently degrades into an unusable bar.
 // These cases pin the two ways that used to happen: a sibling session opening a
 // turn in the same worktree, and a worktree that has no Git baseline at all.
+import './lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -236,7 +237,9 @@ test('a turn revert restores only the files the session’s own tools wrote', as
     await beginTurnSnapshot(root, 'own-revert', { checkpointId: 'prompt-own' });
     const options = { sessionId: 'own-revert', toolCallId: 'own-revert-edit' };
     assert.doesNotMatch(
-      String(await executeBuiltinTool('edit', { file_path: 'file.txt', old_string: 'one', new_string: 'ONE' }, root, options)),
+      String(
+        await executeBuiltinTool('edit', { file_path: 'file.txt', old_string: 'one', new_string: 'ONE' }, root, options)
+      ),
       /^Error[\s:]/
     );
     // A shell command or another session edits beside it in the same turn.

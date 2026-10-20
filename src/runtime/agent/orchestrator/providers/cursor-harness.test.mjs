@@ -1,3 +1,4 @@
+import '../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import http2 from 'node:http2';
 import { once } from 'node:events';

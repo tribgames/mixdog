@@ -1,6 +1,7 @@
 // A whole-file rewrite written as "Delete File + Add File" for ONE path has a
 // single possible outcome, so it applies instead of being rejected as a
 // conflicting target. Genuinely ambiguous pairs keep rejecting.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

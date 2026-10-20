@@ -1,6 +1,7 @@
 // Behind the model proxy the Cursor provider runs on the client PC while the
 // server daemon executes the tools: no process-local native authorization may
 // be issued, and every call must run as an ordinary Mixdog tool call.
+import '../../../../../scripts/lib/isolated-test-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';

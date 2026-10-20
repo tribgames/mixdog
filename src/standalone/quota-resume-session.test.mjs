@@ -5,6 +5,7 @@
 // failed-turn retry on the revived Goal. Everything from
 // createLocalSessionRuntime down is real; only the provider and the boot
 // warmups are stand-ins (see session-address-regression.test.mjs).
+import '../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

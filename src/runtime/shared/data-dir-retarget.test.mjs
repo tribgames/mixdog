@@ -1,3 +1,4 @@
+import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

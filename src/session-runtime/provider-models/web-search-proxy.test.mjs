@@ -1,3 +1,4 @@
+import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as registry from '../../runtime/agent/orchestrator/providers/registry.mjs';
@@ -47,7 +48,9 @@ for (const forceFirstRead of [false, true]) {
                 // Current catalogs can declare tools without a boolean flag.
                 { id: `${payload.provider}-search`, supportedTools: ['web_search'] },
                 { id: `${payload.provider}-plain`, supportsWebSearch: false, supportedTools: ['web_search'] },
-                { id: { openai: 'gpt-4-turbo', gemini: 'gemini-1.5-pro', anthropic: 'claude-3-opus' }[payload.provider] },
+                {
+                  id: { openai: 'gpt-4-turbo', gemini: 'gemini-1.5-pro', anthropic: 'claude-3-opus' }[payload.provider],
+                },
                 {
                   id: `${payload.provider}-hidden`,
                   supportsWebSearch: true,

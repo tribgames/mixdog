@@ -1,3 +1,4 @@
+import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -133,8 +134,9 @@ test('a compat provider whose models request fails leaves the load incomplete an
     ensureProvidersReady: async () => {},
   });
   const request = { seq: 0 };
-  const rows = await withFetch(async () => new Response('forbidden', { status: 403 }), () =>
-    load({ loadSecrets: false, request })
+  const rows = await withFetch(
+    async () => new Response('forbidden', { status: 403 }),
+    () => load({ loadSecrets: false, request })
   );
   assert.deepEqual(rows, []);
   assert.equal(request.complete, false);

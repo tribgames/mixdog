@@ -19,7 +19,8 @@ import {
   unlink as unlinkAsync,
   writeFile as writeFileAsync,
 } from 'node:fs/promises';
-import { dirname, basename, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, basename, join, relative, isAbsolute, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_BACKOFFS_MS, recordLockTiming, withFileLock, withFileLockSync } from './file-lock.mjs';
 import {
@@ -164,7 +165,18 @@ async function fsyncPathAsync(path, tolerated) {
   }
 }
 
+// Node sets NODE_TEST_CONTEXT in every `--test` process. A secret (credential)
+// write from a test must land under the temp dir; anything else is a fixture
+// about to overwrite a real profile, so fail loudly instead.
+function assertTestSecretWriteSafe(filePath, opts) {
+  if (opts.secret !== true || !process.env.NODE_TEST_CONTEXT) return;
+  const rel = relative(resolve(tmpdir()).toLowerCase(), resolve(filePath).toLowerCase());
+  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return;
+  throw new Error(`refusing to write a secret outside the temp dir under node --test: ${filePath}`);
+}
+
 export function writeFileAtomicSync(filePath, data, opts = {}) {
+  assertTestSecretWriteSafe(filePath, opts);
   const run = () => {
     const dir = dirname(filePath);
     mkdirSync(dir, { recursive: true });
@@ -289,6 +301,7 @@ export function updateJsonAtomicSync(filePath, mutator, opts = {}) {
 // block the host event loop on read/write/fsync/rename.
 // Async writes retain atomic rename publication; truncate recovery is sync-only.
 export async function writeFileAtomicAsync(filePath, data, opts = {}) {
+  assertTestSecretWriteSafe(filePath, opts);
   const run = async () => {
     const dir = dirname(filePath);
     await mkdirAsync(dir, { recursive: true });

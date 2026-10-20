@@ -1,5 +1,6 @@
 // apply_patch byte fidelity: a rewrite may only change the lines a hunk
 // replaces. Encoding (BOM/codec) and every untouched line terminator survive.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

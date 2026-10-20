@@ -3,6 +3,7 @@
 // at the hold or on new user input (never killing it), task wait returns on
 // finish / input / a queued notification, and a completion carries its
 // result (short whole, long summarized) with harness tags escaped.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

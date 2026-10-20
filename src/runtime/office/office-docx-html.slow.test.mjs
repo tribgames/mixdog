@@ -1,3 +1,4 @@
+import '../../../scripts/lib/isolated-test-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
@@ -121,7 +122,7 @@ test('a page break before a table survives the Word render', { skip }, async (t)
   assert.match(rendered.pages[1].text, /Next\s+page/);
 });
 
-test('a Latin-led font stack sets Hangul in the stack\'s Korean face, not the Latin lead', { skip }, async (t) => {
+test("a Latin-led font stack sets Hangul in the stack's Korean face, not the Latin lead", { skip }, async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'memo.docx');
   const authored = value(
@@ -143,7 +144,7 @@ test('a Latin-led font stack sets Hangul in the stack\'s Korean face, not the La
   assert.equal(authored.ok, true, JSON.stringify(authored));
   const docx = await parts(path);
   const xml = `${await docx.text('word/document.xml')}${await docx.text('word/styles.xml')}`;
-  assert.match(xml, /w:ascii="Georgia"/, 'the Latin face stays the author\'s');
+  assert.match(xml, /w:ascii="Georgia"/, "the Latin face stays the author's");
   assert.match(xml, /w:eastAsia="Noto Serif KR"/, 'Hangul takes the Korean family of the stack');
   assert.match(xml, /w:eastAsia="Batang"/, 'a serif stack with no Korean family takes the serif system face');
   assert.doesNotMatch(xml, /w:eastAsia="Georgia"/);

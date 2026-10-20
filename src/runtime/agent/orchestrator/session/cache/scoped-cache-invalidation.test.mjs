@@ -1,3 +1,4 @@
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -147,7 +148,7 @@ function makeProjects(prefix, names) {
   const base = mkdtempSync(join(tmpdir(), prefix));
   const dirs = names.map((name) => {
     mkdirSync(join(base, name, 'src'), { recursive: true });
-    writeFileSync(join(base, name, 'package.json'), '{"name":"' + name + '"}');
+    writeFileSync(join(base, name, 'package.json'), `{"name":"${name}"}`);
     writeFileSync(join(base, name, 'src', 'target.mjs'), 'export function target() { return 1; }\n');
     return join(base, name);
   });
@@ -225,7 +226,11 @@ test('an absolute external anchor does not depend on the unrelated session proje
   const [cur, ext] = dirs;
   try {
     const anchored = await runGraph('cg5', { mode: 'symbols', file: join(ext, 'src', 'target.mjs') }, cur);
-    const refs = await runGraph('cg5', { mode: 'references', symbol: 'target', file: join(ext, 'src', 'target.mjs') }, cur);
+    const refs = await runGraph(
+      'cg5',
+      { mode: 'references', symbol: 'target', file: join(ext, 'src', 'target.mjs') },
+      cur
+    );
     assert.ok(hit(anchored) && hit(refs));
     touch('cg5', cur, cur);
     assert.ok(hit(anchored), 'session-project edit keeps the external-anchor entry');
@@ -271,7 +276,7 @@ for (const [label, failure] of [
     renameSync(dirs[1], join(parent, 'b'));
     try {
       const failRoot = join(parent, 'b');
-      const execute = (name, args, childRoot) =>
+      const execute = (_name, _args, childRoot) =>
         childRoot === failRoot ? failure() : Promise.resolve(`ok ${childRoot}`);
       for (const args of [
         { mode: 'symbol_search', symbols: 'target' },
@@ -280,7 +285,15 @@ for (const [label, failure] of [
         const plan = planFederation(args, parent, { baseProjectRoot: null, fileArg: '', hasAggregateFileArgs: false });
         assert.ok(plan.active);
         const outcome = createScopedCacheOutcome();
-        const body = await runFederation('code_graph', args, plan, parent, null, { scopedCacheOutcome: outcome }, execute);
+        const body = await runFederation(
+          'code_graph',
+          args,
+          plan,
+          parent,
+          null,
+          { scopedCacheOutcome: outcome },
+          execute
+        );
         assert.match(body, /ok /, 'successful children stay visible');
         assert.equal(outcome.complete, false, JSON.stringify(args));
       }
@@ -290,7 +303,10 @@ for (const [label, failure] of [
   });
 }
 test('a real empty federation child leaves successful sections visible but cannot populate the cache', async () => {
-  const { base, dirs: [good, empty] } = makeProjects('scoped-cge-', ['good', 'empty']);
+  const {
+    base,
+    dirs: [good, empty],
+  } = makeProjects('scoped-cge-', ['good', 'empty']);
   try {
     rmSync(join(empty, 'src', 'target.mjs'));
     const args = { mode: 'symbol_search', symbols: 'target' };

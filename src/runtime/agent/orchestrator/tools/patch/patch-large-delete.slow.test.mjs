@@ -2,6 +2,7 @@
 // reading the file (quarantine rename, atomic with the rest of the batch), a
 // content edit is refused before any mutation, and replay / review report the
 // omitted bytes honestly instead of as empty content.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';

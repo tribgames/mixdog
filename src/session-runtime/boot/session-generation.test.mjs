@@ -1,5 +1,6 @@
 // The real boot path (beginBoot -> resolveConfig) must install the session
 // generation tracking, and the real session adopter must advance it.
+import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { beginBoot } from './begin.mjs';

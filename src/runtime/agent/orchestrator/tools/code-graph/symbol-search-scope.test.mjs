@@ -1,5 +1,6 @@
 // A file/directory anchor scopes symbol_search: it used to scan the whole
 // graph and silently ignore the anchor.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';

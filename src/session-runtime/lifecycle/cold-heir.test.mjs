@@ -1,6 +1,7 @@
 // The heir of a worktree-bound source starts in the Project folder: its
 // prompt is re-rooted there, never at the source's worktree or at the
 // source's staged (pending) workspace change.
+import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

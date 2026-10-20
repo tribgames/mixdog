@@ -1,5 +1,6 @@
 // Review regression: agent (worker) sessions on a non-native provider send
 // core + bridge built from their own filtered tools, not the full array.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -203,7 +204,10 @@ test('native workers keep their full array; a route change migrates both ways', 
   assert.equal(native.toolExposureMode, undefined);
   assert.equal(native.deferredProviderMode, undefined);
   assert.ok(names(native.tools).includes('big_probe'));
-  assert.equal(names(native.tools).some((name) => BRIDGE.includes(name) && name !== 'load_tool'), false);
+  assert.equal(
+    names(native.tools).some((name) => BRIDGE.includes(name) && name !== 'load_tool'),
+    false
+  );
 
   const bridged = _withRegisteredProviderForTest('gemini', { name: 'gemini', contextWindow: 128000 }, () =>
     updateSessionRoute(native.id, { provider: 'gemini', model: 'fixture-model' })
@@ -213,8 +217,10 @@ test('native workers keep their full array; a route change migrates both ways', 
   assert.equal(names(bridged.tools).includes('big_probe'), false);
   assert.equal(bridged.pendingCacheBreakIntent, 'tool_surface_bridge_migration');
 
-  const back = _withRegisteredProviderForTest('anthropic-oauth', { name: 'anthropic-oauth', contextWindow: 128000 }, () =>
-    updateSessionRoute(native.id, { provider: 'anthropic-oauth', model: 'fixture-model' })
+  const back = _withRegisteredProviderForTest(
+    'anthropic-oauth',
+    { name: 'anthropic-oauth', contextWindow: 128000 },
+    () => updateSessionRoute(native.id, { provider: 'anthropic-oauth', model: 'fixture-model' })
   );
   assert.equal(back.toolExposureMode, undefined);
   assert.equal(back.deferredProviderMode, undefined);

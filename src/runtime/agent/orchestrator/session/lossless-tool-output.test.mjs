@@ -1,3 +1,4 @@
+import '../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';

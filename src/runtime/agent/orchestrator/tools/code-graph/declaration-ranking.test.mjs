@@ -1,6 +1,7 @@
 // Declaration ranking (`.d.ts`/`.d.mts`/`.d.cts` type faces never outrank an
 // implementation) and the scoped find_symbol answer when the only hits inside
 // the requested files are imports.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
