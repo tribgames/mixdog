@@ -127,12 +127,16 @@ export function createSteeringOps(bag, { queue, submissions }) {
     return isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry);
   }
 
-  function commitSteeringQueueEntries(entries) {
-    callCommitCallbacks(entries);
+  function releaseSteeringQueueEntries(entries) {
     const mirrored = (Array.isArray(entries) ? entries : []).filter(
       (entry) => shouldMirrorSteeringEntry(entry) && entry.steeringPersistId
     );
-    if (mirrored.length > 0) dropTuiSteeringPersist(leadSessionId(), mirrored);
+    if (mirrored.length > 0) return dropTuiSteeringPersist(leadSessionId(), mirrored);
+  }
+
+  function commitSteeringQueueEntries(entries) {
+    callCommitCallbacks(entries);
+    releaseSteeringQueueEntries(entries);
   }
 
   function canDeliverSteeringEntry(entry) {
@@ -291,6 +295,7 @@ export function createSteeringOps(bag, { queue, submissions }) {
   return {
     leadSessionId,
     shouldMirrorSteeringEntry,
+    releaseSteeringQueueEntries,
     commitSteeringQueueEntries,
     settleSteeredSubmissions,
     hasPendingSteering,

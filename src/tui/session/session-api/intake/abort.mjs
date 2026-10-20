@@ -148,6 +148,13 @@ export function createAbortAction(bag) {
         : [];
     const aborted = abortGoalTurn(runtime, flags, hasPendingSteering, reason);
     if (restoreState) {
+      // A user Stop consumes this input even when no draft is requested.
+      // Explicit draft reclamation also releases it; automatic interruptions
+      // such as the watchdog must retain input that has not been committed.
+      if (aborted !== false && !restoreState.committed && (reason === 'user-cancel' || restoreText)) {
+        restoreState.onAborted?.();
+        restoreState.onAborted = null;
+      }
       if (aborted !== false && Array.isArray(restoreState.discardExecutionPendingResumeKeys)) {
         discardExecutionPendingResume?.(restoreState.discardExecutionPendingResumeKeys);
       }
