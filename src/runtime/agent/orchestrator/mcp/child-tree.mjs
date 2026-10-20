@@ -14,11 +14,12 @@ import { detachedSpawnOpts } from '../../../shared/spawn-flags.mjs';
 
 const isWin = process.platform === 'win32';
 
+// The SIGTERM → SIGKILL escalation wait. Kept ref'd: it runs right after the
+// tree was signalled, when the dying children may be the only handles left,
+// and an unref'd timer would then never fire, leaving the awaited kill (and
+// every close awaiting it) pending forever. It is short and bounded.
 function delay(ms) {
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    if (t.unref) t.unref();
-  });
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Best-effort signal: a pid that already exited (or cannot be signalled) is skipped.
