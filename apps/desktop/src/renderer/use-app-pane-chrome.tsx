@@ -37,7 +37,6 @@ export function useAppPaneChrome({
   pinPaneTab,
   renameSession,
   stripTrailing,
-  beforeNewTask,
   lastSessionStorageKey,
 }: {
   tabs: WorkspaceTab[];
@@ -60,8 +59,6 @@ export function useAppPaneChrome({
   renameSession(sessionId: string, title: string): Promise<void>;
   /** Right-edge strip controls per leaf (desktop status island). */
   stripTrailing?(leaf: PaneLeaf): ReactNode;
-  /** Runs before the strip's + starts a new task (the side view it shows in). */
-  beforeNewTask?(): void;
   lastSessionStorageKey: string;
 }) {
   // A home thread's tab is its agent's name, also after a reload: the agent
@@ -180,7 +177,6 @@ export function useAppPaneChrome({
         onRenameSession={renameSession}
         onNewTask={() => {
           paneWorkspace.focusLeaf(leaf.id);
-          beforeNewTask?.();
           startTask();
         }}
       />
