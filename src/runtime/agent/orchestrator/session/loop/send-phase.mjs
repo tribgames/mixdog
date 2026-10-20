@@ -7,6 +7,7 @@ import { traceCacheBreak } from '../../cache-break-trace.mjs';
 import { resolveLiveToolCwd } from './tool-exec.mjs';
 import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { addUsage, usageDeltaEvent } from './usage.mjs';
+import { isVisibleStreamProgress } from '../../../../shared/stream-progress.mjs';
 import { prepareProviderRequest } from './request-boundary.mjs';
 import { applyStepEffort } from './step-auto-effort.mjs';
 import { projectProviderRequest } from './request-projection.mjs';
@@ -181,6 +182,15 @@ export async function sendProviderRequest(state, round) {
     tools: round.sendTools,
     opts,
   });
+  // The first visible token of this request, for its generation time (queue,
+  // preflight and time-to-first-token stay out of the speed figures).
+  let firstVisibleAt = 0;
+  const callerOnStreamDelta = opts.onStreamDelta;
+  const observeStreamDelta = (kind, ...rest) => {
+    if (!firstVisibleAt && isVisibleStreamProgress(kind)) firstVisibleAt = Date.now();
+    return callerOnStreamDelta?.(kind, ...rest);
+  };
+  opts.onStreamDelta = observeStreamDelta;
   let result;
   try {
     result = await runWithProviderRequestToolsScope(round.requestToolScope, () =>
@@ -208,15 +218,19 @@ export async function sendProviderRequest(state, round) {
     sideQuestion?.discard();
     if (!(await advanceAgentRoute(state, error))) throw error;
     result = { action: 'retry_route' };
+  } finally {
+    if (opts.onStreamDelta === observeStreamDelta) opts.onStreamDelta = callerOnStreamDelta;
   }
   if (result.action === 'proceed') sideQuestion?.settle(result.response);
   else sideQuestion?.discard();
+  const sendEndedAt = Date.now();
   return {
     result,
     providerMessages,
     prefixGuardCandidate,
     sendStartedAt,
-    sendEndedAt: Date.now(),
+    sendEndedAt,
+    generationMs: firstVisibleAt ? Math.max(0, sendEndedAt - firstVisibleAt) : 0,
     preSendMs,
     toolResumeMs,
   };
@@ -429,6 +443,7 @@ export function settleSendResult(state, round, sent) {
             usage: reportedUsage,
             sendTools: round.sendTools,
             toolCalls: response.toolCalls?.length || 0,
+            generationMs: sent.generationMs,
           })
         )
       );

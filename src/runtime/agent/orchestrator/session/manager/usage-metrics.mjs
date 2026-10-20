@@ -7,6 +7,7 @@
 // flag usageMetricsTurnIncremental. manager.mjs wires it via configureUsageMetricsRuntime().
 import { providerInputExcludesCache } from '../../providers/registry.mjs';
 import { reasoningUsage, combineReasoningUsage } from '../../../../shared/llm/reasoning-usage.mjs';
+import { foldUsageReadout } from '../../../../shared/usage-readout-totals.mjs';
 import {
   loadSession,
   saveSessionAsync,
@@ -553,6 +554,11 @@ export async function persistIterationMetrics(delta) {
   if (!isReplay) {
     if (runtimeEntry) runtimeEntry.usageMetricsTurnIncremental = true;
     accumulateSessionUsage(session, delta);
+    // The composer readout's session-cumulative cache hit and speed: one fold
+    // per model call of this session (every tool-loop iteration), replaced
+    // immutably so a consumer can tell by identity that it changed. Sessions
+    // saved before this field began at their first call after it.
+    session.usageReadout = foldUsageReadout(session.usageReadout, delta, delta.generationMs);
     recordLastContextTokens(session, iterationContext(delta));
   }
   session.lastIterationIndex = iterationIndex;

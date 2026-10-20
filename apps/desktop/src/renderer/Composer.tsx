@@ -35,6 +35,7 @@ import { ComposerQueueTrayContext } from './composer-island-state';
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
+  noteComposerContent,
   stashComposerDraft,
   stashedComposerDraft,
 } from './composer-draft';
@@ -67,10 +68,21 @@ import {
 } from './composer-surfaces';
 import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
 import { ComposerBanners } from './ComposerBanners';
-import { ComposerFooter } from './ComposerFooter';
+import { ComposerFooter, ComposerModelLine } from './ComposerFooter';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
 import { VisualizeFeedbackCards } from './VisualizeFeedbackCards';
+import {
+  RoomAskChip,
+  RoomAskPalette,
+  RoomMentionChip,
+  contentAsking,
+  roomMentionCandidates,
+  draftAskingMore,
+  roomAskCandidates,
+  roomAskTargets,
+  useComposerRoomMembers,
+} from './composer-room-ask';
 import { useVisualizeFeedback, visualizeFeedbackPending } from './visualize-feedback-store';
 
 // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency, logged
@@ -244,6 +256,8 @@ export type ComposerProps = {
   /** Session readout seated right after the model trigger — the context
    *  gauge (user: 컨텍스트는 모델 선택기 옆). */
   modelAside?: ReactNode;
+  /** The line under the card's left end: the last turn's speed and cache hit. */
+  usageReadout?: ReactNode;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
   pendingSubmissionIds?: Array<string | number>;
@@ -275,6 +289,10 @@ export type ComposerProps = {
   placeholderOverride?: string;
   /** Set while a question waits: "Steer now" on a plain queued follow-up answers it. */
   answerQuestion?: ((reply: string) => Promise<unknown>) | null;
+  /** Agent mode: a one-line messenger bar with the agent's route shown
+   *  read-only under it; `/` and `$` are plain text, and `@` tags the room
+   *  member who answers. */
+  agentMode?: boolean;
 };
 
 export const Composer = memo(function Composer(props: ComposerProps) {
@@ -304,6 +322,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onDraftModelSelection,
     onRoutePreferenceApplied,
     modelAside,
+    usageReadout,
     queued,
     hiddenQueueIds,
     pendingSubmissionIds,
@@ -319,6 +338,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     dropTargetRef,
     paneActive = true,
     placeholderOverride,
+    agentMode = false,
   } = props;
   const [draft, setDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -450,6 +470,16 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   });
   const skillCatalog = useSkillCatalog(sessionId, projectScope);
   const isEnabledSkill = useCallback((name: string) => skillCatalog.enabled.has(name), [skillCatalog]);
+  // A group room's members: /ask and the + menu address one of them.
+  const roomMembers = useComposerRoomMembers(sessionId);
+  const askTargets = roomAskTargets(draft, roomMembers);
+  const askCandidates = composerFocused && paneActive && !agentMode ? roomAskCandidates(draft, roomMembers) : [];
+  const askMember = (agentId: string) => {
+    const next = draftAskingMore(draftRef.current, agentId);
+    draftRef.current = next;
+    setDraft(next);
+    queueMicrotask(() => textarea.current?.focus());
+  };
   const palettes = useComposerPalettes({
     draft,
     projectScope,
@@ -458,13 +488,62 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     composerFocused,
     selectorOpen: selector.open,
     skills: skillCatalog.selectable,
+    room: Boolean(roomMembers),
+    plain: agentMode,
   });
   const { setCaretOffset, slash, mention, skillMention } = palettes;
+  // Agent mode's `@` in a room: pick members, who then answer the message
+  // once each in pick order (sent on the room's `/ask` path). A 1:1 thread's
+  // `@` opens nothing yet.
+  const [tagged, setTagged] = useState<string[]>([]);
+  const [tagDismissed, setTagDismissed] = useState('');
+  // The highlighted candidate; ↑/↓ move it, Enter/Tab pick it.
+  const [tagIndex, setTagIndex] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new `@` query starts from the first candidate
+  useEffect(() => setTagIndex(0), [mention.signature]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope is the reset trigger; the body does not read it
+  useEffect(() => setTagged([]), [identityScope]);
+  const taggedMembers = tagged.flatMap((id) => roomMembers?.filter((member) => member.id === id) ?? []);
+  const tagMatch = agentMode && roomMembers ? mention.match : null;
+  const tagCandidates =
+    tagMatch && composerFocused && paneActive && tagDismissed !== mention.signature
+      ? roomMentionCandidates(tagMatch.query, roomMembers).filter((member) => !tagged.includes(member.id))
+      : [];
+  const tagMember = (agentId: string) => {
+    const match = tagMatch;
+    if (!match) return;
+    const current = draftRef.current;
+    const next = `${current.slice(0, match.start)}${current.slice(match.end)}`.replace(/^\s+/, '');
+    draftRef.current = next;
+    setDraft(next);
+    setTagged((current) => (current.includes(agentId) ? current : [...current, agentId]));
+    queueMicrotask(() => {
+      const field = textarea.current;
+      if (!field) return;
+      field.focus();
+      const caret = Math.min(match.start, next.length);
+      field.setSelectionRange(caret, caret);
+      setCaretOffset(caret);
+    });
+  };
+  const submitTagged: typeof submit = taggedMembers.length
+    ? async (content, options) => {
+        const accepted = await submit(
+          contentAsking(
+            content,
+            taggedMembers.map((member) => member.id)
+          ),
+          options
+        );
+        if (accepted === true) setTagged([]);
+        return accepted;
+      }
+    : submit;
   const skillHighlight = useComposerSkillHighlight({
     textarea,
     text: draft,
     isSkill: isEnabledSkill,
-    disabled: transitioning,
+    disabled: transitioning || agentMode,
   });
   const offSkills = disabledMentionedSkills(draft, skillCatalog);
   useComposerIme({ textarea, composingRef, suppressImeLineBreakRef, draftRef, setDraft, setCaretOffset });
@@ -508,6 +587,12 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     setDraggingFiles(false);
   }, [transitioning]);
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
+  // Lets the Agents page tell an untouched New Task tab from one in use.
+  const holdsContent = Boolean(draft.trim()) || attachments.length > 0;
+  useEffect(() => {
+    noteComposerContent(identityScope, holdsContent);
+    return () => noteComposerContent(identityScope, false);
+  }, [identityScope, holdsContent]);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [addMenuRequest, setAddMenuRequest] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
@@ -545,7 +630,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     openGoalDialog: () => setGoalDialogOpen(true),
     openSkillMenu: () => setAddMenuRequest((request) => request + 1),
     onNewTask: props.onNewTask,
-    onClearToNewTask: props.onClearToNewTask,
+    // A bot room's thread is persistent: /clear empties it in place instead of
+    // swapping the tab for a New Task.
+    onClearToNewTask: agentMode ? undefined : props.onClearToNewTask,
     onResumeSession: props.onResumeSession,
     onOpenSessions: props.onOpenSessions,
     onOpenProjects: props.onOpenProjects,
@@ -580,12 +667,13 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     restoredAttachments,
     executeSlash,
     rememberPrompt: history.rememberPrompt,
-    submit,
+    submit: submitTagged,
     abort,
     onQueuedRestored,
     selectedSkill: skillSelection.name,
     onSkillSubmitted: skillSelection.submitted,
     sessionId,
+    plainText: agentMode,
   });
   // Pins and picks queued from the session's visualize panel make a message
   // sendable on their own.
@@ -690,6 +778,35 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       skillSelection.select('');
       return;
     }
+    const composing = composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229;
+    if (
+      tagCandidates.length > 0 &&
+      !composing &&
+      (event.key === 'Enter' ||
+        event.key === 'Tab' ||
+        event.key === 'Escape' ||
+        event.key === 'ArrowUp' ||
+        event.key === 'ArrowDown')
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      const count = tagCandidates.length;
+      if (event.key === 'Escape') setTagDismissed(mention.signature);
+      else if (event.key === 'ArrowDown') setTagIndex((index) => (index + 1) % count);
+      else if (event.key === 'ArrowUp') setTagIndex((index) => (index - 1 + count) % count);
+      else tagMember(tagCandidates[Math.min(tagIndex, count - 1)].id);
+      return;
+    }
+    if (
+      tagged.length > 0 &&
+      event.key === 'Backspace' &&
+      event.currentTarget.selectionStart === 0 &&
+      event.currentTarget.selectionEnd === 0
+    ) {
+      event.preventDefault();
+      setTagged((current) => current.slice(0, -1));
+      return;
+    }
     onKeyDown(event);
   };
   const onTextareaPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -722,6 +839,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       <form
         ref={paletteAnchor}
         className="composer"
+        data-chat-mode={agentMode ? 'agent' : undefined}
         onSubmit={onSubmit}
         data-composer-palette-open={
           selector.open || slash.open || mention.open || skillMention.open ? 'true' : undefined
@@ -747,12 +865,23 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             index={slash.index}
             setIndex={slash.setIndex}
             onSelect={(usage) => {
-              // /btw needs a question: complete the command instead of sending it bare.
-              if (usage !== '/btw') return void send(usage);
-              draftRef.current = '/btw ';
-              setDraft('/btw ');
+              // /btw needs a question (and /ask a member): complete the command instead of sending it bare.
+              if (usage !== '/btw' && usage !== '/ask') return void send(usage);
+              draftRef.current = `${usage} `;
+              setDraft(`${usage} `);
               textarea.current?.focus();
             }}
+          />
+        )}
+        {askCandidates.length > 0 && !slash.open && (
+          <RoomAskPalette anchor={paletteAnchor} members={askCandidates} onSelect={askMember} />
+        )}
+        {tagCandidates.length > 0 && (
+          <RoomAskPalette
+            anchor={paletteAnchor}
+            members={tagCandidates}
+            selected={Math.min(tagIndex, tagCandidates.length - 1)}
+            onSelect={tagMember}
           />
         )}
         {mention.open && (
@@ -807,6 +936,14 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           />
         )}
         <div className="composer-input-row">
+          {askTargets.length > 0 && <RoomAskChip members={askTargets} />}
+          {taggedMembers.map((member) => (
+            <RoomMentionChip
+              key={member.id}
+              member={member}
+              onRemove={() => setTagged((current) => current.filter((id) => id !== member.id))}
+            />
+          ))}
           {skillSelection.name && (
             <span className="composer-selected-skill">
               <button type="button" onClick={() => textarea.current?.focus()} title={skillSelection.name}>
@@ -852,6 +989,13 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           goalDialogOpen={goalDialogOpen}
           setGoalDialogOpen={setGoalDialogOpen}
           addMenuRequest={addMenuRequest}
+          roomMembers={roomMembers}
+          onAskMember={
+            agentMode
+              ? (agentId) => setTagged((current) => (current.includes(agentId) ? current : [...current, agentId]))
+              : askMember
+          }
+          agentMode={agentMode}
           goalDisabled={goalDisabled}
           executeSlash={executeSlash}
           transitioning={transitioning}
@@ -869,25 +1013,34 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           attachments={attachments}
           feedbackPending={feedbackPending}
           onStop={() => void stop()}
-          modelAside={modelAside}
-          provider={provider}
-          model={model}
-          effort={effort}
-          fast={fast}
-          fastCapable={fastCapable}
-          autoEffort={autoEffort}
-          modelParameters={modelParameters}
-          contextPercent={contextPercent}
-          contextTokens={contextTokens}
           sessionId={sessionId}
-          invokeResult={invokeResult}
-          applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings}
-          onDraftModelSelection={onDraftModelSelection}
-          onRoutePreferenceApplied={onRoutePreferenceApplied}
         />
       </form>
-      {offSkills.length > 0 && (
+      <ComposerModelLine
+        usageReadout={usageReadout}
+        modelAside={modelAside}
+        agentMode={agentMode}
+        transitioning={transitioning}
+        commandBusy={commandBusy}
+        paneActive={paneActive}
+        provider={provider}
+        model={model}
+        effort={effort}
+        fast={fast}
+        fastCapable={fastCapable}
+        autoEffort={autoEffort}
+        modelParameters={modelParameters}
+        contextPercent={contextPercent}
+        contextTokens={contextTokens}
+        sessionId={sessionId}
+        invokeResult={invokeResult}
+        applySnapshot={applySnapshot}
+        onOpenSettings={onOpenSettings}
+        onDraftModelSelection={onDraftModelSelection}
+        onRoutePreferenceApplied={onRoutePreferenceApplied}
+      />
+      {offSkills.length > 0 && !agentMode && (
         <p className="composer-skill-status" role="status">
           {t('{{name}} skill is off, so it is sent as plain text. Turn it on in Settings › Skills.', {
             name: offSkills.join(', '),

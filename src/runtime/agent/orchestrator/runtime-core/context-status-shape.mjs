@@ -46,6 +46,7 @@ export function sessionTokenCounters(session) {
     totalOutputTokens: Number(session?.totalOutputTokens || 0),
     totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
     totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
+    usageReadout: session?.usageReadout || null,
     compactBoundaryTokens: Number(session?.compactBoundaryTokens || 0),
   };
 }
@@ -64,6 +65,9 @@ function sessionUsageCounters(session, lastContextTokens) {
     totalOutputTokens: Number(session?.totalOutputTokens || 0),
     totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
     totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
+    // Session-cumulative cache/speed totals behind the composer readout; null
+    // until the session has a call recorded.
+    usageReadout: session?.usageReadout || null,
   };
 }
 

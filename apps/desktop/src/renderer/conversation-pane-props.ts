@@ -68,6 +68,8 @@ export type ConversationProps = {
   /** Context gauge seated in the composer footer beside the model trigger
    *  on every surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰). */
   contextIndicator?: ReactNode;
+  /** The last turn's speed and cache hit, on the line under the composer. */
+  usageReadout?: ReactNode;
   /** Transcript-only child-agent view: no submit, retry, approval, review, or
    *  other session runtime-mutating controls are mounted. */
   readOnly?: boolean;

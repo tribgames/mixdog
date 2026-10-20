@@ -24,6 +24,8 @@ import {
   type DesktopSnapshotStore,
 } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT, type Snapshot, type TranscriptItem } from './desktop-types';
+import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
+import { focusedDraftModelSelection } from './use-focused-draft-route';
 import { PaneSurfaceCover } from './PaneSurfaceGate';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
@@ -44,6 +46,10 @@ import {
 } from './first-submit-stability';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
 import { ContextUsageIndicator } from './transcript-status';
+import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { ComposerRoutineReadout } from './composer-routine-readout';
+import { ComposerUsageReadout } from './composer-usage-readout';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 
 let utilityDockModulePromise: Promise<typeof import('./UtilityDock')> | null = null;
@@ -318,6 +324,16 @@ export const PaneConversation = memo(function PaneConversation({
     ),
     [hidden, presentedSessionId, props.onOpenCommandSurface]
   );
+  const usageReadout = useMemo(
+    () => (
+      <PaneUsageReadout
+        sessionId={presentedSessionId}
+        hidden={hidden}
+        onOpenUsage={() => props.onOpenCommandSurface('stats')}
+      />
+    ),
+    [hidden, presentedSessionId, props.onOpenCommandSurface]
+  );
   // A phone keeps its pane-sized cover (its skeleton draws its own composer
   // bar); a wide pane covers the transcript viewport only, so the composer
   // dock never disappears under a session switch.
@@ -334,6 +350,7 @@ export const PaneConversation = memo(function PaneConversation({
         transitionKey={coverKey}
         hold={coverHold}
         skeleton={coverSkeleton}
+        revealOnReady
       />
     ),
     [surfaceReady, coverKey, coverHold, coverSkeleton]
@@ -365,6 +382,7 @@ export const PaneConversation = memo(function PaneConversation({
         submit={submit}
         goalIsland={goalIsland}
         contextIndicator={contextIndicator}
+        usageReadout={usageReadout}
         transcriptCover={unavailable || mobileSurface ? undefined : surfaceCover}
       />
       {unavailable ? (
@@ -494,6 +512,36 @@ export function PaneContextIndicator({
   return <ContextUsageIndicator snapshot={visibleSnapshot} onViewDetails={onViewDetails} />;
 }
 
+/** The composer line's speed and cache-hit readout, on the same lane read. */
+export function PaneUsageReadout({
+  sessionId,
+  hidden,
+  onOpenUsage,
+}: {
+  sessionId: string;
+  hidden: boolean;
+  onOpenUsage(): void;
+}) {
+  // A bot's home thread or a group room (agent mode) reads routines here; a coding session its usage.
+  return agentIdOfHomeSession(sessionId) || roomIdOfSession(sessionId) ? (
+    <ComposerRoutineReadout sessionId={sessionId} hidden={hidden} />
+  ) : (
+    <PaneCodingUsageReadout sessionId={sessionId} hidden={hidden} onOpenUsage={onOpenUsage} />
+  );
+}
+
+function PaneCodingUsageReadout({
+  sessionId,
+  hidden,
+  onOpenUsage,
+}: {
+  sessionId: string;
+  hidden: boolean;
+  onOpenUsage(): void;
+}) {
+  return <ComposerUsageReadout snapshot={usePaneIslandSnapshot(sessionId, hidden)} onOpenUsage={onOpenUsage} />;
+}
+
 type SnapshotUtilityDockProps = Omit<
   React.ComponentProps<typeof import('./UtilityDock')['UtilityDock']>,
   'snapshot'
@@ -527,10 +575,22 @@ export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
     desktopDockSnapshotsEqual,
     activated || !hidden
   );
+  // Read at the moment of use: the dock's snapshot slice skips model changes.
+  const readComposerModel = useCallback(
+    // A focused session owns the engine snapshot's model; a draft composer
+    // (blank engine) paints its own selection.
+    () => draftModelSelectionFromSnapshot(snapshotStore.getSnapshot()) ?? focusedDraftModelSelection(),
+    [snapshotStore]
+  );
   if (!activated && hidden) return null;
   return (
     <React.Suspense fallback={<InitialSurface />}>
-      <UtilityDock {...props} prewarm={prewarm} snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />
+      <UtilityDock
+        {...props}
+        prewarm={prewarm}
+        snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot}
+        readComposerModel={readComposerModel}
+      />
     </React.Suspense>
   );
 });

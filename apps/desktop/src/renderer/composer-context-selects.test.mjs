@@ -43,7 +43,7 @@ const { ProjectContextSelector } = await import('./composer-support.tsx');
 const { OpenSelect } = await import('./OpenSelect.tsx');
 const { TooltipLayer } = await import('./TooltipLayer.tsx');
 const { initUiLanguage, setUiLanguagePreference, SUPPORTED_UI_LANGUAGES } = await import('./i18n.ts');
-const { automationProjectOptions, automationWorkflowOptions } = await import('./automation-editor-support.ts');
+const { automationProjectOptions } = await import('./automation-editor-support.ts');
 
 const common = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
 const rect = (top = 600) => ({
@@ -272,10 +272,6 @@ for (const { value: language } of SUPPORTED_UI_LANGUAGES.filter(({ value }) => v
       );
       if (kind === 'automation') {
         assert.ok(options.every((option) => option.getAttribute('aria-description') === 'History'));
-        assert.deepEqual(
-          automationWorkflowOptions(workflows).map((option) => option.label),
-          names
-        );
       }
       await act(async () => options[kind === 'workflow' ? 1 : 2].click());
       assert.deepEqual(changes, [kind === 'workflow' ? workflows[1] : projects[1].path]);

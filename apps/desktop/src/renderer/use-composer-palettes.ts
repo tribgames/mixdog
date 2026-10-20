@@ -45,7 +45,11 @@ export function useComposerPalettes({
   composerFocused,
   selectorOpen,
   skills,
+  room = false,
+  plain = false,
 }: {
+  /** Agent mode: `/`, `@` files and `$` open nothing; the text is sent as typed. */
+  plain?: boolean;
   draft: string;
   projectScope: string;
   paneActive: boolean;
@@ -54,6 +58,8 @@ export function useComposerPalettes({
   selectorOpen: boolean;
   /** The user's enabled custom skills (built-ins are typed, not listed). */
   skills: ComposerSkill[];
+  /** A group room's composer also lists /ask. */
+  room?: boolean;
 }) {
   const [caretOffset, setCaretOffset] = useState(0);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -69,9 +75,10 @@ export function useComposerPalettes({
   const skillPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
   // Only frequent commands appear here; direct input still uses the full registry.
-  const slashCommands = useMemo(() => desktopComposerSlashCommands(draft), [draft]);
+  const slashCommands = useMemo(() => desktopComposerSlashCommands(draft, room), [draft, room]);
   const slashOpen = Boolean(
-    composerFocused &&
+    !plain &&
+      composerFocused &&
       paneActive &&
       !selectorOpen &&
       !transitioning &&
@@ -82,7 +89,7 @@ export function useComposerPalettes({
   const mentionMatch = useMemo(() => mentionMatchAt(draft, caretOffset), [caretOffset, draft]);
   const mentionSignature = mentionMatch ? `${mentionMatch.start}:${mentionMatch.end}:${mentionMatch.query}` : '';
   const mentionOpen = Boolean(
-    composerFocused && projectScope && mentionMatch && !transitioning && mentionDismissed !== mentionSignature
+    !plain && composerFocused && projectScope && mentionMatch && !transitioning && mentionDismissed !== mentionSignature
   );
   // ABB: each open composer palette answers hardware back with the same
   // dismissal its own Escape performs.
@@ -97,7 +104,8 @@ export function useComposerPalettes({
   // `@` and `$` never open together, and neither does `$` over the slash list
   // or the message selector.
   const skillOpen = Boolean(
-    composerFocused &&
+    !plain &&
+      composerFocused &&
       skillMatch &&
       !transitioning &&
       !slashOpen &&

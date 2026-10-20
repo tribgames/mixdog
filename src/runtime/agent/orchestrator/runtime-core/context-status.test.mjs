@@ -16,6 +16,7 @@ const emptyUsage = {
   totalOutputTokens: 0,
   totalCachedReadTokens: 0,
   totalCacheWriteTokens: 0,
+  usageReadout: null,
 };
 
 for (const [name, session] of [

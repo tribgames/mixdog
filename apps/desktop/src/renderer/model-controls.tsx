@@ -54,19 +54,23 @@ import {
 import { invalidateCapabilitySettings } from './settings/capability-data';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
-// Model-style trigger for changing the active session workflow.
+// Model-style trigger for changing the active session workflow. With a
+// `sessionId` (an existing session's composer) the pick switches that session
+// alone from its next turn; the configured default for new sessions stays.
 export const WorkflowSelect = memo(function WorkflowSelect({
   workflow,
   disabled,
   invokeResult,
   applySnapshot,
   onDraftChange,
+  sessionId,
 }: {
   workflow?: RecordValue | null;
   disabled: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onDraftChange?: (workflow: { id: string; name: string }) => void;
+  sessionId?: string;
 }) {
   const [options, setOptions] = useState<WorkflowOption[]>(seededWorkflowOptions);
   const [optionsSettled, setOptionsSettled] = useState(() => freshWorkflowOptions() !== null);
@@ -158,10 +162,11 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     setSwitching(true);
     try {
       const result = await invokeResult(() =>
-        window.mixdogDesktop.invokeCapability<string>({
-          capability: 'setWorkflow',
-          args: [id],
-        })
+        window.mixdogDesktop.invokeCapability<string>(
+          sessionId
+            ? { capability: 'setWorkflow', args: [id, { scope: 'session' }], sessionId }
+            : { capability: 'setWorkflow', args: [id] }
+        )
       );
       if (result !== undefined) applySnapshot(result.snapshot);
     } finally {
@@ -338,9 +343,12 @@ export const ModelSelector = memo(function ModelSelector({
   onRoutePreferenceApplied,
   sessionId,
   answersModelPickerRequests = false,
+  sheetAlign,
 }: {
   /** True only for the focused, visible conversation pane. */
   answersModelPickerRequests?: boolean;
+  /** The pill edge its sheet lines up with (RouteEditor `align`). */
+  sheetAlign?: 'start' | 'end';
   provider: string;
   model: string;
   effort: string;
@@ -896,6 +904,7 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeAutoEffort={autoEffortRoute.onChangeAutoEffort}
         onOpenSheet={autoEffortRoute.onOpenSheet}
         answersModelPickerRequests={answersModelPickerRequests}
+        align={sheetAlign}
       />
     </div>
   );

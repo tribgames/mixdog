@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { DesktopSessionSummary, DesktopWorkspaceFolder } from '../shared/contract';
+import type { DesktopModelSelection, DesktopSessionSummary, DesktopWorkspaceFolder } from '../shared/contract';
 import { AgentActivityPane } from './AgentActivityPane';
-import { AgentGroupsMenu } from './agent-group-visibility';
+import type { AgentsPageFocus } from './agent-home-default';
 import { DesktopLoadingSurface } from './RendererRecovery';
 import type { PullRequestOpenHandler } from './PullRequestsPane';
 import { SearchPane } from './SearchPane';
@@ -58,11 +58,11 @@ function utilityDockLoadingLabel(tab: UtilityDockTab): string {
   if (tab === 'search') return t('Preparing Search…');
   if (tab === 'source-control') return t('Preparing Source Control…');
   if (tab === 'pull-requests') return t('Preparing Pull Requests…');
-  return t('Preparing Agents…');
+  return t('Preparing Bots…');
 }
 
 function utilityDockTabTitle(tab: UtilityDockTab): string {
-  if (tab === 'agents') return t('Agents');
+  if (tab === 'agents') return t('Bots');
   if (tab === 'search') return t('Search');
   if (tab === 'pull-requests') return t('Pull Requests');
   return t('Source Control');
@@ -84,10 +84,13 @@ export const UtilityDock = memo(function UtilityDock({
   sessions = [],
   sessionsReady = true,
   activeSessionIds = [],
+  selectedSessionId = '',
   unreadSessionIds,
   onPrefetchSession,
   onOpenLeadSession,
   onOpenAgentSession,
+  readComposerModel,
+  agentsPageFocus = null,
   entering = false,
   contentReady = true,
   prewarm = false,
@@ -104,6 +107,8 @@ export const UtilityDock = memo(function UtilityDock({
   sessions?: readonly DesktopSessionSummary[];
   sessionsReady?: boolean;
   activeSessionIds?: readonly string[];
+  /** The focused tab's session: the Agents pane marks its row selected. */
+  selectedSessionId?: string;
   /** Recent-list unread sessions: the Agents pane shows their idle rows as
    *  completed work instead of plain rest. */
   unreadSessionIds?: ReadonlySet<string>;
@@ -122,7 +127,12 @@ export const UtilityDock = memo(function UtilityDock({
   /** Explorer rename that keeps the workspace's open tabs attached. */
   onRenameProjectEntry?(projectPath: string, relPath: string, newName: string): Promise<void>;
   onOpenLeadSession?(sessionId: string): void;
-  onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string): void;
+  onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string, replaceKey?: string): void;
+  /** The composer's current model: a new agent from the Agents pane starts on it. */
+  readComposerModel?(): DesktopModelSelection | null;
+  /** The left Agents page's view of the focused pane: Mixy becomes the
+   *  default selection when the page shows (desktop only). */
+  agentsPageFocus?: AgentsPageFocus | null;
   /** Surface re-entry: render already-open, without the slide-in replay. */
   entering?: boolean;
   /** The shell may pre-mount at width 0; defer the expensive selected body. */
@@ -216,14 +226,21 @@ export const UtilityDock = memo(function UtilityDock({
       inert={open ? undefined : true}
       aria-label={t('Utility panel')}
     >
-      {showTitle && (
-        <header {...titleDragProps} className="utility-dock-header" data-tab={tab}>
-          <b>{dockTitle}</b>
-          {tab === 'agents' && <AgentGroupsMenu />}
-          {/* The showing pane's own title-row actions (Search's file tree). */}
-          <div className="utility-dock-header-actions workbench-explorer-actions" ref={setHeaderActionSlot} />
-        </header>
-      )}
+      {showTitle &&
+        (tab === 'agents' ? (
+          // The Sessions panel's header: title, then plain icon actions the
+          // pane portals in (search, +, ⋯).
+          <header {...titleDragProps} className="utility-dock-header session-panel-header" data-tab={tab}>
+            <span className="session-panel-title">{dockTitle}</span>
+            <div className="session-panel-header-actions" ref={setHeaderActionSlot} />
+          </header>
+        ) : (
+          <header {...titleDragProps} className="utility-dock-header" data-tab={tab}>
+            <b>{dockTitle}</b>
+            {/* The showing pane's own title-row actions (Search's file tree). */}
+            <div className="utility-dock-header-actions workbench-explorer-actions" ref={setHeaderActionSlot} />
+          </header>
+        ))}
       <div
         className="stable-surface-switch utility-dock-body"
         data-ready={selectedSurfaceVisible ? 'true' : 'false'}
@@ -238,10 +255,14 @@ export const UtilityDock = memo(function UtilityDock({
                 sessions={sessions}
                 sessionsReady={sessionsReady}
                 activeSessionIds={activeSessionIds}
+                selectedSessionId={selectedSessionId}
+                headerActionSlot={showTitle && paneActive('agents') ? headerActionSlot : null}
                 unreadSessionIds={unreadSessionIds}
                 onPrefetchSession={onPrefetchSession}
                 onOpenLeadSession={onOpenLeadSession}
                 onOpenSession={onOpenAgentSession}
+                agentsPageFocus={agentsPageFocus}
+                readComposerModel={readComposerModel}
               />
             </DockPane>
           </UtilityDockViewSection>

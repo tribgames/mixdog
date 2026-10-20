@@ -26,6 +26,7 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
 const { default: React, act, useRef } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { ComposerAddMenu } = await import('./ComposerAddMenu.tsx');
+const { agentAvatar } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
 
 test('add menu selects without submitting, supports keyboard dismissal, and starts a goal only on confirmation', async () => {
   const selected = [];
@@ -109,6 +110,55 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
     assert.deepEqual(goals, ['/goal']);
     assert.equal(document.querySelector('[role="menu"]'), null);
     assert.equal(document.querySelector('[role="dialog"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a group room's add menu attaches files and calls a member", async () => {
+  window.mixdogDesktop = { invokeCapability: async () => ({ value: { skills: [] } }) };
+  let attached = 0;
+  const asked = [];
+  function Harness() {
+    const anchor = useRef(null);
+    return React.createElement(
+      'form',
+      { ref: anchor },
+      React.createElement(ComposerAddMenu, {
+        anchor,
+        disabled: false,
+        goalDisabled: false,
+        sessionId: 'sess_room_abc123',
+        simple: true,
+        roomMembers: [{ id: 'gh', name: 'GitHub', avatar: agentAvatar('gh', null) }],
+        onAskMember: (id) => asked.push(id),
+        onAttach: () => {
+          attached += 1;
+        },
+        onSkill() {},
+        onGoal: async () => false,
+        onMore() {},
+      })
+    );
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const click = async (node) => act(async () => node.click());
+  const item = (name) =>
+    [...document.querySelectorAll('[role="menuitem"]')].find((node) => node.textContent.includes(name));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const trigger = host.querySelector('button');
+    await click(trigger);
+    assert.ok(item('Call a bot'));
+    await click(item('Attach files'));
+    assert.equal(attached, 1);
+    await click(trigger);
+    await click(item('Call a bot'));
+    await click(item('GitHub'));
+    assert.deepEqual(asked, ['gh']);
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -14,7 +14,7 @@ import { asRecord } from './text-format';
 import { hasSendablePromptContent, shouldBlockPromptSubmit } from './renderer-logic.mjs';
 import { registerSentAttachments, sentAttachmentData } from './attachment-menu';
 import { t } from './i18n';
-import { recognisedSlashSpan } from './slash-commands';
+import { recognisedAgentRoomSlash, recognisedSlashSpan } from './slash-commands';
 import { registerImagePreview } from './transcript-metrics';
 import { MAX_SUBMIT_TEXT_LENGTH, type ComposerAttachment } from './composer-support';
 import {
@@ -182,6 +182,8 @@ interface ComposerSubmissionOptions {
   onSkillSubmitted?(name: string): void;
   /** The pane's session: its queued visualize feedback rides with the send. */
   sessionId?: string;
+  /** Agent mode: a leading `/` is text, except the room's /compact and /clear. */
+  plainText?: boolean;
 }
 
 export function useComposerSubmission({
@@ -216,13 +218,14 @@ export function useComposerSubmission({
   selectedSkill = '',
   onSkillSubmitted,
   sessionId,
+  plainText = false,
 }: ComposerSubmissionOptions) {
   const send = useCallback(
     async (slashOverride = '', source: DesktopRendererComposerActionDiagnostic['source'] = 'form-submit') => {
       const submittedDraft = textarea.current?.value ?? draftRef.current;
       const submittedAttachments = [...attachmentsRef.current];
       const text = (slashOverride || submittedDraft).trim();
-      const slashCommand = recognisedSlashSpan(text) !== null;
+      const slashCommand = plainText ? recognisedAgentRoomSlash(text) : recognisedSlashSpan(text) !== null;
       // An attachment still reading would be left out of the message. Keep the
       // draft in place and say so; the user sends once the chip has landed.
       if (!slashCommand && pendingLoads.current > 0 && !transitioningRef.current) {
@@ -399,6 +402,7 @@ export function useComposerSubmission({
       selectedSkill,
       onSkillSubmitted,
       sessionId,
+      plainText,
     ]
   );
 

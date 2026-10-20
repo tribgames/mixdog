@@ -1,8 +1,12 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { ComposerProps } from './Composer';
 import { ComposerAddMenu } from './ComposerAddMenu';
+import type { RoomMemberLabel } from './agent-room-parts';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { ModelSelector } from './model-controls';
+import { persistAgentChatRoute } from './agent-chat-route';
+import { errorMessageText } from './ErrorNotice';
+import { showDesktopToast } from './notifications';
 import { DictationButton, SendButton } from './composer-surfaces';
 import type { ComposerAttachment } from './composer-support';
 import type { useComposerDictation } from './use-composer-dictation';
@@ -28,8 +32,63 @@ type ModelProps = Pick<
   | 'onRoutePreferenceApplied'
 >;
 
-/** The composer card's bottom row: attach/skill/goal menu, model controls,
- *  dictation and the send/stop disc. */
+/** The slim line UNDER the composer card: the usage readout on the left, the
+ *  model picker and the context gauge on the right. In an agent chat every
+ *  route change also lands on the agent itself (agent-chat-route.ts), so the
+ *  chip and the agent's profile pane stay one setting. */
+export function ComposerModelLine({
+  usageReadout,
+  modelAside,
+  agentMode = false,
+  transitioning,
+  commandBusy,
+  paneActive,
+  onRoutePreferenceApplied,
+  ...modelProps
+}: ModelProps & {
+  usageReadout?: ReactNode;
+  modelAside: ComposerProps['modelAside'];
+  agentMode?: boolean;
+  transitioning: boolean;
+  commandBusy: boolean;
+  paneActive: boolean;
+}) {
+  return (
+    <div className="composer-model-line">
+      {usageReadout}
+      <span className="composer-model-line-controls">
+        <ModelSelector
+          {...modelProps}
+          // At the line's right end the pill grows leftwards: its sheet shares its right edge.
+          sheetAlign="end"
+          // Model writes are queued by the session API. A preceding write must
+          // not disable the next selection while its acknowledgement travels.
+          modelDisabled={transitioning}
+          answersModelPickerRequests={paneActive && !agentMode}
+          // Effort/Fast stay live during a turn: the running turn already
+          // captured its own effort/fast at turn start, so a change here lands
+          // on the NEXT turn instead of being locked out. Only session-command
+          // churn still disables the controls.
+          tuningDisabled={commandBusy || transitioning}
+          onRoutePreferenceApplied={
+            agentMode
+              ? (selection, options) => {
+                  onRoutePreferenceApplied?.(selection, options);
+                  persistAgentChatRoute(String(modelProps.sessionId || ''), selection).catch((reason) =>
+                    showDesktopToast(errorMessageText(reason), 'error')
+                  );
+                }
+              : onRoutePreferenceApplied
+          }
+        />
+        {modelAside && <span className="composer-model-aside">{modelAside}</span>}
+      </span>
+    </div>
+  );
+}
+
+/** The composer card's bottom row: attach/skill/goal menu, dictation and the
+ *  send/stop disc. */
 export function ComposerFooter({
   attachAccept,
   fileInput,
@@ -41,6 +100,8 @@ export function ComposerFooter({
   goalDialogOpen,
   setGoalDialogOpen,
   addMenuRequest,
+  roomMembers = null,
+  onAskMember,
   goalDisabled,
   executeSlash,
   transitioning,
@@ -58,9 +119,13 @@ export function ComposerFooter({
   attachments,
   feedbackPending = false,
   onStop,
-  modelAside,
-  ...modelProps
-}: ModelProps & {
+  agentMode = false,
+  sessionId,
+  onOpenSettings,
+}: Pick<ModelProps, 'sessionId' | 'onOpenSettings'> & {
+  /** Agent mode: no model or effort controls (the agent's profile sets them);
+   *  the + menu keeps attachments and, in a room, "Call an agent". */
+  agentMode?: boolean;
   attachAccept: string;
   fileInput: RefObject<HTMLInputElement | null>;
   onFilesChosen: (files: FileList) => void;
@@ -73,6 +138,9 @@ export function ComposerFooter({
   setGoalDialogOpen: (open: boolean) => void;
   /** Bumped by /skills to open the add menu. */
   addMenuRequest: number;
+  /** A group room's members: the add menu offers "Call an agent". */
+  roomMembers?: RoomMemberLabel[] | null;
+  onAskMember?: (agentId: string) => void;
   goalDisabled: boolean;
   executeSlash: (command: string) => Promise<boolean>;
   transitioning: boolean;
@@ -91,9 +159,7 @@ export function ComposerFooter({
   /** Visualize pins or picks are queued: sendable without text. */
   feedbackPending?: boolean;
   onStop: () => void;
-  modelAside: ComposerProps['modelAside'];
 }) {
-  const { sessionId, onOpenSettings } = modelProps;
   return (
     <div className="composer-footer">
       <input
@@ -124,6 +190,8 @@ export function ComposerFooter({
         disabled={transitioning || !paneActive}
         goalDisabled={goalDisabled}
         openRequest={addMenuRequest}
+        roomMembers={roomMembers}
+        onAskMember={onAskMember}
         onAttach={() => fileInput.current?.click()}
         onSkill={(name) => {
           skillSelection.select(name);
@@ -132,20 +200,8 @@ export function ComposerFooter({
         }}
         onGoal={executeSlash}
         onMore={() => onOpenSettings('skills')}
+        simple={agentMode}
       />
-      <ModelSelector
-        {...modelProps}
-        // Model writes are queued by the session API. A preceding write must
-        // not disable the next selection while its acknowledgement travels.
-        modelDisabled={transitioning}
-        answersModelPickerRequests={paneActive}
-        // Effort/Fast stay live during a turn: the running turn already
-        // captured its own effort/fast at turn start, so a change here lands
-        // on the NEXT turn instead of being locked out. Only session-command
-        // churn still disables the controls.
-        tuningDisabled={commandBusy || transitioning}
-      />
-      {modelAside && <span className="composer-model-aside">{modelAside}</span>}
       <span className="composer-primary-actions">
         {/* The mic appears only once the voice runtime is installed
             (Extensions → Voice transcription): an uninstalled feature never

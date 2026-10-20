@@ -49,6 +49,8 @@ interface ComposerDockProps {
   quotaCard?: ComposerQuotaCardModel | null;
   quotaResume?: ComposerIslandQuotaResume | null;
   showProjectSelector: boolean;
+  /** Agent mode: the island carries no branch, files or PR segment. */
+  agentMode?: boolean;
   contextBar?: ReactNode;
   reviewItems: TranscriptItem[];
   reviewActive: boolean;
@@ -88,6 +90,7 @@ export function ComposerDock({
   quotaCard,
   quotaResume,
   showProjectSelector,
+  agentMode = false,
   contextBar,
   reviewItems,
   reviewActive,
@@ -252,7 +255,7 @@ export function ComposerDock({
 
   return (
     <div className="composer-region">
-      {showProjectSelector && (
+      {showProjectSelector && contextBar != null && (
         <div ref={contextBarRef} className="composer-context-bar">
           {contextBar}
         </div>
@@ -269,10 +272,10 @@ export function ComposerDock({
           sessionId={sessionId}
           onOpenAgentSession={openAgentSession}
           goal={goal}
-          files={files}
+          files={agentMode ? undefined : files}
           workBusy={reviewBusy || queuedInput}
-          branch={branch}
-          git={git}
+          branch={agentMode ? undefined : branch}
+          git={agentMode ? undefined : git}
           approval={approval}
           flash={islandFlash ?? (sessionId && worktreeFlash?.sessionId === sessionId ? worktreeFlash.flash : null)}
           quotaResume={quotaResume}

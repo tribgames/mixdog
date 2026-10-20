@@ -223,6 +223,16 @@ export function recognisedSlashSpan(draft: string): { start: number; end: number
   return { start, end: match[0].length };
 }
 
+/** The only commands a bot's conversation room runs: every other leading `/`
+ *  there is message text. They are the room's own context controls, matched by
+ *  their literal name (`/new` stays text). */
+const AGENT_ROOM_SLASH_COMMANDS: ReadonlySet<string> = new Set(['compact', 'clear']);
+
+export function recognisedAgentRoomSlash(draft: string): boolean {
+  const span = recognisedSlashSpan(draft);
+  return span !== null && AGENT_ROOM_SLASH_COMMANDS.has(draft.slice(span.start + 1, span.end).toLowerCase());
+}
+
 // Discovery stays small; the full registry still accepts commands typed directly.
 const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   'new',
@@ -239,10 +249,20 @@ const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   'fast',
 ].map((name) => ({ ...resolveDesktopSlashCommand(name)!, usage: `/${name}` }));
 
-export function desktopComposerSlashCommands(draft: string): ReadonlyArray<DesktopSlashCommand> {
+/** A group room's own command (agent-room.mjs parseRoomAsk): not a runtime
+ *  command, so it lives outside the shared registry and lists only in rooms. */
+export const ROOM_ASK_COMMAND: DesktopSlashCommand = {
+  name: 'ask',
+  usage: '/ask',
+  params: '<agent> <message>',
+  description: 'Ask one member of this room; the others skip their turn',
+};
+
+export function desktopComposerSlashCommands(draft: string, room = false): ReadonlyArray<DesktopSlashCommand> {
   if (!/^\/[a-z]*$/i.test(draft)) return [];
   const query = draft.toLowerCase();
-  return COMPOSER_SLASH_COMMANDS.filter((command) => command.usage.startsWith(query));
+  const commands = room ? [ROOM_ASK_COMMAND, ...COMPOSER_SLASH_COMMANDS] : COMPOSER_SLASH_COMMANDS;
+  return commands.filter((command) => command.usage.startsWith(query));
 }
 
 export function desktopSlashCommandDescription(command: DesktopSlashCommand): string {

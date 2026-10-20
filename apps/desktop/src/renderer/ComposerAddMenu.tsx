@@ -9,6 +9,8 @@ import { useMobileBack } from './mobile-back';
 import { skillTitle, type ComposerSkill } from './composer-skill';
 import { cachedSkillCatalog, refreshSkillCatalog } from './composer-skill-mentions';
 import { wrappedNavigationIndex } from './list-navigation';
+import { UserPlus } from 'lucide-react';
+import { RoomMemberFace, type RoomMemberLabel } from './agent-room-parts';
 import './desktop/composer-add-menu.css';
 
 // Roving focus over the enabled menu items, wrapping at both ends.
@@ -104,7 +106,11 @@ function renderComposerAddMenuPanel({
   onSkill,
   onGoal,
   onMore,
+  room,
+  simple,
 }: {
+  /** Agent mode: attachments (and, in a room, "Call an agent") only. */
+  simple: boolean;
   anchor: RefObject<HTMLElement | null>;
   panel: RefObject<HTMLDivElement | null>;
   id: string;
@@ -118,6 +124,8 @@ function renderComposerAddMenuPanel({
   onSkill(name: string): void;
   onGoal(command: string): Promise<boolean>;
   onMore(): void;
+  /** In a group room: "Call an agent", which unfolds the members. */
+  room: { members: RoomMemberLabel[]; open: boolean; setOpen(open: boolean): void; onAsk(id: string): void } | null;
 }) {
   return (
     <ComposerPalette
@@ -130,6 +138,7 @@ function renderComposerAddMenuPanel({
     >
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the menu panel wrapper only routes arrow-key focus between its menuitems */}
       <div onKeyDown={(event) => moveComposerAddMenuFocus(event, panel)}>
+        {/* A group room's files go to the members its message reaches (agent-rooms.ts). */}
         <button
           type="button"
           role="menuitem"
@@ -144,38 +153,67 @@ function renderComposerAddMenuPanel({
             <small>{t('Add images or documents to this message.')}</small>
           </span>
         </button>
-        <button
-          type="button"
-          role="menuitem"
-          disabled={goalDisabled}
-          onClick={() => {
-            dismiss();
-            void onGoal('/goal');
-          }}
-        >
-          <CapabilityIcon name="goal-management" />
-          <span>
-            <b>{t('Set a goal')}</b>
-            <small>{t('Track work that runs past this turn.')}</small>
-          </span>
-        </button>
-        <div className="composer-add-heading">{t('Skills')}</div>
-        {loading && <p role="status">{t('Loading skills…')}</p>}
-        {!loading && !skills.length && !error && <p>{t('No enabled skills.')}</p>}
-        {skills.map((skill) => renderComposerSkillEntry(skill, dismiss, onSkill))}
-        {/* biome-ignore lint/a11y/useSemanticElements: the divider element must stay a div to keep DOM and styling */}
-        <div className="composer-add-divider" role="separator" />
-        <button
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            close();
-            onMore();
-          }}
-        >
-          <CapabilityIcon name="setup" />
-          <span>{t('Manage skills, plugins and MCP')}</span>
-        </button>
+        {room && (
+          <button type="button" role="menuitem" aria-expanded={room.open} onClick={() => room.setOpen(!room.open)}>
+            <UserPlus size={16} aria-hidden="true" />
+            <span>
+              <b>{t('Call a bot')}</b>
+              <small>{t('Ask only one member of this room')}</small>
+            </span>
+          </button>
+        )}
+        {room?.open &&
+          room.members.map((member) => (
+            <button
+              type="button"
+              role="menuitem"
+              key={member.id}
+              className="agent-room-ask-option"
+              onClick={() => {
+                dismiss();
+                room.onAsk(member.id);
+              }}
+            >
+              <RoomMemberFace member={member} />
+              <span>{member.name}</span>
+            </button>
+          ))}
+        {!simple && (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={goalDisabled}
+              onClick={() => {
+                dismiss();
+                void onGoal('/goal');
+              }}
+            >
+              <CapabilityIcon name="goal-management" />
+              <span>
+                <b>{t('Set a goal')}</b>
+                <small>{t('Track work that runs past this turn.')}</small>
+              </span>
+            </button>
+            <div className="composer-add-heading">{t('Skills')}</div>
+            {loading && <p role="status">{t('Loading skills…')}</p>}
+            {!loading && !skills.length && !error && <p>{t('No enabled skills.')}</p>}
+            {skills.map((skill) => renderComposerSkillEntry(skill, dismiss, onSkill))}
+            {/* biome-ignore lint/a11y/useSemanticElements: the divider element must stay a div to keep DOM and styling */}
+            <div className="composer-add-divider" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                close();
+                onMore();
+              }}
+            >
+              <CapabilityIcon name="setup" />
+              <span>{t('Manage skills, plugins and MCP')}</span>
+            </button>
+          </>
+        )}
       </div>
       {error && <ErrorNotice error={error} className="composer-add-error" />}
     </ComposerPalette>
@@ -189,11 +227,16 @@ export function ComposerAddMenu({
   sessionId,
   projectPath,
   openRequest = 0,
+  roomMembers = null,
+  onAskMember,
   onAttach,
   onSkill,
   onGoal,
   onMore,
+  simple = false,
 }: {
+  /** Agent mode: attachments (and, in a room, "Call an agent") only. */
+  simple?: boolean;
   anchor: RefObject<HTMLElement | null>;
   disabled: boolean;
   goalDisabled: boolean;
@@ -202,12 +245,19 @@ export function ComposerAddMenu({
   projectPath?: string | null;
   /** Each change opens the menu (/skills); the value at mount is already handled. */
   openRequest?: number;
+  /** A group room's members ("Call an agent"); null outside rooms. */
+  roomMembers?: RoomMemberLabel[] | null;
+  onAskMember?(agentId: string): void;
   onAttach(): void;
   onSkill(name: string): void;
   onGoal(command: string): Promise<boolean>;
   onMore(): void;
 }) {
   const [open, setOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
+  useEffect(() => {
+    if (!open) setAskOpen(false);
+  }, [open]);
   const session = sessionId || '';
   const project = session ? '' : projectPath || '';
   // Paint the cached catalog at once and refresh behind it (see composer-skill-mentions).
@@ -285,6 +335,11 @@ export function ComposerAddMenu({
           onSkill,
           onGoal,
           onMore,
+          simple,
+          room:
+            roomMembers && onAskMember
+              ? { members: roomMembers, open: askOpen, setOpen: setAskOpen, onAsk: onAskMember }
+              : null,
         })}
     </React.Fragment>
   );

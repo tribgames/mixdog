@@ -71,6 +71,19 @@ export function stashedComposerDraft(scope: string): string {
   return composerDraftsByScope.get(scope) ?? '';
 }
 
+/** Mounted composers that hold text or attachments, by identity. With the
+ *  stash above it answers whether a New Task tab is still untouched. */
+const composerScopesWithContent = new Set<string>();
+
+export function noteComposerContent(scope: string, hasContent: boolean): void {
+  if (hasContent) composerScopesWithContent.add(scope);
+  else composerScopesWithContent.delete(scope);
+}
+
+export function composerScopeHasContent(scope: string): boolean {
+  return composerScopesWithContent.has(scope) || Boolean(stashedComposerDraft(scope).trim());
+}
+
 export function composerDraftAfterScopeChange({
   currentDraft,
   liveDomDraft,

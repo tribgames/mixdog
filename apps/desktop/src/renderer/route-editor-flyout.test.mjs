@@ -13,6 +13,16 @@ test('the composer route sheet opens above its pill, left edges aligned', () => 
   assert.equal(box.left, 100);
 });
 
+test('the composer line pill at a pane right end opens its sheet above it, right edges aligned', () => {
+  // A 900px pane: the pill sits at its right end, under the composer card.
+  const pane = { left: 300, top: 0, width: 900, height: 900 };
+  const pill = { left: 1010, right: 1160, top: 850, bottom: 878 };
+  const box = routeSheetBox(pill, 160, pane, 150, 'above', 'end');
+  assert.equal(box.placement, 'above');
+  assert.equal(box.top + box.height, 850 - 6);
+  assert.equal(box.left + box.width, 1160);
+});
+
 test('a dialog field sheet opens below its field, right edges aligned, even with room above', () => {
   const field = { left: 900, right: 1100, top: 400, bottom: 432 };
   const box = routeSheetBox(field, 120, viewport, 224, 'below', 'end');

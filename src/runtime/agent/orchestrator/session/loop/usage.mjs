@@ -41,6 +41,7 @@ export function usageDeltaEvent({
   usage,
   sendTools,
   toolCalls = 0,
+  generationMs = 0,
 }) {
   return {
     sessionId,
@@ -56,6 +57,12 @@ export function usageDeltaEvent({
     deltaToolCalls: toolCalls,
     ...reasoningUsage(usage),
     deltaPrompt: usage.promptTokens || 0,
+    // First visible token → end of this response; 0 when the call was not
+    // timed (nothing visible streamed). Only timed output enters speed figures.
+    generationMs,
+    // A provider that cannot measure the prompt or its cache split says so;
+    // its zeros are unknowns, not readings (no cache hit can be derived).
+    promptKnown: usage.inputTokensKnown !== false && usage.cacheTokensKnown !== false,
     // Cache delta carried alongside input/output so live metrics reflect
     // the same token classes the terminal aggregate adds; additive —
     // callers that ignore these fields keep working.

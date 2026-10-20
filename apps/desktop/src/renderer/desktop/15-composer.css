@@ -1,7 +1,7 @@
 /* Desktop layer 15 — Prompt dock, model/effort selects, dictation.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Prompt input: 96px resting surface and 28px controls. The composer keeps a
+/* Prompt input: 42px one-line bar (agent-chat.css) and 28px controls. The composer keeps a
    real floor gap instead of hugging the
    window edge. */
 .composer-region {
@@ -1160,12 +1160,6 @@
   background: var(--mx-accent-bg);
   box-shadow: none;
 }
-/* The approval card wears the island's own material. */
-.composer-island-approval .approval-card {
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
 /* ask_user question card and its answered record wear the turn-changes card's
    grammar (27-search-review.css): hairline frame on the transcript, plate
    header with an icon plate, rows divided by hairlines, and its text action
@@ -1441,6 +1435,157 @@
   opacity: 0.6;
   cursor: default;
 }
+/* The approval card (ApprovalCard.tsx) is a question card; only its content
+   blocks are extra: the target, the mail fields, the editable preview on the
+   `.question-other` surface, the amount, a note. They hang on the option
+   text's edge (38px). */
+.question-icon[data-tone="need"],
+.question-chip .question-need {
+  color: var(--mx-warning);
+}
+.question-target {
+  display: grid;
+  gap: 2px;
+  padding: 6px 12px 6px 38px;
+}
+.question-target-main {
+  font-weight: var(--mx-weight-medium);
+  overflow-wrap: anywhere;
+}
+.question-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+  padding: 4px 12px 6px 38px;
+}
+.question-fields > div {
+  display: contents;
+}
+.question-fields dt {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.question-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.question-other[data-preview] {
+  align-items: stretch;
+}
+.question-other textarea {
+  width: 100%;
+  min-width: 0;
+  max-height: 240px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+  font-weight: 400;
+  field-sizing: content;
+}
+.question-edit-row {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 4px 38px;
+}
+.question-edit-row .question-hint {
+  flex: none;
+}
+.question-edit-row .question-hint[data-edited] {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
+}
+.question-amount {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px 8px 38px;
+}
+.question-amount b {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.question-note {
+  padding: 2px 12px 8px 38px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.question-card .question-detail,
+.question-card .office-approval-preview {
+  margin: 2px 12px 8px 38px;
+}
+/* ✕ = decide later: the card folds into one line that reopens it. */
+.question-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 4px 0 12px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-1);
+  color: var(--mx-text-soft);
+  font-size: var(--mx-font-meta);
+  min-height: 36px;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  font-family: inherit;
+  cursor: pointer;
+}
+.question-chip:hover {
+  background: var(--mx-hover);
+}
+.question-chip:focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: 2px;
+}
+.question-chip-open {
+  margin-left: 4px;
+  color: var(--mx-accent);
+  font-weight: var(--mx-weight-medium);
+}
+/* One width for every decision card, so the question and approval cards never
+   drift apart: coding mode keeps the question card's 560px; agent mode (a home
+   thread or a room, agent-chat-mode.ts) narrows both to the bubble column, on
+   the bubbles' left edge (--mx-agent-bubble-inset, agent-chat.css) with the
+   same gutters. */
+.question-card[data-agent-mode],
+.question-chip[data-agent-mode] {
+  margin-inline-start: var(--mx-agent-bubble-inset, 0px);
+  max-width: calc(100% - var(--mx-agent-bubble-inset, 0px));
+}
+.question-card[data-agent-mode] {
+  width: min(var(--mx-agent-bubble-max, 400px), 72%);
+}
+html[data-mixdog-mobile-tabs] .question-card[data-agent-mode] {
+  width: min(var(--mx-agent-bubble-max, 100%), 86%);
+}
+html[data-mixdog-mobile-tabs] .question-option,
+html[data-mixdog-mobile-tabs] .question-other,
+html[data-mixdog-mobile-tabs] .question-chip {
+  min-height: var(--mx-touch-min);
+}
+/* A narrow card stacks the meta under the title instead of cutting the title. */
+html[data-mixdog-mobile-tabs] .question-title {
+  display: grid;
+  gap: 0;
+}
+html[data-mixdog-mobile-tabs] .question-meta {
+  white-space: normal;
+}
+html[data-mixdog-mobile-tabs] .question-card[data-approval] .question-foot:not([data-status]) {
+  display: none;
+}
 .composer-island-flash {
   height: var(--island-pill-height);
   display: flex;
@@ -1609,7 +1754,6 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 /* The prompt card: a rounder, one-step-raised plate with no outline — the
    shell's raised edge plus a soft drop lift it off the sheet. */
 .composer {
-  min-height: 96px;
   padding: 0;
   border: 0;
   border-radius: var(--mx-radius-sheet);
@@ -1631,7 +1775,7 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   box-shadow: none;
 }
 .composer textarea {
-  min-height: 56px;
+  min-height: 28px;
   /* A keystroke must not invalidate the virtual transcript paint, while
      sibling palettes remain free to paint outside the composer card. */
   contain: paint;
@@ -1639,7 +1783,7 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   field-sizing: content;
   max-height: 180px;
   overflow-y: auto;
-  padding: 12px var(--composer-text-inset) 8px;
+  padding: 6px var(--composer-text-inset) 2px;
   color: var(--mx-text);
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
      Geist/Pretendard ink densities inside one sentence. */
@@ -1655,12 +1799,97 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   color: var(--mx-text-faint);
 }
 .composer-footer {
-  height: 40px;
   gap: 0;
+}
+/* The slim line under the card: the usage readout at the left end, the model
+   picker and the context gauge at the right end. Popups open upward from it. */
+.composer-model-line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 36px;
+  margin-top: 4px;
   padding: 0 8px;
 }
+/* Pre-chat: project / workflow / branch pickers at the line's left end. */
+.composer-model-line > .composer-model-line-context {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+.composer-model-line-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+/* In the card the selector kept 56px of the footer for the actions beside it;
+   here it shares only with the gauge, and a percentage of this shrink-to-fit
+   group would cut its own label. It keeps its natural width and gives way only
+   once the readout has (the readout shrinks 1000× faster). */
+.composer-model-line .route-controls {
+  max-width: 100%;
+}
+/* The readout is muted text (no hover card) that opens the Usage view on
+   click. It never shrinks: the component measures the line and drops parts
+   (cache hit, then the token total, then the whole readout) to fit; the
+   ellipsis only catches a measuring miss. */
+.composer-model-line > .composer-usage-readout[hidden] {
+  display: none;
+}
+.composer-model-line > .composer-usage-readout {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* ITEM_GAP in composer-usage-readout.tsx */
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: none;
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  line-height: 28px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* One icon + value item: the icon in the readout's own muted colour (a failure
+   is the one red dot). Geometry matches ICON_WIDTH / DOT_WIDTH / ICON_GAP in
+   composer-usage-readout.tsx. */
+.composer-readout-item {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.composer-readout-item > svg {
+  flex: none;
+}
+.composer-readout-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-danger);
+}
+/* Hover answers like the model trigger beside it: a wash and the text colour. */
+.composer-model-line > .composer-usage-readout:hover,
+.composer-model-line > .composer-usage-readout:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 /* Context gauge right after the model trigger. The gauge keeps its island slot; only its card flips UPWARD here, since
-   the footer is the last thing above the window's bottom edge. */
+   the line is the last thing above the window's bottom edge. */
 .composer-model-aside {
   display: flex;
   align-items: center;
@@ -1681,29 +1910,23 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .composer-model-aside .session-context-indicator[data-active="false"] {
   display: none;
 }
-.composer-model-aside .session-context-popover {
+.composer-model-line .session-context-popover {
   top: auto;
   bottom: calc(100% + 6px);
-  /* The gauge sits near the footer's LEFT end, so the card grows rightward
-     instead of hanging off the composer's left edge. */
-  left: 0;
-  right: auto;
   transform: translateY(2px);
 }
-.composer-model-aside .session-context-indicator[data-open="true"] .session-context-popover {
+/* The gauge sits at the line's RIGHT end, so its card grows leftward. */
+.composer-model-aside .session-context-popover {
+  left: auto;
+  right: 0;
+}
+.composer-model-line .session-context-indicator[data-open="true"] .session-context-popover {
   transform: translateY(0);
 }
-/* Card flipped upward, so the frame that joins it to the gauge hangs BELOW it. */
-.composer-model-aside .session-context-popover::before {
+/* Card flipped upward, so the frame that joins it to its control hangs BELOW it. */
+.composer-model-line .session-context-popover::before {
   top: auto;
   bottom: calc(-1 * var(--mx-popup-bridge-reach));
-}
-/* The composer is its own stacking context at z-index 1, so the card used to
-   slide UNDER the turn-review bar (z 6) and the goal capsule (z 9) stacked
-   above it. Only while the card is open
-   does the composer outrank them — at rest the capsule keeps its layer. */
-.composer:has(.composer-model-aside .session-context-indicator[data-open="true"]) {
-  z-index: 20;
 }
 /* This stable group owns right alignment. The mic is conditional, so making
    the mic own the auto margin pulled Send left whenever voice was unavailable. */

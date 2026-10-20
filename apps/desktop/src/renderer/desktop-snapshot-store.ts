@@ -114,6 +114,9 @@ const HEADER_STATS_FIELDS = [
   'currentContextSource',
   'currentContextUpdatedAt',
   'costUsd',
+  // The composer's usage readout: the session's cumulative cache/speed
+  // totals, replaced (never mutated) on every model call.
+  'usageReadout',
 ] as const;
 
 function headerStatsEqual(left: Snapshot, right: Snapshot): boolean {

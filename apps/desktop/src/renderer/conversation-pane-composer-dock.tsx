@@ -33,6 +33,7 @@ export type ConversationComposerDockProps = Pick<
   | 'onDraftModelSelection'
   | 'onRoutePreferenceApplied'
   | 'contextIndicator'
+  | 'usageReadout'
   | 'goalIsland'
   | 'onOpenSessionDiff'
   | 'onOpenAgentSession'
@@ -41,6 +42,9 @@ export type ConversationComposerDockProps = Pick<
 > & {
   draftMode: boolean;
   draftId: string;
+  /** Agent mode: no coding chrome (branch, files, PR, workspace chips) and
+   *  the one-line messenger composer. */
+  agentMode?: boolean;
   reviewActive: boolean;
   dropTargetRef: RefObject<HTMLElement | null>;
   routeProject: string;
@@ -140,6 +144,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     sessionAddress,
     draftMode,
     draftId,
+    agentMode = false,
     reviewActive,
     transitioning,
     composerFocusRequest,
@@ -149,6 +154,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     onDraftModelSelection,
     onRoutePreferenceApplied,
     contextIndicator,
+    usageReadout,
     goalIsland,
     onOpenSessionDiff,
     onOpenAgentSession,
@@ -170,12 +176,29 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     dismissQuestion && answerQuestion
       ? questionAwareSubmit(actions.composerSubmit, answerQuestion, dismissQuestion)
       : actions.composerSubmit;
+  // An existing coding session has no context bar: its workflow selector
+  // sits beside the model trigger and switches that session alone (from its
+  // next turn; refused while a turn runs). Agent mode has no workflow.
+  const sessionId = draftMode || agentMode ? '' : String(routeSnapshot.sessionId || '');
+  const modelAside = sessionId ? (
+    <>
+      <WorkflowSelect
+        sessionId={sessionId}
+        workflow={(routeSnapshot.workflow as RecordValue | null) ?? null}
+        disabled={transitioning || Boolean(routeSnapshot.busy || routeSnapshot.commandBusy)}
+        invokeResult={actions.composerInvokeResult}
+        applySnapshot={actions.composerApplySnapshot}
+      />
+      {contextIndicator}
+    </>
+  ) : (
+    contextIndicator
+  );
   return (
     <ComposerDock
       sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
       goalIsland={goalIsland}
       goalSubmissionId={submission.goalSubmissionId}
-      approval={island.approval}
       islandFlash={island.islandFlash}
       quotaCard={island.quotaCard}
       quotaResume={island.quotaResume}
@@ -183,8 +206,8 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       onOpenAgentSession={onOpenAgentSession}
       workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
       queuedInput={!draftMode && submission.composerQueued.length > 0}
-      showProjectSelector={showProjectSelector}
-      contextBar={conversationContextBar(props)}
+      showProjectSelector={showProjectSelector && !agentMode}
+      agentMode={agentMode}
       reviewItems={submission.reviewItems}
       reviewActive={reviewActive}
       reviewBusy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
@@ -218,7 +241,16 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         draftMode={draftMode}
         onDraftModelSelection={onDraftModelSelection}
         onRoutePreferenceApplied={onRoutePreferenceApplied}
-        modelAside={contextIndicator}
+        modelAside={modelAside}
+        usageReadout={
+          // Before the first message the pickers sit in the line under the card.
+          showProjectSelector && !agentMode ? (
+            <div className="composer-model-line-context">{conversationContextBar(props)}</div>
+          ) : draftMode ? undefined : (
+            usageReadout
+          )
+        }
+        agentMode={agentMode}
         queued={submission.composerQueued}
         hiddenQueueIds={submission.pendingPromptIds}
         pendingSubmissionIds={submission.pendingPromptIds}
