@@ -14,7 +14,7 @@ Se añadió un sistema de bots, compatibilidad con más conectores, como Gmail m
 - **Tarjetas de aprobación para acciones salientes** — Se añadieron tarjetas de aprobación para enviar mensajes, correos, publicaciones, pagos y eliminaciones, mostrando detalles exactos antes de ejecutar nada.
 - **Rutinas en chats de bots** — Se añadió la ejecución de programaciones y webhooks como turnos dentro del chat de su bot propietario.
 - **Guía de configuración** — Se añadió una guía de configuración inicial con recomendaciones de modelos rol por rol y detección del plan de suscripción.
-- **Gmail mediante contraseña de aplicación** — Se añadió la conexión de Gmail con una contraseña de aplicación; Google Calendar y Drive se trasladaron a su propia clave de Google.
+- **Conectores** — Se añadieron conectores para servicios externos, incluido Gmail con contraseña de aplicación, para que los bots trabajen con tus cuentas.
 
 ### Cambios
 
@@ -28,7 +28,11 @@ Se añadió un sistema de bots, compatibilidad con más conectores, como Gmail m
 ### Correcciones de errores
 
 - Se corrigió que el desplazamiento de la transcripción en teléfonos se detuviera cuando una palabra en transmisión terminaba de desvanecerse durante un arrastre.
-- Se corrigió la eliminación de un bot archivado solicitando una confirmación clara y eliminando sus rutinas asociadas.
+- Se corrigió que los mensajes en cola y sus adjuntos se perdieran u omitieran tras un reinicio (#119, thanks @22nsuk).
+- Se corrigió que la configuración se restaurara desde una copia antigua cuando dos guardados coincidían en el mismo instante (#120, thanks @22nsuk).
+- Se corrigió que los comandos de shell terminaran con procesos hijos aún en ejecución tras un inicio fallido o una cancelación (#124, thanks @22nsuk).
+- Se corrigió que la búsqueda mostrara el mismo archivo dos veces con distintas formas de ruta (#118, thanks @22nsuk).
+- Se corrigió el salto de la lista de sesiones al marcar, desmarcar como favorita o eliminar una sesión (#129, thanks @oh1701).
 
 ### Otros
 

@@ -13,7 +13,7 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 - **Thẻ phê duyệt cho hành động gửi ra ngoài** — Đã thêm thẻ phê duyệt cho việc gửi tin nhắn, email, bài đăng, thanh toán và xóa vĩnh viễn, hiển thị chi tiết chính xác trước khi thực hiện.
 - **Quy trình trong trò chuyện bot** — Đã thêm tính năng chạy lịch trình và webhook dưới dạng các lượt phản hồi ngay trong cuộc trò chuyện của bot sở hữu.
 - **Hướng dẫn thiết lập** — Đã thêm hướng dẫn thiết lập lần đầu với đề xuất mô hình theo từng vai trò và phát hiện gói đăng ký.
-- **Gmail qua mật khẩu ứng dụng** — Đã thêm kết nối Gmail bằng mật khẩu ứng dụng; Google Calendar và Drive chuyển sang dùng khóa Google của riêng bạn.
+- **Trình kết nối** — Đã thêm trình kết nối tới các dịch vụ bên ngoài, bao gồm Gmail qua mật khẩu ứng dụng, để bot có thể làm việc với tài khoản của bạn.
 
 ### Thay đổi
 
@@ -27,7 +27,11 @@ Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gma
 ### Sửa lỗi
 
 - Đã sửa lỗi cuộn bản ghi chép trên điện thoại bị dừng khi một từ đang truyền phát hoàn tất hiệu ứng mờ dần trong lúc kéo.
-- Đã sửa lỗi xóa bot đã lưu trữ bằng cách hiển thị xác nhận rõ ràng và xóa các quy trình liên quan.
+- Đã sửa lỗi tin nhắn đang chờ và tệp đính kèm bị mất hoặc bị bỏ qua sau khi khởi động lại (#119, thanks @22nsuk).
+- Đã sửa lỗi cài đặt được khôi phục từ bản sao lưu cũ khi hai lần lưu trùng thời điểm (#120, thanks @22nsuk).
+- Đã sửa lỗi lệnh shell bị coi là đã xong dù tiến trình con vẫn chạy sau khi khởi động lỗi hoặc bị hủy (#124, thanks @22nsuk).
+- Đã sửa lỗi tìm kiếm liệt kê cùng một tệp hai lần với cách viết đường dẫn khác nhau (#118, thanks @22nsuk).
+- Đã sửa lỗi danh sách phiên bị nhảy khi đánh dấu yêu thích, bỏ yêu thích hoặc xóa một phiên (#129, thanks @oh1701).
 
 ### Khác
 

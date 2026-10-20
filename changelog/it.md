@@ -13,7 +13,7 @@ Aggiunti un sistema di bot e il supporto a più connettori, tra cui Gmail con pa
 - **Schede di approvazione per azioni in uscita** — Aggiunte schede di approvazione per l'invio di messaggi, email, post, pagamenti ed eliminazioni, che mostrano i dettagli esatti prima di qualsiasi esecuzione.
 - **Routine nelle chat dei bot** — Aggiunta l'esecuzione di pianificazioni e webhook come turni diretti all'interno della chat del rispettivo bot.
 - **Guida alla configurazione** — Aggiunta una guida alla prima configurazione con raccomandazioni dei modelli ruolo per ruolo e rilevamento del piano di abbonamento.
-- **Gmail tramite password per l'app** — Aggiunta la connessione a Gmail tramite password per l'app; Google Calendar e Drive sono passati all'uso di una propria chiave Google.
+- **Connettori** — Aggiunti connettori per servizi esterni, tra cui Gmail con password per le app, così i bot possono lavorare con i tuoi account.
 
 ### Modifiche
 
@@ -27,7 +27,11 @@ Aggiunti un sistema di bot e il supporto a più connettori, tra cui Gmail con pa
 ### Correzioni di bug
 
 - Corretto lo scorrimento della trascrizione su smartphone che si bloccava quando una parola in streaming completava la dissolvenza durante un trascinamento.
-- Corretta l'eliminazione di un bot archiviato richiedendo una conferma chiara e rimuovendo le routine associate.
+- Corretti i messaggi in coda e i relativi allegati persi o saltati dopo un riavvio (#119, thanks @22nsuk).
+- Corrette le impostazioni ripristinate da un backup più vecchio quando due salvataggi avvenivano nello stesso istante (#120, thanks @22nsuk).
+- Corretti i comandi shell conclusi mentre processi figli erano ancora attivi dopo un avvio fallito o un annullamento (#124, thanks @22nsuk).
+- Corretta la ricerca che elencava due volte lo stesso file con grafie di percorso diverse (#118, thanks @22nsuk).
+- Corretto il salto dell’elenco sessioni quando si aggiunge o rimuove una sessione dai preferiti o la si elimina (#129, thanks @oh1701).
 
 ### Altro
 

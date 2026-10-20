@@ -14,7 +14,7 @@ Ajout d'un système de bots, prise en charge de nouveaux connecteurs, dont Gmail
 - **Cartes d'approbation pour actions sortantes** — Ajout de cartes d'approbation pour l'envoi de messages, d'e-mails, de publications, de paiements et de suppressions, affichant les détails exacts avant toute exécution.
 - **Routines dans les discussions de bots** — Ajout de l'exécution des planifications et des webhooks sous forme de tours dans la discussion de leur bot propriétaire.
 - **Guide de configuration** — Ajout d'un guide de première configuration avec recommandations de modèles rôle par rôle et détection du forfait d'abonnement.
-- **Gmail via mot de passe d'application** — Ajout de la connexion de Gmail avec un mot de passe d'application ; Google Calendar et Drive passent désormais par votre propre clé Google.
+- **Connecteurs** — Ajout de connecteurs vers des services externes, dont Gmail par mot de passe d'application, pour que les bots travaillent avec vos comptes.
 
 ### Modifications
 
@@ -28,7 +28,11 @@ Ajout d'un système de bots, prise en charge de nouveaux connecteurs, dont Gmail
 ### Corrections de bugs
 
 - Correction du défilement de transcription sur téléphone qui se bloquait lorsqu'un mot diffusé finissait son fondu pendant un glissement.
-- Correction de la suppression d'un bot archivé en demandant une confirmation explicite et en supprimant ses routines.
+- Correction des messages en file d'attente et de leurs pièces jointes perdus ou ignorés après un redémarrage (#119, thanks @22nsuk).
+- Correction des paramètres restaurés depuis une sauvegarde plus ancienne lorsque deux enregistrements tombaient au même instant (#120, thanks @22nsuk).
+- Correction des commandes shell terminées alors que des processus enfants tournaient encore après un échec de démarrage ou une annulation (#124, thanks @22nsuk).
+- Correction de la recherche qui listait deux fois le même fichier sous des écritures de chemin différentes (#118, thanks @22nsuk).
+- Correction du saut de la liste des sessions lors de l’ajout ou du retrait des favoris ou de la suppression d’une session (#129, thanks @oh1701).
 
 ### Divers
 

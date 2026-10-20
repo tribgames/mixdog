@@ -14,7 +14,7 @@ Added a bot system, support for more connectors including Gmail via app password
 - **Approval cards for outbound actions** — Added approval cards for sending messages, emails, posts, payments and deletions, showing exact details before anything runs.
 - **Routines in bot chats** — Added running schedules and webhooks as turns inside their owning bot's chat.
 - **Setup guide** — Added a first-setup guide with role-by-role model recommendations and subscription plan detection.
-- **Gmail via app password** — Added connecting Gmail with an app password; Google Calendar and Drive moved to your own Google key.
+- **Connectors** — Added connectors for outside services, including Gmail with an app password, so bots can work with your accounts.
 
 ### Changes
 
@@ -28,7 +28,11 @@ Added a bot system, support for more connectors including Gmail via app password
 ### Bug fixes
 
 - Fixed phone transcript scrolling stalling when a streaming word finished fading during a drag.
-- Fixed deleting an archived bot by asking for clear confirmation and removing its routines.
+- Fixed queued messages and their attachments being lost or skipped after a restart (#119, thanks @22nsuk).
+- Fixed settings restoring an older backup when two saves landed at the same moment (#120, thanks @22nsuk).
+- Fixed shell commands finishing while child processes were still running after a failed start or cancel (#124, thanks @22nsuk).
+- Fixed search listing the same file twice under different path spellings (#118, thanks @22nsuk).
+- Fixed the session list jumping when favoriting, unfavoriting or deleting a session (#129, thanks @oh1701).
 
 ### Other
 

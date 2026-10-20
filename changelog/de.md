@@ -13,7 +13,7 @@ Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passw
 - **Genehmigungskarten für externe Aktionen** — Genehmigungskarten für das Senden von Nachrichten, E-Mails, Beiträgen, Zahlungen und Löschungen hinzugefügt, die vor der Ausführung genaue Details anzeigen.
 - **Routinen in Bot-Chats** — Ausführung von Zeitplänen und Webhooks als direkte Gesprächszüge im Chat des jeweiligen Bots hinzugefügt.
 - **Einrichtungsassistent** — Ersteinrichtungs-Leitfaden mit rollenbasierten Modellempfehlungen und Erkennung des Abonnementplans hinzugefügt.
-- **Gmail über App-Passwort** — Verbinden von Gmail über ein App-Passwort hinzugefügt; Google Calendar und Drive wurden auf eigene Google-Schlüssel umgestellt.
+- **Connectors** — Connectors für externe Dienste hinzugefügt, darunter Gmail per App-Passwort, damit Bots mit Ihren Konten arbeiten können.
 
 ### Änderungen
 
@@ -27,7 +27,11 @@ Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passw
 ### Fehlerbehebungen
 
 - Behoben: Das Scrollen des Telefon-Transkripts stockte, wenn ein gestreamtes Wort während des Ziehens ausblendete.
-- Behoben: Löschen eines archivierten Bots fragt nun nach einer eindeutigen Bestätigung und entfernt dessen Routinen.
+- Behoben: Wartende Nachrichten und ihre Anhänge gingen nach einem Neustart verloren oder wurden übersprungen (#119, thanks @22nsuk).
+- Behoben: Einstellungen wurden aus einer älteren Sicherung wiederhergestellt, wenn zwei Speichervorgänge gleichzeitig erfolgten (#120, thanks @22nsuk).
+- Behoben: Shell-Befehle galten nach fehlgeschlagenem Start oder Abbruch als beendet, obwohl Kindprozesse noch liefen (#124, thanks @22nsuk).
+- Behoben: Die Suche listete dieselbe Datei unter verschiedenen Pfadschreibweisen doppelt (#118, thanks @22nsuk).
+- Behoben: Die Sitzungsliste sprang beim Favorisieren, Entfernen aus den Favoriten oder Löschen einer Sitzung (#129, thanks @oh1701).
 
 ### Sonstiges
 

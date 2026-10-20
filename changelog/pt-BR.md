@@ -13,7 +13,7 @@ Adicionado um sistema de bots, suporte a mais conectores, incluindo o Gmail com 
 - **Cartões de aprovação para ações externas** — Adicionados cartões de aprovação para envio de mensagens, e-mails, publicações, pagamentos e exclusões, exibindo detalhes exatos antes de qualquer execução.
 - **Rotinas nos chats de bots** — Adicionada a execução de agendamentos e webhooks como mensagens dentro do chat do seu bot responsável.
 - **Guia de configuração** — Adicionado um guia de configuração inicial com recomendações de modelos por função e detecção do plano de assinatura.
-- **Gmail via senha de app** — Adicionada a conexão do Gmail com uma senha de app; Google Calendar e Drive foram transferidos para sua própria chave do Google.
+- **Conectores** — Adicionados conectores para serviços externos, incluindo o Gmail com senha de app, para que os bots trabalhem com suas contas.
 
 ### Alterações
 
@@ -27,7 +27,11 @@ Adicionado um sistema de bots, suporte a mais conectores, incluindo o Gmail com 
 ### Correções de bugs
 
 - Corrigida a rolagem da transcrição no celular travando quando uma palavra em streaming terminava de esmaecer durante um arrasto.
-- Corrigida a exclusão de um bot arquivado solicitando confirmação clara e removendo suas rotinas vinculadas.
+- Corrigidas mensagens na fila e seus anexos perdidos ou ignorados após reiniciar (#119, thanks @22nsuk).
+- Corrigidas configurações restauradas de um backup antigo quando dois salvamentos ocorriam no mesmo instante (#120, thanks @22nsuk).
+- Corrigidos comandos de shell finalizados com processos filhos ainda em execução após falha ao iniciar ou cancelamento (#124, thanks @22nsuk).
+- Corrigida a busca listando o mesmo arquivo duas vezes com grafias de caminho diferentes (#118, thanks @22nsuk).
+- Corrigido o salto da lista de sessões ao favoritar, desfavoritar ou excluir uma sessão (#129, thanks @oh1701).
 
 ### Outros
 
