@@ -60,6 +60,8 @@ const DATA_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   xml: 'application/xml; charset=utf-8',
   webmanifest: 'application/manifest+json; charset=utf-8',
   pdf: 'application/pdf',
+  // A glTF model's buffers (`model.gltf` + `model.bin`).
+  bin: 'application/octet-stream',
 });
 
 const LOOPBACK = '127.0.0.1';

@@ -249,7 +249,9 @@ export async function executeComputerTool(rawArgs, context = {}) {
   const note = { text: '' };
   const result = await executeComputerToolInner(rawArgs, context, note);
   // The fallback note rides as its own block so the JSON result text stays intact.
-  return note.text && !result.isError ? { ...result, content: [...result.content, { type: 'text', text: note.text }] } : result;
+  return note.text && !result.isError
+    ? { ...result, content: [...result.content, { type: 'text', text: note.text }] }
+    : result;
 }
 
 async function executeComputerToolInner(rawArgs, context, note) {
@@ -376,6 +378,31 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs) {
     return response.ok && body?.ok === true;
   } catch {
     return false;
+  }
+}
+
+/** Runtime-only: type the secret the user handed the desktop for `requestId`
+ *  into the focused field (or `ref`) once. The value never passes through
+ *  here; the host answers only whether it was typed. */
+export async function computerSecretInput(sessionId, requestId, { ref = '', windowId = '', signal } = {}) {
+  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  if (!discovery || !sessionId || !requestId) return 'skipped';
+  try {
+    const response = await postComputerCommand(
+      discovery,
+      {
+        action: 'secret_input',
+        session_id: String(sessionId),
+        request_id: String(requestId),
+        ...(ref ? { ref: String(ref) } : {}),
+        ...(windowId ? { window_id: String(windowId) } : {}),
+      },
+      { signal }
+    );
+    const body = await readComputerBridgeJson(response);
+    return response.ok && body?.ok === true && body.value?.text === 'provided' ? 'provided' : 'skipped';
+  } catch {
+    return 'skipped';
   }
 }
 

@@ -34,8 +34,8 @@ const light = {
 };
 
 test('the frame is fully sandboxed under a no-network, no-script CSP', () => {
-  // No allow-same-origin, no allow-scripts: an opaque origin with nothing to run.
-  assert.equal(INLINE_FRAME_SANDBOX, '');
+  // No allow-scripts (nothing runs); the app's origin only so the app can hear a pinch on it.
+  assert.equal(INLINE_FRAME_SANDBOX, 'allow-same-origin');
   assert.equal(INLINE_FRAME_CSP, "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
   const doc = buildInlineDocument('<p>hi</p>', dark);
   assert.ok(doc.includes(`<meta http-equiv="Content-Security-Policy" content="${INLINE_FRAME_CSP}">`));

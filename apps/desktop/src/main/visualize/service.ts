@@ -37,6 +37,7 @@ import { createTabs } from './tabs';
 import { parseVisualizeRequest } from './targets';
 import { type VisualizeAnnotation, visualizePaneMarks } from '../../shared/visualize-annotations';
 import { createThumbnails } from './thumbnails';
+import { createTurnHolds } from './turn-hold';
 import { createVersionRestore } from './version-restore';
 import { createVersionSelection } from './version-select';
 import { createVisualizeVersionStore, type VisualizeVersionLimits } from './versions';
@@ -79,6 +80,14 @@ export interface VisualizeServiceDeps {
     tab: VisualizeTabView,
     options: { viewport?: { width: number; height: number }; selector?: string }
   ): Promise<Array<{ pane: string; result: unknown }>>;
+  /** Screen reading without the panel (an agent turn leaves it alone): one
+   *  HTML pane loaded in a hidden window at `viewport` (a default size when
+   *  absent), its inspection and the problems it showed while loading. */
+  inspectOffscreen?(
+    pane: VisualizePaneView,
+    allowNetwork: boolean,
+    options: { viewport?: { width: number; height: number }; selector?: string; roots: readonly string[] }
+  ): Promise<{ result: unknown; problems: string[] }>;
   /** PNG bytes of the displayed tab body. */
   capture(sessionId: string, tab: VisualizeTabView): Promise<Buffer>;
   /** Resolves once the displayed tab's HTML panes are on screen (so their
@@ -103,6 +112,16 @@ export interface VisualizeServiceDeps {
     sessionId: string,
     tab: VisualizeTabView,
     targets: FileTarget[],
+    signal: AbortSignal
+  ): Promise<Buffer | null>;
+  /** The same picture drawn without the panel (a turn's end, when the panel
+   *  still shows what it showed before): `files` is the file behind each
+   *  displayed pane. Null (or a rejection) when it cannot be drawn or must
+   *  not be (a page showing a password field); stops once `signal` aborts. */
+  thumbnailOffscreen?(
+    sessionId: string,
+    tab: VisualizeTabView,
+    files: readonly string[],
     signal: AbortSignal
   ): Promise<Buffer | null>;
   /** The session's working directory, for reopening a closed tab from its
@@ -180,6 +199,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     versions,
     sessionCwds: new Map(),
     pendingReloads: new Set(),
+    holds: new Map(),
     nextLoadStamp: () => {
       loadStamp += 1;
       return loadStamp;
@@ -232,8 +252,12 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
   const reads = createReadActions(ctx);
   const exports = createExportActions(ctx);
   const commands = createPanelCommands(ctx);
+  const turns = createTurnHolds(ctx);
 
   return {
+    /** See `createTurnHolds`: the session roster tells when agent turns run. */
+    observeTurns: turns.observeTurns,
+    setTurnActive: turns.setTurnActive,
     /** The source text of a displayed pane (the source view). */
     paneText: reads.paneText,
     /** Bridge entry point: one validated request → result or thrown error. */

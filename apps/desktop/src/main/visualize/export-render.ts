@@ -113,14 +113,107 @@ export async function renderPageExportDetailed(
   allowNetwork: boolean,
   options: { roots?: readonly string[]; signal?: AbortSignal; ready?: string } = {}
 ): Promise<{ data: Buffer; problems: string[] }> {
+  const { screen } = await import('electron');
+  return withOffscreenPage(pageUrl, allowNetwork, options, async (window) => {
+    const contents = window.webContents;
+    if (format === 'pdf') return contents.printToPDF({ printBackground: true, preferCSSPageSize: true });
+    // Size the window to the whole page and take what it shows. (Not the
+    // DevTools screenshot: it never answers in a window that is not shown.)
+    const size = (await contents.executeJavaScript(
+      `({ width: Math.max(document.documentElement.scrollWidth, innerWidth), height: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0) })`
+    )) as { width: number; height: number };
+    const plan = planPngExport(size.width, size.height, screen.getDisplayMatching(window.getBounds()).scaleFactor);
+    if (!plan.ok) throw new Error(plan.error);
+    window.setContentSize(plan.width, plan.height);
+    await new Promise((resolve) => setTimeout(resolve, RESIZE_MS));
+    return (await contents.capturePage()).toPNG();
+  });
+}
+
+/** The default size a page is read at off screen (`inspectPageOffscreen`). */
+export const OFFSCREEN_VIEWPORT = { width: EXPORT_WIDTH, height: 900 };
+
+/** Reads one visualize page off screen, laid out at `viewport`: the result of
+ *  `script` in it (an inspection) plus the problems the page showed while it
+ *  loaded. Nothing in the app window is shown or changed. */
+export async function inspectPageOffscreen(
+  pageUrl: string,
+  allowNetwork: boolean,
+  script: string,
+  options: { viewport?: { width: number; height: number }; roots?: readonly string[]; signal?: AbortSignal } = {}
+): Promise<{ data: unknown; problems: string[] }> {
+  return withOffscreenPage(
+    pageUrl,
+    allowNetwork,
+    { ...options, size: options.viewport ?? OFFSCREEN_VIEWPORT },
+    (window) => window.webContents.executeJavaScript(script)
+  );
+}
+
+/** In a page: whether it shows a password field (a sign-in form), which a
+ *  card picture must never capture. */
+export const VISIBLE_PASSWORD_SCRIPT = `[...document.querySelectorAll('input[type="password"]')].some((input) => {
+  const box = input.getBoundingClientRect();
+  const style = getComputedStyle(input);
+  return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) > 0;
+})`;
+
+/** The size a card picture's page is laid out at (the card's 16:10). */
+export const THUMBNAIL_VIEWPORT = { width: EXPORT_WIDTH, height: 800 };
+/** A card picture waits less after the load than an export: it has to be
+ *  ready within a turn end's short wait, and a small picture of the first
+ *  screen does not need late fonts. */
+const THUMBNAIL_SETTLE_MS = 200;
+
+/** A chat card's picture of one page off screen: its first screen at
+ *  THUMBNAIL_VIEWPORT as a PNG (never the whole page). Rejects when the page
+ *  shows a password field. */
+export async function renderPageThumbnail(
+  pageUrl: string,
+  allowNetwork: boolean,
+  options: { signal?: AbortSignal; ready?: string } = {}
+): Promise<Buffer> {
+  const read = await withOffscreenPage(
+    pageUrl,
+    allowNetwork,
+    { ...options, size: THUMBNAIL_VIEWPORT, settleMs: THUMBNAIL_SETTLE_MS },
+    async (window) => {
+      if ((await window.webContents.executeJavaScript(VISIBLE_PASSWORD_SCRIPT)) === true) {
+        throw new Error('the page shows a password field');
+      }
+      return (await window.webContents.capturePage()).toPNG();
+    }
+  );
+  return read.data;
+}
+
+/** Loads `pageUrl` in a throw-away hidden window (own in-memory session, the
+ *  lease-only request filter unless `allowNetwork`), lets it settle and runs
+ *  `work` on it, collecting the page's problems meanwhile. One deadline covers
+ *  the whole run; the window is always destroyed. */
+async function withOffscreenPage<T>(
+  pageUrl: string,
+  allowNetwork: boolean,
+  options: {
+    roots?: readonly string[];
+    signal?: AbortSignal;
+    ready?: string;
+    size?: { width: number; height: number };
+    /** Time after the load (and `ready`) before `work`; SETTLE_MS by default. */
+    settleMs?: number;
+  },
+  work: (window: import('electron').BrowserWindow) => Promise<T>
+): Promise<{ data: T; problems: string[] }> {
   const roots = options.roots ?? [];
   options.signal?.throwIfAborted();
-  const { BrowserWindow, screen } = await import('electron');
+  const { BrowserWindow } = await import('electron');
   const origin = new URL(pageUrl).origin;
   const window = new BrowserWindow({
     show: false,
-    width: EXPORT_WIDTH,
-    height: 900,
+    width: options.size?.width ?? EXPORT_WIDTH,
+    height: options.size?.height ?? 900,
+    // A requested size is the page's own (no frame taken off it).
+    ...(options.size ? { useContentSize: true } : {}),
     webPreferences: {
       // No `persist:` prefix: an in-memory session shared with nothing.
       partition: `visualize-export-${randomUUID()}`,
@@ -171,7 +264,7 @@ export async function renderPageExportDetailed(
       timer = setTimeout(() => reject(new Error('the page took too long to render for the export')), RENDER_TIMEOUT_MS);
       options.signal?.addEventListener('abort', () => reject(new Error('the export was cancelled')), { once: true });
     });
-    const render = async (): Promise<Buffer> => {
+    const render = async (): Promise<T> => {
       await window.loadURL(pageUrl);
       if (options.ready) {
         for (;;) {
@@ -181,18 +274,8 @@ export async function renderPageExportDetailed(
           await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-      if (format === 'pdf') return contents.printToPDF({ printBackground: true, preferCSSPageSize: true });
-      // Size the window to the whole page and take what it shows. (Not the
-      // DevTools screenshot: it never answers in a window that is not shown.)
-      const size = (await contents.executeJavaScript(
-        `({ width: Math.max(document.documentElement.scrollWidth, innerWidth), height: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0) })`
-      )) as { width: number; height: number };
-      const plan = planPngExport(size.width, size.height, screen.getDisplayMatching(window.getBounds()).scaleFactor);
-      if (!plan.ok) throw new Error(plan.error);
-      window.setContentSize(plan.width, plan.height);
-      await new Promise((resolve) => setTimeout(resolve, RESIZE_MS));
-      return (await contents.capturePage()).toPNG();
+      await new Promise((resolve) => setTimeout(resolve, options.settleMs ?? SETTLE_MS));
+      return work(window);
     };
     const rendering = render();
     // The window is destroyed when the deadline wins: a late failure of the

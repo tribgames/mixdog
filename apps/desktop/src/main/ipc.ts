@@ -20,6 +20,7 @@ import { translateNativeUi } from '../shared/native-ui';
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
 import type { BrowserHost } from './browser/host';
+import type { BrowserLoginPopup } from './browser/login-popup';
 import { registerBrowserIpc } from './ipc-browser';
 import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
@@ -154,7 +155,12 @@ interface DesktopIpcDependencies {
     | 'browserPageMetadata'
     | 'browserPresentNative'
     | 'browserPageIdentity'
+    | 'browserSignedInSites'
+    | 'browserSignOutSite'
+    | 'browserClearSignIns'
   >;
+  /** Login takeovers' sign-in windows (this PC's window only). */
+  browserLogin?: Pick<BrowserLoginPopup, 'open' | 'status'>;
   /** Extensions → Computer Use: OS readiness reads and one-press fixes. */
   computer?: ComputerIpcHost;
   /** Agent `visualize` tabs (this PC's window only). */
@@ -194,6 +200,7 @@ export function registerDesktopIpc(
     onDesktopSettingsChanged,
     previewNotificationSound,
     browserHost,
+    browserLogin,
     updater,
     terminals,
     terminalRuns,
@@ -319,7 +326,7 @@ export function registerDesktopIpc(
     revokeRemoteAccessClient,
     remoteHosts,
   });
-  registerBrowserIpc({ handle, browserHost });
+  registerBrowserIpc({ handle, browserHost, browserLogin });
   registerComputerIpc({ handle, shell, computer });
   handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);
   handle(DESKTOP_IPC.visualizeCommand, async (_event, command) =>
@@ -348,6 +355,7 @@ export function registerDesktopIpc(
     host,
     handle,
     readsLocalOnboardingStatus: connectionKind === 'local',
+    raiseOnSignIn: connectionKind === 'local',
     invokeDesktopOperation,
     settingsStore,
     onDesktopSettingsChanged,

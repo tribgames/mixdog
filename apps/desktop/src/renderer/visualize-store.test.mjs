@@ -31,6 +31,7 @@ import {
   visualizeHeaderActions,
   visualizePanesStacked,
   visualizeRevealSuppressed,
+  visualizeHeldSince,
   visualizeStateFor,
   visualizeTabTooltip,
 } from './visualize-store.ts';
@@ -295,6 +296,44 @@ test('open policy: a tab the user picked on a shown panel holds; the other tab i
   }
 });
 
+test('a content update lands in place: no activation, no reveal, a dot on a background tab until viewed', () => {
+  const restore = withLocalStorage();
+  const sent = [];
+  const previous = globalThis.window;
+  globalThis.window = { mixdogDesktop: { visualizeCommand: async (command) => sent.push(command) } };
+  const reveals = [];
+  const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+  try {
+    const tabs = (n) => [versioned('v1', n), versioned('v2', 1)];
+    applyVisualizeEvent({ sessionId: 'u1', state: { sessionId: 'u1', tabs: tabs(1), active: 'v2' } });
+    // v1 changed on disk while v2 is the active tab.
+    applyVisualizeEvent({ sessionId: 'u1', state: { sessionId: 'u1', tabs: tabs(2), active: 'v2' }, updated: 'v1' });
+    assert.deepEqual(reveals, [], 'the panel is not revealed');
+    assert.deepEqual(sent, [], 'no tab is activated');
+    assert.equal(visualizeStateFor('u1').active, 'v2');
+    assert.equal(visualizeStateFor('u1').tabs[0].versions.at(-1).n, 2, 'the tab content is updated');
+    assert.deepEqual([...visualizeUpdatedTabs('u1')], ['v1']);
+    // The active tab updating in place wears no dot.
+    applyVisualizeEvent({ sessionId: 'u1', state: { sessionId: 'u1', tabs: tabs(3), active: 'v2' }, updated: 'v2' });
+    assert.deepEqual([...visualizeUpdatedTabs('u1')], ['v1']);
+    // Viewing the tab clears its dot.
+    activateVisualizeTab('u1', 'v1');
+    assert.equal(visualizeUpdatedTabs('u1').has('v1'), false);
+    // An open still reveals.
+    applyVisualizeEvent({
+      sessionId: 'u1',
+      state: { sessionId: 'u1', tabs: tabs(3), active: 'v1' },
+      reveal: true,
+      tab: 'v1',
+    });
+    assert.deepEqual(reveals, ['u1']);
+  } finally {
+    stop();
+    globalThis.window = previous;
+    restore();
+  }
+});
+
 test('resume: a remote client back from a gap restores an open panel and shows what changed meanwhile', async () => {
   const restore = withLocalStorage();
   const reveals = [];
@@ -544,4 +583,61 @@ test('export acts on the live pane while comparing, else the first; list times a
   const sameDay = visualizeHistoryTime(noon, new Date(2025, 5, 10, 18, 0).getTime());
   const otherDay = visualizeHistoryTime(noon, new Date(2025, 5, 12, 9, 0).getTime());
   assert.ok(otherDay.length > sameDay.length && otherDay.endsWith(sameDay), `${otherDay} vs ${sameDay}`);
+});
+
+test('a held (mid-turn) push leaves the panel as it is; the turn end shows it', () => {
+  const reveals = [];
+  const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+  try {
+    const shown = { sessionId: 'turn', tabs: [tab], active: 'v1' };
+    applyVisualizeEvent({ sessionId: 'turn', state: shown });
+    const before = visualizeStateFor('turn');
+    const edited = { ...tab, revision: 1 };
+    const opened = { id: 'v2', label: 'b.html', revision: 0, panes: [] };
+    const held = { sessionId: 'turn', tabs: [edited, opened], active: 'v1' };
+
+    applyVisualizeEvent({ sessionId: 'turn', state: held, held: true, heldSince: 500, updated: 'v1' });
+    assert.equal(visualizeStateFor('turn'), before, 'the panel keeps its state: nothing reloads');
+    assert.equal(visualizeHeldSince('turn'), 500, 'cards of opens since the turn started wait');
+    assert.deepEqual(reveals, [], 'nothing opens mid-turn');
+
+    // Every emit at the turn's end that already shows the hold lifted carries the final state.
+    const seen = [];
+    const unsubscribe = subscribe(() =>
+      seen.push([
+        visualizeHeldSince('turn'),
+        visualizeStateFor('turn')
+          .tabs.map((entry) => entry.id)
+          .join(),
+      ])
+    );
+    applyVisualizeEvent({ sessionId: 'turn', state: { ...held, active: 'v2' }, reveal: true, tab: 'v2' });
+    unsubscribe();
+    assert.deepEqual(
+      seen.filter(([since]) => since === null).map(([, ids]) => ids),
+      seen.filter(([since]) => since === null).map(() => 'v1,v2'),
+      'no reader sees the hold lifted with the state from before the turn'
+    );
+    assert.ok(seen.length > 0);
+    assert.equal(visualizeStateFor('turn').active, 'v2');
+    assert.equal(visualizeStateFor('turn').tabs[0].revision, 1);
+    assert.equal(visualizeHeldSince('turn'), null, 'the hold is gone');
+    assert.deepEqual(reveals, ['turn'], 'the turn end reveals once');
+  } finally {
+    stop();
+  }
+});
+
+test('the turn end lifts the hold even when its final state changes nothing', () => {
+  const shown = { sessionId: 'same', tabs: [tab], active: 'v1' };
+  applyVisualizeEvent({ sessionId: 'same', state: shown });
+  applyVisualizeEvent({ sessionId: 'same', state: shown, held: true, heldSince: 1 });
+  let emits = 0;
+  const unsubscribe = subscribe(() => {
+    emits += 1;
+  });
+  applyVisualizeEvent({ sessionId: 'same', state: shown });
+  unsubscribe();
+  assert.equal(visualizeHeldSince('same'), null);
+  assert.ok(emits >= 1, 'cards hear that the turn ended');
 });

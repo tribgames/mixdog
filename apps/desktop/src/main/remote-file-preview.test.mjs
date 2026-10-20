@@ -26,7 +26,8 @@ const root = mkdtempSync(join(tmpdir(), 'remote-preview-'));
 mkdirSync(join(root, '.hidden'));
 writeFileSync(join(root, 'clip.mp4'), Buffer.from('0123456789'));
 writeFileSync(join(root, 'page.html'), '<p>hi</p>');
-writeFileSync(join(root, 'data.bin'), 'secret');
+// A non-web type (`.bin` is a served glTF buffer asset).
+writeFileSync(join(root, 'data.sqlite'), 'secret');
 writeFileSync(join(root, '.hidden', 'a.css'), 'x');
 const outside = mkdtempSync(join(tmpdir(), 'remote-preview-out-'));
 writeFileSync(join(outside, 'pic.png'), Buffer.from('png'));
@@ -45,7 +46,7 @@ test('metadata describes a previewable file without a URL', async () => {
   assert.equal(meta.kind, 'video');
   assert.equal(meta.size, 10);
   assert.equal('url' in meta, false);
-  await assert.rejects(methods.previewProjectFile([root, 'data.bin', null]), /does not support/);
+  await assert.rejects(methods.previewProjectFile([root, 'data.sqlite', null]), /does not support/);
 });
 
 test('ranged reads return the requested window as base64 and clamp at EOF', async () => {
@@ -69,7 +70,7 @@ test('reads are bounded and validated', async () => {
 test('paths outside the project, hidden files and non-web files are refused', async () => {
   await assert.rejects(methods.previewProjectFileRange([root, '../x.png', null, 0, 4]), /outside the project/);
   await assert.rejects(methods.previewProjectFileRange([root, '.hidden/a.css', null, 0, 4]), /does not support/);
-  await assert.rejects(methods.previewProjectFileRange([root, 'data.bin', null, 0, 4]), /does not support/);
+  await assert.rejects(methods.previewProjectFileRange([root, 'data.sqlite', null, 0, 4]), /does not support/);
   const page = await methods.previewProjectFileRange([root, 'page.html', null, 0, 100]);
   assert.equal(page.mime, 'text/html; charset=utf-8');
 });

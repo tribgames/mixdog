@@ -182,6 +182,48 @@ export function pageFetchBridgeScript(page: string): string {
       });
     };
   }
+  // Images and sounds a script loads (new Image(), new Audio(), el.src = …)
+  // name project files the same way: each file is read through the bridge
+  // once and handed to the element as a blob: URL. A refused file gets its
+  // original address, so the element fails as it would have.
+  var objectUrls = Object.create(null);
+  function objectUrl(ref) {
+    if (!objectUrls[ref]) {
+      objectUrls[ref] = request(ref, null).then(function (reply) {
+        return reply.ok ? URL.createObjectURL(new Blob([reply.body], { type: reply.mime || '' })) : null;
+      });
+    }
+    return objectUrls[ref];
+  }
+  [window.HTMLImageElement, window.HTMLMediaElement, window.HTMLSourceElement].forEach(function (Element) {
+    var property = Element && Object.getOwnPropertyDescriptor(Element.prototype, 'src');
+    if (!property || !property.set) return;
+    Object.defineProperty(Element.prototype, 'src', {
+      configurable: true,
+      enumerable: property.enumerable,
+      get: property.get,
+      set: function (value) {
+        var ref = reference(value);
+        if (ref === null) return property.set.call(this, value);
+        var element = this;
+        element.__mixdogSrc = value;
+        objectUrl(ref).then(function (url) {
+          if (element.__mixdogSrc === value) property.set.call(element, url || value);
+        });
+      }
+    });
+  });
+  // new Audio(src) sets its source natively; route it through the setter above.
+  var NativeAudio = window.Audio;
+  if (NativeAudio) {
+    var BridgedAudio = function Audio(src) {
+      var audio = new NativeAudio();
+      if (arguments.length && src !== undefined) audio.src = src;
+      return audio;
+    };
+    BridgedAudio.prototype = NativeAudio.prototype;
+    window.Audio = BridgedAudio;
+  }
 })();`;
 }
 

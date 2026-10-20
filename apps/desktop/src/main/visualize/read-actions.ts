@@ -23,8 +23,12 @@ import {
   withProblems,
 } from './tab-state';
 import { resolveCaptureOutput, type VisualizeRequest } from './targets';
+import { OFFSCREEN_VIEWPORT } from './export-render';
+import { heldTurn, offscreenTabPng } from './turn-hold';
 
-export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 'tabs' | 'problems' | 'publish'>) {
+export function createReadActions(
+  ctx: Pick<VisualizeServiceContext, 'deps' | 'tabs' | 'problems' | 'publish' | 'holds'>
+) {
   const { deps } = ctx;
 
   /** Layout findings on the displayed pages (0 when they cannot be read:
@@ -42,18 +46,72 @@ export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 't
     }
   }
 
+  /** Every HTML page of the tab read in a hidden window (an agent turn
+   *  leaves the panel alone): the pages' inspections and load problems. */
+  async function readPagesOffscreen(
+    cwd: string,
+    tab: TabState,
+    options: { viewport?: { width: number; height: number }; selector?: string }
+  ): Promise<{ answers: Array<{ pane: string; result: unknown }>; problems: string[] }> {
+    if (!deps.inspectOffscreen) throw new Error('reading a page off screen is unavailable here');
+    const pages = displayedPanes(tab).filter((pane) => pane.kind === 'html');
+    const answers: Array<{ pane: string; result: unknown }> = [];
+    const problems: string[] = [];
+    for (const pane of pages) {
+      const read = await deps.inspectOffscreen(pane, tab.allowNetwork === true, { ...options, roots: [cwd, tab.cwd] });
+      answers.push({ pane: pane.label, result: read.result });
+      problems.push(...read.problems.map((line) => (pages.length > 1 ? `${pane.label}: ${line}` : line)));
+    }
+    return { answers, problems };
+  }
+
+  /** `check` during an agent turn: pages load in a hidden window (their load
+   *  problems and layout findings), inline content renders off screen (a
+   *  failed render is the problem); the panel is not touched. */
+  async function checkOffscreen(
+    request: Extract<VisualizeRequest, { action: 'check' }>,
+    tab: TabState
+  ): Promise<VisualizeResult> {
+    const read = await readPagesOffscreen(request.cwd, tab, {});
+    const problems = [...read.problems];
+    const findings = read.answers.reduce((sum, { result }) => {
+      const parsed = visualizePageInspection(result);
+      return parsed && !('error' in parsed) ? sum + parsed.findingCount : sum;
+    }, 0);
+    for (const pane of displayedPanes(tab)) {
+      if (pane.kind !== 'inline' || !deps.exportBytes) continue;
+      try {
+        await deps.exportBytes(request.sessionId, { ...view(tab), panes: [pane] }, 'png', 0, ['']);
+      } catch (error) {
+        problems.push(`render failed: ${(error as Error).message}`);
+      }
+    }
+    const where = 'checked off screen; the side panel shows the tab when this turn ends';
+    const summaryLine = inspectFindingsSummary(findings);
+    return {
+      text:
+        (problems.length
+          ? `Checked tab ${tab.id} (${where}). Page problems:\n${problems.map((line) => `- ${line}`).join('\n')}`
+          : `No page problems on tab ${tab.id} (${where}).`) + (summaryLine ? `\n${summaryLine}` : ''),
+      tabs: [summary(tab)],
+    };
+  }
+
   return {
     async annotate(request: Extract<VisualizeRequest, { action: 'annotate' }>): Promise<VisualizeResult> {
       const tab = ctx.tabs.findTab(request.sessionId, request.tab);
       if (tab.url || !tab.panes.some((pane) => pane.kind === 'html')) {
         throw new Error(`annotate works on HTML tabs only; tab ${tab.id} shows no HTML page`);
       }
-      await ctx.tabs.display(request.sessionId, tab);
+      // During an agent turn the panel is left alone: the marks are kept in
+      // the tab state and drawn when the turn's end shows the tab.
+      const held = heldTurn(ctx, request.sessionId) !== null;
+      if (!held) await ctx.tabs.display(request.sessionId, tab);
       // The marks live in the tab state: the desktop window draws them from
       // there (below), every paired device from the published state.
       const htmlPanes = displayedPanes(tab).flatMap((pane, index) => (pane.kind === 'html' ? [index] : []));
       let marks = applyVisualizeAnnotationOp(currentAnnotations(tab), request.op, htmlPanes);
-      const results = await deps.annotate(request.sessionId, view(tab), marks);
+      const results = held ? null : await deps.annotate(request.sessionId, view(tab), marks);
       // A selector the page's own parser refused is no mark anywhere.
       const invalid = new Set((results ?? []).flatMap(({ result }) => result.invalid));
       if (invalid.size) marks = marks.filter((mark) => !invalid.has(mark.selector));
@@ -63,11 +121,17 @@ export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 't
       const named = [
         ...new Set(marks.map((mark) => (mark.label ? `${mark.selector} "${mark.label}"` : mark.selector))),
       ];
-      const lines = results
-        ? annotationLines(results)
-        : [
-            `${named.join('; ') || 'no marks'} (drawn on the paired device showing the tab; not checked against the page here)`,
-          ];
+      let lines: string[];
+      if (results) lines = annotationLines(results);
+      else if (held) {
+        lines = [
+          `${named.join('; ') || 'no marks'} (drawn when the side panel shows the tab at the end of this turn; not checked against the page)`,
+        ];
+      } else {
+        lines = [
+          `${named.join('; ') || 'no marks'} (drawn on the paired device showing the tab; not checked against the page here)`,
+        ];
+      }
       return {
         text: withProblems(tab, [`Annotations on tab ${tab.id} (cleared when the page reloads):`, ...lines].join('\n')),
         tabs: [summary(tab)],
@@ -79,11 +143,20 @@ export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 't
       const tab = ctx.tabs.findTab(request.sessionId, request.tab);
       if (tab.url) throw new Error(`tab ${tab.id} lives in the browser panel; capture it with the browser tool`);
       const output = await resolveCaptureOutput(request.cwd, request.output);
-      await ctx.tabs.display(request.sessionId, tab);
-      const png = await deps.capture(request.sessionId, view(tab));
+      // During an agent turn the tab is drawn off screen, never shown.
+      const held = heldTurn(ctx, request.sessionId) !== null;
+      let png: Buffer;
+      if (held) png = await offscreenTabPng(ctx, request.sessionId, tab);
+      else {
+        await ctx.tabs.display(request.sessionId, tab);
+        png = await deps.capture(request.sessionId, view(tab));
+      }
       await writeFile(output, png);
       return {
-        text: withProblems(tab, `Captured tab ${tab.id} to ${output}.`),
+        text: withProblems(
+          tab,
+          `Captured tab ${tab.id} to ${output}${held ? ', drawn off screen (the side panel shows the tab when this turn ends)' : ''}.`
+        ),
         tabs: [summary(tab)],
         path: output,
         ...problemsOf(tab),
@@ -95,6 +168,7 @@ export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 't
       if (tab.url || !displayedPanes(tab).some((pane) => pane.kind === 'html' || pane.inline)) {
         throw new Error(`check works on HTML tabs only; tab ${tab.id} shows no HTML page`);
       }
+      if (heldTurn(ctx, request.sessionId)) return checkOffscreen(request, tab);
       await ctx.tabs.display(request.sessionId, tab);
       await ctx.problems.awaitInlineRender(tab);
       if (displayedPanes(tab).some((pane) => pane.kind === 'html'))
@@ -121,6 +195,21 @@ export function createReadActions(ctx: Pick<VisualizeServiceContext, 'deps' | 't
             ? `inspect reads pages with a layout; tab ${tab.id} shows static ${staticKind} content, which has no elements to read (use capture to look at it)`
             : `inspect works on HTML tabs only; tab ${tab.id} shows no HTML page`
         );
+      }
+      if (heldTurn(ctx, request.sessionId)) {
+        // During an agent turn: each page is read in a hidden window instead.
+        const read = await readPagesOffscreen(request.cwd, tab, {
+          ...(request.viewport ? { viewport: request.viewport } : {}),
+          ...(request.selector ? { selector: request.selector } : {}),
+        });
+        const size = request.viewport ?? OFFSCREEN_VIEWPORT;
+        const problems = read.problems.length
+          ? `\nPage problems while it loaded:\n${read.problems.map((line) => `- ${line}`).join('\n')}`
+          : '';
+        return {
+          text: `Inspection of tab ${tab.id}, laid out off screen at ${size.width}×${size.height} (the side panel shows the tab when this turn ends):\n${inspectionSections(read.answers).join('\n\n')}${problems}`,
+          tabs: [summary(tab)],
+        };
       }
       if (!deps.inspect) throw new Error('inspect is unavailable here');
       await ctx.tabs.display(request.sessionId, tab);

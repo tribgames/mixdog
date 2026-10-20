@@ -21,7 +21,7 @@ function normalizedHostname(value: string): string {
     .replace(/\.$/, '');
 }
 
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHostname(hostname: string): boolean {
   const host = normalizedHostname(hostname);
   return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(?:\.\d{1,3}){0,3}$/.test(host);
 }

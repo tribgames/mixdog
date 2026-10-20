@@ -51,6 +51,8 @@ export interface DockAction {
   detail?: string;
   /** Menu only: a hairline above this item starts a new group. */
   separatorBefore?: boolean;
+  /** Menu only: a destructive item. */
+  danger?: boolean;
   /** Inline only: the button opens this menu (same menu as ⋯) instead of
    *  selecting; `label` names the button and the menu, `attention` tints it
    *  and `detail` is its tooltip. */
@@ -283,7 +285,11 @@ export function DockOverflowMenu({
                   type="button"
                   role={dockMenuItemRole(item)}
                   aria-checked={item.checked}
-                  className={item.separatorBefore ? 'has-separator' : undefined}
+                  className={
+                    [item.separatorBefore ? 'has-separator' : '', item.danger ? 'danger' : '']
+                      .filter(Boolean)
+                      .join(' ') || undefined
+                  }
                   data-attention={item.attention || item.badge ? 'true' : undefined}
                   disabled={item.disabled}
                   onClick={() => {

@@ -4,7 +4,6 @@ import { createBrowserTaskLifecycle } from './task-lifecycle.ts';
 
 function fixture({ close } = {}) {
   const selected = new Map();
-  const surfaces = [];
   const page = (name, blocked = false) => ({
     name,
     blocked,
@@ -14,8 +13,6 @@ function fixture({ close } = {}) {
     },
   });
   const owner = createBrowserTaskLifecycle({
-    current: (session) => selected.get(session) ?? null,
-    select: (session, value) => selected.set(session, value),
     close:
       close ??
       ((value) => {
@@ -25,13 +22,12 @@ function fixture({ close } = {}) {
     preserve: (value) => {
       value.preserved = true;
     },
-    surface: (session, request) => surfaces.push({ session, ...request }),
   });
-  return { owner, selected, surfaces, page };
+  return { owner, selected, page };
 }
 
-test('background cleanup never reveals a surface and preserves other sessions and user pages', () => {
-  const { owner, selected, surfaces, page } = fixture();
+test('background cleanup preserves other sessions and user pages', () => {
+  const { owner, selected, page } = fixture();
   const user = page('user');
   const scratch = page('scratch');
   const other = page('other session');
@@ -44,7 +40,6 @@ test('background cleanup never reveals a surface and preserves other sessions an
   assert.equal(user.dead, false);
   assert.equal(other.dead, false);
   assert.equal(selected.get('a'), user);
-  assert.deepEqual(surfaces, []);
   assert.throws(() => owner.begin('a', 1), /already finished/);
 });
 
@@ -60,52 +55,36 @@ test('a turn that ended well keeps its pages; only an aborted run reclaims them'
   assert.equal(scratch.dead, true);
 });
 
-test('temporary foreground work restores the previous selected page and panel', () => {
-  const { owner, selected, surfaces, page } = fixture();
+test('a finished turn leaves the page it drove selected: no panel was opened, so none is restored', () => {
+  const { owner, selected, page } = fixture();
   const user = page('user');
   const scratch = page('scratch');
   selected.set('a', user);
   owner.use('a', 2, scratch, true);
   selected.set('a', scratch);
-  owner.reveal('a', 2, scratch);
   owner.finish('a', 2);
-  assert.equal(selected.get('a'), user);
-  assert.deepEqual(surfaces, [
-    { session: 'a', temporaryTurnId: 2 },
-    { session: 'a', restoreTurnId: 2 },
-  ]);
+  assert.equal(selected.get('a'), scratch, 'the "보기" line opens the latest page');
+  assert.equal(scratch.dead, false);
 });
 
-test('user interaction and explicit handoff preserve pages and their visible panel', () => {
-  const { owner, selected, surfaces, page } = fixture();
+test('user interaction and explicit handoff preserve pages', () => {
+  const { owner, page } = fixture();
   const scratch = page('draft');
   owner.use('a', 1, scratch, true);
-  selected.set('a', scratch);
-  owner.reveal('a', 1, scratch);
   owner.retain(scratch);
   owner.use('a', 1, scratch, false);
   assert.equal(owner.finish('a', 1, { aborted: true }), 0);
   assert.equal(scratch.dead, false);
-  assert.deepEqual(surfaces, [
-    { session: 'a', temporaryTurnId: 1 },
-    { session: 'a', retainTurnId: 1 },
-  ]);
+  assert.equal(scratch.preserved, true);
 });
 
-test('late old-turn cleanup cannot close a page reused by newer work or restore its panel', () => {
-  const { owner, selected, surfaces, page } = fixture();
+test('late old-turn cleanup cannot close a page reused by newer work', () => {
+  const { owner, page } = fixture();
   const scratch = page('shared work');
   owner.use('a', 1, scratch, true);
-  selected.set('a', scratch);
-  owner.reveal('a', 1, scratch);
   owner.use('a', 2, scratch, false);
-  owner.reveal('a', 2, scratch);
   assert.equal(owner.finish('a', 1, { aborted: true }), 0);
   assert.equal(scratch.dead, false);
-  assert.equal(
-    surfaces.some((value) => value.restoreTurnId === 1),
-    false
-  );
   assert.equal(owner.finish('a', 2, { aborted: true }), 1);
 });
 

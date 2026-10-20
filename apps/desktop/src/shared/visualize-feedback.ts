@@ -112,7 +112,9 @@ export type VisualizeFeedbackPageMessage =
   /** The answer to `inspect` (screen reading: elements and layout findings). */
   | { type: 'inspected'; id: string; inspection: PageInspection | { error: string } }
   /** The page's mx-tweaks block text (null: it has none), sent once the page is ready. */
-  | { type: 'tweaks'; raw: string | null };
+  | { type: 'tweaks'; raw: string | null }
+  /** The page's document scroll position (settled), so a reload of the same file can restore it. */
+  | { type: 'scrolled'; x: number; y: number };
 
 /** Renderer → page. `choices` (the pane's queued picks) is sent only in
  *  answer to `ready`, so a reloaded page shows them again. Points are in the
@@ -143,6 +145,8 @@ export type VisualizeFeedbackParentMessage =
   /** Outline one element (the Elements list's hover); null clears it. */
   | { type: 'highlight'; selector: string | null }
   | { type: 'scroll'; dx: number; dy: number }
+  /** Put the document at an absolute scroll position (a reloaded page, before it is shown). */
+  | { type: 'scroll-to'; x: number; y: number }
   /** Set (or, alue: null, remove) the tweak overrides on the page root. */
   | { type: 'tweaks'; ops: VisualizeTweakOp[] }
   /** The page's mx-tweaks block is malformed: the page logs it as a console error. */
@@ -203,6 +207,7 @@ export function visualizeFeedbackPageMessage(value: unknown): VisualizeFeedbackP
   const data = value as Record<string, unknown>;
   if (data[VISUALIZE_FEEDBACK_TAG] !== 1) return null;
   if (data.type === 'ready' || data.type === 'exit-comment') return { type: data.type };
+  if (data.type === 'scrolled') return { type: 'scrolled', x: finite(data.x), y: finite(data.y) };
   if (data.type === 'link') {
     const url = webUrl(data.url);
     return url ? { type: 'link', url, external: data.external === true } : null;
@@ -760,6 +765,12 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
   addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && state.comment) post({ type: 'exit-comment' });
   }, true);
+  // A press on the page gives it the keyboard. In a frame, focus moves in only
+  // as the default of the press: a game that cancels pointerdown/mousedown (no
+  // text selection, no drag) kept the keys going to the app (its composer).
+  addEventListener('pointerdown', function () {
+    if (!document.hasFocus()) window.focus();
+  }, true);
 
   api.apply = function (message) {
     if (!message || typeof message !== 'object') return;
@@ -845,6 +856,10 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
       if (typeof message.dx === 'number' && typeof message.dy === 'number') window.scrollBy(message.dx, message.dy);
       return;
     }
+    if (message.type === 'scroll-to') {
+      if (typeof message.x === 'number' && typeof message.y === 'number') window.scrollTo(message.x, message.y);
+      return;
+    }
     if (message.type !== 'state') return;
     state.comment = message.comment === true;
     if (!state.comment) { state.hover = null; state.lifted = null; }
@@ -863,8 +878,19 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     // The default selected look: zero specificity, so any mockup rule wins.
     addSheet(document, ':where([data-choice]){cursor:pointer}' +
       ':where([data-choice][data-choice-selected]){outline:2px solid #2f6feb;outline-offset:2px;box-shadow:0 0 0 5px rgba(47,111,235,.18)}', true);
+    // The page itself always scrolls under the wheel or a finger: a nested box
+    // with overscroll-behavior contain/none (common in app-style mockups) kept
+    // the gesture even when it had nothing to scroll. A layered !important
+    // outranks the page's own, unlayered !important.
+    addSheet(document, '@layer mixdog-visualize-scroll{body *{overscroll-behavior:auto!important}}', false);
     addEventListener('scroll', schedule, true);
     addEventListener('resize', schedule);
+    // The document's own scroll (not an inner box's), settled: a reload of the same file restores it.
+    var scrollTimer = 0;
+    addEventListener('scroll', function () {
+      if (scrollTimer) return;
+      scrollTimer = setTimeout(function () { scrollTimer = 0; post({ type: 'scrolled', x: window.scrollX, y: window.scrollY }); }, 100);
+    });
     if (window.MutationObserver) {
       new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
     }

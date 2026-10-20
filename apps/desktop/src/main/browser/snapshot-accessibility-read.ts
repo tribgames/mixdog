@@ -45,6 +45,33 @@ interface AccessibilityTargetsRead {
   omittedFrames: number;
 }
 
+/** Every INPUT of the DOM snapshot: its backend node and its attributes
+ *  (names lowercased). */
+function forEachDomInput(
+  strings: string[],
+  documents: DomSnapshotDocument[],
+  visit: (backendNodeId: number, attributes: Map<string, string>) => void
+): void {
+  for (const document of documents) {
+    const backendNodeIds = document.nodes?.backendNodeId || [];
+    const nodeNames = document.nodes?.nodeName || [];
+    const attributes = document.nodes?.attributes || [];
+    nodeNames.forEach((nameIndex, nodeIndex) => {
+      if (String(strings[nameIndex] || '').toUpperCase() !== 'INPUT') return;
+      const backendNodeId = backendNodeIds[nodeIndex];
+      if (!Number.isFinite(backendNodeId)) return;
+      const pairs = attributes[nodeIndex] || [];
+      const named = new Map<string, string>();
+      for (let index = 0; index + 1 < pairs.length; index += 2) {
+        named.set(String(strings[pairs[index]] || '').toLowerCase(), String(strings[pairs[index + 1]] ?? ''));
+      }
+      visit(backendNodeId, named);
+    });
+  }
+}
+
+const inputType = (attributes: Map<string, string>) => (attributes.get('type') || '').trim().toLowerCase();
+
 /** File inputs by backend node, read from the DOM snapshot's attributes: the
  *  accessibility tree calls them buttons, which hides that `upload` is the
  *  gesture they want and whether they take one file or several. */
@@ -53,30 +80,24 @@ export function fileInputsFromDomSnapshot(
   documents: DomSnapshotDocument[]
 ): Map<number, FileInputFacts> {
   const fileInputs = new Map<number, FileInputFacts>();
-  for (const document of documents) {
-    const backendNodeIds = document.nodes?.backendNodeId || [];
-    const nodeNames = document.nodes?.nodeName || [];
-    const attributes = document.nodes?.attributes || [];
-    nodeNames.forEach((nameIndex, nodeIndex) => {
-      if (String(strings[nameIndex] || '').toUpperCase() !== 'INPUT') return;
-      const pairs = attributes[nodeIndex] || [];
-      let type = '';
-      let accept = '';
-      let multiple = false;
-      for (let index = 0; index + 1 < pairs.length; index += 2) {
-        const attributeName = String(strings[pairs[index]] || '').toLowerCase();
-        const attributeValue = String(strings[pairs[index + 1]] ?? '');
-        if (attributeName === 'type') type = attributeValue.trim().toLowerCase();
-        else if (attributeName === 'accept') accept = attributeValue.replace(/\s+/g, ' ').trim();
-        else if (attributeName === 'multiple') multiple = true;
-      }
-      const backendNodeId = backendNodeIds[nodeIndex];
-      if (type === 'file' && Number.isFinite(backendNodeId)) {
-        fileInputs.set(backendNodeId, { accept, multiple });
-      }
+  forEachDomInput(strings, documents, (backendNodeId, attributes) => {
+    if (inputType(attributes) !== 'file') return;
+    fileInputs.set(backendNodeId, {
+      accept: (attributes.get('accept') || '').replace(/\s+/g, ' ').trim(),
+      multiple: attributes.has('multiple'),
     });
-  }
+  });
   return fileInputs;
+}
+
+/** Password inputs by backend node: the accessibility tree reports them as
+ *  plain textboxes, so a snapshot would not say their value is withheld. */
+export function passwordInputsFromDomSnapshot(strings: string[], documents: DomSnapshotDocument[]): Set<number> {
+  const passwords = new Set<number>();
+  forEachDomInput(strings, documents, (backendNodeId, attributes) => {
+    if (inputType(attributes) === 'password') passwords.add(backendNodeId);
+  });
+  return passwords;
 }
 
 /** Layout boxes by backend node, from the DOM snapshot's layout tree. */
@@ -106,10 +127,10 @@ async function readFrameTree(
   guest: WebContents,
   sessionId: string | undefined,
   frameId: string | undefined,
-  shared: { bounds: Map<number, number[]>; fileInputs: Map<number, FileInputFacts> },
+  shared: { bounds: Map<number, number[]>; fileInputs: Map<number, FileInputFacts>; passwordInputs: Set<number> },
   signal?: AbortSignal
 ): Promise<AccessibilityTargetSnapshot> {
-  const { bounds, fileInputs } = shared;
+  const { bounds, fileInputs, passwordInputs } = shared;
   try {
     if (!frameId) throw new Error('frame document has no frame identity');
     const tree = await cdp.call<{ nodes?: AccessibilityNode[] }>(
@@ -119,7 +140,7 @@ async function readFrameTree(
       signal,
       { sessionId }
     );
-    return { sessionId, frameId, nodes: tree.nodes || [], bounds, fileInputs };
+    return { sessionId, frameId, nodes: tree.nodes || [], bounds, fileInputs, passwordInputs };
   } catch (error) {
     return { sessionId, frameId, nodes: [], bounds, error: redactedMessage(error) };
   }
@@ -156,6 +177,7 @@ async function readTargetTrees(
   const shared = {
     bounds: layoutBoundsFromDomSnapshot(documents),
     fileInputs: fileInputsFromDomSnapshot(domSnapshot.strings || [], documents),
+    passwordInputs: passwordInputsFromDomSnapshot(domSnapshot.strings || [], documents),
   };
   const mainSnapshot: AccessibilityTargetSnapshot = {
     sessionId,

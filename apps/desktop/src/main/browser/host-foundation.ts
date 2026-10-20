@@ -11,7 +11,7 @@ import { app, type BrowserWindow, sharedTexture, webContents } from 'electron';
 import { DESKTOP_IPC } from '../../shared/contract';
 import { createBrowserActionApproval, type BrowserApprovalRequest } from './action-approval';
 import { requestBrowserApproval } from './approval-dialog';
-import { createBrowserSessionStore } from './browser-session-store';
+import { createBrowserSessionStore, watchBrowserSessionCookies } from './browser-session-store';
 import { createBrowserGuestCdp } from './cdp';
 import { ACTION_SETTLE_DOM_TIMEOUT_MS, ACTION_SETTLE_LOAD_TIMEOUT_MS, ACTION_SETTLE_QUIET_MS } from './command';
 import { createBrowserCookieJar } from './cookie-jar';
@@ -27,6 +27,7 @@ import { createBrowserPartition } from './partition';
 import { BrowserProfileImportService, defaultNativeBrowserImporterPath } from './profile-import';
 import { redactBrowserText } from './redaction';
 import { BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
+import { createBrowserSignIns } from './signed-in-sites';
 import { createBrowserSettle } from './settle';
 import { createBrowserUrlAdmission } from './url-admission';
 import type { BrowserUrlPolicy } from './url-policy';
@@ -36,8 +37,13 @@ type Diagnostic = (event: string, data: Record<string, unknown>) => void;
 
 /** Chromium keeps persistent cookies and localStorage for the partition on
  *  its own; session cookies — most sign-ins — die with the process unless
- *  the host carries them across a restart itself. */
-function createBrowserRestartState(cookieJar: ReturnType<typeof createBrowserCookieJar>, onDiagnostic?: Diagnostic) {
+ *  the host carries them across a restart itself. Both are written within a
+ *  second of a sign-in, so a crash after it keeps the login too. */
+function createBrowserRestartState(
+  partition: Electron.Session,
+  cookieJar: ReturnType<typeof createBrowserCookieJar>,
+  onDiagnostic?: Diagnostic
+) {
   const sessionStore = createBrowserSessionStore({
     cookies: cookieJar,
     directory: join(app.getPath('userData'), 'browser-state'),
@@ -47,7 +53,40 @@ function createBrowserRestartState(cookieJar: ReturnType<typeof createBrowserCoo
       error: redactBrowserText((error as Error).message || String(error)),
     });
   });
-  return { sessionStore, stopSessionAutosave: sessionStore.startAutosave() };
+  const stopAutosave = sessionStore.startAutosave();
+  const stopWatching = watchBrowserSessionCookies(partition.cookies, sessionStore, cookieJar);
+  return {
+    sessionStore,
+    stopSessionAutosave: () => {
+      stopAutosave();
+      stopWatching();
+    },
+  };
+}
+
+/** "로그인 유지 중인 사이트" over the partition: per-site sign-out and the full
+ *  wipe, which also deletes what was imported from Chrome. */
+export function createPartitionSignIns(
+  partition: Electron.Session,
+  cookieJar: ReturnType<typeof createBrowserCookieJar>,
+  profileImporter: Pick<BrowserProfileImportService, 'clearImportedData'>,
+  sessionStore: Pick<ReturnType<typeof createBrowserSessionStore>, 'save'>
+) {
+  return createBrowserSignIns({
+    cookies: cookieJar,
+    clearOriginStorage: (origin) =>
+      partition.clearStorageData({
+        origin,
+        storages: ['filesystem', 'indexdb', 'localstorage', 'shadercache', 'websql', 'serviceworkers', 'cachestorage'],
+      }),
+    clearAllStorage: async () => {
+      await partition.clearStorageData();
+      await partition.clearCache();
+      await partition.clearAuthCache();
+    },
+    clearImportedData: () => profileImporter.clearImportedData(),
+    saveSessionCookies: () => sessionStore.save(),
+  });
 }
 
 /** A JavaScript dialog pauses its whole renderer process, so every page that
@@ -79,7 +118,7 @@ function createBrowserHostStorage(
     },
   });
   const cookieJar = createBrowserCookieJar(partition.session);
-  const { sessionStore, stopSessionAutosave } = createBrowserRestartState(cookieJar, onDiagnostic);
+  const { sessionStore, stopSessionAutosave } = createBrowserRestartState(partition.session, cookieJar, onDiagnostic);
   const profileImporter = new BrowserProfileImportService({
     userDataDirectory: app.getPath('userData'),
     temporaryDirectory: app.getPath('temp'),
@@ -87,7 +126,8 @@ function createBrowserHostStorage(
     cookieJar,
     nativeImporterPath: defaultNativeBrowserImporterPath(),
   });
-  return { partition, cookieJar, sessionStore, stopSessionAutosave, profileImporter };
+  const signIns = createPartitionSignIns(partition.session, cookieJar, profileImporter, sessionStore);
+  return { partition, cookieJar, sessionStore, stopSessionAutosave, profileImporter, signIns };
 }
 
 /** CDP over the guest state, with the document readers and settle built on it. */
@@ -156,6 +196,7 @@ export function createBrowserHostFoundation(
     ask: options.requestApproval || ((request, signal) => requestBrowserApproval(window, request, signal)),
     confirmActions: process.env.MIXDOG_BROWSER_CONFIRM_ACTIONS,
     denyActions: process.env.MIXDOG_BROWSER_DENY_ACTIONS,
+    confirmSubmit: !/^(?:0|false|no|off)$/i.test(String(process.env.MIXDOG_BROWSER_CONFIRM_SUBMIT || '').trim()),
   });
   const sessions = new BrowserSessionRegistry();
   /** Foreground gestures serialize together; named background pages get their

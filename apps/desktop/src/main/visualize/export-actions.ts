@@ -23,10 +23,13 @@ import {
 } from './tab-state';
 import { noVersion } from './tab-versions';
 import type { VisualizeRequest } from './targets';
+import { heldTurn, offscreenTabPng } from './turn-hold';
 
 type ExportRequest = Extract<VisualizeRequest, { action: 'export' }>;
 
-export function createExportActions(ctx: Pick<VisualizeServiceContext, 'deps' | 'versions' | 'tabs' | 'panes'>) {
+export function createExportActions(
+  ctx: Pick<VisualizeServiceContext, 'deps' | 'versions' | 'tabs' | 'panes' | 'holds'>
+) {
   const { deps, versions } = ctx;
 
   /** The page an agent export renders: live `tab.panes`, or kept `version`'s
@@ -84,6 +87,10 @@ export function createExportActions(ctx: Pick<VisualizeServiceContext, 'deps' | 
         signal,
       }));
       how = 'rendered off screen: the tab did not need to be on screen';
+    } else if (heldTurn(ctx, request.sessionId)) {
+      // An agent turn leaves the panel alone: drawn off screen instead.
+      data = await offscreenTabPng(ctx, request.sessionId, tab);
+      how = 'drawn off screen: the side panel shows the tab when this turn ends';
     } else {
       await ctx.tabs.display(request.sessionId, tab);
       data = await deps.capture(request.sessionId, view(tab));

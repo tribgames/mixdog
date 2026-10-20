@@ -1,6 +1,8 @@
 import { DESKTOP_IPC, MAIN_BROWSER_PAGE_PREFIX, type DesktopBrowserViewportConfig } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
+import type { BrowserLoginPopup } from './browser/login-popup';
+import { normalizeSignedInSite } from './browser/signed-in-sites';
 import type { IpcHandle as Handle } from './ipc';
 import { normalizeBrowserPageControl } from '../shared/browser-page-control';
 import {
@@ -26,7 +28,12 @@ interface BrowserIpcOptions {
     | 'browserPageMetadata'
     | 'browserPresentNative'
     | 'browserPageIdentity'
+    | 'browserSignedInSites'
+    | 'browserSignOutSite'
+    | 'browserClearSignIns'
   >;
+  /** Login takeovers' sign-in windows (browser/login-popup.ts). */
+  browserLogin?: Pick<BrowserLoginPopup, 'open' | 'status'>;
 }
 
 /** A pane rectangle in shell CSS pixels, or null to park the page. */
@@ -58,7 +65,7 @@ function requiredGuestId(value: unknown): number {
   return Number(value);
 }
 
-export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): void {
+export function registerBrowserIpc({ handle, browserHost, browserLogin }: BrowserIpcOptions): void {
   // Main-tab page ids are unique per tab instance. Once released, a late frame
   // or control request (still queued in the renderer, or already awaiting page
   // creation) must not recreate the page, so the id stays closed.
@@ -184,6 +191,33 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
   handle(DESKTOP_IPC.browserCredentialFill, (_event, sessionId, credentialId) => {
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
     return browserHost.browserCredentialFill(requiredSessionId(sessionId), normalizeBrowserCredentialId(credentialId));
+  });
+  handle(DESKTOP_IPC.browserSignedInSites, () => {
+    if (!browserHost) throw new Error('Browser sign-ins are unavailable in this app surface.');
+    return browserHost.browserSignedInSites();
+  });
+  handle(DESKTOP_IPC.browserSignOutSite, (_event, site) => {
+    if (!browserHost) throw new Error('Browser sign-ins are unavailable in this app surface.');
+    return browserHost.browserSignOutSite(normalizeSignedInSite(site));
+  });
+  handle(DESKTOP_IPC.browserClearSignIns, () => {
+    if (!browserHost) throw new Error('Browser sign-ins are unavailable in this app surface.');
+    return browserHost.browserClearSignIns();
+  });
+  // A login takeover's sign-in window: only the takeover this PC saw for that
+  // session (its page comes from the session state, never from the caller).
+  const loginWindows = (sessionId: unknown, id: unknown) => {
+    if (!browserLogin) throw new Error('Browser sign-in is unavailable in this app surface.');
+    if (typeof id !== 'string' || !id || id.length > 1_024) throw new TypeError('Takeover id is invalid.');
+    return { login: browserLogin, sessionId: requiredSessionId(sessionId), id };
+  };
+  handle(DESKTOP_IPC.browserLoginOpen, (_event, sessionId, id) => {
+    const target = loginWindows(sessionId, id);
+    return target.login.open(target.sessionId, target.id);
+  });
+  handle(DESKTOP_IPC.browserLoginStatus, (_event, sessionId, id) => {
+    const target = loginWindows(sessionId, id);
+    return target.login.status(target.sessionId, target.id);
   });
   handle(DESKTOP_IPC.browserPageIdentity, (_event, url, preview) => {
     if (typeof url !== 'string' || url.length > 4096) throw new TypeError('Browser page address is invalid.');

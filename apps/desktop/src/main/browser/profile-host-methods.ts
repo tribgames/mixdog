@@ -1,6 +1,7 @@
 /**
  * The browser host's profile-import surface: importable sources, the import
- * itself with its progress, history search and stored credentials.
+ * itself with its progress, history search, stored credentials, and the
+ * signed-in sites with their sign-out.
  */
 import type { DesktopBrowserImportProgress } from '../../shared/contract';
 import { DESKTOP_IPC } from '../../shared/contract';
@@ -14,9 +15,11 @@ import type {
   BrowserProfileImportService,
 } from './profile-import';
 import { type BrowserSessionRegistry, browserSessionId } from './session-registry';
+import type { BrowserSignedInSite, createBrowserSignIns } from './signed-in-sites';
 
 export function createBrowserProfileHostMethods(options: {
   profileImporter: BrowserProfileImportService;
+  signIns: ReturnType<typeof createBrowserSignIns>;
   liveGuest: BrowserSessionRegistry['liveGuest'];
   fillCredentialInGuest: ReturnType<typeof createBrowserCredentialFill>['fillCredentialInGuest'];
   sendToRenderer: (channel: string, ...args: unknown[]) => void;
@@ -33,6 +36,9 @@ export function createBrowserProfileHostMethods(options: {
         void options.publishRemoteImportProgress?.(progress)?.catch(() => undefined);
       });
     },
+    browserSignedInSites: (): Promise<BrowserSignedInSite[]> => options.signIns.list(),
+    browserSignOutSite: (site: string): Promise<number> => options.signIns.signOut(site),
+    browserClearSignIns: (): Promise<void> => options.signIns.clearAll(),
     async browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]> {
       return await profileImporter.searchHistory(query);
     },

@@ -27,7 +27,7 @@ export function assertPublicComputerRequest(value: unknown): asserts value is Co
   if (
     !READ_ACTIONS.has(command.action) &&
     !AUTO_CAPTURE_ACTIONS.has(command.action) &&
-    !['sequence', 'diagnose', 'clipboard_write'].includes(command.action) &&
+    !['sequence', 'diagnose', 'clipboard_write', 'secret_input'].includes(command.action) &&
     !isComputerLifecycleControl(command)
   ) {
     throw new Error('invalid_action: computer bridge action is not available');

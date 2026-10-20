@@ -337,7 +337,7 @@ test('a path outside the Project opens in the side editor with its access token'
   assert.deepEqual(f.local, []);
 });
 
-test('html goes to the side browser; http(s) to the side browser with a session, else the system browser', async (t) => {
+test('html and local http(s) go to the side browser; remote http(s) goes to the system browser', async (t) => {
   const withSession = (text) =>
     React.createElement(MarkdownSessionContext.Provider, { value: 'sess-routes' }, renderers.settled(text));
   const stopReveal = onBrowserPageRevealRequested(() => {});
@@ -345,7 +345,7 @@ test('html goes to the side browser; http(s) to the side browser with a session,
   const f = await mount(
     t,
     withSession,
-    '[page](site/index.html) [web](https://example.com/a) [plain](http://example.com/b)',
+    '[page](site/index.html) [web](https://example.com/a) [local](http://localhost:5173/b)',
     PROJECT,
     (fixture) => {
       installProjectFiles(fixture, { [PROJECT]: ['site/index.html'] });
@@ -353,16 +353,13 @@ test('html goes to the side browser; http(s) to the side browser with a session,
     }
   );
   const loaded = [];
-  for (let index = 0; index < 3; index++) {
+  for (const index of [0, 1, 2]) {
     await f.click(index);
-    onBrowserPageAddressRequested('sess-routes', (url) => loaded.push(url))();
+    // A remote page never reaches the pane: nothing new is pending for it.
+    if (index !== 1) onBrowserPageAddressRequested('sess-routes', (url) => loaded.push(url))();
   }
-  assert.deepEqual(loaded, [
-    'http://127.0.0.1:9/token/site/index.html',
-    'https://example.com/a',
-    'http://example.com/b',
-  ]);
-  assert.deepEqual(f.external, []);
+  assert.deepEqual(loaded, ['http://127.0.0.1:9/token/site/index.html', 'http://localhost:5173/b']);
+  assert.deepEqual(f.external, [['https://example.com/a']]);
   assert.deepEqual(f.opened, []);
 });
 
@@ -1513,22 +1510,35 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     assert.deepEqual(loaded, []);
   });
 
-  test(`${pipeline}: web links open in the session side browser, else the system browser`, async (t) => {
+  test(`${pipeline}: remote web links open in the system browser, local ones in the session side browser`, async (t) => {
     const inSession = (text) =>
       React.createElement(MarkdownSessionContext.Provider, { value: 'sess-web' }, render(text));
-    const f = await mount(t, inSession, '[web](https://example.com/docs)');
-    // No shell can reveal a pane: the system browser takes it.
-    await f.click();
-    assert.deepEqual(f.external, [['https://example.com/docs']]);
+    const f = await mount(t, inSession, '[web](https://example.com/docs)\n\n[local](http://localhost:5173/app)');
+    // No shell can reveal a pane: the system browser takes both.
+    await f.click(0);
+    await f.click(1);
+    assert.deepEqual(f.external, [['https://example.com/docs'], ['http://localhost:5173/app']]);
     const revealed = [];
     const stopReveal = onBrowserPageRevealRequested(({ sessionId }) => revealed.push(sessionId));
     t.after(stopReveal);
-    await f.click();
+    // With a pane up, a remote page still goes to the system browser, never the pane.
+    await f.click(0);
+    assert.deepEqual(revealed, []);
+    assert.equal(f.external.length, 3);
+    // The loopback page opens in the pane.
+    await f.click(1);
     const loaded = [];
     onBrowserPageAddressRequested('sess-web', (url) => loaded.push(url))();
     assert.deepEqual(revealed, ['sess-web']);
-    assert.deepEqual(loaded, ['https://example.com/docs']);
-    assert.equal(f.external.length, 1);
+    assert.deepEqual(loaded, ['http://localhost:5173/app']);
+    assert.equal(f.external.length, 3);
+    // Shift-click keeps the remote page in the in-app panel.
+    await f.click(0, { shiftKey: true });
+    const shifted = [];
+    onBrowserPageAddressRequested('sess-web', (url) => shifted.push(url))();
+    assert.deepEqual(revealed, ['sess-web', 'sess-web']);
+    assert.deepEqual(shifted, ['https://example.com/docs']);
+    assert.equal(f.external.length, 3);
   });
 
   test(`${pipeline}: Ctrl/Meta/middle click and the menu send web links and local pages to the system browser`, async (t) => {
@@ -1555,11 +1565,15 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
       [served],
     ]);
     assert.deepEqual(revealed, []);
-    // Plain click stays in the pane.
-    await f.click(0);
+    // A plain click on the served local page stays in the pane; the remote
+    // web link goes to the system browser.
     await f.click(1);
-    assert.deepEqual(revealed, ['sess-ext', 'sess-ext']);
+    assert.deepEqual(revealed, ['sess-ext']);
     assert.equal(f.external.length, 5);
+    await f.click(0);
+    assert.deepEqual(revealed, ['sess-ext']);
+    assert.deepEqual(f.external.at(-1), ['https://example.com/docs']);
+    assert.equal(f.external.length, 6);
     // The HTML link's menu offers the system browser with the served URL.
     const menuItems = () => [...f.dom.window.document.querySelectorAll('[role="menu"] [role="menuitem"]')];
     await act(async () =>

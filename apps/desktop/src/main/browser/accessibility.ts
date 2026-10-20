@@ -63,6 +63,8 @@ export interface AccessibilityTargetSnapshot {
   nodes: AccessibilityNode[];
   bounds: Map<number, number[]>;
   fileInputs?: Map<number, FileInputFacts>;
+  /** Password inputs by backend node: the tree marks them by no property. */
+  passwordInputs?: Set<number>;
   error?: string;
   layoutError?: string;
 }
@@ -288,7 +290,7 @@ export function buildAccessibilitySnapshot(options: {
       const focusable = axProperty(node, 'focusable') === true;
       const actionable = INTERACTIVE_ROLES.has(role) || (focusable && !NON_ACTIONABLE_FOCUSABLE_ROLES.has(role));
       if (!Number.isFinite(backendNodeId) || !actionable) continue;
-      const sensitive = axProperty(node, 'protected') === true;
+      const sensitive = axProperty(node, 'protected') === true || target.passwordInputs?.has(backendNodeId) === true;
       const value = sensitive ? '' : compactAxText(String(node.value?.value ?? ''), 480, 120);
       const href = String(axProperty(node, 'url') || '').slice(0, 240);
       const states = axStates(node);

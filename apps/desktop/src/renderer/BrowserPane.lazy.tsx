@@ -19,12 +19,12 @@ import {
   ArrowLeft,
   ArrowRight,
   ExternalLink,
-  Globe,
   KeyRound,
   Link2,
   PanelTop,
   RotateCw,
   Smartphone,
+  UserCheck,
   X,
 } from 'lucide-react';
 import { DockHeaderRow, DockOverflowMenu, requestPaneDockClose, type DockAction } from './pane-dock-chrome';
@@ -37,6 +37,8 @@ import { reportBrowserLoadFailure } from './browser-load-failure';
 import { ErrorNotice } from './ErrorNotice';
 import { normalizeAddressInput } from './browser-address';
 import { BrowserImportDialog } from './BrowserImportDialog';
+import { BrowserSignInsDialog } from './BrowserSignInsDialog';
+import { onBrowserImportRequested } from './browser-page-request';
 import { BrowserLoadingPlaceholder } from './BrowserLoadingPlaceholder';
 import { watchBrowserForegroundReturns } from './browser-foreground-lifecycle';
 import {
@@ -380,7 +382,10 @@ export function browserHeaderActions({
   credentialStatus,
   fillStoredCredential,
   onOpenInMain,
+  onSignedInSites,
 }: {
+  /** "로그인 유지 중인 사이트"; absent where the host has no managed profile. */
+  onSignedInSites?(): void;
   currentUrl: string;
   viewportPresetId: BrowserViewportPresetId;
   selectViewportPreset(preset: BrowserViewportPreset): void;
@@ -435,6 +440,15 @@ export function browserHeaderActions({
       onSelect: () => fillStoredCredential(credential.id),
     });
   }
+  if (onSignedInSites) {
+    actions.push({
+      id: 'signed-in-sites',
+      label: t('Signed-in sites'),
+      icon: UserCheck,
+      separatorBefore: true,
+      onSelect: onSignedInSites,
+    });
+  }
   actions.push(zoomBarAction(true));
   return actions;
 }
@@ -463,6 +477,8 @@ function DesktopBrowserPane({
   const [addressHasFocus, setAddressHasFocus] = useState(false);
   const [pageFailure, setPageFailure] = useState<BrowserPageFailure | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [signInsOpen, setSignInsOpen] = useState(false);
+  useEffect(() => onBrowserImportRequested(sessionId, () => setImportOpen(true)), [sessionId]);
   const [viewportPresetId, setViewportPresetId] = useState<BrowserViewportPresetId>(
     () => readBrowserViewportPreset(window.localStorage, sessionId).id
   );
@@ -652,6 +668,7 @@ function DesktopBrowserPane({
       mainTab || isRemoteHostRenderer()
         ? undefined
         : () => requestBrowserInMain({ sessionId, url: currentUrl, title: activeTabTitle }),
+    onSignedInSites: desktopApi?.browserSignedInSites ? () => setSignInsOpen(true) : undefined,
   });
   const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;
   const viewportFrameStyle = fixedViewport
@@ -767,17 +784,29 @@ function DesktopBrowserPane({
         </div>
       )}
       <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <BrowserSignInsDialog
+        open={signInsOpen}
+        onClose={() => setSignInsOpen(false)}
+        onImport={
+          desktopApi?.browserProfileImportSources
+            ? () => {
+                setSignInsOpen(false);
+                setImportOpen(true);
+              }
+            : undefined
+        }
+      />
       <div className={`browser-pane-content${fixedViewport ? ' is-device-frame' : ''}`} ref={contentRef}>
         <div className="browser-pane-viewport" data-viewport-preset={viewportPreset.id} style={viewportFrameStyle}>
           <IsolatedBrowserView
             ref={(element) => {
               webviewRef.current = element;
             }}
-            className={`browser-pane-webview${importOpen ? ' is-import-open' : ''}${historySuggestions.length ? ' is-history-open' : ''}${credentialMenuOpen ? ' is-credential-open' : ''}${pageFailure ? ' is-failed' : ''}`}
+            className={`browser-pane-webview${importOpen || signInsOpen ? ' is-import-open' : ''}${historySuggestions.length ? ' is-history-open' : ''}${credentialMenuOpen ? ' is-credential-open' : ''}${pageFailure ? ' is-failed' : ''}`}
             sessionId={sessionId}
             // A load failure only covers the page: the display keeps reading
             // it, so a navigation from anywhere else clears the failure.
-            active={active && !importOpen}
+            active={active && !importOpen && !signInsOpen}
             native={!fixedViewport}
           />
           {/* about:blank paints Chromium's default white; until a real page is
@@ -785,7 +814,6 @@ function DesktopBrowserPane({
           {!painted && !pageFailure && <BrowserLoadingPlaceholder url={currentUrl || initialUrl || ''} />}
           {painted && !currentUrl && (
             <div className="browser-pane-empty" aria-hidden="true">
-              <Globe size={28} />
               <span>{t('Search or enter address')}</span>
             </div>
           )}

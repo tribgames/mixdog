@@ -157,8 +157,9 @@ test('runtime unload keeps the remembered browser dock while deletion forgets it
   }
 });
 
-test('temporary task reveal restores the original dock and never overwrites a user selection or a newer turn', async () => {
+test('open policy: agent work never opens the panel, a takeover does, and the "보기" press always does', async () => {
   const { usePaneSideDocks } = await import('./pane-side-dock.tsx');
+  const { revealBrowserPane } = await import('./browser-page-request.ts');
   let receive, surfaces, docks;
   window.mixdogDesktop = {
     onBrowserOpenRequested(listener) {
@@ -175,7 +176,6 @@ test('temporary task reveal restores the original dock and never overwrites a us
       surfaces: { ...surfaces, browserSurfaces: { ensure() {} } },
       prefetch: async () => {},
       select: docks.select,
-      temporarySelect: docks.temporarySelect,
     });
     return null;
   }
@@ -184,65 +184,38 @@ test('temporary task reveal restores the original dock and never overwrites a us
   const root = createRoot(host);
   try {
     await act(async () => root.render(React.createElement(Harness)));
+    // The user is on another dock tab while the agent works: nothing moves.
     await act(async () => docks.select('alpha', 'sourceControl'));
     const original = docks.entryFor('alpha');
-    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 1 }));
-    assert.equal(docks.entryFor('alpha').surface, 'browser');
-    assert.deepEqual(docks.docks.alpha, original, 'temporary layout is not persisted');
-    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 1 }));
-    assert.deepEqual(docks.entryFor('alpha'), original);
+    await act(async () => receive({ sessionId: 'alpha', reveal: false }));
+    assert.deepEqual(docks.entryFor('alpha'), original, 'keeping the surface live never switches the dock');
     assert.equal(surfaces.sessionSideSurfaces.has('alpha'), false);
 
-    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 2 }));
-    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 3 }));
-    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 2 }));
+    // The transcript's "브라우저 · 보기" opens the panel on its current page.
+    await act(async () => revealBrowserPane('alpha'));
     assert.equal(docks.entryFor('alpha').surface, 'browser');
-    await act(async () => {
-      surfaces.setSessionSideSurface('alpha', 'terminal');
-      docks.select('alpha', 'terminal');
-    });
-    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 3 }));
-    assert.equal(docks.entryFor('alpha').surface, 'terminal');
-    assert.equal(surfaces.sessionSideSurfaces.get('alpha'), 'terminal');
+    assert.equal(docks.entryFor('alpha').open, true);
+    assert.equal(surfaces.sessionSideSurfaces.get('alpha'), 'browser');
 
-    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 4 }));
-    await act(async () => receive({ sessionId: 'alpha', reveal: true }));
-    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 4 }));
-    assert.equal(docks.entryFor('alpha').surface, 'browser', 'explicit handoff remains visible');
-    await act(async () => {
-      surfaces.setSessionSideSurface('alpha', null);
-      docks.select('alpha', 'sourceControl');
-    });
-    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 5 }));
-    await act(async () => receive({ sessionId: 'alpha', retainTurnId: 5 }));
-    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 5 }));
-    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 6 }));
-    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 6 }));
-    assert.equal(
-      surfaces.sessionSideSurfaces.get('alpha'),
-      'browser',
-      'later automation restores the user-taken-over browser, not its obsolete baseline'
-    );
+    // The user closes it; a takeover still opens it, because the user must act.
     await act(async () => {
       surfaces.dismissBrowserSurface('alpha');
       docks.setOpen('alpha', false);
     });
-    for (const request of [{ temporaryTurnId: 7 }, { reveal: true }, {}, { temporaryTurnId: 8 }]) {
-      await act(async () => receive({ sessionId: 'alpha', ...request }));
-      assert.equal(docks.entryFor('alpha').open, false, 'manual close wins over every later automation reveal');
-      assert.equal(surfaces.sessionSideSurfaces.has('alpha'), false);
-    }
+    await act(async () => receive({ sessionId: 'alpha', reveal: true }));
+    assert.equal(docks.entryFor('alpha').open, false, 'a plain reveal respects the manual close');
+    await act(async () => receive({ sessionId: 'alpha', reveal: true, handoff: true }));
+    assert.equal(docks.entryFor('alpha').open, true, 'a takeover opens the panel at once');
+    assert.equal(docks.entryFor('alpha').surface, 'browser');
+    assert.equal(surfaces.sessionSideSurfaces.get('alpha'), 'browser', 'and it stays open after "다 했어요"');
+
+    // Closed again: the user's own press always reopens it.
     await act(async () => {
-      surfaces.setSessionSideSurface('alpha', 'browser');
-      docks.select('alpha', 'browser');
+      surfaces.dismissBrowserSurface('alpha');
+      docks.setOpen('alpha', false);
     });
-    assert.equal(surfaces.browserAutoRevealSuppressed.current.has('alpha'), false);
-    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 9 }));
-    assert.equal(
-      surfaces.sessionSideSurfaces.get('alpha'),
-      'browser',
-      'only a manual open re-enables automation reveal'
-    );
+    await act(async () => revealBrowserPane('alpha'));
+    assert.equal(docks.entryFor('alpha').open, true);
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -12,6 +12,8 @@ import {
   inlineThemeFromDocument,
   renderInlineContent,
 } from './visualize-inline';
+import { framePointInWindow, watchPinch } from './visualize-zoom';
+import { dispatchZoomAt } from './zoom-target';
 
 type InlineState = { status: 'loading' } | { status: 'ready'; doc: string } | { status: 'error'; error: string };
 
@@ -68,6 +70,26 @@ export function InlinePaneContent({
       referrerPolicy="no-referrer"
       srcDoc={state.doc}
       data-visualize-inline={content.kind}
+      onLoad={(event) => watchInlinePinch(event.currentTarget)}
     />
+  );
+}
+
+const inlinePinches = new WeakMap<HTMLIFrameElement, () => void>();
+
+/** A pinch inside the frame zooms the panel it is in. The frame runs no
+ *  script, so the listener is this document's, on the frame's document
+ *  (reachable: same origin, see INLINE_FRAME_SANDBOX); each load replaces it. */
+function watchInlinePinch(frame: HTMLIFrameElement): void {
+  inlinePinches.get(frame)?.();
+  const doc = frame.contentDocument;
+  if (!doc) return;
+  inlinePinches.set(
+    frame,
+    watchPinch(
+      doc,
+      (point) => framePointInWindow(frame, point),
+      (ratio, at) => dispatchZoomAt(ratio > 1 ? 'in' : 'out', at, undefined, ratio)
+    )
   );
 }

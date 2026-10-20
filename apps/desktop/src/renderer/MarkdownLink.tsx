@@ -134,7 +134,7 @@ async function openWebLink(
   external?: boolean,
   newTab?: boolean
 ): Promise<void> {
-  if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable(), external }) === 'pane') {
+  if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable(), external, url }) === 'pane') {
     requestBrowserPage(sessionId as string, url, newTab ? { newTab: true } : undefined);
     return;
   }
@@ -918,9 +918,10 @@ export function MarkdownLink({
             openWebLinkExternal();
             return;
           }
-          if (event.shiftKey || event.altKey) return;
+          if (event.altKey) return;
           event.preventDefault();
-          void openWebLink(sessionId, target).catch(reportOpenFailure);
+          // Shift-click keeps a remote page in the in-app panel.
+          void openWebLink(sessionId, target, event.shiftKey ? false : undefined).catch(reportOpenFailure);
         }}
       >
         {label}

@@ -26,8 +26,9 @@ export interface ZoomTarget {
   enabled(): boolean;
   /** The pointer is over the target. */
   hovered(): boolean;
-  /** `point` (window CSS px) anchors a pointer gesture; `wheel` carries its delta. */
-  command(input: ZoomKey, point?: ZoomPoint, wheel?: ZoomWheel): void;
+  /** `point` (window CSS px) anchors a pointer gesture; `wheel` carries its
+   *  delta, `pinch` a two-finger pinch's scale factor since its last move. */
+  command(input: ZoomKey, point?: ZoomPoint, wheel?: ZoomWheel, pinch?: number): void;
 }
 
 const targets = new Set<ZoomTarget>();
@@ -73,9 +74,9 @@ export function dispatchZoomKey(input: ZoomKey): void {
 }
 
 /** A gesture made inside a frame at `point`: the target that frame is in. */
-export function dispatchZoomAt(input: ZoomKey, point: ZoomPoint, wheel?: ZoomWheel): void {
+export function dispatchZoomAt(input: ZoomKey, point: ZoomPoint, wheel?: ZoomWheel, pinch?: number): void {
   const hit = document.elementFromPoint(point.x, point.y);
-  enabledTargets()
-    .find((target) => target.element.contains(hit))
-    ?.command(input, point, wheel);
+  const target = enabledTargets().find((candidate) => candidate.element.contains(hit));
+  if (pinch === undefined) target?.command(input, point, wheel);
+  else target?.command(input, point, wheel, pinch);
 }

@@ -87,12 +87,15 @@ export interface TabState {
   pendingReload?: boolean;
   /** The last snapshot was skipped: the session's version history is full. */
   historyFull?: boolean;
-  /** The chat card's picture (a PNG data URL). */
+  /** The chat card's picture (a PNG data URL)… */
   thumbnail?: string;
+  /** …of this version (0 for a tab without versions). */
+  thumbnailVersion?: number;
   /** Direct-renderer tabs: the live content (no files, `targets` is empty). */
   inline?: VisualizeInlineContent;
-  /** Kept contents of an inline tab, oldest first (held in memory). */
-  inlineHistory?: Array<{ n: number; at: number; content: VisualizeInlineContent }>;
+  /** Kept contents of an inline tab, oldest first (held in memory), with the
+   *  card picture each version's turn ended on. */
+  inlineHistory?: Array<{ n: number; at: number; content: VisualizeInlineContent; thumbnail?: string }>;
   /** Displayed pane indices whose inline render finished since the last open. */
   rendered?: Set<number>;
   /** Render ids already spent, with the tab revision they were issued for. */
@@ -252,7 +255,7 @@ export function view(tab: TabState): VisualizeTabView {
     ...(tab.problems.length ? { problems: tab.problems } : {}),
     ...(tab.allowNetwork ? { networkAllowed: true as const } : {}),
     ...versionFields(tab),
-    ...(tab.thumbnail ? { thumbnail: tab.thumbnail } : {}),
+    ...(tab.thumbnail ? { thumbnail: tab.thumbnail, thumbnailVersion: tab.thumbnailVersion ?? 0 } : {}),
     ...(currentAnnotations(tab).length ? { annotations: currentAnnotations(tab) } : {}),
   };
 }

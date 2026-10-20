@@ -28,6 +28,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import type { TranscriptItem } from './desktop-types';
+import { BrowserPeekLine, SavedSignInLines, toolActivityUsesBrowser } from './browser-peek-line';
 import { t } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { LocalPathMention, openWebLinkInSystemBrowser, webLinkMenu } from './MarkdownLink';
@@ -40,7 +41,6 @@ import {
 } from './ScmContextMenu';
 import { ToolComputerReadinessCard } from './transcript-computer-card';
 import { usePersistedThumbnail } from './persisted-thumbnail';
-import { ToolVisualizeCards } from './transcript-visualize-card';
 import { rememberVisualizeTabTitles, visualizeCallTabTitle } from './visualize-card-model';
 import { useToolOutcomeUnknown } from './connection-link-store';
 import { MxIcon } from './MxIcon';
@@ -334,8 +334,12 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
           </div>
         </div>
       )}
-      {browserPage && <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />}
-      <ToolVisualizeCards items={items} sessionId={disclosureScope} />
+      {browserPage ? (
+        <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />
+      ) : (
+        toolActivityUsesBrowser(items) && <BrowserPeekLine sessionId={disclosureScope} />
+      )}
+      <SavedSignInLines items={items} />
       <ToolComputerReadinessCard items={items} taskKey={`${disclosureScope}|${turnKey}`} />
       <TranscriptArtifacts items={items} />
     </article>

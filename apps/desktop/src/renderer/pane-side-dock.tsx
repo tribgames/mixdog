@@ -19,9 +19,11 @@ import {
 import { FolderTree } from 'lucide-react';
 import type { SideFileChrome } from './side-surface-strip';
 import { DockHeaderRow, PaneDockExpandContext } from './pane-dock-chrome';
+import { useDockPanelActions } from './dock-panel-actions';
 import { PaneDockDiffColumn } from './pane-dock-diff-column';
 import { PaneDockFileSurface } from './PaneDockFileSurface';
 import { SESSION_BOUND_VIEWS } from './pane-dock-toggles';
+import { useVisualizeAvailable } from './visualize-store';
 import { usePhoneSheetBodyReady } from './phone-deferred-mount';
 import { publishPhoneDockSwitch, type PhoneDockSwitchItem } from './phone-dock-switch';
 import {
@@ -616,30 +618,21 @@ function usePaneSideDockStorage(docks: Record<string, PaneSideDockEntry>): void 
   }, [docks]);
 }
 
-/** The single writer for a pane's dock entry: it drops the pane's automation
- *  overlay first, then applies the caller's update, and keeps the previous
- *  entry object when nothing actually changed. */
+/** The single writer for a pane's dock entry: it applies the caller's update
+ *  and keeps the previous entry object when nothing actually changed. */
 function usePaneSideDockPatch({
   groupsRef,
   setDocks,
-  setTemporary,
 }: {
   groupsRef: { current: readonly WorkbenchSideViewGroup[] };
   setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
-  setTemporary: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>;
 }) {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: groupsRef is a ref read at call time; setDocks/setTemporary are useState setters owned by usePaneSideDocks
+  // biome-ignore lint/correctness/useExhaustiveDependencies: groupsRef is a ref read at call time; setDocks is a useState setter owned by usePaneSideDocks
   return useCallback(
     (
       leafId: string,
       updater: (entry: PaneSideDockEntry, firstRoot: WorkbenchSideViewId | null) => PaneSideDockEntry
     ) => {
-      setTemporary((current) => {
-        if (!current.has(leafId)) return current;
-        const next = new Map(current);
-        next.delete(leafId);
-        return next;
-      });
       setDocks((current) => {
         const firstRoot = firstPanelRoot(groupsRef.current);
         const entry = current[leafId] ?? { ...CLOSED_ENTRY, view: firstRoot };
@@ -836,15 +829,13 @@ function usePaneSideDockCommands({
   groupsRef,
   dirtyKeysRef,
   setDocks,
-  setTemporary,
 }: {
   groupsRef: { current: readonly WorkbenchSideViewGroup[] };
   /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
   dirtyKeysRef: { current: ReadonlySet<string> };
   setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
-  setTemporary: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>;
 }) {
-  const patch = usePaneSideDockPatch({ groupsRef, setDocks, setTemporary });
+  const patch = usePaneSideDockPatch({ groupsRef, setDocks });
   return {
     ...usePaneDockViewCommands(patch),
     ...usePaneDockDiffCommands(patch),
@@ -886,19 +877,6 @@ export function usePaneSideDocks({
   const [docks, setDocks] = useState<Record<string, PaneSideDockEntry>>(() =>
     normalizePaneSideDocks(readStoredPaneSideDocks(), leafIds, groups, modeDefaultOpen())
   );
-  // Automation overlays never enter persisted user layout.
-  const [temporary, setTemporary] = useState<ReadonlyMap<string, symbol>>(() => new Map());
-  const temporarySelect = useCallback((leafId: string, _surface: 'browser') => {
-    const token = Symbol();
-    setTemporary((current) => new Map(current).set(leafId, token));
-    return () =>
-      setTemporary((current) => {
-        if (current.get(leafId) !== token) return current;
-        const next = new Map(current);
-        next.delete(leafId);
-        return next;
-      });
-  }, []);
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
   const leafIdsRef = useRef(leafIds);
@@ -907,13 +885,7 @@ export function usePaneSideDocks({
   usePaneSideDockStorage(docks);
   useLinkPreviewKeep(setDocks);
   const dirtyKeysRef = useRef<ReadonlySet<string>>(new Set());
-  const entryFor = useCallback(
-    (leafId: string): PaneSideDockEntry => {
-      const base = docks[leafId] ?? CLOSED_ENTRY;
-      return temporary.has(leafId) ? { ...base, open: true, surface: 'browser' } : base;
-    },
-    [docks, temporary]
-  );
+  const entryFor = useCallback((leafId: string): PaneSideDockEntry => docks[leafId] ?? CLOSED_ENTRY, [docks]);
   const {
     select,
     open,
@@ -931,13 +903,11 @@ export function usePaneSideDocks({
     groupsRef,
     dirtyKeysRef,
     setDocks,
-    setTemporary,
   });
   return {
     docks,
     dirtyKeysRef,
     entryFor,
-    temporarySelect,
     select,
     open,
     setOpen,
@@ -1062,6 +1032,7 @@ function PaneDockChromeRow({
   diff,
   diffView,
   panelTitle,
+  leafId,
   renderDiffHeaderControls,
   onClose,
 }: {
@@ -1069,12 +1040,15 @@ function PaneDockChromeRow({
   diff: PaneSideDockDiff | null;
   diffView: ReturnType<typeof useDiffViewState>;
   panelTitle: string;
+  leafId: string;
   renderDiffHeaderControls?: () => ReactNode;
   onClose(): void;
 }) {
+  const panelActions = useDockPanelActions(leafId);
   return (
     <DockHeaderRow
       className="pane-side-dock-chrome"
+      actions={diffShowing ? undefined : panelActions}
       ariaLabel={diffShowing ? t('Changes') : undefined}
       left={
         diffShowing && diff ? (
@@ -1105,21 +1079,27 @@ function PhoneDockSwitchPublisher({
   activeRoot,
   sessionBound,
   files,
+  keepVisualize,
   onSelect,
 }: {
   groups: readonly WorkbenchSideViewGroup[];
   descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
   activeRoot: WorkbenchSideViewId | null;
   sessionBound: boolean;
+  keepVisualize: boolean;
   files?: { active: boolean; onOpen(): void };
   onSelect(id: WorkbenchSideViewId): void;
 }) {
+  // Coding panes list Visualize once the agent has shown something; an agent
+  // chat's own switch (`keepVisualize`) always does, as its header does.
+  const visualizeAvailable = useVisualizeAvailable();
   const items: PhoneDockSwitchItem[] = [];
   if (files) items.push({ id: 'files', label: t('Files'), icon: FolderTree, active: files.active, disabled: false });
   for (const group of groups) {
     const root = group[0];
     const descriptor = root === undefined ? undefined : descriptors.get(root);
     if (!root || !descriptor) continue;
+    if (root === 'visualize' && !keepVisualize && !visualizeAvailable) continue;
     items.push({
       id: root,
       label: descriptor.tooltip || descriptor.label,
@@ -1149,6 +1129,9 @@ type PaneSideDockProps = {
    *  file chip (the unified/split menu by default). */
   renderDiffHeaderControls?: () => ReactNode;
   groups: readonly WorkbenchSideViewGroup[];
+  /** The phone ⋯ pane switch's children when they differ from `groups` (an
+   *  agent-mode chat leaves Changes out; its changes card opens the diff). */
+  switchGroups?: readonly WorkbenchSideViewGroup[];
   descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
   focused: boolean;
   /** Hidden-mount only the focused pane's panel shell after boot. */
@@ -1459,8 +1442,10 @@ function renderPaneDockMain(
 function renderPaneDockHeader(
   props: Pick<
     PaneSideDockProps,
+    | 'leafId'
     | 'entry'
     | 'groups'
+    | 'switchGroups'
     | 'descriptors'
     | 'focused'
     | 'sessionBound'
@@ -1482,8 +1467,10 @@ function renderPaneDockHeader(
   }
 ) {
   const {
+    leafId,
     entry,
     groups,
+    switchGroups,
     descriptors,
     focused,
     sessionBound = false,
@@ -1511,13 +1498,15 @@ function renderPaneDockHeader(
       diff={entry.diff}
       diffView={diffView}
       panelTitle={activeDescriptor?.title ?? activeDescriptor?.label ?? ''}
+      leafId={leafId}
       renderDiffHeaderControls={renderDiffHeaderControls}
       onClose={onClose}
     />
   );
   const phoneSwitch = mobileSheet && focused && (
     <PhoneDockSwitchPublisher
-      groups={groups}
+      groups={switchGroups ?? groups}
+      keepVisualize={Boolean(switchGroups)}
       descriptors={descriptors}
       activeRoot={activeRoot}
       sessionBound={sessionBound}

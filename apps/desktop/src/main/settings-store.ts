@@ -68,6 +68,7 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     computerControl: desktop.computerControl === true,
     computerObserveOnly: desktop.computerObserveOnly === true,
     browserControl: desktop.browserControl === true,
+    browserAutoSignIn: desktop.browserAutoSignIn !== false,
     // Grandfather: a control that is already on predates the install marker.
     computerInstalled: desktop.computerInstalled === true || desktop.computerControl === true,
     browserInstalled: desktop.browserInstalled === true || desktop.browserControl === true,
@@ -83,6 +84,7 @@ const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
   'usagePinned',
   'usageRailShortLong',
   'computerObserveOnly',
+  'browserAutoSignIn',
   'computerInstalled',
   'browserInstalled',
 ]);
@@ -98,6 +100,7 @@ export const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, b
   computerControl: false,
   computerObserveOnly: false,
   browserControl: false,
+  browserAutoSignIn: true,
 };
 
 /** Marker in the `desktop` section: the one-time defaults separation ran. */
@@ -106,6 +109,7 @@ const DEFAULTS_SEPARATION_VERSION = 1;
 /** Every activity-rail default list ever shipped (order matters). */
 const HISTORICAL_ACTIVITY_RAIL_PINS: readonly (readonly string[])[] = [
   ['sessions', 'agents', 'schedules', 'workflows', 'projects'],
+  ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions'],
   DEFAULT_ACTIVITY_RAIL_PINS,
 ];
 

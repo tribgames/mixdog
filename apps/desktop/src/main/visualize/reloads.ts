@@ -1,13 +1,15 @@
 /**
  * File tabs follow their files: each pane file is watched, a change reloads
- * the tab after a debounce (re-resolved inside cwd, snapshotted, published),
- * and an older load never overwrites a newer one.
+ * the tab once writes go quiet (re-resolved inside cwd, snapshotted, published
+ * as an in-place update), and an older load never overwrites a newer one.
  */
 import type { VisualizeServiceContext } from './context';
 import { type FileTarget, realCwdOf, type TabState } from './tab-state';
 import { OutsideWorkingDirectoryError, resolveVisualizeTarget } from './targets';
+import { heldTurn } from './turn-hold';
 
-const RELOAD_DEBOUNCE_MS = 300;
+/** A file reloads once its writes have gone quiet this long. */
+const RELOAD_DEBOUNCE_MS = 1200;
 
 /** A load started at `stamp` may commit to `tab` only when no load started
  *  later already did: `loadedStamp` only ever grows. */
@@ -26,6 +28,7 @@ export function createReloads(
     | 'leases'
     | 'panes'
     | 'tabs'
+    | 'holds'
   >
 ) {
   const { deps, sessions, pendingReloads } = ctx;
@@ -80,8 +83,8 @@ export function createReloads(
         watchTab(sessionId, tab);
       }
       await ctx.tabVersions.recordVersion(sessionId, tab, versionLabel);
-      // A content update is shown like an open (the renderer's open policy).
-      ctx.publish(sessionId, tab.id);
+      // A content update happens in place: no reveal, no activation.
+      ctx.publish(sessionId, undefined, tab.id);
       ctx.thumbnails.refresh(sessionId, tab);
     } catch (error) {
       // A newer open or reload already decided what the tab shows.
@@ -101,6 +104,15 @@ export function createReloads(
   const watchTab = (sessionId: string, tab: TabState): void => {
     const schedule = () => {
       cancelScheduledReload(tab);
+      // An agent turn is editing: the tab is marked now and reloads once
+      // when the turn ends (turn-hold.ts), not after every write.
+      const hold = heldTurn(ctx, sessionId);
+      if (hold) {
+        if (hold.reloads.has(tab)) return;
+        hold.reloads.add(tab);
+        ctx.publish(sessionId, undefined, tab.id);
+        return;
+      }
       let settle = () => {};
       const done = new Promise<void>((resolve) => {
         settle = resolve;

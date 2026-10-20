@@ -205,7 +205,32 @@ test('nested approval descriptions do not weaken cancellation or command binding
   }
 });
 
-test('nothing asks by default: upload and shared clear dispatch without a human prompt', async () => {
+test('submitting and posting ask by default; the opt-out turns only that default off', async () => {
+  const asked = [];
+  const approval = createBrowserActionApproval({
+    ask: async (request) => {
+      asked.push(request.action);
+      return true;
+    },
+  });
+  await approval.approve({ action: 'fill', ref: 'p1-s1-e1', text: 'x', submit: true }, target);
+  await approval.approve({ action: 'press', key: 'Enter' }, target);
+  await approval.approve({ action: 'click', target: { role: 'button', name: 'Post comment' } }, target);
+  await approval.approve(
+    { action: 'sequence', steps: [{ action: 'type', ref: 'r', text: 'a', submit: true }] },
+    target
+  );
+  assert.deepEqual(asked, ['fill', 'press', 'click', 'sequence']);
+  await approval.approve({ action: 'click', target: { role: 'button', name: 'Open menu' } }, target);
+  await approval.approve({ action: 'press', key: 'Tab' }, target);
+  assert.equal(asked.length, 4, 'other gestures still run without a prompt');
+  const denied = createBrowserActionApproval({ ask: async () => false });
+  await assert.rejects(denied.approve({ action: 'press', key: 'Enter' }, target), /nothing was dispatched/);
+  const off = createBrowserActionApproval({ confirmSubmit: false, ask: async () => assert.fail('no prompt') });
+  await off.approve({ action: 'press', key: 'Enter' }, target);
+});
+
+test('nothing else asks by default: upload and shared clear dispatch without a human prompt', async () => {
   let asks = 0;
   const approval = createBrowserActionApproval({
     ask: async () => {

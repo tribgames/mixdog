@@ -657,6 +657,41 @@
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
+/* "브라우저 · 보기" (browser-peek-line.tsx): one quiet line under a turn's
+   browser work; the panel opens only when it is pressed. */
+.transcript-browser-peek {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin: 6px 0 2px;
+  padding: 0 10px;
+  border: 1px solid var(--mx-border);
+  border-radius: 999px;
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+  transition: background var(--mx-motion-ink);
+}
+.transcript-browser-peek b {
+  color: var(--mx-text);
+  font-weight: 500;
+}
+.transcript-browser-peek:hover {
+  background: var(--mx-hover);
+}
+.transcript-browser-peek:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+/* "<site>에 저장된 로그인으로 로그인했습니다": a faint record, no control. */
+.transcript-saved-sign-in {
+  margin: 4px 0 2px;
+  color: var(--mx-text-faint, var(--mx-text-muted));
+  font-size: var(--mx-font-meta);
+}
 /* Computer Use's one-time notice under a tool group: the Extensions dialog's
    item card, so the setup prompt reads the same in chat and in Settings. */
 .transcript-computer-readiness {
@@ -1988,14 +2023,19 @@ button[data-copied="true"] > svg {
   display: flex;
   flex-direction: column;
 }
-.utility-dock-empty {
+/* The one panel-level empty state: text only, centred both ways in the
+   panel's content area. `.schedules-empty` is the Agents pane's legacy alias. */
+.utility-dock-empty,
+.schedules-empty {
   flex: 1;
   min-height: 0;
   display: grid;
-  place-items: center;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
   margin: 0;
   padding: 16px 20px;
-  color: var(--mx-text-faint);
+  color: var(--mx-text-muted);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
   text-align: center;

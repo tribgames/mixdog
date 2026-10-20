@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const dir = mkdtempSync(join(tmpdir(), 'anthropic-login-'));
+// The login writes to the selected account in provider-accounts.json, which
+// outranks ANTHROPIC_OAUTH_CREDENTIALS_PATH. Isolate the data dir so a bare
+// `node --test` from a Mixdog shell (MIXDOG_DATA_DIR = ~/.mixdog/data) never
+// overwrites the signed-in account with these fixture tokens.
+process.env.MIXDOG_DATA_DIR = dir;
 process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH = join(dir, 'credentials.json');
 const { beginOAuthLogin } = await import('./anthropic-oauth-credentials.mjs');
 

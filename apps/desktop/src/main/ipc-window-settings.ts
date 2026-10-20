@@ -2,7 +2,9 @@
 import type { App, BrowserWindow } from 'electron';
 import { DESKTOP_IPC, type DesktopSettings } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
+import { raiseDesktopWindow } from './notification-window';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
+import { createSignInFocus } from './sign-in-focus';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
 import {
@@ -32,6 +34,9 @@ interface WindowSettingsIpcOptions {
   /** Onboarding status may come straight from this PC's status file: only
    *  when `host` is this PC's daemon. Defaults to true. */
   readsLocalOnboardingStatus?: boolean;
+  /** Raise the window after a connector sign-in it started in this PC's
+   *  browser: only when `host` is this PC's daemon. Defaults to false. */
+  raiseOnSignIn?: boolean;
 }
 
 export function registerWindowSettingsIpc({
@@ -44,6 +49,7 @@ export function registerWindowSettingsIpc({
   onDesktopSettingsChanged,
   previewNotificationSound,
   readsLocalOnboardingStatus = true,
+  raiseOnSignIn = false,
 }: WindowSettingsIpcOptions): void {
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
@@ -128,13 +134,18 @@ export function registerWindowSettingsIpc({
       valid ? { color: record.color as string, symbolColor: record.symbolColor as string } : null
     );
   });
+  // A connector sign-in this window started on this PC's browser brings the
+  // window back once the browser callback arrived (sign-in-focus.ts).
+  const signInFocus = raiseOnSignIn ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null;
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
     if (readsLocalOnboardingStatus && request.capability === 'getOnboardingStatus' && !request.sessionId) {
       const status = await readOnboardingStatusFromDisk();
       if (status) return { value: status, snapshot: host.getSnapshot() };
     }
-    return host.invokeCapability(request.capability, request.args, request.sessionId);
+    const result = await host.invokeCapability(request.capability, request.args, request.sessionId);
+    signInFocus?.observe(request.capability, request.args ?? [], result?.value);
+    return result;
   });
   handle(DESKTOP_IPC.readCapabilities, (_event, input) =>
     host.readCapabilities(requiredDesktopCapabilityReadRequests(input))

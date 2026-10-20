@@ -122,8 +122,9 @@ export interface VisualizeTabView {
   panes: VisualizePaneView[];
   /** Runtime problems of the tab's HTML panes; absent when there are none. */
   problems?: VisualizeProblem[];
-  /** The user allowed outside network for the tab's HTML pages (off by
-   *  default: only the page's own files load). Desktop only. */
+  /** Outside network for the tab's HTML pages (on when a tab opens; the
+   *  desktop user can switch it off, then only the page's own files load).
+   *  A paired device's page frame follows it with its CSP. */
   networkAllowed?: true;
   /** Kept versions, oldest first (absent from hosts without history). */
   versions?: VisualizeVersionView[];
@@ -138,6 +139,9 @@ export interface VisualizeTabView {
   /** The chat card's picture of the tab (see `visualizeThumbnail`); absent
    *  until one could be taken. */
   thumbnail?: string;
+  /** The version `thumbnail` shows (0 for a tab without versions): a card
+   *  of another version never takes it. */
+  thumbnailVersion?: number;
   /** The agent's annotation marks on the displayed panes (main draws them in
    *  the desktop window; a paired device draws them from here). */
   annotations?: VisualizeAnnotation[];
@@ -176,6 +180,9 @@ export interface VisualizeCommandResult {
   path?: string;
   openable?: boolean;
   canceled?: boolean;
+  /** `thumbnail`: the kept picture of the asked version (a data URL), absent
+   *  when it has none. */
+  thumbnail?: string;
 }
 
 /** A text pane's source (an HTML file; inline content travels in the tab). */
@@ -204,6 +211,18 @@ export interface DesktopVisualizeEvent {
    *  open policy in visualize-store); hosts before `tab` mean the active tab. */
   reveal?: boolean;
   tab?: string;
+  /** A content update of this tab (its file changed): applied in place, it
+   *  never activates a tab or reveals the panel; an inactive tab gets an
+   *  "updated" mark until it is viewed. Only `reveal` brings anything up. */
+  updated?: string;
+  /** Sent while the session's agent turn runs: `state` is what the turn has
+   *  made so far. The panel keeps showing what it showed (nothing opens,
+   *  activates or reloads), and `updated` still marks its tab. The turn's
+   *  end sends the final state as an ordinary event. */
+  held?: boolean;
+  /** With `held`: when the turn started (ms). Chat cards of opens made since
+   *  then wait for the turn's end. */
+  heldSince?: number;
   openUrl?: string;
   zoom?: VisualizeZoomInput;
   point?: { x: number; y: number };
@@ -239,6 +258,9 @@ export type DesktopVisualizeTabCommand =
    *  address, `resource` what asked for it (an Electron `resourceType`). It is
    *  listed as the same `blocked-network` page problem as on the desktop. */
   | { sessionId: string; tabId: string; action: 'blocked'; pane: number; url: string; resource: string }
+  /** A chat card's picture of kept version `version` (taken when its turn
+   *  ended), for a card of an earlier version; changes nothing. */
+  | { sessionId: string; tabId: string; action: 'thumbnail'; version: number }
   /** A chat card of a closed tab: open the same file targets again in the
    *  session's working directory (validated like an agent open). */
   | {
@@ -289,6 +311,7 @@ export interface VisualizeHostTab {
   panes: VisualizeHostPane[];
   /** Already project-relative (see `VisualizeProblem`). */
   problems?: VisualizeProblem[];
+  networkAllowed?: true;
   /** Path-free already. */
   versions?: VisualizeVersionView[];
   version?: number | null;
@@ -297,6 +320,7 @@ export interface VisualizeHostTab {
   restoreAssets?: string[];
   /** A data URL (path-free). */
   thumbnail?: string;
+  thumbnailVersion?: number;
   /** Selectors and labels only (path-free). */
   annotations?: VisualizeAnnotation[];
 }
@@ -316,6 +340,10 @@ export interface VisualizeHostEvent {
   reveal?: boolean;
   /** With `reveal`: the tab the open or update was for. */
   tab?: string;
+  /** See `DesktopVisualizeEvent.updated` / `held` / `heldSince`. */
+  updated?: string;
+  held?: boolean;
+  heldSince?: number;
   openUrl?: string;
 }
 
@@ -404,6 +432,8 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
           ...(typeof pane.version === 'number' ? { version: pane.version } : {}),
         })),
         ...(problems.length ? { problems } : {}),
+        // The device's frame drops its no-outside-network CSP only on this flag.
+        ...(tab.networkAllowed === true ? { networkAllowed: true as const } : {}),
         ...(tab.versions
           ? {
               versions: tab.versions.map((version) => ({
@@ -417,6 +447,9 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
             }
           : {}),
         ...(visualizeThumbnail(tab.thumbnail) ? { thumbnail: visualizeThumbnail(tab.thumbnail) } : {}),
+        ...(visualizeThumbnail(tab.thumbnail) && Number.isInteger(tab.thumbnailVersion)
+          ? { thumbnailVersion: tab.thumbnailVersion }
+          : {}),
         ...(annotations.length ? { annotations } : {}),
       };
     }),

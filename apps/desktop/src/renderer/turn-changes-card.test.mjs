@@ -30,7 +30,7 @@ const ready = (files, extra = {}) => ({
 });
 
 /** Mounts one card. `reply(request)` answers every capability call. */
-async function mountCard(t, { reply, surface = {}, turnChanges = {} }) {
+async function mountCard(t, { reply, surface = {}, turnChanges = {}, framed = false }) {
   resetTurnChangesCache();
   const { dom, document, root } = installTestDom(t, {
     expose: ['HTMLElement', 'Node', 'Event', 'MouseEvent', 'CustomEvent'],
@@ -70,7 +70,12 @@ async function mountCard(t, { reply, surface = {}, turnChanges = {} }) {
         h(
           TurnChangesContext.Provider,
           { value: nextValue },
-          h(TurnChangesCard, { turnChanges: nextRef }),
+          framed
+            ? h(TurnChangesCard, {
+                turnChanges: nextRef,
+                frame: (card) => h('div', { className: 'frame' }, card),
+              })
+            : h(TurnChangesCard, { turnChanges: nextRef }),
           h(RequestProbe)
         )
       );
@@ -98,6 +103,32 @@ test('none and missing replies render no card', async (t) => {
       assert.equal(view.calls[0].sessionId, 's1');
     });
   }
+});
+
+test('agent mode: the same card, seated by its frame only when it shows', async (t) => {
+  await t.test('the coding card, framed', async (t) => {
+    const two = await mountCard(t, { framed: true, reply: () => ready([file('a.ts'), file('src/b.ts')]) });
+    const card = two.q('.frame > .turn-changes-card');
+    assert.ok(card);
+    assert.equal(card.dataset.fileCount, '2');
+    assert.equal(two.qa('.turn-changes-file').length, 2, 'the same file rows');
+    assert.ok(card.querySelector('.turn-changes-view'), 'the same View changes action');
+    await two.click(card.querySelector('.turn-changes-view'));
+    assert.deepEqual(two.diffOpened, [true]);
+  });
+  await t.test('while its turn runs: no card, no frame', async (t) => {
+    const running = await mountCard(t, {
+      framed: true,
+      reply: () => ready([file('a.ts')]),
+      surface: { turnRunning: true },
+      turnChanges: { trailing: true },
+    });
+    assert.equal(running.q('.frame'), null);
+  });
+  await t.test('nothing changed: no card, no frame', async (t) => {
+    const none = await mountCard(t, { framed: true, reply: () => ready([]) });
+    assert.equal(none.q('.frame'), null);
+  });
 });
 
 test('pending retries with backoff and only then renders', async (t) => {

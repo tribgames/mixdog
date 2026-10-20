@@ -17,6 +17,7 @@ import {
   type VisualizeRemoteExport,
   type VisualizeRemotePaneFile,
   type VisualizeSessionState,
+  visualizeThumbnail,
 } from '../shared/visualize';
 import { requiredSessionId } from './desktop-state';
 import { requiredString, requiredVisualizeTabCommand } from './ipc-validation';
@@ -81,6 +82,9 @@ export function createRemoteVisualizeMirror() {
         ...(state ? { state: remoteVisualizeState({ ...state, sessionId }) } : {}),
         ...(event.reveal === true ? { reveal: true } : {}),
         ...(event.reveal === true && typeof event.tab === 'string' && event.tab ? { tab: event.tab } : {}),
+        ...(state && typeof event.updated === 'string' && event.updated ? { updated: event.updated } : {}),
+        ...(state && event.held === true ? { held: true } : {}),
+        ...(state && event.held === true && Number.isFinite(event.heldSince) ? { heldSince: event.heldSince } : {}),
         ...(openUrl ? { openUrl } : {}),
       };
     },
@@ -213,6 +217,10 @@ export function createRemoteVisualizeMethods(deps: {
       }
       // Only the export's outcome (a project-relative path) travels back.
       const result = record(await available().hostRequest('visualizeCommand', [valid]));
+      if (valid.action === 'thumbnail') {
+        const thumbnail = visualizeThumbnail(result.thumbnail);
+        return thumbnail ? { thumbnail } : null;
+      }
       if (valid.action !== 'export' || typeof result.path !== 'string') return null;
       return { path: result.path, ...(result.openable === true ? { openable: true } : {}) };
     },

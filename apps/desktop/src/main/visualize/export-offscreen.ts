@@ -138,6 +138,22 @@ export function stackedDocument(images: ReadonlyArray<{ mime: string; bytes: Buf
   );
 }
 
+/** The pane pictures `pngs` as tiles filling one screen (a chat card's
+ *  picture of a split tab): equal columns, each picture's top left. */
+export function tiledDocument(pngs: readonly Buffer[]): ExportDocument {
+  const tiles = pngs.map((_png, index) => `<img src="pane-${index}.png">`).join('');
+  const files = page(
+    `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#0b0b0d}` +
+      `body{display:grid;grid-template-columns:repeat(${pngs.length},1fr);gap:4px}` +
+      `img{display:block;width:100%;height:100%;object-fit:cover;object-position:top left;background:#fff}` +
+      `</style></head><body>${tiles}</body></html>`
+  );
+  pngs.forEach((png, index) => {
+    files[`pane-${index}.png`] = { type: 'image/png', body: png };
+  });
+  return { files };
+}
+
 /** The pane pictures `pngs` side by side, each in a column of the export
  *  width (a picture is shrunk to fit it, never enlarged). */
 export function sideBySideDocument(pngs: readonly Buffer[]): ExportDocument {

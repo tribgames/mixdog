@@ -256,15 +256,21 @@ test('open reuses tabs, splits panes, reloads on change, and closes', async () =
     assert.equal(again.tabs[0].id, 'v1');
     assert.equal(service.snapshot()[0].tabs.length, 2);
 
-    // A watched file change reloads that tab (debounced) and asks to show
-    // that tab, like an open (the renderer's open policy decides).
+    // A watched file change reloads that tab (debounced) in place: the
+    // event names the updated tab and asks for no reveal (only an open does).
     const before = service.snapshot()[0].tabs.find((tab) => tab.id === 'v1').revision;
     const change = [...watched.entries()].find(([path]) => path.endsWith('index.html'))[1];
+    const eventsBefore = events.length;
     change();
     change();
     await service.settled();
-    const reloaded = events.findLast((event) => event.reveal);
-    assert.equal(reloaded.tab, 'v1');
+    const reloaded = events.slice(eventsBefore).findLast((event) => event.updated);
+    assert.equal(reloaded.updated, 'v1');
+    assert.equal(reloaded.reveal, undefined);
+    assert.equal(
+      events.slice(eventsBefore).some((event) => event.reveal),
+      false
+    );
     assert.equal(reloaded.state.tabs.find((tab) => tab.id === 'v1').revision, before + 1);
 
     // Other sessions never see this session's tabs.
@@ -463,6 +469,77 @@ test('closing never reports a browser-panel page as closed', async () => {
       service.snapshot()[0].history.map((item) => [item.label, item.open]),
       [['chart.png', false]]
     );
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('rapid writes settle into one reload and one version, updated in place without a reveal', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const { deps, events, watched, prepared } = fakeDeps({
+    versions: { directory: join(root, 'app-data', 'visualize-versions') },
+    reloadDebounceMs: 40,
+  });
+  const service = createVisualizeService(deps);
+  const page = join(cwd, 'site', 'index.html');
+  const latest = () => events.filter((event) => event.state).at(-1).state.tabs[0];
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    assert.deepEqual(
+      latest().versions.map((version) => version.n),
+      [1]
+    );
+    const opened = events.at(-1);
+    assert.equal(opened.reveal, true, 'an open still reveals its tab');
+    const preparedBefore = prepared.length;
+    const revisionBefore = latest().revision;
+    const eventsBefore = events.length;
+    const change = [...watched.entries()].find(([path]) => path.endsWith('index.html'))[1];
+    for (let write = 1; write <= 5; write += 1) {
+      writeFileSync(page, `<h1>write ${write}</h1>`);
+      change();
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    await service.settled();
+    assert.equal(prepared.length - preparedBefore, 1, 'one reload for the burst');
+    assert.equal(latest().revision, revisionBefore + 1);
+    assert.deepEqual(
+      latest().versions.map((version) => version.n),
+      [1, 2],
+      'one version per settled update'
+    );
+    const published = events.slice(eventsBefore);
+    assert.equal(
+      published.some((event) => event.reveal),
+      false,
+      'a content update never reveals'
+    );
+    assert.equal(published.filter((event) => event.updated === 'v1').length, 1);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('the default debounce waits for 1200ms of quiet', async (t) => {
+  const { cwd, cleanup } = workspace();
+  const { deps, watched, prepared } = fakeDeps({ reloadDebounceMs: undefined });
+  const service = createVisualizeService(deps);
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    const preparedBefore = prepared.length;
+    const change = [...watched.entries()].find(([path]) => path.endsWith('index.html'))[1];
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    change();
+    t.mock.timers.tick(1000);
+    change();
+    t.mock.timers.tick(1199);
+    assert.equal(prepared.length, preparedBefore, 'each change restarts the wait');
+    t.mock.timers.tick(1);
+    t.mock.timers.reset();
+    await service.settled();
+    assert.equal(prepared.length - preparedBefore, 1);
   } finally {
     service.dispose();
     cleanup();
@@ -1003,6 +1080,8 @@ test('annotate needs the tab on screen, like capture', async () => {
     // origins' frames and the page's own lease stay untouched. Tabs open with
     // network allowed; the guard is exercised once it is switched off.
     assert.equal(remoteEvents.at(-1).state.tabs[0].networkAllowed, true, 'allowed by default');
+    // A paired device's view carries it too: its frame drops the block on it.
+    assert.equal(remoteVisualizeState(remoteEvents.at(-1).state).tabs[0].networkAllowed, true);
     await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
     const page = { url: frame.url, isDestroyed: () => false, parent: null };
     const child = { url: 'https://ads.example/frame.html', isDestroyed: () => false, parent: page };
@@ -1057,6 +1136,7 @@ test('annotate needs the tab on screen, like capture', async () => {
       ['cdn.example.com (script)', 'live.example.com (webSocket)', 'tracker.example (image)', 'localhost:3000 (xhr)']
     );
     assert.equal(remoteEvents.at(-1).state.tabs[0].networkAllowed, undefined);
+    assert.equal(remoteVisualizeState(remoteEvents.at(-1).state).tabs[0].networkAllowed, undefined);
 
     // A paired device's page frame enforces the same block with a CSP and files
     // each refusal as the very same problem; a local address files nothing.

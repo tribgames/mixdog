@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { buildAccessibilitySnapshot } from './accessibility.ts';
 import { fileInputsFromDomSnapshot } from './snapshot-capture.ts';
+import { passwordInputsFromDomSnapshot } from './snapshot-accessibility-read.ts';
 
 const property = (name, value) => ({ name, value: { value } });
 
@@ -87,6 +88,58 @@ test('DOM snapshot attributes identify file inputs by backend node', () => {
     },
   ]);
   assert.deepEqual([...fileInputs.entries()], [[10, { accept: '.pdf', multiple: true }]]);
+});
+
+test('a password input is a sensitive element: its value is withheld even though the tree calls it a textbox', () => {
+  const strings = ['INPUT', 'type', 'Password', 'email'];
+  const passwordInputs = passwordInputsFromDomSnapshot(strings, [
+    {
+      nodes: {
+        backendNodeId: [20, 21],
+        nodeName: [0, 0],
+        attributes: [
+          [1, 3],
+          [1, 2],
+        ],
+      },
+    },
+  ]);
+  assert.deepEqual([...passwordInputs], [21]);
+  const { payload } = buildAccessibilitySnapshot({
+    snapshotId: 'p4-s1',
+    pageInfo: {
+      url: 'https://example.test/login',
+      title: 'Sign in',
+      scrollY: 0,
+      scrollHeight: 600,
+      viewportHeight: 600,
+      viewportWidth: 800,
+      text: '',
+    },
+    targets: [
+      {
+        nodes: [
+          { nodeId: 'email', role: { value: 'textbox' }, name: { value: 'Email' }, backendDOMNodeId: 20 },
+          {
+            nodeId: 'pass',
+            role: { value: 'textbox' },
+            name: { value: 'Password' },
+            value: { value: '••••' },
+            backendDOMNodeId: 21,
+          },
+        ],
+        bounds: new Map(),
+        fileInputs: new Map(),
+        passwordInputs,
+      },
+    ],
+    maxElements: 10,
+    textChars: 100,
+  });
+  const [email, pass] = payload.elements;
+  assert.equal(email.sensitive, undefined);
+  assert.equal(pass.sensitive, true);
+  assert.ok(!pass.value);
 });
 
 test('accessibility snapshot keeps actionable refs, cross-frame text, hierarchy, and degradation warnings', () => {

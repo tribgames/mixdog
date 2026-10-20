@@ -6,7 +6,7 @@
 import type { BaseWindow, BrowserWindow, WebContents } from 'electron';
 import { app } from 'electron';
 
-import { DESKTOP_IPC } from '../../shared/contract';
+import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
 import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } from './command';
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
@@ -35,7 +35,7 @@ interface BrowserGuestLifecycleHost {
   onPopup?(opener: WebContents, popup: WebContents): void;
   onGuest?(guest: WebContents): void;
   /** The display client was asked to reveal or hide the session's surface. */
-  onSurfaceRequest?(request: { sessionId: string; reveal?: boolean; hide?: boolean }): void;
+  onSurfaceRequest?(request: DesktopBrowserOpenRequest): void;
   waitForLoadSettle(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<unknown>;
   /** Native presentation: pages compose as views in their own parked,
    *  frameless windows; the shell adopts the view the pane shows (see
@@ -500,11 +500,15 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     return trackBackgroundPage(sessionId, name, createPage(), 'agent');
   }
 
-  function requestBrowserSurface(sessionId: string, reveal: boolean | 'hide'): void {
+  /** `handoff`: a takeover needs the user on the page, so the panel opens even
+   *  where they closed it. */
+  function requestBrowserSurface(sessionId: string, reveal: boolean | 'hide' | 'handoff'): void {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
       throw new Error('desktop window is unavailable');
     }
-    const request = { sessionId, ...(reveal === 'hide' ? { hide: true } : { reveal }) };
+    let request: DesktopBrowserOpenRequest = { sessionId, reveal: reveal === true };
+    if (reveal === 'hide') request = { sessionId, hide: true };
+    else if (reveal === 'handoff') request = { sessionId, reveal: true, handoff: true };
     window.webContents.send(DESKTOP_IPC.browserOpenRequested, request);
     // An explicit reveal or hide is an agent handoff paired clients must see too.
     host.onSurfaceRequest?.(request);

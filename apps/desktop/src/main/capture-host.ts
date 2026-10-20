@@ -1,5 +1,6 @@
 import type {
   DesktopAbortOptions,
+  DesktopAgentMemoryEntry,
   DesktopAgentPoolRow,
   DesktopSessionContentMatch,
   DesktopCapability,
@@ -292,6 +293,18 @@ export class CaptureService implements DesktopService {
   async openAgentHome(): Promise<{ sessionId: string }> {
     throw new Error('Agent threads are unavailable in the capture profile.');
   }
+  async resetAgentHome(): Promise<{ sessionId: string; archivedSessionId: string | null }> {
+    throw new Error('Agent threads are unavailable in the capture profile.');
+  }
+  async listAgentMemory(): Promise<DesktopAgentMemoryEntry[]> {
+    return [];
+  }
+  async deleteAgentMemory(): Promise<void> {
+    throw new Error('Agent memory is unavailable in the capture profile.');
+  }
+  async agentRoomAction(): Promise<unknown> {
+    throw new Error('Group rooms are unavailable in the capture profile.');
+  }
   async setSessionFavorite(): Promise<void> {}
   async setSessionProject(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> {
@@ -328,6 +341,12 @@ export class CaptureService implements DesktopService {
   }
   resolveToolApprovalForSession(_sessionId: string, _id: string, _decision: ToolApprovalDecision): boolean {
     return true;
+  }
+  async getAgentNotificationMute(_agentId: string): Promise<boolean> {
+    return false;
+  }
+  async setAgentNotificationMute(_agentId: string, muted: boolean): Promise<boolean> {
+    return muted;
   }
 
   async submitNewTask(

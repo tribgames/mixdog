@@ -1,7 +1,9 @@
-/** One-shot, target-bound approvals for actions an operator names in
- * MIXDOG_BROWSER_CONFIRM_ACTIONS. Nothing asks by default; a named action gets
- * a human confirmation that no page text or agent-supplied field can mint.
- * Policies name public actions, not site heuristics. */
+/** One-shot, target-bound approvals. Submitting and posting ask by default: a
+ * command that submits a form (`submit`, Enter) or clicks a target named as a
+ * send/post control. MIXDOG_BROWSER_CONFIRM_ACTIONS names more actions to
+ * confirm; MIXDOG_BROWSER_CONFIRM_SUBMIT=0 turns the default off (automation
+ * harnesses). Each approval is a human confirmation that no page text or
+ * agent-supplied field can mint. */
 import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import type { BrowserCommand } from './command';
 import { describeBrowserTarget } from './target-resolve';
@@ -38,10 +40,28 @@ function describeApprovalTargets(command: BrowserCommand, fallback: string): str
   return command.submit ? `${summary}\nSubmit form` : summary;
 }
 
+/** Accessible names of controls that send or post (word match, any case). */
+const POST_CONTROL_NAME = /\b(?:submit|send|post|publish|tweet|reply|comment)\b/i;
+
+type ApprovalStep = Pick<BrowserCommand, 'action' | 'submit' | 'key' | 'target'>;
+
+function stepSubmits(step: ApprovalStep): boolean {
+  if (step.submit === true) return true;
+  if (step.action === 'press' && String(step.key || '').toLowerCase() === 'enter') return true;
+  return step.action === 'click' && POST_CONTROL_NAME.test(String(step.target?.name || ''));
+}
+
+/** Whether a command submits a form or posts: confirmed by default. */
+export function browserCommandSubmits(command: BrowserCommand): boolean {
+  return stepSubmits(command) || (command.steps || []).some((step) => stepSubmits(step as ApprovalStep));
+}
+
 export function createBrowserActionApproval(host: {
   ask(request: BrowserApprovalRequest, signal?: AbortSignal): Promise<boolean>;
   confirmActions?: string;
   denyActions?: string;
+  /** Default true: submits and posts ask (see browserCommandSubmits). */
+  confirmSubmit?: boolean;
   now?: () => number;
 }) {
   const now = host.now || Date.now;
@@ -66,7 +86,8 @@ export function createBrowserActionApproval(host: {
     if (denied.has('*') || names.some((name) => denied.has(name))) {
       throw new Error('Browser Use action is denied by policy; nothing was dispatched');
     }
-    if (!confirmation.has('*') && !names.some((name) => confirmation.has(name))) return;
+    const submits = host.confirmSubmit !== false && browserCommandSubmits(command);
+    if (!submits && !confirmation.has('*') && !names.some((name) => confirmation.has(name))) return;
     const files: Array<{ path: string; size: number; mtimeMs: number }> = [];
     if (command.action === 'upload') {
       if (!command.paths?.length || command.paths.length > 10)

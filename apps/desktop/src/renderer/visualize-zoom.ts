@@ -38,6 +38,73 @@ export function emitVisualizeZoomModifier(held: boolean): void {
   for (const listener of [...modifierListeners]) listener(held);
 }
 
+type TouchPoint = { clientX: number; clientY: number };
+type TouchList = { length: number; [index: number]: TouchPoint };
+
+/** Two fingers' spread and midpoint, both in window CSS px. */
+export function pinchGeometry(
+  toWindow: (point: ZoomPoint) => ZoomPoint,
+  first: TouchPoint,
+  second: TouchPoint
+): { spread: number; at: ZoomPoint } {
+  const a = toWindow({ x: first.clientX, y: first.clientY });
+  const b = toWindow({ x: second.clientX, y: second.clientY });
+  return { spread: Math.hypot(a.x - b.x, a.y - b.y), at: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+}
+
+/** Two-finger pinches on `target` (a panel, or a pane frame's document): each
+ *  move reports how much the spread grew since the last one (`ratio`) and its
+ *  midpoint (mapped to window CSS px by `toWindow`). One finger is left alone,
+ *  so it keeps scrolling at any scale; a pinch move is taken (preventDefault),
+ *  so the second finger does not also pan. Returns the cleanup. */
+export function watchPinch(
+  target: EventTarget,
+  toWindow: (point: ZoomPoint) => ZoomPoint,
+  onPinch: (ratio: number, at: ZoomPoint) => void
+): () => void {
+  let spread = 0;
+  // Measured in window px: a frame drawn scaled by the zoom itself would
+  // otherwise shrink the spread as the zoom grows, cancelling the pinch.
+  const measure = (touches: TouchList) => pinchGeometry(toWindow, touches[0], touches[1]);
+  const onStart = (event: Event) => {
+    const touches = (event as TouchEvent).touches as unknown as TouchList;
+    spread = touches.length === 2 ? measure(touches).spread : 0;
+  };
+  const onMove = (event: Event) => {
+    const touches = (event as TouchEvent).touches as unknown as TouchList;
+    if (touches.length !== 2 || spread <= 0) return;
+    event.preventDefault();
+    const next = measure(touches);
+    if (next.spread <= 0) return;
+    const ratio = next.spread / spread;
+    spread = next.spread;
+    if (Math.abs(ratio - 1) > 0.002) onPinch(ratio, next.at);
+  };
+  const onEnd = (event: Event) => {
+    const touches = (event as TouchEvent).touches as unknown as TouchList;
+    spread = touches.length === 2 ? measure(touches).spread : 0;
+  };
+  target.addEventListener('touchstart', onStart, { passive: true });
+  target.addEventListener('touchmove', onMove, { passive: false });
+  target.addEventListener('touchend', onEnd, { passive: true });
+  target.addEventListener('touchcancel', onEnd, { passive: true });
+  return () => {
+    target.removeEventListener('touchstart', onStart);
+    target.removeEventListener('touchmove', onMove);
+    target.removeEventListener('touchend', onEnd);
+    target.removeEventListener('touchcancel', onEnd);
+  };
+}
+
+/** Where a point in `frame`'s own document lands in this window (the panel
+ *  may draw the frame scaled, by its zoom). */
+export function framePointInWindow(frame: HTMLIFrameElement, point: ZoomPoint): ZoomPoint {
+  const box = frame.getBoundingClientRect();
+  const scaleX = frame.clientWidth > 0 ? box.width / frame.clientWidth : 1;
+  const scaleY = frame.clientHeight > 0 ? box.height / frame.clientHeight : 1;
+  return { x: box.left + point.x * scaleX, y: box.top + point.y * scaleY };
+}
+
 /** Style of the layer that holds a pane's content at `scale`. An image is
  *  fitted to its layer, so the layer itself grows (the pane scrolls when it
  *  overflows) and the image is drawn at `scale` times its fitted size
@@ -127,8 +194,9 @@ export function useVisualizeZoom({
       element: panel,
       enabled: () => true,
       hovered: () => over || panel.matches(':hover'),
-      command(input, point, wheel) {
+      command(input, point, wheel, pinch) {
         if (input === 'reset') setScale(1, point);
+        else if (pinch) setScale(live.current.scale * pinch, point);
         else if (wheel)
           setScale(wheelZoomScale(live.current.scale, wheel.deltaY, wheel.deltaMode, panel.clientHeight), point);
         else setScale(stepSnapped(live.current.scale, input === 'in' ? 1 : -1, VISUALIZE_ZOOM_RANGE), point);
@@ -142,6 +210,27 @@ export function useVisualizeZoom({
         y: event.clientY,
       });
     };
+    // A non-passive wheel listener makes Chromium hold every wheel over its
+    // element, pane frames included, until this document's main thread
+    // answered: a page then scrolled only once the busy shell was free. A
+    // wheel over a frame belongs to the frame's document (its Ctrl+wheel comes
+    // through main), so the listener is held only while the pointer is over
+    // the panel's own content, or while Ctrl/Cmd lets a document frame's
+    // wheel through to the panel.
+    let overFrame = false;
+    let modifier = false;
+    let listening = false;
+    const listen = () => {
+      const wanted = !overFrame || modifier;
+      if (wanted === listening) return;
+      listening = wanted;
+      if (wanted) panel.addEventListener('wheel', onWheel, { passive: false });
+      else panel.removeEventListener('wheel', onWheel);
+    };
+    const onOver = (event: Event) => {
+      overFrame = (event.target as Node | null)?.nodeName === 'IFRAME';
+      listen();
+    };
     // While Ctrl/Cmd is held a document frame (Chromium's PDF viewer, which
     // zooms by itself on Ctrl+wheel and cannot be told not to) lets the wheel
     // through to the panel (visualize.css), which zooms for it. Keys the
@@ -149,6 +238,8 @@ export function useVisualizeZoom({
     const hold = (held: boolean) => {
       if (held) panel.setAttribute('data-zoom-modifier', '');
       else panel.removeAttribute('data-zoom-modifier');
+      modifier = held;
+      listen();
     };
     const onKey = (event: KeyboardEvent) => hold(event.ctrlKey || event.metaKey);
     const onBlur = () => hold(false);
@@ -159,7 +250,15 @@ export function useVisualizeZoom({
       over = false;
     };
     modifierListeners.add(hold);
-    panel.addEventListener('wheel', onWheel, { passive: false });
+    // A pinch over the panel itself (an image, a remote document's pages);
+    // one inside a pane frame arrives through dispatchZoomAt instead.
+    const unpinch = watchPinch(
+      panel,
+      (point) => point,
+      (ratio, at) => setScale(live.current.scale * ratio, at)
+    );
+    listen();
+    panel.addEventListener('pointerover', onOver);
     panel.addEventListener('pointerenter', enter);
     panel.addEventListener('pointerleave', leave);
     document.addEventListener('keydown', onKey, true);
@@ -167,9 +266,11 @@ export function useVisualizeZoom({
     window.addEventListener('blur', onBlur);
     return () => {
       unregister();
+      unpinch();
       hold(false);
       modifierListeners.delete(hold);
       panel.removeEventListener('wheel', onWheel);
+      panel.removeEventListener('pointerover', onOver);
       panel.removeEventListener('pointerenter', enter);
       panel.removeEventListener('pointerleave', leave);
       document.removeEventListener('keydown', onKey, true);

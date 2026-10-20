@@ -19,62 +19,27 @@ type BrowserSurfaceRequests = {
     | 'pendingBrowserAutoReveal'
     | 'setSessionSideSurface'
     | 'hideBrowserSurface'
-    | 'beginTemporaryBrowserSurface'
     | 'browserAutoRevealSuppressed'
   >;
   prefetch(): Promise<unknown>;
   select(leafId: string, surface: 'browser'): void;
-  temporarySelect?(leafId: string, surface: 'browser'): () => void;
 };
 
-/** Agent visibility requests never release the persistent browser root. */
+/** Visibility requests (the user's click, a takeover hand-off, an agent
+ *  hide) never release the persistent browser root. Agent work alone sends
+ *  none: the panel never opens by itself during a turn. */
 export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) {
   const { owners, focusedLeafId, surfaces, prefetch, select } = options;
   const { browserSurfaces, pendingBrowserAutoReveal, setSessionSideSurface, hideBrowserSurface } = surfaces;
-  const temporary = useRef(
-    new Map<
-      string,
-      {
-        turnId: number;
-        releaseSurface(): void;
-        releaseDock?: () => void;
-      }
-    >()
-  );
-  const reveal = (sessionId: string, leafId: string) => {
-    const entry = temporary.current.get(sessionId);
-    if (entry && options.temporarySelect) {
-      entry.releaseDock ??= options.temporarySelect(leafId, 'browser');
-    } else select(leafId, 'browser');
-  };
   const handleRequest = (request: DesktopBrowserOpenRequest) => {
     const sessionId = String(request?.sessionId || '').trim();
     if (!sessionId) return;
-    if (request.retainTurnId !== undefined) {
-      if (temporary.current.get(sessionId)?.turnId === request.retainTurnId) {
-        // Keep the visible state, but discard the old restoration baseline so
-        // a later task cannot fold a browser the user has taken over.
-        temporary.current.delete(sessionId);
-      }
-      return;
-    }
-    if (request.restoreTurnId !== undefined) {
-      const entry = temporary.current.get(sessionId);
-      if (entry?.turnId !== request.restoreTurnId) return;
-      temporary.current.delete(sessionId);
-      pendingBrowserAutoReveal.current.delete(sessionId);
-      entry.releaseSurface();
-      entry.releaseDock?.();
-      return;
-    }
     if (request.hide === true) {
-      const entry = temporary.current.get(sessionId);
-      temporary.current.delete(sessionId);
-      entry?.releaseSurface();
-      entry?.releaseDock?.();
       hideBrowserSurface(sessionId);
       return;
     }
+    // A takeover needs the user on the page, even one whose panel they closed.
+    if (request.handoff === true) surfaces.browserAutoRevealSuppressed.current.delete(sessionId);
     if (browserSurfaceRequestShouldReveal(request) && surfaces.browserAutoRevealSuppressed.current.has(sessionId)) {
       pendingBrowserAutoReveal.current.delete(sessionId);
       return;
@@ -82,25 +47,11 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
     void prefetch().catch(() => {});
     browserSurfaces.ensure(sessionId);
     if (!browserSurfaceRequestShouldReveal(request)) return;
-    if (Number.isSafeInteger(request.temporaryTurnId) && Number(request.temporaryTurnId) > 0) {
-      const turnId = Number(request.temporaryTurnId);
-      const entry = temporary.current.get(sessionId);
-      if (entry && entry.turnId > turnId) return;
-      if (entry) entry.turnId = turnId;
-      else
-        temporary.current.set(sessionId, {
-          turnId,
-          releaseSurface: surfaces.beginTemporaryBrowserSurface(sessionId),
-        });
-    } else {
-      // Explicit open is a handoff, so the user's new layout is retained.
-      temporary.current.delete(sessionId);
-      setSessionSideSurface(sessionId, 'browser');
-    }
+    setSessionSideSurface(sessionId, 'browser');
     const plan = browserSurfaceRevealPlan(owners, sessionId, focusedLeafId);
     if (plan.leafId) {
       pendingBrowserAutoReveal.current.delete(sessionId);
-      reveal(sessionId, plan.leafId);
+      select(plan.leafId, 'browser');
     } else {
       pendingBrowserAutoReveal.current.add(sessionId);
     }
@@ -125,7 +76,7 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
       }),
     [surfaces.browserAutoRevealSuppressed]
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs on owner/focus/select changes; reveal is derived from select, and the ref sets are read at run time
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs on owner/focus/select changes; the ref sets are read at run time
   useEffect(() => {
     for (const sessionId of pendingBrowserAutoReveal.current) {
       if (surfaces.browserAutoRevealSuppressed.current.has(sessionId)) {
@@ -135,7 +86,7 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
       const plan = browserSurfaceRevealPlan(owners, sessionId, focusedLeafId);
       if (!plan.leafId) continue;
       pendingBrowserAutoReveal.current.delete(sessionId);
-      reveal(sessionId, plan.leafId);
+      select(plan.leafId, 'browser');
     }
   }, [owners, focusedLeafId, pendingBrowserAutoReveal, select]);
 }

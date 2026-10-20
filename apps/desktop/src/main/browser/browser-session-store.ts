@@ -199,3 +199,41 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
 
   return { save, restore, startAutosave, file };
 }
+
+type CookieChangeListener = (event: unknown, cookie: { session?: boolean }, cause: string, removed: boolean) => void;
+
+/** A sign-in (or sign-out) is written within a second of the cookie change,
+ *  not at the next minute's autosave: a crash right after a login used to
+ *  lose its session cookies, and Chromium's own lazily flushed store could
+ *  lose the persistent ones. Session cookies go through the sealed store,
+ *  persistent ones are flushed to Chromium's profile. */
+export function watchBrowserSessionCookies(
+  cookies: {
+    on(event: 'changed', listener: CookieChangeListener): unknown;
+    removeListener(event: 'changed', listener: CookieChangeListener): unknown;
+  },
+  store: { save(): Promise<number> },
+  jar: Pick<BrowserCookieJar, 'flushStore'>,
+  delayMs = 1_000
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let sessionChanged = false;
+  const write = () => {
+    timer = null;
+    const saveSession = sessionChanged;
+    sessionChanged = false;
+    if (saveSession) void store.save().catch(() => undefined);
+    void jar.flushStore().catch(() => undefined);
+  };
+  const listener: CookieChangeListener = (_event, cookie) => {
+    if (cookie?.session === true) sessionChanged = true;
+    timer ??= setTimeout(write, delayMs);
+    timer.unref?.();
+  };
+  cookies.on('changed', listener);
+  return () => {
+    cookies.removeListener('changed', listener);
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+}

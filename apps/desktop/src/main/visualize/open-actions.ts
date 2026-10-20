@@ -23,6 +23,8 @@ import {
   withProblems,
 } from './tab-state';
 import { parseVisualizeRequest, resolveVisualizeTarget, type VisualizeRequest, type VisualizeTarget } from './targets';
+import { heldTurn } from './turn-hold';
+import { shownVersionOf } from './version-thumbnails';
 
 type OpenRequest = Extract<VisualizeRequest, { action: 'open' }>;
 
@@ -41,6 +43,7 @@ type OpenContext = Pick<
   | 'publish'
   | 'problems'
   | 'reloads'
+  | 'holds'
 >;
 
 /** Show the kept `version` a request asks for; the error is reported only
@@ -59,6 +62,14 @@ async function selectRequested(
   }
 }
 
+/** "v3", or "v3 (version 2)" from a tab's second kept version on: chat cards
+ *  read the tab id and the version their open made from the result text (no
+ *  version named on a host that keeps them = version 1). */
+function tabRef(tab: TabState): string {
+  const n = shownVersionOf(tab);
+  return n > 1 ? `${tab.id} (version ${n})` : tab.id;
+}
+
 /** Where the opened tab went: "Showing" only when the user can see it now,
  *  else what stands between it and the user, so the agent can say so. Keeps
  *  the literal "as tab vN" (chat cards read the tab id from it). */
@@ -69,14 +80,20 @@ async function placement(
   what: string
 ): Promise<string> {
   const state = (await deps.onScreen?.(sessionId, view(tab))) ?? 'visible';
-  if (state === 'visible') return `Showing ${what} in the side panel as tab ${tab.id}.`;
+  if (state === 'visible') return `Showing ${what} in the side panel as tab ${tabRef(tab)}.`;
   if (state === 'background') {
-    return `Opened ${what} in the side panel as tab ${tab.id}, but the Mixdog window is in the background (another app has the focus); tell the user it is waiting in the Mixdog window.`;
+    return `Opened ${what} in the side panel as tab ${tabRef(tab)}, but the Mixdog window is in the background (another app has the focus); tell the user it is waiting in the Mixdog window.`;
   }
   if (state === 'covered') {
-    return `Opened ${what} in the side panel as tab ${tab.id}, but something in the Mixdog window covers the panel (a dialog, Settings or another overlay); the user must close it to see the tab.`;
+    return `Opened ${what} in the side panel as tab ${tabRef(tab)}, but something in the Mixdog window covers the panel (a dialog, Settings or another overlay); the user must close it to see the tab.`;
   }
-  return `Opened ${what} as tab ${tab.id}, but it is not on screen (the window is minimized or hidden, or the session is not shown); the user must bring the Mixdog window and this session's visualize panel up to see it.`;
+  return `Opened ${what} as tab ${tabRef(tab)}, but it is not on screen (the window is minimized or hidden, or the session is not shown); the user must bring the Mixdog window and this session's visualize panel up to see it.`;
+}
+
+/** An open during an agent turn (turn-hold.ts): kept, shown when the turn
+ *  ends. Keeps the literal "as tab vN" (chat cards read the tab id from it). */
+function heldPlacement(tab: TabState, what: string): string {
+  return `Prepared ${what} as tab ${tabRef(tab)}; the side panel shows it when this turn ends (it is left alone until then, so open again freely after edits). check, inspect and capture work on the tab now, off screen.`;
 }
 
 /** `open` with `input.content`: a direct-renderer tab, no files. Reopening
@@ -95,12 +112,14 @@ async function openInline(
     | 'views'
     | 'publish'
     | 'problems'
+    | 'holds'
   >,
   request: OpenRequest,
   content: VisualizeInlineContent
 ): Promise<VisualizeResult> {
   const { sessionOf, sessionCwds } = ctx;
   const { sessionId, cwd } = request;
+  const held = heldTurn(ctx, sessionId) !== null;
   const state = sessionOf(sessionId);
   const key = inlineKey(content);
   const [pane, realCwd] = await Promise.all([ctx.panes.inlinePaneFor(content), realCwdOf(cwd)]);
@@ -149,19 +168,19 @@ async function openInline(
   tab.versions = history.map(({ n, at }) => ({ n, at }));
   const versionError =
     request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
-  state.active = tab.id;
+  // A held open activates nothing: the turn's end shows its last tab.
+  if (!held) state.active = tab.id;
   ctx.views.rememberTab(sessionId, tab, true);
   ctx.publish(sessionId, tab.id);
   if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live content`);
-  const placed = await placement(
-    ctx.deps,
-    sessionId,
-    tab,
-    `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`
-  );
-  await ctx.problems.awaitInlineRender(tab);
-  // A scripted page gets a moment to load, so its first errors ride this result.
-  if (displayedPanes(tab).some((candidate) => candidate.kind === 'html')) await ctx.problems.settle(tab, 1);
+  const what = `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`;
+  const placed = held ? heldPlacement(tab, what) : await placement(ctx.deps, sessionId, tab, what);
+  // Nothing renders a held tab, so there is nothing to wait for.
+  if (!held) {
+    await ctx.problems.awaitInlineRender(tab);
+    // A scripted page gets a moment to load, so its first errors ride this result.
+    if (displayedPanes(tab).some((candidate) => candidate.kind === 'html')) await ctx.problems.settle(tab, 1);
+  }
   sessionCwds.set(sessionId, cwd);
   ctx.thumbnails.refresh(sessionId, tab);
   return {
@@ -286,16 +305,19 @@ export function createOpenActions(ctx: OpenContext) {
     await ctx.tabVersions.recordVersion(sessionId, tab);
     const versionError =
       request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
-    state.active = tab.id;
+    const held = heldTurn(ctx, sessionId) !== null;
+    // A held open activates nothing: the turn's end shows its last tab.
+    if (!held) state.active = tab.id;
     ctx.views.rememberTab(sessionId, tab, true);
     ctx.publish(sessionId, tab.id);
     if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live files`);
     const shown = files
       .map((target) => `${relative(cwd, target.path).replace(/\\/g, '/') || target.label} (${target.kind})`)
       .join(', ');
-    const placed = await placement(deps, sessionId, tab, shown);
-    // Give a fresh page a moment to load, so its first errors ride this result.
-    if (panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(tab, 1);
+    const placed = held ? heldPlacement(tab, shown) : await placement(deps, sessionId, tab, shown);
+    // Give a fresh page a moment to load, so its first errors ride this result
+    // (a held tab loads nowhere yet).
+    if (!held && panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(tab, 1);
     // A dropped open's cwd is as stale as its files: the session keeps the
     // cwd of the load that committed. A later open that overtook this one
     // during settle owns the tab's cwd now, and records its own.

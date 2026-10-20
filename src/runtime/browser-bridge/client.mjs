@@ -53,6 +53,30 @@ export async function finishBrowserTurn(sessionId, turnId, { aborted = false } =
   }
 }
 
+/** Runtime-only: fill the secret the user handed the desktop for `requestId`
+ *  into the page's focused password field through the host's isolated-world
+ *  fill. The value never passes through here; the host answers only
+ *  'provided' or 'skipped'. */
+export async function browserSecretInput(sessionId, requestId, { signal } = {}) {
+  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  if (!discovery || !sessionId || !requestId) return 'skipped';
+  try {
+    const result = await requestBridge(
+      discovery,
+      JSON.stringify({ action: 'secret_input', session_id: String(sessionId), request_id: String(requestId) }),
+      signal
+        ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), signal])
+        : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      { sessionId, action: 'secret_input' }
+    );
+    return result.status === 200 && result.body?.ok !== false && result.body?.value?.text === 'provided'
+      ? 'provided'
+      : 'skipped';
+  } catch {
+    return 'skipped';
+  }
+}
+
 const BRIDGE_UNAVAILABLE_MESSAGE = 'browser use is unavailable; open the Mixdog desktop app and enable Browser Use';
 
 /** Sync gate for the session tool surface (featureDisallowedTools). */

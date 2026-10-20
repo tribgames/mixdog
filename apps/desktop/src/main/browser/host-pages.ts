@@ -5,7 +5,7 @@
  */
 import type { BrowserWindow, WebContents } from 'electron';
 
-import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
+import type { DesktopBrowserOpenRequest } from '../../shared/contract';
 import type { BrowserCommand } from './command';
 import type { createBrowserDisplayTextures } from './display-textures';
 import type { createBrowserDisplayTracking } from './display-tracking';
@@ -49,14 +49,8 @@ function watchBrowserGuest(
   });
 }
 
-function createBrowserHostTaskLifecycle(
-  sessions: BrowserSessionRegistry,
-  state: BrowserGuestStateStore,
-  sendToRenderer: (channel: string, ...args: unknown[]) => void
-) {
+function createBrowserHostTaskLifecycle(sessions: BrowserSessionRegistry, state: BrowserGuestStateStore) {
   return createBrowserTaskLifecycle<WebContents>({
-    current: (sessionId) => sessions.currentGuest(sessionId),
-    select: (sessionId, guest) => sessions.selectGuest(sessionId, guest),
     close: (guest) => browserPageWindow(guest)?.destroy(),
     canClose: (guest) => !state.for(guest).pendingDialog,
     preserve: (guest) => {
@@ -64,7 +58,6 @@ function createBrowserHostTaskLifecycle(
       const page = owner ? sessions.backgroundPageForGuest(owner, guest) : undefined;
       if (page) page.keepAlive = true;
     },
-    surface: (sessionId, request) => sendToRenderer(DESKTOP_IPC.browserOpenRequested, { sessionId, ...request }),
   });
 }
 
@@ -84,7 +77,6 @@ export function createBrowserHostPages(options: {
     | 'leave'
     | 'pageIdentity'
     | 'nativeView'
-    | 'sendToRenderer'
   >;
   onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
   /** Cancel the agent on a page a person took over natively. */
@@ -130,7 +122,7 @@ export function createBrowserHostPages(options: {
         },
       })
     : null;
-  const taskLifecycle = createBrowserHostTaskLifecycle(sessions, state, base.sendToRenderer);
+  const taskLifecycle = createBrowserHostTaskLifecycle(sessions, state);
   const retainGuest = taskLifecycle.retain;
   return { lifecycle, nativeViews, taskLifecycle, retainGuest };
 }

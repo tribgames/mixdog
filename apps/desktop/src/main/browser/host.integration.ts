@@ -301,11 +301,8 @@ async function run(): Promise<void> {
     progress('root navigation complete');
     await command({ action: 'open' });
     await command({ action: 'open' });
-    assert.deepEqual(browserSurfaceRequests.splice(0), [
-      { sessionId: 'browser-integration-session', reveal: true },
-      { sessionId: 'browser-integration-session', reveal: true },
-    ]);
-    progress('existing foreground guest reveal complete');
+    assert.deepEqual(browserSurfaceRequests.splice(0), [], 'agent work never opens the panel by itself');
+    progress('existing foreground guest open keeps the panel closed');
     await visibleGuest.executeJavaScript(`
       const draft = document.createElement('textarea');
       draft.id = 'completion-draft';

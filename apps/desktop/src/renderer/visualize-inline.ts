@@ -3,15 +3,17 @@
 //
 // The libraries (bundled, loaded lazily — never from a CDN) run here in the
 // app and produce static markup; that markup is sanitized and shown in an
-// iframe that is as dead as a frame can be: an opaque origin (no
-// `allow-same-origin`, no `allow-scripts`) under a CSP with no network, no
-// script and only inline styles / `data:` images. The app's own CSP
+// iframe that runs nothing: no `allow-scripts`, under a CSP with no network,
+// no script and only inline styles / `data:` images. The app's own CSP
 // (`script-src 'self'`) would block inline scripts in a srcdoc frame anyway, so
 // nothing in the frame is interactive; a page that needs scripts is a file.
 import type { VisualizeInlineContent } from '../shared/visualize';
 
-/** The frame's `sandbox` attribute: every restriction, scripts included. */
-export const INLINE_FRAME_SANDBOX = '';
+/** The frame's `sandbox` attribute: every restriction, scripts included, but
+ *  the frame keeps the app's origin so the app can listen for a pinch on its
+ *  document (the only way a phone pinch over it can zoom the panel). With no
+ *  script able to run in it, the shared origin gives the content nothing. */
+export const INLINE_FRAME_SANDBOX = 'allow-same-origin';
 
 /** The frame document's CSP: no network, scripts, forms or frames. */
 export const INLINE_FRAME_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
@@ -153,8 +155,7 @@ const DIAGRAM_MIN_SCALE = 0.6;
 export function fitDiagram(svg: string): string {
   const viewBox = /viewBox="[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+[\d.]+"/.exec(svg);
   const natural = viewBox ? Math.ceil(Number(viewBox[1])) : 0;
-  const bounds =
-    natural > 0 ? `;max-width:${natural}px;min-width:${Math.ceil(natural * DIAGRAM_MIN_SCALE)}px` : '';
+  const bounds = natural > 0 ? `;max-width:${natural}px;min-width:${Math.ceil(natural * DIAGRAM_MIN_SCALE)}px` : '';
   return `<div class="fit" style="overflow:auto"><div style="width:100%;margin:0 auto${bounds}">${svg}</div></div>`;
 }
 let mermaidQueue: Promise<unknown> = Promise.resolve();
@@ -176,7 +177,8 @@ async function renderMermaid(source: string, theme: InlineTheme): Promise<Inline
         edgeLabelBackground: theme.background,
       },
     });
-    const id = `mixdog-mermaid-${(mermaidCount += 1)}`;
+    mermaidCount += 1;
+    const id = `mixdog-mermaid-${mermaidCount}`;
     try {
       await mermaid.parse(source);
       const { svg } = await mermaid.render(id, source);

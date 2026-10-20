@@ -16,6 +16,7 @@ import type {
 } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
 import { type HistoryEntry, historyId, historyItems, rememberHistory } from './history';
+import { noteReveal } from './turn-hold';
 import {
   paneKindOf,
   realCwdOfTab,
@@ -186,10 +187,24 @@ export type SessionViews = ReturnType<typeof createSessionViews>;
  *  (every revision change is published, so it stops mid-capture instead of
  *  running to its end), then the desktop window and the remote mirror get
  *  the session's state. */
-export function createPublish(ctx: Pick<VisualizeServiceContext, 'deps' | 'views' | 'thumbnails'>) {
-  return (sessionId: string, revealTab?: string): void => {
+export function createPublish(ctx: Pick<VisualizeServiceContext, 'deps' | 'views' | 'thumbnails' | 'holds'>) {
+  return (sessionId: string, revealTab?: string, updatedTab?: string): void => {
     ctx.thumbnails.cancelStale(sessionId);
-    const reveal = revealTab ? { reveal: true, tab: revealTab } : {};
+    // A running agent turn (turn-hold.ts): the reveal waits for its end, and
+    // the state goes out `held`, which the panel does not show; while the
+    // turn's end applies, nothing goes out until its one final publish.
+    const hold = ctx.holds.get(sessionId);
+    if (hold && hold.bypass === 0) {
+      if (revealTab) noteReveal(hold, revealTab);
+      hold.dirty = true;
+      if (hold.flushing) return;
+      const updated = updatedTab ? { updated: updatedTab } : {};
+      const held = { held: true, heldSince: hold.since };
+      ctx.deps.publish({ sessionId, state: ctx.views.stateOf(sessionId), ...held, ...updated });
+      ctx.deps.publishHost?.({ sessionId, state: ctx.views.hostStateOf(sessionId), ...held, ...updated });
+      return;
+    }
+    const reveal = revealTab ? { reveal: true, tab: revealTab } : updatedTab ? { updated: updatedTab } : {};
     ctx.deps.publish({ sessionId, state: ctx.views.stateOf(sessionId), ...reveal });
     ctx.deps.publishHost?.({ sessionId, state: ctx.views.hostStateOf(sessionId), ...reveal });
   };

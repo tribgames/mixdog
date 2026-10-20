@@ -12,8 +12,9 @@ import {
   inlineExportDocument,
   sideBySideDocument,
   stackedDocument,
+  tiledDocument,
 } from './export-offscreen';
-import { renderPageExport, renderPageExportDetailed } from './export-render';
+import { renderPageExport, renderPageExportDetailed, renderPageThumbnail } from './export-render';
 
 /** What an export draws with: a hidden window per page, and the pane files. */
 export interface ExportRenderers {
@@ -50,6 +51,25 @@ export const exportRenderers: ExportRenderers = {
   },
 };
 
+/** `base` drawing a chat card's picture instead of an export: every page
+ *  only its first screen (`renderPageThumbnail`, which refuses a page showing
+ *  a password field), stopped once `signal` aborts. */
+export function thumbnailRenderers(base: ExportRenderers, signal: AbortSignal): ExportRenderers {
+  return {
+    ...base,
+    page: (url, _format, allowNetwork) => renderPageThumbnail(url, allowNetwork, { signal }),
+    // A document's first page is its picture.
+    documentPages: async (file) => {
+      const first = await base.documentPages(file, [1]);
+      return { pageCount: 1, pages: first.pages.slice(0, 1) };
+    },
+    async document({ files, ready }) {
+      const url = await localVirtualPageUrl(files, { authorize: async () => {} });
+      return renderPageThumbnail(url, false, { signal, ...(ready ? { ready } : {}) });
+    },
+  };
+}
+
 /** Render without the desktop panel: `files` is the file behind each
  *  displayed pane (empty for inline content). */
 export interface OffscreenExport {
@@ -58,6 +78,9 @@ export interface OffscreenExport {
   /** A document had more pages than one PNG stacks: it carries the first
    *  `included` of `total`. */
   onPagesCut?(included: number, total: number): void;
+  /** Several panes as tiles on one screen (a card picture) instead of side
+   *  by side at full width. */
+  tiles?: boolean;
 }
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -143,7 +166,8 @@ export async function exportTabBytes(
     for (const [index, candidate] of tab.panes.entries()) {
       pngs.push(await paneImage(candidate, files[index], allowNetwork, renderers, offscreen.onPagesCut));
     }
-    return pngs.length === 1 ? pngs[0] : renderers.document(sideBySideDocument(pngs));
+    if (pngs.length === 1) return pngs[0];
+    return renderers.document(offscreen.tiles ? tiledDocument(pngs) : sideBySideDocument(pngs));
   }
   return capture();
 }

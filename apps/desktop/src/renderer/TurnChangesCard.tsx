@@ -415,7 +415,8 @@ function TurnChangesCardBody({
   checkpointId,
   boundary,
   trailing,
-}: { surface: TurnChangesSurface } & TurnChangesRef) {
+  frame,
+}: { surface: TurnChangesSurface; frame?: (card: ReactNode) => ReactNode } & TurnChangesRef) {
   const { sessionId } = surface;
   const running = trailing && surface.turnRunning;
   const { reply, adopt, invalidate } = useTurnChanges({ sessionId, checkpointId, boundary, enabled: !running });
@@ -436,7 +437,7 @@ function TurnChangesCardBody({
   const activate: ActivateChange = (event, file) => {
     activateTurnChange(event, file, surface, reply.root);
   };
-  return (
+  const card = (
     <section className="turn-changes-card" aria-label={t('Turn changes')} data-file-count={files.length}>
       <div className="turn-changes-head">
         <TurnChangesSummary files={files} activate={activate} />
@@ -483,12 +484,20 @@ function TurnChangesCardBody({
       />
     </section>
   );
+  return frame ? frame(card) : card;
 }
 
 /** A turn's changed-files card (Codex-style), after the last turndone of its
  *  checkpoint. Renders nothing outside a session surface, while its turn
- *  runs, or when the runtime reports no (or no longer any) recorded change. */
-export const TurnChangesCard = memo(function TurnChangesCard({ turnChanges }: { turnChanges: TurnChangesRef }) {
+ *  runs, or when the runtime reports no (or no longer any) recorded change.
+ *  `frame` seats a shown card (agent mode's bubble column). */
+export const TurnChangesCard = memo(function TurnChangesCard({
+  turnChanges,
+  frame,
+}: {
+  turnChanges: TurnChangesRef;
+  frame?: (card: ReactNode) => ReactNode;
+}) {
   const surface = useContext(TurnChangesContext);
   if (!surface?.sessionId) return null;
   return (
@@ -498,6 +507,7 @@ export const TurnChangesCard = memo(function TurnChangesCard({ turnChanges }: { 
       checkpointId={turnChanges.checkpointId}
       boundary={turnChanges.boundary}
       trailing={turnChanges.trailing}
+      frame={frame}
     />
   );
 });

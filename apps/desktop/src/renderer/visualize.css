@@ -13,8 +13,9 @@
 .visualize-pane[hidden] {
   display: none;
 }
-/* Many tabs scroll the strip instead of shrinking to icons: each chip keeps a
-   readable floor and ellipsizes past its cap (full label in the tooltip). */
+/* The pane strip's grammar (04-workspace-tabs.css): tabs share the strip from
+   the 160px preferred width and ellipsize (full label in the tooltip); past
+   their readable floors the strip scrolls sideways. */
 .visualize-tabs {
   flex: 1 1 auto;
   min-width: 0;
@@ -23,7 +24,38 @@
   align-items: stretch;
   overflow-x: auto;
   overflow-y: hidden;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
+}
+/* An edge with tabs past it dissolves over 20px (data-fade-start/-end, set
+   from the strip's scroll position in VisualizePane). A scroll timeline was
+   tried: once the run fit again Chromium held its last fade, so the first tab
+   stayed half-masked. */
+.visualize-tabs {
+  --visualize-tabs-fade-start: 0px;
+  --visualize-tabs-fade-end: 0px;
+}
+.visualize-tabs[data-fade-start] {
+  --visualize-tabs-fade-start: 20px;
+}
+.visualize-tabs[data-fade-end] {
+  --visualize-tabs-fade-end: 20px;
+}
+.visualize-tabs:is([data-fade-start], [data-fade-end]) {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--visualize-tabs-fade-start),
+    #000 calc(100% - var(--visualize-tabs-fade-end)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--visualize-tabs-fade-start),
+    #000 calc(100% - var(--visualize-tabs-fade-end)),
+    transparent 100%
+  );
 }
 /* The strip never yields below one readable chip (the active tab's label);
    the header folds its secondary buttons into ⋯ to leave this room. */
@@ -33,13 +65,22 @@
 .visualize-tabs::-webkit-scrollbar {
   display: none;
 }
-.visualize-tabs .dock-header-chip,
+/* Shrink together from 160px down to a floor that still reads a few
+   characters; the active tab keeps a wider floor with its close button. */
+.visualize-tabs .dock-header-chip {
+  container-type: inline-size;
+  flex: 0 1 160px;
+  min-width: 88px;
+}
 .visualize-tabs .dock-header-chip.is-active {
-  flex: 0 0 auto;
-  min-width: 96px;
-  /* Never wider than the strip: a narrow panel ellipsizes the label and
-     keeps the chip's start and close button in view. */
-  max-width: min(180px, 100%);
+  min-width: 136px;
+}
+/* A shrunk inactive tab gives its close slot to the label (the pane strip's
+   first rung); selecting the tab brings the X back. */
+@container (max-width: 104px) {
+  .visualize-tabs .dock-header-chip:not(.is-active) .browser-tab-close {
+    display: none;
+  }
 }
 .visualize-tabs .dock-header-chip .browser-tab-select {
   cursor: pointer;
@@ -59,6 +100,25 @@
   display: flex;
   gap: 1px;
   background: var(--mx-border);
+}
+/* The shown tab's body and, under it, the recently viewed tabs kept mounted
+   (VisualizePane keptTabs). A kept body stays laid out at the same size but
+   transparent: hidden with display:none, a page frame (its own renderer)
+   dropped its picture and came back as one blank frame when shown again. */
+.visualize-bodies {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.visualize-bodies > .visualize-body[data-kept] {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
 }
 /* Too narrow for side by side: panes stack and split the height. */
 .visualize-body.is-stacked {
@@ -153,6 +213,9 @@ html[data-mixdog-mobile-tabs] .visualize-pane-enlarge > svg {
   align-items: flex-start;
   justify-content: flex-start;
   overflow: auto;
+  /* One finger pans the (possibly zoomed) content both ways; a two-finger
+     pinch is the panel's zoom (visualize-zoom.ts watchPinch), never the page's. */
+  touch-action: pan-x pan-y;
 }
 /* Holds a pane's content; the zoom bar scales it (transform + 1/scale size),
    so it always fills the pane. It takes the pane's height by stretching, not
@@ -171,6 +234,20 @@ html[data-mixdog-mobile-tabs] .visualize-pane-enlarge > svg {
    instead of sitting centred at its own height and then growing. */
 .visualize-zoom-layer > .visualize-empty {
   align-self: stretch;
+}
+/* A pane frame and, while a reload loads, the hidden frame over it that
+   replaces it once loaded (BufferedFrame): same box, so the page lays out as
+   it will be shown. */
+.visualize-frame-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.visualize-frame-stack > iframe.visualize-frame-pending {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 .visualize-pane-content iframe {
   width: 100%;

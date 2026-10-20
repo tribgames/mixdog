@@ -4,11 +4,12 @@
 // the app shell (which owns the pane docks).
 import { useSyncExternalStore } from 'react';
 
-import type {
-  DesktopVisualizeEvent,
-  VisualizeCommandResult,
-  VisualizeInlineContent,
-  VisualizeSessionState,
+import {
+  type DesktopVisualizeEvent,
+  type VisualizeCommandResult,
+  type VisualizeInlineContent,
+  type VisualizeSessionState,
+  visualizeThumbnail,
 } from '../shared/visualize';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { linkOpenTarget } from './link-open-target';
@@ -20,6 +21,12 @@ type RevealListener = (sessionId: string) => void;
 const EMPTY: VisualizeSessionState = Object.freeze({ sessionId: '', tabs: [], active: null });
 
 let states = new Map<string, VisualizeSessionState>();
+/** What a running agent turn has made so far, per session (`held` events):
+ *  the panel keeps drawing `states`; chat cards read this. The turn's end
+ *  (an ordinary event) or the user asking to see a tab replaces it. */
+let heldStates = new Map<string, VisualizeSessionState>();
+/** When each held session's turn started (ms), as main reported it. */
+const heldSince = new Map<string, number>();
 const listeners = new Set<Listener>();
 const revealListeners = new Set<RevealListener>();
 /** Reveals asked for before the app shell subscribed (a reloaded renderer
@@ -92,6 +99,8 @@ export function resetVisualizePanelMemory(): void {
   onScreen.clear();
   userPicks.clear();
   updatedTabs = new Map();
+  heldStates = new Map();
+  heldSince.clear();
 }
 
 function emit(): void {
@@ -191,10 +200,41 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
   if (!sessionId) return;
   if (event.openUrl) requestBrowserPage(sessionId, event.openUrl, { newTab: true, agent: true });
   const state = event.state ? { ...event.state, sessionId } : undefined;
+  if (event.held) {
+    // Mid-turn: nothing in the panel opens, activates or reloads; a tab whose
+    // files the turn changed wears the "updated" dot.
+    if (!state) return;
+    heldStates = new Map(heldStates);
+    heldStates.set(sessionId, state);
+    if (Number.isFinite(event.heldSince)) heldSince.set(sessionId, Number(event.heldSince));
+    emit();
+    const shown = states.get(sessionId);
+    if (event.updated && shown?.tabs.some((tab) => tab.id === event.updated)) {
+      setUpdated(sessionId, event.updated, shown.active !== event.updated);
+    }
+    return;
+  }
+  const released = Boolean(state && heldStates.has(sessionId));
+  if (released) {
+    // The turn ended. Its end is announced after the final state is applied
+    // (below), so no reader sees the end of the hold with the state from
+    // before the turn.
+    heldStates = new Map(heldStates);
+    heldStates.delete(sessionId);
+    heldSince.delete(sessionId);
+  }
   // An agent open or a content update carries `reveal` (and, from current
   // hosts, the tab it was for): the open policy decides what shows.
   if (event.reveal) showUpdatedTab(sessionId, event.tab || state?.active || '', state);
-  else if (state) setState(state);
+  else if (state) {
+    // A file-change update lands in place: nothing is activated or revealed;
+    // a tab that is not the active one wears the dot until it is viewed.
+    setState(state);
+    if (event.updated && state.tabs.some((tab) => tab.id === event.updated)) {
+      setUpdated(sessionId, event.updated, state.active !== event.updated);
+    }
+  }
+  if (released) emit();
 }
 
 /** Whether an open or update of `tabId` brings the panel up on it (the open
@@ -387,6 +427,22 @@ export function useVisualizeState(sessionId: string): VisualizeSessionState {
   );
 }
 
+/** While a running agent turn holds the session's visualize state back: when
+ *  that turn started (ms); else null. */
+export function visualizeHeldSince(sessionId: string): number | null {
+  return heldStates.has(sessionId) ? (heldSince.get(sessionId) ?? 0) : null;
+}
+
+/** Chat cards of the running turn's opens wait for its end (see
+ *  `visualizeHeldSince`): none is drawn, or changes, while the turn runs. */
+export function useVisualizeHeldSince(sessionId: string): number | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => visualizeHeldSince(sessionId),
+    () => null
+  );
+}
+
 /** True once any session has visualize tabs: the dock toggle appears then. */
 export function useVisualizeAvailable(): boolean {
   return useSyncExternalStore(
@@ -489,6 +545,15 @@ export function activateVisualizeTab(sessionId: string, tabId: string): void {
  *  user-closed rule, selects the tab and reveals the session's panel. */
 export function revealVisualizeTab(sessionId: string, tabId: string): void {
   allowVisualizeReveal(sessionId);
+  // A tab a running turn made: the user asked to see it now, so the panel
+  // takes what the turn has made so far.
+  const held = heldStates.get(sessionId);
+  if (held) {
+    heldStates = new Map(heldStates);
+    heldStates.delete(sessionId);
+    heldSince.delete(sessionId);
+    setState(held);
+  }
   activateVisualizeTab(sessionId, tabId);
   requestReveal(sessionId);
 }
@@ -604,6 +669,17 @@ export function showVisualizeVersion(sessionId: string, tabId: string, version: 
   void window.mixdogDesktop
     ?.visualizeCommand?.({ sessionId, tabId, action: 'version', version, ...(compare ? { compare: true } : {}) })
     ?.catch(() => {});
+}
+
+/** The card picture kept of the tab's version `version` (taken when its turn
+ *  ended); undefined when it has none or the host cannot say. */
+export async function readVisualizeVersionThumbnail(
+  sessionId: string,
+  tabId: string,
+  version: number
+): Promise<string | undefined> {
+  const result = await window.mixdogDesktop?.visualizeCommand?.({ sessionId, tabId, action: 'thumbnail', version });
+  return visualizeThumbnail(result?.thumbnail) || undefined;
 }
 
 /** Toggle Compare: on from live compares the previous version with live. */

@@ -41,7 +41,8 @@ function workspace() {
   writeFileSync(join(cwd, 'site', '.cache', 'image.png'), 'hidden-png');
   mkdirSync(join(cwd, '.private'), { recursive: true });
   writeFileSync(join(cwd, '.private', 'secret.pdf'), '%PDF-secret');
-  writeFileSync(join(cwd, 'site', 'data.bin'), 'bin');
+  // A non-web type (`.bin` is a served glTF buffer asset).
+  writeFileSync(join(cwd, 'site', 'data.sqlite'), 'db');
   writeFileSync(join(cwd, 'chart.png'), '0123456789');
   writeFileSync(join(cwd, 'report.docx'), 'docx');
   writeFileSync(join(cwd, 'gen', 'a.png'), 'inside');
@@ -227,7 +228,7 @@ test('pane content: pages, their assets, media and converted documents', async (
     // folders stay unreadable through an HTML tab.
     await assert.rejects(methods.visualizePaneRange(['s1', 'v1', 'site/.cache/image.png', 0, 100]), /does not support/);
     await assert.rejects(methods.visualizePaneRange(['s1', 'v1', '.private/secret.pdf', 0, 100]), /does not support/);
-    await assert.rejects(methods.visualizePaneRange(['s1', 'v1', 'site/data.bin', 0, 100]), /does not support/);
+    await assert.rejects(methods.visualizePaneRange(['s1', 'v1', 'site/data.sqlite', 0, 100]), /does not support/);
 
     // Media: bounded ranges, clamped at EOF.
     const chart = await methods.visualizePaneFile(['s1', 'v2', 0]);

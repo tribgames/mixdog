@@ -107,6 +107,80 @@ test('Ctrl+wheel and zoom keys inside a remote frame zoom the panel that holds t
   }
 });
 
+test('a two-finger pinch inside a remote frame zooms the panel; one finger stays the page’s', () => {
+  const { inner, frame, posted, received, flush, done } = remotePage();
+  try {
+    const touch = (type, points) => {
+      const event = new inner.Event(type, { cancelable: true, bubbles: true });
+      Object.defineProperty(event, 'touches', { value: points.map(([clientX, clientY]) => ({ clientX, clientY })) });
+      inner.dispatchEvent(event);
+      return event;
+    };
+    // One finger: a scroll, never taken.
+    touch('touchstart', [[10, 10]]);
+    assert.equal(touch('touchmove', [[10, 60]]).defaultPrevented, false);
+    assert.deepEqual(posted, []);
+    // Two fingers down 100px apart around (60, 20), then spreading to 150px.
+    touch('touchstart', [
+      [10, 20],
+      [110, 20],
+    ]);
+    const move = touch('touchmove', [
+      [-15, 20],
+      [135, 20],
+    ]);
+    assert.equal(move.defaultPrevented, true, 'the pinch does not also pan the page');
+    flush();
+    // (60, 20) in the frame is (220, 80) in the window (2x, from the corner); ×1.5.
+    assert.deepEqual(received, [['in', { x: 220, y: 80 }, undefined, 1.5]]);
+    // The parent measures in its own px: once the panel draws the frame 1.5x
+    // larger (the zoom it just applied), fingers that stay put on screen read
+    // 1.5x closer in the frame's px, and that is no pinch (no zoom back).
+    received.length = 0;
+    frame.getBoundingClientRect = () => ({ left: 100, top: 40, width: 1200, height: 900 });
+    touch('touchmove', [
+      [10, 20],
+      [110, 20],
+    ]);
+    flush();
+    assert.deepEqual(received, [], 'fingers at rest on screen');
+    touch('touchend', [[135, 20]]);
+    assert.equal(touch('touchmove', [[135, 90]]).defaultPrevented, false, 'one finger again scrolls');
+  } finally {
+    done();
+  }
+});
+
+test('a pinch on an element that turned pinch-zoom off (a 3D canvas) stays the page’s', () => {
+  const { inner, posted, done } = remotePage();
+  try {
+    const canvas = inner.document.createElement('canvas');
+    inner.document.body.appendChild(canvas);
+    // jsdom has no touch-action: the page's computed style, as a browser gives it.
+    inner.getComputedStyle = (node) => ({ getPropertyValue: () => (node === canvas ? 'none' : 'auto') });
+    const touch = (type, points) => {
+      const event = new inner.Event(type, { cancelable: true, bubbles: true });
+      Object.defineProperty(event, 'touches', {
+        value: points.map(([clientX, clientY]) => ({ clientX, clientY, target: canvas })),
+      });
+      canvas.dispatchEvent(event);
+      return event;
+    };
+    touch('touchstart', [
+      [10, 20],
+      [110, 20],
+    ]);
+    const move = touch('touchmove', [
+      [-15, 20],
+      [135, 20],
+    ]);
+    assert.equal(move.defaultPrevented, false);
+    assert.deepEqual(posted, []);
+  } finally {
+    done();
+  }
+});
+
 test('only the frame itself can zoom the panel, and only with a well-formed message', () => {
   const { dom, received, deliver, done } = remotePage();
   try {

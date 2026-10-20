@@ -11,6 +11,7 @@ function fixture() {
   let revision = '1:0:800:600:0:0:0:0:0';
   let reads = 0;
   let expression = '';
+  let focused = false;
   const guard = createBrowserVisualPrivacy({
     state: { peek: () => state },
     documents: {
@@ -19,6 +20,7 @@ function fixture() {
         return text;
       },
       collect: async (_guest, script) => {
+        if (script.includes('activeElement')) return [focused];
         expression = script;
         return [values];
       },
@@ -39,8 +41,24 @@ function fixture() {
     },
     reads: () => reads,
     expression: () => expression,
+    focus: (value) => {
+      focused = value;
+    },
   };
 }
+
+test('a focused unregistered password field withholds visual output before and after capture', async () => {
+  const f = fixture();
+  f.focus(true);
+  await assert.rejects(f.guard({}), /Visual output withheld/);
+  f.focus(false);
+  const finish = await f.guard({});
+  f.focus(true);
+  await assert.rejects(finish(), /Visual output withheld/);
+  f.focus(false);
+  await (await f.guard({}))();
+  assert.equal(f.reads(), 0, 'no registered secret: no page-text read');
+});
 
 test('registered secrets echoed in text or plain controls prevent new visual output', async () => {
   for (const place of ['text', 'values']) {

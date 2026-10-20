@@ -130,7 +130,7 @@ const typeInto = async (input, value) => {
     input.dispatchEvent(new input.ownerDocument.defaultView.Event('input', { bubbles: true }));
   });
 };
-const escape = (document, window) =>
+const pressEscape = (document, window) =>
   act(async () => {
     document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   });
@@ -223,7 +223,10 @@ test('the page has no tabs or lede: identity card, two buttons, one device list,
 
 test('a renamed PC shows the Windows name in its meta line; Rename opens the name dialog with its helper', async (t) => {
   const { document, calls } = await mount(t, { settings: { name: 'Studio PC' } });
-  assert.equal(document.querySelector('.conn-card .conn-row-meta').textContent, 'This PC · Computer name DESKTOP-IBLP835');
+  assert.equal(
+    document.querySelector('.conn-card .conn-row-meta').textContent,
+    'This PC · Computer name DESKTOP-IBLP835'
+  );
   await click(buttonNamed(document, 'Rename'));
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.querySelector('h3').textContent, 'This PC’s name');
@@ -458,7 +461,7 @@ test('Escape closes the Connect dialog and focus returns to the opener', async (
   opener.focus();
   await click(opener);
   assert.ok(document.querySelector('.conn-dialog').contains(document.activeElement));
-  await escape(document, window);
+  await pressEscape(document, window);
   assert.equal(document.querySelector('.conn-dialog'), null);
   assert.equal(document.activeElement, opener);
 });
@@ -543,7 +546,7 @@ test('Escape denies a visible approval; Tab stays inside the dialog', async (t) 
     document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
   });
   assert.equal(document.activeElement, buttonNamed(document, 'Deny'), 'Tab wraps to the first button');
-  await escape(document, window);
+  await pressEscape(document, window);
   await settle();
   assert.deepEqual(answers, [['k1', false]]);
 });

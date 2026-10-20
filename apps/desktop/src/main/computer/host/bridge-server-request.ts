@@ -4,7 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { bridgeDiscoveryPublicIdentity } from '../../bridge/discovery-ownership';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { computerUseCoordinator } from '../session/coordinator';
-import { isComputerLifecycleControl } from './action-sets';
+import { isComputerLifecycleControl, READ_ACTIONS } from './action-sets';
+import { secretInputs, typeComputerSecret } from '../../secret-input';
 import type { BridgeServerHost, BridgeServerState } from './bridge-server-contract';
 import { assertPublicComputerRequest } from './request-policy';
 import {
@@ -85,6 +86,23 @@ export function createBridgeRequestHandler(
 
   function runCommand(command: ComputerCommand, signal: AbortSignal): Promise<ComputerCommandResult> {
     if (command.action === 'wait_for_user' && host.waitForUser) return host.waitForUser(command, signal);
+    const sessionId = String(command.session_id || '');
+    // Runtime-only: type a secret the user handed the desktop (secret-input.ts).
+    if (command.action === 'secret_input') {
+      return typeComputerSecret(command as Parameters<typeof typeComputerSecret>[0], (typed) =>
+        host.executeSerialized(typed as unknown as ComputerCommand)
+      );
+    }
+    // While a typed secret's field may hold focus, no capture leaves the host;
+    // the next input action (which moves on) lifts the hold.
+    if (secretInputs.focusArmed(sessionId)) {
+      if (READ_ACTIONS.has(command.action)) {
+        return Promise.reject(
+          new Error('capture_withheld: a secret field may be focused; move focus (Tab or a click elsewhere) first')
+        );
+      }
+      if (!isComputerLifecycleControl(command)) secretInputs.clearFocus(sessionId);
+    }
     if (command.action === 'session_abort') {
       // The caller aborts when its turn is cancelled; that turn never sends
       // execution_end, so its visible execution and any pause it held end here.
@@ -118,6 +136,9 @@ export function createBridgeRequestHandler(
     const disconnect = watchDisconnect(request, response, command, host.abortComputerSession);
     try {
       const value = await runCommand(command, disconnect.signal);
+      // A secret typed in this session never comes back in a reply.
+      if (typeof value?.text === 'string')
+        value.text = secretInputs.redact(String(command.session_id || ''), value.text);
       validateComputerReply(value);
       if (Buffer.byteLength(JSON.stringify(value)) > MAX_COMPUTER_RESPONSE_BYTES) {
         throw new Error('computer response exceeds byte limit; input may have executed and was not replayed');

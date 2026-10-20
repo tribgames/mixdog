@@ -19,7 +19,7 @@ import {
 import { usePaneSideDocks, type PaneSideDockDiff } from './pane-side-dock';
 import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
 import { useStableEvent } from './use-stable-event';
-import { allowVisualizeReveal, suppressVisualizeReveal, useVisualizeAvailable } from './visualize-store';
+import { allowVisualizeReveal, suppressVisualizeReveal } from './visualize-store';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 
@@ -40,23 +40,28 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     dismissBrowserSurface,
   } = sessionSurfaces;
   const browserFeatureInstalled = useBrowserFeatureInstalled();
-  // The visualize toggle joins the strip once the agent has shown something.
-  const visualizeAvailable = useVisualizeAvailable();
+  // The visualize view always exists: an agent-mode chat's header toggles it
+  // (in the Changes slot). Coding panes have no toggle for it; their phone
+  // switch lists it once the agent has shown something (pane-side-dock).
   const availableSideViews = useMemo<WorkbenchSideViewId[]>(
     () => [
       ...(desktopFeatureEnabled('sessions') ? ['sessions' as const] : []),
       ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) => desktopSidebarDestinationEnabled(panel)),
       // The Ports panel belongs to server windows.
       ...(isSshConnectionWindow() ? ['ports' as const] : []),
+      // Shown only on an agent's home thread (paneRightGroupsFor).
+      'routines' as const,
+      // Shown only on a group room (paneRightGroupsFor).
+      'room' as const,
       'session-diff' as const,
-      ...(visualizeAvailable ? ['visualize' as const] : []),
+      'visualize' as const,
       ...(browserFeatureInstalled ? ['browser' as const] : []),
       'terminal' as const,
       ...(['agents', 'search', 'source-control', 'pull-requests'] as const).filter((panel) =>
         desktopUtilityDockTabEnabled(panel)
       ),
     ],
-    [browserFeatureInstalled, visualizeAvailable]
+    [browserFeatureInstalled]
   );
   const workbenchSideLayout = useWorkbenchSideViewLayout(availableSideViews);
   const sidebarViewGroups = useMemo<readonly SidebarViewGroup[]>(

@@ -76,6 +76,7 @@ export type DesktopSettingKey =
   | 'computerControl'
   | 'computerObserveOnly'
   | 'browserControl'
+  | 'browserAutoSignIn'
   | 'computerInstalled'
   | 'browserInstalled';
 
@@ -107,6 +108,9 @@ export interface DesktopSettings {
   /** Opt-in: expose the agent `browser` tool over the in-app browser bridge.
    *  Default off; the browser pane itself stays available either way. */
   browserControl: boolean;
+  /** Browser Use signs in by itself with a saved login for the page's exact
+   *  origin (once per site per turn; 2FA/CAPTCHA go to the user). Default on. */
+  browserAutoSignIn: boolean;
   /** Extensions → Built-in install markers: the card presents Install first
    *  and only shows its toggle after activation. A profile that already had
    *  the control on is treated as installed (grandfathered). */

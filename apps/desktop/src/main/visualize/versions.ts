@@ -32,7 +32,13 @@ export interface VisualizeVersion extends VisualizeVersionView {
   assets: string[];
   hash: string;
   bytes: number;
+  /** The chat card's picture of this version (a PNG data URL), taken when
+   *  the turn that made it ended; also kept as `<dir>.png`. */
+  thumbnail?: string;
 }
+
+/** Where a version's card picture is kept beside its folder. */
+const thumbnailFile = (version: Pick<VisualizeVersion, 'dir'>): string => `${version.dir}.png`;
 
 export interface VisualizeVersionLimits {
   maxVersionsPerTab?: number;
@@ -103,10 +109,7 @@ const outsideError = (rel: string) => new Error(`${rel} is outside the working d
 /** Where a restore may write `path` right now: its folder re-resolved inside
  *  `root` (the resolved cwd), and the file in it, which must not be a link
  *  (never followed) or anything but a file. */
-export async function restoreDestination(
-  root: string,
-  path: string
-): Promise<{ parent: string; file: string }> {
+export async function restoreDestination(root: string, path: string): Promise<{ parent: string; file: string }> {
   const rel = relOf(root, path);
   if (!insidePath(root, path)) throw outsideError(rel);
   let parent: string;
@@ -141,7 +144,10 @@ export async function writeFileInside(
   root: string,
   path: string,
   data: Buffer,
-  hooks: { beforeOpen?(): unknown; /** Fail with EEXIST instead of writing over an existing file. */ exclusive?: boolean } = {}
+  hooks: {
+    beforeOpen?(): unknown /** Fail with EEXIST instead of writing over an existing file. */;
+    exclusive?: boolean;
+  } = {}
 ): Promise<void> {
   const rel = relOf(root, path);
   const { file } = await restoreDestination(root, path);
@@ -150,9 +156,7 @@ export async function writeFileInside(
   if (expected?.isSymbolicLink()) throw new Error(`${rel} is a link; restore does not follow it`);
   if (expected && !expected.isFile()) throw new Error(`${rel} is not a file`);
   await hooks.beforeOpen?.();
-  const handle = expected
-    ? await open(file, constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0))
-    : await open(file, 'wx');
+  const handle = expected ? await open(file, constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0)) : await open(file, 'wx');
   try {
     const opened = await handle.stat({ bigint: true });
     const real = await realpath(file).catch(() => null);
@@ -233,7 +237,12 @@ export function createVisualizeVersionStore(
     const tabs = sessions.get(sessionId);
     if (!tabs) return;
     const removed = evictVersions(tabs, pinnedIn(sessionId), maxPerTab, maxSessionBytes);
-    await Promise.all(removed.map((version) => rm(version.dir, { recursive: true, force: true })));
+    await Promise.all(
+      removed.flatMap((version) => [
+        rm(version.dir, { recursive: true, force: true }),
+        rm(thumbnailFile(version), { force: true }),
+      ])
+    );
   };
 
   return {
@@ -298,7 +307,23 @@ export function createVisualizeVersionStore(
       return [...(sessions.get(sessionId)?.get(tabId)?.versions ?? [])];
     },
     get(sessionId: string, tabId: string, n: number): VisualizeVersion | undefined {
-      return sessions.get(sessionId)?.get(tabId)?.versions.find((version) => version.n === n);
+      return sessions
+        .get(sessionId)
+        ?.get(tabId)
+        ?.versions.find((version) => version.n === n);
+    },
+    /** Keep `thumbnail` (a PNG data URL) as kept version `n`'s card picture:
+     *  in memory, and best effort beside its folder. False without that version. */
+    keepThumbnail(sessionId: string, tabId: string, n: number, thumbnail: string): boolean {
+      const version = sessions
+        .get(sessionId)
+        ?.get(tabId)
+        ?.versions.find((candidate) => candidate.n === n);
+      if (!version) return false;
+      version.thumbnail = thumbnail;
+      const png = Buffer.from(thumbnail.slice(thumbnail.indexOf(',') + 1), 'base64');
+      void writeFile(thumbnailFile(version), png).catch(() => {});
+      return true;
     },
     /** Forget a closed tab and delete its files. */
     async drop(sessionId: string, tabId: string): Promise<void> {

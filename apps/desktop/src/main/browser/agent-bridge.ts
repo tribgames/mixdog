@@ -18,6 +18,7 @@ export function createBrowserAgentBridge(options: {
   execute: (command: BrowserCommand, signal: AbortSignal) => Promise<unknown>;
   /** Close a finished turn's temporary pages; returns how many closed. */
   finishTurn: (sessionId: string, turnId: number, options: { aborted: boolean }) => number;
+  secretInput: (sessionId: string, requestId: string, signal: AbortSignal) => Promise<{ text: string }>;
   visibleGuests: () => WebContents[];
   lifecycle: {
     attachDebuggerEagerly(guest: WebContents): void;
@@ -43,6 +44,12 @@ export function createBrowserAgentBridge(options: {
         return Promise.allSettled(pending).then(() => ({
           text: `Browser task cleanup complete: ${options.finishTurn(owner, Number(turn_id), { aborted })} temporary page(s) closed.`,
         }));
+      }
+      // Runtime-only: fill the secret the user handed this desktop for the
+      // request (secret-input.ts); the reply is 'provided' or 'skipped' only.
+      if (command.action === 'secret_input') {
+        const requestId = String((input as Record<string, unknown>).request_id || '');
+        return options.secretInput(browserSessionId(session_id), requestId, signal);
       }
       const validated = validateBrowserToolArgs(input);
       if (!validated.ok) throw new Error(validated.error);

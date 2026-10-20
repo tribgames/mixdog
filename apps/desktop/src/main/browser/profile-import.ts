@@ -1,6 +1,6 @@
 import { createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, join, resolve, sep } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -360,6 +360,18 @@ export class BrowserProfileImportService {
 
   constructor(private readonly options: BrowserProfileImportOptions) {
     this.historyFile = join(options.userDataDirectory, 'browser-imported-history.json');
+  }
+
+  /** Delete everything an import copied out of Chrome: the password vault,
+   *  the history list and the backups of cookies an import replaced. */
+  async clearImportedData(): Promise<void> {
+    if (this.activeJobId) throw new Error('A browser import is running; clear its data after it finishes.');
+    const root = this.options.userDataDirectory;
+    await Promise.all([
+      rm(join(root, 'browser-password-vault.bin'), { force: true }),
+      rm(this.historyFile, { force: true }),
+      rm(join(root, 'browser-import-backups'), { recursive: true, force: true }),
+    ]);
   }
 
   private chromeUserData(): string {

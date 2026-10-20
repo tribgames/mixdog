@@ -68,12 +68,15 @@ test('newly supported web asset types carry their content type', async (t) => {
   await writeFile(join(root, 'app.webmanifest'), '{}');
   await writeFile(join(root, 'notes.md'), '# hi');
   await writeFile(join(root, 'model.glb'), 'glb');
+  await writeFile(join(root, 'model.bin'), 'buffers');
   const url = await projectPageUrl(root, 'page.html');
   const { pathname } = new URL(url);
   const prefix = pathname.slice(0, pathname.lastIndexOf('/'));
   assert.equal((await get(url, `${prefix}/app.webmanifest`)).type, 'application/manifest+json; charset=utf-8');
   assert.equal((await get(url, `${prefix}/notes.md`)).type, 'text/markdown; charset=utf-8');
   assert.equal((await get(url, `${prefix}/model.glb`)).type, 'model/gltf-binary');
+  // A .gltf model's separate buffers.
+  assert.equal((await get(url, `${prefix}/model.bin`)).type, 'application/octet-stream');
 });
 
 test('nothing outside the root, no dotfiles and no non-web files are served', async (t) => {

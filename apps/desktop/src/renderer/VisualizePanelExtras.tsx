@@ -198,6 +198,9 @@ export function useVisualizePanelExtras(
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the reset trigger
   useEffect(() => setHistoryOpen(false), [sessionId]);
 
+  // With no tab open (the panel opened from the agent chat header), the
+  // session's list is the panel's content.
+  const listShown = historyOpen || (tab === null && Boolean(state.history?.length));
   const sourceKey = `${sessionId}\0${tabId}`;
   const sourceOn = tab !== null && sourceTabs.has(sourceKey);
   const actions: DockAction[] = [];
@@ -206,7 +209,7 @@ export function useVisualizePanelExtras(
       id: 'history',
       label: t('All visuals'),
       icon: LayoutList,
-      checked: historyOpen,
+      checked: listShown,
       checkbox: true,
       onSelect: () => setHistoryOpen(!historyOpen),
     });
@@ -315,7 +318,7 @@ export function useVisualizePanelExtras(
   }
 
   const strips =
-    historyOpen && state.history ? (
+    listShown && state.history ? (
       <HistoryList
         items={state.history}
         onPick={(item) => {

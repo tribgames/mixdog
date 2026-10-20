@@ -1,9 +1,8 @@
 /**
- * Task-owned tab lifecycle over the live bridge: hidden work never reveals
- * the dock, finishing a turn leaves its page hidden instead of creating an
- * empty foreground one, a temporary reveal is restored, and an explicit open
- * hands the page to the user. Every command here carries its own session and
- * turn id.
+ * Task-owned tab lifecycle over the live bridge: no agent work opens the
+ * dock, finishing a turn leaves its page hidden instead of creating an empty
+ * foreground one, and an explicit open keeps the page for the user. Every
+ * command here carries its own session and turn id.
  */
 import assert from 'node:assert/strict';
 import type { WebContents } from 'electron';
@@ -61,10 +60,7 @@ export async function runBrowserTaskLifecycleScenarios(options: {
   });
   await command({ action: 'read', background: false, tab: 'scratch', session_id: taskSession, turn_id: 2 });
   await command({ action: 'finish_turn', session_id: taskSession, turn_id: 2 });
-  assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [
-    { sessionId: taskSession, temporaryTurnId: 2 },
-    { sessionId: taskSession, restoreTurnId: 2 },
-  ]);
+  assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [], 'foreground work never opens the panel');
   await command({
     action: 'navigate',
     url: `${origin}/root?task=handoff`,
@@ -76,7 +72,7 @@ export async function runBrowserTaskLifecycleScenarios(options: {
   await command({ action: 'open', tab: 'result', session_id: taskSession, turn_id: 3 });
   await command({ action: 'finish_turn', session_id: taskSession, turn_id: 3 });
   assert.match((await command({ action: 'list_tabs', session_id: taskSession })).text, /task=handoff/);
-  assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [{ sessionId: taskSession, reveal: true }]);
+  assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [], 'open keeps the page; the user opens the panel');
   assert.equal(visibleGuest.isDestroyed(), false, 'pre-existing user page remains alive');
   await command({ action: 'close_tab', tab: 'result', session_id: taskSession });
   // The page kept across turns stays a closable background tab, and the shared
@@ -85,5 +81,5 @@ export async function runBrowserTaskLifecycleScenarios(options: {
     (await command({ action: 'close_tab', tab: 'scratch', session_id: taskSession })).text,
     'Closed background tab "scratch".'
   );
-  progress('task background isolation, cleanup, panel restoration and user handoff complete');
+  progress('task background isolation, cleanup, closed panel and user handoff complete');
 }

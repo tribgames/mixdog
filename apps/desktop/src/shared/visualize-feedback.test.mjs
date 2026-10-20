@@ -71,6 +71,25 @@ test('the page script announces itself and stays out of a top-level window', asy
   assert.equal(top.window.eval(visualizeFeedbackScriptFor('window')), false);
 });
 
+test('a press on the page focuses its frame, also when the page cancels the press', (t) => {
+  const { window, document } = page(t, '<canvas id="game"></canvas>');
+  const game = document.getElementById('game');
+  // A game cancels the press (no selection, no drag): the browser's own focus move goes with it.
+  game.addEventListener('pointerdown', (event) => event.preventDefault());
+  let focused = false;
+  let calls = 0;
+  window.document.hasFocus = () => focused;
+  window.focus = () => {
+    calls += 1;
+    focused = true;
+  };
+  const press = () => game.dispatchEvent(new window.Event('pointerdown', { bubbles: true, cancelable: true }));
+  assert.equal(press(), false, 'the page still cancels its own press');
+  assert.equal(calls, 1, 'the frame takes the keyboard');
+  press();
+  assert.equal(calls, 1, 'a frame that has the keyboard is left alone');
+});
+
 test('a web link the frame may not show is handed to the panel instead of navigating the pane', async (t) => {
   const { document, sent, api, frames } = page(
     t,
@@ -534,6 +553,16 @@ test('page messages are shape-checked, bounded, and fail closed on masks', () =>
     assert.equal(result.masksOverflow, true);
     assert.deepEqual(result.masks, []);
   }
+});
+
+test('the page scrolls over nested boxes: their overscroll containment is released', async (t) => {
+  const { document, frames } = page(
+    t,
+    '<div class="dialog-body" style="overflow:auto;overscroll-behavior:contain">x</div>'
+  );
+  await frames();
+  const css = [...document.querySelectorAll('style[data-mixdog-visualize]')].map((node) => node.textContent).join('\n');
+  assert.match(css, /@layer mixdog-visualize-scroll\{body \*\{overscroll-behavior:auto!important\}\}/);
 });
 
 test('a remote pane page carries the script first in its head', () => {

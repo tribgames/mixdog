@@ -184,6 +184,27 @@ test('a page is inlined with its relative assets and unresolved ones are kept', 
 
 const b64 = (text) => Buffer.from(text).toString('base64');
 
+test('a deferred classic script stays deferred: it becomes a data: script, not inline text', async () => {
+  const host = fakeHost({
+    'site/index.html': file(
+      '<head><script src="boot.js" defer></script><script src="now.js"></script></head><body><p id="x"></p></body>',
+      'text/html'
+    ),
+    'site/boot.js': file('document.getElementById("x").textContent = "ok";', 'text/javascript'),
+    'site/now.js': file('var now = 1;', 'text/javascript'),
+  });
+  const html = await buildPageSrcdoc(host.call, 'p', 'site/index.html', null);
+  const [deferred, inline] = new DOMParser().parseFromString(html, 'text/html').querySelectorAll('script');
+  assert.equal(deferred.hasAttribute('defer'), true);
+  assert.equal(deferred.textContent, '');
+  assert.equal(
+    deferred.getAttribute('src'),
+    `data:text/javascript;base64,${b64('document.getElementById("x").textContent = "ok";')}`
+  );
+  assert.equal(inline.hasAttribute('src'), false);
+  assert.equal(inline.textContent, 'var now = 1;');
+});
+
 test('stylesheets inline their @imports, url() images and fonts against their own folder', async () => {
   const host = fakeHost({
     'site/index.html': file(
@@ -276,6 +297,56 @@ test('module scripts get their relative imports as data: modules; bare, outside 
   assert.match(main.textContent, /import lodash from "lodash"; import \{ a \} from "data:text\/javascript;base64,/);
   // A classic script is left as written.
   assert.equal(classic.textContent, 'import("./lib/a.js")');
+});
+
+test('bare names the import map sends to project files become map entries for one shared data: module', async () => {
+  const map = {
+    imports: {
+      three: './lib/three.module.js',
+      'three/addons/': './lib/jsm/',
+      cdn: 'https://cdn.test/cdn.js',
+    },
+    scopes: { './lib/': { other: './lib/other.js' } },
+  };
+  const host = fakeHost({
+    'app/index.html': file(
+      `<script type="importmap">${JSON.stringify(map)}</script>` +
+        '<script type="module">import * as THREE from "three"; import { OrbitControls } from "three/addons/controls/OrbitControls.js"; import "cdn"; import "unmapped";</script>' +
+        '<script type="module" src="main.js"></script>',
+      'text/html'
+    ),
+    'app/main.js': file('import * as T from "./lib/three.module.js";', 'text/javascript'),
+    'app/lib/three.module.js': file('export * from "./three.core.js";', 'text/javascript'),
+    'app/lib/three.core.js': file('export const REVISION = "1";', 'text/javascript'),
+    'app/lib/jsm/controls/OrbitControls.js': file(
+      'import { REVISION } from "three"; import { u } from "../utils/u.js";',
+      'text/javascript'
+    ),
+    'app/lib/jsm/utils/u.js': file('import "three"; export const u = 1;', 'text/javascript'),
+  });
+  const html = await buildPageSrcdoc(host.call, 'p', 'app/index.html', null);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const [mapScript, inline, main] = doc.querySelectorAll('script');
+  const decode = (url) => Buffer.from(url.replace(/^data:text\/javascript;base64,/, ''), 'base64').toString();
+  const rewritten = JSON.parse(mapScript.textContent);
+  const three = rewritten.imports.three;
+  // The bare imports stay bare; the map now names the inlined files for them.
+  assert.equal(
+    inline.textContent,
+    'import * as THREE from "three"; import { OrbitControls } from "three/addons/controls/OrbitControls.js"; import "cdn"; import "unmapped";'
+  );
+  assert.match(decode(three), /^export \* from "data:text\/javascript;base64,/);
+  const controls = decode(rewritten.imports['three/addons/controls/OrbitControls.js']);
+  assert.match(controls, /^import \{ REVISION \} from "three"; import \{ u \} from "data:text\/javascript;base64,/);
+  // A relative import of the same file is the very same module (one URL).
+  assert.equal(main.textContent, `import * as T from "${three}";`);
+  // Outside addresses, the prefix entry and the rest of the map are kept.
+  assert.equal(rewritten.imports['three/addons/'], './lib/jsm/');
+  assert.equal(rewritten.imports.cdn, 'https://cdn.test/cdn.js');
+  assert.equal(rewritten.imports.unmapped, undefined);
+  assert.deepEqual(rewritten.scopes, map.scopes);
+  // Each file is read once.
+  assert.equal(host.calls.filter((call) => call[2] === 'app/lib/three.module.js').length, 1);
 });
 
 test('import-looking text in strings, comments, templates and regexes is not rewritten', async () => {

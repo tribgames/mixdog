@@ -148,9 +148,25 @@ export const PAGE_FETCH_MAX_BYTES = 16 * 1024 * 1024;
 const CSS_IMPORT = /@import\s+(?:url\(\s*)?(["']?)([^"')\s;]+)\1\s*\)?\s*([^;]*);/gi;
 const CSS_URL = /url\(\s*(["']?)([^"')]+?)\1\s*\)/gi;
 // Static `import … from`, bare `import '…'`, `export … from` and string
-// literal dynamic `import('…')` with a relative or root specifier.
+// literal dynamic `import('…')`.
 const MODULE_SPECIFIER =
-  /(\bimport\s*\(\s*|\bimport\s*(?:[\w$*{}\s,]+?\s*from\s*)?|\bexport\s*[\w$*{}\s,]+?\s*from\s*)(["'])((?:\.{1,2}\/|\/)[^"'\n]*)\2/y;
+  /(\bimport\s*\(\s*|\bimport\s*(?:[\w$*{}\s,]+?\s*from\s*)?|\bexport\s*[\w$*{}\s,]+?\s*from\s*)(["'])([^"'\n]+)\2/y;
+/** A relative or root module specifier (or import map address); anything
+ *  else is a bare name or a full URL. */
+const RELATIVE_SPECIFIER = /^(?:\.{1,2}\/|\/)/;
+
+/** Where the import map's `imports` send bare `specifier`: its exact key,
+ *  else the longest matching `/`-ending prefix key; '' when none does. */
+function mappedSpecifier(imports: Record<string, unknown>, specifier: string): string {
+  const exact = imports[specifier];
+  if (Object.hasOwn(imports, specifier)) return typeof exact === 'string' ? exact : '';
+  let prefix = '';
+  for (const key of Object.keys(imports)) {
+    if (key.endsWith('/') && specifier.startsWith(key) && key.length > prefix.length) prefix = key;
+  }
+  const target = prefix ? imports[prefix] : '';
+  return typeof target === 'string' && target ? target + specifier.slice(prefix.length) : '';
+}
 // Words after which a `/` starts a regex literal rather than dividing.
 const REGEX_AFTER_WORD = new Set([
   'return',
@@ -307,7 +323,6 @@ function createPageInliner(call: Call, projectPath: string, accessToken: string 
   let budget = PAGE_TOTAL_MAX_BYTES;
   let assets = 0;
   const files = new Map<string, Promise<PageAsset | null>>();
-  const modules = new Map<string, Promise<string>>();
   const loadPath = async (path: string): Promise<PageAsset | null> => {
     if (assets >= PAGE_MAX_ASSETS || budget <= 0) return null;
     assets += 1;
@@ -323,7 +338,9 @@ function createPageInliner(call: Call, projectPath: string, accessToken: string 
   /** The asset `reference` names from the file at `from`; each path loads once. */
   const load = (from: string, reference: string): Promise<PageAsset | null> => {
     const path = resolvePageReference(from, reference);
-    if (!path) return Promise.resolve(null);
+    return path ? loadFile(path) : Promise.resolve(null);
+  };
+  const loadFile = (path: string): Promise<PageAsset | null> => {
     let pending = files.get(path);
     if (!pending) {
       pending = loadPath(path);
@@ -348,24 +365,51 @@ function createPageInliner(call: Call, projectPath: string, accessToken: string 
     });
   };
 
-  /** Module source with its relative imports pointing at data: modules (which
-   *  cannot resolve relative specifiers themselves). A cycle is left as is. */
-  const moduleText = (text: string, from: string, chain: readonly string[]): Promise<string> =>
-    replaceAsync(text, moduleSpecifiers(text), async (match) => {
-      const path = resolvePageReference(from, match[3]);
-      if (!path || chain.includes(path)) return match[0];
-      let url = modules.get(path);
-      if (!url) {
-        url = load(from, match[3]).then(async (file) =>
-          file
-            ? textDataUrl(await moduleText(textOfParts(file.parts), file.path, [...chain, path]), 'text/javascript')
-            : ''
+  /** One page's modules. `text` is module source with its relative imports
+   *  pointing at data: modules (which cannot resolve relative specifiers
+   *  themselves); a cycle is left as is. A bare name the page's import map
+   *  `imports` sends to a project file stays bare: `mapped` (after the
+   *  page's scripts) makes that file the data: module the map names for it. */
+  const moduleGraph = (pagePath: string, imports: Record<string, unknown>) => {
+    const modules = new Map<string, Promise<string>>();
+    const bare = new Map<string, string>();
+    const url = (path: string, chain: readonly string[]): Promise<string> => {
+      let pending = modules.get(path);
+      if (!pending) {
+        pending = loadFile(path).then(async (file) =>
+          file ? textDataUrl(await text(textOfParts(file.parts), file.path, [...chain, path]), 'text/javascript') : ''
         );
-        modules.set(path, url);
+        modules.set(path, pending);
       }
-      const resolved = await url;
-      return resolved ? `${match[1]}${match[2]}${resolved}${match[2]}` : match[0];
-    });
+      return pending;
+    };
+    const text = (source: string, from: string, chain: readonly string[]): Promise<string> =>
+      replaceAsync(source, moduleSpecifiers(source), async (match) => {
+        const specifier = match[3];
+        if (!RELATIVE_SPECIFIER.test(specifier)) {
+          // Map addresses resolve against the page, like the browser does.
+          const target = mappedSpecifier(imports, specifier);
+          const path = RELATIVE_SPECIFIER.test(target) ? resolvePageReference(pagePath, target) : '';
+          if (path && !bare.has(specifier)) bare.set(specifier, path);
+          return match[0];
+        }
+        const path = resolvePageReference(from, specifier);
+        if (!path || chain.includes(path)) return match[0];
+        const resolved = await url(path, chain);
+        return resolved ? `${match[1]}${match[2]}${resolved}${match[2]}` : match[0];
+      });
+    // One at a time (a module's own bare imports join the queue as it loads),
+    // so no load ever waits on one that waits on it.
+    const mapped = async (): Promise<Record<string, string>> => {
+      const out: Record<string, string> = {};
+      for (const [name, path] of bare) {
+        const resolved = await url(path, []);
+        if (resolved) out[name] = resolved;
+      }
+      return out;
+    };
+    return { text, mapped };
+  };
 
   const page = async (html: string, pagePath: string, depth: number): Promise<string> => {
     const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -388,6 +432,23 @@ function createPageInliner(call: Call, projectPath: string, accessToken: string 
       const value = element.getAttribute('style') || '';
       if (/url\(/i.test(value)) element.setAttribute('style', await css(value, pagePath));
     }
+    // The page's import map (the first one counts) sends bare names, e.g.
+    // `three`, `three/addons/`, to the page's own module files.
+    const mapScript = Array.from(doc.querySelectorAll('script:not([src])')).find(
+      (script) => (script.getAttribute('type') || '').trim().toLowerCase() === 'importmap'
+    );
+    let importMap: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(mapScript?.textContent || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) importMap = parsed as Record<string, unknown>;
+    } catch {
+      // An invalid map is left for the browser to report.
+    }
+    const imports =
+      importMap.imports && typeof importMap.imports === 'object' && !Array.isArray(importMap.imports)
+        ? (importMap.imports as Record<string, unknown>)
+        : {};
+    const modules = moduleGraph(pagePath, imports);
     for (const script of Array.from(doc.querySelectorAll('script'))) {
       const module = (script.getAttribute('type') || '').trim().toLowerCase() === 'module';
       let text = script.textContent || '';
@@ -395,14 +456,27 @@ function createPageInliner(call: Call, projectPath: string, accessToken: string 
       if (script.hasAttribute('src')) {
         const file = await load(pagePath, script.getAttribute('src') || '');
         if (!file) continue;
-        script.removeAttribute('src');
         text = textOfParts(file.parts);
         from = file.path;
+        if (!module && script.hasAttribute('defer')) {
+          // Inline text ignores `defer` and would run before the document it
+          // waits for: the file stays an external (data:) script, still deferred.
+          script.setAttribute('src', textDataUrl(text, 'text/javascript'));
+          continue;
+        }
+        script.removeAttribute('src');
       } else if (!module) {
         continue;
       }
-      if (module) text = await moduleText(text, from, [from]);
+      if (module) text = await modules.text(text, from, [from]);
       script.textContent = text.replace(/<\/(script)/gi, '<\\/$1');
+    }
+    const mapped = await modules.mapped();
+    if (mapScript && Object.keys(mapped).length) {
+      mapScript.textContent = JSON.stringify({ ...importMap, imports: { ...imports, ...mapped } }).replace(
+        /<\/(script)/gi,
+        '<\\/$1'
+      );
     }
     for (const element of Array.from(
       doc.querySelectorAll('img[src], source[src], audio[src], video[src], track[src], input[type="image"][src]')

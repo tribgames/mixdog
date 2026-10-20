@@ -248,6 +248,38 @@ test('in the page, re-opening an XHR ignores the old reply and applies the new o
   assert.equal(xhr.readyState, 4);
 });
 
+test('in the page, images and sounds a script loads read project files through the parent once', async () => {
+  const { inner, toParent, answer } = bridgedFrame('game/index.html');
+  const blobs = [];
+  inner.URL.createObjectURL = (blob) => {
+    blobs.push(blob.type);
+    return `blob:page/${blobs.length}`;
+  };
+  const sprite = new inner.Image();
+  sprite.src = 'img/hero.png';
+  const again = new inner.Image();
+  again.src = 'img/hero.png';
+  const sound = new inner.Audio('sfx/hit.wav');
+  assert.ok(sound instanceof inner.Audio && sound instanceof inner.HTMLAudioElement);
+  assert.deepEqual(
+    toParent.map((message) => message.reference),
+    ['/game/img/hero.png', '/game/sfx/hit.wav'],
+    'one read per file'
+  );
+  answer({ id: toParent[0].id, ok: true, status: 200, mime: 'image/png', body: new Uint8Array([1]).buffer });
+  answer({ id: toParent[1].id, ok: false, status: 404 });
+  await tick();
+  assert.equal(sprite.getAttribute('src'), 'blob:page/1');
+  assert.equal(again.getAttribute('src'), 'blob:page/1');
+  assert.deepEqual(blobs, ['image/png']);
+  assert.equal(sound.getAttribute('src'), 'sfx/hit.wav', 'a refused file keeps its own address and fails as before');
+  // Outside addresses are set as they are.
+  const outside = new inner.Image();
+  outside.src = 'https://cdn.test/a.png';
+  assert.equal(outside.getAttribute('src'), 'https://cdn.test/a.png');
+  assert.equal(toParent.length, 2);
+});
+
 test('the bridge goes first in the page head', () => {
   const html = withPageFetchBridge('<!doctype html><html><head><title>t</title></head><body></body></html>', 'a.html');
   assert.match(html, /^<!doctype html><html><head><script>\(function \(\) \{/);

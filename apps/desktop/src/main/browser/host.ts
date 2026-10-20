@@ -47,9 +47,11 @@ import {
 import { createBrowserHostPages } from './host-pages';
 import { createBrowserHostPresentation } from './host-presentation';
 import { createBrowserLocalPageControl } from './local-page-control';
+import { reloadPageAfterSignIn } from './login-takeover';
 import type { BrowserNativeRect } from './native-view';
 import { reclaimIdleUserSessions } from './page-power';
 import { createBrowserProfileHostMethods } from './profile-host-methods';
+import type { BrowserSignedInSite } from './signed-in-sites';
 import type {
   BrowserCredentialSuggestion,
   BrowserHistoryEntry,
@@ -84,6 +86,12 @@ export interface BrowserHost {
    *  pane infrastructure stays live either way. */
   setBridgeEnabled(enabled: boolean): void;
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
+  /** A takeover hands the session's page to the user: its panel opens now,
+   *  the one time Browser Use opens it without a click. */
+  openForTakeover(sessionId: string): void;
+  /** After a sign-in in the login window: the session's page reloads when
+   *  nothing would be lost (login-takeover.ts); true when it did. */
+  reloadAfterSignIn(sessionId: string): Promise<boolean>;
   setGuestActive(sessionId: string, webContentsId: number, active: boolean): void;
   configureGuestViewport(sessionId: string, webContentsId: number, config: DesktopBrowserViewportConfig): Promise<void>;
   browserImportSources(): Promise<BrowserImportSource[]>;
@@ -91,6 +99,12 @@ export interface BrowserHost {
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
   browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult>;
+  /** Sites the managed profile stays signed in to (names and counts only). */
+  browserSignedInSites(): Promise<BrowserSignedInSite[]>;
+  /** Sign out of one site: its cookies and its pages' storage. */
+  browserSignOutSite(site: string): Promise<number>;
+  /** Every sign-in, all site storage, and the data imported from Chrome. */
+  browserClearSignIns(): Promise<void>;
   /** Title, site icon and thumbnail this browser recorded for `url`, or null.
    *  `preview`: a page card asks; without a thumbnail, the page's own preview
    *  is read in the background and announced as a change. */
@@ -127,6 +141,8 @@ export function createBrowserHost(
     publishRemoteTabs?: (tabs: DesktopRemoteBrowserTab[]) => Promise<void>;
     /** Profile-import progress, for the paired client that may have started it. */
     publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
+    /** Sign in with a saved login by itself (the `browserAutoSignIn` setting). */
+    autoSignIn?: () => boolean;
   }
 ): BrowserHost {
   const base = createBrowserHostFoundation(window, {
@@ -172,6 +188,7 @@ export function createBrowserHost(
     taskLifecycle,
     retainGuest,
     onDiagnostic: options.onDiagnostic,
+    autoSignInEnabled: options.autoSignIn,
   });
 
   // Pages nobody displays or drives for long are unloaded (URLs kept) and
@@ -226,8 +243,14 @@ export function createBrowserHost(
       sendToRenderer,
       remoteTabs: shown.remoteTabs,
     }),
+    openForTakeover: (sessionId) => lifecycle.requestBrowserSurface(sessionId, 'handoff'),
+    reloadAfterSignIn: (sessionId) => {
+      const guest = sessions.liveGuest(sessionId);
+      return reloadPageAfterSignIn(guest, guest ? state.peek(guest) : undefined);
+    },
     ...createBrowserProfileHostMethods({
       profileImporter: base.profileImporter,
+      signIns: base.signIns,
       liveGuest: (sessionId) => sessions.liveGuest(sessionId),
       fillCredentialInGuest: (guest, credential) => tools.credentialFill.fillCredentialInGuest(guest, credential),
       sendToRenderer,

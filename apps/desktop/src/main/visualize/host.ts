@@ -16,8 +16,15 @@ import {
   type VisualizeTabView,
 } from '../../shared/visualize';
 import { INLINE_CHART_RENDERED } from '../../shared/visualize-inline-page';
-import { renderPageExportDetailed } from './export-render';
-import { chooseExportPath, type ExportRenderers, exportRenderers, exportTabBytes } from './host-export-path';
+import { visualizeInspectScript } from '../../shared/visualize-inspect';
+import { inspectPageOffscreen, renderPageExportDetailed, VISIBLE_PASSWORD_SCRIPT } from './export-render';
+import {
+  chooseExportPath,
+  type ExportRenderers,
+  exportRenderers,
+  exportTabBytes,
+  thumbnailRenderers,
+} from './host-export-path';
 import { watchFile } from './host-file-watch';
 import { createFeedbackHost } from './host-feedback';
 import {
@@ -87,6 +94,20 @@ async function pagesReady(window: BrowserWindow, tab: VisualizeTabView): Promise
   return true;
 }
 
+/** Whether a page pane of the tab shows a password field now. */
+async function showsPassword(window: BrowserWindow, tab: VisualizeTabView): Promise<boolean> {
+  const frames = window.webContents.mainFrame.framesInSubtree;
+  for (const pane of tab.panes) {
+    if (pane.kind !== 'html' || !pane.url) continue;
+    const prefix = leasePrefix(pane.url);
+    for (const frame of frames) {
+      if (frame.isDestroyed() || !frame.url.startsWith(prefix)) continue;
+      if ((await frame.executeJavaScript(VISIBLE_PASSWORD_SCRIPT).catch(() => false)) === true) return true;
+    }
+  }
+  return false;
+}
+
 /** A small bitmap of `image` for the settle comparison. */
 function settleSample(image: NativeImage): Buffer {
   const { width } = image.getSize();
@@ -133,6 +154,11 @@ export async function settledBodyImage(
  *  VISUALIZE_THUMBNAIL_MAX_BYTES; null when none does or the image is empty. */
 export function fitVisualizeThumbnail(image: NativeImage): Buffer | null {
   if (image.isEmpty()) return null;
+  // A tall picture (a whole page, stacked document pages) keeps its top at
+  // the card's 16:10, which is what the card shows anyway.
+  const size = image.getSize();
+  const height = Math.min(size.height, Math.ceil((size.width * 10) / 16));
+  if (height < size.height) image = image.crop({ x: 0, y: 0, width: size.width, height });
   const { width } = image.getSize();
   for (const step of [VISUALIZE_THUMBNAIL_MAX_WIDTH, 256, 200, 160]) {
     const png = (width > step ? image.resize({ width: step, quality: 'good' }) : image).toPNG();
@@ -154,6 +180,8 @@ async function cardThumbnail(
 ): Promise<Buffer | null> {
   if (window?.isVisible() && !window.isMinimized()) {
     const image = await settledBodyImage(window, sessionId, tab, signal);
+    // A page showing a password field is never pictured (nor stood in for).
+    if (image && (await showsPassword(window, tab))) return null;
     const png = image ? fitVisualizeThumbnail(image) : null;
     if (png) return png;
   }
@@ -236,6 +264,19 @@ export function createDesktopVisualize(options: {
   const service: VisualizeService = createVisualizeService({
     ...(options.versionsDirectory ? { versions: { directory: options.versionsDirectory } } : {}),
     thumbnail: (sessionId, tab, targets, signal) => cardThumbnail(liveWindow(), sessionId, tab, targets, signal),
+    // Audio and video need the panel (the capture fallback): no picture.
+    async thumbnailOffscreen(_sessionId, tab, files, signal) {
+      const png = await exportTabBytes(
+        () => Promise.reject(new Error('only the panel can draw this tab')),
+        tab,
+        'png',
+        0,
+        { files, renderers: thumbnailRenderers({ ...exportRenderers, documentPages }, signal), tiles: true }
+      );
+      if (signal.aborted) return null;
+      const { nativeImage } = await import('electron');
+      return fitVisualizeThumbnail(nativeImage.createFromBuffer(png));
+    },
     ...(options.sessionCwd ? { sessionCwd: options.sessionCwd } : {}),
     windowAvailable: () => liveWindow() !== null,
     browserAvailable: options.browserAvailable,
@@ -270,6 +311,16 @@ export function createDesktopVisualize(options: {
     async inspect(sessionId, tab, request) {
       const window = await requireShownWindow(sessionId, tab, viewer, REMOTE_ONLY_INSPECT);
       return inspectPanes(window, tab, request);
+    },
+    // Without the panel (an agent turn leaves it alone): a hidden window.
+    async inspectOffscreen(pane, allowNetwork, { viewport, selector, roots }) {
+      const read = await inspectPageOffscreen(
+        pane.url,
+        allowNetwork,
+        visualizeInspectScript(selector ? { selector } : {}),
+        { ...(viewport ? { viewport } : {}), roots }
+      );
+      return { result: read.data, problems: read.problems };
     },
     async ensureShown(sessionId, tab) {
       const window = requireWindow();
