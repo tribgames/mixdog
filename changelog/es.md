@@ -5,7 +5,7 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
-Los chats de bot estilo mensajería, las salas grupales con turnos de supervisor y las rutinas que se ejecutan directamente en los chats de bots son novedades, junto con las tarjetas de aprobación para acciones salientes y las contraseñas de aplicación de Gmail.
+Se añadió un sistema de bots, compatibilidad con más conectores, como Gmail mediante contraseña de aplicación, y una mayor estabilidad del cliente.
 
 ### Nuevas funciones
 

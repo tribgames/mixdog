@@ -4,7 +4,7 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
-Le chat con bot in stile messaggistica, le stanze di gruppo con turni gestiti da supervisore e le routine eseguite direttamente nelle chat dei bot sono novità, insieme alle schede di approvazione per le azioni in uscita e alle password per le app di Gmail.
+Aggiunti un sistema di bot e il supporto a più connettori, tra cui Gmail con password per le app, e migliorata la stabilità del client.
 
 ### Nuove funzionalità
 

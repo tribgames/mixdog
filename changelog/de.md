@@ -4,7 +4,7 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-Bot-Messenger-Chats, Gruppenräume mit Moderator-Zügen und direkt in Bot-Chats ausgeführte Routinen sind neu, zusammen mit Genehmigungskarten für externe Aktionen und Gmail-App-Passwörtern.
+Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passwort und eine stabilere Client-App.
 
 ### Neue Funktionen
 

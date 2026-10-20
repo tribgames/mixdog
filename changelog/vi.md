@@ -4,7 +4,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-Trò chuyện với bot theo phong cách ứng dụng nhắn tin, phòng nhóm với lượt điều phối của người giám sát và các quy trình chạy trực tiếp trong cuộc trò chuyện bot là những điểm mới, cùng với thẻ phê duyệt cho các hành động gửi ra ngoài và mật khẩu ứng dụng Gmail.
+Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gmail qua mật khẩu ứng dụng, và cải thiện độ ổn định của ứng dụng.
 
 ### Tính năng mới
 

@@ -5,7 +5,7 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-Bot messenger chats, group rooms with supervisor turns, and routines running directly in bot chats are new, alongside approval cards for outbound actions and Gmail app passwords.
+Added a bot system, support for more connectors including Gmail via app password, and improved client stability.
 
 ### New features
 

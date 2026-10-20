@@ -4,7 +4,7 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
-Chats de bot em estilo mensageiro, salas em grupo com moderação de supervisor e rotinas executadas diretamente nos chats dos bots são novidades, junto com cartões de aprovação para ações externas e senhas de app do Gmail.
+Adicionado um sistema de bots, suporte a mais conectores, incluindo o Gmail com senha de app, e mais estabilidade no cliente.
 
 ### Novos recursos
 

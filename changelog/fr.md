@@ -5,7 +5,7 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
-Les discussions avec des bots façon messagerie, les salons de groupe avec arbitrage par superviseur et les routines exécutées directement dans les discussions de bots sont des nouveautés, aux côtés des cartes d'approbation pour les actions sortantes et des mots de passe d'application Gmail.
+Ajout d'un système de bots, prise en charge de nouveaux connecteurs, dont Gmail par mot de passe d'application, et meilleure stabilité du client.
 
 ### Nouvelles fonctionnalités
 
