@@ -112,7 +112,7 @@ const GOAL_TOOL_ACTIONS = {
   status(ctx, id) {
     // Same view the user sees. Reading the stored record here showed the
     // model Goals the user had already archived away.
-    ctx.readRecord(id); // Corruption is an actionable error, not "no Goal".
+    ctx.readRecord(id); // A real I/O error is an actionable error, not "no Goal".
     return toolReply(ctx, id, ctx.visibleSnapshot(id), { full: true });
   },
   async create(ctx, id, args) {

@@ -82,6 +82,30 @@ test('a downgrade announces nothing in main or the renderer, and keeps the newer
     assert.equal(peekWhatsNew(local, '1.3.0', reUpgrade), 'current', 'the kept mark says it was shown');
   }));
 
+// A crash can leave the record empty or NUL-filled. Read as a version that is
+// 0.0.0, so every launch after it would announce an update nobody installed.
+for (const [label, content] of [
+  ['NUL-filled', Buffer.alloc(40)],
+  ['NUL and whitespace', '\0\0\n\0 '],
+  ['truncated JSON', '{"lastLaunched":"1.2'],
+  ['junk', 'not a version'],
+]) {
+  test(`a ${label} record is no record: no spurious update, and the next launch rewrites it`, () =>
+    withProfile(async (file) => {
+      await writeFile(file, content);
+      assert.equal(await launch(file, '1.2.1'), false);
+      assert.deepEqual(await record(file), { lastLaunched: '1.2.1' });
+      assert.equal(await launch(file, '1.2.1'), false);
+    }));
+}
+
+test('a damaged record still announces an NSIS relaunch, as a missing one does', () =>
+  withProfile(async (file) => {
+    await writeFile(file, Buffer.alloc(40));
+    assert.equal(await launch(file, '1.2.1', ['Mixdog.exe', '--updated']), true);
+    assert.deepEqual(await record(file), { lastLaunched: '1.2.1', pendingAnnouncement: '1.2.1' });
+  }));
+
 test('a record that cannot be written is reported and the launch goes on', () =>
   withProfile(async (_file, dir) => {
     const blocker = join(dir, 'not-a-directory');

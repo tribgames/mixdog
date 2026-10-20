@@ -6,11 +6,11 @@
  * file name into the same directory and keeps ownership through the same
  * probe-and-reclaim heartbeat.
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, unlinkSync, utimesSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerResponse } from 'node:http';
+import { parseJsonText, writeFileAtomicSync } from '../../../../../src/runtime/shared/atomic-file.mjs';
 import {
   parseBridgeDiscovery,
   probeBridgeDiscovery,
@@ -65,9 +65,14 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
       const raw = readFileSync(path, 'utf8');
       let value: unknown = null;
       try {
-        value = JSON.parse(raw);
+        value = parseJsonText(raw);
       } catch {
-        return { state: 'present', raw, record: null };
+        // Publication is atomic, so text that does not parse (empty or
+        // NUL-filled after a crash, truncated) is no owner's record: it counts
+        // as missing and the next publish replaces it. A record that parses
+        // but is not ours stays 'present': a foreign owner is never
+        // overwritten blind.
+        return { state: 'missing', raw: null, record: null };
       }
       return { state: 'present', raw, record: parseBridgeDiscovery(value) };
     } catch (error) {
@@ -79,22 +84,9 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
 
   function publishDiscovery(record: BridgeDiscoveryRecord): boolean {
     const path = ensureDiscoveryPath();
-    const temporaryPath = `${path}.${process.pid}.${record.generation}.${randomBytes(6).toString('hex')}.tmp`;
-    try {
-      writeFileSync(temporaryPath, `${JSON.stringify(record)}\n`, { mode: 0o600 });
-      renameSync(temporaryPath, path);
-      try {
-        chmodSync(path, 0o600);
-      } catch {
-        /* Windows ACLs: the per-user data dir is already private */
-      }
-    } finally {
-      try {
-        unlinkSync(temporaryPath);
-      } catch {
-        /* renamed or already gone */
-      }
-    }
+    // Written and flushed whole before it replaces the file: the per-user data
+    // dir is already private, and a crash never leaves an empty or NUL record.
+    writeFileAtomicSync(path, `${JSON.stringify(record)}\n`, { mode: 0o600 });
     return sameBridgeDiscovery(readDiscoverySnapshot(path).record, record);
   }
 

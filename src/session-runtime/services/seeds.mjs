@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFileAtomicSync } from '../../runtime/shared/atomic-file.mjs';
 import { pluginSkillsRoots } from '../../runtime/shared/plugin-manifest.mjs';
 import {
   EMPTY_HISTORY,
@@ -43,7 +44,7 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   retireSeededPackCopies({ rootDir, dataDir, backup, includeHistory });
   if (includeHistory && !backup.failures) {
     try {
-      writeFileSync(markerFile, `${stamp}\n`);
+      writeFileAtomicSync(markerFile, `${stamp}\n`);
     } catch {
       /* marker only; the sweep simply repeats */
     }
@@ -68,7 +69,7 @@ function cleanupRetiredChannelSecrets(dataDir) {
         }
       }
       try {
-        writeFileSync(marker, `${new Date().toISOString()}\n`);
+        writeFileAtomicSync(marker, `${new Date().toISOString()}\n`);
       } catch {
         /* marker only */
       }

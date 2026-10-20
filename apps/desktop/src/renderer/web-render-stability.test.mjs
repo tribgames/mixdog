@@ -6,9 +6,14 @@ import {
   rejectComposerSubmissionRecovery,
   resolveComposerSubmissionRecovery,
   retainComposerSubmissionRecovery,
+  composerScopeHasContent,
+  stashComposerAttachments,
   stashComposerDraft,
+  stashComposerTags,
   stashedComposerDraft,
   takeRejectedComposerSubmissionRecoveries,
+  takeStashedComposerAttachments,
+  takeStashedComposerTags,
 } from './composer-draft.ts';
 import { isRemoteBrowserRenderer } from './remote-ui-projection.ts';
 
@@ -73,6 +78,32 @@ test('returning to a tab hands back the text typed there before leaving', () => 
     }),
     ''
   );
+});
+
+test('returning to a tab hands back the attachments parked there before sending', () => {
+  const chip = { id: 3, kind: 'image', name: 'shot.png', mimeType: 'image/png', data: 'AAAA', token: '[Image #3]' };
+  assert.equal(composerScopeHasContent('session-a'), false);
+  stashComposerAttachments('session-a', [chip]);
+  // A tab holding only chips is not an untouched one.
+  assert.equal(composerScopeHasContent('session-a'), true);
+  assert.deepEqual(takeStashedComposerAttachments('session-b'), []);
+  assert.deepEqual(takeStashedComposerAttachments('session-a'), [chip]);
+  // Handed back once: the live composer owns them again.
+  assert.deepEqual(takeStashedComposerAttachments('session-a'), []);
+  // Leaving with no chips drops the entry.
+  stashComposerAttachments('session-a', [chip]);
+  stashComposerAttachments('session-a', []);
+  assert.deepEqual(takeStashedComposerAttachments('session-a'), []);
+});
+
+test('returning to an agent room hands back the members tagged there before sending', () => {
+  stashComposerTags('room-a', ['agent-1', 'agent-2']);
+  assert.deepEqual(takeStashedComposerTags('room-b'), []);
+  assert.deepEqual(takeStashedComposerTags('room-a'), ['agent-1', 'agent-2']);
+  assert.deepEqual(takeStashedComposerTags('room-a'), []);
+  stashComposerTags('room-a', ['agent-1']);
+  stashComposerTags('room-a', []);
+  assert.deepEqual(takeStashedComposerTags('room-a'), []);
 });
 
 test('a rejected web submission survives a composer remount until its pane restores it', () => {

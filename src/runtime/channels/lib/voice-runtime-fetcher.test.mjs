@@ -104,3 +104,34 @@ test('voice runtime resolution removes superseded published versions', async () 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('NUL-filled voice binaries and model are not treated as installed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-voice-nul-'));
+  try {
+    const manifest = JSON.parse(
+      await readFile(new URL('../data/voice-runtime-manifest.json', import.meta.url), 'utf8')
+    );
+    const key = `${process.platform}-${process.arch}`;
+    const variant = manifest.platforms[key].variants[0];
+    const activeWhisper = `whisper-${manifest.version}-${variant.id}`;
+    const activeFfmpeg = `ffmpeg-${manifest.ffmpeg.version}`;
+    const nul = Buffer.alloc(64);
+    await mkdir(join(root, 'voice-runtime', activeWhisper, ...variant.executable.split('/').slice(0, -1)), {
+      recursive: true,
+    });
+    await mkdir(join(root, 'ffmpeg-runtime', activeFfmpeg), { recursive: true });
+    await mkdir(join(root, 'voice', 'models'), { recursive: true });
+    await writeFile(join(root, 'voice-runtime', 'active-version'), activeWhisper);
+    await writeFile(join(root, 'ffmpeg-runtime', 'active-version'), activeFfmpeg);
+    await writeFile(join(root, 'voice-runtime', activeWhisper, variant.executable), nul);
+    await writeFile(join(root, 'ffmpeg-runtime', activeFfmpeg, manifest.ffmpeg.platforms[key].executable), nul);
+    await writeFile(join(root, 'voice', 'models', manifest.models.standard.filename), nul);
+    const runtime = resolveVoiceRuntime(root, { cleanup: false });
+    assert.equal(runtime.binary, false);
+    assert.equal(runtime.ffmpeg, false);
+    assert.equal(runtime.model, false);
+    assert.equal(runtime.installed, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

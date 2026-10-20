@@ -2,9 +2,9 @@
 // host ids live in a small JSON file beside the saved servers. A window the
 // user closes is forgotten; quitting keeps the list. A server removed from the
 // saved list since is skipped.
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
+import { readJsonState, writeJsonAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopServerRestoreProgress } from '../../shared/contract-connection-link';
 import type { DesktopSshHostSettings } from '../../shared/contract-ssh';
 import type { ConnectionProgress, SshConnectionSpec } from './contract';
@@ -59,21 +59,21 @@ export function createServerWindowRestore(options: ServerWindowRestoreOptions): 
   const file = join(options.userDataPath, SERVER_WINDOWS_FILE);
   let loaded: Promise<RestoreState> | null = null;
   let writes: Promise<void> = Promise.resolve();
+  // A missing or damaged file (kept aside) starts empty; only an I/O error
+  // fails the read, and a failed read is not kept: the next call reads again.
   const state = (): Promise<RestoreState> =>
-    (loaded ??= readFile(file, 'utf8').then(
-      (text) => parsed(JSON.parse(text)),
-      () => parsed(null)
-    ));
+    (loaded ??= readJsonState(file, { validate: parsed, fallback: parsed(null) }).catch((error: unknown) => {
+      loaded = null;
+      throw error;
+    }));
   const update = async (change: (current: RestoreState) => RestoreState): Promise<RestoreState> => {
     const next = change(await state());
     loaded = Promise.resolve(next);
-    const snapshot = JSON.stringify({ version: 1, ...next });
+    const snapshot = { version: 1, ...next };
     writes = writes
       .catch(() => undefined)
       .then(async () => {
-        await mkdir(dirname(file), { recursive: true });
-        await writeFile(`${file}.tmp`, snapshot, 'utf8');
-        await rename(`${file}.tmp`, file);
+        await writeJsonAtomicAsync(file, snapshot, { compact: true });
       });
     await writes;
     return next;

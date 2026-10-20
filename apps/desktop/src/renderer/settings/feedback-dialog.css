@@ -153,6 +153,14 @@
   background: transparent;
   cursor: pointer;
 }
+html[data-mixdog-mobile-tabs] .settings-feedback-attach,
+html[data-mixdog-mobile-tabs] .settings-feedback-attachments button {
+  width: var(--mx-touch);
+  height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .settings-feedback-kinds > label {
+  min-height: var(--mx-touch);
+}
 .settings-feedback-attach:hover:not(:disabled),
 .settings-feedback-attachments button:hover:not(:disabled) {
   color: var(--mx-text);

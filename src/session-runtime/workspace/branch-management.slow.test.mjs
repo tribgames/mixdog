@@ -202,7 +202,9 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
   });
 }
 
-test('mergeProjectBranch preserves a live foreign turn when its shared ledger is damaged', { timeout: 20000 }, async (t) => {
+test('mergeProjectBranch preserves a live foreign turn when its shared ledger is damaged', {
+  timeout: 20000,
+}, async (t) => {
   const repo = makeRepo();
   const { source, merge } = await ENTRY_POINTS.mergeProjectBranch(repo);
   commitFile(source.path, 'feature.txt', 'feature\n');
@@ -223,7 +225,11 @@ test('mergeProjectBranch preserves a live foreign turn when its shared ledger is
       `,
       repo,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+    {
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      // The child republishes its lease into a recovered ledger within 200ms.
+      env: { ...process.env, MIXDOG_DATA_DIR: tempDir(), MIXDOG_ADMISSION_HEAL_MS: '200' },
+    }
   );
   t.after(async () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
@@ -237,28 +243,49 @@ test('mergeProjectBranch preserves a live foreign turn when its shared ledger is
     details: { reason: 'folder-in-use' },
   });
 
+  const savedWindow = process.env.MIXDOG_ADMISSION_RECOVERY_MS;
+  process.env.MIXDOG_ADMISSION_RECOVERY_MS = '1500';
+  t.after(() => {
+    if (savedWindow === undefined) delete process.env.MIXDOG_ADMISSION_RECOVERY_MS;
+    else process.env.MIXDOG_ADMISSION_RECOVERY_MS = savedWindow;
+  });
   const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-  const intact = readFileSync(path);
-  const damaged = Buffer.alloc(intact.length);
+  const damaged = Buffer.alloc(readFileSync(path).length);
   writeFileSync(path, damaged);
-  await assert.rejects(merge(), {
-    code: 'WORKTREE_BUSY_JOBS',
-    details: { reason: 'workspace-admission-unreadable' },
+  // Whether the live turn's lease is still unknown or the child already
+  // republished it, the merge must not run.
+  await assert.rejects(merge(), (error) => {
+    assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
+    assert.ok(['workspace-admission-unreadable', 'folder-in-use'].includes(error.details.reason), error.details.reason);
+    return true;
   });
   assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
   assert.equal(existsSync(join(repo, 'feature.txt')), false);
-  assert.deepEqual(readFileSync(path), damaged);
   const alive = once(child, 'message');
   child.send('ping');
   assert.equal((await alive)[0], 'alive');
 
-  // The fixture owns the exact original record; no lease changed while its
-  // bytes were damaged. After restoring it, the same child can release normally.
-  writeFileSync(path, intact);
+  // The live turn republishes its lease, so the merge now refuses on it by name.
+  for (let i = 0; i < 100 && !readFileSync(path, 'utf8').includes('foreign-turn'); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  await assert.rejects(merge(), { code: 'WORKTREE_BUSY_JOBS', details: { reason: 'folder-in-use' } });
+  assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
+
+  // Once the turn ends and the unknown window has passed, the block clears by itself.
   const exited = once(child, 'exit');
   child.send('release');
   assert.deepEqual(await exited, [0, null]);
-  assert.equal((await merge()).merged, true);
+  let merged = null;
+  for (let i = 0; i < 100 && !merged; i += 1) {
+    try {
+      merged = await merge();
+    } catch (error) {
+      assert.equal(error.details?.reason, 'workspace-admission-unreadable', String(error.stack));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  assert.equal(merged?.merged, true);
   assert.equal(git(repo, 'rev-parse', 'HEAD^2'), git(source.path, 'rev-parse', 'HEAD'));
 });
 

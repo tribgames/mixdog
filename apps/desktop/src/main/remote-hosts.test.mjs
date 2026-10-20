@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -93,6 +93,35 @@ test('saved hosts persist, rename on re-save, and forget cleanly', async () => {
 
     await reloaded.remove(saved.id);
     assert.equal((await loadRemoteHostStore(directory)).list().length, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a damaged saved-computer list is kept aside and the last good copy restored', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-hosts-'));
+  try {
+    const store = await loadRemoteHostStore(directory);
+    const link = parseRemoteHostLink(LINK);
+    await store.save(link, 'Office PC');
+    await store.touch(remoteHostId(LINK));
+    const file = join(directory, 'remote-hosts.json');
+    await writeFile(file, '\0\0\0\0\0\0');
+
+    const reloaded = await loadRemoteHostStore(directory);
+    assert.deepEqual(
+      reloaded.list().map((host) => host.name),
+      ['Office PC']
+    );
+    const aside = (await readdir(directory)).filter((name) => name.startsWith('remote-hosts.json.corrupt-'));
+    assert.equal(aside.length, 1);
+    assert.equal(await readFile(join(directory, aside[0]), 'utf8'), '\0\0\0\0\0\0');
+
+    // With nothing to restore the list starts empty, and the bytes stay aside.
+    await rm(`${file}.bak`);
+    await writeFile(file, '{"hosts": [');
+    assert.deepEqual((await loadRemoteHostStore(directory)).list(), []);
+    assert.equal((await readdir(directory)).filter((name) => name.includes('.corrupt-')).length, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

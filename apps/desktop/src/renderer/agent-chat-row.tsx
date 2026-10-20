@@ -315,12 +315,36 @@ export function AgentTypingRow({
   member,
   lead,
   approvalCard,
+  idle = false,
 }: {
   member: RoomMemberLabel | null;
   /** The bubble opens a run: face, name and tail. */
   lead: boolean;
   approvalCard: ReactNode;
+  /** A room between turns: the bubble keeps its box but shows nothing. */
+  idle?: boolean;
 }) {
+  const bubble = member && (
+    <AgentChatRow
+      place={{ side: 'agent', speaker: member.id, first: lead, last: false, at: 0, newDay: false }}
+      member={member}
+      faceState={idle ? 'still' : 'typing'}
+    >
+      <div
+        className="message assistant mx-chat-typing"
+        role={idle ? undefined : 'status'}
+        aria-label={idle ? undefined : t('{{name}} is typing…', { name: member.name })}
+      >
+        <div className="message-body">
+          <span className="mx-chat-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      </div>
+    </AgentChatRow>
+  );
   return (
     <>
       {approvalCard ? (
@@ -328,26 +352,12 @@ export function AgentTypingRow({
           {approvalCard}
         </AgentChatRow>
       ) : null}
-      {member && (
-        <AgentChatRow
-          place={{ side: 'agent', speaker: member.id, first: lead, last: false, at: 0, newDay: false }}
-          member={member}
-          faceState="typing"
-        >
-          <div
-            className="message assistant mx-chat-typing"
-            role="status"
-            aria-label={t('{{name}} is typing…', { name: member.name })}
-          >
-            <div className="message-body">
-              <span className="mx-chat-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-            </div>
-          </div>
-        </AgentChatRow>
+      {idle ? (
+        <div className="mx-chat-typing-idle" aria-hidden="true">
+          {bubble}
+        </div>
+      ) : (
+        bubble
       )}
     </>
   );

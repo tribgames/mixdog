@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHook } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -102,6 +103,50 @@ test('startup securing keeps the first submission off the ACL path, and a submis
   const shared = spawns.count - before;
   assert.ok(shared <= secured, 'one securing, shared by startup and the submission');
   if (process.platform === 'win32') assert.ok(shared >= 1);
+});
+
+const receiptFile = (root, id) =>
+  join(root, 'new-task-receipts', `${createHash('sha256').update(id).digest('hex')}.json`);
+
+// A receipt a crash left empty or NUL-filled (or that is truncated) binds
+// nothing: the submission reserves its address again instead of failing.
+for (const [label, content] of [
+  ['NUL-filled', Buffer.alloc(150)],
+  ['empty', ''],
+  ['truncated', '{"signature":"ab","sessionId":"sess_desktop_ab","phase":"acc'],
+  ['not a receipt', '{"phase":"accepted"}'],
+]) {
+  test(`a ${label} receipt counts as no receipt`, async (t) => {
+    const root = await fsp.realpath(await fsp.mkdtemp(join(tmpdir(), 'mixdog-receipts-')));
+    t.after(() => fsp.rm(root, { recursive: true, force: true }));
+    const requests = new NewTaskRequests(root);
+    await requests.prepare();
+    const path = receiptFile(root, 'damaged-task');
+    await fsp.writeFile(path, content);
+    const phases = [];
+    const sessionId = await requests.run('damaged-task', { prompt: 'p' }, async (request) => {
+      phases.push(request.phase);
+      await request.commit('accepted');
+      return request.sessionId;
+    });
+    assert.deepEqual(phases, ['reserved']);
+    assert.equal(sessionId, `sess_desktop_${createHash('sha256').update('damaged-task').digest('hex')}`);
+    assert.equal(JSON.parse(await fsp.readFile(path, 'utf8')).phase, 'accepted');
+    // The replay now answers from the receipt that replaced it.
+    const replay = await new NewTaskRequests(root).run('damaged-task', { prompt: 'p' }, async (request) => request.phase);
+    assert.equal(replay, 'accepted');
+  });
+}
+
+test('a receipt for different content is still refused', async (t) => {
+  const root = await fsp.realpath(await fsp.mkdtemp(join(tmpdir(), 'mixdog-receipts-')));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const requests = new NewTaskRequests(root);
+  await accept(requests, 'reused-id');
+  await assert.rejects(
+    new NewTaskRequests(root).run('reused-id', { prompt: 'other' }, async () => 'unreachable'),
+    /reused for different content/
+  );
 });
 
 function grantsOf(path) {

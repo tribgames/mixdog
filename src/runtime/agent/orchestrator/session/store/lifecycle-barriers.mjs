@@ -5,7 +5,7 @@
  * they bypass the save queue entirely — that is why they live apart from the
  * write pipeline — and both fence late saves through the generation counter.
  */
-import { writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
@@ -116,7 +116,15 @@ function _writeLifecycleRecord(id, record, existing, reason, attempt = null) {
   const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
   try {
     const disk = _sessionForDisk(record);
-    writeFileSync(tmp, JSON.stringify(disk), 'utf-8');
+    // fsync before the rename, like every session save (see _doSaveSync): an
+    // OS crash must not publish a tombstone whose data blocks never landed.
+    const fd = openSync(tmp, 'w');
+    try {
+      writeFileSync(fd, JSON.stringify(disk), 'utf-8');
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     const scratch = _stampSessionScratch(tmp);
     if (attempt === null) _commitSessionWrite(tmp, target, id);
     else {

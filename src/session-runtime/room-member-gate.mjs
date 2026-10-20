@@ -2,6 +2,9 @@
 // anything that can change files or state asks the user through the ordinary
 // approval flow, whatever the agent's own permission or hook rules say — even
 // an agent that normally runs auto-approved. A hook's deny still wins.
+// Opening a task session (`session create`) runs as freely as in the agent's
+// home thread: it changes nothing itself, and the task session is the user's
+// own coding Lead, whose every side effect follows its usual approval rules.
 import { analyzeShellCommandEffects } from '../runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 
 const READ_ONLY_TOOLS = new Set([
@@ -37,12 +40,22 @@ export async function isReadOnlyRoomCall({ name, args, cwd }, analyze = analyzeS
   }
 }
 
+/** Whether `name(args)` opens a task session (session create). */
+export function isTaskSessionCreate({ name, args }) {
+  return (
+    name === 'session' &&
+    String(args?.action ?? '')
+      .trim()
+      .toLowerCase() === 'create'
+  );
+}
+
 /** The PreToolUse decision for a room member's call: the hook's own `decision`
- *  when it denies or the call only reads; otherwise an approval ask that keeps
- *  any rewrite the hook made. */
+ *  when it denies, the call only reads, or it opens a task session; otherwise
+ *  an approval ask that keeps any rewrite the hook made. */
 export async function roomMemberToolDecision(call, decision, analyze) {
   const action = String(decision?.action || decision?.decision || '').toLowerCase();
   if (action === 'deny' || action === 'block') return decision;
-  if (await isReadOnlyRoomCall(call, analyze)) return decision;
+  if (isTaskSessionCreate(call) || (await isReadOnlyRoomCall(call, analyze))) return decision;
   return { ...(decision && typeof decision === 'object' ? decision : {}), action: 'ask', reason: ROOM_APPROVAL_REASON };
 }

@@ -8,7 +8,7 @@
 /* Windows 11 Mica (main/window-options.ts marks html[data-window-material])
    shows through the titlebar and activity rail. Paper also lets a trace
    reach the left sidebar; the workspace and right dock stay opaque. */
-html[data-window-material="mica"] {
+html:is([data-window-material="mica"], [data-mixdog-skin]) {
   /* Solid copy for ink that must stay opaque (the send arrow) once the
      workspace turns its surface tokens clear. */
   --mx-sheet-ink: var(--mx-workspace-sheet);
@@ -22,87 +22,88 @@ html[data-window-material="mica"] {
 html[data-window-material="mica"][data-mixdog-theme="light"] {
   --mx-mica-frame: color-mix(in srgb, var(--mx-window-band) 50%, transparent);
 }
-html[data-window-material="mica"] body {
+html:is([data-window-material="mica"], [data-mixdog-skin]) body {
   background: var(--mx-mica-frame);
 }
-html[data-window-material="mica"],
-html[data-window-material="mica"] .desktop-boot-gate,
-html[data-window-material="mica"] .app-shell,
-html[data-window-material="mica"] .topbar,
-html[data-window-material="mica"] .desktop-body,
-html[data-window-material="mica"] .activity-rail {
+html:is([data-window-material="mica"], [data-mixdog-skin]),
+html:is([data-window-material="mica"], [data-mixdog-skin]) .desktop-boot-gate,
+html:is([data-window-material="mica"], [data-mixdog-skin]) .app-shell,
+html:is([data-window-material="mica"], [data-mixdog-skin]) .topbar,
+html:is([data-window-material="mica"], [data-mixdog-skin]) .desktop-body,
+html:is([data-window-material="mica"], [data-mixdog-skin]) .activity-rail {
   background: transparent;
 }
 /* Titlebar and rail are one seamless frame; the panels below carry the
    hairline and the rounded top-left corner. */
-html[data-window-material="mica"] .desktop-body {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .desktop-body {
   border-top-color: transparent;
 }
-html[data-window-material="mica"] .activity-rail {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .activity-rail {
   border-right-color: transparent;
 }
 /* When the sidebar folds, the rail owns the exposed seam. An inset shadow
    on the main panel alone can be covered by its full-size pane children. */
-html[data-window-material="mica"] .app-shell.sidebar-collapsed .activity-rail {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .app-shell.sidebar-collapsed .activity-rail {
   border-right-color: var(--mx-border-structure);
 }
-html[data-window-material="mica"] .workbench-side-panel,
-html[data-window-material="mica"] .main-panel {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .workbench-side-panel,
+html:is([data-window-material="mica"], [data-mixdog-skin]) .main-panel {
   --mx-window-band: transparent;
   --mx-workspace-sheet: transparent;
   background: var(--mx-mica-layer);
   box-shadow: inset 0 1px 0 var(--mx-border-structure);
 }
-html[data-window-material="mica"] .workbench-side-panel {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .workbench-side-panel {
   background: var(--mx-mica-panel-solid);
 }
-html[data-window-material="mica"] .workbench-side-panel[data-side="left"] {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .workbench-side-panel[data-side="left"] {
   box-shadow: inset 1px 1px 0 var(--mx-border-structure);
 }
 /* Paper's navigation panel takes the reading-canvas tone as a veil over the
    frame: 50% frame transmission × 6% = 3% native Mica, so it matches the
    opaque workspace with only a trace of the material. */
-html[data-window-material="mica"][data-mixdog-theme="light"] .workbench-side-panel[data-side="left"] {
+html[data-window-material="mica"][data-mixdog-theme="light"]:not([data-mixdog-skin])
+.workbench-side-panel[data-side="left"] {
   background: color-mix(in srgb, var(--mx-sheet-ink) 94%, transparent);
 }
 /* The parked conversation stays painted under a Studio/terminal/diff tab;
    with the sheet token cleared the covering layer turned see-through and the
    transcript showed behind Studio (user: 스튜디오로 넘어가면 트랜스크립트
    안 날아감). The workspace layer is solid, so cover with the same tone. */
-html[data-window-material="mica"] .pane-surface-handoff-layer {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-surface-handoff-layer {
   background: var(--mx-mica-layer);
 }
 /* Pane loading/unavailable covers read the cleared sheet token too; the
    empty-state mark and the spinner showed through the error card. */
-html[data-window-material="mica"] .pane-surface-cover {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-surface-cover {
   background: var(--mx-mica-layer);
 }
 /* Desktop widths use the joined sheet (pane-layout.css), whose radii belong to
    the outer corners only. */
 @media (max-width: 760px) {
-  html[data-window-material="mica"] .workbench-side-panel[data-side="left"],
-  html[data-window-material="mica"] .app-shell.sidebar-collapsed .main-panel {
+  html:is([data-window-material="mica"], [data-mixdog-skin]) .workbench-side-panel[data-side="left"],
+  html:is([data-window-material="mica"], [data-mixdog-skin]) .app-shell.sidebar-collapsed .main-panel {
     border-top-left-radius: 8px;
   }
 }
 /* The per-pane right dock is ONE plate, header and body alike: its body used
    to take the translucent side-panel layer while the header stayed clear, so
    the step between them drew a seam across and down the panel. */
-html[data-window-material="mica"] .pane-side-dock {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock {
   background: var(--mx-mica-panel-solid);
 }
 /* The workspace's top hairline runs on across the docked panel: the opaque
    plate covered it, so the line stopped where the dock began (user: 오른쪽
    사이드 패널 헤더 쪽 테두리 처리가 살짝 잘리는데). A dock floating over a
    narrow pane keeps its own overlay shadow. */
-html[data-window-material="mica"] .pane-side-dock:not([data-overlay="true"]) {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock:not([data-overlay="true"]) {
   box-shadow: inset 0 1px 0 var(--mx-border-structure);
 }
-html[data-window-material="mica"] .pane-side-dock .workbench-side-panel {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock .workbench-side-panel {
   background: transparent;
   box-shadow: none;
 }
-html[data-window-material="mica"] .send-button:not(.stop):not(:disabled) {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .send-button:not(.stop):not(:disabled) {
   color: var(--mx-sheet-ink);
 }
 html[data-mixdog-remote],

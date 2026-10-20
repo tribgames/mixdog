@@ -38,7 +38,14 @@ export function createTouchScrollDeviation({
   let frame = 0;
   const paint = () => {
     const space = getSpacer();
-    if (space) space.style.transform = amount ? `translateY(${-amount}px)` : '';
+    if (!space) return;
+    space.style.transform = amount ? `translateY(${-amount}px)` : '';
+    // A transform never shrinks the in-flow extent: rows lifted by a positive
+    // hold left the native end where it was, so a hard downward wheel scrolled
+    // the logical offset past the last row into blank space (스크롤을 세게
+    // 내리면 바닥을 뚫고 내려간다). The same amount off the flow keeps the
+    // native end on the lifted rows' end.
+    space.style.marginBottom = amount > 0 ? `${-amount}px` : '';
   };
   const settle = () => {
     frame = 0;

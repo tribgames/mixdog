@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { readSkillToolDependencies, saveSkillToolDependencies } from './skill-tool-dependencies.mjs';
+import {
+  readSkillToolDependencies,
+  saveSkillToolDependencies,
+  skillToolDependenciesRoot,
+} from './skill-tool-dependencies.mjs';
 
 function fixture(fn) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-links-'));
@@ -50,6 +54,20 @@ test('imports dependency metadata without executing it and local edits survive s
     assert.deepEqual(readSkillToolDependencies(file).toolDependencies, []);
     saveSkillToolDependencies(file, null);
     assert.equal(readSkillToolDependencies(file).toolDependencies[0].value, 'updated-server');
+  }));
+
+test('a NUL override reports an issue instead of throwing, and a save replaces it without staged leftovers', () =>
+  fixture(({ file }) => {
+    saveSkillToolDependencies(file, [{ type: 'tool', value: 'media' }]);
+    const directory = skillToolDependenciesRoot();
+    const [name] = readdirSync(directory);
+    writeFileSync(join(directory, name), Buffer.alloc(32));
+    const damaged = readSkillToolDependencies(file);
+    assert.deepEqual(damaged.toolDependencies, []);
+    assert.ok(damaged.dependencyIssues.length);
+    saveSkillToolDependencies(file, [{ type: 'tool', value: 'office' }]);
+    assert.deepEqual(readSkillToolDependencies(file).toolDependencies, [{ type: 'tool', value: 'office' }]);
+    assert.deepEqual(readdirSync(directory), [name], 'no staged file is left behind');
   }));
 
 test('malformed optional dependency metadata reports readiness without losing the skill', () =>

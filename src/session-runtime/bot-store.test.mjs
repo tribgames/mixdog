@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { migrateAgentKinds } from '../runtime/shared/agent-kind-migration.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
 import {
   FIXED_AGENT_SLOTS,
@@ -382,3 +383,150 @@ test('a bot route another process wrote while a conditional fill resolved is kep
   assert.equal(answer.skipped, true);
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).route.model, 'gpt-elsewhere');
 });
+
+// --- The one-time `kind: agent` stamp (agent-kind-migration.mjs) ---
+
+const DIALOG_BODY = [
+  'You are a helper.',
+  '',
+  '- Help the user with this role in a natural, friendly conversation, in the language they write in.',
+  '- Ask a short question when a request is unclear, and say plainly when something is outside what you do.',
+  '- Keep replies as short or as detailed as the moment needs.',
+].join('\n');
+const GREETING = {
+  role: 'user',
+  content: '[mixdog-runtime] The user just created you as a new agent named "x".',
+};
+const agentFile = (dataDir, id) => join(dataDir, 'agents', id, 'AGENT.md');
+const delegate = (dataDir, rows) =>
+  writeFileSync(join(dataDir, 'agent-workers.json'), JSON.stringify({ workers: rows }));
+const worker = (agent, ownerSessionId) => ({ sessionId: `sess_w_${agent}`, agent, ownerSessionId });
+
+test('agent kind stamp: a pre-rule user agent stays an agent, keeping its other front matter; real bots are left alone; once only', async (t) => {
+  const { dataDir, api } = fixture(t);
+  // Explorer: a pre-rule workflow agent with extra front matter, delegated to by a coding Lead.
+  writeAgent(dataDir, 'explorer', { frontmatter: 'permission: read\n' });
+  // Measurer: looks like a dialog bot (avatar + default body), yet a Lead delegated to it.
+  writeAgent(dataDir, 'measurer', { body: DIALOG_BODY, manifest: { avatar: MASCOT } });
+  // Plain: no evidence either way.
+  writeAgent(dataDir, 'plain');
+  // A real bot (greeted, only ever Mixy's) and a shipped role's user copy.
+  writeAgent(dataDir, 'real-bot');
+  writeThread(dataDir, 'real-bot', [GREETING, { role: 'assistant', content: '안녕하세요' }]);
+  writeAgent(dataDir, 'worker');
+  // A marked agent and a marked bot stay as written.
+  writeAgent(dataDir, 'marked-bot', { frontmatter: 'kind: bot\n' });
+  delegate(dataDir, [
+    worker('explorer', 'sess_coding_1'),
+    worker('measurer', 'sess_coding_1'),
+    worker('real-bot', 'sess_home_lead'),
+    worker('marked-bot', 'sess_coding_1'),
+  ]);
+  const before = tree(join(dataDir, 'agents'));
+
+  const result = api.migrateAgentKindMarkers();
+  assert.deepEqual([...result.stamped].sort(), ['explorer', 'measurer', 'plain']);
+  assert.deepEqual(result.restored, []);
+  const explorer = readMarkdownDocument(readFileSync(agentFile(dataDir, 'explorer'), 'utf8'));
+  assert.deepEqual(explorer.frontmatter, {
+    name: 'explorer',
+    description: 'explorer job',
+    permission: 'read',
+    kind: 'agent',
+  });
+  assert.equal(explorer.body, 'You are explorer.');
+  assert.equal(readMarkdownDocument(readFileSync(agentFile(dataDir, 'measurer'), 'utf8')).frontmatter.kind, 'agent');
+  // Nothing else on disk changed.
+  const after = tree(join(dataDir, 'agents'));
+  for (const name of Object.keys(before)) {
+    if (/^(explorer|measurer|plain)[\\/]AGENT\.md$/.test(name)) continue;
+    assert.equal(after[name], before[name], `${name} untouched`);
+  }
+
+  // Idempotent: a second run does nothing.
+  const second = tree(join(dataDir, 'agents'));
+  assert.equal(api.migrateAgentKindMarkers().skipped, true);
+  assert.deepEqual(tree(join(dataDir, 'agents')), second);
+
+  // The split that follows keeps the agents, and moves only the real bot.
+  assert.deepEqual(api.migrateBotStore().bots, ['marked-bot', 'real-bot']);
+  assert.deepEqual(kinds(api), {
+    explorer: 'agent',
+    measurer: 'agent',
+    plain: 'agent',
+    'real-bot': 'bot',
+    'marked-bot': 'bot',
+  });
+});
+
+test('agent kind stamp: a delegated agent the split already moved to bots/ returns to agents/ with its route; other bots stay', async (t) => {
+  const { dataDir, state, api } = fixture(t);
+  seed(dataDir);
+  api.migrateBotStore();
+  assert.deepEqual(kinds(api), { 'dialog-bot': 'bot', 'tool-bot': 'bot', 'old-helper': 'agent', triage: 'agent' });
+  // The user changed the bot's model on 1.3.1 (kept in bots/); a coding Lead had delegated to it before.
+  await api.setAgentRoute('dialog-bot', { provider: 'openai', model: 'gpt-6-mini' });
+  delegate(dataDir, [worker('dialog-bot', 'sess_coding_1'), worker('tool-bot', 'sess_home_lead')]);
+
+  const result = api.migrateAgentKindMarkers();
+  assert.deepEqual(result.restored, ['dialog-bot']);
+  assert.deepEqual(kinds(api), { 'dialog-bot': 'agent', 'tool-bot': 'bot', 'old-helper': 'agent', triage: 'agent' });
+  const doc = readMarkdownDocument(readFileSync(agentFile(dataDir, 'dialog-bot'), 'utf8'));
+  assert.equal(doc.frontmatter.kind, 'agent');
+  assert.equal(doc.frontmatter.name, 'dialog-bot');
+  assert.equal(existsSync(join(dataDir, 'bots', 'dialog-bot')), false);
+  assert.ok(existsSync(join(dataDir, 'bots', 'tool-bot', 'AGENT.md')));
+  const manifest = JSON.parse(readFileSync(join(dataDir, 'agents', 'dialog-bot', 'agent.json'), 'utf8'));
+  assert.equal(manifest.route, undefined, 'no store-only key in an agent');
+  assert.equal(manifest.avatar.kind, 'mascot');
+  assert.equal(state.config.agents['dialog-bot'].model, 'gpt-6-mini');
+  assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'bots', 'migration.json'), 'utf8')).bots, ['tool-bot']);
+
+  // Idempotent, and the re-sync of the split never makes it a bot again.
+  assert.equal(api.migrateAgentKindMarkers().skipped, true);
+  assert.equal(api.migrateBotStore().skipped, true);
+  assert.equal(kinds(api)['dialog-bot'], 'agent');
+});
+
+// A failure at any boundary of a restore leaves a state the next start finishes.
+for (const boundary of ['copy', 'route', 'manifest', 'stamp', 'delete']) {
+  test(`agent kind stamp: a restore failing before "${boundary}" converges on the next run without losing data`, async (t) => {
+    const { dataDir, api } = fixture(t);
+    seed(dataDir);
+    api.migrateBotStore();
+    await api.setAgentRoute('dialog-bot', { provider: 'openai', model: 'gpt-6-mini' });
+    const botDoc = readFileSync(join(dataDir, 'bots', 'dialog-bot', 'AGENT.md'), 'utf8');
+    delegate(dataDir, [worker('dialog-bot', 'sess_coding_1')]);
+    const routes = [];
+    const options = { dataDir, shippedRoot: '', restoreRoute: (id, route) => routes.push([id, route.model]) };
+
+    const failed = migrateAgentKinds({
+      ...options,
+      step: (name) => {
+        if (name === boundary) throw new Error(`injected ${boundary}`);
+      },
+    });
+    assert.equal(failed.failed, true);
+    assert.equal(existsSync(join(dataDir, 'agent-kind-migration.json')), false, 'no record after a failure');
+    // Nothing the restore depends on is gone yet: the bot's folder (and route) still exist.
+    assert.ok(existsSync(join(dataDir, 'bots', 'dialog-bot', 'AGENT.md')));
+
+    const done = migrateAgentKinds(options);
+    assert.deepEqual(done.restored, ['dialog-bot']);
+    assert.equal(existsSync(join(dataDir, 'bots', 'dialog-bot')), false);
+    assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'bots', 'migration.json'), 'utf8')).bots, ['tool-bot']);
+    const doc = readMarkdownDocument(readFileSync(agentFile(dataDir, 'dialog-bot'), 'utf8'));
+    assert.equal(doc.frontmatter.kind, 'agent');
+    assert.equal(doc.body, readMarkdownDocument(botDoc).body, 'definition kept');
+    assert.equal(
+      JSON.parse(readFileSync(join(dataDir, 'agents', 'dialog-bot', 'agent.json'), 'utf8')).route,
+      undefined
+    );
+    assert.ok(
+      routes.some(([id, model]) => id === 'dialog-bot' && model === 'gpt-6-mini'),
+      'route restored'
+    );
+    assert.ok(existsSync(join(dataDir, 'bots', 'tool-bot', 'AGENT.md')), 'the other bot stays');
+    assert.equal(migrateAgentKinds(options).skipped, true);
+  });
+}

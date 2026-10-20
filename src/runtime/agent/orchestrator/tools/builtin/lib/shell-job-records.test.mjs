@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -58,6 +58,22 @@ test('a running shell job publishes a record the statusline reader counts', asyn
     retireShellJobRecord('job_probe_1');
     const settled = await readStatus((value) => value.count === 0);
     assert.equal(settled.count, 0);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a NUL-filled job record is no record, even for a strict reader', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-records-nul-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    mkdirSync(join(root, 'shell-jobs'), { recursive: true });
+    writeFileSync(join(root, 'shell-jobs', 'job_nul.json'), '\0'.repeat(40));
+    assert.equal(await readShellJobRecord('job_nul', { strict: true }), null);
+    assert.deepEqual(await listShellJobRecords({ strict: true }), []);
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;

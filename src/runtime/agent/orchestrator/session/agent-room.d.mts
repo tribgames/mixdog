@@ -33,6 +33,9 @@ export interface RoomRow {
    *  turn that spoke; the log's intake stores the files that turn produced
    *  (agent-room-delivery.mjs) as the row's `parts` / `attachments`. */
   artifactsFrom?: { sessionId: string; since: number };
+  /** rowsSinceCursor only: the member's session was already handed this row
+   *  (shown again as context, never as new). */
+  seen?: boolean;
   text: string;
 }
 /** A stored file reference (attachments/store.mjs): an image, a file, or an
@@ -57,7 +60,7 @@ export interface RoomMemberLabel {
   id: string;
   name: string;
 }
-export type RoomTurnResult = 'speech' | 'pass' | 'stopped';
+export type RoomTurnResult = 'speech' | 'pass' | 'stopped' | 'superseded';
 /** A turn's answer; a speech may name the one peer it addressed. */
 export type RoomTurnAnswer = RoomTurnResult | { result: RoomTurnResult; mention?: string };
 export interface RoomExchangeResult {
@@ -132,10 +135,19 @@ export function runRoomExchange(options: {
   >;
   stopped?(): boolean;
   superseded?(): boolean;
+  /** The user's newest message has no answer yet (default true): until a
+   *  member speaks, a step must pick. */
+  waiting?: boolean;
 }): Promise<RoomExchangeResult>;
 export function roomDataLabel(value: unknown): string;
 export function roomDataLines(text: unknown): string[];
-export function rowsSinceCursor(rows: readonly RoomRow[], cursor: string | undefined, agentId: string): RoomRow[];
+export function rowsSinceCursor(
+  rows: readonly RoomRow[],
+  cursor: string | undefined,
+  agentId: string,
+  /** The id of the newest row the member's session was handed. */
+  seenId?: string
+): RoomRow[];
 export function roomTurnPrompt(options: {
   roomName: string;
   self: RoomMemberLabel;
@@ -150,6 +162,8 @@ export function roomTurnPrompt(options: {
   instruction?: string;
   /** How to talk: casual group chat, or work (the default). */
   scene?: RoomScene;
+  /** The user's newest message still has no answer (default: it is the newest row). */
+  waiting?: boolean;
 }): string | RoomPromptPart[];
 export function normalizeRoomRow(row?: Partial<RoomRow> & Record<string, unknown>): RoomRow;
 export function roomRowMessage(row: Partial<RoomRow>): {

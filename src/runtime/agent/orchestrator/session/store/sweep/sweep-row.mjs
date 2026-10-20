@@ -12,7 +12,7 @@ import { probePath, PROBE_PRESENT, PROBE_ABSENT } from '../fs-probe.mjs';
 import { _queueSessionSummaryUpsert, _queueSessionSummaryRemoval } from '../summary-cache.mjs';
 import { deleteSession } from '../session-delete.mjs';
 import { markSessionClosed } from '../lifecycle-barriers.mjs';
-import { BLANK_SCRATCH_MAX_AGE_MS, RUNNING_STALL_MS, readSweepRecord } from './sweep-record.mjs';
+import { BLANK_SCRATCH_MAX_AGE_MS, RUNNING_STALL_MS, SWEEP_RECORD_NO_DATA, readSweepRecord } from './sweep-record.mjs';
 import { isAgentHomeSessionId } from '../../agent-home.mjs';
 import { isRoomThreadSessionId } from '../../agent-room.mjs';
 
@@ -204,6 +204,37 @@ function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
   tally.remaining++;
 }
 
+/** A record a crash left empty or NUL-filled holds nothing to preserve and
+ *  would otherwise be reported forever as an unreadable session: its bytes are
+ *  kept aside as `<id>.json.corrupt-<ts>` (deleteSession, under the commit
+ *  lock and its liveness vetoes) and the session's row is retired with it. */
+function sweepNoDataRecord(ctx, row) {
+  const { plan, tally } = ctx;
+  if (plan.isSessionLive?.(row.id)) {
+    tally.remaining++;
+    return;
+  }
+  try {
+    if (
+      deleteSession(row.id, {
+        deferSummaryUpdate: true,
+        isSessionLive: plan.isSessionLive,
+        legacyOwnerVeto: true,
+        // The no-data verdict predates the commit lock: a record repaired or
+        // republished since is valid content and must survive.
+        damagedOnly: true,
+      })
+    ) {
+      tally.openPruned++;
+      tally.openPrunedDetails.push({ id: row.id, ageSeconds: 0 });
+      return;
+    }
+  } catch {
+    /* keep the row on failure */
+  }
+  tally.remaining++;
+}
+
 export function sweepRow(ctx, row) {
   if (!row?.id) return;
   const { tally } = ctx;
@@ -230,6 +261,10 @@ export function sweepRow(ctx, row) {
   // unreadable record, or a record naming another id (including a foreign
   // TOMBSTONE that would look perfectly mature) is preserved untouched.
   const record = readSweepRecord(row.id, jsonPath, jsonProbe);
+  if (record === SWEEP_RECORD_NO_DATA) {
+    sweepNoDataRecord(ctx, row);
+    return;
+  }
   if (record === null || isLifecycleUnreadable(record) || record.id !== row.id) {
     tally.remaining++;
     return;

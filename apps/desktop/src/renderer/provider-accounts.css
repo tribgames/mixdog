@@ -515,7 +515,7 @@
   position: fixed;
   z-index: var(--mx-menu-z-index);
   width: 260px;
-  max-height: min(360px, calc(100vh - 16px));
+  max-height: min(360px, calc(var(--vvh, 100dvh) - 16px));
   overflow: auto;
   padding: 4px;
   border: var(--mx-popup-border);

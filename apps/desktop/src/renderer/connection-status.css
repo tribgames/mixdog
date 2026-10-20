@@ -11,6 +11,14 @@
   gap: 8px;
   pointer-events: none;
 }
+/* Phone: below the notch and the tab strip, on the banner's gutters. */
+html[data-mixdog-mobile-tabs] .conn-link-stack {
+  top: calc(max(8px, env(safe-area-inset-top, 0px)) + 60px);
+  left: max(16px, env(safe-area-inset-left, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  width: auto;
+  transform: none;
+}
 .conn-link-stack > .mx-toast {
   width: auto;
   max-width: none;

@@ -1,11 +1,12 @@
 import { createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join, resolve, sep } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
 import type { BrowserCookieJar } from './cookie-jar';
+import { readVaultFile, writeVaultFile } from './credential-vault-file';
 import {
   nativeBrowserImporterPath,
   resolvePackagedBrowserImporter,
@@ -22,6 +23,7 @@ const NATIVE_OUTPUT_LIMIT = 64 * 1024 * 1024;
 const NATIVE_IMPORT_TIMEOUT_MS = 120_000;
 const CHROME_CLOSE_TIMEOUT_MS = 30_000;
 const execFileAsync = promisify(execFile);
+const unsealVault = (sealed: Buffer): string => safeStorage.decryptString(sealed);
 
 type BrowserImportItem = 'passwords' | 'cookies' | 'history';
 type BrowserImportItemState = 'running' | 'completed' | 'failed';
@@ -367,8 +369,13 @@ export class BrowserProfileImportService {
   async clearImportedData(): Promise<void> {
     if (this.activeJobId) throw new Error('A browser import is running; clear its data after it finishes.');
     const root = this.options.userDataDirectory;
+    // The vault's last-good copy and any damaged copy kept aside hold the same passwords.
+    const vaultCopies = (await readdir(root).catch(() => [])).filter(
+      (name) => name === 'browser-password-vault.bin.bak' || name.startsWith('browser-password-vault.bin.corrupt-')
+    );
     await Promise.all([
       rm(join(root, 'browser-password-vault.bin'), { force: true }),
+      ...vaultCopies.map((name) => rm(join(root, name), { force: true })),
       rm(this.historyFile, { force: true }),
       rm(join(root, 'browser-import-backups'), { recursive: true, force: true }),
     ]);
@@ -544,9 +551,8 @@ export class BrowserProfileImportService {
     }
     let parsed: unknown;
     try {
-      const encrypted = await readFile(vaultPath, { signal });
+      parsed = await readVaultFile(vaultPath, unsealVault);
       signal?.throwIfAborted();
-      parsed = JSON.parse(safeStorage.decryptString(encrypted));
     } catch {
       signal?.throwIfAborted();
       throw new Error('The stored browser credential vault could not be opened.');
@@ -705,9 +711,7 @@ export class BrowserProfileImportService {
     const plaintext = JSON.stringify({ version: 1, credentials });
     const encrypted = safeStorage.encryptString(plaintext);
     const vaultPath = join(this.options.userDataDirectory, 'browser-password-vault.bin');
-    const temporary = `${vaultPath}.tmp-${randomUUID()}`;
-    await writeFile(temporary, encrypted, { mode: 0o600 });
-    await rename(temporary, vaultPath);
+    await writeVaultFile(vaultPath, encrypted, unsealVault);
     return credentials.length;
   }
 }

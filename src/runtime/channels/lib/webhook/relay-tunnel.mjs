@@ -8,8 +8,9 @@
 // verification stays local — the relay never inspects payloads. Works out
 // of the box: no binary, no authtoken, no reserved domain.
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { readFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
+import { readJsonStateSync, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { DATA_DIR } from '../config.mjs';
 import { logWebhook } from './log.mjs';
 import { MAX_HOOK_FRAME_BYTES, MAX_HOOK_HEADER_BYTES, MAX_TUNNEL_BODY_BYTES } from './relay-tunnel/limits.mjs';
@@ -55,19 +56,28 @@ function hookIdentityPath() {
   return join(DATA_DIR, 'relay-hook-device.json');
 }
 
+function validHookIdentity(parsed) {
+  if (
+    typeof parsed?.deviceId !== 'string' ||
+    !/^[0-9a-f-]{8,64}$/.test(parsed.deviceId) ||
+    typeof parsed.deviceSecret !== 'string' ||
+    parsed.deviceSecret.length < 16
+  ) {
+    throw new Error('invalid hook tunnel identity');
+  }
+  return { deviceId: parsed.deviceId, deviceSecret: parsed.deviceSecret };
+}
+
 // Stable per-install identity (trust-on-first-use at the relay, mirroring
 // the desktop leg). The secret never leaves this machine except toward the
 // relay; the deviceId doubles as the public URL path segment.
 function loadOrCreateHookIdentity() {
   const path = hookIdentityPath();
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    if (
-      typeof parsed.deviceId === 'string' &&
-      /^[0-9a-f-]{8,64}$/.test(parsed.deviceId) &&
-      typeof parsed.deviceSecret === 'string' &&
-      parsed.deviceSecret.length >= 16
-    ) {
+    // A damaged identity (empty, NUL-filled, malformed) is kept aside and the
+    // last good copy restored; only when there is none is a new identity made.
+    const stored = readJsonStateSync(path, { validate: validHookIdentity, secret: true, fallback: null });
+    if (stored) {
       // The secret authenticates the webhook tunnel leg (whoever holds it can
       // take over inbound deliveries), so clamp legacy world-readable files.
       try {
@@ -75,20 +85,14 @@ function loadOrCreateHookIdentity() {
       } catch {
         /* windows/fs quirk */
       }
-      return { deviceId: parsed.deviceId, deviceSecret: parsed.deviceSecret };
+      return stored;
     }
-  } catch {
-    /* first run */
+  } catch (err) {
+    logWebhook(`hook tunnel: identity read failed — ${err?.message || err}`);
   }
   const identity = { deviceId: randomUUID(), deviceSecret: randomBytes(24).toString('hex') };
   try {
-    mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(path, JSON.stringify(identity, null, 2), { encoding: 'utf8', mode: 0o600 });
-    try {
-      chmodSync(path, 0o600);
-    } catch {
-      /* windows/fs quirk */
-    }
+    writeJsonAtomicSync(path, identity, { secret: true, backup: true });
   } catch (err) {
     logWebhook(`hook tunnel: identity persist failed — ${err?.message || err}`);
   }

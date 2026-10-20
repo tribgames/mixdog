@@ -187,6 +187,28 @@ test('an interrupted read stays quiet and the next connection reads the shared o
   assert.deepEqual(values.web.pins, ['search', 'workflows']);
 });
 
+// The phone report: a boot-time read that missed its deadline toasted
+// "Sidebar: mixdog remote call timed out." though nothing was the user's to fix.
+test('a timed-out read stays quiet and a timed-out save asks to check the connection', async (t) => {
+  const shared = hub();
+  const web = shared.api('web');
+  let lapse;
+  web.readActivityRailPins = () =>
+    new Promise((_, reject) => {
+      lapse = () => reject(new Error('mixdog remote call timed out.'));
+    });
+  web.updateActivityRailPins = async () => {
+    throw new Error('mixdog remote call timed out.');
+  };
+  const values = await mount(t, shared, { web });
+  const toasts = [];
+  window.addEventListener(DESKTOP_TOAST_EVENT, (event) => toasts.push(event.detail));
+  await act(async () => lapse());
+  assert.deepEqual(toasts, []);
+  await act(async () => values.web.savePins(['search']));
+  assert.equal(toasts.at(-1).text, 'Sidebar: Check the connection, then try again.');
+});
+
 test('an interrupted save restores the shared order and asks to check the connection', async (t) => {
   const shared = hub();
   const web = shared.api('web');

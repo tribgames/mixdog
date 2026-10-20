@@ -30,6 +30,19 @@ test('room members need approval for writes even when hooks allow them; reads ar
   assert.equal((await session.beforeToolHook({ name: 'shell', args: { command: 'git status' } }))?.action, 'allow');
 });
 
+test('opening a task session runs as in the home thread; other session actions still ask', async () => {
+  const session = hooked(member, { action: 'allow' });
+  assert.deepEqual(await session.beforeToolHook({ name: 'session', args: { action: 'create', brief: 'b' } }), {
+    action: 'allow',
+  });
+  assert.equal(
+    (await session.beforeToolHook({ name: 'session', args: { action: 'send', session_id: 's', prompt: 'p' } })).action,
+    'ask'
+  );
+  const deny = { action: 'deny', reason: 'no' };
+  assert.equal(await roomMemberToolDecision({ name: 'session', args: { action: 'create' } }, deny), deny);
+});
+
 test('a hook deny still wins, and other sessions are untouched', async () => {
   const deny = { action: 'deny', reason: 'no' };
   assert.equal(await roomMemberToolDecision({ name: 'edit' }, deny), deny);

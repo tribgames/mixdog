@@ -32,62 +32,81 @@ type ModelProps = Pick<
   | 'onRoutePreferenceApplied'
 >;
 
-/** The slim line UNDER the composer card: the usage readout on the left, the
- *  model picker and the context gauge on the right. In an agent chat every
+export type ComposerModelControlProps = ModelProps & {
+  modelAside: ComposerProps['modelAside'];
+  agentMode?: boolean;
+  transitioning: boolean;
+  commandBusy: boolean;
+  paneActive: boolean;
+  /** The edge the model sheet lines up with: 'end' at the line's right end. */
+  sheetAlign?: 'start' | 'end';
+};
+
+/** The model picker and the context gauge beside it. In an agent chat every
  *  route change also lands on the agent itself (agent-chat-route.ts), so the
  *  chip and the agent's profile pane stay one setting. */
-export function ComposerModelLine({
-  usageReadout,
+export function ComposerModelControls({
   modelAside,
   agentMode = false,
-  room = false,
   transitioning,
   commandBusy,
   paneActive,
   onRoutePreferenceApplied,
+  sheetAlign,
   ...modelProps
-}: ModelProps & {
+}: ComposerModelControlProps) {
+  return (
+    <span className="composer-model-line-controls">
+      <ModelSelector
+        {...modelProps}
+        sheetAlign={sheetAlign}
+        // Model writes are queued by the session API. A preceding write must
+        // not disable the next selection while its acknowledgement travels.
+        modelDisabled={transitioning}
+        answersModelPickerRequests={paneActive}
+        // Effort/Fast stay live during a turn: the running turn already
+        // captured its own effort/fast at turn start, so a change here lands
+        // on the NEXT turn instead of being locked out. Only session-command
+        // churn still disables the controls.
+        tuningDisabled={commandBusy || transitioning}
+        onRoutePreferenceApplied={
+          agentMode
+            ? (selection, options) => {
+                onRoutePreferenceApplied?.(selection, options);
+                persistAgentChatRoute(String(modelProps.sessionId || ''), selection).catch((reason) =>
+                  showDesktopToast(errorMessageText(reason), 'error')
+                );
+              }
+            : onRoutePreferenceApplied
+        }
+      />
+      {modelAside && <span className="composer-model-aside">{modelAside}</span>}
+    </span>
+  );
+}
+
+/** The slim line UNDER the composer card: the usage readout on the left, the
+ *  model picker and the context gauge on the right. A phone's coding composer
+ *  carries the model controls in its card instead (`controls` false), so the
+ *  line holds the readout alone. */
+export function ComposerModelLine({
+  usageReadout,
+  room = false,
+  controls = true,
+  ...controlProps
+}: ComposerModelControlProps & {
   usageReadout?: ReactNode;
-  modelAside: ComposerProps['modelAside'];
-  agentMode?: boolean;
   /** A group room: its members each use their own model, so the line shows
    *  neither the model picker nor the context gauge. */
   room?: boolean;
-  transitioning: boolean;
-  commandBusy: boolean;
-  paneActive: boolean;
+  controls?: boolean;
 }) {
   if (room) return usageReadout ? <div className="composer-model-line">{usageReadout}</div> : null;
   return (
     <div className="composer-model-line">
       {usageReadout}
-      <span className="composer-model-line-controls">
-        <ModelSelector
-          {...modelProps}
-          // At the line's right end the pill grows leftwards: its sheet shares its right edge.
-          sheetAlign="end"
-          // Model writes are queued by the session API. A preceding write must
-          // not disable the next selection while its acknowledgement travels.
-          modelDisabled={transitioning}
-          answersModelPickerRequests={paneActive}
-          // Effort/Fast stay live during a turn: the running turn already
-          // captured its own effort/fast at turn start, so a change here lands
-          // on the NEXT turn instead of being locked out. Only session-command
-          // churn still disables the controls.
-          tuningDisabled={commandBusy || transitioning}
-          onRoutePreferenceApplied={
-            agentMode
-              ? (selection, options) => {
-                  onRoutePreferenceApplied?.(selection, options);
-                  persistAgentChatRoute(String(modelProps.sessionId || ''), selection).catch((reason) =>
-                    showDesktopToast(errorMessageText(reason), 'error')
-                  );
-                }
-              : onRoutePreferenceApplied
-          }
-        />
-        {modelAside && <span className="composer-model-aside">{modelAside}</span>}
-      </span>
+      {/* At the line's right end the pill grows leftwards: its sheet shares its right edge. */}
+      {controls && <ComposerModelControls {...controlProps} sheetAlign="end" />}
     </div>
   );
 }
@@ -125,7 +144,11 @@ export function ComposerFooter({
   agentMode = false,
   sessionId,
   onOpenSettings,
+  modelControls = null,
 }: Pick<ModelProps, 'sessionId' | 'onOpenSettings'> & {
+  /** The model picker and gauge the card's bottom row carries right after
+   *  the + (a phone's coding composer); null leaves them on the line below. */
+  modelControls?: ReactNode;
   /** Agent mode: no model or effort controls (the agent's profile sets them);
    *  the + menu keeps attachments and, in a room, "Call an agent". */
   agentMode?: boolean;
@@ -203,6 +226,7 @@ export function ComposerFooter({
         onMore={() => onOpenSettings('skills')}
         simple={agentMode}
       />
+      {modelControls}
       <span className="composer-primary-actions">
         {/* The mic appears only once the voice runtime is installed
             (Extensions → Voice transcription): an uninstalled feature never

@@ -7,8 +7,9 @@
 // arrays (~30 MB). The compact form is built once from tokenizer.json and
 // cached next to it as tokenizer.bin, keyed by the source file's size and
 // modification time.
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFileAtomicSync } from '../shared/atomic-file.mjs';
 
 const MAGIC = 0x4d585442; // "MXTB"
 const VERSION = 3;
@@ -93,6 +94,9 @@ function readCached(dir) {
     const h = new Int32Array(buf.buffer, buf.byteOffset, 7);
     const [size, mtime] = sourceStamp(dir);
     if (h[0] !== MAGIC || h[1] !== VERSION || h[2] !== size || h[3] !== mtime % 2 ** 31) return null;
+    // header (28) + byte table (1024) + char pairs + merges + meta; a shorter
+    // file is torn and is rebuilt.
+    if (buf.length < 1052 + h[4] * 8 + h[5] * 12 + h[6]) return null;
     return buf;
   } catch {
     return null;
@@ -104,7 +108,9 @@ export function loadCompactTokenizer(dir) {
   let buf = readCached(dir);
   if (!buf) {
     buf = build(dir);
-    writeFileSync(join(dir, 'tokenizer.bin'), buf);
+    // Atomic: a torn cache (valid header, short body) would pass readCached's
+    // header check and then fail on every load.
+    writeFileAtomicSync(join(dir, 'tokenizer.bin'), buf);
   }
   // Copy into an aligned buffer so typed-array views are valid.
   const ab = new ArrayBuffer(buf.length);

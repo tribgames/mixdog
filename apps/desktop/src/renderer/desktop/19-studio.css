@@ -1429,6 +1429,9 @@
     var(--mx-overlay),
     inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
+html[data-mixdog-mobile-tabs] .studio-detail-menu > button {
+  min-height: var(--mx-touch, 44px);
+}
 .studio-detail-menu > button {
   display: flex;
   align-items: center;

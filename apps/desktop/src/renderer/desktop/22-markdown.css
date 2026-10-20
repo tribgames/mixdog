@@ -144,7 +144,7 @@
     translate 150ms ease;
   transform: translateX(-50%);
 }
-html[data-window-material="mica"] .jump-to-latest {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   color: var(--mx-mica-layer);
 }
 .jump-to-latest[aria-hidden="true"] {

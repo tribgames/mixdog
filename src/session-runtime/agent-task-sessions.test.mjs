@@ -13,6 +13,16 @@ import { createWorkspaceToolHandlers } from './internal-tool-executor/workspace-
 import { sessionOptions } from './session-create/session-options.mjs';
 import { sessionOriginFields } from '../runtime/agent/orchestrator/session/manager/session-record.mjs';
 import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
+import {
+  roomMemberSessionId,
+  roomRowItem,
+  roomRowMessage,
+  roomRowsOfItems,
+  roomSessionId,
+  rowsSinceCursor,
+} from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { createAgentRoomDelivery } from './agent-room-delivery.mjs';
+import { roomMemberToolDecision } from './room-member-gate.mjs';
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -1031,4 +1041,120 @@ test('the end of a stored turn is read from its completion, interruption or the 
   // A merged batch names every submission it delivered.
   const merged = { role: 'user', content: 'x', meta: { transcript: { checkpointId: 'a', submissionIds: ['a', 'b'] } } };
   assert.deepEqual(submissionOutcome([merged, replyRow('a', 'both')], 'b'), { status: 'completed', text: 'both' });
+});
+
+test('a room member opens a task session and its result lands in the room as its row', async (t) => {
+  const member = roomMemberSessionId('abc123', 'gh');
+  const roomLog = roomSessionId('abc123');
+  const spoke = roomRowMessage({
+    id: 'row_gh_1',
+    kind: 'speech',
+    speaker: 'gh',
+    name: 'GH Bot',
+    text: 'I will build it.',
+  });
+  const sessions = new Map([
+    [member, { id: member, messages: [], generation: 1 }],
+    [roomLog, { id: roomLog, messages: [spoke], generation: 1 }],
+  ]);
+  const loadStored = (id) => sessions.get(id) || null;
+  const room = createAgentRoomDelivery({ loadSession: loadStored, saveSession: async () => {}, live: () => null });
+  const queue = createRoutineResultQueue(join(tempDir(t), 'routine-results.json'));
+  const wakes = [];
+  const delivery = createAgentHomeDelivery({
+    loadSession: loadStored,
+    saveSession: async () => {},
+    turnInFlight: () => false,
+    queue,
+    live: () => ({ busy: () => false, notice: () => {}, wake: async (...args) => wakes.push(args) }),
+    retryLater: () => {},
+    postRoomReports: (id, items) => room.appendTaskReports(id, items),
+    log: () => {},
+  });
+  const pending = [];
+  const h = fakeService();
+  const { api } = tasks(h, {
+    deliver: (agentId, report) => {
+      const queued = delivery.enqueueTask(agentId, report);
+      pending.push(queued);
+      return queued;
+    },
+    watches: {
+      add: (watch) => delivery.watchTask(watch),
+      list: () => delivery.taskWatches(),
+      remove: (runId) => delivery.unwatchTask(runId),
+    },
+    turnArtifacts: async () => ({ files: [], omitted: 0 }),
+  });
+  const memberSession = { id: member, owner: 'cli', sourceType: 'lead' };
+  // The room's approval gate lets the create through as the home thread would.
+  assert.deepEqual(
+    await roomMemberToolDecision({ name: 'session', args: { action: 'create', brief: 'x' }, cwd: '.' }, null),
+    null
+  );
+  const session = createWorkspaceToolHandlers({
+    rt: { session: memberSession, config: {} },
+    executeSessionControl: createSessionControl({ getSessionService: () => h.service, agentTasks: api }),
+  }).session;
+  const created = JSON.parse(
+    await session(
+      { action: 'create', brief: 'Build the report\nwith charts' },
+      { callerCtx: { callerSessionId: member }, callerCwd: '/rooms' }
+    )
+  );
+  assert.equal(created.session_id, 'sess_task_1');
+  const [, params] = h.calls.find(([name]) => name === 'create');
+  assert.deepEqual(
+    [params.sessionProfile.taskOrigin.agentId, params.sessionProfile.taskOrigin.sessionId],
+    ['gh', member]
+  );
+  // The start line reaches the member's own session only.
+  await Promise.all(pending);
+  await delivery.drain(member);
+  assert.equal(sessions.get(member).messages.length, 1);
+  assert.match(sessions.get(member).messages[0].content, /started; its result is reported here/);
+  assert.equal(sessions.get(roomLog).messages.length, 1);
+  // The brief's turn ends: the result is the member's row in the room log.
+  const [{ options }] = submitted(h);
+  options.onSettled({ status: 'done', result: { content: 'Report built.\n\n- 3 charts' } });
+  for (let i = 0; i < 20 && pending.length < 2; i += 1) await settle();
+  await Promise.all(pending);
+  await delivery.drain(roomLog);
+  await delivery.drain(member);
+  const posted = sessions.get(roomLog).messages.at(-1);
+  assert.deepEqual(
+    [posted.meta.room.kind, posted.meta.room.speaker, posted.meta.room.name],
+    ['speech', 'gh', 'GH Bot']
+  );
+  assert.equal(
+    posted.content,
+    'Task session **Build the report** (`sess_task_1`) completed.\n\nReport built.\n\n- 3 charts'
+  );
+  // The room's next exchange shows it to the other members.
+  const rows = roomRowsOfItems(sessions.get(roomLog).messages.map((message, i) => roomRowItem(message, `i${i}`)));
+  assert.deepEqual(
+    rowsSinceCursor(rows, 'row_gh_1', 'reviewer').map((row) => row.speaker),
+    ['gh']
+  );
+  // The member itself reads it in its own session; nothing wakes it, no home gets it.
+  assert.match(sessions.get(member).messages.at(-1).content, /<task-output session="sess_task_1" status="completed">/);
+  assert.equal(wakes.length, 0);
+  assert.deepEqual(await queue.items('sess_home_gh'), []);
+  assert.deepEqual(await delivery.taskWatches(), [], 'the watch dropped once the report was queued');
+  // A replayed report adds nothing.
+  await delivery.drain(
+    await delivery.enqueueTask('gh', {
+      runId: `${options.id}_end`,
+      taskSessionId: 'sess_task_1',
+      title: 'Build the report',
+      status: 'completed',
+      text: 'Report built.',
+      from: member,
+    })
+  );
+  assert.equal(sessions.get(roomLog).messages.length, 2);
+  // A later send from the room to a task its agent opened at home reports to the room.
+  const stored = { taskOrigin: { agentId: 'gh', sessionId: 'sess_home_gh', title: 'T' } };
+  const re = tasks(fakeService(), { loadSession: async () => stored });
+  assert.equal((await re.api.reportOrigin('sess_task_9', 'gh', member)).sessionId, member);
 });

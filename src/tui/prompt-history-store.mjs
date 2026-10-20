@@ -3,9 +3,10 @@
  * Stored under MIXDOG data dir (not the repo working tree).
  */
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { chmod, mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { readJsonStateSync, writeFileAtomicAsync, writeFileAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 export const PROMPT_HISTORY_LIMIT = 50;
@@ -33,10 +34,18 @@ function historyFilePath(cwd) {
 }
 
 function readEntries(filePath) {
-  if (!filePath || !existsSync(filePath)) return [];
+  if (!filePath) return [];
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
-    const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+    // A damaged file (NUL, truncated) is kept aside as *.corrupt-<ts> and the
+    // history starts empty; the next flush writes a fresh file.
+    const parsed = readJsonStateSync(filePath, {
+      mode: 0o600,
+      validate: (value) => {
+        if (!Array.isArray(value?.entries)) throw new TypeError('prompt history has no entries');
+        return value;
+      },
+    });
+    const entries = parsed ? parsed.entries : [];
     return entries.map((entry) => String(entry || '').trim()).filter((entry) => promptHistoryKey(entry));
   } catch {
     return [];
@@ -52,14 +61,7 @@ function writeEntriesSync(filePath, entries) {
   try {
     // Prompt text may be sensitive; restrict directory/file to the owning user.
     mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
-    const tmp = `${filePath}.${process.pid}.tmp`;
-    writeFileSync(tmp, buildPayload(entries), { encoding: 'utf8', mode: 0o600 });
-    renameSync(tmp, filePath);
-    try {
-      chmodSync(filePath, 0o600);
-    } catch {
-      /* best-effort; Windows may ignore mode bits */
-    }
+    writeFileAtomicSync(filePath, buildPayload(entries), { mode: 0o600 });
     return true;
   } catch {
     return false;
@@ -72,14 +74,7 @@ async function writeEntriesAsync(filePath, entries) {
   if (!filePath) return false;
   try {
     await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
-    const tmp = `${filePath}.${process.pid}.tmp`;
-    await writeFile(tmp, buildPayload(entries), { encoding: 'utf8', mode: 0o600 });
-    await rename(tmp, filePath);
-    try {
-      await chmod(filePath, 0o600);
-    } catch {
-      /* best-effort; Windows may ignore mode bits */
-    }
+    await writeFileAtomicAsync(filePath, buildPayload(entries), { mode: 0o600 });
     return true;
   } catch {
     return false;

@@ -6,7 +6,17 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { runProcessOffThread } from '../../../../src/runtime/shared/process-runner.mjs';
-import { run, runWithInput, runWithStatus, setGitProcessRunner, streamNulRecords } from './git-runner.ts';
+import {
+  GIT_READ_TIMEOUT_MS,
+  run,
+  runRead,
+  runWithInput,
+  runWithStatus,
+  setGitProcessRunner,
+  streamNulRecords,
+} from './git-runner.ts';
+import { gitReview } from './git-history.ts';
+import { gitStatus } from './git-status.ts';
 
 function repo(t) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-runner-'));
@@ -61,6 +71,54 @@ test('with the daemon runner set, every git child starts off-thread with the sam
   );
   assert.ok(commands.length >= 6 && commands.every((call) => call.command === 'git'));
   assert.equal(commands[0].env.GIT_TERMINAL_PROMPT, '0', 'the scrubbed git environment travels with each child');
+});
+
+test('reads carry the read deadline; writes stay unbounded', async (t) => {
+  const timeouts = [];
+  setGitProcessRunner(async (_command, _args, options) => {
+    timeouts.push(options.timeoutMs);
+    return { code: 0, stdout: '', stderr: '' };
+  });
+  t.after(() => setGitProcessRunner(null));
+  await runRead(tmpdir(), ['status']);
+  await run(tmpdir(), ['commit']);
+  assert.deepEqual(timeouts, [GIT_READ_TIMEOUT_MS, 0]);
+});
+
+// A git child that never answers (here an alias that sleeps) must not hold
+// its caller: in-thread and off-thread alike it is cut off at the deadline.
+for (const offThread of [false, true]) {
+  test(`a hung git read is cut off at its deadline (${offThread ? 'off-thread' : 'in-thread'})`, async (t) => {
+    if (offThread) {
+      setGitProcessRunner(runProcessOffThread);
+      t.after(() => setGitProcessRunner(null));
+    }
+    const started = Date.now();
+    await assert.rejects(
+      streamNulRecords(tmpdir(), ['-c', 'alias.hang=!sleep 5', 'hang'], () => {}, { timeoutMs: 300 }),
+      /timed out/
+    );
+    assert.ok(Date.now() - started < 3_000, 'the read settled at its deadline, not when the child ended');
+  });
+}
+
+test('a timed-out read fails status and review instead of answering "no changes"', async (t) => {
+  const root = repo(t);
+  const children = [];
+  setGitProcessRunner((command, args, options) => {
+    if (args.includes('status')) {
+      return Promise.reject(Object.assign(new Error('git status timed out after 60000ms'), { code: 'ETIMEDOUT' }));
+    }
+    const child = runProcessOffThread(command, args, options);
+    children.push(child);
+    return child;
+  });
+  t.after(() => setGitProcessRunner(null));
+  await assert.rejects(gitStatus(root), /timed out/);
+  await assert.rejects(gitReview(root, 'uncommitted'), /timed out/);
+  // The reads started beside the scan still run in the repository; let them
+  // finish before it is removed.
+  await Promise.allSettled(children);
 });
 
 test('a burst of off-thread git children never holds the event loop for a spawn', async (t) => {

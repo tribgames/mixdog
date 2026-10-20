@@ -16,7 +16,7 @@ const payloads = [
 function fixture(t, faultAt, code = 'EIO') {
   const dir = fs.mkdtempSync(join(tmpdir(), 'mixdog-temp-owner-'));
   const target = join(dir, 'target.txt');
-  const temp = join(dir, '.target.txt.mixdog-tmp-01010101');
+  const temp = join(dir, 'target.txt.mixdog-tmp-01010101');
   const original = Buffer.from('original target');
   fs.writeFileSync(target, original);
   const events = [];
@@ -38,11 +38,12 @@ function fixture(t, faultAt, code = 'EIO') {
     const handle = await originalOpen(path, flags, ...args);
     events.push('opened');
     const write = handle.writeFile.bind(handle);
-    if (faultAt === 'write') t.mock.method(handle, 'writeFile', async () => {
-      await write('partial');
-      events.push('partial');
-      throw failure;
-    });
+    if (faultAt === 'write')
+      t.mock.method(handle, 'writeFile', async () => {
+        await write('partial');
+        events.push('partial');
+        throw failure;
+      });
     const sync = handle.sync.bind(handle);
     t.mock.method(handle, 'sync', async () => {
       events.push('sync');
@@ -68,29 +69,32 @@ function fixture(t, faultAt, code = 'EIO') {
     assert.equal(options.flags, 'wx');
     // Use a real fs.WriteStream and descriptor, injecting faults only at its
     // filesystem boundary. Close ordering matters on Windows as well as Linux.
-    return createStream(path, { ...options, fs: {
-      open(file, flags, mode, callback) {
-        events.push('stream-open');
-        if (faultAt === 'open') return queueMicrotask(() => callback(failure));
-        fs.open(file, flags, mode, (error, fd) => {
-          if (!error) events.push('opened');
-          callback(error, fd);
-        });
+    return createStream(path, {
+      ...options,
+      fs: {
+        open(file, flags, mode, callback) {
+          events.push('stream-open');
+          if (faultAt === 'open') return queueMicrotask(() => callback(failure));
+          fs.open(file, flags, mode, (error, fd) => {
+            if (!error) events.push('opened');
+            callback(error, fd);
+          });
+        },
+        write(fd, buffer, offset, length, position, callback) {
+          if (faultAt !== 'write') return fs.write(fd, buffer, offset, length, position, callback);
+          fs.write(fd, buffer, offset, Math.min(length, 7), position, (error) => {
+            events.push('partial');
+            callback(error || failure);
+          });
+        },
+        close(fd, callback) {
+          fs.close(fd, (error) => {
+            events.push('closed');
+            callback(error || (faultAt === 'close' ? failure : null));
+          });
+        },
       },
-      write(fd, buffer, offset, length, position, callback) {
-        if (faultAt !== 'write') return fs.write(fd, buffer, offset, length, position, callback);
-        fs.write(fd, buffer, offset, Math.min(length, 7), position, (error) => {
-          events.push('partial');
-          callback(error || failure);
-        });
-      },
-      close(fd, callback) {
-        fs.close(fd, (error) => {
-          events.push('closed');
-          callback(error || (faultAt === 'close' ? failure : null));
-        });
-      },
-    } });
+    });
   });
   const unlink = fsp.unlink;
   t.mock.method(fsp, 'unlink', async (path) => {
@@ -137,7 +141,8 @@ for (const [label, payload] of payloads) {
     fs.symlinkSync(referent, f.temp, process.platform === 'win32' ? 'junction' : 'dir');
     const link = fs.readlinkSync(f.temp);
     await assert.rejects(atomicWrite(f.target, payload), (error) =>
-      ['EEXIST', 'EISDIR', 'EACCES', 'EPERM'].includes(error.code));
+      ['EEXIST', 'EISDIR', 'EACCES', 'EPERM'].includes(error.code)
+    );
     f.unchanged();
     assert.equal(f.events.includes('unlink'), false);
     assert.equal(fs.lstatSync(f.temp).isSymbolicLink(), true);
@@ -148,8 +153,7 @@ for (const [label, payload] of payloads) {
   for (const fault of ['write', 'sync', 'close']) {
     test(`${label}: ${fault} failure closes and removes only the acquired temporary file`, async (t) => {
       const f = fixture(t, fault);
-      await assert.rejects(atomicWrite(f.target, payload, { fsync: fault === 'sync' }),
-        (error) => error === f.failure);
+      await assert.rejects(atomicWrite(f.target, payload, { fsync: fault === 'sync' }), (error) => error === f.failure);
       f.unchanged();
       assert.ok(f.events.includes('opened'));
       if (fault === 'write') assert.ok(f.events.includes('partial'));
@@ -175,8 +179,10 @@ for (const [label, payload] of payloads) {
 
   test(`${label}: target create-only refusal still removes our completed temporary file`, async (t) => {
     const f = fixture(t);
-    await assert.rejects(atomicWrite(f.target, payload, { flags: 'wx' }),
-      (error) => error.code === 'EEXIST' && error.__skip === true);
+    await assert.rejects(
+      atomicWrite(f.target, payload, { flags: 'wx' }),
+      (error) => error.code === 'EEXIST' && error.__skip === true
+    );
     f.unchanged();
     assert.equal(fs.existsSync(f.temp), false);
     assert.ok(f.events.includes('opened'));
@@ -186,13 +192,29 @@ for (const [label, payload] of payloads) {
 
 test('streamed: a failed fsync reopen retains creation ownership for cleanup', async (t) => {
   const f = fixture(t, 'reopen', 'EACCES');
-  await assert.rejects(atomicWrite(f.target, payloads[1][1], { fsync: true }),
-    (error) => error === f.failure);
+  await assert.rejects(atomicWrite(f.target, payloads[1][1], { fsync: true }), (error) => error === f.failure);
   f.unchanged();
   assert.ok(f.events.indexOf('closed') < f.events.indexOf('open:r+'));
   assert.equal(f.events.filter((event) => event === 'unlink').length, 1);
   assert.equal(fs.existsSync(f.temp), false);
 });
+
+for (const [label, payload] of payloads) {
+  test(`${label}: a write is fsynced by default, and MIXDOG_ATOMIC_FSYNC=0 opts out`, async (t) => {
+    const f = fixture(t);
+    await atomicWrite(f.target, payload);
+    assert.equal(f.events.includes('sync'), true);
+    f.events.length = 0;
+    const previous = process.env.MIXDOG_ATOMIC_FSYNC;
+    process.env.MIXDOG_ATOMIC_FSYNC = '0';
+    t.after(() => {
+      if (previous === undefined) delete process.env.MIXDOG_ATOMIC_FSYNC;
+      else process.env.MIXDOG_ATOMIC_FSYNC = previous;
+    });
+    await atomicWrite(f.target, payload);
+    assert.equal(f.events.includes('sync'), false);
+  });
+}
 
 test('streamed: multibyte strings still select streaming by byte length', async (t) => {
   const f = fixture(t);

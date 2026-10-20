@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
-import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
+import { readJsonStateSync, updateJsonAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 function ensureDir(dirPath) {
   mkdirSync(dirPath, { recursive: true });
 }
@@ -19,10 +19,6 @@ function readJsonFile(filePath, fallback) {
     return fallback;
   }
 }
-function readJsonFileStrict(filePath) {
-  const raw = readFileSync(filePath, 'utf8');
-  return JSON.parse(raw);
-}
 function writeJsonFile(filePath, value) {
   writeJsonAtomicSync(filePath, value, { compact: true, lock: true, fsync: false, fsyncDir: false });
 }
@@ -38,19 +34,23 @@ class JsonStateFile {
     writeJsonFile(this.filePath, value);
     return value;
   }
+  // A damaged file (empty, NUL-filled after a crash) is kept aside as
+  // <file>.corrupt-<ts> and the file restarts from the fallback; it is never
+  // overwritten in place and never blocks an update. That recovery is why the
+  // writes below can skip fsync.
   ensure() {
-    writeJsonFile(this.filePath, this.read());
+    writeJsonFile(this.filePath, readJsonStateSync(this.filePath, { fallback: this.fallback }));
   }
   update(mutator) {
-    let draft;
-    try {
-      draft = readJsonFileStrict(this.filePath);
-    } catch (err) {
-      process.stderr.write(`[state-file] REFUSING update: parse error for ${this.filePath}: ${err.message}\n`);
-      throw err;
-    }
-    mutator(draft);
-    return this.write(draft);
+    return updateJsonAtomicSync(
+      this.filePath,
+      (current) => {
+        const draft = current ?? structuredClone(this.fallback);
+        mutator(draft);
+        return draft;
+      },
+      { compact: true, fsync: false, fsyncDir: false }
+    );
   }
 }
 export { JsonStateFile, ensureDir, readJsonFile, removeFileIfExists, writeJsonFile };

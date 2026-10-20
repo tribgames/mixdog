@@ -1,6 +1,13 @@
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import {
+  holdsNoData,
+  parseJsonText,
+  readJsonStateSync,
+  writeFileAtomicSync,
+  writeJsonAtomicSync,
+} from '../../runtime/shared/atomic-file.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
@@ -45,6 +52,7 @@ function connectorPolicyInput(value) {
 }
 import { STANDALONE_ROOT } from '../runtime-paths.mjs';
 import { homeThreadEvidence } from '../../runtime/shared/agent-kind.mjs';
+import { migrateAgentKinds } from '../../runtime/shared/agent-kind-migration.mjs';
 import { BOT_SPLIT_BACKUP_DIRS, migrateBotsToOwnStore } from '../../runtime/shared/bot-split-migration.mjs';
 import { backupUserData } from '../../runtime/shared/user-data-guard.mjs';
 import { normalizeWorkflowRoute } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
@@ -94,14 +102,59 @@ function readManifest(dir) {
   return readManifestStrict(join(dir, 'agent.json')) || {};
 }
 
-// The manifest object at `file`, or null when it is missing, unreadable or
-// not a JSON object.
+// Definition files are user-authored: every write is atomic (a crash never
+// leaves one torn or NUL-filled) and keeps the replaced copy as `<file>.bak`.
+const DEFINITION_WRITE = Object.freeze({ backup: true, mode: 0o644 });
+const writeDefinitionText = (file, text) => writeFileAtomicSync(file, text, DEFINITION_WRITE);
+const writeManifest = (file, manifest) => writeJsonAtomicSync(file, manifest, DEFINITION_WRITE);
+
+// The manifest object at `file`, or null when it is missing, unreadable, holds
+// no data (empty, or NUL-filled by a crash) or is not a JSON object.
 function readManifestStrict(file) {
   try {
-    const value = JSON.parse(readFileSync(file, 'utf8'));
+    const text = readFileSync(file, 'utf8');
+    if (holdsNoData(text)) return null;
+    const value = parseJsonText(text);
     return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   } catch {
     return null;
+  }
+}
+
+function requireManifestObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('not a JSON object');
+  return value;
+}
+
+// The manifest to modify and write back: {} when agent.json is missing. A
+// damaged one (NUL-filled or torn by a crash, not an object) first gets its
+// last good copy back (agent.json.bak; the damaged bytes are kept aside as
+// agent.json.corrupt-<ts>). With no good copy it stays where it is and the
+// write is refused: the keys it held (connectors, avatar, route…) are unknown,
+// and rewriting from {} would drop a connector deny list — a manifest without
+// one means "every connector on".
+function readManifestForUpdate(dir) {
+  const file = join(dir, 'agent.json');
+  const manifest = readJsonStateSync(file, {
+    validate: requireManifestObject,
+    keepWithoutBackup: true,
+    mode: DEFINITION_WRITE.mode,
+  });
+  if (manifest) return manifest;
+  if (!existsSync(file)) return {};
+  throw new Error(
+    `${file} is damaged and has no good copy to restore; it was left untouched. Fix or delete the file, then save again`
+  );
+}
+
+// A text file's trimmed content; '' when it is missing, unreadable or holds no
+// data (a crash can leave it NUL-filled, which trim() keeps).
+function readTextOrEmpty(file) {
+  try {
+    const text = readFileSync(file, 'utf8');
+    return holdsNoData(text) ? '' : text.trim();
+  } catch {
+    return '';
   }
 }
 
@@ -119,11 +172,7 @@ export const AGENT_DEFINITION_CONFLICT = 'AGENT_DEFINITION_CONFLICT';
 const LEAD_PERSONA_MAX_BYTES = 256 * 1024;
 
 function readPersona(dir) {
-  try {
-    return readFileSync(join(dir, PERSONA_FILE), 'utf8').trim();
-  } catch {
-    return '';
-  }
+  return readTextOrEmpty(join(dir, PERSONA_FILE));
 }
 
 const IMAGE_DATA_URL = /^data:image\/(png|gif|webp);base64,/;
@@ -194,7 +243,7 @@ function avatarUpdate(value, dir) {
 function syncAvatarFiles(dir, avatar, writes) {
   for (const { path, bytes } of writes) {
     mkdirSync(join(dir, AGENT_AVATAR_DIR), { recursive: true });
-    writeFileSync(join(dir, path), bytes);
+    writeFileAtomicSync(join(dir, path), bytes, { mode: 0o644 });
   }
   const keep = new Set(
     avatar?.kind === 'custom'
@@ -250,9 +299,9 @@ const stableJson = (value) =>
 function writeAgentFiles(dir, { name, description, body, extra = {}, manifest = {} }) {
   const meta = { name, ...(description ? { description } : {}) };
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'AGENT.md'), serializeFrontmatterDoc({ ...meta, ...extra }, body));
+  writeDefinitionText(join(dir, 'AGENT.md'), serializeFrontmatterDoc({ ...meta, ...extra }, body));
   // loadAgentDefinition prefers the manifest for name/description.
-  writeFileSync(join(dir, 'agent.json'), `${JSON.stringify({ ...meta, ...manifest }, null, 2)}\n`);
+  writeManifest(join(dir, 'agent.json'), { ...meta, ...manifest });
   rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
   rmSync(join(dir, ARCHIVED_AGENT_FILE), { force: true });
 }
@@ -274,6 +323,10 @@ export function createAgentEditorApi(deps) {
   // The manifest in effect: the user's own copy if any, else the shipped one.
   const manifestDirOf = (dataDir, id) => (hasUserAgentFile(dataDir, id) ? userDir(dataDir, id) : shippedDir(id));
   const manifestOf = (dataDir, id) => readManifest(manifestDirOf(dataDir, id));
+  // The same, to be written back: the user's copy is recovered or refused when
+  // damaged (readManifestForUpdate); a shipped one is only read.
+  const manifestForUpdate = (dataDir, id) =>
+    hasUserAgentFile(dataDir, id) ? readManifestForUpdate(userDir(dataDir, id)) : readManifest(shippedDir(id));
   const avatarOf = (dataDir, id) => normalizeAgentAvatar(manifestOf(dataDir, id).avatar);
   // A saved, archived or restored bot reaches the prompts that embed it: the
   // fresh scan republishes the shared bot list the Lead rosters read (a new id
@@ -405,7 +458,7 @@ export function createAgentEditorApi(deps) {
     const reclaimed = !existed && isArchivedAgent(dataDir, id);
     const kind = creationKind(payload, existed);
     const definition = { name: name || id, description, body };
-    const manifest = hiddenManifest(manifestOf(dataDir, id));
+    const manifest = hiddenManifest(manifestForUpdate(dataDir, id));
     // With the bot store, a new bot is made in bots/ and a new agent in
     // agents/; either keeps its `kind` marker, so its kind never rests on
     // the folder alone (a copy read without the store is still a bot).
@@ -454,7 +507,7 @@ export function createAgentEditorApi(deps) {
       // Hidden frontmatter (the `kind` marker included) survives every edit.
       const extra = kind ? { ...hiddenFrontmatter(current), kind } : hiddenFrontmatter(current);
       writeAgentFiles(dir, { ...definition, extra, manifest });
-      if (persona) writeFileSync(join(dir, PERSONA_FILE), `${persona}\n`);
+      if (persona) writeDefinitionText(join(dir, PERSONA_FILE), `${persona}\n`);
       else if (persona === '') rmSync(join(dir, PERSONA_FILE), { force: true });
       // Only the images the manifest names stay.
       syncAvatarFiles(dir, normalizeAgentAvatar(manifest.avatar), update?.writes ?? []);
@@ -513,7 +566,7 @@ export function createAgentEditorApi(deps) {
     // until restoreAgentDefinition brings it back or purgeAgentDefinition.
     mkdirSync(dir, { recursive: true });
     if (existsSync(join(dir, 'AGENT.md'))) renameSync(join(dir, 'AGENT.md'), join(dir, ARCHIVED_AGENT_FILE));
-    writeFileSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
+    writeFileAtomicSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
     clearAgentDefinitionCache(id);
     // The Leads listing it drop it from their roster from their next turn.
     await announceBotChange(dataDir);
@@ -557,7 +610,7 @@ export function createAgentEditorApi(deps) {
     dropAgentRoute(id);
     if (loadAgentDefinition(dataDir, id)) {
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
+      writeFileAtomicSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
       clearAgentDefinitionCache(id);
     }
     return { id, purged: true };
@@ -643,11 +696,7 @@ export function createAgentEditorApi(deps) {
   // file goes.
   const leadDir = () => mixyIdentityDir(resolveDataDir(deps));
   function readLeadFile(file) {
-    try {
-      return readFileSync(join(leadDir(), file), 'utf8').trim();
-    } catch {
-      return '';
-    }
+    return readTextOrEmpty(join(leadDir(), file));
   }
   function saveLeadFile(file, text) {
     const value = String(text ?? '').trim();
@@ -655,7 +704,7 @@ export function createAgentEditorApi(deps) {
     const dir = leadDir();
     if (value) {
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, file), `${value}\n`);
+      writeDefinitionText(join(dir, file), `${value}\n`);
     } else rmSync(join(dir, file), { force: true });
     // Mixy's threads take it from their next turn (the save answers at once).
     void publishAgentProfileChange();
@@ -694,7 +743,7 @@ export function createAgentEditorApi(deps) {
   // a name '' and an avatar null go back to the defaults; absent keys are kept.
   function saveLeadIdentity(payload = {}) {
     const dir = leadDir();
-    const manifest = readManifest(dir);
+    const manifest = readManifestForUpdate(dir);
     if (hasOwn(payload, 'name')) {
       const name = oneLine(payload.name);
       if (name.length > 64) throw new Error('name must be 64 characters or fewer');
@@ -705,28 +754,30 @@ export function createAgentEditorApi(deps) {
     if (update?.avatar) manifest.avatar = update.avatar;
     else if (update) delete manifest.avatar;
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'agent.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    writeManifest(join(dir, 'agent.json'), manifest);
     syncAvatarFiles(dir, normalizeAgentAvatar(manifest.avatar), update?.writes ?? []);
     // The name is in Mixy's prompt (its identity line); the face is not.
     if (hasOwn(payload, 'name')) void publishAgentProfileChange();
     return getLeadStatus();
   }
   // Sets the flag (and Mixy's 하는 일 when given); every other key is kept.
-  // A Lead manifest that exists but cannot be read as an object is the
-  // user's and is left alone: nothing is written, the status stays as read.
+  // A damaged Lead manifest (NUL-filled, torn, not an object) gets its last
+  // good copy back first. Without one it is left alone — nothing is written,
+  // the status stays as read — since a rewrite would drop its connector policy.
   function setLeadCreated(created, description) {
     if (typeof created !== 'boolean') throw new TypeError('created must be a boolean');
-    const file = join(leadDir(), 'agent.json');
-    if (existsSync(file) && !readManifestStrict(file)) {
-      process.stderr.write(`[agents] ${file} is not a readable JSON object; Mixy's created flag was not saved\n`);
+    let manifest;
+    try {
+      manifest = readManifestForUpdate(leadDir());
+    } catch (error) {
+      process.stderr.write(`[agents] ${error.message}; Mixy's created flag was not saved\n`);
       return getLeadStatus();
     }
-    const manifest = readManifest(leadDir());
     manifest.created = created;
     const job = oneLine(description);
     if (job) manifest.description = job;
     mkdirSync(leadDir(), { recursive: true });
-    writeFileSync(join(leadDir(), 'agent.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    writeManifest(join(leadDir(), 'agent.json'), manifest);
     return getLeadStatus();
   }
 
@@ -750,11 +801,11 @@ export function createAgentEditorApi(deps) {
     const next = connectorPolicyInput(connectors);
     getAgentConnectorPolicy(id);
     if (id === LEAD_AGENT_ID) {
-      const manifest = readManifest(leadDir());
+      const manifest = readManifestForUpdate(leadDir());
       if (next) manifest.connectors = next;
       else delete manifest.connectors;
       mkdirSync(leadDir(), { recursive: true });
-      writeFileSync(join(leadDir(), 'agent.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+      writeManifest(join(leadDir(), 'agent.json'), manifest);
     } else {
       const { name, description, body } = loadAgentDefinition(resolveDataDir(deps), id);
       await saveAgentDefinition({ id, name, description, body, connectors: next });
@@ -781,7 +832,32 @@ export function createAgentEditorApi(deps) {
     return result;
   }
 
+  /** The one-time `kind: agent` stamp for agents made before the marker
+   *  (agent-kind-migration.mjs); runs before the bot split so a workflow
+   *  agent is never copied to bots/. */
+  function migrateAgentKindMarkers() {
+    const dataDir = resolveDataDir(deps);
+    const result = migrateAgentKinds({
+      dataDir,
+      shippedRoot: deps.rootDir ?? STANDALONE_ROOT,
+      backup: () => backupUserData(dataDir, 'agent-kind', { dirs: BOT_SPLIT_BACKUP_DIRS }),
+      // A restored bot's own route goes back to the config, where a workflow
+      // agent's lives (unless the config already holds that model).
+      restoreRoute: (id, route) => {
+        const config = getConfig();
+        const current = deps.agentRouteFromConfig(config, id);
+        if (current?.provider === route.provider && current?.model === route.model) return;
+        saveConfigAndAdopt(canonicalizeAgentRouteStorage({ ...config, agents: { ...config.agents, [id]: route } }));
+      },
+      log: (line) => process.stderr.write(`${line}\n`),
+    });
+    clearAgentDefinitionCache();
+    listCustomAgentIds?.(dataDir);
+    return result;
+  }
+
   return {
+    migrateAgentKindMarkers,
     migrateBotStore,
     getAgentConnectorPolicy,
     setAgentConnectorPolicy,

@@ -704,7 +704,7 @@
 }
 /* Mica clears --mx-window-band inside the main panel; the widened header must
    stay opaque over the pane strip, so it takes the dock's own solid plate. */
-html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="true"] {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-header[data-surface-expanded="true"] {
   background: var(--mx-mica-panel-solid);
 }
 .pane-side-dock-main {
@@ -1023,7 +1023,7 @@ html[data-mixdog-mobile-tabs] .pane-dock-diff-column {
 :root[data-mixdog-theme="light"] {
   --mx-shell-base: var(--mx-window-band);
 }
-html[data-window-material="mica"],
+html:is([data-window-material="mica"], [data-mixdog-skin]),
 html[data-window-material="mica"][data-mixdog-theme="light"] {
   --mx-shell-base: transparent;
 }
@@ -1382,10 +1382,11 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
   }
   /* Under Mica the left sheet keeps the panel plate it had before the sheet
      framing (03-titlebar.css), so only a faint trace of the material shows. */
-  html[data-window-material="mica"]:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] {
+  html:is([data-window-material="mica"], [data-mixdog-skin]):not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"] {
     background: var(--mx-mica-panel-solid);
   }
-  html[data-window-material="mica"][data-mixdog-theme="light"]:not([data-mixdog-mobile-tabs])
+  html[data-window-material="mica"][data-mixdog-theme="light"]:not([data-mixdog-mobile-tabs], [data-mixdog-skin])
     .workbench-side-panel[data-side="left"] {
     background: color-mix(in srgb, var(--mx-sheet-ink) 94%, transparent);
   }

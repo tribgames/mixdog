@@ -175,6 +175,10 @@
   font: inherit;
   cursor: pointer;
 }
+html[data-mixdog-mobile-tabs] .starter-tour-card button,
+html[data-mixdog-mobile-tabs] .starter-welcome button {
+  min-height: var(--mx-touch, 44px);
+}
 .starter-tour-card button:hover,
 .starter-welcome button:hover {
   background: var(--mx-hover);
@@ -209,6 +213,13 @@
   width: 420px;
   max-width: calc(100vw - 24px);
   padding: 24px 24px 18px;
+  max-height: calc(
+    var(--mx-visible-height, 100dvh) -
+    24px -
+    env(safe-area-inset-top, 0px) -
+    env(safe-area-inset-bottom, 0px)
+  );
+  overflow: auto;
   transform: translate(-50%, -50%);
   /* Arrives right as setup closes: a short beat lets the setup card leave
      first, then the welcome rises and settles instead of cutting in. */

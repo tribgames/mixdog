@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import { fileHasData } from '../shared/file-has-data.mjs';
 import { sha256File } from '../shared/native-asset.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import {
@@ -125,9 +126,14 @@ export async function downloadVerifiedLocalAsset(
       callback(null, chunk);
     },
   });
-  await pipeline(Readable.fromWeb(response.body), meter, createWriteStream(partial, { flags: resumed ? 'a' : 'w' }), {
-    signal: operationSignal,
-  });
+  await pipeline(
+    Readable.fromWeb(response.body),
+    meter,
+    createWriteStream(partial, { flags: resumed ? 'a' : 'w', flush: true }),
+    {
+      signal: operationSignal,
+    }
+  );
   if (total !== asset.size) {
     throw new Error(`[local-provider] incomplete download for ${asset.name || destination}: ${total}/${asset.size}`);
   }
@@ -198,7 +204,7 @@ async function installRuntimeInternal({ dataDir, onProgress, fetchFn, signal }) 
   }
   const target = localProviderRuntimeDirectory(dataDir);
   const executable = join(target, entry.executable);
-  if (existsSync(executable)) return localProviderCatalogStatus({ dataDir, hardware });
+  if (fileHasData(executable)) return localProviderCatalogStatus({ dataDir, hardware });
   ensureDiskSpace(localProviderRuntimeRoot(dataDir), entry.downloadBytes);
   const staging = join(localProviderRuntimeRoot(dataDir), `.staging-${process.pid}`);
   const downloads = join(localProviderRuntimeRoot(dataDir), '.downloads');

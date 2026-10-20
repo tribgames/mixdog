@@ -167,6 +167,9 @@
 :is(.branch-menu, .branch-menu-body):has(> .branch-menu-notice) > .branch-menu-list {
   min-height: 96px;
 }
+html[data-mixdog-mobile-tabs] .branch-menu-item {
+  min-height: var(--mx-touch, 44px);
+}
 .branch-menu-item {
   width: 100%;
   min-height: 30px;

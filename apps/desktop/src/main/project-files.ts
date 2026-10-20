@@ -590,6 +590,12 @@ export async function replaceProjectFileBytes(
     handle = await open(temp, 'wx', mode);
     ownsTemp = true;
     await handle.writeFile(bytes);
+    // Flush through the writing handle before the rename publishes it: a crash
+    // after an unflushed rename leaves the source file full of NUL bytes.
+    await handle.sync().catch((error: NodeJS.ErrnoException) => {
+      // Filesystems that refuse fsync keep a best-effort save.
+      if (error.code !== 'EPERM' && error.code !== 'ENOTSUP' && error.code !== 'EINVAL') throw error;
+    });
     // open's mode is filtered by umask. Apply the observed permissions after
     // writing so atomic replacement preserves them rather than narrowing them.
     if (process.platform !== 'win32') await handle.chmod(mode);

@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { parseJsonText, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
+import { readJsonState, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
 import { ACTION_KINDS, isRememberableAction } from './outbound-policy.mjs';
 
 const ANY_AGENT = '*';
@@ -28,23 +28,24 @@ export function createHumanGateStore(directory) {
   const grantsFile = join(directory, 'grants.json');
   const auditFile = join(directory, 'audit.jsonl');
   const grantsOf = (doc) => (Array.isArray(doc?.grants) ? doc.grants.filter(isGrant) : []);
-  async function readGrants() {
-    try {
-      return grantsOf(parseJsonText(await readFile(grantsFile, 'utf8')));
-    } catch (error) {
-      if (error?.code === 'ENOENT') return [];
-      throw error;
-    }
-  }
+  // A damaged file (empty, NUL, torn) is kept aside by readJsonState and reads
+  // as no grants: every action asks again, never "allowed". No `.bak` is ever
+  // written or restored (`restoreBackup: false`, also for a stale one left by
+  // an older build) — an older copy could bring back a revoked allow.
+  const readGrants = async () => grantsOf(await readJsonState(grantsFile, { fallback: null, restoreBackup: false }));
   async function updateGrants(mutate) {
     await mkdir(directory, { recursive: true });
     let result;
-    await updateJsonAtomic(grantsFile, (doc) => {
-      const out = mutate(grantsOf(doc));
-      if (!out) return undefined;
-      result = out.result;
-      return { grants: out.grants };
-    });
+    await updateJsonAtomic(
+      grantsFile,
+      (doc) => {
+        const out = mutate(grantsOf(doc));
+        if (!out) return undefined;
+        result = out.result;
+        return { grants: out.grants };
+      },
+      { restoreBackup: false }
+    );
     return result;
   }
   /** Set `agentId`'s mode for `action`; `ask` removes its grant. Returns the

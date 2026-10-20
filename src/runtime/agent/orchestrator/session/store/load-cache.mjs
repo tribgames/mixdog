@@ -2,6 +2,7 @@ import { statSync, readFileSync } from 'node:fs';
 import { getPluginData } from '../../config.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
 import { shareJsonStrings } from '../../../../shared/json-snapshot.mjs';
+import { holdsNoData } from '../../../../shared/atomic-file.mjs';
 import {
   sessionStampOf,
   ownCommittedLifecycle,
@@ -227,6 +228,13 @@ function _ownedSession(id, text) {
   return _ownedRecord(id, text)?.doc ?? null;
 }
 
+// A file that holds no data (empty or NUL-filled by a crash) is not a session
+// that could own the identity: it reads as absent, so the id can be saved over
+// or deleted instead of staying a ghost.
+function _outcomeOfText(id, text) {
+  return holdsNoData(text) ? { exists: false, session: null } : { exists: true, session: _ownedSession(id, text) };
+}
+
 // `entry` is a cached (in-map) entry.
 function _selectCachedSession(entry, preferInMemory) {
   const preferred = preferInMemory?.(entry.header);
@@ -297,7 +305,7 @@ function _decisiveReplacementSnapshot(id, path) {
     const code = err?.code || 'EUNKNOWN';
     return ABSENT_CODES.has(code) ? { exists: false, session: null } : { exists: true, session: null };
   }
-  return { exists: true, session: _ownedSession(id, text) };
+  return _outcomeOfText(id, text);
 }
 
 export function _readStoredSessionCached(id, path, { preferInMemory = null } = {}) {
@@ -391,7 +399,11 @@ export function _readStoredSessionCached(id, path, { preferInMemory = null } = {
       // (uncached, since no identity was verified) rather than invent an
       // absence/null for a perfectly readable replacement; otherwise
       // stay conservatively present-but-invalid.
-      return { exists: true, session: _ownedSession(id, text) };
+      return _outcomeOfText(id, text);
+    }
+    if (holdsNoData(text)) {
+      _dropCached(path);
+      return { exists: false, session: null };
     }
     // Stable snapshot: `text` provably belongs to the file identified by
     // `before`. Whatever it says is now authoritative, including "this is

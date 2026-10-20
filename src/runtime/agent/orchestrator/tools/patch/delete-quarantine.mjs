@@ -41,7 +41,8 @@ function quarantinePathFor(fullPath) {
   const dir = dirname(fullPath);
   const name = basename(fullPath).slice(0, 80);
   for (let attempt = 0; attempt < 8; attempt++) {
-    const candidate = join(dir, `.${name}.mixdog-delete-${randomBytes(8).toString('hex')}`);
+    // No leading dot: sync-drive folders (e.g. Naver MYBOX) refuse dot-prefixed names.
+    const candidate = join(dir, `${name}.mixdog-delete-${randomBytes(8).toString('hex')}`);
     try {
       lstatSync(candidate);
     } catch (err) {

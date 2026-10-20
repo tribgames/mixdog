@@ -580,8 +580,8 @@ test('production shell persists safe window state and installs native shortcuts'
   assert.match(main, /persistWindowState\(window,\s*statePath\)/);
   assert.match(main, /installNativeMenu/);
   assert.match(state, /MIN_VISIBLE_PIXELS/);
-  assert.match(state, /writeFile\(temporaryPath/);
-  assert.match(state, /rename\(temporaryPath,\s*filePath\)/);
+  // Durable temp-write-then-rename through the shared atomic writer.
+  assert.match(state, /writeJsonAtomicAsync\(filePath,/);
   assert.match(menu, /role:\s*'quit',[^}]*registerAccelerator:\s*false/);
   assert.doesNotMatch(menu, /CmdOrCtrl\+(?:0|Plus|-)/);
   assert.match(menu, /togglefullscreen/);

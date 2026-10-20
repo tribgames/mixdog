@@ -13,6 +13,7 @@ import { getStoreDir, sessionPath } from './session-paths.mjs';
 import {
   readCanonicalSessionRecord as _readCanonicalRecord,
   CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
+  setAsideDamagedSessionRecord,
 } from './canonical-reader.mjs';
 import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
 import {
@@ -106,9 +107,22 @@ export function deleteSession(id, options = {}) {
       // probe and this read another process can rename a different session's
       // record (or a torn write) onto this path, and an unlink is
       // irreversible. Ambiguous/foreign bytes are therefore never deleted.
-      const record = _readCanonicalRecord(path);
+      let record = _readCanonicalRecord(path);
+      // A record that holds no data or is not JSON is damage, not somebody's
+      // session: keep its bytes aside so the delete can finish.
+      if (record === null || record === LIFECYCLE_AMBIGUOUS) {
+        try {
+          if (setAsideDamagedSessionRecord(path)) record = null;
+        } catch {
+          return false; // could not move it: nothing was deleted
+        }
+      }
       if (record === LIFECYCLE_AMBIGUOUS) return false;
       if (record !== null) {
+        // Damage-only mode (a caller's no-data verdict was taken before this
+        // lock): content that is valid now was repaired or republished since,
+        // and is never deleted.
+        if (options.damagedOnly === true) return false;
         if (record.id !== id) return false;
         try {
           unlinkSync(path);

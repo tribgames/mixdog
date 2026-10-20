@@ -1,7 +1,8 @@
 // Patch replay capture: every apply_patch failure is frozen (args + target
 // file snapshots) for `npm run patch:replay`. Best-effort throughout — a
 // capture problem never changes the tool result.
-import { readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { readdirSync, mkdirSync, rmSync } from 'node:fs';
+import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { resolve as pathResolve, isAbsolute, join as pathJoin } from 'node:path';
 import {
   createSnapshotBudget,
@@ -203,7 +204,8 @@ export function maybeCapturePatchReplay(capture, errorText) {
         ? { file_snapshot_meta: capture.fileSnapshotMeta }
         : {}),
     };
-    writeFileSync(pathJoin(dir, `${id}.json`), JSON.stringify(record, null, 2), { mode: 0o600 });
+    // Whole-file publication; `patch:replay` skips a record it cannot parse.
+    writeJsonAtomicSync(pathJoin(dir, `${id}.json`), record, { mode: 0o600 });
     // Retention: keep the newest 40 captures. The id prefix is Date.now() in
     // base36 (fixed width until ~2059), so a lexicographic sort is
     // chronological and the oldest records sort first.

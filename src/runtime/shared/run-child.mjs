@@ -8,6 +8,29 @@
 // maxBytes, or the spawn error itself.
 import { spawn } from 'node:child_process';
 
+/** Kills `child` with everything it started. On Windows a plain kill ends only
+ *  the child itself: `git` there is a launcher whose git.exe (and the alias,
+ *  hook or filter it runs) would live on, still holding the output pipes. */
+export function killChildTree(child) {
+  if (process.platform === 'win32' && child.pid && child.exitCode === null) {
+    const taskkill = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\taskkill.exe`;
+    const fallback = () => {
+      try {
+        child.kill();
+      } catch {}
+    };
+    spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      .once('error', fallback)
+      .once('exit', (code) => {
+        if (code !== 0) fallback();
+      });
+    return;
+  }
+  try {
+    child.kill();
+  } catch {}
+}
+
 export function runChild({ command, args, cwd, input, env, timeoutMs, maxBytes, stdoutEncoding = 'utf8' }) {
   return new Promise((resolvePromise, rejectPromise) => {
     const hasInput = (typeof input === 'string' || ArrayBuffer.isView(input)) && input.length > 0;
@@ -35,9 +58,7 @@ export function runChild({ command, args, cwd, input, env, timeoutMs, maxBytes, 
         ? setTimeout(() => {
             const error = new Error(`${command} ${args.join(' ')} timed out after ${timeoutMs}ms`);
             error.code = 'ETIMEDOUT';
-            try {
-              child.kill();
-            } catch {}
+            killChildTree(child);
             finish(error);
           }, timeoutMs)
         : null;

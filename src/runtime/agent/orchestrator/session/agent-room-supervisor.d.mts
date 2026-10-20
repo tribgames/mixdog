@@ -17,7 +17,7 @@ export interface RoomSupervisorInput {
   rows: RoomRow[];
   /** This exchange's turns so far, in order. */
   turns: Array<{ id: string; result: RoomTurnResult }>;
-  /** Nobody has spoken yet: the step must pick a member. */
+  /** The user waits and no member has answered yet: the step must pick a member. */
   mustPick: boolean;
   /** The member that took the last turn ('' for none). */
   last: string;

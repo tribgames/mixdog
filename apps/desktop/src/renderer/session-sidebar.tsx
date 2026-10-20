@@ -54,7 +54,7 @@ import {
   type SessionOrderPrefs,
 } from './session-order';
 import { ScmContextMenu } from './ScmContextMenu';
-import type { ProjectSessionGroup } from './session-sidebar-sections';
+import type { FavoriteSessionDrop, ProjectSessionGroup } from './session-sidebar-sections';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { useStableEvent } from './use-stable-event';
 import { listsAsSession, useSidebarAgents } from './session-sidebar-agents';
@@ -483,11 +483,17 @@ function useProjectGroups({
   return { activityProjectGroups, projectOrder, projectGroups };
 }
 
-/** Dragging a session row onto a project folder moves it there. */
+/** Drop key of the Favorites section; project keys are paths, so no clash. */
+const FAVORITES_DROP_KEY = ':favorites';
+
+/** Dragging a session row onto a project folder moves it there; onto
+ *  Favorites, it stars it. */
 function useSessionFolderDrop(
   activityProjectGroups: readonly ProjectSessionGroup[],
   onMoveSessionToProject: ((sessionId: string, projectPath: string) => Promise<void>) | undefined,
-  updateProjectOpen: (update: (current: OpenMap) => OpenMap) => void
+  updateProjectOpen: (update: (current: OpenMap) => OpenMap) => void,
+  allRows: readonly DesktopSessionSummary[],
+  onFavoriteSession: (sessionId: string, favorite: boolean) => Promise<void>
 ) {
   // Dragging a session row over a project folder moves it there. Only the
   // folder the session is not already in is a valid target; anything else
@@ -531,7 +537,39 @@ function useSessionFolderDrop(
       return true;
     },
   };
-  return { sessionGroupKeys, moveSession, sessionDrop, setDraggedSessionId, setSessionDropKey };
+  // Favorites takes a dragged session that is not starred yet (and not
+  // archived: Favorites hides archived rows); a favorite's own drag keeps
+  // reordering the list.
+  const favoriteCandidateIds = useMemo(
+    () => new Set(allRows.filter((session) => !session.favorite && !session.archived).map((session) => session.id)),
+    [allRows]
+  );
+  const canFavorite = Boolean(draggedSessionId) && favoriteCandidateIds.has(draggedSessionId);
+  const favoriteDrop: FavoriteSessionDrop = {
+    available: canFavorite,
+    active: sessionDropKey === FAVORITES_DROP_KEY,
+    onDragOver: (event) => {
+      if (!canFavorite) return false;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setSessionDropKey(FAVORITES_DROP_KEY);
+      return true;
+    },
+    onDragLeave: (event) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+      setSessionDropKey((current) => (current === FAVORITES_DROP_KEY ? '' : current));
+    },
+    onDrop: (event) => {
+      if (!canFavorite) return false;
+      event.preventDefault();
+      const sessionId = draggedSessionId;
+      setSessionDropKey('');
+      setDraggedSessionId('');
+      void onFavoriteSession(sessionId, true).catch(() => {});
+      return true;
+    },
+  };
+  return { sessionGroupKeys, moveSession, sessionDrop, favoriteDrop, setDraggedSessionId, setSessionDropKey };
 }
 
 interface SessionSidebarProps {
@@ -706,11 +744,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     customOrders,
     updateProjectOpen: folders.updateProjectOpen,
   });
-  const { sessionGroupKeys, moveSession, sessionDrop, setDraggedSessionId, setSessionDropKey } = useSessionFolderDrop(
-    activityProjectGroups,
-    onMoveSessionToProject,
-    folders.updateProjectOpen
-  );
+  const { sessionGroupKeys, moveSession, sessionDrop, favoriteDrop, setDraggedSessionId, setSessionDropKey } =
+    useSessionFolderDrop(
+      activityProjectGroups,
+      onMoveSessionToProject,
+      folders.updateProjectOpen,
+      allRows,
+      onFavoriteSession
+    );
   useCustomOrderSync({
     sessionsReady,
     orderPrefs,
@@ -886,6 +927,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     projectGroups,
     projectOrder,
     sessionDrop,
+    favoriteDrop,
     automationRows,
     archivedRows,
     visibleArchivedRows,

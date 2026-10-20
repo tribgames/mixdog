@@ -12,6 +12,9 @@
 // connected tool, so the schema and the BP2 manifest stay shared.
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { holdsNoData, parseJsonText, readJsonStateSync } from '../../../shared/atomic-file.mjs';
+
+const NO_DATA = new Error('the file holds no data');
 import { cwdWithinProjects } from '../../../shared/extension-scopes.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { userDefinitionDir } from '../../../shared/agent-store.mjs';
@@ -127,9 +130,25 @@ function readJson(path, parse) {
     return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? null : unreadable(path, error);
   }
   try {
-    return parse(JSON.parse(text));
+    if (holdsNoData(text)) throw NO_DATA;
+    return parse(parseJsonText(text));
   } catch (error) {
-    return unreadable(path, error);
+    return recoverDamaged(path, parse, error);
+  }
+}
+
+// A damaged policy (empty, NUL-filled, torn, invalid) must never fail open.
+// With a valid last good copy `<file>.bak` the damaged file is kept aside and
+// the copy restored, so the user's deny list survives. Without one the file
+// stays where it is (`keepWithoutBackup`) and every connector stays off until
+// the policy is saved again — moving it aside would make the next read "no
+// policy" (all on). A busy recovery lock also answers deny-all.
+function recoverDamaged(path, parse, error) {
+  try {
+    const value = readJsonStateSync(path, { validate: parse, fallback: DENY_ALL_CONNECTORS, keepWithoutBackup: true });
+    return value === DENY_ALL_CONNECTORS ? unreadable(path, error) : value;
+  } catch (recoveryError) {
+    return unreadable(path, recoveryError);
   }
 }
 

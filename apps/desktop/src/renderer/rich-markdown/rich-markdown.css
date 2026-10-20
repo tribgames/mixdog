@@ -591,6 +591,15 @@
 .rich-markdown-search-input {
   width: 200px;
 }
+html[data-mixdog-mobile-tabs] .rich-markdown-search {
+  left: 8px;
+  right: 8px;
+}
+html[data-mixdog-mobile-tabs] .rich-markdown-search-input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
 .rich-markdown-search-count {
   min-width: 64px;
   padding: 0 6px;

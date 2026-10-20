@@ -34,6 +34,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { runChild } from './pg/run-child.mjs';
 import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
+import { fileHasData } from '../../shared/file-has-data.mjs';
 import { downloadToFileWithRetry } from '../../shared/bounded-download.mjs';
 import { platformKey, platformKeyCandidates, verifySha256File } from '../../shared/native-asset.mjs';
 
@@ -497,8 +498,12 @@ function cachedRuntimeDir(runtimeBaseDir, version, sha256) {
 }
 
 // The asset digest stamped into a complete runtime tree, '' when absent.
+// A tree whose postgres executable holds no data (a crash after the extract
+// left it NUL-filled) is not complete, whatever its stamp says.
 function readRuntimeStamp(verDir) {
   try {
+    const postgres = join(verDir, 'bin', process.platform === 'win32' ? 'postgres.exe' : 'postgres');
+    if (existsSync(postgres) && !fileHasData(postgres)) return '';
     return readFileSync(join(verDir, '.version-sha256'), 'utf8').trim();
   } catch {
     return '';
@@ -588,7 +593,7 @@ async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, versio
     }
 
     // Stamp sha256 inside staging dir.
-    writeFileSync(join(stagingDir, '.version-sha256'), sha256);
+    writeFileAtomicSync(join(stagingDir, '.version-sha256'), sha256);
     normalizeBinExecBit(stagingDir);
 
     // Atomic swap:

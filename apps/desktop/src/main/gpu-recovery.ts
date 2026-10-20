@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { writeJsonAtomicSync } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 const GPU_CRASH_WINDOW_MS = 30_000;
 const GPU_CRASH_THRESHOLD = 3;
@@ -92,7 +94,6 @@ export function writeGpuFallbackMarker(
   info: { engagedAt: number; crashesInWindow: number },
   environment: GpuFallbackEnvironment & { platform: 'win32' }
 ): void {
-  mkdirSync(userDataPath, { recursive: true });
   const marker: GpuFallbackMarker = {
     schemaVersion: GPU_FALLBACK_SCHEMA_VERSION,
     engagedAt: info.engagedAt,
@@ -101,8 +102,7 @@ export function writeGpuFallbackMarker(
     electronVersion: environment.electronVersion,
     platform: 'win32',
   };
-  writeFileSync(markerPath(userDataPath), JSON.stringify(marker), {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
+  // Published whole and flushed: this marker is written while the GPU process
+  // keeps crashing, and a torn one would drop the fallback it records.
+  writeJsonAtomicSync(markerPath(userDataPath), marker, { compact: true });
 }

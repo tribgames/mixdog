@@ -2,10 +2,10 @@
 // One incremental read of a transcript file: the bytes past the persisted
 // offset, split into complete JSONL lines, stored as conversation rows. The
 // persisted boundary only advances past lines that were fully consumed (parsed
-// + inserted or intentionally skipped); a malformed trailing line (mid-write
-// partial) or a transient insert error stops the walk and leaves the boundary
-// untouched so the next sweep retries from the same position instead of
-// silently consuming the line forever.
+// + inserted or intentionally skipped); a transient insert error stops the walk
+// and leaves the boundary untouched so the next sweep retries from the same
+// position instead of silently consuming the line forever. A complete line
+// that is not JSON (crash damage) is skipped, never a permanent stop.
 import fs from 'node:fs';
 import path from 'node:path';
 import { cwdFromTranscriptPath, transcriptRowFromLine } from './transcript-rows.mjs';
@@ -73,8 +73,12 @@ export async function ingestTranscriptTail({ db, transcriptPath, cwd, offsets, r
   const boundary = { bytes: tail.bytes, lineIndex: tail.lineIndex, generation: tail.generation };
   let index = tail.lineIndex;
   let count = 0;
-  for (const { line, consumedBytes } of completeLines(tail.text)) {
-    if (!line) {
+  for (const { line: rawLine, consumedBytes } of completeLines(tail.text)) {
+    // A crash leaves a run of NUL bytes where data never reached disk, and the
+    // resumed writer appends after it. A raw NUL is never valid JSON, so drop
+    // them and keep the record that follows.
+    const line = rawLine.includes('\0') ? rawLine.replaceAll('\0', '') : rawLine;
+    if (!line.trim()) {
       boundary.bytes += consumedBytes;
       continue;
     }
@@ -82,7 +86,12 @@ export async function ingestTranscriptTail({ db, transcriptPath, cwd, offsets, r
     try {
       parsed = JSON.parse(line);
     } catch {
-      break; // malformed line: do not advance past it; retry on next sweep
+      // The line is complete (a half-written one has no newline yet and is not
+      // yielded), so it can never become valid: skip it for good, or it would
+      // block every line after it.
+      log(`[transcript-watch] skipped a damaged line in ${path.basename(transcriptPath)}\n`);
+      boundary.bytes += consumedBytes;
+      continue;
     }
     index += 1;
     const row = transcriptRowFromLine(parsed);

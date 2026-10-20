@@ -21,7 +21,7 @@ export function useConversationTimeline({
   pendingItems,
   steerItems,
   optimisticActivityStartedAt,
-  liveBand,
+  room,
   onEntryRevealed,
   onTranscriptHiddenChange,
 }: {
@@ -42,7 +42,8 @@ export function useConversationTimeline({
   /** Messages sent while the turn runs that the model has not read yet. */
   steerItems?: PendingPromptItem[];
   optimisticActivityStartedAt: number;
-  liveBand?: boolean;
+  /** A group room: the live band is its typing slot (use-conversation-rows.ts). */
+  room?: boolean;
   onEntryRevealed?: (sessionKey: string) => void;
   onTranscriptHiddenChange?: (hidden: boolean) => void;
 }) {
@@ -66,7 +67,7 @@ export function useConversationTimeline({
     commandBusy: snapshot.commandBusy,
     commandActivityVisible: commandShowsActivity(snapshot),
     optimisticActivityStartedAt,
-    liveBand,
+    room,
   });
   const populated = showTimeline && transcriptRows.length > 0;
   const phone = useMobileRemoteSurface();

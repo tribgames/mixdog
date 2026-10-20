@@ -100,3 +100,30 @@ test('a download aborted mid-stream keeps the destination intact and removes the
     }
   );
 });
+
+test('Save as writes a data URL whole, replacing the destination without a temp file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'save-as-data-'));
+  try {
+    const handlers = new Map();
+    const file = join(dir, 'out.bin');
+    await writeFile(file, '\0\0\0\0\0\0\0\0\0\0');
+    registerFileDialogIpc({
+      window: {},
+      app: {},
+      dialog: {
+        showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+        showSaveDialog: async () => ({ canceled: false, filePath: file }),
+      },
+      host: {},
+      handle: (channel, fn) => handlers.set(channel, fn),
+      invokeDesktopOperation: async () => undefined,
+      nativeT: (key) => key,
+      describeLocalPaths: async () => [],
+    });
+    assert.equal(await handlers.get(DESKTOP_IPC.saveFileAs)({}, 'data:text/plain;base64,aGVsbG8=', 'out.bin'), true);
+    assert.equal(await readFile(file, 'utf8'), 'hello');
+    assert.deepEqual(await readdir(dir), ['out.bin']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

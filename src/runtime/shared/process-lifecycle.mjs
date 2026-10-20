@@ -1,7 +1,6 @@
 import {
   closeSync,
   existsSync,
-  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -15,7 +14,7 @@ import {
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { isDeepStrictEqual, promisify } from 'node:util';
-import { withFileLock, withFileLockSync } from './atomic-file.mjs';
+import { withFileLock, withFileLockSync, writeJsonAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -338,24 +337,21 @@ function markerOwned(active) {
 function writeMarker(active) {
   try {
     mkdirSync(active.markerDir, { recursive: true, mode: 0o700 });
-    writeFileSync(
+    // Flushed through the handle that wrote it: reopening the file read-only to
+    // fsync it is refused on Windows (EPERM), which reported a failure after
+    // the marker was already written.
+    writeJsonAtomicSync(
       active.markerPath,
-      `${JSON.stringify({
+      {
         version: 1,
         timestamp: new Date().toISOString(),
         pid: process.pid,
         ppid: process.ppid,
         token: active.token,
         processIdentity: active.processIdentity,
-      })}\n`,
-      { encoding: 'utf8', mode: 0o600 }
+      },
+      { compact: true, mode: 0o600 }
     );
-    const fd = openSync(active.markerPath, 'r');
-    try {
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
     return true;
   } catch {
     return false;

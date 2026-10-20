@@ -11,9 +11,9 @@
 // an agent a chat's setup tool created never passes through them, so the host
 // greets every custom agent it has not seen before (agent-greetings.json keeps
 // the seen ids; the first read records the existing ones without greeting).
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 
 export interface MixyStatusDeps {
@@ -123,10 +123,7 @@ export function agentGreetingsFileStore(filePath: string): Pick<AgentGreetingsDe
       }
     },
     async write(ids) {
-      await mkdir(dirname(filePath), { recursive: true });
-      const temp = `${filePath}.${process.pid}.tmp`;
-      await writeFile(temp, `${JSON.stringify({ seen: [...new Set(ids)].sort() }, null, 2)}\n`, 'utf8');
-      await rename(temp, filePath);
+      await writeJsonAtomicAsync(filePath, { seen: [...new Set(ids)].sort() });
     },
   };
 }

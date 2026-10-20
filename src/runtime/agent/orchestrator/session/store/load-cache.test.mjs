@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
-import fs, { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import fs, {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 
-import { evictIdleLiveSessions, loadSession, loadSessionStatus } from '../store.mjs';
+import { deleteSession, evictIdleLiveSessions, loadSession, loadSessionStatus, saveSession } from '../store.mjs';
 import { forgetSessionLoadCache, sessionLoadCacheStats } from './load-cache.mjs';
 import {
   _clearSessionSaveState,
@@ -139,6 +149,29 @@ for (const kind of ['malformed', 'foreign', 'duplicate-id']) {
     assert.equal(loadSession(f.id), live);
   });
 }
+
+test('a NUL-filled session file is absent, can be saved over, and a delete sets it aside', (t) => {
+  const f = fixture(t);
+  f.write('\0'.repeat(64));
+  assert.equal(loadSession(f.id), null);
+  saveSession({ ...f.saved, messages: [{ role: 'user', content: 'recreated' }] });
+  assert.equal(loadSession(f.id).messages[0].content, 'recreated');
+  f.write('\0'.repeat(64));
+  assert.equal(deleteSession(f.id), true);
+  assert.equal(existsSync(f.path), false);
+  const aside = readdirSync(dirname(f.path)).filter((name) => name.startsWith(`${f.id}.json.corrupt-`));
+  assert.equal(aside.length, 1);
+});
+
+test('a session file that is not JSON can still be deleted, its bytes kept aside', (t) => {
+  const f = fixture(t);
+  f.write('{"broken":');
+  assert.equal(loadSession(f.id), null);
+  assert.equal(deleteSession(f.id), true);
+  assert.equal(existsSync(f.path), false);
+  const [aside] = readdirSync(dirname(f.path)).filter((name) => name.startsWith(`${f.id}.json.corrupt-`));
+  assert.equal(readFileSync(join(dirname(f.path), aside), 'utf8'), '{"broken":');
+});
 
 test('failed-save recovery keeps the exact failed snapshot while unrelated corruption remains visible', (t) => {
   const f = fixture(t);

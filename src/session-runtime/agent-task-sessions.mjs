@@ -15,6 +15,11 @@
  * (agent-home-delivery.mjs `watches`) until its end is queued, so a daemon
  * restart before that re-attaches it (recover): an ended turn reports once
  * from the target's record, a queued or running one is watched to its end.
+ *
+ * A group-room member (its member session `sess_rmem_<room>_<agent>`) opens
+ * and drives task sessions the same way; its reports carry `from` (the member
+ * session), so they land in the ROOM's log as that member's row and in its own
+ * member session, never in its home (agent-home-delivery.mjs enqueueTask).
  */
 import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
@@ -110,6 +115,10 @@ const GONE_TEXT = 'The session no longer exists.';
 
 // The last-used model search stops after this many catalog pages.
 const LAST_USED_ROUTE_MAX_PAGES = 20;
+
+/** A report's `from` when its origin is a group-room member session: the
+ *  report goes to that member's room instead of the agent's home. */
+const roomFrom = (originSessionId) => (roomMemberOfSession(originSessionId) ? { from: originSessionId } : {});
 
 export function createAgentTaskSessions({
   getSessionService,
@@ -240,6 +249,7 @@ export function createAgentTaskSessions({
             status,
             text,
             ...target,
+            ...roomFrom(origin.sessionId),
             // A turn's end brings back the files it produced, when the agent
             // may receive them (reportOrigin `textOnly`).
             ...(status === 'blocked'
@@ -303,6 +313,7 @@ export function createAgentTaskSessions({
         status,
         text,
         ...(watch.target === 'session' ? { target: 'session' } : {}),
+        ...roomFrom(watch.homeSessionId),
         watchId: watch.runId,
         ...(watch.textOnly || text === GONE_TEXT || text === LOST_TEXT
           ? {}
@@ -422,6 +433,7 @@ export function createAgentTaskSessions({
         taskSessionId: sessionId,
         title,
         status: 'started',
+        ...roomFrom(callerSessionId),
       }).catch((error) => log(`start line of ${sessionId} failed: ${error?.message || error}`));
     }
     started();
@@ -433,15 +445,21 @@ export function createAgentTaskSessions({
     };
   }
 
-  /** The origin a `send` of agent `agentId` (from its home `callerSessionId`)
-   *  reports to: the stored one of a task session it created, else one for
-   *  this send only — never stored on the target, whose own origin and owner
-   *  stay as they are. Null for a caller that is no agent conversation. */
+  /** The origin a `send` of agent `agentId` (from its home or room member
+   *  session `callerSessionId`) reports to: the stored one of a task session
+   *  it created, else one for this send only — never stored on the target,
+   *  whose own origin and owner stay as they are. Either reports to the
+   *  conversation the send came from. Null for a caller that is no agent
+   *  conversation. */
   async function reportOrigin(sessionId, agentId, callerSessionId) {
     if (!agentId) return null;
     const target = await loadSession(sessionId);
     const origin = target?.taskOrigin;
-    if (origin?.agentId === agentId) return origin;
+    if (origin?.agentId === agentId) {
+      return callerSessionId && callerSessionId !== origin.sessionId
+        ? { ...origin, sessionId: callerSessionId }
+        : origin;
+    }
     const title = (clean(target?.title) || sessionId).slice(0, TITLE_LIMIT);
     // Files come back only from sessions the agent created (above) or its own
     // room member threads; any other session reports its text alone.

@@ -1,6 +1,6 @@
-import { mkdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { rmdirSync, rmSync, statSync } from 'node:fs';
 import { readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { writeJsonAtomicSync } from './atomic-file.mjs';
 import { withFileLock, withFileLockSync } from './file-lock.mjs';
 import { readJsonSafe } from './json-file.mjs';
 import { isPidAlive } from './pid-liveness.mjs';
@@ -19,11 +19,12 @@ const CLAIM_LOCK_STALE_MS = 5000;
 const CLAIM_LOCK_OPTS = Object.freeze({ timeoutMs: CLAIM_LOCK_TIMEOUT_MS, staleMs: CLAIM_LOCK_STALE_MS });
 const BUSY = Symbol('claim lock busy');
 
+// A claim or handoff is flushed before it is published. The heartbeat's async
+// refresh below is not: it rewrites the record every few seconds, and a record
+// a crash leaves NUL reads as "no owner" (readJsonSafe), so the next claim
+// simply takes over.
 function writeJsonAtomic(path, value) {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
-  renameSync(tmp, path);
+  writeJsonAtomicSync(path, value);
 }
 
 // Held by another live process or this one's async holder ('busy'). Any other

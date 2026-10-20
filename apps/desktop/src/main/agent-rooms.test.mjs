@@ -35,8 +35,13 @@ function harness({
   decide = () => ({ action: 'finish' }),
   // A store save that rejects for the docs it matches.
   saveFails = () => false,
+  // A store save held until the promise it returns settles.
+  saveGate = () => undefined,
   agents = AGENTS,
   mixyRoute = undefined,
+  // The log read hands back only its newest rows, as a session read's tail
+  // window does (0: nothing, the in-memory rows alone).
+  readWindow = 0,
 } = {}) {
   const logs = [];
   /** Every session created, with its create params. */
@@ -51,6 +56,8 @@ function harness({
   /** Every session a row was written to or a turn submitted in. */
   const touched = new Set();
   const resets = [];
+  /** Every member session aborted. */
+  const aborts = [];
   /** Every input a supervisor step was given. */
   const decisions = [];
   let failures = appendFails;
@@ -58,6 +65,7 @@ function harness({
     store: {
       load: async () => structuredClone(saved.doc),
       save: async (value) => {
+        await saveGate(value);
         if (saveFails(value)) throw new Error('disk full');
         saved.doc = structuredClone(value);
       },
@@ -80,7 +88,10 @@ function harness({
       for (const row of rows) if (!log.some((entry) => entry.id === row.id)) log.push(row);
       return { added: rows.length, rows: rows.map(storedRow) };
     },
-    readItems: async () => [],
+    readItems: async () =>
+      readWindow > 0
+        ? log.slice(-readWindow).map(({ text, upload: _upload, artifactsFrom: _from, ...row }) => ({ room: row, text }))
+        : [],
     submit: async (id, prompt) => {
       const agentId = id.split('_').at(-1);
       touched.add(id);
@@ -104,7 +115,9 @@ function harness({
         ],
       };
     },
-    abort: async () => {},
+    abort: async (id) => {
+      aborts.push(id);
+    },
     approve: async () => true,
     deleteSession: async () => {
       if (deleteFails) throw new Error('locked');
@@ -132,7 +145,7 @@ function harness({
   const idle = async (roomId) => {
     for (let i = 0; i < 2000 && rooms.isRunning(roomId); i += 1) await new Promise((r) => setImmediate(r));
   };
-  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created };
+  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created, aborts };
 }
 
 /** A supervisor that hands the turn to the member after the last speaker
@@ -470,7 +483,14 @@ test('a save that fails outside the exchange is logged, not an unhandled rejecti
   process.on('unhandledRejection', record);
   try {
     // The exchange's first save (the room marked running) comes before its try.
-    const h = harness({ saveFails: (doc) => Object.values(doc.rooms).some((entry) => entry.running) });
+    let failed = false;
+    const h = harness({
+      saveFails: (doc) => {
+        if (failed || !Object.values(doc.rooms).some((entry) => entry.running)) return false;
+        failed = true;
+        return true;
+      },
+    });
     const { sessionId } = await room(h);
     await h.rooms.send(sessionId, 'go');
     for (let i = 0; i < 50 && !h.logs.length; i += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -511,7 +531,10 @@ test("the supervisor's scene reaches each member's prompt: casual banter, then w
 });
 
 test('"Continue" after a capped /ask gives the remaining named members their turns first', async () => {
-  const h = harness();
+  // The supervisor opens each free batch with bench, then finishes.
+  const h = harness({
+    decide: (input) => (input.turns.length ? { action: 'finish' } : { action: 'speak', agentId: 'bench' }),
+  });
   const { sessionId, roomId } = await room(h, { maxMessages: 1 });
   await h.rooms.send(sessionId, '/ask bench, gh, rel all three');
   await h.idle(roomId);
@@ -533,12 +556,13 @@ test('"Continue" after a capped /ask gives the remaining named members their tur
   assert.equal(h.saved.doc.rooms[roomId].owed, null);
   await h.rooms.proceed(roomId);
   await h.idle(roomId);
-  assert.equal(h.prompts.length, 4, 'once owed turns are paid, Continue is a whole-room batch again');
+  assert.equal(h.prompts.length, 4, 'once owed turns are paid, Continue is a supervisor batch again');
+  assert.equal(h.prompts[3].agentId, 'bench');
 });
 
 test('a new message drops turns a capped /ask still owed', async () => {
   const h = harness({
-    decide: (input) => (input.mustPick ? { action: 'speak', agentId: 'bench' } : { action: 'finish' }),
+    decide: (input) => (input.turns.length ? { action: 'finish' } : { action: 'speak', agentId: 'bench' }),
   });
   const { sessionId, roomId } = await room(h, { maxMessages: 1 });
   await h.rooms.send(sessionId, '/ask bench, gh both');
@@ -595,6 +619,326 @@ test('a message sent while members speak drops their queued turns and is answere
   assert.equal(
     h.log.some((row) => row.kind === 'cap' || row.kind === 'stopped'),
     false
+  );
+});
+
+test('a message sent while a member speaks cancels that turn: nothing is posted for it, the member sees the missed rows next', async () => {
+  let rooms;
+  let session;
+  const h = harness({
+    // gh is still answering "first" when "second" arrives.
+    script: async (agentId, prompt) => {
+      if (agentId === 'gh' && /first/.test(String(prompt)) && !/second/.test(String(prompt))) {
+        await rooms.send(session, 'second');
+        return 'stale answer to first';
+      }
+      return `fresh answer by ${agentId}`;
+    },
+    decide: (input) => (input.mustPick ? { action: 'speak', agentId: 'gh' } : { action: 'finish' }),
+  });
+  rooms = h.rooms;
+  const { sessionId, roomId } = await room(h);
+  session = sessionId;
+  await h.rooms.send(sessionId, 'first');
+  for (let i = 0; i < 2000 && h.prompts.length < 2; i += 1) await new Promise((r) => setImmediate(r));
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.log.map((row) => [row.kind, row.speaker ?? row.text, row.text]),
+    [
+      ['user', 'first', 'first'],
+      ['user', 'second', 'second'],
+      ['speech', 'gh', 'fresh answer by gh'],
+    ],
+    'no speech, pass or stopped row for the cancelled turn'
+  );
+  assert.ok(
+    h.aborts.some((id) => id.endsWith('_gh')),
+    'the member session was aborted'
+  );
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'gh']
+  );
+  // The cancelled turn's rows are handed again, with the message that cut it off.
+  assert.match(String(h.prompts[1].prompt), /first/);
+  assert.match(String(h.prompts[1].prompt), /second/);
+  assert.equal(h.logs.length, 0);
+});
+
+test('a turn cut short hands its rows again only as already-shown context; the newer message is the request', async () => {
+  let rooms;
+  let session;
+  const h = harness({
+    script: async (agentId, prompt) => {
+      if (agentId === 'gh' && /first/.test(String(prompt)) && !/second/.test(String(prompt))) {
+        await rooms.send(session, 'second');
+        return 'stale answer to first';
+      }
+      return `fresh answer by ${agentId}`;
+    },
+    decide: (input) => (input.mustPick ? { action: 'speak', agentId: 'gh' } : { action: 'finish' }),
+  });
+  rooms = h.rooms;
+  const { sessionId, roomId } = await room(h);
+  session = sessionId;
+  await h.rooms.send(sessionId, 'first');
+  for (let i = 0; i < 2000 && h.prompts.length < 2; i += 1) await new Promise((r) => setImmediate(r));
+  await h.idle(roomId);
+  const again = String(h.prompts[1].prompt);
+  assert.doesNotMatch(again, /^The user, to everyone:\nfirst$/m, '"first" is not a new request the second time');
+  assert.match(
+    again,
+    /Already shown to you before[^\n]*\nThe user \(earlier, already shown to you\), to everyone:\nfirst\n/
+  );
+  assert.match(again, /New since then:\nThe user, to everyone:\nsecond/);
+});
+
+test('a long room log read as its tail window never re-hands past user messages or anchors the supervisor on them', async () => {
+  // The log read sees only its newest three rows, as a session read's tail
+  // window does; everything older comes from the rows this host posted.
+  const h = harness({ readWindow: 3 });
+  const { sessionId, roomId } = await room(h);
+  for (const text of ['usage stats?', 'm2', 'm3']) {
+    await h.rooms.send(sessionId, text);
+    await h.idle(roomId);
+  }
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'gh', 'gh']
+  );
+  const third = String(h.prompts[2].prompt);
+  assert.match(third, /^The user, to everyone:\nm3$/m);
+  assert.doesNotMatch(third, /usage stats|m2/, 'messages gh already answered are not handed again');
+  // The supervisor reads the newest message as the newest, never an older one.
+  for (const step of h.decisions.slice(-2)) {
+    assert.equal(step.rows.findLast((row) => row.kind === 'user').text, 'm3');
+  }
+});
+
+for (const [label, readWindow] of [
+  ['an overlapping', 100],
+  ['a truncated', 3],
+]) {
+  test(`a daemon task report the host never posted keeps its log place in ${label} read tail`, async () => {
+    // "build it": gh, then rel; anything later: rel alone.
+    const h = harness({
+      readWindow,
+      script: (agentId, prompt) => (/thoughts/.test(String(prompt)) ? `${agentId} on thoughts` : `${agentId} on build`),
+      decide: (input) => {
+        const asked = input.rows.findLast((row) => row.kind === 'user')?.text;
+        const plan = asked === 'build it' ? ['gh', 'rel'] : ['rel'];
+        const next = plan[input.turns.length];
+        return next ? { action: 'speak', agentId: next } : { action: 'finish' };
+      },
+    });
+    const { sessionId, roomId } = await room(h);
+    await h.rooms.send(sessionId, 'build it');
+    await h.idle(roomId);
+    // The daemon posts gh's task report into the log; its `at` is when it
+    // was queued, older than the rows before it.
+    h.log.push({ id: 'report_run1', kind: 'speech', speaker: 'gh', name: 'GitHub', at: 1, text: 'task report: done' });
+    await h.rooms.send(sessionId, 'thoughts?');
+    await h.idle(roomId);
+    assert.deepEqual(
+      h.prompts.map((p) => p.agentId),
+      ['gh', 'rel', 'rel']
+    );
+    // rel's cursor sits on gh's speech: the report after it reaches rel, before the new message.
+    const prompt = String(h.prompts[2].prompt);
+    assert.match(prompt, /\[GitHub\]\n│ task report: done\n<\/room-transcript>\nThe user, to everyone:\nthoughts\?$/);
+    assert.doesNotMatch(prompt, /build it|gh on build/);
+    const [user1, speech1, speech2, , user2] = h.log;
+    assert.deepEqual(
+      h.decisions.at(-1).rows.map((row) => row.id),
+      [user1.id, speech1.id, speech2.id, 'report_run1', user2.id, h.log.at(-1).id],
+      'the supervisor reads the room in log order'
+    );
+  });
+}
+
+test('a member with nothing new, no mention and no note is never handed an empty turn', async () => {
+  const h = harness({
+    script: (agentId) => (agentId === 'gh' ? 'answer' : '(pass)'),
+    // gh answers, rel passes, then the supervisor picks gh again with no note.
+    decide: (input) =>
+      [
+        { action: 'speak', agentId: 'gh' },
+        { action: 'speak', agentId: 'rel' },
+        { action: 'speak', agentId: 'gh' },
+        { action: 'finish' },
+      ][input.turns.length],
+  });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, 'usage stats?');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'rel']
+  );
+  assert.ok(!h.prompts.some((p) => /Nothing new was said/.test(String(p.prompt))));
+  assert.deepEqual(
+    h.log.map((row) => row.kind),
+    ['user', 'speech', 'pass'],
+    'the skipped turn posts nothing'
+  );
+});
+
+test('"Continue" after the user was answered does not force a member to speak about the finished topic', async () => {
+  const h = harness();
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, 'usage stats?');
+  await h.idle(roomId);
+  assert.equal(h.prompts.length, 1);
+  await h.rooms.proceed(roomId);
+  await h.idle(roomId);
+  assert.equal(h.prompts.length, 1, 'the supervisor finished: no member was called');
+  assert.equal(h.decisions.at(-1).mustPick, false);
+  assert.deepEqual(
+    h.log.map((row) => row.kind),
+    ['user', 'speech']
+  );
+});
+
+test('a user Stop still ends the exchange with a stopped row', async () => {
+  let rooms;
+  let session;
+  const h = harness({
+    script: async (agentId) => {
+      if (agentId === 'gh') {
+        rooms.stop(session);
+        return 'ok';
+      }
+      return 'never';
+    },
+    decide: ROTATE,
+  });
+  rooms = h.rooms;
+  const { sessionId, roomId } = await room(h);
+  session = sessionId;
+  await h.rooms.send(sessionId, 'first');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.log.map((row) => row.kind),
+    ['user', 'stopped']
+  );
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh']
+  );
+});
+
+test('members who have nothing to add end the exchange quietly: no endless typing, no cap row', async () => {
+  const h = harness({
+    script: (agentId, prompt) => (agentId === 'gh' && /user/.test(String(prompt)) ? 'a point' : '(pass)'),
+    decide: ROTATE,
+  });
+  const { sessionId, roomId } = await room(h, { maxRounds: 5, maxMessages: 30 });
+  await h.rooms.send(sessionId, 'thoughts?');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'rel', 'bench']
+  );
+  assert.deepEqual(
+    h.log.map((row) => row.kind),
+    ['user', 'speech', 'pass', 'pass']
+  );
+});
+
+test('the rounds cap after passes only ends without a cap row; a talk still going gets one', async () => {
+  // gh speaks, then rel and bench keep passing in turn; the cap lands on a pass.
+  const passing = harness({
+    script: (agentId, prompt) => (agentId === 'gh' && /thoughts/.test(String(prompt)) ? 'a point' : '(pass)'),
+    decide: (input) =>
+      input.mustPick
+        ? { action: 'speak', agentId: 'gh' }
+        : { action: 'speak', agentId: input.last === 'rel' ? 'gh' : 'rel' },
+  });
+  const quiet = await room(passing, { maxRounds: 1, maxMessages: 30 });
+  await passing.rooms.send(quiet.sessionId, 'thoughts?');
+  await passing.idle(quiet.roomId);
+  assert.equal(
+    passing.log.some((row) => row.kind === 'cap'),
+    false
+  );
+  const talking = harness({ decide: ROTATE });
+  const live = await room(talking, { maxRounds: 1, maxMessages: 30 });
+  await talking.rooms.send(live.sessionId, 'go');
+  await talking.idle(live.roomId);
+  assert.equal(talking.log.at(-1).kind, 'cap');
+});
+
+test("a member's older answer does not land while the newer message is still being saved", async () => {
+  let rooms;
+  let session;
+  const held = [];
+  let hold = false;
+  const release = () => {
+    for (const resolve of held.splice(0)) resolve();
+  };
+  const h = harness({
+    saveGate: () => (hold ? new Promise((resolve) => held.push(resolve)) : undefined),
+    script: async (agentId) => {
+      if (agentId === 'gh' && !hold && !h.log.some((row) => row.text === 'second')) {
+        hold = true;
+        const sent = rooms.send(session, 'second');
+        for (let i = 0; i < 2000 && !h.log.some((row) => row.text === 'second'); i += 1) {
+          await new Promise((r) => setImmediate(r));
+        }
+        // gh finishes its answer to "first" while "second" is still saving;
+        // the save completes only well after gh's turn could have posted.
+        void (async () => {
+          for (let i = 0; i < 50; i += 1) await new Promise((r) => setImmediate(r));
+          hold = false;
+          release();
+          await sent;
+        })();
+        return 'old answer';
+      }
+      return 'ok';
+    },
+  });
+  rooms = h.rooms;
+  const { sessionId, roomId } = await room(h);
+  session = sessionId;
+  await h.rooms.send(sessionId, 'first');
+  for (let i = 0; i < 2000 && h.prompts.length < 2; i += 1) await new Promise((r) => setImmediate(r));
+  await h.idle(roomId);
+  assert.equal(
+    h.log.some((row) => row.text === 'old answer'),
+    false
+  );
+  assert.deepEqual(
+    h.log.map((row) => [row.kind, row.text]),
+    [
+      ['user', 'first'],
+      ['user', 'second'],
+      ['speech', 'ok'],
+    ]
+  );
+});
+
+test('messages sent while members speak keep every addressee for the next exchange', async () => {
+  let rooms;
+  let session;
+  const h = harness({
+    script: async (agentId, prompt) => {
+      if (agentId === 'gh' && /first/.test(String(prompt))) {
+        await rooms.send(session, '/ask bench second');
+        await rooms.send(session, '/ask rel third');
+      }
+      return 'ok';
+    },
+  });
+  rooms = h.rooms;
+  const { sessionId, roomId } = await room(h);
+  session = sessionId;
+  await h.rooms.send(sessionId, 'first');
+  for (let i = 0; i < 2000 && h.prompts.length < 3; i += 1) await new Promise((r) => setImmediate(r));
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'bench', 'rel']
   );
 });
 

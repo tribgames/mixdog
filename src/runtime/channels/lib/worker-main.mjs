@@ -10,6 +10,7 @@ import { Scheduler } from './scheduler.mjs';
 import { hasPending as dispatchHasPending } from '../../agent/orchestrator/dispatch-persist.mjs';
 import { stripSoftWarns } from '../../agent/orchestrator/tool-loop-guard.mjs';
 import { JsonStateFile } from './state-file.mjs';
+import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 import {
   makeInstanceId,
   getStatusPath,
@@ -115,7 +116,7 @@ function writeBridgeState(active) {
   try {
     const stateFile = path.join(ensurePrivateRuntimeRoot(resolveRuntimeRoot()), 'bridge-state.json');
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify({ active, ts: Date.now() }));
+    writeJsonAtomicSync(stateFile, { active, ts: Date.now() }, { compact: true });
   } catch {}
 }
 function isChannelBridgeActive() {

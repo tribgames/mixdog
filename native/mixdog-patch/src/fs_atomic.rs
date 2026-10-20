@@ -154,7 +154,8 @@ pub(crate) fn atomic_write_replace(path: &Path, bytes: &[u8]) -> Result<(), Stri
 
     for attempt in 0..32u32 {
         let tmp = parent.join(format!(
-            ".{file_name}.mixdog-tmp-{}-{nonce}-{attempt}",
+            // No leading dot: sync-drive folders (e.g. Naver MYBOX) refuse dot-prefixed names.
+            "{file_name}.mixdog-tmp-{}-{nonce}-{attempt}",
             std::process::id()
         ));
         let result = (|| -> io::Result<()> {

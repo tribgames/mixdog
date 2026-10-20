@@ -461,7 +461,7 @@ test('agent mode shows no working status: a typing bubble while the agent works,
   };
   const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
   const live = { ...reply('a2', DAY1), live: true, item: { ...reply('a2', DAY1).item, streaming: true } };
-  const show = (sessionId, rows, agentMode = true, approvalCard = null) => {
+  const show = (sessionId, rows, agentMode = true, approvalCard = null, settledItems = []) => {
     const options = {
       snapshot: { sessionId, busy: true },
       disclosureScope: sessionId,
@@ -469,7 +469,7 @@ test('agent mode shows no working status: a typing bubble while the agent works,
       transitioning: false,
       renderAssistantRow: undefined,
       onOpenSettings() {},
-      settledItems: [],
+      settledItems,
       settledTurnKeys: [],
       optimisticActivityStartedAt: DAY1,
       submit: async () => true,
@@ -520,19 +520,26 @@ test('agent mode shows no working status: a typing bubble while the agent works,
   assert.equal(beforeText.match(/class="message assistant/g)?.length, 1, 'only the typing bubble');
   assert.ok(typingRow(beforeText).querySelector('.mx-chat-face'));
   assert.equal(typingRow(beforeText).querySelector('.mx-chat-name')?.textContent, 'github-watcher');
-  // A room: the speaking member's typing row, with its face and name; the
-  // band itself adds none.
+  // A room: the band is the typing slot. It paints the member the trailing
+  // typing row names (that row opens no row of its own), with face and name.
   const memberTyping = {
-    _tag: 'AssistantPart',
-    key: 'typing',
-    turnKey: 't',
-    item: { kind: 'notice', id: 'ty', text: '', room: { kind: 'typing', speaker: 'bench', name: 'Bench' } },
+    kind: 'notice',
+    id: 'ty',
+    text: '',
+    room: { kind: 'typing', speaker: 'bench', name: 'Bench' },
   };
-  const room = await show(ROOM, [user('u1', DAY1), memberTyping, thinking]);
-  assert.equal(room.match(/mx-chat-typing/g)?.length, 1);
+  const roomRows = [user('u1', DAY1), thinking];
+  const room = await show(ROOM, roomRows, true, null, [user('u1', DAY1).item, memberTyping]);
+  assert.equal(room.match(/mx-chat-typing"/g)?.length, 1);
   assert.equal(typingRow(room).querySelector('.mx-chat-name')?.textContent, 'Bench');
   assert.ok(typingRow(room).querySelector('.mx-chat-face'));
-  assert.doesNotMatch(room, /agent-room-typing/);
+  assert.doesNotMatch(room, /agent-room-typing|mx-chat-typing-idle/);
+  // Between turns the slot keeps the same bubble box, hidden and silent.
+  const between = await show(ROOM, roomRows, true, null, [user('u1', DAY1).item]);
+  assert.match(between, /mx-chat-typing-idle/);
+  assert.doesNotMatch(between, /role="status"/);
+  assert.ok(typingRow(between).querySelector('.mx-chat-face'));
+  assert.ok(typingRow(between).querySelector('.mx-chat-name'));
 
   // Coding mode keeps every one of them.
   const coding = await show('sess_task_1', [user('u1', DAY1), finished, toolRow, turnDone], false);

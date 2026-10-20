@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { readScopedEditorSettings, writeMarkdownDefaultView } from './workspace-config.ts';
+import {
+  readMarkdownDefaultView,
+  readScopedEditorSettings,
+  scopedEditorSettingsFromText,
+  writeMarkdownDefaultView,
+  writeWorkspaceFile,
+} from './workspace-config.ts';
 
 async function tempDir(t) {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-wc-'));
@@ -90,4 +96,36 @@ test('preserves tab indentation and CRLF; new files use two spaces', async (t) =
     await readFile(join(fresh, 'User', 'settings.json'), 'utf8'),
     '{\n  "mixdog.markdown.defaultView": "source"\n}'
   );
+});
+
+test('an empty or NUL-filled settings.json means defaults and never rejects the readers', async (t) => {
+  const dir = await tempDir(t);
+  const file = await userFile(dir, '');
+  for (const damaged of ['', '\0\0\0\0', ' \n\0']) {
+    await writeFile(file, damaged);
+    const settings = await readScopedEditorSettings(dir, join(dir, 'proj'), 'a.md');
+    assert.equal(settings.markdownDefaultView, 'preview');
+    assert.equal(await readMarkdownDefaultView(dir), 'preview');
+  }
+  assert.deepEqual(
+    await scopedEditorSettingsFromText(dir, 'a.md', '\0\0', '').then((settings) => settings.markdownDefaultView),
+    'preview'
+  );
+});
+
+test('a NUL-filled settings.json takes a write as an empty one', async (t) => {
+  const dir = await tempDir(t);
+  const file = await userFile(dir, '\0\0\0\0');
+  await writeMarkdownDefaultView(dir, 'rich');
+  assert.equal(await readFile(file, 'utf8'), '{\n  "mixdog.markdown.defaultView": "rich"\n}');
+});
+
+test('saving a Project file over a NUL-filled one replaces it and leaves no temp file', async (t) => {
+  const dir = await tempDir(t);
+  const file = join(dir, 'p.code-workspace');
+  await writeFile(file, '\0\0\0\0');
+  const workspace = await writeWorkspaceFile(file, [{ path: join(dir, 'src') }]);
+  assert.equal(workspace.folders.length, 1);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { folders: [{ path: 'src' }] });
+  assert.deepEqual(await readdir(dir), ['p.code-workspace']);
 });

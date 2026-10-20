@@ -534,6 +534,36 @@
 .image-lightbox-nav.next {
   right: 4px;
 }
+/* Phone: previews stay inside the visible screen (notch, home bar, soft
+   keyboard) on the dialog gutter, with finger-sized controls. */
+html[data-mixdog-mobile-tabs] :is(.transcript-artifact-preview, .image-lightbox) {
+  max-width: calc(100vw - 2 * max(var(--mx-dialog-inset), env(safe-area-inset-left, 0px)));
+  max-height: calc(
+    var(--mx-visible-height, 100dvh) -
+    max(var(--mx-dialog-inset), env(safe-area-inset-top, 0px)) -
+    max(var(--mx-dialog-inset), env(safe-area-inset-bottom, 0px))
+  );
+}
+html[data-mixdog-mobile-tabs] .image-lightbox {
+  width: calc(100vw - 2 * max(var(--mx-dialog-inset), env(safe-area-inset-left, 0px)));
+  height: calc(
+    var(--mx-visible-height, 100dvh) -
+    max(var(--mx-dialog-inset), env(safe-area-inset-top, 0px)) -
+    max(var(--mx-dialog-inset), env(safe-area-inset-bottom, 0px))
+  );
+}
+html[data-mixdog-mobile-tabs] .transcript-artifact-preview {
+  padding-top: calc(var(--mx-touch) + 8px);
+}
+html[data-mixdog-mobile-tabs] .transcript-artifact-preview > :is(img, video) {
+  max-width: 100%;
+  max-height: calc(var(--mx-visible-height, 100dvh) - 120px);
+}
+html[data-mixdog-mobile-tabs]
+  :is(.transcript-artifact-preview > .icon-button, .image-lightbox-toolbar .icon-button, .image-lightbox-nav) {
+  min-width: var(--mx-touch);
+  min-height: var(--mx-touch);
+}
 /* The page a turn left open in the browser pane: site, path, and one button
    that brings the pane back to it. It wears the file artifact's plate so a
    produced page and a produced file read as the same class of object. */

@@ -114,7 +114,7 @@
     opacity: 1;
   }
 }
-html[data-window-material="mica"] .session-sidebar {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .session-sidebar {
   --mx-rail-pin-bg: var(--mx-mica-panel-solid);
 }
 .sidebar.session-sidebar > .session-panel-header,
@@ -179,7 +179,7 @@ html[data-window-material="mica"] .session-sidebar {
 .workbench-side-panel {
   --mx-side-panel-surface: var(--mx-sheet-surface);
 }
-html[data-window-material="mica"]:not([data-mixdog-theme="light"], [data-mixdog-mobile-tabs])
+html:is([data-window-material="mica"], [data-mixdog-skin]):not([data-mixdog-theme="light"], [data-mixdog-mobile-tabs])
   .workbench-side-panel[data-side="left"] {
   --mx-side-panel-surface: var(--mx-mica-panel-solid);
 }
@@ -920,14 +920,16 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .utility-dock .agent-chat-row[data-kind="contact"] {
   /* 3px a mascot cell. */
   --agent-contact-avatar-size: 48px;
-  --agent-contact-padding: 8px 10px 8px 12px;
+  --agent-contact-padding: 8px 8px 8px 10px;
+  --agent-contact-gap: 8px;
   --agent-contact-min-height: 64px;
-  /* The app's own scale: name = UI size, time and preview = meta size, each
-     on a fixed line so every row is the same height. */
+  /* The app's own scale: name = UI size, time = meta size, the preview one
+     step under it (KakaoTalk PC's 12px), each on a fixed line so every row is
+     the same height and a line holds more of the message. */
   --agent-contact-name: var(--mx-font-ui);
   --agent-contact-name-line: var(--mx-line-ui);
-  --agent-contact-preview: var(--mx-font-meta);
-  --agent-contact-preview-line: var(--mx-line-meta);
+  --agent-contact-preview: var(--mx-font-micro);
+  --agent-contact-preview-line: var(--mx-line-micro);
   --agent-contact-time: var(--mx-font-meta);
   /* Fits the widest COMPACT time label of the locale ("오후 12:59", "어제",
      "12월 28일"), measured once in em of the time size with tabular figures
@@ -939,7 +941,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   display: grid;
   grid-template-columns: var(--agent-contact-avatar-size) minmax(0, 1fr);
   align-items: center;
-  column-gap: 10px;
+  column-gap: var(--agent-contact-gap);
   padding: var(--agent-contact-padding);
 }
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-chat-avatar {
@@ -1048,6 +1050,35 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   font-weight: var(--mx-weight-semibold);
   white-space: nowrap;
 }
+/* Waiting for approval and failed: a filled "!" pill in the count's shape,
+   amber and red, so a blocked bot reads from across the list. */
+.utility-dock
+  .agent-chat-row[data-kind="contact"]
+  .agent-contact-aside
+  > .agent-chat-status:is([data-kind="attention-mark"], [data-kind="error"]) {
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-bg-base);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-strong);
+  line-height: 1;
+}
+.utility-dock
+  .agent-chat-row[data-kind="contact"]
+  .agent-contact-aside
+  > .agent-chat-status[data-kind="attention-mark"] {
+  background: var(--mx-warning);
+}
+.utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-chat-status[data-kind="error"] {
+  background: var(--mx-danger);
+}
+/* A group room's member count beside its name, quiet. */
+.utility-dock .agent-room-member-count {
+  margin-left: 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  font-variant-numeric: tabular-nums;
+}
 /* Unread: a stronger name and a brighter preview; the count pill is the status. */
 .utility-dock .agent-chat-row:has(.agent-chat-status[data-kind="unread"]) .agent-chat-title {
   font-weight: var(--mx-weight-strong);
@@ -1080,8 +1111,9 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
      palette's yellow. */
   color: #f2c94c;
 }
-/* Work sessions follow the contacts after one hairline, no heading. */
-.utility-dock .agent-chat-divider {
+/* Work sessions follow the contacts after one hairline, no heading; the same
+   hairline sets Mixy (pinned on top) apart from the other bots. */
+.utility-dock :is(.agent-chat-divider, .agent-contact-divider) {
   align-self: stretch;
   height: 0;
   margin: 6px 8px;
@@ -1895,9 +1927,9 @@ html[data-mixdog-mobile-tabs]
 .session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="after"]::before {
   bottom: -4px;
 }
-/* A session dragged over a valid project folder outlines the whole group
-   (header + its sessions); invalid targets get nothing. */
-.session-sidebar-sessions .project-group[data-session-drop="true"] {
+/* A session dragged over a valid project folder (or Favorites) outlines the
+   whole group (header + its sessions); invalid targets get nothing. */
+.session-sidebar-sessions :is(.project-group, .sidebar-favorites)[data-session-drop="true"] {
   outline: 1.5px solid var(--mx-accent);
   outline-offset: -1.5px;
   border-radius: 8px;

@@ -2,7 +2,7 @@
 import type { App, BrowserWindow, Dialog } from 'electron';
 import { createWriteStream } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { rename, rm, writeFile } from 'node:fs/promises';
+import { rename, rm } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { dirname, join, isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
@@ -14,6 +14,7 @@ import { requiredSaveSource, requiredString, requiredWorkspaceFolders, sanitized
 import type { ConnectionKind } from './connections/contract';
 import { remotePickerRequired } from './connections/feature-gates';
 import { absoluteServerPath } from './server-file-access';
+import { writeUserFile } from './user-file-write';
 
 interface FileDialogIpcOptions {
   window: BrowserWindow;
@@ -59,7 +60,9 @@ export async function downloadToFile(
     await pipeline(
       Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
       limit,
-      createWriteStream(temp),
+      // Flushed before the rename publishes it, so a crash cannot leave the
+      // destination holding a NUL-filled download.
+      createWriteStream(temp, { flush: true }),
       { signal: controller.signal }
     );
     await rename(temp, file);
@@ -105,7 +108,7 @@ export function registerFileDialogIpc({
     });
     if (result.canceled || !result.filePath) return false;
     if (target.kind === 'data') {
-      await writeFile(result.filePath, target.bytes);
+      await writeUserFile(result.filePath, target.bytes);
       return true;
     }
     await downloadToFile(target.url, result.filePath);

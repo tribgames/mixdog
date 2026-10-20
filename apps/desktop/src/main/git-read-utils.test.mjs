@@ -54,3 +54,25 @@ test('a failed read fails only its own callers; joined callers still get their o
   runs[1].resolve('ok');
   assert.equal(await joined, 'ok');
 });
+
+test('a timed-out read fails its joined callers too, and the next caller reads again', async () => {
+  const runs = [];
+  const read = sharedRead(
+    () => 'repo',
+    () => {
+      const run = Promise.withResolvers();
+      runs.push(run);
+      return run.promise;
+    }
+  );
+  const first = read();
+  const joined = read();
+  runs[0].reject(Object.assign(new Error('git status timed out after 60000ms'), { code: 'ETIMEDOUT' }));
+  await assert.rejects(first, /timed out/);
+  await assert.rejects(joined, /timed out/);
+  assert.equal(runs.length, 1);
+  const later = read();
+  assert.equal(runs.length, 2);
+  runs[1].resolve('ok');
+  assert.equal(await later, 'ok');
+});

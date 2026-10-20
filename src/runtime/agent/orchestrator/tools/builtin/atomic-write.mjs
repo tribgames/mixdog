@@ -24,9 +24,24 @@ function expectedTargetSnapshotChanged(currentStat, expected) {
   return !sameFileVersion(currentStat, expected);
 }
 
+// Files the agent writes into a user's project are durable by default: without
+// the flush a crash can publish the renamed file with every byte NUL.
+// MIXDOG_ATOMIC_FSYNC=0|false|no|off opts out.
 function atomicWriteShouldFsync(value) {
   if (value === true || value === false) return value;
-  return /^(1|true|yes|on|sync)$/i.test(String(process.env.MIXDOG_ATOMIC_FSYNC || ''));
+  return !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_ATOMIC_FSYNC || ''));
+}
+
+// Filesystems that refuse fsync answer with one of these; durability is
+// best-effort there and must not fail the write.
+const FSYNC_TOLERATED = new Set(['EPERM', 'ENOTSUP', 'EINVAL']);
+
+async function syncHandle(fh) {
+  try {
+    await fh.sync();
+  } catch (error) {
+    if (!FSYNC_TOLERATED.has(error?.code)) throw error;
+  }
 }
 
 // 'wx' preflight creates an empty placeholder at targetPath; if the write is
@@ -104,7 +119,10 @@ async function writeTempFile(tmp, content, { mode, fsync }) {
     if (payloadByteLength(content) > STREAMING_THRESHOLD_BYTES) {
       // Streaming path: avoid buffering the entire payload through
       // fh.writeFile (which copies into a single Buffer).
-      const ws = createWriteStream(tmp, { flags: 'wx', mode });
+      // Owner-writable while we flush: the fsync reopens the file for writing,
+      // which a read-only mode would refuse; the final mode is applied after.
+      const streamMode = fsync ? mode | 0o200 : mode;
+      const ws = createWriteStream(tmp, { flags: 'wx', mode: streamMode });
       // Stream construction precedes open; only the open event proves ownership.
       ws.once('open', () => {
         ownsTemp = true;
@@ -115,15 +133,16 @@ async function writeTempFile(tmp, content, { mode, fsync }) {
       await pipeline(source, ws);
       if (fsync) {
         fh = await fsPromises.open(tmp, 'r+');
-        await fh.sync();
+        await syncHandle(fh);
         await fh.close();
         fh = null;
+        if (streamMode !== mode) await fsPromises.chmod(tmp, mode);
       }
     } else {
       fh = await fsPromises.open(tmp, 'wx', mode);
       ownsTemp = true;
       await fh.writeFile(content);
-      if (fsync) await fh.sync();
+      if (fsync) await syncHandle(fh);
       await fh.close();
       fh = null;
     }
@@ -260,7 +279,8 @@ export async function atomicWrite(
   // beside the real target, so the rename stays on one filesystem.
   const writeTarget = symlinkWriteTarget(targetPath) ?? targetPath;
   const dir = dirname(writeTarget);
-  const tmp = join(dir, `.${basename(writeTarget)}.mixdog-tmp-${randomBytes(4).toString('hex')}`);
+  // No leading dot: sync-drive folders (e.g. Naver MYBOX) refuse dot-prefixed names.
+  const tmp = join(dir, `${basename(writeTarget)}.mixdog-tmp-${randomBytes(4).toString('hex')}`);
   const existingStat = statOrNull(writeTarget);
   let effectiveMode = mode;
   if (effectiveMode === undefined && existingStat) effectiveMode = existingStat.mode & 0o777;

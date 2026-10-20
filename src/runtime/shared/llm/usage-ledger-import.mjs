@@ -114,7 +114,7 @@ export async function importUsageHistory(ledger, dataDir, { now = Date.now(), re
   // send's diagnostic copy cannot also enter as historical usage.
   const until = Number(ledger.get('liveSince')) || now;
   if (Number(ledger.get('importedThrough')) >= until) return { skipped: true };
-  const result = { inserted: 0, sourceRows: 0, unrecordableRows: 0, files: [], traceRows: 0 };
+  const result = { inserted: 0, sourceRows: 0, unrecordableRows: 0, tornTraceLines: 0, files: [], traceRows: 0 };
   const accept = (rows) => {
     const normalized = [];
     for (const raw of rows) {
@@ -140,15 +140,23 @@ export async function importUsageHistory(ledger, dataDir, { now = Date.now(), re
     const original = await readFile(path, 'utf8');
     const lines = original.split(/\r?\n/);
     const rows = [];
+    let torn = 0;
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       let row;
       try {
         row = JSON.parse(lines[i]);
       } catch {
-        throw new Error(`Incomplete or invalid trace record: ${path}:${i + 1}`);
+        // An append a crash tore (cut short, or NUL-filled) is no record: skip
+        // it, like the gateway store below, instead of failing every import.
+        torn += 1;
+        continue;
       }
-      if (row.kind === 'usage_raw' || row.kind === 'usage') rows.push(row);
+      if (row?.kind === 'usage_raw' || row?.kind === 'usage') rows.push(row);
+    }
+    if (torn > 0) {
+      process.stderr.write(`[usage-ledger] warning: ${path} has ${torn} torn trace line(s); skipped\n`);
+      result.tornTraceLines += torn;
     }
     accept(rows);
     result.files.push({ path, sha256: createHash('sha256').update(original).digest('hex'), rows: rows.length });
@@ -160,29 +168,40 @@ export async function importUsageHistory(ledger, dataDir, { now = Date.now(), re
   // The JSONL store supersedes the legacy JSON file (it is migrated from it).
   const gatewayJsonl = await optionalFile(join(dataDir, 'gateway-usage.local.jsonl'));
   const gateway = gatewayJsonl === null ? await optionalFile(join(dataDir, 'gateway-usage.local.json')) : null;
-  if (gatewayJsonl !== null || gateway)
+  // A missing file is absence. Empty, unparsable, or wrong-shaped JSON is not:
+  // skip only that legacy import and leave importedThrough unset so a repair
+  // is retried instead of short-circuiting forever.
+  let legacyReady = true;
+  let gatewayEvents = null;
+  if (gatewayJsonl !== null) {
+    gatewayEvents = gatewayJsonl.split('\n').flatMap((line) => {
+      try {
+        return line.trim() ? [JSON.parse(line)] : [];
+      } catch {
+        return []; // torn append
+      }
+    });
+  } else if (gateway !== null) {
+    try {
+      const events = JSON.parse(gateway)?.events;
+      gatewayEvents = Array.isArray(events) ? events : [];
+    } catch (error) {
+      legacyReady = false;
+      process.stderr.write(
+        `[usage-ledger] warning: legacy gateway usage file gateway-usage.local.json is empty or corrupt (${error.message}); skipping its import\n`
+      );
+    }
+  }
+  if (gatewayEvents)
     accept(
-      (gatewayJsonl !== null
-        ? gatewayJsonl.split('\n').flatMap((line) => {
-            try {
-              return line.trim() ? [JSON.parse(line)] : [];
-            } catch {
-              return []; // torn append
-            }
-          })
-        : JSON.parse(gateway).events || []
-      ).map((event) => ({
+      gatewayEvents.map((event) => ({
         ...event,
         kind: 'usage',
         session_id: event.sessionId,
       }))
     );
-  // A missing file is absence. Empty, unparsable, or wrong-shaped JSON is not:
-  // skip only this legacy import and leave importedThrough unset so a repair
-  // is retried instead of short-circuiting forever.
   const legacyPath = join(dataDir, 'usage-rollup.local.json');
   const legacy = await optionalFile(legacyPath);
-  let legacyReady = true;
   if (legacy !== null) {
     let days;
     try {

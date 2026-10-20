@@ -4,8 +4,7 @@
  * file-stamp set, standard events merged, legacy rules collected, and the
  * parse errors both reported and recorded on the result.
  */
-import { readFileSync } from 'node:fs';
-import { applyHookRulePatches, hookFileStamp } from './rule-file.mjs';
+import { applyHookRulePatches, hookFileStamp, readHookDocument } from './rule-file.mjs';
 import {
   hookConfigEntries,
   mergeEvents,
@@ -61,14 +60,24 @@ export function createConfigLoader({ dataDir, rulesPath, emit, pendingPatches })
     for (const entry of entries) {
       const filePath = entry.path;
       let parsed = null;
+      let damaged = false;
       try {
-        parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+        // The rules file is this module's own (written with a `.bak`): a
+        // damaged copy is restored from it. Other hooks files are only read.
+        parsed = readHookDocument(filePath, {
+          restore: filePath === rulesPath,
+          onDamaged: (error) => {
+            damaged = true;
+            errors.push({ file: filePath, error: error?.message || String(error) });
+          },
+        });
       } catch (error) {
-        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') continue;
-        if (!(error instanceof SyntaxError)) cacheable = false;
+        cacheable = false;
         errors.push({ file: filePath, error: error?.message || String(error) });
         continue;
       }
+      // Missing, or damaged without a good copy (reported above): no hooks.
+      if (damaged || parsed === null) continue;
       sources.push(filePath);
       sourceEntries.push({
         path: filePath,

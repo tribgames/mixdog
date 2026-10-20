@@ -206,3 +206,17 @@ test('cached rendition reads still succeed without regenerating', async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a NUL-filled cached rendition is dropped instead of served', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'mixdog-renditions-nul-'));
+  try {
+    const written = cacheRendition({ id: 'a', mime: 'image/png', buffer: PIXEL_PNG, cacheDir });
+    const lookup = () => ensureRendition({ id: 'a', kind: 'image', variant: 'thumb', cacheDir, generate: false });
+    assert.equal((await lookup()).path, written.path);
+    writeFileSync(written.path, Buffer.alloc(64));
+    assert.equal(await lookup(), null);
+    assert.equal(existsSync(written.path), false);
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});

@@ -708,6 +708,7 @@ test('a wheel ramp holds measured-size corrections off scrollTop until its scrol
     await React.act(async () => follow.handleScroll());
     assert.equal(deviation.hold(native + 30), true, 'its correction is held');
     assert.equal(space.style.transform, 'translateY(-30px)', 'as a row offset');
+    assert.equal(space.style.marginBottom, '-30px', 'and the native end moves up with the lifted rows');
     // The ramp keeps scrolling past the wheel window; it still owns the viewport.
     for (let step = 0; step < 4; step += 1) {
       now += 120;
@@ -724,6 +725,7 @@ test('a wheel ramp holds measured-size corrections off scrollTop until its scrol
     await frame();
     assert.deepEqual(writes, [settledAt], 'one write lands the held correction');
     assert.equal(space.style.transform, '');
+    assert.equal(space.style.marginBottom, '');
     // A later scroll that is no wheel (scrollbar, keyboard) holds nothing.
     now += 50;
     native -= 40;

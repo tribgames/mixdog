@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -17,6 +17,64 @@ test('a BOM-prefixed provider-accounts.json still loads', (t) => {
   assert.deepEqual(
     pool.accounts.map((row) => row.label),
     ['Work']
+  );
+});
+
+test('a NUL-filled provider-accounts.json is moved aside and reads as an empty roster', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-provider-accounts-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'provider-accounts.json'), Buffer.alloc(2608));
+  const pool = readProviderAccountPool('anthropic-oauth', dir);
+  assert.deepEqual(pool.accounts, []);
+  assert.equal(existsSync(join(dir, 'provider-accounts.json')), false);
+  assert.ok(readdirSync(dir).some((name) => name.startsWith('provider-accounts.json.corrupt-')));
+});
+
+test('a truncated provider-accounts.json falls back to its last good copy', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-provider-accounts-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const roster = {
+    version: 1,
+    providers: { 'anthropic-oauth': { accounts: [{ id: 'default', label: 'Work' }], selectedId: 'default' } },
+  };
+  writeFileSync(join(dir, 'provider-accounts.json.bak'), JSON.stringify(roster));
+  writeFileSync(join(dir, 'provider-accounts.json'), '{"version":1,"providers":');
+  const pool = readProviderAccountPool('anthropic-oauth', dir);
+  assert.deepEqual(
+    pool.accounts.map((row) => row.label),
+    ['Work']
+  );
+  assert.ok(readdirSync(dir).some((name) => name.startsWith('provider-accounts.json.corrupt-')));
+});
+
+test('a roster in a newer build format is left in place and reads as empty', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-provider-accounts-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const newer = JSON.stringify({ version: 2, providers: {} });
+  writeFileSync(join(dir, 'provider-accounts.json'), newer);
+  assert.deepEqual(readProviderAccountPool('anthropic-oauth', dir).accounts, []);
+  assert.equal(readFileSync(join(dir, 'provider-accounts.json'), 'utf8'), newer);
+});
+
+test('a provider a newer build added is kept, not treated as damage', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-provider-accounts-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const roster = {
+    version: 1,
+    providers: {
+      'future-oauth': { accounts: [{ id: 'default' }], selectedId: 'default' },
+      'openai-oauth': { accounts: [{ id: 'default', label: 'Work' }], selectedId: 'default' },
+    },
+  };
+  writeFileSync(join(dir, 'provider-accounts.json'), JSON.stringify(roster));
+  assert.deepEqual(
+    readProviderAccountPool('openai-oauth', dir).accounts.map((row) => row.label),
+    ['Work']
+  );
+  assert.equal(existsSync(join(dir, 'provider-accounts.json')), true);
+  assert.equal(
+    readdirSync(dir).some((name) => name.includes('.corrupt-')),
+    false
   );
 });
 

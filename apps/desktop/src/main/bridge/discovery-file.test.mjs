@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -175,6 +175,79 @@ test('bridge discovery isolates stale generations and reports own endpoint loss'
     assert.equal(await discovery.heartbeatDiscovery(second), 'lost');
     discovery.removeDiscovery(second);
     await assert.rejects(readDiscovery(directory), /ENOENT/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+// What a crash leaves of a discovery file, and what a hand edit can: neither
+// is a live owner's record, so the bridge must publish over it instead of
+// reporting 'inconclusive' for ever.
+for (const [label, content] of [
+  ['NUL-filled', Buffer.alloc(180)],
+  ['empty', ''],
+  ['truncated', '{"version":1,"port":4100,"tok'],
+]) {
+  test(`bridge discovery publishes over a ${label} record`, async () => {
+    const directory = await temporaryDirectory();
+    try {
+      await writeFile(join(directory, 'computer-bridge.json'), content);
+      const own = createBridgeDiscoveryRecord({
+        port: 43001,
+        token: 'own-token',
+        pid: 6001,
+        generation: 1,
+        startedAt: 1000,
+      });
+      const discovery = createBridgeDiscovery({ fileName: 'computer-bridge.json', dataDirectory: () => directory });
+      assert.equal(await discovery.writeDiscovery(own), 'owned');
+      assert.deepEqual(await readDiscovery(directory), own);
+      assert.deepEqual(
+        (await readdir(directory)).filter((name) => name.endsWith('.tmp')),
+        [],
+        'the atomic write leaves no temporary file'
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test('bridge discovery republishes when the owned record is later damaged', async () => {
+  const directory = await temporaryDirectory();
+  try {
+    const own = createBridgeDiscoveryRecord({
+      port: 43002,
+      token: 'own-token',
+      pid: 6002,
+      generation: 1,
+      startedAt: 1000,
+    });
+    const discovery = createBridgeDiscovery({ fileName: 'computer-bridge.json', dataDirectory: () => directory });
+    assert.equal(await discovery.writeDiscovery(own), 'owned');
+    await writeFile(join(directory, 'computer-bridge.json'), Buffer.alloc(180));
+    assert.equal(await discovery.heartbeatDiscovery(own), 'owned');
+    assert.deepEqual(await readDiscovery(directory), own);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('bridge discovery still leaves a parsed record it does not understand alone', async () => {
+  const directory = await temporaryDirectory();
+  try {
+    const foreign = '{"version":99,"endpoint":"elsewhere"}\n';
+    await writeFile(join(directory, 'computer-bridge.json'), foreign);
+    const own = createBridgeDiscoveryRecord({
+      port: 43003,
+      token: 'own-token',
+      pid: 6003,
+      generation: 1,
+      startedAt: 1000,
+    });
+    const discovery = createBridgeDiscovery({ fileName: 'computer-bridge.json', dataDirectory: () => directory });
+    assert.equal(await discovery.writeDiscovery(own), 'inconclusive');
+    assert.equal(await readFile(join(directory, 'computer-bridge.json'), 'utf8'), foreign);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

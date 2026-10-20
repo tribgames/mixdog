@@ -63,6 +63,8 @@ export class SessionHostCatalog {
   private agentPoolRefreshQueued = false;
   private agentPoolListMs = 0;
   private storeRefreshedAt = 0;
+  private sessionListingSeq = 0;
+  private publishedSessionListingSeq = 0;
   private coldViewTimer: NodeJS.Timeout | null = null;
   private readonly refreshingColdSessionIds = new Set<string>();
   private readonly watcher: RecoveringStoreWatcher;
@@ -218,12 +220,27 @@ export class SessionHostCatalog {
     // daemon fault blanked every open tab's title (the tab strip and pane
     // addressing both read the catalog) until the next refresh repainted it.
     // Keep the last good catalog and let the next store event retry.
-    const [sessions, agents] = await Promise.all([
-      this.owner.listSessions().catch((): null => null),
-      this.owner.listAgentPool().catch((): null => null),
+    // Each catalog is published as soon as its own listing lands. Held for a
+    // slow Agents pool read, a session listing taken while a new task was
+    // still hidden went out after the task's row had already been published,
+    // and the renderer read the missing row as a deletion: it closed the
+    // task's tab and left the pane on a blank New task. A listing that lands
+    // after a newer one was already published is dropped for the same reason.
+    const listingSeq = ++this.sessionListingSeq;
+    await Promise.all([
+      this.owner.listSessions().then(
+        (sessions) => {
+          if (listingSeq < this.publishedSessionListingSeq) return;
+          this.publishedSessionListingSeq = listingSeq;
+          this.owner.publishSessions(sessions);
+        },
+        () => undefined
+      ),
+      this.owner.listAgentPool().then(
+        (agents) => this.owner.publishAgents(agents),
+        () => undefined
+      ),
     ]);
-    if (sessions) this.owner.publishSessions(sessions);
-    if (agents) this.owner.publishAgents(agents);
   }
 
   close(): void {

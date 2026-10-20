@@ -4,7 +4,7 @@
 // idle / retention / blank-scratch thresholds.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeJsonAtomicSync } from '../../../../../shared/atomic-file.mjs';
+import { holdsNoData, writeJsonAtomicSync } from '../../../../../shared/atomic-file.mjs';
 import { getPluginData } from '../../../config.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../../lifecycle-scan.mjs';
 
@@ -108,8 +108,12 @@ function conversationCountOf(doc) {
   return count;
 }
 
-/** `null` when the file could not be read; otherwise the lifecycle record
- * (possibly LIFECYCLE_SCAN_CONFLICT, which is never cached). */
+/** The file holds no data (empty or NUL-filled by a crash); never cached. */
+export const SWEEP_RECORD_NO_DATA = Symbol('sweep-record-no-data');
+
+/** `null` when the file could not be read; SWEEP_RECORD_NO_DATA for a file
+ * without data; otherwise the lifecycle record (possibly
+ * LIFECYCLE_SCAN_CONFLICT, which is never cached). */
 export function readSweepRecord(id, jsonPath, probe) {
   syncSweepRecordCache();
   const cached = sweepRecordCache.get(id);
@@ -121,6 +125,7 @@ export function readSweepRecord(id, jsonPath, probe) {
   } catch {
     return null;
   }
+  if (holdsNoData(raw)) return SWEEP_RECORD_NO_DATA;
   sweepRecordParses++;
   const full = readTopLevelLifecycleRecord(raw);
   if (isLifecycleUnreadable(full)) return full;

@@ -1,10 +1,44 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { explicitSessionCwd, pwd, runWithCwdOverride, updateCurrentCwdOverride } from './user-cwd.mjs';
+import {
+  explicitSessionCwd,
+  pwd,
+  readLastSessionCwd,
+  runWithCwdOverride,
+  updateCurrentCwdOverride,
+  writeLastSessionCwd,
+} from './user-cwd.mjs';
+
+test('a NUL user-cwd.txt or session-cwd sentinel reads as missing, and a rewrite replaces it atomically', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-user-cwd-nul-'));
+  const saved = [process.env.MIXDOG_DATA_DIR, process.env.MIXDOG_SESSION_CWD, process.env.MIXDOG_SUPERVISOR_PID];
+  process.env.MIXDOG_DATA_DIR = root;
+  delete process.env.MIXDOG_SESSION_CWD;
+  delete process.env.MIXDOG_SUPERVISOR_PID;
+  try {
+    writeFileSync(join(root, 'user-cwd.txt'), Buffer.alloc(40));
+    assert.equal(explicitSessionCwd(), null);
+    writeFileSync(join(root, 'session-cwd-solo.txt'), Buffer.alloc(40));
+    assert.equal(readLastSessionCwd(), null);
+    writeLastSessionCwd(root);
+    assert.equal(readLastSessionCwd(), root);
+    assert.equal(readFileSync(join(root, 'session-cwd-solo.txt'), 'utf8'), root);
+    assert.deepEqual(
+      readdirSync(root).filter((name) => name.endsWith('.tmp')),
+      []
+    );
+  } finally {
+    ['MIXDOG_DATA_DIR', 'MIXDOG_SESSION_CWD', 'MIXDOG_SUPERVISOR_PID'].forEach((key, i) => {
+      if (saved[i] === undefined) delete process.env[key];
+      else process.env[key] = saved[i];
+    });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('cwd overrides stay isolated across concurrent inline sessions', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-user-cwd-'));

@@ -12,7 +12,7 @@ import {
   untrackedStat,
 } from './git-read-utils';
 import type { GitReviewSource } from './git-contract.mjs';
-import { run } from './git-runner';
+import { isGitTimeout, runRead } from './git-runner';
 import { cachedGitRoot, hasHead } from './git-status';
 
 const reviewBaseCache = new Map<string, { expiresAt: number; base: string }>();
@@ -30,7 +30,7 @@ export async function gitDiff(
   if (staged) baseArgs = ['--cached'];
   else if (worktreeOnly) baseArgs = [];
   else baseArgs = [(await resolveReviewRef(root, 'uncommitted')).ref];
-  return run(root, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ...baseArgs, '--', path]);
+  return runRead(root, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ...baseArgs, '--', path]);
 }
 
 export interface GitReviewFile {
@@ -77,10 +77,12 @@ async function resolveReviewBase(cwd: string): Promise<string> {
     return base;
   };
   try {
-    const head = (await run(cwd, ['--no-optional-locks', 'symbolic-ref', 'refs/remotes/origin/HEAD'])).trim();
+    const head = (await runRead(cwd, ['--no-optional-locks', 'symbolic-ref', 'refs/remotes/origin/HEAD'])).trim();
     const short = head.replace(/^refs\/remotes\//, '');
     if (short) return remember(short);
-  } catch {
+  } catch (error) {
+    // A timeout must not settle (and cache) the fallback base.
+    if (isGitTimeout(error)) throw error;
     /* no origin/HEAD ref */
   }
   const candidates = [
@@ -91,9 +93,10 @@ async function resolveReviewBase(cwd: string): Promise<string> {
   ];
   for (const [candidate, fullRef] of candidates) {
     try {
-      await run(cwd, ['--no-optional-locks', 'rev-parse', '--verify', '--quiet', fullRef]);
+      await runRead(cwd, ['--no-optional-locks', 'rev-parse', '--verify', '--quiet', fullRef]);
       return remember(candidate);
-    } catch {
+    } catch (error) {
+      if (isGitTimeout(error)) throw error;
       /* try next */
     }
   }
@@ -102,7 +105,7 @@ async function resolveReviewBase(cwd: string): Promise<string> {
 
 /** The tree object every file is added against while HEAD is unborn. */
 async function emptyTree(cwd: string): Promise<string> {
-  return (await run(cwd, ['--no-optional-locks', 'hash-object', '-t', 'tree', '/dev/null'])).trim();
+  return (await runRead(cwd, ['--no-optional-locks', 'hash-object', '-t', 'tree', '/dev/null'])).trim();
 }
 
 /**
@@ -121,8 +124,9 @@ async function resolveMergeBase(cwd: string): Promise<{ base: string; ref: strin
   const base = await resolveReviewBase(cwd);
   if (base === 'HEAD') return { base, ref: 'HEAD' };
   try {
-    return { base, ref: (await run(cwd, ['--no-optional-locks', 'merge-base', base, 'HEAD'])).trim() || 'HEAD' };
-  } catch {
+    return { base, ref: (await runRead(cwd, ['--no-optional-locks', 'merge-base', base, 'HEAD'])).trim() || 'HEAD' };
+  } catch (error) {
+    if (isGitTimeout(error)) throw error;
     return { base, ref: 'HEAD' };
   }
 }
@@ -183,7 +187,7 @@ export async function gitLog(cwd: string, query = '', skip = 0, limit = 40): Pro
       .slice(0, 200);
     const safeSkip = Math.max(0, Math.floor(Number(skip) || 0));
     const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 40)));
-    raw = await run(cwd, [
+    raw = await runRead(cwd, [
       'log',
       '--all',
       '--topo-order',
@@ -193,16 +197,21 @@ export async function gitLog(cwd: string, query = '', skip = 0, limit = 40): Pro
       ...(safeQuery ? ['--regexp-ignore-case', `--grep=${safeQuery}`] : []),
       '--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI',
     ]);
-  } catch {
+  } catch (error) {
+    // [] reads as an empty history; a timeout's answer is unknown.
+    if (isGitTimeout(error)) throw error;
     return [];
   }
   let unpushed = new Set<string>();
   try {
-    unpushed = new Set((await run(cwd, ['rev-list', '@{u}..HEAD'])).split(/\s+/).filter(Boolean));
-  } catch {
+    unpushed = new Set((await runRead(cwd, ['rev-list', '@{u}..HEAD'])).split(/\s+/).filter(Boolean));
+  } catch (error) {
+    // A timeout is not "no upstream": falling back would wait the deadline again.
+    if (isGitTimeout(error)) throw error;
     try {
-      unpushed = new Set((await run(cwd, ['rev-list', 'HEAD'])).split(/\s+/).filter(Boolean));
-    } catch {
+      unpushed = new Set((await runRead(cwd, ['rev-list', 'HEAD'])).split(/\s+/).filter(Boolean));
+    } catch (fallbackError) {
+      if (isGitTimeout(fallbackError)) throw fallbackError;
       unpushed = new Set();
     }
   }
@@ -285,9 +294,9 @@ function parseCommitFiles(statusRaw: string, numstatRaw: string): GitCommitFile[
 
 export async function gitShow(cwd: string, hash: string): Promise<GitCommitDetails> {
   const [metadata, statusRaw, numstatRaw] = await Promise.all([
-    run(cwd, ['show', '-s', '--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P', hash]),
-    run(cwd, ['show', '--format=', '--name-status', '-z', '--find-renames', '--first-parent', hash]),
-    run(cwd, ['show', '--format=', '--numstat', '-z', '--find-renames', '--first-parent', hash]),
+    runRead(cwd, ['show', '-s', '--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P', hash]),
+    runRead(cwd, ['show', '--format=', '--name-status', '-z', '--find-renames', '--first-parent', hash]),
+    runRead(cwd, ['show', '--format=', '--numstat', '-z', '--find-renames', '--first-parent', hash]),
   ]);
   const [
     fullHash = hash,
@@ -311,7 +320,7 @@ export async function gitShow(cwd: string, hash: string): Promise<GitCommitDetai
 }
 
 export function gitShowDiff(cwd: string, hash: string, path: string): Promise<string> {
-  return run(cwd, [
+  return runRead(cwd, [
     'show',
     ...DISPLAY_DIFF_ARGS,
     '--format=',
@@ -326,8 +335,10 @@ export function gitShowDiff(cwd: string, hash: string, path: string): Promise<st
 
 export async function gitShowFile(cwd: string, rev: string, path: string): Promise<string | null> {
   try {
-    return await run(cwd, ['show', `${rev}:${path.replace(/\\/g, '/')}`]);
-  } catch {
+    return await runRead(cwd, ['show', `${rev}:${path.replace(/\\/g, '/')}`]);
+  } catch (error) {
+    // null reads as "the file does not exist at rev".
+    if (isGitTimeout(error)) throw error;
     return null;
   }
 }
@@ -378,7 +389,7 @@ interface ReviewStatus {
 async function reviewStatus(root: string): Promise<ReviewStatus | null> {
   let raw: string;
   try {
-    raw = await run(root, [
+    raw = await runRead(root, [
       '--no-optional-locks',
       'status',
       '--porcelain=v2',
@@ -389,7 +400,9 @@ async function reviewStatus(root: string): Promise<ReviewStatus | null> {
       '--untracked-files=all',
       '--no-renames',
     ]);
-  } catch {
+  } catch (error) {
+    // null reads as "no changes"; a timeout's answer is unknown.
+    if (isGitTimeout(error)) throw error;
     return null;
   }
   const result: ReviewStatus = { head: '', tracked: new Map(), untracked: [] };
@@ -458,7 +471,7 @@ async function committedPaths(root: string, ref: string, head: string): Promise<
   const key = `${gitCacheKey(root)}\0${ref}\0${head}`;
   const cached = committedPathsCache.get(key);
   if (cached) return cached;
-  const raw = await run(root, ['--no-optional-locks', 'diff', '--name-only', '-z', '--no-renames', ref, head]);
+  const raw = await runRead(root, ['--no-optional-locks', 'diff', '--name-only', '-z', '--no-renames', ref, head]);
   const paths = raw.split('\0').filter(Boolean);
   boundedSet(committedPathsCache, key, paths);
   return paths;
@@ -485,7 +498,13 @@ async function diffStaleRows(
   const argChars = stale.reduce((sum, path) => sum + path.length + 3, 0);
   // Past the command-line budget the whole diff is read instead.
   const whole = argChars > REVIEW_BATCH_ARGS_CHARS;
-  const raw = await run(root, whole ? [...args, ...flags] : [...args, ...flags, '--', ...stale]).catch(() => '');
+  // A timed-out diff is not an empty one: those rows would be cached as unchanged.
+  const raw = await runRead(root, whole ? [...args, ...flags] : [...args, ...flags, '--', ...stale]).catch(
+    (error: unknown) => {
+      if (isGitTimeout(error)) throw error;
+      return '';
+    }
+  );
   return { records: parseRawNumstat(raw), whole };
 }
 
@@ -500,7 +519,8 @@ async function readGitReview(cwd: string, source: GitReviewSource = 'branch'): P
   let root: string;
   try {
     root = await cachedGitRoot(cwd);
-  } catch {
+  } catch (error) {
+    if (isGitTimeout(error)) throw error;
     return { repository: false, root: '', base: '', files: [], untrackedOmitted: 0 };
   }
   // The merge-base read runs beside the status scan; an unborn HEAD drops it.
@@ -521,7 +541,11 @@ async function readGitReview(cwd: string, source: GitReviewSource = 'branch'): P
   // (base ≠ HEAD) a path the commits since the base touched.
   const candidates = new Map(status.tracked);
   if (!unborn && ref !== 'HEAD' && ref !== status.head) {
-    for (const path of await committedPaths(root, ref, status.head).catch(() => [])) {
+    const committed = await committedPaths(root, ref, status.head).catch((error: unknown): string[] => {
+      if (isGitTimeout(error)) throw error;
+      return [];
+    });
+    for (const path of committed) {
       if (!candidates.has(path)) candidates.set(path, '');
     }
   }
@@ -612,7 +636,7 @@ export async function gitReviewDiff(
   const root = await cachedGitRoot(cwd);
   if (untracked) return untrackedPatch(root, path);
   const { ref } = await resolveReviewRef(root, source);
-  return run(root, [
+  return runRead(root, [
     '--no-optional-locks',
     'diff',
     ...DISPLAY_DIFF_ARGS,
@@ -663,7 +687,7 @@ export async function gitReviewDiffs(
     const { ref } = await resolveReviewRef(root, source);
     let output: string | null = null;
     try {
-      output = await run(root, [
+      output = await runRead(root, [
         '-c',
         'core.quotePath=false',
         '--no-optional-locks',

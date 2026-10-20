@@ -1,8 +1,9 @@
 import {
   appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync,
-  renameSync, statSync, fstatSync, writeFileSync,
+  renameSync, statSync, fstatSync,
 } from 'fs';
-import { appendFile, mkdir, readFile, rename, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readFile } from 'fs/promises';
+import { writeFileAtomicAsync, writeFileAtomicSync } from '../../../../runtime/shared/atomic-file.mjs';
 import { dirname, join } from 'path';
 import { resolvePluginData } from '../../../../runtime/shared/plugin-paths.mjs';
 import { readSection } from '../../../../runtime/shared/config.mjs';
@@ -586,9 +587,9 @@ function ensureUsageStoreMigrated() {
         if (!existsSync(store)) {
           const raw = readJsonFile(legacy);
           const events = (Array.isArray(raw?.events) ? raw.events : []).slice(-MAX_USAGE_EVENTS);
-          const tmp = `${store}.migrating.${process.pid}`;
-          writeFileSync(tmp, events.map(e => JSON.stringify(e) + '\n').join(''));
-          renameSync(tmp, store);
+          // Flushed before it is published: the store would otherwise be NUL
+          // after a crash, losing the migrated history.
+          writeFileAtomicSync(store, events.map(e => JSON.stringify(e) + '\n').join(''));
         }
         let backup = legacy + LEGACY_BACKUP_SUFFIX;
         if (existsSync(backup)) backup = `${legacy}.${Date.now()}${LEGACY_BACKUP_SUFFIX}`;
@@ -645,9 +646,7 @@ async function compactUsageStore(store) {
     await withFileLock(usageLockPath(store), async () => {
       const lines = (await readFile(store, 'utf8')).split('\n').filter(l => l.trim());
       if (lines.length <= MAX_USAGE_EVENTS * 1.5) return;
-      const tmp = `${store}.compact.${process.pid}`;
-      await writeFile(tmp, lines.slice(-MAX_USAGE_EVENTS).join('\n') + '\n');
-      await rename(tmp, store);
+      await writeFileAtomicAsync(store, lines.slice(-MAX_USAGE_EVENTS).join('\n') + '\n');
     });
   } catch {
     // Compaction is best effort; the next flush retries.

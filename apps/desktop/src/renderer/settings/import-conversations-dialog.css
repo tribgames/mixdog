@@ -213,6 +213,16 @@
   padding: 24px;
   border-top: 1px solid var(--mx-border-muted);
 }
+html[data-mixdog-mobile-tabs] .settings-import-progress,
+html[data-mixdog-mobile-tabs] .settings-import-result {
+  padding: var(--mx-dialog-inset);
+}
+html[data-mixdog-mobile-tabs] .settings-import-empty {
+  min-height: 0;
+}
+html[data-mixdog-mobile-tabs] .settings-import-seg > button {
+  min-height: var(--mx-touch);
+}
 .settings-import-progress-line {
   margin-bottom: 8px;
 }

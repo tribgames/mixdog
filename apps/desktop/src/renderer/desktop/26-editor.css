@@ -297,17 +297,6 @@
   background: var(--mx-popup-bg);
   box-shadow: var(--mx-popup-shadow);
 }
-.editor-breadcrumb-picker::before {
-  content: "";
-  position: absolute;
-  top: -8px;
-  left: 16px;
-  width: 0;
-  height: 0;
-  border-right: 8px solid transparent;
-  border-bottom: 8px solid var(--mx-border-strong);
-  border-left: 8px solid transparent;
-}
 .editor-breadcrumb-picker-header {
   height: 26px;
   flex: 0 0 26px;
@@ -1219,6 +1208,23 @@
   .workbench-quick-results {
     max-height: calc(100vh - 76px);
   }
+}
+html[data-mixdog-mobile-tabs] .workbench-quick-access-layer {
+  padding: calc(max(8px, env(safe-area-inset-top, 0px)) + 8px) 16px 16px;
+}
+html[data-mixdog-mobile-tabs] .workbench-quick-access {
+  width: calc(100vw - 32px);
+}
+html[data-mixdog-mobile-tabs] .workbench-quick-results,
+html[data-mixdog-mobile-tabs] .session-search > .workbench-quick-results {
+  max-height: calc(var(--mx-visible-height, 100dvh) - 130px);
+}
+html[data-mixdog-mobile-tabs] .editor-call-hierarchy {
+  grid-template-rows: var(--mx-touch, 44px) minmax(0, 1fr) 4px;
+}
+html[data-mixdog-mobile-tabs] .editor-call-hierarchy-tree > [role="treeitem"],
+html[data-mixdog-mobile-tabs] .editor-call-hierarchy-row {
+  height: var(--mx-touch, 44px);
 }
 /* ReviewPane header Git actions (push, clean push). */
 .dock-git-sync {

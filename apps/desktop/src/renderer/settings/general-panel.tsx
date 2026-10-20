@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   desktopThemeOptions,
   desktopThemePreferenceForTheme,
@@ -6,6 +6,17 @@ import {
   setDesktopThemePreference,
   type DesktopThemePreference,
 } from '../desktop-theme';
+import {
+  BUILTIN_SKINS,
+  getSkinDim,
+  getSkinId,
+  hasCustomSkin,
+  setCustomSkin,
+  setSkin,
+  setSkinDim,
+  subscribeSkin,
+  type SkinDim,
+} from '../desktop-skin';
 import {
   getUiLanguagePreference,
   resolveUiLanguage,
@@ -66,8 +77,79 @@ function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>)
         options={desktopThemeOptions().map((option) => ({ ...option, label: t(option.label) }))}
         onChange={choose}
       />
+      <SkinRow pending={pending} />
       <ChatTextSizeRow pending={pending} />
     </Group>
+  );
+}
+
+/** Background picture + accent taken from it; device-local, applies live. */
+function SkinRow({ pending }: Pick<PanelContext, 'pending'>) {
+  const skin = useSyncExternalStore(subscribeSkin, getSkinId, () => 'none');
+  const custom = useSyncExternalStore(subscribeSkin, hasCustomSkin, () => false);
+  const dim = useSyncExternalStore(subscribeSkin, getSkinDim, () => 'normal');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+  const run = (work: Promise<void>) => {
+    setBusy(true);
+    setError('');
+    void work
+      .catch(() => setError(t('The skin could not be applied. Try a smaller image.')))
+      .finally(() => setBusy(false));
+  };
+  const disabled = Boolean(pending) || busy;
+  return (
+    <>
+      <SelectRow
+        title={t('Skin')}
+        description={t('Shows a background picture behind the app and colors buttons to match it.')}
+        value={skin}
+        disabled={disabled}
+        options={[
+          { value: 'none', label: t('None') },
+          ...BUILTIN_SKINS.map((entry) => ({ value: entry.id, label: t(entry.label) })),
+          ...(custom ? [{ value: 'custom', label: t('My image') }] : []),
+        ]}
+        onChange={(next) => run(setSkin(next))}
+      />
+      {skin !== 'none' && (
+        <SelectRow
+          title={t('Skin strength')}
+          value={dim}
+          disabled={disabled}
+          options={[
+            { value: 'soft', label: t('Soft') },
+            { value: 'normal', label: t('Normal') },
+            { value: 'strong', label: t('Strong') },
+          ]}
+          onChange={(next) => setSkinDim(next as SkinDim)}
+        />
+      )}
+      <ResourceRow
+        title={t('Custom skin image')}
+        meta={t('Use a picture from this computer as the skin.')}
+        actions={
+          <>
+            <ActionButton disabled={disabled} onClick={() => fileInput.current?.click()}>
+              {t('Choose image…')}
+            </ActionButton>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = '';
+                if (file) run(setCustomSkin(file));
+              }}
+            />
+          </>
+        }
+      />
+      {error && <p role="alert">{error}</p>}
+    </>
   );
 }
 

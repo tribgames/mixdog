@@ -59,7 +59,14 @@ function RoomRow({
           <RoomAvatar members={members} />
         </span>
         <span className="agent-chat-body agent-contact-body">
-          <b className="agent-chat-title">{row.name}</b>
+          <b className="agent-chat-title">
+            {row.name}
+            {/* The member count beside the name, as a messenger's group row. */}
+            <span className="agent-room-member-count">
+              <span className="sr-only">, {t('{{count}} members', { count: row.room.members.length })}</span>
+              <span aria-hidden="true">{row.room.members.length}</span>
+            </span>
+          </b>
           <span id={`${describedBy}-preview`} className="agent-chat-preview">
             {row.speaker && <span className="agent-room-speaker">{row.speaker} </span>}
             {indicator?.kind === 'running' ? t('Members are speaking') : row.preview}

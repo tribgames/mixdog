@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -298,17 +298,25 @@ test('all accounts exhausted stop without cycling, and explicit host bindings by
   }
 });
 
-test('removing a selected account picks a remaining account; corrupt metadata is not overwritten', async () => {
+test('removing a selected account picks a remaining account; corrupt metadata is kept, never overwritten', async () => {
   const provider = 'openai-oauth';
   const before = readProviderAccountPool(provider);
   await removeProviderAccount(provider, before.selectedId);
-  assert.notEqual(readProviderAccountPool(provider).selectedId, before.selectedId);
+  const remaining = readProviderAccountPool(provider);
+  assert.notEqual(remaining.selectedId, before.selectedId);
   const path = join(dir, 'provider-accounts.json');
   const saved = readFileSync(path, 'utf8');
   writeFileSync(path, '{invalid');
-  await assert.rejects(() => changeProviderAccounts(provider, { auto: false }));
-  assert.equal(readFileSync(path, 'utf8'), '{invalid');
-  writeFileSync(path, saved);
+  try {
+    // The damaged roster is kept aside byte for byte and the last good copy
+    // (kept by every write) is restored, so the change still applies.
+    await changeProviderAccounts(provider, { auto: false });
+    const kept = readdirSync(dir).filter((name) => name.startsWith('provider-accounts.json.corrupt-'));
+    assert.ok(kept.some((name) => readFileSync(join(dir, name), 'utf8') === '{invalid'));
+    assert.equal(readProviderAccountPool(provider).policy, 'manual');
+  } finally {
+    writeFileSync(path, saved);
+  }
 });
 
 test('native OAuth refreshes remain isolated when two accounts refresh concurrently', async () => {

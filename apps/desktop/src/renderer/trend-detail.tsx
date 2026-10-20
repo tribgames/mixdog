@@ -65,11 +65,17 @@ export function useTrendDetail(dependencies: readonly unknown[]) {
       popover.close();
     };
     window.addEventListener('scroll', dismissOnScroll, true);
-    window.addEventListener('resize', popover.close);
+    // A soft keyboard changes only the height; that must not close the card.
+    const lastWidth = window.innerWidth;
+    const dismissOnResize = () => {
+      if (window.innerWidth === lastWidth) return;
+      popover.close();
+    };
+    window.addEventListener('resize', dismissOnResize);
     return () => {
       layer.release();
       window.removeEventListener('scroll', dismissOnScroll, true);
-      window.removeEventListener('resize', popover.close);
+      window.removeEventListener('resize', dismissOnResize);
     };
   }, [popover.open, activeKey, ...dependencies]);
   const activate = (key: string, element: HTMLElement, mode: TrendDetailMode) => {

@@ -1,7 +1,8 @@
 // The port forwards of each saved server, kept on this PC beside the saved
 // servers and started again whenever that server's connection comes back.
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+
+import { readJsonState, writeJsonAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
 
 export const PORT_FORWARDS_FILE = 'port-forwards.json';
 const MAX_FORWARDS_PER_HOST = 64;
@@ -39,10 +40,15 @@ export function createPortForwardStore(userDataPath: string): PortForwardStore {
   const file = join(userDataPath, PORT_FORWARDS_FILE);
   let loaded: Promise<Record<string, SavedPortForward[]>> | null = null;
   let writes: Promise<void> = Promise.resolve();
+  // A missing or damaged file (kept aside, the last good copy restored) starts
+  // empty; only an I/O error fails the read, and a failed read is not kept:
+  // the next call reads again.
   const state = (): Promise<Record<string, SavedPortForward[]>> =>
-    (loaded ??= readFile(file, 'utf8').then(
-      (text) => parsed(JSON.parse(text)),
-      (): Record<string, SavedPortForward[]> => ({})
+    (loaded ??= readJsonState(file, { validate: parsed, fallback: {} as Record<string, SavedPortForward[]> }).catch(
+      (error: unknown) => {
+        loaded = null;
+        throw error;
+      }
     ));
   return {
     async load(hostId) {
@@ -55,13 +61,11 @@ export function createPortForwardStore(userDataPath: string): PortForwardStore {
       if (kept.length) next[hostId] = kept.slice(0, MAX_FORWARDS_PER_HOST);
       else delete next[hostId];
       loaded = Promise.resolve(next);
-      const snapshot = JSON.stringify({ version: 1, hosts: next });
+      const snapshot = { version: 1, hosts: next };
       writes = writes
         .catch(() => undefined)
         .then(async () => {
-          await mkdir(dirname(file), { recursive: true });
-          await writeFile(`${file}.tmp`, snapshot, 'utf8');
-          await rename(`${file}.tmp`, file);
+          await writeJsonAtomicAsync(file, snapshot, { backup: true, compact: true });
         });
       await writes;
     },

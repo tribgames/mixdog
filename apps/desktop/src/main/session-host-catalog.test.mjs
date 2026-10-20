@@ -122,6 +122,48 @@ test('failed listings keep the last catalog and still publish a successful agent
   assert.deepEqual(lane.published.agents, [[{ id: 'worker' }]]);
 });
 
+test('a session listing publishes when it lands, never after a newer catalog during a slow pool read', async () => {
+  const lane = catalogOwner();
+  const pool = Promise.withResolvers();
+  lane.listAgentPool = () => pool.promise;
+  const catalog = new SessionHostCatalog(lane, { directory: () => 'data' });
+  // Listed while the new task was still hidden from the catalog.
+  lane.setSessions([{ id: 'lead' }]);
+  const refresh = catalog.publishCatalogs();
+  await new Promise((resolve) => setImmediate(resolve));
+  // The task is accepted and its row is republished from the resident rows.
+  lane.publishSessions([{ id: 'new-task' }, { id: 'lead' }]);
+  pool.resolve([{ id: 'worker' }]);
+  await refresh;
+  assert.deepEqual(
+    lane.published.sessions.at(-1).map((row) => row.id),
+    ['new-task', 'lead'],
+    'the older listing never overwrites the catalog that already holds the new task'
+  );
+  assert.deepEqual(lane.published.agents, [[{ id: 'worker' }]]);
+});
+
+test('an older session listing that lands after a newer one is dropped', async () => {
+  const lane = catalogOwner();
+  const reads = [];
+  lane.listSessions = () => {
+    const read = Promise.withResolvers();
+    reads.push(read);
+    return read.promise;
+  };
+  const catalog = new SessionHostCatalog(lane, { directory: () => 'data' });
+  const older = catalog.publishCatalogs();
+  const newer = catalog.publishCatalogs();
+  reads[1].resolve([{ id: 'new-task' }, { id: 'lead' }]);
+  await newer;
+  reads[0].resolve([{ id: 'lead' }]);
+  await older;
+  assert.deepEqual(
+    lane.published.sessions.map((rows) => rows.map((row) => row.id)),
+    [['new-task', 'lead']]
+  );
+});
+
 test('store events coalesce and never refresh more often than the minimum gap', async (t) => {
   t.mock.timers.enable({
     apis: ['Date', 'setInterval', 'setTimeout'],

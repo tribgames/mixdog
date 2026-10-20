@@ -3,8 +3,9 @@
 // handshake-header projection, and the per-turn x-codex-turn-state guard.
 // openai-oauth-ws.mjs owns the transport flow only.
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFileAtomicSync } from '../../../shared/atomic-file.mjs';
 import { cleanString } from '../../../shared/clean.mjs';
 import { getPluginData } from '../config.mjs';
 import { activateCodexTurnState } from './openai-turn-state.mjs';
@@ -77,15 +78,14 @@ function _codexInstallationId(sendOpts) {
   const generated = randomUUID();
   try {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    try {
-      writeFileSync(file, generated, { encoding: 'utf8', flag: 'wx', mode: 0o644 });
-    } catch {
+    // Atomic create-if-absent; a damaged (empty/NUL) file is replaced whole.
+    if (!writeFileAtomicSync(file, generated, { createOnly: true, mode: 0o644 })) {
       const winner = readFileSync(file, 'utf8').trim().toLowerCase();
       if (UUID_RE.test(winner)) {
         _installationId = winner;
         return _installationId;
       }
-      writeFileSync(file, generated, { encoding: 'utf8', mode: 0o644 });
+      writeFileAtomicSync(file, generated, { mode: 0o644 });
     }
   } catch {}
   _installationId = generated;

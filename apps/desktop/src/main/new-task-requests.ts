@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { chmod, mkdir, open, stat } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { parseJsonText, writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { enforceOwnerOnlyDirectoryWin32Async } from '../../../../src/runtime/shared/file-permissions.mjs';
 import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
 import { isSessionId } from './desktop-state';
@@ -72,6 +72,45 @@ async function writeReceipt(path: string, receipt: Receipt): Promise<void> {
   );
 }
 
+const RECEIPT_MAX_BYTES = 4096;
+const PHASES: readonly string[] = ['reserved', 'configured', 'accepted'];
+
+/** The stored receipt, or null when there is none. A file that is no receipt
+ * — empty or NUL-filled after a crash, truncated, oversized, or of another
+ * shape — binds nothing: the id's session address derives from the id itself,
+ * so the replay reserves it again and the idempotent submission goes on. Only
+ * an I/O error fails the read. */
+async function readReceipt(path: string): Promise<Receipt | null> {
+  let text: string;
+  try {
+    const file = await open(path, 'r');
+    try {
+      if ((await file.stat()).size > RECEIPT_MAX_BYTES) return null;
+      text = await file.readFile('utf8');
+    } finally {
+      await file.close();
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  let parsed: Partial<Receipt> | null;
+  try {
+    parsed = parseJsonText(text) as Partial<Receipt> | null;
+  } catch {
+    return null;
+  }
+  if (
+    !parsed ||
+    typeof parsed.signature !== 'string' ||
+    !isSessionId(parsed.sessionId) ||
+    !PHASES.includes(parsed.phase as string)
+  ) {
+    return null;
+  }
+  return parsed as Receipt;
+}
+
 /** One small receipt per logical creation, without prompt contents or
  * snapshots. Active work is bounded in memory. Ambiguous failures keep the
  * same reserved session address, including across daemon/app replacement. */
@@ -110,25 +149,11 @@ export class NewTaskRequests {
     if (this.active.size >= 128) return Promise.reject(new Error('Too many new task requests are in progress.'));
     const path = join(this.root, 'new-task-receipts', `${key}.json`);
     const promise = (async () => {
-      let receipt: Receipt;
       await secureReceiptFolder(dirname(path));
-      try {
-        const file = await open(path, 'r');
-        try {
-          if ((await file.stat()).size > 4096) throw new Error('New task receipt is too large.');
-          receipt = JSON.parse(await file.readFile('utf8')) as Receipt;
-        } finally {
-          await file.close();
-        }
-        if (receipt.signature !== signature) throw new Error('Submission id was reused for different content.');
-        if (!isSessionId(receipt.sessionId) || !['reserved', 'configured', 'accepted'].includes(receipt.phase)) {
-          throw new Error('New task receipt is invalid.');
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        receipt = { signature, sessionId: `sess_desktop_${key}`, phase: 'reserved' };
-        await writeReceipt(path, receipt);
-      }
+      const stored = await readReceipt(path);
+      if (stored && stored.signature !== signature) throw new Error('Submission id was reused for different content.');
+      let receipt: Receipt = stored ?? { signature, sessionId: `sess_desktop_${key}`, phase: 'reserved' };
+      if (!stored) await writeReceipt(path, receipt);
       return execute({
         get sessionId() {
           return receipt.sessionId;

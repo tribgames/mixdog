@@ -1,23 +1,15 @@
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
-import {
-  copyFile as copyFileP,
   mkdir as mkdirP,
+  readFile as readFileP,
   readdir as readdirP,
   rm as rmP,
   stat as statP,
 } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
+import { writeFileAtomicAsync, writeFileAtomicSync, writeJsonAtomicSync } from './atomic-file.mjs';
 import { isPlainObject } from './object.mjs';
 import { mixdogHome } from './plugin-paths.mjs';
 
@@ -379,8 +371,9 @@ function copyTree(src, dst, copied) {
     return;
   }
   if (!st.isFile()) return;
-  mkdirSync(dirname(dst), { recursive: true });
-  copyFileSync(src, dst);
+  // A copy goes through an fsynced handle: a plain copy can leave a backup that
+  // is NUL exactly when a crash makes it needed.
+  writeFileAtomicSync(dst, readFileSync(src), { mode: st.mode & 0o777 });
   copied.push(dst);
 }
 
@@ -401,15 +394,12 @@ export function markUserDataInitialized(dataDir) {
   const existing = readInitInstanceId(dataDir);
   if (existing || !dataDir || !existsSync(dataDir)) return existing;
   try {
-    writeFileSync(
-      join(dataDir, INIT_MARKER),
-      `${JSON.stringify(
-        { instanceId: randomUUID(), dataDir: resolve(dataDir), createdAt: new Date().toISOString() },
-        null,
-        2
-      )}\n`,
+    const marker = join(dataDir, INIT_MARKER);
+    writeJsonAtomicSync(
+      marker,
+      { instanceId: randomUUID(), dataDir: resolve(dataDir), createdAt: new Date().toISOString() },
       // An unreadable marker is replaced; a concurrent creator's valid one wins.
-      { encoding: 'utf8', flag: existsSync(join(dataDir, INIT_MARKER)) ? 'w' : 'wx' }
+      { createOnly: !existsSync(marker) }
     );
   } catch {}
   return readInitInstanceId(dataDir);
@@ -439,15 +429,12 @@ function skipBackups() {
 // manifest goes last, so an interrupted copy is never restorable.
 function finishBackup(dataDir, backupDir, reason) {
   const instanceId = markUserDataInitialized(dataDir);
-  writeFileSync(
-    join(backupDir, BACKUP_MANIFEST),
-    `${JSON.stringify(
-      { dataDir: resolve(dataDir), instanceId, reason, createdAt: new Date().toISOString() },
-      null,
-      2
-    )}\n`,
-    'utf8'
-  );
+  writeJsonAtomicSync(join(backupDir, BACKUP_MANIFEST), {
+    dataDir: resolve(dataDir),
+    instanceId,
+    reason,
+    createdAt: new Date().toISOString(),
+  });
   restoreLookupCache.delete(normalizeDataDir(dataDir));
   legacyEvidenceCache.delete(normalizeDataDir(dataDir));
 }
@@ -494,8 +481,7 @@ async function copyTreeAsync(src, dst, copied) {
     return;
   }
   if (!st.isFile()) return;
-  await mkdirP(dirname(dst), { recursive: true });
-  await copyFileP(src, dst);
+  await writeFileAtomicAsync(dst, await readFileP(src), { mode: st.mode & 0o777 });
   copied.push(dst);
 }
 

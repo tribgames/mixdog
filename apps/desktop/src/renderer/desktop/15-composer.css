@@ -1783,6 +1783,9 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   field-sizing: content;
   max-height: 180px;
   overflow-y: auto;
+  /* Past five lines the field scrolls (wheel, caret, keys) without painting
+     a bar inside the typing card (user: 대화창 확장시 스크롤바 생기는게 이상해). */
+  scrollbar-width: none;
   padding: 6px var(--composer-text-inset) 2px;
   color: var(--mx-text);
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
@@ -3244,8 +3247,30 @@ button.attachment-card-file {
   padding-top: 6px;
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
+html[data-mixdog-mobile-tabs] .slash-palette button,
+html[data-mixdog-mobile-tabs] .slash-palette.message-selector button {
+  min-height: var(--mx-touch, 44px);
+}
+@media (max-width: 520px) {
+  html[data-mixdog-mobile-tabs] .slash-palette button {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+  html[data-mixdog-mobile-tabs] .slash-palette.mention-palette button {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+}
+html[data-mixdog-mobile-tabs] .btw-icon {
+  width: var(--mx-touch, 44px);
+  height: var(--mx-touch, 44px);
+}
+html[data-mixdog-mobile-tabs] .turn-review-files-row {
+  min-height: var(--mx-touch, 44px);
+}
+html[data-mixdog-mobile-tabs] .composer-paste-dialog textarea {
+  min-height: min(320px, 40dvh);
+}
 .btw-body {
-  max-height: 40dvh;
+  max-height: min(40dvh, calc(var(--vvh, 100dvh) * 0.4));
   padding: 0 14px 14px;
   overflow: auto;
   font-family: var(--mx-font-prose);

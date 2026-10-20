@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
+import { writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
 import { delimiter, dirname, isAbsolute, join, resolve, win32 } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -126,20 +126,8 @@ export async function readJson(path, fallback = null) {
 }
 
 export async function writeJsonAtomic(path, value) {
-  await mkdir(dirname(path), { recursive: true });
-  const temporary = join(dirname(path), `.${randomUUID()}.tmp`);
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
-  try {
-    await rename(temporary, path);
-  } catch {
-    await rm(path, { force: true });
-    await rename(temporary, path);
-  } finally {
-    await rm(temporary, { force: true }).catch(() => {});
-  }
+  // Durable atomic replace; the replaced version stays as <file>.bak.
+  await writeJsonAtomicAsync(path, value, { backup: true });
 }
 
 function resolveConfigPath(path, base) {

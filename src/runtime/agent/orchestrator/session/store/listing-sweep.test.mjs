@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -270,6 +279,84 @@ test('a record naming a different id, or a child of a present parent, is left ex
     assert.equal(existsSync(foreign), true);
     assert.equal(exists('child'), true);
     assert.equal(read('child').closed, undefined);
+  });
+});
+
+test('a NUL-filled session file is set aside by the sweep; a torn one and a live one are left alone', async (t) => {
+  await withStore(t, async ({ dir, now, write, exists }) => {
+    const plant = (id, content) => {
+      const path = join(dir, `${id}.json`);
+      writeFileSync(path, content);
+      utimesSync(path, (now - 3 * HOUR) / 1000, (now - 3 * HOUR) / 1000);
+      return path;
+    };
+    plant('nul-gone', '\0'.repeat(256));
+    plant('nul-live', '\0'.repeat(256));
+    plant('torn', '{"id":"torn","messages":[');
+    write({ id: 'healthy', owner: 'agent', status: 'idle', updatedAt: now - MINUTE });
+    const result = sweepStaleSessions({
+      ttlMs: 5 * MINUTE,
+      isSessionLive: (id) => id === 'nul-live',
+    });
+    assert.equal(exists('nul-gone'), false);
+    assert.deepEqual(
+      readdirSync(dir).filter((name) => name.startsWith('nul-gone.json.corrupt-')).length,
+      1,
+      'the bytes are kept aside'
+    );
+    assert.equal(
+      readFileSync(
+        join(
+          dir,
+          readdirSync(dir).find((name) => name.startsWith('nul-gone.json.corrupt-'))
+        ),
+        'utf8'
+      ),
+      '\0'.repeat(256)
+    );
+    assert.equal(exists('nul-live'), true, 'a live session is not touched');
+    assert.equal(exists('torn'), true, 'a torn record is not data-free and stays');
+    assert.equal(exists('healthy'), true);
+    assert.deepEqual(
+      result.openPrunedDetails.map((d) => d.id),
+      ['nul-gone']
+    );
+  });
+});
+
+test('a NUL verdict is re-checked under the delete lock: a record repaired in between is kept', async (t) => {
+  await withStore(t, async ({ dir, now, exists }) => {
+    const path = join(dir, 'repaired.json');
+    writeFileSync(path, '\0'.repeat(256));
+    utimesSync(path, (now - 3 * HOUR) / 1000, (now - 3 * HOUR) / 1000);
+    const valid = JSON.stringify({
+      id: 'repaired',
+      owner: 'agent',
+      status: 'idle',
+      createdAt: now,
+      updatedAt: now,
+      messages: CONVERSATION,
+    });
+    let republished = false;
+    const result = sweepStaleSessions({
+      ttlMs: 5 * MINUTE,
+      // Runs after the sweep's no-data verdict and before the delete's lock.
+      isSessionLive: () => {
+        if (!republished) {
+          republished = true;
+          writeFileSync(path, valid);
+        }
+        return false;
+      },
+    });
+    assert.equal(republished, true);
+    assert.equal(exists('repaired'), true, 'the repaired record is not deleted');
+    assert.equal(readFileSync(path, 'utf8'), valid);
+    assert.deepEqual(result.openPrunedDetails, []);
+    assert.equal(
+      readdirSync(dir).some((name) => name.includes('.corrupt-')),
+      false
+    );
   });
 });
 

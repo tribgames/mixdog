@@ -4,8 +4,9 @@
  * resume (missing worktree → recovery), and carrying the Project's memory
  * identity into a new worktree.
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { holdsNoData, writeFileAtomicSync } from '../../runtime/shared/atomic-file.mjs';
 import { isWorktreeBound, nextRevision, normalizeSessionWorkspace } from '../../runtime/shared/worktrees/contract.mjs';
 import { isWithin, samePath } from '../../runtime/shared/worktrees/paths.mjs';
 import { resolveProjectId } from '../../runtime/memory/lib/project-id-resolver.mjs';
@@ -103,10 +104,10 @@ export function restoreWorkspaceAfterResume(session) {
  */
 export function copyProjectIdentity(projectPath, worktreePath) {
   const target = join(worktreePath, '.mixdog', 'project.id');
-  if (existsSync(target)) return false;
+  // An id file with no data (empty, or NUL-filled by a crash) is missing.
+  if (existsSync(target) && !holdsNoData(readFileSync(target))) return false;
   const id = resolveProjectId(projectPath);
-  if (!id) return false;
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, `${id}\n`, 'utf8');
+  if (!id || holdsNoData(id)) return false;
+  writeFileAtomicSync(target, `${id}\n`, { mode: 0o644 });
   return true;
 }

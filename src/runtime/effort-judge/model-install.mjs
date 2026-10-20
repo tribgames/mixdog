@@ -4,9 +4,10 @@
 // download never replaces a working file. Files that already match are kept.
 // install.json records the installed release; a newer bundled manifest makes
 // the install stale and the next refresh downloads only what changed.
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseJsonText, writeJsonAtomicSync } from '../shared/atomic-file.mjs';
 import { downloadToFileWithRetry } from '../shared/bounded-download.mjs';
 import { sha256File, validSha256 } from '../shared/native-asset.mjs';
 
@@ -30,18 +31,25 @@ export function effortJudgeManifest() {
   return manifest;
 }
 
+// Release named by the stamp; '' when it is missing or damaged (empty,
+// NUL-filled), so a damaged stamp reads as not installed and the next refresh
+// re-verifies every file against its sha256 and stamps again.
+function stampedRelease(dir) {
+  try {
+    return String(parseJsonText(readFileSync(join(dir, STAMP), 'utf8')).release || '');
+  } catch {
+    return '';
+  }
+}
+
 /** True when `dir` holds a complete install of some release (stamped). */
 export function effortJudgeInstallStamped(dir) {
-  return existsSync(join(dir, STAMP));
+  return stampedRelease(dir) !== '';
 }
 
 /** True when `dir` holds the release the manifest names. */
 export function effortJudgeInstallCurrent(dir, manifest = effortJudgeManifest()) {
-  try {
-    return JSON.parse(readFileSync(join(dir, STAMP), 'utf8')).release === manifest.release;
-  } catch {
-    return false;
-  }
+  return stampedRelease(dir) === manifest.release;
 }
 
 /** Download what is missing or different, then stamp the release. */
@@ -76,5 +84,5 @@ export async function installEffortJudgeModel(
     }
   }
   if (replaced) for (const name of DERIVED) rmSync(join(dir, name), { force: true });
-  writeFileSync(join(dir, STAMP), `${JSON.stringify({ release: manifest.release })}\n`);
+  writeJsonAtomicSync(join(dir, STAMP), { release: manifest.release }, { compact: true });
 }

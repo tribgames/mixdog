@@ -4,7 +4,7 @@
 //      success may not stay process-local after transient lock contention),
 //   2. shutdown must have a public, runtime-safe drain that actually flushes.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -24,8 +24,13 @@ process.on('exit', () => {
   }
 });
 
-const { _dropPendingMessageState, _setPendingPersistTailForTest, enqueuePendingMessage, settlePendingMessageWrites } =
-  await import('./pending-messages.mjs');
+const {
+  _dropPendingMessageState,
+  _getPendingMessagesForSession,
+  _setPendingPersistTailForTest,
+  enqueuePendingMessage,
+  settlePendingMessageWrites,
+} = await import('./pending-messages.mjs');
 const { pendingMessagesPath } = await import('./pending-spool-path.mjs');
 const { flushPendingMessagePersistsSync } = await import('./pending-persist-queue.mjs');
 
@@ -67,6 +72,15 @@ async function waitFor(predicate, timeoutMs = 6000) {
   }
   return Boolean(predicate());
 }
+
+test('a NUL-filled spool shard reads as empty, is kept aside and never throws', () => {
+  const sessionId = 'sess_nul_shard';
+  const shard = pendingMessagesPath(sessionId);
+  mkdirSync(dirname(shard), { recursive: true });
+  writeFileSync(shard, '\0'.repeat(32));
+  assert.deepEqual(_getPendingMessagesForSession(sessionId), []);
+  assert.ok(readdirSync(dirname(shard)).some((name) => name.startsWith(`${sessionId}.json.corrupt-`)));
+});
 
 test('a failed durable commit retries itself once the spool lock releases', async () => {
   const sessionId = `sess_persist_retry_${process.pid}`;

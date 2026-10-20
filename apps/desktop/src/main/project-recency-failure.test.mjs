@@ -157,13 +157,35 @@ for (const action of ['add', 'enter', 'rename', 'remove', 'touch']) {
 
 test('registration and project-authority failures are not swallowed as recency failures', async (t) => {
   const f = await fixture(t);
-  fs.writeFileSync(f.file, '{broken');
-  await assert.rejects(f.host.startProject(f.project), SyntaxError);
-  await assert.rejects(f.host.startProjectTask(f.project), SyntaxError);
+  // A genuine I/O failure reading the registry (not damaged content).
+  const failure = Object.assign(new Error('registry unreadable'), { code: 'EIO' });
+  const read = fs.readFileSync;
+  t.mock.method(fs, 'readFileSync', (file, ...args) => {
+    if (file === f.file) throw failure;
+    return read(file, ...args);
+  });
+  syncBuiltinESMExports();
+  await assert.rejects(f.host.startProject(f.project), (error) => error === failure);
+  await assert.rejects(f.host.startProjectTask(f.project), (error) => error === failure);
   await assert.rejects(
     f.host.submitNewTask('must not start', { id: 'bad-registry' }, { projectPath: f.project }),
-    SyntaxError
+    (error) => error === failure
   );
   assert.deepEqual(f.calls, { creates: 0, submits: 0, unsubscribes: 0 });
-  assert.equal(fs.readFileSync(f.file, 'utf8'), '{broken');
+  t.mock.restoreAll();
+  syncBuiltinESMExports();
+  assert.equal(fs.readFileSync(f.file, 'utf8'), f.original);
+});
+
+test('a corrupt registry is recovered: its bytes are kept aside and project start still works', async (t) => {
+  const f = await fixture(t);
+  fs.writeFileSync(f.file, '{broken');
+  // No backup exists, so the project is unregistered (not a SyntaxError); registering again works.
+  await assert.rejects(f.host.startProjectTask(f.project), { code: 'PROJECT_UNAVAILABLE' });
+  await f.host.addProject(f.project);
+  const snapshot = await f.host.startProjectTask(f.project);
+  assert.equal(snapshot.cwd, f.project);
+  const asides = fs.readdirSync(f.root).filter((name) => name.startsWith('projects.json.corrupt-'));
+  assert.equal(asides.length, 1);
+  assert.equal(fs.readFileSync(join(f.root, asides[0]), 'utf8'), '{broken');
 });

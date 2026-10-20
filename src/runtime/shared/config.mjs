@@ -2,12 +2,13 @@
  * Unified config reader/writer.
  * Single file: mixdog-config.json with sections such as channels, agent, and memory.
  */
-import { readFileSync, statSync, mkdirSync, existsSync, watch as fsWatch } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, readdirSync, statSync, mkdirSync, existsSync, watch as fsWatch } from 'node:fs';
+import { basename, join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
 import {
+  parseJsonText,
   renameWithRetrySync,
   writeJsonAtomicSync,
   writeJsonAtomicAsync,
@@ -226,7 +227,7 @@ function readConfigFile() {
   const raw = readConfigRawCached();
   if (raw == null) return null;
   try {
-    return JSON.parse(raw);
+    return parseJsonText(raw);
   } catch (err) {
     // Quarantine a malformed mixdog-config.json so the next boot starts fresh
     // instead of looping on a broken file. A cached raw string that fails to
@@ -347,19 +348,45 @@ function readAll() {
 
 function quarantineMalformedConfig(parseErr) {
   const corrupt = `${configPath()}.corrupt-${Date.now()}`;
+  let keptAside = false;
   try {
     if (existsSync(configPath())) renameWithRetrySync(configPath(), corrupt);
+    keptAside = existsSync(corrupt);
   } catch {}
   process.stderr.write(
     `[config] mixdog-config.json is malformed (${parseErr.message}). Renamed to ${corrupt}. Restore it or delete to start fresh.\n`
   );
+  return keptAside;
 }
 
-function restoreAllForRmWOrThrow(reason) {
+// A damaged config that was kept aside (its bytes preserved as
+// mixdog-config.json.corrupt-<ts>) is not a lost config: those bytes are the
+// safety net, so with no backup to restore a save may start from an empty
+// config. Every save also snapshots a backup, so a stale copy from an earlier
+// incident never reaches this point while a backup of a later config exists.
+function hasQuarantinedCopy() {
+  const dir = dirname(configPath());
+  const prefix = `${basename(configPath())}.corrupt-`;
+  try {
+    return readdirSync(dir).some((name) => name.startsWith(prefix));
+  } catch {
+    return false;
+  }
+}
+
+// `keptAside`: the unusable config's bytes are preserved on disk, so with no
+// backup to restore a save starts from an empty config instead of refusing.
+function restoreAllForRmWOrThrow(reason, keptAside = false) {
   const restored = loadLatestMixdogConfigFromBackup(resolvePluginData(), { fresh: true });
   if (restored && isPlainObject(restored)) {
     process.stderr.write(`[config] RMW read: restored mixdog-config.json from latest user-data backup (${reason})\n`);
     return restored;
+  }
+  if (keptAside) {
+    process.stderr.write(
+      `[config] RMW read: mixdog-config.json is unusable (${reason}); its bytes are kept aside and no backup exists; starting empty\n`
+    );
+    return {};
   }
   const legacy = findLegacyUserDataEvidence(resolvePluginData(), { fresh: true });
   if (legacy) {
@@ -381,6 +408,9 @@ function restoreAllForRmWOrThrow(reason) {
  * Read-modify-write baseline. ENOENT on a never-initialized data dir → {}.
  * Malformed on-disk config (or missing config after prior init) → restore
  * from backup or throw; never silently collapse to a one-section overwrite.
+ * The exception is a damaged config whose bytes were kept aside as
+ * .corrupt-<ts>: with no backup to restore, the save starts from an empty
+ * config. A config that cannot be READ (I/O error) still throws.
  */
 function readAllForRmW() {
   let raw;
@@ -389,7 +419,7 @@ function readAllForRmW() {
   } catch (err) {
     if (err.code === 'ENOENT') {
       if (isUserDataRecoveryExpected(resolvePluginData(), { fresh: true })) {
-        return restoreAllForRmWOrThrow('config file missing after user-data was initialized');
+        return restoreAllForRmWOrThrow('config file missing after user-data was initialized', hasQuarantinedCopy());
       }
       return {};
     }
@@ -397,12 +427,11 @@ function readAllForRmW() {
     throw err;
   }
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = parseJsonText(raw);
     if (!isPlainObject(parsed)) throw new SyntaxError('config root must be a JSON object');
     return parsed;
   } catch (parseErr) {
-    quarantineMalformedConfig(parseErr);
-    return restoreAllForRmWOrThrow(parseErr.message);
+    return restoreAllForRmWOrThrow(parseErr.message, quarantineMalformedConfig(parseErr));
   }
 }
 

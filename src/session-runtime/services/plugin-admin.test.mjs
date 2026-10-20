@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -151,18 +160,51 @@ test('plugin registry mutation re-reads under the cross-process lock', async () 
   }
 });
 
-test('plugin registry corruption fails closed without overwriting evidence', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-corrupt-'));
+// A damaged registry never blocks the plugin features: its bytes are kept
+// aside (never overwritten) and the registry continues from the last good copy
+// (registry.json.bak) or empty.
+for (const [name, damaged] of [
+  ['malformed', '{corrupt'],
+  ['NUL-filled', '\0'.repeat(96)],
+  ['empty', ''],
+]) {
+  test(`a ${name} plugin registry is kept aside and plugins keep working`, () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-corrupt-'));
+    const source = join(root, 'local-plugin');
+    const dataDir = join(root, 'data');
+    const registry = join(dataDir, 'plugins', 'registry.json');
+    try {
+      mkdirSync(source, { recursive: true });
+      mkdirSync(join(dataDir, 'plugins'), { recursive: true });
+      writeFileSync(join(source, 'plugin.json'), JSON.stringify({ name: 'local-test' }));
+      writeFileSync(registry, damaged);
+      assert.deepEqual(listRegisteredPlugins({ dataDir }), []);
+      const added = addPlugin(source, { dataDir });
+      assert.equal(added.name, 'local-test');
+      assert.equal(listRegisteredPlugins({ dataDir }).length, 1);
+      const aside = readdirSync(join(dataDir, 'plugins')).filter((file) => file.startsWith('registry.json.corrupt-'));
+      assert.equal(aside.length, 1);
+      assert.equal(readFileSync(join(dataDir, 'plugins', aside[0]), 'utf8'), damaged);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('a damaged plugin registry is restored from its last good copy', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-restore-'));
   const source = join(root, 'local-plugin');
   const dataDir = join(root, 'data');
   const registry = join(dataDir, 'plugins', 'registry.json');
   try {
     mkdirSync(source, { recursive: true });
-    mkdirSync(join(dataDir, 'plugins'), { recursive: true });
     writeFileSync(join(source, 'plugin.json'), JSON.stringify({ name: 'local-test' }));
-    writeFileSync(registry, '{corrupt');
-    assert.throws(() => addPlugin(source, { dataDir }), /registry is corrupt/);
-    assert.equal(readFileSync(registry, 'utf8'), '{corrupt');
+    addPlugin(source, { dataDir });
+    setPluginEnabled('local-test', false, { dataDir }); // the write keeps the replaced copy as registry.json.bak
+    writeFileSync(registry, '\0'.repeat(96));
+    const [plugin] = listRegisteredPlugins({ dataDir });
+    assert.equal(plugin.name, 'local-test');
+    assert.equal(JSON.parse(readFileSync(registry, 'utf8')).plugins.length, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

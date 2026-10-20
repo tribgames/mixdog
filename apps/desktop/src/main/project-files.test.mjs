@@ -12,6 +12,7 @@ import {
   projectEntryPathIn,
   readProjectTextFileIn,
   renameProjectEntryIn,
+  replaceProjectFileBytes,
   rewriteFileThrough,
   writeProjectTextFileThrough,
   writeProjectTextFilesThrough,
@@ -203,4 +204,27 @@ test('a partial write is completed before the file is truncated', async (t) => {
 
   const stalled = faultyHandle(handle, { write: async () => ({ bytesWritten: 0 }) });
   await assert.rejects(rewriteFileThrough(stalled, Buffer.from('never')), /no progress/);
+});
+
+test('a save flushes the replacement through its handle before it replaces the file', async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), 'mixdog-project-sync-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const file = join(fixture, 'source.ts');
+  await writeFile(file, 'old');
+  const probe = await open(file, 'r');
+  const handlePrototype = Object.getPrototypeOf(probe);
+  await probe.close();
+  const sync = handlePrototype.sync;
+  let flushedBytes = null;
+  t.mock.method(handlePrototype, 'sync', async function (...args) {
+    flushedBytes = await readFile(file, 'utf8');
+    return sync.apply(this, args);
+  });
+  let committed = false;
+  await replaceProjectFileBytes(file, Buffer.from('new'), Buffer.from('old'), 0o644, () => {
+    committed = true;
+  });
+  assert.equal(flushedBytes, 'old', 'the flush happens while the old file is still in place');
+  assert.equal(committed, true);
+  assert.equal(await readFile(file, 'utf8'), 'new');
 });

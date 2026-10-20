@@ -14,10 +14,11 @@
  * what made the remote gallery slow.
  */
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 
+import { writeFileAtomicSync } from '../shared/atomic-file.mjs';
+import { fileHasData } from '../shared/file-has-data.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 
 // maxEdge is the long edge in pixels; quality is the webp setting.
@@ -100,7 +101,14 @@ function cachedRendition(cacheDir, variant, id) {
     // a plain cache miss into a thrown media request.
     try {
       const info = statSync(path);
-      if (info.isFile()) return { path, mime, bytes: info.size };
+      if (!info.isFile()) continue;
+      // A rendition a crash left empty or NUL-filled would be served forever;
+      // drop it so the miss below rebuilds it.
+      if (!fileHasData(path)) {
+        unlinkSync(path);
+        continue;
+      }
+      return { path, mime, bytes: info.size };
     } catch {
       /* absent or evicted mid-lookup */
     }
@@ -166,21 +174,13 @@ function writeRendition(cacheDir, variant, id, extension, buffer) {
     return null;
   }
   const path = renditionPath(cacheDir, variant, id, extension);
-  mkdirSync(dirname(path), { recursive: true });
-  // Stage-then-rename: a reader must never observe a half-written cache file.
-  const staging = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-  writeFileSync(staging, buffer);
+  // Durable stage-then-rename: a reader never observes a half-written cache
+  // file, and a crash cannot publish one whose bytes are all NUL.
   try {
-    renameSync(staging, path);
+    writeFileAtomicSync(path, buffer);
   } catch (error) {
     // Another process may have won the same cache publication race.
     if (!existsSync(path)) throw error;
-  } finally {
-    try {
-      unlinkSync(staging);
-    } catch {
-      /* renamed or already removed */
-    }
   }
   let bytes = buffer.length;
   try {

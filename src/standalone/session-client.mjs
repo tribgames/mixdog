@@ -148,12 +148,12 @@ function request({
       }
     );
     req.on('timeout', () => {
-      req.destroy(new Error(`session timeout: ${method} ${urlPath}`));
+      req.destroy(sessionTimeoutError(method, urlPath));
     });
     req.on('error', reject);
     if (deadlineMs > 0) {
       deadlineTimer = setTimeout(() => {
-        const error = new Error(`session timeout: ${method} ${urlPath}`);
+        const error = sessionTimeoutError(method, urlPath);
         reject(error);
         req.destroy(error);
       }, deadlineMs);
@@ -161,6 +161,11 @@ function request({
     if (payload) req.write(payload);
     req.end();
   });
+}
+
+/** No answer within the request's bound: the daemon may be busy with it, not gone. */
+function sessionTimeoutError(method, urlPath) {
+  return Object.assign(new Error(`session timeout: ${method} ${urlPath}`), { code: 'ESESSIONTIMEOUT' });
 }
 
 /** /health within `timeoutMs` of total duration; null when it does not answer. */

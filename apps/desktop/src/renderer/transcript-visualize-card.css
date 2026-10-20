@@ -132,9 +132,9 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-head {
 .transcript-visualize-tile:hover .transcript-visualize-thumb {
   box-shadow: 0 0 0 1px var(--mx-border);
 }
-/* The tab on screen in the panel: an accent ring. */
+/* The tab on screen in the panel: a neutral, stronger ring. */
 .transcript-visualize-tile.is-shown .transcript-visualize-thumb {
-  box-shadow: 0 0 0 1.5px var(--mx-text-accent);
+  box-shadow: 0 0 0 1.5px var(--mx-text-muted);
 }
 .transcript-visualize-tile.is-closed .transcript-visualize-thumb {
   opacity: 0.55;

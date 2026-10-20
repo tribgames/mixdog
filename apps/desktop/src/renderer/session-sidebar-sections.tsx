@@ -377,22 +377,49 @@ export function agentsSection({
   );
 }
 
+/** A session row dragged onto Favorites stars it. */
+export interface FavoriteSessionDrop {
+  /** A session that may be starred is being dragged. */
+  available: boolean;
+  /** Favorites is highlighted as the drop target. */
+  active: boolean;
+  /** True when the dragged session may drop here (claims the event). */
+  onDragOver(event: React.DragEvent<HTMLElement>): boolean;
+  onDragLeave(event: React.DragEvent<HTMLElement>): void;
+  onDrop(event: React.DragEvent<HTMLElement>): boolean;
+}
+
 /** Favorites section: starred, non-archived sessions pinned above Recent. */
 export function favoritesSection({
   rows,
+  sessionDrop,
   open,
   onToggleOpen,
   headerProps,
   renderRows,
 }: {
   rows: DesktopSessionSummary[];
+  sessionDrop?: FavoriteSessionDrop;
   open: boolean;
   onToggleOpen(): void;
   headerProps?: ReorderProps;
   renderRows: RenderForkRows;
 }) {
+  const reorder = reorderTarget(headerProps);
   return (
-    <section className="sidebar-recent sidebar-favorites" aria-label={t('Favorites')} {...reorderTarget(headerProps)}>
+    <section
+      className="sidebar-recent sidebar-favorites"
+      aria-label={t('Favorites')}
+      data-session-drop={sessionDrop?.active ? 'true' : undefined}
+      {...reorder}
+      onDragOver={(event) => {
+        if (!sessionDrop?.onDragOver(event)) reorder?.onDragOver?.(event);
+      }}
+      onDragLeave={sessionDrop?.onDragLeave}
+      onDrop={(event) => {
+        if (!sessionDrop?.onDrop(event)) reorder?.onDrop?.(event);
+      }}
+    >
       <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
         <button
           type="button"

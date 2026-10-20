@@ -28,7 +28,12 @@ import { shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs'
 
 // Project-context pill, attachment budget and prompt history live in
 // composer-support.tsx.
-import { ATTACHMENT_ACCEPT, COMPOSER_PLACEHOLDERS, pastedTextFields } from './composer-support';
+import {
+  ATTACHMENT_ACCEPT,
+  COMPOSER_PLACEHOLDERS,
+  pastedTextFields,
+  type ComposerAttachment,
+} from './composer-support';
 import { ComposerPastedTextDialog } from './ComposerPastedTextDialog';
 import type { PendingPromptItem } from './conversation-prompt-items';
 import { SteerContext } from './steer-actions';
@@ -36,8 +41,13 @@ import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
   noteComposerContent,
+  persistComposerDrafts,
+  stashComposerAttachments,
   stashComposerDraft,
+  stashComposerTags,
   stashedComposerDraft,
+  takeStashedComposerAttachments,
+  takeStashedComposerTags,
 } from './composer-draft';
 import { useComposerDictation } from './use-composer-dictation';
 import { useComposerAttachments } from './use-composer-attachments';
@@ -68,7 +78,8 @@ import {
 } from './composer-surfaces';
 import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
 import { ComposerBanners } from './ComposerBanners';
-import { ComposerFooter, ComposerModelLine } from './ComposerFooter';
+import { type ComposerModelControlProps, ComposerFooter, ComposerModelControls, ComposerModelLine } from './ComposerFooter';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
 import { VisualizeFeedbackCards } from './VisualizeFeedbackCards';
@@ -155,7 +166,9 @@ function switchComposerIdentity({
   composingRef,
   suppressImeLineBreakRef,
   historyNavigation,
+  attachmentsRef,
   resetAttachments,
+  replaceAttachments,
   palettes,
   selector,
   setDraft,
@@ -170,7 +183,9 @@ function switchComposerIdentity({
   composingRef: { current: boolean };
   suppressImeLineBreakRef: { current: boolean };
   historyNavigation: { current: { index: number; seed: string } };
+  attachmentsRef: { current: ComposerAttachment[] };
   resetAttachments(): void;
+  replaceAttachments(attachments: ComposerAttachment[]): void;
   palettes: { reset(): void; invalidateSearch(): void };
   selector: { reset(): void };
   setDraft: Dispatch<SetStateAction<string>>;
@@ -185,7 +200,11 @@ function switchComposerIdentity({
     previousScope,
     document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
   );
+  // Chips attached there but not yet sent are parked with it, and the
+  // incoming tab gets back the chips it parked.
+  stashComposerAttachments(previousScope, attachmentsRef.current);
   resetAttachments();
+  replaceAttachments(takeStashedComposerAttachments(identityScope));
   composingRef.current = false;
   suppressImeLineBreakRef.current = false;
   palettes.invalidateSearch();
@@ -258,6 +277,10 @@ export type ComposerProps = {
   modelAside?: ReactNode;
   /** The line under the card's left end: the last turn's speed and cache hit. */
   usageReadout?: ReactNode;
+  /** Before the first message: the Project / Workflow / Delegation / Branch
+   *  pickers. On a desktop they take the line under the card; a phone shows
+   *  them in a line of their own above it. */
+  contextBar?: ReactNode;
   /** Messages sent while the turn runs that the model has not read yet. */
   steerItems?: PendingPromptItem[];
   pendingSubmissionIds?: Array<string | number>;
@@ -323,6 +346,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onRoutePreferenceApplied,
     modelAside,
     usageReadout,
+    contextBar,
     steerItems,
     pendingSubmissionIds,
     onQueuedRestored,
@@ -339,7 +363,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     placeholderOverride,
     agentMode = false,
   } = props;
-  const [draft, setDraft] = useState('');
+  // A page reloaded or relaunched while a prompt was half-typed opens with it.
+  const [draft, setDraft] = useState(() => stashedComposerDraft(identityScope));
   const [submitting, setSubmitting] = useState(false);
   const [submissionRecoveryVersion, setSubmissionRecoveryVersion] = useState(0);
   const submittingRef = useRef(false);
@@ -512,14 +537,23 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // Agent mode's `@` in a room: pick members, who then answer the message
   // once each in pick order (sent on the room's `/ask` path). A 1:1 thread's
   // `@` opens nothing yet.
-  const [tagged, setTagged] = useState<string[]>([]);
+  const [tagged, setTagged] = useState<string[]>(() => takeStashedComposerTags(identityScope));
+  const taggedRef = useRef(tagged);
+  taggedRef.current = tagged;
+  const taggedScope = useRef(identityScope);
   const [tagDismissed, setTagDismissed] = useState('');
   // The highlighted candidate; ↑/↓ move it, Enter/Tab pick it.
   const [tagIndex, setTagIndex] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new `@` query starts from the first candidate
   useEffect(() => setTagIndex(0), [mention.signature]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope is the reset trigger; the body does not read it
-  useEffect(() => setTagged([]), [identityScope]);
+  // Tags picked in the tab being left are parked with its text; the incoming
+  // tab gets back the tags it parked.
+  useEffect(() => {
+    if (taggedScope.current === identityScope) return;
+    stashComposerTags(taggedScope.current, taggedRef.current);
+    taggedScope.current = identityScope;
+    setTagged(takeStashedComposerTags(identityScope));
+  }, [identityScope]);
   const taggedMembers = tagged.flatMap((id) => roomMembers?.filter((member) => member.id === id) ?? []);
   const tagMatch = agentMode && roomMembers ? mention.match : null;
   const tagCandidates =
@@ -577,7 +611,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       composingRef,
       suppressImeLineBreakRef,
       historyNavigation: history.navigation,
+      attachmentsRef,
       resetAttachments,
+      replaceAttachments,
       palettes,
       selector,
       setDraft,
@@ -608,6 +644,22 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     noteComposerContent(identityScope, holdsContent);
     return () => noteComposerContent(identityScope, false);
   }, [identityScope, holdsContent]);
+  // Leaving the screen (home button, app switch) is the last moment the page
+  // is sure to run: the OS may kill it or a deploy may reload it afterwards.
+  useEffect(() => {
+    const save = (event: Event): void => {
+      if (event.type === 'visibilitychange' && document.visibilityState !== 'hidden') return;
+      const element = textarea.current;
+      stashComposerDraft(identityScope, document.activeElement === element && element ? element.value : draftRef.current);
+      persistComposerDrafts();
+    };
+    document.addEventListener('visibilitychange', save);
+    window.addEventListener('pagehide', save);
+    return () => {
+      document.removeEventListener('visibilitychange', save);
+      window.removeEventListener('pagehide', save);
+    };
+  }, [identityScope]);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [addMenuRequest, setAddMenuRequest] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: identityScope and paneActive are reset triggers; the effect body does not read them
@@ -837,14 +889,44 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
   };
   const goalDisabled = turnBusy || commandBusy || submitting;
+  // A phone's coding composer is the two-row card: the typing band, then the
+  // +, the model with its gauge, the mic and send; a bot's 1:1 chat too.
+  // A group room keeps its one-line bar.
+  const phoneCard = useMobileRemoteSurface() && !roomMembers;
+  const modelControlProps: ComposerModelControlProps = {
+    modelAside,
+    agentMode,
+    transitioning,
+    commandBusy,
+    paneActive,
+    provider,
+    model,
+    effort,
+    fast,
+    fastCapable,
+    autoEffort,
+    modelParameters,
+    contextPercent,
+    contextTokens,
+    sessionId,
+    invokeResult,
+    applySnapshot,
+    onOpenSettings,
+    onDraftModelSelection,
+    onRoutePreferenceApplied,
+  };
   return (
     <>
       <ComposerBanners draggingFiles={draggingFiles} transitioning={transitioning} dropTarget={dropTargetRef.current} />
       {btw.card && <BtwCard card={btw.card} onClose={btw.close} onRetry={btw.retry} />}
+      {/* The phone's pickers line keeps its height after the first message,
+          so the card below it never moves when the chat starts. */}
+      {phoneCard && !agentMode && <div className="composer-context-line">{contextBar}</div>}
       <form
         ref={paletteAnchor}
         className="composer"
         data-chat-mode={agentMode ? 'agent' : undefined}
+        data-phone-card={phoneCard ? '' : undefined}
         onSubmit={onSubmit}
         data-composer-palette-open={
           selector.open || slash.open || mention.open || skillMention.open ? 'true' : undefined
@@ -1018,31 +1100,14 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           onStop={() => void stop()}
           sessionId={sessionId}
           onOpenSettings={onOpenSettings}
+          modelControls={phoneCard ? <ComposerModelControls {...modelControlProps} /> : null}
         />
       </form>
       <ComposerModelLine
-        usageReadout={usageReadout}
-        modelAside={modelAside}
-        agentMode={agentMode}
+        {...modelControlProps}
+        usageReadout={phoneCard ? usageReadout : (contextBar ?? usageReadout)}
         room={Boolean(roomMembers)}
-        transitioning={transitioning}
-        commandBusy={commandBusy}
-        paneActive={paneActive}
-        provider={provider}
-        model={model}
-        effort={effort}
-        fast={fast}
-        fastCapable={fastCapable}
-        autoEffort={autoEffort}
-        modelParameters={modelParameters}
-        contextPercent={contextPercent}
-        contextTokens={contextTokens}
-        sessionId={sessionId}
-        invokeResult={invokeResult}
-        applySnapshot={applySnapshot}
-        onOpenSettings={onOpenSettings}
-        onDraftModelSelection={onDraftModelSelection}
-        onRoutePreferenceApplied={onRoutePreferenceApplied}
+        controls={!phoneCard}
       />
       {offSkills.length > 0 && !agentMode && (
         <p className="composer-skill-status" role="status">

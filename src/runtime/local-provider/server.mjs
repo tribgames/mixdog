@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-
+import { fileHasData } from '../shared/file-has-data.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import {
   exactLocalProviderFile,
@@ -65,7 +64,7 @@ export async function ensureLocalProviderServer(modelId, { dataDir = resolvePlug
   const contextWindow = localContextSettings(entry, dataDir).contextWindow;
   const executable = localProviderRuntimeExecutable(dataDir);
   const weights = localProviderModelPath(entry, dataDir);
-  if (!executable || !existsSync(executable)) {
+  if (!executable || !fileHasData(executable)) {
     throw new Error('[local-provider] runtime is not installed');
   }
   if (!exactLocalProviderFile(weights, entry.size)) {

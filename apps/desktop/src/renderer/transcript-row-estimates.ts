@@ -70,7 +70,9 @@ export function transcriptRowShape(row: TranscriptRowModel): string {
     }
     case 'AssistantPart': {
       const text = textOf(row.item);
-      return `reply:${row.item?.kind ?? ''}:${lengthBucket(text)}:${markdownFeatures(text)}:${row.completion ? 1 : 0}:${row.turnChanges ? 1 : 0}`;
+      // A room's typing bubble, quiet pass and speech are all empty-or-short
+      // notices of very different heights: one shape would blend them.
+      return `reply:${row.item?.kind ?? ''}${row.item?.room?.kind ? `/${row.item.room.kind}` : ''}:${lengthBucket(text)}:${markdownFeatures(text)}:${row.completion ? 1 : 0}:${row.turnChanges ? 1 : 0}`;
     }
     case 'ToolActivity': {
       const count = row.items.length;

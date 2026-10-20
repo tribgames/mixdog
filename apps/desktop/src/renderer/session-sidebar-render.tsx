@@ -22,6 +22,7 @@ import {
   favoritesSection,
   projectsSection,
   recentSection,
+  type FavoriteSessionDrop,
   type ProjectSessionGroup,
   type RenderForkRows,
 } from './session-sidebar-sections';
@@ -442,6 +443,7 @@ export interface SidebarSectionContext {
   projectGroups: ProjectSessionGroup[];
   projectOrder: Pick<ListOrder, 'getReorderProps'>;
   sessionDrop: ProjectsSectionProps['sessionDrop'];
+  favoriteDrop: FavoriteSessionDrop;
   automationRows: readonly DesktopSessionSummary[];
   archivedRows: readonly DesktopSessionSummary[];
   visibleArchivedRows: DesktopSessionSummary[];
@@ -485,10 +487,13 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
   const renderUnorderedRows: RenderForkRows = (list, limit) => renderForkRows(ctx, list, limit, undefined, section);
   switch (section) {
     case 'favorites':
+      // With no favorites yet the section still appears while a session is
+      // dragged, so the first one can be dropped onto it.
       return (
-        ctx.favoriteRows.length > 0 &&
+        (ctx.favoriteRows.length > 0 || ctx.favoriteDrop.available) &&
         favoritesSection({
           rows: ctx.favoriteRows,
+          sessionDrop: ctx.favoriteDrop,
           open: openState.favoritesOpen,
           onToggleOpen: () => openState.toggleSection('favorites'),
           headerProps,

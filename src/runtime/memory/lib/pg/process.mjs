@@ -26,6 +26,7 @@ import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createConnection, createServer } from 'node:net';
+import { holdsNoData, writeFileAtomicSync } from '../../../shared/atomic-file.mjs';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 import { runChild } from './run-child.mjs';
 
@@ -180,9 +181,12 @@ function stripPlatformInvalidLines(conf) {
 function ensureConfV2(pgdataDir) {
   const confPath = join(pgdataDir, 'postgresql.conf');
   if (!existsSync(confPath)) return false;
-  const original = readFileSync(confPath, 'utf8');
+  // A conf a crash left empty or NUL-filled cannot be parsed by PostgreSQL; the
+  // defaults plus the overrides appended below are a working config.
+  const text = readFileSync(confPath, 'utf8');
+  const original = holdsNoData(text) ? '' : text;
   let conf = stripPlatformInvalidLines(original);
-  let changed = conf !== original;
+  let changed = conf !== text;
   if (!conf.includes(MIXDOG_CONF_V2_MARKER)) {
     conf += buildV2Block();
     changed = true;
@@ -196,7 +200,7 @@ function ensureConfV2(pgdataDir) {
     changed = true;
   }
   if (!changed) return false;
-  writeFileSync(confPath, conf);
+  writeFileAtomicSync(confPath, conf, { backup: true });
   return true;
 }
 
@@ -350,7 +354,7 @@ async function initClusterIfNeeded({ runtimeDir, pgdataDir, env }) {
   const confPath = join(pgdataDir, 'postgresql.conf');
   try {
     const existing = readFileSync(confPath, 'utf8');
-    writeFileSync(confPath, existing + freshClusterConfAppend());
+    writeFileAtomicSync(confPath, existing + freshClusterConfAppend());
   } catch (e) {
     __mixdogMemoryLog(`[pg-process] postgresql.conf append failed: ${e?.message}\n`);
   }

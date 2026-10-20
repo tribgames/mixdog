@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -120,6 +120,25 @@ test('the store round-trips session cookies through the sealed file and discards
     jar.length = 0;
     assert.equal(await store.save(), 0);
     await assert.rejects(readFile(store.file), /ENOENT/, 'no session cookies means no file');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a NUL-filled snapshot restores nothing, and the next save replaces it without leaving a temp file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-session-store-'));
+  try {
+    const store = createBrowserSessionStore({
+      cookies: { get: async () => [sessionCookie()], set: async () => {} },
+      directory,
+      encrypt: async (text) => Buffer.from(text, 'utf8').reverse(),
+      decrypt: async (data) => Buffer.from(data).reverse().toString('utf8'),
+    });
+    await writeFile(store.file, Buffer.alloc(128));
+    assert.equal(await store.restore(), 0);
+    assert.equal(await store.save(), 1);
+    assert.equal(await store.restore(), 1);
+    assert.deepEqual(await readdir(directory), ['session-cookies.bin']);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

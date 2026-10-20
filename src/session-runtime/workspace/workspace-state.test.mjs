@@ -3,7 +3,7 @@
 // whose worktree vanished in `recovery`; a manual Project selection keeps the
 // registered Project while inside the worktree.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -11,7 +11,7 @@ import { createSessionResume, resolveResumeCwd } from '../lifecycle/session-swit
 import { createContextSwitch } from '../lifecycle/session-switch/context-switch.mjs';
 import { createCwdApply } from '../cwd-plugins/cwd-apply.mjs';
 import { workspaceCwdLock } from './admission-gate.mjs';
-import { restoreWorkspaceAfterResume, workspaceForProjectSelection } from './workspace-state.mjs';
+import { copyProjectIdentity, restoreWorkspaceAfterResume, workspaceForProjectSelection } from './workspace-state.mjs';
 
 function dirs() {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-workspace-state-'));
@@ -205,5 +205,23 @@ test('/new and /clear from a worktree-bound Lead start the new session in the Pr
     }
   } finally {
     d.cleanup();
+  }
+});
+
+test('a worktree project.id holding no data (NUL-filled by a crash) is replaced; one with an id is kept', () => {
+  const { project, worktree, cleanup } = dirs();
+  try {
+    mkdirSync(join(project, '.mixdog'), { recursive: true });
+    writeFileSync(join(project, '.mixdog', 'project.id'), 'identity-from-project-a1b2\n');
+    mkdirSync(join(worktree, '.mixdog'), { recursive: true });
+    const target = join(worktree, '.mixdog', 'project.id');
+    writeFileSync(target, '\0'.repeat(32));
+    assert.equal(copyProjectIdentity(project, worktree), true);
+    assert.equal(readFileSync(target, 'utf8'), 'identity-from-project-a1b2\n');
+    writeFileSync(target, 'own-identity\n');
+    assert.equal(copyProjectIdentity(project, worktree), false);
+    assert.equal(readFileSync(target, 'utf8'), 'own-identity\n');
+  } finally {
+    cleanup();
   }
 });

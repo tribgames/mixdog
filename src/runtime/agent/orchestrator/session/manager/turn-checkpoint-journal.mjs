@@ -35,10 +35,9 @@
 // keeps the durable prefix.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { appendFile, unlink, writeFile } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
-import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
+import { writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
@@ -145,19 +144,11 @@ export function writeCheckpointHeader(checkpoint) {
     contextState: checkpoint.contextState ?? null,
     updatedAt: Date.now(),
   };
-  const temp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
-  try {
-    writeFileSync(temp, JSON.stringify(payload), 'utf8');
-    renameWithRetrySync(temp, target);
-    return true;
-  } catch (error) {
-    try {
-      unlinkSync(temp);
-    } catch {
-      /* best-effort */
-    }
-    throw error;
-  }
+  // Durable (fsynced through its handle, then renamed): a crash must not
+  // publish a header whose bytes never landed. A damaged header already reads
+  // as "no checkpoint" (parseTurnCheckpointHeader) and the next turn rewrites it.
+  writeFileAtomicSync(target, JSON.stringify(payload));
+  return true;
 }
 
 export function readTurnCheckpointHeader(sessionId) {

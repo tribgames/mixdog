@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { TranscriptItem } from './desktop-types';
+import { isRoomTypingItem } from './agent-chat-place';
 import { transcriptTurnKeys } from './renderer-logic.mjs';
 import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows';
 
@@ -54,7 +55,7 @@ export function useTranscriptRows({
   commandBusy,
   commandActivityVisible,
   optimisticActivityStartedAt,
-  liveBand = true,
+  room = false,
 }: {
   identity: string;
   sessionKey: string;
@@ -70,10 +71,14 @@ export function useTranscriptRows({
   commandBusy: boolean | undefined;
   commandActivityVisible: boolean;
   optimisticActivityStartedAt: number;
-  /** Whether the live band paints anything. A group room's typing bubble is
-   *  its own row; its band would be an empty row, laid out at the flat row
-   *  estimate before it measures 0. */
-  liveBand?: boolean;
+  /** A group room: its live band is the typing slot. The host appends a
+   *  typing row under a fresh id per member turn and drops it between turns;
+   *  as a row of its own it came and went at the bottom of the thread, and a
+   *  followed room moved up and down by its height at every turn. The band
+   *  keeps one key and one height for the whole run and paints the typing
+   *  member (use-conversation-row-renderer.ts), so the trailing typing row
+   *  opens no row. */
+  room?: boolean;
 }) {
   const failedTurns = useMemo(() => new Set(failedTurnKeys || []), [failedTurnKeys]);
   const turnKeys = Array.isArray(precomputedTurnKeys) ? (precomputedTurnKeys as string[]) : null;
@@ -81,16 +86,23 @@ export function useTranscriptRows({
     () => (turnKeys?.length === settledItems.length ? turnKeys : transcriptTurnKeys(settledItems)),
     [turnKeys, settledItems]
   );
+  // Only TRAILING typing rows leave: the turn keys stay aligned by index.
+  const projectedItems = useMemo(() => {
+    if (!room) return settledRowItems;
+    let end = settledRowItems.length;
+    while (end > 0 && isRoomTypingItem(settledRowItems[end - 1])) end -= 1;
+    return end === settledRowItems.length ? settledRowItems : settledRowItems.slice(0, end);
+  }, [room, settledRowItems]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a draft promoting to a session keeps `identity` but must still re-project under the new session key.
   const settledProjection = useMemo(
     () =>
       projectSettledTranscriptRows({
         sessionKey: identity,
-        items: settledRowItems,
+        items: projectedItems,
         turnKeys: settledTurnKeys,
         failedTurns,
       }),
-    [failedTurns, identity, sessionKey, settledRowItems, settledTurnKeys]
+    [failedTurns, identity, sessionKey, projectedItems, settledTurnKeys]
   );
   // The busy band reserves its row for the whole turn, through activity that
   // briefly reads null. A turn whose completion already folded into its reply
@@ -108,15 +120,12 @@ export function useTranscriptRows({
         pendingItems,
         steerItems,
         liveItem,
-        thinking:
-          liveBand &&
-          Boolean(
-            (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
-          ),
+        thinking: Boolean(
+          (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
+        ),
       }),
     [
       identity,
-      liveBand,
       optimisticActivityStartedAt,
       settledProjection,
       pendingItems,

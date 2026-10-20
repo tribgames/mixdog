@@ -3,9 +3,9 @@
 // Electron-free so every rule is testable; remote-host-windows.ts owns the
 // windows themselves.
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
+import { readJsonState, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopRemoteHost } from '../shared/contract';
 
 const HOSTS_FILE = 'remote-hosts.json';
@@ -239,19 +239,27 @@ export async function loadRemoteHostStore(userDataPath: string): Promise<RemoteH
   const file = join(userDataPath, HOSTS_FILE);
   let hosts: StoredHost[] = [];
   try {
-    hosts = storedHosts(JSON.parse(await readFile(file, 'utf8')));
-  } catch {
-    /* first run, or an unreadable list: start empty */
+    // A damaged list is kept aside as .corrupt-<ts> and the last good copy restored.
+    hosts = storedHosts(
+      await readJsonState(file, {
+        validate: (value: unknown) => {
+          if (!Array.isArray((value as { hosts?: unknown } | null)?.hosts)) throw new TypeError('Missing hosts list.');
+          return value;
+        },
+      })
+    );
+  } catch (error) {
+    // The file cannot be read at all (permissions…): work in memory; a write
+    // that cannot read the file it replaces fails instead of wiping it.
+    console.warn(`[remote-hosts] ${file} could not be read: ${(error as Error).message}`);
   }
   let writes: Promise<void> = Promise.resolve();
   const persist = (): Promise<void> => {
-    const snapshot = JSON.stringify({ version: 1, hosts });
+    const snapshot = structuredClone({ version: 1, hosts });
     writes = writes
       .catch(() => undefined)
       .then(async () => {
-        await mkdir(dirname(file), { recursive: true });
-        await writeFile(`${file}.tmp`, snapshot, 'utf8');
-        await rename(`${file}.tmp`, file);
+        await writeJsonAtomicAsync(file, snapshot, { compact: true, backup: true });
       });
     return writes;
   };

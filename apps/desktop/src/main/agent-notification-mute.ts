@@ -6,11 +6,10 @@
  * is not touched: unread counts, the Agents-list attention mark, held-request
  * cards and their expiry stay exactly as they are.
  */
-import { readFileSync } from 'node:fs';
-import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomMemberOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { readJsonStateSync, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { runOwnerOf } from '../../../../src/runtime/shared/held-request-host.mjs';
 
 const AGENT_ID = /^[a-z0-9][a-z0-9.-]{0,199}$/;
@@ -26,13 +25,22 @@ export function notificationAgentOfSession(sessionId: string): string {
   return agentIdOfHomeSession(sessionId) || roomMemberOfSession(sessionId)?.agentId || runOwnerOf(sessionId) || '';
 }
 
+function mutedDoc(value: unknown): { muted?: unknown } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('The mute list is not an object.');
+  }
+  return value as { muted?: unknown };
+}
+
 /** The muted agents on disk (the window process reads this fresh per notification). */
 export function readMutedAgents(filePath: string): Set<string> {
   try {
-    const doc = JSON.parse(readFileSync(filePath, 'utf8')) as { muted?: unknown };
+    // A damaged file (NUL-filled, truncated) is kept aside and its last good
+    // copy read, so the mutes survive instead of being written over.
+    const doc = readJsonStateSync(filePath, { validate: mutedDoc, fallback: {} });
     return new Set(Array.isArray(doc.muted) ? doc.muted.filter((id): id is string => typeof id === 'string') : []);
   } catch {
-    // No file yet (or an unreadable one): nobody is muted.
+    // An unreadable file (an I/O error): nobody is muted.
     return new Set();
   }
 }
@@ -47,15 +55,12 @@ export function createAgentNotificationMuteStore(filePath: string) {
   let muted = readMutedAgents(filePath);
   let writing: Promise<void> = Promise.resolve();
   const persist = (): Promise<void> => {
-    const body = `${JSON.stringify({ muted: [...muted].sort() }, null, 2)}\n`;
+    const doc = { muted: [...muted].sort() };
     // A failed write must not poison every later one.
     const write = writing
       .catch(() => undefined)
       .then(async () => {
-        await mkdir(dirname(filePath), { recursive: true });
-        const temp = `${filePath}.${process.pid}.tmp`;
-        await writeFile(temp, body, 'utf8');
-        await rename(temp, filePath);
+        await writeJsonAtomicAsync(filePath, doc, { backup: true });
       });
     writing = write;
     return write;

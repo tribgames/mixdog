@@ -800,7 +800,7 @@ export const TranscriptRow = memo(
           aria-busy={item.pending === true ? 'true' : undefined}
         >
           {sourceLabel && <small className="message-source">{sourceLabel}</small>}
-          {user && item.room?.to?.length ? <RoomAddressChip room={item.room} /> : null}
+          {user && item.room?.to?.length ? <RoomAddressChip room={item.room} fromUser /> : null}
           {user &&
             (attachedImages.length > 0 ||
               markerChips.length > 0 ||

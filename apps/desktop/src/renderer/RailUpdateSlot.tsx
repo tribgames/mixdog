@@ -1,4 +1,4 @@
-import { Download } from 'lucide-react';
+import { ArrowDown } from 'lucide-react';
 
 import type { DesktopUpdaterState } from '../shared/contract';
 import { downloadPercent, isAppUpdatePending, useNativeAppUpdate } from './AppUpdateBanner';
@@ -125,7 +125,7 @@ export function RailUpdateSlot({ update }: { update: RailUpdate | null }) {
       disabled={update.disabled}
       onClick={update.press}
     >
-      <Download aria-hidden="true" />
+      {update.kind === 'downloading' ? null : <ArrowDown size={16} aria-hidden="true" />}
       {update.kind === 'downloading' ? (
         <svg className="rail-update-ring" viewBox="0 0 34 34" aria-hidden="true">
           <circle cx="17" cy="17" r={RING_RADIUS} className="rail-update-ring-track" />

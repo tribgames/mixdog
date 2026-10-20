@@ -1,6 +1,8 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+import { writeJsonAtomicSync } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 import {
   NOTIFICATION_VOLUME_DEFAULT,
@@ -149,7 +151,9 @@ function backupPreImage(dataDir: string, now: Date, preImage: unknown): void {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
       throw error;
     }
-    writeFileSync(join(dir, 'mixdog-config.json'), `${JSON.stringify(preImage, null, 2)}\n`, { flag: 'wx' });
+    // The directory is new, so nothing is replaced; the copy is flushed whole
+    // before it appears under its name.
+    writeJsonAtomicSync(join(dir, 'mixdog-config.json'), preImage);
     return;
   }
 }

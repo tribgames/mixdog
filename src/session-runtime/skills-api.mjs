@@ -1,8 +1,9 @@
 // Skill surface (status listing, resource load, tool envelope, global skill
 // creation/editing). The runtime facade only wires the mutable cwd and the
 // context module into it.
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { holdsNoData, writeFileAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import {
   createSkillDocument,
@@ -20,6 +21,10 @@ import {
 import { loadSkillToolDependencies } from '../runtime/agent/orchestrator/runtime-core/skill-tool-loading.mjs';
 
 const DEFAULT_SKILL_BODY = '# Instructions\n\nDescribe how to use this skill.';
+
+// SKILL.md is user-authored: written atomically (a crash never leaves it torn
+// or NUL-filled), the replaced copy kept as SKILL.md.bak.
+const writeSkillFile = (filePath, text) => writeFileAtomicSync(filePath, text, { backup: true, mode: 0o644 });
 
 export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
   const globalSkillsRoot = () => resolve(resolvePluginData(), 'skills');
@@ -114,9 +119,11 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
         : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
     const dir = join(globalSkillsRoot(), name);
     const filePath = join(dir, 'SKILL.md');
-    if (existsSync(filePath)) throw new Error(`skill already exists: ${name}`);
+    // A SKILL.md holding no data (empty, NUL-filled by a crash) is no skill:
+    // creating over it is allowed.
+    if (existsSync(filePath) && !holdsNoData(readFileSync(filePath))) throw new Error(`skill already exists: ${name}`);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(filePath, createSkillDocument({ name, description, whenToUse, body }), 'utf8');
+    writeSkillFile(filePath, createSkillDocument({ name, description, whenToUse, body }));
     if (dependencies !== undefined) saveSkillToolDependencies(filePath, dependencies);
     invalidateSkills();
     return { name, filePath };
@@ -177,13 +184,13 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
       renameSync(currentDir, nextDir);
       filePath = join(nextDir, 'SKILL.md');
       try {
-        writeFileSync(filePath, updated, 'utf8');
+        writeSkillFile(filePath, updated);
       } catch (error) {
         renameSync(nextDir, currentDir);
         throw error;
       }
     } else {
-      writeFileSync(filePath, updated, 'utf8');
+      writeSkillFile(filePath, updated);
     }
     if (dependencies !== undefined) saveSkillToolDependencies(filePath, dependencies);
     else if (filePath !== resource.filePath && resource.dependencySource === 'override') {

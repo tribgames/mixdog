@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import test from 'node:test';
 
 import { beginProcessLifecycle, finishProcessLifecycleAsync } from './process-lifecycle.mjs';
@@ -11,6 +12,34 @@ function deadPid() {
   const child = spawnSync(process.execPath, ['-e', '0']);
   return child.pid;
 }
+
+test('the active marker is published whole through an fsynced handle and leaves nothing staged', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mixdog-lifecycle-marker-'));
+  const original = fs.fsyncSync;
+  let syncs = 0;
+  fs.fsyncSync = (fd) => {
+    syncs += 1;
+    return original(fd);
+  };
+  syncBuiltinESMExports();
+  try {
+    const api = beginProcessLifecycle({ directory, configureReports: false });
+    assert.ok(syncs >= 1, 'the marker is flushed through the handle that wrote it');
+    assert.deepEqual(
+      readdirSync(api.markerDir),
+      [basename(api.markerPath)],
+      'no staged file is left beside the marker'
+    );
+    const marker = JSON.parse(readFileSync(api.markerPath, 'utf8'));
+    assert.equal(marker.pid, process.pid);
+    assert.equal(marker.version, 1);
+  } finally {
+    fs.fsyncSync = original;
+    syncBuiltinESMExports();
+    await finishProcessLifecycleAsync();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('boot records dead prior markers through the async lock path, after process-start', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'mixdog-lifecycle-'));

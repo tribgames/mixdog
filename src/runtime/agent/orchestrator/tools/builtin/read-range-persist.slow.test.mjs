@@ -71,14 +71,16 @@ async function readAnchorLines(file) {
 }
 
 // Holds cache-dir temp-file writes until release(); counts how many started.
+// The atomic writer opens its temp file and writes through that handle, so the
+// write is held where the temp file is opened.
 function holdWrites(t) {
-  const original = fs.writeFile;
+  const original = fs.open;
   const gate = { entered: 0, open: false, waiters: [] };
   gate.release = () => {
     gate.open = true;
     for (const w of gate.waiters.splice(0)) w();
   };
-  t.mock.method(fs, 'writeFile', async (path, ...rest) => {
+  t.mock.method(fs, 'open', async (path, ...rest) => {
     if (String(path).startsWith(cacheDir) && /\.json\.[0-9a-f]+\.tmp$/.test(String(path))) {
       gate.entered += 1;
       if (!gate.open) await new Promise((resolve) => gate.waiters.push(resolve));

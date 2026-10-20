@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { armRemoteCallDeadline } from './remote-call-deadline.ts';
 
-test('one expired call fails once, probes liveness, and leaves sibling calls pending', () => {
+test('an overdue call probes first and fails once only after the probe window', () => {
   const pending = new Map([
     [1, {}],
     [2, {}],
@@ -28,11 +28,38 @@ test('one expired call fails once, probes liveness, and leaves sibling calls pen
   );
   assert.equal(delay, 20_000);
   expire();
+  assert.equal(failures.length, 0, 'the probe decides first');
+  assert.equal(probes, 1);
+  assert.equal(delay, 5_000);
+  expire();
   expire();
   assert.equal(failures.length, 1);
   assert.equal(failures[0].message, 'mixdog remote call timed out.');
   assert.equal(probes, 1);
   assert.equal(pending.has(2), true);
+});
+
+// A silently dead leg: the probe recycles it and its close fails the call as
+// interrupted (a brief drop, retried on reconnect) — never as a timeout.
+test('a call the probe-triggered close settles never times out', () => {
+  const pending = new Map([[1, {}]]);
+  const failures = [];
+  let expire;
+  armRemoteCallDeadline(
+    pending,
+    1,
+    (error) => failures.push(error),
+    () => pending.delete(1),
+    {
+      setTimeout: (callback) => {
+        expire = callback;
+        return 1;
+      },
+    }
+  );
+  expire();
+  expire();
+  assert.deepEqual(failures, []);
 });
 
 test('a deadline that comes due while the page is frozen waits a grace before failing', () => {
@@ -61,9 +88,17 @@ test('a deadline that comes due while the page is frozen waits a grace before fa
     scheduled.map((entry) => entry.ms),
     [20_000, 5_000]
   );
-  // The grace runs on time with no answer: the call fails once.
+  // The grace runs on time with no answer: the leg is probed, and the call
+  // fails once the probe window passes with the answer still owed.
   clock = 31_000;
   scheduled[1].callback();
+  assert.equal(failures.length, 0);
+  assert.deepEqual(
+    scheduled.map((entry) => entry.ms),
+    [20_000, 5_000, 5_000]
+  );
+  clock = 36_000;
+  scheduled[2].callback();
   assert.equal(failures.length, 1);
   assert.equal(failures[0].message, 'mixdog remote call timed out.');
   assert.equal(pending.has(1), false);

@@ -26,6 +26,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { containDialogTab, PaneDialogLayer } from './sidebar-dialog';
 import { useSurfaceActive } from './surface-activity';
 import { touchPrimaryPointer } from './surface-input-focus';
+import { clampOverlayIntoView } from './anchored-panel';
 import { acquireTitleBarDim } from './titlebar-dim';
 import {
   type BranchRow,
@@ -843,6 +844,12 @@ export function BranchMenuPanel({
   onCreateBranch(): void;
   onEscape(): void;
 }) {
+  // The menu is sized by its labels (up to 420px), wider than the 280px the
+  // placement assumed: pull it back inside the visible viewport once measured.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: position is the trigger; the effect reads the DOM it produced
+  useLayoutEffect(() => {
+    clampOverlayIntoView(panel.current);
+  }, [position, panel]);
   return (
     <div
       ref={panel}

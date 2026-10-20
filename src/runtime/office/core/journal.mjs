@@ -1,7 +1,7 @@
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { parseJsonText, writeJsonAtomicAsync } from '../../shared/atomic-file.mjs';
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -18,17 +18,8 @@ function journalPath(id, dataDir) {
 }
 
 export async function writeOfficeJournal(record, dataDir = '') {
-  const directory = officeJournalDirectory(dataDir);
-  await mkdir(directory, { recursive: true });
   const target = journalPath(record.id, dataDir);
-  const temporary = join(directory, `.${record.id}.${randomUUID()}.tmp`);
-  await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  try {
-    await rename(temporary, target);
-  } catch {
-    await rm(target, { force: true });
-    await rename(temporary, target);
-  }
+  await writeJsonAtomicAsync(target, record);
   return target;
 }
 
@@ -38,9 +29,11 @@ export async function removeOfficeJournal(id, dataDir = '') {
 
 export async function readOfficeJournal(id, dataDir = '') {
   try {
-    return JSON.parse(await readFile(journalPath(id, dataDir), 'utf8'));
+    return parseJsonText(await readFile(journalPath(id, dataDir), 'utf8'));
   } catch (error) {
-    if (error?.code === 'ENOENT') return null;
+    // A journal a crash left empty or NUL-filled records nothing to recover;
+    // it stays on disk for the retention sweep and never blocks the caller.
+    if (error?.code === 'ENOENT' || error instanceof SyntaxError) return null;
     throw error;
   }
 }

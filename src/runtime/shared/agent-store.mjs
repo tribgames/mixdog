@@ -5,8 +5,9 @@
 // before that — or if it never could run — every reader sees agents/ as
 // before. The ids the split copied are bots for good: their agents/ originals
 // stay on disk for rollback but no catalog reads them again.
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { readJsonStateSync, writeJsonAtomicSync } from './atomic-file.mjs';
 import { setBotRouteResolver } from './agent-route-config.mjs';
 
 export const BOTS_DIR = 'bots';
@@ -15,10 +16,18 @@ export const BOT_MIGRATION_VERSION = 1;
 /** Mixy's bot id once it has its own folder. */
 export const MIXY_BOT_ID = 'mixy';
 
+function requireObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('not a JSON object');
+  return value;
+}
+
+// A damaged file (NUL, truncated, not an object) is kept aside and its last
+// good copy (agent.json.bak, left by writeBotRoute) restored; otherwise it
+// stays in place — the connector policy reader treats a missing agent.json as
+// "every connector on" — and reads as absent. Any read failure reads as absent.
 function readJson(file) {
   try {
-    const value = JSON.parse(readFileSync(file, 'utf8'));
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    return readJsonStateSync(file, { validate: requireObject, keepWithoutBackup: true });
   } catch {
     return null;
   }
@@ -91,13 +100,11 @@ export function readBotRoute(dataDir, id) {
 /** Stores (or with null removes) a store bot's route in its agent.json; every
  *  other key is kept. */
 export function writeBotRoute(dataDir, id, route) {
-  const dir = botDir(dataDir, id);
-  const file = join(dir, 'agent.json');
+  const file = join(botDir(dataDir, id), 'agent.json');
   const manifest = readJson(file) || {};
   if (route) manifest.route = route;
   else delete manifest.route;
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeJsonAtomicSync(file, manifest, { backup: true });
   fileCache.delete(file);
 }
 

@@ -29,6 +29,9 @@ function rowsToStdout(rows) {
 mock.module('node:child_process', {
   namedExports: {
     spawn: realChildProcess.spawn,
+    // Imported by the shared atomic writer's owner-only ACL helper (secret
+    // writes only); the sweep never reaches it.
+    execFileSync: realChildProcess.execFileSync,
     // The sweep must never use the blocking variant.
     spawnSync: () => {
       throw new Error('spawnSync must not be used by the orphan sweep');

@@ -11,9 +11,10 @@
  * Left untouched on purpose: `desktop`, credentials, onboarding, detection and
  * install flags, caches, and keys that are only ever hand-edited.
  */
-import { constants, copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { writeFileAtomicSync } from './atomic-file.mjs';
 import { packDefinitionFromDir } from './shipped-definitions.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
@@ -231,7 +232,10 @@ export function backupConfigBeforeDefaultsSeparation({ dataDir = resolvePluginDa
       throw err;
     }
     const target = join(dir, 'mixdog-config.json');
-    copyFileSync(source, target, constants.COPYFILE_EXCL);
+    // Written through an fsynced handle (a plain copy can leave this backup NUL
+    // exactly when a crash makes it needed); the folder was claimed above, so
+    // nothing can exist at `target`.
+    writeFileAtomicSync(target, readFileSync(source), { mode: statSync(source).mode & 0o777 });
     return target;
   }
 }

@@ -377,6 +377,108 @@ html[data-mixdog-mobile-tabs] .composer-model-line > .composer-usage-readout {
   height: var(--mx-touch-main);
   line-height: var(--mx-touch-main);
 }
+/* The phone's coding composer (Composer.tsx `phoneCard`): the two-row card of
+   1.2 — the typing band, then +, the model with its gauge, the mic and send.
+   The line under the card holds the readout alone, centred. A bot's 1:1 chat
+   uses the same card; a group room keeps the one-line bar (agent-chat.css). */
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] > .composer-input-row {
+  flex: 0 0 100%;
+  order: 0;
+}
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] > .composer-footer {
+  display: flex;
+  flex: 0 0 100%;
+  order: 1;
+  align-items: center;
+  min-width: 0;
+}
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] > .composer-footer > .composer-tool {
+  margin-block: 0;
+}
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] .composer-footer > .composer-model-line-controls {
+  margin-left: 0;
+}
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] .composer-primary-actions {
+  margin-block: 0;
+  margin-left: auto;
+}
+/* The gauge's card opens upward from the card's row, anchored to the row. */
+html[data-mixdog-mobile-tabs] .composer-footer .session-context-indicator {
+  position: static;
+}
+html[data-mixdog-mobile-tabs] .composer-footer .session-context-popover {
+  top: auto;
+  bottom: calc(100% + 6px);
+  max-width: calc(100vw - 2 * var(--mx-mobile-edge-main));
+}
+html[data-mixdog-mobile-tabs] .composer-model-line {
+  justify-content: center;
+}
+/* The card at the PC's proportions: a 44 typing band whose 24 line sits
+   centred over the 44 control row (88 in all), its text on the same 12dp edge
+   as the transcript and the + glyph below it (PC: 9px / 6px in a 42 bar). The
+   agent bar's 56 pill (agent-chat.css) is not this card. */
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] {
+  min-height: 88px;
+}
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] textarea {
+  min-height: 44px;
+  padding: 10px var(--composer-text-inset);
+}
+/* The phone's dark ramp is neutral grey (below); the card keeps the PC's own
+   composer plate so it reads the same on both. A skin's frosted card still
+   wins (33-skin.css sets the background itself). */
+:root[data-mixdog-mobile-tabs]:not([data-mixdog-theme="light"]) form.composer {
+  --mx-composer-surface: color-mix(in srgb, #222225 87.5%, #2a2a2d);
+}
+/* The readout line under the card at the PC's 36 line and 4 gap (not the 44
+   touch line): the line stays reserved so nothing shifts when the chat
+   starts, and the dock closes on the safe area alone (PC: 2px). */
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] ~ .composer-model-line {
+  min-height: 36px;
+  margin-top: 4px;
+}
+html[data-mixdog-mobile-tabs] form.composer[data-phone-card] ~ .composer-model-line > .composer-usage-readout {
+  height: auto;
+  line-height: inherit;
+}
+html[data-mixdog-mobile-tabs] .composer-region:has(> form.composer[data-phone-card]) {
+  padding-bottom: max(2px, env(safe-area-inset-bottom, 0px));
+}
+html[data-mixdog-mobile-tabs][data-mixdog-keyboard="open"] .composer-region:has(> form.composer[data-phone-card]) {
+  padding-bottom: 2px;
+}
+/* New session: Project / Workflow / Delegation / Branch in a line of their
+   own above the card, in the island's resting place (pill + stage gap). It
+   keeps that height once the chat starts, so the card never moves; chips keep
+   their width and the line scrolls sideways when they do not fit. */
+html[data-mixdog-mobile-tabs] .composer-context-line {
+  display: flex;
+  align-items: center;
+  min-height: var(--island-pill-height);
+  margin-bottom: var(--island-stage-gap);
+  padding-inline: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* In a chat the line is empty and the island takes its place: the slot is
+   pulled down over the reserved band, so the pill rests the PC's stage gap
+   above the card instead of floating a band higher, and the card stays put. */
+html[data-mixdog-mobile-tabs] .composer-island-slot:not([data-presence="closed"]) + .composer-context-line:empty {
+  margin-top: calc(-1 * var(--island-rest-height));
+}
+html[data-mixdog-mobile-tabs] .composer-context-line::-webkit-scrollbar {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .composer-context-line > .composer-model-line-context {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+html[data-mixdog-mobile-tabs] .composer-context-line .composer-model-line-context > * {
+  flex: none;
+}
 html[data-mixdog-mobile-tabs] .dock-scm-commit-back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__close,
 html[data-mixdog-mobile-tabs] .schedules-dialog > header button:not(.extensions-action),
@@ -613,7 +715,7 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .remote-pc-card > .remote-
   top: 100%;
   left: 8px;
   right: 8px;
-  max-height: 60vh;
+  max-height: calc(var(--mx-visible-height, 100dvh) * 0.6);
   margin-top: 4px;
   padding: 6px;
   overflow-y: auto;
@@ -765,7 +867,7 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop {
 /* Mica clears --mx-workspace-sheet inside the main panel, where the dock
    lives, so the sheet above resolved to transparent and the chat and the tab
    strip showed through. The root's solid copy keeps the full-screen sheet opaque. */
-html[data-window-material="mica"][data-mixdog-mobile-tabs] .pane-side-dock {
+html:is([data-window-material="mica"], [data-mixdog-skin])[data-mixdog-mobile-tabs] .pane-side-dock {
   background: var(--mx-sheet-ink);
 }
 /* The closed sheet keeps its box and parks off the right edge so the exit
@@ -931,8 +1033,8 @@ html[data-mixdog-mobile-tabs]
 /* ── Mobile dialogs ── the modal layer covers exactly the visible screen, and every
    dialog inside is clamped to the screen and stays dead-centered. */
 html[data-mixdog-mobile-tabs] .mixdog-settings-layer {
-  --settings-layer-safe-top: 12px;
-  --settings-layer-safe-bottom: 12px;
+  --settings-layer-safe-top: max(12px, env(safe-area-inset-top, 0px));
+  --settings-layer-safe-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   width: 100vw;
   height: var(--mx-visible-height);
   padding: 12px;
@@ -1090,19 +1192,23 @@ html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page {
 html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="contact"] {
   --agent-contact-avatar-size: 48px;
   --agent-contact-padding: 10px 10px 10px 12px;
+  --agent-contact-gap: 10px;
   --agent-contact-min-height: 72px;
+  /* A touch list keeps the meta size the desktop list steps under. */
+  --agent-contact-preview: var(--mx-font-meta);
+  --agent-contact-preview-line: var(--mx-line-meta);
 }
 /* The new-agent dialog is a bottom sheet: full width, grab bar, 44dp targets
    and a footer of two equal thumb buttons above the safe area. */
 html[data-mixdog-mobile-tabs] .schedules-dialog-layer:has(> .agent-create-dialog) {
   align-items: end;
-  padding: max(40px, env(safe-area-inset-top, 0px)) 0 0;
+  padding: max(40px, env(safe-area-inset-top, 0px)) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 }
 html[data-mixdog-mobile-tabs] .agent-create-dialog {
   width: 100%;
   max-height: 100%;
   border-bottom: 0;
-  border-radius: 18px 18px 0 0;
+  border-radius: var(--mx-popup-radius-card) var(--mx-popup-radius-card) 0 0;
 }
 html[data-mixdog-mobile-tabs] .agent-create-dialog::before {
   content: "";
@@ -1149,7 +1255,7 @@ html[data-mixdog-mobile-tabs] .agent-avatar-colors > button[aria-pressed="true"]
   outline-offset: -7px;
 }
 html[data-mixdog-mobile-tabs] .agent-create-dialog footer {
-  padding-bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(var(--mx-dialog-inset), env(safe-area-inset-bottom, 0px));
 }
 html[data-mixdog-mobile-tabs] .agent-create-dialog footer > button {
   flex: 1 1 0;
@@ -1209,11 +1315,19 @@ html[data-mixdog-mobile-tabs] :is(.markdown-code > pre, .markdown-table)::-webki
   display: none;
 }
 
+/* Pane-scoped dialogs sit inside the pane (below the strip, above the
+   composer), so they take the phone gutter but no system-bar reserve. */
+html[data-mixdog-mobile-tabs] .pane-dialog-layer {
+  padding: 12px 16px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 /* Modal polish: safe-area-aware centring, no live blur on a phone GPU, and
    footer actions large enough to tap without changing desktop density. */
 html[data-mixdog-mobile-tabs]
-:is(.onboarding-layer, .schedules-dialog-layer, .settings-confirm-layer, .mx-dialog-layer) {
-  padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px));
+:is(.onboarding-layer, .schedules-dialog-layer, .settings-confirm-layer, .settings-oauth-layer, .mx-dialog-layer) {
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+    max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -1237,7 +1351,9 @@ html[data-mixdog-mobile-tabs]
 }
 html[data-mixdog-mobile-tabs]
   :is(.settings-confirm-dialog > footer, .settings-oauth-dialog > footer, .mx-dialog > footer) {
-  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  /* The layer already clears the home indicator; the footer only keeps the
+     dialog's own gutter instead of reserving the inset a second time. */
+  padding-bottom: var(--mx-dialog-inset);
 }
 
 @media (orientation: landscape) and (max-height: 500px) {

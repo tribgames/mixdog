@@ -63,17 +63,95 @@ export function composerScopeOpensFreshDraft(nextScope: string): boolean {
  *  타이핑하던 글자 남아있게). Empty text drops the entry. */
 const composerDraftsByScope = new Map<string, string>();
 
+/** The stash outlives the page: a phone app sent to the background can be
+ *  reloaded (deploy adoption) or killed by the OS, and the half-typed prompt
+ *  must come back (user: 홈으로 나갔다 오면 적어놓은게 다 지워짐). The page
+ *  writes it when it leaves the screen; a fresh page reads it once. */
+const PERSISTED_DRAFTS_KEY = 'mixdog.composer-drafts';
+const PERSISTED_DRAFTS_LIMIT = 50;
+let persistedDraftsLoaded = false;
+
+function loadPersistedDrafts(): void {
+  if (persistedDraftsLoaded) return;
+  persistedDraftsLoaded = true;
+  try {
+    const stored: unknown = JSON.parse(globalThis.localStorage?.getItem(PERSISTED_DRAFTS_KEY) ?? '[]');
+    if (!Array.isArray(stored)) return;
+    for (const entry of stored) {
+      if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string' && !composerDraftsByScope.has(entry[0])) {
+        composerDraftsByScope.set(entry[0], entry[1]);
+      }
+    }
+  } catch {
+    /* unreadable storage: start with the in-memory stash only */
+  }
+}
+
+/** Writes every parked draft to storage, newest last, bounded. */
+export function persistComposerDrafts(): void {
+  loadPersistedDrafts();
+  try {
+    globalThis.localStorage?.setItem(
+      PERSISTED_DRAFTS_KEY,
+      JSON.stringify([...composerDraftsByScope].slice(-PERSISTED_DRAFTS_LIMIT))
+    );
+  } catch {
+    /* storage full or blocked: the in-memory stash still serves tab switches */
+  }
+}
+
 export function stashComposerDraft(scope: string, text: string): void {
+  loadPersistedDrafts();
+  composerDraftsByScope.delete(scope);
   if (text.trim()) composerDraftsByScope.set(scope, text);
-  else composerDraftsByScope.delete(scope);
 }
 
 export function stashedComposerDraft(scope: string): string {
+  loadPersistedDrafts();
   return composerDraftsByScope.get(scope) ?? '';
 }
 
+/** Attachment chips per composer identity, parked beside the text when the
+ *  user leaves a tab before sending (user: 첨부만 해 둔 파일이 다른 세션
+ *  갔다 오면 사라짐). Chips keep their ids, so the tokens in the parked text
+ *  still name them. Memory only — image data is too large for storage — and
+ *  bounded, oldest tab dropped first. */
+const composerAttachmentsByScope = new Map<string, ComposerAttachment[]>();
+const PARKED_ATTACHMENT_SCOPES_LIMIT = 20;
+
+export function stashComposerAttachments(scope: string, attachments: readonly ComposerAttachment[]): void {
+  composerAttachmentsByScope.delete(scope);
+  if (!attachments.length) return;
+  composerAttachmentsByScope.set(scope, [...attachments]);
+  if (composerAttachmentsByScope.size > PARKED_ATTACHMENT_SCOPES_LIMIT) {
+    composerAttachmentsByScope.delete(composerAttachmentsByScope.keys().next().value as string);
+  }
+}
+
+/** Hands the parked chips back once; the live composer owns them again. */
+export function takeStashedComposerAttachments(scope: string): ComposerAttachment[] {
+  const parked = composerAttachmentsByScope.get(scope) ?? [];
+  composerAttachmentsByScope.delete(scope);
+  return parked;
+}
+
+/** Room members tagged with `@` per composer identity, parked the same way
+ *  so returning to an agent room keeps who answers the unsent message. */
+const composerTagsByScope = new Map<string, string[]>();
+
+export function stashComposerTags(scope: string, memberIds: readonly string[]): void {
+  composerTagsByScope.delete(scope);
+  if (memberIds.length) composerTagsByScope.set(scope, [...memberIds]);
+}
+
+export function takeStashedComposerTags(scope: string): string[] {
+  const parked = composerTagsByScope.get(scope) ?? [];
+  composerTagsByScope.delete(scope);
+  return parked;
+}
+
 /** Mounted composers that hold text or attachments, by identity. With the
- *  stash above it answers whether a New Task tab is still untouched. */
+ *  stashes above it answers whether a New Task tab is still untouched. */
 const composerScopesWithContent = new Set<string>();
 
 export function noteComposerContent(scope: string, hasContent: boolean): void {
@@ -82,7 +160,11 @@ export function noteComposerContent(scope: string, hasContent: boolean): void {
 }
 
 export function composerScopeHasContent(scope: string): boolean {
-  return composerScopesWithContent.has(scope) || Boolean(stashedComposerDraft(scope).trim());
+  return (
+    composerScopesWithContent.has(scope) ||
+    Boolean(stashedComposerDraft(scope).trim()) ||
+    composerAttachmentsByScope.has(scope)
+  );
 }
 
 export function composerDraftAfterScopeChange({

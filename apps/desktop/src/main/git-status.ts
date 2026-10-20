@@ -9,7 +9,7 @@ import {
   sharedRead,
   untrackedStat,
 } from './git-read-utils';
-import { publicGitRemoteUrl, run, streamNulRecords } from './git-runner';
+import { GIT_READ_TIMEOUT_MS, isGitTimeout, publicGitRemoteUrl, runRead, streamNulRecords } from './git-runner';
 
 type GitOperation = '' | 'merge' | 'rebase' | 'cherry-pick' | 'revert';
 
@@ -114,31 +114,38 @@ async function readNumstat(
   const stats = new Map<string, { additions: number; deletions: number }>();
   let renameStat: { additions: number; deletions: number; oldPathSeen: boolean } | null = null;
   try {
-    await streamNulRecords(cwd, args, (field) => {
-      if (renameStat) {
-        if (!renameStat.oldPathSeen) {
-          renameStat.oldPathSeen = true;
+    await streamNulRecords(
+      cwd,
+      args,
+      (field) => {
+        if (renameStat) {
+          if (!renameStat.oldPathSeen) {
+            renameStat.oldPathSeen = true;
+            return;
+          }
+          if (field)
+            stats.set(field, {
+              additions: renameStat.additions,
+              deletions: renameStat.deletions,
+            });
+          renameStat = null;
           return;
         }
-        if (field)
-          stats.set(field, {
-            additions: renameStat.additions,
-            deletions: renameStat.deletions,
-          });
-        renameStat = null;
-        return;
-      }
-      const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(field);
-      if (!match) return;
-      const value = {
-        additions: match[1] === '-' ? 0 : Number(match[1]),
-        deletions: match[2] === '-' ? 0 : Number(match[2]),
-      };
-      if (match[3]) stats.set(match[3], value);
-      else renameStat = { ...value, oldPathSeen: false };
-    });
+        const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(field);
+        if (!match) return;
+        const value = {
+          additions: match[1] === '-' ? 0 : Number(match[1]),
+          deletions: match[2] === '-' ? 0 : Number(match[2]),
+        };
+        if (match[3]) stats.set(match[3], value);
+        else renameStat = { ...value, oldPathSeen: false };
+      },
+      { timeoutMs: GIT_READ_TIMEOUT_MS }
+    );
     return stats;
-  } catch {
+  } catch (error) {
+    // Zero counts would be cached as the files' line stats.
+    if (isGitTimeout(error)) throw error;
     return new Map();
   }
 }
@@ -166,7 +173,11 @@ async function remoteMetadata(cwd: string): Promise<CachedRemoteMetadata> {
   const key = gitCacheKey(cwd);
   const cached = remoteMetadataCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached;
-  const raw = await run(cwd, ['--no-optional-locks', 'remote', '-v']).catch(() => '');
+  const raw = await runRead(cwd, ['--no-optional-locks', 'remote', '-v']).catch((error: unknown) => {
+    // "No remotes" would be cached for the metadata TTL.
+    if (isGitTimeout(error)) throw error;
+    return '';
+  });
   const names: string[] = [];
   const urls = new Map<string, string>();
   for (const line of raw.split(/\r?\n/)) {
@@ -190,7 +201,7 @@ export async function cachedGitRoot(cwd: string): Promise<string> {
   const key = gitCacheKey(cwd);
   const cached = gitRootCache.get(key);
   if (cached) return cached;
-  const root = resolve((await run(cwd, ['--no-optional-locks', 'rev-parse', '--show-toplevel'])).trim());
+  const root = resolve((await runRead(cwd, ['--no-optional-locks', 'rev-parse', '--show-toplevel'])).trim());
   gitRootCache.set(key, root);
   return root;
 }
@@ -211,7 +222,7 @@ async function cachedGitDir(cwd: string): Promise<string> {
       await access(join(dotGit, 'HEAD'));
       gitDir = dotGit;
     } catch {
-      gitDir = resolve(cwd, (await run(cwd, ['--no-optional-locks', 'rev-parse', '--absolute-git-dir'])).trim());
+      gitDir = resolve(cwd, (await runRead(cwd, ['--no-optional-locks', 'rev-parse', '--absolute-git-dir'])).trim());
     }
   }
   gitDirCache.set(key, gitDir);
@@ -261,9 +272,11 @@ async function applyFreshLineStats(
 
 export async function hasHead(cwd: string): Promise<boolean> {
   try {
-    await run(cwd, ['rev-parse', '--verify', 'HEAD']);
+    await runRead(cwd, ['rev-parse', '--verify', 'HEAD']);
     return true;
-  } catch {
+  } catch (error) {
+    // false reads as an unborn HEAD (diffed against the empty tree).
+    if (isGitTimeout(error)) throw error;
     return false;
   }
 }
@@ -272,7 +285,8 @@ export async function currentGitOperation(cwd: string): Promise<GitOperation> {
   let gitDir = '';
   try {
     gitDir = await cachedGitDir(cwd);
-  } catch {
+  } catch (error) {
+    if (isGitTimeout(error)) throw error;
     return '';
   }
   const exists = async (name: string): Promise<boolean> => {
@@ -362,7 +376,8 @@ async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promi
       );
       if (kind === '2') pendingRename = file;
       else files.push(file);
-    }
+    },
+    { timeoutMs: GIT_READ_TIMEOUT_MS }
   );
   const collectLineStats = options.skipLineStats !== true;
   const eagerStats = collectLineStats && options.reuseLineStats !== true;
@@ -370,10 +385,20 @@ async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promi
   const unstagedStatsPromise = eagerStats ? readNumstat(cwd, UNSTAGED_NUMSTAT_ARGS) : null;
   const metadataPromise = remoteMetadata(cwd);
   const operationPromise = currentGitOperation(cwd);
-  const rootPromise = cachedGitRoot(cwd).catch(() => '');
+  const rootPromise = cachedGitRoot(cwd).catch((error: unknown) => {
+    if (isGitTimeout(error)) throw error;
+    return '';
+  });
+  // A timed-out scan rejects before these are awaited; their own timeouts
+  // must not surface as unhandled rejections then.
+  for (const pending of [stagedStatsPromise, unstagedStatsPromise, metadataPromise, operationPromise, rootPromise]) {
+    pending?.catch(() => {});
+  }
   try {
     await statusStream;
-  } catch {
+  } catch (error) {
+    // An empty status reads as "not a repository"; a timeout's answer is unknown.
+    if (isGitTimeout(error)) throw error;
     return emptyStatus();
   }
   if (pendingRename) files.push(pendingRename);

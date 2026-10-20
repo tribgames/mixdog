@@ -1,5 +1,6 @@
 import { setMaxListeners } from 'node:events';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { writeFileAtomicSync } from '../../../shared/atomic-file.mjs';
 import { writeFile } from 'node:fs/promises';
 import {
   MAX_ATTACHMENT_BLOB_BYTES,
@@ -772,9 +773,11 @@ function spillMcpBinary(buffer, extension) {
   const path = join(dir, `mcp-${hash}.${extension}`);
   try {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path, buffer, { flag: 'wx' });
-  } catch (err) {
-    if (err?.code !== 'EEXIST') return null;
+    // Named by its content hash: whole-file create-if-absent (a crash never
+    // leaves a torn file under the name that would be trusted as the content).
+    writeFileAtomicSync(path, buffer, { createOnly: true });
+  } catch {
+    return null;
   }
   return path;
 }

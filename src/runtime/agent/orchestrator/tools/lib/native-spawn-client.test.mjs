@@ -6,8 +6,11 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { ENUMERATION_DEADLINE_MS } from '../../mcp/child-tree.mjs';
 import { execShellCommand } from '../shell-command.mjs';
-import { retireShellJobRecord } from '../builtin/lib/shell-job-records.mjs';
+import { _shellJobRecordWritesSettledForTest, retireShellJobRecord } from '../builtin/lib/shell-job-records.mjs';
+import { waitShellJobTerminated } from '../builtin/shell-jobs.mjs';
+import { TERMINATION_RECHECK_MS } from './shell-descendants.mjs';
 import {
   _assertNativeSpawnCapabilitiesForTest,
   _resetNativeSpawnClientForTest,
@@ -37,7 +40,15 @@ test('native spawn rejects binaries without the required lifecycle protocol', ()
   );
 });
 
-test('foreground shell has stable owner identity before promotion', { timeout: 15_000 }, async (t) => {
+// The terminal record follows confirmed termination, i.e. a strict process-
+// table read begun after the kill (~1 s healthy, far longer under load). The
+// watch's first read may queue behind the pre-kill capture; a pass the read
+// outlasts is re-checked one cadence later with a fresh read.
+const TERMINATION_CONFIRM_BOUND_MS = 3 * ENUMERATION_DEADLINE_MS + TERMINATION_RECHECK_MS;
+
+test('foreground shell has stable owner identity before promotion', {
+  timeout: TERMINATION_CONFIRM_BOUND_MS + 15_000,
+}, async (t) => {
   const binary = resolve(
     'native/mixdog-spawn/target/debug',
     process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn'
@@ -100,11 +111,22 @@ test('foreground shell has stable owner identity before promotion', { timeout: 1
     const terminal = await waitNativeTask(jobId, 3_000);
     assert.notEqual(terminal?.status, 'running');
     assert.equal(terminal?.status, 'cancelled');
-    // Native termination precedes the asynchronous terminal sidecar write.
-    // Wait for its final created file before removing the fixture directory.
+    // Native termination precedes the confirmation that the tree is gone and
+    // the terminal sidecar write that follows it. Wait for both before
+    // removing the fixture directory. The watch's timers are unref'd: hold the
+    // event loop open between its passes.
+    const holdLoop = setInterval(() => {}, 1_000);
+    try {
+      assert.equal(
+        await waitShellJobTerminated(jobId, TERMINATION_CONFIRM_BOUND_MS),
+        true,
+        'cancelled shell tree was not confirmed gone'
+      );
+    } finally {
+      clearInterval(holdLoop);
+    }
+    await _shellJobRecordWritesSettledForTest(jobId);
     const donePath = join(root, 'shell-jobs', `${jobId}.done`);
-    const deadline = Date.now() + 3_000;
-    while (!existsSync(donePath) && Date.now() < deadline) await delay(10);
     assert.ok(existsSync(donePath), 'terminal shell record did not finish publication');
   } finally {
     if (jobId) retireShellJobRecord(jobId);

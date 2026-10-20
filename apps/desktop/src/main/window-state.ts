@@ -1,7 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 import type { BrowserWindow, Display, Rectangle } from 'electron';
+import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
 interface PersistedWindowState {
@@ -113,10 +113,7 @@ export function persistWindowState(
     };
     writes = writes
       .then(async () => {
-        await mkdir(dirname(filePath), { recursive: true });
-        const temporaryPath = `${filePath}.${process.pid}.tmp`;
-        await writeFile(temporaryPath, `${JSON.stringify(state)}\n`, { encoding: 'utf8', mode: 0o600 });
-        await rename(temporaryPath, filePath);
+        await writeJsonAtomicAsync(filePath, state, { compact: true });
       })
       .catch((error: unknown) => {
         console.error('Failed to persist desktop window state:', error);

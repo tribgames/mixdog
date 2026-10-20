@@ -1,9 +1,12 @@
 // The SSH servers this machine has connected to: a small JSON list in the app
 // data folder. Only the entry is stored here — never a key, password or token.
-import { readFileSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
+import {
+  readJsonState,
+  readJsonStateSync,
+  writeJsonAtomicAsync,
+} from '../../../../../src/runtime/shared/atomic-file.mjs';
 import type { SshHostSettings } from './ssh-context';
 import { parseSshTarget, sshTargetKey } from './ssh-command';
 
@@ -148,12 +151,18 @@ function savedHostSync(hostId: string): SshHostRecord | undefined {
   const loaded = loadedStores.get(configuredPath);
   if (loaded) return loaded.get(hostId);
   try {
-    return storedHosts(JSON.parse(readFileSync(join(configuredPath, HOSTS_FILE), 'utf8'))).find(
+    return storedHosts(readJsonStateSync(join(configuredPath, HOSTS_FILE), { validate: hostsDocument })).find(
       (entry) => entry.id === hostId
     );
   } catch {
     return undefined;
   }
+}
+
+/** A saved list is an object holding a `hosts` array; anything else is damage. */
+function hostsDocument(value: unknown): unknown {
+  if (!Array.isArray((value as { hosts?: unknown } | null)?.hosts)) throw new TypeError('Missing hosts list.');
+  return value;
 }
 const keyOf = (target: string): string => sshTargetKey(parseSshTarget(target));
 
@@ -192,19 +201,20 @@ export async function loadSshHostStore(userDataPath: string): Promise<SshHostSto
   const file = join(userDataPath, HOSTS_FILE);
   let hosts: SshHostRecord[] = [];
   try {
-    hosts = storedHosts(JSON.parse(await readFile(file, 'utf8')));
-  } catch {
-    /* first run, or an unreadable list: start empty */
+    // A damaged list is kept aside as .corrupt-<ts> and the last good copy restored.
+    hosts = storedHosts(await readJsonState(file, { validate: hostsDocument }));
+  } catch (error) {
+    // The file cannot be read at all (permissions…): work in memory; a write
+    // that cannot read the file it replaces fails instead of wiping it.
+    console.warn(`[ssh-hosts] ${file} could not be read: ${(error as Error).message}`);
   }
   let writes: Promise<void> = Promise.resolve();
   const persist = (): Promise<void> => {
-    const snapshot = JSON.stringify({ version: 1, hosts });
+    const snapshot = structuredClone({ version: 1, hosts });
     writes = writes
       .catch(() => undefined)
       .then(async () => {
-        await mkdir(dirname(file), { recursive: true });
-        await writeFile(`${file}.tmp`, snapshot, 'utf8');
-        await rename(`${file}.tmp`, file);
+        await writeJsonAtomicAsync(file, snapshot, { compact: true, backup: true });
       });
     return writes;
   };

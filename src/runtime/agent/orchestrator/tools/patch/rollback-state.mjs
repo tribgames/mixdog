@@ -8,7 +8,17 @@
 // { existed: true, content: null, omitted: true, size, mode }. Omitted is not
 // empty content — restore never writes it, and only reports it untouched when
 // the file provably still is.
-import { chmodSync, existsSync, statSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname as pathDirname } from 'node:path';
 import {
   createSnapshotBudget,
@@ -83,6 +93,27 @@ function omittedSnapshotIssue(snapshot) {
   return `${what}; the file changed and cannot be restored`;
 }
 
+// Filesystems that refuse fsync answer with one of these; durability is
+// best-effort there and must not fail the restore.
+const FSYNC_TOLERATED = new Set(['EPERM', 'ENOTSUP', 'EINVAL']);
+
+// The restore rewrites a file of the user's project in place: flush it through
+// the handle that wrote it, like the write tool does, so a crash cannot leave
+// the restored file with its size committed and every byte NUL.
+function writeRestoredFile(path, content) {
+  const fd = openSync(path, 'w');
+  try {
+    writeFileSync(fd, content);
+    try {
+      fsyncSync(fd);
+    } catch (err) {
+      if (!FSYNC_TOLERATED.has(err?.code)) throw err;
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export function restorePatchRollbackState(snapshots, readStateScope) {
   const errors = [];
   const paths = [];
@@ -96,7 +127,7 @@ export function restorePatchRollbackState(snapshots, readStateScope) {
     try {
       if (snapshot.existed) {
         mkdirSync(pathDirname(snapshot.fullPath), { recursive: true });
-        writeFileSync(snapshot.fullPath, snapshot.content);
+        writeRestoredFile(snapshot.fullPath, snapshot.content);
         if (snapshot.mode != null) chmodSync(snapshot.fullPath, snapshot.mode);
       } else if (existsSync(snapshot.fullPath)) {
         rmSync(snapshot.fullPath, { force: true });

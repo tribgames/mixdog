@@ -20,9 +20,10 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { holdsNoData, writeFileAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData, mixdogRoot } from './plugin-paths.mjs';
 
 const _cwdOverride = new AsyncLocalStorage();
@@ -112,7 +113,10 @@ export function explicitSessionCwd() {
     if (sessionDir) return sessionDir;
   }
   try {
-    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim();
+    const raw = readFileSync(_dataFile('user-cwd.txt'), 'utf8');
+    // A crash can leave NUL bytes in place of the path: that is no path.
+    if (holdsNoData(raw)) return null;
+    const txt = raw.trim();
     return (txt && _normalizePlatformCwd(txt)) || null;
   } catch {
     return null;
@@ -173,7 +177,7 @@ function _lastSessionCwdFile(keyPid) {
  */
 export function writeLastSessionCwd(cwd, keyPid) {
   try {
-    writeFileSync(_lastSessionCwdFile(keyPid), String(cwd));
+    writeFileAtomicSync(_lastSessionCwdFile(keyPid), String(cwd));
   } catch {
     /* best-effort */
   }
@@ -188,7 +192,8 @@ export function writeLastSessionCwd(cwd, keyPid) {
  */
 export function readLastSessionCwd(keyPid) {
   try {
-    return _existingDirectory(readFileSync(_lastSessionCwdFile(keyPid), 'utf8').trim());
+    const raw = readFileSync(_lastSessionCwdFile(keyPid), 'utf8');
+    return holdsNoData(raw) ? null : _existingDirectory(raw.trim());
   } catch {
     return null;
   }

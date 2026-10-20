@@ -94,7 +94,9 @@ export async function streamResponseToFile(
   });
 
   try {
-    await pipeline(response.body, guard, createWriteStream(destPath));
+    // flush: the bytes reach disk before the caller installs the file, so a
+    // crash cannot leave an installed binary that is all NUL.
+    await pipeline(response.body, guard, createWriteStream(destPath, { flush: true }));
     return downloaded;
   } catch (error) {
     try {

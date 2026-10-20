@@ -27,6 +27,10 @@ export function ComposerPalette({
     const menu = panel.current;
     if (!active || !input || !menu) return;
     const visual = window.visualViewport;
+    const probe = document.createElement('div');
+    probe.style.cssText =
+      'position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top, 0px)';
+    document.body.append(probe);
     const place = () => {
       const rect = input.getBoundingClientRect();
       const left = visual?.offsetLeft ?? 0;
@@ -35,7 +39,8 @@ export function ComposerPalette({
       const bottom = top + (visual?.height ?? window.innerHeight);
       const menuBottom = Math.min(rect.top - 8, bottom - 8);
       const menuWidth = Math.max(0, Math.min(rect.width, width - 16));
-      const available = Math.max(0, menuBottom - top - 8);
+      const safeTop = Number.parseFloat(window.getComputedStyle(probe).paddingTop) || 0;
+      const available = Math.max(0, menuBottom - Math.max(top, safeTop) - 8);
       menu.style.left = `${Math.max(left + 8, Math.min(rect.left, left + width - menuWidth - 8))}px`;
       menu.style.width = `${menuWidth}px`;
       menu.style.bottom = `${window.innerHeight - menuBottom}px`;
@@ -62,6 +67,7 @@ export function ComposerPalette({
     visual?.addEventListener('resize', place);
     visual?.addEventListener('scroll', place);
     return () => {
+      probe.remove();
       resize.disconnect();
       visibility.disconnect();
       window.removeEventListener('resize', place);

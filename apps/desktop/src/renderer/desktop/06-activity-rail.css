@@ -75,19 +75,37 @@
    icon (it is only present while an update waits, which is the signal); it
    leaves the column when no update is waiting. A downloading slot wears a
    progress ring around the glyph. */
-.activity-rail > .rail-update-slot {
-  color: var(--mx-icon);
-}
+/* Accent badge (the former title-bar look): accent glyph on a tinted circle,
+   directly above Settings. Downloading drops the glyph; the accent ring
+   alone turns, its arc the progress. */
+.activity-rail > .rail-update-slot,
 .activity-rail > .rail-update-slot:hover:not(:disabled),
 .activity-rail > .rail-update-slot:focus-visible {
-  color: var(--mx-text);
+  color: var(--mx-text-accent);
+}
+.activity-rail > .rail-update-slot::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-text-accent) 20%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.activity-rail > .rail-update-slot:hover:not(:disabled)::after,
+.activity-rail > .rail-update-slot:focus-visible::after {
+  background: color-mix(in srgb, var(--mx-text-accent) 28%, var(--mx-bg-layer-1));
+}
+.activity-rail > .rail-update-slot > svg:not(.rail-update-ring) {
+  position: relative;
+  z-index: 1;
 }
 .activity-rail > .rail-update-slot:disabled {
   opacity: 0.5;
   cursor: default;
-}
-.activity-rail > .rail-update-slot[data-kind="downloading"] {
-  color: var(--mx-text-soft);
 }
 .rail-update-ring {
   position: absolute;
@@ -95,16 +113,30 @@
   height: 34px;
   transform: rotate(-90deg);
   pointer-events: none;
+  animation: rail-update-ring-spin 1.2s linear infinite;
+}
+@keyframes rail-update-ring-spin {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-update-ring {
+    animation: none;
+  }
 }
 .rail-update-ring circle {
   fill: none;
   stroke-width: 2;
 }
 .rail-update-ring-track {
-  stroke: color-mix(in srgb, var(--mx-text) 14%, transparent);
+  stroke: color-mix(in srgb, var(--mx-text-accent) 22%, transparent);
 }
 .rail-update-ring-fill {
-  stroke: var(--mx-text);
+  stroke: var(--mx-text-accent);
   stroke-linecap: round;
 }
 .activity-rail > button.is-active,

@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, renameSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -53,6 +62,47 @@ for (const epochTimestamp of [false, true]) {
     assert.equal(storage.read('s').goal, null);
   });
 }
+
+test('a NUL-filled or unsupported record reads as no Goal, kept aside; a good .bak is restored', (t) => {
+  const { dir, path, storage } = fixture(t, async () => {});
+  writeFileSync(path, '\0'.repeat(32));
+  assert.equal(storage.read('s').goal, null);
+  writeFileSync(path, JSON.stringify({ version: 99, goal: { id: 'future' } }));
+  assert.equal(storage.read('s').goal, null);
+  assert.equal(readdirSync(dir).filter((name) => name.includes('.corrupt-')).length >= 1, true);
+  writeFileSync(`${path}.bak`, JSON.stringify({ version: 1, goal: { id: 'backup' } }));
+  writeFileSync(path, '\0'.repeat(32));
+  assert.equal(storage.read('s').goal.id, 'backup');
+});
+
+test('a write refuses to replace a record from a newer build, keeping it and its backup', async (t) => {
+  let writes = 0;
+  const { dir, path, storage } = fixture(t, async (target, value) => {
+    writes += 1;
+    writeFileSync(target, JSON.stringify(value));
+  });
+  const future = JSON.stringify({ version: 99, goal: { id: 'future' } });
+  writeFileSync(path, future);
+  writeFileSync(`${path}.bak`, JSON.stringify({ version: 1, goal: { id: 'older' } }));
+  await assert.rejects(
+    storage.write('s', { version: 1, goal: { id: 'mine' } }),
+    (error) => error.code === 'EGOALNEWERVERSION' && /newer build/.test(error.message)
+  );
+  assert.equal(writes, 0, 'the writer was never reached');
+  assert.equal(readFileSync(path, 'utf8'), future);
+  assert.equal(JSON.parse(readFileSync(`${path}.bak`, 'utf8')).goal.id, 'older');
+  assert.equal(
+    readdirSync(dir).some((name) => name.includes('.corrupt-')),
+    false
+  );
+  // Current-version, damaged and absent records stay writable.
+  for (const before of [JSON.stringify({ version: 1, goal: null }), '\0'.repeat(16), null]) {
+    if (before === null) unlinkSync(path);
+    else writeFileSync(path, before);
+    await storage.write('s', { version: 1, goal: { id: 'mine' } });
+  }
+  assert.equal(writes, 3);
+});
 
 test('an atomic replacement with the same size and modification time invalidates the Goal cache', (t) => {
   const { dir, path, storage } = fixture(t, async () => {});

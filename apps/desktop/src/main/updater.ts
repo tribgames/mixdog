@@ -1,7 +1,8 @@
 import { app } from 'electron';
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 
+import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopUpdaterState } from '../shared/contract';
 import { createUpdaterController, type UpdaterReadyRecord } from './updater-controller';
 import { normalizeUpdaterDevFeed } from './updater-feed';
@@ -35,15 +36,7 @@ function readyPersistence(filePath: string) {
       }
     },
     async set(value: UpdaterReadyRecord): Promise<void> {
-      await mkdir(dirname(filePath), { recursive: true });
-      const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-      try {
-        await writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600 });
-        await rename(temporary, filePath);
-      } catch (error) {
-        await unlink(temporary).catch(() => undefined);
-        throw error;
-      }
+      await writeJsonAtomicAsync(filePath, value, { compact: true });
     },
     async clear(): Promise<void> {
       await unlink(filePath).catch((error: NodeJS.ErrnoException) => {

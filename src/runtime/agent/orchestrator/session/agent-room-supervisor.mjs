@@ -38,6 +38,8 @@ const ROOM_SUPERVISOR_SYSTEM = [
   'Rules for both scenes:',
   '- Members the user names speak first, in the order named, whether the name is written with @ or without it, by name or by id, in any language or with particles attached (for example "Mixy한테 물어봐" or "ask Bench").',
   '- Otherwise pick the member best suited to what is still open, judged by their name and description. Prefer members who have not taken a turn yet in this exchange.',
+  "- Messages before the user's newest message are background only: a topic they settled is closed. Never steer a member back to it, and never write an instruction about it unless the newest message reopens it.",
+  "- When the user's newest message is already answered, finish unless something said after it is still open (a question to a member, an @mention, a concrete disagreement). Members passing means nobody has anything to add: finish.",
   '- Never pick the member who took the last turn.',
   '- A member a speech addressed with @Name is a strong candidate while that question is still open.',
   '- Finish when the budget is nearly spent.',
@@ -108,7 +110,10 @@ export function roomSupervisorPrompt({
   lines.push('Recent messages, oldest first:');
   const recent = roomSupervisorRows(rows);
   if (!recent.length) lines.push('(none)');
-  for (const row of recent) {
+  const newest = recent.findLastIndex((row) => row.kind === 'user');
+  for (const [index, row] of recent.entries()) {
+    if (index === 0 && newest > 0) lines.push('(background: earlier talk, already settled)');
+    if (index === newest) lines.push("(the user's newest message and what followed it)");
     if (row.kind === 'user') {
       const targets = roomRowTargets(row).map((target) => short(target.name));
       lines.push(`[user, ${targets.length ? `to ${targets.join(', ')} only` : 'to everyone'}]`);
@@ -128,6 +133,18 @@ export function roomSupervisorPrompt({
       tally.size
         ? [...tally].map(([id, counts]) => `${who(id)} spoke ${counts.spoke}, passed ${counts.passed}`).join('; ')
         : 'no member has taken a turn yet'
+    }`
+  );
+  // Whether the newest message still needs an answer: once it has one, only
+  // what was said after it can keep the talk going.
+  const answeredBy = newest >= 0 ? recent.slice(newest + 1).find((row) => row.kind === 'speech') : undefined;
+  lines.push(
+    `The user's newest message: ${
+      newest < 0
+        ? 'none in view'
+        : answeredBy
+          ? `already answered (first by ${who(answeredBy.speaker || answeredBy.name)})`
+          : 'not answered yet'
     }`
   );
   if (byId.has(last)) lines.push(`Last turn: ${who(last)}; pick someone else.`);

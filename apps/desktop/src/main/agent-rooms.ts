@@ -9,8 +9,6 @@
 // counts and the phone all work unchanged. A round in flight lives in memory
 // only: a restarted host marks it interrupted and never resumes it.
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import {
   type RoomConfig,
   type RoomRow,
@@ -37,6 +35,7 @@ import {
   type RoomSupervisorInput,
   roomSupervisorRows,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
+import { readJsonState, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
 import { type AgentCatalogRow, MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 import type {
@@ -55,6 +54,11 @@ export interface AgentRoomRecord extends RoomConfig {
   createdAt: number;
   /** Per member: the id of the last room row it was shown. */
   cursors: Record<string, string>;
+  /** Per member: the id of the newest row a prompt its session took was
+   *  handed. A turn cut short restores the cursor but not this, so the rows
+   *  it hands again are context, and a cursor the log read no longer holds
+   *  never re-hands older rows as new (rowsSinceCursor). */
+  seen?: Record<string, string>;
   /** Who said the last line: an agent id, or 'user'. */
   lastSpeaker?: string;
   lastAt?: number;
@@ -140,7 +144,11 @@ interface RunState {
   approval: Record<string, unknown> | null;
   /** A message sent while members were speaking: the turns still queued are
    *  dropped at the next turn boundary and its exchange runs next. */
-  pending: { to: string[] } | null;
+  pending: { to: string[]; waiting: true } | null;
+  /** The user's newest message has no answer from this exchange yet: set when
+   *  a user message starts it, cleared by its first speech. A reply the member
+   *  in flight finishes after a newer message is not an answer to it. */
+  waiting: boolean;
 }
 
 const TOOL_SUMMARY = 400;
@@ -206,28 +214,68 @@ function emptyFinishedTurn(snapshot: SessionSnapshot, startedAt: number): Return
   return { id: done.id as string, at: done.at, status: 'done', text: '' };
 }
 
-/** A JSON file of room records, written whole and atomically. */
+/**
+ * One list in log order from `read`, a snapshot of the log's tail window (in
+ * log order, the authority), and `posted`, the rows this host posted since it
+ * started (in log order, a subsequence of the log). The log also holds rows
+ * the host never posted (the daemon's task reports), so a row's place comes
+ * from the read, never from who posted it or from its `at` (a report carries
+ * the time it was queued, not posted). A posted row the read lacks sits
+ * before the window when a later posted row is in it (it fell out of the
+ * tail), and after it otherwise (the read has not caught up with it). With no
+ * posted row in the window, time decides which side the posted rows go.
+ */
+export function inLogOrder(read: RoomRow[], posted: RoomRow[]): RoomRow[] {
+  const at = new Map(read.map((row, index) => [row.id, index]));
+  const older: RoomRow[] = [];
+  const before = new Map<number, RoomRow[]>();
+  let pending: RoomRow[] = [];
+  let shared = false;
+  for (const row of posted) {
+    const index = at.get(row.id);
+    if (index === undefined) {
+      pending.push(row);
+      continue;
+    }
+    // Rows ahead of the first shared one fell out of the window; any between
+    // two shared ones go right before the later one.
+    if (shared) before.set(index, pending);
+    else older.push(...pending);
+    shared = true;
+    pending = [];
+  }
+  if (!shared) {
+    const opens = read.at(-1)?.at;
+    const newer = !read.length || !(typeof opens === 'number' && Number(posted[0]?.at) <= opens);
+    return newer ? [...read, ...posted] : [...posted, ...read];
+  }
+  return [...older, ...read.flatMap((row, index) => [...(before.get(index) ?? []), row]), ...pending];
+}
+
+function roomDocOf(value: unknown): AgentRoomStoreDoc {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('The room records are not an object.');
+  }
+  const { rooms } = value as Partial<AgentRoomStoreDoc>;
+  return { rooms: rooms && typeof rooms === 'object' ? rooms : {} };
+}
+
+/** A JSON file of room records, written whole and atomically. A damaged file
+ *  (NUL-filled, truncated) never loses the rooms for good: it is kept aside
+ *  and the last good copy, which every save keeps, is restored. */
 export function createAgentRoomFileStore(filePath: string): AgentRoomStore {
   let chain: Promise<void> = Promise.resolve();
   return {
-    async load() {
-      try {
-        const parsed = JSON.parse(await readFile(filePath, 'utf8')) as AgentRoomStoreDoc;
-        return { rooms: parsed && typeof parsed.rooms === 'object' && parsed.rooms ? parsed.rooms : {} };
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return { rooms: {} };
-        throw error;
-      }
+    load() {
+      return readJsonState(filePath, { validate: roomDocOf, fallback: { rooms: {} } });
     },
     save(doc) {
-      const body = `${JSON.stringify(doc, null, 2)}\n`;
+      // The record as of this call, whatever the host changes while the write waits its turn.
+      const snapshot = structuredClone(doc);
       chain = chain
         .catch(() => undefined)
         .then(async () => {
-          await mkdir(dirname(filePath), { recursive: true });
-          const temp = `${filePath}.${process.pid}.tmp`;
-          await writeFile(temp, body, 'utf8');
-          await rename(temp, filePath);
+          await writeJsonAtomicAsync(filePath, snapshot, { backup: true });
         });
       return chain;
     },
@@ -253,14 +301,26 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   let stored: Promise<void> | null = null;
   /** The room records alone: no daemon call. */
   function loadRecords(): Promise<void> {
-    stored ??= deps.store.load().then((value) => {
-      doc = value;
-    });
+    // A failed read is not kept: the next room action reads again.
+    stored ??= deps.store.load().then(
+      (value) => {
+        doc = value;
+      },
+      (error) => {
+        stored = null;
+        throw error;
+      }
+    );
     return stored;
   }
 
   function ready(): Promise<void> {
-    loaded ??= loadRecords().then(refreshNames);
+    loaded ??= loadRecords()
+      .then(refreshNames)
+      .catch((error) => {
+        loaded = null;
+        throw error;
+      });
     return loaded;
   }
 
@@ -317,10 +377,10 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     }
   }
 
+  /** The room's rows in log order. */
   async function roomRows(roomId: string): Promise<RoomRow[]> {
     const read = roomRowsOfItems(await deps.readItems(roomSessionId(roomId)).catch(() => []));
-    const ids = new Set(read.map((row) => row.id));
-    return [...read, ...(recent.get(roomId) ?? []).filter((row) => !ids.has(row.id))];
+    return inLogOrder(read, recent.get(roomId) ?? []);
   }
 
   async function ensureMemberSession(roomId: string, member: { id: string; route: unknown }): Promise<string> {
@@ -347,13 +407,40 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   ): Promise<RoomTurnAnswer> {
     const room = roomOf(roomId);
     const member = labels.get(agentId) ?? { id: agentId, name: agentId, route: undefined, description: '' };
+    // Whether the user's newest message still has no answer in the room.
+    const waiting = state.waiting;
+    const rows = await roomRows(roomId);
+    let shown = rowsSinceCursor(rows, room.cursors[agentId], agentId, room.seen?.[agentId]);
+    // A user still waiting keeps their newest message in view, as context
+    // when this member was already handed it.
+    const asked = waiting ? [...rows].reverse().find((row) => row.kind === 'user') : undefined;
+    if (asked && !shown.some((row) => row.id === asked.id)) shown = [{ ...asked, seen: true }, ...shown];
+    // Nothing new, nobody asking for it (the user, a peer's @mention or the
+    // supervisor's note) and no user waiting: there is no turn to hand, so
+    // none is; the member counts as passing and nothing is posted.
+    const called = addressed.length > 0 || Boolean(mentionedBy) || Boolean(instruction.trim());
+    if (!waiting && !called && !shown.some((row) => !row.seen)) return 'pass';
     Object.assign(state, {
       speaking: agentId,
       speakingName: member.name,
       typingId: `room-typing-${newId()}`,
+      memberSession: '',
       approval: null,
     });
     deps.republish(roomSessionId(roomId));
+    // A newer user message cuts this turn short: its answer would only
+    // respond to rows older than that message, so nothing is posted for it
+    // (no speech, no pass), the member's session is aborted, and the rows it
+    // was handed come again on its next turn, marked as already shown
+    // (`seen` stays), with the message that cut it off as the new request.
+    const cursorBefore = room.cursors[agentId];
+    const interrupted = () => Boolean(state.pending) && !state.stop;
+    const cutShort = async (): Promise<'superseded'> => {
+      if (cursorBefore === undefined) delete room.cursors[agentId];
+      else room.cursors[agentId] = cursorBefore;
+      if (state.memberSession) await deps.abort(state.memberSession).catch(() => undefined);
+      return 'superseded';
+    };
     const passRow = (failed = false): RoomRow => ({
       id: `row_${newId()}`,
       kind: 'pass',
@@ -366,32 +453,35 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     let answer: ReturnType<typeof sessionFinalAnswer> = null;
     let snapshot: SessionSnapshot = null;
     let startedAt = 0;
-    // Whether the user's newest message still has no answer in the room.
-    let waiting = false;
     try {
       const sessionId = await ensureMemberSession(roomId, member);
       state.memberSession = sessionId;
-      const rows = await roomRows(roomId);
-      waiting = roomUserWaiting(rows);
       const prompt = roomTurnPrompt({
         roomName: room.name,
         self: member,
         members: room.members.map((id) => labels.get(id) ?? { id, name: id }),
-        rows: rowsSinceCursor(rows, room.cursors[agentId], agentId),
+        rows: shown,
         shareTools: room.shareTools,
         addressed,
         mentionedBy: mentionedBy ? (labels.get(mentionedBy)?.name ?? mentionedBy) : '',
         instruction,
         scene,
+        waiting,
       });
       const last = rows.at(-1);
       if (last) room.cursors[agentId] = last.id;
       if (state.stop) return 'stopped';
+      if (interrupted()) return await cutShort();
       startedAt = now();
       if (!(await deps.submit(sessionId, prompt))) throw new Error('the turn was not accepted');
+      // The member's session now holds every row up to the newest: a cut
+      // short restores the cursor, never this.
+      const handed = rows.at(-1)?.id;
+      if (handed) room.seen = { ...room.seen, [agentId]: handed };
       let misses = 0;
       while (!answer) {
         if (state.stop) return 'stopped';
+        if (interrupted()) return await cutShort();
         await sleep(pollMs);
         try {
           snapshot = await deps.readSnapshot(sessionId);
@@ -411,6 +501,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     } catch (error) {
       log(`${agentId} could not speak in room ${roomId}: ${error instanceof Error ? error.message : String(error)}`);
       if (state.stop) return 'stopped';
+      if (interrupted()) return await cutShort();
       await post(roomId, [passRow(true)]);
       return 'pass';
     } finally {
@@ -418,6 +509,11 @@ export function createAgentRooms(deps: AgentRoomDeps) {
       void persist();
     }
     if (!answer || (answer.status === 'cancelled' && state.stop)) return 'stopped';
+    if (interrupted()) {
+      const cut = await cutShort();
+      void persist();
+      return cut;
+    }
     // A pass never shows its marker: while the user waits, what the member
     // wrote before "(pass)" is its answer; otherwise the turn is a pass.
     const passed = answer.status !== 'done' || isPassReply(answer.text);
@@ -447,13 +543,17 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const tools = toolSummaries(snapshot, startedAt);
     if (tools.length) row.tools = tools;
     await post(roomId, [row]);
+    state.waiting = false;
+    // The cursor stays on the last row this turn was handed: a message that
+    // landed while the member spoke sits after it and reaches the next turn
+    // (the member's own speech is left out of what it is shown).
     Object.assign(room, { lastSpeaker: agentId, lastAt: row.at });
-    room.cursors[agentId] = row.id;
     return { result: 'speech', mention };
   }
 
-  /** One bounded exchange; a message sent meanwhile runs the next one. */
-  async function exchange(roomId: string, { to = [] }: { to?: string[] }) {
+  /** One bounded exchange; a message sent meanwhile runs the next one.
+   *  `waiting`: a user message starts it (unset: read from the log). */
+  async function exchange(roomId: string, { to = [], waiting }: { to?: string[]; waiting?: boolean }) {
     const room = roomOf(roomId);
     const state: RunState = {
       stop: false,
@@ -463,6 +563,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
       memberSession: '',
       approval: null,
       pending: null,
+      waiting: waiting === true,
     };
     running.set(roomId, state);
     room.running = { startedAt: now() };
@@ -472,6 +573,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     deps.republishCatalog();
     deps.republish(roomSessionId(roomId));
     try {
+      if (waiting === undefined) state.waiting = roomUserWaiting(await roomRows(roomId));
       const labels = await memberLabels(room);
       const members = room.members.map((id) => labels.get(id) ?? { id, name: id, route: undefined, description: '' });
       const result = await runRoomExchange({
@@ -505,6 +607,9 @@ export function createAgentRooms(deps: AgentRoomDeps) {
         },
         stopped: () => state.stop,
         superseded: () => Boolean(state.pending),
+        // Only a user still waiting forces a pick: a "Continue" after the
+        // talk was answered may end at once when nothing is open.
+        waiting: state.waiting,
       });
       if (result.outcome === 'capped') {
         const { limit, rounds, messages, remaining } = result;
@@ -525,7 +630,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     if (state.pending && !state.stop && doc.rooms[roomId]) await exchange(roomId, state.pending);
   }
 
-  const start = (roomId: string, options: { to?: string[] }) => {
+  const start = (roomId: string, options: { to?: string[]; waiting?: boolean }) => {
     // A save that fails outside the exchange's own try (before it, or in its
     // finally) is logged, never left as an unhandled rejection.
     void exchange(roomId, options).catch((error) =>
@@ -620,6 +725,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const archivedSessionId = await deps.startOver(roomSessionId(roomId));
     recent.delete(roomId);
     room.cursors = {};
+    delete room.seen;
     room.owed = null;
     delete room.lastSpeaker;
     delete room.lastPreview;
@@ -685,17 +791,27 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // Recorded only once the row is in the log, and saved with the room
     // before the submission is acknowledged.
     if (submissionId) room.submissions = [...(room.submissions ?? []), submissionId].slice(-SUBMISSION_IDS);
+    // Taken up as soon as the row is in the log, before the save yields: a
+    // member's older answer cannot land meanwhile, and a second message never
+    // starts an exchange of its own beside this one.
+    const active = running.get(roomId);
+    if (active) {
+      // Several messages sent meanwhile run as one exchange: every member any
+      // of them addressed keeps its turn, in the order named.
+      active.pending = { to: [...new Set([...(active.pending?.to ?? []), ...parsed.to])], waiting: true };
+      // The member speaking answers rows older than this message: cut it off
+      // now (its turn posts nothing) rather than at the next turn boundary.
+      if (active.speaking && active.memberSession) void deps.abort(active.memberSession).catch(() => undefined);
+    } else start(roomId, { to: parsed.to, waiting: true });
     await persist();
     deps.republishCatalog();
-    const active = running.get(roomId);
-    if (active) active.pending = { to: parsed.to };
-    else start(roomId, { to: parsed.to });
     return true;
   }
 
   /** "더 진행": the named members a capped message still owes a turn, else
-   *  another bounded batch the supervisor steers (it picks at least one
-   *  member before it may finish). */
+   *  another bounded batch the supervisor steers (it must pick a member only
+   *  while the user's newest message has no answer; otherwise it may finish
+   *  at once when nothing is open). */
   async function proceed(roomId: string): Promise<void> {
     await ready();
     const room = roomOf(roomId);

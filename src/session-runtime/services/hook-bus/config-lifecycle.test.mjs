@@ -228,3 +228,59 @@ for (const [name, document] of [
     assert.deepEqual(await f.read(), document([{ ...rule, enabled: false }]));
   });
 }
+
+// A crash can leave hooks.json NUL-filled: that must never deny every tool call
+// ("PreToolUse policy check failed"); the file holds no rules and is kept aside
+// (never overwritten) when a rule is next saved.
+for (const [name, damaged] of [
+  ['NUL-filled', '\0'.repeat(64)],
+  ['empty', ''],
+  ['truncated', '{"toolBefore":[{"tool":"re'],
+]) {
+  test(`a ${name} hooks file does not deny tool calls and is kept aside by the next rule save`, async (t) => {
+    const f = await fixture(t);
+    await writeFile(f.path, damaged);
+    const bus = f.bus();
+    assert.equal(await f.run(bus), null);
+    assert.deepEqual(bus.listRules(), []);
+    bus.addRule(rule);
+    assert.equal((await f.run(bus)).action, 'deny');
+    assert.deepEqual((await f.read()).toolBefore, [rule]);
+    const aside = fs.readdirSync(f.data).filter((file) => file.startsWith('hooks.json.corrupt-'));
+    assert.equal(aside.length, 1);
+    assert.equal(await readFile(join(f.data, aside[0]), 'utf8'), damaged);
+  });
+}
+
+// The rules file keeps its replaced copy as hooks.json.bak: a NUL-filled primary
+// must not silently drop the deny rules the backup still holds.
+test('a backed-up deny rule still denies after the hooks file is NUL-filled', async (t) => {
+  const f = await fixture(t);
+  await f.write({ toolBefore: [rule] });
+  f.bus().addRule({ tool: 'edit', action: 'deny', enabled: true }); // the replaced copy becomes hooks.json.bak
+  await writeFile(f.path, '\0'.repeat(64));
+  const bus = f.bus();
+  assert.equal((await f.run(bus)).action, 'deny');
+  assert.deepEqual((await f.read()).toolBefore, [rule], 'the last good copy is back in place');
+  const aside = fs.readdirSync(f.data).filter((file) => file.startsWith('hooks.json.corrupt-'));
+  assert.equal(aside.length, 1);
+});
+
+test('a backed-up standard deny hook still applies after the hooks file is truncated', async (t) => {
+  const f = await fixture(t);
+  await f.write(standard('fixture_no'));
+  f.bus().addRule({ tool: 'edit', action: 'deny', enabled: true });
+  await writeFile(f.path, '{"hooks": {"PreToolUse": [{"matcher": "re');
+  const bus = f.bus();
+  assert.deepEqual(await f.run(bus), { action: 'deny', reason: 'fixture_no' });
+  assert.deepEqual(bus.status().errors, []);
+});
+
+test('a damaged hooks file without a good copy is reported, not silently skipped, and stays in place', async (t) => {
+  const f = await fixture(t);
+  await writeFile(f.path, '\0'.repeat(64));
+  const bus = f.bus();
+  assert.equal(await f.run(bus), null);
+  assert.equal(bus.status().errors.length, 1);
+  assert.equal(await readFile(f.path, 'utf8'), '\0'.repeat(64));
+});

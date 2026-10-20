@@ -227,7 +227,7 @@
   --mx-scroll-fade-surface: var(--mx-workspace-sheet);
   timeline-scope: --mx-transcript-scroll;
 }
-html[data-window-material="mica"] .transcript-shell {
+html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
   --mx-scroll-fade-surface: var(--mx-mica-layer);
 }
 /* A real element (conversation-pane-transcript.tsx), never a pseudo-element:

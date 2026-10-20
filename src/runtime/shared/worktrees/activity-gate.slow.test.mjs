@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { admitWorkspaceActivity, holdWorkspaceActivity, tryAdmitWorkspaceActivity } from './activity-gate.mjs';
@@ -203,76 +203,181 @@ test('cancellation while waiting registers nothing', async () => {
   holdWorkspaceActivity([repo])();
 });
 
-test('malformed ledgers preserve unknown ownership across readers, releases and fresh processes', () => {
-  const repo = makeRepo();
-  const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-  const leave = tryAdmitWorkspaceActivity('reader', repo);
-  const intact = readFileSync(path);
-  const refusal = { code: 'WORKTREE_BUSY_JOBS', details: { reason: 'workspace-admission-unreadable' } };
-  for (const damaged of [
-    Buffer.alloc(intact.length),
-    Buffer.from('{broken'),
-    Buffer.alloc(0),
-    Buffer.from('{"version":1,"leases":[null]}'),
-  ]) {
-    writeFileSync(path, damaged);
-    for (const attempt of [
-      () => holdWorkspaceActivity([repo]),
-      () => tryAdmitWorkspaceActivity('later-reader', repo),
-      leave,
+const asideCopies = (repo) =>
+  readdirSync(join(repo, '.git'))
+    .filter((name) => name.startsWith('mixdog-workspace-admission.json.corrupt-'))
+    .map((name) => join(repo, '.git', name));
+
+const RECOVERY_MS = 400;
+async function withShortRecovery(run) {
+  const saved = [process.env.MIXDOG_ADMISSION_RECOVERY_MS, process.env.MIXDOG_ADMISSION_HEAL_MS];
+  process.env.MIXDOG_ADMISSION_RECOVERY_MS = String(RECOVERY_MS);
+  process.env.MIXDOG_ADMISSION_HEAL_MS = '100';
+  try {
+    await run();
+  } finally {
+    const [recovery, heal] = saved;
+    if (recovery === undefined) delete process.env.MIXDOG_ADMISSION_RECOVERY_MS;
+    else process.env.MIXDOG_ADMISSION_RECOVERY_MS = recovery;
+    if (heal === undefined) delete process.env.MIXDOG_ADMISSION_HEAL_MS;
+    else process.env.MIXDOG_ADMISSION_HEAL_MS = heal;
+  }
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const ledgerOf = (repo) => JSON.parse(readFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), 'utf8'));
+
+test('a damaged ledger is kept aside: readers continue, a live holder is never lost, management resumes by itself', async () => {
+  await withShortRecovery(async () => {
+    const repo = makeRepo();
+    const path = join(repo, '.git', 'mixdog-workspace-admission.json');
+    const leave = tryAdmitWorkspaceActivity('reader', repo);
+    const intact = readFileSync(path);
+    for (const damaged of [
+      Buffer.alloc(intact.length),
+      Buffer.from('{broken'),
+      Buffer.alloc(0),
+      Buffer.from('{"version":1,"leases":[null]}'),
     ]) {
-      assert.throws(attempt, refusal);
-      assert.deepEqual(readFileSync(path), damaged, 'failed operations preserve the evidence and refusal');
+      writeFileSync(path, damaged);
+      const later = tryAdmitWorkspaceActivity('later-reader', repo);
+      assert.ok(later, 'a damaged ledger admits readers');
+      assert.ok(
+        asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
+        'the damaged bytes are kept aside, not overwritten'
+      );
+      later();
+      // The holder in this process republished its lease: management still refuses on it.
+      assert.throws(() => holdWorkspaceActivity([repo]), {
+        code: 'WORKTREE_BUSY_JOBS',
+        details: { reason: 'folder-in-use' },
+      });
+
+      // A fresh profile meets the same damage: its reader continues, its writer waits.
+      writeFileSync(path, damaged);
+      const next = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+            import assert from 'node:assert/strict';
+            import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+            const cwd = process.argv[1];
+            tryAdmitWorkspaceActivity('new-process', cwd)();
+            assert.throws(() => holdWorkspaceActivity([cwd]), { details: { reason: 'workspace-admission-unreadable' } });
+          `,
+          repo,
+        ],
+        { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+      );
+      assert.equal(next.error, undefined);
+      assert.equal(next.status, 0, next.stderr);
+      for (const copy of asideCopies(repo)) unlinkSync(copy);
     }
-    // A new profile cannot interpret a prior failed repair as a missing ledger.
-    const next = spawnSync(
+    leave();
+    await sleep(RECOVERY_MS + 100);
+    holdWorkspaceActivity([repo])();
+    assert.deepEqual(ledgerOf(repo).leases, []);
+    assert.equal(ledgerOf(repo).recoveredAt, undefined, 'the unknown-lease state cleared on its own');
+  });
+});
+
+test('a recovered ledger refuses management only for the unknown window, then the block clears', async () => {
+  await withShortRecovery(async () => {
+    const repo = makeRepo();
+    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), Buffer.alloc(64));
+    tryAdmitWorkspaceActivity('reader', repo)();
+    assert.throws(() => holdWorkspaceActivity([repo]), {
+      code: 'WORKTREE_BUSY_JOBS',
+      details: { reason: 'workspace-admission-unreadable' },
+    });
+    await sleep(RECOVERY_MS + 100);
+    holdWorkspaceActivity([repo])();
+    assert.equal(ledgerOf(repo).recoveredAt, undefined);
+  });
+});
+
+test('a damaged ledger cannot hide a foreign management operation from readers', { timeout: 20000 }, async (t) => {
+  await withShortRecovery(async () => {
+    const repo = makeRepo();
+    const child = spawn(
       process.execPath,
       [
         '--input-type=module',
         '-e',
         `
-          import assert from 'node:assert/strict';
-          import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-          const cwd = process.argv[1];
-          assert.throws(() => tryAdmitWorkspaceActivity('new-process', cwd), ${JSON.stringify(refusal)});
-          assert.throws(() => holdWorkspaceActivity([cwd]), ${JSON.stringify(refusal)});
+          import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+          const release = holdWorkspaceActivity([process.argv[1]]);
+          process.on('message', () => { release(); process.exit(0); });
+          process.send('active');
         `,
         repo,
       ],
-      { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+      {
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        // No self-heal in the holder: only the management mirror can restore its lease.
+        env: { ...process.env, MIXDOG_DATA_DIR: tempDir(), MIXDOG_ADMISSION_HEAL_MS: '600000' },
+      }
     );
-    assert.equal(next.error, undefined);
-    assert.equal(next.status, 0, next.stderr);
-    assert.deepEqual(readFileSync(path), damaged);
-  }
-
-  // Only this fixture's exact, unchanged ownership record is restored. A
-  // failed release must still release its token once the record is readable.
-  writeFileSync(path, intact);
-  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
-  leave();
-  holdWorkspaceActivity([repo])();
-  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).leases, []);
+    t.after(() => {
+      if (child.exitCode === null) child.kill();
+    });
+    assert.equal((await once(child, 'message'))[0], 'active');
+    const path = join(repo, '.git', 'mixdog-workspace-admission.json');
+    writeFileSync(path, Buffer.alloc(readFileSync(path).length));
+    assert.equal(tryAdmitWorkspaceActivity('reader', repo), null, 'the operation in progress still excludes readers');
+    const exited = once(child, 'exit');
+    child.send('release');
+    await exited;
+    const leave = tryAdmitWorkspaceActivity('reader', repo);
+    assert.ok(leave, 'readers resume once the operation ended');
+    leave();
+  });
 });
 
-test('a damaged management ledger refuses new readers and keeps its release retryable', () => {
+test('a ledger of a newer build is left in place: readers go unrecorded, management refuses', () => {
   const repo = makeRepo();
   const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-  const release = holdWorkspaceActivity([repo]);
-  const intact = readFileSync(path);
-  const damaged = Buffer.alloc(intact.length);
-  writeFileSync(path, damaged);
-  const refusal = { code: 'WORKTREE_BUSY_JOBS', details: { reason: 'workspace-admission-unreadable' } };
-  assert.throws(() => tryAdmitWorkspaceActivity('reader', repo), refusal);
-  assert.throws(release, refusal);
-  assert.deepEqual(readFileSync(path), damaged);
-  writeFileSync(path, intact);
-  assert.equal(tryAdmitWorkspaceActivity('reader', repo), null, 'the original writer still owns the folder');
-  release();
+  const newer = '{"version":2,"leases":[],"future":true}';
+  writeFileSync(path, newer);
   const leave = tryAdmitWorkspaceActivity('reader', repo);
-  assert.ok(leave);
+  assert.ok(leave, 'prompts are never blocked by it');
   leave();
-  holdWorkspaceActivity([repo])();
+  assert.throws(() => holdWorkspaceActivity([repo]), {
+    code: 'WORKTREE_BUSY_JOBS',
+    details: { reason: 'workspace-admission-unreadable' },
+  });
+  assert.equal(readFileSync(path, 'utf8'), newer);
+  assert.deepEqual(asideCopies(repo), []);
+});
+
+test('one invalid lease record is dropped without discarding the valid leases', { timeout: 20000 }, async (t) => {
+  await withShortRecovery(async () => {
+    const repo = makeRepo();
+    const child = reader(t, repo);
+    assert.equal((await once(child, 'message'))[0], 'active');
+    const path = join(repo, '.git', 'mixdog-workspace-admission.json');
+    const ledger = JSON.parse(readFileSync(path, 'utf8'));
+    ledger.leases.push({ kind: 'turn', token: 7 });
+    writeFileSync(path, JSON.stringify(ledger));
+    const leave = tryAdmitWorkspaceActivity('parent', repo);
+    assert.ok(leave);
+    assert.ok(
+      ledgerOf(repo).leases.some((lease) => lease.pid === child.pid),
+      'the valid foreign lease survived'
+    );
+    assert.ok(asideCopies(repo).some((copy) => JSON.parse(readFileSync(copy, 'utf8')).leases.length === 2));
+    leave();
+    assert.throws(() => holdWorkspaceActivity([repo]), {
+      code: 'WORKTREE_BUSY_JOBS',
+      details: { reason: 'folder-in-use' },
+    });
+    const exited = once(child, 'exit');
+    child.send('release');
+    await exited;
+    await sleep(RECOVERY_MS + 100);
+    holdWorkspaceActivity([repo])();
+  });
 });
 
 test('an unreadable ledger is not overwritten and admission resumes after access is restored', () => {

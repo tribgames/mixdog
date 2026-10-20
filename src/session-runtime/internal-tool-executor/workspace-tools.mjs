@@ -12,13 +12,14 @@ import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.
 
 const USER_TITLE_ERROR = 'session: the user already titled this session; the title was not changed';
 
-/** The agent an attended agent conversation (an agent's home thread) acts as;
+/** The agent an attended agent conversation (an agent's home thread, or its
+ *  member session in a group room, where the user is present too) acts as;
  *  '' for every other caller: delegated workers, coding sessions (task
  *  sessions included) and unattended schedule/webhook runs. */
 function attendedAgentOf(session) {
   const { mode, agentId } = resolveSessionMode({ session });
   const { kind } = scheduleCallerScope(session);
-  return mode === AGENT_MODE && (kind === 'human' || kind === 'agent') ? agentId : '';
+  return mode === AGENT_MODE && (kind === 'human' || kind === 'agent' || kind === 'room-member') ? agentId : '';
 }
 
 /** The caller's `attachments` as stored prompt parts, resolved against its own

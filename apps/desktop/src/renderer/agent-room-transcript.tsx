@@ -24,9 +24,17 @@ function useSpeaker(room: TranscriptRoomRow) {
 
 /** The "→ A, B" chip on a bubble addressed to members: a user message's
  *  addressees, or the one peer a member's @mention names. */
-export function RoomAddressChip({ room }: { room: TranscriptRoomRow }) {
+export function RoomAddressChip({ room, fromUser = false }: { room: TranscriptRoomRow; fromUser?: boolean }) {
   const { label } = useRoomContacts();
   const members = (room.to ?? []).map((id, index) => ({ ...label(id), name: room.toName?.[index] || label(id).name }));
+  if (fromUser) {
+    // The user's own words: plain "To: A, B" text, no bot face, so it can't read as bot-to-bot.
+    return (
+      <span className="agent-room-to-user">
+        {t('To: {{names}}', { names: members.map((member) => `@${member.name}`).join(', ') })}
+      </span>
+    );
+  }
   return (
     <span className="agent-room-to">
       {members.map((member) => (

@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 
 const BACKLOG_WARN_COOLDOWN_MS = 10 * 60_000;
 const BACKLOG_WARN_FAILURES = 5;
@@ -16,7 +16,13 @@ export function createCycleHealthLedger({ cycleStateFile, log }) {
 
   function write() {
     try {
-      fs.writeFileSync(cycleStateFile, JSON.stringify({ running, backlog, cycles: health, updatedAt: Date.now() }));
+      // Rewritten on every cycle event and read by a statusline that treats an
+      // unparsable file as "nothing to show", so no fsync; rename keeps it untorn.
+      writeJsonAtomicSync(
+        cycleStateFile,
+        { running, backlog, cycles: health, updatedAt: Date.now() },
+        { compact: true, fsync: false }
+      );
     } catch {
       /* best-effort; statusline just shows nothing */
     }

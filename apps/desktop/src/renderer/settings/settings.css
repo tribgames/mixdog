@@ -617,7 +617,7 @@
     padding: var(--settings-layer-safe-top, 0px) 20px 0 32px;
   }
   .mixdog-settings-v2 .mixdog-settings__body {
-    padding: 8px 32px 32px;
+    padding: 8px 32px calc(32px + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -635,7 +635,7 @@
     padding-left: 20px;
   }
   .mixdog-settings-v2 .mixdog-settings__body {
-    padding: 8px 20px 32px;
+    padding: 8px 20px calc(32px + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -724,7 +724,7 @@
     flex-basis: 40px;
   }
   .mixdog-settings-v2 .mixdog-settings__body {
-    padding: 20px 16px 32px;
+    padding: 20px 16px calc(32px + env(safe-area-inset-bottom, 0px));
   }
   .mixdog-settings-v2 .settings-group-body {
     padding-inline: 14px;
@@ -1449,6 +1449,28 @@
   .conn-dialog {
     animation: none;
   }
+}
+
+/* Phone: touch-size connection controls, 16px dialog inset, stacked QR. */
+html[data-mixdog-mobile-tabs] .conn-btn {
+  height: auto;
+  min-height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .conn-btn--icon {
+  width: var(--mx-touch);
+  min-width: var(--mx-touch);
+  height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .conn-dialog {
+  padding: var(--mx-dialog-inset);
+}
+html[data-mixdog-mobile-tabs] .conn-body {
+  height: auto;
+}
+html[data-mixdog-mobile-tabs] .conn-qr-row {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 16px;
 }
 
 .settings-model-form {

@@ -67,6 +67,18 @@ export function chatRoutineTriggerOf(item: TranscriptItem | undefined): RoutineT
   return item?.kind === 'user' ? normalizeRoutineTrigger(item.routineTrigger) : null;
 }
 
+/** A room member's pass that left no trace (RoomTranscriptRow renders null):
+ *  only a failed turn shows a line. */
+export function roomPassIsQuiet(item: TranscriptItem | undefined): boolean {
+  return item?.kind === 'notice' && item.room?.kind === 'pass' && !item.room.failed;
+}
+
+/** A group room's typing row: the host's transient overlay naming who speaks
+ *  now, appended under a fresh id per turn and dropped between turns. */
+export function isRoomTypingItem(item: TranscriptItem | undefined): boolean {
+  return item?.kind === 'notice' && item.room?.kind === 'typing';
+}
+
 type Sender = { side: AgentChatSide; speaker: string; source?: string };
 
 /** null: a row that neither groups nor breaks a group (tool rounds, the live
@@ -100,6 +112,8 @@ function rowSender(row: TranscriptRowModel | undefined): Sender | null {
       return { side: 'agent', speaker: item.room.speaker || '' };
     // A member typing is the transient typing bubble (agentTypingLead).
     if (item.kind === 'notice' && item.room?.kind === 'typing') return null;
+    // A quiet pass paints nothing, so it neither groups nor breaks a run.
+    if (roomPassIsQuiet(item)) return null;
     // No turn status in a chat: "Response complete", "Thought for…",
     // compaction (agent mode compacts silently) — none of it shows.
     if (item.kind === 'statusdone' || item.kind === 'turndone') return { side: 'hidden', speaker: '' };

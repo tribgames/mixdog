@@ -1,5 +1,15 @@
 import { useLayoutEffect, useRef } from 'react';
+import { isRoomTypingItem } from './agent-chat-place';
 import type { TranscriptItem } from './desktop-types';
+
+/** The settled rows that count toward a shrink: a group room's typing row is a
+ *  transient overlay that comes and goes at every turn boundary, so it is
+ *  neither history nor a removal. */
+export function settledRowCount(items: readonly TranscriptItem[]): number {
+  let count = 0;
+  for (const item of items) if (!isRoomTypingItem(item)) count += 1;
+  return count;
+}
 
 /** Follow re-arming around session entry, transcript shrink and no-overflow
  *  commits. Returns whether the virtual timeline should anchor to the bottom. */
@@ -37,7 +47,7 @@ export function useConversationFollowEffects({
   // publications and growing history leave the reading position alone.
   const transcriptSwapRef = useRef({ sessionKey: '', count: 0 });
   useLayoutEffect(() => {
-    const count = settledItems.length;
+    const count = settledRowCount(settledItems);
     const previous = transcriptSwapRef.current;
     transcriptSwapRef.current = { sessionKey: transcriptSessionKey, count };
     // Session entry owns its own arm. A same-length head-id change is a lane

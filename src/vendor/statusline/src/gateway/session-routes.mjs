@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { resolvePluginData } from '../../../../runtime/shared/plugin-paths.mjs';
-import { updateJsonAtomicSync } from '../../../../runtime/shared/atomic-file.mjs';
+import { readJsonStateSync, updateJsonAtomicSync } from '../../../../runtime/shared/atomic-file.mjs';
 import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 
 const STORE_FILE = 'gateway-session-routes.json';
@@ -68,9 +67,9 @@ export function gatewaySessionRoutesPath() {
 
 function readStore() {
   try {
-    const file = gatewaySessionRoutesPath();
-    if (!existsSync(file)) return {};
-    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    // A damaged store (NUL, truncated) is kept aside as *.corrupt-<ts> and its
+    // last good copy restored, so a session never loses its route pin to it.
+    const parsed = readJsonStateSync(gatewaySessionRoutesPath(), { fallback: {} });
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
@@ -187,7 +186,7 @@ export function writeGatewaySessionRoutes(entries = []) {
         sessions: pruneRouteMap(sessions, updatedAt, MAX_SESSION_ROUTES),
         sessionHosts: pruneRouteMap(sessionHosts, updatedAt, MAX_HOST_ROUTES),
       };
-    }, { compact: true, fsync: false, fsyncDir: false });
+    }, { compact: true, backup: true });
     return true;
   } catch {
     return false;
@@ -216,7 +215,7 @@ export function clearGatewaySessionRoute(sessionId, options = {}) {
         delete sessions[sid];
       }
       return { version: 2, updatedAt: Date.now(), sessions, sessionHosts };
-    }, { compact: true, fsync: false, fsyncDir: false });
+    }, { compact: true, backup: true });
     return true;
   } catch {
     return false;

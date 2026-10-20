@@ -104,3 +104,19 @@ test('an update interrupted after replacing a file leaves the folder unstamped, 
   await installEffortJudgeModel(dir, { fetchFn: server(bodies2).fetchFn, manifest: v2 });
   assert.equal(effortJudgeInstallCurrent(dir, v2), true);
 });
+
+test('an empty or NUL-filled install stamp reads as not installed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-stamp-'));
+  try {
+    for (const damaged of [Buffer.alloc(0), Buffer.alloc(32)]) {
+      writeFileSync(join(dir, 'install.json'), damaged);
+      assert.equal(effortJudgeInstallStamped(dir), false);
+      assert.equal(effortJudgeInstallCurrent(dir, { release: 'r1' }), false);
+    }
+    writeFileSync(join(dir, 'install.json'), '{"release":"r1"}\n');
+    assert.equal(effortJudgeInstallStamped(dir), true);
+    assert.equal(effortJudgeInstallCurrent(dir, { release: 'r1' }), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

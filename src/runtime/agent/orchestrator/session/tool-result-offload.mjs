@@ -10,11 +10,11 @@ import {
   readdirSync,
   rmdirSync,
   unlinkSync,
-  writeFileSync,
 } from 'node:fs';
-import { lstat, open, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { lstat, open, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { holdsNoData, writeFileAtomicAsync, writeFileAtomicSync } from '../../../shared/atomic-file.mjs';
 import { getPluginData } from '../config.mjs';
 import { countSplitLines, normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
 import { classifyResultKind } from './result-classification.mjs';
@@ -236,28 +236,76 @@ export function persistToolResultArtifactSync({ sessionId, toolCallId, channel =
   }
   if (!meta) return null;
   try {
-    writeFileSync(meta.path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    const state = existingArtifactStateSync(meta);
+    if (state === ARTIFACT_INTACT) return meta;
+    if (state === ARTIFACT_FOREIGN) return null;
+    // Whole-file publication (fsynced temp, then link or rename): a crash never
+    // leaves a torn artifact. Data-free damage is replaced whole.
+    if (state === ARTIFACT_DAMAGED) {
+      writeFileAtomicSync(meta.path, content, { mode: 0o600 });
+      return meta;
+    }
+    if (writeFileAtomicSync(meta.path, content, { mode: 0o600, createOnly: true })) return meta;
+    // Lost the create race: the winner's file is whole; verify it like any other.
+    return existingArtifactStateSync(meta) === ARTIFACT_INTACT ? meta : null;
+  } catch {
+    return null;
+  }
+}
+
+// What sits at an artifact's content-addressed path: nothing, the verified
+// bytes, a file a crash left without data (empty or NUL — replaced whole), or
+// anything else (mismatched bytes, a link, a directory, an unreadable file),
+// which is evidence that is never touched or trusted.
+const ARTIFACT_ABSENT = 'absent';
+const ARTIFACT_INTACT = 'intact';
+const ARTIFACT_DAMAGED = 'damaged';
+const ARTIFACT_FOREIGN = 'foreign';
+
+function artifactVerdict(meta, info, readBytes) {
+  if (!info.isFile()) return ARTIFACT_FOREIGN;
+  if (!artifactShapeMatches(meta, info)) return info.size === 0 ? ARTIFACT_DAMAGED : ARTIFACT_FOREIGN;
+  const bytes = readBytes();
+  if (createHash('sha256').update(bytes).digest('hex') === meta.sha256) return ARTIFACT_INTACT;
+  return holdsNoData(bytes) ? ARTIFACT_DAMAGED : ARTIFACT_FOREIGN;
+}
+
+function existingArtifactStateSync(meta) {
+  let fd;
+  try {
+    lstatSync(meta.path);
+    fd = openSync(meta.path, ARTIFACT_READ_FLAGS);
+    const info = fstatSync(fd);
+    return artifactVerdict(meta, info, () => readFileSync(fd));
   } catch (error) {
-    if (error?.code !== 'EEXIST') return null;
-    let fd;
+    return error?.code === 'ENOENT' ? ARTIFACT_ABSENT : ARTIFACT_FOREIGN;
+  } finally {
     try {
-      if (!artifactShapeMatches(meta, lstatSync(meta.path))) return null;
-      fd = openSync(meta.path, ARTIFACT_READ_FLAGS);
-      if (!artifactShapeMatches(meta, fstatSync(fd))) return null;
-      if (createHash('sha256').update(readFileSync(fd)).digest('hex') !== meta.sha256) return null;
+      if (fd !== undefined) closeSync(fd);
     } catch {
-      return null;
-    } finally {
-      try {
-        if (fd !== undefined) closeSync(fd);
-      } catch {
-        // The artifact is already written and byte-verified above; a failed
-        // descriptor close is cleanup, not a failed persist, and must never
-        // replace the verified meta this function returns.
-      }
+      // A failed descriptor close is cleanup, not a failed persist.
     }
   }
-  return meta;
+}
+
+async function existingArtifactState(meta) {
+  let handle;
+  try {
+    await lstat(meta.path);
+    handle = await open(meta.path, ARTIFACT_READ_FLAGS);
+    const info = await handle.stat();
+    // The verdict needs the bytes only when the size matches: read them first.
+    const bytes = info.isFile() && artifactShapeMatches(meta, info) ? await handle.readFile() : null;
+    return artifactVerdict(meta, info, () => bytes);
+  } catch (error) {
+    return error?.code === 'ENOENT' ? ARTIFACT_ABSENT : ARTIFACT_FOREIGN;
+  } finally {
+    try {
+      await handle?.close();
+    } catch {
+      // A failed handle close is cleanup, not a failed persist.
+    }
+  }
 }
 
 async function persistToolResultArtifact({ sessionId, toolCallId, channel = 'result', content } = {}) {
@@ -269,32 +317,19 @@ async function persistToolResultArtifact({ sessionId, toolCallId, channel = 'res
   }
   if (!meta) return null;
   try {
-    await writeFile(meta.path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-  } catch (error) {
-    if (error?.code !== 'EEXIST') return null;
-    let handle;
-    try {
-      if (!artifactShapeMatches(meta, await lstat(meta.path))) return null;
-      handle = await open(meta.path, ARTIFACT_READ_FLAGS);
-      if (!artifactShapeMatches(meta, await handle.stat())) return null;
-      if (
-        createHash('sha256')
-          .update(await handle.readFile())
-          .digest('hex') !== meta.sha256
-      )
-        return null;
-    } catch {
-      return null;
-    } finally {
-      try {
-        await handle?.close();
-      } catch {
-        // See persistToolResultArtifactSync: the verified artifact stands even
-        // when releasing the handle fails, so cleanup never nulls the result.
-      }
+    const state = await existingArtifactState(meta);
+    if (state === ARTIFACT_INTACT) return meta;
+    if (state === ARTIFACT_FOREIGN) return null;
+    // See persistToolResultArtifactSync.
+    if (state === ARTIFACT_DAMAGED) {
+      await writeFileAtomicAsync(meta.path, content, { mode: 0o600 });
+      return meta;
     }
+    if (await writeFileAtomicAsync(meta.path, content, { mode: 0o600, createOnly: true })) return meta;
+    return (await existingArtifactState(meta)) === ARTIFACT_INTACT ? meta : null;
+  } catch {
+    return null;
   }
-  return meta;
 }
 
 export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, result, options = {}) {

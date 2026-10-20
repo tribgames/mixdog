@@ -6,7 +6,15 @@
  * message id, so a retried post adds nothing. A user row's files are taken in
  * here exactly as a chat prompt's are at submit (session-turns.mjs): the bytes
  * go to the attachment store once, and the row keeps their references.
+ *
+ * A task session a member opened (session create, agent-task-sessions.mjs)
+ * reports here too: each blocked or ended turn becomes that member's speech
+ * row (appendTaskReports), queued durably by agent-home-delivery.mjs. Posts
+ * into one log run one at a time, so the host's rows and the reports never
+ * overwrite each other.
  */
+import { MIXY_AGENT_ID } from '../runtime/agent/orchestrator/session/agent-home.mjs';
+import { mixyDisplayName } from '../runtime/agent/orchestrator/session/mixy-name.mjs';
 import {
   normalizeRoomRow,
   roomIdOfSession,
@@ -64,63 +72,134 @@ function speechWithArtifacts(row, roomId, loadSession, log) {
     const session = loadSession(from.sessionId);
     const messages = turnSlice(session?.messages, { since: Number(from.since) || 0 });
     const { files } = collectTurnArtifacts(messages, { cwd: session?.cwd, roots: sessionRoots(session) });
-    const stored = files.filter((file) => file.id);
-    if (!stored.length) return rest;
-    return {
-      ...rest,
-      parts: stored.map((file) => ({
-        type: file.kind === 'image' ? 'image' : file.kind === 'text' ? 'text' : 'file',
-        attachmentRef: file.id,
-        ...(file.kind === 'text' ? { textKind: 'file' } : {}),
-        mimeType: file.mimeType,
-        filename: file.name,
-        sizeBytes: file.size,
-      })),
-      attachments: artifactRecords(stored),
-    };
+    return { ...rest, ...storedFileFields(files) };
   } catch (error) {
     log(`the files of ${from.sessionId} could not be taken in: ${error?.message || error}`);
     return rest;
   }
 }
 
+/** A row's `{ parts, attachments }` for the stored files among `files`
+ *  (handoff-attachments.mjs collectTurnArtifacts); none when none is stored. */
+function storedFileFields(files) {
+  const stored = (Array.isArray(files) ? files : []).filter((file) => file?.id);
+  if (!stored.length) return {};
+  return {
+    parts: stored.map((file) => ({
+      type: file.kind === 'image' ? 'image' : file.kind === 'text' ? 'text' : 'file',
+      attachmentRef: file.id,
+      ...(file.kind === 'text' ? { textKind: 'file' } : {}),
+      mimeType: file.mimeType,
+      filename: file.name,
+      sizeBytes: file.size,
+    })),
+    attachments: artifactRecords(stored),
+  };
+}
+
+const inline = (value) =>
+  String(value ?? '')
+    .replace(/[`*\r\n]+/g, ' ')
+    .trim();
+
+/** The room row of one task report `item` (agent-home-delivery.mjs
+ *  enqueueTask): the member's speech naming the session, then its output
+ *  and files. The row id derives from the run id, so a replay adds nothing. */
+export function taskReportRow(item, name = '') {
+  const what = item.target === 'session' ? 'Session' : 'Task session';
+  const head = `${what} **${inline(item.title) || item.taskSessionId}** (\`${inline(item.taskSessionId)}\`)`;
+  const text =
+    item.status === 'blocked'
+      ? `${head} is waiting for the user's answer or approval in that session.`
+      : [`${head} ${item.status}.`, String(item.text ?? '').trim()].filter(Boolean).join('\n\n');
+  return {
+    id: `report_${String(item.runId).replace(/[^A-Za-z0-9_-]/g, '_')}`.slice(0, 120),
+    kind: 'speech',
+    speaker: item.speaker,
+    ...(name ? { name } : {}),
+    at: Number.isFinite(item.at) ? item.at : Date.now(),
+    text,
+    ...(item.status === 'blocked' ? {} : storedFileFields(item.files)),
+  };
+}
+
+/** The name `agentId` last spoke under in a room log; Mixy's display name, else ''. */
+function speakerName(session, agentId) {
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const room = messages[index]?.meta?.room;
+    if (room?.speaker === agentId && room.name) return room.name;
+  }
+  return agentId === MIXY_AGENT_ID ? mixyDisplayName() : '';
+}
+
 export function createAgentRoomDelivery({ loadSession, saveSession, live = agentHomeLiveSurface, log = () => {} }) {
+  const tails = new Map(); // log session → its last post
+  /** Run `post` after every earlier post into `sessionId`. */
+  function serialized(sessionId, post) {
+    const run = (tails.get(sessionId) || Promise.resolve()).then(post);
+    const tail = run.catch(() => {});
+    tails.set(sessionId, tail);
+    void tail.then(() => {
+      if (tails.get(sessionId) === tail) tails.delete(sessionId);
+    });
+    return run;
+  }
+
+  /** Append the normalized rows `build(session)` gives to the stored log `sessionId`. */
+  function commit(sessionId, build) {
+    return serialized(sessionId, async () => {
+      const session = loadSession(sessionId);
+      if (!session || session.closed === true) throw new Error(`session ${sessionId} is not available`);
+      if (!Array.isArray(session.messages)) session.messages = [];
+      const kept = build(session);
+      const messages = kept.map((row) => roomRowMessage(row));
+      const posted = new Set(session.messages.map((message) => message?.meta?.transcript?.messageId).filter(Boolean));
+      const fresh = messages.filter((message) => !posted.has(message.meta.transcript.messageId));
+      if (!fresh.length) return { added: 0, rows: kept };
+      session.messages.push(...fresh);
+      session.updatedAt = Date.now();
+      await saveSession(session);
+      for (const message of fresh) {
+        const { text, tone, room, messageId, attachments, images } = roomRowItem(message);
+        try {
+          live()?.notice?.(sessionId, { text, tone, room, messageId, attachments, images });
+        } catch (error) {
+          log(`live room row in ${sessionId} failed: ${error?.message || error}`);
+        }
+      }
+      return { added: fresh.length, rows: kept };
+    });
+  }
+
   /** Append `rows` to the log of `sessionId`; resolves `{ added, rows }`: how
    *  many were new, and every row as stored (files as references, no bytes). */
   async function append(sessionId, rows) {
     const roomId = roomIdOfSession(sessionId);
     if (!roomId) throw new TypeError('not a group-room session');
-    const kept = (
+    const prepared = (
       await Promise.all(
         (Array.isArray(rows) ? rows : []).map((row) => storedRow(speechWithArtifacts(row, roomId, loadSession, log)))
       )
     ).map((row) => normalizeRoomRow(row));
-    const messages = kept.map((row) => roomRowMessage(row));
-    const session = loadSession(sessionId);
-    if (!session || session.closed === true) throw new Error(`session ${sessionId} is not available`);
-    if (!Array.isArray(session.messages)) session.messages = [];
-    const posted = new Set(session.messages.map((message) => message?.meta?.transcript?.messageId).filter(Boolean));
-    const fresh = messages.filter((message) => !posted.has(message.meta.transcript.messageId));
-    if (!fresh.length) return { added: 0, rows: kept };
-    session.messages.push(...fresh);
-    session.updatedAt = Date.now();
-    await saveSession(session);
-    for (const message of fresh) {
-      const { text, tone, room, messageId, attachments, images } = roomRowItem(message);
-      try {
-        live()?.notice?.(sessionId, { text, tone, room, messageId, attachments, images });
-      } catch (error) {
-        log(`live room row in ${sessionId} failed: ${error?.message || error}`);
-      }
-    }
-    return { added: fresh.length, rows: kept };
+    return commit(sessionId, () => prepared);
   }
-  return { append };
+
+  /** Post task reports (agent-home-delivery.mjs room items) into the log of
+   *  `sessionId`, each as its member's speech row. */
+  async function appendTaskReports(sessionId, items) {
+    if (!roomIdOfSession(sessionId)) throw new TypeError('not a group-room session');
+    return commit(sessionId, (session) =>
+      (Array.isArray(items) ? items : []).map((item) =>
+        normalizeRoomRow(taskReportRow(item, speakerName(session, item.speaker)))
+      )
+    );
+  }
+  return { append, appendTaskReports };
 }
 
 let processDelivery = null;
-/** Daemon entry: post `rows` into the room log `sessionId`. */
-export async function appendRoomRows(sessionId, rows) {
+async function roomDelivery() {
   if (!processDelivery) {
     const { loadSession, saveSessionAsync } = await import('../runtime/agent/orchestrator/session/store.mjs');
     processDelivery = createAgentRoomDelivery({
@@ -129,5 +208,15 @@ export async function appendRoomRows(sessionId, rows) {
       log: (line) => process.stderr.write(`mixdog rooms: ${line}\n`),
     });
   }
-  return processDelivery.append(sessionId, rows);
+  return processDelivery;
+}
+
+/** Daemon entry: post `rows` into the room log `sessionId`. */
+export async function appendRoomRows(sessionId, rows) {
+  return (await roomDelivery()).append(sessionId, rows);
+}
+
+/** Post queued task reports into the room log `sessionId` (agent-home-delivery.mjs). */
+export async function appendRoomTaskReports(sessionId, items) {
+  return (await roomDelivery()).appendTaskReports(sessionId, items);
 }

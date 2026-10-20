@@ -44,7 +44,7 @@ test('the model refresh starts on the first judged turn, once, and not on import
 
 function prewarmHarness(t, { model = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-prewarm-'));
-  if (model) for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), '');
+  if (model) for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), 'x');
   const saved = process.env.MIXDOG_EFFORT_JUDGE_DIR;
   process.env.MIXDOG_EFFORT_JUDGE_DIR = dir;
   t.after(() => {
@@ -111,7 +111,7 @@ test('prewarm retries a failed load no sooner than the load retry interval', asy
 
 test('a judgment that missed its deadline holds the next request until the worker answers it', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-queue-'));
-  for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), '');
+  for (const file of ['model.onnx', 'tokenizer.json']) writeFileSync(join(dir, file), 'x');
   const saved = { dir: process.env.MIXDOG_EFFORT_JUDGE_DIR, timeout: process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS };
   process.env.MIXDOG_EFFORT_JUDGE_DIR = dir;
   process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS = '50';

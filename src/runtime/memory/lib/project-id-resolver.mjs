@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { explicitSessionCwd } from '../../shared/user-cwd.mjs';
+import { holdsNoData } from '../../shared/atomic-file.mjs';
 
 /** @type {Map<string, string|null>} */
 const cache = new Map();
@@ -51,7 +52,10 @@ export function resolveProjectId(cwd) {
   const idFile = join(mixdogRoot, '.mixdog', 'project.id');
   let content;
   try {
-    content = readFileSync(idFile, 'utf8').trim();
+    const raw = readFileSync(idFile, 'utf8');
+    // A crash can leave the marker NUL-filled; trim() keeps NULs, so it would
+    // otherwise become the project id. No data means no marker (COMMON).
+    content = holdsNoData(raw) ? '' : raw.trim();
   } catch {
     // TOCTOU: the file vanished between findProjectIdRoot's existsSync and
     // this read. Treat as no marker; do not cache so a transient miss can

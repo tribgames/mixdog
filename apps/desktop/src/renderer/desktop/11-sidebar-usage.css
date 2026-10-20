@@ -11,7 +11,7 @@
   bottom: var(--rail-usage-popup-bottom, 48px);
   /* ActivityRail supplies the popup width inline (sidebar default + 88),
      so PC and phone open the same widened flyout with room for the meter. */
-  max-height: min(560px, calc(100vh - var(--rail-usage-popup-bottom, 48px) - 52px));
+  max-height: min(560px, calc(var(--vvh, 100dvh) - var(--rail-usage-popup-bottom, 48px) - 52px));
   overflow-y: auto;
   overscroll-behavior: contain;
   /* ONE frame (user: 사용량프레임도 원프레임으로): the popup's own border is

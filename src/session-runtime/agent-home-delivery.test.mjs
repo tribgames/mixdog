@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 
 import { createAgentHomeDelivery, createRoutineResultQueue, scheduleOwnerAgentId } from './agent-home-delivery.mjs';
@@ -312,4 +312,21 @@ test("a webhook run is a turn in its owner's thread: overlap skipped and stamped
   });
   assert.equal(paused.reason, 'owner');
   assert.deepEqual(stamps.at(-1), ['issues', 'skipped']);
+});
+
+test('a damaged routine-results file neither blocks reads nor loses the next result', async (t) => {
+  for (const damaged of ['\0'.repeat(128), '', '{"homes":{"sess_home_lead":[{"runId":']) {
+    const { path, queue } = tempQueue(t);
+    writeFileSync(path, damaged);
+    assert.deepEqual(await queue.pendingHomes(), []);
+    assert.deepEqual(await queue.items('sess_home_lead'), []);
+    await queue.add('sess_home_lead', { runId: 'run_after_damage', name: 'n', ok: true, text: 'hi' });
+    assert.deepEqual(
+      (await queue.items('sess_home_lead')).map((item) => item.runId),
+      ['run_after_damage']
+    );
+    const aside = readdirSync(dirname(path)).filter((file) => file.startsWith('routine-results.json.corrupt-'));
+    assert.equal(aside.length, 1);
+    assert.equal(readFileSync(join(dirname(path), aside[0]), 'utf8'), damaged);
+  }
 });

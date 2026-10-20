@@ -37,6 +37,21 @@ test('PERSONA.md loads trimmed onto the definition; absent is empty', () => {
   }
 });
 
+test('a NUL-filled AGENT.md is no agent and a NUL-filled PERSONA.md is no persona', () => {
+  const { base, dataDir, agents } = setup();
+  try {
+    writeFileSync(join(dataDir, 'agents', 'poet', 'AGENT.md'), '\0'.repeat(32));
+    assert.equal(agents.loadAgentDefinition(dataDir, 'poet'), null);
+    writeFileSync(join(dataDir, 'agents', 'plain', 'PERSONA.md'), '\0'.repeat(32));
+    const plain = agents.loadAgentDefinition(dataDir, 'plain');
+    assert.equal(plain.body, 'Do work.');
+    assert.equal(plain.persona, '');
+  } finally {
+    clearAgentDefinitionCache();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('an edited PERSONA.md is picked up once the definition cache is cleared, like AGENT.md', () => {
   const { base, dataDir, agents } = setup();
   try {

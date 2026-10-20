@@ -87,6 +87,11 @@ function isDaemonTransportFailure(error: unknown): boolean {
   );
 }
 
+/** One call outlived its inactivity bound on a daemon that still answers. */
+function isCallTimeout(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 'ESESSIONTIMEOUT';
+}
+
 function desktopSessionProtocolError(error: unknown): Error {
   if (!error || typeof error !== 'object' || (error as Record<string, unknown>).sessionProtocolMismatch !== true) {
     return error instanceof Error ? error : new Error(String(error));
@@ -573,6 +578,20 @@ export class SessionTransport implements DesktopTransport {
           } catch (retryError) {
             failure = retryError;
           }
+        }
+        if (failure && isCallTimeout(failure)) {
+          // A slow call is not a dead daemon: the event stream judges
+          // liveness. Re-attaching here dropped every window's attachment
+          // and this PC's relay leg (each paired phone with it) for one
+          // call. Ask once more under the same call id, which joins the
+          // run still in progress instead of starting another.
+          const target =
+            message.method === 'invokeDesktopOperation' || message.method === 'invokeCapability'
+              ? String(message.args?.[0] || '')
+              : '';
+          this.emit('diagnostic', 'session-call-timeout', { method: message.method, ...(target ? { target } : {}) });
+          value = await client.call('desktop.invoke', args, { callId });
+          failure = null;
         }
         if (failure) {
           if (!isDaemonTransportFailure(failure)) throw failure;

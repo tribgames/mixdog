@@ -8,9 +8,9 @@
  * Data shape: { projects: [{ name, path, addedAt, lastSelectedAt? }] }
  */
 import { homedir } from 'node:os';
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import { withFileLockSync, writeJsonAtomicSync } from './atomic-file.mjs';
+import { holdsNoData, readJsonStateSync, updateJsonAtomicSync, writeFileAtomicSync } from './atomic-file.mjs';
 
 const MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
 const PROJECTS_FILE = process.env.MIXDOG_PROJECTS_FILE
@@ -30,47 +30,57 @@ function normalizeKey(absPath) {
   return process.platform === 'win32' ? text.replace(/[\\/]+$/, '').toLowerCase() : text.replace(/\/+$/, '');
 }
 
+// The registry document as a store. A strict read (permission checks and
+// mutations) drops entries without an absolute path: they can never grant
+// anything, and the replaced file survives as projects.json.bak.
+function normalizeStore(parsed, strict) {
+  const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
+  return {
+    projects: projects
+      .filter(
+        (entry) => entry && typeof entry.path === 'string' && entry.path.trim() && (!strict || isAbsolute(entry.path))
+      )
+      .map((entry) => ({
+        name: String(entry.name || basename(entry.path) || entry.path),
+        path: String(entry.path),
+        addedAt: Number(entry.addedAt) || 0,
+        ...(Number(entry.lastSelectedAt) > 0 ? { lastSelectedAt: Number(entry.lastSelectedAt) } : {}),
+      })),
+  };
+}
+
+// A damaged registry file (NUL, truncated, malformed) is kept aside as
+// projects.json.corrupt-<ts> and the last good projects.json.bak is restored
+// when there is one, else the registry starts empty: a damaged file never
+// blocks adding, removing or selecting a project. Strict callers still see a
+// real I/O failure (EACCES, EIO) as an error — an unreadable registry is not
+// an empty one; the tolerant listing reads it as empty.
 function readStore(strict = false) {
   try {
-    if (!strict && !existsSync(PROJECTS_FILE)) return { projects: [] };
-    const raw = readFileSync(PROJECTS_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (
-      strict &&
-      (!Array.isArray(parsed?.projects) ||
-        parsed.projects.some(
-          (entry) => !entry || typeof entry.path !== 'string' || !entry.path.trim() || !isAbsolute(entry.path)
-        ))
-    )
-      throw new TypeError('Project registry is invalid.');
-    const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
-    return {
-      projects: projects
-        .filter((entry) => entry && typeof entry.path === 'string' && entry.path.trim())
-        .map((entry) => ({
-          name: String(entry.name || basename(entry.path) || entry.path),
-          path: String(entry.path),
-          addedAt: Number(entry.addedAt) || 0,
-          ...(Number(entry.lastSelectedAt) > 0 ? { lastSelectedAt: Number(entry.lastSelectedAt) } : {}),
-        })),
-    };
+    return normalizeStore(readJsonStateSync(PROJECTS_FILE), strict);
   } catch (error) {
-    if (strict && error?.code !== 'ENOENT') throw error;
+    if (strict) throw error;
     return { projects: [] };
   }
 }
 
 // Serialize the entire read/modify/write across cooperating processes, not
-// just publication. Unlike the generic JSON updater, a corrupt registry must
-// never be repaired into an empty document. Preserve synchronous return values
-// and no-op behavior; failed reads, lock acquisition and writes propagate.
+// just publication: the file is read under the registry lock. Preserve
+// synchronous return values and no-op behavior (an unchanged store is not
+// written); failed reads, lock acquisition and writes propagate. Each write
+// keeps the replaced version as projects.json.bak.
 function mutateStore(mutator) {
-  return withFileLockSync(`${PROJECTS_FILE}.lock`, () => {
-    const store = readStore(true);
-    const { value, changed } = mutator(store);
-    if (changed) writeJsonAtomicSync(PROJECTS_FILE, store, { lock: false });
-    return value;
-  });
+  let outcome;
+  updateJsonAtomicSync(
+    PROJECTS_FILE,
+    (current) => {
+      const store = normalizeStore(current, true);
+      outcome = mutator(store);
+      return outcome.changed ? store : undefined;
+    },
+    { backup: true }
+  );
+  return outcome.value;
 }
 
 /**
@@ -78,7 +88,8 @@ function mutateStore(mutator) {
  * selection store and memory project_id classification (resolveProjectId)
  * agree. Rules:
  *   - Never overwrite an existing marker (user may have set 'common' or a
- *     custom id — respect it).
+ *     custom id — respect it). A marker holding no data (empty or NUL, what a
+ *     crash leaves) is no id: it is rewritten.
  *   - Only act when absPath is a real directory on disk; never create the
  *     project folder itself (addProject does NOT create the directory).
  *   - Marker value = provided name, else basename(absPath). Skip when the
@@ -97,14 +108,12 @@ function ensureProjectIdMarker(absPath, name) {
       return; // missing / unstattable → silently skip
     }
     const markerPath = join(absPath, '.mixdog', 'project.id');
-    if (existsSync(markerPath)) return; // preserve existing value
+    const present = existsSync(markerPath);
+    if (present && !holdsNoData(readFileSync(markerPath))) return; // preserve existing value
     const value = String(name || basename(absPath) || '').trim();
     if (!value || value.toLowerCase() === 'common') return;
-    const markerDir = join(absPath, '.mixdog');
-    mkdirSync(markerDir, { recursive: true });
-    const tmp = `${markerPath}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${value}\n`, 'utf8');
-    renameSync(tmp, markerPath);
+    // A missing marker is created only if still missing (a concurrent creator's wins).
+    writeFileAtomicSync(markerPath, `${value}\n`, { createOnly: !present });
   } catch {
     /* best-effort marker; never throw */
   }

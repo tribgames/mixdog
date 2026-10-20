@@ -86,7 +86,7 @@ for (const route of routes) {
       });
       const openMock = t.mock.method(fsp, 'open', async (target, ...args) => {
         const fh = await originalOpen(target, ...args);
-        if (String(target).includes(`.${basename(path)}.mixdog-tmp-`)) drift = true;
+        if (String(target).includes(`${basename(path)}.mixdog-tmp-`)) drift = true;
         return fh;
       });
       syncBuiltinESMExports();
@@ -99,7 +99,7 @@ for (const route of routes) {
       assert.match(result, /^Error:.*changed on disk during (?:the edit|the patch)/);
       assert.equal(fs.readFileSync(path, 'utf8'), 'BEFORE\n');
       assert.equal(
-        fs.readdirSync(root).some((name) => name.startsWith(`.${basename(path)}.mixdog-tmp-`)),
+        fs.readdirSync(root).some((name) => name.startsWith(`${basename(path)}.mixdog-tmp-`)),
         false
       );
     });
@@ -149,7 +149,7 @@ for (const code of ['EIO', 'EACCES']) {
     assert.match(result, /^Error:.*changed on disk during the edit/);
     assert.equal(fs.existsSync(path), false, 'unknown pre-read version must not become expected absence');
     assert.equal(
-      fs.readdirSync(root).some((name) => name.startsWith(`.${basename(path)}.mixdog-tmp-`)),
+      fs.readdirSync(root).some((name) => name.startsWith(`${basename(path)}.mixdog-tmp-`)),
       false
     );
   });

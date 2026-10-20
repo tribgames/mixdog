@@ -55,9 +55,9 @@
   z-index: var(--mx-toast-z-index);
   /* Fallback lane; DesktopToastRegion places it inline (right, top, width,
      maxHeight) under the main panel's tab strip. */
-  right: 16px;
+  right: calc(16px + env(safe-area-inset-right, 0px));
   top: 54px;
-  width: min(320px, calc(100vw - 32px));
+  width: min(320px, calc(100vw - 32px - env(safe-area-inset-right, 0px)));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -99,9 +99,9 @@
 .remote-claim-notice {
   position: fixed;
   z-index: var(--mx-toast-z-index);
-  right: 16px;
+  right: calc(16px + env(safe-area-inset-right, 0px));
   top: calc(54px + env(safe-area-inset-top, 0px));
-  max-width: min(360px, calc(100vw - 32px));
+  max-width: min(360px, calc(100vw - 32px - env(safe-area-inset-right, 0px)));
   display: flex;
   align-items: center;
   gap: 12px;
@@ -145,6 +145,16 @@
 }
 .remote-claim-notice button:hover {
   background: var(--mx-hover-strong, var(--mx-hover));
+}
+/* Phones: hang from the tab strip like the app-update banner. */
+html[data-mixdog-mobile-tabs] .remote-claim-notice {
+  top: calc(max(8px, env(safe-area-inset-top, 0px)) + 60px);
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  max-width: none;
+}
+html[data-mixdog-mobile-tabs] .remote-claim-notice button {
+  min-height: var(--mx-touch, 44px);
 }
 @keyframes mx-toast-in {
   from {

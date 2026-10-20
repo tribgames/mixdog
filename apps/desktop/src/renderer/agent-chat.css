@@ -444,6 +444,11 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .conversation[data-chat-mode="agent"] .transcript-virtual-row-content[data-tag="Thinking"][data-band-lead="true"] {
   padding-top: 8px;
 }
+/* A room between member turns: the typing slot keeps its box, unseen, so the
+   thread above it holds still (use-conversation-row-renderer.ts). */
+.mx-chat-typing-idle {
+  visibility: hidden;
+}
 /* The typing bubble: three dots in the agent's bubble while it works;
    static under reduced motion. */
 .mx-chat-dots {

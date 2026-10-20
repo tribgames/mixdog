@@ -9,6 +9,8 @@ import {
   agentTypingShown,
   chatRoutineOf,
   chatRoutineTriggerOf,
+  isRoomTypingItem,
+  roomPassIsQuiet,
   routineGroupOf,
   turnEndToolItems,
 } from './agent-chat-place';
@@ -154,6 +156,27 @@ export function useConversationRowRenderer({
     }
     // No working status in a chat: while the agent works, a typing bubble
     // under its face; the approval card it waits on stays in the column.
+    if (row._tag === 'Thinking' && inRoom) {
+      // A room's band is its typing slot: the member the host's trailing typing
+      // row names, under its face and name. Between turns (no typing row while
+      // the next speaker is chosen) the slot keeps its box, unseen, so the
+      // thread neither drops nor rises by a bubble at every turn boundary. It
+      // always leads with face and name: one height whoever speaks next.
+      const typingItem = settledItems.at(-1);
+      const speaker = isRoomTypingItem(typingItem) ? String(typingItem?.room?.speaker || '') : '';
+      const typing = speaker && !questionCard && !approvalCard;
+      if (approvalCard && !typing) {
+        return createElement(AgentTypingRow, { member: null, lead: true, approvalCard });
+      }
+      const member = label(speaker);
+      const name = typing ? typingItem?.room?.name : '';
+      return createElement(AgentTypingRow, {
+        member: name ? { ...member, name } : member,
+        lead: true,
+        approvalCard: null,
+        idle: !typing,
+      });
+    }
     if (row._tag === 'Thinking') {
       // A turn waiting on the user's answer is not typing.
       const typing = !inRoom && !questionCard && !approvalCard && agentTypingShown(rows, index);
@@ -179,6 +202,9 @@ export function useConversationRowRenderer({
         approvalCard: null,
       });
     }
+    // A quiet pass paints nothing: no empty bubble row (its gap shook the
+    // thread as members passed), so the list gives it no room (TranscriptList.tsx).
+    if (roomPassIsQuiet(item)) return null;
     // Tool rounds stay out (the typing bubble covers them); only a question
     // that needs the user shows, and a turn that drove the browser leaves one
     // "브라우저 · 보기" line (browser-peek-line.tsx).

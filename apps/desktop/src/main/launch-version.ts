@@ -6,7 +6,7 @@
 // was on screen, the update still waiting to be announced.
 import { readFile } from 'node:fs/promises';
 
-import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { holdsNoData, writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { compareSemver } from '../../../../src/runtime/shared/semver.mjs';
 
 export const LAUNCH_VERSION_FILE = 'last-launch-version';
@@ -19,14 +19,20 @@ interface LaunchRecord {
 
 type WriteFailure = (error: unknown) => void;
 
+// The first form of the record: the bare version, e.g. `1.1.0`.
+const BARE_VERSION = /^v?\d+\.\d+\.\d+[\w.+-]*$/;
+
 async function readLaunchRecord(filePath: string): Promise<LaunchRecord | null> {
   let text: string;
   try {
-    text = (await readFile(filePath, 'utf8')).trim();
+    text = await readFile(filePath, 'utf8');
   } catch {
     return null;
   }
-  if (!text) return null;
+  // A record a crash left empty or NUL-filled is no record: read as a version
+  // it would be 0.0.0, and every launch after it would announce an update.
+  if (holdsNoData(text)) return null;
+  text = text.trim();
   try {
     const parsed = JSON.parse(text) as Partial<LaunchRecord> | null;
     if (parsed && typeof parsed === 'object' && typeof parsed.lastLaunched === 'string') {
@@ -38,7 +44,8 @@ async function readLaunchRecord(filePath: string): Promise<LaunchRecord | null> 
   } catch {
     /* the first form of the record was the bare version */
   }
-  return { lastLaunched: text };
+  // Anything else (truncated JSON, junk) is no record either.
+  return BARE_VERSION.test(text) ? { lastLaunched: text } : null;
 }
 
 async function writeLaunchRecord(filePath: string, record: LaunchRecord, onWriteFailure: WriteFailure): Promise<void> {

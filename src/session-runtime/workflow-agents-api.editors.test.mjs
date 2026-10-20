@@ -1029,3 +1029,108 @@ test('a built-in workflow cannot be deleted until a user override exists; deleti
   assert.deepEqual(await api.deleteWorkflow('default'), { id: 'default', deleted: true, revertedToBuiltIn: true });
   assert.equal(api.getWorkflowPack('default').body, builtIn.body);
 });
+
+test('definition saves are atomic and keep the replaced copy as <file>.bak', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const agent = await api.saveAgentDefinition({ name: 'Keeper', body: 'First body.' });
+  const dir = join(dataDir, 'agents', agent.id);
+  await api.saveAgentDefinition({ id: agent.id, name: 'Keeper', body: 'Second body.' });
+  assert.match(readFileSync(join(dir, 'AGENT.md'), 'utf8'), /Second body\./);
+  assert.match(readFileSync(join(dir, 'AGENT.md.bak'), 'utf8'), /First body\./);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'agent.json.bak'), 'utf8')).name, 'Keeper');
+  assert.ok(!readdirSync(dir).some((name) => name.endsWith('.tmp')), 'no temp file is left behind');
+  const pack = await api.saveWorkflowPack({ id: 'keep-me', body: 'One.' });
+  await api.saveWorkflowPack({ id: pack.id, body: 'Two.' });
+  const packDir = join(dataDir, 'workflows', 'keep-me');
+  assert.match(readFileSync(join(packDir, 'WORKFLOW.md.bak'), 'utf8'), /One\./);
+});
+
+test('persona and Mixy files holding no data (a crash left them NUL-filled) read as missing and are rewritten', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const lead = join(dataDir, 'agents', 'lead');
+  mkdirSync(lead, { recursive: true });
+  for (const file of ['PERSONA.md', 'AGENT.md', 'agent.json']) writeFileSync(join(lead, file), '\0'.repeat(64));
+  assert.equal(api.getLeadPersona(), '');
+  assert.equal(api.getLeadAgentBody(), '');
+  assert.equal(api.getLeadStatus().created, null);
+  assert.equal(api.saveLeadPersona('Warm.'), 'Warm.');
+  assert.equal(readFileSync(join(lead, 'PERSONA.md'), 'utf8'), 'Warm.\n');
+  // A custom agent's NUL persona is no persona.
+  const agent = await api.saveAgentDefinition({ name: 'Nul Persona', body: 'Work.' });
+  writeFileSync(join(dataDir, 'agents', agent.id, 'PERSONA.md'), '\0'.repeat(32));
+  assert.equal(api.getAgentDefinition(agent.id).persona, '');
+});
+
+// A manifest a crash left damaged must never be rewritten from nothing: its
+// keys (connectors above all — a manifest without them means "every connector
+// on") come back from agent.json.bak, or the write is refused.
+const GUARDED = { name: 'Momo', connectors: { off: ['github'] } };
+const DAMAGES = [
+  ['NUL-filled', '\0'.repeat(64)],
+  ['empty', ''],
+  ['truncated', '{"name": "Momo", "connectors": {"off": ["gith'],
+];
+
+for (const [damage, bytes] of DAMAGES) {
+  test(`setLeadCreated restores a ${damage} Mixy manifest from its backup and keeps its connectors`, async (t) => {
+    const { dataDir, api } = fixture(t);
+    const lead = join(dataDir, 'agents', 'lead');
+    mkdirSync(lead, { recursive: true });
+    writeFileSync(join(lead, 'agent.json'), bytes);
+    writeFileSync(join(lead, 'agent.json.bak'), JSON.stringify(GUARDED));
+    const status = api.setLeadCreated(true, 'Primary');
+    assert.equal(status.created, true);
+    assert.equal(status.name, 'Momo');
+    assert.deepEqual(JSON.parse(readFileSync(join(lead, 'agent.json'), 'utf8')), {
+      ...GUARDED,
+      created: true,
+      description: 'Primary',
+    });
+    assert.deepEqual(api.getAgentConnectorPolicy('lead').off, ['github']);
+    const aside = readdirSync(lead).filter((name) => name.startsWith('agent.json.corrupt-'));
+    assert.equal(aside.length, 1, 'the damaged bytes are kept');
+    assert.equal(readFileSync(join(lead, aside[0]), 'utf8'), bytes);
+  });
+}
+
+test('without a good copy a damaged Mixy manifest is left as is: no write turns it into a permissive one', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const lead = join(dataDir, 'agents', 'lead');
+  const file = join(lead, 'agent.json');
+  mkdirSync(lead, { recursive: true });
+  for (const [, bytes] of DAMAGES) {
+    writeFileSync(file, bytes);
+    t.mock.method(process.stderr, 'write', () => true);
+    assert.equal(api.setLeadCreated(true).created, null, 'soft: the flag is not saved');
+    assert.throws(() => api.saveLeadIdentity({ name: 'Mixy' }), /damaged and has no good copy/);
+    await assert.rejects(api.setAgentConnectorPolicy('lead', null), /damaged and has no good copy/);
+    t.mock.restoreAll();
+    assert.equal(readFileSync(file, 'utf8'), bytes, 'the damaged manifest is never overwritten');
+    assert.deepEqual(
+      readdirSync(lead).filter((name) => name !== 'agent.json'),
+      [],
+      'nothing was moved aside or created'
+    );
+  }
+});
+
+test('saving a custom agent restores a damaged manifest from its backup; without one it refuses', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const agent = await api.saveAgentDefinition({ name: 'Guarded', body: 'Work.' });
+  const dir = join(dataDir, 'agents', agent.id);
+  const file = join(dir, 'agent.json');
+  writeFileSync(file.concat('.bak'), JSON.stringify({ name: 'Guarded', ...GUARDED }));
+  writeFileSync(file, '\0'.repeat(64));
+  await api.saveAgentDefinition({ id: agent.id, name: 'Guarded', body: 'Work again.' });
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).connectors, { off: ['github'] });
+  assert.match(readFileSync(join(dir, 'AGENT.md'), 'utf8'), /Work again\./);
+
+  rmSync(file.concat('.bak'));
+  writeFileSync(file, '\0'.repeat(64));
+  await assert.rejects(
+    api.saveAgentDefinition({ id: agent.id, name: 'Guarded', body: 'Third.' }),
+    /damaged and has no good copy/
+  );
+  assert.equal(readFileSync(file, 'utf8'), '\0'.repeat(64));
+  assert.match(readFileSync(join(dir, 'AGENT.md'), 'utf8'), /Work again\./, 'the definition is not rewritten either');
+});

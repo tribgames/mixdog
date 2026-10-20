@@ -40,6 +40,7 @@
 @import "./desktop/27-search-review.css";
 @import "./desktop/28-usage-explorer.css";
 @import "./desktop/30-dialogs.css";
+@import "./desktop/33-skin.css";
 @import "./desktop/date-range-picker.css";
 @import "./desktop/error-notice.css";
 /* The shared session/agent status set: after every surface layer it recolors. */

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 
 import type { DesktopWorkspace, DesktopWorkspaceFolder } from '../shared/contract';
@@ -6,6 +6,8 @@ import type { DesktopEditorSettings } from '../shared/contract';
 import { editorLanguageIdForPath } from '../shared/editor-languages';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../shared/editor-settings';
 import { applyEdits, modify } from 'jsonc-parser';
+import { holdsNoData } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { writeUserFile } from './user-file-write';
 import { objectRecord, parseJsonc, readJsoncFile } from './workflow-config';
 
 const MAX_WORKSPACE_FOLDERS = 64;
@@ -96,7 +98,7 @@ export function workspaceFileText(
 
 /** A workspace file's existing configuration (`{}` for none) from its text. */
 export function workspaceConfiguration(text: string | null): Record<string, unknown> {
-  return text === null ? {} : (objectRecord(parseJsonc(text)) ?? {});
+  return text === null || holdsNoData(text) ? {} : (objectRecord(parseJsonc(text)) ?? {});
 }
 
 export async function writeWorkspaceFile(
@@ -112,7 +114,7 @@ export async function writeWorkspaceFile(
   }
   const { text, workspace } = workspaceFileText(file, folders, existing);
   await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, text, 'utf8');
+  await writeUserFile(file, text);
   return workspace;
 }
 
@@ -297,7 +299,8 @@ async function writeMarkdownDefaultViewNow(
     const original = await readSettingsText(file);
     await hooks?.afterRead?.();
     const formatting = detectFormatting(original);
-    const source = original.trim() ? original : '{}';
+    // An empty or NUL-filled settings file means no settings yet.
+    const source = holdsNoData(original) ? '{}' : original;
     let parsed: unknown;
     try {
       parsed = parseJsonc(source);
@@ -306,16 +309,11 @@ async function writeMarkdownDefaultViewNow(
     }
     if (!objectRecord(parsed)) throw new TypeError('User settings must be an object.');
     const edits = modify(source, [MARKDOWN_DEFAULT_VIEW_KEY], next, { formattingOptions: formatting });
-    const temp = `${file}.${process.pid}.${Date.now()}.${attempt}.tmp`;
-    try {
-      await writeFile(temp, applyEdits(source, edits), 'utf8');
-      // Re-check the target right before replacing it; if it changed, redo on fresh text.
-      if ((await readSettingsText(file)) !== original) continue;
-      await rename(temp, file);
-      return;
-    } finally {
-      await rm(temp, { force: true });
-    }
+    const updated = applyEdits(source, edits);
+    // Re-check the target right before replacing it; if it changed, redo on fresh text.
+    if ((await readSettingsText(file)) !== original) continue;
+    await writeUserFile(file, updated);
+    return;
   }
   throw new Error('User settings kept changing during write; giving up without overwriting.');
 }

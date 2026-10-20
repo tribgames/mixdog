@@ -1,5 +1,5 @@
 // Steering / pending-message queue with sync buffering and atomic persistence.
-import { readFileSync } from 'node:fs';
+import { readJsonStateSync } from '../../../../shared/atomic-file.mjs';
 import { loadSession } from '../store.mjs';
 import {
   currentPendingLifecycleToken,
@@ -602,14 +602,8 @@ export function _getPendingMessagesForSession(sessionId) {
   const queued = [...(_sessionPendingMessages.get(sessionId) || []), ...(_pendingPersistBuffers.get(sessionId) || [])];
   // The not-yet-migrated global spool can still hold this session's rows.
   for (const path of [pendingMessagesPath(sessionId), legacyPendingMessagesPath()]) {
-    let raw;
-    try {
-      raw = readFileSync(path, 'utf8');
-    } catch (err) {
-      if (err?.code === 'ENOENT') continue;
-      throw err;
-    }
-    const persisted = normalizePendingStore(JSON.parse(raw)).sessions[sessionId];
+    // A damaged spool file is kept aside and reads as empty; it never throws.
+    const persisted = normalizePendingStore(readJsonStateSync(path, { fallback: null })).sessions[sessionId];
     if (Array.isArray(persisted)) queued.push(...persisted);
   }
   return queued;

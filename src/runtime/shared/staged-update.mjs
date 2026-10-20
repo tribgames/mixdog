@@ -50,7 +50,7 @@ import { resolvePluginData } from './plugin-paths.mjs';
 import { isPidAlive as pidAlive } from './pid-liveness.mjs';
 import { sleepSync } from './sleep.mjs';
 import { detachedSpawnOpts, hiddenSpawnOpts } from './spawn-flags.mjs';
-import { renameWithRetrySync } from './atomic-file.mjs';
+import { renameWithRetrySync, writeJsonAtomicSync } from './atomic-file.mjs';
 import {
   isDevInstall,
   localPackageVersion,
@@ -295,7 +295,9 @@ export async function runStagedInstall(version) {
 
     if (!existsSync(join(pkgDir, 'src', 'cli.mjs'))) return { ok: false, error: 'staged cli.mjs missing' };
     // Marker written LAST — its presence is the completion signal for the swap.
-    writeFileSync(markerPath(verDir), JSON.stringify({ version: v, pkgDir, stagedAt: Date.now() }), 'utf8');
+    // Published whole and flushed: a NUL marker would read as "not staged" and
+    // force a full re-install.
+    writeJsonAtomicSync(markerPath(verDir), { version: v, pkgDir, stagedAt: Date.now() }, { compact: true });
     return { ok: true, version: v, dir: pkgDir };
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };

@@ -202,7 +202,7 @@ export function createAgentConnectorsApi(deps, editor) {
       );
       if (next) manifest.connectors = next;
       else delete manifest.connectors;
-      writeJsonAtomicSync(file, manifest);
+      writeJsonAtomicSync(file, manifest, { backup: true });
       agents.push(entry.name);
     }
     const config = getConfig?.();

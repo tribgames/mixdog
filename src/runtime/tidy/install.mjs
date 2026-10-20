@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { MAX_NATIVE_BINARY_DOWNLOAD_BYTES, streamResponseToFile } from '../shared/bounded-download.mjs';
 import { platformEntryKey, platformKey, sha256File } from '../shared/native-asset.mjs';
+import { fileHasData } from '../shared/file-has-data.mjs';
 import { readJsonSafe } from '../shared/json-file.mjs';
 import { ENGINE_CATALOG } from './engines.mjs';
 import { extractArchive } from './extract.mjs';
@@ -51,7 +52,7 @@ export function managedEngineBinary({ id, manifest, pluginData }) {
   const binPath = String(found.asset.binPath || '');
   if (!binPath) return null;
   const full = join(managedEngineDir(pluginData, id, found.version), binPath);
-  return existsSync(full) ? { path: full, version: found.version } : null;
+  return fileHasData(full) ? { path: full, version: found.version } : null;
 }
 
 /** Throws unless `filePath` hashes to `expected`. */
@@ -178,7 +179,8 @@ export async function installEngine(
   const engineRoot = join(managedToolsDir(pluginData), target.id);
   const finalDir = managedEngineDir(pluginData, target.id, target.version);
   const binFull = join(finalDir, target.binPath);
-  if (existsSync(binFull)) {
+  // An engine binary a crash left NUL-filled is not present: it is installed again.
+  if (fileHasData(binFull)) {
     return { id: target.id, version: target.version, path: binFull, bytes: 0, status: 'present' };
   }
   mkdirSync(engineRoot, { recursive: true });
@@ -207,6 +209,7 @@ export async function installEngine(
       }
     }
     try {
+      if (existsSync(finalDir) && !fileHasData(binFull)) rmSync(finalDir, { recursive: true, force: true });
       renameSync(stageDir, finalDir);
     } catch (error) {
       // A concurrent install won the race; its verified copy is equivalent.

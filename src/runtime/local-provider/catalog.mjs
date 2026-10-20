@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { fileHasData } from '../shared/file-has-data.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { localProviderDiskStatus, partialAssetBytes } from './asset-storage.mjs';
 import { localProviderHardwareStatus, localProviderPlatformKey } from './hardware.mjs';
@@ -54,7 +55,9 @@ export function localProviderModelPath(entry, dataDir = resolvePluginData()) {
 export function exactLocalProviderFile(path, size) {
   try {
     const stat = statSync(path);
-    return stat.isFile() && stat.size === size;
+    // A crash can commit the size of a renamed download without its bytes: a
+    // file whose head is all NUL is not installed (it is fetched again).
+    return stat.isFile() && stat.size === size && fileHasData(path);
   } catch {
     return false;
   }
@@ -108,7 +111,7 @@ export function localProviderCatalogStatus({
     platformSupported: Boolean(platformEntry),
     available: Boolean(platformEntry && hardware?.supported && models.some((entry) => entry.compatible)),
     runtime: {
-      installed: Boolean(executable && existsSync(executable)),
+      installed: Boolean(executable && fileHasData(executable)),
       version: LOCAL_PROVIDER_MANIFEST.runtime.version,
       downloadBytes: platformEntry?.downloadBytes || 0,
       source: LOCAL_PROVIDER_MANIFEST.runtime.source,

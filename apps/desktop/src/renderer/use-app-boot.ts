@@ -18,6 +18,7 @@ import { loadCommandSurfaceModule } from './command-surface-loader';
 import { FIRST_SCREEN_DEFERRED_MODULES, visualizePaneModule } from './first-screen-deferred';
 import { desktopFeatureEnabled, desktopSidebarDestinationEnabled } from './desktop-feature-config';
 import { applyDesktopThemePreference, getDesktopThemePreference } from './desktop-theme';
+import { applyStoredSkin } from './desktop-skin';
 import { installHostDisplaySync } from './host-display-sync';
 import type { RecordValue } from './desktop-types';
 import {
@@ -304,6 +305,7 @@ export function useAppThemePreference() {
     };
     systemTheme?.addEventListener('change', handleSystemThemeChange);
     if (!applyStoredPreference()) applyDesktopThemePreference('dark');
+    applyStoredSkin();
     // A paired browser with no theme/language of its own follows the host PC.
     const stopHostDisplaySync = installHostDisplaySync();
     return () => {

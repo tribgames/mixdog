@@ -98,9 +98,8 @@ export function Conversation(props: ConversationProps) {
     pendingItems,
     steerItems,
     optimisticActivityStartedAt,
-    // A group room's band holds only the approval card its member waits on
-    // (use-conversation-row-renderer.ts); its typing bubble is a room row.
-    liveBand: !roomIdOfSession(routeSessionId) || Boolean(!readOnly && approvals.approvalCard),
+    // A group room's band is its typing slot (use-conversation-row-renderer.ts).
+    room: Boolean(roomIdOfSession(routeSessionId)),
     onEntryRevealed,
     onTranscriptHiddenChange,
   });

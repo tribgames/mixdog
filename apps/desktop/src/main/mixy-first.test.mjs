@@ -2,7 +2,7 @@
 // whether Mixy exists (existing users are never blocked), and the one greeting
 // of each agent a chat's setup tool creates.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -162,4 +162,15 @@ test('agent-greetings.json round-trips and reads absent as never recorded', asyn
   await store.write(['b', 'a', 'b']);
   assert.deepEqual(await store.read(), ['a', 'b']);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'agent-greetings.json'), 'utf8')), { seen: ['a', 'b'] });
+});
+
+test('a NUL-filled agent-greetings.json reads as never recorded, so the existing agents are recorded, not greeted', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixy-first-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'agent-greetings.json');
+  writeFileSync(file, Buffer.alloc(80));
+  const store = agentGreetingsFileStore(file);
+  assert.equal(await store.read(), null);
+  await store.write(['a']);
+  assert.deepEqual(await store.read(), ['a']);
 });

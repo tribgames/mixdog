@@ -17,9 +17,15 @@
  * re-drains every queue on start, and
  * registers the live surface so a thread open in a window shows the notice at
  * once; a cold thread picks it up from its stored record.
+ *
+ * A group-room member's task reports (enqueueTask `from` its member session)
+ * go to the room instead: each line lands in the member's own session (never
+ * waking it: the room host drives its turns), and a blocked or ended turn
+ * also lands in the room's log as that member's speech row
+ * (agent-room-delivery.mjs appendTaskReports), where the room's next exchange
+ * sees it. Both ride this same durable queue, keyed by those sessions.
  */
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   MIXY_AGENT_ID,
@@ -31,6 +37,7 @@ import {
   isRoomThreadSessionId,
   roomIdOfSession,
   roomMemberOfSession,
+  roomSessionId,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import {
   TASK_LOOP_CAP,
@@ -42,7 +49,7 @@ import {
   routineRunNotice,
   routineSummary,
 } from '../runtime/agent/orchestrator/session/routine-result.mjs';
-import { parseJsonText, updateJsonAtomic } from '../runtime/shared/atomic-file.mjs';
+import { readJsonState, updateJsonAtomic } from '../runtime/shared/atomic-file.mjs';
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
 import { submissionIdsOf } from './agent-task-sessions.mjs';
 import {
@@ -100,6 +107,8 @@ export const ROUND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Per home: round-trip targets counted (least recently counted drop first),
 // reporting turns watched at once, and posted results owed a wake.
 export const QUEUE_CAPS = Object.freeze({ roundTargets: 100, watches: 200, wakeRunIds: 100 });
+// A task report's output kept for its room row (newlines kept).
+const ROOM_REPORT_TEXT_LIMIT = 4000;
 
 /** `homeId`'s wake obligations in `wakes`: posted task results not in a batch
  *  yet (`owed`), those past the cap collapsed into one marker (`overflow`:
@@ -162,22 +171,24 @@ export function createRoutineResultQueue(
     // Posted task results whose wake turn was not taken yet, per home.
     wakes: section(doc, 'wakes'),
   });
+  // A damaged queue file (empty, NUL-filled after a crash, malformed) is kept
+  // aside and its last good copy restored (readJsonState); it never blocks
+  // delivery. I/O errors still throw.
   async function read() {
-    try {
-      return parts(parseJsonText(await readFile(filePath, 'utf8')));
-    } catch (error) {
-      if (error?.code === 'ENOENT') return parts(null);
-      throw error;
-    }
+    return parts(await readJsonState(filePath));
   }
   /** Read-modify-write under the file lock (`mutator(doc)` returns the next
    *  doc, or nothing to keep the file); every write also retires stale and
    *  surplus round counts. */
   function update(mutator) {
-    return updateJsonAtomic(filePath, (raw) => {
-      const next = mutator(parts(raw));
-      return next ? { ...next, rounds: tidyRounds(next.rounds) } : undefined;
-    });
+    return updateJsonAtomic(
+      filePath,
+      (raw) => {
+        const next = mutator(parts(raw));
+        return next ? { ...next, rounds: tidyRounds(next.rounds) } : undefined;
+      },
+      { backup: true }
+    );
   }
   /** `doc` with `items` appended to `homeId`'s list, minus run ids it holds or posted. */
   function appended(doc, homeId, items, omittedCount = 0) {
@@ -427,6 +438,9 @@ export function createAgentHomeDelivery({
   // True only on positive evidence that session `id` was deleted; an
   // unreadable or unknown record is not deleted.
   sessionDeleted = () => false,
+  // Post queued room task reports into a room log (agent-room-delivery.mjs).
+  postRoomReports = async (roomLogId, items) =>
+    (await import('./agent-room-delivery.mjs')).appendRoomTaskReports(roomLogId, items),
   log = (line) => process.stderr.write(`mixdog routines: ${line}\n`),
 }) {
   const busy = (sessionId) => {
@@ -468,8 +482,43 @@ export function createAgentHomeDelivery({
     }, ms);
   }
 
+  /** A room thread proven gone: its queued rows are dropped, never retried. */
+  async function dropGoneRoomThread(homeId, items, omitted) {
+    if (!isRoomThreadSessionId(homeId) || !(homeDeleted(homeId) || sessionDeleted(homeId))) return false;
+    log(`${items.length} task report(s) for the deleted ${homeId} are dropped`);
+    await queue.remove(
+      homeId,
+      items.map((item) => item.runId),
+      omitted
+    );
+    await queue.dropWakes(homeId);
+    return true;
+  }
+
+  /** Post every queued task report of the room log `roomLogId` as member rows. */
+  async function drainRoomLog(roomLogId) {
+    const items = await queue.items(roomLogId);
+    const omitted = await queue.omitted(roomLogId);
+    if (!items.length && !omitted) return;
+    const session = loadSession(roomLogId);
+    if (!session || session.closed === true) {
+      if (await dropGoneRoomThread(roomLogId, items, omitted)) return;
+      log(`${items.length} task report(s) wait for the room log ${roomLogId}`);
+      return later(roomLogId, missingRetryMs);
+    }
+    // A room log has no notice row: the dropped count is only logged.
+    if (omitted) log(`${omitted.count} older task report(s) for ${roomLogId} were dropped: its queue was full`);
+    if (items.length) await postRoomReports(roomLogId, items);
+    await queue.remove(
+      roomLogId,
+      items.map((item) => item.runId),
+      omitted
+    );
+  }
+
   /** Post every queued result of `homeId` if its thread is idle; else retry later. */
   async function drainOnce(homeId) {
+    if (roomIdOfSession(homeId)) return drainRoomLog(homeId);
     const items = await queue.items(homeId);
     const omitted = await queue.omitted(homeId);
     const owed = owesWake(await queue.wakes(homeId));
@@ -491,6 +540,7 @@ export function createAgentHomeDelivery({
     // From here to the push nothing awaits, so no turn can start in between.
     const session = loadSession(homeId);
     if (!session || session.closed === true) {
+      if (await dropGoneRoomThread(homeId, items, omitted)) return;
       log(`${items.length} result(s) wait for the home thread ${homeId}`);
       return later(homeId, missingRetryMs);
     }
@@ -633,28 +683,58 @@ export function createAgentHomeDelivery({
    *  and 'blocked' only post a line; a turn's end also wakes the agent. */
   async function enqueueTask(
     agentId,
-    { runId, taskSessionId, title, status, text = '', target, watchId = '', files = [], omitted = 0 }
+    { runId, taskSessionId, title, status, text = '', target, watchId = '', files = [], omitted = 0, from = '' }
   ) {
     const homeId = agentHomeSessionId(agentId) || agentHomeSessionId(MIXY_AGENT_ID);
     if (!runId || !taskSessionId) throw new Error('task report: runId and taskSessionId required');
-    await queue.add(
-      homeId,
-      {
-        runId: String(runId),
-        kind: 'agent-task',
-        taskSessionId,
-        title,
-        status,
-        text: routineSummary(text),
-        // Any session other than a task session the agent created.
-        ...(target === 'session' ? { target } : {}),
-        // The files the turn produced (handoff-attachments.mjs collectTurnArtifacts).
-        ...(Array.isArray(files) && files.length ? { files, ...(omitted > 0 ? { omitted } : {}) } : {}),
-        roundTrip: status !== 'started' && status !== 'blocked',
-        at: Date.now(),
-      },
-      { unwatch: watchId ? String(watchId) : '' }
-    );
+    const item = {
+      runId: String(runId),
+      kind: 'agent-task',
+      taskSessionId,
+      title,
+      status,
+      text: routineSummary(text),
+      // Any session other than a task session the agent created.
+      ...(target === 'session' ? { target } : {}),
+      // The files the turn produced (handoff-attachments.mjs collectTurnArtifacts).
+      ...(Array.isArray(files) && files.length ? { files, ...(omitted > 0 ? { omitted } : {}) } : {}),
+      roundTrip: status !== 'started' && status !== 'blocked',
+      at: Date.now(),
+    };
+    const unwatch = watchId ? String(watchId) : '';
+    const member = roomMemberOfSession(from);
+    if (member?.agentId === agentId) {
+      // The member's own session gets the line without a wake; a blocked or
+      // ended turn is the member's row in the room log. The watch drops with
+      // the last write, so a restart in between re-queues both (deduplicated).
+      const roomLogId = roomSessionId(member.roomId);
+      const toRoom = status !== 'started';
+      await queue.add(from, { ...item, roundTrip: false }, { unwatch: toRoom ? '' : unwatch });
+      if (toRoom) {
+        await queue.add(
+          roomLogId,
+          {
+            runId: item.runId,
+            kind: 'room-report',
+            speaker: agentId,
+            taskSessionId,
+            title,
+            status,
+            text: String(text ?? '')
+              .trim()
+              .slice(0, ROOM_REPORT_TEXT_LIMIT),
+            ...(item.target ? { target: item.target } : {}),
+            ...(item.files ? { files: item.files } : {}),
+            at: item.at,
+          },
+          { unwatch }
+        );
+      }
+      void drain(from);
+      if (toRoom) void drain(roomLogId);
+      return toRoom ? roomLogId : from;
+    }
+    await queue.add(homeId, item, { unwatch });
     void drain(homeId);
     return homeId;
   }

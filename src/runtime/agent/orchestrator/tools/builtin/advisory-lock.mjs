@@ -1,16 +1,41 @@
-// Cross-process advisory lock for patch/write operations. Uses a sibling
-// lockfile written exclusively (`wx`) and a process.kill(pid, 0) liveness
-// check to clean up after crashed holders. Pair with the in-process
-// withPathLock for the same target: in-process serialises async callers
-// in this Node, advisory lock serialises across Node processes.
-import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
+// Cross-process advisory lock for patch/write operations. Uses a lockfile
+// written exclusively (`wx`) and a process.kill(pid, 0) liveness check to
+// clean up after crashed holders. Pair with the in-process withPathLock for
+// the same target: in-process serialises async callers in this Node, advisory
+// lock serialises across Node processes.
+import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync, realpathSync } from 'node:fs';
 import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
+import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { sleep } from '../../../../shared/sleep.mjs';
-import { dirname, basename, join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { dirname, basename, join, resolve } from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
 
+// The deepest existing component (the target itself when present, so a leaf
+// symlink shares its referent's lock like atomicWrite writes through it) is
+// resolved; components not created yet are appended as given.
+function canonicalLockTarget(targetPath) {
+  const resolved = resolve(targetPath);
+  const tail = [];
+  let dir = resolved;
+  for (;;) {
+    try {
+      return join(realpathSync.native(dir), ...tail.reverse());
+    } catch {
+      if (dirname(dir) === dir) return resolved;
+      tail.push(basename(dir));
+      dir = dirname(dir);
+    }
+  }
+}
+
+// Lockfiles live in the local data dir, keyed by the target's canonical path,
+// never beside the target: sync-drive folders (e.g. Naver MYBOX) refuse
+// dot-prefixed sibling files, and the pid liveness check only spans this host.
 function lockFileFor(targetPath) {
-  return join(dirname(targetPath), `.${basename(targetPath)}.mixdog-lock`);
+  const canonical = canonicalLockTarget(targetPath);
+  const key = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  const hash = createHash('sha256').update(key).digest('hex');
+  return join(resolvePluginData(), 'locks', `${hash}.mixdog-lock`);
 }
 
 function isPidAlive(pid) {
@@ -87,15 +112,12 @@ function tryCreateLock(lockFile, token) {
 
 async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 } = {}) {
   const lockFile = lockFileFor(targetPath);
-  // Ensure parent directory exists before openSync('wx'); the lockfile lives
-  // next to the target, so writes to new files in missing parent dirs would
-  // otherwise fail with ENOENT here.
   mkdirSync(dirname(lockFile), { recursive: true });
   const token = `${process.pid}.${randomBytes(8).toString('hex')}`;
   const deadline = Date.now() + timeoutMs;
   let stalePostDeadlineRetryUsed = false;
   const timeoutError = (holderPid) => {
-    const err = new Error(`advisory lock timeout: ${lockFile} held by pid ${holderPid}`);
+    const err = new Error(`advisory lock timeout: ${targetPath} (${lockFile}) held by pid ${holderPid}`);
     err.code = 'EAGAIN';
     return err;
   };

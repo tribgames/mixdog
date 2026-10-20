@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
+import { holdsNoData } from '../../../../src/runtime/shared/atomic-file.mjs';
+
 function stripJsonComments(source: string): string {
   let result = '';
   let quoted = false;
@@ -73,9 +75,12 @@ export function parseJsonc(source: string): unknown {
   return JSON.parse(stripTrailingCommas(stripJsonComments(source)));
 }
 
+/** The object a JSONC file holds; null when it is missing, or empty / NUL-filled
+ *  (what a crash leaves of a user-edited file), which means "no settings". */
 export async function readJsoncFile(path: string): Promise<Record<string, unknown> | null> {
   try {
-    return objectRecord(parseJsonc(await readFile(path, 'utf8')));
+    const text = await readFile(path, 'utf8');
+    return holdsNoData(text) ? null : objectRecord(parseJsonc(text));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
     throw error;

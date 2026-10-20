@@ -242,14 +242,13 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         onDraftModelSelection={onDraftModelSelection}
         onRoutePreferenceApplied={onRoutePreferenceApplied}
         modelAside={modelAside}
-        usageReadout={
-          // Before the first message the pickers sit in the line under the card.
+        // Before the first message the pickers stand in for the readout.
+        contextBar={
           showProjectSelector && !agentMode ? (
             <div className="composer-model-line-context">{conversationContextBar(props)}</div>
-          ) : draftMode ? undefined : (
-            usageReadout
-          )
+          ) : undefined
         }
+        usageReadout={draftMode ? undefined : usageReadout}
         agentMode={agentMode}
         steerItems={submission.steerItems}
         pendingSubmissionIds={submission.pendingPromptIds}

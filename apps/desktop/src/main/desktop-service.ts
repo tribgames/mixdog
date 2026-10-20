@@ -48,6 +48,7 @@ import {
   type RemoteRelayHandle,
 } from './remote-relay';
 import { activateRemote, isRemoteActivated } from './remote-activation';
+import { revocationQueueDamaged } from './remote-relay-device';
 import { createRemoteAccessSettingsStore } from './remote-access-settings';
 import { loadRemoteClientCache } from './remote-client-cache';
 import { createPendingRevokeDrain } from './remote-revoke-drain';
@@ -450,6 +451,21 @@ export async function createDesktopService({
     }, relayRetryMs);
     relayRetryTimer.unref?.();
   };
+  /** A damaged revocation record (the cache's pending client revocations, the
+   *  queued device revocations) may have lost a revocation, and no older copy
+   *  proves it did not. So every paired phone is revoked and must pair again:
+   *  the pairing token, device identity and E2EE identity are replaced, which
+   *  works offline and before any relay leg opens. Until it completes the relay
+   *  stays closed (the start fails and retries); local use is unaffected. */
+  const resetPairingAfterLostRevocations = async (): Promise<void> => {
+    if (!clientCache.repairRequired() && !(await revocationQueueDamaged(options.userDataPath))) return;
+    await Promise.all([
+      rotatePairingToken(options.userDataPath),
+      rotateRemoteDevice(options.userDataPath),
+      rotateRelayE2EEIdentity(options.userDataPath),
+    ]);
+    await clientCache.clear();
+  };
   /** `explicit` is a user remote-access action: it activates (and persists)
    *  remote access. Boot/resume/retry starts only connect once activated, so a
    *  fresh install never registers on the relay on its own. */
@@ -472,6 +488,7 @@ export async function createDesktopService({
         if (!relayUrl) return;
         if (explicit) await activateRemote(options.userDataPath);
         else if (!(await isRemoteActivated(options.userDataPath))) return;
+        await resetPairingAfterLostRevocations();
         remoteRelay = await startRemoteRelay({ ...remoteOptions, relayUrl });
         if (relayRetryTimer) {
           clearTimeout(relayRetryTimer);

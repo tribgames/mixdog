@@ -53,7 +53,7 @@ function hook(t, method, path, fn) {
   return restore;
 }
 const leftovers = (path) =>
-  fs.readdirSync(root).filter((name) => name.startsWith(`.${path.split(/[\\/]/).at(-1)}.mixdog-tmp-`));
+  fs.readdirSync(root).filter((name) => name.startsWith(`${path.split(/[\\/]/).at(-1)}.mixdog-tmp-`));
 
 for (const field of fields) {
   test(`snapshot fast path rejects an observed ${field} difference`, () => {

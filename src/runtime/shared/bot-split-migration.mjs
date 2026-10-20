@@ -83,7 +83,7 @@ function writeJson(file, value) {
 
 // The definition file a bot's kind is read from: AGENT.md, or the archived
 // copy of a deleted bot (its chat is kept, so it moves with the others).
-function definitionFile(dir) {
+export function definitionFile(dir) {
   if (existsSync(join(dir, 'AGENT.md'))) return join(dir, 'AGENT.md');
   if (existsSync(join(dir, DELETED_MARKER)) && existsSync(join(dir, ARCHIVED_FILE))) return join(dir, ARCHIVED_FILE);
   return '';

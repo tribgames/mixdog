@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CircleAlert, CircleX, Plus, Search, Star } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Search, Star } from 'lucide-react';
 import type React from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -231,7 +231,9 @@ export function unreadBadgeLabel(count: number): string {
 
 /** The row's single trailing status (see AgentChatIndicator). Attention has
  *  no pill: the preview line already says what the agent waits for; a
- *  contact row (`attentionMark`) also shows a mark in its status cell. */
+ *  contact row (`attentionMark`) also shows a mark in its status cell. The
+ *  attention and failure marks are filled "!" pills, amber and red, the
+ *  unread count's shape (design/mockups/bot-list-messenger, option A). */
 function AgentChatStatus({
   indicator,
   id,
@@ -245,7 +247,7 @@ function AgentChatStatus({
   if (indicator.kind === 'attention' && attentionMark) {
     return (
       <span id={id} className="agent-chat-status" data-kind="attention-mark">
-        <CircleAlert size={14} aria-hidden="true" />
+        <span aria-hidden="true">!</span>
         <span className="sr-only">{t('Waiting for approval')}</span>
       </span>
     );
@@ -260,7 +262,7 @@ function AgentChatStatus({
   if (indicator.kind === 'error') {
     return (
       <span id={id} className="agent-chat-status" data-kind="error">
-        <CircleX size={14} aria-hidden="true" />
+        <span aria-hidden="true">!</span>
         <span className="sr-only">{t('Failed')}</span>
       </span>
     );
@@ -798,9 +800,13 @@ export function AgentActivityPane({
         .toLowerCase()
         .includes(needle)
     );
-  const shownContacts = contacts.filter(
-    (contact) => !(mixyFirst.empty && contact.mixy) && matches(contact.name, contact.preview)
-  );
+  // Mixy stays on top, set apart by a hairline (no heading); the other bots
+  // follow by latest conversation, and one with none yet keeps its catalog
+  // place after them (the sort is stable).
+  const shownContacts = contacts
+    .filter((contact) => !(mixyFirst.empty && contact.mixy) && matches(contact.name, contact.preview))
+    .sort((left, right) => Number(right.mixy) - Number(left.mixy) || right.at - left.at);
+  const pinnedDividerAt = shownContacts.findIndex((contact) => !contact.mixy);
   // The focused session's composer runs on its lane's model; a draft or the
   // engine snapshot answers otherwise.
   const composerRoute = () =>
@@ -896,8 +902,11 @@ export function AgentActivityPane({
       )}
       {mixyFirst.empty && shownContacts.length === 0 && <MixyEmptyState onCreate={() => mixyFirst.openMixyDialog()} />}
       <ul className="agent-contact-list" aria-label={t('Bots')}>
-        {shownContacts.map((contact) => (
+        {shownContacts.map((contact, index) => (
           <Fragment key={contact.agentId}>
+            {index > 0 && index === pinnedDividerAt && (
+              <li className="agent-contact-divider" role="separator" aria-hidden="true" />
+            )}
             <AgentContactRow
               contact={contact}
               // The deterministic id: an empty home thread has no catalog row yet.

@@ -35,9 +35,31 @@ test('missing or explicitly empty project stores are definite empty registries',
   assert.deepEqual(listProjectsStrict(), []);
 });
 
-test('corrupt registry documents cannot prove that a project was removed', () => {
+const asideCopies = () =>
+  fs
+    .readdirSync(root)
+    .filter((name) => name.startsWith('projects.json.corrupt-'))
+    .map((name) => join(root, name));
+
+test('a damaged registry (NUL, empty, truncated) is kept aside and reads as empty instead of failing', () => {
+  for (const raw of ['{', '\0'.repeat(64), '', '{"projects":[{"path":']) {
+    for (const list of [listProjectsStrict, listProjects]) {
+      fs.writeFileSync(path, raw);
+      assert.deepEqual(list(), []);
+      assert.equal(fs.existsSync(path), false, 'the damaged file is moved aside');
+      assert.ok(
+        asideCopies().some((copy) => fs.readFileSync(copy, 'utf8') === raw),
+        'its bytes are kept'
+      );
+      for (const copy of asideCopies()) fs.rmSync(copy);
+    }
+  }
+  fs.writeFileSync(path, validStore());
+  assert.equal(listProjectsStrict().length, 2, 'a subsequent healthy lookup recovers');
+});
+
+test('strict lists never grant from unusable entries and do not write the registry', () => {
   for (const raw of [
-    '{',
     'null',
     '{}',
     '{"projects":{}}',
@@ -46,15 +68,9 @@ test('corrupt registry documents cannot prove that a project was removed', () =>
     '{"projects":[{"path":""}]}',
   ]) {
     fs.writeFileSync(path, raw);
-    assert.throws(
-      () => listProjectsStrict(),
-      (error) => error instanceof SyntaxError || error instanceof TypeError
-    );
-    assert.doesNotThrow(() => listProjects(), 'legacy tolerant behavior is unchanged');
+    assert.deepEqual(listProjectsStrict(), []);
     assert.equal(fs.readFileSync(path, 'utf8'), raw);
   }
-  fs.writeFileSync(path, validStore());
-  assert.equal(listProjectsStrict().length, 2, 'a subsequent healthy lookup recovers');
 });
 
 for (const code of ['EIO', 'EACCES']) {

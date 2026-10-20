@@ -609,6 +609,22 @@ export const createRemotePairingScreen = (
       }
 
       document.body.appendChild(layer);
+      // Nothing else sets --mxp-kb: lift the screen above the soft keyboard.
+      const visual = window.visualViewport;
+      if (visual) {
+        const syncKeyboard = (): void => {
+          if (!layer.isConnected) {
+            visual.removeEventListener('resize', syncKeyboard);
+            visual.removeEventListener('scroll', syncKeyboard);
+            return;
+          }
+          const inset = Math.max(0, Math.round(window.innerHeight - visual.height - visual.offsetTop));
+          layer.style.setProperty('--mxp-kb', `${inset}px`);
+        };
+        visual.addEventListener('resize', syncKeyboard);
+        visual.addEventListener('scroll', syncKeyboard);
+        syncKeyboard();
+      }
       if (preview) {
         const events: Record<string, PairingEvent> = {
           waiting: { kind: 'waiting' },

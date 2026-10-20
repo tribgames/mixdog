@@ -21,7 +21,8 @@ function storeIsEmpty(store) {
   );
 }
 
-// One shard transaction: locked, compact, non-fsync. A shard emptied by the
+// One shard transaction: locked, compact, durable (queued user messages must
+// survive a crash; a damaged shard is kept aside by updateJsonAtomic). A shard emptied by the
 // mutation (or found empty) is deleted under the same lock, so the directory
 // holds only sessions that actually have queued rows.
 async function updateShardFile(key, mutate, extra = null) {
@@ -33,7 +34,6 @@ async function updateShardFile(key, mutate, extra = null) {
         compact: true,
         lock: true,
         mode: PENDING_MESSAGES_MODE,
-        fsync: false,
         ...extra,
       });
       if (storeIsEmpty(result)) {
@@ -50,7 +50,9 @@ async function updateShardFile(key, mutate, extra = null) {
 }
 
 function rowKey(row) {
-  return row && typeof row === 'object' && typeof row.id === 'string' && row.id ? `id:${row.id}` : `json:${JSON.stringify(row)}`;
+  return row && typeof row === 'object' && typeof row.id === 'string' && row.id
+    ? `id:${row.id}`
+    : `json:${JSON.stringify(row)}`;
 }
 
 // Idempotent merge of one legacy bucket into its shard: legacy rows (older)

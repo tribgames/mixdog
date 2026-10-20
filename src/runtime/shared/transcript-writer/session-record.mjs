@@ -3,8 +3,7 @@
  * record that names this session's transcript for discovery, plus the
  * first-occurrence failure logger every transcript writer shares.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { writeJsonAtomicSync } from '../atomic-file.mjs';
 
 // Repeated-failure guard: log the first time each distinct message is seen,
 // then stay quiet so a persistently-broken path does not flood stderr.
@@ -27,10 +26,11 @@ export function createSessionRecord({ sessionRecordPath, sessionId, resolvedCwd,
 
   function write() {
     try {
-      mkdirSync(dirname(sessionRecordPath), { recursive: true });
-      writeFileSync(
+      // Published whole and flushed: a discovery reader never meets a torn or
+      // NUL record, and every refresh rewrites it anyway.
+      writeJsonAtomicSync(
         sessionRecordPath,
-        JSON.stringify({
+        {
           sessionId,
           cwd: resolvedCwd,
           transcriptPath,
@@ -38,7 +38,8 @@ export function createSessionRecord({ sessionRecordPath, sessionId, resolvedCwd,
           updatedAt: Date.now(),
           kind: 'interactive',
           entrypoint: 'cli',
-        })
+        },
+        { compact: true }
       );
     } catch (err) {
       logOnce(err);

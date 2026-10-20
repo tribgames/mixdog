@@ -143,7 +143,10 @@ export const ActivityRail = memo(function ActivityRail({
   const usageClickGuard = useImmediateOverlayClickGuard();
   const rememberUsageAnchor = (element: HTMLButtonElement) => {
     const bounds = element.getBoundingClientRect();
-    preparedUsageAnchor.current = Math.max(8, Math.round(window.innerHeight - bounds.bottom));
+    preparedUsageAnchor.current = Math.max(
+      8,
+      Math.round((window.visualViewport?.height ?? window.innerHeight) - bounds.bottom)
+    );
   };
   const [fetchedUsageModule, setFetchedUsageModule] = useState(loadedSidebarUsageModule);
   const usageModule = fetchedUsageModule ?? loadedSidebarUsageModule();
@@ -222,8 +225,6 @@ export const ActivityRail = memo(function ActivityRail({
         <ActivityRailNavigation entries={navigationItems} activeId={activeNavigationId} onSelect={onSelectNavigation} />
       </nav>
       <div className="activity-rail-spacer" />
-      {/* Directly above the whole Usage block, pinned gauges included. */}
-      <RailUpdateSlot update={railUpdate} />
       {desktopFeatureEnabled('usage') && (
         <button
           type="button"
@@ -258,6 +259,8 @@ export const ActivityRail = memo(function ActivityRail({
           {usagePinGlyph(usagePinRows, usagePinLoading)}
         </button>
       )}
+      {/* Directly above Settings, under the Usage block (user: 설정 버튼 위). */}
+      <RailUpdateSlot update={railUpdate} />
       {desktopFeatureEnabled('settings') && (
         <button
           type="button"

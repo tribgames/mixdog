@@ -133,7 +133,7 @@ export function createGoalMutations(ctx) {
     await write(
       join(root, 'history', id, `${assertSessionId(goal.id)}.json`),
       { version: GOAL_FILE_VERSION, goal },
-      { lock: true, secret: true, fsync: false, timeoutMs: 2_000 }
+      { lock: true, secret: true, timeoutMs: 2_000 }
     );
   };
 

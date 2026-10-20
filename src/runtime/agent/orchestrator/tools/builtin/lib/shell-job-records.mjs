@@ -24,7 +24,7 @@ import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/p
 import { unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { writeJsonAtomicAsync } from '../../../../../shared/atomic-file.mjs';
+import { holdsNoData, writeJsonAtomicAsync } from '../../../../../shared/atomic-file.mjs';
 import { isPidAlive } from '../../../../../shared/pid-liveness.mjs';
 import { displayShellCommand } from '../../../../../shared/shell-display.mjs';
 import { tryAdmitWorkspaceActivity } from '../../../../../shared/worktrees/activity-gate.mjs';
@@ -431,7 +431,11 @@ export async function readShellJobRecord(jobId, { strict = false } = {}) {
   const dir = jobsDir();
   const jsonPath = join(dir, `${key}.json`);
   try {
-    const record = JSON.parse(await readFile(jsonPath, 'utf8'));
+    const text = await readFile(jsonPath, 'utf8');
+    // A crash left no data (fsync is off for these records): nothing to inspect,
+    // the same as no record, even for a strict reader.
+    if (holdsNoData(text)) return null;
+    const record = JSON.parse(text);
     if (
       strict &&
       (!record ||

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -158,4 +158,41 @@ test('the grace period is a whole number of minutes from 1 to 10080', () => {
   assert.equal(parseHostSettings({ graceMinutes: '' }).graceMinutes, undefined);
   assert.equal(parseHostSettings({}).graceMinutes, undefined);
   for (const bad of [0, 10_081, 2.5, 'x']) assert.throws(() => parseHostSettings({ graceMinutes: bad }), /1 to 10080/);
+});
+
+test('a damaged saved-server list is kept aside and the last good copy restored', async () => {
+  const dir = await tempDir();
+  const store = await loadSshHostStore(dir);
+  await store.save(host('a', 'vps', 'root@vps.example.com', 10));
+  await store.save(host('b', 'gpu-box', 'gpu-box', 20));
+  const file = join(dir, 'ssh-hosts.json');
+  await writeFile(file, '\0\0\0\0\0\0');
+  const reloaded = await loadSshHostStore(dir);
+  assert.deepEqual(
+    reloaded.list().map((entry) => entry.id),
+    ['a'],
+    'the copy kept before the last write is restored'
+  );
+  const aside = (await readdir(dir)).filter((name) => name.startsWith('ssh-hosts.json.corrupt-'));
+  assert.equal(aside.length, 1);
+  assert.equal(await readFile(join(dir, aside[0]), 'utf8'), '\0\0\0\0\0\0');
+  assert.deepEqual(
+    JSON.parse(await readFile(file, 'utf8')).hosts.map((entry) => entry.id),
+    ['a']
+  );
+});
+
+test('a damaged saved-server list with no backup starts empty but keeps its bytes, and the provider lookup copes', async () => {
+  const dir = await tempDir();
+  await writeFile(join(dir, 'ssh-hosts.json'), '{"hosts": [');
+  configureSshHostStore(dir);
+  assert.deepEqual(allowedProvidersForHost('a'), []);
+  const store = await loadSshHostStore(dir);
+  assert.deepEqual(store.list(), []);
+  await store.save(host('n', 'new', 'new-box'));
+  assert.deepEqual(
+    (await loadSshHostStore(dir)).list().map((entry) => entry.id),
+    ['n']
+  );
+  assert.ok((await readdir(dir)).some((name) => name.startsWith('ssh-hosts.json.corrupt-')));
 });

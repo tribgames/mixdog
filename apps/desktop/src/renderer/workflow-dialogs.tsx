@@ -417,7 +417,8 @@ export function RouteEditorDialog({
             (user: 팝업 레이아웃 정리). */}
           {target.readOnlyDefinition && (
             <div className="schedules-field">
-              <span>{t('When to use')}</span>
+              {/* Lead runs every conversation, so it has no "when"; it says what it does. */}
+              <span>{target.modelKind === 'main' ? t('What it does') : t('When to use')}</span>
               <small>{target.description}</small>
             </div>
           )}

@@ -11,6 +11,12 @@
   pointer-events: none;
 }
 
+/* Phone: clear the home indicator and the composer docked above it. */
+html[data-mixdog-mobile-tabs] .server-transfers {
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 72px);
+}
+
 .server-transfer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;

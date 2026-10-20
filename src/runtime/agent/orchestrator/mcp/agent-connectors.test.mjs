@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -169,6 +169,63 @@ test('an unreadable or invalid policy denies every connector instead of opening 
   // An absent field (or file) is the legacy state: every server.
   assert.ok(!refused('nullfield', scopeId, 'mcp__alpha__read_it'));
   assert.ok(!refused('no-such-agent', scopeId, 'mcp__beta__ping'));
+});
+
+test('an agent.json a crash left empty or NUL-filled, with no backup, never fails open', (t) => {
+  const { scopeId } = fixture(t);
+  const write = (id, text) => {
+    const dir = join(process.env.MIXDOG_DATA_DIR, 'agents', id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'agent.json'), text);
+    return dir;
+  };
+  const dirs = { 'nul-filled': write('nul-filled', '\0'.repeat(64)), empty: write('empty', '') };
+  write('bom', `\ufeff${JSON.stringify({ name: 'bom', connectors: { off: ['alpha'] } })}`);
+  for (const [id, dir] of Object.entries(dirs)) {
+    assert.ok(refused(id, scopeId, 'mcp__alpha__read_it'), id);
+    assert.ok(refused(id, scopeId, 'mcp__beta__ping'), id);
+    // Left in place: moving it aside would make the next read "no policy".
+    assert.ok(readdirSync(dir).includes('agent.json'), id);
+    assert.ok(!readdirSync(dir).some((name) => name.includes('.corrupt-')), id);
+    assert.ok(refused(id, scopeId, 'mcp__alpha__read_it'), `${id}, read again`);
+  }
+  // A hand-edited file saved with a byte order mark still applies its policy.
+  assert.ok(refused('bom', scopeId, 'mcp__alpha__read_it'));
+  assert.ok(!refused('bom', scopeId, 'mcp__beta__ping'));
+});
+
+test('a torn agent.json with a valid backup restores the backup deny list', (t) => {
+  const { scopeId } = fixture(t);
+  const dir = join(process.env.MIXDOG_DATA_DIR, 'agents', 'torn-bak');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'agent.json'), '{"name":"torn-bak","connectors":{"off":[');
+  writeFileSync(join(dir, 'agent.json.bak'), JSON.stringify({ name: 'torn-bak', connectors: { off: ['alpha'] } }));
+  assert.ok(refused('torn-bak', scopeId, 'mcp__alpha__read_it'));
+  assert.ok(!refused('torn-bak', scopeId, 'mcp__beta__ping'));
+  assert.ok(readdirSync(dir).some((name) => name.startsWith('agent.json.corrupt-')));
+});
+
+test('a NUL agent.json restores its .bak deny list; an invalid .bak keeps every connector off', (t) => {
+  const { scopeId } = fixture(t);
+  const write = (id, text, bak) => {
+    const dir = join(process.env.MIXDOG_DATA_DIR, 'agents', id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'agent.json'), text);
+    if (bak !== undefined) writeFileSync(join(dir, 'agent.json.bak'), bak);
+    return dir;
+  };
+  const dir = write('nul-bak', '\0'.repeat(64), JSON.stringify({ name: 'nul-bak', connectors: { off: ['alpha'] } }));
+  assert.ok(refused('nul-bak', scopeId, 'mcp__alpha__read_it'), 'the deny list applies');
+  assert.ok(!refused('nul-bak', scopeId, 'mcp__beta__ping'));
+  assert.ok(
+    readdirSync(dir).some((name) => name.startsWith('agent.json.corrupt-')),
+    'damaged bytes kept aside'
+  );
+  assert.match(readFileSync(join(dir, 'agent.json'), 'utf8'), /"alpha"/, 'the backup was restored');
+  // A backup that is not a usable policy opens nothing up.
+  write('nul-badbak', '\0'.repeat(64), JSON.stringify({ connectors: 'alpha' }));
+  assert.ok(refused('nul-badbak', scopeId, 'mcp__alpha__read_it'));
+  assert.ok(refused('nul-badbak', scopeId, 'mcp__beta__ping'));
 });
 
 test('a tool without its own entry runs without asking, a newly added one too', (t) => {

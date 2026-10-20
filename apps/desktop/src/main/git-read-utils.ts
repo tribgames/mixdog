@@ -1,5 +1,6 @@
 import { open, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { isGitTimeout } from './git-runner';
 
 export const GIT_METADATA_TTL_MS = 60_000;
 export const DISPLAY_DIFF_ARGS = ['--no-ext-diff', '--no-textconv', '--no-color'] as const;
@@ -59,7 +60,14 @@ export function sharedRead<A extends unknown[], R>(
     if (!lane) return start(key, args);
     lane.next ??= lane.current.then(
       () => start(key, args),
-      () => start(key, args)
+      (error: unknown) => {
+        // A read cut off at its deadline means the repository is wedged: a
+        // follow-up would wait the whole deadline again and leave one more hung
+        // git behind, so joined callers share the timeout. Later callers start fresh.
+        if (!isGitTimeout(error)) return start(key, args);
+        if (lanes.get(key) === lane) lanes.delete(key);
+        throw error;
+      }
     );
     return lane.next;
   };

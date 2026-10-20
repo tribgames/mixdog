@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -275,6 +275,41 @@ test('"don\'t ask again" stores an agent + action-kind grant that later auto-all
   assert.equal(await store.revokeGrant(grant.id), false);
   await call('o/r', 1);
   assert.equal(asks, 3, 'a revoked grant asks again');
+});
+
+test('a damaged grants file asks again, is kept aside and never throws', async (t) => {
+  const { dir, store } = tempStore(t);
+  for (const damaged of ['\0'.repeat(64), '{"grants":[{"id":']) {
+    writeFileSync(join(dir, 'grants.json'), damaged);
+    assert.deepEqual(await store.listGrants(), []);
+    assert.equal(await store.modeFor({ agentId: 'mailer', action: 'comment' }), 'ask');
+    assert.ok((await store.permissions('mailer')).every((row) => row.mode === 'ask'));
+    assert.ok(readdirSync(dir).some((name) => name.startsWith('grants.json.corrupt-')));
+  }
+  assert.equal((await store.setMode({ agentId: 'mailer', action: 'comment', mode: 'allow' })).mode, 'allow');
+  assert.equal(await store.modeFor({ agentId: 'mailer', action: 'comment' }), 'allow');
+});
+
+test('a damaged grants file never restores a stale .bak: grant, revoke, damage → ask', async (t) => {
+  const { dir, store } = tempStore(t);
+  const file = join(dir, 'grants.json');
+  const grant = await store.grant({ agentId: 'mailer', scope: 'agent', action: 'comment' });
+  assert.equal(await store.modeFor({ agentId: 'mailer', action: 'comment' }), 'allow');
+  const staleAllow = readFileSync(file, 'utf8');
+  assert.equal(await store.revokeGrant(grant.id), true);
+  assert.equal(existsSync(`${file}.bak`), false, 'grant mutations never write a .bak');
+  // An older build (or a crash) left a backup that still holds the revoked allow.
+  writeFileSync(`${file}.bak`, staleAllow);
+  for (const damaged of ['\0'.repeat(64), '{"grants":[{"id":']) {
+    writeFileSync(file, damaged);
+    assert.equal(await store.modeFor({ agentId: 'mailer', action: 'comment' }), 'ask');
+    assert.deepEqual(await store.listGrants(), []);
+  }
+  // A mutation over a damaged file does not resurrect it either.
+  writeFileSync(file, '\0'.repeat(64));
+  writeFileSync(`${file}.bak`, staleAllow);
+  assert.equal(await store.revokeGrant(grant.id), false);
+  assert.equal(await store.modeFor({ agentId: 'mailer', action: 'comment' }), 'ask');
 });
 
 test('payments and deletes never offer or keep "don\'t ask again"', async (t) => {

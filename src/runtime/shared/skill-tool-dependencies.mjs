@@ -1,8 +1,9 @@
 // Explicit skill dependencies. Imported manifests are read, never rewritten.
-import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseDocument } from 'yaml';
+import { writeFileAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const MAX_METADATA_BYTES = 64 * 1024;
@@ -119,12 +120,5 @@ export function saveSkillToolDependencies(filePath, dependencies) {
   const tools = normalizeSkillToolDependencies(dependencies, { strict: true });
   const content = `${JSON.stringify({ dependencies: { tools } }, null, 2)}\n`;
   if (Buffer.byteLength(content) > MAX_METADATA_BYTES) throw new Error('Skill dependency metadata is too large.');
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporary, content, { encoding: 'utf8', flag: 'wx' });
-    renameSync(temporary, path);
-  } finally {
-    rmSync(temporary, { force: true });
-  }
+  writeFileAtomicSync(path, content);
 }

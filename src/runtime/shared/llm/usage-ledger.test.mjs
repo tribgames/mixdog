@@ -276,12 +276,26 @@ test('live provider accounting works with diagnostics disabled and retains cance
   );
 });
 
-test('corrupt historical data is an import failure, not a successful empty history', async (t) => {
+test('a corrupt legacy gateway file is skipped with a warning, not an import failure, and retried after repair', async (t) => {
   const ledger = store(t);
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-corrupt-'));
-  writeFileSync(join(dir, 'gateway-usage.local.json'), '{broken');
-  await assert.rejects(importUsageHistory(ledger, dir, { now, readTrace: async () => [] }), SyntaxError);
-  assert.equal(ledger.get('importedThrough'), null);
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const warnings = [];
+  t.mock.method(process.stderr, 'write', (chunk) => {
+    warnings.push(String(chunk));
+    return true;
+  });
+  const file = join(dir, 'gateway-usage.local.json');
+  for (const damaged of ['{broken', '\0'.repeat(32), '']) {
+    writeFileSync(file, damaged);
+    await importUsageHistory(ledger, dir, { now, readTrace: async () => [] });
+    assert.equal(ledger.get('importedThrough'), null, 'left unset so a repair is retried');
+  }
+  assert.equal(readFileSync(file, 'utf8'), '', 'the original is never rewritten');
+  assert.ok(warnings.some((line) => line.includes('gateway-usage.local.json')));
+  writeFileSync(file, JSON.stringify({ events: [] }));
+  await importUsageHistory(ledger, dir, { now, readTrace: async () => [] });
+  assert.equal(ledger.get('importedThrough'), String(now));
 });
 
 function legacyRollup(turns) {
@@ -398,6 +412,36 @@ test('a corrupt legacy rollup keeps other usage available and retries after repa
 
 test('an empty legacy rollup warns and still returns stats without marking the import', async (t) => {
   await assertUnreadableLegacyRollup(t, '');
+});
+
+test('a torn or NUL trace line in a legacy trace file is skipped, never a failed import', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-torn-trace-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const trace = (id) =>
+    JSON.stringify({
+      kind: 'usage_raw',
+      ts: now - 2000,
+      model: 'claude-opus-4-8',
+      session_id: id,
+      input_tokens: 1000,
+      output_tokens: 200,
+      payload: { provider: 'anthropic-oauth', response_id: id },
+    });
+  mkdirSync(join(dir, 'history'));
+  const path = join(dir, 'history', 'agent-trace.jsonl');
+  // Intact rows, a cut-short append, a NUL block, and a NUL-torn tail.
+  const original = `${trace('one')}\n${trace('two').slice(0, 40)}\n\0\0\0\0\0\0\0\0\n${trace('three')}\n\0\0\0\0`;
+  writeFileSync(path, original);
+  const { ledger, warnings, api } = legacyStatsApi(t, dir);
+  const stats = await api.getUsageStats({ days: null });
+  assert.equal(stats.totals.turns, 2, 'the intact rows are imported');
+  assert.equal(ledger.get('importedThrough'), String(now));
+  assert.equal(JSON.parse(ledger.get('importReceipt')).tornTraceLines, 3);
+  assert.equal(
+    warnings.some((line) => line.includes('torn trace line')),
+    true
+  );
+  assert.equal(readFileSync(path, 'utf8'), original, 'the original is never rewritten');
 });
 
 test('wrong-shaped legacy rollup JSON warns and does not mark the import', async (t) => {

@@ -252,6 +252,182 @@ test('caps stay hard: the message budget bounds speeches, maxRounds × members b
   assert.equal(passing.spoken.length, 4, 'even a supervisor that never finishes stops at the step cap');
 });
 
+test('once every other member has passed since the newest speech, the talk is done instead of cycling to the cap', async () => {
+  const run = scripted(
+    (id) => (id === 'a' ? 'speech' : 'pass'),
+    (_step, n) => [SPEAK('a'), SPEAK('b'), SPEAK('c'), SPEAK('a')][n - 1]
+  );
+  const result = await runRoomExchange({ members: ['a', 'b', 'c'], maxRounds: 3, maxMessages: 8, ...run });
+  assert.deepEqual(run.spoken, ['a', 'b', 'c']);
+  assert.deepEqual(result, { outcome: 'done', rounds: 1, steps: 3, messages: 1 });
+  // Two passes in a row are not enough while a member has not weighed in.
+  const wide = scripted(
+    (id) => (id === 'a' ? 'speech' : 'pass'),
+    (_step, n) => [SPEAK('a'), SPEAK('b'), SPEAK('c'), SPEAK('d')][n - 1]
+  );
+  const four = await runRoomExchange({ members: ['a', 'b', 'c', 'd'], maxRounds: 3, maxMessages: 8, ...wide });
+  assert.deepEqual(wide.spoken, ['a', 'b', 'c', 'd']);
+  assert.equal(four.outcome, 'done');
+  const early = scripted(
+    (id) => (id === 'a' ? 'speech' : 'pass'),
+    (_step, n) => [SPEAK('a'), SPEAK('b'), SPEAK('c'), FINISH][n - 1]
+  );
+  await runRoomExchange({ members: ['a', 'b', 'c', 'd'], maxRounds: 3, maxMessages: 8, ...early });
+  assert.equal(early.steps.length, 4, 'a, b, c passed: d still gets its say before the talk is called done');
+  // A new speech starts the count over.
+  let turn = 0;
+  const again = scripted(
+    () => {
+      turn += 1;
+      return turn === 1 || turn === 4 ? 'speech' : 'pass';
+    },
+    (_step, n) => [SPEAK('a'), SPEAK('b'), SPEAK('c'), SPEAK('b'), SPEAK('c'), SPEAK('d'), SPEAK('a')][n - 1]
+  );
+  const restarted = await runRoomExchange({ members: ['a', 'b', 'c', 'd'], maxRounds: 5, maxMessages: 8, ...again });
+  assert.deepEqual(again.spoken, ['a', 'b', 'c', 'b', 'c', 'd', 'a']);
+  assert.deepEqual(restarted, { outcome: 'done', rounds: 2, steps: 7, messages: 2 });
+});
+
+test('the rounds cap after nothing but passes since the last speech is done; a live talk is still capped', async () => {
+  const rotate = (step) => SPEAK(['a', 'b'].find((id) => id !== step.last));
+  const five = ['a', 'b', 'c', 'd', 'e'];
+  // b and c keep passing while d and e are never asked: not "everyone passed", yet no live talk either.
+  const quiet = scripted(
+    (id) => (id === 'a' ? 'speech' : 'pass'),
+    (_step, n) => [SPEAK('a'), SPEAK('b'), SPEAK('c'), SPEAK('b'), SPEAK('c')][n - 1]
+  );
+  const done = await runRoomExchange({ members: five, maxRounds: 1, maxMessages: 8, ...quiet });
+  assert.deepEqual(quiet.spoken, ['a', 'b', 'c', 'b', 'c']);
+  assert.deepEqual(done, { outcome: 'done', rounds: 1, steps: 5, messages: 1 });
+  const lively = scripted(() => 'speech', rotate);
+  const capped = await runRoomExchange({ members: ['a', 'b'], maxRounds: 2, maxMessages: 30, ...lively });
+  assert.deepEqual(capped, { outcome: 'capped', limit: 'rounds', rounds: 2, steps: 4, messages: 4 });
+  const lastSpoke = scripted(
+    (id) => (id === 'e' ? 'speech' : 'pass'),
+    (_step, n) => [SPEAK('a'), SPEAK('b'), SPEAK('c'), SPEAK('d'), SPEAK('e')][n - 1]
+  );
+  const stillTalking = await runRoomExchange({ members: five, maxRounds: 1, maxMessages: 30, ...lastSpoke });
+  assert.equal(stillTalking.outcome, 'capped', 'the newest turn was a speech: the talk was cut off');
+  const unanswered = scripted(() => 'pass', rotate);
+  const silent = await runRoomExchange({ members: ['a', 'b'], maxRounds: 1, maxMessages: 30, ...unanswered });
+  assert.equal(silent.outcome, 'capped', 'nobody ever spoke: the cap row still tells the user');
+});
+
+test('a turn a newer user message cut short leaves no trace and ends the exchange superseded', async () => {
+  const run = scripted(
+    (id) => (id === 'b' ? 'superseded' : 'speech'),
+    (_step, n) => [SPEAK('a'), SPEAK('b'), SPEAK('c')][n - 1]
+  );
+  const result = await runRoomExchange({ members: ['a', 'b', 'c'], maxRounds: 3, maxMessages: 8, ...run });
+  assert.deepEqual(run.spoken, ['a', 'b']);
+  assert.deepEqual(result, { outcome: 'superseded', rounds: 1, steps: 2, messages: 1 });
+  assert.deepEqual(run.steps[1].turns, [{ id: 'a', result: 'speech' }]);
+  const asked = scripted(
+    () => 'superseded',
+    () => FINISH
+  );
+  const first = await runRoomExchange({ members: ['a', 'b'], to: ['a', 'b'], maxRounds: 3, maxMessages: 8, ...asked });
+  assert.equal(first.outcome, 'superseded');
+  assert.deepEqual(asked.spoken, ['a']);
+});
+
+test('without a waiting user no step must pick: the supervisor may finish at once, and all passing is done', async () => {
+  const finish = scripted(
+    () => 'speech',
+    () => FINISH
+  );
+  const none = await runRoomExchange({ members: ['a', 'b'], maxRounds: 3, maxMessages: 8, waiting: false, ...finish });
+  assert.deepEqual(finish.spoken, []);
+  assert.deepEqual(none, { outcome: 'done', rounds: 1, steps: 1, messages: 0 });
+  assert.equal(finish.steps[0].mustPick, false);
+  const rotate = (step) => SPEAK(['a', 'b'].find((id) => id !== step.last));
+  const quiet = scripted(() => 'pass', rotate);
+  const passed = await runRoomExchange({ members: ['a', 'b'], maxRounds: 3, maxMessages: 8, waiting: false, ...quiet });
+  assert.deepEqual(quiet.spoken, ['a', 'b']);
+  assert.equal(passed.outcome, 'done', 'nobody had anything to add: no cap row');
+});
+
+test("the supervisor knows whether the user's newest message is answered and reads earlier talk as settled", () => {
+  const members = [
+    { id: 'gh', name: 'GitHub' },
+    { id: 'rel', name: 'Release' },
+  ];
+  const rows = [
+    { id: 'u1', kind: 'user', text: 'usage stats?' },
+    { id: 's1', kind: 'speech', speaker: 'gh', name: 'GitHub', text: 'here are the stats' },
+    { id: 'u2', kind: 'user', text: 'thanks, now check the release' },
+  ];
+  const open = roomSupervisorPrompt({ roomName: 'R', members, rows }).user;
+  assert.match(open, /^The user's newest message: not answered yet$/m);
+  assert.match(open, /^\(background: earlier talk, already settled\)\n\[user, to everyone\]\n│ usage stats\?$/m);
+  assert.match(open, /^\(the user's newest message and what followed it\)\n\[user, to everyone\]\n│ thanks/m);
+  const answered = roomSupervisorPrompt({
+    roomName: 'R',
+    members,
+    rows: [...rows, { id: 's2', kind: 'speech', speaker: 'rel', name: 'Release', text: 'release is fine' }],
+  });
+  assert.match(answered.user, /^The user's newest message: already answered \(first by Release \(id rel\)\)$/m);
+  assert.match(answered.system, /a topic they settled is closed\. Never steer a member back to it/);
+  assert.match(answered.system, /already answered, finish unless something said after it is still open/);
+  assert.match(answered.system, /Members passing means nobody has anything to add: finish\./);
+});
+
+test('rows a member was already handed never come back as new', () => {
+  const rows = [
+    { id: 'u1', kind: 'user', text: 'usage stats?', at: 1 },
+    { id: 's1', kind: 'speech', speaker: 'rel', text: 'stats', at: 2 },
+    { id: 'u2', kind: 'user', text: 'next', at: 5 },
+  ];
+  // A turn cut short put the cursor back; the member's session still has the rows.
+  assert.deepEqual(
+    rowsSinceCursor(rows, undefined, 'gh', 's1').map((row) => [row.id, row.seen === true]),
+    [
+      ['u1', true],
+      ['s1', true],
+      ['u2', false],
+    ]
+  );
+  assert.deepEqual(
+    rowsSinceCursor(rows, 'u1', 'gh', 's1').map((row) => [row.id, row.seen === true]),
+    [
+      ['s1', true],
+      ['u2', false],
+    ]
+  );
+  // A cursor the log read no longer holds: only what follows what was handed.
+  assert.deepEqual(
+    rowsSinceCursor(rows, 'gone', 'gh', 's1').map((row) => row.id),
+    ['u2']
+  );
+  assert.deepEqual(rowsSinceCursor(rows.slice(0, 2), 'gone', 'gh', 's1'), []);
+  // The log's rows carry their time back from the transcript.
+  const item = roomRowItem(roomRowMessage({ id: 'u9', kind: 'user', text: 'hi', at: 7 }), 'h9');
+  assert.equal(roomRowsOfItems([item])[0].at, 7);
+});
+
+test('a turn prompt shows rows handed before as context without their files; an empty turn is no call', () => {
+  const base = { roomName: 'R', self: { id: 'gh', name: 'GH' }, members: MEMBERS };
+  const image = { type: 'image', attachmentRef: 'a'.repeat(64), mimeType: 'image/png' };
+  const prompt = roomTurnPrompt({
+    ...base,
+    rows: [
+      { id: 'u1', kind: 'user', text: 'usage stats?', parts: [image], seen: true },
+      { id: 'u2', kind: 'user', text: 'next' },
+    ],
+  });
+  assert.equal(typeof prompt, 'string', 'files already handed are not handed again');
+  assert.match(
+    prompt,
+    /Already shown to you before[^\n]*\nThe user \(earlier, already shown to you\), to everyone:\nusage stats\?\nNew since then:\nThe user, to everyone:\nnext$/
+  );
+  assert.doesNotMatch(prompt, /^The user, to everyone:\nusage stats/m);
+  const empty = roomTurnPrompt({ ...base, rows: [] });
+  assert.match(empty, /Nothing new was said since your last turn\.\nThis is not a direct call/);
+  const onlySeen = roomTurnPrompt({ ...base, rows: [{ id: 'u1', kind: 'user', text: 'old', seen: true }] });
+  assert.match(onlySeen, /This is not a direct call/);
+  assert.doesNotMatch(roomTurnPrompt({ ...base, rows: [], waiting: true }), /not a direct call/);
+});
+
 test('stop and a newer user message win at every step boundary, also while the supervisor decides', async () => {
   let pending = false;
   const run = scripted(
@@ -489,6 +665,22 @@ test("a supervisor's note reaches the member as a hint without authority", () =>
   );
 });
 
+test('a user message a stale reply follows is still answered when the host says the user waits', () => {
+  const base = { roomName: 'R', self: { id: 'gh', name: 'GH' }, members: MEMBERS };
+  const prompt = roomTurnPrompt({
+    ...base,
+    rows: [
+      { id: 'u2', kind: 'user', text: '새 질문' },
+      { id: 's1', kind: 'speech', speaker: 'other', name: 'Other', text: '이전 얘기 답' },
+    ],
+    scene: 'casual',
+    waiting: true,
+  });
+  assert.match(prompt, /Nobody has answered the user's newest message yet/);
+  assert.doesNotMatch(prompt, /React to what was just said/);
+  assert.doesNotMatch(prompt, /\(pass\)/);
+});
+
 test('the first member after an unanswered user message answers instead of passing', () => {
   const base = { roomName: 'R', self: { id: 'gh', name: 'GH' }, members: MEMBERS };
   const fresh = roomTurnPrompt({ ...base, rows: [{ id: 'u1', kind: 'user', text: '흠' }] });
@@ -678,6 +870,16 @@ test("rows since the cursor leave out the member's own words", () => {
   assert.deepEqual(
     rowsSinceCursor(rows, undefined, 'gh').map((row) => row.id),
     ['1', '3']
+  );
+  // A cursor the log no longer holds: the open request on, never the old tail again.
+  const longer = [{ id: '0', kind: 'speech', speaker: 'rel', text: 'old' }, ...rows];
+  assert.deepEqual(
+    rowsSinceCursor(longer, 'gone', 'gh').map((row) => row.id),
+    ['1', '3']
+  );
+  assert.deepEqual(
+    rowsSinceCursor([longer[0]], 'gone', 'gh').map((row) => row.id),
+    ['0']
   );
 });
 

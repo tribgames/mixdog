@@ -163,6 +163,9 @@ export function DesktopToastRegion({
       const header = presentedModalDialog()
         ?.querySelector(':scope > header, .mixdog-settings__header')
         ?.getBoundingClientRect();
+      // The phone app-update banner floats in the same lane: sit below it.
+      const banner = document.querySelector('.app-update-banner')?.getBoundingClientRect();
+      if (banner?.height) top = Math.max(top, Math.round(banner.bottom + 8));
       const region = document.querySelector('.mx-toast-region');
       const first = region?.firstElementChild?.getBoundingClientRect();
       const last = region?.lastElementChild?.getBoundingClientRect();

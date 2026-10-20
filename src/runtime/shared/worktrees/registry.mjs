@@ -6,12 +6,15 @@
  * transaction ledger that makes creation rollback and deletion resumable:
  * which resources this transaction created ('pending' is written before a
  * resource is made, 'created' after), the deletion decision and any recovery
- * diagnostics. Writes are atomic (temp file + rename) under a file lock; an
- * unreadable registry is an error, never silently replaced.
+ * diagnostics. Writes are atomic (temp file + rename) under a file lock and keep
+ * the replaced version as registry.json.bak. A damaged registry (NUL, truncated,
+ * malformed) never blocks worktree operations: its bytes are kept aside as
+ * registry.json.corrupt-<ts>, the last good copy is restored when there is one,
+ * and otherwise the registry starts empty (worktree folders on disk are never
+ * touched by that).
  */
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseJsonText, withFileLock, writeJsonAtomicAsync } from '../atomic-file.mjs';
+import { readJsonState, readJsonStateSync, updateJsonAtomic } from '../atomic-file.mjs';
 import { isPlainObject } from '../object.mjs';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { normalizeWorktreeEntry, WORKTREE_STORE_DIR } from './contract.mjs';
@@ -30,24 +33,21 @@ function emptyDoc() {
   return { version: REGISTRY_VERSION, entries: {} };
 }
 
-async function readDoc(path) {
-  let text;
-  try {
-    text = await readFile(path, 'utf8');
-  } catch (error) {
-    if (error?.code === 'ENOENT') return emptyDoc();
-    throw error;
-  }
-  const value = parseJsonText(text);
-  if (!isPlainObject(value) || !isPlainObject(value.entries)) {
-    throw new Error(`Worktree registry ${path} is malformed.`);
-  }
+const isRegistryDoc = (value) => isPlainObject(value) && isPlainObject(value.entries);
+
+function validateDoc(value) {
+  if (!isRegistryDoc(value)) throw new Error('Worktree registry is malformed.');
   return value;
 }
 
 /** Snapshot of every record (plain clones). */
 export async function readRegistry() {
-  return readDoc(registryPath());
+  return (await readJsonState(registryPath(), { validate: validateDoc })) ?? emptyDoc();
+}
+
+/** readRegistry for synchronous callers (the workspace admission gate). */
+export function readRegistrySync() {
+  return readJsonStateSync(registryPath(), { validate: validateDoc }) ?? emptyDoc();
 }
 
 /**
@@ -58,17 +58,17 @@ export async function readRegistry() {
  * @returns {Promise<T>}
  */
 export async function mutateRegistry(mutate) {
-  const path = registryPath();
-  return withFileLock(
-    `${path}.lock`,
-    async () => {
-      const doc = await readDoc(path);
-      const result = mutate(doc);
-      await writeJsonAtomicAsync(path, doc, { lock: false });
-      return result;
+  let result;
+  await updateJsonAtomic(
+    registryPath(),
+    (current) => {
+      const doc = isRegistryDoc(current) ? current : emptyDoc();
+      result = mutate(doc);
+      return doc;
     },
-    { timeoutMs: 15_000 }
+    { timeoutMs: 15_000, backup: true }
   );
+  return result;
 }
 
 export async function getRecord(id) {

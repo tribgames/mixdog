@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import WebSocket from 'ws';
 
-import { withFileLock } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { parseJsonText, withFileLock, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { readSecretFile, writeSecretFile } from './secret-file';
 
 export const REVOKE_TIMEOUT_MS = 5_000;
@@ -82,17 +82,69 @@ async function readStoredDevice(path: string): Promise<DeviceIdentity | { corrup
   return { deviceId: parsed.deviceId, deviceSecret: parsed.deviceSecret };
 }
 
+function queuedIdentities(value: unknown): DeviceIdentity[] {
+  if (!Array.isArray(value)) throw new TypeError('The queued revocations are not a list.');
+  return value.filter(validDeviceIdentity);
+}
+
+/** The queue file was read but is not a list of identities (NUL-filled,
+ *  truncated). That is not an empty queue: whatever it listed may be lost, and
+ *  nothing writes over it until `rotateRemoteDevice` has answered the loss. */
+class RevocationQueueDamaged extends Error {
+  constructor(readonly text: string) {
+    super('The queued device revocations are damaged.');
+  }
+}
+
+/** The queued identities; [] only when no queue was ever written. A damaged
+ *  file throws `RevocationQueueDamaged`. Read, permission and lock errors
+ *  propagate too: an unreadable queue is not empty. */
 async function loadQueuedRevocations(userDataPath: string): Promise<DeviceIdentity[]> {
+  const path = join(userDataPath, DEVICE_REVOCATIONS_FILE);
+  // The credentials' access is tightened before they are used.
+  const text = await readSecretFile(path);
+  if (text === null) return [];
   try {
-    const parsed = JSON.parse((await readSecretFile(join(userDataPath, DEVICE_REVOCATIONS_FILE))) ?? '[]') as unknown;
-    return Array.isArray(parsed) ? parsed.filter(validDeviceIdentity) : [];
+    return queuedIdentities(parseJsonText(text));
+  } catch {
+    throw new RevocationQueueDamaged(text);
+  }
+}
+
+/** Whether the queue file is damaged, i.e. revocations may have been lost. */
+export async function revocationQueueDamaged(userDataPath: string): Promise<boolean> {
+  try {
+    await loadQueuedRevocations(userDataPath);
+    return false;
+  } catch (error) {
+    if (error instanceof RevocationQueueDamaged) return true;
+    throw error;
+  }
+}
+
+/** What can still be known of a damaged queue: its text is kept aside and the
+ *  previous version (`.bak`) is read for the identities it names. That copy is
+ *  older and may lack the latest entry, so it only adds revocations to attempt;
+ *  it never says the queue is complete. */
+async function salvageDamagedQueue(userDataPath: string, damaged: RevocationQueueDamaged): Promise<DeviceIdentity[]> {
+  const path = join(userDataPath, DEVICE_REVOCATIONS_FILE);
+  await writeSecretFile(`${path}.corrupt-${Date.now()}`, damaged.text);
+  const previous = await readSecretFile(`${path}.bak`).catch(() => null);
+  if (previous === null) return [];
+  try {
+    return queuedIdentities(parseJsonText(previous));
   } catch {
     return [];
   }
 }
 
 async function writeQueuedRevocations(userDataPath: string, identities: DeviceIdentity[]): Promise<void> {
-  await writeSecretFile(join(userDataPath, DEVICE_REVOCATIONS_FILE), JSON.stringify(identities, null, 2));
+  // Callers hold `mutateDeviceFiles`, which orders these writes.
+  await writeJsonAtomicAsync(join(userDataPath, DEVICE_REVOCATIONS_FILE), identities, {
+    secret: true,
+    fsyncDir: true,
+    backup: true,
+  });
 }
 
 function mutateDeviceFiles<T>(operation: () => Promise<T>): Promise<T> {
@@ -129,13 +181,24 @@ export async function loadOrCreateDevice(userDataPath: string): Promise<DeviceId
 }
 
 /** Queue the current identity for authenticated server-side deletion, then
- * replace it immediately so Unpair can refresh QRs even while the VPS is down. */
+ * replace it immediately so Unpair can refresh QRs even while the VPS is down.
+ * A damaged queue does not block this: the replaced identity is the one that
+ * must be revoked, and the rewritten queue is what answers the damage. */
 export async function rotateRemoteDevice(userDataPath: string): Promise<DeviceIdentity> {
   return mutateDeviceFiles(async () => {
     const previous = await loadOrCreateDevice(userDataPath);
-    const queued = await loadQueuedRevocations(userDataPath);
-    if (!queued.some((identity) => identity.deviceId === previous.deviceId)) {
-      await writeQueuedRevocations(userDataPath, [...queued, previous]);
+    let queued: DeviceIdentity[];
+    let damaged = false;
+    try {
+      queued = await loadQueuedRevocations(userDataPath);
+    } catch (error) {
+      if (!(error instanceof RevocationQueueDamaged)) throw error;
+      queued = await salvageDamagedQueue(userDataPath, error);
+      damaged = true;
+    }
+    const listed = queued.some((identity) => identity.deviceId === previous.deviceId);
+    if (damaged || !listed) {
+      await writeQueuedRevocations(userDataPath, listed ? queued : [...queued, previous]);
     }
     return writeDeviceIdentity(join(userDataPath, DEVICE_IDENTITY_FILE));
   });
@@ -265,6 +328,11 @@ export function createRevocationDrain(deps: RevocationDrainDeps): () => Promise<
         const removed = await revokeIdentity(deps.relayUrl, identity, deps.sockets, deps.maxPayload);
         if (removed) await removeQueuedRevocation(deps.userDataPath, identity.deviceId);
       }
+    } catch (error) {
+      // A queue that cannot be read now stays on disk, never overwritten; the
+      // next relay leg drains it, and a damaged one is answered by the pairing
+      // reset that runs before a relay leg opens (desktop-service).
+      console.warn('[mixdog-relay] Queued revocations could not be drained:', error);
     } finally {
       draining = false;
     }

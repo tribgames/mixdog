@@ -2,9 +2,10 @@
  *  icon and title it had before the app closed. Sealed with the OS keychain
  *  like the session cookies: a screenshot shows what a signed-in page showed.
  *  Writes are coalesced; nothing is written until the saved copy is back. */
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { writeFileAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
 import { safeStorageDecrypt, safeStorageEncrypt } from './browser-session-store';
 import type { BrowserPageIdentityStore } from './page-identity';
 
@@ -57,10 +58,7 @@ export function createBrowserPageIdentityFile(host: {
         dirty = false;
         const sealed = await encrypt(JSON.stringify(host.store.snapshot()));
         if (!sealed) return;
-        await mkdir(host.directory, { recursive: true });
-        const staging = `${file}.${process.pid}.tmp`;
-        await writeFile(staging, sealed, { mode: 0o600 });
-        await rename(staging, file);
+        await writeFileAtomicAsync(file, sealed, { secret: true });
       });
     return saving;
   }

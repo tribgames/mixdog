@@ -216,6 +216,15 @@
   width: 16px;
   height: 16px;
 }
+/* "To: @name" on the user's own bubble: plain text, no face or pill. */
+.agent-room-to-user {
+  align-self: flex-end;
+  margin-bottom: 2px;
+  padding: 0 4px;
+  color: var(--mx-text-soft, var(--mx-text));
+  font-size: 12px;
+  opacity: 0.8;
+}
 /* The peer a member's @mention addresses, above its words. */
 .message.agent-room-speech > .agent-room-to {
   align-self: flex-start;
@@ -271,6 +280,10 @@
   gap: 2px;
   max-height: 320px;
   overflow: auto;
+}
+html[data-mixdog-mobile-tabs] .agent-room-picks {
+  max-height: none;
+  overflow: visible;
 }
 .agent-room-pick {
   display: flex;

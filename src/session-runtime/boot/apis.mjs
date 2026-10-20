@@ -125,6 +125,13 @@ export function wireApis(boot) {
     } catch (error) {
       bootProfile('connector-policy:migrate-failed', { error: error?.message || String(error) });
     }
+    // Agents made before the kind marker get `kind: agent` once, so an update
+    // never turns a workflow agent into a bot (agent-kind-migration.mjs).
+    try {
+      boot.workflowAgentsApi.migrateAgentKindMarkers();
+    } catch (error) {
+      bootProfile('agent-kind:migrate-failed', { error: error?.message || String(error) });
+    }
     // Bots get their own store (bots/) once, before any catalog read; a
     // failed split leaves agents/ read as before (bot-split-migration.mjs).
     try {

@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { receiveMessageOnPort } from 'node:worker_threads';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
+import { holdsNoData, renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 
 export const CANONICAL_RECORD_UNREADABLE = Symbol('lifecycle-ambiguous');
 
@@ -323,12 +324,19 @@ export function createCanonicalSessionReader({
       forget(target);
       return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? null : CANONICAL_RECORD_UNREADABLE;
     }
-    const record = readTopLevelLifecycleRecord(raw);
-    const invalid = isLifecycleUnreadable(record);
-    if (!lifecycleOnly) return invalid ? CANONICAL_RECORD_UNREADABLE : record;
-    const value = invalid
-      ? CANONICAL_RECORD_UNREADABLE
-      : Object.freeze({ id: record.id, closed: record.closed, generation: record.generation });
+    // Empty or NUL-filled (a crash left no data): nothing owns this identity,
+    // exactly like a missing file. A save recreates it, a delete sets it aside.
+    // The verdict (null) is cached under the stamp like any other, so a no-data
+    // file is not re-read by every lifecycle check.
+    const noData = holdsNoData(raw);
+    const record = noData ? null : readTopLevelLifecycleRecord(raw);
+    const invalid = !noData && isLifecycleUnreadable(record);
+    if (!lifecycleOnly) return noData ? null : invalid ? CANONICAL_RECORD_UNREADABLE : record;
+    const value = noData
+      ? null
+      : invalid
+        ? CANONICAL_RECORD_UNREADABLE
+        : Object.freeze({ id: record.id, closed: record.closed, generation: record.generation });
     forget(target);
     // Reused only when the bytes provably came from `before` (unchanged
     // around the read).
@@ -338,7 +346,7 @@ export function createCanonicalSessionReader({
     // A pre-load check (`handOff`) already parsed the whole record its caller
     // is about to load: hand the parse to the session load cache instead of
     // letting the load read and parse the same bytes again.
-    if (stable && handOff && !invalid) offerStrictSessionRecord(target, before, record, raw.length);
+    if (stable && handOff && !noData && !invalid) offerStrictSessionRecord(target, before, record, raw.length);
     return value;
   };
   return Object.assign(read, {
@@ -389,3 +397,29 @@ export function createCanonicalSessionReader({
 }
 
 export const readCanonicalSessionRecord = createCanonicalSessionReader();
+
+/**
+ * Keeps a damaged record (no data, or text that is not JSON at all) as
+ * `<file>.corrupt-<ts>` so its session can be deleted; its bytes are never
+ * lost. Valid JSON (foreign or ambiguous records) is left alone. The caller
+ * holds the id's commit lock. True when the file was moved aside.
+ */
+export function setAsideDamagedSessionRecord(target) {
+  let raw;
+  try {
+    raw = readFileSync(target, 'utf-8');
+  } catch {
+    return false;
+  }
+  if (!holdsNoData(raw)) {
+    try {
+      JSON.parse(raw);
+      return false;
+    } catch {
+      /* not JSON: damaged */
+    }
+  }
+  renameWithRetrySync(target, `${target}.corrupt-${Date.now()}`);
+  readCanonicalSessionRecord.forget(target);
+  return true;
+}

@@ -959,7 +959,7 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   const mica = await readFile(new URL('./desktop/03-titlebar.css', import.meta.url), 'utf8');
   assert.match(
     mica,
-    /@media \(max-width: 760px\) \{\s*html\[data-window-material="mica"\] \.workbench-side-panel\[data-side="left"\],[^{]*\{\s*border-top-left-radius: 8px;/
+    /@media \(max-width: 760px\) \{\s*html:is\(\[data-window-material="mica"\], \[data-mixdog-skin\]\) \.workbench-side-panel\[data-side="left"\],[^{]*\{\s*border-top-left-radius: 8px;/
   );
   // The column reserves the dock's gap and borders so the conversation floor holds.
   const dockSource = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');

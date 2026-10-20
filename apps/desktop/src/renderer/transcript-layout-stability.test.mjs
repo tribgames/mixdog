@@ -122,7 +122,7 @@ test('a completed reply takes the live band’s place: no band lingers below its
   assert.deepEqual(tags, ['UserMessage', 'AssistantPart', 'Thinking'], 'a hidden follow-up turn keeps the band');
 });
 
-test('a band that paints nothing (a group room without an approval) opens no row', async (t) => {
+test('a group room keeps one typing slot row through its turns; the typing rows open none', async (t) => {
   const { root } = mount(t);
   const prompt = { kind: 'user', id: 'desktop-submit-1', text: 'hello room' };
   const typing = {
@@ -147,22 +147,30 @@ test('a band that paints nothing (a group room without an approval) opens no row
       commandBusy: false,
       commandActivityVisible: false,
       optimisticActivityStartedAt: props.optimistic ?? 0,
-      liveBand: props.liveBand,
+      room: true,
     });
     keys = transcriptRows.map((row) => `${row._tag}:${row.key}`);
     return null;
   }
   const render = (props) => act(async () => root.render(React.createElement(Rows, props)));
   const pending = { ...prompt, pending: true, accepted: true, submittedAt: 1 };
-  await render({ items: [], pendingItems: [pending], optimistic: 1, liveBand: false });
+  await render({ items: [], pendingItems: [pending], optimistic: 1 });
   const sent = keys;
-  await render({ items: [prompt, typing], liveBand: false });
-  assert.equal(keys.filter((key) => key.startsWith('Thinking:')).length, 0, 'no empty band row while the room runs');
-  assert.equal(sent.filter((key) => key.startsWith('Thinking:')).length, 0, 'none on send either');
+  assert.ok(sent.at(-1).startsWith('Thinking:'), 'the slot opens on send');
+  await render({ items: [prompt, typing] });
   // The settled row keeps the pending bubble's key: no remount at the flat estimate.
-  assert.equal(keys[0], sent[0]);
-  await render({ items: [prompt, typing], liveBand: true });
-  assert.ok(keys.at(-1).startsWith('Thinking:'), 'a band with an approval card keeps its row');
+  assert.deepEqual(keys, sent, 'the typing row paints in the slot: same rows, same keys');
+  // Between turns the typing row is gone; the next one has a fresh id.
+  await render({ items: [prompt] });
+  assert.deepEqual(keys, sent, 'between turns the slot stays');
+  const speech = { kind: 'notice', id: 'row_s1', text: 'hi', room: { kind: 'speech', speaker: 'gh' } };
+  const pass = { kind: 'notice', id: 'row_p1', room: { kind: 'pass', speaker: 'cx' } };
+  await render({
+    items: [prompt, speech, pass, { ...typing, id: 'room-typing-2', room: { kind: 'typing', speaker: 'cx' } }],
+  });
+  assert.equal(keys.at(-1), sent.at(-1), 'one slot key for the whole run');
+  assert.equal(keys.filter((key) => key.startsWith('Thinking:')).length, 1);
+  assert.equal(keys.filter((key) => key.includes('room-typing')).length, 0, 'no typing row of its own');
 });
 
 test('the island files segment appears only once the session diff read finds changes, including an empty final diff', async (t) => {

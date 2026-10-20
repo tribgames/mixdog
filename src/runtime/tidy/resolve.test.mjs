@@ -30,7 +30,7 @@ function touch(path) {
 function fakeBin(dir, name) {
   mkdirSync(dir, { recursive: true });
   const target = join(dir, name);
-  writeFileSync(target, '');
+  writeFileSync(target, 'fake engine');
   return target;
 }
 
@@ -88,7 +88,7 @@ test('a managed install resolves under <pluginData>/tools/<engine>/<version>', a
   const root = workspace(t);
   const pluginData = join(root, 'data');
   const binName = process.platform === 'win32' ? 'stylua.exe' : 'stylua';
-  fakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
+  const managedBin = fakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
   const manifest = {
     version: 1,
     engines: {
@@ -119,6 +119,17 @@ test('a managed install resolves under <pluginData>/tools/<engine>/<version>', a
   });
   assert.equal(engines[0].source, 'managed');
   assert.equal(engines[0].version, '0.20.0');
+  // A binary a crash left NUL-filled is not an install.
+  writeFileSync(managedBin, Buffer.alloc(32));
+  const damaged = await resolveEngines({
+    cwd: root,
+    engineIds: ['stylua'],
+    pluginData,
+    manifest,
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.notEqual(damaged.engines[0].source, 'managed');
 });
 
 test('an unresolved engine reports its install hint and whether tidy can fetch it', async (t) => {

@@ -93,6 +93,30 @@ function sameBox(current: Box | null, next: Box): boolean {
 
 const ARROW_INSET = 18;
 
+/** Bottom/side safe-area insets in px, read through a throwaway probe. */
+function safeInsets(): { right: number; bottom: number } {
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:fixed;visibility:hidden;pointer-events:none;padding-right:env(safe-area-inset-right,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
+  document.body.appendChild(probe);
+  const style = window.getComputedStyle(probe);
+  const insets = { right: parseFloat(style.paddingRight) || 0, bottom: parseFloat(style.paddingBottom) || 0 };
+  probe.remove();
+  return insets;
+}
+
+/** The visible area the card may use: the visual viewport (soft keyboard,
+ *  pinch) minus the safe-area insets. On a phone the body — the card's
+ *  containing block — already sits at the visual viewport's origin, so the
+ *  offset is not added again. */
+function tourView(): { width: number; height: number } {
+  const visual = window.visualViewport;
+  const insets = safeInsets();
+  const width = Math.min(window.innerWidth, visual?.width ?? window.innerWidth) - insets.right;
+  const height = Math.min(window.innerHeight, visual?.height ?? window.innerHeight) - insets.bottom;
+  return { width, height };
+}
+
 /** Card beside the hole — right, left, below, above — centred on the
  *  target's middle, with the arrow offset that points back at it. */
 export function tourCardPosition(
@@ -330,7 +354,7 @@ export function StarterTour({
   }, [ready]);
 
   if (aside) return null;
-  const position = tourCardPosition(target, cardSize, { width: window.innerWidth, height: window.innerHeight });
+  const position = tourCardPosition(target, cardSize, tourView());
   const live = Boolean(stop.action && target);
   return createPortal(
     <div className="starter-tour" data-modal-above="" data-ready={ready ? 'true' : undefined}>

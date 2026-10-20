@@ -461,7 +461,7 @@
      positionRowMenu keeps the panel inside the viewport. */
   width: max-content;
   min-width: 160px;
-  max-height: calc(100vh - 16px);
+  max-height: calc(var(--vvh, 100dvh) - 16px);
   overflow-y: auto;
   padding: var(--mx-menu-inset);
   box-sizing: border-box;
@@ -1076,6 +1076,20 @@
   color: var(--mx-icon-muted);
   background: transparent;
   cursor: pointer;
+}
+html[data-mixdog-mobile-tabs] .settings-oauth-domain-actions button {
+  width: var(--mx-touch);
+  height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .settings-oauth-code-row {
+  flex-wrap: wrap;
+}
+html[data-mixdog-mobile-tabs] .settings-oauth-code input {
+  min-width: 160px;
+  height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .settings-oauth-code button {
+  min-height: var(--mx-touch);
 }
 .settings-oauth-domain-actions button:hover {
   color: var(--mx-icon);

@@ -13,8 +13,9 @@
 // list is what lets a SHARED worktree still revert: the baseline describes the
 // whole tree, but only these paths may be restored from it.
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { writeFileAtomicAsync } from './atomic-file.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
@@ -173,10 +174,10 @@ async function sweepRecords() {
   await sweepDirectory(recordRoot(), RECORD_TTL_MS, MAX_RECORD_FILES);
 }
 
+// Flushed before it is published: a crash must not leave a record that reads as
+// NUL (every reader below answers a damaged record as "no record").
 async function writeJsonAtomically(path, payload) {
-  const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(payload), 'utf8');
-  await rename(temporary, path);
+  await writeFileAtomicAsync(path, JSON.stringify(payload));
 }
 
 /**

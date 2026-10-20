@@ -304,6 +304,23 @@
   justify-self: end;
   height: 30px;
 }
+/* Phone: the finger-sized calendar is wider than the room left of the
+   "custom" chip, so the editor hangs off the whole range row instead and
+   spans it edge to edge. */
+html[data-mixdog-mobile-tabs] .stats-ranges {
+  position: relative;
+}
+html[data-mixdog-mobile-tabs] .stats-custom {
+  position: static;
+}
+html[data-mixdog-mobile-tabs] .stats-custom-range {
+  inset-inline: 0;
+  width: auto;
+  justify-items: center;
+}
+html[data-mixdog-mobile-tabs] .stats-custom-range > button {
+  height: var(--mx-touch-min);
+}
 .stats-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
@@ -717,6 +734,10 @@
   color: var(--mx-text-muted);
   background: transparent;
   cursor: pointer;
+}
+html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
+  width: var(--mx-touch, 44px);
+  height: var(--mx-touch, 44px);
 }
 .stats-trend-detail-heading svg {
   width: 14px;

@@ -1,0 +1,133 @@
+/* Desktop layer 33 — Skins (desktop-skin.ts marks html[data-mixdog-skin] and
+   sets --mx-skin-image / --mx-skin-accent / --mx-skin-on-accent).
+   The Mica rules (03-titlebar.css and friends) already open the frame and
+   clear the panel tokens for html[data-mixdog-skin]; this layer only puts the
+   picture under them and turns the Mica plates into thin veils over it. */
+/* Processed-picture model (design/mockups/skin-styles, option 5; after the
+   Obsidian AnuPpuccin background): the picture is dimmed and blurred ONCE,
+   then the panels lay only thin veils on it. Settings → Skin strength picks
+   the set (data-mixdog-skin-dim). Paper brightens instead of dimming. */
+/* Values follow the reference skins the user supplied: the workspace shows
+   the picture nearly untouched under a faint wash, the side panel carries a
+   heavier wash, and the prompt card is near-opaque. */
+/* Tinted-plate model (design/mockups/skin-tune/dream.html, after Codex Dream
+   Skin): the workspace shows the picture untouched; readability comes from
+   plates in the picture's own cast (--mx-skin-hue/--mx-skin-sat, set by
+   desktop-skin.ts) — the side panel at a light tint, messages and the prompt
+   card at a strong one — and the ink takes the same hue. */
+html[data-mixdog-skin] {
+  --mx-skin-frame-amount: 40%;
+  --mx-skin-veil-amount: 22%;
+  --mx-skin-panel-amount: 40%;
+  --mx-skin-card-amount: 85%;
+  --mx-skin-tint: hsl(var(--mx-skin-hue) clamp(18%, calc(var(--mx-skin-sat) * 0.45%), 38%) 13%);
+  /* The workspace keeps a faint plate so the app's sheet still reads as a
+     panel over the picture (fully clear, the frame vanished). */
+  --mx-skin-veil: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-veil-amount), transparent);
+  --mx-skin-panel: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-panel-amount), transparent);
+  --mx-skin-card: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-card-amount), transparent);
+  --mx-mica-frame: transparent;
+  --mx-mica-layer: var(--mx-skin-veil);
+  --mx-mica-panel-solid: var(--mx-skin-panel);
+  --mx-shell-base: transparent;
+  /* The joined desktop sheets (pane-layout.css) paint this opaque tone;
+     the skin owns their plates below instead. */
+  --mx-sheet-surface: transparent;
+  --mx-accent-bg: var(--mx-skin-accent);
+}
+html[data-mixdog-skin][data-mixdog-skin-dim="soft"] {
+  --mx-skin-frame-amount: 28%;
+  --mx-skin-veil-amount: 14%;
+  --mx-skin-panel-amount: 28%;
+  --mx-skin-card-amount: 76%;
+}
+html[data-mixdog-skin][data-mixdog-skin-dim="strong"] {
+  --mx-skin-frame-amount: 55%;
+  --mx-skin-veil-amount: 38%;
+  --mx-skin-panel-amount: 58%;
+  --mx-skin-card-amount: 93%;
+}
+/* Ink in the cast's hue. Set per theme so it outranks the theme token
+   blocks in 01-tokens.css. */
+html[data-mixdog-skin]:not([data-mixdog-theme="light"]) {
+  --mx-text: hsl(var(--mx-skin-hue) 30% 93%);
+  --mx-text-muted: hsl(var(--mx-skin-hue) 18% 72%);
+  --mx-user-bubble: var(--mx-skin-card);
+}
+html[data-mixdog-skin][data-mixdog-theme="light"] {
+  --mx-skin-tint: hsl(var(--mx-skin-hue) clamp(25%, calc(var(--mx-skin-sat) * 0.6%), 50%) 94%);
+  --mx-text: hsl(var(--mx-skin-hue) 45% 17%);
+  --mx-text-muted: hsl(var(--mx-skin-hue) 25% 36%);
+  --mx-user-bubble: var(--mx-skin-card);
+}
+html[data-mixdog-skin] body {
+  background: var(--mx-sheet-ink);
+}
+html[data-mixdog-skin] body::before {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background: var(--mx-skin-image) center / cover no-repeat;
+  pointer-events: none;
+}
+html[data-mixdog-skin] .main-panel,
+html[data-mixdog-skin]:not([data-mixdog-mobile-tabs]) .main-panel {
+  background: var(--mx-skin-veil);
+}
+html[data-mixdog-skin] :is(.workbench-side-panel[data-side="left"], .pane-side-dock[data-open="true"]),
+html[data-mixdog-skin]:not([data-mixdog-mobile-tabs])
+  :is(.workbench-side-panel[data-side="left"], .pane-side-dock[data-open="true"]) {
+  background: var(--mx-skin-panel);
+}
+/* Covers over a parked surface: the panel's veil already tints them, so
+   they only blur away what they hide (an opaque plate would hide the
+   picture). */
+html[data-mixdog-skin] .pane-surface-handoff-layer {
+  background: transparent;
+}
+html[data-mixdog-skin] :is(.pane-surface-handoff-layer[data-pane-surface-handoff="true"], .pane-surface-cover) {
+  backdrop-filter: blur(24px);
+}
+/* The window frame (titlebar band and activity rail) takes one plate under
+   the panels, so the sheet keeps its outline and the rail icons their
+   contrast; the panel plates above stack on it. */
+html[data-mixdog-skin]:not([data-mixdog-mobile-tabs]) .app-shell {
+  background: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-frame-amount), transparent);
+}
+html[data-mixdog-skin] .jump-to-latest {
+  color: var(--mx-sheet-ink);
+}
+/* Frosted prompt card and status island. */
+html[data-mixdog-skin] .composer {
+  background: var(--mx-skin-card);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+/* The joined sheet's hairline (a 12% white) vanishes over a picture: draw
+   it in the skin's ink so the panels keep their outline. */
+html[data-mixdog-skin] :is(.workbench-side-panel[data-side="left"], .main-panel) {
+  border-color: color-mix(in srgb, var(--mx-text) 22%, transparent);
+}
+/* An assistant turn (prose, code, tool cards and its footer) sits on one
+   plate; the negative inline margin keeps its text on the column. The user
+   bubble takes the same plate through --mx-user-bubble. */
+html[data-mixdog-skin] .message.assistant {
+  margin-inline: -16px;
+  padding: 12px 16px;
+  border-radius: var(--mx-radius-sheet);
+  background: var(--mx-skin-card);
+  backdrop-filter: blur(18px);
+}
+html[data-mixdog-skin] .message.user .message-body {
+  backdrop-filter: blur(18px);
+}
+html[data-mixdog-skin] .composer:focus-within {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--mx-skin-accent) 70%, transparent),
+    var(--mx-composer-lift);
+}
+/* The send disc takes the skin accent. */
+html[data-mixdog-skin] .send-button:not(.stop):not([hidden]) {
+  color: var(--mx-skin-on-accent);
+  background-color: var(--mx-skin-accent);
+}

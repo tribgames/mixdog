@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -162,7 +171,9 @@ test('media assets are organized by kind, provider, model, and local date while 
   }
 });
 
-test('a failed duration write leaves the cached index row untouched', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+test('a failed duration write leaves the cached index row untouched', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-media-duration-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -174,7 +185,16 @@ test('a failed duration write leaves the cached index row untouched', { skip: pr
     JSON.stringify({
       version: 2,
       assets: [
-        { id: 'clip', file: 'clip.mp4', kind: 'video', lane: 'grok', model: 'm', mime: 'video/mp4', bytes: 5, createdAt: 1 },
+        {
+          id: 'clip',
+          file: 'clip.mp4',
+          kind: 'video',
+          lane: 'grok',
+          model: 'm',
+          mime: 'video/mp4',
+          bytes: 5,
+          createdAt: 1,
+        },
       ],
     })
   );
@@ -251,6 +271,43 @@ test('bulk media cleanup previews, then deletes by age, missing file, selection,
     assert.deepEqual(store.deleteMediaAssets({ kind: 'image', all: true }).ids, ['fresh']);
     assert.deepEqual(ids(), ['clip'], 'other kinds survive a whole-tab delete');
     assert.equal(existsSync(join(assetsDir, 'clip.mp4')), true);
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a NUL-filled media index lists an empty gallery, is kept aside, and saving still works', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-media-damaged-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  mkdirSync(join(root, 'media'), { recursive: true });
+  writeFileSync(join(root, 'media', 'index.json'), Buffer.alloc(128));
+  try {
+    const store = await import(`./store.mjs?test=damaged-${Date.now()}`);
+    assert.deepEqual(store.listMediaAssets({ limit: 10 }), { total: 0, assets: [] });
+    assert.ok(readdirSync(join(root, 'media')).some((name) => name.startsWith('index.json.corrupt-')));
+    const saved = store.saveMediaAsset({
+      kind: 'image',
+      lane: 'lane',
+      model: 'model',
+      prompt: 'p',
+      mime: 'image/png',
+      bytes: Buffer.from('png-bytes'),
+    });
+    assert.equal(store.listMediaAssets({ limit: 10 }).total, 1);
+    assert.equal(readFileSync(join(root, 'media', 'assets', ...saved.file.split('/'))).toString(), 'png-bytes');
+    // The next save keeps the previous catalog as the restorable last good copy.
+    store.saveMediaAsset({
+      kind: 'image',
+      lane: 'lane',
+      model: 'model',
+      prompt: 'q',
+      mime: 'image/png',
+      bytes: Buffer.from('b'),
+    });
+    assert.equal(JSON.parse(readFileSync(join(root, 'media', 'index.json.bak'), 'utf8')).assets.length, 1);
   } finally {
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;

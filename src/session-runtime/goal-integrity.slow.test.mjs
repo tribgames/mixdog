@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -64,21 +64,24 @@ test('failed persistence exposes no speculative task or lifecycle state and can 
   assert.equal((await f.call({ action: 'complete', revision: updated.revision })).goal.status, 'complete');
 });
 
-test('corrupt Goal records are reported and preserved until explicit user clearing', async (t) => {
-  const warnings = [];
-  const f = fixture(t, { onStorageError: (error) => warnings.push(error.message) });
-  mkdirSync(join(f.dataDir, 'goals'));
-  const path = join(f.dataDir, 'goals', `${f.sessionId}.json`);
-  const corrupt = '{broken existing Goal';
-  writeFileSync(path, corrupt);
-  assert.equal(f.snapshot(), null);
-  assert.match(warnings[0], /original file preserved/);
-  await assert.rejects(f.call({ action: 'status' }), /cannot read Goal record/);
-  await assert.rejects(f.create(), /cannot read Goal record/);
-  assert.equal(readFileSync(path, 'utf8'), corrupt);
-  await f.runtime.control(f.sessionId, { action: 'clear' });
-  assert.equal((await f.create()).goal.status, 'active');
-});
+for (const [label, corrupt] of [
+  ['torn', '{broken existing Goal'],
+  ['NUL-filled', '\0'.repeat(48)],
+]) {
+  test(`a ${label} Goal record is kept aside and never blocks the Goal feature`, async (t) => {
+    const f = fixture(t);
+    mkdirSync(join(f.dataDir, 'goals'));
+    const goals = join(f.dataDir, 'goals');
+    const path = join(goals, `${f.sessionId}.json`);
+    writeFileSync(path, corrupt);
+    assert.equal(f.snapshot(), null);
+    assert.equal((await f.call({ action: 'status' })).goal ?? null, null);
+    assert.equal((await f.create()).goal.status, 'active');
+    const aside = readdirSync(goals).filter((name) => name.includes('.corrupt-'));
+    assert.equal(aside.length, 1);
+    assert.equal(readFileSync(join(goals, aside[0]), 'utf8'), corrupt);
+  });
+}
 
 test('same-Goal objective edits invalidate stale updates and require explicit task reconciliation', async (t) => {
   const f = fixture(t);

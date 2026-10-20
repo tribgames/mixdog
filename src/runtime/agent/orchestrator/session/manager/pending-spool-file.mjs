@@ -17,7 +17,7 @@ export const _pendingPersistTails = new Map();
 export { pendingMessagesPath, touchPendingSessionEntry } from './pending-spool-path.mjs';
 
 // Single spool transaction shape: every mutation touches only `sessionId`'s
-// own shard file, locked, compact and non-fsync; `extra` only ever relaxes the
+// own shard file, locked, compact and durable; `extra` only ever relaxes the
 // lock timeout.
 export function updateSpool(sessionId, mutate, extra = null) {
   return updatePendingShard(sessionId, mutate, extra);

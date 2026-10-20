@@ -7,6 +7,7 @@ import {
   type ActivityRailPinsState,
 } from '../shared/activity-rail-pins';
 import { showDesktopToast } from './desktop-toasts';
+import { isRemoteCallTimeoutError } from './remote-call-deadline';
 import { isRemoteConnectionInterruptedError, REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { t } from './i18n';
 
@@ -32,10 +33,14 @@ function cachePins(pins: string[]): void {
   }
 }
 
+function isRemoteConnectionLapse(error: unknown): boolean {
+  return isRemoteConnectionInterruptedError(error) || isRemoteCallTimeoutError(error);
+}
+
 function reportSyncError(error: unknown): void {
   console.warn('Activity rail pin synchronization failed', error);
-  // An interrupted relay call carries no message; the change may not have reached the host.
-  const detail = isRemoteConnectionInterruptedError(error)
+  // An interrupted or timed-out relay call has no useful message; the change may not have reached the host.
+  const detail = isRemoteConnectionLapse(error)
     ? t('Check the connection, then try again.')
     : error instanceof Error
       ? error.message
@@ -112,8 +117,10 @@ export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesk
         }
         if (live && id === readId && state) receive(state);
       } catch (error) {
-        // An interrupted read repeats on the next connection-ready event.
-        if (live && id === readId && !isRemoteConnectionInterruptedError(error)) reportSyncError(error);
+        // A background read that lapsed with the connection is not the user's to
+        // act on: the cached pins stay, and the read repeats on the next
+        // connection-ready event (a timeout probes the leg and reconnects it).
+        if (live && id === readId && !isRemoteConnectionLapse(error)) reportSyncError(error);
       }
     };
     const unsubscribe = api.subscribeActivityRailPins(receive);

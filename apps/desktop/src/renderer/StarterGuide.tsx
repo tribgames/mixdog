@@ -143,7 +143,12 @@ function markVisited(step: StepId): (current: GuideState) => GuideState {
 function toastPosition(pill: HTMLElement | null): CSSProperties {
   const box = pill?.getBoundingClientRect();
   if (!box || box.width === 0) return { left: 60, bottom: 16 };
-  return { left: box.left, width: box.width, bottom: window.innerHeight - box.top + 6 };
+  // On a phone the fixed toast's containing block is the body, pinned to the
+  // visual viewport (soft keyboard): measure from that box, not the window.
+  const frame = document.documentElement.hasAttribute('data-mixdog-mobile-tabs')
+    ? document.body.getBoundingClientRect()
+    : { left: 0, top: 0, height: window.innerHeight };
+  return { left: box.left - frame.left, width: box.width, bottom: frame.height - (box.top - frame.top) + 6 };
 }
 
 export function StarterGuide({

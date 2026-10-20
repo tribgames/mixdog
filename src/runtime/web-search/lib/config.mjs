@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
-import { renameWithRetrySync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
+import { readJsonStateSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 
 // Unified mode: web search shares the plugin data dir with the rest of mixdog.
 const SHARED_DATA_DIR = resolvePluginData();
@@ -19,22 +19,10 @@ export function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+// usage/cache state: a damaged file (empty, NUL-filled, truncated) is kept as
+// <file>.corrupt-<ts> and reads as `fallback`, so search/fetch keep working.
 export function readJson(filePath, fallback) {
-  try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    try {
-      return JSON.parse(raw);
-    } catch (parseErr) {
-      try {
-        renameWithRetrySync(filePath, `${filePath}.corrupt.${Date.now()}`);
-      } catch {}
-      process.stderr.write(`[web-search-config] corrupt JSON backed up: ${filePath}\n`);
-      throw parseErr;
-    }
-  } catch (err) {
-    if (err.code === 'ENOENT') return fallback;
-    throw err;
-  }
+  return readJsonStateSync(filePath, { fallback });
 }
 
 export function writeJson(filePath, value) {

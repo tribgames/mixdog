@@ -1,4 +1,5 @@
 import { type MutableRefObject, type RefObject, useCallback, useRef } from 'react';
+import { roomPassIsQuiet } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { transcriptRowHeightStore } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
@@ -28,6 +29,12 @@ export function useTranscriptRowEstimates({
       if (!row) return TRANSCRIPT_ROW_ESTIMATE;
       const held = heldEstimates.current.get(row.key);
       if (held !== undefined) return held;
+      // A quiet pass paints nothing: estimating it at a reply's height made
+      // it shrink the thread by that much once measured.
+      if (row._tag === 'AssistantPart' && roomPassIsQuiet(row.item)) {
+        heldEstimates.current.set(row.key, 0);
+        return 0;
+      }
       // Before the viewport's first observation only: one width read at mount.
       if (!timelineWidth.current) timelineWidth.current = viewport.current?.clientWidth ?? 0;
       if (!timelineWidth.current) return TRANSCRIPT_ROW_ESTIMATE;

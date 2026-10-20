@@ -6,7 +6,7 @@
  * snapshots carry only a sha256 reference plus byte-free metadata.
  * Provider lowering resolves the reference at the last possible boundary.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -15,15 +15,15 @@ import {
   openSync,
   readFileSync,
   readSync,
-  renameSync,
   statSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { mkdir, readdir, readFile as readFileAsync, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { readdir, readFile as readFileAsync, stat, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { writeFileAtomicSync, writeJsonAtomicAsync } from '../shared/atomic-file.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { MAX_ATTACHMENT_BLOB_BYTES, MAX_PDF_BYTES, MAX_PDF_PAGES, isPdfBuffer } from './limits.mjs';
 import { inspectPdfBuffer } from './pdf-extract.mjs';
@@ -140,17 +140,13 @@ function saveBuffer(buffer) {
   }
   if (!existingValid) {
     mkdirSync(join(attachmentsDir(), attachmentRef.slice(0, 2)), { recursive: true, mode: 0o700 });
-    const temp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
     try {
-      writeFileSync(temp, buffer, { mode: 0o600 });
-      renameSync(temp, target);
+      // Durable, so a crash cannot leave this content address holding NUL
+      // bytes (a read would then fail its digest check).
+      writeFileAtomicSync(target, buffer, { mode: 0o600 });
     } catch (error) {
       // A concurrent writer may have published the same content first.
       if (!storedMatches()) throw error;
-    } finally {
-      try {
-        unlinkSync(temp);
-      } catch {}
     }
   } else {
     // Reusing old content creates a fresh reference before its queue/session
@@ -819,16 +815,14 @@ async function loadReferenceCache(root) {
 async function saveReferenceCache(root, files) {
   referenceCache = { root, files };
   const target = attachmentReferenceCachePath();
-  const temp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(temp, JSON.stringify({ version: 1, files: Object.fromEntries(files) }));
-    await rename(temp, target);
-  } catch {
-    try {
-      await unlink(temp);
-    } catch {}
-  }
+    // An unusable cache only costs a full re-read (loadReferenceCache), so no fsync.
+    await writeJsonAtomicAsync(
+      target,
+      { version: 1, files: Object.fromEntries(files) },
+      { compact: true, fsync: false }
+    );
+  } catch {}
 }
 
 export async function collectPromptAttachments({ now = Date.now(), minAgeMs = ATTACHMENT_GC_MIN_AGE_MS } = {}) {
@@ -885,8 +879,9 @@ export async function collectPromptAttachments({ now = Date.now(), minAgeMs = AT
       continue;
     }
     for (const entry of entries) {
-      // A writer that died between create and rename leaves `<ref>.<pid>.<rand>.tmp`.
-      if (entry.isFile() && /^[a-f0-9]{64}\..+\.tmp$/.test(entry.name)) {
+      // A writer that died between create and rename leaves `.<ref>.<rand>.tmp`
+      // (atomic writer) or the older `<ref>.<pid>.<rand>.tmp`.
+      if (entry.isFile() && /^\.?[a-f0-9]{64}\..+\.tmp$/.test(entry.name)) {
         const tempPath = join(dir, entry.name);
         try {
           if ((await stat(tempPath)).mtimeMs <= cutoff) await unlink(tempPath);

@@ -59,7 +59,7 @@ export function RichMarkdownSuggestMenu({
       className="rich-markdown-popover rich-markdown-suggest"
       role="listbox"
       aria-label={items[0]?.kind === 'emoji' ? t('Emoji') : t('Insert block')}
-      style={{ top: point.top, left: point.left }}
+      style={{ top: point.top, left: `max(0px, min(${point.left}px, calc(100% - 248px)))` }}
     >
       {items.length ? (
         items.map((item, index) => (
@@ -133,7 +133,7 @@ export function RichMarkdownPrompt({
   return (
     <form
       className="rich-markdown-popover rich-markdown-prompt"
-      style={{ top: point.top, left: point.left }}
+      style={{ top: point.top, left: `max(0px, min(${point.left}px, calc(100% - 328px)))` }}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit(values);

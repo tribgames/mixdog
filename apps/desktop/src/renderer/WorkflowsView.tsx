@@ -607,8 +607,10 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                     route: mainRoute,
                     capability: 'setModelRoute',
                     modelKind: 'main',
-                    description: '',
-                    readOnlyDefinition: false,
+                    description: t(
+                      'Talks with you directly, plans the work, and hands parts of it to the agents below.'
+                    ),
+                    readOnlyDefinition: true,
                   })
                 }
               >

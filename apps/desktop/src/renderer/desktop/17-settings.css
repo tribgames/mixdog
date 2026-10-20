@@ -754,6 +754,9 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
+  padding-inline: var(--mx-dialog-inset);
+}
 .model-mgmt-head {
   display: grid;
   gap: 6px;

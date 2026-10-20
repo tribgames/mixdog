@@ -43,7 +43,8 @@ import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { spawnSync } from 'node:child_process';
 import { createGunzip } from 'node:zlib';
-import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-file.mjs';
+import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
+import { fileHasData } from '../../shared/file-has-data.mjs';
 import { streamResponseToFile } from '../../shared/bounded-download.mjs';
 import { platformEntryKey, sha256File, verifySha256File } from '../../shared/native-asset.mjs';
 import { windowsProgramRoots, windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs';
@@ -264,7 +265,7 @@ async function loadManifest(dataDir) {
   if (!res.ok) throw new Error(`[voice-runtime] manifest fetch failed: ${res.status} ${res.statusText}`);
   const manifest = await res.json();
   mkdirSync(join(dataDir, 'voice-runtime'), { recursive: true });
-  writeFileSync(cachedPath, JSON.stringify(manifest, null, 2));
+  writeJsonAtomicSync(cachedPath, manifest);
   return manifest;
 }
 
@@ -439,7 +440,7 @@ function gcPublishedRuntimeSiblings(rootDir, prefix) {
 }
 
 async function extractGz(gzPath, destPath) {
-  await pipeline(createReadStream(gzPath), createGunzip(), createWriteStream(destPath));
+  await pipeline(createReadStream(gzPath), createGunzip(), createWriteStream(destPath, { flush: true }));
 }
 
 // Sweep .staging-* partials left by killed/crashed install attempts.
@@ -541,13 +542,13 @@ export async function ensureWhisperRuntime(dataDir, onProgress = null) {
   const activeDir = join(rootDir, activeName);
   const whisperCmd = join(activeDir, variant.executable);
 
-  if (existsSync(whisperCmd)) {
+  if (fileHasData(whisperCmd)) {
     gcStaleVersions(rootDir, activeName, 'whisper-');
     return { whisperCmd, version: ver, variantId: variant.id };
   }
 
   return _withInstallLock(rootDir, 'install', async () => {
-    if (existsSync(whisperCmd)) {
+    if (fileHasData(whisperCmd)) {
       gcStaleVersions(rootDir, activeName, 'whisper-');
       return { whisperCmd, version: ver, variantId: variant.id };
     }
@@ -641,14 +642,14 @@ function resolveManagedWhisperCmd(dataDir) {
         const variant = variants.find((v) => v.id === variantId);
         if (variant?.executable) {
           const p = join(activeDir, variant.executable);
-          if (existsSync(p)) return p;
+          if (fileHasData(p)) return p;
         }
       }
     } catch {}
   }
   for (const c of ['Release/whisper-cli.exe', 'Release/whisper-cli']) {
     const p = join(activeDir, c);
-    if (existsSync(p)) return p;
+    if (fileHasData(p)) return p;
   }
   return null;
 }
@@ -659,7 +660,7 @@ function resolveManagedWhisperModelById(dataDir, modelId = 'standard') {
   if (!entry?.filename) return null;
   const modelDir = join(dataDir, 'voice', 'models');
   const p = join(modelDir, entry.filename);
-  return existsSync(p) ? p : null;
+  return fileHasData(p) ? p : null;
 }
 
 // Clean-install policy: the models dir holds ONLY filenames declared by the
@@ -712,13 +713,13 @@ export async function ensureFfmpegRuntime(dataDir, onProgress = null) {
   const activeDir = join(rootDir, activeName);
   const ffmpegPath = join(activeDir, platformEntry.executable);
 
-  if (existsSync(ffmpegPath)) {
+  if (fileHasData(ffmpegPath)) {
     gcStaleVersions(rootDir, activeName, 'ffmpeg-');
     return { ffmpegPath, version: ver };
   }
 
   return _withInstallLock(rootDir, 'install', async () => {
-    if (existsSync(ffmpegPath)) {
+    if (fileHasData(ffmpegPath)) {
       gcStaleVersions(rootDir, activeName, 'ffmpeg-');
       return { ffmpegPath, version: ver };
     }
@@ -783,13 +784,13 @@ function resolveManagedFfmpegPath(dataDir) {
       const platformEntry = manifest.ffmpeg?.platforms?.[key];
       if (platformEntry?.executable) {
         const p = join(activeDir, platformEntry.executable);
-        if (existsSync(p)) return p;
+        if (fileHasData(p)) return p;
       }
     } catch {}
   }
   for (const c of ['ffmpeg.exe', 'ffmpeg']) {
     const p = join(activeDir, c);
-    if (existsSync(p)) return p;
+    if (fileHasData(p)) return p;
   }
   return null;
 }
@@ -835,7 +836,7 @@ export function resolveVoiceRuntime(dataDir, { modelId = 'standard', cleanup = t
   const managedFfmpegPath = resolveManagedFfmpegPath(dataDir);
   const ext = process.platform === 'win32' ? '.exe' : '';
   const managedServerCmd = managedWhisperCmd ? join(dirname(managedWhisperCmd), `whisper-server${ext}`) : null;
-  const serverCmd = managedServerCmd && existsSync(managedServerCmd) ? managedServerCmd : null;
+  const serverCmd = managedServerCmd && fileHasData(managedServerCmd) ? managedServerCmd : null;
   return {
     kind: 'managed-whisper.cpp',
     label: 'whisper.cpp',

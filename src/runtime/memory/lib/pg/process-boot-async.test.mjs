@@ -171,6 +171,16 @@ test('a fresh cluster conf already holds every block later boots reconcile', asy
   assert.deepEqual(syncCalls, []);
 });
 
+test('a NUL-filled postgresql.conf is rebuilt from the overrides instead of left unparsable', async () => {
+  writeFileSync(confPath, Buffer.alloc(64));
+  const result = await reconcileConfV2(runtimeDir, pgdataDir);
+  assert.equal(result.applied, true);
+  const conf = readFileSync(confPath, 'utf8');
+  assert.equal(conf.includes('\0'), false);
+  assert.match(conf, /# mixdog overrides v4/);
+  assert.match(conf, /^shared_buffers = 32MB$/m);
+});
+
 test('stopPg is a bounded async pg_ctl stop -m fast; the next boot starts without initdb or reload', async () => {
   spawned.length = 0;
   await stopPg({ runtimeDir, pgdataDir, timeoutMs: 4_000 });

@@ -1,3 +1,5 @@
+import { isRemoteCallTimeoutError } from './remote-call-deadline';
+
 /** Only new-task requests with a stable, durable creation receipt may be
  * replayed here. Arbitrary mutations must never inherit this retry policy. */
 export async function recoverableCreation<T>(
@@ -11,10 +13,8 @@ export async function recoverableCreation<T>(
   let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const interrupted = (error: unknown) => {
-    const failure = error as { code?: string; message?: string };
-    return (
-      failure?.code === 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' || failure?.message === 'mixdog remote call timed out.'
-    );
+    const failure = error as { code?: string };
+    return failure?.code === 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' || isRemoteCallTimeoutError(error);
   };
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {

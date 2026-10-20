@@ -12,6 +12,13 @@ const UNGATED_CALLS = new Set(['abortSession', 'resolveToolApprovalForSession'])
 /** The view sync and the ungated calls: they draw on the priority reserve. */
 const PRIORITY_CALLS = new Set(['synchronizeViews', ...UNGATED_CALLS]);
 
+/** A call on the wire this long with nothing at all arriving from the relay
+ *  probes the leg. A socket that died silently still reads as open, so its
+ *  calls would otherwise wait out their full deadline; the probe recycles it
+ *  within the wake probe's pong window and the redial takes the normal,
+ *  calm reconnect path (interrupted calls, the status dot). */
+const SILENT_CALL_PROBE_MS = 5_000;
+
 /** Desktop reads with no side effect; only these may share a queued request. */
 const COALESCED_READS = new Set([
   'getSnapshot',
@@ -197,13 +204,18 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
       // stalled handshake, a re-keying leg) fails the call and wakes the
       // liveness probe, so recovery never waits on a send that never ends.
       let cancelDeadline = armRemoteCallDeadline(ctx.pending, id, reject, ctx.wakeProbe);
+      let silenceTimer = 0;
+      const settle = (): void => {
+        cancelDeadline();
+        window.clearTimeout(silenceTimer);
+      };
       ctx.pending.set(id, {
         resolve: (value: unknown) => {
-          cancelDeadline();
+          settle();
           (resolve as (value: unknown) => void)(value);
         },
         reject: (reason: Error) => {
-          cancelDeadline();
+          settle();
           reject(reason);
         },
       });
@@ -215,6 +227,12 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
           if (!ctx.pending.has(id)) return;
           cancelDeadline();
           cancelDeadline = armRemoteCallDeadline(ctx.pending, id, reject, ctx.wakeProbe);
+          const sentAt = Date.now();
+          silenceTimer = window.setTimeout(() => {
+            // One probe at a time; any frame since the send proves the leg.
+            if (!ctx.pending.has(id) || ctx.wakePongTimer !== null || ctx.lastTrafficAt >= sentAt) return;
+            ctx.wakeProbe();
+          }, SILENT_CALL_PROBE_MS);
         },
         (error) => {
           cancelDeadline();

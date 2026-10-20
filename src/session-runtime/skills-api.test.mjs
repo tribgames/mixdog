@@ -308,3 +308,28 @@ test('removeGlobalSkill deletes only the user skill folder and refuses built-in 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a SKILL.md left NUL-filled by a crash does not block creating the skill again; saves keep a .bak', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-damaged-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  try {
+    const cwd = join(root, 'project');
+    const api = createSkillsApi({ contextMod, getCwd: () => cwd });
+    const dir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'torn-skill');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), '\0'.repeat(80));
+    const input = { name: 'torn-skill', description: 'Use when testing.', instructions: '# Instructions\n\nFirst.' };
+    const created = api.addGlobalSkill(input);
+    assert.equal(parseSkillDocument(readFileSync(created.filePath, 'utf8')).body, '# Instructions\n\nFirst.\n');
+    assert.throws(() => api.addGlobalSkill(input), /skill already exists/, 'a skill with data still blocks');
+    api.saveSkillDocument({ originalName: 'torn-skill', ...input, instructions: '# Instructions\n\nSecond.' });
+    assert.match(readFileSync(join(dir, 'SKILL.md.bak'), 'utf8'), /First\./);
+    assert.match(readFileSync(join(dir, 'SKILL.md'), 'utf8'), /Second\./);
+  } finally {
+    contextMod.invalidateSkillsCache(join(root, 'project'));
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

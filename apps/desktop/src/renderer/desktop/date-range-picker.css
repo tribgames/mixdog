@@ -48,6 +48,19 @@
   grid-template-columns: repeat(7, 30px);
   gap: 2px 0;
 }
+html[data-mixdog-mobile-tabs] .mx-daterange-head {
+  grid-template-columns: var(--mx-touch, 44px) 1fr var(--mx-touch, 44px);
+}
+html[data-mixdog-mobile-tabs] .mx-daterange-step {
+  width: var(--mx-touch, 44px);
+  height: var(--mx-touch, 44px);
+}
+html[data-mixdog-mobile-tabs] :is(.mx-daterange-weekdays, .mx-daterange-grid) {
+  grid-template-columns: repeat(7, min(var(--mx-touch, 44px), calc((100vw - 64px) / 7)));
+}
+html[data-mixdog-mobile-tabs] .mx-daterange-day {
+  height: var(--mx-touch, 44px);
+}
 .mx-daterange-weekdays span {
   display: grid;
   place-items: center;

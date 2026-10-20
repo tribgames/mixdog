@@ -26,6 +26,9 @@
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
+html[data-mixdog-mobile-tabs] .composer-add-menu [role="menuitem"] {
+  min-height: var(--mx-touch, 44px);
+}
 .composer-add-menu [role="menuitem"]:hover,
 .composer-add-menu [role="menuitem"]:focus-visible {
   background: var(--mx-hover);

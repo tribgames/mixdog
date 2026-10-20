@@ -95,7 +95,8 @@
   position: fixed;
   z-index: calc(var(--mx-toast-z-index) + 60);
   box-sizing: border-box;
-  min-width: 200px;
+  min-width: min(200px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   padding: 7px 12px;
   display: flex;
   align-items: center;

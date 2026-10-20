@@ -809,8 +809,14 @@ export function _unsavedBytesForTest(sessionId) {
 async function readBlob(sessionId, entry) {
   if (!entry?.blob) return undefined;
   try {
-    const bytes = await readFile(join(blobDir(sessionId), entry.blob));
-    return digest(bytes) === entry.blob ? bytes : undefined;
+    const path = join(blobDir(sessionId), entry.blob);
+    const bytes = await readFile(path);
+    if (digest(bytes) === entry.blob) return bytes;
+    // A torn blob (unflushed write cut by a crash). Blobs are published whole
+    // and never replaced, so a mismatch is damage: drop it, or the create-only
+    // write of a later capture of the same content would skip over it.
+    await rm(path, { force: true });
+    return undefined;
   } catch {
     return undefined;
   }

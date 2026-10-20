@@ -87,7 +87,7 @@
   animation: mx-dialog-in var(--mx-motion-chrome);
 }
 .mx-dialog {
-  width: min(480px, calc(100vw - 32px));
+  width: min(480px, 100%);
 }
 /* Native <dialog> has its own padding. Reset it for the compact launch card
    so it does not double the shared header/body/footer gutters. */
@@ -103,10 +103,10 @@
   backdrop-filter: blur(2px);
 }
 .mx-dialog.file-launch-dialog > header {
-  padding: 20px 20px 14px;
+  padding: var(--mx-dialog-inset) var(--mx-dialog-inset) 14px;
 }
 .file-launch-dialog > .mx-dialog-body {
-  padding: 0 20px;
+  padding: 0 var(--mx-dialog-inset);
   overflow-y: auto;
 }
 .file-launch-target {
@@ -151,7 +151,7 @@
   line-height: var(--mx-line-minor);
 }
 .mx-dialog.file-launch-dialog > footer {
-  padding: 16px 20px 20px;
+  padding: 16px var(--mx-dialog-inset) var(--mx-dialog-inset);
 }
 /* The primitive shares the editors' axis and continuous card plate. */
 .mx-dialog > header,

@@ -3,12 +3,11 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { withFileLockSync, writeJsonAtomicSync } from '../../runtime/shared/atomic-file.mjs';
+import { readJsonStateSync, updateJsonAtomicSync, withFileLockSync } from '../../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { pluginManifest } from '../../runtime/shared/plugin-manifest.mjs';
 import { pluginMetadata } from '../../runtime/shared/plugin-metadata.mjs';
 import { clean } from '../../runtime/shared/clean.mjs';
-import { readJsonSafe } from '../../runtime/shared/json-file.mjs';
 
 const REGISTRY_VERSION = 1;
 
@@ -28,38 +27,39 @@ function installRoot(dataDir = resolvePluginData()) {
   return join(pluginBaseDir(dataDir), 'installed');
 }
 
+const emptyRegistry = () => ({ version: REGISTRY_VERSION, plugins: [] });
+const hasPluginList = (raw) => Boolean(raw && Array.isArray(raw.plugins));
+
+// A damaged registry (empty, NUL-filled after a crash, malformed, or not a
+// plugin list) never blocks the plugin features: its bytes are kept aside as
+// registry.json.corrupt-<ts>, the last good copy registry.json.bak is
+// restored when there is one, else the registry starts empty. I/O errors
+// still throw.
 function loadRegistry(dataDir = resolvePluginData()) {
-  const path = registryPath(dataDir);
-  if (!existsSync(path)) return { version: REGISTRY_VERSION, plugins: [] };
-  const raw = readJsonSafe(path);
-  if (raw && Array.isArray(raw.plugins)) return raw;
-  throw new Error(`plugin registry is corrupt: ${path}`);
+  return readJsonStateSync(registryPath(dataDir), {
+    validate(raw) {
+      if (!hasPluginList(raw)) throw new Error('plugin registry has no plugin list');
+      return raw;
+    },
+    fallback: emptyRegistry(),
+    secret: true,
+  });
 }
 
 function mutateRegistry(dataDir, mutator) {
   const path = registryPath(dataDir);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  return withFileLockSync(
-    `${path}.lock`,
-    () => {
-      const registry = loadRegistry(dataDir);
-      const result = mutator(registry);
-      writeJsonAtomicSync(
-        path,
-        {
-          version: REGISTRY_VERSION,
-          plugins: Array.isArray(registry.plugins) ? registry.plugins : [],
-        },
-        {
-          lock: false,
-          secret: true,
-          fsyncDir: true,
-        }
-      );
-      return result;
+  let result;
+  updateJsonAtomicSync(
+    path,
+    (raw) => {
+      const registry = hasPluginList(raw) ? raw : emptyRegistry();
+      result = mutator(registry);
+      return { version: REGISTRY_VERSION, plugins: registry.plugins };
     },
-    { secret: true }
+    { secret: true, fsyncDir: true, backup: true }
   );
+  return result;
 }
 
 function displayNameFromUrl(url) {

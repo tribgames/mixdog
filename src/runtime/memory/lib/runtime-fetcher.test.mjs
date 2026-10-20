@@ -90,7 +90,9 @@ test('publishing reuses a racing sibling install of the same asset and replaces 
   assert.equal(cachedRuntimeDir(base, VERSION, NEW_SHA), sibling);
 });
 
-test('a runtime whose postgres is running is never removed, stamp included', { skip: process.platform === 'darwin' && 'not run on macOS' }, async (t) => {
+test('a runtime whose postgres is running is never removed, stamp included', {
+  skip: process.platform === 'darwin' && 'not run on macOS',
+}, async (t) => {
   const base = runtimeBase(t);
   const dir = installed(base, VERSION, OLD_SHA);
   copyFileSync(process.execPath, join(dir, 'bin', POSTGRES));
@@ -111,4 +113,14 @@ test('a runtime whose postgres is running is never removed, stamp included', { s
   await exited;
   gcRuntimeDir(base, runtimeInstallKey(VERSION, NEW_SHA));
   assert.equal(existsSync(dir), false);
+});
+
+test('a runtime whose postgres executable is NUL-filled is not reused', (t) => {
+  const base = runtimeBase(t);
+  const dir = installed(base, VERSION, OLD_SHA);
+  writeFileSync(join(base, 'active-version'), VERSION);
+  writeFileSync(join(dir, 'bin', POSTGRES), 'binary');
+  assert.equal(cachedRuntimeDir(base, VERSION, OLD_SHA), dir);
+  writeFileSync(join(dir, 'bin', POSTGRES), Buffer.alloc(64));
+  assert.equal(cachedRuntimeDir(base, VERSION, OLD_SHA), null);
 });

@@ -434,7 +434,7 @@
   z-index: var(--mx-menu-z-index);
   width: 300px;
   max-width: calc(100vw - 16px);
-  max-height: min(420px, calc(100vh - 96px));
+  max-height: min(420px, calc(var(--vvh, 100dvh) - 96px));
   display: flex;
   flex-direction: column;
   overflow: hidden;

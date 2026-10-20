@@ -49,7 +49,11 @@ function replaceIo(t, name, replace) {
 }
 function assertClean({ file, lock }) {
   assert.equal(fs.existsSync(lock), false, 'the registry lock must be released');
-  assert.deepEqual(fs.readdirSync(dirname(file)), ['projects.json'], 'no staged write or lock is left behind');
+  assert.deepEqual(
+    fs.readdirSync(dirname(file)).filter((name) => name !== 'projects.json.bak'),
+    ['projects.json'],
+    'no staged write or lock is left behind'
+  );
 }
 
 for (const mutation of mutations) {
@@ -100,13 +104,42 @@ for (const mutation of mutations) {
       return original(path, ...args);
     });
     mutation.run(f);
-    assert.deepEqual(lockedReads, [true]);
+    assert.ok(lockedReads.length > 0, 'the registry is read');
+    assert.ok(lockedReads.every(Boolean), 'every read of the registry happens under its lock');
     assertClean(f);
   });
 }
 
+const asideCopies = (f) =>
+  fs
+    .readdirSync(dirname(f.file))
+    .filter((name) => name.startsWith('projects.json.corrupt-'))
+    .map((name) => join(dirname(f.file), name));
+
 for (const [name, document] of [
   ['truncated JSON', () => '{"projects":'],
+  ['NUL-filled file', () => '\0'.repeat(128)],
+  ['empty file', () => ''],
+]) {
+  test(`mutations keep a ${name} aside and continue`, async (t) => {
+    const f = await fixture(t);
+    const source = document(f);
+    for (const mutation of mutations) {
+      fs.writeFileSync(f.file, source);
+      mutation.run(f);
+      assert.ok(
+        asideCopies(f).some((copy) => fs.readFileSync(copy, 'utf8') === source),
+        `${mutation.name}: the damaged bytes are kept, not overwritten`
+      );
+      assert.equal(fs.existsSync(f.lock), false);
+      for (const copy of asideCopies(f)) fs.rmSync(copy);
+    }
+    assert.equal(f.store.addProject(join(f.root, 'D')).path, join(f.root, 'D'));
+    assert.ok(f.store.listProjects().some((row) => row.path === join(f.root, 'D')));
+  });
+}
+
+for (const [name, document] of [
   ['missing array', () => '{}'],
   ['null document', () => 'null'],
   ['non-array projects', () => '{"projects":{}}'],
@@ -114,20 +147,45 @@ for (const [name, document] of [
   ['blank path', () => '{"projects":[{"path":" "}]}'],
   ['relative stored path', () => '{"projects":[{"path":"relative"}]}'],
 ]) {
-  test(`mutations preserve ${name} byte-for-byte`, async (t) => {
+  test(`a mutation on a ${name} registry continues and keeps the replaced version as .bak`, async (t) => {
     const f = await fixture(t);
     const source = document(f);
     fs.writeFileSync(f.file, source);
-    for (const mutation of mutations) {
-      assert.throws(
-        () => mutation.run(f),
-        (error) => error instanceof SyntaxError || error instanceof TypeError
-      );
-      assert.equal(fs.readFileSync(f.file, 'utf8'), source);
-      assertClean(f);
-    }
+    assert.equal(f.store.addProject(join(f.root, 'C')).path, join(f.root, 'C'));
+    assert.equal(fs.readFileSync(`${f.file}.bak`, 'utf8'), source);
+    assertClean(f);
   });
 }
+
+test('a damaged registry is restored from its backup and the damaged bytes are kept aside', async (t) => {
+  const f = await fixture(t);
+  f.store.addProject(join(f.root, 'C')); // the file now holds A, B, C; its .bak holds A, B
+  const damaged = '\0'.repeat(64);
+  fs.writeFileSync(f.file, damaged);
+  assert.equal(f.store.renameProject(f.a.path, 'Renamed').name, 'Renamed');
+  assert.deepEqual(
+    f.store
+      .listProjects()
+      .map((row) => row.name)
+      .sort(),
+    ['B', 'Renamed']
+  );
+  assert.ok(asideCopies(f).some((copy) => fs.readFileSync(copy, 'utf8') === damaged));
+});
+
+test('a project marker holding no data is rewritten; a real id is kept', async (t) => {
+  const f = await fixture(t);
+  process.env.MIXDOG_DISABLE_PROJECT_MARKERS = '0';
+  const project = join(f.root, 'C');
+  const marker = join(project, '.mixdog', 'project.id');
+  fs.mkdirSync(dirname(marker), { recursive: true });
+  fs.writeFileSync(marker, '\0'.repeat(32));
+  f.store.addProject(project);
+  assert.equal(fs.readFileSync(marker, 'utf8'), 'C\n');
+  fs.writeFileSync(marker, 'custom\n');
+  f.store.touchProjectSelected(project);
+  assert.equal(fs.readFileSync(marker, 'utf8'), 'custom\n');
+});
 
 test('missing state initializes; synchronous results, dedupe, recency and no-ops are preserved', async (t) => {
   const f = await fixture(t, { missing: true });
@@ -165,18 +223,13 @@ test('partial temporary-file write failure preserves existing state and releases
   const f = await fixture(t);
   const before = fs.readFileSync(f.file, 'utf8');
   const error = failure('ENOSPC');
-  replaceIo(t, 'writeFileSync', (original) => (path, data, ...args) => {
-    if (
-      typeof path === 'string' &&
-      dirname(path) === dirname(f.file) &&
-      basename(path).includes('projects.json') &&
-      path.endsWith('.tmp') &&
-      !path.includes('.lock.')
-    ) {
-      original(path, 'partial', ...args);
+  // The staged file is written through its open handle: tear its first write.
+  replaceIo(t, 'writeFileSync', (original) => (target, data, ...args) => {
+    if (typeof target === 'number' && String(data).includes('"projects"')) {
+      original(target, 'partial', ...args);
       throw error;
     }
-    return original(path, data, ...args);
+    return original(target, data, ...args);
   });
   assert.throws(
     () => f.store.addProject(join(f.root, 'C')),

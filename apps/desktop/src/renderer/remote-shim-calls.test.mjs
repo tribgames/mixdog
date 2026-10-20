@@ -81,6 +81,10 @@ test('a frame that can never be sent fails the call and probes the connection', 
   await flush();
   assert.equal(settled, null);
   t.mock.timers.tick(1);
+  await flush();
+  assert.equal(settled, null, 'the probe decides first');
+  assert.deepEqual(probes, ['probe']);
+  t.mock.timers.tick(5_000);
   await read;
   assert.equal(settled.error?.message, 'mixdog remote call timed out.');
   assert.equal(ctx.pending.size, 0);
@@ -159,7 +163,10 @@ test('a call that timed out keeps its credit until the PC answers it', async (t)
     await flush();
     assert.ok(outstanding() <= REMOTE_CLIENT_CALL_WINDOW, `cycle ${cycle}: ${outstanding()} outstanding`);
     assert.equal(outstanding(), ORDINARY_LIMIT);
+    // The deadline probes the leg; the probe window then fails the callers.
     t.mock.timers.tick(20_000);
+    await flush();
+    t.mock.timers.tick(5_000);
     await flush();
   }
   assert.ok(ctx.probes > 0, 'the deadlines fired and probed a leg that answers its probes');
@@ -241,6 +248,33 @@ test('ordinary and priority calls together never pass the window', async (t) => 
   assert.equal(sent.filter((frame) => frame.method === 'statProjectFile').length, REMOTE_CLIENT_CALL_WINDOW);
 });
 
+// The phone report: the leg died silently, the socket still read as open, and
+// every call waited its full deadline. Silence after a send probes at once.
+test('a call met by silence probes the leg early; any arriving frame proves it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { ctx, probes, release } = harness();
+  // The mocked clock starts at 0: the last frame arrived before it.
+  Object.assign(ctx, { wakePongTimer: null, lastTrafficAt: -1 });
+  release();
+  const silent = ctx.invoke('readActivityRailPins', []).catch((error) => error);
+  await flush();
+  t.mock.timers.tick(4_999);
+  assert.deepEqual(probes, []);
+  t.mock.timers.tick(1);
+  assert.deepEqual(probes, ['probe']);
+
+  const heard = ctx.invoke('readSettings', []).catch((error) => error);
+  await flush();
+  ctx.lastTrafficAt = Date.now() + 1;
+  t.mock.timers.tick(5_000);
+  assert.deepEqual(probes, ['probe'], 'a frame since the send proves the leg');
+  for (const [id, entry] of [...ctx.pending]) {
+    ctx.pending.delete(id);
+    entry.resolve(id);
+  }
+  await Promise.all([silent, heard]);
+});
+
 test('a request on the wire still fails on its own deadline and probes the connection', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { ctx, sent, probes, release } = harness();
@@ -256,6 +290,9 @@ test('a request on the wire still fails on its own deadline and probes the conne
   await flush();
   assert.equal(settled, null);
   t.mock.timers.tick(1);
+  await flush();
+  assert.equal(settled, null, 'the probe decides first');
+  t.mock.timers.tick(5_000);
   await read;
   assert.equal(settled.error?.message, 'mixdog remote call timed out.');
   assert.equal(ctx.pending.size, 0);

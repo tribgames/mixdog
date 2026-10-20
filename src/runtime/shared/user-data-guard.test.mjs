@@ -484,6 +484,111 @@ for (const [label, method, target] of [
   });
 }
 
+const configAsides = (dataDir) =>
+  readdirSync(dataDir)
+    .filter((name) => name.startsWith('mixdog-config.json.corrupt-'))
+    .map((name) => join(dataDir, name));
+
+for (const [order, trigger] of [
+  ['a read quarantines it first', () => assert.deepEqual(readConfig(), {})],
+  ['the save finds it itself', () => {}],
+]) {
+  test(`a NUL config with no backup never blocks a settings save (${order})`, (t) => {
+    const { dir } = sandbox(t);
+    const a = dir('a');
+    markUserDataInitialized(a); // initialized, but no backup was ever taken
+    const damaged = Buffer.alloc(96);
+    writeFileSync(configFile(a), damaged);
+    use(a);
+    trigger();
+    updateSection('ui', { theme: 'saved' });
+    assert.equal(JSON.parse(readFileSync(configFile(a), 'utf8')).ui.theme, 'saved');
+    assert.ok(
+      configAsides(a).some((copy) => readFileSync(copy).equals(damaged)),
+      'the damaged bytes are kept'
+    );
+  });
+}
+
+for (const [order, trigger] of [
+  ['a read quarantines it first', () => assert.deepEqual(readConfig(), {})],
+  ['the save finds it itself', () => {}],
+]) {
+  test(`a non-empty malformed config with no backup is kept aside and a save proceeds (${order})`, (t) => {
+    const { dir } = sandbox(t);
+    const a = dir('a');
+    markUserDataInitialized(a);
+    const damaged = Buffer.from('{"agent": {"tag": "half-wri');
+    writeFileSync(configFile(a), damaged);
+    use(a);
+    trigger();
+    updateSection('ui', { theme: 'saved' });
+    assert.equal(JSON.parse(readFileSync(configFile(a), 'utf8')).ui.theme, 'saved');
+    assert.ok(configAsides(a).some((copy) => readFileSync(copy).equals(damaged)));
+  });
+}
+
+test('a config that cannot be read still refuses a save instead of starting empty', (t) => {
+  const { dir } = sandbox(t);
+  const a = dir('a');
+  use(a);
+  write('v1');
+  const restore = failingFs(t, 'readFileSync', (path) => path === configFile(a));
+  assert.throws(() => updateSection('ui', { theme: 'x' }), { code: 'EIO' });
+  restore();
+  assert.equal(tag(), 'v1');
+});
+
+test('a NUL config is restored from the latest backup', (t) => {
+  const { dir } = sandbox(t);
+  const a = dir('a');
+  use(a);
+  write('v1');
+  writeFileSync(configFile(a), Buffer.alloc(64));
+  assert.equal(tag(), 'v1');
+  writeFileSync(configFile(a), Buffer.alloc(64));
+  updateSection('ui', { theme: 'after' });
+  const stored = JSON.parse(readFileSync(configFile(a), 'utf8'));
+  assert.equal(stored.agent.tag, 'v1');
+  assert.equal(stored.ui.theme, 'after');
+});
+
+test('a hand-edited config with a byte order mark loads and is not quarantined', (t) => {
+  const { dir } = sandbox(t);
+  const a = dir('a');
+  writeFileSync(configFile(a), `\uFEFF${JSON.stringify(complete('bom'))}`);
+  use(a);
+  assert.equal(tag(), 'bom');
+  updateSection('ui', { theme: 'saved' });
+  const stored = JSON.parse(readFileSync(configFile(a), 'utf8'));
+  assert.equal(stored.agent.tag, 'bom');
+  assert.equal(stored.ui.theme, 'saved');
+  assert.deepEqual(configAsides(a), []);
+});
+
+test('backup copies and their manifest are flushed through the handle that wrote them', (t) => {
+  const { dir } = sandbox(t);
+  const a = dir('a');
+  writeFileSync(configFile(a), JSON.stringify(complete('v1')));
+  const original = fs.fsyncSync;
+  let syncs = 0;
+  fs.fsyncSync = (fd) => {
+    syncs += 1;
+    return original(fd);
+  };
+  syncBuiltinESMExports();
+  let backup;
+  try {
+    backup = backupUserData(a, 'snapshot');
+  } finally {
+    fs.fsyncSync = original;
+    syncBuiltinESMExports();
+  }
+  assert.ok(syncs >= 3, `config copy, init marker and manifest are each flushed (saw ${syncs})`);
+  assert.equal(JSON.parse(readFileSync(join(backup.dir, 'mixdog-config.json'), 'utf8')).agent.tag, 'v1');
+  assert.equal(JSON.parse(readFileSync(join(backup.dir, 'backup.json'), 'utf8')).dataDir, resolve(a));
+});
+
 test('a backup is not written when its scope cannot be listed', (t) => {
   const { dir } = sandbox(t);
   const a = dir('a');

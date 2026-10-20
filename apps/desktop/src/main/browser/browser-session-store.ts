@@ -6,9 +6,10 @@
  * those cookies, sealed with the OS keychain, and puts them back on the next
  * start. Nothing here reads cookie values into a reply.
  */
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { writeFileAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
 import {
   cookiePartitionKey,
   storedCookieSetDetails,
@@ -129,10 +130,8 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
       }
       const sealed = await encrypt(JSON.stringify({ savedAt: now(), cookies: records }));
       if (!sealed) return 0;
-      await mkdir(host.directory, { recursive: true });
-      const staging = `${file}.${process.pid}.tmp`;
-      await writeFile(staging, sealed, { mode: 0o600 });
-      await rename(staging, file);
+      // Flushed before it replaces the last snapshot, so a crash keeps one good copy.
+      await writeFileAtomicAsync(file, sealed, { secret: true });
       return records.length;
     })().finally(() => {
       saving = null;

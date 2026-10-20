@@ -6,12 +6,12 @@
  * (newest first) and is written atomically under a file lock because the
  * desktop and CLI can generate concurrently.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, statSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
-import { writeJsonAtomicSync, withFileLockSync } from '../shared/atomic-file.mjs';
+import { readJsonStateSync, updateJsonAtomicSync, writeFileAtomicSync } from '../shared/atomic-file.mjs';
 import { cacheRendition, ensureRendition, removeRenditions, renditionSpec } from './renditions.mjs';
 
 // Renderer transport is base64 over IPC: refuse to inline anything larger.
@@ -50,10 +50,6 @@ function indexPath() {
   return join(mediaDir(), 'index.json');
 }
 
-function indexLockPath() {
-  return `${indexPath()}.lock`;
-}
-
 function ensureDirs({ migrate = false } = {}) {
   mkdirSync(assetsDir(), { recursive: true });
   if (migrate && !layoutMigrationChecked) {
@@ -89,42 +85,45 @@ function readIndex() {
     indexCacheHits += 1;
     return indexCacheAssets;
   }
-  let raw;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch (error) {
-    // A missing index file is a genuinely empty catalog (first run). Every
-    // OTHER read failure is not: answering with an empty list made the next
-    // save/delete write that emptiness back over every existing asset entry.
-    if (error?.code === 'ENOENT') return rememberIndex(path, signature, []);
-    throw error;
-  }
-  const parsed = JSON.parse(raw);
-  if (!parsed || !Array.isArray(parsed.assets)) {
-    throw new Error(`media index is malformed: ${path}`);
-  }
-  indexDiskReads += 1;
-  return rememberIndex(path, signature, parsed.assets);
+  // A missing index is a genuinely empty catalog (first run). A DAMAGED one
+  // (empty, NUL-filled, truncated, wrong shape) is kept as index.json.corrupt-<ts>
+  // and the last good copy restored, so the gallery lists and saves keep
+  // working. Every other read failure (EACCES, EIO) still throws: answering
+  // with an empty list made the next save/delete write that emptiness back
+  // over every existing asset entry.
+  const assets = readJsonStateSync(path, { validate: catalogAssets, fallback: [] });
+  if (signature !== 'missing') indexDiskReads += 1;
+  return rememberIndex(path, signature, assets);
 }
 
-function writeIndex(assets) {
-  const path = indexPath();
-  writeJsonAtomicSync(path, { version: 2, assets });
-  rememberIndex(path, indexSignature(path), assets);
+function catalogAssets(parsed) {
+  if (!parsed || !Array.isArray(parsed.assets)) throw new Error(`media index is malformed: ${indexPath()}`);
+  return parsed.assets;
 }
 
 /**
  * The one catalog read-modify-write. Every mutation (migrate, save, duration
- * backfill, delete) holds index.lock across a fresh readIndex() and writes back
- * only what the callback returns, so a concurrent CLI/desktop generation can
- * never lose an entry — and a read that FAILS (rather than being absent)
- * propagates out of the lock instead of writing an empty catalog over it.
+ * backfill, delete) holds index.lock across a fresh read and writes back only
+ * what the callback returns, so a concurrent CLI/desktop generation can never
+ * lose an entry — and a read that FAILS (rather than being absent) propagates
+ * out of the lock instead of writing an empty catalog over it. The previous
+ * catalog is kept as index.json.bak.
  */
 function mutateIndex(mutate) {
-  withFileLockSync(indexLockPath(), () => {
-    const next = mutate(readIndex());
-    if (next) writeIndex(next);
-  });
+  // Sets a wrong-shaped catalog aside before the lock below takes the file.
+  readIndex();
+  let written = null;
+  updateJsonAtomicSync(
+    indexPath(),
+    (current) => {
+      const next = mutate(Array.isArray(current?.assets) ? current.assets : []);
+      if (!next) return undefined;
+      written = next;
+      return { version: 2, assets: next };
+    },
+    { backup: true }
+  );
+  if (written) rememberIndex(indexPath(), indexSignature(indexPath()), written);
 }
 
 export function mediaStoreCacheStats() {
@@ -228,7 +227,9 @@ export function saveMediaAsset({ kind, lane, model, prompt, options = {}, mime, 
   const path = storedAssetPath(file);
   if (!path) throw new Error('invalid media asset path');
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, bytes);
+  // Durable before the index names it: a crash must not leave a listed asset
+  // whose bytes are all NUL.
+  writeFileAtomicSync(path, bytes);
   entry.file = file;
   // The gallery is NOT capped (user). An entry-count trim used to unlink the
   // oldest files here, which is data loss nobody asked for: a generated asset

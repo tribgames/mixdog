@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { writeFileAtomicSync } from '../../runtime/shared/atomic-file.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
 import {
   normalizeWorkflowId,
@@ -106,9 +107,10 @@ export function createWorkflowPacksApi(deps) {
     if (!absorbed) {
       const dir = join(dataDir, 'workflows', id);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(
+      writeFileAtomicSync(
         join(dir, 'WORKFLOW.md'),
-        serializeFrontmatterDoc({ id, name, ...(description ? { description } : {}) }, body)
+        serializeFrontmatterDoc({ id, name, ...(description ? { description } : {}) }, body),
+        { backup: true, mode: 0o644 }
       );
     }
     return getWorkflowPack(id);

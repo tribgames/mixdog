@@ -8,11 +8,12 @@
 // effort. Decisions are logged locally (lengths and probabilities only, never
 // the request text).
 import { Worker } from 'node:worker_threads';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { onnxRuntimeSupported } from '../shared/onnx-runtime-support.mjs';
+import { fileHasData } from '../shared/file-has-data.mjs';
 import { effortJudgeInstallCurrent, effortJudgeInstallStamped, installEffortJudgeModel } from './model-install.mjs';
 
 export const EFFORT_JUDGE_UNSUPPORTED = 'Auto effort is unsupported on darwin-x64 (no onnxruntime-node binding)';
@@ -86,7 +87,9 @@ export function effortJudgeModelDir() {
 // it is. Unstamped leftovers (hand-copied packs) never load.
 export function effortJudgeAvailable(dir = effortJudgeModelDir()) {
   if (!onnxRuntimeSupported()) return false;
-  if (!MODEL_FILES.every((file) => existsSync(join(dir, file)))) return false;
+  // A model file a crash left empty or NUL-filled is not installed: the refresh
+  // then re-verifies the folder against the manifest hashes and fetches it again.
+  if (!MODEL_FILES.every((file) => fileHasData(join(dir, file)))) return false;
   return Boolean(process.env.MIXDOG_EFFORT_JUDGE_DIR) || effortJudgeInstallStamped(dir);
 }
 
