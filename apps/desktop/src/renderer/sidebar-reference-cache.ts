@@ -121,6 +121,8 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   deleteSchedule: ['channelSetup'],
   setScheduleEnabled: ['channelSetup'],
   runScheduleNow: ['channelSetup'],
+  runWebhookNow: ['channelSetup'],
+  retryRoutineDelivery: ['channelSetup'],
   saveWebhook: ['channelSetup'],
   deleteWebhook: ['channelSetup'],
   setWebhookEnabled: ['channelSetup'],
@@ -128,7 +130,9 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   saveWorkflowPack: ['workflows'],
   deleteWorkflow: ['workflows', 'agents'],
   saveAgentDefinition: ['agents'],
+  saveLeadIdentity: ['agents'],
   deleteAgentDefinition: ['agents'],
+  restoreAgentDefinition: ['agents'],
   setAgentRoute: ['agents'],
   setWebSearchRoute: ['webSearchRoute'],
   addProject: ['projects'],
@@ -564,9 +568,13 @@ export function sidebarReferencesLoading(
 export function useSidebarReferences<K extends SidebarReferenceKey>(
   api: SidebarReferenceApi | undefined,
   keys: readonly K[],
-  active = true
+  active = true,
+  /** False: an inactive reader loads nothing (it only reads what the cache
+   *  holds) until it turns active. */
+  hydrateHidden = true
 ): SidebarReferenceState<K> {
   const available = Boolean(api?.invokeCapability);
+  const hydrate = hydrateHidden || active;
   const [revision, setRevision] = useState(0);
   // Read-through status is HOST-SCOPED: settled and error both belong to the
   // host they came from, so host B's first paint shows neither A's rows nor
@@ -634,19 +642,22 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
   useEffect(() => {
     // Hidden panels hydrate too: App pre-mounts rail destinations so the first
     // click is a warm, atomic reveal.
-    void refresh();
-  }, [refresh]);
+    if (hydrate) void refresh();
+  }, [refresh, hydrate]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the cache-invalidation trigger that re-checks staleness
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision (cache invalidation) and active (re-entry) are the triggers that re-check staleness
   useEffect(() => {
     // Re-entry AND external invalidation (settings/onboarding mutating shared
-    // reference data from an overlay) revalidate silently while the mounted
-    // rows stay on screen. Only stale keys trigger work, so a fresh cache and
-    // a failure inside its backoff both settle immediately instead of looping.
-    if (!active || !available) return;
+    // reference data from an overlay, a setup-tool push) revalidate silently
+    // while the mounted rows stay on screen. A hidden pre-mounted panel follows
+    // those pushes too, so its next opening is already fresh instead of
+    // swapping rows in front of the user. Event-driven only (no polling): only
+    // stale keys trigger work, so a fresh cache and a failure inside its
+    // backoff both settle immediately instead of looping.
+    if (!hydrate || !available) return;
     if (!keys.some((key) => isSidebarReferenceStale(key))) return;
     void refresh();
-  }, [active, available, keys, refresh, revision]);
+  }, [active, available, hydrate, keys, refresh, revision]);
 
   useDesktopProvidersRetry(active && isDesktopProvidersUnavailableError(error), () => void refresh({ force: true }));
 

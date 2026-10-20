@@ -33,6 +33,11 @@ export class MarkdownWorkerHost {
     }
   ) {}
 
+  /** False once the worker failed; nothing should be sent speculatively then. */
+  get available(): boolean {
+    return this.failure === null;
+  }
+
   parse(text: string): Promise<MarkdownAstRoot> {
     return new Promise((resolve, reject) => {
       const worker = this.getWorker();

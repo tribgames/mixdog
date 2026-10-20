@@ -67,7 +67,13 @@ export function useMountedRowMeasurement({
       // changed (a group that gained its head, a reply that took its
       // completion) both land here; the observer's later delivery of the same
       // box is then a no-op, so each size still lands exactly once.
-      const sizes = mounted.map((row) => rememberRowHeight(row, Math.round(row.getBoundingClientRect().height)));
+      // All rects are read before any row's held height is written: writing
+      // inside the read loop invalidated style, so every next read forced
+      // another style/layout pass (one per mounted row).
+      const sizes = mounted.map((row) => Math.round(row.getBoundingClientRect().height));
+      mounted.forEach((row, position) => {
+        rememberRowHeight(row, sizes[position] ?? 0);
+      });
       let measured = false;
       mounted.forEach((row, position) => {
         const size = sizes[position] ?? 0;

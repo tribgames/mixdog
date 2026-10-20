@@ -109,3 +109,24 @@ test('a repeated tail window retains the displayed row ids across source namespa
     previous.slice(-500).map((item) => item.id)
   );
 });
+
+test('a row that moved down keeps its id: the row landing in its place never takes it', () => {
+  // A group room: the speaking member's typing row ends the log; its message
+  // lands in that place while the typing row is still shown below it.
+  const user = { id: 'u1', kind: 'user', text: 'hello both' };
+  const typing = { id: 'room-typing-a', kind: 'notice', text: 'Mixy…', room: { kind: 'typing' } };
+  const speech = { id: 'it_9', kind: 'notice', text: 'hi', room: { kind: 'speech' } };
+  const reconciler = createTranscriptIdentityReconciler();
+  reconciler.reconcile({ sessionId: 'room', items: [user, typing] });
+  const landed = reconciler.reconcile({ sessionId: 'room', items: [user, speech, typing] });
+  assert.deepEqual(
+    landed.items.map((item) => item.id),
+    ['u1', 'it_9', 'room-typing-a']
+  );
+  // The next member's typing row takes the typing row's place and identity.
+  const next = { id: 'room-typing-b', kind: 'notice', text: 'Bobo…', room: { kind: 'typing' } };
+  const typingNext = reconciler.reconcile({ sessionId: 'room', items: [user, speech, next] });
+  const ids = typingNext.items.map((item) => item.id);
+  assert.equal(new Set(ids).size, ids.length, 'no id appears twice');
+  assert.deepEqual(ids, ['u1', 'it_9', 'room-typing-a']);
+});

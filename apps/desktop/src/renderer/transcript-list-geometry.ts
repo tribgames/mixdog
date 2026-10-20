@@ -31,14 +31,23 @@ export function rememberRowHeight(element: HTMLElement, height: number): number 
 /** Row sizes come from the ResizeObserver's border box only. Every other call
  *  (ref registration, a detached node, a headless layout reporting no box)
  *  keeps the size the timeline already holds: a synchronous rect read per
- *  mounted row forced a layout of the whole list inside every commit. */
+ *  mounted row forced a layout of the whole list inside every commit.
+ *  A laid-out row (it has a width) may observe zero height: the agent chat's
+ *  live band collapses to nothing once the reply streams above it. Ignoring
+ *  that box left the band's 62px typing-bubble slot in the total for the whole
+ *  reply, and the followed transcript dropped by 62px when the band left. A
+ *  hidden pane reports no width, and a row waiting for its parser no real
+ *  box; both keep the held size. */
 export function measureTranscriptRow(
   element: Element,
   entry: ResizeObserverEntry | undefined,
   instance: TranscriptVirtualizer
 ): number {
-  const observed = Number(entry?.borderBoxSize?.[0]?.blockSize);
-  if (Number.isFinite(observed) && observed > 0) {
+  const box = entry?.borderBoxSize?.[0];
+  const observed = Number(box?.blockSize);
+  const collapsed =
+    observed === 0 && Number(box?.inlineSize) > 0 && !element.querySelector('[data-transcript-pending]');
+  if (Number.isFinite(observed) && (observed > 0 || collapsed)) {
     return rememberRowHeight(element as HTMLElement, Math.round(observed));
   }
   const index = instance.indexFromElement(element as HTMLDivElement);

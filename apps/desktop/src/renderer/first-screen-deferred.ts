@@ -19,8 +19,14 @@ export const sessionDiffPaneModule = deferredModule(() => import('./SessionDiffP
 export const visualizePaneModule = deferredModule(() => import('./VisualizePane'));
 /** The Ports side view. */
 export const serverPortsPanelModule = deferredModule(() => import('./ServerPortsPanel'));
+/** An agent home thread's Routines side view. */
+export const routinesPaneModule = deferredModule(() => import('./RoutinesPane'));
+/** A group room's panel side view. */
+export const agentRoomPanelModule = deferredModule(() => import('./AgentRoomPanel'));
 
 export const FIRST_SCREEN_DEFERRED_MODULES = Object.freeze({
+  routines: routinesPaneModule,
+  'room-panel': agentRoomPanelModule,
   'starter-guide': starterGuideModule,
   'project-editor': projectEditorDialogModule,
   'project-add': projectAddDialogModule,

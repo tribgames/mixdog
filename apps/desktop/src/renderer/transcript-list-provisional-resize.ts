@@ -58,7 +58,13 @@ export function useProvisionalRowResize({
       ) {
         provisionalRows.current.add(element);
         if (!provisionalFrame.current) provisionalFrame.current = window.requestAnimationFrame(settleProvisional);
-        coreResizeItem(index, held);
+        // A followed timeline is pinned to its end: a fallback that outgrows
+        // the estimate (a streaming reply's next line) takes its box in this
+        // frame. Held at the estimate, the row grew below the pinned end with
+        // the spacer and offset stale, and the tail jumped into place a frame
+        // later, when the parse settled.
+        const following = virtualizer.options.anchorTo === 'end' || virtualizer.options.followOnAppend;
+        coreResizeItem(index, following ? Math.max(held, size) : held);
         return;
       }
       coreResizeItem(index, size);

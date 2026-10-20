@@ -68,20 +68,64 @@ export const BOOT_WARMUP_ARM_DELAY_MS = 600;
 const IDLE_TIMEOUT_MS = 2_000;
 /** Breath between tasks so two warm-ups never land in one frame. */
 const TASK_GAP_MS = 120;
-/** Input wins: a key or pointer press this recently defers the next task, so
- *  a keystroke typed right after boot never queues behind a hidden mount. */
+/** Input wins: a key or pointer press, or a scroll the user drives, this
+ *  recently defers the next task, so a keystroke typed right after boot never
+ *  queues behind a hidden mount and a scroll never stutters behind one. */
 const INPUT_QUIET_MS = 300;
 
 let lastInputAt = 0;
 let inputListening = false;
+/** A touch drag's scroll is still running: the compositor keeps flinging
+ *  after the finger lifts and reports only `scroll` events. */
+let dragScrolling = false;
 function listenForInput(): void {
   if (inputListening || typeof window === 'undefined') return;
   inputListening = true;
+  const options = { capture: true, passive: true } as const;
   const note = () => {
     lastInputAt = Date.now();
   };
-  window.addEventListener('keydown', note, { capture: true, passive: true });
-  window.addEventListener('pointerdown', note, { capture: true, passive: true });
+  window.addEventListener('keydown', note, options);
+  window.addEventListener('pointerdown', note, options);
+  window.addEventListener('wheel', note, options);
+  // A phone's first swipe released the lane on its single pointerdown, so rail
+  // mounts and pane chunks (Monaco) ran in the idle slices of the scroll itself
+  // and the first seconds of scrolling stuttered. The drag and its fling count
+  // as input. A programmatic scroll (the transcript following a stream) starts
+  // no chain; a pause longer than the quiet window or `scrollend` ends one.
+  window.addEventListener(
+    'touchmove',
+    () => {
+      dragScrolling = true;
+      note();
+    },
+    options
+  );
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (!dragScrolling) return;
+      if (Date.now() - lastInputAt < INPUT_QUIET_MS) note();
+      else dragScrolling = false;
+    },
+    options
+  );
+  window.addEventListener(
+    'scrollend',
+    () => {
+      if (!dragScrolling) return;
+      dragScrolling = false;
+      note();
+    },
+    options
+  );
+}
+
+/** Milliseconds until input has been quiet long enough for background work;
+ *  0 means now. Other post-boot warm-ups (fonts) share the lane's input gate. */
+export function inputQuietRemainingMs(): number {
+  listenForInput();
+  return Math.max(0, INPUT_QUIET_MS - (Date.now() - lastInputAt));
 }
 
 const pending: BootWarmupTask[] = [];
@@ -115,12 +159,12 @@ function pump(): void {
   if (pending.length === 0) return;
   const onIdle = () => {
     idleHandle = null;
-    const sinceInput = Date.now() - lastInputAt;
-    if (sinceInput < INPUT_QUIET_MS) {
+    const quietIn = inputQuietRemainingMs();
+    if (quietIn > 0) {
       gapHandle = host.setTimeout(() => {
         gapHandle = null;
         pump();
-      }, INPUT_QUIET_MS - sinceInput);
+      }, quietIn);
       return;
     }
     const task = nextTask();
@@ -199,6 +243,7 @@ export function _resetBootWarmupForTest(nextHost?: IdleHost): void {
   idleHandle = null;
   gapHandle = null;
   lastInputAt = 0;
+  dragScrolling = false;
   if (nextHost) host = nextHost;
 }
 

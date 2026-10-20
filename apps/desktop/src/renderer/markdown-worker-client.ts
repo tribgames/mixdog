@@ -7,12 +7,18 @@ import {
   MARKDOWN_AST_CACHE_MAX_CHARACTERS as AST_CACHE_MAX_CHARACTERS,
 } from './markdown-ast-weight';
 
-const AST_CACHE_MAX_ENTRIES = 64;
+// Sized for a scrolled transcript, not one screen: a highlighted reply's AST
+// weighs tens of thousands of chars, so the old 1M/64 bound held barely the
+// mounted rows plus overscan, and every row scrolled out and back re-parsed
+// (~18 ms per row on a 4x-throttled phone). One entry stays capped at the
+// per-AST weight limit; the shared renderer budget still trims this cache.
+const AST_CACHE_MAX_ENTRIES = 512;
+const AST_CACHE_TOTAL_CHARACTERS = 8 * AST_CACHE_MAX_CHARACTERS;
 const AST_CACHE_MAX_ENTRY_CHARACTERS = 128 * 1024;
 const astCache = new RendererLruCache<string, MarkdownAstRoot>({
   name: 'markdown-ast',
   maxEntries: AST_CACHE_MAX_ENTRIES,
-  maxChars: AST_CACHE_MAX_CHARACTERS,
+  maxChars: AST_CACHE_TOTAL_CHARACTERS,
   measure: markdownAstCacheChars,
 });
 const workerHost = new MarkdownWorkerHost();
@@ -116,17 +122,25 @@ export function parseSettledMarkdownAstNow(text: string, maxUtf16Units: number):
   return root;
 }
 
-export function parseStreamingMarkdownAst(text: string): Promise<MarkdownAstRoot> {
+/** `remember: false` is for a live tail: each snapshot is a transient prefix
+ *  that would otherwise evict settled history ASTs from the cache. */
+export function parseStreamingMarkdownAst(text: string, remember = true): Promise<MarkdownAstRoot> {
   const value = String(text ?? '');
   const cached = readCachedStreamingMarkdownAst(value);
   if (cached) return Promise.resolve(cached);
   const pending = inFlight.get(value);
-  if (pending) return pending;
+  if (pending) {
+    if (!remember) return pending;
+    return pending.then((root) => {
+      rememberStreamingMarkdownAst(value, root);
+      return root;
+    });
+  }
   const request = workerHost
     .parse(value)
     .catch(() => parseMarkdownOnRenderer(value))
     .then((root) => {
-      rememberStreamingMarkdownAst(value, root);
+      if (remember) rememberStreamingMarkdownAst(value, root);
       return root;
     })
     .finally(() => {
@@ -134,6 +148,41 @@ export function parseStreamingMarkdownAst(text: string): Promise<MarkdownAstRoot
     });
   inFlight.set(value, request);
   return request;
+}
+
+export function parseLiveMarkdownAst(text: string): Promise<MarkdownAstRoot> {
+  return parseStreamingMarkdownAst(text, false);
+}
+
+/** Speculative worker parses in flight at once; the newest range replaces
+ *  whatever has not been sent yet, so a fast fling never queues stale rows
+ *  ahead of the ones the reader is about to see. */
+const PREFETCH_CONCURRENCY = 2;
+let prefetchQueue: string[] = [];
+let prefetchRunning = 0;
+
+function pumpMarkdownPrefetch(): void {
+  while (prefetchRunning < PREFETCH_CONCURRENCY && prefetchQueue.length > 0 && workerHost.available) {
+    const text = prefetchQueue.shift() as string;
+    if (astCache.peek(text) || inFlight.has(text)) continue;
+    prefetchRunning += 1;
+    void parseStreamingMarkdownAst(text)
+      .catch(() => undefined)
+      .finally(() => {
+        prefetchRunning -= 1;
+        pumpMarkdownPrefetch();
+      });
+  }
+}
+
+/** Settled text about to scroll into view parses on the worker, so its row
+ *  mounts from the cache instead of parsing on the main thread in the commit
+ *  that shows it. Nearest text first. */
+export function prefetchMarkdownAsts(texts: readonly string[]): void {
+  prefetchQueue = texts.filter(
+    (text) => text.length > 0 && text.length <= AST_CACHE_MAX_ENTRY_CHARACTERS && !astCache.peek(text)
+  );
+  pumpMarkdownPrefetch();
 }
 
 interface QueuedMarkdownAstRequest {

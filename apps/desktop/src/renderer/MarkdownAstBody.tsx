@@ -1,8 +1,9 @@
-import { createElement, Fragment, memo, type ReactNode, useCallback, useMemo } from 'react';
+import { createElement, Fragment, memo, type ReactNode, useCallback, useContext, useMemo } from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
 
 import type { MarkdownAstRoot } from './markdown-ast';
+import { highlightMentions, MarkdownMentionNamesContext } from './markdown-mentions';
 import { markdownComponents, type MarkdownCopyControl } from './markdown-components';
 import { applyStreamFade, STREAM_FADE_BOX_TAGS, type StreamFadeTimeline } from './markdown-stream-fade';
 
@@ -63,9 +64,11 @@ export default memo(function MarkdownAstBody({
   /** This body's chunk within the reply. */
   fadeChunk?: string;
 }) {
+  const mentionNames = useContext(MarkdownMentionNamesContext);
+  const body = useMemo(() => (mentionNames ? highlightMentions(root, mentionNames) : root), [root, mentionNames]);
   const shown = useMemo(
-    () => (fadeTimeline ? applyStreamFade(root, fadeChunk, fadeTimeline, performance.now()) : null),
-    [root, fadeTimeline, fadeChunk]
+    () => (fadeTimeline ? applyStreamFade(body, fadeChunk, fadeTimeline, performance.now()) : null),
+    [body, fadeTimeline, fadeChunk]
   );
   const base = markdownComponents(copyControl);
   let components = base;
@@ -73,7 +76,7 @@ export default memo(function MarkdownAstBody({
     components = { ...base, ...fadeBoxes };
     for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
   }
-  return toJsxRuntime((shown?.root ?? root) as never, {
+  return toJsxRuntime((shown?.root ?? body) as never, {
     Fragment,
     jsx,
     jsxs,

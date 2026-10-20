@@ -5,6 +5,7 @@ import { useTranscriptHandles, useRememberVirtualMeasurements, useSelectionDrag 
 import { useDeferredResizes } from './transcript-list-deferred-resizes';
 import { useTranscriptEndPin } from './transcript-list-end-pin';
 import { logicalScrollOffset, type TranscriptVirtualizer } from './transcript-list-geometry';
+import { useMarkdownPrefetch } from './transcript-list-markdown-prefetch';
 import { useReadingAnchor } from './transcript-list-reading-anchor';
 import { useVirtualizerResizePatch } from './transcript-list-resize-patch';
 import { useMountedRowMeasurement } from './transcript-list-row-measure';
@@ -29,14 +30,15 @@ type TranscriptListProps = {
   /** The follow hook flips the anchor here the instant it decides, without
    *  waiting for the render that carries `shouldAnchorBottom`. */
   setAnchorBottomRef?: MutableRefObject<(bottom: boolean) => void>;
-  renderRow: (row: TranscriptRowModel) => ReactNode;
+  /** `index` and `rows` let a row read its neighbours (agent-mode bubble runs). */
+  renderRow: (row: TranscriptRowModel, index: number, rows: readonly TranscriptRowModel[]) => ReactNode;
   /** Every offset this list writes is reported to the follow hook, which
    *  would otherwise read the core's own scrolls as a reader gesture. */
   markProgrammaticScroll?: (top: number, intended?: number) => void;
   /** True from the first wheel/touch/drag intent through its inertial tail. */
   hasScrollGesture: () => boolean;
-  /** True while a touch scroll (finger down, then its fling) owns the
-   *  viewport: corrections are held off the native offset until it ends. */
+  /** True while a touch scroll (finger down, then its fling) or a wheel ramp
+   *  owns the viewport: corrections are held off the native offset until it ends. */
   hasTouchScroll?: () => boolean;
   /** Claims reader ownership before this list writes selection auto-scroll. */
   onSelectionAutoScroll(delta: number): void;
@@ -215,6 +217,7 @@ export function TranscriptList({
   const virtualRows = virtualizer.getVirtualItems();
   // The core's visible range (overscan excluded), current after the read above.
   const visible = virtualizer.range;
+  useMarkdownPrefetch(rows, visible?.startIndex ?? -1, visible?.endIndex ?? -1);
   return (
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel
@@ -239,7 +242,7 @@ function renderVirtualRow(
   virtualRow: VirtualItem,
   rows: readonly TranscriptRowModel[],
   measureRow: ReturnType<typeof useTranscriptRowRegistration>['measureRow'],
-  renderRow: (row: TranscriptRowModel) => ReactNode,
+  renderRow: TranscriptListProps['renderRow'],
   offscreen: boolean
 ) {
   const row = rows[virtualRow.index];
@@ -259,6 +262,11 @@ function renderVirtualRow(
   const bandLead = row._tag === 'Thinking' && leadsBand(previous);
   const stepBefore = !bandLead && row._tag !== 'TurnGap' && part(previous);
   const turnEnd = !part(row._tag) && (!next || next._tag === 'TurnGap');
+  // A turn's changed-files card closes its stack: a row after it in the same
+  // turn takes the turn gap, never the 8px part step (12-transcript.css).
+  const before = rows[virtualRow.index - 1];
+  const afterChanges =
+    stepBefore && (before?._tag === 'AssistantPart' || before?._tag === 'Error') && Boolean(before.turnChanges);
   return (
     // A row binds position AND measurement to one element.
     // Position and measurement therefore share the
@@ -288,10 +296,11 @@ function renderVirtualRow(
         data-turn-end={turnEnd ? 'true' : undefined}
         data-band-lead={bandLead ? 'true' : undefined}
         data-step-before={stepBefore ? 'true' : undefined}
+        data-after-changes={afterChanges ? 'true' : undefined}
       >
         {/* The live reply's pacer reads the same mark (use-paced-transcript-text). */}
         <TranscriptRowOffscreenContext.Provider value={offscreen}>
-          {renderRow(row)}
+          {renderRow(row, virtualRow.index, rows)}
         </TranscriptRowOffscreenContext.Provider>
       </div>
     </div>

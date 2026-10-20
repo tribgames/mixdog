@@ -44,6 +44,13 @@ import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-ski
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 import { stripInjectedDisplayText, stripSessionEnvelope } from '../shared/session-title.mjs';
+import { routineNoticeText } from './routine-notice';
+import { RoomAddressChip, RoomTranscriptRow } from './agent-room-transcript';
+import { HeldRequestCard } from './ApprovalCard';
+import { AgentTaskLine } from './agent-task-line';
+import { asRecord } from './text-format';
+
+export { routineNoticeText };
 
 // StreamingMarkdownBody already loads the same renderer in this module.
 // Wrapping history in React.lazy suspended even after preloading completed,
@@ -122,7 +129,13 @@ const MarkdownResponse = memo(function MarkdownResponse({
       </Suspense>
     );
   }
-  return <div className={`markdown ${streaming ? 'streaming' : ''}`}>{renderedChunks}</div>;
+  // `streamed`: this mount watched the reply arrive (22-markdown.css keeps its
+  // line breaks greedy, also once it settles).
+  return (
+    <div className={`markdown ${streaming ? 'streaming' : ''}${workerPipeline.current ? ' streamed' : ''}`}>
+      {renderedChunks}
+    </div>
+  );
 });
 
 export function transcriptItemsEqual(previous: TranscriptItem | undefined, next: TranscriptItem | undefined): boolean {
@@ -622,12 +635,20 @@ export const TranscriptRow = memo(
       return <CompletionStatus item={item} backgroundWork={backgroundWork} />;
     }
     if (item.kind === 'notice') {
+      if (item.room) return <RoomTranscriptRow item={item} />;
+      // A held request of an unattended run waits as an approval card.
+      const held = asRecord(item.heldRequest);
+      if (held?.status === 'pending') return <HeldRequestCard held={held} sessionId={sessionScope} />;
+      const task = asRecord(item.routine);
+      if (task?.kind === 'task') return <AgentTaskLine routine={task} />;
       const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
+      const routine = routineNoticeText(item.routine);
       return (
         <div className={`notice ${tone}`} role={item.tone === 'error' ? 'alert' : 'status'}>
-          {item.text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.'
-            ? t('The model refused to respond (safety refusal) — retry or rephrase your prompt.')
-            : item.text}
+          {routine ??
+            (item.text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.'
+              ? t('The model refused to respond (safety refusal) — retry or rephrase your prompt.')
+              : item.text)}
         </div>
       );
     }
@@ -683,6 +704,7 @@ export const TranscriptRow = memo(
           aria-busy={item.pending === true ? 'true' : undefined}
         >
           {sourceLabel && <small className="message-source">{sourceLabel}</small>}
+          {user && item.room?.to?.length ? <RoomAddressChip room={item.room} /> : null}
           {user &&
             (attachedImages.length > 0 ||
               markerChips.length > 0 ||

@@ -650,22 +650,58 @@ export const TranscriptRowOffscreenContext = createContext(false);
  *  range and nothing above it is hidden (`display: none`, a retained pane's
  *  `content-visibility: hidden`). Re-read after each commit while `watch`; a
  *  streaming row commits on every arrival, so a pane hidden or shown mid-reply
- *  is noticed by its next burst. No IntersectionObserver: while one exists,
- *  Chromium runs a main-thread frame on every vsync for as long as any
- *  compositor animation (the live spinner) runs in the window. */
+ *  is noticed right after its next burst paints. No IntersectionObserver:
+ *  while one exists, Chromium runs a main-thread frame on every vsync for as
+ *  long as any compositor animation (the live spinner) runs in the window.
+ *
+ *  checkVisibility() needs current style and layout. Read straight after the
+ *  commit, it forced a synchronous style + layout of the streaming reply on
+ *  every pacer frame (a quarter of the main thread during a long reply on a
+ *  4x-throttled CPU) before the frame's own layout. It is read after the next
+ *  frame has rendered instead, when that layout is already clean, and one
+ *  pending read covers every commit until then. */
 function useOnScreen(element: RefObject<Element | null> | undefined, watch: boolean): boolean {
   const offscreen = useContext(TranscriptRowOffscreenContext);
   const [shown, setShown] = useState(true);
   // The last value handed to setShown: an unchanged reading schedules nothing
   // (a same-value setState still cost the streaming row an extra commit).
   const shownRef = useRef(true);
-  useEffect(() => {
-    const node = element?.current;
-    const next = !watch || !node || typeof node.checkVisibility !== 'function' || node.checkVisibility();
+  const watchRef = useRef(watch);
+  watchRef.current = watch;
+  const pending = useRef<{ frame: number; timer: number } | null>(null);
+  const publish = useCallback((next: boolean) => {
     if (next === shownRef.current) return;
     shownRef.current = next;
     setShown(next);
+  }, []);
+  useEffect(() => {
+    const node = element?.current;
+    if (!watch || !node || typeof node.checkVisibility !== 'function') {
+      publish(true);
+      return;
+    }
+    if (pending.current) return;
+    const read = { frame: 0, timer: 0 };
+    pending.current = read;
+    read.frame = window.requestAnimationFrame(() => {
+      read.frame = 0;
+      // A task queued from the frame callback runs after that frame rendered.
+      read.timer = window.setTimeout(() => {
+        pending.current = null;
+        publish(!watchRef.current || !node.isConnected || node.checkVisibility());
+      }, 0);
+    });
   });
+  useEffect(
+    () => () => {
+      const read = pending.current;
+      if (!read) return;
+      if (read.frame) window.cancelAnimationFrame(read.frame);
+      if (read.timer) window.clearTimeout(read.timer);
+      pending.current = null;
+    },
+    []
+  );
   return !(watch && offscreen) && shown;
 }
 

@@ -2,10 +2,9 @@
 // visualize tab, a deleted or moved image, a browser page after a restart).
 // While the source shows a picture it is saved, downscaled, in the shared
 // IndexedDB preview store; once the source is gone the card shows that copy.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../shared/contract';
-import { verifyLocalLink } from './local-link-resolver';
 import {
   type ImagePreviewStore,
   makeImageThumbnail,
@@ -52,10 +51,19 @@ export async function rememberThumbnail(
 }
 
 /** `live` while the source has a picture (saving it); else the saved copy
- *  (instantly when this window already has it, otherwise once loaded). */
-export function usePersistedThumbnail(session: string, line: string, live: string | undefined): string | undefined {
+ *  (instantly when this window already has it, otherwise once loaded); else,
+ *  with `fetchMissing`, what it fetches (saved too). */
+export function usePersistedThumbnail(
+  session: string,
+  line: string,
+  live: string | undefined,
+  fetchMissing?: () => Promise<string | undefined>
+): string | undefined {
   const key = line ? previewKey(session, line) : '';
   const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
+  const fetcher = useRef(fetchMissing);
+  fetcher.current = fetchMissing;
+  const canFetch = Boolean(fetchMissing);
   useEffect(() => {
     if (!key) return;
     if (live) {
@@ -65,14 +73,20 @@ export function usePersistedThumbnail(session: string, line: string, live: strin
     let active = true;
     void persistentImagePreviews
       .get(key)
+      .catch(() => undefined)
+      .then(async (stored) => {
+        if (stored || !canFetch || !active) return stored;
+        const fetched = await fetcher.current?.().catch(() => undefined);
+        if (fetched) void rememberThumbnail(key, session, fetched);
+        return fetched;
+      })
       .then((url) => {
         if (active && url) setLoaded({ key, url });
-      })
-      .catch(() => undefined);
+      });
     return () => {
       active = false;
     };
-  }, [key, session, live]);
+  }, [key, session, live, canFetch]);
   if (live) return live;
   if (!key) return undefined;
   return persistentImagePreviews.peek(key) ?? (loaded?.key === key ? loaded.url : undefined);
@@ -128,25 +142,4 @@ export function fileSnapshot(
     },
     () => undefined
   );
-}
-
-/** `fileSnapshot` of a card's first file target while `enabled` (no live or
- *  saved picture yet). Undefined while pending or when none could be made. */
-export function useFileSnapshot(session: string, project: string, path: string, enabled: boolean): string | undefined {
-  const [result, setResult] = useState<{ id: string; url: string } | null>(null);
-  const id = `${session}\0${project}\0${path}`;
-  useEffect(() => {
-    if (!enabled || !path || !SNAPSHOT_FILE.test(path)) return;
-    let active = true;
-    verifyLocalLink(project, path, session || undefined)
-      .then((target) => (target.directory ? undefined : fileSnapshot(session, target)))
-      .then((url) => {
-        if (active && url) setResult({ id, url });
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [enabled, id, project, path, session]);
-  return enabled && result?.id === id ? result.url : undefined;
 }

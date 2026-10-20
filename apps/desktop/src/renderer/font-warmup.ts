@@ -15,6 +15,7 @@
 // or slow connection, where the dynamic subset's on-demand behavior is the
 // better trade. The service worker keeps the fetched slices, so a phone pays
 // for this once rather than on every visit.
+import { inputQuietRemainingMs } from './boot-warmup';
 import { connectionQuality, isRemoteSurface } from './network-conditions';
 import { resolveUiLanguage } from './i18n';
 
@@ -41,10 +42,22 @@ export function scheduleFontWarmup(): void {
     if (!document.fonts || typeof document.fonts.forEach !== 'function') return;
     const remote = isRemoteSurface();
     if (remote && connectionQuality() !== 'normal') return;
-    const idle: (callback: () => void) => unknown =
+    const idleSlice: (callback: () => void) => unknown =
       typeof window.requestIdleCallback === 'function'
         ? (callback) => window.requestIdleCallback(callback, { timeout: 2_000 })
         : (callback) => window.setTimeout(callback, 250);
+    // Every face that finishes loading re-lays out all text of its family, one
+    // full layout per face (~90 Hangul slices), costing more the more rows are
+    // mounted. On a phone that warmup landed in the first seconds of scrolling
+    // the transcript or the sessions drawer, so batches wait, like the boot
+    // lane, until scrolling and typing pause.
+    const idle = (callback: () => void): void => {
+      idleSlice(() => {
+        const wait = inputQuietRemainingMs();
+        if (wait > 0) window.setTimeout(() => idle(callback), wait);
+        else callback();
+      });
+    };
     // Hangul is 2.8MB of the 3.4MB font inventory. A remote surface whose UI
     // is not Korean warms the rest and leaves those slices to the dynamic
     // subset's own on-demand loading — the behaviour they would have had

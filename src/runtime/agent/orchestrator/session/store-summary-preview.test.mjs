@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  cleanSessionPreview,
-  isSessionPreviewNoise,
-  sessionMessageText,
-} from '../runtime-core/session-text.mjs';
+import { cleanSessionPreview, isSessionPreviewNoise, sessionMessageText } from '../runtime-core/session-text.mjs';
 import { _normalizeSummaryIndex, _sessionSummary } from './store-summary-index.mjs';
+import { normalizedRow } from './store-summary-catalog.mjs';
+import { listLeadSessions } from '../../../../session-runtime/lifecycle/session-catalog.mjs';
 
 // The pre-memo implementation, verbatim: every summary is compared against it.
 function referenceCleanPreview(text, max = 240) {
@@ -85,6 +83,58 @@ test('an in-place scrub of the preview message still changes the preview', () =>
   assert.equal(_sessionSummary(session).preview, 'mutated part prompt');
   session.messages[2].content = '[mixdog-runtime] now synthetic';
   assert.deepEqual(project(_sessionSummary(session)), referenceProjection(session));
+});
+
+test('the last-message preview follows the newest user or assistant line', () => {
+  const session = sessionFor('First prompt', 7);
+  assert.equal(_sessionSummary(session).preview, 'First prompt');
+  assert.equal(_sessionSummary(session).lastMessagePreview, 'answer');
+  // Append-only growth: the newest message wins, the first prompt stays the preview.
+  session.messages = [...session.messages, { role: 'user', content: 'Second\n  question   here' }];
+  assert.equal(_sessionSummary(session).lastMessagePreview, 'Second question here');
+  assert.equal(_sessionSummary(session).preview, 'First prompt');
+  // Tool-only, synthetic and system rows keep the previous line.
+  session.messages = [
+    ...session.messages,
+    { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read', input: {} }] },
+    { role: 'user', content: '[mixdog-runtime] synthetic control row' },
+    { role: 'system', content: 'note' },
+  ];
+  assert.equal(_sessionSummary(session).lastMessagePreview, 'Second question here');
+  // A streamed reply is appended empty and filled in place.
+  const streamed = { role: 'assistant', content: '' };
+  session.messages = [...session.messages, streamed];
+  assert.equal(_sessionSummary(session).lastMessagePreview, 'Second question here');
+  streamed.content = 'Streamed answer';
+  assert.equal(_sessionSummary(session).lastMessagePreview, 'Streamed answer');
+  // A long reply is trimmed to one bounded line.
+  session.messages = [...session.messages, { role: 'assistant', content: `Done.\n${'word '.repeat(100)}` }];
+  const last = _sessionSummary(session).lastMessagePreview;
+  assert.ok(last.startsWith('Done. word'));
+  assert.ok(last.length <= 160 && !last.includes('\n'));
+  // A rewrite (compaction replacing the array) recomputes from scratch.
+  session.messages = [{ role: 'user', content: 'compacted summary prompt' }];
+  assert.equal(_sessionSummary(session).lastMessagePreview, 'compacted summary prompt');
+  // A stored row keeps the field through normalization.
+  const row = _normalizeSummaryIndex({ rows: [{ id: 's', updatedAt: 1, lastMessagePreview: ' hi \n there ' }] })
+    .rows[0];
+  assert.equal(row.lastMessagePreview, 'hi there');
+});
+
+test('the last-message line survives every summary projection into the session catalog', () => {
+  const summary = _sessionSummary({
+    id: 'sess_home_lead',
+    updatedAt: 1,
+    messages: [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'Hi there' },
+    ],
+  });
+  assert.equal(_normalizeSummaryIndex({ rows: [summary] }).rows[0].lastMessagePreview, 'Hi there');
+  assert.equal(normalizedRow(summary).lastMessagePreview, 'Hi there');
+  const [lead] = listLeadSessions({ listSessions: () => [summary] });
+  assert.equal(lead.lastMessagePreview, 'Hi there');
+  assert.equal(lead.preview, 'hello');
 });
 
 test('re-normalizing stored rows is identical to the unmemoized cleaning', () => {

@@ -3,8 +3,8 @@
 // monotonic clock the owner heartbeat uses (performance.now), completed spans
 // over `minMs` land in a bounded ring, and spans over `slowMs` are logged as
 // `[slow-op] <label> <ms>`. When the event loop stalls, `describe(from, to)`
-// names the spans that overlapped the stall window. Spans carry labels and phase
-// durations only — never payloads.
+// names the spans that overlapped the stall window. Spans carry labels and
+// phase durations only — never payloads.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';

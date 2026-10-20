@@ -101,7 +101,7 @@ export function useSidebarListScroll({
   // that is what keeps tab switches cheap on large session catalogs.
   const recentScrollerRef = useRef<HTMLDivElement | null>(null);
   const recentSentinelRef = useRef<HTMLDivElement | null>(null);
-  const recentScrollAnchorRef = useRef<{ sessionId: string; offset: number } | null>(null);
+  const recentScrollAnchorRef = useRef<{ sessionId: string; offset: number; scrollTop: number } | null>(null);
   const recentRowIdsRef = useRef<string[]>([]);
   const hasMoreRecentRows = visibleRecentRowCount < rows.length;
   const archivedSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -134,6 +134,7 @@ export function useSidebarListScroll({
     recentScrollAnchorRef.current = {
       sessionId,
       offset: visible.getBoundingClientRect().top - scrollerRect.top,
+      scrollTop: scroller.scrollTop,
     };
   }, []);
   const revealWhenSentinelNear = useSessionListPaging(
@@ -176,7 +177,18 @@ export function useSidebarListScroll({
         (candidate) => candidate.dataset.sessionId === anchor.sessionId
       );
       if (row) {
-        const delta = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.offset;
+        // The anchor dates from the last scroll event, and a commit can land
+        // after the reader's scroll moved the list but before that move's
+        // scroll event (WebKit applies an async/momentum scroll position, then
+        // reports it at its next rendering update). That move is the reader's
+        // own: the row stays where it carried it, or the list snapped back to
+        // the previous event's position on every live catalog update. Only a
+        // clamp (content shrank under a list at its end) lowers scrollTop
+        // without the reader; that keeps the captured position.
+        const moved = scroller.scrollTop - anchor.scrollTop;
+        const clamped = moved < 0 && scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 1;
+        const expectedOffset = anchor.offset - (clamped ? 0 : moved);
+        const delta = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - expectedOffset;
         if (Number.isFinite(delta) && Math.abs(delta) > 0.5) {
           scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
         }

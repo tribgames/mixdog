@@ -70,6 +70,9 @@ interface TranscriptFollow {
   hasScrollGesture(): boolean;
   /** A touch drag that moved the transcript, from finger down through its fling. */
   hasTouchScroll(): boolean;
+  /** A touch scroll, or a wheel scroll through its native ramp: the list holds
+   *  measured-size corrections off scrollTop until it ends. */
+  holdsScrollCorrections(): boolean;
   handleScroll(): void;
   handleWheel(event: WheelLike): void;
   handlePointerDown(event: PointerLike): void;
@@ -149,6 +152,9 @@ export function useTranscriptFollow({
   const followingRef = useRef(true);
   const gestureAt = useRef(0);
   const readerMotionAt = useRef(0);
+  // A wheel that reached the transcript, and the last scroll of its ramp.
+  const wheelAt = useRef(0);
+  const wheelMotionAt = useRef(0);
   const touchGesture = useRef<number | undefined>(undefined);
   // Touch scroll ownership: armed by a drag that actually moves the transcript,
   // held for as long as the finger is down, and closed by scrollend (or the
@@ -234,6 +240,7 @@ export function useTranscriptFollow({
   const clearReaderGesture = useCallback(() => {
     gestureAt.current = 0;
     readerMotionAt.current = 0;
+    wheelAt.current = 0;
     touchGesture.current = undefined;
     touchLatched.current = false;
     touchDown.current = false;
@@ -276,9 +283,23 @@ export function useTranscriptFollow({
   }, [cancelJumpPin, clearReaderGesture, sessionKey, viewport]);
 
   const hasGesture = useCallback(() => Date.now() - gestureAt.current < GESTURE_WINDOW_MS, []);
-  const markReaderMotion = useCallback(() => {
-    readerMotionAt.current = Date.now();
+  // A scrollTop write while Chromium animates a wheel scroll cancels the
+  // animation: every row measured into view while scrolling up (its estimate
+  // corrected) cut the wheel's ramp short, and the transcript caught on each
+  // one (휠 스크롤이 턱턱 걸림). Like a touch fling, the ramp holds those
+  // corrections as a row offset until its scroll events go quiet.
+  const wheelScrolling = useCallback(() => {
+    const wheel = wheelAt.current;
+    if (!wheel) return false;
+    if (Date.now() - Math.max(wheel, wheelMotionAt.current) < GESTURE_WINDOW_MS) return true;
+    wheelAt.current = 0;
+    return false;
   }, []);
+  const markReaderMotion = useCallback(() => {
+    const now = Date.now();
+    readerMotionAt.current = now;
+    if (wheelScrolling()) wheelMotionAt.current = now;
+  }, [wheelScrolling]);
   const hasTouchScroll = useCallback(
     () =>
       touchScrollLatchOpen({
@@ -302,6 +323,10 @@ export function useTranscriptFollow({
       fingerOnGlass() ||
       Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
     [fingerOnGlass, hasGesture, hasTouchScroll]
+  );
+  const holdsScrollCorrections = useCallback(
+    () => hasTouchScroll() || wheelScrolling(),
+    [hasTouchScroll, wheelScrolling]
   );
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
     const time = Date.now();
@@ -478,6 +503,8 @@ export function useTranscriptFollow({
       const transcriptReached = target === root || boundaryGestureReached(target, delta);
       if (!transcriptReached) return;
       markGesture();
+      wheelAt.current = Date.now();
+      wheelMotionAt.current = 0;
       // Wheel rule: an upward wheel is explicit intent
       // and releases immediately, however small it is. Re-attaching is the side
       // that carries the slack (reattachBand).
@@ -810,6 +837,7 @@ export function useTranscriptFollow({
     showJump,
     hasScrollGesture: hasReaderScroll,
     hasTouchScroll,
+    holdsScrollCorrections,
     handleScroll,
     handleWheel,
     handlePointerDown,

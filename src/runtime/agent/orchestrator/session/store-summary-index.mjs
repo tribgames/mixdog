@@ -16,8 +16,9 @@ import {
   writeJsonAtomicSync,
 } from '../../../shared/atomic-file.mjs';
 import { applySummaryLogText, encodeSummaryOps, summaryLogPath } from './store-summary-log.mjs';
-import { cleanSessionPreview, isSessionPreviewNoise, sessionMessageText } from '../runtime-core/session-text.mjs';
+import { isSessionPreviewNoise, sessionMessageText } from '../runtime-core/session-text.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
+import { sessionModeOf } from './agent-mode.mjs';
 import {
   importKey,
   inheritedFromSessionId,
@@ -27,6 +28,8 @@ import {
   workspaceSummary,
 } from './store-summary-fields.mjs';
 import { isRealTurnMessage } from './compact/user-message-kind.mjs';
+import { isRoutineResultMessage, normalizeRoutineProvenance, routineProvenance } from './routine-result.mjs';
+import { LAST_MESSAGE_PREVIEW_MAX, cleanSummaryPreview, lastMessageRawText } from './store-summary-last-message.mjs';
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
@@ -37,15 +40,7 @@ export function summaryIndexPath() {
   return join(getPluginData(), 'session-summaries.json');
 }
 
-function _computeCleanPreview(text, max) {
-  const value = cleanSessionPreview(text, max);
-  return value.length > max
-    ? value
-        .slice(0, max)
-        .replace(/\s+\S*$/, '')
-        .trim()
-    : value;
-}
+const _computeCleanPreview = cleanSummaryPreview;
 
 // Every index flush re-normalizes EVERY row's stored title and preview, and
 // cleaning runs a chain of regex replaces that each allocate a copy. Those
@@ -79,13 +74,32 @@ const sessionMessageProjectionMemo = new WeakMap();
 // re-cleaned.
 const messagePreviewMemo = new WeakMap();
 
+// Routine results (a schedule's output in its owner's home thread) follow ONE
+// rule here: each is exactly one message of `messageCount` (so a thread's
+// unread count, messageCount minus the read cursor, rises by one per result),
+// never a real turn (`realTurnCount`), never the first-prompt `preview` the
+// title falls back to, and shown as its notice line in `lastMessagePreview`.
 function _previewFromMessage(message) {
-  if (message?.role !== 'user') return '';
+  if (message?.role !== 'user' || isRoutineResultMessage(message)) return '';
   const raw = sessionMessageText(message.content);
   const memo = messagePreviewMemo.get(message);
   if (memo && memo.raw === raw) return memo.preview;
   const preview = isSessionPreviewNoise(raw) ? '' : _cleanPreview(raw);
   messagePreviewMemo.set(message, { raw, preview });
+  return preview;
+}
+
+// message → { raw, preview } for the LAST conversational message, user or
+// assistant alike (a messenger row's last-message line).
+const lastMessagePreviewMemo = new WeakMap();
+
+function _lastPreviewFromMessage(message) {
+  const raw = lastMessageRawText(message);
+  if (raw === null) return '';
+  const memo = lastMessagePreviewMemo.get(message);
+  if (memo && memo.raw === raw) return memo.preview;
+  const preview = isSessionPreviewNoise(raw) ? '' : _cleanPreview(raw, LAST_MESSAGE_PREVIEW_MAX);
+  lastMessagePreviewMemo.set(message, { raw, preview });
   return preview;
 }
 
@@ -134,6 +148,17 @@ function _sessionMessageProjection(session) {
       }
     }
   }
+  // The newest line, read back from the tail every time: a streamed reply
+  // fills its message in place. Tool-only and synthetic rows are skipped, and
+  // each message's text is memoized, so this stays a few lookups per save.
+  // The line's routine provenance rides along, so a client labels a routine
+  // result by this marker and never by the line's wording.
+  let last = '';
+  let lastRoutine = null;
+  for (let index = messages.length - 1; index >= 0 && !last; index -= 1) {
+    last = _lastPreviewFromMessage(messages[index]);
+    if (last) lastRoutine = routineProvenance(messages[index]);
+  }
   if (session && typeof session === 'object') {
     sessionMessageProjectionMemo.set(session, {
       length: messages.length,
@@ -144,7 +169,7 @@ function _sessionMessageProjection(session) {
       previewMessage,
     });
   }
-  return { count, real, preview };
+  return { count, real, preview, last, lastRoutine };
 }
 
 function _desktopSessionSummary(value, cwd = null) {
@@ -178,6 +203,8 @@ export function _sessionSummary(session) {
     status: String(session.status || (session.closed === true ? 'closed' : 'idle')),
     owner: session.owner || 'user',
     agent: session.agent || null,
+    // 'agent' | 'coding' (agent-mode.mjs); older records resolve it.
+    sessionMode: sessionModeOf(session),
     sourceType: session.sourceType || null,
     sourceName: session.sourceName || null,
     scopeKey: session.scopeKey || null,
@@ -209,6 +236,8 @@ export function _sessionSummary(session) {
     realTurnCount: messageProjection.real,
     title: _cleanPreview(session.title || '', 100),
     preview: messageProjection.preview,
+    lastMessagePreview: messageProjection.last,
+    lastMessageRoutine: messageProjection.lastRoutine,
     generation: typeof session.generation === 'number' ? session.generation : 0,
     storageMtimeMs: _positiveNumber(session.storageMtimeMs, 0),
     storageSize: _positiveNumber(session.storageSize, 0),
@@ -234,6 +263,7 @@ function _normalizeSummaryRow(row) {
     status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
     owner: row.owner || 'user',
     agent: row.agent || null,
+    sessionMode: sessionModeOf(row),
     sourceType: row.sourceType || null,
     sourceName: row.sourceName || null,
     scopeKey: row.scopeKey || null,
@@ -264,6 +294,8 @@ function _normalizeSummaryRow(row) {
     realTurnCount: realTurnCount(row),
     title: _cleanPreview(row.title || '', 100),
     preview: _cleanPreview(row.preview || ''),
+    lastMessagePreview: _cleanPreview(row.lastMessagePreview || '', 160),
+    lastMessageRoutine: normalizeRoutineProvenance(row.lastMessageRoutine),
     generation: typeof row.generation === 'number' ? row.generation : 0,
     storageMtimeMs: _positiveNumber(row.storageMtimeMs, 0),
     storageSize: _positiveNumber(row.storageSize, 0),

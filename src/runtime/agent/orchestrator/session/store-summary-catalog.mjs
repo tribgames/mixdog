@@ -21,6 +21,8 @@ import { readStrictRecordFields } from './store-record-strict-scan.mjs';
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
 import { applySummaryLogText, summaryLogPath } from './store-summary-log.mjs';
 import { dataDir } from './store-summary-locations.mjs';
+import { normalizeRoutineProvenance } from './routine-result.mjs';
+import { lastMessageLine, lastMessageSummary } from './store-summary-last-message.mjs';
 import {
   desktopSession,
   importKey,
@@ -31,6 +33,7 @@ import {
   workspaceSummary,
 } from './store-summary-fields.mjs';
 import { isRealTurnMessage } from './compact/user-message-kind.mjs';
+import { sessionModeOf } from './agent-mode.mjs';
 import { byActivityThenId } from './catalog-db/schema.mjs';
 import {
   sessionStampOf,
@@ -191,6 +194,7 @@ export function normalizedRow(row) {
     status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
     owner: row.owner || 'user',
     agent: row.agent || null,
+    sessionMode: sessionModeOf(row),
     sourceType: row.sourceType || null,
     sourceName: row.sourceName || null,
     scopeKey: row.scopeKey || null,
@@ -210,6 +214,10 @@ export function normalizedRow(row) {
     realTurnCount: realTurnCount(row),
     title: cleanText(row.title, 100),
     preview: cleanText(row.preview),
+    lastMessagePreview: cleanText(row.lastMessagePreview),
+    // Null for any line that is not a routine result, and on rows written
+    // before the marker existed (they show their plain text).
+    lastMessageRoutine: normalizeRoutineProvenance(row.lastMessageRoutine),
     generation: typeof row.generation === 'number' ? row.generation : 0,
     storageMtimeMs: positiveNumber(row.storageMtimeMs, 0),
     storageSize: positiveNumber(row.storageSize, 0),
@@ -224,8 +232,9 @@ function leadRows(rows) {
 }
 
 // What a row derivation decodes of a record (store-record-strict-scan.mjs):
-// rowFromSession reads its user messages whole and only the role of the rest,
-// and never these top-level fields — together ~10% of a record, mostly tool
+// rowFromSession reads its user messages whole, the newest messages back to
+// the one with a last-message line whole too, only the role of the rest, and
+// never these top-level fields — together ~10% of a record, mostly tool
 // catalogs. Every other top-level field is decoded, so a field a row starts
 // to read is there without touching this list.
 const CATALOG_RECORD_READ = {
@@ -239,6 +248,7 @@ const CATALOG_RECORD_READ = {
     'pendingDeferredToolDelta',
   ]),
   fullMessageRoles: new Set(['user']),
+  fullTailUntil: (message) => Boolean(lastMessageLine(message)),
 };
 
 function rowFromSession(session) {
@@ -256,11 +266,15 @@ function rowFromSession(session) {
       )
       .map((message) => cleanText(messageText(message.content)))
       .find(Boolean) || '';
+  // The last-message line comes from the transcript like the summary index
+  // derives it; without it a session saved after the index was written lost
+  // its contact-row preview whenever its row came from this file read.
   return normalizedRow({
     ...session,
     messageCount: messages.filter((message) => message?.role === 'user' || message?.role === 'assistant').length,
     realTurnCount: messages.filter(isRealTurnMessage).length,
     preview,
+    ...lastMessageSummary(messages),
   });
 }
 

@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { ENTRY_CHROME_MAX_MS, ENTRY_REVEAL_MAX_MS, useTranscriptReveal } from './use-transcript-reveal';
 
-function mount(t) {
+function mount(t, { eager = false } = {}) {
   let now = 0;
   let frameId = 0;
   const frames = new Map();
@@ -41,6 +41,7 @@ function mount(t) {
       content,
       scope,
       hasScrollGesture,
+      eager,
     });
     return null;
   }
@@ -155,6 +156,27 @@ test('the chrome bound counts total wait, not time since the last pending frame'
   entry.tick(ENTRY_CHROME_MAX_MS);
   entry.tick(ENTRY_CHROME_MAX_MS + 16);
   assert.equal(entry.revealed(), true);
+});
+
+test('a phone entry reveals its rows in the commit, without waiting on dock chrome or a stable frame', async (t) => {
+  const entry = mount(t, { eager: true });
+  assert.ok(document.querySelector('[data-entry-pending]'), 'the dock chrome is still undecided');
+  await act(async () => {});
+  assert.equal(entry.revealed(), true, 'the latest messages paint in the frame they arrive');
+});
+
+test('a phone entry still holds a row whose Markdown body has not rendered', async (t) => {
+  const entry = mount(t, { eager: true });
+  const suspended = document.createElement('div');
+  suspended.setAttribute('data-transcript-pending', '');
+  document.getElementById('content').append(suspended);
+  entry.visit('next');
+  await act(async () => {});
+  entry.tick(16);
+  assert.equal(entry.revealed(), false, 'an empty row would grow under the reader a frame later');
+  suspended.remove();
+  entry.tick(32);
+  assert.equal(entry.revealed(), true, 'revealed in the first frame its rows hold content');
 });
 
 test('row settling still has a bounded wait after dock readiness', (t) => {

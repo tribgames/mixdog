@@ -187,14 +187,78 @@ test('a live row under a hidden pane shows what it received; shown again its gro
     await render({ item: live, paceKey: 's:h2', pace: true });
     await act(async () => sleep(600));
     paneShown = false;
-    // The burst that lands while hidden re-reads the pane after its commit.
+    // The burst that lands while hidden re-reads the pane once its frame rendered.
     await render({ item: { ...live, text: 'Answer more' }, paceKey: 's:h2', pace: true });
+    await act(async () => sleep(50));
     await render({ item: { ...live, text: `Answer more ${LONG}` }, paceKey: 's:h2', pace: true });
     assert.ok(host.textContent.includes(LONG.trim()), 'shown whole while hidden');
     paneShown = true;
     await render({ item: { ...live, text: `Answer more ${LONG}.` }, paceKey: 's:h2', pace: true });
+    await act(async () => sleep(50));
     await render({ item: { ...live, text: `Answer more ${LONG}.${LONG}` }, paceKey: 's:h2', pace: true });
     assert.ok(!host.textContent.includes(`${LONG}.${LONG}`.trim()), 'paced once shown');
+    await act(async () => root.unmount());
+  } finally {
+    delete Element.prototype.checkVisibility;
+  }
+});
+
+test('a streaming burst reads pane visibility after its frame, never inside its commit', async (t) => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  // Each read stands for a forced style + layout of the live reply.
+  let reads = 0;
+  const Element = document.defaultView.Element;
+  Element.prototype.checkVisibility = () => {
+    reads += 1;
+    return true;
+  };
+  // Manual frames and post-frame tasks: nothing runs between the commits of a
+  // burst unless the test runs it, whatever the runner's load.
+  const frames = new Map();
+  const tasks = [];
+  let handle = 0;
+  let inFrame = false;
+  const realSetTimeout = window.setTimeout;
+  t.mock.method(window, 'requestAnimationFrame', (callback) => {
+    handle += 1;
+    frames.set(handle, callback);
+    return handle;
+  });
+  t.mock.method(window, 'cancelAnimationFrame', (id) => frames.delete(id));
+  // Only the tasks a frame callback queues are held; every other timer is real.
+  t.mock.method(window, 'setTimeout', (callback, ms, ...args) => {
+    if (!inFrame) return realSetTimeout.call(window, callback, ms, ...args);
+    tasks.push(callback);
+    handle += 1;
+    return handle;
+  });
+  /** Run the frames due, then the tasks those frames queued. */
+  const renderFrame = () =>
+    act(async () => {
+      const due = [...frames.values()];
+      frames.clear();
+      inFrame = true;
+      try {
+        for (const callback of due) callback(performance.now());
+      } finally {
+        inFrame = false;
+      }
+      for (const task of tasks.splice(0)) task();
+    });
+  try {
+    const render = (props) => act(async () => root.render(React.createElement(TranscriptRow, props)));
+    const live = { id: 'v1', kind: 'assistant', text: 'Answer', streaming: true, phase: 'final_answer' };
+    await render({ item: live, paceKey: 's:v1', pace: true });
+    await renderFrame();
+    reads = 0;
+    await render({ item: { ...live, text: 'Answer one' }, paceKey: 's:v1', pace: true });
+    await render({ item: { ...live, text: 'Answer one two' }, paceKey: 's:v1', pace: true });
+    assert.equal(reads, 0, 'no visibility read in the commits of a burst');
+    assert.ok(frames.size > 0, 'the read waits on a frame');
+    await renderFrame();
+    assert.equal(reads, 1, 'one read covers the burst once its frame rendered');
     await act(async () => root.unmount());
   } finally {
     delete Element.prototype.checkVisibility;

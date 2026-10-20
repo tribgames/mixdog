@@ -503,8 +503,9 @@ interface WorkbenchSidePanelProps {
   renderView(id: WorkbenchSideViewId, active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
   /** Hidden views keep their last render until shown; a change of this key
    *  renders them once more while hidden (a pane dock whose body mounts for
-   *  prewarm). */
-  hiddenKey?: string;
+   *  prewarm). A function keys each view on its own, so only the views it
+   *  changed for render again. */
+  hiddenKey?: string | ((id: WorkbenchSideViewId) => string);
   /** Pinned under the shown destination, the same for every view. */
   footer?: ReactNode;
 }
@@ -810,7 +811,7 @@ export function WorkbenchSidePanel({
                       sectioned={group.length > 1}
                       order={index * 2}
                       basis={sizes[index] ?? 100 / group.length}
-                      hiddenKey={hiddenKey}
+                      hiddenKey={typeof hiddenKey === 'function' ? hiddenKey(id) : hiddenKey}
                     >
                       {(active, titleDragProps) => renderView(id, active, titleDragProps)}
                     </WorkbenchSideSection>

@@ -58,8 +58,9 @@ type SidebarModuleTracker = ShellPanels['trackSidebarPanelModule'];
 type WarmupWorkspace = Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'focusedLeafId'>;
 
 /** A phone keeps the panels it does not show at start (Settings and the rail
- *  panels: Workflows, Extensions, Schedules, Webhooks, Projects) cold until
- *  they open: their hidden mounts are capability reads queued on the relay
+ *  panels: Workflows, Extensions, Schedules, Webhooks, Projects) cold while
+ *  its first screen loads — the rail panels until the first touch, Settings
+ *  until it opens: their hidden mounts are capability reads queued on the relay
  *  link and main-thread work on a slow CPU, for surfaces most opens never
  *  visit. Desktop windows keep warming them. */
 function hiddenPanelsStayCold(): boolean {
@@ -105,16 +106,23 @@ function phoneSheetPaneWarmups(): Array<() => void> {
   // Fetching and evaluating five chunks right after the first paint doubled
   // the blocking time of a cold open, so the lane takes them only once the
   // user touches the page, or after a long idle.
-  let cancels: Array<() => void> = [];
-  const queue = () => {
-    release();
-    cancels = panes.map(([name, load], index) =>
+  return afterFirstPhoneTouch(() =>
+    panes.map(([name, load], index) =>
       scheduleBootWarmup({
         id: `module:phone-sheet:${name}`,
         priority: BOOT_WARMUP.phoneSheetPane + index,
         run: () => load().catch(() => {}),
       })
-    );
+    )
+  );
+}
+
+/** Queue phone warm-ups on the first touch (or key), or after a long idle. */
+function afterFirstPhoneTouch(schedule: () => Array<() => void>): Array<() => void> {
+  let cancels: Array<() => void> = [];
+  const queue = () => {
+    release();
+    cancels = schedule();
   };
   const events = ['pointerdown', 'keydown'] as const;
   const timer = window.setTimeout(queue, PHONE_SHEET_PANE_IDLE_MS);
@@ -481,21 +489,31 @@ export function useAppWorkspaceWarmup({
         })
       );
     }
-    const panels: SidebarPanelKey[] = hiddenPanelsStayCold() ? [] : ['schedules', 'webhooks', 'projects', 'extensions'];
-    panels.forEach((panel, index) => {
-      if (!desktopSidebarDestinationEnabled(panel)) return;
-      cancels.push(
-        scheduleBootWarmup({
-          id: `mount:sidebar:${panel}`,
-          priority: BOOT_WARMUP.sidebarPanel + index,
-          run: () => {
-            const module = loadSidebarPanelModule[panel]();
-            trackSidebarPanelModule(panel, module);
-            return module.then(() => mountSidebarPanel(panel)).catch(() => {});
-          },
-        })
+    const mountPanels = (panels: readonly SidebarPanelKey[]) =>
+      panels.flatMap((panel, index) =>
+        desktopSidebarDestinationEnabled(panel)
+          ? [
+              scheduleBootWarmup({
+                id: `mount:sidebar:${panel}`,
+                priority: BOOT_WARMUP.sidebarPanel + index,
+                run: () => {
+                  const module = loadSidebarPanelModule[panel]();
+                  trackSidebarPanelModule(panel, module);
+                  return module.then(() => mountSidebarPanel(panel)).catch(() => {});
+                },
+              }),
+            ]
+          : []
       );
-    });
+    // Desktop mounts every rail page hidden at idle, so no first entry mounts
+    // its page in front of the user (user: 사이드 뷰가 늦게 뜨고 튐). A phone
+    // mounts them once the user first touches the page (most often to open
+    // that drawer), on a normal link. Opened cold, each page painted its
+    // placeholder until its chunk and its list crossed the relay (user: 메뉴
+    // 목록이 바로 안 나온다).
+    if (!hiddenPanelsStayCold()) cancels.push(...mountPanels(DEFAULT_SIDEBAR_VIEW_ORDER));
+    else if (connectionQuality() === 'normal')
+      cancels.push(...afterFirstPhoneTouch(() => mountPanels(DEFAULT_SIDEBAR_VIEW_ORDER)));
     return () => {
       for (const cancel of cancels) cancel();
     };

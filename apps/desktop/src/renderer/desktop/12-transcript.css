@@ -362,6 +362,11 @@ html[data-window-material="mica"] .transcript-shell {
 .transcript-virtual-row-content[data-step-before="true"] {
   padding-top: 8px;
 }
+/* After a turn's changed-files card (the last of its turn-end stack), the
+   next row keeps the turn gap (.transcript-turn-gap) even within one turn. */
+.transcript-virtual-row-content[data-after-changes="true"] {
+  padding-top: 20px;
+}
 /* The live band under a reply part or tool card is the 40px status slot (see
    .response-footer:has(.turn-status)): the row above it takes no step, the
    band leads in 16px over its 24px row. Under a prompt it keeps the prompt's

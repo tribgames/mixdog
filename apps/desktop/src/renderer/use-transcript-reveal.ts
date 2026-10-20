@@ -26,10 +26,17 @@ export function useTranscriptReveal({
   content,
   scope,
   hasScrollGesture,
+  eager = false,
 }: {
   identity: string;
   enabled: boolean;
   draft: boolean;
+  /** The phone: reveal as soon as a visible row holds its real content (no
+   *  pending Markdown), in the frame the rows commit. Waiting for the dock
+   *  chrome, fonts and stable geometry kept the latest messages hidden behind
+   *  the skeleton (or blank, on a retained revisit) for several frames on a
+   *  phone's CPU (user: 세션 열면 스켈레톤만 보이고 내용이 바로 안 나온다). */
+  eager?: boolean;
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;
   /** Conversation root: chrome outside the rows (the review bar) marks its
@@ -103,6 +110,10 @@ export function useTranscriptReveal({
       const atEnd = position.maxScrollTop - top <= 1;
       const readerOwnsPosition = hasScrollGesture();
       const settled = visible > 0 && !pending && (atEnd || readerOwnsPosition) && current === previous;
+      if (eager && eagerReady(space, visible)) {
+        flushSync(() => setRevealedIdentity(identity));
+        return;
+      }
       if (chromePending) started = performance.now();
       if (!chromePending && (settled || readerOwnsPosition || performance.now() - started >= ENTRY_REVEAL_MAX_MS)) {
         // Committed before this frame paints: a scheduled update landed after
@@ -122,6 +133,12 @@ export function useTranscriptReveal({
       const root = viewport.current;
       const space = content.current;
       if (cancelled || !root || !space) return;
+      if (eager && eagerReady(space, measure(root, space).visible)) {
+        cancelled = true;
+        cancelAnimationFrame(frame);
+        flushSync(() => setRevealedIdentity(identity));
+        return;
+      }
       const pending =
         space.querySelector('[data-transcript-pending]') ||
         scope?.current?.querySelector(ENTRY_CHROME_PENDING) ||
@@ -133,6 +150,12 @@ export function useTranscriptReveal({
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [content, draft, enabled, hasScrollGesture, identity, revealedIdentity, scope, viewport]);
+  }, [content, draft, eager, enabled, hasScrollGesture, identity, revealedIdentity, scope, viewport]);
   return draft || !enabled || revealedIdentity === identity;
+}
+
+/** An eager reveal needs real rows only: a visible row and no suspended
+ *  Markdown body, which would paint an empty row that grows a frame later. */
+function eagerReady(space: HTMLDivElement, visible: number): boolean {
+  return visible > 0 && !space.querySelector('[data-transcript-pending]');
 }

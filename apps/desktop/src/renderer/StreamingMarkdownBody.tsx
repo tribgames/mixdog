@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ComponentType } from '
 import type { MarkdownAstRoot } from './markdown-ast';
 import {
   LatestMarkdownAstQueue,
+  parseLiveMarkdownAst,
   parseSettledMarkdownAstNow,
   readCachedStreamingMarkdownAst,
   SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS,
@@ -57,6 +58,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   parseText,
   parse,
   sync,
+  live,
   fadeTimeline,
   fadeChunk,
   copyControl,
@@ -65,6 +67,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   parseText: string;
   parse: boolean;
   sync: boolean;
+  /** A streamed reply's growing tail: its parses never enter the shared cache. */
+  live: boolean;
   fadeTimeline: StreamFadeTimeline | null;
   fadeChunk: string;
   copyControl: MarkdownCopyControl;
@@ -99,7 +103,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const requestedText = useRef(parseText);
   const requestedSource = useRef(text);
   const queue = useRef<LatestMarkdownAstQueue | null>(null);
-  queue.current ??= new LatestMarkdownAstQueue();
+  // A live tail's worker results stay local to this body (see parseLiveMarkdownAst).
+  queue.current ??= new LatestMarkdownAstQueue(live ? parseLiveMarkdownAst : undefined);
   requestedText.current = parseText;
   requestedSource.current = text;
   // A cached AST is promoted while rendering, so the delta that produced it
@@ -231,6 +236,7 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
       parseText={parseText ?? text}
       parse={parse}
       sync={sync}
+      live={sync && parseText !== undefined}
       fadeTimeline={fadeTimeline}
       fadeChunk={fadeChunk}
       copyControl={copyControl}

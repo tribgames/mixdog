@@ -5,6 +5,8 @@ import { startTransition, useCallback, useEffect, useRef, useState, type Dispatc
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import { mergeSessionCatalogPushRows, mergeSessionCatalogRows } from '../shared/session-catalog';
+import { publishAgentRooms } from './agent-room-store';
+import { publishAgentModeSessions } from './agent-chat-mode';
 import {
   purgeRemovedSessionPreviews,
   readCachedSessionCatalog,
@@ -39,7 +41,12 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
   // Paint the durable presentation cache on the first render. It never makes
   // a session addressable: pane/session reads still validate the exact record,
   // and the incremental host catalog replaces stale rows in the background.
-  const [sessions, setSessionsState] = useState<DesktopSessionSummary[]>(readCachedSessionCatalog);
+  const [sessions, setSessionsState] = useState<DesktopSessionSummary[]>(() => {
+    const cached = readCachedSessionCatalog();
+    publishAgentRooms(cached);
+    publishAgentModeSessions(cached);
+    return cached;
+  });
   const sessionsRef = useRef<DesktopSessionSummary[]>(sessions);
   const pendingRenames = useRef(new Map<string, { title: string }>());
   const pendingArchives = useRef(new Map<string, { archived: boolean }>());
@@ -111,6 +118,8 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       const merged = lowPriority ? mergeSessionCatalogPushRows(current, rows) : mergeSessionCatalogRows(current, rows);
       if (merged === current) return current;
       sessionsRef.current = merged;
+      publishAgentRooms(merged);
+      publishAgentModeSessions(merged);
       // A renderer-staged create is presentation state, not durable startup
       // truth. It enters the cache only after a host catalog confirms the id.
       scheduleCachedSessionCatalogWrite(merged.filter((session) => !pendingCreates.current.has(session.id)));

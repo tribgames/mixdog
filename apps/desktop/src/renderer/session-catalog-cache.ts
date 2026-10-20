@@ -1,4 +1,5 @@
-import type { DesktopSessionSummary } from '../shared/contract';
+import { normalizeRoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
+import type { DesktopAgentRoomSummary, DesktopSessionSummary } from '../shared/contract';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { deleteSessionImagePreviews } from './image-preview-store';
 import { contentLocalStorage } from './remote-conversation-privacy';
@@ -36,6 +37,10 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
   const createdAt = finiteNumber(row.createdAt, Number.NaN);
   const inheritedFrom = text(row.inheritedFromSessionId, 256);
   const agentHome = text(row.agentHome, 256);
+  const taskAgent = text(row.taskAgent, 256);
+  const agentRoom = cachedAgentRoom(row.agentRoom);
+  const lastMessagePreview = text(row.lastMessagePreview, 1_024);
+  const lastMessageRoutine = normalizeRoutineProvenance(row.lastMessageRoutine);
 
   return {
     id,
@@ -56,6 +61,33 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     ...(Number.isFinite(createdAt) && createdAt > 0 ? { createdAt } : {}),
     ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
     ...(agentHome ? { agentHome } : {}),
+    ...(agentHome && row.agentDeleted === true ? { agentDeleted: true } : {}),
+    ...(taskAgent ? { taskAgent } : {}),
+    ...(agentRoom ? { agentRoom } : {}),
+    ...(lastMessagePreview ? { lastMessagePreview } : {}),
+    ...(lastMessagePreview && lastMessageRoutine ? { lastMessageRoutine } : {}),
+  };
+}
+
+/** A group room's catalog stamp, without its live `running` flag. */
+function cachedAgentRoom(value: unknown): DesktopAgentRoomSummary | null {
+  if (!value || typeof value !== 'object') return null;
+  const room = value as Record<string, unknown>;
+  const id = text(room.id, 64);
+  const name = text(room.name, 256);
+  const members = Array.isArray(room.members)
+    ? room.members.filter((member): member is string => typeof member === 'string').slice(0, 6)
+    : [];
+  if (!id || !name || !members.length) return null;
+  const lastSpeaker = text(room.lastSpeaker, 256);
+  return {
+    id,
+    name,
+    members,
+    maxRounds: Math.floor(finiteNumber(room.maxRounds, 3)),
+    maxMessages: Math.floor(finiteNumber(room.maxMessages, 8)),
+    shareTools: room.shareTools === true,
+    ...(lastSpeaker ? { lastSpeaker } : {}),
   };
 }
 

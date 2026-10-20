@@ -508,6 +508,236 @@ test('a held touch correction growing between scroll events is not read as a ret
 // The timeline holds its corrections off the native offset for exactly this
 // window: from a drag that moves the transcript, through the fling, until
 // scrollend.
+test('streaming growth never writes scrollTop while the reader scrolls, and follow resumes at the bottom', async () => {
+  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }, { createTranscriptEndPin }] =
+    await Promise.all([
+      import('react'),
+      import('react-dom/client'),
+      import('./use-transcript-follow.ts'),
+      import('./transcript-end-pin.ts'),
+    ]);
+  const { restore } = installTestDom(null, {
+    html: "<div id='root'></div>",
+    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
+    expose: ['Element'],
+  });
+  const realNow = Date.now;
+  let now = 200_000;
+  Date.now = () => now;
+  const VIEWPORT = 400;
+  let content = 2400;
+  let native = content - VIEWPORT;
+  const writes = [];
+  // The timeline the hook drives: its end anchor flips with every follow decision.
+  const instance = {
+    options: { anchorTo: 'end', followOnAppend: false },
+    targetWindow: window,
+    getTotalSize: () => content,
+  };
+  const setAnchorBottomRef = { current: (bottom) => (instance.options.anchorTo = bottom ? 'end' : 'start') };
+  let follow = null;
+  let pin = null;
+  const scrollToEndRef = { current: () => pin.request() };
+  const root = createRoot(document.getElementById('root'));
+  function Harness() {
+    const viewport = React.useRef(null);
+    const contentRef = React.useRef(null);
+    follow = useTranscriptFollow({
+      viewport,
+      content: contentRef,
+      sessionKey: 'stream-reader',
+      setAnchorBottomRef,
+      scrollToEndRef,
+    });
+    return React.createElement('div', { ref: viewport }, React.createElement('div', { ref: contentRef }, 'rows'));
+  }
+  const flush = () => React.act(async () => {});
+  const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
+  try {
+    await React.act(async () => root.render(React.createElement(Harness)));
+    const viewport = document.getElementById('root').firstElementChild;
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      get: () => native,
+      set: (value) => {
+        writes.push(value);
+        native = Math.min(Math.max(0, value), content - VIEWPORT);
+      },
+    });
+    const release = registerTranscriptScrollGeometry(viewport, {
+      viewportHeight: () => VIEWPORT,
+      contentHeight: () => content,
+      scrollTop: () => native,
+      deviation: () => 0,
+    });
+    pin = createTranscriptEndPin({
+      getVirtualizer: () => instance,
+      getViewport: () => viewport,
+      getSpacer: () => null,
+      getMaxScrollTop: () => content - VIEWPORT,
+      hasReaderGesture: () => follow.hasScrollGesture(),
+      markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
+    });
+    // A streamed token grows the tail and the timeline asks for the end, as its resize path does.
+    const grow = async (px) => {
+      content += px;
+      if (instance.options.anchorTo === 'end') pin.request();
+      await flush();
+    };
+    await React.act(async () => follow.handleScroll());
+    now += 1_000;
+    await grow(40);
+    assert.equal(writes.length, 1, 'a following, idle tail is pinned on growth');
+    assert.equal(native, content - VIEWPORT);
+    writes.length = 0;
+
+    // A downward wheel at the tail keeps follow armed but owns the viewport:
+    // growth meanwhile waits instead of writing under the wheel.
+    await React.act(async () => follow.handleWheel({ deltaY: 100, target: viewport, currentTarget: viewport }));
+    await grow(40);
+    await grow(40);
+    assert.equal(writes.length, 0, 'no write while the reader is scrolling');
+    assert.equal(follow.followingRef.current, true);
+    now += 1_000;
+    await frame();
+    await flush();
+    assert.equal(writes.length, 1, 'the deferred pin lands once the reader stops');
+    assert.equal(native, content - VIEWPORT);
+    writes.length = 0;
+
+    // Scrolling up releases follow: the tail keeps growing without a single write.
+    await React.act(async () => follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
+    native -= 300;
+    await React.act(async () => follow.handleScroll());
+    assert.equal(follow.followingRef.current, false, 'an upward wheel releases follow');
+    const reading = native;
+    for (let index = 0; index < 5; index += 1) {
+      now += 50;
+      await grow(40);
+    }
+    now += 1_000;
+    await frame();
+    await flush();
+    assert.equal(writes.length, 0, 'no write while the reader reads above the tail');
+    assert.equal(native, reading, 'the reading offset is never moved');
+
+    // Back at the bottom, follow re-attaches and the next growth is pinned.
+    native = content - VIEWPORT;
+    now += 1_000;
+    await React.act(async () => follow.handleScroll());
+    assert.equal(follow.followingRef.current, true, 'the bottom re-attaches follow');
+    now += 1_000;
+    await grow(40);
+    assert.equal(writes.length, 1, 'following resumes on the next growth');
+    assert.equal(native, content - VIEWPORT);
+    release();
+  } finally {
+    Date.now = realNow;
+    await React.act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('a wheel ramp holds measured-size corrections off scrollTop until its scrolls go quiet', async () => {
+  const [
+    React,
+    { createRoot },
+    { useTranscriptFollow, registerTranscriptScrollGeometry },
+    { createTouchScrollDeviation },
+  ] = await Promise.all([
+    import('react'),
+    import('react-dom/client'),
+    import('./use-transcript-follow.ts'),
+    import('./transcript-list-touch-deviation.ts'),
+  ]);
+  const { restore } = installTestDom(null, {
+    html: "<div id='root'></div>",
+    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
+    expose: ['Element'],
+  });
+  const realNow = Date.now;
+  let now = 300_000;
+  Date.now = () => now;
+  const VIEWPORT = 400;
+  const content = 4000;
+  let native = 2000;
+  const writes = [];
+  let follow = null;
+  const root = createRoot(document.getElementById('root'));
+  function Harness() {
+    const viewport = React.useRef(null);
+    const contentRef = React.useRef(null);
+    follow = useTranscriptFollow({ viewport, content: contentRef, sessionKey: 'wheel-hold' });
+    return React.createElement(
+      'div',
+      { ref: viewport },
+      React.createElement('div', { ref: contentRef }, React.createElement('div', { id: 'space' }, 'rows'))
+    );
+  }
+  const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
+  try {
+    await React.act(async () => root.render(React.createElement(Harness)));
+    const space = document.getElementById('space');
+    const viewport = space.parentElement.parentElement;
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      get: () => native,
+      set: (value) => {
+        writes.push(value);
+        native = value;
+      },
+    });
+    const deviation = createTouchScrollDeviation({
+      getViewport: () => viewport,
+      getSpacer: () => space,
+      hasTouchScroll: () => follow.holdsScrollCorrections(),
+      markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
+    });
+    const release = registerTranscriptScrollGeometry(viewport, {
+      viewportHeight: () => VIEWPORT,
+      contentHeight: () => content,
+      scrollTop: () => native,
+      deviation: () => deviation.amount(),
+    });
+    await React.act(async () => follow.handleScroll());
+    // The reader wheels up; a row measured into view above grows by 30px.
+    now += 1_000;
+    await React.act(async () => follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
+    assert.equal(follow.holdsScrollCorrections(), true, 'the wheel owns the viewport');
+    native -= 60;
+    await React.act(async () => follow.handleScroll());
+    assert.equal(deviation.hold(native + 30), true, 'its correction is held');
+    assert.equal(space.style.transform, 'translateY(-30px)', 'as a row offset');
+    // The ramp keeps scrolling past the wheel window; it still owns the viewport.
+    for (let step = 0; step < 4; step += 1) {
+      now += 120;
+      native -= 20;
+      await React.act(async () => follow.handleScroll());
+      await frame();
+    }
+    assert.equal(follow.holdsScrollCorrections(), true, 'scrolls of the ramp extend the hold');
+    assert.deepEqual(writes, [], 'no scrollTop write during the wheel scroll');
+    // Quiet: the held correction lands as one write.
+    const settledAt = native + 30;
+    now += 300;
+    assert.equal(follow.holdsScrollCorrections(), false, 'the hold ends once the ramp is quiet');
+    await frame();
+    assert.deepEqual(writes, [settledAt], 'one write lands the held correction');
+    assert.equal(space.style.transform, '');
+    // A later scroll that is no wheel (scrollbar, keyboard) holds nothing.
+    now += 50;
+    native -= 40;
+    await React.act(async () => follow.handleScroll());
+    assert.equal(follow.holdsScrollCorrections(), false, 'a later non-wheel scroll does not revive the hold');
+    release();
+    deviation.cancel();
+  } finally {
+    Date.now = realNow;
+    await React.act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('a touch scroll owns the transcript from its drag until scrollend ends the fling', async () => {
   const [React, { createRoot }, { useTranscriptFollow }] = await Promise.all([
     import('react'),

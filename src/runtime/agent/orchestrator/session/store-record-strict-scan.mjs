@@ -216,21 +216,38 @@ function messageElement(bytes, text, start, fullRoles) {
   }
 }
 
+/** Decode `messages` from the end in full, newest first, until `tailUntil`
+ *  accepts one; `spans` holds each element's [start, end). */
+function decodeTail(bytes, messages, spans, fullRoles, tailUntil) {
+  for (let k = messages.length - 1; k >= 0; k--) {
+    let item = messages[k];
+    if (item && typeof item === 'object' && !Array.isArray(item) && !fullRoles.has(item.role)) {
+      item = decodeSlice(bytes, spans[2 * k], spans[2 * k + 1]);
+      messages[k] = item;
+    }
+    if (tailUntil(item)) return;
+  }
+}
+
 /** The `messages` array [start, ...): `{ end, messages }`, or null. */
-function messagesValue(bytes, text, start, fullRoles) {
+function messagesValue(bytes, text, start, fullRoles, tailUntil) {
   const messages = [];
+  const spans = tailUntil ? [] : null;
   let i = skipSpaces(text, start + 1);
   if (text.charCodeAt(i) === CLOSE_ARRAY) return { end: i + 1, messages };
   for (;;) {
     const element = messageElement(bytes, text, i, fullRoles);
     if (!element) return null;
     messages.push(element.item);
+    spans?.push(i, element.end);
     i = skipSpaces(text, element.end);
     if (text.charCodeAt(i) === COMMA) {
       i = skipSpaces(text, i + 1);
       continue;
     }
-    return text.charCodeAt(i) === CLOSE_ARRAY ? { end: i + 1, messages } : null;
+    if (text.charCodeAt(i) !== CLOSE_ARRAY) return null;
+    if (tailUntil) decodeTail(bytes, messages, spans, fullRoles, tailUntil);
+    return { end: i + 1, messages };
   }
 }
 
@@ -239,17 +256,19 @@ function messagesValue(bytes, text, start, fullRoles) {
  * validity could not be proven (or the document is not such an object). Of
  * it only the members `decode(key)` accepts are decoded — `messages`, when an
  * array, as described in the module comment with `fullMessageRoles`; every
- * other member is validated and left out.
+ * other member is validated and left out. With `fullTailUntil`, `messages`
+ * is also decoded in full from its end, newest first, through the first
+ * element the predicate accepts.
  */
-export function provenTopLevelObject(bytes, decode, fullMessageRoles = EMPTY) {
+export function provenTopLevelObject(bytes, decode, fullMessageRoles = EMPTY, fullTailUntil = null) {
   try {
-    return provenDocument(bytes, decode, fullMessageRoles);
+    return provenDocument(bytes, decode, fullMessageRoles, fullTailUntil);
   } catch {
     return null;
   }
 }
 
-function provenDocument(bytes, decode, fullRoles) {
+function provenDocument(bytes, decode, fullRoles, tailUntil) {
   const text = bytes.toString('latin1');
   if (CONTROL_BYTE.test(text) || INVALID_ESCAPE.test(text)) return null;
   let i = skipSpaces(text, 0);
@@ -272,7 +291,7 @@ function provenDocument(bytes, decode, fullRoles) {
       const wanted = decode(key);
       let end;
       if (wanted && key === 'messages' && text.charCodeAt(start) === OPEN_ARRAY) {
-        const value = messagesValue(bytes, text, start, fullRoles);
+        const value = messagesValue(bytes, text, start, fullRoles, tailUntil);
         if (!value) return null;
         end = value.end;
         defineMember(doc, key, value.messages);
@@ -300,7 +319,7 @@ function provenDocument(bytes, decode, fullRoles) {
  * authoritative fallback carries the complete document. Consumers must read
  * nothing but non-skipped fields and, of non-full messages, `role`.
  */
-export function readStrictRecordFields(bytes, { skip = EMPTY, fullMessageRoles = EMPTY } = {}) {
-  const doc = provenTopLevelObject(bytes, (key) => !skip.has(key), fullMessageRoles);
+export function readStrictRecordFields(bytes, { skip = EMPTY, fullMessageRoles = EMPTY, fullTailUntil = null } = {}) {
+  const doc = provenTopLevelObject(bytes, (key) => !skip.has(key), fullMessageRoles, fullTailUntil);
   return doc ? lifecycleRecordOf(doc) : readTopLevelLifecycleRecord(bytes.toString('utf8'));
 }

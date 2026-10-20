@@ -126,3 +126,42 @@ test('cancelling a pending task removes it without disturbing the lane', () => {
   assert.deepEqual(ran, ['b']);
   _resetBootWarmupForTest();
 });
+
+test('a touch scroll and its fling hold the lane; a programmatic scroll does not', (t) => {
+  // Runs last: the lane's input listeners attach once, to this window.
+  const previousWindow = globalThis.window;
+  globalThis.window = new EventTarget();
+  t.after(() => {
+    globalThis.window = previousWindow;
+    _resetBootWarmupForTest();
+  });
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
+  const fire = (type) => globalThis.window.dispatchEvent(new Event(type));
+  const clock = fakeHost();
+  _resetBootWarmupForTest(clock.host);
+  armBootWarmup();
+  const ran = [];
+  scheduleBootWarmup({ id: 'mount', priority: 1, run: () => ran.push('mount') });
+
+  fire('touchmove'); // the finger drags the transcript
+  for (let step = 0; step < 4; step += 1) {
+    t.mock.timers.tick(200);
+    fire('scroll'); // the fling keeps scrolling after the finger lifted
+  }
+  t.mock.timers.tick(250); // 1050ms after the last touch event, 250ms after the last fling frame
+  clock.tick(); // idle slice inside the fling → deferred
+  assert.deepEqual(ran, []);
+
+  t.mock.timers.tick(400);
+  fire('scroll'); // a later programmatic scroll does not continue the settled fling
+  clock.tick(); // quiet timer → pump → idle
+  clock.tick(); // idle: runs
+  assert.deepEqual(ran, ['mount']);
+
+  scheduleBootWarmup({ id: 'after', priority: 1, run: () => ran.push('after') });
+  t.mock.timers.tick(400);
+  fire('scroll'); // transcript follow while streaming: no drag, no deferral
+  clock.tick(); // gap timer → pump → idle
+  clock.tick(); // idle: runs
+  assert.deepEqual(ran, ['mount', 'after']);
+});
