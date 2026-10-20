@@ -4,6 +4,36 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Le chat con bot in stile messaggistica, le stanze di gruppo con turni gestiti da supervisore e le routine eseguite direttamente nelle chat dei bot sono novità, insieme alle schede di approvazione per le azioni in uscita e alle password per le app di Gmail.
+
+### Nuove funzionalità
+
+- **Chat con bot** — Aggiunte chat con bot in stile messaggistica con thread dedicati persistenti, profili dei bot personalizzabili e il bot rappresentativo predefinito Mixy.
+- **Stanze di gruppo** — Aggiunte stanze di gruppo in cui più bot collaborano, con menzioni `@`, allegati instradati ai bot interpellati e orchestrazione leggera tramite supervisore basata sul modello Maintainer.
+- **Schede di approvazione per azioni in uscita** — Aggiunte schede di approvazione per l'invio di messaggi, email, post, pagamenti ed eliminazioni, che mostrano i dettagli esatti prima di qualsiasi esecuzione.
+- **Routine nelle chat dei bot** — Aggiunta l'esecuzione di pianificazioni e webhook come turni diretti all'interno della chat del rispettivo bot.
+- **Guida alla configurazione** — Aggiunta una guida alla prima configurazione con raccomandazioni dei modelli ruolo per ruolo e rilevamento del piano di abbonamento.
+- **Gmail tramite password per l'app** — Aggiunta la connessione a Gmail tramite password per l'app; Google Calendar e Drive sono passati all'uso di una propria chiave Google.
+
+### Modifiche
+
+- Modificato il compositore su PC in una barra di immissione a riga singola che si espande con prompt più lunghi.
+- Modificati i lunghi elenchi di sessioni e le trascrizioni estese per uno scorrimento più fluido.
+- Modificato il layout per smartphone: le chat con i bot usano la barra delle schede di sessione, i pannelli laterali sono opachi e il cassetto si apre sopra i pannelli.
+- Modificate le viste diff di sessione per comprimere le righe non modificate e rimuovere i banner per i file mancanti.
+- Modificati gli aggiornamenti dell'app per smartphone per essere scaricati in background, con lo stato visibile in Impostazioni e nella barra delle attività.
+- Regolato il pannello laterale visualize per estendersi nello stesso intervallo del pannello del browser.
+- Modificate le routine eliminando i campi dedicati per modello e flusso di lavoro per utilizzare le impostazioni del bot proprietario.
+
+### Correzioni di bug
+
+- Corretto lo scorrimento della trascrizione su smartphone che si bloccava quando una parola in streaming completava la dissolvenza durante un trascinamento.
+- Corretta l'eliminazione di un bot archiviato richiedendo una conferma chiara e rimuovendo le routine associate.
+
+### Altro
+
+- Aggiornate le traduzioni dell'interfaccia in tutte le lingue supportate.
+
 ## v1.2.6 - 2026-10-18
 
 Il desktop ora consuma meno risorse in inattività e passa da una sessione all'altra più rapidamente, i comandi della shell passano in background dopo 60 secondi e la gestione dei modelli e l'accesso a OpenCode Go sono ora disponibili.

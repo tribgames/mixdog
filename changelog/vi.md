@@ -4,6 +4,36 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Trò chuyện với bot theo phong cách ứng dụng nhắn tin, phòng nhóm với lượt điều phối của người giám sát và các quy trình chạy trực tiếp trong cuộc trò chuyện bot là những điểm mới, cùng với thẻ phê duyệt cho các hành động gửi ra ngoài và mật khẩu ứng dụng Gmail.
+
+### Tính năng mới
+
+- **Trò chuyện với bot** — Đã thêm trò chuyện với bot theo phong cách tin nhắn với luồng chính cố định, hồ sơ bot có thể tùy chỉnh và bot đại diện mặc định Mixy.
+- **Phòng nhóm** — Đã thêm các phòng nhóm nơi nhiều bot cùng cộng tác, hỗ trợ nhắc đến bằng `@`, định tuyến tệp đính kèm đến các bot được chỉ định và điều phối nhẹ nhàng thông qua mô hình Maintainer.
+- **Thẻ phê duyệt cho hành động gửi ra ngoài** — Đã thêm thẻ phê duyệt cho việc gửi tin nhắn, email, bài đăng, thanh toán và xóa vĩnh viễn, hiển thị chi tiết chính xác trước khi thực hiện.
+- **Quy trình trong trò chuyện bot** — Đã thêm tính năng chạy lịch trình và webhook dưới dạng các lượt phản hồi ngay trong cuộc trò chuyện của bot sở hữu.
+- **Hướng dẫn thiết lập** — Đã thêm hướng dẫn thiết lập lần đầu với đề xuất mô hình theo từng vai trò và phát hiện gói đăng ký.
+- **Gmail qua mật khẩu ứng dụng** — Đã thêm kết nối Gmail bằng mật khẩu ứng dụng; Google Calendar và Drive chuyển sang dùng khóa Google của riêng bạn.
+
+### Thay đổi
+
+- Đã thay đổi trình soạn thảo trên máy tính thành thanh nhập một dòng mở rộng theo các lời nhắc dài hơn.
+- Đã thay đổi danh sách phiên dài và bản ghi chép dài để cuộn mượt mà hơn.
+- Đã thay đổi bố cục trên điện thoại: cuộc trò chuyện với bot dùng thanh tab phiên, các bảng bên mờ đục và ngăn kéo mở phía trên các bảng.
+- Đã thay đổi chế độ xem khác biệt của phiên để thu gọn các dòng không đổi và bỏ các biểu ngữ tệp bị thiếu.
+- Đã thay đổi bản cập nhật ứng dụng điện thoại để tải xuống trong nền, kèm trạng thái hiển thị trong Cài đặt và thanh hoạt động.
+- Đã điều chỉnh bảng bên visualize để mở rộng trong cùng phạm vi với bảng trình duyệt.
+- Đã thay đổi các quy trình để lược bỏ các trường mô hình và luồng công việc riêng, chuyển sang dùng cài đặt của bot sở hữu.
+
+### Sửa lỗi
+
+- Đã sửa lỗi cuộn bản ghi chép trên điện thoại bị dừng khi một từ đang truyền phát hoàn tất hiệu ứng mờ dần trong lúc kéo.
+- Đã sửa lỗi xóa bot đã lưu trữ bằng cách hiển thị xác nhận rõ ràng và xóa các quy trình liên quan.
+
+### Khác
+
+- Đã cập nhật bản dịch giao diện trên tất cả các ngôn ngữ được hỗ trợ.
+
 ## v1.2.6 - 2026-10-18
 
 Ứng dụng máy tính hiện tiêu tốn ít tài nguyên hơn khi nhàn rỗi và chuyển đổi phiên nhanh hơn, các lệnh shell sẽ chuyển sang chạy ngầm sau 60 giây, cùng với tính năng quản lý mô hình và đăng nhập OpenCode Go mới.

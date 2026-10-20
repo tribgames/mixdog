@@ -5,6 +5,36 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Les discussions avec des bots façon messagerie, les salons de groupe avec arbitrage par superviseur et les routines exécutées directement dans les discussions de bots sont des nouveautés, aux côtés des cartes d'approbation pour les actions sortantes et des mots de passe d'application Gmail.
+
+### Nouvelles fonctionnalités
+
+- **Discussions avec des bots** — Ajout de discussions avec des bots façon messagerie avec fils persistants dédiés, profils de bots personnalisables et le bot représentatif par défaut Mixy.
+- **Salons de groupe** — Ajout de salons de groupe où plusieurs bots collaborent, avec mentions `@`, pièces jointes transmises aux bots ciblés et coordination légère par un superviseur utilisant le modèle Maintainer.
+- **Cartes d'approbation pour actions sortantes** — Ajout de cartes d'approbation pour l'envoi de messages, d'e-mails, de publications, de paiements et de suppressions, affichant les détails exacts avant toute exécution.
+- **Routines dans les discussions de bots** — Ajout de l'exécution des planifications et des webhooks sous forme de tours dans la discussion de leur bot propriétaire.
+- **Guide de configuration** — Ajout d'un guide de première configuration avec recommandations de modèles rôle par rôle et détection du forfait d'abonnement.
+- **Gmail via mot de passe d'application** — Ajout de la connexion de Gmail avec un mot de passe d'application ; Google Calendar et Drive passent désormais par votre propre clé Google.
+
+### Modifications
+
+- Modification du compositeur sur PC en une barre de saisie sur une seule ligne qui s'agrandit avec les invites plus longues.
+- Modification des longues listes de sessions et des transcriptions volumineuses pour un défilement plus fluide.
+- Modification de la disposition sur téléphone : les discussions de bots utilisent la barre d'onglets de session, les panneaux latéraux sont opaques et le tiroir s'ouvre au-dessus des panneaux.
+- Modification des vues de diff de session pour replier les lignes inchangées et supprimer les bannières de fichiers manquants.
+- Modification des mises à jour de l'application mobile pour se télécharger en arrière-plan, avec affichage de l'état dans Paramètres et la barre d'activité.
+- Ajustement du panneau latéral visualize pour s'élargir sur la même plage que le volet du navigateur.
+- Modification des routines pour abandonner leurs champs propres de modèle et de workflow et utiliser la configuration du bot propriétaire.
+
+### Corrections de bugs
+
+- Correction du défilement de transcription sur téléphone qui se bloquait lorsqu'un mot diffusé finissait son fondu pendant un glissement.
+- Correction de la suppression d'un bot archivé en demandant une confirmation explicite et en supprimant ses routines.
+
+### Divers
+
+- Mise à jour des traductions de l'interface dans toutes les langues prises en charge.
+
 ## v1.2.6 - 2026-10-18
 
 L'application de bureau consomme désormais moins de ressources en veille et change de session plus rapidement, les commandes shell passent en arrière-plan après 60 secondes, et la gestion des modèles ainsi que la connexion à OpenCode Go font leur apparition.

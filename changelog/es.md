@@ -5,6 +5,36 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Los chats de bot estilo mensajería, las salas grupales con turnos de supervisor y las rutinas que se ejecutan directamente en los chats de bots son novedades, junto con las tarjetas de aprobación para acciones salientes y las contraseñas de aplicación de Gmail.
+
+### Nuevas funciones
+
+- **Chats de bots** — Se añadieron chats de bots estilo mensajería con hilos propios persistentes, perfiles de bot personalizables y el bot representativo predeterminado Mixy.
+- **Salas grupales** — Se añadieron salas grupales donde varios bots colaboran, con menciones `@`, archivos adjuntos dirigidos a los bots mencionados y coordinación ligera de supervisor usando el modelo Maintainer.
+- **Tarjetas de aprobación para acciones salientes** — Se añadieron tarjetas de aprobación para enviar mensajes, correos, publicaciones, pagos y eliminaciones, mostrando detalles exactos antes de ejecutar nada.
+- **Rutinas en chats de bots** — Se añadió la ejecución de programaciones y webhooks como turnos dentro del chat de su bot propietario.
+- **Guía de configuración** — Se añadió una guía de configuración inicial con recomendaciones de modelos rol por rol y detección del plan de suscripción.
+- **Gmail mediante contraseña de aplicación** — Se añadió la conexión de Gmail con una contraseña de aplicación; Google Calendar y Drive se trasladaron a su propia clave de Google.
+
+### Cambios
+
+- Se cambió el compositor de PC a una barra de entrada de una sola línea que se expande con mensajes más largos.
+- Se cambiaron las listas largas de sesiones y las transcripciones extensas para que se desplacen con mayor fluidez.
+- Se cambió el diseño en teléfonos: los chats de bots usan la barra de pestañas de sesión, los paneles laterales son opacos y el cajón se abre sobre los paneles.
+- Se cambiaron las vistas de diferencias de sesión para plegar líneas sin cambios y quitar los avisos de archivos faltantes.
+- Se cambiaron las actualizaciones de la aplicación móvil para descargarse en segundo plano, con estado en Configuración y en la barra de actividad.
+- Se ajustó el panel lateral de visualize para ampliarse en el mismo rango que el panel del navegador.
+- Se cambiaron las rutinas para prescindir de campos propios de modelo y flujo de trabajo y usar la configuración del bot propietario.
+
+### Correcciones de errores
+
+- Se corrigió que el desplazamiento de la transcripción en teléfonos se detuviera cuando una palabra en transmisión terminaba de desvanecerse durante un arrastre.
+- Se corrigió la eliminación de un bot archivado solicitando una confirmación clara y eliminando sus rutinas asociadas.
+
+### Otros
+
+- Se actualizaron las traducciones de la interfaz en todos los idiomas compatibles.
+
 ## v1.2.6 - 2026-10-18
 
 El escritorio ahora consume menos recursos en reposo y cambia de sesión más rápido, los comandos de shell pasan a segundo plano tras 60 segundos, y la gestión de modelos y el inicio de sesión en OpenCode Go son nuevos.

@@ -5,6 +5,36 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Bot messenger chats, group rooms with supervisor turns, and routines running directly in bot chats are new, alongside approval cards for outbound actions and Gmail app passwords.
+
+### New features
+
+- **Bot chats** — Added messenger-style bot chats with persistent home threads, customizable bot profiles, and the default representative bot Mixy.
+- **Group rooms** — Added group rooms where multiple bots collaborate, with `@` mentions, attachments routed to addressed bots, and light supervisor orchestration using the Maintainer model.
+- **Approval cards for outbound actions** — Added approval cards for sending messages, emails, posts, payments and deletions, showing exact details before anything runs.
+- **Routines in bot chats** — Added running schedules and webhooks as turns inside their owning bot's chat.
+- **Setup guide** — Added a first-setup guide with role-by-role model recommendations and subscription plan detection.
+- **Gmail via app password** — Added connecting Gmail with an app password; Google Calendar and Drive moved to your own Google key.
+
+### Changes
+
+- Changed the PC composer to a one-line input bar that grows with longer prompts.
+- Changed long session lists and long transcripts to scroll more smoothly.
+- Changed the phone layout: bot chats use the session tab bar, side panels are opaque, and the drawer opens above panels.
+- Changed session diff views to fold unchanged lines and drop missing-file banners.
+- Changed phone app updates to download in the background, with status in Settings and the activity rail.
+- Adjusted the visualize side panel to widen across the same range as the browser panel.
+- Changed routines to drop their own model and workflow fields and use the owning bot's settings.
+
+### Bug fixes
+
+- Fixed phone transcript scrolling stalling when a streaming word finished fading during a drag.
+- Fixed deleting an archived bot by asking for clear confirmation and removing its routines.
+
+### Other
+
+- Updated interface translations across all supported languages.
+
 ## v1.2.6 - 2026-10-18
 
 The desktop now idles lighter and switches sessions faster, shell commands move to the background after 60 seconds, and Model management and OpenCode Go sign-in are new.

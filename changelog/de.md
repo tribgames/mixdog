@@ -4,6 +4,36 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Bot-Messenger-Chats, Gruppenräume mit Moderator-Zügen und direkt in Bot-Chats ausgeführte Routinen sind neu, zusammen mit Genehmigungskarten für externe Aktionen und Gmail-App-Passwörtern.
+
+### Neue Funktionen
+
+- **Bot-Chats** — Messenger-artige Bot-Chats mit dauerhaften eigenen Verläufen, anpassbaren Bot-Profilen und dem standardmäßigen repräsentativen Bot Mixy hinzugefügt.
+- **Gruppenräume** — Gruppenräume hinzugefügt, in denen mehrere Bots zusammenarbeiten, mit `@`-Erwähnungen, Weiterleitung von Anhängen an adressierte Bots und leichter Moderator-Steuerung über das Maintainer-Modell.
+- **Genehmigungskarten für externe Aktionen** — Genehmigungskarten für das Senden von Nachrichten, E-Mails, Beiträgen, Zahlungen und Löschungen hinzugefügt, die vor der Ausführung genaue Details anzeigen.
+- **Routinen in Bot-Chats** — Ausführung von Zeitplänen und Webhooks als direkte Gesprächszüge im Chat des jeweiligen Bots hinzugefügt.
+- **Einrichtungsassistent** — Ersteinrichtungs-Leitfaden mit rollenbasierten Modellempfehlungen und Erkennung des Abonnementplans hinzugefügt.
+- **Gmail über App-Passwort** — Verbinden von Gmail über ein App-Passwort hinzugefügt; Google Calendar und Drive wurden auf eigene Google-Schlüssel umgestellt.
+
+### Änderungen
+
+- PC-Composer zu einer einzeiligen Eingabeleiste geändert, die bei längeren Prompts mitwächst.
+- Lange Sitzungslisten und lange Transkripte so geändert, dass sie flüssiger scrollen.
+- Telefon-Layout geändert: Bot-Chats nutzen die Sitzungs-Tab-Leiste, Seitenleisten sind undurchsichtig und die Schublade öffnet sich über den Panels.
+- Sitzungs-Diff-Ansichten so geändert, dass unveränderte Zeilen eingeklappt und Banner für fehlende Dateien entfernt werden.
+- Telefon-App-Updates so geändert, dass sie im Hintergrund heruntergeladen werden, mit Statusanzeige in den Einstellungen und der Aktivitätsleiste.
+- Visualize-Seitenleiste so angepasst, dass sie sich über denselben Bereich wie das Browser-Panel verbreitern lässt.
+- Routinen so geändert, dass eigene Modell- und Workflow-Felder entfallen und die Einstellungen des besitzenden Bots verwendet werden.
+
+### Fehlerbehebungen
+
+- Behoben: Das Scrollen des Telefon-Transkripts stockte, wenn ein gestreamtes Wort während des Ziehens ausblendete.
+- Behoben: Löschen eines archivierten Bots fragt nun nach einer eindeutigen Bestätigung und entfernt dessen Routinen.
+
+### Sonstiges
+
+- Schnittstellenübersetzungen für alle unterstützten Sprachen aktualisiert.
+
 ## v1.2.6 - 2026-10-18
 
 Der Desktop verbraucht im Leerlauf nun weniger Ressourcen und wechselt Sitzungen schneller, Shell-Befehle wechseln nach 60 Sekunden in den Hintergrund, und die Modellverwaltung sowie die Anmeldung bei OpenCode Go sind neu.

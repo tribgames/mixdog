@@ -4,6 +4,36 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Chats de bot em estilo mensageiro, salas em grupo com moderação de supervisor e rotinas executadas diretamente nos chats dos bots são novidades, junto com cartões de aprovação para ações externas e senhas de app do Gmail.
+
+### Novos recursos
+
+- **Chats de bots** — Adicionados chats de bots em estilo mensageiro com conversas principais persistentes, perfis de bot personalizáveis e o bot representativo padrão Mixy.
+- **Salas em grupo** — Adicionadas salas em grupo onde vários bots colaboram, com menções `@`, anexos encaminhados aos bots mencionados e orquestração leve com supervisor usando o modelo Maintainer.
+- **Cartões de aprovação para ações externas** — Adicionados cartões de aprovação para envio de mensagens, e-mails, publicações, pagamentos e exclusões, exibindo detalhes exatos antes de qualquer execução.
+- **Rotinas nos chats de bots** — Adicionada a execução de agendamentos e webhooks como mensagens dentro do chat do seu bot responsável.
+- **Guia de configuração** — Adicionado um guia de configuração inicial com recomendações de modelos por função e detecção do plano de assinatura.
+- **Gmail via senha de app** — Adicionada a conexão do Gmail com uma senha de app; Google Calendar e Drive foram transferidos para sua própria chave do Google.
+
+### Alterações
+
+- Alterado o compositor no PC para uma barra de entrada de linha única que se expande com mensagens mais longas.
+- Alteradas as listas longas de sessões e transcrições extensas para rolarem de forma mais suave.
+- Alterado o layout em celulares: chats de bots usam a barra de abas da sessão, painéis laterais são opacos e a gaveta se abre sobre os painéis.
+- Alteradas as visualizações de diferenças da sessão para recolher linhas não modificadas e remover avisos de arquivos ausentes.
+- Alteradas as atualizações do app para celular para serem baixadas em segundo plano, com status em Configurações e na barra de atividades.
+- Ajustado o painel lateral visualize para alargar no mesmo intervalo do painel do navegador.
+- Alteradas as rotinas para dispensar campos próprios de modelo e fluxo de trabalho e usar as configurações do bot responsável.
+
+### Correções de bugs
+
+- Corrigida a rolagem da transcrição no celular travando quando uma palavra em streaming terminava de esmaecer durante um arrasto.
+- Corrigida a exclusão de um bot arquivado solicitando confirmação clara e removendo suas rotinas vinculadas.
+
+### Outros
+
+- Atualizadas as traduções da interface em todos os idiomas suportados.
+
 ## v1.2.6 - 2026-10-18
 
 O desktop agora consome menos recursos quando ocioso e alterna entre sessões mais rapidamente, comandos de shell passam para o segundo plano após 60 segundos, e o gerenciamento de modelos e o login no OpenCode Go são novidades.
