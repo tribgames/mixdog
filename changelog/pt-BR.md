@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-20
+
 Adicionado um sistema de bots, suporte a mais conectores, incluindo o Gmail com senha de app, e mais estabilidade no cliente.
 
 ### Novos recursos

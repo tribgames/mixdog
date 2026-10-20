@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-20
+
 Bổ sung hệ thống bot, hỗ trợ thêm nhiều trình kết nối như Gmail qua mật khẩu ứng dụng, và cải thiện độ ổn định của ứng dụng.
 
 ### Tính năng mới

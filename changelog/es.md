@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-20
+
 Se añadió un sistema de bots, compatibilidad con más conectores, como Gmail mediante contraseña de aplicación, y una mayor estabilidad del cliente.
 
 ### Nuevas funciones

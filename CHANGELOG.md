@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-20
+
 Added a bot system, support for more connectors including Gmail via app password, and improved client stability.
 
 ### New features

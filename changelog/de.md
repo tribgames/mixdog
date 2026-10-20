@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-20
+
 Neues Bot-System, Unterstützung für weitere Connectors wie Gmail per App-Passwort und eine stabilere Client-App.
 
 ### Neue Funktionen

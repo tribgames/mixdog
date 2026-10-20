@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-20
+
 Ajout d'un système de bots, prise en charge de nouveaux connecteurs, dont Gmail par mot de passe d'application, et meilleure stabilité du client.
 
 ### Nouvelles fonctionnalités

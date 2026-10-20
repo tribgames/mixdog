@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.3.0 - 2026-10-20
+
 Aggiunti un sistema di bot e il supporto a più connettori, tra cui Gmail con password per le app, e migliorata la stabilità del client.
 
 ### Nuove funzionalità
