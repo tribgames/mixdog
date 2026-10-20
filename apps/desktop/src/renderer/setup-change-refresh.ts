@@ -30,6 +30,7 @@ const SETUP_ACTION_MUTATIONS: Readonly<Record<string, string>> = {
   save_automation: 'saveSchedule',
   delete_automation: 'deleteSchedule',
   set_automation_enabled: 'setScheduleEnabled',
+  run_automation: 'runScheduleNow',
   set_webhook_config: 'saveWebhook',
   save_project: 'addProject',
   remove_project: 'removeProject',

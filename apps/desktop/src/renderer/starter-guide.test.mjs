@@ -17,12 +17,13 @@ const { resetSidebarReferenceCache } = await import('./sidebar-reference-cache.t
 const { inertBackground } = await import('./settings/dialog-modality.ts');
 const { tourCardPosition } = await import('./StarterTour.tsx');
 const { setCachedConnectionInfo } = await import('./settings/connection-info.ts');
+const { publishMixyStatus, resetMixyStatus, settleMixyDialog } = await import('./mixy-identity.ts');
 
 test.after(() => dom.window.close());
 
 async function settle() {
   await act(async () => {
-    for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let index = 0; index < 6; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -39,10 +40,12 @@ async function mount(
     completed = true,
     statusError = false,
     saveError = false,
+    mixy = true,
   } = {}
 ) {
   if (clearStorage) window.localStorage.clear();
   resetSidebarReferenceCache();
+  resetMixyStatus();
   const saved = [];
   window.mixdogDesktop = {
     invokeCapability: async ({ capability, args }) => {
@@ -54,6 +57,7 @@ async function mount(
         if (statusError) throw new Error('status rejected');
         return { value: { completed, starterGuide: disk } };
       }
+      if (capability === 'getLeadStatus') return { value: { created: mixy } };
       return {
         value:
           capability === 'getProviderSetup' ? { api: [], oauth: [{ id: 'openai', authenticated: connected }] } : {},
@@ -114,7 +118,7 @@ test('a paired device completes remote access once: emptied connection info does
   setCachedConnectionInfo(api, null);
   await render();
   await settle();
-  assert.match(pill().textContent, /1\/5/, 'still done while the cache is empty');
+  assert.match(pill().textContent, /2\/6/, 'still done while the cache is empty');
   const before = toasts();
   setCachedConnectionInfo(api, { clients: [{ id: 'c1' }] });
   await render();
@@ -124,27 +128,83 @@ test('a paired device completes remote access once: emptied connection info does
 
 test('the guide counts real provider and project state and lists the steps in guided order', async (t) => {
   await mount(t, { connected: true, projects: [{ path: 'C:/work', name: 'work' }] });
-  assert.match(pill().textContent, /2\/5/);
+  assert.match(pill().textContent, /3\/6/);
   await click(pill());
   assert.deepEqual(
     steps().map((step) => step.querySelector('b').textContent),
-    ['Connect a provider', 'Add a project', 'Set up workflows and agents', 'Set up remote access', 'Explore extensions']
+    [
+      'Connect a provider',
+      'Add a project',
+      'Set up workflows and agents',
+      'Set up remote access',
+      'Explore extensions',
+      'Create representative bot',
+    ]
   );
   assert.deepEqual(
     steps().map((step) => step.dataset.done === 'true'),
-    [true, true, false, false, false]
+    [true, true, false, false, false, true]
   );
   // Only the next open step carries its explanation.
   assert.deepEqual(
     steps().map((step) => Boolean(step.querySelector('small'))),
-    [false, false, true, false, false]
+    [false, false, true, false, false, false]
   );
+});
+
+test('대표 에이전트 만들기 is the last step: it opens the dialog and completes when the representative is created', async (t) => {
+  const requested = [];
+  const { onMixyDialogRequest } = await import('./mixy-identity.ts');
+  t.after(onMixyDialogRequest(() => requested.push('dialog')));
+  const { opened } = await mount(t, { connected: true, mixy: false });
+  // The welcome waits for the 대표 에이전트 dialog (created or dismissed).
+  assert.equal(document.querySelector('.starter-welcome'), null);
+  await act(async () => settleMixyDialog());
+  await click(button('Maybe later'));
+  assert.match(pill().textContent, /1\/6/);
+  await click(pill());
+  const last = steps()[5];
+  assert.equal(last.querySelector('b').textContent, 'Create representative bot');
+  assert.equal(last.dataset.done, undefined);
+  // Its step opens the Agents page with the dialog, no tour over it.
+  await click(last);
+  assert.deepEqual(opened.views, ['agents']);
+  assert.deepEqual(requested, ['dialog']);
+  assert.equal(document.querySelector('.starter-tour-card'), null);
+  assert.match(pill().textContent, /1\/6/);
+  // The dialog created it, under the name the user chose.
+  await act(async () => publishMixyStatus({ created: true, name: 'Navi' }));
+  await settle();
+  assert.match(pill().textContent, /2\/6/);
+  assert.match(document.querySelector('.starter-guide-toast').textContent, /Create representative bot/);
+});
+
+test('the step copy names the representative by its current name', async (t) => {
+  window.localStorage.clear();
+  window.localStorage.setItem(
+    'mixdog.desktop.starter-guide.v1',
+    JSON.stringify({ closed: false, welcomed: true, visited: ['workflow', 'extensions', 'remote'] })
+  );
+  await mount(t, { connected: true, projects: [{ path: 'C:/work' }], mixy: false, clearStorage: false });
+  await act(async () => publishMixyStatus({ created: false, name: 'Navi' }));
+  await click(pill());
+  const last = steps()[5];
+  assert.equal(last.dataset.next, 'true');
+  assert.match(last.textContent, /The representative bot helps with anything/);
+  assert.match(last.textContent, /Done when the representative bot is created\./);
+});
+
+test('an existing user (Mixy already decided as created) sees that step done, without a notice', async (t) => {
+  await mount(t, { mixy: true });
+  await click(button('Maybe later'));
+  assert.match(pill().textContent, /1\/6/);
+  assert.equal(document.querySelector('.starter-guide-toast'), null);
 });
 
 test('each step opens its destination and runs its own tour', async (t) => {
   const { opened } = await mount(t);
   await click(button('Maybe later'));
-  assert.match(pill().textContent, /0\/5/);
+  assert.match(pill().textContent, /1\/6/);
   // Choosing a step folds the checklist and starts its tour.
   for (let index = 0; index < 5; index += 1) {
     if (!steps().length) await click(pill());
@@ -155,7 +215,7 @@ test('each step opens its destination and runs its own tour', async (t) => {
   assert.deepEqual(opened.settings, ['providers', 'connection']);
   assert.deepEqual(opened.views, ['projects', 'workflows', 'extensions']);
   // Opening a screen is not completing it.
-  assert.match(pill().textContent, /0\/5/);
+  assert.match(pill().textContent, /1\/6/);
 });
 
 test('finishing a tour completes its step and says so', async (t) => {
@@ -168,7 +228,7 @@ test('finishing a tour completes its step and says so', async (t) => {
   await click(button('Next'));
   await click(button('Next'));
   await click(button('Done'));
-  assert.match(pill().textContent, /1\/5/);
+  assert.match(pill().textContent, /2\/6/);
   assert.match(document.querySelector('.starter-guide-toast').textContent, /Set up workflows and agents/);
 });
 
@@ -225,7 +285,7 @@ test('the add-project stop steps aside for its form and carries on once it close
   await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
   assert.equal(tourCount(), '3/3');
   await click(button('Done'));
-  assert.match(pill().textContent, /2\/5/);
+  assert.match(pill().textContent, /3\/6/);
 });
 
 test('an add-project form that never opens does not strand the tour', async (t) => {
@@ -417,7 +477,7 @@ test('localStorage-only state is merged with the config copy and written to it o
   assert.equal(saved.length, 1);
   assert.equal(saved[0].welcomed, true);
   assert.deepEqual([...saved[0].visited].sort(), ['extensions', 'workflow']);
-  assert.match(pill().textContent, /2\/5/);
+  assert.match(pill().textContent, /3\/6/);
 });
 
 test('a profile onboarded before the guide was persisted, whose localStorage was lost, keeps it closed', async (t) => {
@@ -444,7 +504,7 @@ test('an older profile with its local copy intact keeps its progress and backfil
     JSON.stringify({ closed: false, welcomed: true, visited: ['workflow'] })
   );
   const { saved } = await mount(t, { disk: null, completed: true, clearStorage: false });
-  assert.match(pill().textContent, /1\/5/);
+  assert.match(pill().textContent, /2\/6/);
   assert.deepEqual(saved, [{ closed: false, welcomed: true, visited: ['workflow'] }]);
 });
 
@@ -458,7 +518,7 @@ test('a rejected status read keeps the guide hidden unless a local copy decides'
     JSON.stringify({ closed: false, welcomed: true, visited: [] })
   );
   await mount(t, { statusError: true, clearStorage: false });
-  assert.match(pill().textContent, /0\/5/);
+  assert.match(pill().textContent, /1\/6/);
 });
 
 test('a rejected save still keeps the change locally', async (t) => {

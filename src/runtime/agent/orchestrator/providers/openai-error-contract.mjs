@@ -203,7 +203,8 @@ export function applyErrorContract(err, { status, headers, code, error, event } 
       err.status = n;
       err.httpStatus = n;
     }
-    const wireHeaders = headers ?? error?.headers ?? event?.error?.headers ?? event?.response?.error?.headers ?? event?.headers;
+    const wireHeaders =
+      headers ?? error?.headers ?? event?.error?.headers ?? event?.response?.error?.headers ?? event?.headers;
     if (wireHeaders && typeof wireHeaders === 'object') err.headers = wireHeaders;
     const rawCode = code ?? error?.code ?? error?.type ?? null;
     if (typeof rawCode === 'string' && rawCode.trim()) err.code = rawCode.trim().toLowerCase();
@@ -217,7 +218,13 @@ export function applyErrorContract(err, { status, headers, code, error, event } 
       if (err.retryAfterAt == null) err.retryAfterAt = Date.now() + retryAfterMs;
     }
     const type = typeof error?.type === 'string' ? error.type.trim().toLowerCase() : '';
-    const mapped = typedWireErrorMessage({ code: err.code || '', type, error, headers: err.headers, resetAt: err.resetAt });
+    const mapped = typedWireErrorMessage({
+      code: err.code || '',
+      type,
+      error,
+      headers: err.headers,
+      resetAt: err.resetAt,
+    });
     if (mapped) applyTypedWireMessage(err, mapped, error?.message);
   } catch {}
   return err;
@@ -230,7 +237,12 @@ export function applyErrorContract(err, { status, headers, code, error, event } 
  * makes unknown codes default-retryable).
  */
 export function markContentFilter(err, reason) {
-  if (String(reason || '').trim().toLowerCase() !== 'content_filter') return err;
+  if (
+    String(reason || '')
+      .trim()
+      .toLowerCase() !== 'content_filter'
+  )
+    return err;
   err.code = 'content_filter';
   err.providerErrorCode = 'content_filter';
   return err;
@@ -252,7 +264,8 @@ export function httpResponseError({ label, status, headers, text, initialRespons
 }
 
 // The route decides the HTTP/SSE label: the api-key `openai` provider is not OAuth.
-export const httpLabel = (auth) => (auth?.type === 'openai-direct' ? 'OpenAI HTTP fallback' : 'OpenAI OAuth HTTP fallback');
+export const httpLabel = (auth) =>
+  auth?.type === 'openai-direct' ? 'OpenAI HTTP fallback' : 'OpenAI OAuth HTTP fallback';
 
 /**
  * Changing transport must not bypass the server's retry deadline.

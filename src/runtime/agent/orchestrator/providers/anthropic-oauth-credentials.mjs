@@ -209,6 +209,7 @@ export function describeAnthropicOAuthCredentials() {
     return {
       ...oauthCredentialStatus({ hasRefresh, expiresAt, detail, refreshSkewMs: TOKEN_REFRESH_SKEW_MS }),
       ...accountIdentityFields(creds.identity),
+      plan: creds.subscriptionType || null,
     };
   } catch (err) {
     return {

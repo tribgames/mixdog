@@ -32,6 +32,13 @@ if (failedPreChecks.length) {
   process.exit(1);
 }
 
+// Warning-level: a stale model list never blocks the gate.
+if (
+  spawnSync('node scripts/check-model-recommendations.mjs', { cwd: root, stdio: 'inherit', shell: true }).status !== 0
+) {
+  console.warn('[gate:local] warning: model recommendations stale or invalid (not blocking)');
+}
+
 const build = spawnSync('npm run build:spawn:test', { cwd: root, stdio: 'inherit', shell: true });
 if (build.status !== 0) {
   console.error('[gate:local] build:spawn:test failed');

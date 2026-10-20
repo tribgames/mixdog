@@ -11,7 +11,12 @@ import { once } from 'node:events';
 // developer's connected account is never overwritten by a login test.
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-antigravity-login-data-'));
 
-import { beginOAuthLogin, discoverProject, exchangeAuthorizationCode } from './antigravity-oauth-login.mjs';
+import {
+  beginOAuthLogin,
+  discoverAccount,
+  discoverProject,
+  exchangeAuthorizationCode,
+} from './antigravity-oauth-login.mjs';
 import {
   antigravityHeaders,
   codeAssistMetadata,
@@ -96,6 +101,17 @@ test('existing accounts return the refreshed project without onboarding', async 
     });
     assert.equal(call.redirect, 'error');
   }
+});
+
+test('discoverAccount reports the paid tier id, else the current tier, else empty', async () => {
+  const tier = async (payload) =>
+    (await discoverAccount('t', { fetchFn: scriptedFetch([payload, payload]).fetchFn })).tierId;
+  assert.equal(await tier(account('p')), 'standard-tier');
+  assert.equal(
+    await tier({ currentTier: { id: 'free-tier' }, paidTier: {}, cloudaicompanionProject: 'p' }),
+    'free-tier'
+  );
+  assert.equal(await tier({ currentTier: {}, paidTier: {}, cloudaicompanionProject: 'p' }), '');
 });
 
 test('missing or null paidTier causes a project-scoped reload on both status loads', async () => {

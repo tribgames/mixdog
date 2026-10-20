@@ -430,7 +430,7 @@ export function StarterWelcome({
           <GraduationCap size={20} />
         </span>
         <h2 id={titleId}>{t('Welcome to Mixdog')}</h2>
-        <p>{t('Five quick steps to get set up.')}</p>
+        <p>{t('Six quick steps to get set up.')}</p>
         <ol>
           {steps.map((label) => (
             <li key={label}>{label}</li>

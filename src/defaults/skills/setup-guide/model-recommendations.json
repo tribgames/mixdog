@@ -1,0 +1,333 @@
+{
+  "asOf": "2026-10-20",
+  "staleAfterDays": 14,
+  "delegation": {
+    "note": "Default suggestion by the Lead provider's plan (status providers, plan). The user's working style overrides it; the roster follows the chosen mode. Solo is a valid choice at any plan.",
+    "unknownPlan": "ask the user which plan they have; if they do not know, suggest focused",
+    "baseRoster": ["Maintainer", "Web Search"],
+    "leanReview": {
+      "fitsModes": ["none", "focused"],
+      "description": "Cost-saving alternative to a Reviewer agent: the Lead reviews its own work, and the Advisor is called only when work gets stuck (errors recur, results stop converging).",
+      "agentsOff": ["Reviewer"],
+      "agentsOn": ["Advisor"],
+      "advisorUse": "only when stuck; rarely"
+    },
+    "modes": [
+      {
+        "mode": "none",
+        "label": "Solo",
+        "agents": [],
+        "advisorUse": null,
+        "plans": {
+          "Anthropic": ["none"],
+          "OpenAI": ["free", "none"],
+          "Google": ["free-tier"],
+          "other": "API key only or no subscription"
+        }
+      },
+      {
+        "mode": "focused",
+        "label": "Focused",
+        "agents": ["Worker", "Reviewer"],
+        "advisorUse": null,
+        "plans": { "Anthropic": ["pro"], "OpenAI": ["plus"], "Google": ["standard-tier", "legacy-tier"] }
+      },
+      {
+        "mode": "balanced",
+        "label": "Balanced",
+        "agents": ["Worker", "Reviewer", "Heavy Worker", "Advisor"],
+        "advisorUse": "sparingly: a light second opinion from a different model family only at key decision points (before choosing an approach, when results stop converging), not on every task; it runs rarely so it costs little",
+        "plans": {
+          "Anthropic": ["team", "enterprise"],
+          "OpenAI": ["team", "business", "enterprise"],
+          "Google": ["g1-pro-tier"]
+        }
+      },
+      {
+        "mode": "swarm",
+        "label": "Swarm",
+        "agents": ["Worker", "Reviewer", "Heavy Worker", "Advisor", "Writer", "Front Worker"],
+        "advisorUse": "sparingly, same as balanced",
+        "plans": { "Anthropic": ["max"], "OpenAI": ["pro"], "Google": ["g1-ultra-tier"] }
+      }
+    ]
+  },
+  "roles": [
+    {
+      "roles": ["Lead", "Bot default"],
+      "picks": [
+        {
+          "provider": "Anthropic",
+          "model": "Claude Opus 5.5",
+          "effort": "medium",
+          "plans": { "pro": "Claude Sonnet 5.5" },
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/anthropic/api-pricing"
+        },
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6.1 Sol",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/openai/api-pricing"
+        },
+        {
+          "provider": "DeepSeek",
+          "model": "DeepSeek V4.1 Flash",
+          "effort": "none",
+          "note": "budget; no effort setting",
+          "checkedAt": "2026-10-20",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+        }
+      ]
+    },
+    {
+      "roles": ["Heavy Worker"],
+      "picks": [
+        {
+          "provider": "Anthropic",
+          "model": "Claude Opus 5.5",
+          "effort": "medium",
+          "plans": { "pro": "Claude Sonnet 5.5" },
+          "checkedAt": "2026-10-20",
+          "source": "https://platform.claude.com/docs/en/build-with-claude/effort"
+        },
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6.1 Sol",
+          "effort": "high",
+          "note": "xhigh for the hardest long runs",
+          "checkedAt": "2026-10-20",
+          "source": "https://openai.com/index/practical-guide-building-gpt-6/"
+        },
+        {
+          "provider": "Google",
+          "model": "Gemini 4 Argon",
+          "effort": "high",
+          "note": "budget",
+          "checkedAt": "2026-10-20",
+          "source": "https://ai.google.dev/gemini-api/docs/generate-content/latest-model"
+        }
+      ]
+    },
+    {
+      "roles": ["Advisor"],
+      "preferOtherProviderThan": ["Lead", "Heavy Worker"],
+      "picks": [
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6 Astra",
+          "effort": "xhigh",
+          "checkedAt": "2026-10-20",
+          "source": "https://openai.com/index/practical-guide-building-gpt-6/"
+        },
+        {
+          "provider": "Anthropic",
+          "model": "Claude Opus 5.5",
+          "effort": "xhigh",
+          "checkedAt": "2026-10-20",
+          "source": "https://platform.claude.com/docs/en/build-with-claude/effort"
+        },
+        {
+          "provider": "Google",
+          "model": "Gemini 4 Argon",
+          "effort": "high",
+          "note": "budget; high is its top level",
+          "checkedAt": "2026-10-20",
+          "source": "https://ai.google.dev/gemini-api/docs/generate-content/latest-model"
+        }
+      ]
+    },
+    {
+      "roles": ["Reviewer"],
+      "preferOtherProviderThan": ["Lead", "Heavy Worker"],
+      "picks": [
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6 Astra",
+          "effort": "high",
+          "checkedAt": "2026-10-20",
+          "source": "https://www.benchleader.com/best/llm-for-coding"
+        },
+        {
+          "provider": "Anthropic",
+          "model": "Claude Opus 5.5",
+          "effort": "high",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/anthropic/api-pricing"
+        },
+        {
+          "provider": "Google",
+          "model": "Gemini 4 Argon",
+          "effort": "high",
+          "note": "budget",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/google/api-pricing"
+        }
+      ]
+    },
+    {
+      "roles": ["Writer"],
+      "picks": [
+        {
+          "provider": "Google",
+          "model": "Gemini 4 Argon",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://ai.google.dev/gemini-api/docs/generate-content/latest-model"
+        },
+        {
+          "provider": "Google",
+          "model": "Gemini 3.8 Flash",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://ai.google.dev/gemini-api/docs/generate-content/latest-model"
+        },
+        {
+          "provider": "Anthropic",
+          "model": "Claude Sonnet 5.5",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/anthropic/api-pricing"
+        },
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6.1 Sol",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/openai/api-pricing"
+        }
+      ]
+    },
+    {
+      "roles": ["Worker"],
+      "picks": [
+        {
+          "provider": "Anthropic",
+          "model": "Claude Sonnet 5.5",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/anthropic/api-pricing"
+        },
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6.1 Sol",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/openai/api-pricing"
+        },
+        {
+          "provider": "DeepSeek",
+          "model": "DeepSeek V4.1 Flash",
+          "effort": "none",
+          "note": "budget; no effort setting",
+          "checkedAt": "2026-10-20",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+        }
+      ]
+    },
+    {
+      "roles": ["Front Worker"],
+      "picks": [
+        {
+          "provider": "Anthropic",
+          "model": "Claude Opus 5.5",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://www.benchleader.com/best/llm-for-coding"
+        },
+        {
+          "provider": "DeepSeek",
+          "model": "DeepSeek V4.1 Flash",
+          "effort": "none",
+          "note": "budget; no effort setting",
+          "checkedAt": "2026-10-20",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+        },
+        {
+          "provider": "Google",
+          "model": "Gemini 4 Argon",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://ai.google.dev/gemini-api/docs/generate-content/latest-model"
+        },
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6.1 Sol",
+          "effort": "medium",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/openai/api-pricing"
+        }
+      ]
+    },
+    {
+      "roles": ["Web Search"],
+      "picks": [
+        {
+          "provider": "xAI",
+          "model": "Grok 4.7",
+          "effort": "none",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/providers/xai"
+        },
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6.1 Sol",
+          "effort": "low",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/openai/api-pricing"
+        },
+        {
+          "provider": "Google",
+          "model": "Gemini 3.8 Flash",
+          "effort": "low",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/google/api-pricing"
+        },
+        {
+          "provider": "Anthropic",
+          "model": "Claude Sonnet 5.5",
+          "effort": "low",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/anthropic/api-pricing"
+        }
+      ]
+    },
+    {
+      "roles": ["Maintainer"],
+      "note": "The Maintainer also decides turns in group rooms; there is no separate role for that.",
+      "picks": [
+        {
+          "provider": "OpenAI",
+          "model": "GPT-6 Luna",
+          "effort": "low",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/openai/api-pricing"
+        },
+        {
+          "provider": "DeepSeek",
+          "model": "DeepSeek V4.1 Flash",
+          "effort": "none",
+          "note": "no effort setting",
+          "checkedAt": "2026-10-20",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+        },
+        {
+          "provider": "Anthropic",
+          "model": "Claude Haiku 5.5",
+          "effort": "low",
+          "checkedAt": "2026-10-20",
+          "source": "https://benchlm.ai/anthropic/api-pricing"
+        },
+        {
+          "provider": "Zhipu",
+          "model": "GLM-5.3-Flash",
+          "effort": "none",
+          "note": "budget",
+          "checkedAt": "2026-10-20",
+          "source": "https://www.benchleader.com/best/llm-for-coding"
+        }
+      ]
+    }
+  ]
+}

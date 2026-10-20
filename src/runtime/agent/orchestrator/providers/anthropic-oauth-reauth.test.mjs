@@ -32,7 +32,7 @@ function readOauth() {
 function stubFetch(t, handler) {
   const original = globalThis.fetch;
   const calls = [];
-  globalThis.fetch = async (url, init) => {
+  globalThis.fetch = async (_url, init) => {
     calls.push(JSON.parse(init.body));
     return handler(calls.length);
   };
@@ -92,6 +92,13 @@ test('a dead grant marks the account without destroying its tokens', async (t) =
   const status = describeAnthropicOAuthCredentials();
   assert.equal(status.reauthRequired, true);
   assert.equal(status.status, 'Reauth Required');
+});
+
+test('describe reports the stored subscription as plan, null when absent', () => {
+  writeCredentials({ ...expiring(), expiresAt: Date.now() + 3_600_000, subscriptionType: 'max' });
+  assert.equal(describeAnthropicOAuthCredentials().plan, 'max');
+  writeCredentials({ ...expiring(), expiresAt: Date.now() + 3_600_000 });
+  assert.equal(describeAnthropicOAuthCredentials().plan, null);
 });
 
 test('a transient refusal leaves the account unmarked', async (t) => {

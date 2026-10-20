@@ -204,6 +204,7 @@ export function loadTokens() {
       refresh_token: String(raw.refresh_token),
       expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt),
       project_id: String(raw.project_id || raw.projectId || ''),
+      tier_id: String(raw.tier_id || ''),
       email: String(raw.email || ''),
       user_id: String(raw.user_id || raw.userId || ''),
       source: 'own',
@@ -222,6 +223,7 @@ export function saveTokens(tokens) {
       refresh_token: tokens.refresh_token,
       expires_at: tokens.expires_at || 0,
       project_id: tokens.project_id || tokens.projectId || '',
+      tier_id: tokens.tier_id || '',
       email: tokens.email || '',
       user_id: tokens.user_id || tokens.userId || '',
     },
@@ -274,6 +276,7 @@ export function describeAntigravityOAuthCredentials() {
       ...accountIdentityFields({ id: tokens.user_id, email: tokens.email }),
       email: tokens.email || '',
       projectId: tokens.project_id || '',
+      plan: tokens.tier_id || null,
     };
   } catch {
     return credentialsNotSet();
@@ -340,6 +343,7 @@ export function refreshTokens({ fetchFn = fetch } = {}) {
       refresh_token: json.refresh_token || current.refresh_token,
       expires_at: typeof json.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0,
       project_id: current.project_id,
+      tier_id: current.tier_id,
       email: current.email,
       user_id: current.user_id,
     };

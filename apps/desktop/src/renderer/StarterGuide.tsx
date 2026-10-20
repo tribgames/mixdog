@@ -5,13 +5,15 @@
 // once every step is done. Each step opens its screen and runs a spotlight
 // tour over the real controls; a one-time welcome card offers the whole
 // tour in order.
-import { Check, GraduationCap, KeyRound, Smartphone, X, type LucideIcon } from 'lucide-react';
+import { Check, GraduationCap, KeyRound, Smartphone, Star, X, type LucideIcon } from 'lucide-react';
 import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
-import { record, rows } from './record-utils';
+import { requestMixyDialog, setOnboardingActive, useMixyDialogSettled, useMixyStatus } from './mixy-identity';
+import { providerConnected } from './setup-facts';
+import { record } from './record-utils';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { getCachedConnectionInfo } from './settings/connection-info';
 import { useSidebarReferences } from './sidebar-reference-cache';
@@ -23,7 +25,7 @@ import './starter-guide.css';
 const STORAGE_KEY = 'mixdog.desktop.starter-guide.v1';
 const REFERENCE_KEYS = ['providerSetup', 'projects'] as const;
 
-type StepId = 'provider' | 'project' | 'workflow' | 'extensions' | 'remote';
+type StepId = 'provider' | 'project' | 'workflow' | 'extensions' | 'remote' | 'mixy';
 interface GuideState {
   closed: boolean;
   /** The welcome card was answered (tour started or postponed). */
@@ -34,6 +36,8 @@ interface GuideState {
   visited: StepId[];
 }
 
+// Steps a finished tour completes (persisted, mirrored by the IPC gate); the
+// mixy step follows the host's created flag only.
 const STEP_IDS: readonly StepId[] = ['provider', 'project', 'workflow', 'extensions', 'remote'];
 
 function normalizeGuideState(value: unknown): GuideState {
@@ -142,13 +146,6 @@ function toastPosition(pill: HTMLElement | null): CSSProperties {
   return { left: box.left, width: box.width, bottom: window.innerHeight - box.top + 6 };
 }
 
-function providerConnected(setup: unknown): boolean {
-  const value = record(setup);
-  return [...rows(value.api), ...rows(value.oauth)].some(
-    (provider) => provider.usable === true || provider.authenticated === true
-  );
-}
-
 export function StarterGuide({
   descriptors,
   onboardingActive,
@@ -177,7 +174,14 @@ export function StarterGuide({
   const previousDone = useRef<string | null>(null);
   const pillRef = useRef<HTMLElement>(null);
   const listId = useId();
-  const { values, loading } = useSidebarReferences(api, REFERENCE_KEYS, !state.closed);
+  const { values, loading: referencesLoading } = useSidebarReferences(api, REFERENCE_KEYS, !state.closed);
+  // Mixy's status follows the host; it counts as loading until known so an
+  // existing user's done step never announces itself.
+  const mixyCreated = useMixyStatus(api, !state.closed).created;
+  // The welcome comes after the 대표 에이전트 dialog: once Mixy exists or the
+  // dialog was dismissed, never on top of (or under) it.
+  const mixySettled = useMixyDialogSettled() || mixyCreated === true;
+  const loading = referencesLoading || mixyCreated === null;
   const update = (change: (current: GuideState) => GuideState) => setState(persisted(api, change));
   const visit = (step: StepId) => update(markVisited(step));
 
@@ -389,13 +393,28 @@ export function StarterGuide({
         },
       ],
     },
+    {
+      id: 'mixy',
+      label: t('Create representative bot'),
+      hint: t('The representative bot helps with anything, sets up Mixdog and makes other bots.'),
+      doneWhen: t('Done when the representative bot is created.'),
+      icon: viewIcon('agents', Star),
+      // Real state only: the host's created flag (mixy-identity.ts).
+      done: mixyCreated === true,
+      // The Agents page with the 대표 에이전트 dialog open: no tour over it.
+      open: () => {
+        openView('agents');
+        requestMixyDialog();
+      },
+      tour: [],
+    },
   ];
   const startTour = (id: StepId, chain: boolean) => {
     const step = steps.find((entry) => entry.id === id);
     if (!step) return;
     setExpanded(false);
     step.open();
-    setTour({ step: id, chain });
+    if (step.tour.length) setTour({ step: id, chain });
   };
   // Finishing a tour completes its step. A chained tour (from the welcome
   // card) then walks on to the next open step — unless a live control was
@@ -460,7 +479,7 @@ export function StarterGuide({
   // No pill until the real state is known, so it never paints 0 and jumps.
   // A running tour outlives the pill: its last step may be what finishes it.
   const hidden = state.closed || finished || loading || !diskRead;
-  const welcoming = !hidden && !state.welcomed && !onboardingActive && !tour;
+  const welcoming = !hidden && !state.welcomed && !onboardingActive && !tour && mixySettled;
   // The welcome and the tour cover the window: the What's new notice waits for
   // them. Layout phase, so the gate is set before any passive effect looks.
   const coversWindow = (!state.closed && !state.welcomed) || tour !== null;
@@ -468,6 +487,11 @@ export function StarterGuide({
     setStarterGuideBlocking(coversWindow);
     return () => setStarterGuideBlocking(false);
   }, [coversWindow]);
+  // The 대표 에이전트 dialog opens only after the onboarding (mixy-identity.ts).
+  useLayoutEffect(() => {
+    setOnboardingActive(onboardingActive);
+    return () => setOnboardingActive(false);
+  }, [onboardingActive]);
   const answerWelcome = () => update((current) => ({ ...current, welcomed: true }));
   const pill = hidden ? null : (
     <section

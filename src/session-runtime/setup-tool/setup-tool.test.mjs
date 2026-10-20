@@ -313,7 +313,7 @@ test('status providers is minimal by default: configured providers only, account
           { id: 'xai', type: 'api', authenticated: true, status: 'ok', stored: true, url: 'https://x.test' },
         ],
         oauth: [
-          { id: 'anthropic', type: 'oauth', authenticated: true, status: 'ok', expiresAt: 1 },
+          { id: 'anthropic', type: 'oauth', authenticated: true, status: 'ok', expiresAt: 1, plan: 'pro' },
           { id: 'cursor', type: 'oauth', authenticated: false, reauthRequired: true, status: 'expired' },
           { id: 'gemini', type: 'oauth', authenticated: false, status: 'missing' },
         ],
@@ -327,8 +327,16 @@ test('status providers is minimal by default: configured providers only, account
     domain: 'providers',
     providers: [
       { id: 'xai', kind: 'api', authenticated: true, status: 'ok' },
-      { id: 'anthropic', kind: 'oauth', authenticated: true, status: 'ok', accounts: 2 },
-      { id: 'cursor', kind: 'oauth', authenticated: false, status: 'expired', reauthRequired: true, accounts: 0 },
+      { id: 'anthropic', kind: 'oauth', authenticated: true, status: 'ok', plan: 'pro', accounts: 2 },
+      {
+        id: 'cursor',
+        kind: 'oauth',
+        authenticated: false,
+        status: 'expired',
+        plan: null,
+        reauthRequired: true,
+        accounts: 0,
+      },
     ],
     notConfigured: 2,
   });
@@ -364,7 +372,9 @@ function catalogExecutor(rows) {
   const executor = createSetupToolExecutor({
     getApi: () => ({
       listProviderModels: async (options) => (calls.push(['all', options]), rows),
-      listWebSearchModels: async (options) => (calls.push(['web', options]), rows.filter((row) => row.supportsWebSearch)),
+      listWebSearchModels: async (options) => (
+        calls.push(['web', options]), rows.filter((row) => row.supportsWebSearch)
+      ),
     }),
   });
   return { calls, executor };
@@ -405,7 +415,10 @@ test('list_models: provider index, compact paged rows, and single-model detail',
   assert.equal(first.models.length, 25);
   assert.deepEqual(first.models[0], { id: 'm00', display: 'm00 display', context: 200000, efforts: ['low', 'high'] });
   const second = await run(executor, { action: 'list_models', catalog: { provider: 'deepseek', page: 2, limit: 25 } });
-  assert.deepEqual(second.models.map((row) => row.id), ['m25', 'm26', 'm27', 'm28', 'm29']);
+  assert.deepEqual(
+    second.models.map((row) => row.id),
+    ['m25', 'm26', 'm27', 'm28', 'm29']
+  );
   assert.equal(second.nextPage, undefined);
   const small = await run(executor, { action: 'list_models', catalog: { provider: 'deepseek', limit: 10, page: 3 } });
   assert.equal(small.models.length, 10);
@@ -601,12 +614,15 @@ test('remote setup-tool statuses retain desktop ownership and never read or muta
     domain: 'providers',
     managedByClient: true,
     unavailable: false,
-    providers: [{ id: 'openai-oauth', kind: 'oauth', authenticated: true, status: 'Connected' }],
+    providers: [{ id: 'openai-oauth', kind: 'oauth', authenticated: true, status: 'Connected', plan: null }],
     notConfigured: 1,
   });
   const detail = await run(executor, { action: 'status', domain: 'providers', detail: true });
   assert.equal(detail.managedByClient, true);
   assert.equal(detail.oauth[0].accounts, undefined);
   await assert.rejects(run(executor, { action: 'forget_provider_auth', name: 'openai-oauth' }), /local desktop window/);
-  await assert.rejects(run(executor, { action: 'set_provider_account', name: 'openai-oauth', providerAccount: { selectedId: 'x' } }), /local desktop window/);
+  await assert.rejects(
+    run(executor, { action: 'set_provider_account', name: 'openai-oauth', providerAccount: { selectedId: 'x' } }),
+    /local desktop window/
+  );
 });

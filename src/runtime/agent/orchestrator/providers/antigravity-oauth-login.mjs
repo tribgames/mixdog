@@ -218,7 +218,12 @@ async function provisionProject(context, tierId) {
 }
 
 /** Resolve account eligibility and return the project from a fresh status load. */
-export async function discoverProject(
+export async function discoverProject(accessToken, options = {}) {
+  return (await discoverAccount(accessToken, options)).projectId;
+}
+
+/** Project plus the account's tier id (paid tier first), from the same status load. */
+export async function discoverAccount(
   accessToken,
   { fetchFn = fetch, onProgress = null, signal = null, email = '' } = {}
 ) {
@@ -235,7 +240,8 @@ export async function discoverProject(
   const refreshed = await loadProjectState(context);
   const projectId = extractProjectId(refreshed);
   if (!projectId) throw new Error('[antigravity-oauth] loadCodeAssist did not return a cloudaicompanionProject');
-  return projectId;
+  const tierId = refreshed.paidTier?.id || refreshed.currentTier?.id;
+  return { projectId, tierId: typeof tierId === 'string' ? tierId : '' };
 }
 
 export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetch, onProgress = null, signal = null }) {
@@ -267,12 +273,13 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
     throw new Error('[antigravity-oauth] token exchange response missing access_token or refresh_token');
   }
   const { email, userId } = await fetchAccountInfo(json.access_token, { fetchFn, signal });
-  const projectId = await discoverProject(json.access_token, { fetchFn, onProgress, signal, email });
+  const { projectId, tierId } = await discoverAccount(json.access_token, { fetchFn, onProgress, signal, email });
   const tokens = {
     access_token: json.access_token,
     refresh_token: json.refresh_token,
     expires_at: typeof json.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0,
     project_id: projectId,
+    tier_id: tierId,
     email,
     user_id: userId,
   };

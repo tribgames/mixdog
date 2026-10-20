@@ -367,6 +367,7 @@ function oauthAuthFields(p, auth) {
     status: auth.status || (authenticated ? 'Set' : 'Not Set'),
     detail: auth.detail || p.desc,
     expiresAt: auth.expiresAt || null,
+    plan: auth.plan || null,
     usable: auth.usable === true || (auth.usable == null && authenticated),
     refreshable: auth.refreshable === true,
     reauthRequired: auth.reauthRequired === true,
@@ -958,8 +959,8 @@ async function withTimeout(run, ms, label) {
   }
 }
 
-function existingCustomEntry(cfgMod, id) {
-  const entry = cfgMod.loadConfig().providers?.[id];
+function existingCustomEntry(config, id) {
+  const entry = config.providers?.[id];
   if (!isCustomProviderId(id) || !isCustomProviderConfig(entry)) throw new Error(`unknown custom provider "${id}"`);
   return entry;
 }
@@ -1021,16 +1022,15 @@ function withStoredSettings(input, entry) {
   return out;
 }
 
-// Validated, secret-free config for `input`; the key (typed, else stored for an
-// existing provider) is resolved separately and never enters the config.
-async function resolveCustomInput(cfgMod, rawInput, options) {
-  let input = inputObject(rawInput);
-  validateCustomTransportFields(input);
+// Validated, secret-free config for `input` over one config snapshot (the
+// stored entry supplies an edit's omitted settings); the key (typed, else
+// stored for an existing provider) is resolved separately and never enters
+// the config. Synchronous, so a caller can merge and commit one snapshot.
+function customInputAt(snapshot, input, normalizeCustomProviderConfig, options) {
   const id = input.id === undefined ? null : input.id;
-  if (id) input = withStoredSettings(input, existingCustomEntry(cfgMod, id));
-  const { normalizeCustomProviderConfig } = await loadCustomProviderModule();
-  const config = normalizeCustomProviderConfig(input, options);
-  const typed = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
+  const merged = id ? withStoredSettings(input, existingCustomEntry(snapshot, id)) : input;
+  const config = normalizeCustomProviderConfig(merged, options);
+  const typed = typeof merged.apiKey === 'string' ? merged.apiKey.trim() : '';
   const keyless = config.auth === 'none';
   const envName = keyless ? '' : config.apiKeyEnv || '';
   let apiKey = '';
@@ -1039,36 +1039,71 @@ async function resolveCustomInput(cfgMod, rawInput, options) {
   return { id, config, typed: keyless || envName ? '' : typed, apiKey, keyless, envName };
 }
 
+async function resolveCustomInput(cfgMod, rawInput, options) {
+  const input = inputObject(rawInput);
+  validateCustomTransportFields(input);
+  const { normalizeCustomProviderConfig } = await loadCustomProviderModule();
+  return customInputAt(cfgMod.loadConfig(), input, normalizeCustomProviderConfig, options);
+}
+
+function requireCustomKey({ apiKey, keyless, envName }) {
+  if (!keyless && !envName && !apiKey) throw new Error('API key is required');
+}
+
+// One key transaction per provider, from reading the rollback key to the
+// config commit or rollback: a failed save restores the key the preceding
+// save committed and never one a newer save wrote. Settings-only saves and
+// other providers never wait.
+const customKeySaves = new Map();
+
+function serializeCustomKeySave(id, run) {
+  const result = (customKeySaves.get(id) || Promise.resolve()).then(run);
+  const settled = result.then(
+    () => {},
+    () => {}
+  );
+  customKeySaves.set(id, settled);
+  settled.then(() => {
+    if (customKeySaves.get(id) === settled) customKeySaves.delete(id);
+  });
+  return result;
+}
+
 export async function saveCustomProvider(cfgMod, rawInput) {
   requireLocalProviderManagement();
-  const {
-    id: existingId,
-    config,
-    typed,
-    apiKey,
-    keyless,
-    envName,
-  } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
-  if (!keyless && !envName && !apiKey) throw new Error('API key is required');
+  // Early verdict: an invalid save never touches the keychain.
+  const resolved = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
+  requireCustomKey(resolved);
+  const { id: existingId, typed } = resolved;
   const id = existingId || `custom-${randomUUID()}`;
-  const entry = { ...config, type: 'custom', enabled: config.enabled !== false };
-  const account = SECRET_ACCOUNTS.agentApiKey(id);
-  const previousKey = typed && existingId ? getAgentApiKey(id) : null;
-  if (typed) await saveSecretAsync(account, typed);
-  try {
-    const current = cfgMod.loadConfig();
-    cfgMod.saveConfig(
-      { ...current, providers: { ...(current.providers || {}), [id]: entry } },
-      { baseConfig: current }
-    );
-  } catch (error) {
-    if (typed) {
-      if (previousKey) await saveSecretAsync(account, previousKey);
-      else await deleteSecretAsync(account);
+  const { normalizeCustomProviderConfig } = await loadCustomProviderModule();
+  const commit = async () => {
+    const account = SECRET_ACCOUNTS.agentApiKey(id);
+    const previousKey = typed && existingId ? getAgentApiKey(id) : null;
+    if (typed) await saveSecretAsync(account, typed);
+    let entry;
+    try {
+      // Synchronous from here: omitted settings come from the config this
+      // save commits over, so an edit that landed during the awaits above (a
+      // model's visibility, a peer save, a removal) is never reverted.
+      const current = cfgMod.loadConfig();
+      const latest = customInputAt(current, rawInput, normalizeCustomProviderConfig, { requireModels: false });
+      requireCustomKey(latest);
+      entry = { ...latest.config, type: 'custom', enabled: latest.config.enabled !== false };
+      cfgMod.saveConfig(
+        { ...current, providers: { ...(current.providers || {}), [id]: entry } },
+        { baseConfig: current }
+      );
+    } catch (error) {
+      if (typed) {
+        if (previousKey) await saveSecretAsync(account, previousKey);
+        else await deleteSecretAsync(account);
+      }
+      throw error;
     }
-    throw error;
-  }
-  return customProviderRow(id, entry);
+    return customProviderRow(id, entry);
+  };
+  return typed ? serializeCustomKeySave(id, commit) : commit();
 }
 
 const MODEL_PATCH_KEYS = new Set(['manual', 'hidden', 'name', 'contextWindow', 'maxOutputTokens', 'reasoning']);
@@ -1104,7 +1139,7 @@ export async function updateCustomProviderModel(cfgMod, rawId, rawModelId, patch
   // Everything below is synchronous: the provider is read, patched and saved
   // without yielding, so a concurrent update can never be overwritten by a
   // provider object read before the await above.
-  const entry = existingCustomEntry(cfgMod, id);
+  const entry = existingCustomEntry(cfgMod.loadConfig(), id);
   const current = normalizeCustomProviderConfig(entry, { requireModels: false });
   const overrides = new Map(Object.entries(current.modelOverrides || {}));
   if (patch === null) {
@@ -1241,7 +1276,7 @@ function withoutProviderReferences(config, id) {
 export async function removeCustomProvider(cfgMod, rawId) {
   requireLocalProviderManagement();
   const id = String(rawId || '').trim();
-  existingCustomEntry(cfgMod, id);
+  existingCustomEntry(cfgMod.loadConfig(), id);
   // Secret first: a real keychain failure (locked, permission) leaves the
   // provider registered so the removal can be retried. A missing secret
   // (keyless provider) is not an error.

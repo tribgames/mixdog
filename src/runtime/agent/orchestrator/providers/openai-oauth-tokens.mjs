@@ -92,6 +92,15 @@ export function identityFromTokens(...tokens) {
   return normalizeAccountIdentity({ id: [sub, accountId].filter(Boolean).join(':'), email });
 }
 
+/** ChatGPT plan (e.g. plus, pro) from the first token carrying the claim, else null. */
+export function planFromTokens(...tokens) {
+  for (const token of tokens) {
+    const plan = decodeJwtPayload(token)?.['https://api.openai.com/auth']?.chatgpt_plan_type;
+    if (typeof plan === 'string' && plan) return plan;
+  }
+  return null;
+}
+
 /** mtime of the token file, 0 when it is missing or unreadable. */
 export function tokensFileMtimeMs() {
   try {
@@ -165,6 +174,7 @@ export function describeOpenAIOAuthCredentials() {
       ...oauthCredentialStatus({ hasRefresh, expiresAt, detail: source, refreshSkewMs: TOKEN_REFRESH_SKEW_MS }),
       ...accountIdentityFields(tokens.identity),
       ...(accountId ? { accountId } : {}),
+      plan: planFromTokens(tokens.id_token, tokens.access_token),
     };
   } catch (err) {
     return {

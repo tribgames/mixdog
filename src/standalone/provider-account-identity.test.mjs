@@ -84,6 +84,33 @@ test('Antigravity, Grok and Cursor report the identity their stored tokens carry
   assert.deepEqual([c.email, c.identityId], [undefined, 'auth0|user_1']);
 });
 
+test('plan is reported per provider and is null when unknown', async () => {
+  const { planFromTokens } = await import('../runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs');
+  const plus = jwt({ 'https://api.openai.com/auth': { chatgpt_plan_type: 'plus' } });
+  assert.equal(planFromTokens('opaque', plus), 'plus');
+  assert.equal(planFromTokens(jwt({}), 'opaque'), null);
+
+  const openai = newProviderAccountId();
+  await writeAccount('openai-oauth', openai, { access_token: plus, refresh_token: 'r', expires_at: future() });
+  const noPlan = newProviderAccountId();
+  await writeAccount('openai-oauth', noPlan, { access_token: jwt({}), refresh_token: 'r', expires_at: future() });
+  assert.equal(withProviderAccount('openai-oauth', openai, () => describeOpenAIOAuthCredentials()).plan, 'plus');
+  assert.equal(withProviderAccount('openai-oauth', noPlan, () => describeOpenAIOAuthCredentials()).plan, null);
+
+  const tiered = newProviderAccountId();
+  await writeAccount('antigravity-oauth', tiered, {
+    access_token: 'a',
+    refresh_token: 'r',
+    expires_at: future(),
+    tier_id: 'g1-pro-tier',
+  });
+  const untiered = newProviderAccountId();
+  await writeAccount('antigravity-oauth', untiered, { access_token: 'a', refresh_token: 'r', expires_at: future() });
+  const gem = (id) => withProviderAccount('antigravity-oauth', id, () => describeAntigravityOAuthCredentials()).plan;
+  assert.equal(gem(tiered), 'g1-pro-tier');
+  assert.equal(gem(untiered), null);
+});
+
 function mockAnthropicExchange(t, { uuid, email, access }) {
   t.mock.method(
     globalThis,

@@ -102,6 +102,7 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
         'usagePinned',
         'usageRailShortLong',
         'computerObserveOnly',
+        'browserAutoSignIn',
       ].includes(key) ||
       typeof value !== 'boolean'
     ) {
