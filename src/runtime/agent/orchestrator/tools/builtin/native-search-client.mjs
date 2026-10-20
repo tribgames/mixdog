@@ -8,7 +8,8 @@
 //
 // MIXDOG_SEARCH_SERVER=0 disables; MIXDOG_SEARCH_SERVER_BIN overrides the
 // executable.
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path';
 import { bindChildLifecycle, createNativeSearchTransport } from './native-search-transport.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
@@ -254,6 +255,32 @@ export async function shutdownNativeSearchServer(reason = 'process-exit', timeou
 
 export { bindChildLifecycle as _bindNativeSearchServerLifecycle };
 
+// Inventories persisted before search roots were canonicalized (see
+// canonicalPath) can hold another spelling of a folder's files under the
+// folder's canonical key; loading one would keep serving every file twice.
+// Drop that snapshot once per data dir, before a server of this process loads
+// it. The marker records that the remaining snapshot was written by servers
+// that only ever saw canonical roots.
+const INVENTORY_SNAPSHOT_FILE = 'file-inventories-v1.bin';
+const CANONICAL_ROOTS_MARKER = 'file-inventories-v1.canonical-roots';
+let _inventorySnapshotChecked = false;
+
+function dropAliasSpelledInventorySnapshot() {
+  if (_inventorySnapshotChecked) return;
+  _inventorySnapshotChecked = true;
+  const dir = join(getPluginData(), 'search-index');
+  const marker = join(dir, CANONICAL_ROOTS_MARKER);
+  if (existsSync(marker)) return;
+  try {
+    rmSync(join(dir, INVENTORY_SNAPSHOT_FILE), { force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(marker, '');
+  } catch {
+    // A snapshot that cannot be removed now (held open by another server) is
+    // retried by the next process; search itself does not depend on it.
+  }
+}
+
 function _ensureServer() {
   if (_server) return _server;
   if (
@@ -261,6 +288,7 @@ function _ensureServer() {
     Date.now() - _lastFailureAt < RESTART_BACKOFF_MS
   )
     return null;
+  dropAliasSpelledInventorySnapshot();
   let transport;
   try {
     transport = createNativeSearchTransport({
@@ -633,15 +661,93 @@ function consumedDeadline(response, deadlineMs) {
   );
 }
 
+// The server walks a root as the request spells it, but its file-change
+// updates carry the resolved path. Any other spelling of the same folder —
+// letter case on Windows, a junction or symlink, a `..` segment — therefore
+// listed every file twice (one copy per spelling). Roots are resolved once,
+// here, so the first walk, later updates and the inventory key agree.
+function canonicalPath(path) {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
+// One positional operand resolved against the canonical cwd. An operand that
+// is already canonical is sent unchanged. An exact file that is itself a
+// symlink keeps its own name: --glob/--type filter the name the caller asked
+// for. `file` tells restoreOperandSpelling how the server prints the operand.
+function canonicalOperand(cwd, operand) {
+  const joined = isAbsolute(operand) ? operand : `${cwd}${sep}${operand}`;
+  let canonical;
+  let file;
+  try {
+    file = statSync(joined).isFile();
+    canonical =
+      file && lstatSync(joined).isSymbolicLink()
+        ? join(realpathSync.native(dirname(joined)), basename(joined))
+        : realpathSync.native(joined);
+  } catch {
+    return null;
+  }
+  if (canonical === (isAbsolute(operand) ? operand : resolvePath(cwd, operand))) return null;
+  // The server prints results with `/` when the operand only uses `/`.
+  const sent = operand.includes('/') && !operand.includes('\\') ? canonical.replaceAll('\\', '/') : canonical;
+  if (sent === operand) return null;
+  // A directory is printed with its trailing separators trimmed.
+  const printed = (path) => (file ? path : path.replace(/[\\/]+$/, ''));
+  return { sent, from: printed(sent), to: printed(operand), file };
+}
+
+// Canonical cwd and operands for a search request, plus the operands whose
+// spelling restoreOperandSpelling puts back into the result lines. Positional
+// operands follow the last `--` (search-builders emits it before them; a `--`
+// pattern is always an `-e` value before it).
+function canonicalSearchRequest(cwd, argsList) {
+  const root = canonicalPath(cwd);
+  const args = argsList.map(String);
+  const remaps = [];
+  const operandsAt = args.lastIndexOf('--') + 1;
+  if (operandsAt > 0) {
+    for (let i = operandsAt; i < args.length; i += 1) {
+      const remap = canonicalOperand(root, args[i]);
+      if (!remap) continue;
+      args[i] = remap.sent;
+      remaps.push(remap);
+    }
+  }
+  remaps.sort((a, b) => b.from.length - a.from.length);
+  return { cwd: root, args, remaps };
+}
+
+// Results under a canonicalized operand are printed by the server as
+// `<operand><sep><relative>` (a directory) or as the operand itself followed
+// by `:`/`-` fields (an exact file); show them under the caller's spelling.
+function restoreOperandSpelling(lines, remaps) {
+  if (remaps.length === 0) return lines;
+  return lines.map((line) => {
+    if (typeof line !== 'string') return line;
+    for (const { from, to, file } of remaps) {
+      if (!line.startsWith(from)) continue;
+      const rest = line.slice(from.length);
+      if (rest !== '' && !(file ? /^[:-]/ : /^[\\/]/).test(rest)) continue;
+      return `${to}${rest}`;
+    }
+    return line;
+  });
+}
+
 /** Returns a runRgWindowedLines-shaped result, or null when the native server
  *  is disabled or the response carries no line list. */
 export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   if (searchServerDisabled()) return null;
   const deadlineMs = callerDeadlineMs(execOptions, REQUEST_TIMEOUT_MS);
+  const canonical = canonicalSearchRequest(String(execOptions.cwd || process.cwd()), argsList);
   const buildRequest = (server, remaining) => ({
     id: ++server.sequence,
-    cwd: String(execOptions.cwd || process.cwd()),
-    args: argsList.map(String),
+    cwd: canonical.cwd,
+    args: [...canonical.args],
     offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
     limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Math.floor(Number(opts.limit)) : 0,
     deadlineMs: softDeadlineMs(remaining),
@@ -701,7 +807,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     ? response.walkErrorDetails.map(String).slice(0, 8)
     : [];
   return {
-    lines: response.lines,
+    lines: restoreOperandSpelling(response.lines, canonical.remaps),
     complete: response.complete === true,
     totalSeen: Math.max(0, Math.floor(Number(response.totalSeen) || 0)),
     partial: response.partial === true,
@@ -731,7 +837,8 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
   const response = await requestNativeWithRestart(
     (server, remaining) => ({
       id: ++server.sequence,
-      cwd: String(args?.cwd || execOptions.cwd || process.cwd()),
+      // Matches are relative to cwd, so only the root needs canonicalizing.
+      cwd: canonicalPath(String(args?.cwd || execOptions.cwd || process.cwd())),
       fuzzy: String(args?.query || ''),
       limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
       hidden: args?.hidden !== false,
@@ -813,4 +920,5 @@ export function _resetNativeSearchClientForTest() {
   _binaryResolveStarted = false;
   _warmPromise = null;
   _lastTimeoutRecycleAt = 0;
+  _inventorySnapshotChecked = false;
 }
