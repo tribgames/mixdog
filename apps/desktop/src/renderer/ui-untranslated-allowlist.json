@@ -1,6 +1,14 @@
 {
   "terms": {
     "--argument": "CLI flag",
+    "Corgi": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
+    "Husky": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
+    "Labrador": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
+    "Shiba": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
+    "Terrier": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
+    "Webhook": "web standard term most locales keep in Latin script (the routine-result label)",
+    "Bot": "loanword most Latin-script locales keep as is (agent-mode contacts)",
+    "Bots": "loanword most Latin-script locales keep as is (agent-mode contacts)",
     "MCP_BEARER_TOKEN": "environment variable name",
     "VARIABLE_NAME": "environment variable placeholder",
     "MY_API_KEY": "environment variable name placeholder",
@@ -86,7 +94,9 @@
     ", Col": "editor status column abbreviation fragment",
     "Auto": "effort-tier name kept in English by design",
     "Worktree": "established Git CLI and feature term",
-    "v{{value0}} / {{value1}}": "version counter, placeholders only"
+    "v{{value0}} / {{value1}}": "version counter, placeholders only",
+    "name@gmail.com": "literal input placeholder for Gmail address",
+    "xxxx xxxx xxxx xxxx": "literal input placeholder for app password"
   },
   "localeExceptions": {
     "de": {
@@ -172,6 +182,7 @@
       "Web": "same spelling in German"
     },
     "es": {
+      "Collar": "same spelling in Spanish (avatar accessory)",
       "1 error": "same spelling in Spanish",
       "Workflow": "established software term in Spanish UI",
       "Webhooks": "established web term in Spanish UI",
