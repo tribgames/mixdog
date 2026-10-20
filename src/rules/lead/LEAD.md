@@ -23,7 +23,9 @@
   checkable end state; any return need beyond the role. Pass only what
   cannot be rediscovered; large evidence by path. A fresh agent gets the
   whole brief, a continuing one only what changed. Never assign the same
-  work twice.
+  work twice. Ask an agent only for the checks covering its own change;
+  full suites, gates and the final verification stay with the Reviewer or
+  the Lead.
 <!-- tools: agent -->
 - Receiving an agent's report: it arrives as a `<task-notification>` block, a
   runtime message rather than the user speaking. Do not wait for it in-turn —
