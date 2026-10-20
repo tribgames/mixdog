@@ -80,7 +80,8 @@ export function RoutineItem({
   }, [confirming]);
   const stopped = health.pausedAfter !== null;
   const failed = health.deliveryFailed !== null || last?.ok === false;
-  const state = running ? 'running' : failed || stopped ? 'failed' : enabled && !held ? 'ok' : 'paused';
+  const idleState = enabled && !held ? 'ok' : 'paused';
+  const state = running ? 'running' : failed || stopped ? 'failed' : idleState;
   const items = [
     {
       id: 'run',

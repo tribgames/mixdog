@@ -281,9 +281,12 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const lead = room.members.includes(MIXY_AGENT_ID) ? await mixyName() : '';
     for (const id of room.members) {
       const row = rows.find((entry) => entry.id === id);
-      const name = id === MIXY_AGENT_ID ? lead : row ? agentName(row) : (names.get(id) ?? id);
+      const isLead = id === MIXY_AGENT_ID;
+      const rowName = row ? agentName(row) : (names.get(id) ?? id);
+      const name = isLead ? lead : rowName;
       if (row) names.set(id, name);
-      const description = id === MIXY_AGENT_ID ? "The user's main assistant." : row ? agentDescription(row) : '';
+      const rowDescription = row ? agentDescription(row) : '';
+      const description = isLead ? "The user's main assistant." : rowDescription;
       labels.set(id, { id, name, route: row?.route, description });
     }
     return labels;
@@ -637,10 +640,10 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const parts = typeof prompt === 'string' ? [] : prompt.filter((part) => part.type !== 'text');
     const pastedImages = Object.keys(pasted.pastedImages ?? {}).length ? pasted.pastedImages : undefined;
     const pastedTexts = Object.keys(pasted.pastedTexts ?? {}).length ? pasted.pastedTexts : undefined;
-    const upload =
-      parts.length || pastedImages || pastedTexts
-        ? { parts, ...(pastedImages ? { pastedImages } : {}), ...(pastedTexts ? { pastedTexts } : {}) }
-        : null;
+    const hasUpload = parts.length || pastedImages || pastedTexts;
+    const upload = hasUpload
+      ? { parts, ...(pastedImages ? { pastedImages } : {}), ...(pastedTexts ? { pastedTexts } : {}) }
+      : null;
     if (!parsed.text && !upload) throw new Error('Write a message to send.');
     const row: RoomRow = {
       // The submission id is the row's id, so the sender's pending bubble

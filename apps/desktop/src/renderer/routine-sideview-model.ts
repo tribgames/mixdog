@@ -84,7 +84,11 @@ export function sortByNextRun(list: readonly RecordValue[]): RecordValue[] {
     if (pa !== routinePaused(b)) return pa ? 1 : -1;
     const na = next(a);
     const nb = next(b);
-    if (na !== nb) return na === null ? 1 : nb === null ? -1 : na - nb;
+    if (na !== nb) {
+      if (na === null) return 1;
+      if (nb === null) return -1;
+      return na - nb;
+    }
     return byName(a, b);
   });
 }

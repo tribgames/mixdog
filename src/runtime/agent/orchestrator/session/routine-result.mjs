@@ -229,7 +229,8 @@ export function routineResultNotice(message) {
   const name = String(routine.name || '');
   const failed = routine.status === 'failed';
   const summary = String(routine.summary || '');
-  const detail = failed ? `Failed${summary ? `: ${summary}` : ''}` : summary;
+  const failure = summary ? `Failed: ${summary}` : 'Failed';
+  const detail = failed ? failure : summary;
   return {
     text: `${webhook ? '🔗 Webhook' : '⏱ Schedule'} · ${name}${detail ? ` — ${detail}` : ''}`,
     // 'warn', not 'error': an error-tone row reads as the thread's own turn
@@ -259,6 +260,7 @@ export function routineRunNotice({ kind = 'schedule', name, runId, state, ok = t
   const webhook = kind === 'webhook';
   const running = state === 'running';
   const label = `${webhook ? '🔗 Webhook' : '⏱ Schedule'} · ${name}`;
+  const finished = ok ? 'completed' : 'failed';
   return {
     text: `${label} — ${running ? 'running…' : 'result not delivered'}`,
     tone: running ? 'info' : 'warn',
@@ -266,7 +268,7 @@ export function routineRunNotice({ kind = 'schedule', name, runId, state, ok = t
     routine: {
       ...(webhook ? { kind: 'webhook' } : {}),
       name,
-      status: running ? 'running' : ok ? 'completed' : 'failed',
+      status: running ? 'running' : finished,
       runId,
       ...(runSessionId ? { runSessionId } : {}),
       ...(running ? {} : { delivery: 'failed' }),

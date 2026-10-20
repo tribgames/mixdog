@@ -48,9 +48,8 @@ async function mcpAnnotations(name, scopeId) {
   try {
     const { getMcpTools } = await import('../../mcp/client.mjs');
     const tool = getMcpTools(scopeId || undefined).find((entry) => entry.name === name);
-    return tool
-      ? { ...(tool.annotations || {}), ...(tool.mcpToolName ? { mcpToolName: tool.mcpToolName } : {}) }
-      : undefined;
+    if (!tool) return undefined;
+    return { ...(tool.annotations || {}), ...(tool.mcpToolName ? { mcpToolName: tool.mcpToolName } : {}) };
   } catch {
     return undefined;
   }
@@ -156,9 +155,8 @@ export async function humanGateDecision(call, decision, ctx = {}) {
 export async function recordHumanDecision(gate, approval, { store } = {}) {
   if (!gate) return;
   const target = store || (await humanGateStore());
-  const decision = approval?.timedOut
-    ? 'timeout'
-    : approval?.response || (approval?.approved === true ? 'approve' : 'deny');
+  let decision = approval?.response || (approval?.approved === true ? 'approve' : 'deny');
+  if (approval?.timedOut) decision = 'timeout';
   const device = typeof approval?.device === 'string' ? approval.device : '';
   if (approval?.approved === true && gate.action) {
     await target.grant({ agentId: gate.agentId, action: gate.action, scope: approval.remember, device });
