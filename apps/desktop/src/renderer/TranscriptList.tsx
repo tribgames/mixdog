@@ -49,7 +49,8 @@ type TranscriptListProps = {
   /** Who paints the rows: an agent chat's rows learn their heights apart. */
   surface?: TranscriptRowSurface;
   /** The follow hook's pause: an agent reply taller than the viewport that
-   *  arrived whole opens at its first line, and follow lets go there. */
+   *  arrived whole opens at its first line, and follow lets go there.
+   *  Without it follow cannot let go, so the end pin always keeps the end. */
   pauseFollow?: () => void;
 };
 

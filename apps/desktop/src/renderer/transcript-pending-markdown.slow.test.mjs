@@ -183,6 +183,9 @@ test('pending completed replies stay invisible and never move the followed tail 
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  // A slow machine splits the parse landings across separate pin steps; a
+  // fast one hid a tail stranded by the last of them.
+  await page.emulateCPUThrottling(4);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.stack.split('\n').slice(0, 4).join(' <- ')));
   await page.setViewport({ width: 700, height: 700 });

@@ -32,7 +32,7 @@ const reply = {
 
 let mounts = 0;
 
-async function mountTranscript({ surface }) {
+async function mountTranscript({ surface, canPause = true }) {
   mounts += 1;
   const mountKey = `${SESSION}-${mounts}`;
   const heights = new Map();
@@ -133,7 +133,7 @@ async function mountTranscript({ surface }) {
         shouldAnchorBottom: following,
         scrollToEndRef: { current: () => {} },
         setAnchorBottomRef,
-        pauseFollow,
+        pauseFollow: canPause ? pauseFollow : undefined,
         renderRow: (row) => (heights.get(row.key) ? React.createElement('div', null, row.key) : null),
         markProgrammaticScroll: () => {},
         hasScrollGesture: () => false,
@@ -199,8 +199,8 @@ async function mountTranscript({ surface }) {
   return { render, scrollUp, reattach, submit, startOf, maxTop, top: () => top, pauses, cleanup };
 }
 
-async function withList(surface, body) {
-  const list = await mountTranscript({ surface });
+async function withList(surface, body, options = {}) {
+  const list = await mountTranscript({ surface, ...options });
   try {
     await list.render(history);
     assert.equal(list.top(), list.maxTop(), 'opens pinned to the end');
@@ -243,6 +243,20 @@ test('agent: a hidden unfinished reply that completes lands at its first line', 
     assert.equal(list.top(), list.startOf(reply.key) - GAP);
     assert.equal(list.pauses.length, 1);
   });
+});
+
+// Landing on the first line comes with follow letting go. A list that cannot
+// let go must not park its followed viewport there: nothing re-pins it.
+test('a list without a follow pause keeps a whole reply at the end', async () => {
+  await withList(
+    'coding',
+    async (list) => {
+      await list.render([...history, prompt, reply], { [reply.key]: 1200 });
+      assert.equal(list.top(), list.maxTop(), 'the followed tail stays at the end');
+      assert.equal(list.pauses.length, 0);
+    },
+    { canPause: false }
+  );
 });
 
 test('agent: a reply that fits keeps the end pin', async () => {

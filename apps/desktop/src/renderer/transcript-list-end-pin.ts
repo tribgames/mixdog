@@ -67,7 +67,11 @@ export function useTranscriptEndPin({
           markProgrammaticScrollRef.current?.(top, intended);
         },
         dropDeviation: () => deviation.drop(),
-        takeArrival: (max) => wholeReply.take(max),
+        // Landing on a reply's first line is only half of the rule: follow
+        // has to let go there. A list that cannot release follow keeps the
+        // end — a followed viewport parked on an arrival is stranded above
+        // the tail with nothing left to re-pin it.
+        takeArrival: (max) => (pauseFollowRef.current ? wholeReply.take(max) : null),
         onArrival: () => pauseFollowRef.current?.(),
       }),
     [
