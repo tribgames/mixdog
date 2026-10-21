@@ -868,7 +868,7 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
     actEnvironment: false,
   });
   const calls = { interactive: [], focusInput: [] };
-  let showView = () => {};
+  let showView = null;
   const noop = () => {};
   dom.window.mixdogPet = {
     onView: (listener) => {
@@ -894,7 +894,11 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
   // A fresh module instance: this test mounts its own overlay page.
   await import(`./desktop-pet-main.tsx?cutouts=${Date.now()}`);
   const $ = (selector) => dom.document.querySelector(selector);
-  for (let wait = 0; wait < 100 && !$('.skin-companion-pet'); wait += 1) await new Promise((r) => setTimeout(r, 10));
+  // The page subscribes to its view in an effect, after the first paint: wait for that too,
+  // or a view sent earlier is lost on a slow runner.
+  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !showView); wait += 1)
+    await new Promise((r) => setTimeout(r, 10));
+  assert.ok(showView, 'the page subscribed to its view');
   const html = dom.document.documentElement;
   const view = {
     sessionId: 's1',

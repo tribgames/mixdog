@@ -277,6 +277,16 @@ jobs:
               "-c.win.azureSignOptions.publisherName=$env:AZURE_PUBLISHER_NAME"
             )
             $signed = 'true'
+            # Install the signing module once, up front: electron-builder's own
+            # install runs per file, in parallel and non-interactively, and left
+            # Invoke-TrustedSigning missing for every file.
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module -Name TrustedSigning -Scope CurrentUser -Force -Repository PSGallery
+            Import-Module TrustedSigning
+            if (-not (Get-Command Invoke-TrustedSigning -ErrorAction SilentlyContinue)) {
+              Write-Output '::error title=Windows signing unavailable::The TrustedSigning module did not install.'
+              exit 1
+            }
           } elseif ($present -eq 0) {
             Write-Output '::warning title=Unsigned Windows installer::Artifact Signing is not configured; packaging an unsigned installer.'
           } else {
