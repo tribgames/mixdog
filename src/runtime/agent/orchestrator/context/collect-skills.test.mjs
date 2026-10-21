@@ -604,14 +604,19 @@ test('a quiet watched skill root is not re-walked, and an edit to it is picked u
   try {
     for (let i = 0; i < 20; i += 1) write(`watched-${i}`, `Skill ${i}.`);
     assert.equal(describe('watched-3'), 'Skill 3.');
-    // The first parse itself may surface as watcher activity (file access
-    // notifications on some filesystems); one settled re-validation absorbs it.
-    await turn();
-    describe('watched-3');
-    await turn();
-    skillStats = 0;
-    assert.equal(describe('watched-3'), 'Skill 3.');
-    assert.equal(skillStats, 0, 'a quiet watched root reuses its last walk');
+    // The writes and the first parse may still surface as watcher activity
+    // (macOS FSEvents delivers late, in batches); each event re-walks once.
+    // Once the watcher has gone quiet, a read reuses the last walk.
+    let quiet = false;
+    for (let i = 0; i < 50 && !quiet; i += 1) {
+      await turn();
+      describe('watched-3');
+      await turn();
+      skillStats = 0;
+      assert.equal(describe('watched-3'), 'Skill 3.');
+      quiet = skillStats === 0;
+    }
+    assert.ok(quiet, 'a quiet watched root reuses its last walk');
 
     // An edit made after the cache settled reaches the next read once the
     // watcher reports it (no explicit invalidation).

@@ -579,6 +579,10 @@ export async function renderPortableOoxml(path, output, { signal = null } = {}) 
   });
   if (!result.ok) throw new Error(result.error);
   const generated = convertedOutputPath(outputDir, path, 'pdf');
+  // LibreOffice can exit 0 without writing anything (a missing or unreadable source).
+  if (!(await producedFileSize(generated))) {
+    throw new Error(`LibreOffice produced no PDF from ${path}; the file may be missing, damaged or password-protected.`);
+  }
   if (generated !== output) await rename(generated, output);
   return output;
 }
