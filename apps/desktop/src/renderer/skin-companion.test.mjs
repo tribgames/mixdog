@@ -921,8 +921,11 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
   const css = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
   assert.match(css, /#root \{[^}]*clip-path: var\(--pet-clip, none\);/);
   const rootNode = dom.document.getElementById('root');
+  // The reply bubble mounts once the view has been applied; a slow runner may need a few more turns.
+  for (let wait = 0; wait < 100 && !$('.skin-companion-bubble'); wait += 1) await new Promise((r) => setTimeout(r, 10));
   const bot = $('.skin-companion-pet');
   const bubble = $('.skin-companion-bubble');
+  assert.ok(bot && bubble, 'the sprite and the reply bubble are drawn');
   assert.ok(rootNode.contains(bot) && rootNode.contains(bubble));
   // A tooltip over the sprite (228–284 × 244–300), the model menu over the bubble, and a popover overlapping the tooltip.
   const tooltip = { x: 240, y: 250, width: 30, height: 30 };
