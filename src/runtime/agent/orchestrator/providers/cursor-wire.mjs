@@ -40,8 +40,10 @@ import {
   textContent,
 } from './cursor-wire-request.mjs';
 import { handleExecMessage, heartbeatFrame, sendToolResult } from './cursor-wire-exec.mjs';
+import { releaseCursorNativeCall } from './cursor-native-context.mjs';
 import { completionChunk, createStreamSink } from './cursor-wire-stream-sink.mjs';
 import { createBridgeController } from './cursor-wire-stream-bridge.mjs';
+import { markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import { TRANSPORT_SCOPE_DISPOSED } from './transport-scope.mjs';
 
 export { clearModelCache, getCursorModels, getCursorUsage } from './cursor-wire-models.mjs';
@@ -70,16 +72,22 @@ function storeActiveRun(key, active) {
   activeRuns.set(key, active);
 }
 
-// Tear down one stored run: drop it from the registry, stop its 5s heartbeat
-// interval, and close the Cursor bridge it was holding open.
-function closeActiveRun(key, active, error) {
-  if (!forgetActiveRun(key, active)) return false;
+function disposeActiveRun(active, error) {
   clearInterval(active.heartbeat);
+  for (const pending of active.pending) releaseCursorNativeCall(pending);
+  active.pending = [];
   try {
     active.bridge.close(error);
   } catch {
     /* already closing */
   }
+}
+
+// Tear down one stored run: drop it from the registry, stop its 5s heartbeat
+// interval, and close the Cursor bridge it was holding open.
+function closeActiveRun(key, active, error) {
+  if (!forgetActiveRun(key, active)) return false;
+  disposeActiveRun(active, error);
   return true;
 }
 
@@ -457,6 +465,25 @@ function resumeRun(active, toolResults, userText, model, key) {
       userTextDelivered = true;
     }
     sendToolResult(active.bridge, pending, payload, result.isError !== true);
+  }
+  // Every pending call was already handed to the executor. Re-emitting the
+  // same batch without accepting a result makes the transcript rename its
+  // ids, breaks native authorization, and can loop without another model call.
+  // Partial progress is valid; an unchanged pending batch is a terminal
+  // handoff failure, not a transport retry or an invitation to execute again.
+  if (remaining.length > 0 && remaining.length === active.pending.length) {
+    const error = markProviderRecoveryExhausted(
+      cursorError(
+        `Cursor tool-result handoff made no progress: ${remaining.length} pending call(s) received no matching result. Stopped to avoid repeating tool execution.`,
+        { status: 400, code: 'tool_result_no_progress' }
+      ),
+      { owner: 'cursor-wire', terminal: true }
+    );
+    // handleChatCompletion already detached this run; direct partial-batch
+    // resumes may still own its registry entry and expiry timer.
+    forgetActiveRun(key, active);
+    disposeActiveRun(active, error);
+    throw error;
   }
   active.pending = remaining;
   active.pendingUserText = userTextDelivered ? '' : pendingUserText;

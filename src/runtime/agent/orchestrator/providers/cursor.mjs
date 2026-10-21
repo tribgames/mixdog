@@ -35,7 +35,10 @@ async function loadCursorRuntime() {
 function toCursorMessages(messages, providerName, { nativePdf } = {}) {
   const output = [];
   for (const message of messages || []) {
-    const converted = toOpenAIMessages([message], providerName, { nativePdf });
+    // This is a local envelope over Cursor's execution protocol, not an
+    // OpenAI request. Its pending executions and native capabilities require
+    // the exact original id, including ids longer than OpenAI's 40-char cap.
+    const converted = toOpenAIMessages([message], providerName, { nativePdf, preserveToolCallIds: true });
     if (message?.role !== 'tool') {
       output.push(...converted);
       continue;

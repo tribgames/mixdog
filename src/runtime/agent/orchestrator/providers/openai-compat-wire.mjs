@@ -40,7 +40,8 @@ export function resolveCompatMaxOutputTokens(opts = {}) {
 }
 
 export function toOpenAIMessages(transcript, providerName, options = {}) {
-  const messages = withWireToolCallIds(transcript, OPENAI_CHAT_TOOL_CALL_IDS);
+  const messages =
+    options.preserveToolCallIds === true ? transcript : withWireToolCallIds(transcript, OPENAI_CHAT_TOOL_CALL_IDS);
   // NOTE: chat.completions has no equivalent slot for replaying reasoning
   // encrypted_content the way the Responses API does (no `type:'reasoning'`
   // input item). Whatever reasoningItems may be attached to assistant

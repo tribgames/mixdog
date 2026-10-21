@@ -66,6 +66,10 @@ const NOT_SEND_OPTIONS = new Map([
   ['openai-compat-wire.mjs::cacheControl', 'toOpenAIMessages internal options built by the adapter'],
   ['openai-compat-wire.mjs::nativeDeferredTools', 'toOpenAIMessages internal options built by the adapter'],
   ['openai-compat-wire.mjs::developerRole', 'toOpenAIMessages internal options built by the adapter'],
+  [
+    'openai-compat-wire.mjs::preserveToolCallIds',
+    'toOpenAIMessages internal option set by the Cursor adapter, not a provider send option',
+  ],
   ['openai-compat-wire.mjs::reasoningShape', 'toOpenAIMessages internal options built by the adapter'],
   [
     'wire-gateway.mjs::messagesEffortProjection',
