@@ -27,12 +27,34 @@
  * messages BP, which also handles tool_result accumulation and per-call
  * task/event data while isolating volatile text from stable prefix BPs.
  *
- * Non-breakpoint providers:
- *   - OpenAI (public): prompt_cache_key plus model-specific retention when
- *     response storage is enabled (30m cache options or 24h retention).
- *   - OpenAI OAuth: prompt_cache_key only; the Codex backend keeps the
- *     prompt cache at least 30 minutes on GPT-5.6+ models, refreshed on use
- *     (the openai-oauth auto-clear window matches it)
+ * Lead class vs agent class: the Lead class is every Lead session — a coding
+ * Lead (incl. a task session a bot creates with `session create`, which is a
+ * coding Lead with agent 'lead'), raw/CLI callers without an agent, and every
+ * agent-mode Lead (a bot's home thread `sess_home_*` incl. Mixy and routine
+ * turns in it, a room member session, a schedule/webhook run). Sub-agents a
+ * Lead or home thread spawns (owner:'agent') and hidden roles are the agent
+ * class (isLeadCacheClass).
+ *
+ * OpenAI caching (https://developers.openai.com/api/docs/guides/prompt-caching,
+ * checked 2026-10-21):
+ *   - OpenAI (public API key): prompt_cache_key plus model-specific lifetime
+ *     when response storage is enabled. GPT-5.6+ Responses take
+ *     prompt_cache_options.ttl: "30m" (default, writes 1.25x input) or "12h"
+ *     (writes 2.5x); reads 0.1x (0.05x on GPT-6.1 Sol) either way. Earlier
+ *     models keep prompt_cache_retention '24h' on the extended-retention list.
+ *     The request ttl is "30m" (moving tail); Lead-class sessions add one
+ *     explicit "12h" breakpoint at the end of the stable prefix (tools +
+ *     instructions + environment developer item; top-level instructions
+ *     cannot carry a breakpoint). Break-even: the 12h write costs
+ *     (2.5-1.25)=1.25x the prefix once per 12h window, every gap > 30m saves
+ *     a 1.25x rewrite for a 0.1x read (1.15x), so it pays from ~1.09 long gaps
+ *     per 12h — an hourly routine or a returning user pays it back many times;
+ *     a short sub-agent never sees one, so agents stay on "30m".
+ *   - OpenAI OAuth (Codex/ChatGPT login): prompt_cache_key only, request body
+ *     unchanged. Since 2026-10-20 OpenAI keeps the cache of logged-in Codex
+ *     users indefinitely ("we keep cache forever … guaranteed to hit the
+ *     cache", https://x.com/thsottiaux/status/2112712984644784534), so the
+ *     tail never expires: no cache-driven idle clear or compaction.
  *   - Gemini: provider-managed explicit cachedContents with 5m default TTL, plus
  *     implicit caching as a fallback when the prefix is below cache minimums.
  *   - xAI: conversation routing for chat; Responses omits prompt_cache_key
@@ -46,6 +68,8 @@
 import { createHash } from 'node:crypto';
 import { stableHashStringify } from '../stable-hash-stringify.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
+import { isAgentOwner } from '../agent-owner.mjs';
+import { isAgentModeSession } from '../session/agent-mode.mjs';
 import { cleanString } from '../../../shared/clean.mjs';
 import { nonNegativeInt, positiveInt } from '../../../shared/numbers.mjs';
 
@@ -61,6 +85,20 @@ function isOneShotMaintenanceAgent(agent) {
   const hidden = getHiddenAgent(agent);
   // Shipped one-shot maintenance roles declare toolSchemaProfile:'none'.
   return Boolean(hidden && hidden.kind === 'maintenance' && hidden.toolSchemaProfile === 'none');
+}
+
+/**
+ * Whether a session gets the Lead cache class (see the header): the Lead,
+ * raw callers without an agent, and agent-mode Leads (a bot's home thread,
+ * a room member session, a schedule/webhook run) whose `agent` is the bot's
+ * id. `session` is the record or create options (`id`, `owner`,
+ * `sessionMode`, `ownerAgentId`); a delegated sub-agent (owner:'agent') and
+ * hidden roles are always the agent class.
+ */
+export function isLeadCacheClass(agent, session = null) {
+  if (getHiddenAgent(agent) || (session && isAgentOwner(session))) return false;
+  if (!agent || agent === 'lead') return true;
+  return Boolean(session) && isAgentModeSession(session);
 }
 
 /**
@@ -94,7 +132,9 @@ export function resolveLeadMessagesTtl(autoClear) {
  * warm window survives per-session gaps. The volatile message tail (BP4) is
  * per-session.
  *
- * Lead sessions are linked to the user's autoClear idle-sweep config (see
+ * Lead-class sessions (isLeadCacheClass — incl. bot home threads, whose
+ * hourly routine turns otherwise re-wrote the whole chat on a 5m tail) are
+ * linked to the user's autoClear idle-sweep config (see
  * resolveLeadMessagesTtl); its Anthropic default is 1h, while explicit
  * shorter overrides retain the shorter-sweep behavior. The 2026-07-16 6.8h
  * trace supports the 1h Lead tail: 24/25 Lead intra-session gaps over 5m were
@@ -109,8 +149,10 @@ export function resolveLeadMessagesTtl(autoClear) {
  * shouldCompactForExpiredAgentCache), so the cold request rewrites the
  * compacted transcript instead of the whole accumulated tail. Replayed agent
  * cost vs a 1h tail: -24.6% with that compaction, +2.7% without it.
- * (Tail TTL only affects explicit-breakpoint providers — Anthropic; no-op
- * elsewhere.)
+ * (These tiers only drive explicit-breakpoint providers — Anthropic. OpenAI's
+ * lifetimes are resolveOpenAiPrefixCacheTtl / providerTailCacheLifetimeMs;
+ * the 5m-vs-1h reasoning does not apply to openai-oauth, whose cache does
+ * not expire.)
  *
  * Exception: one-shot LLM-only maintenance roles are asked once on a fresh
  * session and closed, so their per-call message tail is never read back and
@@ -120,7 +162,7 @@ export function resolveLeadMessagesTtl(autoClear) {
  * Anthropic's minimum cacheable length is simply not written, so the marker
  * costs nothing there.
  */
-export function resolveCacheStrategy(agent, { autoClear } = {}) {
+export function resolveCacheStrategy(agent, { autoClear, session = null } = {}) {
   if (isOneShotMaintenanceAgent(agent)) {
     return { tools: 'none', system: '1h', tier3: '1h', messages: 'none' };
   }
@@ -137,16 +179,58 @@ export function resolveCacheStrategy(agent, { autoClear } = {}) {
     }
     return strategy;
   };
-  if (getHiddenAgent(agent) || (agent && agent !== 'lead')) {
-    // Hidden and public agents use a flat 5m tail that pre-send compaction
-    // rebuilds once it expires — only the Lead session's tail is linked to
-    // autoClear.
+  if (!isLeadCacheClass(agent, session)) {
+    // Hidden roles and sub-agents use a flat 5m tail that pre-send
+    // compaction rebuilds once it expires — only Lead-class tails are linked
+    // to autoClear.
     return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: '5m' });
   }
-  // Lead session (agent === 'lead', or no agent — raw/CLI callers default
-  // to Lead behavior): message tail TTL is linked to autoClear (see
+  // Lead class (Lead, raw/CLI callers, bot home threads and other
+  // agent-mode Leads): message tail TTL is linked to autoClear (see
   // resolveLeadMessagesTtl).
   return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: resolveLeadMessagesTtl(autoClear) });
+}
+
+// OpenAI public API, GPT-5.6+ Responses: the moving tail rides the request
+// ttl "30m"; Lead-class sessions pin their stable prefix with one "12h"
+// breakpoint (header: break-even). Earlier models' typical retention is
+// ~30 min as well.
+export const OPENAI_TAIL_CACHE_TTL = '30m';
+export const OPENAI_LEAD_PREFIX_CACHE_TTL = '12h';
+const ANTHROPIC_TAIL_LIFETIME_MS = Object.freeze({ '5m': 5 * 60_000, '1h': 60 * 60_000 });
+const OPENAI_TAIL_LIFETIME_MS = 30 * 60_000;
+
+/** The OpenAI (API key) stable-prefix TTL for a session: '12h' for the Lead
+ *  class, null (request default "30m" only) for sub-agents and hidden roles. */
+export function resolveOpenAiPrefixCacheTtl(agent, session = null) {
+  return isLeadCacheClass(agent, session) ? OPENAI_LEAD_PREFIX_CACHE_TTL : null;
+}
+
+/**
+ * Single source of truth for how long a session's message-tail cache stays
+ * readable, per provider, in ms. null = no expiring tail to act on: the cache
+ * does not expire (openai-oauth — logged-in Codex cache is kept indefinitely),
+ * or the provider exposes no tail lifetime. Any "compact or clear because the
+ * tail cache expired" rule must read this.
+ *   - openai-oauth → null (permanent; never compact for cache reasons)
+ *   - openai       → 30m (request ttl "30m"; the Lead's 12h prefix survives)
+ *   - Anthropic    → the session cacheStrategy.messages tier (5m / 1h)
+ */
+export function providerTailCacheLifetimeMs(provider, cacheStrategy = null) {
+  const key = cleanString(provider).toLowerCase();
+  if (key === 'openai-oauth') return null;
+  if (key === 'openai') return OPENAI_TAIL_LIFETIME_MS;
+  if (cacheCapabilityForProvider(key) === 'explicit-breakpoint') {
+    return ANTHROPIC_TAIL_LIFETIME_MS[cacheStrategy?.messages] ?? null;
+  }
+  return null;
+}
+
+/** Whether `session`'s message tail expired since its last model call. */
+export function sessionTailCacheExpired(session, now = Date.now()) {
+  const lifetime = providerTailCacheLifetimeMs(session?.provider, session?.providerCacheOpts?.cacheStrategy);
+  const lastSendAt = Number(session?.lastProviderSendAt);
+  return lifetime !== null && lastSendAt > 0 && now - lastSendAt > lifetime;
 }
 
 // Provider cache capability kinds:
@@ -482,22 +566,26 @@ function oneShotPromptCacheOpts(agent) {
 
 /**
  * Cache send options for a role's requests on `provider`: the breakpoint
- * strategy on explicit-breakpoint providers plus the one-shot shared scope.
- * Session and session-less callers use this one resolution.
+ * strategy on explicit-breakpoint providers, the Lead-class 12h prefix TTL on
+ * the OpenAI public API, plus the one-shot shared scope. Session and
+ * session-less callers use this one resolution; `options.session` (record or
+ * create options) classifies agent-mode Leads such as bot home threads.
  */
 export function roleProviderCacheOpts(provider, agent, options = {}) {
-  if (cacheCapabilityForProvider(provider) !== 'explicit-breakpoint') return oneShotPromptCacheOpts(agent);
   return buildProviderCacheOpts(provider, null, agent, options);
 }
 
 export function buildProviderCacheOpts(provider, _sessionId, agent, options = {}) {
-  const ttls = resolveCacheStrategy(agent, options);
   const capability = cacheCapabilityForProvider(provider);
-  if (capability === 'explicit-breakpoint') {
-    // 2026-03-06 Anthropic dropped default TTL 1h→5m. We request 1h via
-    // cache_control ttl:"1h"; no beta header is required.
-    // Verified 2026-04-17 (ephemeral_1h_input_tokens=4722).
-    return { cacheStrategy: ttls, ...oneShotPromptCacheOpts(agent) };
+  if (provider === 'openai') {
+    // Read by applyOpenAIDirectCachePolicy (GPT-5.6+ Responses only).
+    const prefixTtl = resolveOpenAiPrefixCacheTtl(agent, options.session);
+    const opts = { ...(prefixTtl ? { promptCachePrefixTtl: prefixTtl } : {}), ...oneShotPromptCacheOpts(agent) };
+    return Object.keys(opts).length ? opts : null;
   }
-  return {};
+  if (capability !== 'explicit-breakpoint') return oneShotPromptCacheOpts(agent);
+  // 2026-03-06 Anthropic dropped default TTL 1h→5m. We request 1h via
+  // cache_control ttl:"1h"; no beta header is required.
+  // Verified 2026-04-17 (ephemeral_1h_input_tokens=4722).
+  return { cacheStrategy: resolveCacheStrategy(agent, options), ...oneShotPromptCacheOpts(agent) };
 }

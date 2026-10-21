@@ -10,8 +10,9 @@ import { applyUsageDelta } from './session-stats.mjs';
 import {
   createTranscriptRouteMetadata,
   transcriptRouteMetadataFields,
+  transcriptSourceFields,
 } from '../../runtime/shared/transcript-metadata.mjs';
-import { publishModelSwitch } from './session-api/routes.mjs';
+import { publishModelSwitch, publishSessionSwitches } from './session-api/routes.mjs';
 import { compactEventLabel } from '../../runtime/shared/compact-event-label.mjs';
 import { pickVerb, pickDoneVerb, compactEventDetail } from './labels.mjs';
 import { isCancelLikeError } from '../../runtime/shared/err-text.mjs';
@@ -203,7 +204,7 @@ export function commitPromptRestore(flags, turn) {
   restore.content = null;
 }
 
-function steeringItemExtras(steeringMeta) {
+export function steeringItemExtras(steeringMeta) {
   return {
     // The steered message's stable id, so a compaction that drops it greys
     // this row.
@@ -218,12 +219,7 @@ function steeringItemExtras(steeringMeta) {
       ? { execution: steeringMeta.execution }
       : {}),
     ...(Array.isArray(steeringMeta?.images) && steeringMeta.images.length ? { images: steeringMeta.images } : {}),
-    ...(typeof steeringMeta?.transcriptMeta?.sender === 'string' && steeringMeta.transcriptMeta.sender
-      ? { sender: steeringMeta.transcriptMeta.sender }
-      : {}),
-    ...(typeof steeringMeta?.transcriptMeta?.device === 'string' && steeringMeta.transcriptMeta.device
-      ? { device: steeringMeta.transcriptMeta.device }
-      : {}),
+    ...transcriptSourceFields(steeringMeta?.transcriptMeta),
   };
 }
 
@@ -232,7 +228,7 @@ function steeringItemExtras(steeringMeta) {
 // first (including a streamed tail that never got a trailing '\n') so the
 // steered user turn and the next assistant response do not merge into one
 // bubble and the tail is not dropped when the injection races finalization.
-function injectSteerMessage({ stream, cards, pushUserOrSyntheticItem }, text, steeringMeta = {}) {
+export function injectSteerMessage({ stream, cards, pushUserOrSyntheticItem }, text, steeringMeta = {}) {
   // A suppressed live-completion twin is model-visible only; its Response
   // card was already pushed at delivery time.
   if (text === STEERING_SUPPRESSED_DISPLAY) return;
@@ -295,7 +291,7 @@ async function approveToolRequest(ctx, request) {
 // contextStatus path instead of competing with its provider-aligned value.
 function publishContextPressure({ syncContextStats, getState, set }, info) {
   if (info?.willCompact !== true) return;
-  const used = Math.max(0, Number(info?.usedTokens) || 0);
+  const used = Math.max(0, Number(info.usedTokens) || 0);
   if (!used) return;
   syncContextStats({ allowEstimated: true });
   set({ stats: { ...getState().stats } });
@@ -425,10 +421,18 @@ export function toolHandlers(ctx) {
       // state parked on screen until the next model event arrives.
       set({ spinner: { ...spinner, mode: 'requesting' } });
     },
-    onToolApproval: async (request) => {
-      if (!isCurrentTurn()) return { approved: false, reason: 'turn no longer active' };
-      return approveToolRequest(ctx, request);
-    },
+    onToolApproval: Object.assign(
+      async (request) => {
+        if (!isCurrentTurn()) return { approved: false, reason: 'turn no longer active' };
+        return approveToolRequest(ctx, request);
+      },
+      {
+        // A word to the person after their answer (e.g. an always-allow that could not be saved).
+        // A transcript notice of THIS session: the desktop's toast region draws only the
+        // host-level snapshot's toasts, while the pane that asked reads its own session lane.
+        notice: (text, tone = 'warn') => ctx.pushNotice?.(text, tone, { transcript: true }),
+      }
+    ),
   };
 }
 
@@ -768,6 +772,10 @@ export function createRunTurn(bag) {
         onModelSwitch: (boundary) => {
           if (!isCurrentTurn()) return;
           publishModelSwitch(bag, boundary);
+        },
+        onSessionSwitches: (switches) => {
+          if (!isCurrentTurn()) return;
+          publishSessionSwitches(bag, switches);
         },
       });
       if (!isCurrentTurn()) turn.cancelled = true;

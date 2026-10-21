@@ -43,12 +43,15 @@ test('a model route selection carries the per-route autoEffort boolean like fast
   assert.throws(() => requiredModelSelection({ ...base, autoEffort: 'off' }), /autoEffort must be a boolean/);
 });
 
-test('a single-model selection stays strict: fallbacks are rejected', () => {
+test('a selection carries the Lead fallback chain: leaf selections only', () => {
   const base = { provider: 'openai', model: 'gpt-test', effort: 'high' };
-  assert.throws(() => requiredModelSelection({ ...base, fallbacks: [] }), /unsupported field/);
+  const chain = { ...base, fallbacks: [{ provider: 'anthropic', model: 'claude-test' }] };
+  assert.deepEqual(requiredModelSelection(chain), chain);
+  assert.deepEqual(requiredModelSelection({ ...base, fallbacks: [] }), { ...base, fallbacks: [] });
+  assert.throws(() => requiredModelSelection({ ...base, fallbacks: 'x' }), /fallbacks must be an array/);
   assert.throws(
-    () => requiredModelSelection({ ...base, fallbacks: [{ provider: 'anthropic', model: 'claude-test' }] }),
-    /unsupported field/
+    () => requiredModelSelection({ ...base, fallbacks: [{ provider: 'a', model: 'b', fallbacks: [] }] }),
+    /leaf selections/
   );
 });
 
@@ -156,6 +159,24 @@ test('Local Provider and Code Tidy lifecycle requests pass the desktop IPC bound
       args: ['tidy'],
     }
   );
+  assert.deepEqual(
+    requiredDesktopCapabilityRequest({
+      capability: 'installBuiltinFeature',
+      args: ['tidy', { engines: ['ruff'] }],
+    }).args,
+    ['tidy', { engines: ['ruff'] }]
+  );
+  for (const args of [
+    ['tidy', {}],
+    ['tidy', { engines: [] }],
+    ['tidy', { engines: ['../x'] }],
+    ['office', { engines: ['ruff'] }],
+  ]) {
+    assert.throws(
+      () => requiredDesktopCapabilityRequest({ capability: 'installBuiltinFeature', args }),
+      /engines:\[ids\] for tidy/
+    );
+  }
   assert.deepEqual(
     requiredDesktopCapabilityRequest({
       capability: 'setBuiltinToolEnabled',

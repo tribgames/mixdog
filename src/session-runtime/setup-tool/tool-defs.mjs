@@ -6,6 +6,7 @@ import {
 } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
+import { AUTO_EFFORT_BASES } from '../../runtime/agent/orchestrator/providers/auto-effort.mjs';
 import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
 import { CONNECTOR_IDS } from '../../runtime/shared/connector-catalog.mjs';
 
@@ -83,6 +84,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_recap_enabled: 'enabled',
   set_web_search_enabled: 'enabled',
   set_instruction_files: 'instructionFiles',
+  set_auto_effort_base: 'autoEffortBase',
   set_builtin_enabled: 'name enabled',
   install_builtin: 'name',
   install_local_model: 'modelId',
@@ -160,7 +162,8 @@ const ROUTE_SCHEMA = {
 
 ROUTE_SCHEMA.properties.fallbacks = {
   type: 'array',
-  description: 'Agent and Web Search routes only: ordered fallback models; [] clears the list.',
+  description:
+    'Lead (set_route), agent (bots included) and Web Search routes only: ordered fallback models tried when the model hits its usage limit or is unavailable; [] clears the list.',
   items: {
     type: 'object',
     additionalProperties: false,
@@ -224,8 +227,16 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           additionalProperties: false,
           properties: {
             enabled: { type: 'boolean' },
-            duration: { type: 'string', description: 'Idle window such as "45m" or "2h"; minimum 1m.' },
-            provider: { type: 'string', description: 'Scope the duration to one provider.' },
+            duration: {
+              type: 'string',
+              description:
+                'Idle window such as "45m" or "2h" (minimum 1m), or "unlimited"/"never" to stop idle clearing. Without provider, "unlimited" applies to the current route provider.',
+            },
+            provider: {
+              type: 'string',
+              description:
+                'Scope the duration to one provider; "default" is the fallback for providers without a built-in window.',
+            },
             reset: { type: 'boolean', description: 'Restore the global idle duration default.' },
             resetProvider: { type: 'boolean', description: 'Restore the given provider idle duration default.' },
             minContextPercent: { type: 'number', minimum: 0, maximum: 100 },
@@ -250,6 +261,12 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           enum: [...INSTRUCTION_FILES_MODES],
           description:
             "set_instruction_files: which user instruction files new sessions load (global ~/.codex/AGENTS.md, ~/.claude/CLAUDE.md, then the Project root's AGENTS.md/CLAUDE.md).",
+        },
+        autoEffortBase: {
+          type: 'string',
+          enum: [...AUTO_EFFORT_BASES],
+          description:
+            "set_auto_effort_base: the reasoning effort Auto works around (global; default medium). Auto moves one step down to two steps up from it, within the model's supported efforts.",
         },
         name: {
           type: 'string',

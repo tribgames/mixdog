@@ -238,16 +238,15 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="M17 14.5l.4 1.1 1.1.4-1.1.4-.4 1.1-.4-1.1-1.1-.4 1.1-.4Z" {...SOLID} />
         </>
       );
-    // Visualize: a side panel beside the chat column showing a picture.
+    // Visualize: an artboard with a pointer on it (same concept as VisualizeIcon).
     case 'visualize':
       return (
         <>
-          <rect x="3" y="4.5" width="18" height="15" rx="2.5" {...PLATE} />
-          <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
-          <path d="M9.5 4.5v15" />
-          <path d="M5.25 8.5h2M5.25 11h2M5.25 13.5h2" />
-          <circle cx="13.5" cy="9.5" r="1.25" {...SOLID} />
-          <path d="m11.5 16.5 2.5-2.75 1.75 1.75 1.5-1.5 1.75 2.5Z" {...SOLID} />
+          <rect x="3" y="3.5" width="14" height="13" rx="2" {...PLATE} />
+          <rect x="3" y="3.5" width="14" height="13" rx="2" />
+          <path d="M7 8.5h6M7 11.5h3" />
+          <path d="M12.5 12.5 21 15.6l-3.6 1.5-1.5 3.6Z" {...PLATE} />
+          <path d="M12.5 12.5 21 15.6l-3.6 1.5-1.5 3.6Z" />
         </>
       );
     // Generic skill: a full-frame hexagon module with a sparkle. The old flat

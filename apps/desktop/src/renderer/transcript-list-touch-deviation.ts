@@ -1,37 +1,69 @@
 import { type MutableRefObject, type RefObject, useEffect, useMemo } from 'react';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 
-/** Measured-size corrections held while a touch scroll owns the viewport.
+/** Measured-size corrections held while a wheel ramp or a touch scroll owns
+ *  the viewport.
  *
- *  A scrollTop write during a native touch fling cuts the fling short, and the
- *  offset the fling and the list each believe in drift apart until the next
- *  touch reconciles them in one jump toward older rows (Android: 위로 빠르게
- *  넘기면 멈추고, 다시 터치하면 훨씬 위로 순간이동). While the touch latch is
- *  open, a correction moves the row space instead (a translateY of the
- *  spacer): the reader's rows stay put and the native offset is never written.
- *  The logical offset is the native one plus the held amount. Once the touch
- *  scroll is over, the held amount lands as one scroll write in the same task
- *  that drops the row offset. */
+ *  A scrollTop write while Chromium animates a wheel scroll cancels the
+ *  animation. Under a touch fling it cancels the fling on iOS, and on an
+ *  Android phone it desyncs the fling from the page until the next touch
+ *  reconciles them in one jump (use-follow-touch). While the scroll lasts, a
+ *  correction moves the row space instead (a translateY of the spacer): the
+ *  reader's rows stay put and the native offset is never written. The
+ *  logical offset is the native one plus the held amount. Once the scroll is
+ *  over, the held amount lands as one scroll write in the same task that
+ *  drops the row offset.
+ *
+ *  A positive hold leaves the native offset short of the logical one: history
+ *  landed above the reader is unreachable while it stands, and a fling toward
+ *  it stopped at native 0 (phone: 긴 세션에 다시 들어가 위로 넘기면 중간에 멈추고
+ *  튄다). While `clampAtEdge` (a touch scroll owns the hold) the hold
+ *  therefore lands early, as the same one write, once the native offset
+ *  reaches the top or the logical offset does, and a landing there is never
+ *  held: the narrowest exception, only for a reader really at the top. A
+ *  wheel ramp's hold has no edge: it ends within a gesture window anyway.
+ *
+ *  A rubber-band overscroll (iOS) puts the native offset outside [0, max];
+ *  a landing then waits for the bounce to settle. */
 export type TouchScrollDeviation = {
   /** Logical offset minus the native scrollTop. */
   amount(): number;
-  /** Holds a logical target as a row offset; false when no touch scroll owns
-   *  the viewport and the caller must write it natively. */
+  /** Holds a logical target as a row offset; false when no held scroll owns
+   *  the viewport (or the target is at the top edge) and the caller must
+   *  write it natively. */
   hold(target: number): boolean;
+  /** Lands the hold now if the viewport reached the top edge (each scroll). */
+  landAtEdge(): void;
   /** A native write that lands a logical target directly supersedes the hold. */
   drop(): void;
   cancel(): void;
 };
 
+/** At the top, natively or logically: a hold must not stand. */
+function atTopEdge(native: number, logical: number): boolean {
+  return native <= TOP_EDGE_PX || logical <= 0;
+}
+
+const TOP_EDGE_PX = 1;
+
+/** Overscrolled past either end (a rubber band still bouncing). */
+function overscrolled(element: HTMLDivElement): boolean {
+  const native = element.scrollTop;
+  return native < 0 || native > element.scrollHeight - element.clientHeight + TOP_EDGE_PX;
+}
+
 export function createTouchScrollDeviation({
   getViewport,
   getSpacer,
   hasTouchScroll,
+  clampAtEdge,
   markProgrammaticScroll,
 }: {
   getViewport(): HTMLDivElement | null;
   getSpacer(): HTMLDivElement | null;
   hasTouchScroll(): boolean;
+  /** The hold belongs to a touch scroll: it lands early at the top edge. */
+  clampAtEdge(): boolean;
   markProgrammaticScroll(top: number, intended: number): void;
 }): TouchScrollDeviation {
   let amount = 0;
@@ -47,14 +79,10 @@ export function createTouchScrollDeviation({
     // native end on the lifted rows' end.
     space.style.marginBottom = amount > 0 ? `${-amount}px` : '';
   };
-  const settle = () => {
-    frame = 0;
-    if (!amount) return;
-    if (hasTouchScroll()) {
-      frame = window.requestAnimationFrame(settle);
-      return;
-    }
+  /** False (nothing written) while the viewport is overscrolled. */
+  const land = (): boolean => {
     const element = getViewport();
+    if (element && overscrolled(element)) return false;
     const held = amount;
     // The native offset is read while the row offset still stands: a held
     // negative amount extends the scrollable overflow, and dropping it first
@@ -62,25 +90,40 @@ export function createTouchScrollDeviation({
     const before = element ? element.scrollTop : 0;
     amount = 0;
     paint();
-    if (!element) return;
-    const target = before + held;
+    if (!element) return true;
+    const target = Math.max(0, before + held);
     element.scrollTop = target;
     const landed = element.scrollTop;
     if (transcriptScrollDiagnosticsEnabled()) {
       logTranscriptScroll('touch-hold-settle', { from: before, to: landed, held });
     }
     markProgrammaticScroll(landed, target);
+    return true;
+  };
+  const settle = () => {
+    frame = 0;
+    if (!amount) return;
+    if (hasTouchScroll() || !land()) frame = window.requestAnimationFrame(settle);
   };
   return {
     amount: () => amount,
     hold(target) {
       const element = getViewport();
       if (!element || !hasTouchScroll()) return false;
-      const next = target - element.scrollTop;
+      const native = element.scrollTop;
+      if (clampAtEdge() && atTopEdge(native, target)) return false;
+      const next = target - native;
       amount = Math.abs(next) < 0.5 ? 0 : next;
       paint();
       if (amount && !frame) frame = window.requestAnimationFrame(settle);
       return true;
+    },
+    landAtEdge() {
+      if (!amount || !clampAtEdge()) return;
+      const element = getViewport();
+      if (!element) return;
+      const native = element.scrollTop;
+      if (atTopEdge(native, native + amount)) land();
     },
     drop() {
       if (!amount) return;
@@ -98,12 +141,14 @@ export function useTouchScrollDeviation({
   viewport,
   spacer,
   hasTouchScrollRef,
+  touchHoldsRef,
   domTop,
   markProgrammaticScrollRef,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   spacer: RefObject<HTMLDivElement | null>;
   hasTouchScrollRef: MutableRefObject<() => boolean>;
+  touchHoldsRef: MutableRefObject<() => boolean>;
   domTop: MutableRefObject<number | null>;
   markProgrammaticScrollRef: MutableRefObject<((top: number, intended?: number) => void) | undefined>;
 }): TouchScrollDeviation {
@@ -113,12 +158,13 @@ export function useTouchScrollDeviation({
         getViewport: () => viewport.current,
         getSpacer: () => spacer.current,
         hasTouchScroll: () => hasTouchScrollRef.current(),
+        clampAtEdge: () => touchHoldsRef.current(),
         markProgrammaticScroll: (top, intended) => {
           domTop.current = top;
           markProgrammaticScrollRef.current?.(top, intended);
         },
       }),
-    [viewport, spacer, hasTouchScrollRef, domTop, markProgrammaticScrollRef]
+    [viewport, spacer, hasTouchScrollRef, touchHoldsRef, domTop, markProgrammaticScrollRef]
   );
   useEffect(() => () => deviation.cancel(), [deviation]);
   return deviation;

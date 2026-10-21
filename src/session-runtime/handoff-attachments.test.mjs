@@ -344,6 +344,9 @@ function taskApi(h, stored = new Map()) {
     modelRoute: async (ref) => ({ provider: 'test', model: ref }),
     leadRoute: async () => ({ provider: 'p', model: 'm' }),
     lastUsedRoute: async () => null,
+    // A task turn's end is its final answer at once here (no agent work, no quiet period).
+    pendingWork: async () => false,
+    settleMs: 0,
     log: () => {},
   });
   return { api, delivered };

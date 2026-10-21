@@ -306,7 +306,10 @@ test('a closed session’s unconfirmed shells stay listed until their records re
     rmSync(join(dir, `${orphan}.owner-${process.pid}`));
     status = await shellJobsStatusFresh({ clientHostPid: process.pid });
     assert.equal(status.count, 1);
-    assert.deepEqual(status.orphaned.map((job) => job.taskId), [survivor]);
+    assert.deepEqual(
+      status.orphaned.map((job) => job.taskId),
+      [survivor]
+    );
 
     // Completion is authoritative even if the last record still names a pid.
     writeFileSync(join(dir, `${survivor}.done`), '');

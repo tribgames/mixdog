@@ -421,15 +421,17 @@ function attachChildExit(run, releasePromotedCapture) {
   child.once('exit', (code, signal) => {
     if (!run.rootExitAtMs) run.rootExitAtMs = Date.now();
     const grace = setTimeout(() => {
-      if (run.settled) return;
+      if (run.settled || run.promotionClose) return;
+      run.partialOutput = true;
       if (run.autoBackgrounded) {
         // A promoted child whose 'close' never arrives (grandchild holding
         // the stdio) would otherwise keep its spill descriptors forever:
-        // 'exit' is the only terminal event this path gets.
+        // 'exit' is the only terminal event this path gets. A promotion that
+        // is still pending and then fails settles the run with it.
+        run.promotionClose = [code == null ? 1 : code, signal];
         releasePromotedCapture();
         return;
       }
-      run.partialOutput = true;
       run.settle(code == null ? 1 : code, signal);
     }, 3000);
     if (grace.unref) grace.unref();

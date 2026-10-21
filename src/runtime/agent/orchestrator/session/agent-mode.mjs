@@ -51,12 +51,6 @@ export function sessionModeOf(session) {
   return resolveSessionMode({ session }).mode;
 }
 
-/** A schedule or webhook run (a routine): no user is present in it. */
-export function isRoutineSource(sourceType) {
-  const kind = String(sourceType || '').toLowerCase();
-  return kind === 'schedule' || kind === 'webhook';
-}
-
 export function isAgentModeSession(session) {
   return sessionModeOf(session) === AGENT_MODE;
 }

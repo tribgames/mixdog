@@ -1,120 +1,35 @@
-import { Bot, ChevronRight, Globe, Layers3, Plus } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronRight, Plus } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
-import type { DesktopApi, DesktopModelOption, DesktopModelSelection } from '../shared/contract';
+import type { DesktopApi } from '../shared/contract';
 import { t } from './i18n';
-import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
-import type { Snapshot } from './desktop-types';
 import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
-import { preferredModelEffort, routeOption } from './model-route-utils';
-import { showDesktopToast } from './notifications';
-import {
-  ModelRouteLabel,
-  ProviderIcon,
-  modelDisplayName,
-  normalizeModelOptions,
-  routeDaybreakBlue,
-} from './provider-display';
-import { WORKFLOW_AGENT_KIND } from '../../../../src/runtime/shared/agent-route-config.mjs';
-import { isContactAgentRow } from '../shared/agent-contacts';
-import { record } from './record-utils';
-import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
-import { SidebarLoadingDialog } from './sidebar-dialog';
-import { useSidebarPanelDismiss } from './sidebar-panel-surface';
-import { SidebarResourceTitle } from './sidebar-resource-row';
+import { routeOption } from './model-route-utils';
+import { normalizeModelOptions } from './provider-display';
+import { ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { useSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
-import { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog, type RouteEditorTarget } from './workflow-dialogs';
 import type { RecordValue } from './desktop-types';
+import {
+  AgentRouteRow,
+  AgentRouteSummaryView,
+  AgentRowIcon,
+  agentRosterOf,
+  agentRouteSummary,
+  type AgentSummary,
+  ownRoute,
+} from './workflows-agent-rows';
+import { useWorkflowEditors, WorkflowEditorDialogs } from './workflows-editors';
+import { useLeadMainRoute } from './workflows-main-route';
+import { WorkRulesSection } from './workflows-work-rules';
+
+export { leadFallbacksOf, leadRouteFrom } from './workflows-main-route';
 
 type WorkflowsApi = Partial<
   Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'getSnapshot' | 'setModelRoute'>
 >;
-
-type AgentRouteSummary = {
-  model: string;
-  effort: string;
-  fast: boolean;
-  ultra: boolean;
-  blue: boolean;
-  effortLabel: string;
-  autoEffortCapable: boolean;
-  autoEffort: boolean;
-};
-
-/** Web Search never runs per-call Auto reasoning: an explicit route sends its
- *  stored effort, and the default route inherits Main's effective effort. So
- *  its row never claims Auto, and the default marker says it follows Main. */
-function agentRouteSummary(
-  route: RecordValue,
-  models: DesktopModelOption[],
-  { webSearch = false }: { webSearch?: boolean } = {}
-): AgentRouteSummary {
-  const provider = String(route.provider || '');
-  const model = String(route.model || '');
-  const selected = models.find((entry) => entry.provider === provider && entry.model === model);
-  // Every row reads the same way (user: 웹검색만 왜 다르게 취급하냐): a row
-  // with no model — Web Search's default marker or an empty route — says
-  // "Default", and a set model shows its name.
-  const pinned = model !== '' && !(provider === 'default' && model === 'default');
-  const modelLabel = pinned
-    ? modelDisplayName(model, provider, selected?.display || '')
-    : webSearch
-      ? t('Follows Main')
-      : 'Default';
-  const effortValue = String(route.effort || preferredModelEffort(selected) || '');
-  const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);
-  const rawEffortLabel = effortOption?.label || effortValue;
-  const fastCapable = selected?.fastCapable === true || typeof route.fast === 'boolean';
-  const fast = typeof route.fast === 'boolean' ? route.fast : selected?.fastPreferred === true;
-  return {
-    model: modelLabel,
-    effort: effortValue,
-    fast: fastCapable && fast,
-    ultra: fastCapable && fast && record(route.modelParameters).serviceTier === 'ultrafast',
-    blue:
-      pinned &&
-      routeDaybreakBlue(record(route.modelParameters) as Record<string, string>, selected?.modelParameterOptions),
-    effortLabel: rawEffortLabel,
-    autoEffortCapable: !webSearch && selected?.autoEffortCapable === true,
-    autoEffort: !webSearch && route.autoEffort !== false,
-  };
-}
-
-/** The row's leading mark: the brand of the model it runs on, so flat rows
- *  part at a glance (user: 각각이 분리되어 보이지 않는데). A route with no
- *  pinned model — off, or following Main — shows the row's own glyph. */
-function AgentRowIcon({ route, fallback = 'agent' }: { route: RecordValue; fallback?: 'agent' | 'web' }) {
-  const provider = String(route.provider || '');
-  const pinned = provider !== '' && provider !== 'default' && String(route.model || '') !== '';
-  let mark = <Bot size={16} />;
-  if (pinned) mark = <ProviderIcon provider={provider} width={16} height={16} />;
-  else if (fallback === 'web') mark = <Globe size={16} />;
-  return (
-    <span className="sidebar-resource-icon" aria-hidden="true">
-      {mark}
-    </span>
-  );
-}
-
-function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
-  return (
-    <small className="agent-route-summary route-trigger-copy">
-      <ModelRouteLabel
-        model={summary.model}
-        effort={summary.effort}
-        fast={summary.fast}
-        ultra={summary.ultra}
-        blue={summary.blue}
-        effortLabel={summary.effortLabel}
-        autoEffortCapable={summary.autoEffortCapable}
-        autoEffort={summary.autoEffort}
-      />
-    </small>
-  );
-}
 
 // Agents have exactly two states: a pinned model, or off. "Follows Main" is
 // reserved for Web Search, whose row keeps its own default marker route.
@@ -122,22 +37,6 @@ function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
 // explore) or a background cycle (maintainer), so they carry a model route but
 // no editable definition and never appear in a workflow's agent subset.
 const DEFAULT_AGENT_IDS = new Set(['maintainer', 'explore']);
-
-/** The agent's own route. The catalog's `route` falls back to Main, so a role
- *  the user never set would otherwise read (and save) as pinned to Main. */
-function ownRoute(row: RecordValue | undefined): RecordValue {
-  return row?.routeConfigured === true ? record(row.route) : {};
-}
-
-interface AgentSummary {
-  id: string;
-  label: string;
-  description: string;
-  custom: boolean;
-  userOverride: boolean;
-  /** A bot (agent-mode contact), listed on the Bots page instead. */
-  contact: boolean;
-}
 
 // listWorkflows/listAgents/quickProviderModels are the same shared snapshots
 // Schedules and Webhooks read, so entering this panel costs nothing extra.
@@ -164,98 +63,12 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     completeMutation,
     toastScope: 'workflow',
   });
-  const [editor, setEditor] = useState<{ pack: RecordValue | null; deletable: boolean; armDelete?: boolean } | null>(
-    null
-  );
-  const [agentEditor, setAgentEditor] = useState<{
-    agent: RecordValue | null;
-    deletable: boolean;
-    armDelete?: boolean;
-  } | null>(null);
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
-  // The Lead's model is the Main route: what a new coding session starts on.
-  // Nothing is stored here; it is read from, and written back to, the host.
-  const [mainRoute, setMainRoute] = useState<RecordValue>({});
-  useEffect(() => {
-    if (!active || !api?.getSnapshot) return;
-    let live = true;
-    void api
-      .getSnapshot()
-      .then((snapshot) => {
-        if (live) setMainRoute({ ...draftModelSelectionFromSnapshot(snapshot as unknown as Snapshot) });
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [active, api]);
-  const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
-  const [loadingEditor, setLoadingEditor] = useState<{ kind: 'workflow' | 'agent'; title: string } | null>(null);
-  const detailRequestRef = useRef(0);
-  // Both editors portal to document.body, outside the sidebar's inert box:
-  // deactivating the panel closes them and disarms pending deletions, while
-  // the workflow/agent lists keep their state.
-  useSidebarPanelDismiss(active, () => {
-    detailRequestRef.current += 1;
-    setLoadingEditor(null);
-    setEditor(null);
-    setAgentEditor(null);
-    setRouteEditor(null);
-    setMenu(null);
-  });
-  const busy = Boolean(pending) || loading || loadingEditor !== null;
-
-  const openEditor = async (id: string, title: string, deletable: boolean, armDelete = false) => {
-    if (!api?.invokeCapability) return;
-    const requestId = ++detailRequestRef.current;
-    setLoadingEditor({ kind: 'workflow', title });
-    try {
-      const result = await api.invokeCapability<RecordValue>({ capability: 'getWorkflowPack', args: [id] });
-      if (detailRequestRef.current !== requestId) return;
-      setError('');
-      setEditor({ pack: record(result?.value), deletable, armDelete });
-    } catch (reason) {
-      if (detailRequestRef.current !== requestId) return;
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
-        scope: `workflow:open:${id}`,
-      });
-    } finally {
-      if (detailRequestRef.current === requestId) setLoadingEditor(null);
-    }
-  };
-  const saveWorkflow = async (payload: RecordValue) => {
-    const result = await run(editor?.pack ? 'saveWorkflowPack' : 'createWorkflow', [payload]);
-    if (result !== undefined) {
-      setEditor(null);
-      showDesktopToast(t('Saved "{{name}}".', { name: String(payload.name || payload.id) }), 'success');
-    }
-  };
-  const deleteWorkflowPack = async (id: string) => {
-    const result = await run('deleteWorkflow', [id]);
-    if (result !== undefined) {
-      setEditor(null);
-      showDesktopToast(
-        record(result).revertedToBuiltIn === true
-          ? t('"{{id}}" reverted to the built-in pack.', { id })
-          : t('Deleted "{{id}}".', { id }),
-        'success'
-      );
-    }
-  };
-  const agentRoster = useMemo<AgentSummary[]>(
-    () =>
-      agents
-        .map((agent) => ({
-          id: String(agent.id || ''),
-          label: String(agent.label || record(agent.definition).name || agent.id || ''),
-          description: String(record(agent.definition).description || agent.description || ''),
-          custom: agent.custom === true,
-          userOverride: agent.userOverride === true,
-          contact: isContactAgentRow(agent),
-        }))
-        .filter((agent) => agent.id),
-    [agents]
-  );
+  const [mainRoute, setMainRoute] = useLeadMainRoute(active, api);
+  const editors = useWorkflowEditors({ api, active, run, setError, setMainRoute, onDismiss: () => setMenu(null) });
+  const { openEditor, openAgentEditor, setAgentEnabled } = editors;
+  const busy = Boolean(pending) || loading || editors.loadingEditor !== null;
+  const agentRoster = useMemo(() => agentRosterOf(agents), [agents]);
   const maintainerAgent = agentRoster.find((agent) => agent.id === 'maintainer');
   const maintainerRow = agents.find((agent) => String(agent.id || '') === 'maintainer');
   const exploreAgent = agentRoster.find((agent) => agent.id === 'explore');
@@ -282,67 +95,6 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   const orderedEditableAgents = agentOrder.orderedIds
     .map((id) => editableAgents.find((agent) => agent.id === id))
     .filter((agent): agent is AgentSummary => Boolean(agent));
-  const openAgentEditor = async (id: string, title: string, deletable: boolean, armDelete = false) => {
-    if (!api?.invokeCapability) return;
-    const requestId = ++detailRequestRef.current;
-    setLoadingEditor({ kind: 'agent', title });
-    try {
-      const result = await api.invokeCapability<RecordValue>({ capability: 'getAgentDefinition', args: [id] });
-      if (detailRequestRef.current !== requestId) return;
-      setError('');
-      const agent = record(result?.value);
-      setAgentEditor({ agent: { ...agent, route: ownRoute(agent) }, deletable, armDelete });
-    } catch (reason) {
-      if (detailRequestRef.current !== requestId) return;
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
-        scope: `agent:open:${id}`,
-      });
-    } finally {
-      if (detailRequestRef.current === requestId) setLoadingEditor(null);
-    }
-  };
-  const saveAgent = async (payload: RecordValue) => {
-    // Created here, it is a workflow agent for good: the marker is written
-    // once, at creation (isContactAgentId reads it).
-    const result = await run('saveAgentDefinition', [
-      agentEditor?.agent ? payload : { ...payload, kind: WORKFLOW_AGENT_KIND },
-    ]);
-    if (result !== undefined) {
-      setAgentEditor(null);
-      showDesktopToast(t('Saved agent "{{name}}".', { name: String(payload.name || payload.id) }), 'success');
-    }
-  };
-  const deleteAgent = async (id: string) => {
-    const result = await run('deleteAgentDefinition', [id]);
-    if (result !== undefined) {
-      setAgentEditor(null);
-      showDesktopToast(t('Deleted agent "{{id}}".', { id }), 'success');
-    }
-  };
-  const saveRoute = async (route: RecordValue) => {
-    if (!routeEditor) return;
-    if (routeEditor.capability === 'setModelRoute') {
-      try {
-        const snapshot = await api?.setModelRoute?.(route as unknown as DesktopModelSelection);
-        if (snapshot) setMainRoute({ ...draftModelSelectionFromSnapshot(snapshot as unknown as Snapshot) });
-        setError('');
-        setRouteEditor(null);
-        showDesktopToast(t('Saved "{{name}}" route.', { name: routeEditor.label }), 'success');
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      }
-      return;
-    }
-    const args = routeEditor.capability === 'setWebSearchRoute' ? [route] : [routeEditor.id, route];
-    const result = await run(routeEditor.capability, args);
-    if (result !== undefined) {
-      setRouteEditor(null);
-      showDesktopToast(t('Saved "{{name}}" route.', { name: routeEditor.label }), 'success');
-    }
-  };
-  const setAgentEnabled = (id: string, enabled: boolean, route: RecordValue) => {
-    void run('setAgentRoute', [id, enabled ? route : { disabled: true }]);
-  };
   // Items that open an editor run after the menu closes and returns focus to
   // the row; Delete only opens the editor with its confirmation armed.
   const later = (action: () => void) => () => window.setTimeout(action, 0);
@@ -383,25 +135,17 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
         : []),
     ];
     return (
-      <button
-        type="button"
+      <AgentRouteRow
         key={agent.id}
-        className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row"
-        data-enabled={disabled ? 'false' : 'true'}
-        data-tooltip={disabled ? t('Disabled') : t('Agent settings')}
-        disabled={busy}
-        aria-label={t('Edit {{name}}', { name: agent.label })}
-        onClick={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
-        {...contextMenuRowProps((point) => openRowMenu(agent.label, point, menuItems))}
-        {...agentOrder.getReorderProps(agent.id)}
-      >
-        <AgentRowIcon route={route} />
-        <span className="schedules-row-copy utilities-row-copy">
-          <SidebarResourceTitle label={agent.label} tag={disabled ? { label: t('Disabled'), tone: 'muted' } : null} />
-          <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
-        </span>
-        <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-      </button>
+        agent={agent}
+        route={route}
+        disabled={disabled}
+        models={models}
+        busy={busy}
+        reorderProps={agentOrder.getReorderProps(agent.id)}
+        onOpen={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
+        onOpenMenu={(point) => openRowMenu(agent.label, point, menuItems)}
+      />
     );
   };
 
@@ -410,7 +154,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     const disabled = row?.disabled === true;
     const route = ownRoute(row);
     const openRoute = () =>
-      setRouteEditor({
+      editors.openRoute({
         id: agent.id,
         label: agent.label,
         route,
@@ -426,88 +170,30 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
       agentToggleItem(agent.id, disabled, route),
     ];
     return (
-      <button
-        type="button"
-        className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
-        data-agent-id={agent.id}
-        data-enabled={disabled ? 'false' : 'true'}
-        style={{ order: defaultAgentOrder.orderedIds.indexOf(agent.id) }}
-        data-tooltip={disabled ? t('Disabled') : t('Agent settings')}
-        disabled={busy}
-        aria-label={t('Edit {{name}}', { name: agent.label })}
-        onClick={openRoute}
-        {...contextMenuRowProps((point) => openRowMenu(agent.label, point, menuItems))}
-        {...defaultAgentOrder.getReorderProps(agent.id)}
-      >
-        <AgentRowIcon route={route} />
-        <span className="schedules-row-copy utilities-row-copy">
-          <SidebarResourceTitle label={agent.label} tag={disabled ? { label: t('Disabled'), tone: 'muted' } : null} />
-          <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
-        </span>
-        <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-      </button>
+      <AgentRouteRow
+        agent={agent}
+        route={route}
+        disabled={disabled}
+        models={models}
+        busy={busy}
+        builtIn
+        order={defaultAgentOrder.orderedIds.indexOf(agent.id)}
+        reorderProps={defaultAgentOrder.getReorderProps(agent.id)}
+        onOpen={openRoute}
+        onOpenMenu={(point) => openRowMenu(agent.label, point, menuItems)}
+      />
     );
   };
 
   return (
     <>
-      {active && loadingEditor && (
-        <SidebarLoadingDialog
-          title={loadingEditor.title}
-          dataAttributes={{ 'data-sidebar-loading': loadingEditor.kind }}
-          onClose={() => {
-            detailRequestRef.current += 1;
-            setLoadingEditor(null);
-          }}
-        />
-      )}
-      {active && editor && (
-        <WorkflowEditorDialog
-          key={String(record(editor.pack).id || '(new)')}
-          pack={editor.pack}
-          deletable={editor.deletable}
-          busy={busy}
-          error={error}
-          onCancel={() => {
-            setError('');
-            setEditor(null);
-          }}
-          onSave={(payload) => void saveWorkflow(payload)}
-          onDelete={() => void deleteWorkflowPack(String(record(editor.pack).id || ''))}
-          armDelete={editor.armDelete}
-        />
-      )}
-      {active && agentEditor && (
-        <AgentEditorDialog
-          key={String(record(agentEditor.agent).id || '(new-agent)')}
-          agent={agentEditor.agent}
-          deletable={agentEditor.deletable}
+      {active && (
+        <WorkflowEditorDialogs
+          editors={editors}
           models={models}
+          webSearchModels={webSearchModels}
           busy={busy}
           error={error}
-          onCancel={() => {
-            setError('');
-            setAgentEditor(null);
-          }}
-          onSave={(payload) => void saveAgent(payload)}
-          onToggle={(enabled, route) => setAgentEnabled(String(record(agentEditor.agent).id || ''), enabled, route)}
-          onDelete={() => void deleteAgent(String(record(agentEditor.agent).id || ''))}
-          armDelete={agentEditor.armDelete}
-        />
-      )}
-      {active && routeEditor && (
-        <RouteEditorDialog
-          key={`${routeEditor.capability}:${routeEditor.id}`}
-          target={routeEditor}
-          models={routeEditor.modelKind === 'webSearch' ? webSearchModels : models}
-          busy={busy}
-          error={error}
-          onCancel={() => {
-            setError('');
-            setRouteEditor(null);
-          }}
-          onToggle={(enabled, route) => setAgentEnabled(routeEditor.id, enabled, route)}
-          onSave={(route) => void saveRoute(route)}
         />
       )}
       <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
@@ -516,78 +202,16 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
         <>
           {/* The panel is titled Workflows already; the list under it is named
           for what it holds (user: 워크플로우 두 개 붙어 있는 게 어색해서). */}
-          <section className="workflows-models workflows-packs" aria-label={t('Work rules')}>
-            <div className="workflows-section-head">
-              <h2>{t('Work rules')}</h2>
-              <button
-                type="button"
-                className="session-panel-action schedules-new"
-                disabled={busy}
-                aria-label={t('New workflow')}
-                data-tooltip={t('New workflow')}
-                onClick={() => {
-                  setError('');
-                  setEditor({ pack: null, deletable: false });
-                }}
-              >
-                <Plus size={16} aria-hidden="true" />
-              </button>
-            </div>
-            {workflows.length > 0 && (
-              <div className="schedules-list">
-                {orderedWorkflows.map((workflow) => {
-                  const id = String(workflow.id || '');
-                  const name = String(workflow.name || id);
-                  const custom = String(workflow.source || '') === 'user';
-                  const description = String(workflow.description || '');
-                  const shownDescription =
-                    description && String(workflow.source || '') === 'built-in' ? t(description) : description;
-                  return (
-                    <button
-                      type="button"
-                      key={id}
-                      className="schedules-row utilities-row sidebar-resource-row"
-                      disabled={busy}
-                      aria-label={t('Edit workflow {{name}}', { name })}
-                      data-tooltip={shownDescription || undefined}
-                      onClick={() => void openEditor(id, name, custom)}
-                      {...contextMenuRowProps((point) =>
-                        openRowMenu(name, point, [
-                          { id: 'edit', label: t('Edit'), onSelect: later(() => void openEditor(id, name, custom)) },
-                          ...(custom
-                            ? [
-                                {
-                                  id: 'delete',
-                                  label: t('Delete'),
-                                  danger: true,
-                                  separatorBefore: true,
-                                  onSelect: later(() => void openEditor(id, name, true, true)),
-                                },
-                              ]
-                            : []),
-                        ])
-                      )}
-                      {...workflowOrder.getReorderProps(id)}
-                    >
-                      <span className="sidebar-resource-icon" aria-hidden="true">
-                        <Layers3 size={16} />
-                      </span>
-                      <span className="schedules-row-copy utilities-row-copy">
-                        <b>{name}</b>
-                        <small>{[shownDescription, custom ? t('Custom') : ''].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {workflows.length === 0 && (
-              <div className="utility-dock-empty">
-                <p>{t('No workflows.')}</p>
-              </div>
-            )}
-          </section>
+          <WorkRulesSection
+            workflows={workflows}
+            orderedWorkflows={orderedWorkflows}
+            busy={busy}
+            getReorderProps={workflowOrder.getReorderProps}
+            later={later}
+            onNew={editors.newWorkflow}
+            onOpen={(id, name, deletable, armDelete) => void openEditor(id, name, deletable, armDelete)}
+            openRowMenu={openRowMenu}
+          />
           {/* The Lead runs on the Main route; its instructions come from the
               selected work-rules pack, so this row edits the model only. */}
           <section className="workflows-models" aria-label={t('Lead agent')}>
@@ -601,7 +225,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 disabled={busy}
                 aria-label={t('Edit {{name}}', { name: 'Lead' })}
                 onClick={() =>
-                  setRouteEditor({
+                  editors.openRoute({
                     id: 'lead',
                     label: 'Lead',
                     route: mainRoute,
@@ -636,7 +260,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 disabled={busy}
                 aria-label={t('Edit Web Search')}
                 onClick={() =>
-                  setRouteEditor({
+                  editors.openRoute({
                     id: 'web-search',
                     label: 'Web Search',
                     route: webSearchRoute,
@@ -673,10 +297,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 disabled={busy}
                 aria-label={t('New agent')}
                 data-tooltip={t('New agent')}
-                onClick={() => {
-                  setError('');
-                  setAgentEditor({ agent: null, deletable: false });
-                }}
+                onClick={editors.newAgent}
               >
                 <Plus size={16} aria-hidden="true" />
               </button>

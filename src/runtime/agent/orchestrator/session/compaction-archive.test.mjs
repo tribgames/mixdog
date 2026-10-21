@@ -532,7 +532,9 @@ test('fsync failure fails the publication and leaves no temp file', async (t) =>
   assert.equal(await scheduled.written, null);
   assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
   assert.deepEqual(
-    readdirSync(sessionsDir).filter((name) => name.includes(session.id) && name.endsWith('.tmp')),
+    readdirSync(sessionsDir).filter(
+      (name) => name.includes(session.id) && (name.endsWith('.tmp') || name.includes('.mixdog-tmp-'))
+    ),
     []
   );
 });
@@ -735,7 +737,9 @@ test('the fence also holds when the record survives but a delete bumped the epoc
   await flushCompactionArchiveWrites();
   assert.equal(existsSync(path), false);
   assert.deepEqual(
-    readdirSync(sessionsDir).filter((name) => name.includes(session.id) && name.endsWith('.tmp')),
+    readdirSync(sessionsDir).filter(
+      (name) => name.includes(session.id) && (name.endsWith('.tmp') || name.includes('.mixdog-tmp-'))
+    ),
     []
   );
 });

@@ -1,22 +1,22 @@
-// The pending human decision (human-gate/requests.mjs kinds), shown in the
-// transcript exactly where a QuestionCard shows, in QuestionCard's grammar and
-// keyboard model (question-card-keys.ts): head row (icon, title + meta, ✕),
-// text, the content blocks on the `.question-other` surface, one-click
-// numbered rows and the foot hint. ✕ means "decide later": the card folds into
-// a one-line chip and the request stays pending. Held requests of unattended
-// runs render as the same card from their home-thread row (HeldRequestCard).
-import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+// The pending human decision (human-gate/requests.mjs kinds) as the one
+// approval surface (approval-prompt.tsx, design/mockups/approval-buttons):
+// docked above the composer of the top-level chat, content centred, decided
+// with buttons. The login takeover keeps its flow (✕ folds it into a one-line
+// chip, the request stays pending). Held requests of unattended runs render as
+// the same card from their home-thread row (HeldRequestCard).
+import { type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopBrowserLoginStatus, ToolApprovalDecision } from '../shared/contract';
+import { connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
 import { loginSiteLabel } from '../shared/login-site';
 import { agentHomeTitle } from './agent-contacts-model';
 import { requestBrowserImport } from './browser-page-request';
 import { MarkdownSessionContext } from './MarkdownLink';
 import type { Approval, TranscriptItem } from './desktop-types';
 import { t } from './i18n';
-import { ErrorNotice } from './ErrorNotice';
 import { ProgressSpinner } from './ProgressSpinner';
-import { bindCardKeys, focusCardWhenIdle, isTypingTarget } from './question-card-keys';
+import { type ApprovalButton, ApprovalPreviewRow, ApprovalPrompt, noteApprovalDecision } from './approval-prompt';
+import { PixelIcon, type PixelIconName } from './pixel-icon';
 import { asRecord, textOf } from './text-format';
 import { useRemoteHostImageUrl } from './local-image-preview';
 import { isRemoteHostRenderer } from './remote-ui-projection';
@@ -24,7 +24,29 @@ import { useSidebarReferences } from './sidebar-reference-cache';
 
 function approvalText(value: unknown, preferredKey: string): string {
   const preferred = asRecord(value)?.[preferredKey];
-  return (typeof preferred === 'string' ? preferred : textOf(value)).trim();
+  return approvalReasonText((typeof preferred === 'string' ? preferred : textOf(value)).trim());
+}
+
+/** A reason the runtime itself writes (human-gate/gate.mjs constants) in the
+ *  UI language; an agent's own words stay as written. */
+export function approvalReasonText(text: string): string {
+  const known: Record<string, () => string> = {
+    'This sends or posts outside Mixdog; it needs your approval.': () =>
+      t('This sends or posts outside Mixdog; it needs your approval.'),
+    "This agent's permission blocks this action.": () => t("This agent's permission blocks this action."),
+    // tool-exec/before-hook.mjs CONNECTOR_APPROVAL_REASON, room-member-gate.mjs ROOM_APPROVAL_REASON.
+    'This connector tool is set to ask before it runs for this agent.': () =>
+      t('This connector tool is set to ask before it runs for this agent.'),
+    'Group-room members need your approval before changing anything.': () =>
+      t('Group-room members need your approval before changing anything.'),
+    // human-gate/run-policy.mjs AUTOMATION_GRANT_REASON.
+    "Approving lets this schedule's or webhook's runs act without asking, within the bot's permissions. Payments and permanent deletes are never done in runs.":
+      () =>
+        t(
+          "Approving lets this schedule's or webhook's runs act without asking, within the bot's permissions. Payments and permanent deletes are never done in runs."
+        ),
+  };
+  return known[text]?.() ?? text;
 }
 
 // The one argument that says what the call does, shown on its own the way a
@@ -62,12 +84,37 @@ export function useAgentName(agentId: string): string {
 /** Who the card names as the requester. A bot's chat (agent mode) names the bot,
  *  Mixy included; a coding session is the Lead's (the runtime tags it 'lead'), so
  *  it goes unnamed in the head and reads "Lead" in the remember row. Any other
- *  agent the request names is still named. */
-function useRequester(approval: Approval, agentMode: boolean): { agentName: string; headAgent: string } {
+ *  agent the request names is still named. A sub-agent's request names its
+ *  chain from the top-level chat down ("사무관 › Worker", "Lead › Reviewer"),
+ *  wherever the card shows. */
+function useRequester(
+  approval: Approval,
+  agentMode: boolean
+): { agentName: string; headAgent: string; faceAgentId: string } {
   const agentId = String(approval.agentId || '');
   const named = agentMode || (agentId !== '' && agentId !== MIXY_AGENT_ID);
   const name = useAgentName(agentId || MIXY_AGENT_ID);
-  return named ? { agentName: name, headAgent: name } : { agentName: t('Lead'), headAgent: '' };
+  // The face is the bot's own; a coding session's Lead shows the LEAD mark.
+  const faceAgentId = named ? agentId || MIXY_AGENT_ID : '';
+  const requester = named
+    ? { agentName: name, headAgent: name, faceAgentId }
+    : { agentName: t('Lead'), headAgent: '', faceAgentId };
+  const chain = approvalChainLabel(approval.chain);
+  return chain ? { ...requester, headAgent: chain } : requester;
+}
+
+/** "사무관 › Worker": the runtime's chain of a delegated request (its tokens
+ *  'Lead' and 'Task session' in this UI's language), or '' when it has none. */
+export function approvalChainLabel(chain: unknown): string {
+  const parts = Array.isArray(chain)
+    ? chain.filter((part): part is string => typeof part === 'string' && part !== '')
+    : [];
+  const label = (part: string) => {
+    if (part === 'Lead') return t('Lead');
+    if (part === 'Task session') return t('Task session');
+    return part;
+  };
+  return parts.length > 1 ? parts.map(label).join(' › ') : '';
 }
 
 /** The action kind's name: the card title and the remember row's "<agent>의 <action>". */
@@ -82,8 +129,50 @@ export function actionLabel(action: string): string {
     payment: t('Confirm payment'),
     delete: t('Confirm permanent delete'),
     trash: t('Move to Trash'),
+    browser_submit: t('Submit a form in the browser'),
+    browser_post: t('Click a send or post button in the browser'),
+    browser_upload: t('Upload files in the browser'),
   };
   return labels[action] || t('Tool approval required');
+}
+
+/** A connector tool as the card names it: `send (gmail)` for `mcp__gmail__send`. */
+export function connectorToolLabel(name: string): string {
+  const match = /^mcp__(.+?)__(.+)$/.exec(name);
+  return match ? `${match[2]} (${match[1]})` : name;
+}
+
+/** The service a tool belongs to as the card names it: a connector's catalog
+ *  name ("Gmail" for `mcp__gmail-2__send_email`), else the server's own name;
+ *  '' for a tool that is no connector's. */
+export function connectorServiceLabel(name: string): string {
+  const match = /^mcp__(.+?)__.+$/.exec(name);
+  if (!match) return '';
+  return connectorById(match[1].replace(/-\d+$/, ''))?.name ?? match[1];
+}
+
+/** The card's one-line question for an action kind ("이 메일을 보낼까요?"). */
+export function actionQuestion(action: string): string {
+  const questions: Record<string, string> = {
+    comment: t('Post this comment?'),
+    review: t('Post this review?'),
+    message: t('Send this message?'),
+    email: t('Send this email?'),
+    publish: t('Publish this post?'),
+    form: t('Submit this form?'),
+    payment: t('Make this payment?'),
+    delete: t('Delete these permanently?'),
+    trash: t('Move these emails to Trash?'),
+    browser_submit: t('Submit this form?'),
+    browser_post: t('Send or post this?'),
+    browser_upload: t('Upload these files?'),
+  };
+  return questions[action] || actionLabel(action);
+}
+
+/** What the scope line says "Always allow" changes. */
+export function alwaysAllowScope(agent: string, action: string): string {
+  return t("With Always allow, {{agent}}'s {{action}} won't ask again", { agent, action });
 }
 
 function actionText(action: string): string {
@@ -99,6 +188,11 @@ function actionText(action: string): string {
     trash: t('Moves the emails below to Trash.'),
   };
   return texts[action] || '';
+}
+
+function mailAccountNote(action: string, account: string | undefined): string | undefined {
+  if (!account) return undefined;
+  return action === 'trash' ? t('Mail in {{account}}', { account }) : t('Sent as {{account}}', { account });
 }
 
 function amountText(details: Record<string, string>): string {
@@ -128,9 +222,9 @@ function sizeText(value: string): string {
 type CardRow = {
   label: string;
   desc?: string;
-  /** What the row sends; `takeover` starts doing it yourself, `secret` hands the typed value over,
+  /** What the row sends; `secret` hands the typed value over,
    *  `reimport` opens the Chrome import and leaves the card open. */
-  decision: ToolApprovalDecision | 'takeover' | 'secret' | 'reimport' | 'wait';
+  decision: ToolApprovalDecision | 'secret' | 'reimport' | 'wait';
   /** The card's edited text rides this decision (edit-and-approve). */
   edits?: boolean;
 };
@@ -209,23 +303,53 @@ export function approvalCardModel(approval: Approval) {
 
 type CardModel = ReturnType<typeof approvalCardModel>;
 
+type PermissionScope = { id: string; kind: string; label: string };
+
+// A permission request's options are mapped to buttons by their KIND (never by
+// label text); a scope without a `kind` is read by its id. Rule:
+//  - 항상 허용 ← the first allow_always / always option;
+//  - 이번만 허용 ← the narrowest once-type option: allow_once / once first,
+//    else the first session-scoped one (allow_session / session / allow_scoped);
+//  - reject / cancel kinds and unknown kinds get no button (취소 is the card's own).
+// Ties go to the option listed first. With no always option there is no always button.
+const ALWAYS_KINDS = ['allow_always', 'always'];
+const ONCE_KINDS = ['allow_once', 'once', 'allow_session', 'session', 'allow_scoped'];
+
+export function permissionChoices(scopes: readonly Record<string, unknown>[]): {
+  always: PermissionScope | null;
+  once: PermissionScope | null;
+} {
+  const list = scopes.map((scope) => ({
+    id: String(scope.id),
+    kind: String(scope.kind || scope.id).toLowerCase(),
+    label: String(scope.label || scope.id),
+  }));
+  const always = list.find((scope) => ALWAYS_KINDS.includes(scope.kind)) ?? null;
+  let once: PermissionScope | null = null;
+  for (const kind of ONCE_KINDS) {
+    once = list.find((scope) => scope.kind === kind) ?? null;
+    if (once) break;
+  }
+  return { always, once };
+}
+
 /** The numbered one-click rows of a card, in order (1–n). */
 export function approvalCardRows(
   model: CardModel,
   {
     agentName,
-    takingOver,
     officeLabel,
     reimport = false,
     controlReady = true,
-  }: { agentName: string; takingOver: boolean; officeLabel: string; reimport?: boolean; controlReady?: boolean }
+  }: { agentName: string; officeLabel: string; reimport?: boolean; controlReady?: boolean }
 ): CardRow[] {
   const cancel: CardRow = { label: t('Cancel'), decision: { approved: false } };
   if (model.kind === 'takeover') {
-    let first: CardRow = { label: t("I'll do it"), decision: 'takeover' };
-    if (takingOver) first = { label: t("I'm done"), decision: { approved: true, response: 'done' } };
-    // Until the agent is stopped (commands refused, in-flight work drained) the user cannot start.
-    else if (!controlReady) first = { label: t('Stopping the agent…'), decision: 'wait' };
+    // The agent is stopped as the card appears; until that has finished
+    // (commands refused, in-flight work drained) Done cannot be chosen.
+    const first: CardRow = controlReady
+      ? { label: t('Done'), decision: { approved: true, response: 'done' } }
+      : { label: t('Stopping the agent…'), decision: 'wait' };
     return [
       first,
       // An expired sign-in can also come back from Chrome (the existing importer).
@@ -242,11 +366,10 @@ export function approvalCardRows(
     ];
   }
   if (model.kind === 'permission') {
+    const { always, once } = permissionChoices(model.scopes);
     return [
-      ...model.scopes.map((scope) => ({
-        label: String(scope.label || scope.id),
-        decision: { approved: true, scope: String(scope.id) },
-      })),
+      ...(always ? [{ label: t('Always allow'), decision: { approved: true, scope: always.id } }] : []),
+      ...(once ? [{ label: t('Allow once'), decision: { approved: true, scope: once.id } }] : []),
       cancel,
     ];
   }
@@ -258,41 +381,37 @@ export function approvalCardRows(
   }
   if (model.action === 'payment') {
     return [
-      { label: t('Pay {{amount}}', { amount: amountText(model.details) }), decision: { approved: true } },
-      cancel,
+      { label: t('Allow payment'), decision: { approved: true } },
+      { ...cancel, label: t('Deny') },
     ];
   }
   if (model.action === 'delete') {
     return [
       { label: t('Delete {{n}} permanently', { n: model.details.count || '1' }), decision: { approved: true } },
-      cancel,
+      { ...cancel, label: t('Deny') },
     ];
   }
+  const alwaysAllowTarget = model.action || !model.tool ? actionLabel(model.action) : connectorToolLabel(model.tool);
   return [
-    { label: t('Just this once'), decision: { approved: true }, edits: true },
+    { label: t('Allow just once'), decision: { approved: true }, edits: true },
     ...(model.remember
       ? [
           {
-            label: t("Don't ask again"),
-            desc: t("Applies only to {{agent}}'s {{action}}", { agent: agentName, action: actionLabel(model.action) }),
+            label: t('Always allow'),
+            desc: alwaysAllowScope(agentName, alwaysAllowTarget),
             decision: { approved: true, remember: 'agent' as const },
             edits: true,
           },
         ]
       : []),
-    cancel,
+    { ...cancel, label: t('Deny') },
   ];
 }
 
-// ✕ ("decide later") and "I'll do it" outlive a remount (a virtualized row
-// scrolled away and back) for as long as the request is pending.
+// ✕ ("decide later") and a takeover's readiness outlive a remount (a
+// virtualized row scrolled away and back) for as long as the request is pending.
 const laterIds = new Set<string>();
-const takingOverIds = new Set<string>();
 const controlReadyIds = new Set<string>();
-// A key that answered one card must not answer the next queued one: a card
-// takes no number for a moment after it appears or after any card decided.
-const KEY_SETTLE_MS = 400;
-let lastDecisionAt = 0;
 
 function ApprovalPendingChip({ label, agentMode, onOpen }: { label: string; agentMode: boolean; onOpen: () => void }) {
   return (
@@ -348,8 +467,12 @@ type ApprovalCardProps = {
   agentMode?: boolean;
   /** Answered on another device: shown disabled with who answered. */
   settled?: { approved: boolean; device: string } | null;
-  /** Replaces the meta line (a held request: its run and the time left). */
+  /** The corner text (a held request: its run and the time left). */
   meta?: string;
+  /** "1/2" when more requests wait behind this one. */
+  queue?: string;
+  /** The chat showing the card: no "세션 열기" to the chat it is already in. */
+  hostSessionId?: string;
 };
 
 /** The pending human decision of the session, in QuestionCard's place. A
@@ -380,7 +503,7 @@ function BrowserLoginCard({
   const id = String(approval.id ?? '');
   const browserSessionId = useContext(MarkdownSessionContext);
   const sessionId = String(approval.sessionId || browserSessionId || '');
-  const { headAgent } = useRequester(approval, agentMode);
+  const { headAgent, faceAgentId } = useRequester(approval, agentMode);
   const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
   const local = Boolean(sessionId && api?.browserLoginOpen);
   const controlReady = useControlReady(id, sessionId, local && !settled);
@@ -388,8 +511,6 @@ function BrowserLoginCard({
   const [later, setLater] = useState(() => laterIds.has(id));
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState('');
-  const cardRef = useRef<HTMLElement | null>(null);
-  const mountedAt = useRef(Date.now());
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -441,11 +562,9 @@ function BrowserLoginCard({
   }
   let title = t('{{site}} sign-in required', { site });
   let metaText = headAgent;
-  let text = '';
   if (!local) {
     title = t('Sign in on your PC');
     metaText = '';
-    text = t('The agent continues once you finish signing in.');
   } else if (state === 'done' || settled?.approved) {
     title = t('Signed in');
     metaText = site;
@@ -454,14 +573,13 @@ function BrowserLoginCard({
   } else if (state === 'refused') {
     title = t('{{site}} does not allow sign-in in this window', { site: status.provider || site });
     metaText = '';
-    text = t('You can import the account signed in to Chrome.');
   }
   const done = local && (state === 'done' || Boolean(settled?.approved));
   const closable = local && !done && state !== 'open';
 
   const activate = (row: LoginRow) => {
     if (row.action === 'wait' || resolving || settled) return;
-    lastDecisionAt = Date.now();
+    noteApprovalDecision();
     if (row.action === 'open') {
       follow(api?.browserLoginOpen?.(sessionId, id));
       return;
@@ -493,31 +611,6 @@ function BrowserLoginCard({
     laterIds.add(id);
     setLater(true);
   };
-  const live = useRef({ activate, decideLater, rows, closable });
-  live.current = { activate, decideLater, rows, closable };
-  useEffect(() => {
-    if (!later && !done && cardRef.current) focusCardWhenIdle(cardRef.current);
-  }, [later, done]);
-  useEffect(() => {
-    const card = cardRef.current;
-    if (!card || later || done) return;
-    return bindCardKeys(card, (event) => {
-      if (isTypingTarget(event.target)) return;
-      if (event.key === 'Escape' && live.current.closable) {
-        event.preventDefault();
-        event.stopPropagation();
-        live.current.decideLater();
-        return;
-      }
-      const row = /^[1-9]$/.test(event.key) ? live.current.rows[Number(event.key) - 1] : undefined;
-      if (!row) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (Date.now() - Math.max(mountedAt.current, lastDecisionAt) < KEY_SETTLE_MS) return;
-      live.current.activate(row);
-    });
-  }, [later, done]);
-
   if (later && closable) {
     const reopen = () => {
       laterIds.delete(id);
@@ -525,75 +618,168 @@ function BrowserLoginCard({
     };
     return <ApprovalPendingChip label={title} agentMode={agentMode} onOpen={reopen} />;
   }
+  // Cancel on the left, the step forward (sign in, import) as the primary.
+  const buttons: ApprovalButton[] = [...rows].reverse().map((row) => ({
+    label: row.label,
+    tone: row.action === 'cancel' ? undefined : 'primary',
+    disabled: row.action === 'wait',
+    onClick: () => activate(row),
+  }));
   return (
-    // biome-ignore lint/a11y/useSemanticElements: an <article> must keep its tag; role="group" names the approval region
-    <article
-      ref={cardRef}
-      tabIndex={-1}
-      className="question-card"
-      role="group"
-      aria-label={title}
-      data-approval="login"
-      data-login={local ? state : 'remote'}
-      data-agent-mode={agentMode || undefined}
-      data-settled={done || undefined}
+    <ApprovalPrompt
+      title={title}
+      faceAgentId={faceAgentId}
+      tone={done ? 'done' : 'need'}
+      requester={metaText || headAgent}
+      service={site}
+      buttons={buttons}
+      focus="primary"
+      enterAllows
+      onClose={closable ? decideLater : undefined}
+      status={done ? site : undefined}
+      error={error}
+      busy={resolving}
+      kind="login"
+      agentMode={agentMode}
+      data={{ 'data-login': local ? state : 'remote' }}
     >
-      <div className="question-head">
-        <span className="question-icon" data-tone={done ? 'done' : 'need'} aria-hidden="true">
-          {done ? '✓' : <NeedGlyph />}
-        </span>
-        <span className="question-title">
-          <strong>{title}</strong>
-          {metaText && <span className="question-meta">{metaText}</span>}
-        </span>
-        {!local && <ProgressSpinner size={14} aria-hidden="true" />}
-        {closable && (
-          <button
-            type="button"
-            className="question-close"
-            aria-label={t('Decide later')}
-            title={t('Decide later')}
-            onClick={decideLater}
-          >
-            ✕
-          </button>
-        )}
-      </div>
-      {text && <div className="question-text">{text}</div>}
-      {rows.length > 0 && (
-        <div className="question-options">
-          {rows.map((row, index) => (
-            <button
-              // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and never reorder
-              key={index}
-              type="button"
-              className="question-option"
-              disabled={resolving || row.action === 'wait'}
-              data-waiting={row.action === 'wait' || undefined}
-              onClick={() => activate(row)}
-            >
-              <span className="question-box" data-kind="radio" aria-hidden="true" />
-              <span className="question-option-text">
-                <span className="question-option-label">{row.label}</span>
-              </span>
-              <span className="question-key">{index + 1}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {error && <ErrorNotice error={error} />}
-    </article>
+      {!local && <ProgressSpinner size={14} aria-hidden="true" />}
+    </ApprovalPrompt>
   );
 }
 
-function ToolApprovalCard({ approval, resolve, agentMode = false, settled = null, meta }: ApprovalCardProps) {
-  const id = String(approval.id ?? '');
-  const model = approvalCardModel(approval);
-  // The transcript's session: its pane takes the Chrome import ('' off-transcript).
-  const browserSessionId = useContext(MarkdownSessionContext);
-  const { agentName, headAgent } = useRequester(approval, agentMode);
-  const args = asRecord(approval.args);
-  const action = String(args?.action || '').toLowerCase();
+/** The preview row's pixel icon for an action kind. */
+function actionIcon(action: string, outbound: boolean): PixelIconName {
+  if (['email', 'message', 'trash'].includes(action)) return 'mail';
+  if (action === 'payment') return 'card';
+  if (action === 'delete') return 'alert';
+  return outbound && action !== 'form' ? 'globe' : 'form';
+}
+
+type ApprovalModel = ReturnType<typeof approvalCardModel>;
+
+/** The settled line once another device answered; undefined while unanswered. */
+function approvalSettledStatus(kind: ApprovalModel['kind'], settled: ApprovalCardProps['settled']): string | undefined {
+  if (!settled) return undefined;
+  const device = settled.device;
+  if (kind === 'takeover') {
+    return settled.approved ? t('Done on {{device}}', { device }) : t('Cancelled on {{device}}', { device });
+  }
+  return settled.approved ? t('Allowed from {{device}}', { device }) : t('Denied from {{device}}', { device });
+}
+
+/** What the action is about: a payment's amount, a deletion's size, the mails
+ *  a trash moves, an email's fields, else the target; null when none applies. */
+function approvalActionBody(model: ApprovalModel, icon: ReactNode): ReactNode {
+  if (model.action === 'payment') {
+    return (
+      <div className="approval-amount">
+        <b>{amountText(model.details)}</b>
+        <small>{[model.target, model.details.currency, model.details.recurrence].filter(Boolean).join(' · ')}</small>
+      </div>
+    );
+  }
+  if (model.action === 'delete') {
+    return (
+      <div className="approval-amount">
+        <b>
+          {[t('{{n}} items', { n: model.details.count || '1' }), sizeText(model.details.size)]
+            .filter(Boolean)
+            .join(' · ')}
+        </b>
+        <small>{[model.target, t('Skips the trash and cannot be undone')].filter(Boolean).join(' · ')}</small>
+      </div>
+    );
+  }
+  if (model.action === 'trash' && model.details.messages) {
+    return (
+      <>
+        {model.details.messages.split('\n').map((line) => (
+          <ApprovalPreviewRow key={line} icon={icon} main={line} />
+        ))}
+        {model.details.more && (
+          <small className="approval-preview-more">{t('and {{n}} more', { n: model.details.more })}</small>
+        )}
+        {model.account && (
+          <small className="approval-preview-more">{t('Mail in {{account}}', { account: model.account })}</small>
+        )}
+      </>
+    );
+  }
+  if (model.action === 'email') {
+    return (
+      <>
+        <ApprovalPreviewRow
+          icon={icon}
+          main={model.details.to || model.target}
+          sub={model.account ? t('Sent as {{account}}', { account: model.account }) : undefined}
+        />
+        <dl className="approval-fields">
+          {(
+            [
+              [t('To'), model.details.to],
+              [t('Cc'), model.details.cc],
+              [t('Subject'), model.details.subject],
+            ] as const
+          )
+            .filter(([, value]) => value)
+            .map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+        </dl>
+      </>
+    );
+  }
+  if (model.target) {
+    return <ApprovalPreviewRow icon={icon} main={model.target} sub={mailAccountNote(model.action, model.account)} />;
+  }
+  return null;
+}
+
+/** The editable text an outbound action sends, with the way back to the original. */
+function ApprovalTextEditor({
+  text,
+  payload,
+  disabled,
+  onChange,
+}: {
+  text: string;
+  payload: string;
+  disabled: boolean;
+  onChange(text: string): void;
+}) {
+  const edited = text !== payload;
+  return (
+    <div className="approval-edit" data-edited={edited || undefined}>
+      <textarea
+        value={text}
+        maxLength={40_000}
+        rows={2}
+        disabled={disabled}
+        aria-label={t('Text to send, editable')}
+        spellCheck={false}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <div className="approval-edit-row">
+        <span className="approval-hint">
+          {edited ? t('Edited · the edited text is sent') : t('Click the text to edit it')}
+        </span>
+        {edited && (
+          <button type="button" className="approval-link" disabled={disabled} onClick={() => onChange(payload)}>
+            {t('Back to original')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** An office transaction's fields (document, transaction, change counts,
+ *  preview output, visual diff) and up to four preview pages. */
+function OfficeApprovalDetails({ args }: { args: Record<string, unknown> | null | undefined }) {
   const transaction = asRecord(args?.transaction);
   const diff = asRecord(transaction?.diff);
   const summary = asRecord(diff?.summary);
@@ -606,11 +792,95 @@ function ToolApprovalCard({ approval, resolve, agentMode = false, settled = null
     .map(asRecord)
     .filter((image): image is Record<string, unknown> => Boolean(image?.path))
     .slice(0, 4);
+  return (
+    <>
+      <dl className="approval-fields">
+        {Boolean(args?.document) && (
+          <div>
+            <dt>{t('Document')}</dt>
+            <dd>
+              <code>{String(args?.document)}</code>
+            </dd>
+          </div>
+        )}
+        {Boolean(transaction?.id) && (
+          <div>
+            <dt>{t('Transaction')}</dt>
+            <dd>
+              <code>{String(transaction?.id)}</code>
+            </dd>
+          </div>
+        )}
+        {summary && (
+          <div>
+            <dt>{t('Changes')}</dt>
+            <dd>
+              {t('{{total}} paths · +{{added}} −{{removed}} ~{{modified}}', {
+                total: Number(summary.total || 0),
+                added: Number(summary.added || 0),
+                removed: Number(summary.removed || 0),
+                modified: Number(summary.modified || 0),
+              })}
+            </dd>
+          </div>
+        )}
+        {Boolean(preview?.output) && (
+          <div>
+            <dt>{t('Preview')}</dt>
+            <dd>
+              <code>{String(preview?.output)}</code>
+            </dd>
+          </div>
+        )}
+        {visualDiff?.available === true && (
+          <div>
+            <dt>{t('Visual diff')}</dt>
+            <dd>{t('{{percent}}% changed pixels', { percent: Number(visualDiff.changedPercent || 0) })}</dd>
+          </div>
+        )}
+      </dl>
+      {previewImages.length > 0 && (
+        // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the preview strip is a plain container labelled for assistive tech
+        <div className="office-approval-preview" aria-label={t('Document preview')}>
+          {previewImages.map((image, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: preview pages are positional and never reorder
+            <figure key={`${String(image.path)}:${index}`}>
+              <ApprovalPreviewImage
+                path={image.path}
+                alt={
+                  image.kind === 'visual-diff'
+                    ? t('Visual diff page {{page}}', { page: Number(image.page || index + 1) })
+                    : t('Preview page {{page}}', { page: Number(image.page || index + 1) })
+                }
+              />
+              <figcaption>{image.kind === 'visual-diff' ? t('Visual diff') : t('Preview')}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function ToolApprovalCard({
+  approval,
+  resolve,
+  agentMode = false,
+  settled = null,
+  meta,
+  queue,
+  hostSessionId = '',
+}: ApprovalCardProps) {
+  const id = String(approval.id ?? '');
+  const model = approvalCardModel(approval);
+  // The transcript's session: its pane takes the Chrome import ('' off-transcript).
+  const browserSessionId = useContext(MarkdownSessionContext);
+  const { agentName, headAgent, faceAgentId } = useRequester(approval, agentMode);
+  const args = asRecord(approval.args);
+  const action = String(args?.action || '').toLowerCase();
   let officeLabel = t('Discard recovery');
   if (action === 'commit') officeLabel = t('Commit changes');
   else if (action === 'rollback') officeLabel = t('Roll back');
-  const [later, setLater] = useState(() => laterIds.has(id));
-  const [takingOver, setTakingOver] = useState(() => takingOverIds.has(id));
   const takeoverSessionId = String(approval.sessionId || browserSessionId || '');
   const controlReady = useControlReady(id, takeoverSessionId, model.kind === 'takeover' && !settled);
   const [text, setText] = useState(model.payload);
@@ -618,13 +888,10 @@ function ToolApprovalCard({ approval, resolve, agentMode = false, settled = null
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState('');
   const resolvingRef = useRef(false);
-  const cardRef = useRef<HTMLElement | null>(null);
   const secretRef = useRef<HTMLInputElement | null>(null);
-  const mountedAt = useRef(Date.now());
   const edited = model.editable.length > 0 && text !== model.payload;
   const rows = approvalCardRows(model, {
     agentName,
-    takingOver,
     officeLabel,
     reimport: Boolean(browserSessionId && window.mixdogDesktop?.browserProfileImportSources),
     controlReady,
@@ -634,13 +901,13 @@ function ToolApprovalCard({ approval, resolve, agentMode = false, settled = null
   const decide = async (decision: ToolApprovalDecision) => {
     if (resolvingRef.current || settled) return;
     resolvingRef.current = true;
-    lastDecisionAt = Date.now();
+    noteApprovalDecision();
     setError('');
     setResolving(true);
     try {
       const accepted = await resolve(decision);
-      // Recorded, or refused because another device answered first: the rows
-      // stay disabled until the request leaves the snapshot.
+      // Recorded, or refused because another device answered first: the
+      // buttons stay disabled until the request leaves the snapshot.
       if (typeof accepted === 'boolean') return;
       setError(t('Mixdog could not record this decision. Please try again.'));
     } catch (reason) {
@@ -660,11 +927,6 @@ function ToolApprovalCard({ approval, resolve, agentMode = false, settled = null
       requestBrowserImport(browserSessionId);
       return;
     }
-    if (row.decision === 'takeover') {
-      takingOverIds.add(id);
-      setTakingOver(true);
-      return;
-    }
     if (row.decision === 'secret') {
       const value = secret;
       if (!value) return void secretRef.current?.focus();
@@ -682,188 +944,89 @@ function ToolApprovalCard({ approval, resolve, agentMode = false, settled = null
         : decision
     );
   };
-  const decideLater = () => {
-    laterIds.add(id);
-    setLater(true);
-  };
-  const live = useRef({ activate, decideLater, rows });
-  live.current = { activate, decideLater, rows };
 
-  useEffect(() => {
-    if (!later && !settled && cardRef.current) focusCardWhenIdle(cardRef.current);
-  }, [later, settled]);
-  useEffect(() => {
-    const card = cardRef.current;
-    if (!card || later || settled) return;
-    return bindCardKeys(card, (event) => {
-      if (isTypingTarget(event.target)) return;
-      const handled = () => {
-        event.preventDefault();
-        event.stopPropagation();
-      };
-      if (event.key === 'Escape') {
-        handled();
-        live.current.decideLater();
-        return;
-      }
-      if (!/^[1-9]$/.test(event.key)) return;
-      const row = live.current.rows[Number(event.key) - 1];
-      if (!row) return;
-      handled();
-      if (Date.now() - Math.max(mountedAt.current, lastDecisionAt) < KEY_SETTLE_MS) return;
-      live.current.activate(row);
-    });
-  }, [later, settled]);
+  // Deny (the plain "no" row) on the left, the first row as the primary on
+  // the right, anything else between.
+  const denyRow = rows.find(
+    (row) => typeof row.decision === 'object' && row.decision.approved === false && !row.decision.response
+  );
+  const danger = model.action === 'payment' || model.action === 'delete';
+  const [primary, ...others] = rows;
+  // A row's own description (what "Always allow" changes) is its tooltip; a
+  // danger allow's says it takes a click.
+  const toButton = (row: CardRow, tone?: ApprovalButton['tone']): ApprovalButton => ({
+    label: row.label,
+    tone,
+    disabled: row.decision === 'wait',
+    hint: row.desc,
+    onClick: () => activate(row),
+  });
+  const denyButton = denyRow && denyRow !== primary ? [{ ...toButton(denyRow), deny: true }] : [];
+  const primaryButton: ApprovalButton = danger
+    ? { ...toButton(primary, 'danger'), hint: t('Allowing takes a click; Enter does not allow.') }
+    : toButton(primary, 'primary');
+  const choices = others.filter((row) => row !== denyRow).map((row) => toButton(row));
+  // A permission request reads primary, the narrower choice, then Cancel last;
+  // every other card keeps deny, the choices, then the primary.
+  const buttons: ApprovalButton[] =
+    model.kind === 'permission'
+      ? [primaryButton, ...choices, ...denyButton]
+      : [...denyButton, ...choices, primaryButton];
+  const denyDecision = denyRow?.decision;
+  let onDeny: ((reason: string) => void) | undefined;
+  if (denyDecision && typeof denyDecision === 'object') {
+    onDeny = (reason) => void decide(reason ? { ...denyDecision, reason } : denyDecision);
+  }
+  const status = approvalSettledStatus(model.kind, settled);
+  // The friendly service name; the raw tool id stays as its tooltip.
+  const rawTool = model.tool || (model.kind === 'outbound' ? String(approval.name || '') : '');
+  const service = connectorServiceLabel(rawTool) || rawTool;
+  // A sub-agent's request shown in the top-level chat links to its own session.
+  const ownSession = String(approval.sessionId || '');
+  const surface = String(approval.surfaceSessionId || '');
+  const sessionLink =
+    ownSession && surface && ownSession !== surface && ownSession !== hostSessionId
+      ? { sessionId: ownSession, label: t('Open session') }
+      : null;
+  const icon = <PixelIcon name={actionIcon(model.action, model.kind === 'outbound')} />;
 
-  if (later && !settled) {
-    const reopen = () => {
-      laterIds.delete(id);
-      setLater(false);
-    };
-    return <ApprovalPendingChip label={model.title} agentMode={agentMode} onOpen={reopen} />;
-  }
-  const metaText = meta ?? [headAgent, model.tool].filter(Boolean).join(' · ');
-  let hint = t('1–{{n}} choose · Esc later', { n: rows.length });
-  if (settled) {
-    hint = settled.approved
-      ? t('Allowed from {{device}}', { device: settled.device })
-      : t('Denied from {{device}}', { device: settled.device });
-  }
-  const spends = model.action === 'payment' || model.action === 'delete';
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: an <article> must keep its tag; role="group" names the approval region
-    <article
-      ref={cardRef}
-      tabIndex={-1}
-      className="question-card"
-      role="group"
-      aria-label={model.title}
-      data-approval={model.kind}
-      data-agent-mode={agentMode || undefined}
-      data-settled={settled ? true : undefined}
-    >
-      <div className="question-head">
-        <span className="question-icon" data-tone={settled ? 'done' : 'need'} aria-hidden="true">
-          {settled ? '✓' : <NeedGlyph />}
-        </span>
-        <span className="question-title">
-          <strong>{model.title}</strong>
-          {metaText && <span className="question-meta">{metaText}</span>}
-        </span>
-        <button
-          type="button"
-          className="question-close"
-          aria-label={t('Decide later')}
-          title={t('Decide later')}
-          disabled={Boolean(settled)}
-          onClick={decideLater}
-        >
-          ✕
-        </button>
-      </div>
-      <div className="question-text">{model.text}</div>
-      {model.action === 'email' ? (
-        <div className="question-target">
-          <span className="question-target-main">{t('Sent as {{account}}', { account: model.account })}</span>
-        </div>
-      ) : (
-        model.target && (
-          <div className="question-target">
-            {model.action === 'trash' && model.details.messages ? (
-              <>
-                {model.details.messages.split('\n').map((line) => (
-                  <span key={line} className="question-target-main">
-                    {line}
-                  </span>
-                ))}
-                {model.details.more && (
-                  <span className="question-option-desc">{t('and {{n}} more', { n: model.details.more })}</span>
-                )}
-              </>
-            ) : (
-              <span className="question-target-main">{model.target}</span>
-            )}
-            {model.account && model.action === 'trash' && (
-              <span className="question-option-desc">{t('Mail in {{account}}', { account: model.account })}</span>
-            )}
-            {model.account && !['payment', 'delete', 'trash'].includes(model.action) && (
-              <span className="question-option-desc">{t('Sent as {{account}}', { account: model.account })}</span>
-            )}
-          </div>
-        )
-      )}
-      {model.action === 'email' && (
-        <dl className="question-fields">
-          {(
-            [
-              [t('To'), model.details.to],
-              [t('Cc'), model.details.cc],
-              [t('Subject'), model.details.subject],
-            ] as const
-          )
-            .filter(([, value]) => value)
-            .map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-        </dl>
-      )}
-      {model.editable.length > 0 && (
-        <>
-          <label className="question-other" data-preview data-typed={edited || undefined}>
-            <textarea
-              value={text}
-              maxLength={40_000}
-              rows={1}
-              disabled={disabled}
-              aria-label={t('Text to send, editable')}
-              spellCheck={false}
-              onChange={(event) => setText(event.target.value)}
-            />
-          </label>
-          <div className="question-edit-row">
-            <span className="question-hint" data-edited={edited || undefined}>
-              {edited ? t('Edited · the edited text is sent') : t('Click the text to edit it')}
-            </span>
-            {edited && (
-              <button
-                type="button"
-                className="turn-changes-action question-btn"
-                disabled={disabled}
-                onClick={() => setText(model.payload)}
-              >
-                {t('Back to original')}
-              </button>
-            )}
-          </div>
-        </>
-      )}
-      {model.action === 'payment' && (
-        <div className="question-amount">
-          <b>{amountText(model.details)}</b>
-          <span className="question-option-desc">
-            {[model.details.currency, model.details.recurrence].filter(Boolean).join(' · ')}
-          </span>
-        </div>
-      )}
-      {model.action === 'delete' && (
-        <div className="question-amount">
-          <b>
-            {[t('{{n}} items', { n: model.details.count || '1' }), sizeText(model.details.size)]
-              .filter(Boolean)
-              .join(' · ')}
-          </b>
-          <span className="question-option-desc">{t('Skips the trash and cannot be undone')}</span>
-        </div>
-      )}
-      {spends && <div className="question-note">{t('This always asks, so there is no “Don’t ask again”.')}</div>}
-      {model.detail && <pre className="approval-detail question-detail">{model.detail}</pre>}
-      {model.kind === 'secret' && (
-        <label className="question-other">
+  const body = approvalActionBody(model, icon);
+  const editor = model.editable.length > 0 && (
+    <ApprovalTextEditor text={text} payload={model.payload} disabled={disabled} onChange={setText} />
+  );
+  const office = model.office && <OfficeApprovalDetails args={args} />;
+  // What the agent asked in its own words, where the request is not outbound.
+  const ownText = model.kind !== 'outbound' && model.text;
+  const permission = permissionChoices(model.kind === 'permission' ? model.scopes : []);
+  const previewNode =
+    body || editor || office || ownText || model.detail || model.kind === 'secret' ? (
+      <>
+        {ownText && (
+          <p className="approval-text" data-centered={model.kind === 'permission' || undefined}>
+            {model.text}
+          </p>
+        )}
+        {model.kind === 'permission' &&
+          [
+            [t('Always allow'), permission.always],
+            [t('Allow once'), permission.once],
+          ].map(([label, scope]) => {
+            const shown = scope as PermissionScope | undefined;
+            if (!shown || shown.label === shown.id) return null;
+            return (
+              <small key={String(label)} className="approval-preview-more" data-centered>
+                {String(label)} · {shown.label}
+              </small>
+            );
+          })}
+        {body}
+        {editor}
+        {model.detail && <pre className="approval-detail">{model.detail}</pre>}
+        {office}
+        {model.kind === 'secret' && (
           <input
             ref={secretRef}
+            className="approval-secret"
             type="password"
             value={secret}
             maxLength={4_096}
@@ -878,100 +1041,39 @@ function ToolApprovalCard({ approval, resolve, agentMode = false, settled = null
               activate(rows[0]);
             }}
           />
-        </label>
-      )}
-      {model.office && (
-        <dl className="question-fields">
-          {Boolean(args?.document) && (
-            <>
-              <dt>{t('Document')}</dt>
-              <dd>
-                <code>{String(args?.document)}</code>
-              </dd>
-            </>
-          )}
-          {Boolean(transaction?.id) && (
-            <>
-              <dt>{t('Transaction')}</dt>
-              <dd>
-                <code>{String(transaction?.id)}</code>
-              </dd>
-            </>
-          )}
-          {summary && (
-            <>
-              <dt>{t('Changes')}</dt>
-              <dd>
-                {t('{{total}} paths · +{{added}} −{{removed}} ~{{modified}}', {
-                  total: Number(summary.total || 0),
-                  added: Number(summary.added || 0),
-                  removed: Number(summary.removed || 0),
-                  modified: Number(summary.modified || 0),
-                })}
-              </dd>
-            </>
-          )}
-          {Boolean(preview?.output) && (
-            <>
-              <dt>{t('Preview')}</dt>
-              <dd>
-                <code>{String(preview?.output)}</code>
-              </dd>
-            </>
-          )}
-          {visualDiff?.available === true && (
-            <>
-              <dt>{t('Visual diff')}</dt>
-              <dd>{t('{{percent}}% changed pixels', { percent: Number(visualDiff.changedPercent || 0) })}</dd>
-            </>
-          )}
-        </dl>
-      )}
-      {model.office && previewImages.length > 0 && (
-        // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the preview strip is a plain container labelled for assistive tech
-        <div className="office-approval-preview" aria-label={t('Document preview')}>
-          {previewImages.map((image, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: preview pages are positional and never reorder
-            <figure key={`${String(image.path)}:${index}`}>
-              <ApprovalPreviewImage
-                path={image.path}
-                alt={
-                  image.kind === 'visual-diff'
-                    ? t('Visual diff page {{page}}', { page: Number(image.page || index + 1) })
-                    : t('Preview page {{page}}', { page: Number(image.page || index + 1) })
-                }
-              />
-              <figcaption>{image.kind === 'visual-diff' ? t('Visual diff') : t('Preview')}</figcaption>
-            </figure>
-          ))}
-        </div>
-      )}
-      <div className="question-options">
-        {rows.map((row, index) => (
-          <button
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional and never reorder
-            key={index}
-            type="button"
-            className="question-option"
-            disabled={disabled || row.decision === 'wait'}
-            data-waiting={row.decision === 'wait' || undefined}
-            onClick={() => activate(row)}
-          >
-            <span className="question-box" data-kind="radio" aria-hidden="true" />
-            <span className="question-option-text">
-              <span className="question-option-label">{row.label}</span>
-              {row.desc && <span className="question-option-desc">{row.desc}</span>}
-            </span>
-            {index < 9 && <span className="question-key">{index + 1}</span>}
-          </button>
-        ))}
-      </div>
-      {error && <ErrorNotice error={error} />}
-      <div className="question-foot" data-status={settled ? true : undefined}>
-        <span className="question-hint">{hint}</span>
-      </div>
-    </article>
+        )}
+      </>
+    ) : null;
+  return (
+    <ApprovalPrompt
+      title={model.kind === 'outbound' ? actionQuestion(model.action) : model.title}
+      faceAgentId={faceAgentId}
+      tone={danger ? 'danger' : 'need'}
+      requester={headAgent}
+      service={service}
+      serviceTitle={rawTool !== service ? rawTool : undefined}
+      sessionLink={sessionLink}
+      queue={queue}
+      corner={meta}
+      preview={previewNode}
+      buttons={buttons}
+      focus={danger ? 'deny' : 'primary'}
+      enterAllows={!danger}
+      onDeny={onDeny}
+      status={status}
+      error={error}
+      busy={disabled}
+      kind={model.kind}
+      agentMode={agentMode}
+    />
   );
+}
+
+/** What an approval decided, named for the one line that reports it after
+ *  another device answered ("Send an email"). */
+export function approvalRecordLabel(approval: Approval): string {
+  const model = approvalCardModel(approval);
+  return model.kind === 'outbound' ? actionLabel(model.action) : model.title;
 }
 
 // Held requests: which pending home-thread rows already settled. The row that
@@ -1000,6 +1102,7 @@ export function publishHeldSettlements(sessionId: string, items: readonly Transc
 
 function heldApproval(held: Record<string, unknown>): Approval {
   const action = String(held.action || '');
+  const urlArgs = held.target ? { url: held.target } : {};
   return {
     id: String(held.id),
     name: String(held.tool || ''),
@@ -1018,7 +1121,7 @@ function heldApproval(held: Record<string, unknown>): Approval {
             details: held.details || {},
           },
         }
-      : { args: held.target ? { url: held.target } : {} }),
+      : { args: urlArgs }),
   };
 }
 

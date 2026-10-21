@@ -29,9 +29,52 @@ import { routeChain, validateRouteChainProviders } from '../../runtime/shared/mo
 // lead preset, so an agent that reused it silently rewrote Main's effort/fast
 // for the next session. The agent's own stored route is the fallback instead,
 // and the bucket is never written here.
+// Tuning-only edits keep the stored model's effort/fast/modelParameters;
+// a model change starts from the resolved defaults. Fast is then clamped
+// to what the selected model supports. The ONE normalizer of a chain entry:
+// agents, bots, Mixy and the Lead's fallbacks all pass through it.
+export async function resolveChainEntry(deps, requested, stored) {
+  const { getConfig, resolveRoute, lookupModelMeta, ensureProvidersReady } = deps;
+  let selectedRoute = resolveRoute(getConfig(), requested);
+  const sameModel =
+    clean(selectedRoute.provider) === clean(stored.provider) && clean(selectedRoute.model) === clean(stored.model);
+  const inheritedEffort = sameModel ? stored.effort || null : null;
+  const inheritedModelParameters = sameModel ? stored.modelParameters || {} : {};
+  // A requested percent replaces the stored exact window and requested
+  // tokens replace the stored percent.
+  const requestsPercent = requested.contextPercent !== undefined;
+  const requestsTokens = requested.contextTokens !== undefined;
+  const inheritedContextPercent = sameModel && !requestsTokens ? stored.contextPercent : undefined;
+  const inheritedContextTokens = sameModel && !requestsPercent ? stored.contextTokens : undefined;
+  selectedRoute = {
+    ...selectedRoute,
+    effort: requested.effort !== undefined ? selectedRoute.effort : inheritedEffort,
+    fast: requested.fast !== undefined ? selectedRoute.fast === true : sameModel && stored.fast === true,
+    // Main's modelSettings bucket must not decide an agent's Auto effort.
+    autoEffort:
+      requested.autoEffort !== undefined ? requested.autoEffort !== false : !sameModel || stored.autoEffort !== false,
+    modelParameters: requested.modelParameters !== undefined ? selectedRoute.modelParameters : inheritedModelParameters,
+    // resolveRoute reads contextPercent from Main's modelSettings bucket;
+    // an agent route owns its own.
+    contextPercent: requestsPercent ? requested.contextPercent : inheritedContextPercent,
+    contextTokens: requestsTokens ? requested.contextTokens : inheritedContextTokens,
+  };
+  await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
+  const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
+  // Stored clamped, and not at all at the default window, as for Main.
+  const contextState = resolveRouteContextState(selectedRoute, modelMeta);
+  if (contextState.contextDefaultPercent !== undefined) selectedRoute.contextTokens = contextState.contextTokens;
+  const fastCapable = selectionFastCapable(
+    selectedRoute.provider,
+    modelMeta,
+    selectedRoute.effort,
+    selectedRoute.modelParameters
+  );
+  return { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
+}
+
 export function createAgentRouteApi(deps) {
-  const { getConfig, resolveRoute, lookupModelMeta, saveConfigAndAdopt, ensureProvidersReady, agentRouteFromConfig } =
-    deps;
+  const { getConfig, resolveRoute, saveConfigAndAdopt, agentRouteFromConfig } = deps;
 
   function saveDisabled(id, disabled) {
     saveConfigAndAdopt(canonicalizeAgentRouteStorage(withAgentDisabled(getConfig(), id, disabled)));
@@ -74,49 +117,6 @@ export function createAgentRouteApi(deps) {
     if (hadOverride) saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
     const inherited = normalizeWorkflowRoute(resolveRoute(getConfig(), {}));
     return { ...(inherited || {}), inherited: true };
-  }
-
-  // Tuning-only edits keep the stored model's effort/fast/modelParameters;
-  // a model change starts from the resolved defaults. Fast is then clamped
-  // to what the selected model supports.
-  async function resolveSelectedRoute(requested, stored) {
-    let selectedRoute = resolveRoute(getConfig(), requested);
-    const sameModel =
-      clean(selectedRoute.provider) === clean(stored.provider) && clean(selectedRoute.model) === clean(stored.model);
-    const inheritedEffort = sameModel ? stored.effort || null : null;
-    const inheritedModelParameters = sameModel ? stored.modelParameters || {} : {};
-    // A requested percent replaces the stored exact window and requested
-    // tokens replace the stored percent.
-    const requestsPercent = requested.contextPercent !== undefined;
-    const requestsTokens = requested.contextTokens !== undefined;
-    const inheritedContextPercent = sameModel && !requestsTokens ? stored.contextPercent : undefined;
-    const inheritedContextTokens = sameModel && !requestsPercent ? stored.contextTokens : undefined;
-    selectedRoute = {
-      ...selectedRoute,
-      effort: requested.effort !== undefined ? selectedRoute.effort : inheritedEffort,
-      fast: requested.fast !== undefined ? selectedRoute.fast === true : sameModel && stored.fast === true,
-      // Main's modelSettings bucket must not decide an agent's Auto effort.
-      autoEffort:
-        requested.autoEffort !== undefined ? requested.autoEffort !== false : !sameModel || stored.autoEffort !== false,
-      modelParameters:
-        requested.modelParameters !== undefined ? selectedRoute.modelParameters : inheritedModelParameters,
-      // resolveRoute reads contextPercent from Main's modelSettings bucket;
-      // an agent route owns its own.
-      contextPercent: requestsPercent ? requested.contextPercent : inheritedContextPercent,
-      contextTokens: requestsTokens ? requested.contextTokens : inheritedContextTokens,
-    };
-    await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
-    const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
-    // Stored clamped, and not at all at the default window, as for Main.
-    const contextState = resolveRouteContextState(selectedRoute, modelMeta);
-    if (contextState.contextDefaultPercent !== undefined) selectedRoute.contextTokens = contextState.contextTokens;
-    const fastCapable = selectionFastCapable(
-      selectedRoute.provider,
-      modelMeta,
-      selectedRoute.effort,
-      selectedRoute.modelParameters
-    );
-    return { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
   }
 
   async function setAgentRoute(agentId, next) {
@@ -175,7 +175,7 @@ export function createAgentRouteApi(deps) {
       const previous = storedChain.find(
         (candidate) => candidate.provider === entry.provider && candidate.model === entry.model
       );
-      resolved.push(await resolveSelectedRoute(entry, previous || {}));
+      resolved.push(await resolveChainEntry(deps, entry, previous || {}));
     }
     const [primary, ...fallbacks] = resolved;
     const routeToSave = normalizeWorkflowRoute({ ...primary, fallbacks });

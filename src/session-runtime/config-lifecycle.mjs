@@ -18,6 +18,7 @@ import {
   withDefaultPresets,
 } from '../runtime/agent/orchestrator/config-presets.mjs';
 import { createConfigWriters } from './config-lifecycle/config-writers.mjs';
+import { createLeadRouteSync } from './config-lifecycle/lead-route-sync.mjs';
 import { createOutputStyleStatusCache } from './config-lifecycle/output-style-cache.mjs';
 
 export { flushPendingSessionConfigWrites } from './config-lifecycle/config-writers.mjs';
@@ -27,11 +28,58 @@ function storedForm(config) {
   return stripStoredRouteDefaults(withStoredDisabledAgents(config));
 }
 
+// The Lead route lives in these two stored keys; a conditional fill writes
+// them only while `default` is still unset on disk, judged under the config
+// file lock when the patch is applied (config-patch.mjs `unlessSet`).
+const LEAD_FILL_KEYS = new Set(['default', 'presets']);
+
+// A fresh profile's install markers (an empty `builtins`) equal the
+// defaults, so no diff ever carries them — yet on disk their absence reads
+// as a grandfathered profile. The first write seeds them where the stored
+// section lacks them. Off-by-default agents are NOT seeded: they live in
+// code and the file keeps only the user's delta.
+function seedChanges(config, changes) {
+  return ['builtins']
+    .filter((key) => config[key] !== undefined && !changes.some((change) => change.path[0] === key))
+    .map((key) => ({ path: [key], value: structuredClone(config[key]), ifAbsent: true }));
+}
+
+// The config just read from disk with this runtime's still-pending edits laid
+// back on it (the config and skills writers hold the only copy of them).
+function withPendingEdits(loaded, writers) {
+  let next = loaded;
+  if (writers.hasPendingConfigChanges()) {
+    // Preserve only our pending edits. Peer changes and fresh secret overlays
+    // from the disk load must not be replaced by the rest of our old snapshot.
+    // Pending changes are in stored shape, where disabledAgents is the
+    // user's delta; patch the stored form, then restore the effective list.
+    // Presets and maintenance are stored as deltas too, so patch their
+    // stored form and rebuild the effective lists on top of the shipped ones.
+    const patched = applyConfigPatch(storedForm(loaded), writers.pendingConfigChanges());
+    next = withEffectiveDisabledAgents({
+      ...patched,
+      presets: withDefaultPresets(patched.presets),
+      maintenance: { ...DEFAULT_MAINTENANCE, ...patched.maintenance },
+    });
+  }
+  const pendingSkills = writers.pendingSkills();
+  if (pendingSkills !== null) {
+    next = { ...next, skills: { ...(next.skills || {}), disabled: pendingSkills } };
+  }
+  return next;
+}
+
 /**
  * Boot-time config/route state for one runtime. Caller overrides are applied
  * ONLY when supplied, so an option left out keeps the persisted route value
  * (`effort: undefined` must not erase a stored effort, and `fast` is a tri-state
  * where only an explicit boolean overrides).
+ *
+ * `agentOwned` (a sub-agent's runtime): the route is the agent's own — the
+ * Main route's saved settings for the same model (modelSettings: effort, Fast,
+ * Auto effort, model parameters, context share/window) must not fill it, so an
+ * agent with no stored value gets the route/model default (Auto effort is on
+ * unless the agent turns it off).
  */
 export function resolveInitialConfigState({
   initialConfig,
@@ -46,13 +94,20 @@ export function resolveInitialConfigState({
   contextPercent,
   contextTokens,
   selectedContextWindow,
+  agentOwned = false,
 }) {
   const config = withGrandfatheredBuiltins(
     initialConfig && typeof initialConfig === 'object' ? initialConfig : loadConfig()
   );
   // A requested percent replaces a saved token window; requested tokens
   // replace both (resolveRouteContextState lets tokens win).
-  const { contextTokens: savedTokens, ...resolved } = resolveRoute(config, { provider, model });
+  const { contextTokens: savedTokens, ...resolved } = resolveRoute(
+    agentOwned ? { ...config, modelSettings: {} } : config,
+    {
+      provider,
+      model,
+    }
+  );
   const tokens = normalizeContextTokens(contextTokens) || (contextPercent > 0 ? undefined : savedTokens);
   return {
     config,
@@ -104,6 +159,7 @@ export function createConfigLifecycle({
     performanceNow,
   });
   const writers = createConfigWriters({ cfgMod, sharedCfgMod });
+  const leadRoute = createLeadRouteSync({ getRoute, getConfig, setRouteState, resolveRoute, clean });
 
   // --- config adopt -----------------------------------------------------------
   function adoptConfig(nextConfig, { hasSecrets = getConfigHasSecrets() } = {}) {
@@ -124,11 +180,6 @@ export function createConfigLifecycle({
   // separate from adoptConfig: model tuning is adopted before its route save.
   let configSaveBaseline = structuredClone(getConfig());
 
-  // The Lead route lives in these two stored keys; a conditional fill writes
-  // them only while `default` is still unset on disk, judged under the config
-  // file lock when the patch is applied (config-patch.mjs `unlessSet`).
-  const LEAD_FILL_KEYS = new Set(['default', 'presets']);
-
   function saveConfigAndAdopt(nextConfig, { hasSecrets = getConfigHasSecrets(), leadFill = false } = {}) {
     // In-memory adopt is synchronous and first so callers that read back the
     // value immediately (e.g. setProfile -> getProfile) see the new state.
@@ -143,8 +194,6 @@ export function createConfigLifecycle({
     return adopted;
   }
 
-  const sameModel = (a, b) => clean(a?.provider) === clean(b?.provider) && clean(a?.model) === clean(b?.model);
-
   /** After a conditional Lead fill adopted `filled`: persist it now and, when
    *  the file already held another Lead route (written by another process after
    *  the fill's re-read, so the patch skipped it), adopt that one instead.
@@ -153,22 +202,7 @@ export function createConfigLifecycle({
   async function confirmLeadFill(filled) {
     await writers.flushConfigSaveAsync();
     reloadFullConfig();
-    if (!setRouteState || !resolveRoute || !sameModel(getRoute(), filled)) return false;
-    const winner = resolveRoute(getConfig(), {});
-    if (!clean(winner?.model) || sameModel(winner, filled)) return false;
-    setRouteState(winner);
-    return true;
-  }
-
-  // A fresh profile's install markers (an empty `builtins`) equal the
-  // defaults, so no diff ever carries them — yet on disk their absence reads
-  // as a grandfathered profile. The first write seeds them where the stored
-  // section lacks them. Off-by-default agents are NOT seeded: they live in
-  // code and the file keeps only the user's delta.
-  function seedChanges(config, changes) {
-    return ['builtins']
-      .filter((key) => config[key] !== undefined && !changes.some((change) => change.path[0] === key))
-      .map((key) => ({ path: [key], value: structuredClone(config[key]), ifAbsent: true }));
+    return leadRoute.adoptFillWinner(filled);
   }
 
   function scheduleSkillsSave(names) {
@@ -184,40 +218,11 @@ export function createConfigLifecycle({
     // subsequent adopt preserves) that change instead of reverting to a stale
     // on-disk snapshot.
     writers.flushConfigSave();
-    const loaded = cfgMod.loadConfig();
-    let next = loaded;
-    if (writers.hasPendingConfigChanges()) {
-      // Preserve only our pending edits. Peer changes and fresh secret overlays
-      // from the disk load must not be replaced by the rest of our old snapshot.
-      // Pending changes are in stored shape, where disabledAgents is the
-      // user's delta; patch the stored form, then restore the effective list.
-      // Presets and maintenance are stored as deltas too, so patch their
-      // stored form and rebuild the effective lists on top of the shipped ones.
-      const patched = applyConfigPatch(storedForm(loaded), writers.pendingConfigChanges());
-      next = withEffectiveDisabledAgents({
-        ...patched,
-        presets: withDefaultPresets(patched.presets),
-        maintenance: { ...DEFAULT_MAINTENANCE, ...patched.maintenance },
-      });
-    }
-    const pendingSkills = writers.pendingSkills();
-    if (pendingSkills !== null) {
-      next = { ...next, skills: { ...(next.skills || {}), disabled: pendingSkills } };
-    }
+    const next = withPendingEdits(cfgMod.loadConfig(), writers);
     const adopted = adoptConfig(next, { hasSecrets: true });
     configSaveBaseline = structuredClone(adopted);
-    syncEmptyMainRoute(adopted);
+    leadRoute.syncEmptyMainRoute(adopted);
     return adopted;
-  }
-
-  // A Main route the runtime still has no model for takes the Lead route a
-  // reload brings in (edited on disk or by another process), so a conditional
-  // backfill sees it and never overwrites it. A live route that has a model is
-  // the user's selection and stays.
-  function syncEmptyMainRoute(config) {
-    if (!setRouteState || !resolveRoute || clean(getRoute()?.model)) return;
-    const resolved = resolveRoute(config, {});
-    if (clean(resolved?.model)) setRouteState(resolved);
   }
 
   function ensureFullConfig() {

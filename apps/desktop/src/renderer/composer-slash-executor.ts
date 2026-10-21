@@ -10,12 +10,14 @@ import type {
   DesktopSubmitOptions,
   SessionSnapshot,
 } from '../shared/contract';
+import { hostRouteAutoEffort } from './auto-effort-store';
 import { type RouteSpeed, speedRouteFields } from './model-route-utils';
 import {
   resolveDesktopSlashCommand,
   type CommandSurface as CommandSurfaceName,
   type SettingsSection,
 } from './slash-commands';
+import { t } from './i18n';
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from './text-format';
 
 type SlashExecutorDeps = {
@@ -142,8 +144,13 @@ async function commandCapability<T>(run: SlashRun, capability: DesktopCapability
   const { deps } = run;
   if (deps.draftMode && capability === 'setEffort' && deps.onDraftModelSelection && deps.provider && deps.model) {
     const nextEffort = String(args[0] || deps.effort);
+    // An explicit level turns the route's Auto effort off (runtime setEffort).
     deps.onDraftModelSelection(
-      modelSelection(deps, { effort: nextEffort, ...(deps.fastCapable ? { fast: deps.fast } : {}) })
+      modelSelection(deps, {
+        effort: nextEffort,
+        ...(deps.fastCapable ? { fast: deps.fast } : {}),
+        ...(hostRouteAutoEffort() ? { autoEffort: false } : {}),
+      })
     );
     return nextEffort as T;
   }
@@ -162,7 +169,7 @@ async function commandCapability<T>(run: SlashRun, capability: DesktopCapability
 
 function modelSelection(
   deps: SlashExecutorDeps,
-  patch: { effort?: string; fast?: boolean; modelParameters?: Record<string, string> }
+  patch: { effort?: string; fast?: boolean; autoEffort?: boolean; modelParameters?: Record<string, string> }
 ): DesktopModelSelection {
   const { provider, model, effort } = deps;
   const { modelParameters = deps.modelParameters, ...rest } = patch;
@@ -170,8 +177,8 @@ function modelSelection(
     provider,
     model,
     effort,
-    ...rest,
     ...(typeof deps.autoEffort === 'boolean' ? { autoEffort: deps.autoEffort } : {}),
+    ...rest,
     ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
   };
 }
@@ -240,9 +247,17 @@ async function runAutoClear(run: SlashRun, argument: string) {
     await commandCapability<unknown>(run, statusQuery ? 'getAutoClear' : 'setAutoClear', statusQuery ? [] : [patch])
   );
   if (run.failed) return;
-  run.deps.showNotice(
-    `Auto-clear ${status?.enabled ? 'on' : 'off'}${status?.idleMs ? ` · idle ${status.idleMs}ms` : ''}`
-  );
+  const enabled = Boolean(status?.enabled);
+  const label = String(status?.label ?? '');
+  run.deps.showNotice(autoClearNotice(Boolean(status?.unlimited), enabled, label));
+}
+
+function autoClearNotice(unlimited: boolean, enabled: boolean, label: string): string {
+  if (unlimited) return enabled ? t('Auto-clear on · unlimited') : t('Auto-clear off · unlimited');
+  if (label) {
+    return enabled ? t('Auto-clear on · idle {{label}}', { label }) : t('Auto-clear off · idle {{label}}', { label });
+  }
+  return enabled ? t('Auto-clear on') : t('Auto-clear off');
 }
 
 async function runOutputStyle(run: SlashRun, argument: string) {

@@ -28,7 +28,7 @@ test('a NUL user-cwd.txt or session-cwd sentinel reads as missing, and a rewrite
     assert.equal(readLastSessionCwd(), root);
     assert.equal(readFileSync(join(root, 'session-cwd-solo.txt'), 'utf8'), root);
     assert.deepEqual(
-      readdirSync(root).filter((name) => name.endsWith('.tmp')),
+      readdirSync(root).filter((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
       []
     );
   } finally {

@@ -24,6 +24,7 @@ import { useRowMenuClamp } from './row-menu-geometry';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { commitImmediateOverlay } from './immediate-overlay';
 import { usePhoneDockSwitchActions } from './phone-dock-switch';
+import { useWorkspaceCover } from './workspace-cover';
 import './tab-strip.css';
 
 export interface DockAction {
@@ -348,6 +349,8 @@ export function DockHeaderRow({
   const phone = useMobileRemoteSurface();
   const toggleExpanded = phone ? undefined : (onToggleExpanded ?? dockExpand?.toggle);
   const isExpanded = onToggleExpanded ? expanded : (dockExpand?.expanded ?? expanded);
+  // An expanded dock, browser or terminal fills the main panel over the chat.
+  useWorkspaceCover(isExpanded);
   const phoneSwitch = usePhoneDockSwitchActions(phone);
   const split = splitDockActions(actions);
   const inline = split.inline;

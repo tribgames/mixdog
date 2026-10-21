@@ -22,11 +22,17 @@ export function ModelRouteEditor({
   catalogError = '',
   providerSetupError = '',
   labelForModel,
+  providerNames,
+  dropdown = false,
   composerParity = false,
   autoEffortSwitch = false,
   onChange,
   onOpenProviders,
 }: {
+  /** Setup-derived custom provider names (customProviderDisplayNames), keyed by provider id. */
+  providerNames?: Record<string, string>;
+  /** Open as a dropdown under the trigger at its width (RouteEditor `dropdown`). */
+  dropdown?: boolean;
   /** Show the composer picker's Context slider and Auto effort switch. */
   composerParity?: boolean;
   /** Show the Auto effort switch without the rest of the composer parity set. */
@@ -70,7 +76,8 @@ export function ModelRouteEditor({
     const nextFast = modelFastAvailable(option, nextEffort, nextParameters) && requestedFast === true;
     const nextContextPercent = patch.contextPercent ?? (sameModel ? value.contextPercent : undefined);
     // An exact window follows its own patch; a percent patch clears it.
-    const nextContextTokens = patch.contextPercent ? patch.contextTokens : sameModel ? value.contextTokens : undefined;
+    const keptContextTokens = sameModel ? value.contextTokens : undefined;
+    const nextContextTokens = patch.contextPercent ? patch.contextTokens : keptContextTokens;
     const nextAutoEffort = patch.autoEffort ?? (sameModel ? routeAutoEffort : (option.savedAutoEffort ?? true));
     return {
       provider: option.provider,
@@ -90,7 +97,8 @@ export function ModelRouteEditor({
     (composerParity || autoEffortSwitch) && selected?.autoEffortCapable === true,
     value.autoEffort,
     (enabled) => {
-      if (selected) onChange(selectionFor(selected, { autoEffort: enabled }));
+      if (!selected) return;
+      onChange(selectionFor(selected, enabled ? { autoEffort: true } : { autoEffort: false }));
     }
   );
   const contextDefaultPercent = defaultContextPercent(defaultWindow, maxWindow);
@@ -112,6 +120,7 @@ export function ModelRouteEditor({
   return (
     <RouteEditor
       models={models}
+      providerNames={providerNames}
       provider={provider}
       model={model}
       triggerModel={triggerModel}
@@ -138,7 +147,8 @@ export function ModelRouteEditor({
       tooltip={ariaLabel || t('Choose model')}
       onSelectModel={(option) => onChange(selectionFor(option))}
       onChangeEffort={(nextEffort) => {
-        if (selected) onChange(selectionFor(selected, { effort: nextEffort }));
+        // A picked level is explicit: it turns this route's Auto effort off.
+        if (selected) onChange(selectionFor(selected, { effort: nextEffort, autoEffort: false }));
       }}
       onChangeSpeed={(speed) => {
         if (!selected) return;
@@ -164,6 +174,7 @@ export function ModelRouteEditor({
       onOpenSheet={autoEffortRoute.onOpenSheet}
       // A dialog/settings field: the sheet opens below it like every popup.
       placement="below"
+      dropdown={dropdown}
     />
   );
 }

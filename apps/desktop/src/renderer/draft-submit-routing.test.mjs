@@ -17,7 +17,9 @@ const { useAppSubmitRouting } = await import('./use-app-submit-routing.ts');
 
 const DRAFT = { kind: 'new', draftId: 'd1' };
 
-function mountRouting(desktop) {
+const NO_PICK = { modelSelection: null };
+
+function mountRouting(desktop, modelPrefs = NO_PICK) {
   window.mixdogDesktop = desktop;
   let routing = null;
   function Harness() {
@@ -32,7 +34,7 @@ function mountRouting(desktop) {
       navigationEpoch,
       resolvedDraftPrefsFor: () => ({
         projectPath: '',
-        modelSelection: null,
+        ...modelPrefs,
         workflow: null,
         orchestrationMode: undefined,
       }),
@@ -94,6 +96,41 @@ test('a prompt sent before the draft promotes joins the session it is minting', 
   } finally {
     await mounted.cleanup();
   }
+});
+
+// Issue #149: a New task wrote its draft's selection over the Main (Lead)
+// route, so a model/effort the draft merely inherited (a cache from before the
+// Lead was edited) replaced the Lead's saved choice.
+test('a New task sends a route only for a model the user picked in that draft', async () => {
+  const inherited = { provider: 'anthropic-oauth', model: 'claude-opus-5-5', effort: 'high' };
+  const submitted = async (modelPrefs) => {
+    const drafts = [];
+    const mounted = mountRouting(
+      {
+        async submitNewTask(_prompt, _options, draft) {
+          drafts.push(draft);
+          return { accepted: true, sessionId: 's3', snapshot: { sessionId: 's3' } };
+        },
+        async submitToSession() {
+          return true;
+        },
+      },
+      modelPrefs
+    );
+    try {
+      await mounted.render();
+      await mounted.submitDraft('go');
+    } finally {
+      await mounted.cleanup();
+    }
+    return drafts[0];
+  };
+
+  const unpicked = await submitted({ modelSelection: inherited, explicitModelSelection: null });
+  assert.equal(Object.hasOwn(unpicked, 'route'), false, 'an inherited selection is not sent as the Lead route');
+
+  const picked = await submitted({ modelSelection: inherited, explicitModelSelection: inherited });
+  assert.deepEqual(picked.route, inherited, 'an explicit pick in the draft is the route');
 });
 
 test('a draft whose creation failed still mints its session on retry', async () => {

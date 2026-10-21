@@ -4,6 +4,10 @@ import { holdsNoData } from '../../../shared/atomic-file.mjs';
 
 export { readJsonSafe } from '../../../shared/json-file.mjs';
 
+// The default data dir of a loader factory: a path, or a resolver read per
+// call so a later runtime start's data dir is honored.
+export const defaultDirResolver = (dataDir) => (typeof dataDir === 'function' ? dataDir : () => dataDir);
+
 export function readTextSafe(path) {
   try {
     const text = readFileSync(path, 'utf8');

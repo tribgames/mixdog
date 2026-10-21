@@ -237,6 +237,71 @@ test('memoized digests keep verdicts identical for appended, edited and reordere
   }
 });
 
+test('the stable message id is display bookkeeping: stamping or re-stamping it never reads as a rewrite', () => {
+  const stamp = (message, messageId) => {
+    message.meta = { ...message.meta, transcript: { ...message.meta?.transcript, messageId } };
+  };
+  const messages = history();
+  messages[1].meta = { source: 'steering' };
+  messages[2].meta = { transcript: { at: 7 } };
+  messages[3].meta = { transcript: { messageId: 'msg_created_with_it', at: 8 } };
+  const first = assertSameVerdict(null, messages, {}, 'first');
+  const settled = assertSameVerdict(first.state, messages, {}, 'settled');
+  // A compaction pass stamps what carries no id, in place, on live messages.
+  stamp(messages[0], 'msg_stamped_0');
+  stamp(messages[1], 'msg_stamped_1');
+  stamp(messages[2], 'msg_stamped_2');
+  const stamped = assertSameVerdict(settled.state, messages, {}, 'stamped');
+  assert.equal(stamped.error, null);
+  assert.deepEqual(stamped.state.messageHashes, first.state.messageHashes);
+  stamp(messages[3], 'msg_replaced_3');
+  const restamped = assertSameVerdict(stamped.state, [...messages, { role: 'user', content: 'next' }], {}, 'restamped');
+  assert.equal(restamped.error, null);
+});
+
+test('only the message root id is left out: a meta nested in content stays guarded', () => {
+  const nested = (messageId) => ({ text: 'structured result', meta: { transcript: { messageId } } });
+  const messages = history();
+  messages[3].content = nested('msg_nested_a');
+  messages[3].meta = { transcript: { messageId: 'msg_root_a' } };
+  const first = assertSameVerdict(null, messages, {}, 'first');
+  const settled = assertSameVerdict(first.state, messages, {}, 'settled');
+  // Restamping the root id is accepted, in place and on a replaced object.
+  messages[3].meta.transcript.messageId = 'msg_root_b';
+  assert.equal(assertSameVerdict(settled.state, messages, {}, 'root restamp').error, null);
+  const replaced = [...messages.slice(0, 3), { ...messages[3], meta: { transcript: { messageId: 'msg_root_c' } } }];
+  assert.equal(assertSameVerdict(settled.state, replaced, {}, 'root replaced').error, null);
+  // The same id change inside content reaches the provider and is a rewrite.
+  messages[3].content = nested('msg_nested_b');
+  const rewritten = assertSameVerdict(settled.state, messages, {}, 'nested change');
+  assert.equal(rewritten.error?.details.reason, 'message_prefix');
+  assert.equal(rewritten.error.details.index, 3);
+  messages[3].content = nested('msg_nested_a');
+  messages[3].content.meta = { other: 1 };
+  assert.equal(assertSameVerdict(settled.state, messages, {}, 'nested meta dropped id').error?.details.index, 3);
+});
+
+test('meta that steers the wire stays guarded: only the stable message id is left out', () => {
+  const guarded = (mutate) => {
+    const messages = history();
+    messages[1].meta = { source: 'steering', transcript: { messageId: 'msg_1', at: 7 } };
+    messages[3].meta = { effortConfiguration: { effort: 'low' }, transcript: { messageId: 'msg_3' } };
+    const first = guardVerdict(null, messages).state;
+    mutate(messages);
+    return assertSameVerdict(first, messages, {}, 'guarded');
+  };
+  for (const [name, mutate] of [
+    ['meta.source', (m) => (m[1].meta.source = 'other')],
+    ['meta.effortConfiguration', (m) => (m[3].meta.effortConfiguration = { effort: 'high' })],
+    ['meta.transcript other than the id', (m) => (m[1].meta.transcript.at = 8)],
+    ['content', (m) => (m[3].content = 'edited')],
+  ]) {
+    const verdict = guarded(mutate);
+    assert.equal(verdict.error?.details.reason, 'message_prefix', name);
+  }
+  assert.equal(guarded((m) => (m[1].meta.transcript.messageId = 'msg_other')).error, null);
+});
+
 test('repeated requests with an appended message hash only the new messages', () => {
   const messages = history();
   const tracked = new Set(messages);

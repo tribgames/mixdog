@@ -75,7 +75,7 @@ test('dispose persists pending worker rows before unregistering', (t) => {
   assert.equal(stored.workers.pending?.sessionId, 'pending');
 });
 
-test('dispose under this process\'s own async lock holder drains before teardown', async (t) => {
+test("dispose under this process's own async lock holder drains before teardown", async (t) => {
   const root = tempRoot(t);
   const file = join(root, 'agent-workers.json');
   const before = exitFlushCount();

@@ -8,6 +8,7 @@ import {
   bridgeSurfaceOutdated,
   sessionToolExposure,
   TOOL_EXPOSURE_BRIDGE,
+  TOOL_EXPOSURE_NATIVE,
   TOOL_SURFACE_MIGRATION_INTENT,
   toolExposureMigrationNeeded,
   toolExposureModeForProvider,
@@ -122,6 +123,17 @@ export function applyAgentToolExposure(session, { existing = false } = {}) {
   const bridge =
     !allowlisted && toolExposureModeForProvider(session.provider, session.wireRoute) === TOOL_EXPOSURE_BRIDGE;
   if (!bridge && before === null) return false;
+  // A native deferred surface (the session runtime builds one) stays one:
+  // re-selected over the tools just resolved, never stripped to the full
+  // array. Native → native is no exposure change, so nothing is tagged.
+  if (!bridge && before === TOOL_EXPOSURE_NATIVE) {
+    session.tools = session.tools.slice();
+    applyDeferredToolSurface(session, session.deferredSurfaceMode || 'full', [], {
+      provider: session.provider,
+      model: session.model,
+    });
+    return false;
+  }
   // A surface an earlier bridge revision built is rebuilt now.
   const outdated = bridgeSurfaceOutdated(session);
   // The tools just resolved are the whole authority: no earlier catalog, MCP

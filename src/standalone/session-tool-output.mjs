@@ -1,4 +1,6 @@
 import { encodeCatalogCursor } from '../runtime/agent/orchestrator/session/catalog-db/schema.mjs';
+import { UNTRUSTED_NOTE, sessionBotOf } from '../session-runtime/bot-status.mjs';
+import { escapeHarnessTags } from '../runtime/shared/shell-output-summary.mjs';
 import { truncateToolText } from '../runtime/shared/tool-primitives.mjs';
 import { summarizeToolResult } from '../runtime/shared/tool-result-summary.mjs';
 
@@ -6,18 +8,42 @@ import { TOOL_OUTPUT_PAGE_BYTES, TOOL_OUTPUT_TAIL_BYTES } from '../runtime/share
 
 export const SESSION_TOOL_OUTPUT_BYTES = TOOL_OUTPUT_TAIL_BYTES;
 const MESSAGE_TEXT_LIMIT = 2000;
+const LIST_PREVIEW_LIMIT = 100;
 const outputBytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
-/** Keep catalog paging authoritative even when the output budget shortens a page. */
-export function sessionListOutput(page, limit) {
+/** Keep catalog paging authoritative even when the output budget shortens a page.
+ *  `rich` adds the owning bot, last activity, latest line and working state
+ *  (never for a background caller: bot-status.mjs scopedBot). */
+export function sessionListOutput(page, limit, { rich = true } = {}) {
   const raw = page.sessions;
-  const sessions = raw.slice(0, limit).map((row) => ({
-    id: row.id,
-    ...(row.title || row.preview ? { title: truncateToolText(row.title || row.preview, 160) } : {}),
-    ...(row.status ? { status: row.status } : {}),
-    ...(row.cwd ? { cwd: row.cwd } : {}),
-  }));
-  const result = { sessions, nextCursor: page.nextCursor ?? null };
+  const sessions = raw.slice(0, limit).map((row) => {
+    const base = {
+      id: row.id,
+      ...(row.title || row.preview
+        ? { title: escapeHarnessTags(truncateToolText(row.title || row.preview, 160)) }
+        : {}),
+      ...(row.status ? { status: row.status } : {}),
+      ...(row.cwd ? { cwd: row.cwd } : {}),
+    };
+    if (!rich) return base;
+    // The bot it belongs to: its chat, room seat or the task's creator.
+    const bot = sessionBotOf(row);
+    const lastUsedAt = Number(row.lastUsedAt) || 0;
+    const preview = String(row.lastMessagePreview || '').replace(/\s+/g, ' ');
+    return {
+      ...base,
+      ...(bot ? { bot } : {}),
+      ...(lastUsedAt ? { lastUsedAt: new Date(lastUsedAt).toISOString() } : {}),
+      // The latest user or assistant line, quoted data.
+      ...(preview.trim() ? { preview: escapeHarnessTags(truncateToolText(preview, LIST_PREVIEW_LIMIT)) } : {}),
+      ...(row.working === true || row.agentWorking === true ? { working: true } : {}),
+    };
+  });
+  const result = {
+    sessions,
+    nextCursor: page.nextCursor ?? null,
+    ...(sessions.some((row) => row.preview) ? { note: UNTRUSTED_NOTE } : {}),
+  };
   for (;;) {
     if (sessions.length < raw.length && sessions.length) {
       result.nextCursor = encodeCatalogCursor(raw[sessions.length - 1]);

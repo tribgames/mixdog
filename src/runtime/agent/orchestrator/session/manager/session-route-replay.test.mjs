@@ -78,3 +78,34 @@ test('an ordinary route change keeps provider replay fields', async () => {
   assert.ok(loadSession(id).messages[1].assistantBlocks);
   assert.ok((await persisted(id)).messages[1].assistantBlocks);
 });
+
+test('a route change on the live turn object changes that object in place, whatever copy the id loads', async () => {
+  const id = `sess_replay_live_${process.pid}`;
+  await plant(id);
+  // Without it the id's own loaded object takes the change (the previous behaviour, still the default).
+  assert.equal(updateSessionRoute(id, { provider: 'openai-oauth', model: 'gpt-x' }), loadSession(id));
+  // A turn that holds another object for the id (a reload after another process took the generation).
+  const turn = {
+    ...loadSession(id),
+    provider: 'anthropic-oauth',
+    model: 'claude-x',
+    messages: [{ role: 'user', content: 'live turn' }, replayAssistant()],
+    turnHop: 3,
+  };
+  const returned = updateSessionRoute(
+    id,
+    { provider: 'openai-oauth', model: 'gpt-x' },
+    { crossProvider: true, session: turn }
+  );
+  assert.equal(returned, turn, 'the live object itself is returned');
+  assert.equal(turn.provider, 'openai-oauth');
+  assert.equal(turn.model, 'gpt-x');
+  assert.deepEqual(turn.messages[1], { role: 'assistant', content: 'answer' }, 'its own messages were stripped');
+  assert.equal(turn.messages[0].content, 'live turn');
+  assert.equal(turn.turnHop, 3, 'turn state is untouched');
+  assert.equal(JSON.parse(JSON.stringify(turn)).turnHop, 3, 'and survives a save');
+  assert.equal(loadSession(id), turn, 'it is the live object from now on');
+  // A closed session is refused as before, and an object of another id is ignored.
+  assert.equal(updateSessionRoute(id, { model: 'x' }, { session: { id: 'other', model: 'q' } }) === turn, true);
+  assert.equal(updateSessionRoute(id, { model: 'y' }, { session: { ...turn, closed: true } }), null);
+});

@@ -303,10 +303,19 @@ test('read schema exposes canonical scalar and batch windows', () => {
     throw new Error('read range args must use the scalar integer contract with Mixdog descriptions');
   }
   if (
-    Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key)) ||
+    Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit', 'pages'].includes(key)) ||
     readSchema.additionalProperties !== false
   ) {
     throw new Error('read schema must not expose legacy arguments');
+  }
+  // PDFs page by `pages`, never by line windows; the description says so.
+  if (
+    readProps.pages?.type !== 'string' ||
+    !/"N-M"/.test(readProps.pages?.description || '') ||
+    !/scanned pages/i.test(readProps.pages?.description || '') ||
+    !/PDFs use pages/i.test(readProps.limit?.description || '')
+  ) {
+    throw new Error('read must expose the PDF pages range and say that limit does not page PDFs');
   }
 });
 
@@ -460,7 +469,7 @@ test('session and memory schemas stay minimal and direct', () => {
       'action,title,session_id,prompt,limit,cursor,offset,text_offset,item_id,path,compact,force,value,brief,project,model,notify,attachments' ||
     sessionProps.attachments?.type !== 'array' ||
     sessionProps.action?.enum?.join(',') !==
-      'status,list,read,send,cancel,delete,create,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
+      'status,list,bots,read,send,cancel,delete,create,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
     !/cannot target the caller/i.test(sessionProps.session_id?.description || '') ||
     sessionProps.limit?.minimum !== 1 ||
     sessionProps.limit?.maximum !== 100 ||

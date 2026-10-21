@@ -12,6 +12,38 @@
   background: var(--mx-workspace-sheet);
 }
 
+/* The page is in element fullscreen (a video's own button): the window is
+   fullscreen and this pane is all of it, the page alone on black. */
+.browser-pane.is-page-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  width: auto;
+  height: auto;
+  background: #000;
+}
+
+.browser-pane.is-page-fullscreen > :not(.browser-pane-content) {
+  display: none;
+}
+
+.browser-pane.is-page-fullscreen[data-browser-mode] .browser-pane-content {
+  padding: 0;
+}
+
+.browser-pane.is-page-fullscreen[data-browser-mode] .browser-pane-viewport {
+  border-radius: 0;
+}
+
+.browser-pane.is-page-fullscreen :is(.browser-pane-content, .browser-pane-viewport, .browser-pane-webview) {
+  background: #000;
+}
+
+/* The page's own controls own the screen; nothing of the shell floats over it. */
+.browser-pane.is-page-fullscreen :is(.browser-zoom-pill, .browser-pane-remote-driving) {
+  display: none;
+}
+
 /* Tab strip + nav-button cell styles live in ../tab-strip.css (shared with the
    session terminal). */
 /* Electron guests can stay alive but stop repainting after display:none.

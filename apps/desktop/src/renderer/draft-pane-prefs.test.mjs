@@ -10,11 +10,14 @@ installTestDom(null, {
   jsdom: {
     url: 'https://mixdog.test/',
   },
-  expose: ['navigator'],
+  expose: ['navigator', 'Event', 'CustomEvent'],
 });
 window.mixdogDesktop = { rendererDiagnostic() {} };
 
 const { useDraftPanePreferences } = await import('./use-draft-pane-preferences.ts');
+const { submittedDraftRoute } = await import('./draft-pane-prefs-store.ts');
+const { announceSetupChange } = await import('./setup-change-refresh.ts');
+const { effortForModelChoice } = await import('./model-route-utils.ts');
 
 const PROJECT = 'C:/Project/mixdog';
 
@@ -209,6 +212,112 @@ test('tuning the same model as the next-task model still merges', async (t) => {
   const next = drafts.api().lastNewTaskPrefs.current.modelSelection;
   assert.equal(next.model, 'astra');
   assert.equal(next.effort, 'low');
+});
+
+// Issue #149: a New task wrote its draft's selection over the Main (Lead)
+// route, so an effort the draft only inherited from the last-used cache
+// (written before the Lead was edited) replaced the Lead's saved effort.
+// An unpicked draft now paints and runs on the Main route the host holds and
+// sends no route; only a pick made in that draft is written.
+const LAST_PREFS_KEY = 'mixdog.desktop-last-new-task-prefs.v2';
+const CACHED_HIGH = { provider: 'p', model: 'astra', effort: 'high' };
+
+/** A host whose Main route can be rewritten from outside this window. */
+function installHost(effort) {
+  const host = { main: { provider: 'p', model: 'astra', effort } };
+  window.mixdogDesktop = {
+    rendererDiagnostic() {},
+    invokeCapability: async () => ({ value: [], snapshot: host.main }),
+  };
+  return host;
+}
+
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+/** A fresh draft whose last-used cache still says high. */
+async function mountInheriting() {
+  window.localStorage.clear();
+  window.localStorage.setItem(
+    LAST_PREFS_KEY,
+    JSON.stringify({ projectPath: null, modelSelection: CACHED_HIGH, workflow: null })
+  );
+  const drafts = await mountDrafts(PROJECT);
+  await settle();
+  return drafts;
+}
+
+const resolved = (drafts) => drafts.api().resolvedDraftPrefsFor('default');
+
+test('an unpicked draft paints the host Main route and sends no route', async (t) => {
+  installHost('medium');
+  const drafts = await mountInheriting();
+  t.after(() => drafts.unmount());
+  assert.equal(resolved(drafts).modelSelection.effort, 'medium', 'not the cached high');
+  assert.equal(submittedDraftRoute(resolved(drafts)), null);
+});
+
+// (a) Workflows → Lead and (b) Settings → Model both raise the setup-change
+// event after saving; the open draft re-reads the host's Main route.
+test('a Lead edited in Workflows or Settings reaches an open draft, and the next task keeps it', async (t) => {
+  const host = installHost('high');
+  const drafts = await mountInheriting();
+  t.after(() => drafts.unmount());
+  assert.equal(resolved(drafts).modelSelection.effort, 'high');
+
+  host.main = { ...host.main, effort: 'medium' };
+  await act(async () => announceSetupChange('set_route'));
+  await settle();
+
+  assert.equal(resolved(drafts).modelSelection.effort, 'medium');
+  assert.equal(submittedDraftRoute(resolved(drafts)), null, 'nothing is written back over the Lead');
+});
+
+// (c) A phone, the TUI or the setup tool writes the host config: no event
+// reaches this window, but opening a draft / returning to the window re-reads.
+test('a Lead rewritten outside this window is read when the draft opens or the window returns', async (t) => {
+  const host = installHost('high');
+  const first = await mountInheriting();
+  host.main = { ...host.main, effort: 'medium' };
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  await settle();
+  assert.equal(resolved(first).modelSelection.effort, 'medium');
+  assert.equal(submittedDraftRoute(resolved(first)), null);
+  await first.unmount();
+
+  host.main = { ...host.main, effort: 'low' };
+  const reopened = await mountDrafts(PROJECT);
+  t.after(() => reopened.unmount());
+  await settle();
+  assert.equal(resolved(reopened).modelSelection.effort, 'low');
+  assert.equal(submittedDraftRoute(resolved(reopened)), null);
+});
+
+test('an explicit pick in the draft is the one thing sent, and a host change does not override it', async (t) => {
+  const host = installHost('medium');
+  const drafts = await mountInheriting();
+  t.after(() => drafts.unmount());
+  const pick = { provider: 'p', model: 'astra', effort: 'high' };
+  await act(async () => drafts.api().stageNewTaskModelSelection(pick));
+  assert.deepEqual(submittedDraftRoute(resolved(drafts)), pick);
+
+  host.main = { ...host.main, effort: 'low' };
+  await act(async () => announceSetupChange('set_route'));
+  await settle();
+  assert.equal(resolved(drafts).modelSelection.effort, 'high');
+  assert.deepEqual(submittedDraftRoute(resolved(drafts)), pick);
+});
+
+test('re-picking a model keeps the effort on screen, then the host saved one, before the picker memory', () => {
+  const values = ['low', 'medium', 'high'];
+  const choose = (extra) => effortForModelChoice({ values, sameModel: true, ...extra });
+  assert.equal(choose({ current: 'medium', saved: 'low', remembered: 'high' }), 'medium');
+  assert.equal(choose({ current: '', saved: 'medium', remembered: 'high' }), 'medium', 'saved outranks remembered');
+  assert.equal(choose({ current: '', saved: null, remembered: 'high' }), 'high');
+  assert.equal(choose({ current: '', saved: null, remembered: 'xhigh' }), 'high', 'fallback list');
 });
 
 test('an explicit model choice replaces the next-task model', async (t) => {

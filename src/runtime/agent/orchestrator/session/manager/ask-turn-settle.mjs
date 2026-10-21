@@ -10,6 +10,7 @@ import { acknowledgePendingDeferredToolDelta } from '../../runtime-core/deferred
 import { acknowledgePendingGoalReminder } from '../../runtime-core/goal-reminder.mjs';
 import { acknowledgePendingSetupNotice, acknowledgePendingWorkspaceNotice } from './prompt-utils.mjs';
 import { acknowledgePendingWorkflowNotice } from './workflow-switch-notice.mjs';
+import { acknowledgePendingOrchestrationModeNotice } from './orchestration-mode-switch-notice.mjs';
 import {
   finalizePendingMessageDelivery,
   drainPendingMessages,
@@ -141,6 +142,9 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
     acknowledgePendingGoalReminder(session, prepared.goalReminder.revision);
   }
   if (prepared.workflowNotice) acknowledgePendingWorkflowNotice(session, prepared.workflowNotice.revision);
+  if (prepared.orchestrationModeNotice) {
+    acknowledgePendingOrchestrationModeNotice(session, prepared.orchestrationModeNotice.revision);
+  }
   if (prepared.workspaceNotice) {
     acknowledgePendingWorkspaceNotice(session, prepared.workspaceNotice.revision);
   }

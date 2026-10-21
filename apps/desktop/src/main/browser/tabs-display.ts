@@ -48,11 +48,13 @@ export function createDisplayTabs(host: DisplayTabsHost) {
     return entry;
   }
 
-  function selectDisplayTab(sessionId: string, id: string): void {
+  /** `retain: false` is the pane following the agent: the page is shown, not
+   *  claimed as the user's, so it stays reclaimable like any agent page. */
+  function selectDisplayTab(sessionId: string, id: string, options: { retain?: boolean } = {}): void {
     const { guest, page } = displayEntry(sessionId, id);
     if (page) {
       page.lastUsedAt = Date.now();
-      page.keepAlive = true;
+      if (options.retain !== false) page.keepAlive = true;
     }
     selectGuest(sessionId, guest);
   }

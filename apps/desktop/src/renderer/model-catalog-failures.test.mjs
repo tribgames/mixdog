@@ -1,5 +1,5 @@
 // A connected provider whose model list failed says why, in the UI language,
-// in Model management and in /model, instead of an empty 0 / 0 list.
+// in Model management instead of an empty 0 / 0 list.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test, { after } from 'node:test';
@@ -16,7 +16,6 @@ window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventL
 after(restore);
 
 const { default: i18n } = await import('./i18n');
-const { ModelCatalog, providerCatalogFailures } = await import('./model-catalog.tsx');
 const { ModelManagementCard, modelManagementProviders } = await import('./settings/model-management-panel.tsx');
 i18n.addResourceBundle(
   'ko',
@@ -88,52 +87,6 @@ test('Model management explains an empty list in Korean instead of "No matching 
     assert.equal(denied.includes('일치하는 모델이 없습니다'), false);
     // A provider that answered with nothing keeps the ordinary empty state.
     assert.ok(card('openai').includes('일치하는 모델이 없습니다'));
-  } finally {
-    await i18n.changeLanguage('en');
-  }
-});
-
-test('/model lists a notice for each connected provider that has no rows because its list failed', async () => {
-  await i18n.changeLanguage('ko');
-  try {
-    const failures = providerCatalogFailures(setup);
-    assert.deepEqual(
-      failures.map((failure) => failure.id),
-      ['deepseek', 'xai']
-    );
-    const html = renderToStaticMarkup(
-      React.createElement(ModelCatalog, {
-        models: [],
-        provider: '',
-        model: '',
-        providerCatalogErrors: failures,
-        onSelect() {},
-        onClose() {},
-      })
-    );
-    assert.ok(html.includes(AUTH_FAILED), html);
-    assert.ok(html.includes('DeepSeek'), html);
-    // A provider that does list models gets no notice.
-    const withRows = renderToStaticMarkup(
-      React.createElement(ModelCatalog, {
-        models: [
-          {
-            provider: 'deepseek',
-            model: 'glm-5.2',
-            display: 'GLM 5.2',
-            effortOptions: [],
-            fastCapable: false,
-            fastPreferred: false,
-          },
-        ],
-        provider: '',
-        model: '',
-        providerCatalogErrors: failures.slice(0, 1),
-        onSelect() {},
-        onClose() {},
-      })
-    );
-    assert.equal(withRows.includes(AUTH_FAILED), false);
   } finally {
     await i18n.changeLanguage('en');
   }

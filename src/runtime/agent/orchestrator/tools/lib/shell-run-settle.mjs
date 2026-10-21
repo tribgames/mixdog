@@ -26,13 +26,24 @@ import {
 // it follows confirmed termination only (see below).
 const UNCONFIRMED_KILL_CLEANUP_CEILING_MS = 60_000;
 
+/** Settles once a held run's whole tree is confirmed gone (or its hold was
+ *  force-released): what its result left in use defers to this. */
+function treeSettled(run) {
+  if (!run.treeSettled) {
+    run.treeSettled = new Promise((resolve) => {
+      run.resolveTreeSettled = resolve;
+    });
+  }
+  return run.treeSettled;
+}
+
 /** Lifecycle completion of a run whose result is already reported: release
  *  `run.workspaceAdmission` and retire the live record only once the root AND
  *  every descendant identity captured before the kill are confirmed gone. One
  *  observation loop at the termination cadence; running, unknown (incomplete
  *  snapshot, failed table read) and a failing release all re-check, and no
  *  timer ever releases on its own. */
-export function releaseAdmissionOnConfirmedTermination(run, { markNow = true } = {}) {
+export function releaseAdmissionOnConfirmedTermination(run, { markNow = true, sweep = run.killed === true } = {}) {
   const { child } = run;
   if (!child || run.stopTerminationWatch) return;
   // Visible as "termination unconfirmed" until the lifecycle ends, with an
@@ -40,12 +51,14 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true } =
   // kill is marked at once; an owner-cancelled tree whose root is already
   // gone only once its first observation is not 'gone'.
   if (markNow) keepTerminationUnconfirmedRecord(run);
+  treeSettled(run);
   const release = () => {
     run.workspaceAdmission?.();
     run.workspaceAdmission = null;
     run.stopTerminationWatch?.();
     clearTerminationHold(run.foregroundRecordId);
     clearForegroundRecord(run);
+    run.resolveTreeSettled();
   };
   registerTerminationHold(run.foregroundRecordId, {
     ownerSessionId: run.foregroundRecordInput?.ownerSessionId || null,
@@ -57,7 +70,7 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true } =
     tracker: run.terminationTracker,
     rootExited: () => child.exitCode != null || child.signalCode != null,
     // A killed run is not over while processes it started still run.
-    sweep: run.killed === true,
+    sweep,
     onTerminated: release,
     onUnconfirmed: markNow ? null : () => keepTerminationUnconfirmedRecord(run),
     releaseRequested: () => takeReleaseRequest(run.foregroundRecordId),
@@ -198,17 +211,19 @@ export function createSettle(run, releasePromotedCapture) {
     // The test compares captured BYTES, not rendered UTF-16 length: a CJK
     // head+tail holds ~1/3 the char count of its byte size and under a
     // length test would delete the very file its own marker names.
+    const dropCapture =
+      !run.killUnconfirmed && taskOutput.spilled && taskOutput.totalDiskBytes() <= SHELL_OUTPUT_INLINE_CAP;
     if (run.killUnconfirmed) {
       // Never confirmed dead: deleting the capture files or handing back the
       // lease now would release resources a live process still owns. The
       // spilled paths therefore survive and travel with the result below, and
       // the workspace admission stays held until termination is confirmed.
       deferCleanupToChildExit(run);
-    } else if (taskOutput.spilled && taskOutput.totalDiskBytes() <= SHELL_OUTPUT_INLINE_CAP) {
-      taskOutput.deleteFiles();
-      void releaseResourceLease(run);
     } else {
-      taskOutput.closeFds();
+      const releaseCapture = () => (dropCapture ? taskOutput.deleteFiles() : taskOutput.closeFds());
+      // A captured descendant of a killed tree may still write the capture.
+      if (confirmKill) void treeSettled(run).then(releaseCapture);
+      else releaseCapture();
       void releaseResourceLease(run);
     }
     let descendants = null;
@@ -252,9 +267,9 @@ export function createSettle(run, releasePromotedCapture) {
         timedOut: run.timedOut,
         killed: run.killed,
         killCause: run.killCause,
-        stdoutPath: taskOutput.spilled ? taskOutput.stdoutPath : null,
+        stdoutPath: taskOutput.spilled && !dropCapture ? taskOutput.stdoutPath : null,
         stdoutFileSize: taskOutput.stdoutFileSize,
-        stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
+        stderrPath: taskOutput.spilled && !dropCapture ? taskOutput.stderrPath : null,
         stderrFileSize: taskOutput.stderrFileSize,
         taskId: run.taskId,
         partialOutput: run.partialOutput,
@@ -262,6 +277,7 @@ export function createSettle(run, releasePromotedCapture) {
         failurePhase: run.failurePhase,
         failureReason: run.failureReason,
         descendants,
+        settled: run.treeSettled,
       })
     );
   };

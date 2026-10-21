@@ -24,6 +24,7 @@ const FEATURE_CHANNELS: ReadonlyArray<readonly [string, readonly string[]]> = [
       DESKTOP_IPC.browserSetActiveGuest,
       DESKTOP_IPC.browserReleasePage,
       DESKTOP_IPC.browserConfigureGuestViewport,
+      DESKTOP_IPC.browserApprovalDecide,
       DESKTOP_IPC.browserProfileImportSources,
       DESKTOP_IPC.browserProfileImportStart,
       DESKTOP_IPC.browserHistorySearch,

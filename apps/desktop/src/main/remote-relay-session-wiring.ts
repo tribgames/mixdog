@@ -2,6 +2,7 @@
 // stays beside those subscriptions so a replacement client cannot receive a
 // late read from the previous relay leg.
 import { createPushNotifier, type NativePushMessage } from './push-notifier';
+import { createBrowserApprovalGrants } from './browser/approval-grants';
 import type { NativePushStore } from './native-push-store';
 import type { PushSubscriptionStore } from './push-subscription-store';
 import type { DesktopSessionSummary } from '../shared/contract';
@@ -97,6 +98,7 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         store: deps.pushStore,
         ...(deps.hostId ? { hostId: deps.hostId } : {}),
         isEnabled: () => !deps.closed(),
+        agentName: (agentId) => createBrowserApprovalGrants(deps.host).agentName(agentId),
         readFinalAnswer: (sessionId, startedAt, signal) =>
           deps.host.readSessionFinalAnswer(sessionId, startedAt, signal),
         // Connected is not enough: a phone that just left the app keeps its

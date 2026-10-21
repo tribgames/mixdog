@@ -21,9 +21,10 @@ import { daemonCrashCaptureDir } from './paths.mjs';
 // Prune only files this module creates: `daemon-<yyyymmdd>-<hhmmss>-<pid>-<rand>`.
 const CAPTURE_STEM_RE = /^daemon-\d{8}-\d{6}-\d+-[0-9a-f]{4}$/;
 const CAPTURE_SUFFIXES = ['.err.log', '.json'];
-// Debris from this module's own atomic sidecar writes (writeFileAtomicSync
-// names its temp `.<basename>.<hex>.tmp`), never anyone else's file.
-const CAPTURE_TEMP_RE = /^\.daemon-\d{8}-\d{6}-(\d+)-[0-9a-f]{4}\.json\.[0-9a-f]+\.tmp$/;
+// Debris from this module's own atomic sidecar writes (the atomic writer names
+// its temp `<basename>.mixdog-tmp-<hex>`; older builds `.<basename>.<hex>.tmp`),
+// never anyone else's file.
+const CAPTURE_TEMP_RE = /^\.?daemon-\d{8}-\d{6}-(\d+)-[0-9a-f]{4}\.json\.(?:[0-9a-f]+\.tmp|mixdog-tmp-[0-9a-f]+)$/;
 export const CRASH_CAPTURE_KEEP_BOOTS = 8;
 const CRASH_CAPTURE_KEEP_BYTES = 2 * 1024 * 1024;
 const CRASH_CAPTURE_TAIL_BYTES = 256 * 1024;

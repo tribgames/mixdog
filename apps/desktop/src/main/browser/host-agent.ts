@@ -75,6 +75,24 @@ export async function fillSecretInput(
   }
 }
 
+/** A turn's end: its temporary pages close, and the implicit blank page the
+ *  agent has since left behind goes with them. */
+export function finishBrowserTurn(
+  host: {
+    taskLifecycle: Pick<ReturnType<typeof createBrowserTaskLifecycle<WebContents>>, 'finish'>;
+    sessions: Pick<BrowserHostFoundation['sessions'], 'agentPage'>;
+    lifecycle: Pick<ReturnType<typeof createBrowserGuestLifecycle>, 'discardUntouchedBlank'>;
+  },
+  sessionId: string,
+  turnId: number,
+  options: { aborted: boolean }
+): number {
+  const closed = host.taskLifecycle.finish(sessionId, turnId, options);
+  const page = host.sessions.agentPage(sessionId);
+  if (page) host.lifecycle.discardUntouchedBlank(sessionId, page.guest);
+  return closed;
+}
+
 function createBrowserActionServices(
   parts: Omit<BrowserActionServices, 'targets' | 'credentials' | 'runCommand'>,
   tools: { profileImporter: BrowserProfileImportService; credentialFill: Toolkit['credentialFill'] },
@@ -175,6 +193,8 @@ export function createBrowserHostAgent(options: {
     // now on a veto answers the agent, not a person's earlier click or key.
     drivePage: (guest) => {
       leave.agentActs(guest);
+      // A window the page opens from here on is the agent's (popup-focus).
+      state.for(guest).actor = 'agent';
       const releaseDomains = cdp.drive(guest);
       const releasePower = base.display.power.drive(guest);
       return () => {
@@ -202,7 +222,8 @@ export function createBrowserHostAgent(options: {
     chains: commandChains,
     pendingReads,
     execute: (command, signal) => queue.executeSerialized(command, signal),
-    finishTurn: (sessionId, turnId, finish) => taskLifecycle.finish(sessionId, turnId, finish),
+    finishTurn: (sessionId, turnId, finish) =>
+      finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turnId, finish),
     secretInput: (sessionId, requestId, signal) =>
       fillSecretInput(
         { currentGuest: (id) => sessions.currentGuest(id), fill: tools.credentialFill.fillCredentialInGuest },

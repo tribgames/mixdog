@@ -4,6 +4,7 @@
  * consume a retry verdict, and settle a completed send into the loop state.
  */
 import { traceCacheBreak } from '../../cache-break-trace.mjs';
+import { anthropicPrefixChanges } from '../../providers/lib/anthropic-prefix-trace.mjs';
 import { resolveLiveToolCwd } from './tool-exec.mjs';
 import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { addUsage, usageDeltaEvent } from './usage.mjs';
@@ -352,6 +353,8 @@ function traceActualCacheMiss(state, sent, response, { previousGuardState, previ
         previousCachedPrefixTokens: baseline,
         idleMs,
         missingPrefixGuardBaseline: !previousGuardState,
+        // Which wire block moved ('none': same bytes, so the cache itself dropped it).
+        ...anthropicPrefixChanges(sessionId),
       },
       state.cacheBreakTraceOptions
     );

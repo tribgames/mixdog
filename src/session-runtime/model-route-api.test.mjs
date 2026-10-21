@@ -8,7 +8,14 @@ import {
 
 const sourceRoute = { provider: 'openai', model: 'gpt-5.4', effort: 'high', fast: false };
 
-function fixture({ session, updateSessionRoute, lookupModelMeta, config: initialConfig, route: initialRoute } = {}) {
+function fixture({
+  session,
+  updateSessionRoute,
+  lookupModelMeta,
+  config: initialConfig,
+  route: initialRoute,
+  persistLeadRoute = () => null,
+} = {}) {
   let config = initialConfig || { modelSettings: {} };
   const calls = [];
   const persisted = [];
@@ -35,7 +42,12 @@ function fixture({ session, updateSessionRoute, lookupModelMeta, config: initial
       state.webSearchRoute = next;
     },
     cfgMod: { loadConfig: () => config },
-    resolveRoute: (_config, requested) => ({ ...state.route, ...requested }),
+    resolveRoute: (_config, requested) => {
+      // The real resolver reads only the route's own fields.
+      const { fallbacks: _chain, ...fields } = requested;
+      const { fallbacks: _leaked, ...base } = state.route;
+      return { ...base, ...fields };
+    },
     lookupModelMeta: lookupModelMeta || (async (_provider, model) => ({ id: model, fastCapable: true })),
     webSearchCapableFor: () => true,
     ensureProvidersReady: async () => {},
@@ -44,7 +56,7 @@ function fixture({ session, updateSessionRoute, lookupModelMeta, config: initial
     adoptConfig: (value) => {
       config = value;
     },
-    persistLeadRoute: () => null,
+    persistLeadRoute,
     saveConfigAndAdopt: (value) => {
       persisted.push(value);
       config = value;
@@ -233,4 +245,77 @@ test('toggleFast flips the route fast flag and reports the new value', async () 
   assert.equal(state.route.fast, true);
   assert.equal(await api.toggleFast(), false);
   assert.equal(state.route.fast, false);
+});
+
+test('the Lead editor saves fallbacks with the Lead route; a pick without them keeps the stored chain; [] clears', async () => {
+  const saved = [];
+  const stored = {
+    id: 'workflow-lead',
+    provider: 'openai',
+    model: 'gpt-5.4',
+    fallbacks: [{ provider: 'anthropic', model: 'claude-x' }],
+  };
+  const { api } = fixture({
+    config: { modelSettings: {}, presets: [stored], default: 'workflow-lead' },
+    persistLeadRoute: (route) => {
+      saved.push(route);
+      return null;
+    },
+  });
+  await api.setRoute(
+    { provider: 'openai', model: 'gpt-5.4', fallbacks: [{ provider: 'gemini', model: 'g-1' }] },
+    { keepMainModel: false }
+  );
+  assert.deepEqual(
+    saved[0].fallbacks.map(({ provider, model }) => [provider, model]),
+    [['gemini', 'g-1']]
+  );
+  await api.setRoute({ provider: 'openai', model: 'gpt-5.4', effort: 'low' }, { keepMainModel: false });
+  assert.deepEqual(
+    saved[1].fallbacks.map(({ provider, model }) => [provider, model]),
+    [['anthropic', 'claude-x']]
+  );
+  await api.setRoute({ provider: 'openai', model: 'gpt-5.4', fallbacks: [] }, { keepMainModel: false });
+  assert.deepEqual(saved[2].fallbacks, []);
+  // The same provider as the primary is refused, as for an agent.
+  await assert.rejects(
+    api.setRoute(
+      { provider: 'openai', model: 'gpt-5.4', fallbacks: [{ provider: 'openai', model: 'other' }] },
+      { keepMainModel: false }
+    ),
+    /duplicate route provider/
+  );
+  // A session's own pick never touches the Lead chain.
+  await api.setRoute({ provider: 'openai', model: 'gpt-5.4' }, { keepMainModel: true });
+  assert.equal(saved.length, 3);
+});
+
+test("Lead fallback entries are normalized by the agents' function: an unsupported fast flag is clamped, saved tuning kept", async () => {
+  const saved = [];
+  const { api } = fixture({
+    persistLeadRoute: (route) => {
+      saved.push(route);
+      return null;
+    },
+    lookupModelMeta: async (_provider, model) => ({
+      id: model,
+      fastCapable: model === 'fast-ok',
+      supportsFastMode: model === 'fast-ok',
+    }),
+  });
+  await api.setRoute(
+    {
+      provider: 'openai',
+      model: 'gpt-5.4',
+      fallbacks: [
+        { provider: 'anthropic', model: 'no-fast', fast: true, effort: 'low' },
+        { provider: 'cursor-oauth', model: 'fast-ok', fast: true },
+      ],
+    },
+    { keepMainModel: false }
+  );
+  const [noFast, fastOk] = saved[0].fallbacks;
+  assert.equal(noFast.fast, false, 'fast is clamped off on a model that cannot do it');
+  assert.equal(noFast.effort, 'low');
+  assert.equal(fastOk.fast, true);
 });

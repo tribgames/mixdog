@@ -38,9 +38,11 @@ export function useConversationIsland({
     pendingPromptCount,
     invokeResult: actions.composerInvokeResult,
   });
-  // The approval card renders in the transcript (use-conversation-approvals.tsx), not the island.
+  // The pending approval docks in the island above the composer; its record
+  // after another device answered stays in the transcript.
   const { dismissQuestion, answerQuestion, retiredApproval, answeredElsewhere, viewerDevice } = approvals;
   return {
+    approval: approvals.approvalDock,
     dismissQuestion,
     answerQuestion,
     islandFlash: conversationIslandFlash(retiredApproval, answeredElsewhere, viewerDevice),

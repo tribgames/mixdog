@@ -74,10 +74,32 @@ that a call returned without transport error.
   Computer Use actions require this conversation open in the local Desktop
   window; voice runs on the runtime and needs no Desktop.
 - Hook rules are before-tool policy, separate from MCP and plugins. Deleting a
-  rule is destructive; disabling preserves it.
+  rule is destructive; disabling preserves it. A rule change reaches open
+  sessions and their sub-agents on the next tool call.
+- Auto-clear is per provider and can be `unlimited` (`never`). Built-in
+  windows: Codex/ChatGPT login unlimited, OpenAI API 30 min, Anthropic 1h.
+  Unlimited stops idle clearing only: compaction still runs at the context
+  limit, and finished sub-agent sessions are still released, never kept
+  forever: after the provider's own window (OpenAI API 30 min, Anthropic 1h,
+  DeepSeek 24h), or 1h for Codex/ChatGPT logins; an unlimited override does
+  not stop that.
 - Desktop appearance changes affect the Desktop host, not a paired phone.
+  Fonts, imported color themes and skin transparency are saved per device.
   Display language is independent of profile response language. A required
   reload is reported, never performed automatically.
+- A routine or webhook run has no user and no approval prompts: it may change
+  only its own bot's automations and route, and payment and permanent-delete
+  connectors are refused (trash moves are allowed). Bot permission "block"
+  still applies. In an attended bot conversation (home or direct chat, group
+  room, or a sub-agent/task session working for one) a payment or permanent
+  delete connector call always asks first: allow once or deny, never "항상
+  허용", whatever was stored before. Coding sessions are not asked.
+- Prompt-affecting changes land without rewriting the cached prompt: a
+  workflow switch arrives as a reminder on the next turn; a bot's
+  instruction, persona or name applies on 적용 (one cache break); connector
+  and built-in feature changes take effect at once (tool availability and
+  call-time refusal), and only the prompt text about them waits for the cache
+  to expire.
 - Read definitions before editing them; use skill-creator when authoring a
   skill. Setup persists the supported definition fields. Workflow and agent
   ids are stable identities, distinct from their display names.

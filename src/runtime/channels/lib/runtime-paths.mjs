@@ -329,7 +329,7 @@ function cleanupStaleRuntimeFiles(now = Date.now()) {
       // tighter TTLs keep dead-process residue from accumulating.
       let ttl = RUNTIME_STALE_TTL;
       if (/^status-.*\.json$/.test(file)) ttl = STATUS_FILE_TTL;
-      else if (/\.tmp$/.test(file)) ttl = TMP_FILE_TTL;
+      else if (/\.tmp$|\.mixdog-tmp-[0-9a-f]+$/.test(file)) ttl = TMP_FILE_TTL;
       if (age > ttl) removeFileIfExists(fullPath);
     } catch {}
   });

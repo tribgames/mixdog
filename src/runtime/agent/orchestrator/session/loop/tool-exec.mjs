@@ -6,6 +6,7 @@
 //   tool-exec/after-hook.mjs         — PostToolUse result override
 //   tool-exec/read-only-deadline.mjs — bounded read-only I/O with partial-output grace
 import { isMcpTool } from '../../mcp/client.mjs';
+import { connectorPolicyAgentOf } from '../../mcp/agent-connectors.mjs';
 import { prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
 import { refreshDeferredMcpToolCatalog } from '../../runtime-core/tool-catalog.mjs';
 import { bridgeTargetUnavailable } from '../../runtime-core/tool-bridge.mjs';
@@ -54,7 +55,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
   });
   if (hooked.denial) return hooked.denial;
   const connectorDenied = await applyConnectorApproval(hooked, {
-    agentId: sessionRef?.agent,
+    agentId: connectorPolicyAgentOf(sessionRef),
     callerSessionId,
     executeOpts,
     toolApprovalHook,

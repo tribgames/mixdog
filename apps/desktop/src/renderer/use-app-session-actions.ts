@@ -2,6 +2,7 @@ import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction 
 import type { DesktopSessionSummary, SessionSnapshot } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
+import { forgetComposerScope } from './composer-draft';
 import { deleteSessionImagePreviews } from './image-preview-store';
 import type { NavigationSelection, WorkspaceSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
@@ -193,6 +194,7 @@ export function useAppSessionActions({
         throw reason;
       }
       onSessionDeleted(sessionId);
+      forgetComposerScope(sessionId);
       deleteSessionImagePreviews(sessionId);
       invalidateSessionListings();
       pendingRenames.current.delete(sessionId);

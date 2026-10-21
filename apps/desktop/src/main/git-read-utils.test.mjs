@@ -67,7 +67,7 @@ test('a timed-out read fails its joined callers too, and the next caller reads a
   );
   const first = read();
   const joined = read();
-  runs[0].reject(Object.assign(new Error('git status timed out after 60000ms'), { code: 'ETIMEDOUT' }));
+  runs[0].reject(Object.assign(new Error('git status timed out after 60000ms'), { code: 'EGITTIMEOUT' }));
   await assert.rejects(first, /timed out/);
   await assert.rejects(joined, /timed out/);
   assert.equal(runs.length, 1);

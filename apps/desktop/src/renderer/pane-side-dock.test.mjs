@@ -1404,7 +1404,7 @@ test('toggling expand sets and clears the dock sheet geometry; a surface switch 
     dock,
     /position: 'fixed',\s*left: expandedRect\.left,\s*top: expandedRect\.top,\s*width: expandedRect\.width,\s*height: expandedRect\.height/
   );
-  assert.match(dock, /dockExpanded && expandedRect && \(\s*<div className="pane-side-dock-spacer"/);
+  assert.match(dock, /dockExpanded && expandedRect && \(?\s*<div className="pane-side-dock-spacer"/);
   const hooks = await readFile(new URL('./pane-side-dock-hooks.ts', import.meta.url), 'utf8');
   assert.match(hooks, /if \(!expanded \|\| !openNow \|\| !host\) \{\s*setExpandedRect\(undefined\);/);
   assert.match(hooks, /setExpanded\(false\);\s*\}, \[surface, view, openNow\]\);/);
@@ -1830,6 +1830,10 @@ function mountResizableDock({ stored = {}, cellWidth = 0, pointerType = 'mouse' 
     move: (x) => act(async () => handle().dispatchEvent(pointer('pointermove', x))),
     up: (x) => act(async () => handle().dispatchEvent(pointer('pointerup', x))),
     cancel: () => act(async () => dom.window.dispatchEvent(new dom.window.Event('blur'))),
+    escape: () =>
+      act(async () =>
+        dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      ),
   };
 }
 
@@ -1891,6 +1895,23 @@ test('panel resize (rendered): preview applies live, commit persists the kind’
     assert.equal(dock.renderedWidth(), '400px');
     assert.equal(dock.stored(BROWSER_WIDTH_KEY), '400');
     assert.equal(dock.stored(TERMINAL_WIDTH_KEY), '340');
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('panel resize (rendered): Escape cancels the drag and restores the size it started at', async () => {
+  const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 500 }, cellWidth: 2_000 });
+  try {
+    const open = { ...closed(), open: true };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(open))));
+    await dock.down(1000);
+    await dock.move(1100);
+    assert.equal(dock.renderedWidth(), '400px', 'preview applies');
+    await dock.escape();
+    assert.equal(dock.renderedWidth(), '500px');
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '500', 'cancel never persists');
   } finally {
     await act(async () => dock.root.unmount());
     dock.restore();

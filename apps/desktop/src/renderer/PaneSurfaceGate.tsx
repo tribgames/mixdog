@@ -275,6 +275,7 @@ export function DesktopBootGate({
     <div
       className="desktop-boot-gate"
       data-ready={handoffComplete ? 'true' : 'false'}
+      data-leaving={coverLeaving ? 'true' : undefined}
       data-brand-handoff={handoffComplete ? brandHandoff : undefined}
       data-timeout={timedOut ? 'true' : undefined}
       data-pending={enabled && !handoffComplete ? surfaces.pending : undefined}

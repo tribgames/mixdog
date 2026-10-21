@@ -928,7 +928,14 @@ async function main() {
   });
   canonicalAgentControl = agentControl;
   // Agents' cross-session sends and task sessions, and their report watches.
-  const agentTasks = createAgentTaskSessions({ getSessionService: () => sessionService });
+  const agentTasks = createAgentTaskSessions({
+    getSessionService: () => sessionService,
+    // A task session re-attached after a restart takes its agents' queued
+    // results through the owner runtime's notification bus.
+    deliverCompletion: (sessionId, text, meta) =>
+      sessionRuntimeHost?.notifySessionCompletion?.(sessionId, text, meta) === true,
+    settleAgentResults: async () => (await agentControl.canonicalAgentTool()).settleRestartFailures(),
+  });
   const requestedRuntimeMode = String(process.env.MIXDOG_SESSION_RUNTIME_MODE || '')
     .trim()
     .toLowerCase();
@@ -990,15 +997,26 @@ async function main() {
     busy: (sessionId) => sessionService.liveSessionBusy(sessionId),
     notice: (sessionId, notice) => sessionService.pushLiveSessionNotice(sessionId, notice),
     // A task session's result (session create): the agent relays it in one
-    // turn. Resolves whether the turn was taken.
-    wake: async (sessionId, prompt, { id } = {}) =>
-      (
-        await sessionService.submitSession({
-          sessionId,
-          prompt,
-          options: { mode: 'prompt', kickoff: true, ...(id ? { id } : {}) },
-        })
-      )?.accepted === true,
+    // turn. Resolves false when the turn was refused, else `{ settled }`, the
+    // turn's end status ('done' when it finished).
+    wake: async (sessionId, prompt, { id, hop = 0 } = {}) => {
+      let settle = () => {};
+      const settled = new Promise((resolveSettled) => {
+        settle = resolveSettled;
+      });
+      const result = await sessionService.submitSession({
+        sessionId,
+        prompt,
+        options: {
+          mode: 'prompt',
+          kickoff: true,
+          ...(id ? { id } : {}),
+          ...(hop > 0 ? { transcriptMeta: { hop } } : {}),
+          onSettled: (detail) => settle(String(detail?.status || 'failed')),
+        },
+      });
+      return result?.accepted === true ? { settled } : false;
+    },
     // A routine fire: one queued turn in its bot's thread (routine-home-turn.mjs).
     submit: async (sessionId, prompt, options) =>
       (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,

@@ -18,6 +18,7 @@ export type SettingsSection =
   | 'voice'
   | 'update'
   | 'connection'
+  | 'bots'
   | 'developer';
 
 // 'stats' is the usage dialog: /usage and the usage flyout both open it.
@@ -76,7 +77,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   {
     name: 'autoclear',
     usage: '/autoclear',
-    params: '[on|off|duration]',
+    params: '[on|off|duration|unlimited]',
     description: 'Reduce cache-miss cost after long idle gaps',
     settingsRow: 'autoclear',
   },

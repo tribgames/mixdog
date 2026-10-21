@@ -2,6 +2,8 @@ import { ChevronDown, ChevronRight, type FolderPlus, Plus, Star } from 'lucide-r
 import { AgentAvatar } from './agent-avatar';
 import type { AgentContact } from './agent-contacts-model';
 import { RoomAvatar } from './agent-room-parts';
+import { useSessionDragSource } from './agent-row-parts';
+import { useBotReorder } from './bot-reorder';
 import type { SidebarRoomRow } from './session-sidebar-agents';
 import { MxIcon } from './MxIcon';
 import { contextMenuRowProps, elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
@@ -268,18 +270,14 @@ export function automationsSection({
 /** Agents section: one single-line row per agent (face + name, a dot for an
  *  unread reply), opening that agent's chat on the Agents page. Right-click
  *  or Menu / Shift+F10 opens the 봇 page's contact menu. */
-export function agentsSection({
-  contacts,
-  rooms = [],
-  onOpenRoom,
-  open,
-  onToggleOpen,
-  selectedSessionId,
-  onOpenAgent,
-  onOpenMenu,
-  onOpenRoomMenu,
-}: {
+export function agentsSection(props: AgentsSectionProps) {
+  return <AgentsSection {...props} />;
+}
+
+interface AgentsSectionProps {
   contacts: readonly AgentContact[];
+  /** A session's status as its sidebar row shows it. */
+  attentionOf?(sessionId: string): SessionAttention | '';
   /** Group rooms, in the 봇 page's order; listed right under the bots. */
   rooms?: readonly SidebarRoomRow[];
   onOpenRoom?(row: SidebarRoomRow): void;
@@ -289,7 +287,91 @@ export function agentsSection({
   onOpenAgent(contact: AgentContact): void;
   onOpenMenu?(contact: AgentContact, point: { x: number; y: number }): void;
   onOpenRoomMenu?(row: SidebarRoomRow, point: { x: number; y: number }): void;
+}
+
+/** One bot row: a session drag source (drop it on a pane to open it) and a
+ *  reorder target (drop it on another bot's row, or Alt+Arrow, to move it). */
+function AgentBotRow({
+  contact,
+  selected,
+  status,
+  reorderProps,
+  onReorderKey,
+  onOpenAgent,
+  onOpenMenu,
+}: {
+  contact: AgentContact;
+  selected: boolean;
+  status: SessionAttention | '';
+  reorderProps: { 'data-bot-drop'?: string };
+  onReorderKey?(event: React.KeyboardEvent<HTMLElement>): void;
+  onOpenAgent(contact: AgentContact): void;
+  onOpenMenu?(contact: AgentContact, point: { x: number; y: number }): void;
 }) {
+  const { dragProps, clickSuppressed } = useSessionDragSource(
+    contact.session?.id ?? '',
+    contact.name,
+    contact.mixy ? undefined : contact.agentId
+  );
+  return (
+    <div
+      className={`session-row agent-session-row${selected ? ' selected' : ''}${status === 'running' ? ' working' : ''}`}
+      data-agent-contact={contact.agentId}
+      {...reorderProps}
+      {...(onOpenMenu ? contextMenuRowProps((point) => onOpenMenu(contact, point)) : {})}
+    >
+      <button
+        type="button"
+        className="session-row-main"
+        aria-current={selected ? 'page' : undefined}
+        aria-haspopup={onOpenMenu ? 'menu' : undefined}
+        aria-keyshortcuts={onReorderKey ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
+        {...dragProps}
+        onKeyDown={onReorderKey}
+        onClick={() => {
+          if (!clickSuppressed()) onOpenAgent(contact);
+        }}
+      >
+        <span className="session-agent-avatar">
+          <AgentAvatar
+            agentId={contact.agentId}
+            avatar={contact.avatar}
+            className="agent-contact-mascot"
+            priority={2}
+          />
+          {contact.mixy && (
+            <span className="agent-contact-badge" title={t('Representative bot')}>
+              <Star size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+            </span>
+          )}
+        </span>
+        <span className="session-row-copy">
+          <b>{contact.name}</b>
+        </span>
+      </button>
+      {status && status !== 'unread' && (
+        <span className="session-row-status" data-working={status === 'running' || undefined}>
+          <SessionRowStatusIcon status={status} name={contact.name} />
+        </span>
+      )}
+      {status === 'unread' && <SessionRowUnreadDot name={contact.name} />}
+    </div>
+  );
+}
+
+function AgentsSection({
+  contacts,
+  rooms = [],
+  onOpenRoom,
+  open,
+  onToggleOpen,
+  selectedSessionId,
+  onOpenAgent,
+  onOpenMenu,
+  onOpenRoomMenu,
+  attentionOf,
+}: AgentsSectionProps) {
+  const botList = useBotReorder().bind(contacts);
   return (
     <section className="sidebar-recent sidebar-agents" aria-label={t('Bots')}>
       <div className="sidebar-category-header">
@@ -304,42 +386,27 @@ export function agentsSection({
         </button>
       </div>
       {open && (
-        <nav className="session-list agent-session-list" aria-label={t('Bots')}>
+        <nav className="session-list agent-session-list" aria-label={t('Bots')} {...botList.listProps}>
           {contacts.map((contact) => {
             const selected = Boolean(contact.session) && contact.session?.id === selectedSessionId;
+            // The status a session row shows (running spinner, needs-you, failure,
+            // unread); a running home thread the caller's signal missed still spins.
+            const status = strongestSessionAttention([
+              contact.session ? (attentionOf?.(contact.session.id) ?? '') : '',
+              contact.indicator?.kind === 'running' ? 'running' : '',
+              contact.indicator?.kind === 'unread' ? 'unread' : '',
+            ]);
             return (
-              <div
+              <AgentBotRow
                 key={contact.agentId}
-                className={`session-row agent-session-row${selected ? ' selected' : ''}`}
-                data-agent-contact={contact.agentId}
-                {...(onOpenMenu ? contextMenuRowProps((point) => onOpenMenu(contact, point)) : {})}
-              >
-                <button
-                  type="button"
-                  className="session-row-main"
-                  aria-current={selected ? 'page' : undefined}
-                  aria-haspopup={onOpenMenu ? 'menu' : undefined}
-                  onClick={() => onOpenAgent(contact)}
-                >
-                  <span className="session-agent-avatar">
-                    <AgentAvatar
-                      agentId={contact.agentId}
-                      avatar={contact.avatar}
-                      className="agent-contact-mascot"
-                      priority={2}
-                    />
-                    {contact.mixy && (
-                      <span className="agent-contact-badge" title={t('Representative bot')}>
-                        <Star size={8} fill="currentColor" strokeWidth={0} aria-hidden="true" />
-                      </span>
-                    )}
-                  </span>
-                  <span className="session-row-copy">
-                    <b>{contact.name}</b>
-                  </span>
-                </button>
-                {contact.indicator?.kind === 'unread' && <SessionRowUnreadDot name={contact.name} />}
-              </div>
+                contact={contact}
+                selected={selected}
+                status={status}
+                reorderProps={botList.rowProps(contact)}
+                onReorderKey={contact.mixy ? undefined : (event) => botList.onKeyDown(contact, event)}
+                onOpenAgent={onOpenAgent}
+                onOpenMenu={onOpenMenu}
+              />
             );
           })}
           {rooms.map((row) => {
@@ -537,10 +604,10 @@ export type ReorderProps = ReturnType<ReturnType<typeof usePersistedListOrder>['
 
 /** The heading/folder row is the grip; the whole section/folder group is the
  *  drop target, so releasing over its rows still reorders. */
-function reorderHandle(props?: ReorderProps) {
+export function reorderHandle(props?: ReorderProps) {
   return props && { draggable: props.draggable, onDragStart: props.onDragStart, onDragEnd: props.onDragEnd };
 }
-function reorderTarget(props?: ReorderProps) {
+export function reorderTarget(props?: ReorderProps) {
   if (!props) return undefined;
   const { draggable: _grip, onDragStart: _start, onDragEnd: _end, ...target } = props;
   return target;

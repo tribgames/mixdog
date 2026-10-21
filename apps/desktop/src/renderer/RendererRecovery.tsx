@@ -1,5 +1,7 @@
-import React, { Component, type ErrorInfo, type ReactNode } from 'react';
+import React, { Component, useEffect, useRef, type ErrorInfo, type ReactNode } from 'react';
+import { X } from 'lucide-react';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 // @ts-expect-error Shared runtime module is plain ESM.
 import { safeErrorDetails } from '../../../../src/runtime/shared/error-presentation.mjs';
 
@@ -221,12 +223,32 @@ export function installGlobalRendererDiagnostics(): () => void {
   };
 }
 
+/** The way out of a full-screen loading cover: Escape, the phone's back, a tap
+ *  on the dim, or its own close button. */
+function LoadingCancel({ onCancel }: { onCancel: () => void }) {
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cancelRef.current();
+    };
+    document.addEventListener('keydown', keydown, true);
+    return () => document.removeEventListener('keydown', keydown, true);
+  }, []);
+  return (
+    <button type="button" className="desktop-loading-cancel" aria-label={t('Close')} onClick={onCancel}>
+      <X size={16} aria-hidden="true" />
+    </button>
+  );
+}
+
 export function DesktopLoadingSurface({
   label,
   overlay = false,
   brand = false,
   delayed = !brand,
   className = '',
+  onCancel,
 }: {
   label: string;
   overlay?: boolean;
@@ -237,6 +259,9 @@ export function DesktopLoadingSurface({
   delayed?: boolean;
   /** Lets a caller dress the cover as the surface it is standing in for. */
   className?: string;
+  /** A cover that can sit over the whole screen while its view loads (a slow
+   *  or stalled chunk) must never be a dead end: with this, it can be left. */
+  onCancel?: () => void;
 }) {
   return (
     <div
@@ -246,7 +271,9 @@ export function DesktopLoadingSurface({
       role="status"
       aria-live="polite"
       aria-label={label}
+      {...(onCancel ? scrimDismiss(onCancel) : {})}
     >
+      {onCancel && <LoadingCancel onCancel={onCancel} />}
       {brand ? (
         <WindowLoadingMark size={40} aria-hidden="true" />
       ) : (

@@ -396,7 +396,7 @@ test('POSIX: task cancel kills the issue #115 venv python command', posixOpts, a
   const s = await scenario('posix-issue');
   const { source } = activation();
   const code =
-    "import json,os,time; print(json.dumps({'pid':os.getpid(),'ppid':os.getppid(),'pgid':os.getpgrp()}),flush=True); time.sleep(90)";
+    'import json,os,time; print(json.dumps(dict(pid=os.getpid(),ppid=os.getppid(),pgid=os.getpgrp())),flush=True); time.sleep(90)';
   const out = await shell({ command: `${source} && python -u -c '${code}' ${s.token}`, background: true });
   await running(s, ['python']);
   await cancelAndCheck(s, taskIdOf(out));

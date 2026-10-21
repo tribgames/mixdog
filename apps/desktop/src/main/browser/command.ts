@@ -221,6 +221,12 @@ export interface BrowserCommand {
   /** Runtime-injected resource-budget identity; not part of the public schema. */
   session_id?: string;
   turn_id?: number;
+  /** Runtime-set, never a tool argument: the command belongs to a schedule or
+   *  webhook run, whose saved routine already granted submits, posts and
+   *  uploads (a bot's `block` still applies). */
+  unattended_run?: boolean;
+  /** Runtime-set with `unattended_run`: the bot that owns the run ('' unknown). */
+  unattended_agent?: string;
 }
 
 export interface BrowserCommandResult {

@@ -76,6 +76,11 @@ function powerShellHost(env) {
   return false;
 }
 
+function coreInstallable(id, manifest, env) {
+  if (!TIDY_CORE_ENGINE_IDS.includes(id) || !manifestAsset(manifest, id)) return false;
+  return id !== 'psscriptanalyzer' || powerShellHost(env);
+}
+
 let installJob = null;
 let installInFlight = null;
 // Bumped on every job mutation and every refreshed host-module probe, so the
@@ -116,6 +121,14 @@ async function cachedHostModuleProbe(engine) {
   const entry = hostModuleCache.get(key);
   if (!entry || Date.now() - entry.at >= HOST_MODULE_PROBE_TTL_MS) refreshHostModule(key, engine);
   return entry?.version || '';
+}
+
+/** A host-module engine (PSScriptAnalyzer) whose host exists but whose first
+ *  probe has not answered yet. Until then "module missing" only means "not
+ *  looked at yet", so the status reports it as pending instead. */
+function hostModuleProbing(catalog, engine) {
+  if (!catalog.managedModule || engine.source !== 'missing' || !engine.command) return false;
+  return (hostModuleCache.get(String(engine.command))?.at || 0) === 0;
 }
 
 function clampPercent(value) {
@@ -222,14 +235,17 @@ async function runCoreInstall({
   signal = null,
   installEngines = installEnginesImpl,
   resolveEngines = resolveEnginesImpl,
+  engines: only = null,
 } = {}) {
   const loaded = manifest || readEnginesManifest();
   const toolsDir = pluginData ? managedToolsDir(pluginData) : '';
-  const job = startJob(TIDY_CORE_ENGINE_IDS);
+  // A retry for named engines installs just those; the default is the set.
+  const wanted = Array.isArray(only) ? TIDY_CORE_ENGINE_IDS.filter((id) => only.includes(id)) : TIDY_CORE_ENGINE_IDS;
+  const job = startJob(wanted);
   try {
     const resolution = await resolveEngines({
       cwd: resolutionScope(toolsDir),
-      engineIds: [...TIDY_CORE_ENGINE_IDS],
+      engineIds: [...wanted],
       pluginData,
       manifest: loaded,
       env,
@@ -238,7 +254,7 @@ async function runCoreInstall({
     });
     const resolved = new Map((resolution.engines || []).map((engine) => [engine.id, engine]));
     const pending = [];
-    for (const id of TIDY_CORE_ENGINE_IDS) {
+    for (const id of wanted) {
       const catalog = ENGINE_CATALOG[id];
       const engine = resolved.get(id);
       if (id === 'psscriptanalyzer' && !powerShellHost(env)) {
@@ -400,6 +416,7 @@ function withInstallStatus(inventory) {
     toolsDir: inventory.toolsDir,
     core: [...inventory.core],
     engines: inventory.engines.map((engine) => ({ ...engine })),
+    probing: inventory.probing,
     installing: tidyInstallStatus(),
   };
 }
@@ -424,6 +441,7 @@ async function buildEngineInventory({ pluginData, manifest, env, probeVersions, 
     const source = statusSource(engine.source);
     const version = engine.version || '';
     const installHint = engine.installHint || catalog.installHint || '';
+    const probing = hostModuleProbing(catalog, engine);
     return {
       id,
       title: catalog.title || id,
@@ -437,7 +455,11 @@ async function buildEngineInventory({ pluginData, manifest, env, probeVersions, 
       // Managed engines carry their on-disk cost; a host binary is the user's.
       ...(source === 'managed' ? { bytes: managedEngineBytes(pluginData, id, version) } : {}),
       ...(source === 'missing' && installHint ? { installHint } : {}),
+      // The host probe has not answered: pending, neither installed nor missing.
+      ...(probing ? { probing: true } : {}),
+      // A missing core engine the Install/Retry control can fetch right now.
+      ...(source === 'missing' && !probing && coreInstallable(id, loaded, env) ? { installable: true } : {}),
     };
   });
-  return { toolsDir, core: [...TIDY_CORE_ENGINE_IDS], engines };
+  return { toolsDir, core: [...TIDY_CORE_ENGINE_IDS], engines, probing: engines.some((engine) => engine.probing) };
 }

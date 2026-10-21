@@ -225,3 +225,33 @@ test('a tweaks section restores as the live icon line, after pins and picks', ()
     'Tune\n\n🎚 card-radius: 24px (was 16px), density: compact (was cozy); accent: #2f6fed (was #3b82f6)'
   );
 });
+
+test('a prompt whose only text was offloaded restores it; beside other text it stays out', (t) => {
+  const dir = withDataDir(t);
+  for (const size of [941, 22 * 1024]) {
+    const body = `마케터가 전달드립니다. ${'가'.repeat(Math.ceil(size / 3))}`;
+    const { prompt } = materializePromptSubmission([{ type: 'text', text: body }]);
+    assert.ok(prompt[0].attachmentRef && prompt[0].text === undefined, `${size} B offloaded`);
+    const [item] = restoreTranscriptItems(
+      [{ role: 'user', content: prompt, meta: { transcript: { sender: 'lead', fromAgent: 'agent-1' } } }],
+      { sessionId: 's' }
+    );
+    assert.equal(item.text, body);
+    assert.equal(item.fromAgent, 'agent-1');
+  }
+  // A blob gone from the store drops the row as before.
+  const { prompt } = materializePromptSubmission([{ type: 'text', text: 'x'.repeat(3000) }]);
+  rmSync(join(dir, 'prompt-attachments'), { recursive: true, force: true });
+  clearAttachmentBufferCache();
+  assert.deepEqual(restoreTranscriptItems([{ role: 'user', content: prompt }], { sessionId: 's' }), []);
+});
+test('a long offloaded prompt with an image restores its text in place, not just the image label', (t) => {
+  withDataDir(t);
+  const body = `긴 프롬프트 ${'가'.repeat(2000)}`;
+  const { prompt } = materializePromptSubmission([
+    { type: 'text', text: body },
+    { type: 'image', data: PNG, mimeType: 'image/png' },
+  ]);
+  assert.ok(prompt[0].attachmentRef);
+  assert.equal(restoredUserText(prompt), `${body}\n[Image: image/png]`);
+});

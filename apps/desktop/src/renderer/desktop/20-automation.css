@@ -471,9 +471,22 @@
   background: var(--mx-popup-bg);
   box-shadow: var(--mx-popup-shadow);
 }
+/* A straight 1px rule: a box-shadow inset on the button follows its rounded
+   corners and curls at the ends. */
 .row-overflow-menu button.menu-separator {
-  margin-top: 4px;
-  box-shadow: inset 0 1px var(--mx-border-muted);
+  position: relative;
+  margin-top: 5px;
+}
+.row-overflow-menu button.menu-separator::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 4px;
+  right: 4px;
+  height: 1px;
+  border-radius: 0;
+  background: var(--mx-border-muted);
+  pointer-events: none;
 }
 /* Menu metrics (2em check gutter, 1em solid glyph):
    the old 14px box with a 13px hairline check was HALF that scale and the
@@ -491,10 +504,10 @@
   height: var(--mx-icon-md);
   stroke-width: 1.75px;
 }
-.row-overflow-menu button[role="menuitemcheckbox"][aria-checked="false"] {
+.row-overflow-menu button:is([role="menuitemcheckbox"], [role="menuitemradio"])[aria-checked="false"] {
   color: var(--mx-text-muted);
 }
-.row-overflow-menu button[role="menuitemcheckbox"][aria-checked="true"] {
+.row-overflow-menu button:is([role="menuitemcheckbox"], [role="menuitemradio"])[aria-checked="true"] {
   color: var(--mx-text);
   font-weight: var(--mx-weight-semibold);
 }

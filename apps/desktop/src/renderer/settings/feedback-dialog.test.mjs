@@ -219,9 +219,9 @@ test('Cancel and the close control dismiss without sending and return focus', as
   });
   assert.ok(dialog(), 'a press inside the card keeps it open');
   await act(async () => {
-    dialog()
-      .closest('.settings-confirm-layer')
-      .dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    const layer = dialog().closest('.settings-confirm-layer');
+    layer.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+    layer.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   });
   assert.equal(dialog(), null);
   assert.equal(document.activeElement, opener);

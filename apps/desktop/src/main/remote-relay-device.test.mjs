@@ -96,6 +96,24 @@ test('a damaged queue is reported as damaged, never as empty', async (t) => {
   }
 });
 
+test('a queue holding any invalid identity is damaged, never a shorter or empty queue', async (t) => {
+  const dir = tempDir(t);
+  await loadOrCreateDevice(dir);
+  for (const content of [
+    '[{}]',
+    '[1]',
+    '[null]',
+    JSON.stringify([VALID, {}]),
+    JSON.stringify([{}, VALID]),
+    JSON.stringify([VALID, { deviceId: 'zz', deviceSecret: 'short' }]),
+  ]) {
+    writeFileSync(join(dir, REVOCATIONS), content);
+    assert.equal(await revocationQueueDamaged(dir), true, content);
+  }
+  writeFileSync(join(dir, REVOCATIONS), JSON.stringify([VALID]));
+  assert.equal(await revocationQueueDamaged(dir), false, 'a queue of valid identities is whole');
+});
+
 test('an unreadable queue is an error, not a damaged or a good one', async (t) => {
   const dir = tempDir(t);
   await loadOrCreateDevice(dir);

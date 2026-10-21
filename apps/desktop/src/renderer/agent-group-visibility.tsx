@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { t } from './i18n';
+import { sectionLabel } from './agent-section-order';
+import { PANE_TOGGLE_IDS, RETAIN_CHOICES, type PaneToggleId, type RetainChoice } from './bot-order-store';
 
 const STORAGE_KEY = 'mixdog.agent-hidden-groups';
 const stores = new WeakMap<Window, ReturnType<typeof createStore>>();
@@ -70,7 +72,30 @@ export function useHiddenAgentGroups() {
   return { hiddenOwnerIds, hideGroup: store.hide, restoreGroups: store.restore };
 }
 
-export function AgentGroupsMenu() {
+const groupLabel = (id: PaneToggleId): string =>
+  id === 'representative' ? t('Representative bot') : id === 'connectors' ? t('Connectors') : sectionLabel(id);
+
+const RETAIN_LABELS: Record<RetainChoice, () => string> = {
+  '1h': () => t('1 hour'),
+  '1d': () => t('1 day'),
+  '7d': () => t('7 days'),
+  forever: () => t('Forever'),
+};
+const retainLabel = (choice: RetainChoice): string => RETAIN_LABELS[choice]();
+
+export function AgentGroupsMenu({
+  hiddenGroups,
+  onToggleGroup,
+  retain,
+  onRetain,
+}: {
+  /** The Bots page's hidden groups, with a toggle for each (page header only). */
+  hiddenGroups?: ReadonlySet<PaneToggleId>;
+  onToggleGroup?(id: PaneToggleId, hidden: boolean): void;
+  /** How long finished Leads stay listed, as radio choices (page header only). */
+  retain?: RetainChoice;
+  onRetain?(choice: RetainChoice): void;
+} = {}) {
   const { hiddenOwnerIds, restoreGroups } = useHiddenAgentGroups();
   const setAllExpanded = (expanded: boolean) =>
     window.dispatchEvent(new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: expanded }));
@@ -95,6 +120,34 @@ export function AgentGroupsMenu() {
           disabled: hiddenOwnerIds.size === 0,
           onSelect: restoreGroups,
         },
+        ...(hiddenGroups && onToggleGroup
+          ? PANE_TOGGLE_IDS.map((id, index) => ({
+              id: `show-group-${id}`,
+              label: groupLabel(id),
+              checked: !hiddenGroups.has(id),
+              separatorBefore: index === 0,
+              closeOnSelect: false,
+              onSelect: () => onToggleGroup(id, !hiddenGroups.has(id)),
+            }))
+          : []),
+        ...(retain && onRetain
+          ? [
+              {
+                id: 'keep-finished-agents',
+                label: t('Keep finished agents'),
+                separatorBefore: true,
+                disabled: true,
+              },
+              ...RETAIN_CHOICES.map((choice) => ({
+                id: `retain-${choice}`,
+                label: retainLabel(choice),
+                checked: retain === choice,
+                radio: true,
+                closeOnSelect: false,
+                onSelect: () => onRetain(choice),
+              })),
+            ]
+          : []),
       ]}
     />
   );

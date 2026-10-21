@@ -6,9 +6,13 @@
 // the session's side panel (or opens it again once closed), "Show all" brings
 // every tab of the turn up. Coding mode draws it under the reply, agent mode
 // in the bubble column. Remote clients draw it from their mirrored state.
+// Beside the agent's opens, the turn's previews (turn-preview-model.ts): the
+// files it changed that the panel can show, filled in at its end.
 import {
   AlertTriangle,
   BarChart3,
+  ChevronLeft,
+  ChevronRight,
   CodeXml,
   Columns3,
   FileText,
@@ -21,7 +25,16 @@ import {
   Video,
   Workflow,
 } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
@@ -44,12 +57,27 @@ import {
   visualizeCardThumbnailLine,
   visualizeCardVersion,
   visualizeInlineKindLabel,
+  visualizeTabForTargets,
+  visualizeTurnEndAt,
   visualizedTargets,
 } from './visualize-card-model';
-import { TurnChangesUndo } from './TurnChangesCard';
-import type { TurnChangesRef } from './turn-changes-model';
+import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard';
+import { splitChangePath, type TurnChangesFile, type TurnChangesRef, useTurnChanges } from './turn-changes-model';
+import {
+  claimTurnPreviewEnd,
+  noteTurnPreviewTargets,
+  subscribeTurnPreviews,
+  takeTurnPreviewOpen,
+  turnPreviewBadgeFor,
+  turnPreviewFiles,
+  turnPreviewOpenOrder,
+  turnPreviewOpenPending,
+  turnPreviewPage,
+  turnPreviewTargets,
+} from './turn-preview-model';
 import type { VisualizeTabView } from '../shared/visualize';
 import {
+  openTurnPreviews,
   readVisualizeVersionThumbnail,
   reopenVisualizeContent,
   reopenVisualizeTargets,
@@ -57,6 +85,7 @@ import {
   showVisualizeVersion,
   useVisualizeState,
   useVisualizeHeldSince,
+  useVisualizePanelOnScreen,
   useVisualizeUpdatedTabs,
   visualizeStateFor,
 } from './visualize-store';
@@ -86,7 +115,9 @@ function cardVersion(
   tab: VisualizeTabView | null,
   newest: boolean
 ): number {
-  return visualizeCardOwnVersion(sessionId, call, visualizeCardVersion(tab), newest) || (tab?.versions?.length ? 1 : 0);
+  return (
+    visualizeCardOwnVersion(sessionId, call, visualizeCardVersion(tab), newest, tab) || (tab?.versions?.length ? 1 : 0)
+  );
 }
 
 /** Show the call's tab on the card's version in the side panel, or open it
@@ -102,9 +133,17 @@ function openCall(sessionId: string, call: VisualizeCardCall): Promise<void> {
     if ((tab.version ?? null) !== target) showVisualizeVersion(sessionId, tab.id, target);
     return Promise.resolve();
   }
+  // A preview never opened has no tab id yet; main's reopen does not use it.
+  const tabId = call.tabId || 'preview';
   return call.content
-    ? reopenVisualizeContent(sessionId, call.tabId, call.content, call.label)
-    : reopenVisualizeTargets(sessionId, call.tabId, call.targets, call.label);
+    ? reopenVisualizeContent(sessionId, tabId, call.content, call.label)
+    : reopenVisualizeTargets(sessionId, tabId, call.targets, call.label);
+}
+
+function tileState(unopened: boolean, closed: boolean, newest: boolean): string {
+  if (unopened) return 'unopened';
+  if (closed) return 'closed';
+  return newest ? 'open' : 'folded';
 }
 
 /** One tile of the turn's card: the picture of the tab's version, its title,
@@ -146,19 +185,28 @@ function VisualizeTile({
     call.label ||
     call.content?.title ||
     (call.content ? visualizeInlineKindLabel(call.content.kind) : call.targets.join(', '));
-  const shown = Boolean(tab && newest && state.active === tab.id);
+  const panelOnScreen = useVisualizePanelOnScreen(sessionId);
+  const shown = Boolean(tab && newest && panelOnScreen && state.active === tab.id);
+  // A preview the turn's end did not open (or whose tab is gone): its tile
+  // opens it, like a closed one.
+  const unopened = closed && Boolean(call.preview);
   let status = '';
-  if (closed) status = t('Closed');
+  if (unopened) status = t('Not opened');
+  else if (closed) status = t('Closed');
   else if (!newest) status = t('Earlier version');
   else if (updatedTabs.has(call.tabId)) status = t('Updated');
   else if (shown) status = t('Showing');
-  const meta = [version ? `${t('Version')} ${version}` : '', status].filter(Boolean).join(' · ');
+  const badgeLabel = call.badge === 'mockup' ? t('Preview badge: Mockup') : t('Preview badge: New');
+  const versionLabel = version ? `${t('Version')} ${version}` : '';
+  const meta = [versionLabel, status].filter(Boolean).join(' · ');
   return (
     <button
       type="button"
+      aria-label={meta ? `${title}, ${meta}` : title}
       className={`transcript-visualize-tile${closed ? ' is-closed' : ''}${shown ? ' is-shown' : ''}`}
-      title={closed ? t('Open again in the side panel') : t('Show in the side panel')}
-      data-visualize-card={closed ? 'closed' : newest ? 'open' : 'folded'}
+      title={closed && !unopened ? t('Open again in the side panel') : t('Show in the side panel')}
+      data-visualize-card={tileState(unopened, closed, newest)}
+      data-badge={call.badge}
       data-visualize-tab={call.tabId}
       data-version={version || undefined}
       data-kind={kind.kind}
@@ -177,6 +225,18 @@ function VisualizeTile({
             <Icon size={22} strokeWidth={1.8} />
           </span>
         )}
+        {call.badge ? (
+          <span className={`transcript-visualize-badge is-mark is-${call.badge}`}>{badgeLabel}</span>
+        ) : null}
+        {version ? (
+          <span className="transcript-visualize-badge is-version">
+            <span className="transcript-visualize-version-word">{t('Version')} </span>
+            {version}
+          </span>
+        ) : null}
+        {status ? (
+          <span className="transcript-visualize-badge is-status transcript-visualize-status">{status}</span>
+        ) : null}
         {problems ? (
           <span className="transcript-visualize-badge is-problem" title={t('Page problems')}>
             <AlertTriangle size={12} aria-hidden="true" />
@@ -184,22 +244,15 @@ function VisualizeTile({
           </span>
         ) : null}
       </span>
-      <b title={title}>{title}</b>
-      <small title={meta}>
-        {version ? `${t('Version')} ${version}` : ''}
-        {status ? (
-          <span className="transcript-visualize-status">
-            {version ? ' · ' : ''}
-            {status}
-          </span>
-        ) : null}
-      </small>
+      <b className="transcript-visualize-name" title={title}>
+        {title}
+      </b>
     </button>
   );
 }
 
 /** The turn's one card, in the changed-files card's frame: a header (icon,
- *  "Visualizations N", the turn's Undo when it stands in for the changes, and
+ *  "Previews N", the turn's Undo when it stands in for the changes, and
  *  "Show all") over a grid of tiles, one per panel tab on its final version. */
 function VisualizeTurnCard({
   calls,
@@ -223,7 +276,9 @@ function VisualizeTurnCard({
   };
   // Every tab of the turn comes up, the first one shown last.
   const showAll = () => run([...calls].reverse());
-  const count = t('Visualizations {{n}}', { n: calls.length });
+  const count = t('Previews {{n}}', { n: calls.length });
+  const [page, setPage] = useState(0);
+  const view = turnPreviewPage(calls, page);
   return (
     <section
       className={`transcript-visualize-turn${compact ? ' is-compact' : ''}`}
@@ -249,10 +304,37 @@ function VisualizeTurnCard({
         </span>
       </div>
       <div className="transcript-visualize-tiles">
-        {calls.map((call) => (
+        {view.items.map((call) => (
           <VisualizeTile key={call.id} call={call} sessionId={sessionId} onOpen={(one) => run([one])} />
         ))}
       </div>
+      {view.pages > 1 ? (
+        <div className="transcript-visualize-pager">
+          <button
+            type="button"
+            className="transcript-visualize-page"
+            aria-label={t('Previous page')}
+            disabled={view.page === 0}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => setPage(view.page - 1)}
+          >
+            <ChevronLeft size={14} aria-hidden="true" />
+          </button>
+          <span className="transcript-visualize-page-label">
+            {view.page + 1} / {view.pages}
+          </span>
+          <button
+            type="button"
+            className="transcript-visualize-page"
+            aria-label={t('Next page')}
+            disabled={view.page === view.pages - 1}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => setPage(view.page + 1)}
+          >
+            <ChevronRight size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
       {error ? <span className="transcript-visualize-error">{error}</span> : null}
     </section>
   );
@@ -265,7 +347,14 @@ export function ToolVisualizeCards({
   frame,
   turnKey = '',
   turnChanges,
+  replyText = '',
+  surfacedBefore = NO_SURFACED,
+  endTurnKey = '',
+  endedAt = 0,
 }: {
+  /** Files earlier turns linked or opened: a change to one is an artifact
+   *  even when this turn does not link it again. */
+  surfacedBefore?: readonly string[];
   /** The turn's changed-files card: when every file it changed is shown by
    *  these cards, that card is not drawn and the last card carries its Undo. */
   turnChanges?: TurnChangesRef;
@@ -278,13 +367,37 @@ export function ToolVisualizeCards({
   /** The turn of these items (coding mode's tool groups): a tab opened again
    *  in a later group of the same turn has its one card there. */
   turnKey?: string;
+  /** The turn's final reply: a changed file it names is opened at the end. */
+  replyText?: string;
+  /** The turn this card ends (its rows' turn key): its end, when seen
+   *  running here, opens its previews. */
+  endTurnKey?: string;
+  /** When the turn's last row was recorded (ms): its previews' time when it
+   *  ran no tool round. */
+  endedAt?: number;
 }) {
   // A card appears once, when the turn's end reveals its tab, already on the
   // final version: none is drawn (or redrawn per edit) while the turn runs,
   // and an open still running is not a card yet.
   const heldSince = useVisualizeHeldSince(sessionId);
   const all = useMemo(() => visualizeCardCalls(items), [items]);
-  const calls = useMemo(() => visualizeCardsShown(all, heldSince), [all, heldSince]);
+  const opened = useMemo(() => visualizedTargets(items), [items]);
+  const agentCalls = useMemo(() => visualizeCardsShown(all, heldSince), [all, heldSince]);
+  const previews = useTurnPreviews({
+    sessionId,
+    items,
+    opened,
+    turnChanges,
+    replyText,
+    surfacedBefore,
+    heldSince,
+    endTurnKey,
+    endedAt,
+  });
+  const calls = useMemo(
+    () => (previews.calls.length ? [...agentCalls, ...previews.calls] : agentCalls),
+    [agentCalls, previews.calls]
+  );
   const superseded = useSyncExternalStore(
     subscribeVisualizeCards,
     () =>
@@ -300,17 +413,145 @@ export function ToolVisualizeCards({
     noteVisualizeTurnCards(sessionId, turnKey, calls);
     noteVisualizeCards(sessionId, calls);
   }, [sessionId, turnKey, calls]);
-  const shown = superseded ? calls.filter((call) => !superseded.split('\n').includes(call.id)) : calls;
+  const kept = superseded ? calls.filter((call) => !superseded.split('\n').includes(call.id)) : calls;
+  const shown = useMemo(() => kept.map(previews.marked), [kept, previews.marked]);
   if (!sessionId || !shown.length) return null;
   const cards = (
     <VisualizeTurnCard
       calls={shown}
       sessionId={sessionId}
       compact={compact}
-      undo={
-        turnChanges ? <TurnChangesUndo turnChanges={turnChanges} visualized={visualizedTargets(items)} /> : undefined
-      }
+      undo={turnChanges ? <TurnChangesUndo turnChanges={turnChanges} visualized={previews.visualized} /> : undefined}
     />
   );
   return frame ? frame(cards) : cards;
+}
+
+const NO_CHANGED_FILES: readonly TurnChangesFile[] = [];
+const NO_SURFACED: readonly string[] = [];
+const NO_PREVIEW_CALLS: readonly VisualizeCardCall[] = [];
+
+/** The turn's preview tiles once it ended (turn-preview-model.ts): its
+ *  changed files the panel can show that the agent did not open, read from
+ *  the turn's change record; `marked` badges every tile by that record, and
+ *  `visualized` is every file the card shows (its changed-files card lists
+ *  none of them). The turn's end, when this renderer saw it run, opens the
+ *  confident ones once. */
+function useTurnPreviews({
+  sessionId,
+  items,
+  opened,
+  turnChanges,
+  replyText,
+  surfacedBefore,
+  heldSince,
+  endTurnKey,
+  endedAt,
+}: {
+  sessionId: string;
+  items: readonly TranscriptItem[];
+  opened: readonly string[];
+  turnChanges?: TurnChangesRef;
+  replyText: string;
+  surfacedBefore: readonly string[];
+  heldSince: number | null;
+  endTurnKey: string;
+  endedAt: number;
+}) {
+  const surface = useContext(TurnChangesContext);
+  const changesSession = turnChanges ? (surface?.sessionId ?? '') : '';
+  const checkpointId = turnChanges?.checkpointId ?? '';
+  const running = Boolean(turnChanges?.trailing && surface?.turnRunning);
+  const { reply } = useTurnChanges({
+    sessionId: changesSession,
+    checkpointId,
+    boundary: turnChanges?.boundary ?? '',
+    enabled: Boolean(changesSession && checkpointId) && !running,
+  });
+  // Nothing new appears while the turn runs.
+  const ready = Boolean(changesSession) && !running && reply?.status === 'ready';
+  const files = ready && reply ? reply.files : NO_CHANGED_FILES;
+  const root = ready && reply ? reply.root : '';
+  const state = useVisualizeState(sessionId);
+  // Surfaced earlier: linked or opened by earlier turns (the transcript), or
+  // shown by a panel tab now (the host's state). Keyed by content: the caller
+  // builds the list afresh on every render.
+  const surfacedKey = [...surfacedBefore, ...state.tabs.flatMap((tab) => tab.panes.map((pane) => pane.target))].join(
+    '\n'
+  );
+  const found = useMemo(
+    () => turnPreviewFiles(files, root, opened, replyText, surfacedKey ? surfacedKey.split('\n') : []),
+    [files, root, opened, replyText, surfacedKey]
+  );
+  const at = useMemo(() => Math.max(visualizeTurnEndAt(items), endedAt), [items, endedAt]);
+  const calls = useMemo(() => {
+    if (!found.length) return NO_PREVIEW_CALLS;
+    return found.map(
+      (file): VisualizeCardCall => ({
+        id: `preview:${checkpointId}:${file.path}`,
+        pending: false,
+        targets: [file.target],
+        label: splitChangePath(file.path).base,
+        tabId: visualizeTabForTargets(state, [file.target])?.id ?? '',
+        at,
+        preview: true,
+        ...(file.badge ? { badge: file.badge } : {}),
+      })
+    );
+  }, [found, state, at, checkpointId]);
+  const marked = useCallback(
+    (call: VisualizeCardCall): VisualizeCardCall => {
+      if (call.preview || !files.length) return call;
+      const badge = turnPreviewBadgeFor(call.targets, files, root);
+      return badge ? { ...call, badge } : call;
+    },
+    [files, root]
+  );
+  const targets = useMemo(() => found.map((file) => file.target), [found]);
+  const visualized = useMemo(() => (targets.length ? [...opened, ...targets] : opened), [opened, targets]);
+  useEffect(() => {
+    noteTurnPreviewTargets(changesSession, checkpointId, targets);
+  }, [changesSession, checkpointId, targets]);
+  // The live turn end: the trailing card drawn once its turn stopped claims
+  // the running mark of that very turn (other turns, history, reconnects and
+  // re-renders find none),
+  // then opens its confident previews once its changes are known and the
+  // panel's turn hold has released (the agent's own opens shown first).
+  const trailingEnd = Boolean(turnChanges?.trailing && changesSession) && !running;
+  useEffect(() => {
+    if (trailingEnd) claimTurnPreviewEnd(changesSession, endTurnKey, checkpointId);
+  }, [trailingEnd, changesSession, endTurnKey, checkpointId]);
+  const settled = Boolean(reply) && !running && heldSince === null;
+  useEffect(() => {
+    if (!settled || !turnPreviewOpenPending(changesSession, checkpointId)) return;
+    takeTurnPreviewOpen(changesSession, checkpointId);
+    const order = turnPreviewOpenOrder(found);
+    if (order.length) void openTurnPreviews(sessionId, order);
+  }, [settled, changesSession, checkpointId, found, sessionId]);
+  return { calls, marked, visualized };
+}
+
+/** The turn's changed-files card, listing none of the files its preview card
+ *  shows (the agent's opens, `visualized`, and the turn's previews). */
+export function PreviewedTurnChangesCard({
+  turnChanges,
+  frame,
+  visualized,
+}: {
+  turnChanges: TurnChangesRef;
+  frame?: (card: ReactNode) => ReactNode;
+  visualized?: readonly string[];
+}) {
+  const surface = useContext(TurnChangesContext);
+  const sessionId = surface?.sessionId ?? '';
+  const previews = useSyncExternalStore(
+    subscribeTurnPreviews,
+    () => turnPreviewTargets(sessionId, turnChanges.checkpointId),
+    () => turnPreviewTargets(sessionId, turnChanges.checkpointId)
+  );
+  const shown = useMemo(
+    () => (previews.length ? [...(visualized ?? []), ...previews] : visualized),
+    [visualized, previews]
+  );
+  return <TurnChangesCard turnChanges={turnChanges} frame={frame} visualized={shown} />;
 }

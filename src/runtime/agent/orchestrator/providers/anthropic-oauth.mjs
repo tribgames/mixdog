@@ -6,6 +6,11 @@
  * from anthropic.mjs. agent-trace instrumented.
  */
 import { traceAgentSse, traceAgentUsage } from '../agent-trace.mjs';
+import {
+  anthropicPrefixFingerprint,
+  latestAnthropicPrefix,
+  recordAnthropicPrefix,
+} from './lib/anthropic-prefix-trace.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import { MODELS } from './lib/anthropic-models.mjs';
@@ -56,6 +61,7 @@ import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-r
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
   anthropicThinkingActive,
+  appendAnthropicTailReminder,
   applyAnthropicCacheMarkers,
   clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
   deferredAnthropicTools as sharedDeferredAnthropicTools,
@@ -67,6 +73,7 @@ import {
   toAnthropicMessages,
   toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
+import { splitTailReminder } from './lib/tail-reminder-split.mjs';
 import {
   EFFORT_CONFIGURATION_BETA,
   isEffortConfigurationRejection,
@@ -189,7 +196,8 @@ function requestAnthropicTools(tools, messages, opts) {
 // the tier3 1h cache_control to that block; BP1/BP2 take the system TTL. No
 // `<system-reminder>` user message / sentinel scan is involved anymore.
 
-function buildRequestBody(messages, model, tools, sendOpts) {
+function buildRequestBody(requestMessages, model, tools, sendOpts) {
+  const { messages, reminder } = splitTailReminder(requestMessages);
   const systemMsgs = messages.filter((m) => m.role === 'system');
   const chatMsgs = messages.filter((m) => m.role !== 'system');
   const opts = sendOpts || {};
@@ -229,7 +237,7 @@ function buildRequestBody(messages, model, tools, sendOpts) {
   const body = {
     model,
     max_tokens: maxTokens,
-    messages: anthropicMessages,
+    messages: appendAnthropicTailReminder(anthropicMessages, reminder),
     stream: true,
   };
   applyAnthropicServerFallback(body, model, {
@@ -463,6 +471,8 @@ export class AnthropicOAuthProvider {
     const useModel = model || (await ensureLatestAnthropicModel(this));
     const body = buildRequestBody(messages, useModel, tools, sendOpts);
     body.messages = await prepareAnthropicImages(body.messages, { signal: externalSignal });
+    // Diagnostic: per-block prefix hashes of exactly what is sent.
+    recordAnthropicPrefix(opts.sessionId || null, anthropicPrefixFingerprint(body));
     if (body.speed === 'fast') {
       this.fastModeBetaHeaderLatched = true;
     }
@@ -544,42 +554,15 @@ export class AnthropicOAuthProvider {
     let maxTokensAdjusted = false;
     try {
       for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
-        let response, controller, cancelHandler;
-        ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
-
-        // Refresh on 401, and only Anthropic's exact official revoked-token
-        // 403 signature. Ordinary permission/policy 403s are terminal.
-        let rejectedAuthBody = null;
-        if (response.status === 401 || response.status === 403) {
-          rejectedAuthBody = await response.text().catch(() => '');
-        }
-        if (isRefreshableAuthRejection(response.status, rejectedAuthBody)) {
-          process.stderr.write(`[anthropic-oauth] ${response.status} — forcing refresh and retrying once\n`);
-          cleanupCancelHandler(cancelHandler);
-          // Body was drained above; abort closes any remaining transport
-          // resources before the credential-refresh replay.
-          try {
-            controller?.abort?.();
-          } catch {}
-          auth.creds = await this.ensureAuth({ forceRefresh: true, reason: String(response.status) });
-          ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
-          rejectedAuthBody = null;
-        }
-
-        // "input length and max_tokens exceed context limit": shrink max_tokens
-        // to what the context has room for and replay once.
-        if (response.status === 400 && !maxTokensAdjusted) {
-          rejectedAuthBody = await response.text().catch(() => '');
-          if (adjustMaxTokensForContextOverflow(body, 400, rejectedAuthBody)) {
-            maxTokensAdjusted = true;
-            cleanupCancelHandler(cancelHandler);
-            try {
-              controller?.abort?.();
-            } catch {}
-            ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
-            rejectedAuthBody = null;
-          }
-        }
+        const opened = await this._openResponse({
+          requestWithRetry,
+          cleanupCancelHandler,
+          auth,
+          body,
+          maxTokensAdjusted,
+        });
+        const { response, controller, cancelHandler, rejectedAuthBody } = opened;
+        maxTokensAdjusted = opened.maxTokensAdjusted;
         if (!response.ok) {
           cleanupCancelHandler(cancelHandler);
           return await this._resendAfterRejection({
@@ -655,6 +638,51 @@ export class AnthropicOAuthProvider {
     } finally {
       totalTimeout.cleanup();
     }
+  }
+
+  // One attempt's initial response: a 401 (or Anthropic's exact revoked-token
+  // 403) refreshes the credentials in `auth` and replays once; a context
+  // overflow 400 shrinks `body.max_tokens` and replays once per send
+  // (`maxTokensAdjusted`). `rejectedAuthBody`: the drained text of a final
+  // rejected response, null when none was read.
+  async _openResponse({ requestWithRetry, cleanupCancelHandler, auth, body, maxTokensAdjusted }) {
+    let response, controller, cancelHandler;
+    ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
+
+    // Refresh on 401, and only Anthropic's exact official revoked-token
+    // 403 signature. Ordinary permission/policy 403s are terminal.
+    let rejectedAuthBody = null;
+    if (response.status === 401 || response.status === 403) {
+      rejectedAuthBody = await response.text().catch(() => '');
+    }
+    if (isRefreshableAuthRejection(response.status, rejectedAuthBody)) {
+      process.stderr.write(`[anthropic-oauth] ${response.status} — forcing refresh and retrying once\n`);
+      cleanupCancelHandler(cancelHandler);
+      // Body was drained above; abort closes any remaining transport
+      // resources before the credential-refresh replay.
+      try {
+        controller?.abort?.();
+      } catch {}
+      auth.creds = await this.ensureAuth({ forceRefresh: true, reason: String(response.status) });
+      ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
+      rejectedAuthBody = null;
+    }
+
+    // "input length and max_tokens exceed context limit": shrink max_tokens
+    // to what the context has room for and replay once.
+    if (response.status === 400 && !maxTokensAdjusted) {
+      rejectedAuthBody = await response.text().catch(() => '');
+      if (adjustMaxTokensForContextOverflow(body, 400, rejectedAuthBody)) {
+        maxTokensAdjusted = true;
+        cleanupCancelHandler(cancelHandler);
+        try {
+          controller?.abort?.();
+        } catch {}
+        ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
+        rejectedAuthBody = null;
+      }
+    }
+    return { response, controller, cancelHandler, rejectedAuthBody, maxTokensAdjusted };
   }
 
   // A non-OK initial response: quota errors surface as-is; a CLI-version
@@ -780,6 +808,7 @@ export class AnthropicOAuthProvider {
       rawUsage: result.usage?.raw || null,
       provider: 'anthropic-oauth',
       requestKind,
+      prefixBlocks: latestAnthropicPrefix(sessionId),
     });
 
     // Phase I: if the live response surfaced a model id we don't know

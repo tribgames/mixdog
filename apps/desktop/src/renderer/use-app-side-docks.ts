@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBrowserFeatureInstalled } from './browser-feature-install';
 import { isSshConnectionWindow } from './desktop-connection';
 import {
@@ -17,7 +17,11 @@ import {
   type WorkbenchSideViewId,
 } from './workbench-side-view-layout';
 import { usePaneSideDocks, type PaneSideDockDiff } from './pane-side-dock';
-import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
+import {
+  isSessionSidePanelView,
+  sessionSideDockEntryForSession,
+  terminalSessionsToRestore,
+} from './session-side-surface-policy';
 import { useStableEvent } from './use-stable-event';
 import { allowVisualizeReveal, suppressVisualizeReveal } from './visualize-store';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -40,9 +44,9 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     dismissBrowserSurface,
   } = sessionSurfaces;
   const browserFeatureInstalled = useBrowserFeatureInstalled();
-  // The visualize view always exists: an agent-mode chat's header toggles it
-  // (in the Changes slot). Coding panes have no toggle for it; their phone
-  // switch lists it once the agent has shown something (pane-side-dock).
+  // The visualize view always exists: every pane header toggles it in the
+  // Changes slot; a coding pane's phone switch lists it once the agent has
+  // shown something (pane-side-dock).
   const availableSideViews = useMemo<WorkbenchSideViewId[]>(
     () => [
       ...(desktopFeatureEnabled('sessions') ? ['sessions' as const] : []),
@@ -82,6 +86,20 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
   const paneSideDocks = usePaneSideDocks({
     leafIds: paneWorkspace.leaves.map((leaf) => leaf.id),
     groups: workbenchSideLayout.layout.right,
+  });
+  // A reload keeps the pane entry (open, terminal) but not the in-memory session
+  // surface; give the terminal back to the session each pane starts on, once.
+  const restoredTerminals = useRef(false);
+  useEffect(() => {
+    if (restoredTerminals.current) return;
+    restoredTerminals.current = true;
+    const owners = paneWorkspace.leaves.map((leaf) => {
+      const selection = paneActiveSelection(leaf);
+      return { leafId: leaf.id, sessionId: selection?.kind === 'session' ? selection.id : null };
+    });
+    for (const sessionId of terminalSessionsToRestore(owners, paneSideDocks.entryFor)) {
+      setSessionSideSurface(sessionId, 'terminal');
+    }
   });
   /** The dock entry the leaf actually shows: the pane's own entry overridden by
    *  its session's browser/terminal/diff/visualize surface. */

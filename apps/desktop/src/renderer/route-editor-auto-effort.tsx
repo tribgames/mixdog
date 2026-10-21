@@ -6,10 +6,6 @@ type RouteSheetSwitchProps = {
   onChange(enabled: boolean): void;
 };
 
-export function RouteAutoEffortToggle(props: RouteSheetSwitchProps) {
-  return <RouteSheetSwitch label={t('Auto reasoning')} {...props} />;
-}
-
 /** Daybreak Blue for this route only (unlike Auto, which is global). The
  *  product name stays untranslated; the hint carries the meaning. */
 export function RouteDaybreakToggle(props: RouteSheetSwitchProps) {

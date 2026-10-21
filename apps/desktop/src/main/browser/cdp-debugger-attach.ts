@@ -26,10 +26,14 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
   const debuggerAttached = new WeakMap<WebContents, Promise<Electron.Debugger>>();
   const debuggerListeners = new WeakMap<WebContents, (...args: unknown[]) => void>();
   const debuggerLifetime = new WeakMap<WebContents, AbortController>();
+  /** Pages window.open created: their first navigation is the opener's. */
+  const openedPages = new WeakSet<WebContents>();
 
   async function waitForInitialDocument(guest: WebContents): Promise<void> {
     if (guest.isDestroyed()) throw new Error('browser page is unavailable');
-    if (guest.getURL()) return;
+    // Loading about:blank into an opened page would replace the document its
+    // opener is navigating it to.
+    if (guest.getURL() || openedPages.has(guest)) return;
     // A newly constructed hidden BrowserWindow has no committed document and
     // will not emit dom-ready until its first explicit load.
     try {
@@ -121,6 +125,14 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
     return answeringDialog ? debuggerAttached.get(guest)! : debuggerReady.get(guest)!;
   }
 
+  /** Attach a page window.open just created, before its first document
+   *  commits: that document's scripts must already find the dialog bridge,
+   *  or a dialog they open while parsing never reaches the pane. */
+  function attachOpenedPage(guest: WebContents): Promise<Electron.Debugger> {
+    openedPages.add(guest);
+    return guestDebugger(guest);
+  }
+
   function startAttachment(guest: WebContents): void {
     const lifetime = new AbortController();
     debuggerLifetime.set(guest, lifetime);
@@ -157,6 +169,7 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
 
   return {
     guestDebugger,
+    attachOpenedPage,
     detach,
     waitForInitialDocument,
     /** The debugger lifetime of a guest, or undefined once it is gone. */

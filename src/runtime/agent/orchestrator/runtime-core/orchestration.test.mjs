@@ -28,6 +28,21 @@ function fixture(t) {
   return { dataDir, helpers };
 }
 
+test('a saved copy of a built-in workflow lists as overriding it, so the app offers the shipped one back', (t) => {
+  const { dataDir, helpers } = fixture(t);
+  const listed = () => helpers.listWorkflowPacks(dataDir).find((pack) => pack.id === 'default');
+  assert.equal(listed().source, 'built-in');
+  assert.equal(listed().overridesBuiltIn, undefined);
+  mkdirSync(join(dataDir, 'workflows', 'default'), { recursive: true });
+  writeFileSync(join(dataDir, 'workflows', 'default', 'WORKFLOW.md'), '---\nname: Default\n---\nOLD SAVED TEXT\n');
+  mkdirSync(join(dataDir, 'workflows', 'mine'), { recursive: true });
+  writeFileSync(join(dataDir, 'workflows', 'mine', 'WORKFLOW.md'), '---\nname: Mine\n---\nMINE\n');
+  assert.equal(listed().source, 'user');
+  assert.equal(listed().overridesBuiltIn, true);
+  const mine = helpers.listWorkflowPacks(dataDir).find((pack) => pack.id === 'mine');
+  assert.equal(mine.overridesBuiltIn, undefined, 'a workflow of its own overrides nothing');
+});
+
 test('all modes share Default while only active modes inject instructions and agents', (t) => {
   const { dataDir, helpers } = fixture(t);
   assert.deepEqual(

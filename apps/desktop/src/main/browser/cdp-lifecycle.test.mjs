@@ -342,6 +342,22 @@ test('a deadline reached behind an open dialog names the dialog instead of the d
   await f.cdp.detach(f.guest);
 });
 
+test("Chromium's per-window gesture (Page.windowOpen) is kept for the window-open decision, from any frame", async () => {
+  const f = fixture();
+  await f.cdp.guestDebugger(f.guest);
+  f.debug.emit('message', {}, 'Page.windowOpen', { url: 'https://pay.example/easy', userGesture: true });
+  // A payment layer's cross-origin frame opens it through its own session.
+  f.debug.emit('message', {}, 'Page.windowOpen', { url: 'https://pg.example/pay', userGesture: false }, 'iframe-1');
+  assert.deepEqual(
+    f.state.for(f.guest).windowOpens.map(({ url, userGesture }) => [url, userGesture]),
+    [
+      ['https://pay.example/easy', true],
+      ['https://pg.example/pay', false],
+    ]
+  );
+  await f.cdp.detach(f.guest);
+});
+
 test('a cancelled request is recorded but never volunteered as a page failure', async () => {
   const f = fixture();
   await f.cdp.guestDebugger(f.guest);
@@ -407,6 +423,34 @@ test('closing a page before its initial document commits never attaches the debu
   await rejected;
   assert.equal(f.debug.isAttached(), false);
   assert.deepEqual(f.calls, []);
+});
+
+test("a page another page opened is attached before its first document, keeping the opener's navigation", async () => {
+  const f = fixture();
+  // window.open already owns this page's first navigation: nothing committed yet.
+  f.guest.getURL = () => '';
+  let blankLoads = 0;
+  f.guest.loadURL = async () => {
+    blankLoads += 1;
+  };
+  await f.cdp.attachOpenedPage(f.guest);
+  assert.equal(blankLoads, 0, 'about:blank would replace the navigation window.open started');
+  assert.equal(f.debug.isAttached(), true);
+  const methods = f.calls.filter((call) => call.sessionId === undefined).map((call) => call.method);
+  // The bridge and its interception are in place for the first document, so
+  // the dialog it opens while parsing reaches the pane instead of the OS.
+  assert.ok(methods.includes('Page.enable'));
+  assert.ok(methods.includes('Fetch.enable'));
+  assert.ok(
+    f.calls.some(
+      (call) => call.method === 'Page.addScriptToEvaluateOnNewDocument' && call.params.source === DIALOG_BRIDGE_SCRIPT
+    )
+  );
+  // Later callers reuse the attachment rather than blanking the page.
+  await f.cdp.guestDebugger(f.guest);
+  await f.cdp.waitForInitialDocument(f.guest);
+  assert.equal(blankLoads, 0);
+  await f.cdp.detach(f.guest);
 });
 
 test('frame removal during initialization does not start late observation domains', async () => {

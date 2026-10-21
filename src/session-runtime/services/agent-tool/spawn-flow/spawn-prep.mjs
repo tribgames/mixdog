@@ -9,6 +9,7 @@ import { resolveAgentWatchdogPolicy } from '../../../../runtime/agent/orchestrat
 import { prepareAgentSession } from '../../../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { getProvider } from '../../../../runtime/agent/orchestrator/providers/registry.mjs';
 import { resolveRouteContextState } from '../../../route-state.mjs';
+import { contextSelectionFromState } from '../../../../runtime/agent/orchestrator/runtime-core/route-context-state.mjs';
 import { createSpawnPlanner } from './spawn-plan.mjs';
 import { enterWorkerSpawn } from '../../../workspace/admission-gate.mjs';
 
@@ -97,11 +98,13 @@ export function createSpawnPreparer({
 
   async function createSpawnedSession(plan, spec, prepState) {
     // A sub-100 context share needs the window it selects; a percent alone
-    // keeps the full served window.
+    // keeps the full served window. A model whose window is not known yet
+    // resolves to nothing: the agent's own choice then travels as stored (the
+    // session sizes it from the provider's window) instead of being dropped
+    // for the model's default.
     const sessionSpec = { ...spec };
     if (plan.preset.contextPercent || plan.preset.contextTokens) {
-      const { contextPercent, selectedContextWindow, contextTokens } = resolveRouteContextState(plan.preset, null);
-      Object.assign(sessionSpec, { contextPercent, selectedContextWindow }, contextTokens ? { contextTokens } : {});
+      Object.assign(sessionSpec, contextSelectionFromState(resolveRouteContextState(plan.preset, null), plan.preset));
     }
     if (sessionSurface?.canonical === true && typeof sessionSurface.createChild === 'function') {
       return sessionSurface.createChild({ spec: sessionSpec, prompt: plan.prompt, tag: plan.tag });

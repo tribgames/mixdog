@@ -5,6 +5,68 @@ import {
 } from '../../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { throwIfAborted } from '../../../runtime/shared/abort-race.mjs';
 
+function scheduleFirstTitle(sessionTitles, session0, prompt) {
+  let resolve = null;
+  const after = new Promise((done) => {
+    resolve = done;
+  });
+  const release = () => {
+    if (!resolve) return;
+    const done = resolve;
+    resolve = null;
+    done();
+  };
+  try {
+    sessionTitles?.scheduleFirst(session0, prompt, { after });
+  } catch {
+    /* title fallback stays the preview */
+  }
+  return release;
+}
+
+async function foldMcpSurface(turn, session0, scopedMcpTools) {
+  // Slower servers remain available through the late-tool path; a reconnect
+  // in flight gets the same short TTFT grace BEFORE folding the catalog so it
+  // cannot hold the provider request. No reconnect in flight → no-op.
+  const awaitGrace = async (options) => {
+    try {
+      await turn.awaitTurn(() => turn.timing.awaitMcpGrace(options));
+    } catch {
+      /* gate must never break the turn */
+    }
+  };
+  if (session0.deferredInitialRefreshPending) {
+    // FIRST TURN of a FRESH session (session-local gate, NOT the process-wide
+    // firstTurnCompleted): an MCP server may have finished its handshake
+    // BETWEEN session-create and this first send. Re-fold the LIVE registry
+    // into the INITIAL provider-visible surface (sync, in-place, idempotent).
+    // One-shot: cleared before the fold so a throw still never re-runs it,
+    // and a resumed session (flag unset) skips straight to the late path.
+    session0.deferredInitialRefreshPending = false;
+    // A spawned agent runtime owns a fresh MCP scope whose connect starts at
+    // its boot, so the 0 ms default grace would hide every MCP tool from the
+    // agent's first (often only) turn. Agents are not on the user's TTFT
+    // path: wait for the initial connect within the server startup budget.
+    const agentOwned = session0.owner === 'agent' || session0.visibility === 'agent-only';
+    await awaitGrace({ untilConnected: agentOwned });
+    try {
+      refreshInitialDeferredMcpSurface(session0, scopedMcpTools(session0));
+    } catch {
+      /* first-turn MCP fold must never break the turn */
+    }
+    return;
+  }
+  await awaitGrace();
+  try {
+    // Persist a typed world-state delta on the session. askSession attaches
+    // it to THIS real prompt; reconciliation itself never enqueues a
+    // follow-up turn.
+    reconcileDeferredMcpToolCatalog(session0, scopedMcpTools(session0));
+  } catch {
+    /* MCP delta must never break the turn */
+  }
+}
+
 // Session preparation before askSession: route readiness, session creation,
 // transcript user row, first title, the MCP surface fold, and the
 // UserPromptSubmit hook.
@@ -27,68 +89,34 @@ export function createTurnPreparation({
   admitTurnWorkspace,
   applyPendingRoute,
   applyPendingAgentProfile,
+  applyPendingSessionSwitches,
 }) {
-  const scopedMcpTools = (session) => scopedMcpToolsFor(session, getConfig());
-
-  function scheduleFirstTitle(session0, prompt) {
-    let resolve = null;
-    const after = new Promise((done) => {
-      resolve = done;
-    });
-    const release = () => {
-      if (!resolve) return;
-      const done = resolve;
-      resolve = null;
-      done();
-    };
-    try {
-      sessionTitles?.scheduleFirst(session0, prompt, { after });
-    } catch {
-      /* title fallback stays the preview */
+  async function admitWorkspace(turn, prompt, options) {
+    // Turn admission: waits while this session's workspace transitions or
+    // another session changes the checkout this session works in, then holds
+    // the turn registered (released by settleTurn) so no checkout changes
+    // under it.
+    if (typeof admitTurnWorkspace === 'function') {
+      turn.releaseWorkspace = await admitTurnWorkspace({ signal: turn.signal });
+      throwIfAborted(turn.signal);
+      assertSessionAdmission?.();
     }
-    return release;
-  }
-
-  async function foldMcpSurface(turn, session0) {
-    // Slower servers remain available through the late-tool path; a reconnect
-    // in flight gets the same short TTFT grace BEFORE folding the catalog so it
-    // cannot hold the provider request. No reconnect in flight → no-op.
-    const awaitGrace = async (options) => {
-      try {
-        await turn.awaitTurn(() => turn.timing.awaitMcpGrace(options));
-      } catch {
-        /* gate must never break the turn */
-      }
-    };
-    if (session0.deferredInitialRefreshPending) {
-      // FIRST TURN of a FRESH session (session-local gate, NOT the process-wide
-      // firstTurnCompleted): an MCP server may have finished its handshake
-      // BETWEEN session-create and this first send. Re-fold the LIVE registry
-      // into the INITIAL provider-visible surface (sync, in-place, idempotent).
-      // One-shot: cleared before the fold so a throw still never re-runs it,
-      // and a resumed session (flag unset) skips straight to the late path.
-      session0.deferredInitialRefreshPending = false;
-      // A spawned agent runtime owns a fresh MCP scope whose connect starts at
-      // its boot, so the 0 ms default grace would hide every MCP tool from the
-      // agent's first (often only) turn. Agents are not on the user's TTFT
-      // path: wait for the initial connect within the server startup budget.
-      const agentOwned = session0.owner === 'agent' || session0.visibility === 'agent-only';
-      await awaitGrace({ untilConnected: agentOwned });
-      try {
-        refreshInitialDeferredMcpSurface(session0, scopedMcpTools(session0));
-      } catch {
-        /* first-turn MCP fold must never break the turn */
-      }
-      return;
-    }
-    await awaitGrace();
-    try {
-      // Persist a typed world-state delta on the session. askSession attaches
-      // it to THIS real prompt; reconciliation itself never enqueues a
-      // follow-up turn.
-      reconcileDeferredMcpToolCatalog(session0, scopedMcpTools(session0));
-    } catch {
-      /* MCP delta must never break the turn */
+    // Workspace gate: a session in recovery refuses the turn, and a pending
+    // worktree intent is provisioned and applied (cwd, record, prompt context)
+    // BEFORE the user row, the review snapshot, hooks, the provider and any
+    // worker spawn. The submission id is the provisioning transaction id, so a
+    // retried or duplicate send reuses the same worktree.
+    if (typeof prepareTurnWorkspace === 'function') {
+      await turn.awaitTurn(() =>
+        prepareTurnWorkspace({
+          submissionId: String(options.id || '').trim(),
+          prompt,
+          signal: turn.signal,
+          confirmLarge: options.confirmLarge === true,
+        })
+      );
+      throwIfAborted(turn.signal);
+      assertSessionAdmission?.();
     }
   }
 
@@ -116,37 +144,16 @@ export function createTurnPreparation({
     // on the session it runs on (as completeTurn adopts it afterwards).
     const stored = mgr.getSession(getSession().id);
     if (stored && stored !== getSession()) setSession(stored);
-    // Turn admission: waits while this session's workspace transitions or
-    // another session changes the checkout this session works in, then holds
-    // the turn registered (released by settleTurn) so no checkout changes
-    // under it.
-    if (typeof admitTurnWorkspace === 'function') {
-      turn.releaseWorkspace = await admitTurnWorkspace({ signal: turn.signal });
-      throwIfAborted(turn.signal);
-      assertSessionAdmission?.();
-    }
-    // Workspace gate: a session in recovery refuses the turn, and a pending
-    // worktree intent is provisioned and applied (cwd, record, prompt context)
-    // BEFORE the user row, the review snapshot, hooks, the provider and any
-    // worker spawn. The submission id is the provisioning transaction id, so a
-    // retried or duplicate send reuses the same worktree.
-    if (typeof prepareTurnWorkspace === 'function') {
-      await turn.awaitTurn(() =>
-        prepareTurnWorkspace({
-          submissionId: String(options.id || '').trim(),
-          prompt,
-          signal: turn.signal,
-          confirmLarge: options.confirmLarge === true,
-        })
-      );
-      throwIfAborted(turn.signal);
-      assertSessionAdmission?.();
-    }
+    await admitWorkspace(turn, prompt, options);
     const modelSwitch = applyPendingRoute?.();
+    // An orchestration mode or workflow chosen while the previous turn ran
+    // applies from this one (before a cold-cache fold can take it in).
+    const sessionSwitches = applyPendingSessionSwitches?.();
     // An agent profile saved while the previous turn ran applies from this one.
     await applyPendingAgentProfile?.();
     options.onRouteApplied?.(getSession());
     if (modelSwitch) options.onModelSwitch?.(modelSwitch);
+    if (sessionSwitches) options.onSessionSwitches?.(sessionSwitches);
     ensureSessionTranscriptWriter?.();
     transcript.appendUser(prompt);
     const session0 = getSession();
@@ -155,8 +162,8 @@ export function createTurnPreparation({
     // preparation. Worker apply_patch diffs bind to this generation and cannot
     // leak into the next turn/session.
     turn.snapshot.start(session0?.id);
-    turn.releaseFirstTitle = scheduleFirstTitle(session0, prompt);
-    await foldMcpSurface(turn, session0);
+    turn.releaseFirstTitle = scheduleFirstTitle(sessionTitles, session0, prompt);
+    await foldMcpSurface(turn, session0, (session) => scopedMcpToolsFor(session, getConfig()));
     hooks.emit('turn:start', { sessionId: session0.id, prompt, cwd: getCurrentCwd() });
     try {
       agentTool?.upsertLeadSession?.(session0, {

@@ -13,9 +13,13 @@ mock.module('../internal-agents.mjs', {
 
 const {
   buildStableProviderPromptCacheKey,
+  isLeadCacheClass,
+  providerTailCacheLifetimeMs,
   resolveCacheStrategy,
+  resolveOpenAiPrefixCacheTtl,
   resolveProviderPromptCacheLane,
   roleProviderCacheOpts,
+  sessionTailCacheExpired,
 } = await import('./cache-strategy.mjs');
 const { xaiCacheRouting, xaiResponsesCacheRouting } = await import('../providers/openai-compat-xai.mjs');
 
@@ -55,6 +59,58 @@ test('cache tiers distinguish one-shot, other agents, and Lead idle policy', (t)
     assert.equal(resolveCacheStrategy(agent, { autoClear: { enabled: false } }).messages, '1h');
     assert.equal(resolveCacheStrategy(agent, { autoClear: { idleMs: 3_600_000 } }).messages, '1h');
   }
+});
+
+test('bot home threads and bot task sessions are Lead class; spawned sub-agents are agent class', (t) => {
+  setEnv(t, 'MIXDOG_CACHE_MESSAGES_TTL', undefined);
+  const autoClear = { idleMs: 3_600_000 };
+  const home = { id: 'sess_home_pm', agent: 'pm', owner: 'cli' };
+  const mixyHome = { id: 'sess_home_lead', agent: 'lead', owner: 'cli' };
+  const routineRun = { id: 'sess_daemon_r1', agent: 'pm', ownerAgentId: 'pm' };
+  const botTask = { id: 'sess_desktop_t1', agent: 'lead', owner: 'cli', taskOrigin: { agentId: 'pm' } };
+  const coding = { id: 'sess_desktop_c1', agent: 'lead', owner: 'cli' };
+  const worker = { id: 'sess_daemon_w1', agent: 'worker', owner: 'agent', parentSessionId: 'sess_home_pm' };
+  const botWorker = { id: 'sess_daemon_w2', agent: 'pm', owner: 'agent', parentSessionId: 'sess_desktop_t1' };
+  const lead = (session) => [session.agent, { autoClear, session }];
+  for (const session of [home, mixyHome, routineRun, botTask, coding]) {
+    assert.equal(isLeadCacheClass(session.agent, session), true, session.id);
+    assert.equal(roleProviderCacheOpts('anthropic', ...lead(session)).cacheStrategy.messages, '1h', session.id);
+    assert.deepEqual(roleProviderCacheOpts('openai', ...lead(session)), { promptCachePrefixTtl: '12h' }, session.id);
+    assert.equal(roleProviderCacheOpts('openai-oauth', ...lead(session)), null, session.id);
+    assert.equal(resolveOpenAiPrefixCacheTtl(session.agent, session), '12h', session.id);
+  }
+  for (const session of [worker, botWorker]) {
+    assert.equal(isLeadCacheClass(session.agent, session), false, session.id);
+    assert.equal(roleProviderCacheOpts('anthropic', ...lead(session)).cacheStrategy.messages, '5m', session.id);
+    assert.equal(roleProviderCacheOpts('openai', ...lead(session)), null, session.id);
+    assert.equal(roleProviderCacheOpts('openai-oauth', ...lead(session)), null, session.id);
+  }
+  // Without a session record a non-lead agent id stays agent class.
+  assert.equal(resolveCacheStrategy('pm', { autoClear }).messages, '5m');
+  assert.equal(resolveCacheStrategy('pm', { autoClear, session: home }).messages, '1h');
+  assert.equal(isLeadCacheClass('hidden-tool', mixyHome), false, 'hidden roles never take the Lead class');
+});
+
+test('tail cache lifetime is provider-scoped: permanent on openai-oauth, 30m on openai', () => {
+  assert.equal(providerTailCacheLifetimeMs('openai-oauth', { messages: '5m' }), null);
+  assert.equal(providerTailCacheLifetimeMs('openai'), 30 * 60_000);
+  assert.equal(providerTailCacheLifetimeMs('anthropic-oauth', { messages: '1h' }), 60 * 60_000);
+  assert.equal(providerTailCacheLifetimeMs('anthropic', { messages: '5m' }), 5 * 60_000);
+  assert.equal(providerTailCacheLifetimeMs('anthropic', { messages: 'none' }), null);
+  for (const provider of ['gemini', 'xai', 'grok-oauth', 'deepseek']) {
+    assert.equal(providerTailCacheLifetimeMs(provider), null, provider);
+  }
+  const now = 10 * 3600_000;
+  const idle = (provider, minutes, messages = '5m') => ({
+    provider,
+    lastProviderSendAt: now - minutes * 60_000,
+    providerCacheOpts: { cacheStrategy: { messages } },
+  });
+  assert.equal(sessionTailCacheExpired(idle('openai-oauth', 600), now), false, 'never expires');
+  assert.equal(sessionTailCacheExpired(idle('openai', 29), now), false);
+  assert.equal(sessionTailCacheExpired(idle('openai', 31), now), true);
+  assert.equal(sessionTailCacheExpired(idle('anthropic', 6), now), true);
+  assert.equal(sessionTailCacheExpired(idle('anthropic', 6, '1h'), now), false);
 });
 
 test('one-shot roles share one prompt-cache lane per prefix on every key-prefix provider', (t) => {

@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { OpenSelect } from '../OpenSelect';
 import type { RecordValue } from './capability-data';
 import { record } from '../record-utils';
@@ -200,13 +201,8 @@ export function CustomModelEditor({
   );
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the close button and Escape.
-    <div
-      className="settings-oauth-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) close();
-      }}
-    >
+    // Scrim click-to-dismiss; keyboard dismissal is the close button and Escape.
+    <div className="settings-oauth-layer" {...scrimDismiss(close)}>
       <section
         className="settings-oauth-dialog settings-custom-provider-dialog settings-model-editor"
         role="dialog"

@@ -6,13 +6,12 @@
 import { lstat, mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { fileExtension } from '../../shared/file-extension';
-import { documentPreviewFormatForPath, filePreviewTypeForPath } from '../../shared/file-preview';
 import {
   MAX_VISUALIZE_INLINE_BYTES,
   VISUALIZE_INLINE_KINDS,
   type VisualizeInlineContent,
   type VisualizePaneKind,
+  visualizeKindForPath,
 } from '../../shared/visualize';
 
 export const MAX_VISUALIZE_TARGETS = 3;
@@ -178,6 +177,15 @@ function parseInlineContent(input: Record<string, unknown>): VisualizeInlineCont
   return { kind, source, ...(title ? { title } : {}) };
 }
 
+/** `input.version`: a kept version number, or absent (undefined). */
+function parseVersion(version: unknown): number | undefined {
+  if (version === undefined || version === null) return undefined;
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+    throw new Error('version must be a positive integer (a kept version number)');
+  }
+  return version;
+}
+
 /** Validate one bridge request `{ sessionId, cwd, action, input }`. */
 export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
   if (!isRecord(raw)) throw new Error('visualize request must be an object');
@@ -191,25 +199,16 @@ export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
   switch (raw.action) {
     case 'open': {
       const content = parseInlineContent(input);
-      const list = content
-        ? []
-        : Array.isArray(input.targets)
-          ? input.targets
-          : input.targets === undefined
-            ? []
-            : [input.targets];
+      let list: unknown[] = [];
+      if (!content) {
+        if (Array.isArray(input.targets)) list = input.targets;
+        else if (input.targets !== undefined) list = [input.targets];
+      }
       if (!content && (list.length < 1 || list.length > MAX_VISUALIZE_TARGETS)) {
         throw new Error(`targets must list 1-${MAX_VISUALIZE_TARGETS} files or URLs (or pass input.content instead)`);
       }
       const label = optionalText(input.label, 'label', MAX_LABEL_CHARS);
-      const version = input.version;
-      if (
-        version !== undefined &&
-        version !== null &&
-        (typeof version !== 'number' || !Number.isInteger(version) || version < 1)
-      ) {
-        throw new Error('version must be a positive integer (a kept version number)');
-      }
+      const version = parseVersion(input.version);
       return {
         ...base,
         action: 'open',
@@ -235,11 +234,9 @@ export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
     case 'export': {
       const format = input.format;
       if (format !== 'png' && format !== 'pdf') throw new Error('format must be png or pdf');
-      const version = input.version;
-      if (version !== undefined && version !== null && (typeof version !== 'number' || !Number.isInteger(version) || version < 1)) {
-        throw new Error('version must be a positive integer (a kept version number)');
-      }
-      if (input.overwrite !== undefined && typeof input.overwrite !== 'boolean') throw new Error('overwrite must be a boolean');
+      const version = parseVersion(input.version);
+      if (input.overwrite !== undefined && typeof input.overwrite !== 'boolean')
+        throw new Error('overwrite must be a boolean');
       return {
         ...base,
         action: 'export',
@@ -258,7 +255,9 @@ export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
         ...base,
         action: 'inspect',
         tab: text(input.tab, 'tab', 64),
-        ...(input.viewport === undefined || input.viewport === null ? {} : { viewport: parseInspectViewport(input.viewport) }),
+        ...(input.viewport === undefined || input.viewport === null
+          ? {}
+          : { viewport: parseInspectViewport(input.viewport) }),
         ...(selector ? { selector } : {}),
       };
     }
@@ -273,13 +272,7 @@ export function insidePath(root: string, target: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-/** The pane kind a file renders as, or '' when visualize cannot show it. */
-export function visualizeKindForPath(path: string): VisualizePaneKind | '' {
-  const extension = fileExtension(path);
-  if (extension === 'html' || extension === 'htm') return 'html';
-  if (documentPreviewFormatForPath(path)) return 'document';
-  return filePreviewTypeForPath(path)?.kind ?? '';
-}
+export { visualizeKindForPath };
 
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 

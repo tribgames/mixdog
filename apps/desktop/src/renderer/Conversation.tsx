@@ -7,11 +7,10 @@ import { conversationKeyDownCapture } from './conversation-support';
 import { ConversationTranscript } from './conversation-pane-transcript';
 import { useConversationPaintHandoff } from './conversation-pane-paint-handoff';
 
-// react-markdown and the remark/unified ecosystem are heavy; they load as a
-// separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import type { ConversationProps } from './conversation-pane-props';
 import { useConversationTimeline } from './use-conversation-timeline';
 import { useConversationLinkSurfaces } from './use-conversation-link-surfaces';
+import { runningTurnKeyOf } from './turn-preview-model';
 import { useConversationApprovals } from './use-conversation-approvals';
 import { ConversationComposerDock } from './conversation-pane-composer-dock';
 import { useConversationIsland } from './use-conversation-island';
@@ -33,6 +32,7 @@ export function Conversation(props: ConversationProps) {
     renderAssistantRow,
     readOnly: readOnlyView = false,
     reviewActive = true,
+    surfaceVisible = true,
     warmPaintHandoff = false,
     transcriptPending = false,
     onEntryRevealed,
@@ -51,7 +51,9 @@ export function Conversation(props: ConversationProps) {
   // session THIS surface renders, never the globally active route.
   const routeSessionIdRef = useRef('');
   routeSessionIdRef.current = routeSessionId;
-  const approvals = useConversationApprovals(snapshot, routeSessionIdRef);
+  // A read-only view renders no composer dock and a parked one is off
+  // screen: their browser approvals float instead.
+  const approvals = useConversationApprovals(snapshot, routeSessionIdRef, { docked: !readOnly && surfaceVisible });
   const { suppressDraftSubmitPaintHandoff, visibleWarmPaintHandoff } = useConversationPaintHandoff(
     draftMode,
     warmPaintHandoff
@@ -115,7 +117,6 @@ export function Conversation(props: ConversationProps) {
     optimisticActivityStartedAt,
     submit: actions.composerSubmit,
     questionCard: readOnly ? null : approvals.questionCard,
-    approvalCard: readOnly ? null : approvals.approvalCard,
     agentMode,
   });
   const links = useConversationLinkSurfaces(props, {
@@ -124,6 +125,11 @@ export function Conversation(props: ConversationProps) {
     turnChangesSessionId: draftMode || readOnly ? '' : routeSessionId,
     turnChangesBusy: Boolean(snapshot.busy || snapshot.commandBusy),
     turnChangesRunning: Boolean(snapshot.busy) && pendingItems.length === 0,
+    // With no prompt pending, the last settled item is the running turn's.
+    runningTurnKey:
+      snapshot.busy && pendingItems.length === 0
+        ? runningTurnKeyOf(settledItems, timeline.settledTurnKeys, timeline.settledTurnKeys.at(-1) ?? '')
+        : '',
   });
   const island = useConversationIsland({
     approvals,
@@ -174,6 +180,7 @@ export function Conversation(props: ConversationProps) {
           itemCount={itemCount}
           cover={props.transcriptCover}
           intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
+          agentMode={agentMode}
         />
         {/* The dock is the column's in-flow sibling below the viewport: its
           height changes resize the viewport, never the virtual geometry. */}

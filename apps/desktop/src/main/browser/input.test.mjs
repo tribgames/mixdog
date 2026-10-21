@@ -210,6 +210,41 @@ test('dropping files announces the payload before delivering it', async () => {
   assert.deepEqual([calls[0].x, calls[0].y], [120, 81]);
 });
 
+test('a drop check runs before the payload is announced and again right before the drop; a late refusal cancels', async () => {
+  const calls = [];
+  const driver = createBrowserInputDriver(async (_guest, method, params) => {
+    calls.push(params.type);
+    return 'completed';
+  });
+  let checks = 0;
+  await driver.dropFilesAt({}, { x: 1, y: 1 }, ['C:\\tmp\\a.pdf'], undefined, async () => {
+    checks++;
+    calls.push('check');
+  });
+  assert.deepEqual(calls, ['check', 'dragEnter', 'dragOver', 'check', 'drop']);
+  assert.equal(checks, 2);
+
+  calls.length = 0;
+  let seen = 0;
+  await assert.rejects(
+    driver.dropFilesAt({}, { x: 1, y: 1 }, ['C:\\tmp\\a.pdf'], undefined, async () => {
+      // The page's dragover handler swapped an overlay in at the point.
+      if (++seen === 2) throw new Error('upload target changed');
+    }),
+    /upload target changed/
+  );
+  assert.deepEqual(calls, ['dragEnter', 'dragOver', 'dragCancel'], 'never dropped, the drag session ended');
+
+  calls.length = 0;
+  await assert.rejects(
+    driver.dropFilesAt({}, { x: 1, y: 1 }, ['C:\\tmp\\a.pdf'], undefined, async () => {
+      throw new Error('upload target changed');
+    }),
+    /upload target changed/
+  );
+  assert.deepEqual(calls, [], 'a target refused up front sees no drag at all');
+});
+
 test('Browser Use keyboard input cannot read or overwrite the system clipboard', () => {
   assert.doesNotThrow(() => assertBrowserKeyDoesNotAccessClipboard('Control+A'));
   assert.throws(() => assertBrowserKeyDoesNotAccessClipboard('Control+V'), /cannot access the system clipboard/);

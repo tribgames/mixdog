@@ -110,17 +110,12 @@ function withoutLegacyCompactFields(value) {
     delete next[key];
   return next;
 }
-// Handoff-summary timeout scales with transcript size (clear/manual path):
-// default max(60s, ~10s per 25k estimated message tokens) capped at 300s.
-// The summary may run on a slow reasoning model — the session's own model is
-// used whenever the maintenance route is unavailable — where even a small
-// transcript outlives the old 30s floor and a large one the old 120s cap.
-// session.compaction.timeoutMs still overrides.
-function handoffSummaryTimeoutMs(session, messageTokens) {
-  const override = positiveInt(session?.compaction?.timeoutMs);
-  if (override) return override;
-  const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
-  return Math.min(HANDOFF_TIMEOUT_MAX_MS, Math.max(60_000, scaled));
+// Handoff-summary timeout (clear/manual path): the same 300s as automatic
+// compaction, whatever the transcript size — the summary may run on a slow
+// reasoning model or a stalled provider connection, and a timeout fails the
+// compaction. session.compaction.timeoutMs still overrides.
+function handoffSummaryTimeoutMs(session) {
+  return positiveInt(session?.compaction?.timeoutMs) || HANDOFF_TIMEOUT_MAX_MS;
 }
 /**
  * ONE wiring for the fresh-context handoff pass: provider, summary model,
@@ -144,13 +139,8 @@ export async function runHandoffCompaction({
   provider = null,
   model = null,
   config,
-  messageTokensEst = null,
   requireReduction = false,
 } = {}) {
-  const messageList = Array.isArray(messages) ? messages : [];
-  const transcriptTokens = Number.isFinite(Number(messageTokensEst))
-    ? Number(messageTokensEst)
-    : estimateMessagesTokens(messageList);
   return runFreshContextCompact({
     sessionRef: session,
     messages,
@@ -159,7 +149,7 @@ export async function runHandoffCompaction({
       reserveTokens,
       contextWindow: positiveInt(contextWindow) || positiveInt(session?.contextWindow) || boundaryTokens,
       boundaryTokens,
-      handoffTimeoutMs: handoffSummaryTimeoutMs(session, transcriptTokens),
+      handoffTimeoutMs: handoffSummaryTimeoutMs(session),
     },
     sessionId,
     signal,
@@ -336,7 +326,6 @@ async function runSessionHandoff(plan, opts) {
       provider: opts.provider || getProvider(session.provider) || null,
       model: opts.model,
       config: opts.config,
-      messageTokensEst: plan.beforeMessageTokens,
       requireReduction: plan.requireReduction,
     });
     if (Array.isArray(run.freshContextResult?.messages)) {
@@ -609,7 +598,43 @@ function withAppendedMessages(plan, numbers, appended) {
 const TRANSCRIPT_MOVED_ERROR =
   'compact: the conversation changed while compacting; compaction not applied, run it again';
 
+// Why a compaction took as long as it did: persisted next to lastSummaryModel
+// and echoed as one daemon.log line. Wall time runs start → end of commit; the
+// summary call's own time comes from the handoff pipeline, so the remainder is
+// planning, transcript comparison and the commit below. The archive write is
+// scheduled by the commit and runs later, off it.
+function recordCompactionTiming(plan, freshContextResult, { startedAt, commitStartedAt, afterTokens }) {
+  const { session, resolvedSessionId } = plan;
+  const committedAt = Date.now();
+  const pipeline = freshContextResult?.diagnostics?.pipeline;
+  const summaryMs = pipeline?.generated?.durationMs ?? null;
+  // How the summary ran: a fork of the cached request or the isolated
+  // request, and on which route (session / maintenance / lighter).
+  let summaryRun = null;
+  if (pipeline?.summaryRoute) {
+    const kind = pipeline.generated?.mode === 'shared-prefix' ? 'fork' : 'isolated';
+    summaryRun = `${kind}:${pipeline.summaryRoute}`;
+  }
+  const timing = {
+    lastStartedAt: startedAt,
+    lastCommittedAt: committedAt,
+    lastDurationMs: committedAt - startedAt,
+    lastPipelineMs: pipeline?.totalMs ?? null,
+    lastSummaryMs: summaryMs,
+    lastCommitMs: committedAt - commitStartedAt,
+    lastCompactMode: summaryRun ? `${pipeline.mode}:${summaryRun}` : pipeline?.mode || null,
+  };
+  Object.assign(session.compaction, timing);
+  writeStderrBestEffort(
+    `compaction session=${resolvedSessionId || 'unknown'} source=${freshContextResult?.handoffSource || 'session-local'} ` +
+      `model=${freshContextResult?.summaryModel || '-'} mode=${summaryRun || '-'} total=${timing.lastDurationMs}ms ` +
+      `summary=${summaryMs ?? 0}ms commit=${timing.lastCommitMs}ms ` +
+      `in=${plan.beforeTokens} out=${afterTokens}\n`
+  );
+}
+
 async function commitSessionCompaction(plan, run, compactStartedAt) {
+  const commitStartedAt = Date.now();
   const { session, messages, mode, force, resolvedSessionId, reserveTokens } = plan;
   const { freshContextResult } = run;
   const numbers = await afterCompactionNumbers(plan, run.compacted);
@@ -688,6 +713,7 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
   if (changed) {
     session.pendingCacheBreakIntent = mode === 'auto' ? 'post_turn_compaction' : 'manual_compaction';
   }
+  recordCompactionTiming(plan, freshContextResult, { startedAt: compactStartedAt, commitStartedAt, afterTokens });
   return compactionResult(
     plan,
     { changed, reason: unchangedReason },

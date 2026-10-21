@@ -60,13 +60,13 @@ import { createSessionTurnApi } from '../session-turn-api.mjs';
 import { createGoalFacadeApi } from '../goal-facade-api.mjs';
 import { createRuntimeReviewApi } from '../runtime-review-api.mjs';
 import { createWorkspaceTransitions, refreshWorkspacePrompt } from '../workspace/transitions.mjs';
-import { saveSession } from '../../runtime/agent/orchestrator/session/store.mjs';
+import { saveSession, saveSessionAsync } from '../../runtime/agent/orchestrator/session/store.mjs';
 import { modelToolSchemaAllowlist } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { sessionOptions } from '../session-create/session-options.mjs';
 import { createConversationImportApi } from '../conversation-import/service.mjs';
 import { importError } from '../conversation-import/discovery.mjs';
 import { bootProfile } from '../boot-profile.mjs';
-import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
+import { standaloneDataDir } from '../runtime-paths.mjs';
 import { registerBotRouteStore } from '../../runtime/shared/agent-store.mjs';
 import {
   dataDirOf,
@@ -160,26 +160,37 @@ export function wireApis(boot) {
 
 function wireToolPolicyRefresh(boot) {
   const { rt, cfgMod } = boot;
-  const { refreshEmptySessionToolPolicy, switchSessionWorkflow, refreshAgentProfile, applyPendingAgentProfile } =
-    createToolPolicyRefresh({
-      getSession: () => rt.session,
-      getRoute: () => rt.route,
-      getMode: () => rt.mode,
-      getConfig: () => rt.config,
-      getDataDir: () => dataDirOf(cfgMod),
-      getActiveTurnCount: () => rt.activeTurnCount || 0,
-      modelStandaloneTools: boot.modelStandaloneTools,
-      featureDisallowedTools: boot.featureDisallowedTools,
-      loadCoreMemoryContext: boot.loadCoreMemoryContext,
-      loadInstructionFilesContext: (session) =>
-        session.skipInstructionFiles
-          ? ''
-          : loadInstructionFilesContext({ mode: rt.config?.instructionFiles, cwd: session.cwd }),
-      activeWorkflowContext: workflowHelpers.activeWorkflowContext,
-      invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
-    });
+  const {
+    refreshEmptySessionToolPolicy,
+    switchSessionWorkflow,
+    switchSessionOrchestrationMode,
+    applyPendingSessionSwitches,
+    refreshAgentProfile,
+    applyPendingAgentProfile,
+  } = createToolPolicyRefresh({
+    getSession: () => rt.session,
+    getRoute: () => rt.route,
+    getMode: () => rt.mode,
+    getConfig: () => rt.config,
+    getDataDir: () => dataDirOf(cfgMod),
+    getActiveTurnCount: () => rt.activeTurnCount || 0,
+    modelStandaloneTools: boot.modelStandaloneTools,
+    featureDisallowedTools: boot.featureDisallowedTools,
+    loadCoreMemoryContext: boot.loadCoreMemoryContext,
+    loadInstructionFilesContext: (session) =>
+      session.skipInstructionFiles
+        ? ''
+        : loadInstructionFilesContext({ mode: rt.config?.instructionFiles, cwd: session.cwd }),
+    activeWorkflowContext: workflowHelpers.activeWorkflowContext,
+    invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
+    // A switch is acknowledged only once saved; a session closed or replaced
+    // since (its generation moved) is not resurrected.
+    persistSession: (session) => saveSessionAsync(session, { expectedGeneration: session.generation }),
+  });
   boot.refreshEmptySessionToolPolicy = refreshEmptySessionToolPolicy;
   boot.switchSessionWorkflow = switchSessionWorkflow;
+  boot.switchSessionOrchestrationMode = switchSessionOrchestrationMode;
+  boot.applyPendingSessionSwitches = applyPendingSessionSwitches;
   boot.refreshAgentProfile = refreshAgentProfile;
   boot.applyPendingAgentProfile = applyPendingAgentProfile;
   // A saved bot reaches this runtime's thread when its prompt embeds it (it
@@ -199,7 +210,7 @@ function wireToolPolicyRefresh(boot) {
 function builtinFeatureAdapters(boot) {
   const { cfgMod, getMemoryModule } = boot;
   return {
-    prepareBuiltinFeature: async (name) => {
+    prepareBuiltinFeature: async (name, options) => {
       if (name === 'memory') {
         const memory = await getMemoryModule();
         await memory.warmupEmbedding();
@@ -210,7 +221,7 @@ function builtinFeatureAdapters(boot) {
         const { installTidyCoreEngines } = await import('../../runtime/tidy/core-install.mjs');
         // Per-engine failures land in the install job, not in an exception:
         // the feature still installs and the card reports what did not.
-        await installTidyCoreEngines({ pluginData: dataDirOf(cfgMod) });
+        await installTidyCoreEngines({ pluginData: dataDirOf(cfgMod), engines: options?.engines });
       } else if (name === 'localProvider') {
         await installLocalProviderRuntime();
       } else if (name === 'autoEffort') {
@@ -494,7 +505,7 @@ function resourceApiFor(boot) {
     getCurrentCwd: () => rt.currentCwd,
     cfgMod,
     hooks: boot.hooks,
-    STANDALONE_DATA_DIR,
+    STANDALONE_DATA_DIR: standaloneDataDir(),
     saveConfigAndAdopt: boot.saveConfigAndAdopt,
     connectConfiguredMcp: boot.connectConfiguredMcp,
     cancelMcpLogin: boot.cancelMcpLogin,
@@ -581,7 +592,7 @@ function workflowAgentsApiFor(boot) {
     },
     getSession: () => rt.session,
     cfgMod: boot.cfgMod,
-    STANDALONE_DATA_DIR,
+    STANDALONE_DATA_DIR: standaloneDataDir(),
     resolveRoute,
     lookupModelMeta: boot.lookupModelMeta,
     adoptConfig: boot.adoptConfig,
@@ -606,6 +617,7 @@ function workflowAgentsApiFor(boot) {
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
     refreshEmptySessionToolPolicy: boot.refreshEmptySessionToolPolicy,
     switchSessionWorkflow: boot.switchSessionWorkflow,
+    switchSessionOrchestrationMode: boot.switchSessionOrchestrationMode,
   });
 }
 
@@ -648,6 +660,7 @@ function sessionTurnApiFor(boot) {
   return createSessionTurnApi({
     applyPendingRoute: () => boot.modelRouteApi.applyPendingRoute(),
     applyPendingAgentProfile: boot.applyPendingAgentProfile,
+    applyPendingSessionSwitches: boot.applyPendingSessionSwitches,
     prepareTurnWorkspace: boot.workspaceApi.prepareTurnWorkspace,
     admitTurnWorkspace: boot.workspaceApi.admitTurnWorkspace,
     getSession: () => rt.session,
@@ -703,6 +716,7 @@ function sessionTurnApiFor(boot) {
     notificationListeners: boot.notificationListeners,
     awaitInitialMcpConnect: boot.awaitInitialMcpConnect,
     mcpTurnGraceMs: tunables.mcpTurnGraceMs,
+    mcpAgentGraceMs: tunables.mcpAgentGraceMs,
     awaitRoutePreparation: () => routePreparation.wait(),
     getReservedSessionId: () => rt.reservedSessionId,
     assertSessionAdmission: () => assertAdmissionOpen(rt),

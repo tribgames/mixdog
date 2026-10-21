@@ -14,6 +14,8 @@ function toastTitle(tone: string): string {
   return tone === 'warn' || tone === 'warning' ? t('Attention') : 'Mixdog';
 }
 
+/** Shown (translated) when an always-allow choice was applied once but not saved. */
+export const ALLOW_NOT_SAVED_TEXT = 'Allowed this once. The setting could not be saved.';
 export const DESKTOP_TOAST_EVENT = 'mixdog:desktop-toast';
 export const DESKTOP_TOAST_DISMISS_EVENT = 'mixdog:desktop-toast-dismiss';
 type DesktopToastTone = 'info' | 'success' | 'warn' | 'error';
@@ -64,12 +66,18 @@ export function DesktopToastRegion({
   const [placement, setPlacement] = useState({ right: 16, top: 54, width: 320, maxHeight: 400 });
   const hostToasts = [
     // The main process owns the lasting-outage toast and sends its English key.
-    ...toasts.map((toast) =>
-      toast.id === 'service-connection-stopped' &&
-      toast.text === 'The service connection has been lost for a while. Still retrying automatically.'
-        ? { ...toast, text: t('The service connection has been lost for a while. Still retrying automatically.') }
-        : toast
-    ),
+    ...toasts.map((toast) => {
+      if (
+        toast.id === 'service-connection-stopped' &&
+        toast.text === 'The service connection has been lost for a while. Still retrying automatically.'
+      ) {
+        return { ...toast, text: t('The service connection has been lost for a while. Still retrying automatically.') };
+      }
+      // The runtime sends its English key when a "항상 허용" could not be saved.
+      return toast.text === ALLOW_NOT_SAVED_TEXT
+        ? { ...toast, text: t('Allowed this once. The setting could not be saved.') }
+        : toast;
+    }),
     ...(bridgeError ? [{ id: 'desktop-bridge', text: bridgeError, tone: 'error', lifetime: 'state' }] : []),
   ];
   const hostToken = JSON.stringify(hostToasts);

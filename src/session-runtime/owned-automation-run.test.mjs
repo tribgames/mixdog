@@ -1,3 +1,4 @@
+import '../../scripts/test-data-dir.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,7 @@ import {
   retryRoutineDelivery,
   runOwnedAutomation,
 } from './owned-automation-run.mjs';
+import { createHeldRequests } from './held-requests.mjs';
 import { ROUTINE_LIMITS, routineBackoffRemaining } from '../runtime/shared/routine-limits.mjs';
 import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 import { createNoticeSurface } from '../tui/session/notice-surface.mjs';
@@ -183,6 +185,86 @@ test('a second run of the same routine while one is going is an overlap skip', a
   release();
   assert.equal((await first).result, 'ok');
   assert.equal(deps.active.size, 0);
+});
+
+test('an unattended fire of a routine that is switched off (paused by the user or after failures) is skipped', async () => {
+  const skips = [];
+  const base = {
+    ...quiet,
+    attended: false,
+    ownerProblem: async () => '',
+    active: new Set(),
+    list: async () => [],
+    recordDelivery: async () => {},
+    recordSkip: async (name) => skips.push(name),
+  };
+  const off = await runOwnedAutomation(
+    'schedule',
+    { name: 'r_fail' },
+    () => assert.fail('a paused routine must not run'),
+    { ...base, state: async () => ({ enabled: false, consecutiveFailures: 2 }) }
+  );
+  assert.equal(off.skipped, true);
+  assert.equal(off.reason, 'paused');
+  assert.deepEqual(skips, ['r_fail']);
+  assert.equal(base.active.size, 0);
+  // "Run now" (attended) still runs a switched-off routine; an enabled one runs unattended.
+  const now = await runOwnedAutomation('schedule', { name: 'r_fail' }, async () => ({ result: 'ok' }), {
+    ...base,
+    attended: true,
+    state: async () => ({ enabled: false }),
+  });
+  assert.equal(now.result, 'ok');
+  const on = await runOwnedAutomation('schedule', { name: 'r_ok' }, async () => ({ result: 'ok' }), {
+    ...base,
+    state: async () => ({ enabled: true }),
+  });
+  assert.equal(on.result, 'ok');
+});
+
+test('a fire whose previous run waits on a held approval is skipped and recorded, not queued behind it', async () => {
+  const held = createHeldRequests({
+    deliver: async () => {},
+    push: () => {},
+    record: async () => {},
+    runOf: () => ({ kind: 'schedule', agentId: 'lead', name: 'hourly' }),
+    log: () => {},
+  });
+  const skips = [];
+  const deps = {
+    ...quiet,
+    attended: false,
+    ownerProblem: async () => '',
+    active: new Set(),
+    state: async () => null,
+    list: async () => [],
+    recordDelivery: async () => {},
+    recordSkip: async (name) => skips.push(name),
+  };
+  const ask = held.hold({ kind: 'approval', name: 'shell', sessionId: 'sess_run', reason: 'x' });
+  const first = runOwnedAutomation(
+    'schedule',
+    { name: 'hourly' },
+    () => ask.then(() => ({ sessionId: 's', result: 'ok' })),
+    deps
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  for (let fire = 0; fire < 3; fire += 1) {
+    const next = await runOwnedAutomation('schedule', { name: 'hourly' }, () => assert.fail('piled up'), deps);
+    assert.equal(next.reason, 'overlap');
+  }
+  assert.deepEqual(skips, ['hourly', 'hourly', 'hourly']);
+  const [pending] = held.pending();
+  held.resolve(pending.id, { approved: true });
+  assert.equal((await first).result, 'ok');
+  assert.equal(deps.active.size, 0);
+  const after = await runOwnedAutomation(
+    'schedule',
+    { name: 'hourly' },
+    async () => ({ sessionId: 's', result: 'next' }),
+    deps
+  );
+  assert.equal(after.result, 'next', 'the next fire runs once the held run ended');
 });
 
 test("a result left on a record by a run from before is recovered once into the owner's thread", async (t) => {

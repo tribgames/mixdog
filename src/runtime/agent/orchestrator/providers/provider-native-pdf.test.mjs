@@ -72,7 +72,10 @@ function minimalPdf(text) {
   });
   const xref = Buffer.byteLength(body, 'latin1');
   body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  body += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('');
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(body, 'latin1');
 }
@@ -82,7 +85,12 @@ const pdfRequest = () => [
     role: 'user',
     content: [
       { type: 'text', text: 'read it' },
-      { type: 'file', data: minimalPdf('Gateway PDF').toString('base64'), mimeType: 'application/pdf', filename: 'g.pdf' },
+      {
+        type: 'file',
+        data: minimalPdf('Gateway PDF').toString('base64'),
+        mimeType: 'application/pdf',
+        filename: 'g.pdf',
+      },
     ],
   },
 ];
@@ -111,7 +119,12 @@ test('OpenCode Go minimax (Anthropic route) and custom Anthropic gateways get PD
   assert.match(go, /Gateway PDF/);
   assert.equal(go.includes('"type":"document"'), false);
 
-  const custom = await createCustomProvider('custom-z', { name: 'z', protocol: 'anthropic', models: [{ id: 'm' }], ...cfg });
+  const custom = await createCustomProvider('custom-z', {
+    name: 'z',
+    protocol: 'anthropic',
+    models: [{ id: 'm' }],
+    ...cfg,
+  });
   const body = await anthropicWireBody(custom);
   assert.match(body, /Gateway PDF/);
   assert.equal(body.includes('"type":"document"'), false);
@@ -133,7 +146,13 @@ test('the one predicate: only an explicit false lowers PDFs to text', () => {
 });
 
 const imageRef = { type: 'image', attachmentRef: 'a'.repeat(64), mimeType: 'image/png', sizeBytes: 1 };
-const pdfRef = (name) => ({ type: 'file', attachmentRef: 'b'.repeat(64), mimeType: 'application/pdf', filename: name, sizeBytes: 1 });
+const pdfRef = (name) => ({
+  type: 'file',
+  attachmentRef: 'b'.repeat(64),
+  mimeType: 'application/pdf',
+  filename: name,
+  sizeBytes: 1,
+});
 const toolMessage = (content) => ({ role: 'tool', toolCallId: 'c', content });
 
 test('compaction triggers once images plus native documents in tool results exceed 100', () => {
@@ -151,26 +170,47 @@ test('compaction triggers once images plus native documents in tool results exce
 test('a PDF that records its page count is priced per page, the same inline and stored', () => {
   const data = Buffer.from('%PDF-1.4\n').toString('base64');
   const inline = { type: 'file', data, mimeType: 'application/pdf', filename: 'a.pdf', pageCount: 10 };
-  const stored = { type: 'file', attachmentRef: 'c'.repeat(64), mimeType: 'application/pdf', filename: 'a.pdf', sizeBytes: 9, pageCount: 10 };
+  const stored = {
+    type: 'file',
+    attachmentRef: 'c'.repeat(64),
+    mimeType: 'application/pdf',
+    filename: 'a.pdf',
+    sizeBytes: 9,
+    pageCount: 10,
+  };
   const tokens = (part) => messageAttachmentBreakdown({ role: 'user', content: [part] }).tokens;
   assert.equal(tokens(inline), 25_000);
   assert.equal(tokens(stored), 25_000);
   assert.deepEqual(media.contentFileDescriptors([inline]), media.contentFileDescriptors([stored]));
   const { pageCount: _inline, ...noPages } = inline;
   assert.equal(tokens(noPages), 1_500, 'without a page count the size-based floor stands');
-  assert.equal(tokens({ ...stored, pageCount: 1, sizeBytes: 160_000 }), 10_000, 'a dense file keeps its size-based price');
+  // Page images are downscaled to the vision ceiling: once pages are known a
+  // large file (a scan's image data) costs no more than its pages.
+  assert.equal(tokens({ ...stored, pageCount: 1, sizeBytes: 160_000 }), 2_500, 'pages, not bytes, price a paged PDF');
+  assert.equal(tokens({ ...stored, textChars: 4_000 }), 10 * 1_568 + 2_000, 'a measured text layer adds its text');
 });
 
 test('a text-lowered PDF is priced at most at its extraction budget, inline and stored alike', () => {
   const data = Buffer.from('%PDF-1.4\n').toString('base64');
   const inline = { type: 'file', data, mimeType: 'application/pdf', filename: 'a.pdf', pageCount: 100 };
-  const stored = { type: 'file', attachmentRef: 'd'.repeat(64), mimeType: 'application/pdf', filename: 'a.pdf', sizeBytes: 9, pageCount: 100 };
+  const stored = {
+    type: 'file',
+    attachmentRef: 'd'.repeat(64),
+    mimeType: 'application/pdf',
+    filename: 'a.pdf',
+    sizeBytes: 9,
+    pageCount: 100,
+  };
   const { textPdfAllowanceDiscount } = ctx;
   const discount = textPdfAllowanceDiscount([{ role: 'user', content: [inline] }]);
   assert.equal(discount, 250_000 - Math.ceil(media.PDF_TEXT_MAX_BYTES / 4));
   assert.equal(textPdfAllowanceDiscount([{ role: 'user', content: [stored] }]), discount);
   const small = { ...inline, pageCount: 2 };
-  assert.equal(textPdfAllowanceDiscount([{ role: 'user', content: [small] }]), 0, 'under the budget nothing is discounted');
+  assert.equal(
+    textPdfAllowanceDiscount([{ role: 'user', content: [small] }]),
+    0,
+    'under the budget nothing is discounted'
+  );
 });
 
 test('store errors are told apart by code, not by message text', () => {

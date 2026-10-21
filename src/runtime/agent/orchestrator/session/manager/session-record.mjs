@@ -2,8 +2,10 @@
 // What a persisted session row contains and where each field comes from: the
 // compaction budget, the origin/permission/cache metadata analytics slice on,
 // the desktop classification, and the record assembled from them. Everything
-// here is field derivation — no I/O, no ownership, no prompt text.
+// here is field derivation — no ownership, no prompt text; the only read is the
+// parent's record a delegated session takes its root from.
 import { toSessionWorkflowMeta } from '../../runtime-core/workflow.mjs';
+import { delegationForNewSession } from '../human-gate/delegation.mjs';
 import { sessionOrchestrationMode } from '../../../../shared/orchestration.mjs';
 import { preserveBufferConfigFields } from './context-meta.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
@@ -101,7 +103,16 @@ export function sessionOriginFields(opts, { profile, presetObj, providerCacheOpt
     ownerSessionId: opts.ownerSessionId || null,
     visibility: opts.visibility || null,
     clientHostPid: opts.clientHostPid || null,
+    // A sub-agent's or a bot-created task session's root (who it works for, and
+    // how that root was acting), derived from the parent's record — the one
+    // read here — never taken from the options (human-gate/delegation.mjs).
+    ...delegationFields(opts),
   };
+}
+
+function delegationFields(opts) {
+  const delegation = delegationForNewSession(opts);
+  return delegation ? { delegation } : {};
 }
 
 // The persisted session record.

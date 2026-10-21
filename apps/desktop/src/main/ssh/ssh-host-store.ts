@@ -97,14 +97,12 @@ export function parseHostSettings(raw: unknown): SshHostSettings {
 
 const copyHost = (host: SshHostRecord): SshHostRecord => ({
   ...host,
-  ...(host.settings
-    ? {
-        settings: {
-          ...host.settings,
-          ...(host.settings.allowedProviders ? { allowedProviders: [...host.settings.allowedProviders] } : {}),
-        },
-      }
-    : {}),
+  ...(host.settings && {
+    settings: {
+      ...host.settings,
+      ...(host.settings.allowedProviders && { allowedProviders: [...host.settings.allowedProviders] }),
+    },
+  }),
 });
 
 // One store per user-data folder, shared by the IPC handlers and the provider lookup.

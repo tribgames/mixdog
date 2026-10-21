@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import {
   parseJsonText,
+  quarantinePath,
   writeFileAtomicAsync,
   writeJsonAtomicAsync,
 } from '../../../../src/runtime/shared/atomic-file.mjs';
@@ -63,11 +64,16 @@ function storedOf(value: unknown): Stored {
     throw new TypeError('The client cache is not an object.');
   }
   const parsed = value as Partial<Stored>;
+  // The revocation record is checked strictly: a wrong shape is damage, never an empty list.
+  if (!Array.isArray(parsed.pendingRevokes) || !parsed.pendingRevokes.every((id) => typeof id === 'string')) {
+    throw new TypeError('The pending revocations are not a list of ids.');
+  }
+  if (parsed.repairRequired !== undefined && typeof parsed.repairRequired !== 'boolean') {
+    throw new TypeError('The repair flag is not a boolean.');
+  }
   return {
     clients: (Array.isArray(parsed.clients) ? parsed.clients : []).flatMap((row) => entry(row) ?? []),
-    pendingRevokes: (Array.isArray(parsed.pendingRevokes) ? parsed.pendingRevokes : []).filter(
-      (id): id is string => typeof id === 'string'
-    ),
+    pendingRevokes: [...parsed.pendingRevokes],
     repairRequired: parsed.repairRequired === true,
   };
 }
@@ -114,9 +120,7 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
     // before either finishes finds the damage again instead of an empty file.
     state.repairRequired = true;
     if (read.damaged) {
-      await writeFileAtomicAsync(`${file}.corrupt-${Date.now()}`, read.damaged, { secret: true }).catch(
-        () => undefined
-      );
+      await writeFileAtomicAsync(quarantinePath(file), read.damaged, { secret: true }).catch(() => undefined);
     }
     await persist().catch(() => undefined);
   }

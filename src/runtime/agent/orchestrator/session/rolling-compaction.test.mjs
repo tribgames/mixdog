@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveCompactionRoute, runFreshContextCompact } from './loop/fresh-context.mjs';
+import { compactionSummaryPlan, runFreshContextCompact } from './loop/fresh-context.mjs';
 import {
   compactTargetBudget,
   currentContextEstimateTokens,
@@ -87,7 +87,7 @@ test('the 25% target includes request overhead and leaves existing trigger setti
   }
 });
 
-test('only an enabled explicit maintenance route overrides the conversation model', async () => {
+test('compaction summarizes on the Maintainer model when one is set, else on the conversation model', async () => {
   const { session, provider } = fixture();
   const config = {
     builtins: { memory: { installed: true } },
@@ -99,8 +99,9 @@ test('only an enabled explicit maintenance route overrides the conversation mode
     async send() {},
   };
   let initialized = 0;
-  const resolve = (cfg) =>
-    resolveCompactionRoute({
+  // The route a cold smart-mode summary runs on first.
+  const resolve = async (cfg) => {
+    const plan = compactionSummaryPlan({
       sessionRef: session,
       provider,
       config: cfg,
@@ -109,23 +110,66 @@ test('only an enabled explicit maintenance route overrides the conversation mode
       },
       getProviderFn: (name) => (name === maintenance.name ? maintenance : provider),
     });
-  const selected = await resolve(config);
-  assert.equal(selected.provider, maintenance);
-  assert.equal(selected.model, 'maintenance-model');
-  assert.equal(initialized, 1);
-  for (const disabled of [
-    {},
-    { default: { provider: 'unrelated', model: 'unrelated' } },
-    { ...config, disabledAgents: ['maintainer'] },
+    for (const step of plan.steps) {
+      const route = await step();
+      if (route) return route;
+    }
+    return null;
+  };
+  // The Maintainer model compacts whatever the memory and recap settings.
+  for (const enabled of [
+    config,
+    { agents: config.agents },
     { ...config, memoryTools: { enabled: false } },
     { ...config, recap: { enabled: false } },
+  ]) {
+    const selected = await resolve(enabled);
+    assert.equal(selected.provider, maintenance);
+    assert.equal(selected.model, 'maintenance-model');
+  }
+  assert.equal(initialized, 4);
+  for (const disabled of [
+    {},
+    // No Maintainer model of its own: the default model is not borrowed.
+    { default: { provider: maintenance.name, model: 'default-model' } },
+    { ...config, disabledAgents: ['maintainer'] },
     { ...config, providers: { 'fixture-maintenance': { enabled: false } } },
   ]) {
     const selected = await resolve(disabled);
     assert.equal(selected.provider, provider);
     assert.equal(selected.model, session.model);
   }
-  assert.equal(initialized, 1);
+  assert.equal(initialized, 4);
+});
+
+test('a saved useMaintainer=false migrates to self (conversation model); absent or true to smart', async () => {
+  const { session, provider } = fixture();
+  const maintenance = {
+    name: 'fixture-maintenance',
+    getCachedModelInfo: () => ({ contextWindow: 16_000 }),
+    async send() {},
+  };
+  const base = { agents: { maintainer: { provider: 'fixture-maintenance', model: 'maintenance-model' } } };
+  const resolve = async (compaction) => {
+    const plan = compactionSummaryPlan({
+      sessionRef: session,
+      provider,
+      config: compaction === undefined ? base : { ...base, compaction },
+      initProvidersFn: async () => {},
+      getProviderFn: (name) => (name === maintenance.name ? maintenance : provider),
+    });
+    return { mode: plan.mode, route: await plan.steps[0]() };
+  };
+  for (const compaction of [undefined, {}, { useMaintainer: true }]) {
+    const { mode, route } = await resolve(compaction);
+    assert.equal(mode, 'smart');
+    assert.equal(route.provider, maintenance);
+    assert.equal(route.model, 'maintenance-model');
+  }
+  const off = await resolve({ useMaintainer: false });
+  assert.equal(off.mode, 'self');
+  assert.equal(off.route.provider, provider);
+  assert.equal(off.route.model, session.model);
 });
 
 test('maintenance summarization is isolated from the main request and its provider credentials', async () => {
@@ -289,7 +333,7 @@ test('the target is soft for mandatory context, but the full context window is a
         maxBudgetTokens: 2_000,
         handoffText: summary,
       }),
-    /exceeds compact budget/
+    (error) => error.code === 'LATEST_TURN_EXCEEDS_CONTEXT' && /cannot fit this model/.test(error.message)
   );
 });
 

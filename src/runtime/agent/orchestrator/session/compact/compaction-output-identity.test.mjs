@@ -282,8 +282,21 @@ async function compactFingerprint(session) {
     )
   );
   // `archive` is the display-only compaction archive's bookkeeping, not
-  // compaction output.
-  const { lastCheckedAt: _c, lastChangedAt: _g, lastCompactAt: _a, archive: _d, ...record } = session.compaction;
+  // compaction output; the last* timing fields are wall-clock measurements.
+  const {
+    lastCheckedAt: _c,
+    lastChangedAt: _g,
+    lastCompactAt: _a,
+    archive: _d,
+    lastStartedAt: _s,
+    lastCommittedAt: _m,
+    lastDurationMs: _u,
+    lastPipelineMs: _p,
+    lastSummaryMs: _y,
+    lastCommitMs: _o,
+    lastCompactMode: _k,
+    ...record
+  } = session.compaction;
   return {
     numbers,
     messages: session.messages.length,
@@ -379,7 +392,7 @@ const EXPECTED = {
     messagesSha: '7a3fd462b4dbd1e400b82903313f1576255c3878a012a0f455798f73ca458849',
     recordSha: '5ab36533b09e563dc54dadc23243f1944f55625e138b37dcfbd4966732dd07b5',
     sends: 2,
-    promptsSha: 'f47b552495036c5098cf3aaf74e3ccabda7a60424d8157e0783f225364d8e098',
+    promptsSha: '5a08c90124788bcb43cc80dc9b9be236825dc1dcf76d2eaa8971d23e3a6b8480',
     archives: archives(1, 712_408, '464b1d3a86d92f8da4a5ed4f643649b6affc8d52b86702c48bf9950288c28a02'),
     traceBytes: [714_283, 12_694],
   },
@@ -397,7 +410,7 @@ const EXPECTED = {
     messagesSha: '20fbb536eb69b0eb7a4170e191c42fbec9657a6dba1e6904fac49fcad461c0ea',
     recordSha: '8ff0ce2f0652109ae6f9a443c3ff9e9738c0f54d24270fdd65c7633cc15f3181',
     sends: 1,
-    promptsSha: '48d26a7766c196e3365f6209046c1dc9a6b7b1b6451e76c2fb54f6d106ec9d59',
+    promptsSha: '1b807b773b532a65f6da196aec2ad9bea0c5ff6f47f8617935b9e9e2c66208cb',
     archives: archives(102, 3_402_411, '60bebec70ec783c2861c64afbd14a3f4dc03af2b38497aab7e7c221074c7e809'),
     traceBytes: [3_380_664, 72_692],
   },

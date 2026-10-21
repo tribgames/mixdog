@@ -13,22 +13,24 @@ import {
   CODE_GRAPH_TOOL_DEFS,
   STATUSLINE_SESSION_ROUTES,
   STANDALONE_ROOT,
-  STANDALONE_DATA_DIR,
+  standaloneDataDir,
 } from './runtime-paths.mjs';
 
 export function prepareStandaloneEnvironment() {
   process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
   const startedAt = performance.now();
+  // Resolved per runtime start: this start's data folder, not the first one's.
+  const dataDir = standaloneDataDir();
   ensureStandaloneEnvironment({
     rootDir: STANDALONE_ROOT,
-    dataDir: STANDALONE_DATA_DIR,
+    dataDir,
   });
   // Office journals exist only for cross-process crash recovery, so startup just
   // prunes expired ones in the background. Surfacing them as session context made
   // every new session (agents included) re-announce unrelated leftovers for the
   // full 30-day retention window; recovery stays reachable on demand through
   // office action=transactions / action=recover.
-  listOfficeJournals(STANDALONE_DATA_DIR).catch(() => {});
+  listOfficeJournals(dataDir).catch(() => {});
   bootProfile('standalone-env:ready', { ms: (performance.now() - startedAt).toFixed(1) });
 }
 

@@ -6,7 +6,12 @@ import { join } from 'node:path';
 
 import WebSocket from 'ws';
 
-import { parseJsonText, withFileLock, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import {
+  parseJsonText,
+  quarantinePath,
+  withFileLock,
+  writeJsonAtomicAsync,
+} from '../../../../src/runtime/shared/atomic-file.mjs';
 import { readSecretFile, writeSecretFile } from './secret-file';
 
 export const REVOKE_TIMEOUT_MS = 5_000;
@@ -84,7 +89,8 @@ async function readStoredDevice(path: string): Promise<DeviceIdentity | { corrup
 
 function queuedIdentities(value: unknown): DeviceIdentity[] {
   if (!Array.isArray(value)) throw new TypeError('The queued revocations are not a list.');
-  return value.filter(validDeviceIdentity);
+  if (!value.every(validDeviceIdentity)) throw new TypeError('The queued revocations hold an invalid identity.');
+  return value;
 }
 
 /** The queue file was read but is not a list of identities (NUL-filled,
@@ -128,7 +134,7 @@ export async function revocationQueueDamaged(userDataPath: string): Promise<bool
  *  it never says the queue is complete. */
 async function salvageDamagedQueue(userDataPath: string, damaged: RevocationQueueDamaged): Promise<DeviceIdentity[]> {
   const path = join(userDataPath, DEVICE_REVOCATIONS_FILE);
-  await writeSecretFile(`${path}.corrupt-${Date.now()}`, damaged.text);
+  await writeSecretFile(quarantinePath(path), damaged.text);
   const previous = await readSecretFile(`${path}.bak`).catch(() => null);
   if (previous === null) return [];
   try {
@@ -173,7 +179,7 @@ export async function loadOrCreateDevice(userDataPath: string): Promise<DeviceId
     async () => {
       const stored = await readStoredDevice(path);
       if (stored && !('corrupt' in stored)) return stored;
-      if (stored) await writeSecretFile(`${path}.corrupt-${Date.now()}`, stored.corrupt);
+      if (stored) await writeSecretFile(quarantinePath(path), stored.corrupt);
       return writeDeviceIdentity(path);
     },
     { secret: true }

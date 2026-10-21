@@ -1,0 +1,689 @@
+/* The approval card (approval-prompt.tsx; design/mockups/approval-buttons):
+   content centred, decided with buttons. Docked in the composer island the
+   island is its frame (the islands' neutral edge, 560px); elsewhere (a held request in the
+   transcript, a browser prompt no chat docks) it carries its own. Nothing in
+   it may widen it: long names ellipsize, URLs and paths wrap, a long preview
+   scrolls inside, and the button row stacks when the card gets narrow. */
+.approval-prompt {
+  --approval-bg: var(--mx-popup-bg);
+  --approval-inner: 460px;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 560px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 12px 14px 12px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 12px;
+  background: var(--approval-bg);
+  box-shadow: var(--mx-popup-shadow);
+  color: var(--mx-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+  container: approval-prompt / inline-size;
+  /* One column: when height runs short the preview gives way first and
+     scrolls inside; the head, the buttons and the scope line keep theirs. */
+  display: flex;
+  flex-direction: column;
+}
+.approval-prompt > * {
+  flex: none;
+}
+/* Centred blocks keep their inner width in the column. */
+.approval-prompt > :is(.approval-preview, .approval-status, .approval-buttons) {
+  width: 100%;
+}
+.approval-prompt:focus {
+  outline: none;
+}
+.composer-island-approval > .approval-prompt {
+  --approval-bg: var(--mx-island-frame);
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* Docked, the card outranks the transcript: the island may take the pane's
+   whole height above the dock (ComposerIsland measures it), and inside it
+   only the preview shrinks, so the buttons are always on screen. Should even that not fit, the island scrolls with the buttons held
+   at its floor. */
+.composer-island[data-mode="approval"] {
+  max-height: var(--island-approval-room, max(160px, 100cqh - 240px));
+  display: flex;
+  flex-direction: column;
+}
+.composer-island-approval {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.composer-island-approval > * {
+  flex: none;
+}
+.composer-island-approval > .approval-prompt {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+/* The preview never gets smaller than readable: three lines, or all of it
+   (an amount shows whole); ComposerIsland measures it. */
+.composer-island-approval > .approval-prompt > .approval-preview {
+  flex: 0 1 auto;
+  min-height: var(--approval-preview-min, 0);
+}
+.composer-island-approval .approval-buttons {
+  position: sticky;
+  bottom: 0;
+  background: var(--composer-island-bg, var(--approval-bg));
+}
+/* Short room (a phone with its keyboard up): the head compacts (no face, no
+   grab bar). Should the card still not fit, data-approval-fit (see the end
+   of this file) reclaims the rest in order. */
+.composer-island-slot[data-approval-tight] .approval-prompt {
+  padding-top: 32px;
+}
+.composer-island-slot[data-approval-tight] .approval-prompt::before,
+.composer-island-slot[data-approval-tight] .approval-face {
+  display: none;
+}
+.composer-island-slot[data-approval-tight] .approval-prompt > .approval-preview {
+  margin-top: 8px;
+}
+.composer-island-slot[data-approval-tight] .approval-buttons {
+  margin-top: 10px;
+}
+.approval-prompt *,
+.approval-prompt *::before,
+.approval-prompt *::after {
+  box-sizing: border-box;
+}
+.approval-prompt-top {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.approval-corner {
+  margin-inline-start: auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approval-close {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  margin: -4px -4px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.approval-close:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+/* The requester's own face; the amber dot is the sidebar's "needs you" mark. */
+.approval-face {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  margin: 2px auto 6px;
+}
+.approval-face-avatar,
+.approval-face > svg,
+.approval-face > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.approval-lead-mark {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--mx-hover);
+  color: var(--mx-text-soft);
+  font: 600 9px / 1 var(--mx-font-mono);
+}
+.approval-lead-mark::before {
+  content: "LEAD";
+}
+.approval-need-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  outline: 2px solid var(--approval-bg);
+  box-shadow: inset 0 0 0 2.5px var(--mx-warning);
+  background: radial-gradient(circle, var(--mx-warning) 0 2px, transparent 2.5px);
+}
+.approval-prompt[data-tone="danger"] .approval-need-dot {
+  box-shadow: inset 0 0 0 2.5px var(--mx-danger);
+  background: radial-gradient(circle, var(--mx-danger) 0 2px, transparent 2.5px);
+}
+.approval-prompt[data-tone="done"] .approval-need-dot {
+  display: none;
+}
+.approval-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.approval-who {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+  margin-top: 4px;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+.approval-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.approval-chip-face {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.approval-chip-face > * {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.approval-chip-face .approval-lead-mark {
+  display: none;
+}
+.approval-chip-name,
+.approval-service {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approval-service {
+  max-width: 100%;
+}
+.approval-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mx-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.approval-link:hover {
+  text-decoration: underline;
+}
+.approval-preview {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-width: var(--approval-inner);
+  max-height: 200px;
+  margin: 10px auto 0;
+  padding: 8px 10px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 8px;
+  background: var(--mx-surface-plate);
+  text-align: left;
+}
+.approval-preview-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+.pixel-icon {
+  flex: none;
+  shape-rendering: crispEdges;
+}
+.approval-preview-row > .pixel-icon {
+  margin-top: 4px;
+  color: var(--mx-text-soft);
+}
+.approval-preview-text {
+  min-width: 0;
+}
+.approval-preview-main {
+  font-weight: 600;
+}
+.approval-preview-text small,
+.approval-preview-more {
+  display: block;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.approval-preview-target {
+  white-space: pre-wrap;
+}
+.approval-preview-row[data-warn],
+.approval-preview-row[data-warn] > .pixel-icon {
+  color: var(--mx-warning);
+}
+.browser-approval-files {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.approval-muted {
+  color: var(--mx-text-muted);
+  font-weight: 400;
+}
+.approval-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-warning) 55%, transparent);
+  color: var(--mx-warning);
+  font-size: 11px;
+  line-height: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.approval-amount {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+.approval-amount b {
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.approval-amount small {
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.approval-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.approval-fields > div {
+  display: contents;
+}
+.approval-fields dt {
+  color: var(--mx-text-muted);
+}
+.approval-fields dd {
+  min-width: 0;
+  margin: 0;
+}
+.approval-text[data-centered],
+.approval-preview-more[data-centered] {
+  text-align: center;
+}
+.approval-text {
+  margin: 0;
+  color: var(--mx-text-soft);
+  font-size: 13px;
+  line-height: 19px;
+  white-space: pre-wrap;
+}
+.approval-detail {
+  margin: 0;
+  color: var(--mx-text-soft);
+  font: 12px / 18px var(--mx-font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-edit {
+  display: grid;
+  gap: 4px;
+}
+.approval-edit textarea,
+.approval-secret {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--mx-border);
+  border-radius: 8px;
+  background: var(--mx-bg-base);
+  color: var(--mx-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 19px;
+}
+.approval-edit textarea {
+  min-height: 56px;
+  max-height: 112px;
+  resize: vertical;
+  field-sizing: content;
+}
+/* Inside the preview, which scrolls on its own: the body field stays short so
+   the card shows a whole email without two nested scrollbars. */
+.approval-edit textarea {
+  max-height: 72px;
+}
+:is(.approval-edit textarea, .approval-secret):focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: 1px;
+}
+.approval-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.approval-edit[data-edited] .approval-hint {
+  color: var(--mx-text);
+  font-weight: 500;
+}
+.approval-preview .office-approval-preview {
+  margin: 0;
+}
+.approval-status {
+  max-width: var(--approval-inner);
+  margin: 10px auto 0;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+.approval-prompt > .progress-spinner {
+  margin: 10px auto 0;
+}
+/* Equal columns, exactly as wide as the preview: short labels; what a button
+   changes is its tooltip. */
+.approval-buttons {
+  display: grid;
+  grid-template-columns: repeat(var(--approval-columns, 3), minmax(0, 1fr));
+  gap: 8px;
+  max-width: var(--approval-inner);
+  margin: 12px auto 0;
+}
+.approval-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--mx-border);
+  border-radius: 6px;
+  background: var(--mx-action-bg);
+  color: var(--mx-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.approval-button:hover:not(:disabled) {
+  border-color: var(--mx-text-muted);
+}
+.approval-button[data-tone="primary"] {
+  border-color: var(--mx-accent-bg);
+  background: var(--mx-accent-bg);
+  /* A theme's accent-text (unset: the same white). */
+  color: var(--mx-accent-fg, var(--mx-grey-50));
+}
+.approval-button[data-tone="primary"]:hover:not(:disabled) {
+  border-color: var(--mx-accent-bg);
+  background: color-mix(in srgb, var(--mx-accent-bg) 88%, var(--mx-grey-50));
+}
+.approval-button[data-tone="danger"] {
+  border-color: transparent;
+  background: var(--mx-danger-bg);
+  color: var(--mx-danger);
+}
+/* A quiet keyboard ring: one soft halo, never a bright outline around the
+   blue primary. */
+.approval-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mx-accent) 35%, transparent);
+}
+.approval-button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.approval-button-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The shortcut chips show only while focus is inside the card: with the
+   composer focused, Enter and Esc belong to the composer. */
+.approval-kbd {
+  display: none;
+  flex: none;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font: 11px / 17px var(--mx-font-mono);
+}
+.approval-prompt:focus-within .approval-kbd {
+  display: inline-block;
+}
+.approval-button[data-tone="primary"] .approval-kbd {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-accent-fg, var(--mx-grey-50)) 40%, transparent);
+  color: var(--mx-accent-fg, var(--mx-grey-50));
+}
+/* A narrow card (a split pane, the side panel open): the row stacks, the
+   primary on top, so no label is ever cut to nothing. */
+@container approval-prompt (max-width: 440px) {
+  .approval-buttons {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .approval-button[data-tone] {
+    order: -1;
+  }
+}
+/* Phone: the bottom-sheet look; 44px buttons, the primary as the wide top
+   one, the other two side by side; no shortcut chips. */
+@media (max-width: 640px) {
+  .approval-prompt {
+    padding: 10px 12px 12px;
+  }
+  .approval-prompt::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 0 auto 10px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--mx-text) 25%, transparent);
+  }
+  .approval-prompt-top {
+    top: 18px;
+  }
+  .approval-preview {
+    max-width: none;
+  }
+  .approval-buttons {
+    max-width: none;
+  }
+  .approval-buttons {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .approval-buttons[data-count="3"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .approval-buttons[data-count="3"] > .approval-button[data-tone] {
+    grid-column: 1 / -1;
+  }
+  .approval-button {
+    height: 44px;
+    font-size: 15px;
+  }
+  .approval-button[data-tone] {
+    order: -1;
+  }
+  .approval-prompt:focus-within .approval-kbd {
+    display: none;
+  }
+}
+html[data-mixdog-mobile-tabs] .approval-prompt {
+  padding: 10px 12px 12px;
+}
+html[data-mixdog-mobile-tabs] .approval-prompt::before {
+  content: "";
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto 10px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--mx-text) 25%, transparent);
+}
+html[data-mixdog-mobile-tabs] .approval-prompt-top {
+  top: 18px;
+}
+html[data-mixdog-mobile-tabs] :is(.approval-preview, .approval-buttons) {
+  max-width: none;
+}
+html[data-mixdog-mobile-tabs] .approval-buttons {
+  grid-template-columns: minmax(0, 1fr);
+}
+html[data-mixdog-mobile-tabs] .approval-buttons[data-count="3"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+html[data-mixdog-mobile-tabs] .approval-buttons[data-count="3"] > .approval-button[data-tone] {
+  grid-column: 1 / -1;
+}
+html[data-mixdog-mobile-tabs] .approval-button {
+  height: 44px;
+  font-size: 15px;
+}
+html[data-mixdog-mobile-tabs] .approval-button[data-tone] {
+  order: -1;
+}
+html[data-mixdog-mobile-tabs] .approval-prompt:focus-within .approval-kbd {
+  display: none;
+}
+/* A docked card short of room, before its preview gets smaller than
+   readable, gives up space in this order (fitDockedApproval, ComposerIsland):
+   the stacked buttons go side by side; failing that, nothing shrinks and the
+   island scrolls with the buttons at its floor. After the phone rules, so
+   they win at equal specificity. */
+html .composer-island-slot[data-approval-fit~="row"] .approval-buttons[data-count] {
+  grid-template-columns: repeat(var(--approval-columns, 3), minmax(0, 1fr));
+}
+html .composer-island-slot[data-approval-fit~="row"] .approval-buttons[data-count] > .approval-button {
+  grid-column: auto;
+  order: 0;
+  padding: 0 6px;
+}
+/* Phone buttons side by side (a row on tight room): a long
+   translated label wraps to two lines instead of being cut; 44px stays the
+   floor. */
+@media (max-width: 640px) {
+  .approval-button {
+    height: auto;
+    min-height: 44px;
+    padding-block: 4px;
+    white-space: normal;
+  }
+  .approval-button-label {
+    max-height: 40px;
+    line-height: 20px;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+}
+html[data-mixdog-mobile-tabs] .approval-button {
+  height: auto;
+  min-height: 44px;
+  padding-block: 4px;
+  white-space: normal;
+}
+html[data-mixdog-mobile-tabs] .approval-button-label {
+  max-height: 40px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+/* Compact: the preview may shrink to its first row (it scrolls inside). */
+.composer-island-slot[data-approval-fit~="compact"] .composer-island-approval > .approval-prompt > .approval-preview {
+  min-height: var(--approval-preview-compact, 48px);
+}
+.composer-island-slot[data-approval-fit~="scroll"] .composer-island-approval > .approval-prompt {
+  flex: none;
+}
+/* Scrolling island: the content scrolls under the buttons, which stay held at\n   the island's floor (sticky, opaque) so they are always visible and clickable. */
+.composer-island-slot[data-approval-fit~="scroll"] .composer-island-approval > .approval-prompt > .approval-preview {
+  max-height: var(--approval-preview-min, 48px);
+}
+/* A browser prompt whose chat is not open: it floats above the composer
+   area so it is never missed. */
+.browser-approval-float {
+  position: fixed;
+  z-index: 40;
+  bottom: 96px;
+  left: 50%;
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  transform: translateX(-50%);
+}
+/* A short pane holding a docked approval: the composer's input gives up its
+   draft lines for its one-line minimum (the text keeps scrolling inside it)
+   so the card gets the room; it grows back when the approval leaves. */
+@media (max-height: 480px) {
+  .composer-region:has(> .composer-island-slot[data-mode="approval"]) .composer textarea {
+    max-height: 28px;
+  }
+}
+
+/* A request held in the transcript spans the reply column like every other card there (no 560px centred card). */
+.transcript-virtual-row-content .approval-prompt {
+  max-width: none;
+}

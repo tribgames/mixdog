@@ -167,7 +167,28 @@ function resolveRegisteredThemeId(requested: string): string | null {
   return alias && registry[alias] ? alias : null;
 }
 
+/** A user JSON theme (appearance/user-theme.ts) decides the appearance while it
+ *  is on: 'dark' / 'light' for a single-appearance theme, 'follow' for a
+ *  {dark, light} theme (System / White / Dark still apply; a stored TUI
+ *  registry palette yields to the theme), null when none is on. Registered
+ *  by that module so this one does not import it. */
+type ThemeAppearanceOverride = () => 'dark' | 'light' | 'follow' | null;
+let themeAppearanceOverride: ThemeAppearanceOverride | null = null;
+
+export function registerThemeAppearanceOverride(override: ThemeAppearanceOverride): void {
+  themeAppearanceOverride = override;
+}
+
+/** Re-resolve the stored preference (a user theme was turned on or off). */
+export function reapplyDesktopThemePreference(): string {
+  return applyDesktopThemePreference(getDesktopThemePreference() ?? 'dark');
+}
+
 function resolveThemePreference(preference: DesktopThemePreference): string {
+  const override = themeAppearanceOverride?.() ?? null;
+  if (override === 'light') return 'light';
+  if (override === 'dark') return DEFAULT_THEME_ID;
+  if (override === 'follow' && preference !== 'system' && preference !== 'white') return DEFAULT_THEME_ID;
   if (preference === 'white') return 'light';
   if (preference === 'system') {
     if (typeof window.matchMedia !== 'function') return DEFAULT_THEME_ID;

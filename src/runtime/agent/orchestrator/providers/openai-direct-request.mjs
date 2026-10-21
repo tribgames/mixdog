@@ -41,7 +41,25 @@ function promptCacheForm(model) {
   return openAiSupportsExtendedRetention(model) ? 'retention' : null;
 }
 
-export function applyOpenAIDirectCachePolicy(body, model, storeResponses) {
+// The environment developer item buildRequestBody places first in `input`:
+// the end of the session's stable prefix (tools + instructions + environment).
+// Top-level `instructions` cannot carry a breakpoint, so this is the earliest
+// place one fits.
+function stablePrefixBlock(body) {
+  const first = Array.isArray(body.input) ? body.input[0] : null;
+  const content = first?.type === 'message' && first.role === 'developer' ? first.content : null;
+  const block = Array.isArray(content) && content.length === 1 ? content[0] : null;
+  return block?.type === 'input_text' && String(block.text || '').startsWith('<environment_context>') ? block : null;
+}
+
+/**
+ * Public-API cache lifetime fields. GPT-5.6+: request ttl "30m" for the
+ * moving tail; `prefixTtl` '12h' (Lead class, cache-strategy.mjs
+ * resolveOpenAiPrefixCacheTtl) adds one explicit 12h breakpoint at the end of
+ * the stable prefix in the default implicit mode, so the implicit tail
+ * breakpoint stays 30m. Earlier models are unchanged.
+ */
+export function applyOpenAIDirectCachePolicy(body, model, storeResponses, { prefixTtl = null } = {}) {
   body.store = storeResponses;
   delete body.prompt_cache_retention;
   delete body.prompt_cache_options;
@@ -49,7 +67,16 @@ export function applyOpenAIDirectCachePolicy(body, model, storeResponses) {
   // response storage is disabled. The provider's default cache still applies.
   if (!storeResponses) return body;
   const form = promptCacheForm(model);
-  if (form === 'options') body.prompt_cache_options = { ttl: '30m' };
-  else if (form === 'retention') body.prompt_cache_retention = '24h';
+  if (form === 'options') {
+    body.prompt_cache_options = { ttl: '30m' };
+    const block = prefixTtl === '12h' ? stablePrefixBlock(body) : null;
+    if (block) {
+      const [first, ...rest] = body.input;
+      body.input = [
+        { ...first, content: [{ ...block, prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' } }] },
+        ...rest,
+      ];
+    }
+  } else if (form === 'retention') body.prompt_cache_retention = '24h';
   return body;
 }

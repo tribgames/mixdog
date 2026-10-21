@@ -227,6 +227,8 @@ export function upsertWorkflowPreset(presets, slot, routeLike) {
     ...(route.fast === true ? { fast: true } : {}),
     ...(route.autoEffort === false ? { autoEffort: false } : {}),
     ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
+    // The Lead's fallback models (absent = none); see session/owner-route-fallbacks.mjs.
+    ...(route.fallbacks?.length ? { fallbacks: route.fallbacks } : {}),
     tools: 'full',
   };
   const next = (Array.isArray(presets) ? presets : []).filter(

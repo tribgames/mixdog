@@ -86,14 +86,12 @@ export function useAutoEffortRoute(
   };
 }
 
-/** The single rule for an effort label: "Auto" when the switch is on, the model
- *  supports it, and the saved level is not a user-respected max/ultra (runtime
- *  `autoEffortBase`); otherwise null, meaning "show the saved level". */
-export function displayEffortLabel(savedEffort: string, opts: { autoOn: boolean; capable: boolean }): 'Auto' | null {
-  const level = String(savedEffort || '')
-    .trim()
-    .toLowerCase();
-  return opts.autoOn && opts.capable && level !== 'max' && level !== 'ultra' ? 'Auto' : null;
+/** The single rule for an effort label: "Auto" when the switch is on and the
+ *  model supports it, whatever level is saved (Auto's base is the global
+ *  "Auto reasoning base" setting); otherwise null, meaning "show the saved
+ *  level". */
+export function displayEffortLabel(_savedEffort: string, opts: { autoOn: boolean; capable: boolean }): 'Auto' | null {
+  return opts.autoOn && opts.capable ? 'Auto' : null;
 }
 
 /** Whether the catalog (localStorage cache the composer fills) marks this
@@ -106,11 +104,7 @@ export function cachedAutoEffortCapable(provider: string, model: string): boolea
 
 /** Live `displayEffortLabel` for a route: "Auto" needs the master switch on AND
  *  the route's own `autoEffort` not turned off. */
-export function useAutoEffortShown(
-  capable: boolean,
-  savedEffort: string,
-  routeAutoEffort?: boolean | null
-): boolean {
+export function useAutoEffortShown(capable: boolean, savedEffort: string, routeAutoEffort?: boolean | null): boolean {
   const master = useAutoEffort(capable);
   const autoOn = masterAutoEffortOn(master) && routeAutoEffortOn(routeAutoEffort);
   return displayEffortLabel(savedEffort, { autoOn, capable }) !== null;

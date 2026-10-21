@@ -3,6 +3,7 @@ import {
   ROUTE_PANEL_WIDTH,
   routeDrillBox,
   routeDrillHeight,
+  routeDropdownBox,
   routeFlyoutBox,
   routeFlyoutFit,
   routeFlyoutFitsBeside,
@@ -109,7 +110,11 @@ export function useRouteLayout({
   setSheetBox,
   setFlyoutBox,
   setDrill,
+  dropdown = false,
 }: {
+  /** RouteEditor `dropdown`: the sheet and every pane share one box under
+   *  (or above) the trigger at its width; no side flyout. */
+  dropdown?: boolean;
   trigger: RefObject<HTMLButtonElement | null>;
   rowButtons: RefObject<Partial<Record<RouteSheetPane, HTMLButtonElement | null>>>;
   labelWidth: RefObject<number | null>;
@@ -125,8 +130,40 @@ export function useRouteLayout({
   setFlyoutBox: Dispatch<SetStateAction<RoutePanelBox | null>>;
   setDrill: Dispatch<SetStateAction<boolean>>;
 }) {
+  // A dropdown spans the trigger's lane (its `.route-editor` box: the field's
+  // row width) and hangs from the trigger itself.
+  const dropdownAnchor = useCallback(
+    (triggerRect: { left: number; right: number; top: number; bottom: number }) => {
+      const lane = trigger.current?.parentElement?.getBoundingClientRect();
+      return lane && lane.width > 0
+        ? { left: lane.left, right: lane.right, top: triggerRect.top, bottom: triggerRect.bottom }
+        : triggerRect;
+    },
+    [trigger]
+  );
+
+  // ...and stays inside the side panel that holds it, never over the conversation.
+  const dropdownViewport = useCallback(
+    (viewport: RouteViewportBox): RouteViewportBox => {
+      const panel = trigger.current?.closest('.workbench-side-panel')?.getBoundingClientRect();
+      if (!panel || panel.width <= 0 || panel.height <= 0) return viewport;
+      const left = Math.max(viewport.left, panel.left);
+      const top = Math.max(viewport.top, panel.top);
+      const right = Math.min(viewport.left + viewport.width, panel.right);
+      const bottom = Math.min(viewport.top + viewport.height, panel.bottom);
+      return right > left && bottom > top ? { left, top, width: right - left, height: bottom - top } : viewport;
+    },
+    [trigger]
+  );
+
   const paneLayout = useCallback(
     (nextSheet: RoutePanelBox, next: RouteSheetPane, viewport: RouteViewportBox) => {
+      const triggerRect = trigger.current?.getBoundingClientRect();
+      if (dropdown && triggerRect) {
+        const bounds = dropdownViewport(viewport);
+        const height = routeDrillHeight(preferredFlyoutHeight(next, effortCount), bounds);
+        return { box: routeDropdownBox(dropdownAnchor(triggerRect), height, bounds), drilled: true };
+      }
       const row = rowButtons.current[next];
       return routePaneLayout(
         nextSheet,
@@ -135,7 +172,7 @@ export function useRouteLayout({
         row ? settledTop(row) : undefined
       );
     },
-    [effortCount, rowButtons]
+    [dropdown, dropdownAnchor, dropdownViewport, effortCount, rowButtons, trigger]
   );
 
   // The sheet's left edge sits on the pill's: the pill expands rightwards to
@@ -148,12 +185,13 @@ export function useRouteLayout({
       viewport: RouteViewportBox,
       remeasure = false
     ): RoutePanelBox => {
+      if (dropdown) return routeDropdownBox(dropdownAnchor(triggerRect), sheetHeight, dropdownViewport(viewport));
       if (remeasure || labelWidth.current === null) {
         labelWidth.current = trigger.current ? naturalTriggerWidth(trigger.current) : ROUTE_PANEL_WIDTH;
       }
       return routeSheetBox(triggerRect, sheetHeight, viewport, labelWidth.current, placement, align);
     },
-    [sheetHeight, labelWidth, trigger, placement, align]
+    [dropdown, dropdownAnchor, dropdownViewport, sheetHeight, labelWidth, trigger, placement, align]
   );
 
   /** Place the sheet and, when a pane is open, its flyout or drilled box. */

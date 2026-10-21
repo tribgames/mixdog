@@ -207,6 +207,11 @@ export function createBrowserHostFoundation(
   /** Read-only commands observe without changing the page, so they run
    *  together; a write waits for the previous write AND every in-flight read. */
   const pendingReads = new Map<string, Set<Promise<unknown>>>();
+  /** Whether a command is queued or running on the session's visible pages. */
+  const isForegroundBusy = (sessionId: string) => {
+    const key = `session:${sessionId}:foreground`;
+    return commandChains.has(key) || (pendingReads.get(key)?.size ?? 0) > 0;
+  };
   /** The single edge to the display client: a window already torn down simply
    *  stops hearing about browser state, and never fails the work reporting it. */
   const sendToRenderer = (channel: string, ...args: unknown[]): void => {
@@ -233,6 +238,7 @@ export function createBrowserHostFoundation(
     sessions,
     commandChains,
     isBackgroundBusy,
+    isForegroundBusy,
     pendingReads,
     sendToRenderer,
     urlPolicy,

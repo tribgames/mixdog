@@ -77,6 +77,10 @@ export function createContextState({
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
     orchestrationMode: runtime.orchestrationMode || 'none',
+    // A workflow / orchestration mode chosen during a turn: shown above,
+    // applied when the next turn starts (tool-policy-refresh.mjs).
+    pendingWorkflowSwitch: runtime.session?.pendingWorkflowId !== undefined,
+    pendingOrchestrationModeSwitch: runtime.session?.pendingOrchestrationMode !== undefined,
     // Every `set({ ...routeState() })` (the 2s runtime pulse, model/effort
     // switches, turn end, resume) republishes the Goal. It must read it
     // through the goal-continuation mask: the raw record still holds a

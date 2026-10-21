@@ -271,10 +271,6 @@ function TurnChangesSummary({ files, activate }: { files: readonly TurnChangesFi
       <span className="turn-changes-title">
         <strong>{turnChangesTitle(files)}</strong>
         <DiffStats additions={totals.additions} deletions={totals.deletions} />
-        <span className="turn-changes-hint">
-          {t('View changes')}
-          <ArrowUpRight size={12} aria-hidden="true" />
-        </span>
       </span>
     </button>
   );
@@ -426,7 +422,12 @@ function TurnChangesCardBody({
 } & TurnChangesRef) {
   const { sessionId } = surface;
   const running = trailing && surface.turnRunning;
-  const { reply, adopt, invalidate } = useTurnChanges({ sessionId, checkpointId, boundary, enabled: !running });
+  const { reply, unread, adopt, invalidate } = useTurnChanges({
+    sessionId,
+    checkpointId,
+    boundary,
+    enabled: !running,
+  });
   const mutation = useTurnChangesMutation({ sessionId, checkpointId, busy: surface.busy, adopt, invalidate });
   // Old records kept no counts for an outside-root file: the transcript's own
   // edit completes them, as in the session pane and the island.
@@ -436,6 +437,10 @@ function TurnChangesCardBody({
     () => withTranscriptCounts(reply?.files ?? [], needsCounts ? lane?.items : undefined, reply?.root ?? ''),
     [reply, needsCounts, lane]
   );
+  // Unread, the card's height is unknown: the row marks itself pending like a
+  // parsing reply, so the transcript's entry reveal waits for the card instead
+  // of painting the row without it (the chat popped as every card landed).
+  if (unread) return <span hidden data-transcript-pending />;
   if (running || !reply || reply.status !== 'ready' || reply.files.length === 0) return null;
   // A file the turn showed as a visualize card stands as that card, not as a
   // diff; Undo still covers the whole turn from this card (or, when every

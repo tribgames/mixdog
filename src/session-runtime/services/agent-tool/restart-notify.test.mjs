@@ -16,10 +16,14 @@ process.on('exit', () => {
   }
 });
 
-const { cleanupBackgroundTasks, getBackgroundTask } = await import('../../../runtime/shared/background-tasks.mjs');
+const { cancelBackgroundTasks, cleanupBackgroundTasks, getBackgroundTask, registerBackgroundTask } = await import(
+  '../../../runtime/shared/background-tasks.mjs'
+);
 const { flushAllIndexWritesSync } = await import('./index-write-queue.mjs');
 const { createRestartFailureNotifier, restartNotificationId } = await import('./restart-notify.mjs');
 const { createWorkerIndex } = await import('./worker-index.mjs');
+const { createSpawnRunner } = await import('./spawn-flow/spawn-run.mjs');
+const { createCloseAll } = await import('./close-flow/close-all.mjs');
 const pending = await import('../../../runtime/agent/orchestrator/session/manager/pending-messages.mjs');
 
 let seq = 0;
@@ -232,6 +236,107 @@ test('a quiet turn left by a predecessor that is still shutting down fails inste
     assert.equal(row.failureReason, 'process-restart');
     await notify();
     assert.equal((await drainOwner(owner)).length, 1);
+  } finally {
+    await cleanup(owner);
+  }
+});
+
+test('a graceful quit fails a running agent as a restart failure that outlives its close; the owner is told once', async () => {
+  const now = new Date().toISOString();
+  const { dataDir, owner } = scenario({
+    quit_a: { task_id: 'task_agent_quit_a', runtimePid: process.pid, updatedAt: now },
+    quit_b: { task_id: 'task_agent_quit_b', runtimePid: process.pid, updatedAt: now },
+  });
+  try {
+    const index = workerIndex(dataDir);
+    // Each row's turn runs as an agent job of `owner`, until its session closes.
+    const endTurn = new Map();
+    const runner = createSpawnRunner({
+      mgr: { getSession: () => ({ messages: [] }) },
+      upsertWorkerSessionDeferred: index.upsertWorkerSessionDeferred,
+      emitSubagentEvent() {},
+      createTurnReviewCollector: () => ({ onToolResult() {}, complete() {} }),
+      sessionSurface: {
+        canonical: true,
+        canRun: () => true,
+        runTurn: ({ session }) =>
+          new Promise((_resolve, reject) => endTurn.set(session.id, () => reject(new Error('Session closed')))),
+      },
+    });
+    const run = (sessionId) =>
+      runner
+        .runSpawn(
+          {
+            args: {},
+            tag: sessionId,
+            session: { id: sessionId, ownerSessionId: owner, parentSessionId: owner, agent: 'worker' },
+            agent: 'worker',
+            preset: { provider: 'test-provider', model: 'test-model' },
+            presetName: 'worker-route',
+            workerCwd: root,
+            prompt: 'work',
+            watchdogPolicy: null,
+          },
+          { callerSessionId: owner },
+          registerBackgroundTask({
+            taskId: `task_agent_${sessionId}`,
+            surface: 'agent',
+            context: { callerSessionId: owner },
+            notifyOnCancel: true,
+          })
+        )
+        .catch(() => {});
+    const turns = { quit_a: run('quit_a'), quit_b: run('quit_b') };
+    await new Promise((resolve) => setImmediate(resolve));
+    const closeAll = createCloseAll({
+      registry: {
+        tags: new Map(),
+        tagAgents: new Map(),
+        tagCwds: new Map(),
+        refreshTagsFromSessions: () => {},
+        agentSessionEntries: () => [],
+        flushWorkerIndexMutations: index.flushWorkerIndexMutations,
+        writeWorkerRows: index.writeWorkerRows,
+      },
+      close: async () => ({ closed: true }),
+    });
+
+    // The quit: the process-exit teardown reaps every task (lifecycle/teardown).
+    cancelBackgroundTasks({ reason: 'SIGTERM', notify: false, terminalReason: 'process-restart' });
+    // One turn settles before its worker is closed, the other only after.
+    endTurn.get('quit_a')();
+    await turns.quit_a;
+    await index.flushWorkerIndexWrites();
+    index.removeWorkerRow({ sessionId: 'quit_a' });
+    index.removeWorkerRow({ sessionId: 'quit_b' });
+    await closeAll('SIGTERM', { callerSessionId: owner });
+    endTurn.get('quit_b')();
+    await turns.quit_b;
+    await index.flushWorkerIndexWrites();
+
+    const rows = Object.fromEntries(index.readAllWorkerRows().map((row) => [row.sessionId, row]));
+    for (const id of ['quit_a', 'quit_b']) {
+      assert.equal(rows[id]?.status, 'failed', id);
+      assert.equal(rows[id].failureReason, 'process-restart', id);
+      assert.equal(rows[id].task_id, `task_agent_${id}`, `${id} keeps its task id`);
+    }
+    assert.deepEqual(await drainOwner(owner), [], 'the quitting owner is told nothing now');
+
+    // The next process tells the owner, under each task's own id.
+    await crash(owner);
+    cleanupBackgroundTasks({ force: true, surface: 'agent' });
+    const next = boot(dataDir);
+    await next.notify();
+    assert.deepEqual((await drainOwner(owner)).map((entry) => entry.executionId).sort(), [
+      'restart:task_agent_quit_a',
+      'restart:task_agent_quit_b',
+    ]);
+    // Told: a close drops the rows again.
+    next.index.removeWorkerRow({ sessionId: 'quit_a' });
+    assert.equal(
+      next.index.readAllWorkerRows().some((row) => row.sessionId === 'quit_a'),
+      false
+    );
   } finally {
     await cleanup(owner);
   }

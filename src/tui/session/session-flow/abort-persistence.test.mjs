@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createSessionFlow } from '../session-flow.mjs';
 import { createRunTurn } from '../turn.mjs';
 import { createAbortAction } from '../session-api/intake/abort.mjs';
+import { USER_CANCEL_KEEP_PROMPT_REASON } from '../../../runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 import { flushTuiSteeringPersist, readTuiSteeringPersist } from '../tui-steering-persist.mjs';
 
 const cancelled = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
@@ -158,7 +159,10 @@ for (const [name, acceptsAbort, options] of [
     await drained;
     const restored = boot(t, sid, { completes: true });
     await restored.flow.restoreLeadSteeringFromDisk();
-    assert.deepEqual(restored.pending.map(({ id, content }) => ({ id, content })), [prompt]);
+    assert.deepEqual(
+      restored.pending.map(({ id, content }) => ({ id, content })),
+      [prompt]
+    );
     await restored.start();
     assert.deepEqual(submitted(restored.requests), [prompt]);
     assert.deepEqual(await durable(sid), []);
@@ -209,4 +213,31 @@ test('Send now stops only the active batch and retains the other queued submissi
   await restored.flow.restoreLeadSteeringFromDisk();
   await restored.start();
   assert.deepEqual(restored.requests, []);
+});
+
+// The kept prompt of a Stop that does not hand it back (desktop Stop button,
+// TUI Esc) stays on screen with its cancelled row, and the next prompt lands
+// after it: [prompt, cancelled, next prompt].
+test('a prompt-keeping Stop leaves the prompt and its cancelled row, then the next prompt follows', async (t) => {
+  const f = boot(t, 'stop-keeps-prompt-live');
+  await enqueue(f);
+  const drained = f.start();
+  await f.nextRequest();
+  const result = f.abort({ restorePrompt: false });
+  assert.equal(result.aborted, true);
+  assert.equal(result.restoreText, '');
+  assert.deepEqual(f.abortReasons, [USER_CANCEL_KEEP_PROMPT_REASON]);
+  await drained;
+  const next = { id: 'sub-next', content: 'and now the real question' };
+  await enqueue(f, next);
+  const second = await f.nextRequest(1);
+  second.resolve({ result: { content: 'done' }, session: f.flow.runtime.session });
+  await f.flow.drain();
+  const rows = f.state.items.filter(
+    (item) => item.kind === 'user' || (item.kind === 'turndone' && item.status === 'cancelled')
+  );
+  assert.deepEqual(
+    rows.map((item) => (item.kind === 'user' ? item.text : `turndone:${item.status}`)),
+    [prompt.content, 'turndone:cancelled', next.content]
+  );
 });

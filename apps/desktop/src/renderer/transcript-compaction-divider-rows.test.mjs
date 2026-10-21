@@ -211,6 +211,68 @@ test('a prompt and its twin in the divider frame project ONE row under the promp
   }
 });
 
+// The same twin without a divider: a message sent while the reply runs is a
+// steering bubble at the end; when the model reads it, its durable row can
+// land a publication before the queue drops the entry. A second message sent
+// meanwhile is a steering bubble under both. Every row must keep its own box:
+// a stranded element drew the first message over the typing band and the
+// rows below it (and the bubble's text twice).
+test('a steering message delivered while its queue entry lingers is drawn once, with no row overlapping another', async () => {
+  const project = await projection();
+  const turn = { kind: 'user', id: 'desktop-submit-go', text: 'go' };
+  const first = { kind: 'user', id: 'desktop-submit-a', text: 'BB쪽 개선할만하거 더 있을까. '.repeat(6) };
+  const second = { kind: 'user', id: 'desktop-submit-b', text: 'BB쪽 개선할만한거 더 있을까.' };
+  const steering = (item) => ({
+    ...item,
+    pending: true,
+    accepted: true,
+    submittedAt: 1,
+    queuedBehindTurn: true,
+    steer: 'pending',
+  });
+  const heights = new Map();
+  const rowsOf = (rows) => {
+    for (const row of rows) heights.set(row.key, row.item?.id === first.id ? 220 : rowHeight(row));
+    return rows;
+  };
+  const mount = await mountTranscript(heights);
+  const checkFrame = (rows, label) => {
+    const keys = rows.map((row) => row.key);
+    assert.equal(new Set(keys).size, keys.length, `${label}: every row key is unique (${keys.join(', ')})`);
+    const elements = mount.mounted();
+    assert.equal(
+      new Set(elements.map((element) => element.key)).size,
+      elements.length,
+      `${label}: one element per row`
+    );
+    let offset = 0;
+    for (const row of rows) {
+      const element = elements.find((candidate) => candidate.key === row.key);
+      if (element) assert.equal(element.top, offset, `${label}: ${row.key} sits at its own offset`);
+      offset += heights.get(row.key);
+    }
+  };
+  try {
+    const base = [...previousTurns, turn];
+    for (const [label, rows] of [
+      ['first sent', project(base, { steerItems: [steering(first)] })],
+      ['second sent', project(base, { steerItems: [steering(first), steering(second)] })],
+      [
+        'first delivered, its entry lingers',
+        project([...base, first], { steerItems: [steering(first), steering(second)] }),
+      ],
+      ['entry gone', project([...base, first], { steerItems: [steering(second)] })],
+      ['both delivered', project([...base, first, second])],
+    ]) {
+      await mount.render(rowsOf(rows));
+      await mount.settle();
+      checkFrame(rows, label);
+    }
+  } finally {
+    await mount.cleanup();
+  }
+});
+
 for (const [name, frame] of [
   ['its pending twin', (project) => project([...archived, divider, prompt], { pendingItems: [pendingTwin] })],
   ['a repeated copy of the item', (project) => project([...archived, divider, prompt, { ...prompt }])],

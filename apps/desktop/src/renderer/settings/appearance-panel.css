@@ -1,0 +1,62 @@
+/* Settings → Appearance (appearance-panel.tsx). Rows, sliders and the footer
+   reuse the Skin page's classes (skin-panel.css). */
+.appearance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+/* Notes and the swatch row under the picker rows: the card's own row rhythm
+   (rows pad 20px), so the last line never meets the card's bottom edge. */
+.appearance-theme-notes {
+  display: grid;
+  gap: 6px;
+  padding: 16px 0 20px;
+}
+.appearance-message {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  overflow-wrap: anywhere;
+}
+.appearance-message[data-tone="error"] {
+  color: var(--mx-danger);
+}
+.appearance-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.appearance-swatches > span {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+}
+/* The reset button sits inside the Fonts card, whose body has no bottom padding
+   (rows own theirs): .skin-foot's page-level 14px top margin alone left it flush
+   against the card's bottom edge. Same 20px rhythm as the rows. */
+.appearance-foot {
+  justify-content: flex-end;
+  margin-top: 0;
+  padding: 14px 0 20px;
+}
+.appearance-sample {
+  display: grid;
+  gap: 6px;
+  margin: 20px 0;
+  padding: 10px 12px;
+  border-radius: var(--mx-radius-lg);
+  box-shadow: var(--mx-card-outline);
+}
+.appearance-sample > p {
+  margin: 0;
+  font-size: var(--mx-font-body);
+  line-height: var(--mx-line-body);
+}
+.appearance-sample > code {
+  color: var(--mx-code-ink, var(--mx-text));
+  font-size: var(--mx-font-code);
+}

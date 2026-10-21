@@ -42,6 +42,24 @@ import {
   VISUALIZE_INLINE_KINDS,
   type VisualizeInlineContent,
 } from '../shared/visualize';
+import {
+  DESKTOP_PET_COMMANDS,
+  DESKTOP_PET_MAX_LAYERS,
+  DESKTOP_PET_MAX_TEXT,
+  DESKTOP_PET_OPTIONS,
+  DESKTOP_PET_REPLY_MAX,
+  DESKTOP_PET_SCALES,
+  DESKTOP_PET_THEME_VARS,
+  type DesktopPetBubble,
+  type DesktopPetCommand,
+  type DesktopPetComposer,
+  type DesktopPetDrag,
+  type DesktopPetLayers,
+  type DesktopPetOption,
+  type DesktopPetRect,
+  type DesktopPetState,
+  type DesktopPetTheme,
+} from '../shared/desktop-pet';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
@@ -263,6 +281,19 @@ export function requiredVisualizeCaptureRect(value: unknown): { x: number; y: nu
   };
 }
 
+/** The visualize panel's content size: `{ width, height }` in CSS px. */
+export function requiredVisualizePanelSize(value: unknown): { width: number; height: number } {
+  const size = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const side = (key: 'width' | 'height'): number => {
+    const number = size[key];
+    if (typeof number !== 'number' || !Number.isFinite(number) || number < 1 || number > 100_000) {
+      throw new TypeError(`visualize panel ${key} is invalid.`);
+    }
+    return Math.round(number);
+  };
+  return { width: side('width'), height: side('height') };
+}
+
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 
@@ -307,6 +338,7 @@ const MODEL_SELECTION_KEYS = new Set([
   'modelParameters',
   'contextPercent',
   'contextTokens',
+  'fallbacks',
   'onlyIfEmpty',
 ]);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
@@ -367,11 +399,12 @@ const CAPABILITY_ARITY = {
   getToolModuleSettings: [0, 0],
   setWebSearchEnabled: [1, 1],
   setInstructionFiles: [1, 1],
+  setAutoEffortBase: [1, 1],
   setMemoryToolsEnabled: [1, 1],
   getDeveloperSettings: [0, 0],
   setDeveloperOption: [2, 2],
   setBuiltinToolEnabled: [2, 2],
-  installBuiltinFeature: [1, 1],
+  installBuiltinFeature: [1, 2],
   getTidyEngineStatus: [0, 0],
   getTidyInstallStatus: [0, 0],
   installLocalProviderModel: [1, 1],
@@ -444,7 +477,7 @@ const CAPABILITY_ARITY = {
   setOutputStyle: [1, 1],
   setWorkflow: [1, 2],
   getOrchestrationMode: [0, 0],
-  setOrchestrationMode: [1, 1],
+  setOrchestrationMode: [1, 2],
   getWorkflowPack: [1, 1],
   saveWorkflowPack: [1, 1],
   createWorkflow: [1, 1],
@@ -460,13 +493,19 @@ const CAPABILITY_ARITY = {
   getProjectConnectors: [1, 1],
   setProjectConnectorEnabled: [3, 3],
   setAgentConnectorToolPermission: [4, 4],
+  getAgentAlwaysAllowedTools: [1, 1],
   getAgentPermissions: [1, 1],
   setAgentPermission: [3, 3],
+  recordAgentApprovalAudit: [3, 3],
   getLeadPersona: [0, 0],
   saveLeadPersona: [1, 1],
   getLeadAgentBody: [0, 0],
   saveLeadAgentBody: [1, 1],
   getLeadStatus: [0, 0],
+  getLeadAppearance: [0, 0],
+  setLeadAppearance: [1, 1],
+  getBotOrder: [0, 0],
+  setBotOrder: [1, 1],
   setLeadCreated: [1, 2],
   saveLeadIdentity: [1, 1],
   saveAgentDefinition: [1, 1],
@@ -532,7 +571,7 @@ const CAPABILITY_ARITY = {
   transcribeAudio: [1, 1],
   prepareTranscription: [0, 0],
   resizeImage: [1, 1],
-  listMediaLanes: [0, 0],
+  listMediaLanes: [0, 1],
   listMediaAssets: [0, 1],
   readMediaAsset: [1, 2],
   cacheMediaThumbnail: [2, 2],
@@ -1245,6 +1284,9 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
   if (capability === 'setInstructionFiles' && !['all', 'agents', 'claude', 'off'].includes(args[0] as string)) {
     throw new TypeError('setInstructionFiles requires all, agents, claude, or off.');
   }
+  if (capability === 'setAutoEffortBase' && !['low', 'medium', 'high'].includes(args[0] as string)) {
+    throw new TypeError('setAutoEffortBase requires low, medium, or high.');
+  }
   if (BOOLEAN_SECOND_CAPABILITIES.has(capability) && typeof args[1] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
   }
@@ -1256,6 +1298,18 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
   if (capability === 'setDeveloperOption') requiredString(args[0], 'developer option id', 128);
   if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {
     throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
+  }
+  if (capability === 'installBuiltinFeature' && args[1] !== undefined) {
+    const engines = (args[1] as { engines?: unknown } | null)?.engines;
+    if (
+      args[0] !== 'tidy' ||
+      !Array.isArray(engines) ||
+      engines.length === 0 ||
+      engines.length > 16 ||
+      !engines.every((id) => typeof id === 'string' && /^[a-z0-9_-]{1,64}$/.test(id))
+    ) {
+      throw new TypeError('installBuiltinFeature options accept only engines:[ids] for tidy.');
+    }
   }
   if (capability === 'setModel') requiredString(args[0], 'model selector', 512);
 }
@@ -1431,8 +1485,20 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   ) {
     throw new TypeError('selection.contextPercent must be a 10-point percentage from 10 to 100.');
   }
+  // The Lead's fallback chain: leaf selections only (the runtime checks providers).
+  const fallbacks = selection.fallbacks;
+  if (fallbacks !== undefined && (!Array.isArray(fallbacks) || fallbacks.length > 16)) {
+    throw new TypeError('selection.fallbacks must be an array of model selections.');
+  }
+  const fallbackSelections = (fallbacks as unknown[] | undefined)?.map((entry) => {
+    if (entry && typeof entry === 'object' && Object.hasOwn(entry, 'fallbacks')) {
+      throw new TypeError('fallback selections must be leaf selections.');
+    }
+    return requiredModelSelection(entry);
+  });
   return {
     provider: requiredString(selection.provider, 'selection.provider', 256),
+    ...(fallbackSelections === undefined ? {} : { fallbacks: fallbackSelections }),
     model: requiredString(selection.model, 'selection.model', 512),
     ...(effort === undefined ? {} : { effort: requiredString(effort, 'selection.effort', 64) }),
     ...(fast === undefined ? {} : { fast }),
@@ -1963,4 +2029,218 @@ export function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder
       ...(typeof record.name === 'string' && record.name.trim() ? { name: record.name.trim().slice(0, 200) } : {}),
     };
   });
+}
+
+// ---- Desktop pet (main/desktop-pet-window.ts) --------------------------------
+
+const PET_KEY_MAX = 256;
+const PET_NAME_MAX = 200;
+const PET_AVATAR_MAX = 4_096;
+const PET_MEMBERS_MAX = 4;
+
+function petObject(value: unknown, name: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} must be an object.`);
+  return value as Record<string, unknown>;
+}
+
+function petText(value: unknown, name: string, maximum: number): string {
+  if (typeof value !== 'string' || value.length > maximum || hasControlCharacter(value)) {
+    throw new TypeError(`${name} is invalid.`);
+  }
+  return value;
+}
+
+function requiredDesktopPetBubble(value: unknown): DesktopPetBubble {
+  const bubble = petObject(value, 'pet bubble');
+  const kind = bubble.kind;
+  if (kind === 'idle' || kind === 'working' || kind === 'approval') return { kind };
+  if (kind !== 'reply') throw new TypeError('pet bubble kind is invalid.');
+  const key = petText(bubble.key, 'pet bubble key', PET_KEY_MAX);
+  // Markdown source: line breaks, no other control characters.
+  if (typeof bubble.text !== 'string' || bubble.text.length > DESKTOP_PET_REPLY_MAX) {
+    throw new TypeError('pet bubble text is invalid.');
+  }
+  for (const line of bubble.text.split('\n')) petText(line, 'pet bubble text', DESKTOP_PET_REPLY_MAX);
+  return { kind, key, text: bubble.text };
+}
+
+/** A plain JSON look (mascot picks or custom file names), bounded. */
+function petAvatar(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  const text = JSON.stringify(petObject(value, 'pet avatar'));
+  if (text.length > PET_AVATAR_MAX) throw new TypeError('pet avatar is too large.');
+  return JSON.parse(text);
+}
+
+/** The app window's published state for Mixy's chat: no field
+ *  beyond the session id, the bubble and the face is kept. */
+export function requiredDesktopPetState(value: unknown): DesktopPetState {
+  const state = petObject(value, 'pet state');
+  const sessionId = state.sessionId === '' ? '' : requiredSessionId(state.sessionId);
+  const face = petObject(state.face, 'pet face');
+  if (!Array.isArray(face.members) || face.members.length > PET_MEMBERS_MAX) {
+    throw new TypeError('pet face members are invalid.');
+  }
+  return {
+    sessionId,
+    bubble: requiredDesktopPetBubble(state.bubble),
+    face: {
+      room: face.room === true,
+      members: face.members.map((entry) => {
+        const member = petObject(entry, 'pet member');
+        return {
+          id: requiredString(member.id, 'pet member id', PET_KEY_MAX),
+          name: petText(member.name, 'pet member name', PET_NAME_MAX),
+          avatar: petAvatar(member.avatar),
+        };
+      }),
+    },
+    quiet: state.quiet === true,
+  };
+}
+
+/** A quick message: plain text, trimmed, within the send limit. */
+export function requiredDesktopPetText(value: unknown): string {
+  return requiredString(value, 'pet message', DESKTOP_PET_MAX_TEXT);
+}
+
+export function requiredDesktopPetDrag(value: unknown): DesktopPetDrag {
+  const drag = petObject(value, 'pet drag');
+  const { phase, screenX, screenY } = drag;
+  if (phase !== 'start' && phase !== 'move' && phase !== 'end') throw new TypeError('pet drag phase is invalid.');
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) throw new TypeError('pet drag point is invalid.');
+  return { phase, screenX: Math.round(screenX as number), screenY: Math.round(screenY as number) };
+}
+
+/** The app window's composer card (CSS px), or null when none shows. */
+export function requiredDesktopPetComposerRect(value: unknown): DesktopPetRect | null {
+  if (value === null) return null;
+  const rect = petObject(value, 'pet composer rect');
+  const out = { x: 0, y: 0, width: 0, height: 0 };
+  for (const key of ['x', 'y', 'width', 'height'] as const) {
+    const number = rect[key];
+    if (typeof number !== 'number' || !Number.isFinite(number) || Math.abs(number) > 100_000) {
+      throw new TypeError('pet composer rect is invalid.');
+    }
+    out[key] = Math.round(number);
+  }
+  if (out.width < 0 || out.height < 0) throw new TypeError('pet composer rect is invalid.');
+  return out;
+}
+
+/** The composer card plus its island pill's centre line (CSS px; null when
+ *  no pill shows), or null when no card shows. */
+export function requiredDesktopPetComposer(value: unknown): DesktopPetComposer | null {
+  const rect = requiredDesktopPetComposerRect(value);
+  if (!rect) return null;
+  const { transcript } = value as { transcript?: unknown };
+  const column = requiredDesktopPetTranscriptColumn(transcript);
+  return { ...requiredDesktopPetIsland(rect, value), ...(column ? { transcript: column } : {}) };
+}
+
+function petCoordinate(number: unknown, what: string): number {
+  if (typeof number !== 'number' || !Number.isFinite(number) || Math.abs(number) > 100_000) {
+    throw new TypeError(`pet composer ${what} is invalid.`);
+  }
+  return Math.round(number);
+}
+
+/** The transcript column beside the card (left ≤ right), or none. */
+function requiredDesktopPetTranscriptColumn(value: unknown): DesktopPetComposer['transcript'] {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object') throw new TypeError('pet composer transcript is invalid.');
+  const { left, right, bottom } = value as { left?: unknown; right?: unknown; bottom?: unknown };
+  const column = {
+    left: petCoordinate(left, 'transcript'),
+    right: petCoordinate(right, 'transcript'),
+    bottom: petCoordinate(bottom, 'transcript'),
+  };
+  if (column.right < column.left) throw new TypeError('pet composer transcript is invalid.');
+  return column;
+}
+
+function requiredDesktopPetIsland(rect: DesktopPetRect, value: unknown): DesktopPetComposer {
+  const { island, islandSpan } = value as { island?: unknown; islandSpan?: unknown };
+  if (island === undefined || island === null) return { ...rect, island: null };
+  const line = petCoordinate(island, 'island');
+  if (islandSpan === undefined || islandSpan === null) return { ...rect, island: line };
+  if (typeof islandSpan !== 'object') throw new TypeError('pet composer island is invalid.');
+  const span = islandSpan as { left?: unknown; right?: unknown; top?: unknown };
+  const left = petCoordinate(span.left, 'island');
+  const right = petCoordinate(span.right, 'island');
+  const top = petCoordinate(span.top, 'island');
+  if (right < left || top > line) throw new TypeError('pet composer island is invalid.');
+  return { ...rect, island: line, islandSpan: { left, right, top } };
+}
+
+/** The bot's size: one of the offered percentages (50–200, step 10). */
+export function requiredDesktopPetScale(value: unknown): number {
+  if (typeof value !== 'number' || !DESKTOP_PET_SCALES.includes(value)) {
+    throw new TypeError('pet scale is invalid.');
+  }
+  return value;
+}
+
+/** One overlay option Settings sets by name, with its on/off value. */
+export function requiredDesktopPetOption(name: unknown, value: unknown): { name: DesktopPetOption; value: boolean } {
+  if (typeof name !== 'string' || !(DESKTOP_PET_OPTIONS as readonly string[]).includes(name)) {
+    throw new TypeError('pet option is invalid.');
+  }
+  if (typeof value !== 'boolean') throw new TypeError('pet option value must be a boolean.');
+  return { name: name as DesktopPetOption, value };
+}
+
+/** The app's open floating layers: the backdrop flag and at most
+ *  DESKTOP_PET_MAX_LAYERS transient rects (CSS px). */
+export function requiredDesktopPetLayers(value: unknown): DesktopPetLayers {
+  const { backdrop, rects } = petObject(value, 'pet layers');
+  if (typeof backdrop !== 'boolean') throw new TypeError('pet layers backdrop must be a boolean.');
+  if (!Array.isArray(rects) || rects.length > DESKTOP_PET_MAX_LAYERS) throw new TypeError('pet layers are invalid.');
+  return {
+    backdrop,
+    rects: rects.map((rect) => {
+      const checked = requiredDesktopPetComposerRect(rect);
+      if (!checked) throw new TypeError('pet layer is invalid.');
+      return checked;
+    }),
+  };
+}
+
+const PET_THEME_VALUE_MAX = 400;
+
+/** The app's chat look for the pet: only the listed tokens, plain values
+ *  (no url(), no rule breaks). */
+export function requiredDesktopPetTheme(value: unknown): DesktopPetTheme {
+  const theme = petObject(value, 'pet theme');
+  if (theme.scheme !== 'light' && theme.scheme !== 'dark') throw new TypeError('pet theme scheme is invalid.');
+  const raw = petObject(theme.vars, 'pet theme vars');
+  const vars: Record<string, string> = {};
+  for (const name of DESKTOP_PET_THEME_VARS) {
+    const entry = raw[name];
+    if (entry === undefined) continue;
+    if (
+      typeof entry !== 'string' ||
+      entry.length > PET_THEME_VALUE_MAX ||
+      /[;{}<>\\\u0000-\u001f]/.test(entry) ||
+      /url\s*\(/i.test(entry)
+    ) {
+      throw new TypeError(`pet theme value ${name} is invalid.`);
+    }
+    vars[name] = entry.trim();
+  }
+  return { scheme: theme.scheme, vars };
+}
+
+export function requiredDesktopPetCommand(value: unknown): DesktopPetCommand {
+  if (typeof value !== 'string' || !(DESKTOP_PET_COMMANDS as readonly string[]).includes(value)) {
+    throw new TypeError('pet command is invalid.');
+  }
+  return value as DesktopPetCommand;
+}
+
+/** An arrow-key nudge: at most 64px on each axis. */
+export function requiredDesktopPetNudge(dx: unknown, dy: unknown): { dx: number; dy: number } {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new TypeError('pet nudge is invalid.');
+  const bound = (value: number) => Math.max(-64, Math.min(64, Math.round(value)));
+  return { dx: bound(dx as number), dy: bound(dy as number) };
 }

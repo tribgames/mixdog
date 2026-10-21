@@ -56,3 +56,9 @@ test('each new setup change announces once, from the App snapshot or a session l
   unsubscribe();
   await act(async () => root.unmount());
 });
+
+test('a permissions scope is a valid settings-changed broadcast', async () => {
+  const { readSettingsChange } = await import('../shared/settings-changed.ts');
+  assert.deepEqual(readSettingsChange({ scope: 'permissions' }), { scope: 'permissions' });
+  assert.equal(readSettingsChange({ scope: 'other' }), null);
+});

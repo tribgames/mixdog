@@ -12,6 +12,11 @@ export type PaneDragSession = {
   selection: WorkspaceSelection;
   /** Pane leaf id of the group the drag started in ("" = unknown). */
   sourceLeafId?: string;
+  /** The bot a bot-row drag carries (bot-reorder.tsx matches on it). */
+  botId?: string;
+  /** Only a list may take this drag (a bot with no session yet): the pane
+   *  workspace neither previews nor commits it, and `selection` is a stand-in. */
+  reorderOnly?: boolean;
 };
 
 /** What follows the pointer: 'tab' paints the compact tab ghost, 'frame'
@@ -117,6 +122,11 @@ export function currentPaneDrag(): PaneDragSession | null {
 export function movePaneDrag(event: DragEvent): boolean {
   const session = activeSession;
   if (!session || settled) return false;
+  // A reorder-only drag is no pane drop: leaving dragover unclaimed refuses it.
+  if (session.reorderOnly) {
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+    return false;
+  }
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   const point = paneDragPoint(event);
@@ -135,7 +145,7 @@ export function movePaneDrag(event: DragEvent): boolean {
 
 export function dropPaneDrag(event: DragEvent): boolean {
   const session = activeSession;
-  if (!session || settled) return false;
+  if (!session || settled || session.reorderOnly) return false;
   event.preventDefault();
   const point = paneDragPoint(event) ?? lastPoint;
   if (!point) return false;

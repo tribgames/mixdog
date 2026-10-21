@@ -74,7 +74,9 @@ test('runtime creation preserves the route Auto effort choice in the agent sessi
     { name: 'explicit off overrides saved on', autoEffort: false, saved: true, expected: false },
     { name: 'explicit on overrides saved off', autoEffort: true, saved: false, expected: true },
     { name: 'unspecified defaults to on', expected: true },
-    { name: 'unspecified preserves saved off', saved: false, expected: false },
+    // modelSettings is the Main route's bucket: an agent-owned runtime without
+    // its own choice takes the default, never Main's saved Auto-off.
+    { name: "unspecified ignores the Main route's saved off", saved: false, expected: true },
   ]) {
     await t.test(scenario.name, async () => {
       const runtime = await createMixdogSessionRuntime({
@@ -86,14 +88,17 @@ test('runtime creation preserves the route Auto effort choice in the agent sessi
         sessionProfile: { owner: 'agent', agent: 'reviewer', visibility: 'agent-only' },
         initialConfig: {
           providers: { openai: { enabled: true, apiKey: 'auto-effort-test-only' } },
-          modelSettings:
-            scenario.saved === undefined ? {} : { 'openai/gpt-6.1-sol': { autoEffort: scenario.saved } },
+          modelSettings: scenario.saved === undefined ? {} : { 'openai/gpt-6.1-sol': { autoEffort: scenario.saved } },
         },
       });
       try {
         await runtime.newSession();
         assert.equal(runtime.autoEffort, scenario.expected, 'the public route reflects the requested Auto choice');
-        assert.equal(runtime.session.autoEffort !== false, scenario.expected, 'the created session keeps the Auto choice');
+        assert.equal(
+          runtime.session.autoEffort !== false,
+          scenario.expected,
+          'the created session keeps the Auto choice'
+        );
         assert.equal(runtime.session.effort, 'high', 'the selected effort stays high');
         assert.equal(runtime.session.agent, 'reviewer');
       } finally {

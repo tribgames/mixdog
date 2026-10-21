@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect } from 'react';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { useWorkspaceCovered } from './workspace-cover';
 
 /** Until startup settles, an EMPTY set is the boot's provisional New Task
  *  frame, not a view: the relay client already named the restored session
@@ -21,6 +22,26 @@ let shownSessionIds: readonly string[] = [];
 /** The sessions this window currently shows (last registration). */
 export function currentVisibleSessionIds(): readonly string[] {
   return shownSessionIds;
+}
+
+/** Tell main which sessions this window actually shows (pane-active sessions
+ *  only, not the Agents dock's observed ones), so a completion elsewhere still
+ *  notifies while this window is focused. Nothing is shown while a modal or an
+ *  expanded sheet covers the workspace; the report follows those transitions. */
+export function useScreenSessions(sessionIds: readonly string[]): void {
+  const covered = useWorkspaceCovered();
+  const shown = covered ? [] : sessionIds;
+  const key = shown.join('\0');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: key is the content signature of shown
+  useLayoutEffect(() => {
+    window.mixdogDesktop?.reportScreenSessions?.([...shown]);
+  }, [key]);
+  useEffect(
+    () => () => {
+      window.mixdogDesktop?.reportScreenSessions?.([]);
+    },
+    []
+  );
 }
 
 export function useVisibleSessions(sessionIds: string[]): void {

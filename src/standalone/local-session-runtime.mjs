@@ -12,7 +12,7 @@ import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
 import { bootProfile } from '../tui/session/boot-profile.mjs';
 import { createGoalContinuation } from '../tui/session/goal-continuation.mjs';
-import { createToolApproval } from '../tui/session/tool-approval.mjs';
+import { createToolApproval, resolveToolApprovalTimeoutMs } from '../tui/session/tool-approval.mjs';
 import { createToolCardResults } from '../tui/session/tool-card-results.mjs';
 import { createAgentJobFeed } from '../tui/session/agent-job-feed.mjs';
 import { createWorktreeSetupNotices } from '../tui/session/worktree-setup-notice.mjs';
@@ -83,10 +83,9 @@ export function setSessionRuntimeImporterForTest(importer) {
   sessionRuntimeModulePromise = null;
 }
 
-const TOOL_APPROVAL_TIMEOUT_MS = (() => {
-  const value = Number(process.env.MIXDOG_TOOL_APPROVAL_TIMEOUT_MS);
-  return Number.isFinite(value) && value > 0 ? Math.max(1000, Math.round(value)) : 120_000;
-})();
+// An approval waits until the user answers (Deny, Stop or a closing runtime
+// settle it); MIXDOG_TOOL_APPROVAL_TIMEOUT_MS opts into a limit for tests/ops.
+const TOOL_APPROVAL_TIMEOUT_MS = resolveToolApprovalTimeoutMs();
 
 export {
   cleanupStaleTranscriptSpillDirs,
@@ -306,15 +305,22 @@ export async function createLocalSessionRuntime({
     pushItem,
     replaceItems,
   });
-  const { presentNextToolApproval, finishToolApproval, denyAllToolApprovals, requestToolApproval } = createToolApproval(
-    {
-      getState,
-      set,
-      nextId,
-      getDisposed: () => flags.disposed,
-      timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
-    }
-  );
+  // A sub-agent's approvals also show in the top-level chat (human-gate/gate.mjs).
+  const { approvalSurface } = await import('../runtime/agent/orchestrator/session/human-gate/gate.mjs');
+  const {
+    presentNextToolApproval,
+    finishToolApproval,
+    denyAllToolApprovals,
+    requestToolApproval,
+    adoptDelegatedApprovals,
+  } = createToolApproval({
+    getState,
+    set,
+    nextId,
+    getDisposed: () => flags.disposed,
+    timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+    surfaceOf: approvalSurface,
+  });
   const runtimePulse = createRuntimePulse({
     flags,
     getState,
@@ -336,6 +342,8 @@ export async function createLocalSessionRuntime({
   lifecycle.runtimePulseTimer = setInterval(() => {
     headWatch.retarget();
     runtimePulse();
+    // A sub-agent's approval made before this session loaded (or bound its id).
+    adoptDelegatedApprovals();
   }, 2000);
   lifecycle.runtimePulseTimer.unref?.();
 

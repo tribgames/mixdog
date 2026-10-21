@@ -637,7 +637,9 @@ export class ExecResult {
     this.backgrounded = opts.backgrounded === true;
     this.jobId = opts.jobId || null;
     // A command queued behind a saturated shell lane is no shell job; this
-    // promise settles when the queued run finishes.
+    // promise settles when the queued run finishes. A foreground result
+    // reported while its tree may still run (a kill, unverified descendants)
+    // carries the promise that settles once that tree is gone.
     this.settled = opts.settled || null;
     this.backgroundMessage = opts.backgroundMessage || null;
     // Survivors observed AFTER the shell process exited (process group on

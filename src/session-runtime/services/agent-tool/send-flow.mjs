@@ -17,7 +17,13 @@ import {
 } from './job-task-reconcile.mjs';
 import { createTurnReviewCollector } from './turn-review.mjs';
 import { handoffContent } from '../../handoff-attachments.mjs';
+import { rebindDelegation } from '../../../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
+import { whileTurnDispatched } from '../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
+
+function workerResultIdentity({ session, tag, sessionId }) {
+  return { tag, sessionId, agent: session.agent || null, provider: session.provider, model: session.model };
+}
 
 // `send` to an existing worker: resolve the live session, run one follow-up
 // turn under the progress watchdog, and reconcile the job/worker row. Busy
@@ -42,11 +48,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     return (result) => {
       const abnormalError = abnormalEmptyFinishError(result, session.agent || sendAgent);
       return {
-        tag,
-        sessionId,
-        agent: session.agent || null,
-        provider: session.provider,
-        model: session.model,
+        ...workerResultIdentity({ session, tag, sessionId }),
         content: result?.content || '',
         ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
         ...(abnormalError ? { error: abnormalError } : {}),
@@ -74,10 +76,12 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     const cwd = session.cwd || defaultCwd;
     // The caller's forwarded files ride along as attachment parts.
     const prompt = handoffContent(text, args.attachmentParts);
-    if (canUseSessionSurface(session)) {
-      return sessionSurface.runTurn({ session, prompt, context: args.context || null, cwd, ...turnHooks });
-    }
-    return mgr.askSession(sessionId, prompt, args.context || null, null, cwd, null, turnHooks);
+    return whileTurnDispatched(sessionId, () => {
+      if (canUseSessionSurface(session)) {
+        return sessionSurface.runTurn({ session, prompt, context: args.context || null, cwd, ...turnHooks });
+      }
+      return mgr.askSession(sessionId, prompt, args.context || null, null, cwd, null, turnHooks);
+    });
   }
 
   async function runSend(prepared, notifyContext = null, job = null) {
@@ -110,11 +114,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     const settleCancelled = (error, result = null) => {
       finalStatus = 'cancelled';
       reconcileJobCancelled(job, {
-        tag,
-        sessionId,
-        agent: session.agent || null,
-        provider: session.provider,
-        model: session.model,
+        ...workerResultIdentity({ session, tag, sessionId }),
         content: turnPartialHandoff(error, mgr.getSession(sessionId), handoffMsgStart) || result?.content || '',
       });
     };
@@ -145,11 +145,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       if (partial) {
         finalStatus = 'idle';
         const value = {
-          tag,
-          sessionId,
-          agent: session.agent || null,
-          provider: session.provider,
-          model: session.model,
+          ...workerResultIdentity({ session, tag, sessionId }),
           content: watchdogStoppedHandoff(error, partial),
           stallAbort: true,
         };
@@ -164,7 +160,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       turnReview.complete();
       watchdog?.stop?.();
       registry.upsertWorkerSessionDeferred(session, tag, {
-        ...settledWorkerStatus(finalStatus, stalled),
+        ...settledWorkerStatus(finalStatus, stalled, job),
         finishedAt: new Date().toISOString(),
       });
       reconcileJobFinally(job, finalStatus);
@@ -186,6 +182,14 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     }
     await sessionSurface.setRoute({ session, route });
     return { ...prepared, session: mgr.getSession(sessionId) || session };
+  }
+
+  // The calling session hands this worker new work (a `send`, or a spawn of its
+  // tag): from now on the worker acts as that caller does, so a run's worker
+  // asks when the attended chat reuses it and the other way round. Not for a
+  // completion wake, which is the worker's own continuation.
+  function adoptCaller({ sessionId }, notifyContext) {
+    return rebindDelegation(sessionId, notifyContext?.callerSessionId);
   }
 
   // Shared send dispatch for an already-resolved live session. Used by the
@@ -255,5 +259,5 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     return true;
   }
 
-  return { prepareSend, dispatchToExistingSession, wakeIdleWorker };
+  return { prepareSend, adoptCaller, dispatchToExistingSession, wakeIdleWorker };
 }

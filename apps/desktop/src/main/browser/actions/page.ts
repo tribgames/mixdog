@@ -33,7 +33,9 @@ async function settledRevision(
   signal?: AbortSignal
 ): Promise<string | undefined> {
   try {
-    await documents.renderCheckpoint(guest, background, signal);
+    // A frame that never confirmed the checkpoint may still be changing:
+    // its silence is not proof that the page is unchanged.
+    if ((await documents.renderCheckpoint(guest, background, signal)) === false) return undefined;
     return await documents.revision(guest, signal);
   } catch {
     // The script may already have run: an unreadable page is answered with a

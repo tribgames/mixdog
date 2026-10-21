@@ -7,6 +7,7 @@ import { type AgentAvatarValue, agentAvatar } from '../../../../src/runtime/shar
 import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
 import { MIXY_AGENT_ID, agentRowName, contactAgentRows } from '../shared/agent-contacts';
 import type { DesktopSessionSummary } from '../shared/contract';
+import { unseenIncomingCount } from '../shared/incoming-tail';
 import type { AgentActivityNode } from './agent-activity-model';
 import { type AgentChatIndicator, agentGroupIndicator } from './agent-chat-summary';
 import { t } from './i18n';
@@ -24,6 +25,8 @@ export interface AgentContact {
   preview: string;
   at: number;
   indicator: AgentChatIndicator;
+  /** The bot is switched off (listed only where `includeDisabled` asks). */
+  disabled: boolean;
 }
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
@@ -39,17 +42,19 @@ function contactIndicator(
   if (pooled && pooled.kind !== 'unread') return pooled;
   if (session.working) return { kind: 'running' };
   if (!unreadSessionIds?.has(session.id)) return null;
-  // The raw unseen count, a whole number of at least 1; the row caps how it shows it.
-  const unseen = Math.floor((Number(session.messageCount) || 0) - (Number(session.readMessageCount) || 0));
-  return { kind: 'unread', count: Math.max(1, unseen) };
+  // The chat messages that arrived since the read cursor, a whole number of at
+  // least 1; the row caps how it shows it.
+  return { kind: 'unread', count: unseenIncomingCount(session) };
 }
 
 function contactPreview(
   indicator: AgentChatIndicator,
   session: DesktopSessionSummary | null,
   fallback: string,
-  mixy: boolean
+  mixy: boolean,
+  disabled: boolean
 ) {
+  if (disabled) return t('Off');
   if (indicator?.kind === 'attention') return t('Waiting for approval');
   if (indicator?.kind === 'running') return t('Working');
   // The thread's latest message; a catalog row from before that field (or a
@@ -66,12 +71,14 @@ function contactPreview(
   return shown || (mixy ? '' : t('No messages yet'));
 }
 
-/** Contacts in list order. `groups` are the pool's Lead groups by owner id. */
+/** Contacts in list order. `groups` are the pool's Lead groups by owner id.
+ *  Switched-off bots are left out unless `includeDisabled` (the 봇 page). */
 export function agentContacts(
   agents: unknown,
   sessions: readonly DesktopSessionSummary[],
   groups: ReadonlyMap<string, readonly AgentActivityNode[]>,
-  unreadSessionIds?: ReadonlySet<string>
+  unreadSessionIds?: ReadonlySet<string>,
+  { includeDisabled = false }: { includeDisabled?: boolean } = {}
 ): AgentContact[] {
   const homes = new Map<string, DesktopSessionSummary>();
   for (const session of sessions) {
@@ -82,7 +89,8 @@ export function agentContacts(
     name: string,
     storedAvatar: unknown,
     description: string,
-    mixy: boolean
+    mixy: boolean,
+    disabled = false
   ): AgentContact => {
     const session = homes.get(agentId) ?? null;
     const indicator = contactIndicator(session, session ? groups.get(session.id) : undefined, unreadSessionIds);
@@ -92,15 +100,16 @@ export function agentContacts(
       mixy,
       avatar: agentAvatar(agentId, storedAvatar),
       session,
-      preview: contactPreview(indicator, session, description, mixy),
+      preview: contactPreview(indicator, session, description, mixy, disabled),
       at: session ? Number(session.activityAt) || session.updatedAt : 0,
       indicator,
+      disabled,
     };
   };
   return [
     contact(MIXY_AGENT_ID, mixyName(), mixyAvatar(), '', true),
-    ...contactAgentRows(agents).map((row) =>
-      contact(row.id, agentDisplayName(row), row.avatar, text(row.description), false)
+    ...contactAgentRows(agents, { includeDisabled }).map((row) =>
+      contact(row.id, agentDisplayName(row), row.avatar, text(row.description), false, row.disabled === true)
     ),
   ];
 }

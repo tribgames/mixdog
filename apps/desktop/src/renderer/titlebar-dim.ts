@@ -185,9 +185,29 @@ function sendCaption(): boolean {
   return true;
 }
 
+const claimListeners = new Set<() => void>();
+
+/** True while a fullscreen scrim holds a claim (a modal dims the window). */
+export function titleBarDimHeld(): boolean {
+  return holds > 0;
+}
+
+/** Calls `listener` whenever a claim is taken or dropped; returns the unsubscribe. */
+export function subscribeTitleBarDim(listener: () => void): () => void {
+  claimListeners.add(listener);
+  return () => {
+    claimListeners.delete(listener);
+  };
+}
+
+function notifyClaims(): void {
+  for (const listener of [...claimListeners]) listener();
+}
+
 /** One fullscreen-scrim claim; the returned release drops it (idempotent). */
 export function acquireTitleBarDim(): () => void {
   holds += 1;
+  notifyClaims();
   if (holds === 1 && typeof window !== 'undefined') {
     window.addEventListener('resize', handleViewportChange);
   }
@@ -203,6 +223,7 @@ export function acquireTitleBarDim(): () => void {
     if (holds === 0 && typeof window !== 'undefined') {
       window.removeEventListener('resize', handleViewportChange);
     }
+    notifyClaims();
     // Resting colors are themed too, so the band never snaps back to the
     // main process's black/white fallback.
     sendCaption();

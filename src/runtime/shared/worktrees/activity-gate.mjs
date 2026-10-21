@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isAbsolute, join } from 'node:path';
 import {
   parseJsonText,
+  quarantinePath,
   readJsonStateSync,
   unsupportedState,
   updateJsonAtomicSync,
@@ -78,50 +79,40 @@ const envMs = (name, fallback) => {
 const recoveryWindowMs = () => envMs('MIXDOG_ADMISSION_RECOVERY_MS', 15_000);
 const healIntervalMs = () => envMs('MIXDOG_ADMISSION_HEAL_MS', 2_000);
 
+// A path that cannot be read at all (access denied, in use, a directory) is an
+// I/O failure, not damage: it refuses everything and is never touched.
+function assertLedgerReadable(path) {
+  try {
+    readFileSync(path);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw worktreeRefusal('workspace-admission-unreadable');
+  }
+}
+
 /**
  * A damaged ledger (NUL, truncated, malformed) must not block every prompt and
  * shell command of the workspace, nor may it make a destructive operation fail
- * open. Its bytes are kept aside as `<ledger>.corrupt-<ts>` and the ledger
- * restarts with `recoveredAt`: leases of OTHER processes are unknown, so
- * management refuses (`workspace-admission-unreadable`) until the window
- * passes. Management leases are mirrored in a side file and restored, so
- * readers are still excluded from an operation in progress; every process
- * republishes the leases it holds (heal), so a live holder is never lost. Only
- * a real I/O failure (the path cannot be read or moved) refuses everything.
- * Returns whether the file was found damaged.
+ * open. Called under the ledger lock: its bytes are COPIED aside as
+ * `<ledger>.corrupt-<ts>` and the same locked update replaces it with a ledger
+ * carrying `recoveredAt`. The ledger is never moved away: a missing ledger
+ * reads as "no leases", so any gap between the move and the publish (another
+ * process taking the lock, or a crash) would admit management beside a live
+ * foreign turn. A crash before the publish leaves the damaged file in place,
+ * which the next writer recovers the same way. If the copy cannot be kept the
+ * ledger is left untouched and everything refuses.
  */
-function repairLedger(path) {
-  let damaged = false;
+function keepDamagedAside(path) {
+  const aside = quarantinePath(path);
   try {
-    readJsonStateSync(path, {
-      validate: (state) => {
-        try {
-          return validateLedger(state);
-        } catch (error) {
-          damaged ||= !isNewer(state);
-          throw error;
-        }
-      },
-      decode: (content) => {
-        const text = content.toString('utf8');
-        try {
-          parseJsonText(text);
-        } catch (error) {
-          damaged = true;
-          throw error;
-        }
-        return text;
-      },
-      strictOwner: true,
-    });
+    writeFileAtomicSync(aside, readFileSync(path));
   } catch {
     throw worktreeRefusal('workspace-admission-unreadable');
   }
-  return damaged;
+  process.stderr.write(`[state] ${path} is damaged; kept as ${aside}\n`);
 }
 
 function keepAside(path, value) {
-  const aside = `${path}.corrupt-${Date.now()}`;
+  const aside = quarantinePath(path);
   try {
     writeFileAtomicSync(aside, JSON.stringify(value));
     process.stderr.write(`[state] ${path} held invalid lease records; kept as ${aside}\n`);
@@ -212,10 +203,9 @@ function healHeld() {
 function mutate(commonDir, update, onNewer = refuseUnreadable) {
   const path = join(commonDir, FILE);
   const mirror = `${path}.management`;
-  // Moves a ledger that is damaged or of the wrong shape aside before the
-  // locked update; that update repairs a damaged file again if one arrived since.
-  const sawDamage = repairLedger(path);
+  assertLedgerReadable(path);
   let result;
+  let refusal = null;
   updateJsonAtomicSync(
     path,
     (current) => {
@@ -228,7 +218,12 @@ function mutate(commonDir, update, onNewer = refuseUnreadable) {
       let recovered = false;
       if (current === null) {
         state = emptyLedger();
-        recovered = sawDamage;
+        // `keepWithoutBackup` leaves a ledger whose text does not parse in
+        // place, so null with a file present is damage; no file is a new ledger.
+        if (existsSync(path)) {
+          keepDamagedAside(path);
+          recovered = true;
+        }
       } else if (!hasLedgerShape(current)) {
         keepAside(path, current);
         state = emptyLedger();
@@ -265,7 +260,17 @@ function mutate(commonDir, update, onNewer = refuseUnreadable) {
           .map((lease) => lease.token)
           .join();
       const before = managementTokens();
-      result = update(state.leases, { unknown });
+      const unchanged = [...state.leases];
+      try {
+        result = update(state.leases, { unknown });
+      } catch (error) {
+        // A refusal still publishes the recovery: dropping the write would
+        // leave the damaged file, and every retry would recover it again and
+        // restart the window, so management would never resume.
+        if (!recovered) throw error;
+        refusal = error;
+        state.leases = unchanged;
+      }
       if (recovered || managementTokens() !== before) {
         writeMirror(
           mirror,
@@ -274,8 +279,10 @@ function mutate(commonDir, update, onNewer = refuseUnreadable) {
       }
       return state;
     },
-    { strictOwner: true }
+    // No backup restore: an older ledger would resurrect leases long released.
+    { strictOwner: true, keepWithoutBackup: true, restoreBackup: false }
   );
+  if (refusal) throw refusal;
   return result;
 }
 

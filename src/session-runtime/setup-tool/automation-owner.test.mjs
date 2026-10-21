@@ -3,8 +3,9 @@ import test from 'node:test';
 
 import { EXTENDED_SETUP_HANDLERS } from './extended-actions.mjs';
 import { createSetupToolExecutor } from './executor.mjs';
-import { scheduleCallerScope } from '../services/schedule-access.mjs';
+import { assertInteractiveCaller, scheduleCallerScope } from '../services/schedule-access.mjs';
 import { sessionMatchesContext } from '../services/agent-tool/helpers.mjs';
+import { markUnattendedRun } from '../held-requests.mjs';
 
 const WEBHOOKS = [{ name: 'hook', enabled: true, hasLastPayload: true }];
 
@@ -70,6 +71,132 @@ test('caller provenance: home threads, the human, and headless runs', () => {
   for (const { caller } of Object.values(HEADLESS)) {
     assert.deepEqual(scheduleCallerScope(caller), { kind: 'headless' });
   }
+});
+
+test('an unattended run in a home chat is scoped to its own bot, checked before the home id', (t) => {
+  const unmarkMixy = markUnattendedRun('sess_home_lead', { kind: 'schedule', agentId: 'lead', name: 'morning' });
+  const unmarkBot = markUnattendedRun('sess_home_reviewer', { kind: 'webhook', agentId: 'reviewer', name: 'hook' });
+  // A run never widens a scope: a background or mismatched session stays headless.
+  const unmarkRun = markUnattendedRun('sess_run', { kind: 'schedule', agentId: 'reviewer', name: 'x' });
+  const unmarkOther = markUnattendedRun('sess_home_writer', { kind: 'schedule', agentId: 'reviewer', name: 'x' });
+  t.after(() => {
+    for (const unmark of [unmarkMixy, unmarkBot, unmarkRun, unmarkOther]) unmark();
+  });
+  assert.deepEqual(scheduleCallerScope({ id: 'sess_home_lead' }), { kind: 'agent', agentId: 'lead', unattended: true });
+  assert.deepEqual(scheduleCallerScope({ id: 'sess_home_reviewer' }), {
+    kind: 'agent',
+    agentId: 'reviewer',
+    unattended: true,
+  });
+  assert.deepEqual(scheduleCallerScope(HEADLESS.schedule.caller), { kind: 'headless' });
+  assert.deepEqual(scheduleCallerScope({ id: 'sess_home_writer' }), { kind: 'headless' });
+  // Its own bot's automations and route stay open to it; global settings do not.
+  const scope = scheduleCallerScope({ id: 'sess_home_reviewer' });
+  for (const action of [
+    'save_automation',
+    'set_automation_enabled',
+    'delete_automation',
+    'run_automation',
+    'set_agent_route',
+  ]) {
+    assert.doesNotThrow(() => assertInteractiveCaller(scope, action), action);
+  }
+  assert.throws(
+    () => assertInteractiveCaller(scope, 'set_orchestration_mode'),
+    /An unattended run cannot change settings \(setup set_orchestration_mode\)/
+  );
+});
+
+test("Mixy's unattended routine cannot change another bot's routines or settings; attended Mixy can", async (t) => {
+  const { rt, saved, ran, toggled, deleted, defined } = runtime([
+    { ...entry, owner: 'reviewer', enabled: true },
+    { ...entry, name: 'mixy-daily', owner: 'lead', enabled: true },
+  ]);
+  const sessions = new Map([
+    ['sess_home_lead', { id: 'sess_home_lead', owner: 'cli', agent: 'lead', sourceType: 'lead' }],
+  ]);
+  const executor = createSetupToolExecutor({
+    getApi: () => rt,
+    getSessionId: () => 'sess_home_lead',
+    getCallerSession: (id) => sessions.get(id) || null,
+  });
+  const asMixy = { callerSessionId: 'sess_home_lead' };
+  const reviewers = { automationKind: 'schedule', name: 'pr-sweep' };
+  const crossBot = [
+    [
+      { action: 'save_automation', automationKind: 'schedule', entry: { ...entry, name: 'new', owner: 'reviewer' } },
+      /cannot give/,
+    ],
+    [
+      {
+        action: 'save_automation',
+        automationKind: 'schedule',
+        entry: { name: 'pr-sweep', enabled: false, overwrite: true },
+      },
+      /another agent/,
+    ],
+    [
+      {
+        action: 'save_automation',
+        automationKind: 'schedule',
+        entry: { name: 'mixy-daily', owner: 'reviewer', overwrite: true },
+      },
+      /cannot give/,
+    ],
+    [{ action: 'set_automation_enabled', ...reviewers, enabled: false }, /another agent/],
+    [{ action: 'delete_automation', ...reviewers }, /another agent/],
+    [{ action: 'run_automation', ...reviewers }, /another agent/],
+    [{ action: 'set_agent_route', agent: 'reviewer', route: { effort: 'high' } }, /only its own agent's settings/],
+    [
+      { action: 'create_definition', definitionKind: 'agent', definition: { id: 'evil', name: 'Evil', body: 'x' } },
+      /cannot change settings/,
+    ],
+    [{ action: 'set_orchestration_mode', mode: 'focused' }, /An unattended run cannot change settings/],
+  ];
+  const unmark = markUnattendedRun('sess_home_lead', { kind: 'webhook', agentId: 'lead', name: 'inbox' });
+  t.after(unmark);
+  for (const [args, error] of crossBot) {
+    await assert.rejects(executor.execute(args, asMixy), error, `${args.action} ${JSON.stringify(args.entry || args)}`);
+  }
+  assert.deepEqual([saved, ran, toggled, deleted, defined], [[], [], [], [], []]);
+  // Reading stays open, and its own routine is still its own.
+  await executor.execute({ action: 'status', domain: 'agents' }, asMixy);
+  await executor.execute(
+    {
+      action: 'save_automation',
+      automationKind: 'schedule',
+      entry: { name: 'mixy-daily', enabled: false, overwrite: true },
+    },
+    asMixy
+  );
+  assert.equal(saved.length, 1);
+  // Once the routine turn ends, the user's Mixy manages every bot again.
+  unmark();
+  await executor.execute(crossBot[1][0], asMixy);
+  await executor.execute(crossBot[4][0], asMixy);
+  await executor.execute(crossBot[8][0], asMixy);
+  assert.equal(saved.at(-1).name, 'pr-sweep');
+  assert.deepEqual(deleted, ['pr-sweep']);
+  assert.deepEqual(defined, ['focused']);
+});
+
+test("a bot's own routine manages only its own routines", async (t) => {
+  const { rt, saved, toggled } = runtime([
+    { ...entry, owner: 'reviewer', enabled: true },
+    { ...entry, name: 'mixy-daily', owner: 'lead', enabled: true },
+  ]);
+  const unmark = markUnattendedRun('sess_home_reviewer', { kind: 'schedule', agentId: 'reviewer', name: 'nightly' });
+  t.after(unmark);
+  const reviewer = home('reviewer');
+  await assert.rejects(save(rt, { name: 'mixy-daily', enabled: false, overwrite: true }, reviewer), /another agent/);
+  await assert.rejects(save(rt, { ...entry, name: 'gift', owner: 'lead' }, reviewer), /cannot give/);
+  await save(rt, { name: 'pr-sweep', enabled: false, overwrite: true }, reviewer);
+  await EXTENDED_SETUP_HANDLERS.set_automation_enabled(
+    rt,
+    { automationKind: 'schedule', name: 'pr-sweep', enabled: true },
+    reviewer
+  );
+  assert.deepEqual([saved.length, toggled], [1, [['pr-sweep', true]]]);
 });
 
 test("a schedule created from an agent's home thread belongs to that agent", async () => {

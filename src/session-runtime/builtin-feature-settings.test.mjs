@@ -53,10 +53,10 @@ function fixture({
       runtime: { installed: runtimeInstalled, version: 'test' },
       models: [],
     }),
-    prepareBuiltinFeature: async (name) => {
+    prepareBuiltinFeature: async (name, options) => {
       prepared.push(name);
       if (name === 'localProvider') runtimeInstalled = true;
-      await onPrepare?.(name);
+      await onPrepare?.(name, options);
     },
     tidyEngineStatus: engineStatus,
     tidyInstallStatus: installStatus,
@@ -108,6 +108,51 @@ test('AI session titles default on, persist the top-level key and report the sam
   assert.equal(state.config().aiSessionTitles, true);
 });
 
+test('the shared Lead appearance is host-stored: missing → none, a valid mascot persists, junk is refused', () => {
+  const state = fixture();
+  assert.deepEqual(state.api.getLeadAppearance(), { avatar: null });
+  const corgi = { kind: 'mascot', species: 'corgi', accessory: 'glasses', expression: 'happy', color: '#5b9bff' };
+  assert.deepEqual(state.api.setLeadAppearance(corgi), { avatar: corgi });
+  assert.deepEqual(state.config().leadAvatar, corgi);
+  assert.deepEqual(state.api.getLeadAppearance(), { avatar: corgi });
+  // Normalized by the shared validator: an unknown colour or a custom image is no Lead face.
+  assert.throws(() => state.api.setLeadAppearance({ ...corgi, color: '#123456' }), /appearance/i);
+  assert.throws(
+    () => state.api.setLeadAppearance({ kind: 'custom', states: { idle: 'idle-0123456789ab.png' } }),
+    /appearance/i
+  );
+  assert.deepEqual(state.api.getLeadAppearance(), { avatar: corgi }, 'a refused write changes nothing');
+  // A stored value that no longer validates reads as missing.
+  state.api.setLeadAppearance(null);
+  assert.equal(state.config().leadAvatar, undefined);
+  assert.deepEqual(state.api.getLeadAppearance(), { avatar: null });
+});
+
+test('the shared bot order is host-stored ids: missing → empty, valid persists de-duplicated, junk is refused', () => {
+  const state = fixture();
+  assert.deepEqual(state.api.getBotOrder(), { order: [] });
+  assert.deepEqual(state.api.setBotOrder(['beta', ' alpha ', 'beta', 'gamma']), { order: ['beta', 'alpha', 'gamma'] });
+  assert.deepEqual(state.config().botOrder, ['beta', 'alpha', 'gamma']);
+  assert.deepEqual(state.api.getBotOrder(), { order: ['beta', 'alpha', 'gamma'] });
+  // Ids only: anything else is refused whole and changes nothing.
+  for (const junk of [
+    'beta',
+    null,
+    [1],
+    [{ id: 'a' }],
+    ['a', ''],
+    ['x'.repeat(129)],
+    Array.from({ length: 501 }, (_, i) => `b${i}`),
+  ]) {
+    assert.throws(() => state.api.setBotOrder(junk), /agent ids/i);
+  }
+  assert.deepEqual(state.api.getBotOrder(), { order: ['beta', 'alpha', 'gamma'] });
+  // A stored value that is no list reads as missing; an empty list clears the key.
+  state.api.setBotOrder([]);
+  assert.equal(state.config().botOrder, undefined);
+  assert.deepEqual(state.api.getBotOrder(), { order: [] });
+});
+
 test('instruction files mode defaults to all, validates, persists and refreshes empty-session tools', async () => {
   const state = fixture();
   assert.equal(state.api.getToolModuleSettings().instructionFiles, 'off');
@@ -119,6 +164,16 @@ test('instruction files mode defaults to all, validates, persists and refreshes 
   assert.equal(state.refreshes(), 4);
   await assert.rejects(state.api.setInstructionFiles('everything'), /all, agents, claude, off/);
   assert.equal(state.refreshes(), 4);
+});
+
+test('Auto reasoning base defaults to medium, validates and persists', () => {
+  const state = fixture();
+  assert.equal(state.api.getToolModuleSettings().autoEffortBase, 'medium');
+  for (const level of ['low', 'high', 'medium']) {
+    assert.equal(state.api.setAutoEffortBase(level).autoEffortBase, level);
+    assert.equal(state.config().autoEffortBase, level);
+  }
+  assert.throws(() => state.api.setAutoEffortBase('xhigh'), /low, medium, high/);
 });
 
 test('enabling a built-in tool marks it installed; install runs the adapter', async () => {
@@ -215,6 +270,17 @@ test('installing Code Tidy provisions the core engines and keeps the marker when
   assert.equal(status.installing.percent, 100);
   const install = await state.api.getTidyInstallStatus();
   assert.equal(install.engines.find((engine) => engine.id === 'shellcheck').status, 'failed');
+});
+
+test('a Code Tidy engine retry prepares just those engines and leaves the feature state alone', async () => {
+  const seen = [];
+  const state = fixture({ onPrepare: (name, options) => seen.push([name, options]) });
+  await state.api.setBuiltinToolEnabled('tidy', true);
+  await state.api.setBuiltinToolEnabled('tidy', false);
+
+  const settings = await state.api.installBuiltinFeature('tidy', { engines: ['ruff'] });
+  assert.deepEqual(seen.at(-1), ['tidy', { engines: ['ruff'] }]);
+  assert.deepEqual(settings.tidy, { enabled: false, installed: true }, 'a retry never re-enables the feature');
 });
 
 test('Code Tidy status reads answer with null before any install adapter is wired', async () => {

@@ -18,15 +18,16 @@ import {
   invalidateSharedModelCatalogRequest,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
-import { customProviderDisplayNames, filterConfiguredModels, providerCatalogFailures } from './model-catalog';
+import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import {
-  EFFORT_FALLBACK_ORDER,
+  effortForModelChoice,
   modelOffersUltrafast,
   preferredModelParameters,
   type RouteSpeed,
   speedRouteFields,
 } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
+import type { RouteSessionChoice } from './route-editor-panes';
 import { routedExactContextTokens } from './route-editor-context';
 import { hostRouteAutoEffort, routeAutoEffortCapable, useAutoEffortRoute } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
@@ -56,7 +57,8 @@ import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache
 
 // Model-style trigger for changing the active session workflow. With a
 // `sessionId` (an existing session's composer) the pick switches that session
-// alone from its next turn; the configured default for new sessions stays.
+// alone (from its next turn while one runs); the configured default for new
+// sessions stays.
 export const WorkflowSelect = memo(function WorkflowSelect({
   workflow,
   disabled,
@@ -72,10 +74,8 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   onDraftChange?: (workflow: { id: string; name: string }) => void;
   sessionId?: string;
 }) {
-  const [options, setOptions] = useState<WorkflowOption[]>(seededWorkflowOptions);
-  const [optionsSettled, setOptionsSettled] = useState(() => freshWorkflowOptions() !== null);
+  const { options, optionsSettled } = useWorkflowOptions();
   const [switching, setSwitching] = useState(false);
-  const [reloadNonce, setReloadNonce] = useState(0);
   const switchGuard = useRef(false);
   beginBootSurface('workflow-controls', 'catalog');
   // The seeded list already answers whether this control belongs in the row, so
@@ -86,58 +86,6 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     if (!workflowReady) return;
     reportBootSurfaceReady('workflow-controls', 'catalog', 'shell');
   }, [workflowReady]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadNonce is a deliberate trigger that forces the workflow list to reload.
-  useEffect(() => {
-    const shared = freshWorkflowOptions();
-    if (shared) {
-      setOptions(shared);
-      setOptionsSettled(true);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await window.mixdogDesktop.invokeCapability<RecordValue[]>({
-          capability: 'listWorkflows',
-          args: [],
-        });
-        const loaded = workflowOptions(result?.value);
-        if (!cancelled && loaded.length) {
-          storeWorkflowOptions(loaded);
-          setOptions(loaded);
-        }
-      } catch {
-        // Optional chrome settles to the configured engine default.
-      } finally {
-        if (!cancelled) setOptionsSettled(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadNonce]);
-  // On a phone the first read can land before the relay leg is up, and an
-  // empty result was final: the picker settled to nothing and REMOVED itself
-  // until a remount (user: 모바일에서 오래 비어 있다). An empty catalog is
-  // never cached, so re-running the read on a recovered connection is the
-  // whole repair. The guard keeps a healthy session from re-reading on every
-  // resync. A pack edit reloads unconditionally — the new pack may be the
-  // second one, which is what brings this control into the row.
-  useEffect(() => {
-    const reload = () => setReloadNonce((nonce) => nonce + 1);
-    const retry = () => {
-      if (freshWorkflowOptions()?.length) return;
-      reload();
-    };
-    const unsubscribe = subscribeWorkflowOptions(reload);
-    window.addEventListener('mixdog:remote-state-gap', retry);
-    window.addEventListener('mixdog:remote-reconnected', retry);
-    return () => {
-      unsubscribe();
-      window.removeEventListener('mixdog:remote-state-gap', retry);
-      window.removeEventListener('mixdog:remote-reconnected', retry);
-    };
-  }, []);
   useEffect(() => {
     if (!optionsSettled) return;
     reportBootSurfaceStage('workflow-controls', 'catalog', 'data');
@@ -194,6 +142,140 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     </div>
   );
 });
+
+/** The workflow catalog every workflow picker shares (workflow-options-cache). */
+function useWorkflowOptions() {
+  const [options, setOptions] = useState<WorkflowOption[]>(seededWorkflowOptions);
+  const [optionsSettled, setOptionsSettled] = useState(() => freshWorkflowOptions() !== null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadNonce is a deliberate trigger that forces the workflow list to reload.
+  useEffect(() => {
+    const shared = freshWorkflowOptions();
+    if (shared) {
+      setOptions(shared);
+      setOptionsSettled(true);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await window.mixdogDesktop.invokeCapability<RecordValue[]>({
+          capability: 'listWorkflows',
+          args: [],
+        });
+        const loaded = workflowOptions(result?.value);
+        if (!cancelled && loaded.length) {
+          storeWorkflowOptions(loaded);
+          setOptions(loaded);
+        }
+      } catch {
+        // Optional chrome settles to the configured engine default.
+      } finally {
+        if (!cancelled) setOptionsSettled(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadNonce]);
+  // On a phone the first read can land before the relay leg is up, and an
+  // empty result was final: the picker settled to nothing and REMOVED itself
+  // until a remount (user: 모바일에서 오래 비어 있다). An empty catalog is
+  // never cached, so re-running the read on a recovered connection is the
+  // whole repair. The guard keeps a healthy session from re-reading on every
+  // resync. A pack edit reloads unconditionally — the new pack may be the
+  // second one, which is what brings this control into the row.
+  useEffect(() => {
+    const reload = () => setReloadNonce((nonce) => nonce + 1);
+    const retry = () => {
+      if (freshWorkflowOptions()?.length) return;
+      reload();
+    };
+    const unsubscribe = subscribeWorkflowOptions(reload);
+    window.addEventListener('mixdog:remote-state-gap', retry);
+    window.addEventListener('mixdog:remote-reconnected', retry);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('mixdog:remote-state-gap', retry);
+      window.removeEventListener('mixdog:remote-reconnected', retry);
+    };
+  }, []);
+  return { options, optionsSettled };
+}
+
+/** The delegation choices, labelled as the New Task chip lists them. */
+function orchestrationModeOptions(): Array<{ value: DesktopOrchestrationMode; label: string; description: string }> {
+  return [
+    { value: 'none', label: t('Solo'), description: t('No delegation') },
+    { value: 'focused', label: t('Assisted'), description: t('Supporting delegation') },
+    { value: 'balanced', label: t('Collaborative'), description: t('Balanced delegation') },
+    { value: 'swarm', label: t('Swarm'), description: t('Maximum delegation') },
+  ];
+}
+
+/**
+ * A conversation's workflow and delegation mode as rows of its route menu.
+ * A pick switches that session alone — at once between turns, from the next
+ * response while one runs (`pending` until it applies, never refused); the
+ * configured defaults for new tasks stay. The workflow row is left out while
+ * only one workflow exists.
+ */
+export function useSessionRouteChoices({
+  sessionId,
+  workflow,
+  mode,
+  pendingWorkflow = false,
+  pendingMode = false,
+  disabled,
+  invokeResult,
+  applySnapshot,
+}: {
+  sessionId: string;
+  workflow?: RecordValue | null;
+  mode?: DesktopOrchestrationMode | null;
+  pendingWorkflow?: boolean;
+  pendingMode?: boolean;
+  disabled: boolean;
+  invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
+  applySnapshot: (snapshot: SessionSnapshot | null) => void;
+}): RouteSessionChoice[] {
+  const { options } = useWorkflowOptions();
+  if (!sessionId) return [];
+  const send = (capability: 'setWorkflow' | 'setOrchestrationMode', value: string) =>
+    void invokeResult(() =>
+      window.mixdogDesktop.invokeCapability({ capability, args: [value, { scope: 'session' }], sessionId })
+    ).then((result) => {
+      if (result !== undefined) applySnapshot(result.snapshot);
+    });
+  const choices: RouteSessionChoice[] = [];
+  if (options.length >= 2) {
+    const workflowId = String(workflow?.id || options.find((option) => option.active)?.value || '');
+    choices.push({
+      id: 'workflow',
+      label: t('Workflow'),
+      value: workflowId,
+      valueLabel: String(workflow?.name || options.find((option) => option.value === workflowId)?.label || workflowId),
+      options: options.map((option) => ({ value: option.value, label: option.label })),
+      pending: pendingWorkflow,
+      disabled,
+      onSelect: (value) => send('setWorkflow', value),
+    });
+  }
+  if (mode) {
+    const modes = orchestrationModeOptions();
+    choices.push({
+      id: 'orchestration-mode',
+      label: t('Delegation mode'),
+      value: mode,
+      valueLabel: modes.find((option) => option.value === mode)?.label || mode,
+      options: modes,
+      pending: pendingMode,
+      disabled,
+      onSelect: (value) => send('setOrchestrationMode', value),
+    });
+  }
+  return choices;
+}
 
 export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
   mode,
@@ -263,28 +345,7 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
           disabled={disabled || switching}
           value={selected}
           onChange={(value) => void change(value)}
-          options={[
-            {
-              value: 'none',
-              label: t('Solo'),
-              description: t('No delegation'),
-            },
-            {
-              value: 'focused',
-              label: t('Assisted'),
-              description: t('Supporting delegation'),
-            },
-            {
-              value: 'balanced',
-              label: t('Collaborative'),
-              description: t('Balanced delegation'),
-            },
-            {
-              value: 'swarm',
-              label: t('Swarm'),
-              description: t('Maximum delegation'),
-            },
-          ]}
+          options={orchestrationModeOptions()}
         />
       ) : (
         <InitialSurface variant="control" />
@@ -344,7 +405,10 @@ export const ModelSelector = memo(function ModelSelector({
   sessionId,
   answersModelPickerRequests = false,
   sheetAlign,
+  sessionChoices,
 }: {
+  /** A conversation's workflow / delegation rows (useSessionRouteChoices). */
+  sessionChoices?: RouteSessionChoice[];
   /** True only for the focused, visible conversation pane. */
   answersModelPickerRequests?: boolean;
   /** The pill edge its sheet lines up with (RouteEditor `align`). */
@@ -472,7 +536,6 @@ export const ModelSelector = memo(function ModelSelector({
     [catalogModels, providerSetup, providerSetupError]
   );
   const providerNames = useMemo(() => customProviderDisplayNames(providerSetup), [providerSetup]);
-  const providerCatalogErrors = useMemo(() => providerCatalogFailures(providerSetup), [providerSetup]);
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
@@ -613,13 +676,13 @@ export const ModelSelector = memo(function ModelSelector({
     const values = option.effortOptions.map((entry) => entry.value);
     const sameModel = option.provider === provider && option.model === model;
     const remembered = routePreferenceStore.get(option.provider, option.model);
-    // The first remembered effort the model still offers wins; a model that
-    // offers none of them falls back to its own list.
-    const effortCandidates = [sameModel ? effort : '', remembered?.effort, option.savedEffort];
-    const nextEffort =
-      effortCandidates.find((candidate) => candidate && values.includes(candidate)) ||
-      EFFORT_FALLBACK_ORDER.find((value) => values.includes(value)) ||
-      values[0];
+    const nextEffort = effortForModelChoice({
+      values,
+      sameModel,
+      current: effort,
+      saved: option.savedEffort,
+      remembered: remembered?.effort,
+    });
     let requestedFast: boolean | undefined;
     if (option.fastCapable) {
       if (sameModel) requestedFast = displayedFast;
@@ -736,13 +799,16 @@ export const ModelSelector = memo(function ModelSelector({
     const nextFast = fastCapable
       ? modelFastAvailable(known, effort, selectedModelParameters) && displayedFast
       : undefined;
+    // A picked level is explicit: it turns the route's Auto effort off (the
+    // runtime's setEffort does the same), or Auto would replace it next turn.
+    const pickedAutoEffort = hostRouteAutoEffort() ? { autoEffort: false } : {};
     if (onDraftSelection && provider && model) {
       onDraftSelection({
         provider,
         model,
         effort,
         ...(nextFast === undefined ? {} : { fast: nextFast }),
-        ...autoEffortField,
+        ...pickedAutoEffort,
         ...routedParameterFields,
         contextPercent: normalizedContextPercent,
         ...exactContextField,
@@ -755,7 +821,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         fast: false,
-        ...autoEffortField,
+        ...pickedAutoEffort,
         ...routedParameterFields,
         contextPercent: normalizedContextPercent,
         ...exactContextField,
@@ -767,6 +833,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       effort,
       ...(nextFast === undefined ? {} : { fast: nextFast }),
+      ...pickedAutoEffort,
     });
     latestRouteToken.current = token;
     let accepted = false;
@@ -788,7 +855,7 @@ export const ModelSelector = memo(function ModelSelector({
             model,
             effort,
             ...(nextFast === undefined ? {} : { fast: nextFast }),
-            ...autoEffortField,
+            ...pickedAutoEffort,
             ...routedParameterFields,
             contextPercent: normalizedContextPercent,
             ...exactContextField,
@@ -881,7 +948,6 @@ export const ModelSelector = memo(function ModelSelector({
         catalogLoaded={catalogLoaded}
         catalogRefreshing={catalogRefreshing}
         catalogError={catalogError}
-        providerCatalogErrors={providerCatalogErrors}
         providerSetupError={providerSetupError}
         modelDisabled={modelUnavailable}
         tuningDisabled={tuningUnavailable}
@@ -903,6 +969,7 @@ export const ModelSelector = memo(function ModelSelector({
         autoEffort={autoEffortRoute.autoEffort}
         onChangeAutoEffort={autoEffortRoute.onChangeAutoEffort}
         onOpenSheet={autoEffortRoute.onOpenSheet}
+        sessionChoices={sessionChoices}
         answersModelPickerRequests={answersModelPickerRequests}
         align={sheetAlign}
       />

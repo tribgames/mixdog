@@ -8,8 +8,17 @@ function notifyStateChange(): void {
   stateWaiters.clear();
 }
 
-function waitForStateChange(): Promise<void> {
-  return new Promise((resolve) => stateWaiters.add(resolve));
+/** Resolves on the next state change, or at once when `signal` aborts. */
+function waitForStateChange(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      stateWaiters.delete(done);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    stateWaiters.add(done);
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 export function beginComputerOperation(): () => void {
@@ -26,12 +35,18 @@ export function beginComputerOperation(): () => void {
   };
 }
 
-export async function withHumanOnlyApproval<T>(run: () => Promise<T>): Promise<T> {
+/** Runs `run` alone: after active Computer Use and any other human-only
+ *  approval. An approval has no wait limit, so the one in line behind it must
+ *  be able to leave: when `signal` aborts (the command was stopped) a waiting
+ *  `run` is dropped and this rejects with the signal's reason. */
+export async function withHumanOnlyApproval<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   waitingHumanApprovals += 1;
   try {
     while (activeComputerOperations > 0 || activeHumanApproval) {
-      await waitForStateChange();
+      if (signal?.aborted) throw signal.reason ?? new Error('approval cancelled');
+      await waitForStateChange(signal);
     }
+    if (signal?.aborted) throw signal.reason ?? new Error('approval cancelled');
     activeHumanApproval = true;
   } finally {
     waitingHumanApprovals = Math.max(0, waitingHumanApprovals - 1);

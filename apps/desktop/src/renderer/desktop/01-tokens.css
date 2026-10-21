@@ -123,7 +123,9 @@
   --mx-font-micro: calc(12px * var(--mx-content-scale, 1));
   --mx-font-meta: calc(13px * var(--mx-content-scale, 1));
   --mx-font-minor: calc(14px * var(--mx-content-scale, 1));
-  --mx-font-code: calc(13px * var(--mx-content-scale, 1));
+  /* Settings → Theme → Code size sets --mx-code-scale on the root
+     (appearance/font-settings.ts); unset it is 1. */
+  --mx-font-code: calc(13px * var(--mx-content-scale, 1) * var(--mx-code-scale, 1));
   --mx-font-ui: calc(14px * var(--mx-content-scale, 1));
   --mx-font-emphasis: calc(15px * var(--mx-content-scale, 1));
   --mx-font-body: calc(15px * var(--mx-content-scale, 1));
@@ -183,13 +185,18 @@
      headings sit on the 14px block rhythm in 12-transcript/22-markdown. */
   --mx-line-prose: calc(26px * var(--mx-content-scale, 1));
 }
-/* The chat scope reads the root's per-device scale; outside it the scale
-   stays undefined and every scoped calc() falls back to 1. Literal content
-   metrics inside the scope (markdown headings, tool-card captions, diff rows)
-   multiply by the same --mx-content-scale. */
+/* The chat scope reads the root's per-device scale. Literal content metrics
+   inside the scope (markdown headings, tool-card captions, diff rows)
+   multiply by the same --mx-content-scale. Settings → Theme → UI size
+   (--mx-ui-scale, appearance/font-settings.ts, capped 0.85-1.2) scales the
+   whole ramp: the root and, multiplied with the chat size, the chat scope.
+   Unset, both stay 1 and chrome keeps its size. */
+:root {
+  --mx-content-scale: var(--mx-ui-scale, 1);
+}
 .transcript,
 .composer-input-row {
-  --mx-content-scale: var(--mx-chat-scale, 1);
+  --mx-content-scale: calc(var(--mx-ui-scale, 1) * var(--mx-chat-scale, 1));
 }
 :root {
   /* Tracking, two steps beside the 0 base: tight for 14px+ headings,
@@ -278,7 +285,7 @@
      Paper takes the 800 rung (light block below).
      It lives on the THEME, not on a surface attribute, so the web shell
      paints the same accent as the desktop window. */
-  --mx-text-accent: #5bb0ff;
+  --mx-text-accent: var(--mx-tone-dark-text-accent);
   --mx-accent: var(--mx-text-accent);
   /* Markdown inline-code ink stays a SEPARATE token from the brand accent.
      Both are blue now, but code ink answers to "reads as code/reference"
@@ -341,6 +348,11 @@
      lands at 4:1 — under AA for the recovery button's label. Paired with the
      contrast-button hover overlay (dark: alpha-dark-24, light: alpha-light-12). */
   --mx-accent-bg: #1967d2;
+  /* Declared only by a user JSON theme (appearance/theme-tokens.ts), so the
+     built-in look is the consumers' own fallback and an ink-derived default
+     still resolves inside a skin's plate scope: --mx-accent-fg (text on
+     --mx-accent-bg), --mx-selection (::selection), --mx-code-surface and
+     --mx-code-ink (markdown code cards). */
   --mx-contrast-hover: var(--mx-alpha-dark-24);
   /* Flat action washes: ONE overlay over the family's own plate, composed
      once here so no state rule re-spells the gradient stack. */
@@ -352,15 +364,70 @@
     linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
 
   /* ── 5. Status ── */
-  --mx-danger-bg: #4a1618;
-  --mx-danger: #ff6e69;
-  --mx-warning-bg: #4a3913;
-  --mx-warning: #ffb52e;
-  --mx-success-bg: #123d20;
-  --mx-success: #3ddc6e;
-  --mx-success-border: var(--mx-green-900);
+  /* Each appearance's semantic inks and fills, by name: the theme blocks
+     pick theirs, and a skin whose plate is the other tone (a light plate
+     under Dark) picks the plate's (33-skin.css), so link, status and diff
+     colours stay readable on the paper the skin decided. */
+  --mx-tone-dark-text-accent: #5bb0ff;
+  --mx-tone-dark-danger-bg: #4a1618;
+  --mx-tone-dark-danger: #ff6e69;
+  --mx-tone-dark-warning-bg: #4a3913;
+  --mx-tone-dark-warning: #ffb52e;
+  --mx-tone-dark-success-bg: #123d20;
+  --mx-tone-dark-success: #3ddc6e;
+  --mx-tone-dark-success-border: var(--mx-green-900);
   /* One rung above GitHub's #a371f7, which read 3.8:1 on the raised plates. */
-  --mx-merged: #bb94fa;
+  --mx-tone-dark-merged: #bb94fa;
+  --mx-tone-light-text-accent: #0a5fd1;
+  --mx-tone-light-danger-bg: #fdeaea;
+  --mx-tone-light-danger: #c8201f;
+  --mx-tone-light-warning-bg: #fff3d9;
+  /* #cb9f34 washed out for modified-file names on the white sheet (~2.5:1),
+     and GitHub-light attention gold #9a6700 still fell under 4.5:1 on the
+     band and raised plates; #8f6000 still dipped to 4.3 on layer-3, so one
+     more rung keeps the warm hue legible on every plate. */
+  --mx-tone-light-warning: #a35200;
+  --mx-tone-light-meter-warning: #b77900;
+  --mx-tone-light-meter-danger: #cf4249;
+  --mx-tone-light-success-bg: #e1f7e7;
+  /* Google Green 800: #198b43 read 3.7-4.4:1 on the paper plates. */
+  --mx-tone-light-success: #077528;
+  --mx-tone-light-success-border: #a9e5b8;
+  --mx-tone-light-merged: #6d3fc4;
+  /* highlight.js ramps, one per appearance (read in 28-usage-explorer.css). */
+  --mx-tone-dark-syntax-comment: #78aa68;
+  --mx-tone-dark-syntax-keyword: #5aa9ff;
+  --mx-tone-dark-syntax-control: #d096f5;
+  --mx-tone-dark-syntax-string: #f0a070;
+  --mx-tone-dark-syntax-number: #8fd18a;
+  --mx-tone-dark-syntax-type: #3fd0b4;
+  --mx-tone-dark-syntax-function: #e8cf70;
+  --mx-tone-dark-syntax-variable: #8fd0ff;
+  --mx-tone-dark-syntax-meta: #f58585;
+  /* A calm light ramp. The stock Light+ primaries (#0000ff, #a31515, #008000)
+     were built for a white editor; on the tinted code plates they read as
+     harsh, dated ink. Every hue keeps >= 4.5:1 on the code plates: not only
+     the layer-1 plate but the translucent skin code plate (33-skin.css) over
+     the darkest tinted skin card (rgb 215 213 225), where the first ramp
+     (#646b78 comment, #b8420a string, ...) fell to 3.7-4.4:1; each of those
+     hues is one step deeper, same hue. */
+  --mx-tone-light-syntax-comment: #565c67;
+  --mx-tone-light-syntax-keyword: #0a55c4;
+  --mx-tone-light-syntax-control: #842dc1;
+  --mx-tone-light-syntax-string: #a03909;
+  --mx-tone-light-syntax-number: #05675d;
+  --mx-tone-light-syntax-type: #0a647c;
+  --mx-tone-light-syntax-function: #7a5700;
+  --mx-tone-light-syntax-variable: #1f4fa6;
+  --mx-tone-light-syntax-meta: #ae2626;
+  --mx-danger-bg: var(--mx-tone-dark-danger-bg);
+  --mx-danger: var(--mx-tone-dark-danger);
+  --mx-warning-bg: var(--mx-tone-dark-warning-bg);
+  --mx-warning: var(--mx-tone-dark-warning);
+  --mx-success-bg: var(--mx-tone-dark-success-bg);
+  --mx-success: var(--mx-tone-dark-success);
+  --mx-success-border: var(--mx-tone-dark-success-border);
+  --mx-merged: var(--mx-tone-dark-merged);
 
   /* ── 6. Elevation (dark values) ── */
   --mx-switch-off:
@@ -480,9 +547,14 @@
      unfixed for chrome). Pretendard's Latin is Inter-metric-compatible, so
      the rhythm the Geist stack set is preserved. Only Pretendard and
      JetBrains Mono ship in the bundle (bootstrap-styles.ts); the rest of each
-     stack is the OS fallback. Mono is the TUI stack. */
-  --mx-font-prose:
+     stack is the OS fallback. Mono is the TUI stack.
+     Settings → Theme prepends the user's UI / code family to these
+     stacks (--mx-font-ui-user / --mx-font-mono-user hold `"Family",`, set
+     by appearance/font-settings.ts); unset they are empty and the built-in
+     stack applies unchanged. */
+  --mx-font-prose-base:
     "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", -apple-system, "Apple SD Gothic Neo", sans-serif;
+  --mx-font-prose: var(--mx-font-ui-user,) var(--mx-font-prose-base);
   --mx-font-sans: var(--mx-font-prose);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
@@ -492,7 +564,8 @@
   /* Pretendard has no italic face. Allow slanted emphasis/preview labels,
      but keep variable-font weights real rather than synthesizing bold. */
   font-synthesis: style;
-  --mx-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+  --mx-font-mono-base: "JetBrains Mono Variable", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+  --mx-font-mono: var(--mx-font-mono-user,) var(--mx-font-mono-base);
   --titlebar-height: 35px;
   /* ── Motion scale ── THREE clocks and THREE curves for the whole shell. The
      numbers are the ones the shell had already converged on by hand: 85 for
@@ -600,7 +673,7 @@
   --mx-text-faint: var(--mx-text-muted);
   /* Google Blue 800 for INK: the 700 rung #1967d2 fell to 4.2:1 on the grey
      plates. The filled accent surface (--mx-accent-bg) keeps 700. */
-  --mx-text-accent: #0a5fd1;
+  --mx-text-accent: var(--mx-tone-light-text-accent);
   --mx-accent: var(--mx-text-accent);
   --mx-md-code: var(--mx-text-accent);
   --mx-icon: var(--mx-text);
@@ -624,24 +697,19 @@
   --mx-accent-bg: #1967d2;
   --mx-contrast-hover: rgba(255, 255, 255, 0.122);
 
-  /* ── 5. Status ── */
-  --mx-danger-bg: #fdeaea;
-  --mx-danger: #c8201f;
-  --mx-warning-bg: #fff3d9;
-  /* #cb9f34 washed out for modified-file names on the white sheet (~2.5:1),
-     and GitHub-light attention gold #9a6700 still fell under 4.5:1 on the
-     band and raised plates; #8f6000 still dipped to 4.3 on layer-3, so one
-     more rung keeps the warm hue legible on every plate. */
-  --mx-warning: #a35200;
+  /* ── 5. Status ── (values: the light tone set in the :root block) */
+  --mx-danger-bg: var(--mx-tone-light-danger-bg);
+  --mx-danger: var(--mx-tone-light-danger);
+  --mx-warning-bg: var(--mx-tone-light-warning-bg);
+  --mx-warning: var(--mx-tone-light-warning);
   --mx-meter-track: #ededed;
   --mx-meter-fill: #737373;
-  --mx-meter-warning: #b77900;
-  --mx-meter-danger: #cf4249;
-  --mx-success-bg: #e1f7e7;
-  /* Google Green 800: #198b43 read 3.7-4.4:1 on the paper plates. */
-  --mx-success: #077528;
-  --mx-success-border: #a9e5b8;
-  --mx-merged: #6d3fc4;
+  --mx-meter-warning: var(--mx-tone-light-meter-warning);
+  --mx-meter-danger: var(--mx-tone-light-meter-danger);
+  --mx-success-bg: var(--mx-tone-light-success-bg);
+  --mx-success: var(--mx-tone-light-success);
+  --mx-success-border: var(--mx-tone-light-success-border);
+  --mx-merged: var(--mx-tone-light-merged);
 
   /* ── 6. Elevation (light values) ── */
   --mx-switch-off:
@@ -704,4 +772,10 @@
 .message-body,
 .markdown {
   text-rendering: geometricPrecision;
+}
+/* Settings → Theme → Code ligatures off. Coding ligatures (=>, !=, …)
+   are contextual alternates in JetBrains Mono, Fira Code and Cascadia, so
+   this turns them off everywhere while prose keeps its standard ligatures. */
+:root[data-mixdog-mono-ligatures="off"] {
+  font-variant-ligatures: no-contextual;
 }

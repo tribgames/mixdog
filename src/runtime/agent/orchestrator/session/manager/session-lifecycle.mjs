@@ -15,10 +15,11 @@ import { loadConfig } from '../../config.mjs';
 import {
   buildProviderCacheOpts,
   cacheCapabilityForProvider,
+  isLeadCacheClass,
   roleProviderCacheOpts,
 } from '../../agent-runtime/cache-strategy.mjs';
 import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../runtime-core/config-helpers.mjs';
-import { _buildBaseRules } from './rules-cache.mjs';
+import { _buildBaseRules, promptRulesRevision } from './rules-cache.mjs';
 import { stripProviderReplayMessages } from './provider-replay.mjs';
 import { composeSessionSystem, seedSessionMessages } from './session-prompt-composition.mjs';
 import { agentProfileRevision, leadRosterRevision } from '../../context/role-instructions.mjs';
@@ -41,6 +42,7 @@ import { ensureCodexWireSessionId, mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { buildSessionRecord, normalizeDesktopSessionMetadata, sessionOriginFields } from './session-record.mjs';
 import { normalizeWorkflowRoute } from '../../runtime-core/workflow.mjs';
+import { ownerRouteFallbacks } from './owner-route-fallbacks.mjs';
 import { applyPendingWorkspaceReroot, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
 import { applyAgentToolExposure } from '../loop/tool-exposure-migration.mjs';
@@ -53,17 +55,20 @@ export { recoverSessionAfterProcessRestart } from './turn-checkpoint-recovery.mj
 // re-exported so prior importers of this module stay unchanged.
 export { prefetchSession, prepareSessionProjection } from './prepared-resume-cache.mjs';
 
-function buildSessionProviderCacheOpts(providerName, sessionId, agent = null, config = null) {
+// `session` is the record or create options; it classifies agent-mode Leads
+// (bot home threads, routine runs) into the Lead cache class.
+function buildSessionProviderCacheOpts(providerName, sessionId, agent = null, config = null, session = null) {
   // Keep this in sync with createSession's provider-cache policy: only
-  // explicit-breakpoint providers get BP cache opts here; OpenAI/key-prefix
-  // providers use promptCacheKey and request-time strategy instead, plus the
-  // shared prompt-cache scope of a one-shot role.
+  // explicit-breakpoint providers get BP cache opts here; key-prefix
+  // providers use promptCacheKey and request-time strategy instead (plus the
+  // OpenAI API's Lead-class 12h prefix TTL and a one-shot role's shared
+  // prompt-cache scope).
   if (cacheCapabilityForProvider(providerName) !== 'explicit-breakpoint') {
-    return roleProviderCacheOpts(providerName, agent);
+    return roleProviderCacheOpts(providerName, agent, { session });
   }
   try {
     let autoClear = null;
-    if (!agent || agent === 'lead') {
+    if (isLeadCacheClass(agent, session)) {
       const loadedConfig = config || loadConfig({ secrets: false });
       const normalizedAutoClear = normalizeAutoClearConfig(loadedConfig?.autoClear);
       autoClear = {
@@ -71,20 +76,23 @@ function buildSessionProviderCacheOpts(providerName, sessionId, agent = null, co
         idleMs: resolveAutoClearIdleMs(loadedConfig, providerName),
       };
     }
-    return buildProviderCacheOpts(providerName, sessionId, agent, { autoClear });
+    return buildProviderCacheOpts(providerName, sessionId, agent, { autoClear, session });
   } catch {
     return null;
   }
 }
 
-// Re-derive a Lead session's builder-made cache policy (messages TTL follows
-// the auto-clear idle window). Explicit caller/profile policies, non-Lead
-// sessions and non-explicit-breakpoint providers are left untouched.
+// Re-derive a Lead-class session's builder-made cache policy (Anthropic
+// messages TTL follows the auto-clear idle window; the OpenAI API prefix TTL
+// follows the cache class). Explicit caller/profile policies, sub-agents and
+// other providers are left untouched.
 export function refreshSessionProviderCacheOpts(session, config = null) {
   if (!session || session.providerCacheOptsOverride === true) return false;
-  if (session.agent && session.agent !== 'lead') return false;
-  if (cacheCapabilityForProvider(session.provider) !== 'explicit-breakpoint') return false;
-  const next = buildSessionProviderCacheOpts(session.provider, session.id, session.agent, config);
+  if (!isLeadCacheClass(session.agent, session)) return false;
+  if (cacheCapabilityForProvider(session.provider) !== 'explicit-breakpoint' && session.provider !== 'openai') {
+    return false;
+  }
+  const next = buildSessionProviderCacheOpts(session.provider, session.id, session.agent, config, session);
   if (!next) return false;
   session.providerCacheOpts = next;
   return true;
@@ -225,26 +233,35 @@ export function createSession(createOpts) {
     sessionMode === AGENT_MODE && !createOpts.agent && actingAgent
       ? { ...createOpts, agent: actingAgent, sessionMode }
       : { ...createOpts, sessionMode };
-  const routeFallbacks = normalizeWorkflowRoute({
-    provider: providerName,
-    model: modelName,
-    fallbacks: Object.hasOwn(opts, 'routeFallbacks') ? opts.routeFallbacks : presetObj?.fallbacks,
-  })?.fallbacks;
+  // A Lead-class session (actingAgent set) takes its owner's chain while it
+  // runs on the owner's primary model; an agent keeps its preset's.
+  const routeFallbacks = actingAgent
+    ? Object.hasOwn(opts, 'routeFallbacks')
+      ? opts.routeFallbacks
+      : ownerRouteFallbacks({ sessionMode, agentId: actingAgent, provider: providerName, model: modelName })
+    : normalizeWorkflowRoute({
+        provider: providerName,
+        model: modelName,
+        fallbacks: Object.hasOwn(opts, 'routeFallbacks') ? opts.routeFallbacks : presetObj?.fallbacks,
+      })?.fallbacks;
   // Provider cache strategy — agentRuntime.resolveSync() above is a
   // best-effort injection point (setAgentRuntime() has no live caller
   // today, so that branch never fires); build it directly here so every
-  // session still gets a cache strategy. Lead sessions (opts.agent ===
-  // 'lead', or no agent at all — raw/CLI callers) get their BP4 message
-  // tail TTL linked to the user's autoClear idle-sweep config; hidden and
-  // public agents keep the flat 5m default (see cache-strategy.mjs docs).
-  // Scoped to explicit-breakpoint (Anthropic-family) providers only.
-  const providerCacheOpts = resolved.providerCacheOpts || buildSessionProviderCacheOpts(providerName, id, opts.agent);
+  // session still gets a cache strategy. Lead-class sessions (the Lead, raw
+  // callers, bot home threads and other agent-mode Leads) get their BP4
+  // message tail TTL linked to the user's autoClear idle-sweep config and,
+  // on the OpenAI API, the 12h stable-prefix TTL; sub-agents and hidden roles
+  // keep the agent defaults (see cache-strategy.mjs docs).
+  const providerCacheOpts =
+    resolved.providerCacheOpts || buildSessionProviderCacheOpts(providerName, id, opts.agent, null, { ...opts, id });
   const surface = resolveSessionToolSurface(opts, { profile, toolPreset, modelName });
   // The agent profile the prompt is composed from, read first: an edit landing
   // during composition leaves the stamp behind, never ahead (refreshAgentProfile).
   const agentProfile = surface.ownerIsAgent
     ? ''
     : agentProfileRevision(surface.resolvedAgent, { mixy: sessionMode === AGENT_MODE });
+  // A bot thread lives on across releases: the rules it was built from.
+  const rulesRevision = agentProfile && sessionMode === AGENT_MODE ? promptRulesRevision() : '';
   const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode });
   const messages = seedSessionMessages(prompt, opts.files);
   logSessionSurface(surface);
@@ -268,6 +285,7 @@ export function createSession(createOpts) {
     session.agentProfileRevision = agentProfile;
     // The bot roster its prompt lists (a Lead's catalog slices).
     session.agentRosterRevision = leadRosterRevision(opts.leadWorkflowParts);
+    if (rulesRevision) session.rulesRevision = rulesRevision;
   }
   if (routeFallbacks?.length) session.routeFallbacks = routeFallbacks;
   // A non-native agent sends core + bridge, built from its filtered tools.
@@ -340,6 +358,13 @@ function applyRouteFields(session, route) {
     else delete session.autoEffort;
   }
   if (Object.hasOwn(route, 'effort')) session.effort = route.effort || null;
+  // A deliberate route choice restarts the chain (a fallback hop never passes this).
+  if (Object.hasOwn(route, 'routeFallbacks')) {
+    if (route.routeFallbacks?.length) session.routeFallbacks = route.routeFallbacks;
+    else delete session.routeFallbacks;
+    delete session.routeFallbackIndex;
+    delete session.routeFallbackFailures;
+  }
   ensureCodexWireSessionId(session);
   if (Object.hasOwn(route, 'modelParameters')) {
     session.modelParameters =
@@ -387,7 +412,8 @@ function applyRouteContextWindow(session, routeChanged, selectedContextWindowPro
 // surface: the previous route's readings and prepared tools no longer apply.
 function resetSessionForRouteChange(id, session, previousModel, previousProvider) {
   session.promptCacheKey = providerCacheKey(session.provider);
-  session.providerCacheOpts = buildSessionProviderCacheOpts(session.provider, session.id, session.agent) || null;
+  session.providerCacheOpts =
+    buildSessionProviderCacheOpts(session.provider, session.id, session.agent, null, session) || null;
   session.providerCacheOptsOverride = false;
   session.lastInputTokens = 0;
   session.lastOutputTokens = 0;
@@ -437,7 +463,9 @@ function stripProviderReplay(session) {
 // auto-compacts) against the new model's window.
 export function updateSessionRoute(id, route = {}, options = {}) {
   if (!id) return null;
-  const session = loadSession(id);
+  // options.session: the live object of a running turn, changed in place; the id's
+  // stored copy (a disk reload after another process took the generation) is not.
+  const session = options.session?.id === id ? options.session : loadSession(id);
   if (!session || session.closed === true) return null;
   const previousProvider = session.provider || null;
   const previousModel = session.model || null;

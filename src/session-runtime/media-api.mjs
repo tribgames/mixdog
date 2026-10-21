@@ -41,8 +41,11 @@ export function createMediaApi() {
       });
       return { status: await module.getVoiceStatus(), error };
     },
-    async listMediaLanes() {
-      return (await lanes()).listMediaLanes();
+    // `budgetMs` (Studio) caps the per-lane catalog wait; slower lanes come
+    // back `catalogPending`. Capped so a caller cannot park the call.
+    async listMediaLanes(options) {
+      const budgetMs = Math.min(30_000, Math.max(0, Math.trunc(Number(options?.budgetMs) || 0)));
+      return (await lanes()).listMediaLanes({ budgetMs });
     },
     // The Studio's current selection is the runtime's default: a tool call
     // that omits lane/model follows it. Studio pushes on every settled change.

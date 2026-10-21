@@ -5,6 +5,82 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se agregaron temas y skins con foto, la superposición del bot principal y el cambio de workflow y modo de delegación a mitad de conversación, con firma de código en Windows y amplias correcciones en compactación, aprobaciones y archivos adjuntos.
+
+### Nuevas funciones
+
+- **Temas** — Se añadió Configuración → Tema para elegir Sistema, Oscuro o Blanco, uno de cuatro skins con fotos en movimiento, una foto propia o un video corto, y la fuente y tamaño de texto en una sola pantalla.
+- **Superposición del bot principal** — Se añadió el bot principal situado sobre el editor de mensajes de la aplicación de PC, mostrando respuestas en un bocadillo que pagina solo las respuestas largas; haz clic en él para enviar un mensaje, o clic derecho para tamaño, fijación de posición y configuración. Elígelo en Configuración → Bots.
+- **Modelos alternativos** — Se añadieron modelos alternativos a Lead, al bot principal y a los perfiles de bots, pasando al siguiente modelo cuando uno alcanza su límite de uso.
+- **Cambio de workflow y delegación** — Se añadió el cambio de workflow y modo de delegación desde el menú de modelos durante una conversación; se aplica a partir del siguiente turno solo a esa conversación.
+- **Compactación inteligente** — Se añadió Configuración → Contexto → "Modelo de resumen de compactación" con Inteligente, Maintainer o Modelo de la conversación. Inteligente es la opción predeterminada.
+- **Base de razonamiento automático** — Se añadió Configuración → General → "Base de razonamiento automático" para elegir el nivel sobre el cual trabaja Auto.
+- **Generación de imágenes** — Se añadió la generación de imágenes en Studio con modelos de imagen de OpenRouter y NanoGPT.
+- **Posición del panel lateral** — Se añadió una opción en Configuración → General para colocar el panel lateral a la derecha, abajo o automáticamente.
+- **Diseño de la página de bots** — Se añadió la posibilidad de arrastrar bots para reordenarlos, mostrar u ocultar el bot principal, bots, salas y agentes desde el menú `…`, además de un lugar único para las tareas en ejecución.
+
+### Cambios
+
+- El instalador y la aplicación de Windows ahora cuentan con firma de código, lo que reduce las advertencias de seguridad de Windows y los falsos positivos de antivirus.
+- Las aprobaciones de browser-use pasaron de ventanas del SO a tarjetas de aprobación en el chat, y las subidas de archivos ahora también solicitan confirmación.
+- Las tarjetas de aprobación ahora muestran el bot solicitante y una pregunta de una línea, se rechazan con un solo clic y nunca se rechazan solas mientras esperan.
+- Las solicitudes de aprobación de los subagentes ahora también aparecen en el chat principal, con "Abrir sesión" para ir directamente allí.
+- Los perfiles de bots ahora enumeran los elementos configurados en "Permitir siempre" y permiten revertir cada uno con "Preguntar nuevamente".
+- Las programaciones y los webhooks ahora preguntan una sola vez al guardarse y no vuelven a preguntar durante la ejecución; los pagos y la eliminación permanente nunca se ejecutan de forma desatendida.
+- Un teléfono vinculado ahora solo puede restringir, nunca ampliar, los permisos y conectores de los bots.
+- Un bot desactivado permanece en la página de bots como "Desactivado" para poder reactivarlo, y puede ocultarse de la barra lateral por separado (#153).
+- Los subagentes ahora se despliegan haciendo clic en la cara o con clic derecho en "Mostrar subagentes" en lugar de una flecha.
+- El selector de modelos eliminó el interruptor de "Razonamiento automático" y sitúa Auto en la parte superior de la lista de esfuerzo.
+- El selector de modelos ahora se abre justo debajo de su fila, y los proveedores personalizados muestran el nombre asignado.
+- Se ajustaron las salas de bots para que conversen de forma natural en lugar de coincidir entre sí todo el tiempo; sin un modelo Maintainer, cada bot mencionado responde una vez.
+- Los mensajes entre bots ahora muestran el bot remitente y el receptor, y se limitó la interacción continua entre bots a un máximo de tres intercambios.
+- Las notificaciones de respuesta de bots en PC y teléfono ahora usan el nombre del bot o de la sala como título.
+- Se cambió el botón de Git del editor de mensajes para abrir la pestaña Git, donde "Crear PR", "Confirmar · empujar" y "Confirmar" tienen cada uno su propio botón "Ejecutar".
+- La tarjeta de fin de tarea ahora muestra solo miniaturas de los archivos vinculados en la respuesta o abiertos en el panel lateral.
+- Se cambió el desplazamiento para que la vista se mueva solo al desplazarse y vuelva a seguir las nuevas respuestas una vez que se llega al final; las respuestas largas que llegan de golpe comienzan desde su primera línea.
+- Un servidor MCP lento retrasa la primera respuesta a lo sumo 3 segundos; las herramientas que se conectan más tarde quedan disponibles a partir del siguiente turno.
+- Se cambiaron las respuestas en streaming para que aparezcan en pequeños pasos con un breve desvanecimiento en las palabras nuevas, de modo que el texto ya no aparezca en bloques bruscos.
+- Se añadió la fijación de agentes en la página de bots desde el menú de clic derecho, y "Conservar agentes finalizados" en el menú `…` por 1 hora, 1 día, 7 días o Para siempre.
+- Se añadió "Ilimitado" al borrado automático de sesiones inactivas.
+- Se ajustó la línea de tokens y costo en la ventana del agente para reservar su espacio desde el inicio, evitando saltos en la vista.
+- Se ajustó la guía de la herramienta de configuración para que la IA pueda establecer la línea de activación (`when_to_use`) al crear o editar una habilidad.
+
+### Correcciones de errores
+
+- Se corrigió que los chats de Anthropic con una imagen o PDF grande fallaran repetidamente con "attachmentReference: Extra inputs are not permitted".
+- Se corrigió que adjuntar varios archivos PDF bloqueara el chat por exceder el contexto; los adjuntos grandes permanecen en este PC y solo se leen las partes necesarias (#150).
+- Se corrigió que el texto enriquecido copiado de Word, Excel o un navegador se adjuntara como imagen (#135).
+- Se corrigió que los archivos adjuntos sin enviar desaparecieran tras visitar otra sesión (#139).
+- Se corrigió que el modelo y esfuerzo de razonamiento de Lead cambiaran cada vez que se abría una tarea nueva (#149).
+- Se corrigió que Claude Opus 5.5 respondiera en inglés en lugar de coreano al final de tareas largas; las respuestas finales de Lead y de los bots ahora se entregan en coreano.
+- Se corrigió que los archivos de configuración y cuenta se dañaran tras un apagado forzado y se perdieran inicios de sesión y ajustes; ahora se restauran a partir de la última copia correcta (#151).
+- Se corrigió que la creación o edición de archivos en carpetas sincronizadas como NAVER MYBOX fallara con EPERM (#138).
+- Se corrigió que la lista de modelos permaneciera vacía tras iniciar sesión en OpenCode Go (#141).
+- Se corrigió que una instalación interrumpida del motor de code-tidy quedara atascada sin reinstalarse; ahora informa del error y reinstala por motor (#152).
+- Se corrigió que guardar un proveedor personalizado con una lista de modelos lenta fallara por tiempo de espera.
+- Se corrigió que iniciar una nueva tarea devolviera una pantalla en blanco.
+- Se corrigió que la lista de subagentes finalizados desapareciera tras reiniciar la aplicación o el servicio en segundo plano.
+- Se corrigió que los subagentes en tareas delegadas por el bot principal reportaran una respuesta provisional como resultado antes de finalizar.
+- Se corrigió que las tareas en espera de aprobación aparecieran como bloqueadas o se cortaran por tiempo de espera.
+- Se corrigió que los subagentes heredaran los ajustes de contexto, esfuerzo de razonamiento y velocidad del chat principal, ignorando la configuración de Maintainer.
+- Se corrigió que una respuesta larga recibida de golpe se viera en blanco y tenue por un instante.
+- Se corrigió que una entrada en cola detenida volviera a ejecutarse tras la recuperación (#142, thanks @22nsuk).
+- Se corrigió que los trabajos de shell cuya salida nunca se confirmó se trataran como finalizados (#133, thanks @22nsuk).
+- Se corrigió que las tareas en ejecución perdieran su protección cuando el registro del espacio de trabajo estaba dañado (#117, thanks @22nsuk).
+- Se corrigió que los modelos de Cursor perdieran identificadores de llamadas a herramientas y las transferencias de herramientas bloqueadas nunca finalizaran (#156, thanks @22nsuk).
+- Se corrigió que el indicador de escritura nunca terminara en las salas de bots y que los mensajes enviados a mitad de respuesta se perdieran.
+- Se corrigió que el aviso "results omitted" no apareciera en el chat de un bot cuando se acumulaban muchos resultados de rutinas.
+- Se corrigió que el contador de no leídos de la lista de bots contara también las llamadas a herramientas.
+- Se corrigió que los avisos de finalización para otras sesiones no aparecieran mientras la aplicación estaba visible.
+- Se corrigió que la lista de sesiones saltara en teléfonos cuando su orden cambiaba al desplazarse, y que las hojas de configuración en iPhone no se cerraran al pulsar fuera.
+- Se corrigió que los enlaces de correo electrónico en las respuestas no hicieran nada al hacer clic en ellos.
+- Se corrigió que los hooks PreToolUse se omitieran en sesiones reabiertas más tarde, como en el turno de seguimiento de un agente (#161).
+- Se corrigió que el inicio de sesión en GitHub se quedara bloqueado en "Iniciando el inicio de sesión en GitHub…" (#162).
+- Se corrigió que el esfuerzo de razonamiento siguiera mostrando Auto después de elegir otro (#131).
+- Se corrigió que el botón de pantalla completa de los videos en el panel lateral no hiciera nada (#160, thanks @Deno2026).
+- Se corrigió que la aplicación mostrara "Object has been destroyed" al cerrar su ventana con la superposición del bot principal activada.
+- Se corrigió que un comando de Git lento hiciera que la aplicación se reconectara a su servicio en segundo plano y perdiera brevemente las actualizaciones de la sesión en vivo.
+
 ## v1.3.1 - 2026-10-20
 
 Un parche de estabilización para los problemas detectados desde 1.3.0, con un evaluador de esfuerzo de razonamiento actualizado.

@@ -2,7 +2,9 @@ import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObj
 import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
 import type { ToolApprovalDecision } from '../shared/contract';
-import { ApprovalCard, publishHeldSettlements } from './ApprovalCard';
+import { ApprovalCard, approvalRecordLabel, publishHeldSettlements } from './ApprovalCard';
+import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost';
+import { publishDockedApproval } from './approval-prompt';
 import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
 import { approvalQuestions, buildAnswers, type QuestionDraft } from './question-card-logic';
@@ -18,7 +20,13 @@ type AnsweredElsewhere = { id: string; device: string };
 /** Tool approvals for the session this pane renders: the pending card, the
  *  approvals this device answered itself, and whether the conversation was
  *  used from several devices (only then is a device named). */
-export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: RefObject<string>) {
+export function useConversationApprovals(
+  snapshot: Snapshot,
+  routeSessionIdRef: RefObject<string>,
+  /** `docked`: this view renders the composer dock (a read-only view does
+   *  not, so it claims no browser approval and those float instead). */
+  { docked = true }: { docked?: boolean } = {}
+) {
   // Bounded to this session, and to the ids the retired-approval check can
   // still consult: the pending approval and the last published result.
   const decidedLocally = useRef<{ sessionId: string; ids: Set<string> }>({ sessionId: '', ids: new Set() });
@@ -41,10 +49,13 @@ export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: 
     if (isAgentHomeSessionId(decidedSessionId)) publishHeldSettlements(decidedSessionId, snapshot.items ?? []);
   }, [decidedSessionId, snapshot.items]);
 
-  // A pending approval or ask_user question renders in the transcript, where
-  // the turn waits on it. An approval answered on another device stays there a
-  // moment, disabled, saying who answered; a question's answer flashes in the island.
-  let approvalCard: ReactNode = null;
+  // A pending ask_user question renders in the transcript, where the turn
+  // waits on it; a pending approval (the session's own, then its browser
+  // approvals) docks above the composer. An approval answered on another
+  // device leaves the dock and stays in the transcript as one line saying who
+  // answered; a question's answer flashes in the island.
+  const browserPrompts = useBrowserApprovals(docked ? decidedSessionId : '');
+  let approvalDock: ReactNode = null;
   let questionCard: ReactNode = null;
   // Sending a message while a question waits closes the question first.
   let dismissQuestion: (() => Promise<unknown>) | null = null;
@@ -92,28 +103,39 @@ export function useConversationApprovals(snapshot: Snapshot, routeSessionIdRef: 
           reply,
         });
     } else {
-      approvalCard = (
+      const waiting = 1 + browserPrompts.length;
+      approvalDock = (
         <ApprovalCard
           key={approvalInstanceKey(pendingApproval.id)}
           approval={pendingApproval}
           resolve={resolveDecision}
           agentMode={agentMode}
+          queue={waiting > 1 ? `1/${waiting}` : undefined}
+          hostSessionId={decidedSessionId}
         />
       );
     }
-  } else if (retiredApproval && retiredApproval.approval.kind !== 'question') {
-    approvalCard = (
-      <ApprovalCard
-        key={`retired:${approvalInstanceKey(retiredApproval.approval.id)}`}
-        approval={retiredApproval.approval}
-        resolve={async () => false}
-        agentMode={agentMode}
-        settled={retiredApproval.outcome}
+  }
+  if (!approvalDock && browserPrompts.length > 0) {
+    approvalDock = (
+      <BrowserApprovalCard
+        key={browserPrompts[0].id}
+        prompt={browserPrompts[0]}
+        queueLabel={browserPrompts.length > 1 ? `1/${browserPrompts.length}` : undefined}
       />
     );
   }
+  // A copied request names the session that asks; its waiting line yields to the card.
+  const dockedAsking =
+    (pendingApproval && pendingApproval.kind !== 'question' ? String(pendingApproval.sessionId || '') : '') ||
+    (browserPrompts[0]?.sessionId ?? '');
+  useLayoutEffect(() => {
+    if (!decidedSessionId) return;
+    publishDockedApproval(decidedSessionId, dockedAsking === decidedSessionId ? '' : dockedAsking);
+    return () => publishDockedApproval(decidedSessionId, '');
+  }, [decidedSessionId, dockedAsking]);
   return {
-    approvalCard,
+    approvalDock,
     questionCard,
     dismissQuestion,
     answerQuestion,
@@ -131,18 +153,16 @@ export function conversationIslandFlash(
   answeredElsewhere: AnsweredElsewhere | null,
   viewerDevice: string | null
 ): ComposerIslandFlash | null {
-  // A retired approval card says who answered itself; only a question flashes.
-  if (
-    retiredApproval &&
-    retiredApproval.approval.kind === 'question' &&
-    isOtherDevice(retiredApproval.outcome.device, viewerDevice)
-  ) {
+  // Answered on another device: the docked card leaves and this one line
+  // says what was decided and where ("Send an email · Allowed from DESKTOP-7").
+  if (retiredApproval && isOtherDevice(retiredApproval.outcome.device, viewerDevice)) {
     const { approval, outcome } = retiredApproval;
+    const result = outcome.approved
+      ? t('Allowed from {{device}}', { device: outcome.device })
+      : t('Denied from {{device}}', { device: outcome.device });
     return {
       key: `retired:${approvalInstanceKey(approval.id)}`,
-      text: outcome.approved
-        ? t('Allowed from {{device}}', { device: outcome.device })
-        : t('Denied from {{device}}', { device: outcome.device }),
+      text: approval.kind === 'question' ? result : `${approvalRecordLabel(approval)} · ${result}`,
     };
   }
   if (answeredElsewhere) {

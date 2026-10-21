@@ -1,6 +1,10 @@
 // Text/token/message helpers and secret redaction for compaction.
 import { createHash } from 'node:crypto';
-import { attachmentTextForPart, isAttachmentReference, isPermanentAttachmentError } from '../../../../attachments/store.mjs';
+import {
+  attachmentTextForPart,
+  isAttachmentReference,
+  isPermanentAttachmentError,
+} from '../../../../attachments/store.mjs';
 import { estimateMessagesTokens } from '../context-utils.mjs';
 import { inlineFileKind } from '../../../../shared/inline-file-kind.mjs';
 

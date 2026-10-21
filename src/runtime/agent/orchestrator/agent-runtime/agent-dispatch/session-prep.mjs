@@ -2,6 +2,7 @@
 // hidden-role tool schema and permission, and the ephemeral session built
 // from the resolved preset.
 import { getHiddenAgent, resolveAgentSessionPermission } from '../../internal-agents.mjs';
+import { contextSelectionFromState, resolveRouteContextState } from '../../runtime-core/route-context-state.mjs';
 
 // Unified-shard policy — most agent sessions (Pool B + Pool C) share the
 // same tool schema so BP_1 is bit-identical across roles and one provider-side
@@ -85,11 +86,18 @@ export function prepareDispatchSession({
   // Stateless ephemeral session — created fresh per call, never
   // pooled or resumed. Cache prefix matching happens at the provider
   // layer (account-level), not the session level.
+  // The route's own context choice sizes the session (an unknown window keeps
+  // the choice as requested).
+  const contextSelection =
+    preset.contextPercent || preset.contextTokens
+      ? contextSelectionFromState(resolveRouteContextState(preset, null), preset)
+      : {};
   const { session } = prepare({
     agent,
     presetName,
     preset,
     runtimeSpec,
+    ...contextSelection,
     permission,
     cwd,
     sourceType: opts.sourceType,

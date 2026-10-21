@@ -4,6 +4,7 @@
  * agent work, and status publication at start and after terminal settlement.
  */
 import { sanitizeTaskMeta, startBackgroundTask } from '../../../../runtime/shared/background-tasks.mjs';
+import { recordAgentTaskStart } from '../../../../runtime/shared/agent-task-starts.mjs';
 import { resourceAdmission } from '../../../../runtime/shared/resource-admission.mjs';
 import { clean, terminalPidForContext } from '../helpers.mjs';
 import { renderResult } from '../render.mjs';
@@ -82,6 +83,9 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
         }
       },
     });
+    // The model's tool call that started this job owns it (its result message
+    // carries the id: agent-task-starts.mjs).
+    recordAgentTaskStart(notifyContext?.toolCallId, task.taskId);
     notifyStatusChange();
     return task;
   };

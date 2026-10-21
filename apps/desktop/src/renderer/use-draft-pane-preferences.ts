@@ -1,26 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import type { DesktopModelSelection, DesktopOrchestrationMode, DesktopWorkflowState } from '../shared/contract';
 import type { NavigationSelection } from './navigation';
 import type { Snapshot } from './desktop-types';
 import { mergeRoutePreference, routePreferenceStore } from './app-route-preference';
 import { navigationKey } from './text-format';
 import {
-  backfillLeadRoute,
   type DraftPanePrefs,
   type ResolvedDraftPrefs,
-  draftModelSelectionFromSnapshot,
   emptyDraftPanePrefs,
-  followLeadRoute,
-  readStoredDraftPaneEntries,
-  readStoredLastNewTaskPrefs,
   rememberSnapshotModelSeed,
-  reresolveDraftEntries,
-  reresolvedLastNewTaskPrefs,
   resolveDraftPrefs,
   stagedLastNewTaskPrefs,
   writeStoredDraftPanePrefs,
 } from './draft-pane-prefs-store';
 import { useFocusedDraftRoute } from './use-focused-draft-route';
+import {
+  focusedDraftKey,
+  useHostMainRoute,
+  useHydrateDraftPrefs,
+  useReresolveDraftProjects,
+  useSnapshotDraftModelSelection,
+} from './use-draft-pane-prefs-sync';
 
 export {
   type DraftPanePrefs,
@@ -28,10 +28,6 @@ export {
   draftModelSelectionFromSnapshot,
   resolvedStoredProjectPath,
 } from './draft-pane-prefs-store';
-
-/** The prefs-map key of a focused draft; '' while a session pane owns focus. */
-const focusedDraftKey = (selection: NavigationSelection): string =>
-  selection.kind === 'new' ? selection.draftId || 'default' : '';
 
 export function useDraftPanePreferences({
   selection,
@@ -69,29 +65,14 @@ export function useDraftPanePreferences({
   // settings; each pane then diverges independently).
   const lastNewTaskPrefs = useRef<DraftPanePrefs | null>(null);
   const draftSnapshotModelSeeds = useRef(new Map<string, DesktopModelSelection>());
-  // Before the user explicitly changes a draft route, the engine snapshot is
-  // still its authoritative default. Preserve that route in the same prefs
-  // chain so unfocused panes (whose lane snapshot is intentionally empty)
-  // render exactly what the focused pane renders.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: lists the snapshot fields the seed reads instead of the snapshot object, whose identity changes on every publication
-  const snapshotDraftModelSelection = useMemo(
-    // ONLY while the engine snapshot actually owns the draft: a blank engine
-    // (no session id) is the new task's own route. A draft focused while the
-    // engine still runs the PREVIOUS session must never inherit — let alone
-    // freeze — that unrelated session's model.
-    () =>
-      selection.kind === 'new' && !String(snapshot.sessionId || '') ? draftModelSelectionFromSnapshot(snapshot) : null,
-    [
-      selection.kind,
-      snapshot.sessionId,
-      snapshot.effort,
-      snapshot.fast,
-      snapshot.autoEffort,
-      snapshot.modelParameters,
-      snapshot.model,
-      snapshot.provider,
-    ]
-  );
+  const snapshotDraftModelSelection = useSnapshotDraftModelSelection(selection.kind, snapshot);
+  const { hostMainRoute, refreshHostMainRoute } = useHostMainRoute({
+    selectionRef,
+    draftPanePrefs,
+    setNewTaskModelSelection,
+    repaintDrafts,
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hostMainRoute is useHostMainRoute's ref, read when called
   const inheritedDraftPrefs = useCallback((): ResolvedDraftPrefs => {
     const last = lastNewTaskPrefs.current;
     return {
@@ -106,7 +87,12 @@ export function useDraftPanePreferences({
       // new task must reuse the LAST cached settings (user rule). Every
       // explicit staging also updates lastNewTaskPrefs, so this order never
       // loses fresh data.
-      modelSelection: last?.modelSelection ?? focused.modelSelectionRef.current ?? snapshotDraftModelSelection,
+      // Painted only: a draft sends a route when the user picked one in it.
+      modelSelection:
+        hostMainRoute.current ??
+        snapshotDraftModelSelection ??
+        last?.modelSelection ??
+        focused.modelSelectionRef.current,
       workflow: last?.workflow ?? focused.workflowRef.current ?? null,
       orchestrationMode: last?.orchestrationMode ?? null,
     };
@@ -118,6 +104,7 @@ export function useDraftPanePreferences({
     preferredDraftProjectPath,
     snapshotDraftModelSelection,
   ]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hostMainRoute is useHostMainRoute's ref, read when called
   const resolvedDraftPrefsFor = useCallback(
     (draftKey: string): ResolvedDraftPrefs => {
       rememberSnapshotModelSeed(draftSnapshotModelSeeds.current, draftKey, snapshotDraftModelSelection);
@@ -126,6 +113,7 @@ export function useDraftPanePreferences({
         last: lastNewTaskPrefs.current,
         seed: draftKey ? draftSnapshotModelSeeds.current.get(draftKey) : undefined,
         snapshotDraftModelSelection,
+        hostMainRoute: hostMainRoute.current,
         preferredDraftProjectPath,
         effectiveDraftProjectPath,
       });
@@ -155,49 +143,16 @@ export function useDraftPanePreferences({
     },
     [persistDraftPanePrefs, repaintDrafts, selectionRef]
   );
-  useEffect(() => {
-    // Hydrate BEFORE the focused-draft restore effect below (declaration
-    // order), so a restored layout's drafts reopen with their saved prefs.
-    try {
-      const last = readStoredLastNewTaskPrefs();
-      if (last.value) lastNewTaskPrefs.current = last.value;
-      const entries = readStoredDraftPaneEntries();
-      let changed = false;
-      for (const [key, value] of entries.rows) {
-        if (draftPanePrefs.current.has(key)) continue;
-        draftPanePrefs.current.set(key, value);
-        changed = true;
-      }
-      if (changed) repaintDrafts();
-      // Migrated values live in memory only until something is staged: write
-      // them under the current keys right away.
-      if (last.legacy || entries.legacy) persistDraftPanePrefs();
-      const api = window.mixdogDesktop;
-      const tried = lastNewTaskPrefs.current?.modelSelection;
-      if (api?.setModelRoute && tried) {
-        void backfillLeadRoute({
-          last: lastNewTaskPrefs.current,
-          setModelRoute: (selection) => api.setModelRoute(selection) as unknown as Promise<Snapshot>,
-        })
-          .then(({ route }) => {
-            // Skipped because another route already is the Lead route: the
-            // drafts without an explicit pick follow it instead of the cache.
-            const next = followLeadRoute(lastNewTaskPrefs.current, tried, route);
-            if (!next?.modelSelection) return;
-            lastNewTaskPrefs.current = next;
-            const draftKey = focusedDraftKey(selectionRef.current);
-            if (!draftKey || !draftPanePrefs.current.get(draftKey)?.modelSelection) {
-              setNewTaskModelSelection(next.modelSelection);
-            }
-            persistDraftPanePrefs();
-            repaintDrafts();
-          })
-          .catch(() => {});
-      }
-    } catch {
-      /* best-effort */
-    }
-  }, [persistDraftPanePrefs, repaintDrafts, selectionRef, setNewTaskModelSelection]);
+  // Hydrate BEFORE the focused-draft restore effect below (declaration order).
+  useHydrateDraftPrefs({
+    draftPanePrefs,
+    lastNewTaskPrefs,
+    hostMainRoute,
+    selectionRef,
+    persistDraftPanePrefs,
+    repaintDrafts,
+    setNewTaskModelSelection,
+  });
   const stageNewTaskProject = useCallback(
     (projectPath: string) => {
       const next = String(projectPath || '').trim();
@@ -298,6 +253,9 @@ export function useDraftPanePreferences({
   // Ctrl+N tabs and pane clicks never bleed prefs into each other.
   const activeDraftKey = focusedDraftKey(selection);
   useEffect(() => {
+    if (activeDraftKey) refreshHostMainRoute();
+  }, [activeDraftKey, refreshHostMainRoute]);
+  useEffect(() => {
     if (!activeDraftKey) return;
     // A null model/workflow stays INHERITED: resolution falls through to
     // the stable last-cached settings, so pane focus cannot change the
@@ -318,27 +276,17 @@ export function useDraftPanePreferences({
     persistDraftPanePrefs();
     repaintDrafts();
   }, [activeDraftKey, paintFocusedDraft, persistDraftPanePrefs, repaintDrafts, resolvedDraftPrefsFor]);
-  useEffect(() => {
-    if (!projectCatalogValidated) return;
-    let changed = reresolveDraftEntries(draftPanePrefs.current, effectiveDraftProjectPath);
-    const last = reresolvedLastNewTaskPrefs(lastNewTaskPrefs.current, effectiveDraftProjectPath);
-    if (last !== lastNewTaskPrefs.current) {
-      lastNewTaskPrefs.current = last;
-      changed = true;
-    }
-    if (activeDraftKey) setNewTaskProjectPath(resolvedDraftPrefsFor(activeDraftKey).projectPath);
-    if (!changed) return;
-    persistDraftPanePrefs();
-    repaintDrafts();
-  }, [
-    activeDraftKey,
-    effectiveDraftProjectPath,
-    persistDraftPanePrefs,
+  useReresolveDraftProjects({
     projectCatalogValidated,
-    repaintDrafts,
+    activeDraftKey,
+    draftPanePrefs,
+    lastNewTaskPrefs,
+    effectiveDraftProjectPath,
     resolvedDraftPrefsFor,
     setNewTaskProjectPath,
-  ]);
+    persistDraftPanePrefs,
+    repaintDrafts,
+  });
 
   return {
     clearNewTaskPreferences,

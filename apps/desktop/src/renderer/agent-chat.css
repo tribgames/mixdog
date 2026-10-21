@@ -126,6 +126,14 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-chat-row[data-side="user"] .mx-chat-line {
   flex-direction: row-reverse;
 }
+/* The steer line (✓, Send now) hangs under the user's bubble inside the
+   message: the time stays level with the bubble's foot, not the line's. */
+.mx-chat-row[data-side="user"] .mx-chat-line:has(.message-steer) > .mx-chat-time {
+  margin-bottom: 24px;
+}
+.mx-chat-row[data-side="user"] .mx-chat-line:has(.message-steer[data-touch]) > .mx-chat-time {
+  margin-bottom: 48px;
+}
 .mx-chat-row:is([data-side="aside"], :not([data-side])) .mx-chat-line {
   display: block;
 }
@@ -173,7 +181,8 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   margin-left: 0;
 }
 .mx-chat-row[data-side="user"] .message.user > .message-body {
-  color: #fff;
+  /* The page ink: the wash is a light blue on paper, where white read 1.5:1. */
+  color: var(--mx-text);
   background: color-mix(in srgb, var(--mx-accent) 20%, var(--mx-user-bubble));
 }
 /* The tail: on a run's first bubble only. */
@@ -253,6 +262,41 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 }
 .mx-routine-trigger-head > .mx-routine-more {
   margin-top: 0;
+}
+/* A bot's message into this chat / a bot-to-bot send line (AgentBotSent). */
+.mx-chat-bot-tag {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular, 400);
+}
+/* Under the sending bot's reply bubble: one pill holding the face, the label and the disclosure. */
+.mx-bot-sent {
+  width: auto;
+}
+.mx-bot-sent-pill {
+  display: inline-flex;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: 999px;
+  font-size: 12px;
+}
+.mx-bot-sent-pill > .mx-routine-trigger-name {
+  padding: 0;
+  border: 0;
+}
+.mx-bot-sent-face {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+}
+.mx-bot-sent-face > svg.mx-av {
+  width: 18px;
+  height: 18px;
 }
 .mx-routine-trigger-body {
   margin-top: 6px;
@@ -371,7 +415,14 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   color: var(--mx-warning, #e0b34a);
   background: color-mix(in srgb, var(--mx-warning, #e0b34a) 14%, transparent);
 }
+/* A bot reply's "View full reply" beside its bubble shrank to one syllable per
+   line ("전체 보 / 기"): it keeps its one line, the bubble gives way. */
+.mx-chat-row[data-side="agent"] .mx-chat-line > .mx-routine-more {
+  flex: none;
+  min-width: auto;
+}
 .mx-routine-more {
+  white-space: nowrap;
   margin-top: 4px;
   padding: 0;
   border: 0;
@@ -444,11 +495,6 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .conversation[data-chat-mode="agent"] .transcript-virtual-row-content[data-tag="Thinking"][data-band-lead="true"] {
   padding-top: 8px;
 }
-/* A room between member turns: the typing slot keeps its box, unseen, so the
-   thread above it holds still (use-conversation-row-renderer.ts). */
-.mx-chat-typing-idle {
-  visibility: hidden;
-}
 /* The typing bubble: three dots in the agent's bubble while it works;
    static under reduced motion. */
 .mx-chat-dots {
@@ -461,7 +507,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
      made it 24): the bubble is as tall as the one-line reply replacing it. */
   vertical-align: top;
 }
-/* A streaming reply that has painted nothing yet (the pacer's first frame, a
+/* A streaming reply that has painted nothing yet (text held back, a
    bare "## ") keeps one line, the typing bubble's height: it collapsed to its
    16px padding and the followed transcript dropped 16px at every reply start. */
 .mx-chat-row[data-side="agent"] .message.assistant.streaming > .message-body {
@@ -629,6 +675,11 @@ html:not([data-mixdog-mobile-tabs]) .composer-region:has(> .composer) {
   )
   .composer-mic {
   margin-right: 0;
+}
+/* Mic and send/stop: a clear 8px gap on desktop. The phone's 44px boxes carry
+   their own padding (07-mobile-chrome.css) and keep the 2px gap. */
+html:not([data-mixdog-mobile-tabs]) .composer .composer-primary-actions {
+  gap: var(--mx-space-2);
 }
 .mx-chat-tag {
   flex: none;

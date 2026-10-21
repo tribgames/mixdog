@@ -11,6 +11,23 @@ import { navigationKey } from './text-format';
 
 export type SessionSideSurface = typeof PANE_DOCK_BROWSER_SURFACE | typeof PANE_DOCK_TERMINAL_SURFACE;
 
+/** The sessions whose terminal a reload must bring back. The session-owned
+ *  surface map lives in memory only, while the pane entry persists `open` and
+ *  `surface`: a pane stored open on the terminal (closing writes `open:false`)
+ *  would otherwise fold on the first read, as it does for a session that
+ *  never opened it. Only the session each pane shows at start-up is restored. */
+export function terminalSessionsToRestore(
+  owners: readonly { leafId: string; sessionId: string | null }[],
+  entryFor: (leafId: string) => Pick<PaneSideDockEntry, 'open' | 'surface'>
+): string[] {
+  const sessions = new Set<string>();
+  for (const { leafId, sessionId } of owners) {
+    const entry = entryFor(leafId);
+    if (sessionId && entry.open && entry.surface === PANE_DOCK_TERMINAL_SURFACE) sessions.add(sessionId);
+  }
+  return [...sessions];
+}
+
 /** Immutable per-session map update: `null` removes the session's entry, and
  *  an unchanged value (per `same`) hands back the current map identity. */
 function withSessionEntry<T>(

@@ -7,6 +7,7 @@ import { applySessionSidebarChange } from '../../runtime/shared/session-sidebar-
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
 import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { turnHopOf } from '../../runtime/shared/bot-hops.mjs';
 import { scheduleCallerScope } from '../services/schedule-access.mjs';
 import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.mjs';
 
@@ -90,7 +91,10 @@ export function createWorkspaceToolHandlers({
   const session = async (args, { callerCtx, callerCwd }) => {
     const action = clean(args?.action || (args?.path ? 'set-project' : 'status')).toLowerCase();
     const target = clean(args?.session_id);
-    if (['list', 'read', 'send', 'cancel', 'delete', 'create'].includes(action) || (action === 'status' && target)) {
+    if (
+      ['list', 'bots', 'read', 'send', 'cancel', 'delete', 'create'].includes(action) ||
+      (action === 'status' && target)
+    ) {
       const callerSessionId = assertLead(action, callerCtx);
       const callerAgentId = attendedAgentOf(rt.session);
       if (action === 'create' && !callerAgentId) {
@@ -118,7 +122,15 @@ export function createWorkspaceToolHandlers({
       return JSON.stringify(
         await executeSessionControl(
           { ...rest, action },
-          { callerSessionId, callerAgentId, callerCwd, ...(attachmentParts.length ? { attachmentParts } : {}) }
+          {
+            callerSessionId,
+            callerAgentId,
+            callerCwd,
+            ...(action === 'send' || action === 'create' ? { callerHop: turnHopOf(rt.session) } : {}),
+            // Which bots and sessions it may see (bot-status.mjs).
+            ...(action === 'bots' || action === 'list' ? { callerScope: scheduleCallerScope(rt.session) } : {}),
+            ...(attachmentParts.length ? { attachmentParts } : {}),
+          }
         )
       );
     }
@@ -253,6 +265,8 @@ export function createWorkspaceToolHandlers({
         clientHostPid: callerCtx?.clientHostPid || rt.session?.clientHostPid || process.pid,
         signal: callerCtx?.signal,
         notifyFn: notifyFnForSession(callerSessionId),
+        // The jobs this call starts are recorded under it (agent-task-starts.mjs).
+        ...(callerCtx?.toolCallId ? { toolCallId: callerCtx.toolCallId } : {}),
       });
     },
   };

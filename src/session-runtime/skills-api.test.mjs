@@ -7,6 +7,7 @@ import test from 'node:test';
 import * as contextMod from '../runtime/agent/orchestrator/context/collect.mjs';
 import { parseSkillDocument } from '../runtime/shared/skill-document.mjs';
 import { createSkillsApi } from './skills-api.mjs';
+import { createSetupToolExecutor } from './setup-tool/executor.mjs';
 
 test('a write through the skills API is visible to the very next read, with no waiting', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-fresh-'));
@@ -152,6 +153,69 @@ test('skillsStatus attributes each skill to the owner that installs and toggles 
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
     if (previousRoot === undefined) delete process.env.MIXDOG_ROOT;
     else process.env.MIXDOG_ROOT = previousRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('setup definitions round-trip a skill trigger through SKILL.md when_to_use', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-setup-trigger-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  const cwd = join(root, 'project');
+  try {
+    mkdirSync(cwd, { recursive: true });
+    const skills = createSkillsApi({ contextMod, getCwd: () => cwd });
+    const api = {
+      skillContent: async (name) => skills.skillContent(name),
+      skillsStatus: async () => skills.skillsStatus(),
+      addSkill: async (input) => ({ skill: skills.addGlobalSkill(input) }),
+      saveSkill: async (input) => ({ skill: skills.saveSkillDocument(input) }),
+    };
+    const caller = { id: 'sess_trigger_fixture', owner: 'user' };
+    const setup = createSetupToolExecutor({
+      getApi: () => api,
+      getCallerSession: (id) => (id === caller.id ? caller : null),
+    });
+    const run = async (args) => JSON.parse(await setup.execute(args, { callerSessionId: caller.id }));
+    const save = (definition) =>
+      run({
+        action: 'save_definition',
+        definitionKind: 'skill',
+        definition: { originalName: 'trigger-skill', ...definition },
+      });
+    const stored = () =>
+      parseSkillDocument(
+        readFileSync(join(process.env.MIXDOG_DATA_DIR, 'skills', 'trigger-skill', 'SKILL.md'), 'utf8')
+      );
+    const read = () => run({ action: 'read_definition', definitionKind: 'skill', name: 'trigger-skill' });
+
+    await run({
+      action: 'create_definition',
+      definitionKind: 'skill',
+      definition: { name: 'trigger-skill', description: 'Probe skill.', whenToUse: 'First trigger', body: '# Probe' },
+    });
+    assert.equal(stored().whenToUse, 'First trigger');
+    assert.equal((await read()).whenToUse, 'First trigger');
+
+    await save({ description: 'Changed skill.' });
+    assert.equal(stored().description, 'Changed skill.');
+    assert.equal(stored().whenToUse, 'First trigger');
+
+    await save({ whenToUse: 'Second trigger' });
+    assert.equal((await read()).whenToUse, 'Second trigger');
+
+    await save({ whenToUse: '' });
+    assert.equal(stored().whenToUse, '');
+    assert.doesNotMatch(
+      readFileSync(join(process.env.MIXDOG_DATA_DIR, 'skills', 'trigger-skill', 'SKILL.md'), 'utf8'),
+      /when_to_use/
+    );
+    assert.equal((await read()).whenToUse, '');
+    assert.equal(stored().body, '# Probe\n');
+  } finally {
+    contextMod.invalidateSkillsCache(cwd);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
     rmSync(root, { recursive: true, force: true });
   }
 });

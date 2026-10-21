@@ -4,6 +4,7 @@ import { clean, hasOwn } from './session-text.mjs';
 import { normalizeEffortInput, normalizeSavedEffort } from './effort.mjs';
 import { routeFastKey, fastPreferenceFor } from './model-capabilities.mjs';
 import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
+import { normalizeCompactionSummaryMode } from '../session/compact/summary-mode.mjs';
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
 export const DEFAULT_MODEL = '';
@@ -191,12 +192,23 @@ const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
 // reusable. Gemini, xAI and Mistral
 // caches run ~1h, Groq's implicit cache persists ~2h, and DeepSeek's
 // implicit cache is evicted after "a few hours to a few days" (kept at 24h).
-// OpenAI (direct and OAuth/Codex) guarantees a 30-minute minimum prompt-cache
-// TTL on GPT-5.6+ (refreshed on use; no 24h retention there), so the sweep
-// matches that window. Older OpenAI models that still take
-// prompt_cache_retention='24h' are not distinguished: these call sites only
-// know the provider, not the model, so 30m applies to the whole provider.
+// OpenAI public API (GPT-5.6+ Responses, cache-strategy.mjs): the moving tail
+// is written with ttl "30m" and only the Lead-class stable prefix with "12h",
+// so the sweep matches the 30m tail — a clear after that costs nothing extra
+// (the tail is cold anyway) and the cleared session restarts on the warm 12h
+// prefix. Earlier OpenAI models (prompt_cache_retention, typically ~30 min)
+// are not distinguished: these call sites only know the provider.
+// OpenAI OAuth (Codex/ChatGPT login) keeps the cache of logged-in users
+// indefinitely (2026-10-20), so its built-in window is unlimited: no idle
+// clear; compaction happens only at the context limit or on request.
 // Unknown/unrecognized providers fall back to the 'default' 1h entry.
+//
+// Unlimited ("never auto-clear") is stored as 0 in providerIdleMs — a value
+// older builds dropped, so no older config carries it — and resolves to
+// AUTO_CLEAR_UNLIMITED_MS, which every idle comparison treats as never
+// reached. Input also accepts 'unlimited' / 'never'.
+export const AUTO_CLEAR_UNLIMITED = 0;
+export const AUTO_CLEAR_UNLIMITED_MS = Number.MAX_SAFE_INTEGER;
 const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
   anthropic: 60 * 60 * 1000,
   'anthropic-oauth': 60 * 60 * 1000,
@@ -205,20 +217,48 @@ const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
   openai: 30 * 60 * 1000,
   deepseek: 24 * 60 * 60 * 1000,
   xai: 60 * 60 * 1000,
-  'openai-oauth': 30 * 60 * 1000,
+  'openai-oauth': AUTO_CLEAR_UNLIMITED,
   mistral: 60 * 60 * 1000,
   default: AUTO_CLEAR_DEFAULT_IDLE_MS,
 });
 const AUTO_CLEAR_PROVIDER_IDS = Object.freeze(Object.keys(AUTO_CLEAR_PROVIDER_IDLE_MS));
+
+// Completed-agent retention where it must differ from the idle window. Reap
+// frees in-memory sessions and worker-index rows (resources), so it stays
+// finite even where the cache is permanent: openai-oauth uses the 1h product
+// default, which covers Lead follow-ups (24/25 Lead waits were 5–27 min).
+const AGENT_TERMINAL_REAP_MS = Object.freeze({ 'openai-oauth': 60 * 60 * 1000 });
+
+/** A stored/requested idle value: AUTO_CLEAR_UNLIMITED, a window ≥ 1 min, or
+ *  null when absent or invalid. */
+export function normalizeAutoClearIdleValue(value) {
+  if (value === null || value === undefined || typeof value === 'boolean') return null;
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    if (!text) return null;
+    if (text === 'unlimited' || text === 'never') return AUTO_CLEAR_UNLIMITED;
+  }
+  const idleMs = Number(value);
+  if (!Number.isFinite(idleMs) || idleMs < 0) return null;
+  if (idleMs === 0) return AUTO_CLEAR_UNLIMITED;
+  return Math.max(60_000, Math.round(idleMs));
+}
+
+const resolvedIdleMs = (stored) => (stored === AUTO_CLEAR_UNLIMITED ? AUTO_CLEAR_UNLIMITED_MS : stored);
+
+/** Whether a resolved idle window means "never auto-clear". */
+export function isAutoClearUnlimited(idleMs) {
+  return Number(idleMs) >= AUTO_CLEAR_UNLIMITED_MS;
+}
 
 function normalizeAutoClearProviderIdleMs(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const out = {};
   for (const [key, ms] of Object.entries(raw)) {
     const provider = clean(key).toLowerCase();
-    const idleMs = Number(ms);
-    if (!provider || !Number.isFinite(idleMs) || idleMs <= 0) continue;
-    out[provider] = Math.max(60_000, Math.round(idleMs));
+    const idleMs = normalizeAutoClearIdleValue(ms);
+    if (!provider || idleMs === null) continue;
+    out[provider] = idleMs;
   }
   return out;
 }
@@ -228,49 +268,71 @@ function normalizeAutoClearProviderIdleMs(value = {}) {
 export function autoClearIdleMsForProvider(provider, providerIdleMs = null) {
   const overrides = normalizeAutoClearProviderIdleMs(providerIdleMs);
   const key = clean(provider).toLowerCase();
-  if (overrides[key]) return overrides[key];
-  if (key && AUTO_CLEAR_PROVIDER_IDLE_MS[key]) return AUTO_CLEAR_PROVIDER_IDLE_MS[key];
-  if (overrides.default) return overrides.default;
+  if (key && Object.hasOwn(overrides, key)) return resolvedIdleMs(overrides[key]);
+  if (key && Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, key)) return resolvedIdleMs(AUTO_CLEAR_PROVIDER_IDLE_MS[key]);
+  if (Object.hasOwn(overrides, 'default')) return resolvedIdleMs(overrides.default);
   return AUTO_CLEAR_PROVIDER_IDLE_MS.default;
 }
 
-export function autoClearProviderDefaults(providerIdleMs = null) {
+// One row per built-in provider plus every provider in `extraProviders` (the
+// providers the user has enabled or routes to), before the 'default' row.
+// A provider without a built-in entry resolves like any unknown provider.
+export function autoClearProviderDefaults(providerIdleMs = null, extraProviders = []) {
   const overrides = normalizeAutoClearProviderIdleMs(providerIdleMs);
-  return AUTO_CLEAR_PROVIDER_IDS.map((provider) => {
-    const builtInMs = AUTO_CLEAR_PROVIDER_IDLE_MS[provider] ?? AUTO_CLEAR_PROVIDER_IDLE_MS.default;
-    const idleMs = overrides[provider] ?? builtInMs;
+  const ids = AUTO_CLEAR_PROVIDER_IDS.filter((id) => id !== 'default');
+  for (const value of extraProviders || []) {
+    const id = clean(value).toLowerCase();
+    if (id && !ids.includes(id) && id !== 'default') ids.push(id);
+  }
+  for (const id of Object.keys(overrides)) if (!ids.includes(id) && id !== 'default') ids.push(id);
+  ids.push('default');
+  return ids.map((provider) => {
+    const builtIn = Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, provider)
+      ? AUTO_CLEAR_PROVIDER_IDLE_MS[provider]
+      : AUTO_CLEAR_PROVIDER_IDLE_MS.default;
+    const idleMs = Object.hasOwn(overrides, provider)
+      ? resolvedIdleMs(overrides[provider])
+      : provider === 'default' || Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, provider)
+        ? resolvedIdleMs(builtIn)
+        : autoClearIdleMsForProvider(provider, overrides);
     return {
       provider,
       idleMs,
-      builtInMs,
-      custom: overrides[provider] != null,
+      builtInMs: resolvedIdleMs(builtIn),
+      unlimited: isAutoClearUnlimited(idleMs),
+      builtInUnlimited: builtIn === AUTO_CLEAR_UNLIMITED,
+      custom: Object.hasOwn(overrides, provider),
     };
   });
 }
 
 // Agent terminal retention is deliberately narrower than Auto Clear's general
-// resolution: listed providers use their provider cache lifetime. Unlisted
+// resolution: listed providers use their provider cache lifetime, or the
+// finite AGENT_TERMINAL_REAP_MS entry where that cache is permanent. Unlisted
 // providers use the Advanced "default" row, or the built-in default when no
-// override is configured, so completed agents are still eventually reclaimed.
+// override is configured, so completed agents are still eventually reclaimed;
+// an unlimited override never disables reaping.
 export function resolveAgentTerminalReapMs(config, provider) {
   const key = clean(provider).toLowerCase();
   const raw = config?.autoClear && typeof config.autoClear === 'object' ? config.autoClear : {};
   const overrides = normalizeAutoClearProviderIdleMs(raw.providerIdleMs);
+  const finite = (value) => (value > 0 ? value : null);
   if (!key || key === 'default' || !Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, key)) {
-    return overrides.default ?? AUTO_CLEAR_PROVIDER_IDLE_MS.default;
+    return finite(overrides.default) ?? AUTO_CLEAR_PROVIDER_IDLE_MS.default;
   }
-  return overrides[key] ?? AUTO_CLEAR_PROVIDER_IDLE_MS[key];
+  return finite(overrides[key]) ?? AGENT_TERMINAL_REAP_MS[key] ?? AUTO_CLEAR_PROVIDER_IDLE_MS[key];
 }
 
 // Resolve the effective auto-clear idle window for a config + provider:
 // a provider-specific override (autoClear.providerIdleMs[provider]) wins;
 // else the global user-set idleMs (autoClear.idleMs); else the provider's
 // built-in window, then providerIdleMs.default / the built-in 1h default.
+// Unlimited resolves to AUTO_CLEAR_UNLIMITED_MS.
 export function resolveAutoClearIdleMs(config, provider) {
   const raw = config?.autoClear && typeof config.autoClear === 'object' ? config.autoClear : {};
   const key = clean(provider).toLowerCase();
-  const providerOverride = key && key !== 'default' ? normalizeAutoClearProviderIdleMs(raw.providerIdleMs)[key] : null;
-  if (providerOverride) return providerOverride;
+  const overrides = normalizeAutoClearProviderIdleMs(raw.providerIdleMs);
+  if (key && key !== 'default' && Object.hasOwn(overrides, key)) return resolvedIdleMs(overrides[key]);
   const idleMs = Number(raw.idleMs);
   if (Number.isFinite(idleMs) && idleMs > 0) return Math.max(60_000, Math.round(idleMs));
   return autoClearIdleMsForProvider(provider, raw.providerIdleMs);
@@ -350,12 +412,16 @@ export function normalizeCompactionConfig(value = {}) {
   delete next.recallConcurrency;
   delete next.recallCycle1DeadlineMs;
   delete next.enabled;
+  delete next.useMaintainer;
   return {
     ...next,
     auto: raw.auto !== false && raw.enabled !== false,
     // Compact a conversation on its current model before switching it to
     // another one in place (default on).
     onModelChange: raw.onModelChange !== false,
+    // Which model writes compaction summaries (smart / maintainer / self);
+    // replaces the previous release's boolean useMaintainer.
+    summaryMode: normalizeCompactionSummaryMode(raw),
   };
 }
 

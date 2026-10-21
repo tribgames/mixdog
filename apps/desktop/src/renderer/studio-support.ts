@@ -5,6 +5,7 @@ import {
   type DesktopReadCapability,
 } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
+import { t } from './i18n';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 
 export type MediaKind = 'image' | 'video';
@@ -52,11 +53,34 @@ export interface MediaLane {
   catalogError?: string;
   catalogErrorCode?: string;
   catalogWarning?: string;
+  /** The catalog is still loading (slower than the listing budget). */
+  catalogPending?: boolean;
   /** What the lane generates once signed in (`kinds` is its live catalog). */
   supportedKinds?: MediaKind[];
   kinds: MediaKind[];
   image: MediaKindSpec | null;
   video: MediaKindSpec | null;
+}
+
+// How long one lane listing waits for a provider catalog before reporting it
+// as still loading (a gateway catalog such as NanoGPT's can take most of a
+// minute), and how soon a still-loading catalog is asked again.
+export const MEDIA_CATALOG_BUDGET_MS = 6_000;
+export const MEDIA_CATALOG_POLL_MS = 1_000;
+
+/** Lane listing bounded by the catalog budget: slower lanes come back
+ *  `catalogPending`, and asking again joins their in-flight request. */
+export async function listMediaLanes(api: StudioApi | undefined): Promise<MediaLane[]> {
+  const rows = await callCapability(api, 'listMediaLanes', [{ budgetMs: MEDIA_CATALOG_BUDGET_MS }]);
+  return Array.isArray(rows) ? (rows as MediaLane[]) : [];
+}
+
+/** Why a signed-in lane that supports `kind` has no models to offer yet
+ *  (loading or failed), or '' when it has them or does not apply. */
+export function laneCatalogStatus(lane: MediaLane, kind: MediaKind): string {
+  if (!lane.authenticated || lane.kinds.includes(kind) || !lane.supportedKinds?.includes(kind)) return '';
+  if (lane.catalogPending) return t('Loading models…');
+  return lane.catalogError ? t("Couldn't load models") : '';
 }
 
 export interface MediaJob {

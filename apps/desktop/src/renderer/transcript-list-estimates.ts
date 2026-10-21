@@ -1,7 +1,7 @@
 import { type MutableRefObject, type RefObject, useCallback, useRef } from 'react';
 import { roomPassIsQuiet } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
-import { transcriptRowHeightStore } from './transcript-row-estimates';
+import { type TranscriptRowSurface, transcriptRowHeightStore } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
 
@@ -13,10 +13,14 @@ export function useTranscriptRowEstimates({
   rowsRef,
   viewport,
   hasScrollGestureRef,
+  surfaceRef,
 }: {
   rowsRef: MutableRefObject<readonly TranscriptRowModel[]>;
   viewport: RefObject<HTMLDivElement | null>;
   hasScrollGestureRef: MutableRefObject<() => boolean>;
+  /** Who paints the rows; read at each estimate (a chat's mode can arrive
+   *  with the session catalog, after the list mounted). */
+  surfaceRef: MutableRefObject<TranscriptRowSurface>;
 }) {
   const timelineWidth = useRef(0);
   const virtualizerRefForEstimates = useRef<TranscriptVirtualizer | null>(null);
@@ -31,7 +35,12 @@ export function useTranscriptRowEstimates({
       if (held !== undefined) return held;
       // A quiet pass paints nothing: estimating it at a reply's height made
       // it shrink the thread by that much once measured.
-      if (row._tag === 'AssistantPart' && roomPassIsQuiet(row.item)) {
+      // A room's live band too: nobody types until the supervisor picks a
+      // member (use-conversation-row-renderer.ts roomTyping).
+      if (
+        (row._tag === 'AssistantPart' && roomPassIsQuiet(row.item)) ||
+        (row._tag === 'Thinking' && surfaceRef.current === 'room')
+      ) {
         heldEstimates.current.set(row.key, 0);
         return 0;
       }
@@ -42,12 +51,13 @@ export function useTranscriptRowEstimates({
       // A flat fallback is held too (any re-estimate moves rows), but marked:
       // the session's own first measured rows usually teach its shape a moment
       // later, and relearnEstimates may then replace it.
-      if (!store.knows(row, timelineWidth.current)) fallbackEstimates.current.add(row.key);
-      const estimate = store.estimate(row, timelineWidth.current);
+      const surface = surfaceRef.current;
+      if (!store.knows(row, timelineWidth.current, surface)) fallbackEstimates.current.add(row.key);
+      const estimate = store.estimate(row, timelineWidth.current, surface);
       heldEstimates.current.set(row.key, estimate);
       return estimate;
     },
-    [rowsRef, viewport]
+    [rowsRef, viewport, surfaceRef]
   );
   // A newly learned shape re-estimates the rows still at the flat fallback,
   // but only while the timeline follows its end: the end pin then keeps the
@@ -75,7 +85,9 @@ export function useTranscriptRowEstimates({
     (element: Element, entry: ResizeObserverEntry | undefined, instance: TranscriptVirtualizer) => {
       const size = measureTranscriptRow(element, entry, instance);
       // Only the observer's settled boxes teach the store: a streaming reply
-      // or a row still waiting for its parser is not its final height.
+      // or a row still waiting for its parser is not its final height. A 0px
+      // box teaches only from a row that paints nothing (an agent chat's
+      // hidden tool round, TranscriptList.tsx data-blank).
       const row = entry ? rowsRef.current[instance.indexFromElement(element as HTMLDivElement)] : undefined;
       if (
         row &&
@@ -83,13 +95,16 @@ export function useTranscriptRowEstimates({
         row._tag !== 'Thinking' &&
         !('live' in row && row.live) &&
         !('active' in row && row.active) &&
-        !element.querySelector('[data-transcript-pending]')
+        !element.querySelector('[data-transcript-pending]') &&
+        (size > 0 || element.firstElementChild?.getAttribute('data-blank') === 'true')
       ) {
-        if (transcriptRowHeightStore().record(row, timelineWidth.current, size)) relearnEstimates();
+        if (transcriptRowHeightStore().record(row, timelineWidth.current, size, surfaceRef.current)) {
+          relearnEstimates();
+        }
       }
       return size;
     },
-    [rowsRef, relearnEstimates]
+    [rowsRef, relearnEstimates, surfaceRef]
   );
   return {
     timelineWidth,

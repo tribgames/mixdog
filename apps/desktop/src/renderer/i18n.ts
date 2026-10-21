@@ -160,6 +160,8 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: Cache hit rate': 'Cache hit rate',
   'Island: Approx. cost': 'Approx. cost',
   'Turn changes: {{count}} files changed': '{{count}} files changed',
+  'Preview badge: New': 'New',
+  'Preview badge: Mockup': 'Mockup',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
 });
 

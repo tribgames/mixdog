@@ -7,7 +7,7 @@ const script = { kind: 'file', project: '/project', rel: 'script.ts' };
 const otherScript = { kind: 'file', project: '/project', rel: 'other.ts' };
 const draft = { kind: 'new', draftId: 'draft-1' };
 
-async function mountPaneWorkspace(t) {
+async function mountPaneWorkspace(t, calls = []) {
   const { dom, root } = installTestDom(t, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement'],
@@ -72,7 +72,10 @@ async function mountPaneWorkspace(t) {
                     selection.rel
                   )
                 ),
-            renderConversation: () => React.createElement('section', { 'data-conversation': 'true' }),
+            renderConversation: (_selection, focused, _focusPane, leafId, _warm, visible) => {
+              calls.push({ leafId, focused, visible });
+              return React.createElement('section', { 'data-conversation': 'true' });
+            },
             onFocusSelection: noop,
           })
         )
@@ -175,4 +178,24 @@ test('closing a retained script cancels its pending surface without waiting for 
   assert.equal(view.host.querySelector('[data-editor="script.ts"]'), null);
   assert.equal(view.host.querySelector('[data-pane-surface-handoff="true"]'), null);
   assert.ok(view.host.querySelector('[data-conversation]'));
+});
+
+test('a conversation parked behind a file tab is not visible; a visible split pane is, focused or not', async (t) => {
+  const calls = [];
+  const view = await mountPaneWorkspace(t, calls);
+  const last = (leafId) => calls.filter((call) => call.leafId === leafId).at(-1);
+  await view.render([view.leaf([script, draft], draft)]);
+  assert.equal(last('pane-1').visible, true, 'on screen');
+  await view.render([view.leaf([script, draft], script)]);
+  // The outgoing frame hands off first; then the conversation is parked.
+  await view.flushFrame();
+  assert.equal(last('pane-1').visible, false, 'parked under the script');
+  await view.render([view.leaf([script, draft], draft)]);
+  assert.equal(last('pane-1').visible, true, 'shown again');
+  await view.render([view.leaf([draft], draft), view.leaf([draft], draft, 'pane-2')]);
+  assert.deepEqual(
+    { focused: last('pane-2').focused, visible: last('pane-2').visible },
+    { focused: false, visible: true },
+    'an unfocused split pane still docks its approvals'
+  );
 });

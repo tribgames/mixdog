@@ -46,7 +46,7 @@ test('a damaged mute list gets its last good copy back', async (t) => {
   assert.deepEqual([...readMutedAgents(file)], ['gh']);
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { muted: ['gh'] });
   assert.equal(
-    names(file).some((name) => name.endsWith('.tmp')),
+    names(file).some((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
     false
   );
 });

@@ -1453,9 +1453,21 @@
 .dock-scm-context-menu button.danger {
   color: var(--mx-danger);
 }
+/* A straight 1px rule: a box-shadow inset on the button follows its rounded
+   corners and curls at the ends. */
 .dock-scm-context-menu button.menu-separator {
+  position: relative;
   margin-top: 4px;
-  box-shadow: inset 0 1px var(--mx-border-muted);
+}
+.dock-scm-context-menu button.menu-separator::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 4px;
+  right: 4px;
+  height: 1px;
+  background: var(--mx-border-muted);
+  pointer-events: none;
 }
 .dock-scm-context-menu-row {
   display: flex;

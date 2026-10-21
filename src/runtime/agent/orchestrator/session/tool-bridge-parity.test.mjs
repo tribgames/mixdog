@@ -117,7 +117,8 @@ async function runBatch({
   stream = true,
 }) {
   const results = [];
-  const crossTurnCalls = session._crossTurnCalls || (session._crossTurnCalls = new Map());
+  session._crossTurnCalls ||= new Map();
+  const crossTurnCalls = session._crossTurnCalls;
   const assistantTurnMsg = buildToolCallAssistantMessage({ content: '' }, { calls, opts: {} });
   const dispatcher = createEagerDispatcher({
     tools: session.tools,
@@ -176,48 +177,53 @@ async function parity(scenario) {
 }
 
 for (const stream of [true, false]) {
-test(`an allowed bridged call runs its target once with the same hooks, audit and wire id (stream=${stream})`, async (t) => {
-  const audit = [];
-  const outcome = await parity(async (kind) => {
-    const fixture = fixtureTools(t);
-    const session = makeSession(kind, { target: READ_T, scopeId: fixture.scopeId });
-    const hooks = recordHooks(session);
-    const calls = [wire(kind, 'X', READ_T, { value: 'a' })];
-    const { results, assistantTurnMsg } = await runBatch({
-      session,
-      calls,
-      stream,
-      executeToolFn: (name, args, cwd, sessionId, sessionRef, opts) => {
-        audit.push({ kind, name, toolCallId: opts.toolCallId, bridgeWireCall: opts.bridgeWireCall || null });
-        return executeTool(name, args, cwd, sessionId, sessionRef, opts);
-      },
+  test(`an allowed bridged call runs its target once with the same hooks, audit and wire id (stream=${stream})`, async (t) => {
+    const audit = [];
+    const outcome = await parity(async (kind) => {
+      const fixture = fixtureTools(t);
+      const session = makeSession(kind, { target: READ_T, scopeId: fixture.scopeId });
+      const hooks = recordHooks(session);
+      const calls = [wire(kind, 'X', READ_T, { value: 'a' })];
+      const { results, assistantTurnMsg } = await runBatch({
+        session,
+        calls,
+        stream,
+        executeToolFn: (name, args, cwd, sessionId, sessionRef, opts) => {
+          audit.push({ kind, name, toolCallId: opts.toolCallId, bridgeWireCall: opts.bridgeWireCall || null });
+          return executeTool(name, args, cwd, sessionId, sessionRef, opts);
+        },
+      });
+      // The transcript keeps the wire call exactly as the provider sent it.
+      assert.deepEqual(assistantTurnMsg.toolCalls, calls);
+      return { results: summary(results), executions: fixture.executions, hooks };
     });
-    // The transcript keeps the wire call exactly as the provider sent it.
-    assert.deepEqual(assistantTurnMsg.toolCalls, calls);
-    return { results: summary(results), executions: fixture.executions, hooks };
+    assert.deepEqual(outcome.results, [
+      { toolCallId: 'X', content: `ran:${READ_T}:{"value":"a"}`, toolKind: 'normal' },
+    ]);
+    assert.deepEqual(outcome.executions, [{ name: READ_T, args: { value: 'a' } }]);
+    assert.deepEqual(outcome.hooks.before, [{ name: READ_T, args: { value: 'a' }, toolCallId: 'X' }]);
+    assert.deepEqual(outcome.hooks.after, [{ name: READ_T, args: { value: 'a' }, toolCallId: 'X' }]);
+    assert.deepEqual(
+      audit.map(({ kind, name, toolCallId }) => [kind, name, toolCallId]),
+      [
+        ['direct', READ_T, 'X'],
+        ['bridged', READ_T, 'X'],
+      ]
+    );
+    assert.equal(audit[0].bridgeWireCall, null);
+    assert.deepEqual(audit[1].bridgeWireCall, wire('bridged', 'X', READ_T, { value: 'a' }));
   });
-  assert.deepEqual(outcome.results, [
-    { toolCallId: 'X', content: `ran:${READ_T}:{"value":"a"}`, toolKind: 'normal' },
-  ]);
-  assert.deepEqual(outcome.executions, [{ name: READ_T, args: { value: 'a' } }]);
-  assert.deepEqual(outcome.hooks.before, [{ name: READ_T, args: { value: 'a' }, toolCallId: 'X' }]);
-  assert.deepEqual(outcome.hooks.after, [{ name: READ_T, args: { value: 'a' }, toolCallId: 'X' }]);
-  assert.deepEqual(
-    audit.map(({ kind, name, toolCallId }) => [kind, name, toolCallId]),
-    [
-      ['direct', READ_T, 'X'],
-      ['bridged', READ_T, 'X'],
-    ]
-  );
-  assert.equal(audit[0].bridgeWireCall, null);
-  assert.deepEqual(audit[1].bridgeWireCall, wire('bridged', 'X', READ_T, { value: 'a' }));
-});
 }
 
 test('allow/deny, worker scoping and read-only sessions refuse a bridged target like a direct one', async (t) => {
   const cases = [
     { label: 'schema allowlist', target: READ_T, extra: { schemaAllowedTools: ['read'] }, expect: /schema allowlist/ },
-    { label: 'disallowed by hook', target: READ_T, before: () => ({ action: 'deny', reason: 'fixture' }), expect: /denied by hook: fixture/ },
+    {
+      label: 'disallowed by hook',
+      target: READ_T,
+      before: () => ({ action: 'deny', reason: 'fixture' }),
+      expect: /denied by hook: fixture/,
+    },
     { label: 'worker scope', target: 'session', extra: { scope: 'agent:worker' }, expect: /Lead-only/ },
     {
       // Review regression: the unresolved-mode denial holds in bridge mode too.
@@ -277,7 +283,10 @@ test('approval sees the target; a granted or denied decision behaves identically
       assert.deepEqual(outcome.executions, [{ name: WRITE_T, args: { value: 'w' } }]);
     } else {
       assert.deepEqual(outcome.executions, []);
-      assert.match(String(outcome.results[0].content), new RegExp(`tool "${WRITE_T}" denied by hook.*fixture decision`));
+      assert.match(
+        String(outcome.results[0].content),
+        new RegExp(`tool "${WRITE_T}" was not approved: fixture decision`)
+      );
       assert.equal(outcome.hooks.failure.length, 1);
       assert.equal(outcome.hooks.failure[0].name, WRITE_T);
     }
@@ -413,7 +422,11 @@ test('a disconnected MCP server refuses bridged and direct calls before anything
         return { action: 'allow' };
       });
       const { results } = await runBatch({ session, calls: [wire(kind, 'X', name, { value: 'a' })] });
-      return { refused: /unavailable in the current session catalog; no call was sent/.test(String(results[0].content)), id: results[0].toolCallId, sent: sent.length };
+      return {
+        refused: /unavailable in the current session catalog; no call was sent/.test(String(results[0].content)),
+        id: results[0].toolCallId,
+        sent: sent.length,
+      };
     });
     assert.deepEqual(outcome, { refused: true, id: 'X', sent: 0 }, when);
   }

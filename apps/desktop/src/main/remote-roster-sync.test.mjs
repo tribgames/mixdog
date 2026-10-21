@@ -4,6 +4,7 @@ import { registerAndSynchronizeRelayViews } from './remote-view-sync.ts';
 import { createRelayClientRegistry } from './remote-relay-clients.ts';
 import { createRelayCatalogs } from './remote-relay-catalog.ts';
 import { createKeyedListDeltaDecoder, createKeyedListDeltaEncoder } from '../shared/list-delta.ts';
+import { unseenIncomingCount } from '../shared/incoming-tail.ts';
 import { createRemoteRosterCache, readRosterClaim, readRosterStamp } from '../shared/remote-roster-cache.ts';
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -309,6 +310,28 @@ test('no persisted copy, another desktop, an id-set mismatch or tampered rows fa
   assert.equal(tampered.mismatches.length, 1);
   assert.equal(storage.record, undefined, 'the unproven copy is dropped');
   assert.deepEqual(await tampered.claim(), { v: 1 }, 'the resync asks for a baseline');
+});
+
+test('a bot row reaches the phone with its incoming tail, so both show the same unread count', async () => {
+  const bot = {
+    id: 'sess_home_translator',
+    agentHome: 'translator',
+    preview: 'Hi',
+    title: 'Translator',
+    updatedAt: 1,
+    messageCount: 9,
+    readMessageCount: 2,
+    incomingTail: [3, 9],
+    cwd: '',
+    classification: 'task',
+    projectPath: null,
+  };
+  const d = desktop([bot, ...roster(3)]);
+  const first = phone(memoryStorage());
+  await d.connect(first).sync();
+  assert.deepEqual(first.view.sessions[0], plain(bot));
+  assert.equal(unseenIncomingCount(first.view.sessions[0]), 2);
+  assert.equal(unseenIncomingCount(first.view.sessions[0]), unseenIncomingCount(bot));
 });
 
 test('an old phone and an old desktop keep the plain baseline', async () => {

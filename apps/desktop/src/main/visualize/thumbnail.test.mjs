@@ -3,7 +3,7 @@ import fs, { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from '
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import test from 'node:test';
 
 import { settledBodyImage } from './host.ts';
@@ -49,8 +49,10 @@ function heldThumbnails() {
   };
 }
 
+// Polls until the service reaches the state; the deadline only bounds a real
+// hang (a loaded CI runner can take seconds to run the queued file work).
 async function until(check) {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 30_000;
   while (!check() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 2));
   assert.ok(check(), 'condition never held');
 }
@@ -241,7 +243,7 @@ test('a delayed open never commits over a later reload, and never lets an older 
       return () => {};
     },
     // Each load's pane names the load it came from; held ones wait for release.
-    preparePane: (target) =>
+    preparePane: () =>
       holding
         ? new Promise((resolve) => held.push((name) => resolve(`fake://${name}`)))
         : Promise.resolve('fake://load-1'),
@@ -277,7 +279,7 @@ test('a dropped open leaves the session cwd of the newer open, so a closed tab r
   const held = [];
   let holding = false;
   const { deps, events } = fakeDeps({
-    preparePane: (target) =>
+    preparePane: () =>
       holding ? new Promise((resolve) => held.push(() => resolve('fake://held'))) : Promise.resolve('fake://pane'),
   });
   const service = createVisualizeService(deps);
@@ -355,6 +357,83 @@ test('a reload stops the old picture when it invalidates the revision, before it
   }
 });
 
+test('settled() waits for the card picture file, so none lands while the versions folder is removed', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const directory = join(root, 'app-data', 'versions');
+  const { deps } = fakeDeps({ thumbnail: async () => Buffer.from('PNG-CARD'), versions: { directory } });
+  const service = createVisualizeService(deps);
+  const original = fsp.writeFile;
+  const held = [];
+  // Hold the picture file (`<version folder>.png`) until the test lets it land.
+  fsp.writeFile = function (path, ...rest) {
+    if (!/[\\/]\d+\.png$/.test(String(path))) return original.call(this, path, ...rest);
+    return new Promise((resolve, reject) => {
+      held.push(() => original.call(this, path, ...rest).then(resolve, reject));
+    });
+  };
+  syncBuiltinESMExports();
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    await until(() => held.length === 1);
+    let settled = false;
+    const waiting = service.settled().then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, 'settled() returned while the picture file was still being written');
+    held.shift()();
+    await waiting;
+    const pictures = fs.readdirSync(directory, { recursive: true }).filter((name) => /\.png$/.test(String(name)));
+    assert.equal(pictures.length, 1, 'the picture exists once settled() returns');
+  } finally {
+    fsp.writeFile = original;
+    syncBuiltinESMExports();
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('settled() still waits for the picture file of a tab closed while it was being written', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const directory = join(root, 'app-data', 'versions');
+  const { deps } = fakeDeps({ thumbnail: async () => Buffer.from('PNG-CARD'), versions: { directory } });
+  const service = createVisualizeService(deps);
+  const original = fsp.writeFile;
+  const held = [];
+  fsp.writeFile = function (path, ...rest) {
+    if (!/[\\/]\d+\.png$/.test(String(path))) return original.call(this, path, ...rest);
+    return new Promise((resolve, reject) => {
+      held.push(() => original.call(this, path, ...rest).then(resolve, reject));
+    });
+  };
+  syncBuiltinESMExports();
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
+    await until(() => held.length === 1);
+    // Closed while the picture file is mid-write; the folder removal waits for it.
+    await service.command({ sessionId: 's1', tabId: 'v1', action: 'close' });
+    let settled = false;
+    const waiting = service.settled().then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(settled, false, 'settled() returned while a closed tab still had a file being written');
+    held.shift()();
+    await waiting;
+    // (The empty session folder may remain; the tab's folder and picture may not.)
+    assert.deepEqual(
+      fs.readdirSync(directory, { recursive: true }).filter((name) => String(name).includes(sep)),
+      [],
+      'no tab folder or picture file is left'
+    );
+  } finally {
+    fsp.writeFile = original;
+    syncBuiltinESMExports();
+    service.dispose();
+    cleanup();
+  }
+});
+
 /** A window whose tab body is on screen; every capture is a fresh frame of
  *  `frames()` (an animation when they all differ). */
 function captureWindow(frames, onCapture = () => {}) {
@@ -414,7 +493,7 @@ test('an aborted thumbnail job stops between capture rounds', async () => {
     (n) => n === 2 && controller.abort()
   );
   const waits = [];
-  const image = await settledBodyImage(window, 's1', imageTab, controller.signal, async (ms, signal) => {
+  const image = await settledBodyImage(window, 's1', imageTab, controller.signal, async (_ms, signal) => {
     waits.push(signal.aborted);
   });
   assert.equal(image, null);

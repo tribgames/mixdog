@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  AUTO_CLEAR_UNLIMITED_MS,
+  autoClearIdleMsForProvider,
+  autoClearProviderDefaults,
+  isAutoClearUnlimited,
   isLikelyRawModelId,
   makeResolveRoute,
+  normalizeAutoClearConfig,
+  resolveAgentTerminalReapMs,
   resolveAutoClearIdleMs,
   validateRequestedModelSelector,
 } from './config-helpers.mjs';
+import { canonicalizeAgentStorage } from '../config-storage.mjs';
 import { saveModelSettings } from './model-capabilities.mjs';
 import { normalizeWorkflowRoute, upsertWorkflowPreset } from './workflow.mjs';
 
@@ -24,7 +31,15 @@ test('model selectors accept rolling aliases without accepting prose or malforme
     assert.equal(isLikelyRawModelId(model), true, model);
     assert.doesNotThrow(() => validateRequestedModelSelector({}, { provider: 'openrouter', model }));
   }
-  for (const model of ['~', '~~google/model', '~ google/model', 'google/~model', 'Google: Gemini Flash Latest', 'model?x=1', 'x'.repeat(161)]) {
+  for (const model of [
+    '~',
+    '~~google/model',
+    '~ google/model',
+    'google/~model',
+    'Google: Gemini Flash Latest',
+    'model?x=1',
+    'x'.repeat(161),
+  ]) {
     assert.equal(isLikelyRawModelId(model), false, model);
     assert.throws(() => validateRequestedModelSelector({}, { model }), /Invalid model selector/);
   }
@@ -114,7 +129,10 @@ test('Auto effort resolves explicit > saved > preset > on, and round-trips throu
 
   // Workflow routes and presets carry only the off state.
   assert.equal(normalizeWorkflowRoute({ provider: 'demo', model: 'model', autoEffort: false }).autoEffort, false);
-  assert.equal(Object.hasOwn(normalizeWorkflowRoute({ provider: 'demo', model: 'model', autoEffort: true }), 'autoEffort'), false);
+  assert.equal(
+    Object.hasOwn(normalizeWorkflowRoute({ provider: 'demo', model: 'model', autoEffort: true }), 'autoEffort'),
+    false
+  );
   const presets = upsertWorkflowPreset([], 'lead', { provider: 'demo', model: 'model', autoEffort: false });
   assert.equal(presets[0].autoEffort, false);
   assert.equal(resolveRoute({ default: presets[0].id, presets }).autoEffort, false);
@@ -141,6 +159,74 @@ test('provider idle window overrides the global auto-clear idleMs', () => {
   const config = { autoClear: { idleMs: 2 * 3600_000, providerIdleMs: { 'openai-oauth': 30 * 60_000 } } };
   assert.equal(resolveAutoClearIdleMs(config, 'openai-oauth'), 30 * 60_000);
   assert.equal(resolveAutoClearIdleMs(config, 'anthropic-oauth'), 2 * 3600_000);
-  assert.equal(resolveAutoClearIdleMs({ autoClear: {} }, 'openai-oauth'), 30 * 60_000);
-  assert.equal(resolveAutoClearIdleMs({ autoClear: { providerIdleMs: { default: 5 * 60_000 } } }, 'unknown'), 5 * 60_000);
+  assert.equal(resolveAutoClearIdleMs({ autoClear: {} }, 'openai-oauth'), AUTO_CLEAR_UNLIMITED_MS);
+  assert.equal(
+    resolveAutoClearIdleMs({ autoClear: { providerIdleMs: { default: 5 * 60_000 } } }, 'unknown'),
+    5 * 60_000
+  );
+});
+
+test('built-in idle windows follow the provider cache lifetimes', () => {
+  const builtIn = (provider) => resolveAutoClearIdleMs({ autoClear: {} }, provider);
+  assert.equal(builtIn('openai-oauth'), AUTO_CLEAR_UNLIMITED_MS, 'logged-in Codex cache is permanent');
+  assert.equal(builtIn('openai'), 30 * 60_000, 'the OpenAI API tail is written with ttl 30m');
+  for (const provider of ['anthropic', 'anthropic-oauth', 'gemini', 'xai', 'unknown']) {
+    assert.equal(builtIn(provider), 60 * 60_000, provider);
+  }
+  assert.equal(builtIn('deepseek'), 24 * 3600_000);
+  assert.equal(isAutoClearUnlimited(builtIn('openai-oauth')), true);
+  assert.equal(isAutoClearUnlimited(builtIn('openai')), false);
+});
+
+test('unlimited is stored as 0, read as never, and survives canonical storage', () => {
+  for (const stored of [0, '0', 'unlimited', ' Never ']) {
+    const config = { autoClear: { idleMs: 2 * 3600_000, providerIdleMs: { anthropic: stored } } };
+    assert.equal(resolveAutoClearIdleMs(config, 'anthropic'), AUTO_CLEAR_UNLIMITED_MS, String(stored));
+    assert.equal(autoClearIdleMsForProvider('anthropic', config.autoClear.providerIdleMs), AUTO_CLEAR_UNLIMITED_MS);
+    assert.deepEqual(normalizeAutoClearConfig(config.autoClear).providerIdleMs, { anthropic: 0 });
+    const canonical = canonicalizeAgentStorage({ autoClear: config.autoClear }).autoClear;
+    assert.deepEqual(canonical.providerIdleMs, { anthropic: 0 });
+    assert.deepEqual(canonicalizeAgentStorage({ autoClear: canonical }).autoClear.providerIdleMs, { anthropic: 0 });
+  }
+  for (const invalid of [-1, '', null, false, 'soon']) {
+    const config = { autoClear: { providerIdleMs: { anthropic: invalid } } };
+    assert.equal(resolveAutoClearIdleMs(config, 'anthropic'), 60 * 60_000, String(invalid));
+    assert.equal(canonicalizeAgentStorage(config).autoClear?.providerIdleMs, undefined, String(invalid));
+  }
+  // An unlimited window is never reached by an idle comparison.
+  assert.equal(Date.now() - 0 < AUTO_CLEAR_UNLIMITED_MS, true);
+});
+
+test('agent terminal reap stays finite where the idle window is unlimited', () => {
+  assert.equal(resolveAgentTerminalReapMs({}, 'openai-oauth'), 60 * 60_000);
+  assert.equal(resolveAgentTerminalReapMs({}, 'openai'), 30 * 60_000);
+  assert.equal(resolveAgentTerminalReapMs({}, 'anthropic-oauth'), 60 * 60_000);
+  const unlimited = { autoClear: { providerIdleMs: { anthropic: 0, default: 0 } } };
+  assert.equal(resolveAgentTerminalReapMs(unlimited, 'anthropic'), 60 * 60_000);
+  assert.equal(resolveAgentTerminalReapMs(unlimited, 'unknown'), 60 * 60_000);
+  assert.equal(
+    resolveAgentTerminalReapMs({ autoClear: { providerIdleMs: { 'openai-oauth': 600_000 } } }, 'openai-oauth'),
+    600_000
+  );
+});
+
+test('provider rows cover every enabled provider and flag unlimited windows', () => {
+  const rows = autoClearProviderDefaults({ anthropic: 0 }, ['cursor-oauth', 'openai-oauth', 'Grok-OAuth']);
+  const byId = Object.fromEntries(rows.map((row) => [row.provider, row]));
+  assert.equal(rows.at(-1).provider, 'default');
+  assert.equal(byId['openai-oauth'].unlimited, true);
+  assert.equal(byId['openai-oauth'].builtInUnlimited, true);
+  assert.equal(byId['openai-oauth'].custom, false);
+  assert.equal(byId.openai.idleMs, 30 * 60_000);
+  assert.equal(byId.anthropic.unlimited, true);
+  assert.equal(byId.anthropic.builtInUnlimited, false);
+  assert.equal(byId.anthropic.custom, true);
+  for (const id of ['cursor-oauth', 'grok-oauth']) {
+    assert.equal(byId[id].idleMs, 60 * 60_000, id);
+    assert.equal(byId[id].custom, false, id);
+  }
+  const withDefault = Object.fromEntries(
+    autoClearProviderDefaults({ default: 0 }, ['cursor-oauth']).map((row) => [row.provider, row])
+  );
+  assert.equal(withDefault['cursor-oauth'].unlimited, true, 'an unlisted provider follows the default row');
 });

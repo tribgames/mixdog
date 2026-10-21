@@ -82,7 +82,7 @@ async function renderEditor(
 const sheetRows = () => [...document.querySelectorAll('.route-sheet-rows > .route-sheet-row')];
 const daybreakSwitch = () => document.querySelector('[data-route-toggle="daybreak"] input[type="checkbox"]');
 
-test('a Blue model shows one Daybreak Blue switch, right under Auto reasoning, writing the route parameter', async (t) => {
+test('a Blue model shows one Daybreak Blue switch, with no Auto reasoning switch, writing the route parameter', async (t) => {
   const changes = [];
   const host = await renderEditor(t, {
     modelParameterOptions: [DAYBREAK],
@@ -93,9 +93,12 @@ test('a Blue model shows one Daybreak Blue switch, right under Auto reasoning, w
   assert.match(host.querySelector('.model-trigger').textContent, /GPT-6 Sol Blue XHigh/);
   await act(async () => host.querySelector('.model-trigger').click());
   const labels = sheetRows().map((row) => row.textContent);
-  const autoAt = labels.findIndex((text) => text.includes('Auto reasoning'));
-  assert.ok(autoAt >= 0, 'Auto reasoning row present');
-  assert.match(labels[autoAt + 1], /Daybreak Blue/, 'Daybreak Blue sits directly under Auto reasoning');
+  assert.equal(
+    labels.some((text) => text.includes('Auto reasoning')),
+    false,
+    'no Auto reasoning switch row'
+  );
+  assert.match(labels.at(-1), /Daybreak Blue/, 'Daybreak Blue is the last row');
   assert.equal(labels.filter((text) => text.includes('Daybreak Blue')).length, 1, 'a single control');
   const toggle = daybreakSwitch();
   assert.equal(toggle.checked, true);
@@ -154,7 +157,10 @@ test('a model without the catalog capability has no switch and never reads as Bl
   assert.doesNotMatch(host.querySelector('.model-trigger').textContent, /Blue/);
   await act(async () => host.querySelector('.model-trigger').click());
   assert.equal(daybreakSwitch(), null);
-  assert.equal(sheetRows().some((row) => row.textContent.includes('Daybreak Blue')), false);
+  assert.equal(
+    sheetRows().some((row) => row.textContent.includes('Daybreak Blue')),
+    false
+  );
   assert.equal(routeDaybreakBlue({ daybreak: 'on' }, []), false);
   assert.equal(routeDaybreakBlue({ daybreak: 'off' }, [DAYBREAK]), false);
   assert.equal(routeDaybreakBlue({ daybreak: 'on' }, [DAYBREAK]), true);

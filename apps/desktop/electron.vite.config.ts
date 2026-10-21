@@ -174,7 +174,8 @@ const firstScreenHints: Plugin = {
       });
       const chunks = Object.values(bundle).filter((output): output is OutputChunk => output.type === 'chunk');
       const chunkByName = new Map(chunks.map((chunk) => [chunk.name, chunk]));
-      const entry = chunks.find((chunk) => chunk.isEntry);
+      // The app's entry, not the desktop pet window's (desktop-pet.html).
+      const entry = chunks.find((chunk) => chunk.isEntry && !/desktop-pet/.test(chunk.facadeModuleId ?? ''));
       const roots = FIRST_SCREEN_ROOT_CHUNKS.flatMap((name) => chunkByName.get(name) ?? []);
       // Pre-order walk of the static graph: each chunk precedes its imports,
       // and every chunk carries the stylesheets Vite would otherwise attach
@@ -310,6 +311,7 @@ export default defineConfig({
           'computer-overlay': resolve(__dirname, 'src/preload/computer-overlay.ts'),
           'remote-window': resolve(__dirname, 'src/preload/remote-window.ts'),
           'browser-login': resolve(__dirname, 'src/preload/browser-login.ts'),
+          'desktop-pet': resolve(__dirname, 'src/preload/desktop-pet.ts'),
         },
         output: {
           // Sandboxed Electron preloads run through the CommonJS preload
@@ -391,7 +393,11 @@ export default defineConfig({
       minify: 'esbuild',
       modulePreload: { polyfill: false },
       rollupOptions: {
-        input: resolve(__dirname, 'src/renderer/index.html'),
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          // The always-on-top desktop pet window (main/desktop-pet-window.ts).
+          'desktop-pet': resolve(__dirname, 'src/renderer/desktop-pet.html'),
+        },
         output: {
           // React moves far less often than app code: keeping it in its own
           // chunk lets a phone reuse the cached copy across app updates

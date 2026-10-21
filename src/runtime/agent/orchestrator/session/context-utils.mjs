@@ -260,23 +260,54 @@ function messageImageAllowance(m) {
   if (!m || typeof m !== 'object') return 0;
   return messageImageDescriptors(m).reduce((sum, descriptor) => sum + imageDescriptorAllowance(descriptor), 0);
 }
-// Inline document (PDF) allowance: Anthropic bills ~1,500-3,000 tokens per
-// page and a typical PDF page is ~50-100KB, so ~bytes/16 with a floor and a
-// cap. The base64 payload itself is excluded from text estimates (see
+// Inline document (PDF) allowance. A native PDF reader turns every page into
+// one image AND sends the text it extracts from that page (the provider PDF
+// docs: each page is billed as an image plus its text, typically
+// 1,500-3,000 text tokens for a dense page). The page image is bounded like
+// any image — the reader downscales it to the vision ceiling — so a page costs
+// at most IMAGE_TOKEN_ALLOWANCE for its picture whatever its file size. A
+// scanned page has no text layer and costs only its picture.
+//
+// The base64 payload itself is excluded from text estimates (see
 // jsonFallbackFromPart), so this allowance is the document's entire cost.
 const FILE_TOKEN_ALLOWANCE_FLOOR = 1_500;
 const FILE_MAX_TOKEN_ALLOWANCE = 300_000;
-// A PDF that records its page count (intake and the read tool do) is priced per
-// page; the size-based figure stays as the floor, so a dense scan still costs
-// at least its bytes. Inline and stored parts carry the same count.
-const FILE_TOKENS_PER_PAGE = 2_500;
+// Extracted PDF text is priced at two characters per token: the low end of
+// the documented per-page range for Latin text, and close to the measured
+// density of Korean/CJK text, so neither is read low.
+const PDF_TEXT_CHARS_PER_TOKEN = 2;
+// A PDF that records its page count but not its text layer (older parts, an
+// inline part from a path that did not measure it) keeps the documented
+// mid-range per-page figure.
+const FILE_TOKENS_PER_PAGE_UNMEASURED = 2_500;
 // A PDF that lowers to text costs at most its extraction budget (~4 bytes/token).
 const PDF_TEXT_MAX_TOKENS = Math.ceil(PDF_TEXT_MAX_BYTES / 4);
+// Without a page count only the file size is known: ~bytes/16 (a typical page
+// is 50-100KB) with a floor and a cap. Never used once pages are known — a
+// scan's bytes are its image data, which the reader downscales, so bytes/16
+// priced a 5 MB, 37-page scan at ~330k tokens instead of ~58k.
 function fileDescriptorAllowance(descriptor, nativePdf = true) {
-  const bySize = Math.ceil((descriptor.sizeBytes || 0) / 16);
-  const byPage = (descriptor.pageCount || 0) * FILE_TOKENS_PER_PAGE;
-  const native = Math.min(FILE_MAX_TOKEN_ALLOWANCE, Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, bySize, byPage));
+  const pages = descriptor.pageCount || 0;
+  let native;
+  if (pages > 0 && Number.isFinite(descriptor.textChars)) {
+    native = pages * IMAGE_TOKEN_ALLOWANCE + Math.ceil(descriptor.textChars / PDF_TEXT_CHARS_PER_TOKEN);
+  } else if (pages > 0) {
+    native = pages * FILE_TOKENS_PER_PAGE_UNMEASURED;
+  } else {
+    native = Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, Math.ceil((descriptor.sizeBytes || 0) / 16));
+  }
+  native = Math.min(FILE_MAX_TOKEN_ALLOWANCE, native);
   return nativePdf ? native : Math.min(native, PDF_TEXT_MAX_TOKENS);
+}
+
+/** The tokens one PDF part costs inline (native reader unless `nativePdf` is false). */
+export function pdfPartAllowance(part, { nativePdf = true } = {}) {
+  return contentFileDescriptors([part]).reduce((sum, d) => sum + fileDescriptorAllowance(d, nativePdf), 0);
+}
+
+/** The tokens one image part costs inline. */
+export function imagePartAllowance(part) {
+  return contentImageDescriptors([part]).reduce((sum, d) => sum + imageDescriptorAllowance(d), 0);
 }
 /**
  * How many tokens the native-PDF meter overstates `messages` for a provider

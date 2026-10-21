@@ -51,6 +51,7 @@ export function createSpawnDispatch({
     }
     if (liveSessionId && registry.getLiveSession(liveSessionId)) {
       const prepared = await sendFlow.prepareSend({ ...args, tag: explicitTag }, scopedContext);
+      await sendFlow.adoptCaller(prepared, notifyContext);
       const route = requestedRoute(args);
       return {
         reused: sendFlow.dispatchToExistingSession(route ? { ...prepared, route } : prepared, notifyContext, {

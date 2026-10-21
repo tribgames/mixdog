@@ -12,6 +12,8 @@ export function createTranscriptEndPin({
   hasReaderGesture,
   markProgrammaticScroll,
   dropDeviation,
+  takeArrival,
+  onArrival,
 }: {
   getVirtualizer(): Virtualizer<HTMLDivElement, HTMLDivElement>;
   getViewport(): HTMLDivElement | null;
@@ -24,6 +26,12 @@ export function createTranscriptEndPin({
   /** The end is a native offset: a row offset held from a touch scroll ends
    *  with this write. */
   dropDeviation?(): void;
+  /** Where the pin lands instead of `max` (a long reply that arrived whole:
+   *  its first line), or null for the end. */
+  takeArrival?(max: number): number | null;
+  /** Called in the same task after a pin landed on `takeArrival`'s offset:
+   *  follow lets go there. */
+  onArrival?(): void;
 }) {
   let queued = false;
   let generation = 0;
@@ -58,6 +66,8 @@ export function createTranscriptEndPin({
         // Reading scrollHeight right after that write forced a synchronous
         // layout of the whole list; the virtual geometry already knows it.
         const max = getMaxScrollTop();
+        const arrival = takeArrival?.(max) ?? null;
+        const target = arrival ?? max;
         // Cancel stale core compensation as well as its pending native timer:
         // this write already includes every measured delta in the commit.
         const core = instance as unknown as {
@@ -81,7 +91,7 @@ export function createTranscriptEndPin({
         const diagnose = transcriptScrollDiagnosticsEnabled();
         dropDeviation?.();
         const before = element.scrollTop;
-        if (Math.abs(before - max) >= 0.5) element.scrollTop = max;
+        if (Math.abs(before - target) >= 0.5) element.scrollTop = target;
         const landed = element.scrollTop;
         core.scrollOffset = landed;
         core._intendedScrollOffset = landed;
@@ -94,7 +104,8 @@ export function createTranscriptEndPin({
             height: element.scrollHeight,
           });
         }
-        markProgrammaticScroll(landed, max);
+        markProgrammaticScroll(landed, target);
+        if (arrival !== null) onArrival?.();
       });
     },
     cancel() {

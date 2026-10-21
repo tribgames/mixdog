@@ -9,11 +9,7 @@ import { defaultSessionLaneStore } from '../session-lane-store';
 import { t } from '../i18n';
 import { asRecord, displayProject, navigationKey, newDraftSelection } from '../text-format';
 import type { ConversationHandoff } from '../use-pane-tab-close';
-import {
-  draftModelSelectionFromSnapshot,
-  resolvedStoredProjectPath,
-  type DraftPanePrefs,
-} from '../use-draft-pane-preferences';
+import { resolvedStoredProjectPath, type DraftPanePrefs } from '../use-draft-pane-preferences';
 import { inheritSessionInPlace } from '../app-session-inheritance';
 import { useStableEvent } from '../use-stable-event';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
@@ -255,7 +251,10 @@ export function useAppTaskLifecycle({
         projectPath: effectiveDraftProjectPath(
           String(source?.currentProject || source?.project || '') || inherited.projectPath
         ),
-        modelSelection: (source ? draftModelSelectionFromSnapshot(source) : null) ?? inherited.modelSelection,
+        // The cleared session's model is not a pick made in the new draft: the
+        // draft inherits the host's Main route (a session's own effort may be
+        // older than a Lead edit and must not be written back over it).
+        modelSelection: null,
         workflow:
           (asRecord(source?.workflow) ? (source?.workflow as unknown as DesktopWorkflowState) : null) ??
           inherited.workflow,
@@ -264,7 +263,7 @@ export function useAppTaskLifecycle({
       const draftSelection = newDraftSelection();
       const draftPrefsKey = draftSelection.kind === 'new' ? draftSelection.draftId || 'default' : 'default';
       draftPanePrefs.current.set(draftPrefsKey, seeded);
-      lastNewTaskPrefs.current = seeded;
+      lastNewTaskPrefs.current = { ...seeded, modelSelection: lastNewTaskPrefs.current?.modelSelection ?? null };
       persistDraftPanePrefs();
       setDraftPrefsVersion((value) => value + 1);
       navigationEpoch.current += 1;

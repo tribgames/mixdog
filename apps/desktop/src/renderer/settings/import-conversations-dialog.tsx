@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
 import { isConversationImportJobActive } from '../../shared/contract-import';
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { SHOW_IMPORTED_CHATS_EVENT } from '../import-conversation-events';
 import { importJobStore } from '../import-job-store';
 import { useMobileBack } from '../mobile-back';
@@ -56,13 +57,8 @@ export function ImportConversationsDialog({ onClose }: { onClose(): void }) {
   const busy = starting || (job !== null && jobMode === 'single');
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: a backdrop press closes the dialog; Escape and the close button are the keyboard routes.
-    <div
-      className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) close();
-      }}
-    >
+    // A backdrop press closes the dialog; Escape and the close button are the keyboard routes.
+    <div className="settings-confirm-layer" {...scrimDismiss(close)}>
       <section
         className="settings-confirm-dialog settings-import-dialog"
         role="dialog"

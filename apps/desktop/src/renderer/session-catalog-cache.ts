@@ -1,5 +1,6 @@
 import { normalizeRoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
 import type { DesktopAgentRoomSummary, DesktopSessionSummary } from '../shared/contract';
+import { cleanIncomingTail } from '../shared/incoming-tail';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { deleteSessionImagePreviews } from './image-preview-store';
 import { contentLocalStorage } from './remote-conversation-privacy';
@@ -41,6 +42,7 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
   const agentRoom = cachedAgentRoom(row.agentRoom);
   const lastMessagePreview = text(row.lastMessagePreview, 1_024);
   const lastMessageRoutine = normalizeRoutineProvenance(row.lastMessageRoutine);
+  const incomingTail = cleanIncomingTail(row.incomingTail);
 
   return {
     id,
@@ -66,6 +68,7 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     ...(agentRoom ? { agentRoom } : {}),
     ...(lastMessagePreview ? { lastMessagePreview } : {}),
     ...(lastMessagePreview && lastMessageRoutine ? { lastMessageRoutine } : {}),
+    ...(incomingTail ? { incomingTail } : {}),
   };
 }
 

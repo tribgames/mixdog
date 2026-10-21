@@ -134,6 +134,16 @@ export function writeMixyRoute(dataDir, route) {
 
 /** Every config route read (configuredAgentRouteCandidates) asks the bot
  *  store first: a bot's route lives with the bot, never in the config. */
+let botDataDir = () => '';
 export function registerBotRouteStore(getDataDir) {
+  botDataDir = getDataDir;
   setBotRouteResolver((id) => readBotRoute(getDataDir(), id));
+}
+
+/** The own route (fallbacks included) of the bot a session acts as, Mixy
+ *  (runtime id `lead`) from bots/mixy; null when it has none. */
+export function storedBotRoute(agentId) {
+  const dataDir = botDataDir();
+  if (!dataDir) return null;
+  return (agentId === 'lead' ? readMixyRoute(dataDir) : readBotRoute(dataDir, agentId)) || null;
 }

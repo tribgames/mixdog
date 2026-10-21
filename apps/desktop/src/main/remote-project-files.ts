@@ -13,6 +13,9 @@ import { localFileMimeTypeForPath } from '../shared/local-files';
 import { absoluteLocalPath, MAX_LOCAL_FILE_BYTES } from './local-files';
 import { createAuthorizedFile, openAuthorizedFile } from './opened-file-authorization';
 import {
+  assertPathNamesFile,
+  handleIdentity,
+  identityKey,
   type ProjectTextEncoding,
   type ProjectTextFile,
   projectEntryPathIn,
@@ -21,6 +24,7 @@ import {
   writeProjectTextFileThrough,
   writeProjectTextFilesThrough,
 } from './project-files';
+import { withFileIdentities } from './project-mutation-queue';
 import { requiredSensitivePolicy } from './remote-sensitive-paths';
 import {
   scopedEditorSettingsFromText,
@@ -113,11 +117,19 @@ export async function writeWorkspaceFileAuthorized(
     return createAuthorizedFile(path, within, valid);
   });
   try {
-    if (file.size > MAX_SETTINGS_BYTES) throw new Error('The workspace file is too large.');
-    const existing = file.size ? await file.handle.readFile('utf8') : null;
-    const { text, workspace } = workspaceFileText(path, folders, workspaceConfiguration(existing));
-    await rewriteFileThrough(file.handle, Buffer.from(text, 'utf8'));
-    return workspace;
+    const identity = await handleIdentity(file.handle);
+    // A read-modify-write: held from the read to the write, so a save through
+    // another hard link to this file cannot interleave with it.
+    return await withFileIdentities([identityKey(identity)], async () => {
+      assertPathNamesFile(path, identity);
+      // The size at open may be stale after waiting.
+      const { size } = await file.handle.stat();
+      if (size > MAX_SETTINGS_BYTES) throw new Error('The workspace file is too large.');
+      const existing = size ? await file.handle.readFile('utf8') : null;
+      const { text, workspace } = workspaceFileText(path, folders, workspaceConfiguration(existing));
+      await rewriteFileThrough(file.handle, Buffer.from(text, 'utf8'));
+      return workspace;
+    });
   } finally {
     await file.handle.close();
   }

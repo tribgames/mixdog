@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks';
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createStandaloneHookBus } from '../services/hook-bus.mjs';
+import { attachSessionHooks } from '../session-hooks.mjs';
 import { updateCurrentCwdOverride, writeLastSessionCwd } from '../../runtime/shared/user-cwd.mjs';
 import { listRegisteredPlugins, pluginAdminStatus } from '../services/plugin-admin.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
@@ -17,7 +18,7 @@ import { createCwdPlugins } from '../cwd-plugins.mjs';
 import { injectedMemoryAgentId } from '../services/memory-access.mjs';
 import { listProjectsStrict } from '../../runtime/shared/projects.mjs';
 import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
-import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
+import { standaloneDataDir } from '../runtime-paths.mjs';
 import { SessionAddressError, isAdmissionOpen, ownerLifecycle } from '../session-address.mjs';
 import { dataDirOf } from './shared.mjs';
 
@@ -186,6 +187,17 @@ export function sessionAdopter(boot) {
       }
     }
     rt.session = v;
+    // The PreToolUse/PostToolUse bridge is a non-enumerable property that
+    // neither the store nor a resumed record carries: every session installed
+    // here (create, resume, route swap, clear, the manager's copy) gets it, so
+    // hook rules apply to all of them, not only to freshly created sessions.
+    if (v?.id && typeof v.beforeToolHook !== 'function') {
+      attachSessionHooks(v, {
+        hooks: boot.hooks,
+        hookCommonPayload: (...a) => boot.hookCommonPayload(...a),
+        getCwd: () => rt.currentCwd,
+      });
+    }
     if (v?.id) {
       rt.desktopSession = v.desktopSession || null;
       // Bind every adopted session, including a cold resume and a session
@@ -292,7 +304,7 @@ function wireCwdPlugins(boot) {
     statSync,
     existsSync,
     cfgMod,
-    STANDALONE_DATA_DIR,
+    STANDALONE_DATA_DIR: standaloneDataDir(),
   });
   Object.assign(boot, { resolveCwdPath, applyResolvedCwd, pluginsStatus, loadCoreMemoryContext });
 }

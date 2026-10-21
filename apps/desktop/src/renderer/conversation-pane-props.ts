@@ -75,6 +75,9 @@ export type ConversationProps = {
   readOnly?: boolean;
   /** Only the focused, visible session performs background review refreshes. */
   reviewActive?: boolean;
+  /** The surface is on screen in its pane (focused or not); a parked one
+   *  (behind a file or utility tab) docks no approvals, so they float. */
+  surfaceVisible?: boolean;
   /** A warm New Task → session commit paints the requested transcript under
    *  the prior watermark for one frame so Chromium uploads its raster before
    *  it becomes visible. Route identity and interaction are already current. */

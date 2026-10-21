@@ -444,7 +444,10 @@ test('a non-Git turn records exact tracker patches and replays them', { skip }, 
   assert.deepEqual(readTree(root, paths), after);
   // A binary file changed since the turn refuses its Undo and keeps its bytes.
   writeFileSync(join(root, 'blob.bin'), Buffer.from([9, 9, 9]));
-  await assert.rejects(revertTurnChanges(sessionId, 'cp', 'blob.bin', reply.revision), /undo failed; the worktree was not changed/);
+  await assert.rejects(
+    revertTurnChanges(sessionId, 'cp', 'blob.bin', reply.revision),
+    /undo failed; the worktree was not changed/
+  );
   assert.deepEqual(readFileSync(join(root, 'blob.bin')), Buffer.from([9, 9, 9]));
 });
 
@@ -966,7 +969,12 @@ test('a file patch past the per-file cap is listed with its counts and read on i
   const review = await getSessionReviewDiff(root, sessionId);
   const byPath = Object.fromEntries(review.files.map((file) => [file.path, file]));
   assert.deepEqual(
-    [byPath['big.txt'].patchOmitted, byPath['big.txt'].reason, byPath['big.txt'].additions, byPath['big.txt'].deletions],
+    [
+      byPath['big.txt'].patchOmitted,
+      byPath['big.txt'].reason,
+      byPath['big.txt'].additions,
+      byPath['big.txt'].deletions,
+    ],
     [true, 'too_large', 300_000, 300_000]
   );
   assert.equal(byPath['small.txt'].patchOmitted, undefined);
@@ -1046,7 +1054,9 @@ test('a list keeps no patch text past the inline cap; a file read measures only 
   // 1.2 MB of new lines each for the big files: past the 1 MiB inline cap.
   writeTree(
     root,
-    Object.fromEntries(names.map((name) => [name, name === 'small.txt' ? 'new\n' : `${'z'.repeat(99)}\n`.repeat(12_000)]))
+    Object.fromEntries(
+      names.map((name) => [name, name === 'small.txt' ? 'new\n' : `${'z'.repeat(99)}\n`.repeat(12_000)])
+    )
   );
   const reads = [];
   const baselines = {
@@ -1109,9 +1119,19 @@ test('a turn patch dropped from its record for size stays too large after a rest
   // Every line replaced: a ~10 MiB patch, past what a record keeps.
   const before = `${'a'.repeat(1023)}\n`.repeat(5_000);
   const after = `${'b'.repeat(1023)}\n`.repeat(5_000);
-  const root = await plainTurn(sessionId, { 'big.txt': before, 'small.txt': 'old\n' }, { 'big.txt': after, 'small.txt': 'new\n' });
+  const root = await plainTurn(
+    sessionId,
+    { 'big.txt': before, 'small.txt': 'old\n' },
+    { 'big.txt': after, 'small.txt': 'new\n' }
+  );
   const shape = (review) =>
-    review.files.map(({ path, additions, deletions, patchOmitted, reason }) => [path, additions, deletions, patchOmitted, reason]);
+    review.files.map(({ path, additions, deletions, patchOmitted, reason }) => [
+      path,
+      additions,
+      deletions,
+      patchOmitted,
+      reason,
+    ]);
   for (const restart of [false, true]) {
     if (restart) _resetTurnSnapshotForTest();
     const review = await getTurnReviewDiff(root, sessionId);
@@ -2077,7 +2097,10 @@ test('a clear drops an older index’s missing path and incompleteness that no c
       missing: [{ key: changePathKey(path), path, root }],
     })
   );
-  assert.deepEqual((await loadSessionBaselines(sessionId)).missing.map((entry) => entry.path), [path]);
+  assert.deepEqual(
+    (await loadSessionBaselines(sessionId)).missing.map((entry) => entry.path),
+    [path]
+  );
   await clearSessionBaselines(sessionId);
   await clearSessionBaselines(sessionId);
   for (const restart of [false, true]) {
@@ -2151,4 +2174,22 @@ test('a capture tied with another process’s clear is kept, but the review is n
     assert.deepEqual(reviewShape(review), [['tied.txt', '', 'M', 1, 1]]);
     assert.deepEqual([review.partial, review.complete], [true, undefined]);
   }
+});
+
+test('Undo and Reapply replies flag gitignored files as a read does', { skip }, async () => {
+  _resetTurnSnapshotForTest();
+  const sessionId = 'ignored-mutation';
+  const repo = gitRepo(sessionId, { '.gitignore': 'dist/\n', 'index.html': 'old\n' });
+  await gitTurn(repo, sessionId, 'cp', { 'index.html': 'new\n', 'dist/bundle.js': 'built\n' });
+  const ignoredOf = (reply) => reply.files.map((file) => [file.path, file.ignored === true]).sort();
+  const expected = [
+    ['dist/bundle.js', true],
+    ['index.html', false],
+  ];
+  let reply = await getTurnChanges(sessionId, { checkpointId: 'cp' });
+  assert.deepEqual(ignoredOf(reply), expected);
+  reply = await revertTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.deepEqual(ignoredOf(reply), expected);
+  reply = await reapplyTurnChanges(sessionId, 'cp', null, reply.revision);
+  assert.deepEqual(ignoredOf(reply), expected);
 });

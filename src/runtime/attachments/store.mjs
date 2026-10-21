@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path';
 import { writeFileAtomicSync, writeJsonAtomicAsync } from '../shared/atomic-file.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { MAX_ATTACHMENT_BLOB_BYTES, MAX_PDF_BYTES, MAX_PDF_PAGES, isPdfBuffer } from './limits.mjs';
-import { inspectPdfBuffer } from './pdf-extract.mjs';
+import { inspectPdfBuffer, PDF_INTAKE_TIMEOUT_MS } from './pdf-extract.mjs';
 
 const ATTACHMENT_REF_RE = /^[a-f0-9]{64}$/;
 const TEXT_TOKEN_RE = /\[(?:Pasted text|File) #(\d+)[^\]\r\n]*\]/g;
@@ -168,8 +168,21 @@ export function storeAttachmentBuffer(buffer) {
   return saveBuffer(buffer);
 }
 
+/** Where the store keeps the bytes of `ref` on this machine (no extension:
+ *  the read tool recognizes PDFs and images there by their content). */
+export function attachmentFilePath(ref) {
+  return attachmentPath(ref);
+}
+
 export function isAttachmentReference(value) {
   return Boolean(value && typeof value === 'object' && ATTACHMENT_REF_RE.test(String(value.attachmentRef || '')));
+}
+
+// The bytes of a base64 string, or null when they are empty or would not
+// re-encode to the same string (a stored reference could not replay it exactly).
+function canonicalBase64Buffer(data) {
+  const buffer = Buffer.from(data, 'base64');
+  return buffer.length === 0 || buffer.toString('base64') !== data ? null : buffer;
 }
 
 /**
@@ -196,8 +209,8 @@ export function storeInlineImagePart(part) {
   } else {
     return null;
   }
-  const buffer = Buffer.from(data, 'base64');
-  if (buffer.length === 0 || buffer.toString('base64') !== data) return null;
+  const buffer = canonicalBase64Buffer(data);
+  if (!buffer) return null;
   return { ...metadata, ...saveBuffer(buffer) };
 }
 
@@ -231,8 +244,8 @@ export function storeInlineDocumentPart(part) {
   } else {
     return null;
   }
-  const buffer = Buffer.from(data, 'base64');
-  if (buffer.length === 0 || buffer.toString('base64') !== data) return null;
+  const buffer = canonicalBase64Buffer(data);
+  if (!buffer) return null;
   // The magic header decides the kind before the label does (inlineFileKind),
   // so a mislabelled PDF is stored under its real type: the reloaded part then
   // estimates and lowers exactly like the live one.
@@ -641,11 +654,21 @@ export async function preparePromptSubmissionForProvider(intake, provider) {
     if (bytes > MAX_PDF_BYTES) {
       throw new RangeError(`PDF exceeds the ${MAX_PDF_BYTES / 1024 / 1024} MiB input limit`);
     }
+    // The text-layer counts price the PDF (a scanned page costs its page image,
+    // a text page its text as well) and tell the model, when the PDF is sent
+    // as a reference, which pages read as text.
     const inspected = await inspectPdfBuffer(readAttachmentBuffer(part), {
       maxPages: nativePdf ? MAX_PDF_PAGES : Infinity,
+      measureText: true,
+      timeoutMs: PDF_INTAKE_TIMEOUT_MS,
     });
     changed = true;
-    prepared.push({ ...part, pageCount: inspected.pageCount });
+    prepared.push({
+      ...part,
+      pageCount: inspected.pageCount,
+      textPages: inspected.textPages,
+      textChars: inspected.textChars,
+    });
   }
   if (!changed) return intake;
   return { ...intake, prompt: prepared };
@@ -735,8 +758,8 @@ function dropCachedAttachment(path) {
 async function persistedAttachmentReferencePaths() {
   const root = resolvePluginData();
   const paths = [];
-  for (const dirname of ['sessions', 'turn-checkpoints', 'session-pending']) {
-    const dir = join(root, dirname);
+  for (const subdir of ['sessions', 'turn-checkpoints', 'session-pending']) {
+    const dir = join(root, subdir);
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -748,7 +771,7 @@ async function persistedAttachmentReferencePaths() {
       if (!entry.isFile()) continue;
       // The turn-checkpoint journal appends `<session>.jsonl` records that
       // carry attachment refs of in-flight turns.
-      if (entry.name.endsWith('.json') || (dirname === 'turn-checkpoints' && entry.name.endsWith('.jsonl'))) {
+      if (entry.name.endsWith('.json') || (subdir === 'turn-checkpoints' && entry.name.endsWith('.jsonl'))) {
         paths.push(join(dir, entry.name));
       }
     }
@@ -879,9 +902,10 @@ export async function collectPromptAttachments({ now = Date.now(), minAgeMs = AT
       continue;
     }
     for (const entry of entries) {
-      // A writer that died between create and rename leaves `.<ref>.<rand>.tmp`
-      // (atomic writer) or the older `<ref>.<pid>.<rand>.tmp`.
-      if (entry.isFile() && /^\.?[a-f0-9]{64}\..+\.tmp$/.test(entry.name)) {
+      // A writer that died between create and rename leaves
+      // `<ref>.mixdog-tmp-<rand>` (atomic writer), or the older
+      // `.<ref>.<rand>.tmp` / `<ref>.<pid>.<rand>.tmp`.
+      if (entry.isFile() && /^(?:\.?[a-f0-9]{64}\..+\.tmp|[a-f0-9]{64}\.mixdog-tmp-[0-9a-f]+)$/.test(entry.name)) {
         const tempPath = join(dir, entry.name);
         try {
           if ((await stat(tempPath)).mtimeMs <= cutoff) await unlink(tempPath);

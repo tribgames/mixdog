@@ -17,6 +17,8 @@ import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
+import { refreshStaleLocalBinaries } from '../../../scripts/native-release-status.mjs';
+
 import {
   assertDebugPortAvailable,
   createPersistentDevEnv,
@@ -471,6 +473,9 @@ export async function startInstance({
     const appDir = await prepareAppDir(instanceDir);
     const env = await instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, relay });
     const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR) : [];
+    // Source checkouts prefer native/*/target/release over the pinned download;
+    // never launch against a binary older than its sources.
+    await refreshStaleLocalBinaries();
     const logPath = join(instanceDir, 'launcher.log');
     const log = openSync(logPath, 'a');
     const launcher = spawn(

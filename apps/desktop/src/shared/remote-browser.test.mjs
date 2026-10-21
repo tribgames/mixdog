@@ -100,7 +100,7 @@ test('remote browser controls admit only bounded navigation and document-bound h
   );
 });
 
-test('a dialog answer is admitted for the shown document only, bounded like the pane\'s', () => {
+test("a dialog answer is admitted for the shown document only, bounded like the pane's", () => {
   const documentId = 'p2:17';
   assert.deepEqual(
     normalizeRemoteBrowserControl({ type: 'answer-dialog', documentId, requestId: 'leave_3', accept: true, extra: 1 }),
@@ -178,6 +178,15 @@ test('tab controls: new-tab, select-tab and close-tab are accepted, bad tab ids 
   assert.deepEqual(normalizeRemoteBrowserControl({ type: 'close-tab', tabId: 'p12' }), {
     type: 'close-tab',
     tabId: 'p12',
+  });
+  // `follow` is the local pane's own marker; a paired client cannot send it.
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'select-tab', tabId: 'p3', follow: 'resume' }), {
+    type: 'select-tab',
+    tabId: 'p3',
+  });
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'select-tab', tabId: 'p3', follow: 'agent' }), {
+    type: 'select-tab',
+    tabId: 'p3',
   });
   for (const type of ['select-tab', 'close-tab']) {
     for (const tabId of [undefined, 3, '', 'main-browser-a', 'p', 'p1x', 'x1', `p${'1'.repeat(80)}`]) {

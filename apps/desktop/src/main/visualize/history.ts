@@ -5,11 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import {
-  MAX_VISUALIZE_HISTORY,
-  type VisualizeHistoryItem,
-  type VisualizeInlineContent,
-} from '../../shared/visualize';
+import { MAX_VISUALIZE_HISTORY, type VisualizeHistoryItem, type VisualizeInlineContent } from '../../shared/visualize';
 
 /** Inline sources kept across all of a session's closed entries. */
 export const MAX_HISTORY_INLINE_BYTES = 4 * 1024 * 1024;

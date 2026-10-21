@@ -1,0 +1,121 @@
+/* A row with sub-agents makes its face a button: the row keeps the plain row's
+   layout and height; the button is an overlay on the face, a sibling of the
+   row's own button (a button cannot nest in a button). No visible mark. */
+.agent-chat-row[data-kind="contact"] {
+  --subtree-pad-l: 10px;
+  --subtree-hit: 0px;
+}
+html[data-mixdog-mobile-tabs] .agent-chat-row[data-kind="contact"] {
+  --subtree-pad-l: var(--mx-drawer-bleed);
+}
+@container (max-width: 280px) {
+  .agent-chat-row[data-kind="contact"] {
+    /* a 32px face still gets a 44px touch target on a phone */
+    --subtree-hit: 0px;
+  }
+}
+html[data-mixdog-mobile-tabs] .agent-chat-row[data-kind="contact"] {
+  --subtree-hit: max(0px, calc((44px - var(--agent-contact-avatar-size)) / 2));
+}
+.agent-chat-row > .agent-subtree-toggle {
+  position: absolute;
+  left: var(--subtree-pad-l);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  width: var(--agent-contact-avatar-size);
+  height: var(--agent-contact-avatar-size);
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-lg);
+  background: transparent;
+  cursor: pointer;
+}
+.agent-chat-row > .agent-subtree-toggle::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--subtree-hit) * -1);
+}
+.agent-chat-row > .agent-subtree-toggle:hover {
+  background: var(--mx-hover);
+}
+.agent-chat-row > .agent-subtree-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--mx-list-focus-ring);
+}
+.agent-subtree {
+  list-style: none;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+/* Sub-agents keep the parent row's left line: the provider mark fills the same
+   avatar column (same width, inset and gap as a contact row) and every nesting
+   level stays on it — the order shows the nesting, nothing steps in. */
+.agent-subtree {
+  --agent-contact-avatar-size: 48px;
+  --agent-contact-gap: 8px;
+  --subtree-inset: 10px;
+  --subtree-inset-end: 8px;
+  --subtree-mark: 24px;
+}
+html[data-mixdog-mobile-tabs] .agent-subtree {
+  --agent-contact-gap: 10px;
+  --subtree-inset: var(--mx-drawer-bleed);
+  --subtree-inset-end: var(--mx-drawer-bleed);
+  --subtree-mark: 28px;
+}
+@container (max-width: 280px) {
+  .agent-subtree {
+    --agent-contact-avatar-size: 32px;
+  }
+}
+/* The state is as wide as its own text, so the name takes the rest; only a very
+   long state (Waiting for approval) wraps, capped at 38%. */
+.agent-activity-page .agent-subtree .agent-pool-row .agent-activity-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 38%;
+  margin-right: 0;
+  text-align: right;
+}
+.agent-activity-page .agent-subtree .agent-pool-row .agent-activity-elapsed {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The extra .agent-subtree outranks the page's -6px row bleed whatever order the sheets load in. */
+.agent-activity-page .agent-subtree.agent-subtree .agent-pool-row.agent-pool-row {
+  margin-inline-start: 0;
+  width: 100%;
+  gap: var(--agent-contact-gap);
+  /* The parent row's own insets; only the vertical padding is tighter (symmetric). */
+  padding-block: 4px;
+  padding-inline: var(--subtree-inset) var(--subtree-inset-end);
+  border-radius: var(--mx-radius-lg);
+  background: transparent;
+  box-shadow: none;
+}
+.agent-activity-page .agent-subtree.agent-subtree .agent-pool-row.agent-pool-row:hover {
+  background: var(--mx-hover);
+}
+:root[data-mixdog-theme="light"]
+  .agent-activity-page
+  .agent-subtree.agent-subtree
+  .agent-pool-row.agent-pool-row:hover {
+  background: var(--mx-hover-opaque);
+}
+/* The same list gap as between bot rows. */
+.agent-subtree .schedules-list {
+  gap: 1px;
+}
+.agent-activity-page .agent-subtree.agent-subtree .agent-pool-row.agent-pool-row > .sidebar-resource-icon {
+  width: var(--agent-contact-avatar-size);
+  height: var(--agent-contact-avatar-size);
+  flex: 0 0 var(--agent-contact-avatar-size);
+  max-height: 40px;
+}
+.agent-activity-page .agent-subtree.agent-subtree .agent-pool-row.agent-pool-row > .sidebar-resource-icon > svg {
+  width: var(--subtree-mark);
+  height: var(--subtree-mark);
+}

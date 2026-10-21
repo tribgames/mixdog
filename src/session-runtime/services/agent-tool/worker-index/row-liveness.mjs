@@ -31,10 +31,30 @@ export const PROCESS_RESTART_FAILURE = 'process-restart';
 /** The row's turn was stopped by the progress (stall) watchdog. */
 export const WATCHDOG_STALL_FAILURE = 'stalled';
 
+/** A failed row whose turn a process restart ended and whose owner has not
+ *  been told yet (restart-notify). It is the only record of that owed result,
+ *  so closing the worker never drops it. */
+export const isUnnotifiedRestartFailure = (row) =>
+  row?.status === 'failed' &&
+  row.failureReason === PROCESS_RESTART_FAILURE &&
+  Boolean(clean(row.ownerSessionId)) &&
+  !row.restartNotified;
+
 /** A turn's settled row status and failure reason: a watchdog stop is a
  *  failure whatever partial output it handed back (`finalStatus` may still
- *  read `idle` for the job's sake); everything else keeps `finalStatus`. */
-export function settledWorkerStatus(finalStatus, stalled) {
+ *  read `idle` for the job's sake); a turn the process exit cut off (its `job`
+ *  cancelled with terminalReason PROCESS_RESTART_FAILURE, lifecycle/teardown)
+ *  fails as a restart failure under its task id, which the next process tells
+ *  its owner; everything else keeps `finalStatus`. */
+export function settledWorkerStatus(finalStatus, stalled, job = null) {
+  if (job?.status === 'cancelled' && job.terminalReason === PROCESS_RESTART_FAILURE) {
+    return {
+      status: 'failed',
+      stage: 'failed',
+      failureReason: PROCESS_RESTART_FAILURE,
+      ...(job.taskId ? { task_id: job.taskId } : {}),
+    };
+  }
   return stalled
     ? { status: 'failed', stage: 'failed', failureReason: WATCHDOG_STALL_FAILURE }
     : { status: finalStatus, stage: finalStatus };

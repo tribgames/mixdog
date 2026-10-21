@@ -5,11 +5,74 @@
  * paths) so the Studio never holds a second copy of a session. API-key lanes
  * read the same keychain-backed store the agent providers use.
  */
-import { getAgentApiKey } from '../shared/provider-api-key.mjs';
+import { readSection } from '../shared/config.mjs';
+import {
+  getAgentApiKey,
+  hasAgentApiKey,
+  hasProviderApiKey,
+  resolveProviderApiKey,
+} from '../shared/provider-api-key.mjs';
 
 export { hasGrokOAuthCredentials } from '../agent/orchestrator/providers/oauth-credential-probes.mjs';
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
+// Both gateways serve the same normalized Image API (GET /images/models,
+// POST /images) under these documented bases.
+const IMAGE_API_BASE_URL = Object.freeze({
+  openrouter: 'https://openrouter.ai/api/v1',
+  'nano-gpt': 'https://api.nano-gpt.com/api/v1',
+});
+
+/** Lanes served by the normalized Image API adapter. */
+export function imageApiLane(laneId) {
+  return Object.hasOwn(IMAGE_API_BASE_URL, laneId);
+}
+
+function nanoGptHost(baseURL) {
+  try {
+    const host = new URL(String(baseURL || '')).hostname.toLowerCase();
+    return host === 'nano-gpt.com' || host.endsWith('.nano-gpt.com');
+  } catch {
+    return false;
+  }
+}
+
+// NanoGPT is not a built-in provider: it is connected as an OpenAI-compatible
+// custom provider, whose key lives under that provider's own id (keychain or
+// its configured environment variable). The first enabled, keyed endpoint on
+// a NanoGPT host is the lane's credential.
+function nanoGptProviders() {
+  const providers = readSection('agent')?.providers || {};
+  return Object.entries(providers).filter(
+    ([id, entry]) =>
+      id.startsWith('custom-') &&
+      entry?.type === 'custom' &&
+      entry.enabled !== false &&
+      entry.auth !== 'none' &&
+      nanoGptHost(entry.baseURL)
+  );
+}
+
+/** Presence-only probe for an Image API lane's key; no secret is read. */
+export function hasImageApiCredentials(laneId) {
+  if (laneId === 'openrouter') return hasAgentApiKey('openrouter');
+  if (laneId === 'nano-gpt') return nanoGptProviders().some(([id, entry]) => hasProviderApiKey(id, entry));
+  return false;
+}
+
+/** Base URL + bearer for an Image API lane (OpenRouter key, or the connected NanoGPT custom provider's key). */
+export function resolveImageApiAuth(laneId) {
+  let token = '';
+  if (laneId === 'openrouter') token = getAgentApiKey('openrouter') || '';
+  else if (laneId === 'nano-gpt') {
+    for (const [id, entry] of nanoGptProviders()) {
+      token = resolveProviderApiKey(id, entry);
+      if (token) break;
+    }
+  }
+  if (!imageApiLane(laneId) || !token) throw unauthenticated(`${laneId} API key is not configured`);
+  return { baseURL: IMAGE_API_BASE_URL[laneId], token };
+}
 
 // Built here rather than with lanes.mjs's mediaError: importing it would close
 // an auth -> lanes -> catalog -> auth module cycle.

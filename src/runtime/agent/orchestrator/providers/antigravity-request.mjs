@@ -3,6 +3,7 @@ import { createProviderReplay, providerReplayItems } from './lib/provider-replay
 import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
 import { isGeminiFamilyModel } from './gemini-family.mjs';
+import { splitTailReminder } from './lib/tail-reminder-split.mjs';
 
 const THOUGHT_SIGNATURE_SENTINEL = 'skip_thought_signature_validator';
 const CLAUDE_MAX_OUTPUT_TOKENS = 64000;
@@ -219,7 +220,10 @@ function antigravityGeminiThinkingConfig(model, opts) {
   });
 }
 
-export function buildAntigravityRequest(messages, model, tools, opts = {}, projectId) {
+export function buildAntigravityRequest(requestMessages, model, tools, opts = {}, projectId) {
+  // The tail reminder is not history: the tool-loop closure below must see the
+  // real tail, so the reminder is appended to the wire contents last.
+  const { messages, reminder } = splitTailReminder(requestMessages);
   const systemText = messages
     .filter((message) => message.role === 'system')
     .map((message) => message.content)
@@ -234,7 +238,7 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
     ...(claude ? { maxOutputTokens: CLAUDE_MAX_OUTPUT_TOKENS } : {}),
     ...(thinkingConfig ? { thinkingConfig } : {}),
   };
-  const request = { contents };
+  const request = { contents: reminder ? [...contents, { role: 'user', parts: [{ text: reminder }] }] : contents };
   if (systemText) request.systemInstruction = { role: 'user', parts: [{ text: systemText }] };
   const requestTools = claude
     ? claudeRequestTools(tools, opts.nativeTools, opts.onToolExcluded)

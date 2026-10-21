@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -256,6 +256,105 @@ test('a digest mismatch aborts the install and leaves nothing behind', async (t)
   assert.deepEqual(outcome.installed, []);
   assert.match(outcome.errors[0].error, /sha256 mismatch/);
   assert.equal(existsSync(join(root, 'tools', 'shfmt', '1.2.3')), false);
+});
+
+// A body that delivers some bytes, then dies the way a Wi-Fi switch kills a socket.
+function abortedFetch(partial) {
+  return async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => '' },
+    body: new Readable({
+      read() {
+        this.push(partial);
+        process.nextTick(() => this.destroy(new Error('fetch failed: network changed')));
+      },
+    }),
+  });
+}
+
+test('a download aborted mid-body leaves no engine dir or staging, and the next install recovers', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const first = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    fetchFn: abortedFetch(payload.subarray(0, 5)),
+  });
+  assert.deepEqual(first.installed, []);
+  assert.match(first.errors[0].error, /network changed/);
+  assert.equal(managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  assert.deepEqual(readdirSync(join(root, 'tools', 'shfmt')), [], 'no staging or version dir survives');
+
+  const retry = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(retry.installed[0].status, 'installed');
+  assert.equal(readFileSync(retry.installed[0].path, 'utf8'), payload.toString('utf8'));
+});
+
+test('an empty or binary-less engine dir is not installed and is replaced by the next install', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const dir = join(root, 'tools', 'shfmt', '1.2.3');
+  mkdirSync(dir, { recursive: true });
+  assert.equal(managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  writeFileSync(join(dir, 'leftover.part'), 'half');
+  writeFileSync(join(dir, 'shfmt'), Buffer.alloc(64));
+  assert.equal(managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null, 'a NUL-filled binary');
+  assert.equal(planInstall({ ids: ['shfmt'], manifest, pluginData: root }).targets.length, 1);
+
+  const outcome = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(outcome.installed[0].status, 'installed');
+  assert.equal(existsSync(join(dir, 'leftover.part')), false);
+  assert.equal(readFileSync(join(dir, 'shfmt'), 'utf8'), payload.toString('utf8'));
+});
+
+test('staging left by a crashed install is reclaimed; a live owner is left alone', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const engineRoot = join(root, 'tools', 'shfmt');
+  const dead = join(engineRoot, `.tmp-2147483646-${Date.now()}-dead00`);
+  const ancient = join(engineRoot, `.tmp-${process.pid}-${Date.now() - 2 * 60 * 60 * 1000}-old000`);
+  const live = join(engineRoot, `.tmp-${process.pid}-${Date.now()}-live00`);
+  for (const dir of [dead, ancient, live]) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'asset-shfmt'), 'partial');
+  }
+  await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(existsSync(dead), false);
+  assert.equal(existsSync(ancient), false);
+  assert.equal(existsSync(live), true);
+});
+
+test('a stalled download fails with a clear error instead of hanging forever', async (t) => {
+  const root = workspace(t);
+  const manifest = manifestFor('shfmt', { sha: 'a'.repeat(64) });
+  const outcome = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    stallTimeoutMs: 50,
+    // One chunk, then silence: the socket stays open and never ends.
+    fetchFn: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => '' },
+      body: new Readable({
+        read() {
+          if (!this.sent) {
+            this.sent = true;
+            this.push(Buffer.from('partial'));
+          }
+        },
+      }),
+    }),
+  });
+  assert.deepEqual(outcome.installed, []);
+  assert.match(outcome.errors[0].error, /stalled/);
+  assert.deepEqual(readdirSync(join(root, 'tools', 'shfmt')), []);
 });
 
 test('an "ask" policy install returns the approval request without fetching', async (t) => {

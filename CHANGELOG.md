@@ -5,6 +5,82 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Added themes and photo skins, the representative bot overlay, and switching the workflow and delegation mode mid-conversation, with Windows code signing and broad fixes to compaction, approvals and attachments.
+
+### New features
+
+- **Themes** — Added Settings → Themes to pick System, Dark or White, one of four moving photo skins or your own photo or short video, and the font and text size on one screen.
+- **Representative bot overlay** — Added the representative bot sitting above the PC app's composer, showing replies in a speech bubble that pages through long answers on its own; click it to send a message, or right-click for size, position pinning and settings. Choose it in Settings → Bots.
+- **Fallback models** — Added fallback models to Lead, the representative bot and bot profiles, moving to the next model when one hits its usage limit.
+- **Workflow and delegation switch** — Added switching the workflow and delegation mode from the model menu during a conversation; it applies from the next turn to that conversation only.
+- **Smart compaction** — Added Settings → Context → "Compaction summary model" with Smart, Maintainer or Conversation model. Smart is the default.
+- **Auto reasoning base** — Added Settings → General → "Auto reasoning base" to pick the effort Auto works around.
+- **Image generation** — Added image generation in Studio with OpenRouter and NanoGPT image models.
+- **Side panel position** — Added Settings → General option to place the side panel on the right, at the bottom or automatically.
+- **Bots page layout** — Added dragging bots to reorder them, showing or hiding the representative bot, bots, rooms and agents from the `…` menu, and one place for running tasks.
+
+### Changes
+
+- Changed the Windows installer and app to be code-signed, so Windows security warnings and antivirus false positives are reduced.
+- Changed browser-use approvals from OS windows to approval cards in the chat, and file uploads now ask too.
+- Changed approval cards to show the requesting bot and a one-line question, decline in one click, and never decline on their own while waiting.
+- Changed sub-agent approval requests to also appear in the top-level chat, with "Open session" to jump there.
+- Changed bot profiles to list items set to "Always allow" and turn each back with "Ask again".
+- Changed schedules and webhooks to ask once when saved and not again while running; payments and permanent deletion never run unattended.
+- Changed a linked phone to only narrow, never widen, bot permissions and connectors.
+- Changed a disabled bot to stay on the Bots page as "Off" so it can be turned back on, and to be hideable from the sidebar separately (#153).
+- Changed sub-agents to expand by clicking the face or right-click "Show sub-agents" instead of an arrow.
+- Changed the model picker to drop the "Auto reasoning" switch and list Auto at the top of the effort list.
+- Changed the model picker to open right below its row, and custom providers to show the name you gave them.
+- Adjusted bot rooms so bots talk naturally instead of agreeing with each other every time; without a Maintainer model, each mentioned bot answers once.
+- Changed bot-to-bot messages to show the sending and receiving bot, and limited back-and-forth between bots to three exchanges.
+- Changed bot reply notifications on PC and phone to use the bot's or room's name as the title.
+- Changed the composer's Git button to open the Git tab, where Create PR, Commit & push and Commit each have their own Run button.
+- Changed the end-of-task card to show thumbnails only of files the answer linked or opened in the side panel.
+- Changed scrolling so the view moves only when you scroll and follows new replies again once you reach the bottom; long answers arriving at once start from their first line.
+- Changed a slow MCP server to delay the first reply by at most 3 seconds; tools that connect later are available from the next turn.
+- Changed streaming replies to appear in small steps with a brief fade on new words, so text no longer pops in chunks.
+- Added pinning agents on the Bots page from the right-click menu, and "Keep finished agents" in the `…` menu for 1 hour, 1 day, 7 days or forever.
+- Added "Unlimited" to idle session auto-clear.
+- Adjusted the agent window's token and cost line to hold its place from the start so the view no longer shifts.
+- Adjusted the setup tool's guidance so the AI can set a skill's trigger line (`when_to_use`) when it creates or edits a skill.
+
+### Bug fixes
+
+- Fixed Anthropic chats with a large image or PDF failing repeatedly with "attachmentReference: Extra inputs are not permitted".
+- Fixed attaching several PDFs blocking the chat by exceeding the context; large attachments stay on this PC and only needed parts are read (#150).
+- Fixed rich text copied from Word, Excel or a browser being attached as an image (#135).
+- Fixed unsent attachments disappearing after visiting another session (#139).
+- Fixed Lead's model and reasoning effort changing whenever a new task opened (#149).
+- Fixed Claude Opus 5.5 answering in English instead of Korean at the end of long tasks; Lead and bot final answers now come in Korean.
+- Fixed settings and account files breaking after a forced shutdown and losing sign-ins and settings; they are now restored from the last good copy (#151).
+- Fixed creating or editing files in sync folders such as NAVER MYBOX failing with EPERM (#138).
+- Fixed the model list staying empty after signing in to OpenCode Go (#141).
+- Fixed an interrupted code-tidy engine install getting stuck and never reinstalling; it now reports the failure and reinstalls per engine (#152).
+- Fixed saving a custom provider with a slow model list failing with a timeout.
+- Fixed starting a new task returning to a blank screen.
+- Fixed the finished sub-agent list disappearing after restarting the app or background service.
+- Fixed sub-agents in work handed off by the representative bot reporting an interim answer as the result before finishing.
+- Fixed tasks waiting for approval showing as stalled or being cut off by a timeout.
+- Fixed sub-agents following the main chat's context, reasoning effort and speed settings, and ignoring the Maintainer setting.
+- Fixed a long answer arriving at once looking blank and faint for a moment.
+- Fixed a stopped queued input running again after recovery (#142, thanks @22nsuk).
+- Fixed shell jobs whose exit was never confirmed being treated as finished (#133, thanks @22nsuk).
+- Fixed running tasks losing their protection when the workspace record was damaged (#117, thanks @22nsuk).
+- Fixed Cursor models losing tool call IDs and stalled tool handoffs never ending (#156, thanks @22nsuk).
+- Fixed the typing indicator never ending in bot rooms, and messages sent mid-reply going missing.
+- Fixed the "results omitted" notice not appearing in a bot's chat when many routine results piled up.
+- Fixed the Bots list's unread count also counting tool calls.
+- Fixed completion notices for other sessions not appearing while the app was in view.
+- Fixed the session list jumping on phones when its order changed while scrolling, and iPhone settings sheets not closing on an outside tap.
+- Fixed email links in answers doing nothing when clicked.
+- Fixed PreToolUse hooks being skipped on sessions reopened later, such as an agent's follow-up turn (#161).
+- Fixed GitHub sign-in getting stuck at "Starting GitHub sign-in…" (#162).
+- Fixed the reasoning effort still showing Auto after you picked another one (#131).
+- Fixed the fullscreen button of videos in the side panel doing nothing (#160, thanks @Deno2026).
+- Fixed the app showing "Object has been destroyed" when its window closed with the representative bot overlay on.
+- Fixed a slow Git command making the app reconnect to its background service and briefly lose live session updates.
+
 ## v1.3.1 - 2026-10-20
 
 A stabilization patch for issues found since 1.3.0, with an upgraded reasoning-effort judge.

@@ -47,7 +47,8 @@ import type { useEditorNavigation } from '../use-editor-navigation';
 import type { createSideFileGuard } from '../side-file-guard';
 import { WorkbenchProblemsPane } from '../WorkbenchProblems';
 import type { EditorSaveHandle } from '../use-pane-tab-close';
-import { cleanDiffTarget } from './workspace-targets';
+import { cleanDiffTarget, sessionChangesCwd, sessionOwnsWorkspace } from './workspace-targets';
+import { useSessionLane } from '../session-lane-store';
 import { showDesktopToast } from '../desktop-toasts';
 import { errorMessageText } from '../ErrorNotice';
 import { t } from '../i18n';
@@ -70,12 +71,17 @@ function VisualizePane(props: React.ComponentProps<typeof VisualizePaneComponent
 // The Changes and Ports views are side views no first screen shows: their
 // chunks load on first mount (or from the idle lane), behind the shared
 // delayed loading surface, which a warm or local load never shows.
-function SessionDiffPane(props: React.ComponentProps<typeof SessionDiffPaneComponent>) {
+function SessionDiffPane({
+  ownsWorkspace,
+  ...props
+}: React.ComponentProps<typeof SessionDiffPaneComponent> & { ownsWorkspace: boolean }) {
   const module = useDeferredModule(sessionDiffPaneModule, { bootSurface: props.active ? 'session-diff' : undefined });
+  const lane = useSessionLane(ownsWorkspace ? props.sessionId : '');
+  const cwd = sessionChangesCwd(ownsWorkspace, lane?.cwd, props.cwd ?? '');
   const loading = <DesktopLoadingSurface label={t('Loading view…')} />;
   return module ? (
     <PhoneDeferredMount placeholder={loading}>
-      <module.SessionDiffPane {...props} />
+      <module.SessionDiffPane {...props} cwd={cwd} />
     </PhoneDeferredMount>
   ) : (
     loading
@@ -329,13 +335,18 @@ export function useAppWorkbenchViews({
       if (!pane) return null;
       const sessionId = pane.sessionId;
       const sideFiles = paneSideDocks.entryFor(pane.leafId).files ?? [];
+      const ownsWorkspace = sessionOwnsWorkspace(sessions, registeredProjectPath, sessionId);
       return (
         <SessionDiffPane
           sessionId={sessionId}
           active={active}
+          ownsWorkspace={ownsWorkspace}
           cwd={pane.projectPath}
           onClose={() => requestPaneDockClose('session-diff')}
-          onOpenFile={(path) => openSessionDiffFile(sideFileGuard, pane.leafId, pane.projectPath, sessionId, path)}
+          onOpenFile={(path) =>
+            // Its own folder's files resolve through the session, as chat links do.
+            openSessionDiffFile(sideFileGuard, pane.leafId, ownsWorkspace ? '' : pane.projectPath, sessionId, path)
+          }
           fileTabs={{
             tabs: sideFiles.map((file) => ({
               key: sideFileKey(file),

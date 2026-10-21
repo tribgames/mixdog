@@ -59,6 +59,8 @@ Rules:
 - Use terse bullets, not prose paragraphs.
 - Preserve exact file paths, commands, error strings, and identifiers when known.
 - Use the same language as the active user thread when it is clear.
+- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as "announced, not started".
+- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.
 - Do not mention the summary process or that context was compacted.`;
 
 // The final user turn of a summary forked from the session's own cached

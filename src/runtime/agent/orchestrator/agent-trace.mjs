@@ -237,6 +237,8 @@ function traceAgentUsage({
   chainContinuous,
   continuationResetReason,
   inputTokensInclusive,
+  // Anthropic: per-block prefix hashes of the request (providers/lib/anthropic-prefix-trace.mjs).
+  prefixBlocks,
 }) {
   const identity = currentUsageContext();
   provider = identity?.provider || provider;
@@ -291,6 +293,7 @@ function traceAgentUsage({
       service_tier: resolvedServiceTier,
       raw_usage: rawUsage || null,
       ...chainFields,
+      ...(prefixBlocks ? { prefix_blocks: prefixBlocks } : {}),
     },
   });
 }

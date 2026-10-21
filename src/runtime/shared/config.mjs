@@ -9,6 +9,7 @@ import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
 import {
   parseJsonText,
+  quarantinePath,
   renameWithRetrySync,
   writeJsonAtomicSync,
   writeJsonAtomicAsync,
@@ -347,7 +348,7 @@ function readAll() {
 }
 
 function quarantineMalformedConfig(parseErr) {
-  const corrupt = `${configPath()}.corrupt-${Date.now()}`;
+  const corrupt = quarantinePath(configPath());
   let keptAside = false;
   try {
     if (existsSync(configPath())) renameWithRetrySync(configPath(), corrupt);

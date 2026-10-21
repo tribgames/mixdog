@@ -3,7 +3,6 @@
 // event, and the optional WS transport prewarm.
 import { deferredSurfaceModeForLead } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { filterMcpToolsForSession } from '../../runtime/agent/orchestrator/runtime-core/extension-scopes.mjs';
-import { attachSessionHooks } from '../session-hooks.mjs';
 import { applyDeferredToolSurface } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { writeStatuslineRoute } from '../statusline-route.mjs';
 import { sessionOptions } from './session-options.mjs';
@@ -42,10 +41,10 @@ function seedToolSurface(deps, reason) {
 
 /** Adopt the provider session and publish it to hooks and statusline. */
 export function materializeSession(deps, reason, coreMemoryContext) {
-  const { rt, adoptSession, mgr, hooks, hookCommonPayload, statusRoutes } = deps;
+  const { rt, adoptSession, mgr, hooks, statusRoutes } = deps;
+  // adoptSession attaches the hook bridge (boot/infrastructure.mjs sessionAdopter).
   adoptSession(mgr.createSession(sessionOptions(deps, coreMemoryContext)));
   rt.reservedSessionId = null;
-  attachSessionHooks(rt.session, { hooks, hookCommonPayload, getCwd: () => rt.currentCwd });
   seedToolSurface(deps, reason);
   writeStatuslineRoute(statusRoutes, rt.session, rt.route);
   hooks.emit('session:create', {

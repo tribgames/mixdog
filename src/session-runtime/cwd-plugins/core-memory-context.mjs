@@ -5,6 +5,7 @@
 // the same bytes, so an unchanged pool never invalidates the prompt cache.
 import { featureEnvOverride } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { clean as cleanText } from '../../runtime/shared/clean.mjs';
+import { stripTrailingReplacementChars } from '../../runtime/shared/utf8-cut.mjs';
 import { readSessionCoreMemoryPayload } from '../../runtime/memory/lib/core-memory-file.mjs';
 
 // Budget for the whole injected block in UTF-8 bytes: bytes track token cost
@@ -27,10 +28,7 @@ function formatCoreMemoryBlock(payload = {}, clean = cleanText) {
   if (Buffer.byteLength(out, 'utf8') <= CORE_MEMORY_MAX_BYTES) return out;
   const budget = CORE_MEMORY_MAX_BYTES - Buffer.byteLength(TRUNCATED_MARK, 'utf8');
   // A byte cut can split a multi-byte character; drop its replacement chars.
-  const head = Buffer.from(out, 'utf8')
-    .subarray(0, budget)
-    .toString('utf8')
-    .replace(/\uFFFD+$/, '');
+  const head = stripTrailingReplacementChars(Buffer.from(out, 'utf8').subarray(0, budget).toString('utf8'));
   return `${head.replace(/\s+\S*$/, '')}${TRUNCATED_MARK}`;
 }
 

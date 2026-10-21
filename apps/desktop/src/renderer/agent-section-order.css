@@ -1,0 +1,41 @@
+/* Bot rows on the Bots page, while one is dragged to a new place. */
+.agent-activity-page li[data-agent-contact][data-reordering="true"] {
+  opacity: var(--mx-op-dim);
+}
+/* Where a drop would land: the Sessions sidebar's insertion line (straight
+   accent line with a dot at its left end) on the edge of the target. */
+.agent-activity-page li[data-agent-contact] {
+  position: relative;
+}
+.agent-activity-page li[data-agent-contact][data-drop-position]::before,
+.agent-activity-page li[data-agent-contact][data-drop-position]::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--mx-accent);
+}
+.agent-activity-page li[data-agent-contact][data-drop-position]::after {
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+}
+.agent-activity-page li[data-agent-contact][data-drop-position]::before {
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.agent-activity-page li[data-agent-contact][data-drop-position="before"]::after {
+  top: -1px;
+}
+.agent-activity-page li[data-agent-contact][data-drop-position="before"]::before {
+  top: -4px;
+}
+.agent-activity-page li[data-agent-contact][data-drop-position="after"]::after {
+  bottom: -1px;
+}
+.agent-activity-page li[data-agent-contact][data-drop-position="after"]::before {
+  bottom: -4px;
+}

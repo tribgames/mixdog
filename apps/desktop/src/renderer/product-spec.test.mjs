@@ -47,6 +47,20 @@ test('developer settings are a local-only Support category ahead of shortcuts', 
   assert.equal(settingsCategoryForSurface('developer', false), 'developer');
 });
 
+test('Bots is a desktop-only Mixdog page right after General and Theme', () => {
+  const local = settingsCategoriesForSurface(false).map((category) => category.value);
+  assert.deepEqual(local.slice(0, 3), ['general', 'skin', 'bots']);
+  assert.equal(SETTINGS_CATEGORIES.find((category) => category.value === 'bots')?.label, 'Bots');
+  for (const open of [false, true]) {
+    assert.equal(
+      settingsCategoriesForSurface(true, open).some((category) => category.value === 'bots'),
+      false
+    );
+    assert.equal(settingsCategoryForSurface('bots', true, open), 'general');
+  }
+  assert.equal(settingsCategoryForSurface('bots', false), 'bots');
+});
+
 test('a host with open access shows remote clients the Providers and Developer pages', () => {
   const trusted = settingsCategoriesForSurface(true, true).map((category) => category.value);
   assert.equal(trusted.includes('providers'), true);

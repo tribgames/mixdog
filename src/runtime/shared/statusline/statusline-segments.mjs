@@ -201,8 +201,7 @@ async function refreshShellJobsStatus(ownerPid) {
       // known survivors even after the owner session closes; only the owning
       // runtime can confirm termination, so its liveness decides, not the root's.
       const unconfirmed = detail?.terminationUnconfirmed === true;
-      if (unconfirmed ? !isPidAlive(ownerByJob.get(id) || 0) : !(await isShellJobAlive(detail, p, dir, id)))
-        continue;
+      if (unconfirmed ? !isPidAlive(ownerByJob.get(id) || 0) : !(await isShellJobAlive(detail, p, dir, id))) continue;
       // A foreground command is awaited in its own tool card; listing it here
       // made every short command flash in and out of the shell list. Only
       // backgrounded jobs (including promoted ones) are background work.

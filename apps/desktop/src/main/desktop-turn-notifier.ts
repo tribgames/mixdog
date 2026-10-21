@@ -9,7 +9,8 @@ type NativeNotification = Pick<Notification, 'on' | 'show' | 'close'>;
 interface DesktopTurnNotifierOptions {
   isEnabled(): boolean;
   isSupported(): boolean;
-  isForeground(): boolean;
+  /** The focused, visible window is showing this very session. */
+  isSessionOnScreen(sessionId: string): boolean;
   readFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
   createNotification(content: { title: string; body: string }): NativeNotification;
   playSound?(): Promise<string>;
@@ -20,6 +21,8 @@ interface DesktopTurnNotifierOptions {
   /** This PC's words for an attachment-only session title (`[Image]` …);
    *  English when absent. */
   titleLabels?(): SessionTitleLabels;
+  /** A bot's display name for its home chat's notification title. */
+  agentName?(agentId: string): Promise<string>;
 }
 
 /** Completion detection and native delivery share one app-lifetime owner.
@@ -35,8 +38,8 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
       report('suppressed', completion, { reason: 'unsupported' });
       return;
     }
-    if (!shouldShowTurnNotification(completion, options.isForeground())) {
-      report('suppressed', completion, { reason: 'foreground' });
+    if (!shouldShowTurnNotification(completion, options.isSessionOnScreen(completion.sessionId))) {
+      report('suppressed', completion, { reason: 'foreground-visible' });
       return;
     }
     if (options.isSessionMuted?.(completion.sessionId)) {
@@ -93,6 +96,7 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
     isEnabled: options.isEnabled,
     readFinalAnswer: options.readFinalAnswer,
     onFinalAnswer: deliver,
+    ...(options.agentName ? { agentName: options.agentName } : {}),
     onDiagnostic: options.diagnostic,
     onError: (error) => options.diagnostic('read-failed', { error }),
   });

@@ -5,8 +5,9 @@
    picture under them and turns the Mica plates into thin veils over it. */
 /* Processed-picture model (design/mockups/skin-styles, option 5; after the
    Obsidian AnuPpuccin background): the picture is dimmed and blurred ONCE,
-   then the panels lay only thin veils on it. Settings → Skin strength picks
-   the set (data-mixdog-skin-dim). Paper brightens instead of dimming. */
+   then the panels lay only thin veils on it. Settings → Theme → Transparency
+   sets every plate amount (desktop-skin.ts skinVars writes them inline; the
+   defaults below are the "normal" 50% position). */
 /* Values follow the reference skins the user supplied: the workspace shows
    the picture nearly untouched under a faint wash, the side panel carries a
    heavier wash, and the prompt card is near-opaque. */
@@ -15,17 +16,37 @@
    plates in the picture's own cast (--mx-skin-hue/--mx-skin-sat, set by
    desktop-skin.ts) — the side panel at a light tint, messages and the prompt
    card at a strong one — and the ink takes the same hue. */
-html[data-mixdog-skin] {
+/* The plate surfaces. Shared with the Settings → Theme preview
+   (.skin-preview, settings/skin-panel.css), which sets the same --mx-skin-*
+   inputs inline, so the preview cannot drift from the app. */
+html[data-mixdog-skin],
+.skin-preview {
   --mx-skin-frame-amount: 40%;
   --mx-skin-veil-amount: 22%;
   --mx-skin-panel-amount: 40%;
-  --mx-skin-card-amount: 85%;
-  --mx-skin-tint: hsl(var(--mx-skin-hue) clamp(18%, calc(var(--mx-skin-sat) * 0.45%), 38%) 13%);
+  /* --mx-skin-tint, the ink, the accent and --mx-skin-card-amount are set by
+     desktop-skin.ts (plate tone x theme x strength, contrast-guarded). */
   /* The workspace keeps a faint plate so the app's sheet still reads as a
      panel over the picture (fully clear, the frame vanished). */
+  --mx-skin-frame: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-frame-amount), transparent);
   --mx-skin-veil: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-veil-amount), transparent);
   --mx-skin-panel: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-panel-amount), transparent);
   --mx-skin-card: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-card-amount), transparent);
+  /* The preview's bubble; the app's is declared again at (0,3,0) below. */
+  --mx-user-bubble: var(--mx-skin-card);
+  /* Marks drawn from the plate's ink (desktop-skin.ts writes the amounts:
+     each is the least ink opacity that keeps its contrast target against
+     the plates stacked over the picture, and only grows as the plates turn
+     transparent): rule 1.5:1 (separators, table rules), edge 2:1 (card and
+     panel outlines), edge-strong 3:1 (the prompt card), fill / fill-strong
+     (hover, header bands, code plates; selected, pressed). */
+  --mx-skin-rule: color-mix(in srgb, var(--mx-skin-chrome-ink) var(--mx-skin-rule-amount), transparent);
+  --mx-skin-edge: color-mix(in srgb, var(--mx-skin-chrome-ink) var(--mx-skin-edge-amount), transparent);
+  --mx-skin-edge-strong: color-mix(in srgb, var(--mx-skin-chrome-ink) var(--mx-skin-edge-strong-amount), transparent);
+  --mx-skin-fill: color-mix(in srgb, var(--mx-skin-chrome-ink) var(--mx-skin-fill-amount), transparent);
+  --mx-skin-fill-strong: color-mix(in srgb, var(--mx-skin-chrome-ink) var(--mx-skin-fill-strong-amount), transparent);
+}
+html[data-mixdog-skin] {
   --mx-mica-frame: transparent;
   --mx-mica-layer: var(--mx-skin-veil);
   --mx-mica-panel-solid: var(--mx-skin-panel);
@@ -33,32 +54,150 @@ html[data-mixdog-skin] {
   /* The joined desktop sheets (pane-layout.css) paint this opaque tone;
      the skin owns their plates below instead. */
   --mx-sheet-surface: transparent;
+}
+/* The accent fill (primary buttons, send disc, checkboxes, sliders) is the
+   skin's guarded accent in every theme. Declared at (0,3,0): the theme blocks
+   in 01-tokens.css (:root[data-mixdog-theme="light"], 0,2,0) outrank a plain
+   html[data-mixdog-skin] (0,1,1), which left light skins on the built-in blue. */
+:root[data-mixdog-skin][data-mixdog-theme] {
   --mx-accent-bg: var(--mx-skin-accent);
-}
-html[data-mixdog-skin][data-mixdog-skin-dim="soft"] {
-  --mx-skin-frame-amount: 28%;
-  --mx-skin-veil-amount: 14%;
-  --mx-skin-panel-amount: 28%;
-  --mx-skin-card-amount: 76%;
-}
-html[data-mixdog-skin][data-mixdog-skin-dim="strong"] {
-  --mx-skin-frame-amount: 55%;
-  --mx-skin-veil-amount: 38%;
-  --mx-skin-panel-amount: 58%;
-  --mx-skin-card-amount: 93%;
-}
-/* Ink in the cast's hue. Set per theme so it outranks the theme token
-   blocks in 01-tokens.css. */
-html[data-mixdog-skin]:not([data-mixdog-theme="light"]) {
-  --mx-text: hsl(var(--mx-skin-hue) 30% 93%);
-  --mx-text-muted: hsl(var(--mx-skin-hue) 18% 72%);
+  /* Its text: the guard's ink for that accent (inkOn, 4.5:1). */
+  --mx-accent-fg: var(--mx-skin-on-accent);
+  /* The user bubble is a message plate (same (0,3,0) reason: the light
+     block's grey bubble outranked it, white on white under a dark plate). */
   --mx-user-bubble: var(--mx-skin-card);
 }
-html[data-mixdog-skin][data-mixdog-theme="light"] {
-  --mx-skin-tint: hsl(var(--mx-skin-hue) clamp(25%, calc(var(--mx-skin-sat) * 0.6%), 50%) 94%);
-  --mx-text: hsl(var(--mx-skin-hue) 45% 17%);
-  --mx-text-muted: hsl(var(--mx-skin-hue) 25% 36%);
-  --mx-user-bubble: var(--mx-skin-card);
+/* Ink of the plate tone (--mx-skin-ink*, from desktop-skin.ts) and the paper
+   it is read on. A skin decides ONE tone for the whole window: a light plate
+   under the Dark theme (or a dark one under White) makes the shell light,
+   so the dialogs, sheets, menus, tooltips and toasts portaled to <body> take
+   the same plate, not the theme's paper (a dark Settings panel over a light
+   shell). Declared on the root at (0,3,0): it outranks the theme token
+   blocks in 01-tokens.css (0,2,0), and an imported theme's ink and paper
+   step aside under any skin (theme-tokens.ts). */
+:root[data-mixdog-skin][data-mixdog-skin-plate] {
+  --mx-text: var(--mx-skin-ink);
+  --mx-text-muted: var(--mx-skin-chrome-muted);
+  /* The tokens derived from the ink resolve where they are DECLARED (the
+     root, in 01-tokens.css), so inside the plate scope they are declared
+     again from the plate's ink; otherwise row titles, icons and the rail
+     keep the theme's ink (pale text on a light plate). */
+  --mx-text-faint: var(--mx-text-muted);
+  --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+  --mx-row-title-ink: var(--mx-text-soft);
+  --mx-row-title-ink-active: var(--mx-text);
+  --mx-scrollbar-thumb: color-mix(in srgb, var(--mx-text) 24%, transparent);
+  --mx-scrollbar-thumb-hover: color-mix(in srgb, var(--mx-text) 42%, transparent);
+  --mx-meter-track: var(--mx-skin-edge);
+  --mx-meter-fill: var(--mx-skin-chrome-ink);
+  /* The theme's hairlines and fills are a fixed white / grey alpha that
+     vanishes over a picture: every one is re-declared from the plate ink at
+     the guarded amounts, so each frameless element (table rules and header,
+     quote bar, rule, tool and diff rows, key-value lists, settings rows,
+     menu separators, hover / selected rows) stays distinguishable at every
+     transparency. Re-declared here, not inherited: the derived tokens
+     resolve where they are declared. */
+  --mx-border-muted: var(--mx-skin-rule);
+  --mx-border: var(--mx-skin-edge);
+  --mx-border-structure: var(--mx-skin-edge);
+  --mx-border-strong: var(--mx-skin-edge-strong);
+  --mx-focus: var(--mx-skin-edge-strong);
+  --mx-hover: var(--mx-skin-fill);
+  --mx-pressed: var(--mx-skin-fill-strong);
+  --mx-surface-plate: var(--mx-skin-fill);
+  --mx-card-header-surface: var(--mx-skin-fill);
+  --mx-card-outline: inset 0 0 0 var(--mx-hairline) var(--mx-skin-edge);
+  --mx-list-focus-ring: inset 0 0 0 1px var(--mx-skin-edge-strong);
+  --mx-action-bg: var(--mx-skin-fill);
+  --mx-plate-hover: var(--mx-skin-fill);
+  --mx-plate-selected: var(--mx-skin-fill-strong);
+  --mx-chip-bg: var(--mx-skin-fill);
+  --mx-hover-opaque: color-mix(in srgb, var(--mx-skin-chrome-ink) var(--mx-skin-fill-amount), var(--mx-skin-tint));
+  --mx-pressed-opaque: color-mix(
+    in srgb,
+    var(--mx-skin-chrome-ink) var(--mx-skin-fill-strong-amount),
+    var(--mx-skin-tint)
+  );
+  /* Rail / chrome icons and labels: the guarded chrome ink (4.5:1 against
+     the frame plate over the picture's average; icons need only 3:1). */
+  --mx-icon: var(--mx-skin-chrome-ink);
+  --mx-icon-muted: var(--mx-skin-chrome-muted);
+  --mx-tab-idle-ink: var(--mx-skin-chrome-muted);
+  --mx-rail-label-ink: var(--mx-skin-chrome-ink);
+  --mx-row-meta-ink: var(--mx-skin-chrome-muted);
+  /* Paper: an ink comes with the opaque surfaces it is read on. A glass
+     plate's ink is the opposite of the theme's (dark ink under a light plate
+     in Dark), so the theme's paper left every surface that sets text on it,
+     or inverts the pair (Mixy's create button, the island, the starter pill,
+     popovers in the shell: background ink, text paper), at ~1:1. The
+     plate's tone is that paper (its ink holds 4.5:1 on it, see
+     minPlateAlpha); the raised steps lift it toward the ink the way the
+     theme's ladder does. The panels clear --mx-workspace-sheet and
+     --mx-window-band to transparent themselves (03-titlebar.css); outside
+     them (a portaled dialog's sheet band) the two are the plate's paper. */
+  --mx-workspace-sheet: var(--mx-skin-tint);
+  --mx-window-band: var(--mx-skin-tint);
+  --mx-bg-deep: var(--mx-skin-tint);
+  --mx-bg-base: var(--mx-skin-tint);
+  --mx-bg-layer-1: color-mix(in srgb, var(--mx-skin-ink) 4%, var(--mx-skin-tint));
+  --mx-bg-layer-2: color-mix(in srgb, var(--mx-skin-ink) 7%, var(--mx-skin-tint));
+  --mx-bg-layer-3: color-mix(in srgb, var(--mx-skin-ink) 11%, var(--mx-skin-tint));
+  --mx-composer-surface: var(--mx-skin-tint);
+  --mx-island-frame: var(--mx-skin-tint);
+  --mx-popup-bg: var(--mx-skin-tint);
+  --mx-sheet-ink: var(--mx-skin-tint);
+}
+/* Semantic inks and fills (link, danger / warning / success, diff counts,
+   merged) and the code syntax ramp of the plate's tone, when the glass plate is the other tone than
+   the theme: Dark's bright green and red read 1.7-2.5:1 on a light plate's
+   paper, White's deep ones as poorly on a dark plate. The tinted plate
+   follows the theme, so it keeps the theme's. (0,4,0): over the theme
+   blocks and an imported theme's base tokens. */
+:root[data-mixdog-skin][data-mixdog-theme="dark"][data-mixdog-skin-plate="light"] {
+  --mx-text-accent: var(--mx-tone-light-text-accent);
+  --mx-md-code: var(--mx-text-accent);
+  --mx-danger-bg: var(--mx-tone-light-danger-bg);
+  --mx-danger: var(--mx-tone-light-danger);
+  --mx-warning-bg: var(--mx-tone-light-warning-bg);
+  --mx-warning: var(--mx-tone-light-warning);
+  --mx-meter-warning: var(--mx-tone-light-meter-warning);
+  --mx-meter-danger: var(--mx-tone-light-meter-danger);
+  --mx-success-bg: var(--mx-tone-light-success-bg);
+  --mx-success: var(--mx-tone-light-success);
+  --mx-success-border: var(--mx-tone-light-success-border);
+  --mx-merged: var(--mx-tone-light-merged);
+  --mx-syntax-comment: var(--mx-tone-light-syntax-comment);
+  --mx-syntax-keyword: var(--mx-tone-light-syntax-keyword);
+  --mx-syntax-control: var(--mx-tone-light-syntax-control);
+  --mx-syntax-string: var(--mx-tone-light-syntax-string);
+  --mx-syntax-number: var(--mx-tone-light-syntax-number);
+  --mx-syntax-type: var(--mx-tone-light-syntax-type);
+  --mx-syntax-function: var(--mx-tone-light-syntax-function);
+  --mx-syntax-variable: var(--mx-tone-light-syntax-variable);
+  --mx-syntax-meta: var(--mx-tone-light-syntax-meta);
+}
+:root[data-mixdog-skin][data-mixdog-theme="light"][data-mixdog-skin-plate="dark"] {
+  --mx-text-accent: var(--mx-tone-dark-text-accent);
+  --mx-md-code: var(--mx-text-accent);
+  --mx-danger-bg: var(--mx-tone-dark-danger-bg);
+  --mx-danger: var(--mx-tone-dark-danger);
+  --mx-warning-bg: var(--mx-tone-dark-warning-bg);
+  --mx-warning: var(--mx-tone-dark-warning);
+  --mx-meter-warning: var(--mx-warning);
+  --mx-meter-danger: var(--mx-danger);
+  --mx-success-bg: var(--mx-tone-dark-success-bg);
+  --mx-success: var(--mx-tone-dark-success);
+  --mx-success-border: var(--mx-tone-dark-success-border);
+  --mx-merged: var(--mx-tone-dark-merged);
+  --mx-syntax-comment: var(--mx-tone-dark-syntax-comment);
+  --mx-syntax-keyword: var(--mx-tone-dark-syntax-keyword);
+  --mx-syntax-control: var(--mx-tone-dark-syntax-control);
+  --mx-syntax-string: var(--mx-tone-dark-syntax-string);
+  --mx-syntax-number: var(--mx-tone-dark-syntax-number);
+  --mx-syntax-type: var(--mx-tone-dark-syntax-type);
+  --mx-syntax-function: var(--mx-tone-dark-syntax-function);
+  --mx-syntax-variable: var(--mx-tone-dark-syntax-variable);
+  --mx-syntax-meta: var(--mx-tone-dark-syntax-meta);
 }
 html[data-mixdog-skin] body {
   background: var(--mx-sheet-ink);
@@ -68,8 +207,40 @@ html[data-mixdog-skin] body::before {
   position: fixed;
   z-index: -1;
   inset: 0;
-  background: var(--mx-skin-image) center / cover no-repeat;
+  background: var(--mx-skin-image) var(--mx-skin-pos, center) / cover no-repeat;
   pointer-events: none;
+}
+/* Photo off: the palette stays, only the picture is hidden. */
+html[data-mixdog-skin][data-mixdog-skin-photo="off"] body::before {
+  display: none;
+}
+/* The moving skin (skin-motion.ts): a video or animated GIF laid exactly over
+   the picture (same box, cover fit and focal point), so the plates above see
+   no change. The picture under it is the poster: the layer stays clear until
+   its first frame plays, then fades in over the identical frame. */
+.skin-motion {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--mx-skin-pos, center);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease-out;
+}
+.skin-motion[data-ready="true"] {
+  opacity: 1;
+}
+html:not([data-mixdog-skin]) .skin-motion,
+html[data-mixdog-skin-photo="off"] .skin-motion {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skin-motion {
+    display: none;
+  }
 }
 html[data-mixdog-skin] .main-panel,
 html[data-mixdog-skin]:not([data-mixdog-mobile-tabs]) .main-panel {
@@ -79,6 +250,12 @@ html[data-mixdog-skin] :is(.workbench-side-panel[data-side="left"], .pane-side-d
 html[data-mixdog-skin]:not([data-mixdog-mobile-tabs])
   :is(.workbench-side-panel[data-side="left"], .pane-side-dock[data-open="true"]) {
   background: var(--mx-skin-panel);
+}
+/* A dock floating over a narrow pane is a floating surface: the skin's one
+   opaque floating tone (--mx-popup-bg, as dialogs and menus), so the
+   conversation never shows through it. Its overlay shadow stays. */
+html[data-mixdog-skin] .pane-side-dock[data-open="true"][data-overlay="true"] {
+  background: var(--mx-popup-bg);
 }
 /* Covers over a parked surface: the panel's veil already tints them, so
    they only blur away what they hide (an opaque plate would hide the
@@ -93,7 +270,7 @@ html[data-mixdog-skin] :is(.pane-surface-handoff-layer[data-pane-surface-handoff
    the panels, so the sheet keeps its outline and the rail icons their
    contrast; the panel plates above stack on it. */
 html[data-mixdog-skin]:not([data-mixdog-mobile-tabs]) .app-shell {
-  background: color-mix(in srgb, var(--mx-skin-tint) var(--mx-skin-frame-amount), transparent);
+  background: var(--mx-skin-frame);
 }
 html[data-mixdog-skin] .jump-to-latest {
   color: var(--mx-sheet-ink);
@@ -102,29 +279,194 @@ html[data-mixdog-skin] .jump-to-latest {
 html[data-mixdog-skin] .composer {
   background: var(--mx-skin-card);
   backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow:
+    inset 0 0 0 var(--mx-hairline, 1px) var(--mx-skin-edge-strong),
+    var(--mx-composer-lift, none);
 }
 /* The joined sheet's hairline (a 12% white) vanishes over a picture: draw
    it in the skin's ink so the panels keep their outline. */
 html[data-mixdog-skin] :is(.workbench-side-panel[data-side="left"], .main-panel) {
-  border-color: color-mix(in srgb, var(--mx-text) 22%, transparent);
+  border-color: var(--mx-skin-edge);
+}
+/* Rail and chrome: icons and labels take the guarded chrome ink (the rail's
+   own rule mixes the theme's white / ink at 50-65%, which washes out over a
+   light picture). Hover and the selected destination use the full ink. */
+:root[data-mixdog-skin] .activity-rail {
+  color: var(--mx-skin-chrome-muted);
+}
+:root[data-mixdog-skin] .activity-rail > button:is(:hover, :focus-visible, .selected, .is-active),
+:root[data-mixdog-skin] .workbench-side-icon-bar.is-vertical > button:is(:hover, .active) {
+  color: var(--mx-skin-chrome-ink);
+}
+:root[data-mixdog-skin] .workspace-tab {
+  color: var(--mx-skin-chrome-muted);
+}
+:root[data-mixdog-skin] .workspace-tab.active {
+  color: var(--mx-skin-chrome-ink);
+}
+/* Plates that carry an outline of their own: assistant and user messages and
+   the prompt card (strongest, it is the input). Inset, so nothing shifts. */
+/* Transcript turns only: a bot chat (.mx-chat-row, agent-chat.css) frames
+   its messages as fit-content bubbles of its own, and the turn plate's
+   negative margin and padding below squeezed a short "Done." to one
+   character per line. */
+html[data-mixdog-skin] :is(.message.assistant, .message.user .message-body):not(.mx-chat-row *) {
+  box-shadow: inset 0 0 0 var(--mx-hairline, 1px) var(--mx-skin-edge);
+}
+/* Frameless by design, so only the fills and rules they already draw are
+   strengthened: code plates, the inline-code chip, the table header band. */
+html[data-mixdog-skin] .markdown-code {
+  background: var(--mx-skin-fill);
+}
+html[data-mixdog-skin] .markdown :not(pre) > code {
+  border-color: var(--mx-skin-rule);
+  background: var(--mx-skin-fill);
 }
 /* An assistant turn (prose, code, tool cards and its footer) sits on one
    plate; the negative inline margin keeps its text on the column. The user
    bubble takes the same plate through --mx-user-bubble. */
-html[data-mixdog-skin] .message.assistant {
-  margin-inline: -16px;
+html[data-mixdog-skin] .message.assistant:not(.mx-chat-row *) {
+  /* The plate spans the row's full width, which the rule below widens to the
+     composer box's edges (the text then sits on the column through the
+     plate's own 16px padding). It used to carry margin-inline -16px, but
+     .message is width:100%, so the margin only slid the plate 16px left of
+     every card in the thread instead of widening it. */
+  margin-inline: 0;
   padding: 12px 16px;
   border-radius: var(--mx-radius-sheet);
   background: var(--mx-skin-card);
   backdrop-filter: blur(18px);
 }
+/* The fade into the composer keeps its strip (.transcript-shell::after,
+   15-composer.css; no mask, so the plates keep their backdrop blur). Its
+   colour is --mx-sheet-surface, which a skin clears to transparent, so it
+   faded nothing and the plates ended on a hard edge at the dock. Under a
+   skin it fades into the veil the conversation area shows, the same token
+   the top strip (.transcript-scroll-fade) already takes. */
+html[data-mixdog-skin] .conversation > .transcript-shell::after {
+  background: linear-gradient(to bottom, transparent, var(--mx-scroll-fade-surface));
+}
+/* Every plated row of the thread (replies, tool roll-ups, live status,
+   errors) fills the composer box's width: the row's text inset moves into the
+   plate's padding, so each card and each plate share one left and right edge.
+   The user's bubble takes the same edges, so it ends flush with the plates'
+   right edge instead of standing in from it. */
+html[data-mixdog-skin]
+  .conversation:not([data-chat-mode="agent"])
+  :is(
+    .transcript-virtual-row-content[data-tag="UserMessage"],
+    .transcript-virtual-row-content[data-tag="AssistantPart"],
+    .transcript-virtual-row-content[data-tag="ToolActivity"],
+    .transcript-virtual-row-content[data-tag="Thinking"],
+    .transcript-virtual-row-content[data-tag="Error"]
+  ) {
+  padding-left: var(--pane-inset);
+  padding-right: calc(var(--pane-inset) - var(--mx-scrollbar-gutter));
+}
+/* Bare transcript rows (tool roll-up, live status, turn-end line, compaction
+   notice, error notice) take the same plate tokens as .message.assistant:
+   hugging their content, starting on the column's left edge, one-line radius,
+   the message text's 16px side padding. An opened tool roll-up is a card:
+   full column width. Rows already inside an
+   assistant plate (its footer, tool cards) stay on that plate. */
+html[data-mixdog-skin]
+:is(
+  .tool-activity[data-surface="desktop"],
+  .live-activity-status,
+  .turn-status,
+  .compaction-divider,
+  .transcript-error-notice
+):not(.message.assistant *, .mx-chat-row *) {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  padding-inline: 16px;
+  border-radius: min(var(--mx-radius-sheet), 12px);
+  background: var(--mx-skin-card);
+  backdrop-filter: blur(18px);
+  box-shadow: inset 0 0 0 var(--mx-hairline, 1px) var(--mx-skin-edge);
+}
+html[data-mixdog-skin]
+  .tool-activity[data-surface="desktop"][data-open="true"]:not(.message.assistant *, .mx-chat-row *) {
+  width: 100%;
+}
+/* One vertical inset for every one-line plate (tool roll-up, live status and
+   its spinner, the turn-end line, compaction): 3px or none left the text
+   touching the plate's top and bottom edge. The live band and the turn-end
+   line share it, so swapping one for the other still cannot move the thread. */
+html[data-mixdog-skin]
+:is(.tool-activity[data-surface="desktop"], .live-activity-status, .turn-status, .compaction-divider):not(
+  .message.assistant *,
+  .mx-chat-row *
+) {
+  padding-block: 6px;
+}
+/* The plates stay inside their row's box: every transcript row clips to its
+   box, so a plate grown outward (a negative margin) lost its top and bottom
+   wherever no neighbour's spacing sat under it (the live band, a cancelled
+   turn's line). The live band and the turn-end line take the same 6px inset,
+   so the band settling into the line still moves nothing. */
+/* The framed cards of the transcript (questions and their answered record,
+   the turn's changed files, previews, a held approval) are on the same plate
+   as the replies: their own frame stays, the picture no longer shows through. */
+html[data-mixdog-skin]
+  .transcript-virtual-row-content
+  :is(
+    .question-card:not([data-agent-mode]),
+    .ask-user-record,
+    .turn-changes-card,
+    .transcript-visualize-turn,
+    .approval-prompt
+  ) {
+  background: var(--mx-skin-card);
+  backdrop-filter: blur(18px);
+}
+/* The phone's dark theme paints an opened roll-up's content on a dark step;
+   under a skin it sits on the plate (the skin's ink is read on the plate). */
+:root[data-mixdog-skin][data-mixdog-mobile-tabs] .tool-activity .tool-activity-content {
+  background: transparent;
+}
+/* The plate is the boundary mark; the trailing rule would dangle inside it. */
+html[data-mixdog-skin] .compaction-divider:not(.message.assistant *, .mx-chat-row *)::after {
+  content: none;
+}
+html[data-mixdog-skin] .transcript-error-notice:not(.message.assistant *, .mx-chat-row *) {
+  padding-block: 8px;
+}
 html[data-mixdog-skin] .message.user .message-body {
   backdrop-filter: blur(18px);
 }
-html[data-mixdog-skin] .composer:focus-within {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--mx-skin-accent) 70%, transparent),
-    var(--mx-composer-lift);
+/* The bot chat's bubble for the user's lines is an accent wash over the
+   bubble token; under a skin that token is a translucent message plate, so
+   the wash goes over the plate's opaque paper instead (its ink holds there). */
+html[data-mixdog-skin] .mx-chat-row[data-side="user"] .message.user > .message-body {
+  background: color-mix(in srgb, var(--mx-skin-accent) 20%, var(--mx-bg-base));
+}
+/* The primary New task launcher is an accent pill (the row keeps its text
+   column: the pill's left padding is cancelled by the negative left margin).
+   Only the LEFT edge bleeds: the session rows' highlight reaches 8px past the
+   text line on the left and ends on the launcher block's content edge, so a
+   -8px right margin would push the pill 8px past every row highlight. */
+html[data-mixdog-skin] .session-sidebar .task-link.session-launcher-row:first-child {
+  margin-inline: -8px 0;
+  padding-inline: 8px;
+  border-radius: var(--mx-radius-control, 8px);
+  color: var(--mx-skin-on-accent);
+  background: var(--mx-skin-accent);
+}
+/* Hover / focus keep the fill and text pair the contrast guard checked and
+   add an inset ring in the text colour instead of mixing the two. */
+html[data-mixdog-skin] .session-sidebar .task-link.session-launcher-row:first-child:is(:hover, :focus-visible) {
+  color: var(--mx-skin-on-accent);
+  background: var(--mx-skin-accent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mx-skin-on-accent) 55%, transparent);
+}
+html[data-mixdog-skin] .session-launcher-row:first-child > .session-launcher-icon {
+  color: inherit;
+}
+/* The composer island's primary button takes the accent too. */
+html[data-mixdog-skin] :is(.composer-island-button-primary, .composer-island-button-primary:hover) {
+  color: var(--mx-skin-on-accent);
 }
 /* The send disc takes the skin accent. */
 html[data-mixdog-skin] .send-button:not(.stop):not([hidden]) {

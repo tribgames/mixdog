@@ -63,8 +63,13 @@ function renderBatchItems(batch, pushUserOrSyntheticItem) {
       .trim()
       .toLowerCase();
     const device = typeof entry.transcriptMeta?.device === 'string' ? entry.transcriptMeta.device : '';
-    const attribution = { ...(sender ? { sender } : {}), ...(device ? { device } : {}) };
-    let itemExtras = sender || device ? attribution : null;
+    const fromAgent = typeof entry.transcriptMeta?.fromAgent === 'string' ? entry.transcriptMeta.fromAgent : '';
+    const attribution = {
+      ...(sender ? { sender } : {}),
+      ...(device ? { device } : {}),
+      ...(fromAgent ? { fromAgent } : {}),
+    };
+    let itemExtras = sender || device || fromAgent ? attribution : null;
     if (Array.isArray(entry.images) && entry.images.length) {
       itemExtras = { images: entry.images, ...attribution };
     }
@@ -82,6 +87,23 @@ function batchPromptSource(batch) {
   if (isGoalQueuedEntry(batch[0])) return batch[0].mode;
   if (batch.length > 0 && batch.every((entry) => COMPLETION_WAKE_MODES.has(entry?.mode))) return 'task-notification';
   return undefined;
+}
+
+/** The batch's transcript metadata; a batch of completion wakes also records
+ *  the execution ids it delivers (`consumedExecutionIds`, from each entry's
+ *  execution or resume keys; null for one with neither), the structured
+ *  provenance a task session's report follows (agent-task-sessions.mjs). */
+function completionWakeTranscriptMeta(batch) {
+  const meta = batch[0]?.transcriptMeta || null;
+  if (batchPromptSource(batch) !== 'task-notification') return meta;
+  const consumed = batch.flatMap((entry) => {
+    if (entry?.execution?.id) return [String(entry.execution.id)];
+    const keys = (Array.isArray(entry?.resumeCompletionKeys) ? entry.resumeCompletionKeys : []).map(String);
+    return keys.length
+      ? keys.map((key) => (key.startsWith('execution:') ? key.slice('execution:'.length) : null))
+      : [null];
+  });
+  return { ...(meta || {}), consumedExecutionIds: consumed };
 }
 
 export function turnOptionsForBatch(batch, steering) {
@@ -115,7 +137,7 @@ export function turnOptionsForBatch(batch, steering) {
     discardExecutionPendingResumeKeys: discardOnAbort.flatMap((entry) =>
       Array.isArray(entry?.resumeCompletionKeys) ? entry.resumeCompletionKeys : []
     ),
-    transcriptMeta: batch[0]?.transcriptMeta || null,
+    transcriptMeta: completionWakeTranscriptMeta(batch),
     // Only a routine turn names its selection text (never its payload).
     ...(batch[0]?.mode === 'routine' && typeof batch[0].skillSelection === 'string'
       ? { skillSelection: batch[0].skillSelection }

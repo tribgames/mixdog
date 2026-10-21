@@ -10,17 +10,22 @@ import { commandQueueKey, type QueueKeyHost } from './command-queue-key';
 import { createLocalInputQueue } from './command-queue-local-input';
 import { throwIfBrowserCancelled } from './settle';
 import { timeBrowserCommand } from './timing';
+import { createUserWait, type UserWaitClock } from './user-wait';
 import { BROWSER_INPUT_EXPIRED } from '../../shared/browser-input-policy';
 
 interface BrowserCommandQueueHost extends QueueLedger, QueueKeyHost {
-  run(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult>;
-  /** The per-command ceiling, which also cancels the work it was waiting on. */
+  /** `userWait`: the command's clock, opened around anything it waits on the
+   *  person for (an approval card), so the ceiling does not count that time. */
+  run(command: BrowserCommand, signal?: AbortSignal, userWait?: UserWaitClock): Promise<BrowserCommandResult>;
+  /** The per-command ceiling, which also cancels the work it was waiting on.
+   *  It stands still while `userWait` has a wait open. */
   bounded<T>(
     operation: Promise<T>,
     timeoutMs: number,
     label: string,
     signal?: AbortSignal,
-    onTimeout?: () => void
+    onTimeout?: () => void,
+    userWait?: UserWaitClock
   ): Promise<T>;
   readOnlyActions: ReadonlySet<string>;
   commandTimeoutMs: number;
@@ -78,17 +83,24 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
     let dispatched: Promise<unknown> | undefined;
     const run = ready.then(async () => {
       throwIfBrowserCancelled(signal);
+      // Time the person takes to answer an approval is not the command's.
+      const userWait = createUserWait();
       const execute = <Result>(work: () => Promise<Result>) => {
         const pending = work();
         dispatched = pending;
-        return bounded(pending, COMMAND_TIMEOUT_MS, `browser ${String(command.action || 'command')}`, signal, () =>
-          controller.abort(new Error(`browser command exceeded ${COMMAND_TIMEOUT_MS}ms`))
+        return bounded(
+          pending,
+          COMMAND_TIMEOUT_MS,
+          `browser ${String(command.action || 'command')}`,
+          signal,
+          () => controller.abort(new Error(`browser command exceeded ${COMMAND_TIMEOUT_MS}ms`)),
+          userWait
         );
       };
       return operation
         ? execute(() => operation(signal))
         : (timeBrowserCommand(performance.now() - enqueuedAt, () =>
-            execute(() => runCommand(command, signal))
+            execute(() => runCommand(command, signal, userWait))
           ) as Promise<T>);
     });
     // Cancellation releases the caller, not the actual operation. A local

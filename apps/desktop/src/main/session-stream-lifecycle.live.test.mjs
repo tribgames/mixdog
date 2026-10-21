@@ -540,7 +540,7 @@ for (const { decision, rewrite = false } of [
       if (decision === 'approve') {
         assert.equal(await readFile(outputPath, 'utf8'), 'isolated approved payload\n');
       } else {
-        assert.match(JSON.stringify(result.content), /denied by hook.*fixture decision/);
+        assert.match(JSON.stringify(result.content), /was not approved: fixture decision/);
         await assert.rejects(readFile(outputPath), { code: 'ENOENT' });
       }
       continuation.complete(`fixture ${decision} complete`);

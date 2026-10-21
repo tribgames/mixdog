@@ -1,0 +1,401 @@
+/* Settings → Theme. The preview paints from the same --mx-skin-* inputs the
+   app gets (set inline by skinVars) and the same surface variables
+   (--mx-skin-frame / -panel / -veil / -card, --mx-user-bubble, defined once in
+   desktop/33-skin.css), so a change to the app's plates shows here too. Layers
+   mirror the app: picture (or the theme sheet when the photo is off), the
+   window frame wash, the sidebar panel, the workspace veil, then cards. */
+.skin-preview {
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 16 / 8.4;
+  margin-bottom: 8px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--mx-skin-ink) 15%, transparent);
+  background: var(--mx-sheet-ink, var(--mx-bg-base)) var(--mx-skin-image) var(--mx-skin-pos, center) / cover no-repeat;
+  color: var(--mx-skin-ink);
+  font-size: 10.5px;
+}
+.skin-preview[data-photo="off"] {
+  background-image: none;
+}
+.skin-preview::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--mx-skin-frame);
+}
+/* No skin: the theme's own surfaces, user bubble included (01-tokens.css:\n   the composer surface in dark, layer 2 in light). */
+.skin-preview[data-skin-preview="none"] {
+  --mx-skin-frame: transparent;
+  --mx-skin-panel: var(--mx-window-band, var(--mx-bg-layer-1));
+  --mx-skin-veil: transparent;
+  --mx-skin-card: var(--mx-composer-surface, var(--mx-bg-layer-1));
+  --mx-user-bubble: var(--mx-composer-surface, var(--mx-bg-layer-1));
+}
+:root[data-mixdog-theme="light"] .skin-preview[data-skin-preview="none"] {
+  --mx-user-bubble: var(--mx-bg-layer-2);
+}
+.skin-preview-tag {
+  position: absolute;
+  z-index: 2;
+  left: 8px;
+  top: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 11px;
+}
+.skin-preview-side {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 24%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 8px;
+  background: var(--mx-skin-panel);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid color-mix(in srgb, var(--mx-skin-ink) 15%, transparent);
+  /* A backdrop-filtered layer escapes the parent's rounded overflow clip in
+     Chromium, so it rounds its own outer corners (the frame's 10px minus its
+     1px border). */
+  border-radius: 9px 0 0 9px;
+}
+.skin-preview-new {
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: var(--mx-skin-accent);
+  color: var(--mx-skin-on-accent);
+  font-weight: 600;
+  text-align: center;
+}
+.skin-preview-item {
+  min-height: 14px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--mx-skin-ink) 6%, transparent);
+}
+.skin-preview-item[data-on="true"] {
+  background: color-mix(in srgb, var(--mx-skin-ink) 14%, transparent);
+}
+.skin-preview-main {
+  position: absolute;
+  inset: 0 0 0 24%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 14% 12px 6%;
+  background: var(--mx-skin-veil);
+}
+.skin-preview-bubble {
+  align-self: flex-start;
+  width: 55%;
+  min-height: 22px;
+  border-radius: 9px;
+  background: var(--mx-skin-card);
+  backdrop-filter: blur(12px);
+}
+.skin-preview-bubble[data-me="true"] {
+  align-self: flex-end;
+  width: 45%;
+  background: var(--mx-user-bubble);
+}
+.skin-preview-composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: var(--mx-skin-card);
+  backdrop-filter: blur(12px);
+  border: 1.5px solid var(--mx-skin-accent);
+  color: var(--mx-skin-ink-muted);
+}
+.skin-preview-composer > span:first-child {
+  width: 40%;
+  height: 6px;
+  border-radius: 3px;
+  background: currentColor;
+  opacity: 0.5;
+}
+.skin-preview-send {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--mx-skin-accent);
+  color: var(--mx-skin-on-accent);
+  font-weight: 700;
+}
+
+.skin-cards {
+  /* The group body pads 20px on the sides only; the grid takes the same on
+     top and bottom so the cards sit evenly inside the card frame. */
+  padding-block: 20px;
+}
+@media (max-width: 640px) {
+  .skin-cards {
+    padding-block: 14px;
+  }
+}
+/* Two rows that each span the full width: System / Dark / Light, then the skins. */
+.skin-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.skin-tiles {
+  display: grid;
+  gap: 14px;
+}
+.skin-tiles[data-row="theme"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+/* The four skins + "Add my picture" fill one row; with a custom picture too
+   (six tiles) they split into two even rows of three. */
+.skin-tiles[data-row="skin"] {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.skin-tiles[data-row="skin"][data-count="6"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 640px) {
+  .skin-tiles[data-row],
+  .skin-tiles[data-row="skin"][data-count="6"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.skin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.skin-card-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: var(--mx-chip-bg) center / cover no-repeat;
+}
+.skin-card:hover .skin-card-thumb,
+.skin-card:focus-visible .skin-card-thumb {
+  border-color: color-mix(in srgb, var(--mx-text) 35%, transparent);
+}
+.skin-card:focus-visible {
+  outline: none;
+}
+.skin-card[aria-checked="true"] {
+  color: var(--mx-text);
+  font-weight: 600;
+}
+.skin-card[aria-checked="true"] .skin-card-thumb {
+  border-color: var(--mx-focus, #5bb0ff);
+}
+.skin-card-thumb[data-tone="system"] {
+  background: linear-gradient(135deg, var(--mx-bg-layer-2) 50%, var(--mx-text) 50%);
+  /* Its light half reaches the edge, so it wears the White tile's ring. */
+  box-shadow: inset 0 0 0 1px rgb(128 128 128 / 0.35);
+}
+/* The flat tones paint inside the 2px border gutter, like the photos' frame,
+   so a half that matches the page never bleeds past the tile's outline. */
+.skin-card-thumb[data-tone] {
+  background-clip: padding-box;
+}
+/* Fixed tones, not theme variables: Dark and Light look the same in either app theme. */
+.skin-card-thumb[data-tone="dark"] {
+  background: linear-gradient(90deg, #2b2b2b 0 28%, #181818 28%);
+}
+.skin-card-thumb[data-tone="white"] {
+  background: linear-gradient(90deg, #e4e4e4 0 28%, #fafafa 28%);
+  box-shadow: inset 0 0 0 1px rgb(128 128 128 / 0.35);
+}
+/* Touch targets: a tile is always at least 44px tall, label included. */
+.skin-card {
+  min-height: 44px;
+}
+.skin-card-dot {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgb(255 255 255 / 0.85);
+}
+.skin-card-add .skin-card-thumb {
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed color-mix(in srgb, var(--mx-text) 30%, transparent);
+  color: var(--mx-text-muted);
+}
+
+.skin-row-desc {
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+}
+.skin-seg {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-chip-bg);
+}
+.skin-seg > button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.skin-seg > button[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-2);
+}
+.skin-slider {
+  display: flex;
+  /* Shrinks with a narrow row (phone) instead of overflowing onto the label. */
+  flex: 0 1 220px;
+  align-items: center;
+  gap: 10px;
+  width: 220px;
+  min-width: 0;
+  max-width: 100%;
+}
+.skin-slider > input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--mx-accent-bg);
+  cursor: pointer;
+}
+.skin-slider-value {
+  min-width: 4ch;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.skin-seg > button:focus-visible,
+.skin-swatch:focus-visible,
+.skin-swatch-auto:focus-visible {
+  outline: 1px solid var(--mx-focus);
+}
+.skin-swatches,
+.skin-picked {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.skin-swatch-auto {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--mx-text) 15%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.skin-swatch-auto[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-2);
+}
+.skin-swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.skin-swatch[aria-pressed="true"] {
+  border-color: var(--mx-text);
+}
+.skin-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+}
+
+.skin-custom-dialog {
+  width: min(520px, 100%);
+}
+.skin-custom-body {
+  padding: 0 var(--mx-dialog-inset, 20px) 8px;
+}
+.skin-custom-body > p {
+  margin: 0 0 10px;
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+}
+.skin-focal {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  cursor: crosshair;
+  line-height: 0;
+}
+.skin-focal > img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+}
+.skin-focal-safe {
+  position: absolute;
+  inset: 0 0 0 24%;
+  border-left: 1.5px dashed rgb(255 255 255 / 0.85);
+  background: linear-gradient(90deg, rgb(0 0 0 / 0.18), transparent 40%);
+  pointer-events: none;
+}
+.skin-focal-safe > span {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.skin-focal-pin {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+.skin-focal:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.skin-picked {
+  margin-top: 12px;
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+}

@@ -42,6 +42,28 @@ export function requestBrowserPage(
 export function revealBrowserPane(sessionId: string): void {
   if (!sessionId) return;
   for (const listener of revealListeners) listener({ sessionId });
+  const panes = paneRevealListeners.get(sessionId);
+  if (panes?.size) for (const listener of [...panes]) listener();
+  else pendingPaneReveal.add(sessionId);
+}
+
+const paneRevealListeners = new Map<string, Set<() => void>>();
+const pendingPaneReveal = new Set<string>();
+
+/** The session's pane hears each "보기"; one pressed while the pane was not
+ *  mounted yet (the shell opens it in response) is delivered on mount. */
+export function onBrowserPaneRevealed(sessionId: string, listener: () => void): () => void {
+  let listeners = paneRevealListeners.get(sessionId);
+  if (!listeners) {
+    listeners = new Set();
+    paneRevealListeners.set(sessionId, listeners);
+  }
+  listeners.add(listener);
+  if (pendingPaneReveal.delete(sessionId)) listener();
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) paneRevealListeners.delete(sessionId);
+  };
 }
 
 const importListeners = new Map<string, Set<() => void>>();

@@ -239,6 +239,7 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'promptCacheLane',
   'promptCacheLaneSeed',
   'promptCacheLaneSlot',
+  'promptCachePrefixTtl',
   'promptCacheProvider',
   'promptCacheScope',
   'providerCacheKey',
@@ -461,6 +462,7 @@ function publicProviderConfig(
     if (typeof traits.inputExcludesCache === 'boolean') modelProxy.inputExcludesCache = traits.inputExcludesCache;
     if (typeof traits.nativePdf === 'boolean') modelProxy.nativePdf = traits.nativePdf;
     if (traits.consumesReadWindows === true) modelProxy.consumesReadWindows = true;
+    if (traits.takesImages === false) modelProxy.takesImages = false;
     const budget = firstResponseBudget(traits.firstResponseBudget);
     if (budget) modelProxy.firstResponseBudget = budget;
     out[name] = {
@@ -1091,7 +1093,8 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
     entry.type === 'custom' && entry.auth !== 'none' && typeof entry.apiKeyEnv === 'string' ? entry.apiKeyEnv : '';
   const credentialState = (name: string, entry: Record<string, unknown>) => {
     const environment = keyEnvironment(entry);
-    return environment ? (process.env[environment] ? 'present' : 'absent') : modules.probeAuth(name, entry);
+    if (!environment) return modules.probeAuth(name, entry);
+    return process.env[environment] ? 'present' : 'absent';
   };
 
   /** Applies the current availability plus the keys loaded so far; serialized
@@ -1127,6 +1130,7 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
               constructor?: { inputExcludesCache?: unknown };
               nativePdf?: unknown;
               consumesReadWindows?: unknown;
+              takesImages?: unknown;
               firstResponseBudget?: () => unknown;
             }
           | undefined;
@@ -1135,6 +1139,8 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
         if (typeof excludes === 'boolean') traits.inputExcludesCache = excludes;
         if (typeof instance?.nativePdf === 'boolean') traits.nativePdf = instance.nativePdf;
         if (instance?.consumesReadWindows === true) traits.consumesReadWindows = true;
+        // A text-only adapter: the server's read sends its model OCR text.
+        if (instance?.takesImages === false) traits.takesImages = false;
         // The adapter's own figure, for a model the catalog has no entry for.
         const budget = firstResponseBudget(instance?.firstResponseBudget?.());
         if (budget) traits.firstResponseBudget = budget;

@@ -84,7 +84,7 @@ export function createWorkflowContext({ packs, agents }) {
       // An agent-mode Lead without agents has no one to delegate to at all.
       orchestrationContext: subAgents || contacts ? AGENT_MODE_DELEGATION : '',
       agentCatalogContext: subAgents ? `# Available Agents\n\n${subAgents}` : '',
-      contactCatalogContext: contacts ? `# Contact Agents\n\n${MIXY_CONTACTS_INTRO}\n\n${contacts}` : '',
+      contactCatalogContext: contacts ? `# Bots\n\n${MIXY_CONTACTS_INTRO}\n\n${contacts}` : '',
     };
   }
 

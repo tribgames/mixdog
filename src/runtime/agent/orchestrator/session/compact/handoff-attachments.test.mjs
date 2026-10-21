@@ -60,8 +60,12 @@ test('the real handoff entry (filterOldHistoryForIngest) sends long stored messa
   assert.equal(prompts.length >= 1, true);
   const prompt = prompts.join('\n');
   assert.match(prompt, /END-OF-LONG-MESSAGE/);
-  assert.match(prompt, /\[image\]/);
-  assert.match(prompt, /\[PDF: spec\.pdf\]/);
+  // Older attachments reach compaction by reference, so the summary can keep
+  // the path the model reads them from.
+  assert.match(prompt, /\[Image kept on disk, not inlined: "image" \(image\/png/);
+  assert.match(prompt, /\[Attachment kept on disk, not inlined: "spec\.pdf" \(PDF/);
+  const blobPath = join(dataDir, 'prompt-attachments', 'sha256', 'bb', 'b'.repeat(64));
+  assert.ok(prompt.includes(blobPath) || prompt.includes(JSON.stringify(blobPath).slice(1, -1)));
   assert.match(prompt, /\[file: data\.zip\]/);
   assert.equal(prompt.includes('attachmentRef'), false);
 });

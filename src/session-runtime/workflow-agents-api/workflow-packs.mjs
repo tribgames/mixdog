@@ -45,6 +45,7 @@ export function createWorkflowPacksApi(deps) {
       name: workflow.name,
       description: workflow.description,
       source: workflow.source,
+      ...(workflow.overridesBuiltIn ? { overridesBuiltIn: true } : {}),
       active: workflow.id === active,
     }));
   }

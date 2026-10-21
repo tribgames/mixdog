@@ -510,6 +510,15 @@ export function providerNativePdf(name) {
   return providerTakesNativePdf(providers.get(String(name || '').toLowerCase()));
 }
 /**
+ * Whether the named provider sends image input to its models: false only for
+ * an adapter that declares `takesImages = false` (the text-only local
+ * runtime, which lowers every image to a placeholder). A pure lookup; an
+ * unknown provider is treated as taking images, as attachments are.
+ */
+export function providerReadsImages(name) {
+  return providers.get(String(name || '').toLowerCase())?.takesImages !== false;
+}
+/**
  * Whether the named provider's adapter declares `consumesReadWindows`: it
  * needs the structured clip report of read results. A pure lookup; a proxy
  * stand-in carries the PC adapter's declared trait.

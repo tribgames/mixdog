@@ -10,6 +10,7 @@ import {
   writeProjectTextFileIn as save,
   writeProjectTextFilesIn as saveMany,
 } from './project-files.ts';
+import { hookProjectSwap } from './project-swap-hook.mjs';
 
 async function fixture(t, files) {
   const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-text-encoding-'));
@@ -38,10 +39,20 @@ function hook(t, name, action) {
   const original = fs[name];
   const mock = t.mock.method(fs, name, (...args) => action(original, ...args));
   syncBuiltinESMExports();
-  t.after(() => { mock.mock.restore(); syncBuiltinESMExports(); });
+  t.after(() => {
+    mock.mock.restore();
+    syncBuiltinESMExports();
+  });
 }
 
-const variants = [['utf8', false], ['utf8bom', true], ['utf16le', true], ['utf16be', true], ['utf16le', false], ['utf16be', false]];
+const variants = [
+  ['utf8', false],
+  ['utf8bom', true],
+  ['utf16le', true],
+  ['utf16be', true],
+  ['utf16le', false],
+  ['utf16be', false],
+];
 const text = 'plain ASCII source '.repeat(8) + '\r\n한글 😀 \uFFFD\uFEFF\nlast\rline';
 for (const [encoding, bom] of variants) {
   test(`ordinary ${encoding} (BOM ${bom}) saves and batch writes preserve bytes and BOM`, async (t) => {
@@ -105,13 +116,20 @@ for (const [name, bytes] of malformed) {
     assert.equal(opened.readOnlyReason, 'encoding');
     assert.equal(decodeProjectText(bytes).lossless, false);
     let swaps = 0;
-    hook(t, 'rename', (rename, ...args) => { swaps++; return rename(...args); });
+    hookProjectSwap(t, {
+      before() {
+        swaps++;
+      },
+    });
     await assert.rejects(save(root, 'a.txt', opened.content, opened.content), /invalid text encoding/);
     await assert.rejects(save(root, 'a.txt', 'converted', opened.content, 'utf8'), /invalid text encoding/);
-    await assert.rejects(saveMany(root, [
-      { relPath: 'b.txt', content: 'updated', expectedContent: 'safe' },
-      { relPath: 'a.txt', content: 'updated', expectedContent: opened.content },
-    ]), /invalid text encoding/);
+    await assert.rejects(
+      saveMany(root, [
+        { relPath: 'b.txt', content: 'updated', expectedContent: 'safe' },
+        { relPath: 'a.txt', content: 'updated', expectedContent: opened.content },
+      ]),
+      /invalid text encoding/
+    );
     assert.equal(swaps, 0, 'batch preflight must refuse before the first replacement');
     assert.deepEqual(await fs.readFile(join(root, 'a.txt')), bytes);
     assert.equal(await fs.readFile(join(root, 'b.txt'), 'utf8'), 'safe');
@@ -124,13 +142,19 @@ for (const bad of ['\ud800', '\udc00']) {
     test(`${encoding} rejects an unpaired output surrogate ${bad.charCodeAt(0).toString(16)}`, async (t) => {
       const root = await fixture(t, { 'a.txt': 'safe', 'b.txt': 'safe' });
       let creates = 0;
-      hook(t, 'open', (open, ...args) => { creates++; return open(...args); });
+      hook(t, 'open', (open, ...args) => {
+        creates++;
+        return open(...args);
+      });
       await assert.rejects(save(root, 'a.txt', bad, 'safe', encoding), /unpaired Unicode/);
-      await assert.rejects(saveMany(root, [
-        { relPath: 'a.txt', content: 'updated', expectedContent: 'safe' },
-        { relPath: 'b.txt', content: bad, expectedContent: 'safe' },
-      ]), /unpaired Unicode/);
-      assert.equal(creates, 0, 'invalid output is rejected before temp-file creation');
+      await assert.rejects(
+        saveMany(root, [
+          { relPath: 'a.txt', content: 'updated', expectedContent: 'safe' },
+          { relPath: 'b.txt', content: bad, expectedContent: 'safe' },
+        ]),
+        /unpaired Unicode/
+      );
+      assert.equal(creates, 0, 'invalid output is rejected before any file is opened for writing');
       assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'safe');
       assert.equal(await fs.readFile(join(root, 'b.txt'), 'utf8'), 'safe');
     });
@@ -141,13 +165,12 @@ for (const [name, before, external] of [
   ['BOM-only change', encoded('abcdefgh', 'utf16le'), encoded('abcdefgh', 'utf16le', true)],
   ['same decoded display with corrupt bytes', Buffer.from('a\uFFFDb'), Buffer.from([0x61, 0x80, 0x62])],
 ]) {
-  test(`final byte recheck rejects ${name} during temp creation`, async (t) => {
+  test(`final byte recheck rejects ${name} as the file is opened for writing`, async (t) => {
     const root = await fixture(t, { 'a.txt': before });
     const file = join(root, 'a.txt');
     hook(t, 'open', async (open, path, ...args) => {
-      const handle = await open(path, ...args);
-      if (String(path).includes('.mixdog-save-')) await fs.writeFile(file, external);
-      return handle;
+      if (args[0] === 'r+') await fs.writeFile(file, external);
+      return open(path, ...args);
     });
     await assert.rejects(save(root, 'a.txt', 'edited', decodeProjectText(before).content), /changed on disk/);
     assert.deepEqual(await fs.readFile(file), external);
@@ -166,14 +189,18 @@ test('invalid encoding takes precedence over the read-only size reason', async (
 test('a successful batch rollback preserves the original BOM-less UTF-16 bytes', async (t) => {
   const before = encoded('original text', 'utf16le');
   const root = await fixture(t, { 'a.txt': before, 'b.txt': 'second' });
-  hook(t, 'rename', (rename, source, target) => {
-    if (String(target) === join(root, 'b.txt')) throw Object.assign(new Error('injected save failure'), { code: 'EIO' });
-    return rename(source, target);
+  hookProjectSwap(t, {
+    before(path) {
+      if (path === join(root, 'b.txt')) throw Object.assign(new Error('injected save failure'), { code: 'EIO' });
+    },
   });
-  await assert.rejects(saveMany(root, [
-    { relPath: 'a.txt', content: 'replacement text', expectedContent: 'original text' },
-    { relPath: 'b.txt', content: 'updated', expectedContent: 'second' },
-  ]), /injected save failure/);
+  await assert.rejects(
+    saveMany(root, [
+      { relPath: 'a.txt', content: 'replacement text', expectedContent: 'original text' },
+      { relPath: 'b.txt', content: 'updated', expectedContent: 'second' },
+    ]),
+    /injected save failure/
+  );
   assert.deepEqual(await fs.readFile(join(root, 'a.txt')), before);
   assert.equal(await fs.readFile(join(root, 'b.txt'), 'utf8'), 'second');
   assert.deepEqual((await fs.readdir(root)).sort(), ['a.txt', 'b.txt']);

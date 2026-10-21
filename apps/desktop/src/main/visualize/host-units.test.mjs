@@ -114,7 +114,7 @@ test('watchPageProblems judges only requests made by its own webContents and ign
   const calls = [];
   const service = {
     reportConsole: (report) => calls.push(['console', report.frameUrl]),
-    guardNavigation: (chain, url, appInitiated) => {
+    guardNavigation: (_chain, url, appInitiated) => {
       calls.push(['nav', url, appInitiated]);
       return true;
     },

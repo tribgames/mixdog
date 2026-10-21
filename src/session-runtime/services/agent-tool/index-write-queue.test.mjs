@@ -215,7 +215,12 @@ test('a write that cannot reach disk is logged, rejects the flush, and is retrie
     const leadRow = { sessionId: 'lead-1', tag: 'lead-1', agent: 'lead', clientHostPid: 1, status: 'idle' };
     index.write((byKey) => byKey.set('lead-1', leadRow));
 
-    const { result, lines } = await captureStderr(() => index.flush().then(() => null, (error) => error));
+    const { result, lines } = await captureStderr(() =>
+      index.flush().then(
+        () => null,
+        (error) => error
+      )
+    );
     assert.ok(result instanceof Error, 'flush rejects instead of reporting success');
     assert.ok(
       lines.some((line) => line.includes('[index-write]') && line.includes('kept queued')),

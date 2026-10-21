@@ -9,6 +9,7 @@ import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
 import { navigationKey } from '../text-format';
 import type { PaneLeaf } from '../pane-layout';
 import { TooltipLayer } from '../TooltipLayer';
+import { BrowserApprovalHost } from '../BrowserApprovalHost';
 import {
   UnsavedChangesDialog,
   WorkbenchQuickAccess,
@@ -196,7 +197,20 @@ export function AppShellOverlays({
       <Suspense
         fallback={
           !settingsOpen && (commandSurface || onboardingOpen) ? (
-            <DesktopLoadingSurface label={t('Loading view…')} overlay />
+            <DesktopLoadingSurface
+              label={t('Loading view…')}
+              overlay
+              // A view that is slow to arrive (a stalled chunk on a phone) must
+              // not leave the screen covered with nothing to tap.
+              onCancel={
+                commandSurface && !onboardingOpen
+                  ? () => {
+                      setCommandSurface(null);
+                      setCommandSurfaceSessionId('');
+                    }
+                  : undefined
+              }
+            />
           ) : null
         }
       >
@@ -247,6 +261,7 @@ export function AppShellOverlays({
         toasts={Array.isArray(snapshot.toasts) ? snapshot.toasts : []}
         onDismissBridgeError={() => setError('')}
       />
+      <BrowserApprovalHost />
       <TooltipLayer />
     </>
   );

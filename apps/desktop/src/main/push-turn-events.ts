@@ -9,6 +9,9 @@ export interface TurnCompletion {
   sourceType?: DesktopSessionSummary['sourceType'];
   /** Notification title — the session's own name. */
   title: string;
+  /** Set when the session is a bot's home chat: the watcher titles it with the
+   *  bot's name (a room is titled by its own name right here). */
+  agentHome?: string;
   /** Filled from the completed turn's assistant answer by the watcher. */
   preview: string;
   startedAt: number;
@@ -102,7 +105,9 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
         completions.push({
           sessionId: id,
           sourceType: session.sourceType,
-          title: clip(session.title || session.preview || 'Mixdog', MAX_TITLE_CHARS) || 'Mixdog',
+          title:
+            clip(session.agentRoom?.name || session.title || session.preview || 'Mixdog', MAX_TITLE_CHARS) || 'Mixdog',
+          ...(session.agentHome ? { agentHome: session.agentHome } : {}),
           preview: '',
           startedAt: started.get(id) ?? nowMs,
           at: nowMs,

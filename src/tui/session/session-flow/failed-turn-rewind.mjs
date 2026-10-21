@@ -6,8 +6,10 @@
 const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'notice']);
 
 // An in-place model switch made after the stop (the quota "switch model"
-// path) is not the failed turn's output and outlives its rewind.
-const isModelSwitchDivider = (item) => item?.kind === 'statusdone' && item.status === 'model-switched';
+// path), or a model, workflow or orchestration mode switch applied at the
+// failed turn's start, is not the turn's output and outlives its rewind.
+const SWITCH_DIVIDERS = new Set(['model-switched', 'workflow-switched', 'orchestration-mode-switched']);
+const isModelSwitchDivider = (item) => item?.kind === 'statusdone' && SWITCH_DIVIDERS.has(item.status);
 
 /** The items with the trailing failed, output-less turn removed (a later
  *  model switch divider kept), or null when nothing qualifies. */

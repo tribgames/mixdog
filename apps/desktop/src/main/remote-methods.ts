@@ -27,6 +27,7 @@ import { REMOTE_BLOCKED_CAPABILITY_NAMES } from '../shared/remote-blocked-capabi
 import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
 import { readHostDisplayPreferences } from '../shared/host-display-preferences';
 import { browserParityRemoteMethods, type BrowserRemoteMethod } from './remote-browser-methods';
+import { remoteCapabilityArgs } from './remote-authority';
 import { pushRemoteMethods } from './remote-push-methods';
 import { validatedHostDirectoryPath } from './host-directories';
 import { sessionFolder, sessionRemoteMethods } from './remote-session-methods';
@@ -129,6 +130,20 @@ const TURN_REVIEW_CAPABILITIES: ReadonlySet<string> = new Set([
 export function assertRemoteCapability(capability: string): void {
   if (REMOTE_BLOCKED_CAPABILITIES.has(capability)) {
     throw new TypeError(`capability ${capability} is not available over remote access.`);
+  }
+}
+
+/** assertRemoteCapability for a call that carries its arguments. A paired
+ *  client may never create a standing allow (a bot's action `allow`) and cannot
+ *  write the desktop's audit; whether a connector or permission change widens a
+ *  bot's EFFECTIVE authority is judged by the runtime writer (remote-authority.ts). */
+export function assertRemoteCapabilityCall(capability: string, args: readonly unknown[] = []): void {
+  assertRemoteCapability(capability);
+  if (capability === 'recordAgentApprovalAudit') {
+    throw new TypeError(`capability ${capability} is not available over remote access.`);
+  }
+  if (capability === 'setAgentPermission' && args[2] === 'allow') {
+    throw new TypeError(`${capability} cannot create a standing allow over remote access; use the desktop.`);
   }
 }
 
@@ -1130,7 +1145,7 @@ export function createRemoteMethods(
     listAgentPool: () => host.listAgentPool(),
     searchSessionContent: ([query]) => host.searchSessionContent(requiredSessionContentQuery(query)),
     ...sessionRemoteMethods(host, client, browserRemote),
-    ...hostCapabilityRemoteMethods(host, browserRemote),
+    ...hostCapabilityRemoteMethods(host, browserRemote, invokeDesktopOperation),
     ...browserParityRemoteMethods(browserRemote),
     ...gitRemoteMethods(invokeDesktopOperation),
     ...developerToolingRemoteMethods(invokeDesktopOperation),
@@ -1218,7 +1233,8 @@ function workspaceRemoteMethods({
 
 function hostCapabilityRemoteMethods(
   host: DesktopService,
-  browserRemote: RemoteMethodDependencies['browserRemote']
+  browserRemote: RemoteMethodDependencies['browserRemote'],
+  invokeDesktopOperation: InvokeDesktopOperation
 ): Record<string, RemoteMethod> {
   const requiredBrowserRemote = (): NonNullable<RemoteMethodDependencies['browserRemote']> => {
     if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
@@ -1247,11 +1263,16 @@ function hostCapabilityRemoteMethods(
     },
     invokeCapability: ([input]) => {
       const request = requiredDesktopCapabilityRequest(input);
-      assertRemoteCapability(request.capability);
+      assertRemoteCapabilityCall(request.capability, request.args);
       // A phone addresses the same pane session the desktop does. Dropping the
       // id answered every session-scoped read (/context, /inherit) from the
       // blank control session (user: 모바일 /context가 0으로 나온다).
-      const result = host.invokeCapability(request.capability, request.args, request.sessionId);
+      // The authority setters are marked no-widen: the runtime judges it atomically with the write.
+      const result = host.invokeCapability(
+        request.capability,
+        remoteCapabilityArgs(request.capability, request.args),
+        request.sessionId
+      );
       // The daemon answers a session-addressed call with that session's whole
       // snapshot (transcript included). The turn review bar reads the value
       // only and the phone mirrors the session on its own lane, so each
@@ -1260,6 +1281,10 @@ function hostCapabilityRemoteMethods(
       const shaped = VALUE_ONLY_SESSION_CAPABILITIES.has(request.capability)
         ? result.then(({ value }) => ({ value }))
         : result;
+      // The shared Lead face changed: the desktop and the other phones re-read it.
+      if (request.capability === 'setLeadAppearance' || request.capability === 'setBotOrder') {
+        void shaped.then(() => invokeDesktopOperation('notifySettingsChanged', ['desktop'])).catch(() => {});
+      }
       if (!TURN_REVIEW_CAPABILITIES.has(request.capability)) return shaped;
       return shaped.then(async (reply) => ({
         ...reply,

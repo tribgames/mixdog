@@ -29,7 +29,15 @@ import {
 } from './store-summary-fields.mjs';
 import { isRealTurnMessage } from './compact/user-message-kind.mjs';
 import { isRoutineResultMessage, normalizeRoutineProvenance, routineProvenance } from './routine-result.mjs';
-import { LAST_MESSAGE_PREVIEW_MAX, cleanSummaryPreview, lastMessageRawText } from './store-summary-last-message.mjs';
+import {
+  INCOMING_TAIL_MAX,
+  LAST_MESSAGE_PREVIEW_MAX,
+  cleanSummaryPreview,
+  isIncomingKind,
+  normalizedIncomingTail,
+  lastMessageRawText,
+  wantsIncomingTail,
+} from './store-summary-last-message.mjs';
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
@@ -111,6 +119,13 @@ function _sessionMessageProjection(session) {
   let real = 0;
   let preview = '';
   let previewMessage = null;
+  // Where the incoming messages with text sit among the counted ones (see
+  // incomingTailOf), kept only for the threads that show an unread count.
+  const wantsIncoming = wantsIncomingTail(session?.id);
+  let incoming = [];
+  // The totals ahead of the newest message, which a streamed reply fills in
+  // place after it was counted: an append redoes that message from here.
+  let ahead = null;
   const canAppend =
     cached &&
     messages.length >= cached.length &&
@@ -119,6 +134,12 @@ function _sessionMessageProjection(session) {
     start = cached.length;
     count = cached.count;
     real = cached.real;
+    incoming = cached.incoming.slice();
+    if (cached.ahead) {
+      start = cached.length - 1;
+      ({ count, real } = cached.ahead);
+      incoming = cached.ahead.incoming.slice();
+    }
     preview = cached.preview;
     previewMessage = cached.previewMessage;
     // The first real user message is stable in normal append-only session
@@ -131,6 +152,7 @@ function _sessionMessageProjection(session) {
         start = 0;
         count = 0;
         real = 0;
+        incoming = [];
         preview = '';
         previewMessage = null;
       }
@@ -138,7 +160,14 @@ function _sessionMessageProjection(session) {
   }
   for (let index = start; index < messages.length; index += 1) {
     const message = messages[index];
-    if (message && (message.role === 'user' || message.role === 'assistant')) count += 1;
+    if (index === messages.length - 1) ahead = { count, real, incoming: incoming.slice() };
+    if (message && (message.role === 'user' || message.role === 'assistant')) {
+      count += 1;
+      if (wantsIncoming && isIncomingKind(message) && _lastPreviewFromMessage(message)) {
+        incoming.push(count);
+        if (incoming.length > INCOMING_TAIL_MAX) incoming.shift();
+      }
+    }
     if (isRealTurnMessage(message)) real += 1;
     if (!preview) {
       const candidate = _previewFromMessage(message);
@@ -165,11 +194,13 @@ function _sessionMessageProjection(session) {
       lastMessage: messages[messages.length - 1] || null,
       count,
       real,
+      incoming,
+      ahead,
       preview,
       previewMessage,
     });
   }
-  return { count, real, preview, last, lastRoutine };
+  return { count, real, incoming: wantsIncoming ? incoming : null, preview, last, lastRoutine };
 }
 
 function _desktopSessionSummary(value, cwd = null) {
@@ -233,6 +264,7 @@ export function _sessionSummary(session) {
       : null,
     taskType: session.taskType || null,
     messageCount: messageProjection.count,
+    ...(messageProjection.incoming ? { incomingTail: messageProjection.incoming.slice() } : {}),
     realTurnCount: messageProjection.real,
     title: _cleanPreview(session.title || '', 100),
     preview: messageProjection.preview,
@@ -291,6 +323,7 @@ function _normalizeSummaryRow(row) {
       : null,
     taskType: row.taskType || null,
     messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
+    ...(Array.isArray(row.incomingTail) ? { incomingTail: normalizedIncomingTail(row.incomingTail) } : {}),
     realTurnCount: realTurnCount(row),
     title: _cleanPreview(row.title || '', 100),
     preview: _cleanPreview(row.preview || ''),
@@ -561,12 +594,14 @@ export function summaryLockFailureStats() {
 
 // ── Stale temp sweep ────────────────────────────────────────────────────────
 // A crash between an atomic write's temp file and its rename orphans
-// `.session-summaries.json.<24 hex>.tmp` (multi-MB each). Only this store's
+// `session-summaries.json.mixdog-tmp-<16 hex>` (multi-MB each; before the
+// cloud-sync fix `.session-summaries.json.<24 hex>.tmp`). Only this store's
 // pattern is touched. Deleted only when older than SUMMARY_TMP_MIN_AGE_MS and
 // while holding the index lock: every writer of these temps (full rewrite,
 // compaction) holds that lock for the whole write, so no live writer can own a
 // temp file the sweep sees.
-const SUMMARY_TMP_PATTERN = /^\.session-summaries\.json\.[0-9a-f]{24}\.tmp$/;
+const SUMMARY_TMP_PATTERN =
+  /^(?:\.session-summaries\.json\.[0-9a-f]{24}\.tmp|session-summaries\.json\.mixdog-tmp-[0-9a-f]{16,24})$/;
 const SUMMARY_TMP_MIN_AGE_MS = 10 * 60 * 1000;
 let _sweptSummaryDir = '';
 

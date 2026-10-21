@@ -65,6 +65,8 @@ Thumbs.db
 
 # Scratch
 *.tmp
+# Atomic-writer temp files (`<name>.mixdog-tmp-<hex>`) a crashed write leaves.
+*.mixdog-tmp-*
 tmp/
 .tmp-internal-comms-live.*
 # Every local probe/profile scratch dir follows the same .tmp- prefix, so one
@@ -159,6 +161,7 @@ bench-results/
 /.runtime/
 /deliverables/
 /design/mockups/
+/design/skin-loops/
 /dist/
 /output/
 /outputs/

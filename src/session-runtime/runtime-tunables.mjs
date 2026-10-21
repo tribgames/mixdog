@@ -36,6 +36,12 @@ export function readRuntimeTunables() {
     // connected tools fold synchronously; in-flight servers join through the
     // late-tool announcement path. Operators may opt back into a grace window.
     mcpTurnGraceMs: envDelayMs('MIXDOG_MCP_TURN_GRACE_MS', 0, { min: 0, max: 2_000 }),
+    // A spawned agent's first turn may be its only one, so it waits for the
+    // initial connect — but only this long: a slow-but-alive server (a
+    // 20 s handshake is seen in the wild) must not hold the first model
+    // request for its whole startup budget. Later servers join through the
+    // late-tool announcement path on the agent's next turn.
+    mcpAgentGraceMs: envDelayMs('MIXDOG_MCP_AGENT_GRACE_MS', 3_000, { min: 0, max: 30_000 }),
     // Boot-time remote start is deferred past the first frame; see the caller.
     remoteAutoStartDelayMs: envDelayMs('MIXDOG_REMOTE_AUTOSTART_DELAY_MS', 1_500, { min: 0, max: 60_000 }),
     providerWarmupEnabled:

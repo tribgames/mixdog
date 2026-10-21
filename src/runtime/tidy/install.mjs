@@ -4,7 +4,7 @@
 // Policy gating happens BEFORE any network call: 'never' refuses, 'ask' returns
 // needsApproval unless the call carried approveDownloads:true, 'auto' proceeds.
 // Toolchain engines (rustfmt, gofmt, zig fmt, ...) are never downloadable.
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { MAX_NATIVE_BINARY_DOWNLOAD_BYTES, streamResponseToFile } from '../shared/bounded-download.mjs';
@@ -149,32 +149,95 @@ export function planInstall({ ids = [], manifest, pluginData = '', policy = 'aut
   return { targets, present, errors, needsApproval: null };
 }
 
-async function downloadAsset(target, tmpDir, fetchFn, signal, onProgress) {
-  const archiveFile = join(tmpDir, `asset-${target.id}`);
-  const response = await fetchFn(target.url, { signal, redirect: 'follow' });
-  if (!response?.ok) {
-    throw new Error(`${LABEL} ${target.id}: HTTP ${response?.status || 0} for ${target.url}`);
+// A network switch can leave a socket open that never delivers another byte;
+// without a deadline the install (and the single in-flight job behind it)
+// would wait forever.
+const DEFAULT_STALL_TIMEOUT_MS = 60_000;
+// A `.tmp-<pid>-<ms>-…` staging dir whose owner crashed is never cleaned by
+// that owner; an hour is far beyond any live download.
+const STALE_TMP_AGE_MS = 60 * 60 * 1000;
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
   }
-  await streamResponseToFile(response, archiveFile, {
-    maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
-    label: `${LABEL} ${target.id}`,
-    // Byte progress per engine: the desktop card renders it live, so the
-    // callback carries the engine id the bytes belong to.
-    ...(typeof onProgress === 'function'
-      ? {
-          onProgress: ({ downloaded, total }) => {
-            onProgress({ id: target.id, receivedBytes: downloaded, totalBytes: total });
-          },
+}
+
+/** Remove staging dirs a killed install left behind (dead owner, or ancient). */
+function reclaimStaleStaging(engineRoot) {
+  let names;
+  try {
+    names = readdirSync(engineRoot);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const match = /^\.tmp-(\d+)-(\d+)-/.exec(name);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const ownerGone = pid !== process.pid && !pidAlive(pid);
+    if (!ownerGone && Date.now() - Number(match[2]) < STALE_TMP_AGE_MS) continue;
+    try {
+      rmSync(join(engineRoot, name), { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+async function downloadAsset(target, tmpDir, fetchFn, signal, onProgress, stallTimeoutMs) {
+  const archiveFile = join(tmpDir, `asset-${target.id}`);
+  const stalled = new AbortController();
+  const merged = signal ? AbortSignal.any([signal, stalled.signal]) : stalled.signal;
+  let timer;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => stalled.abort(), stallTimeoutMs);
+  };
+  arm();
+  try {
+    const response = await fetchFn(target.url, { signal: merged, redirect: 'follow' });
+    if (!response?.ok) {
+      throw new Error(`${LABEL} ${target.id}: HTTP ${response?.status || 0} for ${target.url}`);
+    }
+    await streamResponseToFile(response, archiveFile, {
+      maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
+      label: `${LABEL} ${target.id}`,
+      signal: merged,
+      // Byte progress per engine: the desktop card renders it live, so the
+      // callback carries the engine id the bytes belong to. Any bytes also
+      // prove the connection is alive.
+      onProgress: ({ downloaded, total }) => {
+        arm();
+        if (typeof onProgress === 'function') {
+          onProgress({ id: target.id, receivedBytes: downloaded, totalBytes: total });
         }
-      : {}),
-  });
+      },
+    });
+  } catch (error) {
+    if (stalled.signal.aborted && !signal?.aborted) {
+      throw new Error(`${LABEL} ${target.id}: download stalled (no data for ${stallTimeoutMs / 1000}s)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   return archiveFile;
 }
 
 /** Download + verify + extract one engine into its versioned managed dir. */
 export async function installEngine(
   target,
-  { pluginData, fetchFn = globalThis.fetch, signal = null, onProgress = null } = {}
+  {
+    pluginData,
+    fetchFn = globalThis.fetch,
+    signal = null,
+    onProgress = null,
+    stallTimeoutMs = DEFAULT_STALL_TIMEOUT_MS,
+  } = {}
 ) {
   const engineRoot = join(managedToolsDir(pluginData), target.id);
   const finalDir = managedEngineDir(pluginData, target.id, target.version);
@@ -184,10 +247,11 @@ export async function installEngine(
     return { id: target.id, version: target.version, path: binFull, bytes: 0, status: 'present' };
   }
   mkdirSync(engineRoot, { recursive: true });
+  reclaimStaleStaging(engineRoot);
   const tmpDir = join(engineRoot, `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   mkdirSync(tmpDir, { recursive: true });
   try {
-    const archiveFile = await downloadAsset(target, tmpDir, fetchFn, signal, onProgress);
+    const archiveFile = await downloadAsset(target, tmpDir, fetchFn, signal, onProgress, stallTimeoutMs);
     await verifyDownloadDigest(archiveFile, target.sha256);
     const bytes = statSync(archiveFile).size;
     const stageDir = join(tmpDir, 'stage');
@@ -238,6 +302,7 @@ export async function installEngines({
   fetchFn = globalThis.fetch,
   signal = null,
   onProgress = null,
+  stallTimeoutMs = undefined,
 } = {}) {
   const loaded = manifest || readEnginesManifest();
   const plan = planInstall({ ids, manifest: loaded, pluginData, policy, approveDownloads });
@@ -252,7 +317,7 @@ export async function installEngines({
   }
   for (const target of plan.targets) {
     try {
-      installed.push(await installEngine(target, { pluginData, fetchFn, signal, onProgress }));
+      installed.push(await installEngine(target, { pluginData, fetchFn, signal, onProgress, stallTimeoutMs }));
     } catch (error) {
       errors.push({ id: target.id, error: error?.message || String(error) });
     }

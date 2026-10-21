@@ -157,7 +157,7 @@ for (const settle of ['answer', 'cancel']) {
     assert.equal(getSessionProgressSnapshot(session.id).awaitingUser, 'approval');
     if (settle === 'answer') {
       answer.resolve({ approved: false, reason: 'fixture decision' });
-      assert.match(await result, /denied by hook.*fixture decision/);
+      assert.match(await result, /was not approved: fixture decision\. Do not retry it/);
     } else {
       const reason = new Error('cancel while awaiting approval');
       controller.abort(reason);
@@ -202,7 +202,7 @@ for (const approved of [true, false]) {
     if (approved) {
       assert.equal(await readFile(join(root, revised), 'utf8'), 'approved target\n');
     } else {
-      assert.match(result, /denied by hook.*fixture decision/);
+      assert.match(result, /was not approved: fixture decision\. Do not retry it/);
       await assert.rejects(readFile(join(root, revised)), { code: 'ENOENT' });
     }
   });

@@ -40,7 +40,10 @@ test('extractText resolves text attachment refs, bounded, and tolerates a missin
 
 test('extractText marks a corrupt blob unavailable but rethrows a transient read error', async (t) => {
   const corrupt = blob('original');
-  writeFileSync(join(dataDir, 'prompt-attachments', 'sha256', corrupt.attachmentRef.slice(0, 2), corrupt.attachmentRef), 'tampered!');
+  writeFileSync(
+    join(dataDir, 'prompt-attachments', 'sha256', corrupt.attachmentRef.slice(0, 2), corrupt.attachmentRef),
+    'tampered!'
+  );
   assert.equal(extractText({ role: 'user', content: [{ type: 'text', ...corrupt }] }), '[attachment unavailable]');
 
   const fine = blob('readable');
@@ -62,9 +65,18 @@ test('extractText marks a corrupt blob unavailable but rethrows a transient read
 test('a PDF is recognised by the same kind rule lowering uses, not label or extension alone', () => {
   const pdf = Buffer.from('%PDF-1.4\nrest').toString('base64');
   const marker = (part) => extractText({ role: 'user', content: [part] });
-  assert.equal(marker({ type: 'file', data: pdf, mimeType: 'application/octet-stream', filename: 'report' }), '[PDF: report]');
-  assert.equal(marker({ type: 'file', attachmentRef: 'e'.repeat(64), mimeType: 'application/pdf', filename: 'scan' }), '[PDF: scan]');
-  assert.equal(marker({ type: 'file', data: 'AAAA', mimeType: 'application/zip', filename: 'trick.pdf' }), '[file: trick.pdf]');
+  assert.equal(
+    marker({ type: 'file', data: pdf, mimeType: 'application/octet-stream', filename: 'report' }),
+    '[PDF: report]'
+  );
+  assert.equal(
+    marker({ type: 'file', attachmentRef: 'e'.repeat(64), mimeType: 'application/pdf', filename: 'scan' }),
+    '[PDF: scan]'
+  );
+  assert.equal(
+    marker({ type: 'file', data: 'AAAA', mimeType: 'application/zip', filename: 'trick.pdf' }),
+    '[file: trick.pdf]'
+  );
 });
 
 test('extractText marks media parts so the summarizer knows they existed', () => {

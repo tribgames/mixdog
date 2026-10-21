@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
+import { preDispatchDenyForSession } from '../runtime/agent/orchestrator/session/loop/pre-dispatch-deny.mjs';
 import { publishAgentProfileChange, subscribeAgentProfileChanges } from './agent-profile-changes.mjs';
 import { createAgentEditorApi } from './workflow-agents-api/agent-editor.mjs';
 import {
@@ -11,6 +12,7 @@ import {
   seedSessionMessages,
 } from '../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
 import { agentProfileRevision, leadRosterRevision } from '../runtime/agent/orchestrator/context/role-instructions.mjs';
+import { promptRulesRevision } from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
 import {
   createWorkflowHelpers,
@@ -79,6 +81,7 @@ function agentThread(
     promptIdentity: prompt.promptIdentity,
     agentProfileRevision: agentProfileRevision(agentId),
     agentRosterRevision: leadRosterRevision(leadWorkflowParts),
+    ...(sessionMode === 'agent' ? { rulesRevision: promptRulesRevision(), agentConnectorTools: [] } : {}),
     callerDisallowedTools: [],
     messages,
     tools: [{ name: 'read' }],
@@ -183,6 +186,130 @@ test('another agent, or an unchanged prompt, leaves the thread and its cache alo
   assert.equal(session.agentProfileRevision, agentProfileRevision('poet'));
 });
 
+/** What the next request sends ahead of the conversation: system blocks and tool schemas. */
+const prefix = (session) =>
+  JSON.stringify([session.messages.filter((m) => m.role === 'system').map((m) => m.content), session.tools]);
+
+// A bot has one persistent thread and no "next session": a feature gate that opened since the thread
+// was made (Browser Use turned on, its bridge up after the thread was created) must reach it — through
+// deferred loading, without touching the cached prefix; the prompt takes it at the next cold point.
+test("a gate that opened since a bot's thread was made reaches the thread with no cache break", async (t) => {
+  const { agentDir } = withDataDir(t);
+  writeFileSync(join(agentDir('poet'), 'AGENT.md'), 'Write poems.');
+  const browser = { name: 'browser', description: 'Browser.', inputSchema: { type: 'object', properties: {} } };
+  const session = agentThread('poet');
+  session.disallowedTools = ['get_goal', 'browser', 'browser_devtools'];
+  session.callerDisallowedTools = ['get_goal'];
+  const refreshWith = (denied) =>
+    createToolPolicyRefresh({
+      getSession: () => session,
+      getRoute: () => ({ provider: 'openai', model: 'test' }),
+      getMode: () => 'full',
+      getConfig: () => CONFIG,
+      getDataDir: () => '',
+      getActiveTurnCount: () => 0,
+      modelStandaloneTools: () => [{ name: 'read' }, browser],
+      featureDisallowedTools: () => denied,
+      loadCoreMemoryContext: async () => 'MEMORY',
+      activeWorkflowContext: () => ({ ...PACK, orchestrationMode: 'none' }),
+      invalidatePreSessionToolSurface: () => {},
+    });
+  const conversation = session.messages.slice(-2);
+  const sees = () => (session.deferredToolCatalog || []).some((tool) => tool.name === 'browser');
+
+  // Still gated: nothing moves.
+  assert.equal(await refreshWith(['browser', 'browser_devtools']).refreshAgentProfile({ trigger: 'resume' }), false);
+  assert.deepEqual(session.disallowedTools, ['get_goal', 'browser', 'browser_devtools']);
+  assert.equal(session.pendingCacheBreakIntent, undefined);
+
+  // The bridge is up now.
+  const before = prefix(session);
+  assert.equal(await refreshWith([]).refreshAgentProfile({ trigger: 'resume' }), true);
+  assert.deepEqual(
+    session.disallowedTools,
+    ['get_goal', 'agent'],
+    'the caller denial and the workflow denial stay, the opened gate goes'
+  );
+  assert.ok(sees(), 'the tool is in the deferred catalog, reachable by deferred loading');
+  assert.equal(preDispatchDenyForSession(session, { name: 'browser', arguments: {} }), null);
+  assert.deepEqual(
+    session.pendingDeferredToolDelta.added.map((entry) => entry.name),
+    ['browser']
+  );
+  assert.equal(prefix(session), before, 'the request prefix is byte-identical');
+  assert.deepEqual(session.messages.slice(-2), conversation, 'the conversation is untouched');
+  assert.equal(session.pendingCacheBreakIntent, undefined);
+  assert.deepEqual(session.providerState, { previousResponseId: 'resp_1' }, 'the provider chain is kept');
+  assert.equal(session.promptFoldPending, true);
+  // Staged once.
+  assert.equal(await refreshWith([]).refreshAgentProfile({ trigger: 'resume' }), false);
+
+  // A compaction makes the cache cold anyway: the prompt takes the gate then.
+  session.pendingCacheBreakIntent = 'post_turn_compaction';
+  assert.equal(await refreshWith([]).applyPendingAgentProfile(), true);
+  assert.equal(session.promptFoldPending, undefined);
+  assert.notEqual(prefix(session), before);
+  assert.match(systemText(session), /browser/, 'the deferred roster lists it now');
+  assert.equal(session.pendingCacheBreakIntent, 'post_turn_compaction', 'one break, tagged as the compaction');
+});
+
+test('a connector added to a bot is reachable without a prefix change; a removed one is refused', async (t) => {
+  const { agentDir } = withDataDir(t);
+  const dir = agentDir('poet');
+  writeFileSync(join(dir, 'AGENT.md'), 'Write poems.');
+  const connectors = (ids) =>
+    writeFileSync(
+      join(dir, 'agent.json'),
+      JSON.stringify({ name: 'poet', connectors: ids.map((id) => ({ id, enabled: true })) })
+    );
+  connectors(['alpha']);
+  const mcp = (server) => ({
+    name: `mcp__${server}__run`,
+    description: `${server} tool.`,
+    inputSchema: { type: 'object' },
+  });
+  const session = agentThread('poet');
+  session.deferredToolCatalog = [mcp('alpha'), mcp('beta')];
+  delete session.agentConnectorTools;
+  const refresh = refresher(session);
+  await refresh.applyPendingAgentProfile();
+  assert.deepEqual(session.agentConnectorTools, ['mcp__alpha__run'], 'the baseline');
+  assert.match(String(preDispatchDenyForSession(session, { name: 'mcp__beta__run', arguments: {} })), /not available/);
+  const before = prefix(session);
+
+  connectors(['alpha', 'beta']);
+  await refresh.refreshAgentProfile();
+  assert.equal(prefix(session), before, 'the request prefix is byte-identical');
+  assert.equal(session.pendingCacheBreakIntent, undefined);
+  assert.deepEqual(
+    session.pendingDeferredToolDelta.added.map((entry) => entry.name),
+    ['mcp__beta__run']
+  );
+  assert.equal(preDispatchDenyForSession(session, { name: 'mcp__beta__run', arguments: {} }), null);
+
+  delete session.pendingDeferredToolDelta;
+  connectors(['beta']);
+  await refresh.refreshAgentProfile();
+  assert.equal(prefix(session), before);
+  assert.deepEqual(session.pendingDeferredToolDelta.removed, ['mcp__alpha__run']);
+  assert.match(
+    String(preDispatchDenyForSession(session, { name: 'mcp__alpha__run', arguments: {} })),
+    /is not available to this agent/
+  );
+});
+
+test('a coding session keeps its frozen tools when a gate opens', async (t) => {
+  const { agentDir } = withDataDir(t);
+  writeFileSync(join(agentDir('poet'), 'AGENT.md'), 'Write poems.');
+  const session = agentThread('lead', { sessionMode: 'coding', id: 'sess_task_1' });
+  delete session.agentProfileRevision;
+  session.disallowedTools = ['browser'];
+  const refresh = refresher(session);
+  const before = JSON.stringify(session);
+  assert.equal(await refresh.refreshAgentProfile({ trigger: 'resume' }), false);
+  assert.equal(JSON.stringify(session), before);
+});
+
 test('a thread mid-turn keeps its prompt and takes the edit at its next turn', async (t) => {
   const { agentDir } = withDataDir(t);
   const dir = agentDir('poet');
@@ -205,6 +332,86 @@ test('a thread mid-turn keeps its prompt and takes the edit at its next turn', a
   assert.equal(await refresh.applyPendingAgentProfile(), false, 'applied once');
 });
 
+test("a release's rule change waits silently and is folded in at the next cold point", async (t) => {
+  const { agentDir } = withDataDir(t);
+  writeFileSync(join(agentDir('poet'), 'AGENT.md'), 'Write poems.');
+  const session = agentThread('poet');
+  const conversation = session.messages.slice(-2);
+  // Built under older rules: its stamp and its BP1/BP3 text differ.
+  session.rulesRevision = 'older-release';
+  session.messages[0] = { ...session.messages[0], content: '# Tool Calls\n\nOLD_SHARED_RULE' };
+  const bp3 = session.messages.find((message) => message.cacheTier === 'tier3');
+  bp3.content = bp3.content.replace('# Bot Mode', '# Bot Mode\n\n- OLD_BOT_RULE');
+  session.bp3CoreContext = bp3.content;
+  const refresh = refresher(session);
+  const before = prefix(session);
+  const record = JSON.stringify(session);
+
+  // A warm thread: no rewrite, no reminder, nothing staged.
+  assert.equal(await refresh.applyPendingAgentProfile(), false);
+  assert.equal(await refresh.refreshAgentProfile({ trigger: 'resume' }), false);
+  assert.equal(JSON.stringify(session), record);
+  assert.equal(prefix(session), before);
+
+  // A compaction makes the cache cold anyway: the new rules go in then, once.
+  session.pendingCacheBreakIntent = 'post_turn_compaction';
+  assert.equal(await refresh.applyPendingAgentProfile(), true);
+  assert.doesNotMatch(systemText(session), /OLD_SHARED_RULE|OLD_BOT_RULE/);
+  assert.match(session.messages[0].content, /^# Tool Calls\n/);
+  assert.deepEqual(session.messages.slice(-2), conversation, 'the conversation is untouched');
+  assert.equal(session.rulesRevision, promptRulesRevision());
+  assert.equal(session.pendingCacheBreakIntent, 'post_turn_compaction');
+  delete session.pendingCacheBreakIntent;
+  const folded = JSON.stringify(session);
+  assert.equal(await refresh.applyPendingAgentProfile(), false);
+  assert.equal(JSON.stringify(session), folded);
+});
+
+test('an expired tail cache folds pending changes; an openai-oauth thread never folds on idle', async (t) => {
+  const { agentDir } = withDataDir(t);
+  writeFileSync(join(agentDir('poet'), 'AGENT.md'), 'Write poems.');
+  const stale = (provider) => {
+    const session = agentThread('poet');
+    session.provider = provider;
+    session.providerCacheOpts = { cacheStrategy: { messages: '5m' } };
+    session.lastProviderSendAt = Date.now() - 6 * 60 * 60_000;
+    session.rulesRevision = 'older-release';
+    return session;
+  };
+  const oauth = stale('openai-oauth');
+  assert.equal(await refresher(oauth).applyPendingAgentProfile(), false);
+  assert.equal(oauth.rulesRevision, 'older-release');
+  const anthropic = stale('anthropic-oauth');
+  await refresher(anthropic).applyPendingAgentProfile();
+  assert.equal(anthropic.rulesRevision, promptRulesRevision());
+});
+
+test('a saved edit rewrites at once and takes every pending change with it', async (t) => {
+  const { agentDir } = withDataDir(t);
+  const dir = agentDir('poet');
+  writeFileSync(join(dir, 'AGENT.md'), 'Write poems.');
+  const session = agentThread('poet');
+  session.rulesRevision = 'older-release';
+  session.messages[0] = { ...session.messages[0], content: '# Tool Calls\n\nOLD_SHARED_RULE' };
+  writeFileSync(join(dir, 'PERSONA.md'), 'EDIT_MARKER');
+  assert.equal(await refresher(session).refreshAgentProfile(), true);
+  assert.match(tier3(session), /EDIT_MARKER/);
+  assert.doesNotMatch(systemText(session), /OLD_SHARED_RULE/);
+  assert.equal(session.rulesRevision, promptRulesRevision());
+  assert.equal(session.agentProfileRevision, agentProfileRevision('poet'));
+  assert.equal(session.pendingCacheBreakIntent, 'agent_profile');
+});
+
+test("a coding session's prompt does not follow a rules revision", async (t) => {
+  const { agentDir } = withDataDir(t);
+  writeFileSync(join(agentDir('poet'), 'AGENT.md'), 'Write poems.');
+  const session = agentThread('lead', { sessionMode: 'coding', id: 'sess_task_rules' });
+  session.rulesRevision = 'older-release';
+  session.pendingCacheBreakIntent = 'post_turn_compaction';
+  const before = JSON.stringify(session);
+  assert.equal(await refresher(session).applyPendingAgentProfile(), false);
+  assert.equal(JSON.stringify(session), before);
+});
 test("a renamed Mixy is named in its thread's next prompt", async (t) => {
   const { dataDir } = withDataDir(t);
   const session = agentThread('lead');

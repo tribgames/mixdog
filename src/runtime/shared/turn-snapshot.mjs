@@ -54,6 +54,7 @@ import {
   reviewSectionTruncated,
 } from './review-diff.mjs';
 import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
+import { runGitOffThread } from './git-runner.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { createLineDiffBudget, lineDiffHunks, unifiedHunksBody } from './bounded-line-diff.mjs';
 
@@ -1718,13 +1719,52 @@ export async function getTurnChanges(sessionId, options = {}) {
   let status = 'missing';
   if (ownerSessionId && turnChangesPending(ownerSessionId, checkpointId)) status = 'pending';
   else if (record) status = record.files?.length || record.outside?.length ? 'ready' : 'none';
-  return turnChangesReply({
+  const reply = turnChangesReply({
     status,
     checkpointId,
     record,
     patch: options?.patch === true,
     file: clean(options?.file) || null,
   });
+  return status === 'ready' ? withIgnoredChangeFiles(ownerSessionId, reply) : reply;
+}
+
+// The gitignored files of each answered record revision (build output a file
+// tool wrote): flagged `ignored` so a viewer can leave them out of its turn
+// previews. Asked of Git once per revision; bounded.
+const IGNORED_CHANGE_CACHE_LIMIT = 200;
+const _ignoredChangeFiles = new Map();
+
+async function ignoredChangePaths(key, root, paths) {
+  const cached = _ignoredChangeFiles.get(key);
+  if (cached) return cached;
+  let ignored = new Set();
+  try {
+    const result = await runGitOffThread(['check-ignore', '-z', '--stdin'], {
+      cwd: root,
+      input: `${paths.join('\0')}\0`,
+      timeoutMs: 10_000,
+      maxBytes: 4 * 1024 * 1024,
+    });
+    // 0: some are ignored, 1: none; anything else (no repository) flags none.
+    if (result.code === 0) ignored = new Set(result.stdout.split('\0').filter(Boolean));
+  } catch {
+    // No Git to ask: nothing is flagged.
+  }
+  _ignoredChangeFiles.set(key, ignored);
+  while (_ignoredChangeFiles.size > IGNORED_CHANGE_CACHE_LIMIT) {
+    _ignoredChangeFiles.delete(_ignoredChangeFiles.keys().next().value);
+  }
+  return ignored;
+}
+
+async function withIgnoredChangeFiles(ownerSessionId, reply) {
+  const paths = reply.files.map((file) => file.path).filter((path) => path && !isAbsolute(path));
+  if (!reply.root || paths.length === 0) return reply;
+  const key = `${ownerSessionId}\0${reply.checkpointId}\0${reply.revision}\0${reply.root}`;
+  const ignored = await ignoredChangePaths(key, reply.root, paths);
+  if (ignored.size === 0) return reply;
+  return { ...reply, files: reply.files.map((file) => (ignored.has(file.path) ? { ...file, ignored: true } : file)) };
 }
 
 function serializeChangeMutation(ownerSessionId, task) {
@@ -1871,11 +1911,13 @@ async function mutateTurnChanges(sessionId, checkpointIdValue, fileValue, revisi
       if (targets.length === 0) throw new Error(`this turn has no changes to be ${verb}`);
     }
     const updated = await mutateRecordFiles(ownerSessionId, record, targets, reverse);
-    return turnChangesReply({
+    const reply = turnChangesReply({
       status: updated ? 'ready' : 'missing',
       checkpointId,
       record: withUnknownChangeStates(ownerSessionId, updated),
     });
+    // The viewer caches this reply as it caches a read: the same `ignored` flags.
+    return updated ? withIgnoredChangeFiles(ownerSessionId, reply) : reply;
   });
 }
 

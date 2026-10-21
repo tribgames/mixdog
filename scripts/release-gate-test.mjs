@@ -381,6 +381,16 @@ test('Deploy is the one-click release entry with incremental native workers', as
     /run_critical: \$\{\{ needs\.plan\.outputs\.run_critical == 'true' \}\}/,
     'release validate must honor the gate-verified critical skip'
   );
+  assert.match(
+    deploy,
+    /import \{ nativeReleaseStatuses, unreleasedProblems \} from '\.\/scripts\/native-release-status\.mjs'[\s\S]*if \(mode === 'skip'\) \{[\s\S]*unreleasedProblems\(nativeReleaseStatuses\(\)\)[\s\S]*native=skip would ship stale native tools/,
+    'native=skip must fail while a native tool has unreleased source'
+  );
+  assert.match(
+    await workflow('release.yml'),
+    /node scripts\/verify-release-assets\.mjs[\s\S]*node scripts\/native-release-status\.mjs --check/,
+    'release validate must fail when native sources differ from the pinned native releases'
+  );
   assert.match(deploy, /const preBumped = !currentTagExists && !currentReleaseExists/);
   assert.match(deploy, /const appVersion = resume \|\| preBumped/);
   assert.match(deploy, /needs\.runtime\.result == 'success' \|\| needs\.runtime\.result == 'skipped'/);

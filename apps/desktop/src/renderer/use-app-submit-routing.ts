@@ -10,6 +10,8 @@ import { displaySessionTitle } from './session-display-title';
 import type { NavigationSelection } from './navigation';
 import type { PaneLeaf } from './pane-layout';
 import { asRecord, navigationKey } from './text-format';
+import { noteDraftPromotion } from './composer-draft';
+import { submittedDraftRoute } from './draft-pane-prefs-store';
 import type { ResolvedDraftPrefs } from './use-draft-pane-preferences';
 import { sendDraftWithWorktreeIntent } from './worktree-branch-model';
 
@@ -99,6 +101,7 @@ export function useAppSubmitRouting({
       const draftKey = routeSelection.kind === 'new' ? navigationKey(routeSelection) : '';
       const draftPrefsKey = routeSelection.kind === 'new' ? routeSelection.draftId || 'default' : '';
       const draftPrefs = draftPrefsKey ? resolvedDraftPrefsFor(draftPrefsKey) : null;
+      const draftRoute = submittedDraftRoute(draftPrefs);
       const submitEpoch = navigationEpoch.current;
       const draftRouteStillExists = () =>
         Boolean(draftKey) &&
@@ -128,7 +131,7 @@ export function useAppSubmitRouting({
           const result = (await sendDraftWithWorktreeIntent(draftPrefsKey, (choice) =>
             host.submitNewTask(content, options, {
               ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
-              ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
+              ...(draftRoute ? { route: draftRoute } : {}),
               ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
               ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
               ...(choice ? { worktree: choice } : {}),
@@ -145,6 +148,8 @@ export function useAppSubmitRouting({
               throw new Error('New task session returned a mismatched session snapshot.');
             }
             applySessionLaneResult(startedSessionId, result.snapshot);
+            // The composer of this draft hands its late chips to exactly this session.
+            noteDraftPromotion(draftPrefsKey, startedSessionId);
           }
           if (result.accepted && draftStillSelected()) {
             clearNewTaskPreferences(routeSelection);

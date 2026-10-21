@@ -2,6 +2,7 @@ import './test-isolation.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { settleSendResult } from './send-phase.mjs';
+import { anthropicPrefixFingerprint, recordAnthropicPrefix } from '../../providers/lib/anthropic-prefix-trace.mjs';
 
 const T0 = 1_000_000_000_000;
 
@@ -56,6 +57,15 @@ test('miss within TTL after reload (no guard state) emits one actual_cache_miss'
   assert.equal(traces[0].payload.previous_cached_prefix_tokens, 50_000);
   assert.equal(traces[0].payload.missing_prefix_guard_baseline, true);
   assert.equal(session.lastProviderCachedPrefixTokens, 50_000);
+});
+
+test('a miss names the wire block that changed since the previous request', () => {
+  const block = (text) => ({ type: 'text', text, cache_control: { type: 'ephemeral', ttl: '1h' } });
+  recordAnthropicPrefix('sess-cache-miss', anthropicPrefixFingerprint({ system: [block('a'), block('b')] }));
+  recordAnthropicPrefix('sess-cache-miss', anthropicPrefixFingerprint({ system: [block('a'), block('B')] }));
+  const traces = settle({ session: makeSession(), guard: guardState, usage: missUsage });
+  assert.equal(traces[0].payload.changed_blocks, 's1');
+  assert.equal(traces[0].payload.system_markers_changed, false);
 });
 
 test('warm hit emits nothing and updates baseline', () => {

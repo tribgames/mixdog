@@ -34,7 +34,7 @@ import {
   createContextStatus,
 } from '../../runtime/agent/orchestrator/runtime-core/context-status.mjs';
 import { createInternalToolExecutor } from '../internal-tool-executor.mjs';
-import { STANDALONE_ROOT, STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
+import { STANDALONE_ROOT, standaloneDataDir } from '../runtime-paths.mjs';
 import { dataDirOf, workflowHelpers } from './shared.mjs';
 
 export function wireTools(boot) {
@@ -182,7 +182,7 @@ function wireToolSurface(boot) {
       getCurrentCwd: () => rt.currentCwd,
       cfgMod,
       delegatableAgentIds: workflowHelpers.delegatableAgentIds,
-      dataDir: STANDALONE_DATA_DIR,
+      dataDir: standaloneDataDir(),
       getFeatureDisallowedTools: featureDisallowedTools,
     });
   Object.assign(boot, {

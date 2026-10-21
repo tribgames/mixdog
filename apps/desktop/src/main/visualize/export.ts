@@ -54,7 +54,11 @@ export interface SavedMockup {
 /** Create `segments` under `root` (the resolved cwd) one level at a time. Each
  *  level must be a real directory (never a link) that resolves inside `root`;
  *  returns the resolved innermost folder. */
-async function ensureRealDirectories(root: string, segments: string[], shown = `${MOCKUPS_DIRECTORY}/`): Promise<string> {
+async function ensureRealDirectories(
+  root: string,
+  segments: string[],
+  shown = `${MOCKUPS_DIRECTORY}/`
+): Promise<string> {
   let current = root;
   for (const segment of segments) {
     const next = join(current, segment);
@@ -118,7 +122,9 @@ const OVERWRITE_ROOT = 'design/';
 export async function resolveExportOutput(cwd: string, raw: string, extension: 'png' | 'pdf'): Promise<string> {
   if (!new RegExp(`\\.${extension}$`, 'i').test(raw)) throw new Error(`output must be a .${extension} path`);
   const path = await resolveProjectOutput(cwd, raw);
-  return relative(await realpath(cwd), path).split(sep).join('/');
+  return relative(await realpath(cwd), path)
+    .split(sep)
+    .join('/');
 }
 
 /** Write an export's bytes to `rel` (from `resolveExportOutput`) under `cwd`.
@@ -137,11 +143,14 @@ export async function writeExportFile(
   const segments = rel.split('/');
   const name = segments.pop() as string;
   const folder = await ensureRealDirectories(root, segments, rel);
-  const mayOverwrite = options.overwrite === true && (process.platform === 'win32' ? rel.toLowerCase() : rel).startsWith(OVERWRITE_ROOT);
+  const mayOverwrite =
+    options.overwrite === true && (process.platform === 'win32' ? rel.toLowerCase() : rel).startsWith(OVERWRITE_ROOT);
   try {
     await writeFileInside(root, join(folder, name), data, { exclusive: !mayOverwrite, beforeOpen: options.beforeOpen });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    throw new Error(`${rel} already exists; an export only overwrites a file under ${OVERWRITE_ROOT} and only with overwrite: true`);
+    throw new Error(
+      `${rel} already exists; an export only overwrites a file under ${OVERWRITE_ROOT} and only with overwrite: true`
+    );
   }
 }

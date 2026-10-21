@@ -44,6 +44,10 @@ export interface BrowserPageSurfaceHost {
   ): Promise<BrowserScreenshotCapture>;
   captureTexture?(guest: WebContents, documentId: string, pixels: Size): BrowserDisplayTexture | undefined;
   currentGuest?(sessionId: string): WebContents | null;
+  /** The user pressed or typed in this page, so it is theirs from now on. */
+  userTouched?(sessionId: string, guest: WebContents): void;
+  /** The page the session's agent last drove and the turn it did so in. */
+  agentPage?(sessionId: string): { guest: WebContents; turn: number; paused: boolean } | null;
   /** Another page sharing this page's renderer (its opener or a popup) whose
    *  dialog blocks this page too; null when none does. */
   dialogOwner?(guest: WebContents): WebContents | null;
@@ -55,7 +59,7 @@ export interface BrowserPageSurfaceHost {
   remoteDriven?(guest: WebContents): boolean;
   tabs?: {
     list(sessionId: string): DesktopBrowserTab[];
-    select(sessionId: string, tabId: string): void;
+    select(sessionId: string, tabId: string, follow?: 'agent' | 'resume'): void;
     create(sessionId: string): void;
     close(sessionId: string, tabId: string): void;
   };

@@ -201,6 +201,19 @@ function assembleTail(messages, kept, { anchor, firstKept, preserveConversation 
   return tail;
 }
 
+// The reminder naming the new dump and the earlier ones it supersedes.
+function recoveryReminder(archive, previousRecovery) {
+  const earlier = [...new Set(previousRecovery.flatMap(recoveryArchivePaths))]
+    .filter((path) => path !== archive.path)
+    .slice(-MAX_EARLIER_DUMPS);
+  const earlierLine = earlier.length ? `\nEarlier dumps (older first): ${earlier.join(EARLIER_DUMPS_SEPARATOR)}` : '';
+  return {
+    role: 'user',
+    meta: { source: EXECUTION_RECOVERY_SOURCE, synthetic: true },
+    content: `<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at ${archive.path} (sha256:${archive.sha256}). The dump is JSONL: line N+1 is message index N; an "archivedMessage" line names the file holding that message, so search its directory too. Read only missing evidence when needed.${earlierLine}\n</system-reminder>`,
+  };
+}
+
 export function buildExecutionTail(
   transcript,
   { contextWindow, sessionId, preserveConversation = false, preview = false } = {}
@@ -225,17 +238,7 @@ export function buildExecutionTail(
     const dump = persist({ sessionId, toolCallId: 'compact-execution', channel: 'compact-execution', content: text });
     if (!dump) throw new Error('compact: execution history could not be archived; original context preserved');
     archive = dump;
-    const earlier = [...new Set(previousRecovery.flatMap(recoveryArchivePaths))]
-      .filter((path) => path !== archive.path)
-      .slice(-MAX_EARLIER_DUMPS);
-    const earlierLine = earlier.length ? `\nEarlier dumps (older first): ${earlier.join(EARLIER_DUMPS_SEPARATOR)}` : '';
-    recovery = [
-      {
-        role: 'user',
-        meta: { source: EXECUTION_RECOVERY_SOURCE, synthetic: true },
-        content: `<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at ${archive.path} (sha256:${archive.sha256}). The dump is JSONL: line N+1 is message index N; an "archivedMessage" line names the file holding that message, so search its directory too. Read only missing evidence when needed.${earlierLine}\n</system-reminder>`,
-      },
-    ];
+    recovery = [recoveryReminder(archive, previousRecovery)];
   };
   // An observation a later one of the same page or window replaced keeps only
   // its outcome and a reference to the archived original.

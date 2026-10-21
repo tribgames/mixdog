@@ -30,7 +30,7 @@ export const SLASH_COMMANDS = [
   {
     name: 'autoclear',
     usage: '/autoclear',
-    params: '[on|off|duration]',
+    params: '[on|off|duration|unlimited]',
     description: 'Reduce cache-miss cost after long idle gaps',
   },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat' },

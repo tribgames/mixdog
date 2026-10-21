@@ -9,8 +9,10 @@
  * it rides the thread's queue as its own `routine` entry (one per turn, never
  * merged or steered into another), shows as a routine marker row, and selects
  * skills only from the routine's instructions (`skillSelection`), never from a
- * webhook payload. While it runs the thread counts as unattended, so its
- * approvals are held for the owner (held-requests.mjs). Resolves with the
+ * webhook payload. While it runs the thread counts as an unattended run
+ * (held-requests.mjs): the saved routine is the user's grant, so it never asks
+ * (outbound actions are allowed within the bot's permissions; payments and
+ * permanent deletes are refused, human-gate/run-policy.mjs). Resolves with the
  * reply once the turn ends; rejects when the turn fails, is cancelled, or the
  * caller's `signal` aborts (which also aborts the turn once it runs).
  */
@@ -126,7 +128,7 @@ export async function runRoutineTurn(
       onCommitted: () => {
         if (started) return;
         started = true;
-        // Nobody watches this turn: its approvals are held for the owner.
+        // Nobody watches this turn: it never asks (run-policy.mjs).
         unmark = markUnattendedRun(homeId, { kind, agentId, name });
         if (aborted) void abortTurn();
       },

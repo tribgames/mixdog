@@ -25,6 +25,8 @@ import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user
 import { carryMessageId, messageIdOf } from '../message-ids.mjs';
 import { normalizeIngestRole, shouldExcludeIngestMessage } from '../../../../memory/lib/session-ingest.mjs';
 import { codexWireSendOpts } from '../manager/session-id.mjs';
+import { messageHasReferencableMedia, referenceMessageMedia } from '../../../../attachments/attachment-reference.mjs';
+import { messageAttachmentTokens } from '../attachment-preflight.mjs';
 import { rebaseCompactedEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import {
   COMPACTION_SYSTEM_PROMPT,
@@ -73,8 +75,13 @@ function splitFreshSource(messages) {
     // Budgeting, AI input and rule-only retention use this same projection.
     // Keep current-turn reminders; remove only proven runtime additions from
     // older requests. Unmarked legacy text remains part of the summary budget.
+    // Older requests also carry their attachments by reference from here on:
+    // the file stays on disk under the path the reference names, so the
+    // compacted context keeps the pointer instead of the whole document.
     live: conversation
-      .map((message, index) => (index === latestUserIndex ? message : stripRuntimeUserContext(message)))
+      .map((message, index) =>
+        index === latestUserIndex ? message : referenceMessageMedia(stripRuntimeUserContext(message))
+      )
       .filter((message) => !isSummaryMessage(message)),
     sanitized,
   };
@@ -135,6 +142,9 @@ function summarySendOpts(opts) {
     // Fast mode is opt-in (it needs separate account credits); the summary
     // follows the route/session choice and never enables it on its own.
     fast: opts.fast ?? opts.sendOpts?.fast ?? false,
+    // Usage-ledger source for a foreground session's summary call (a
+    // background session's own sourceType still wins there).
+    requestKind: 'compaction',
     maxOutputTokens: opts.maxOutputTokens || SUMMARY_OUTPUT_TOKENS,
     providerState: undefined,
     onToolCall: undefined,
@@ -548,15 +558,43 @@ function freshContextLayout(source, budgetTokens, opts) {
   return { handoffText, summaryMessage, tail, stableHead, mandatory, mandatoryCost: estimateMessagesTokens(mandatory) };
 }
 
-function assertMandatoryFits(budget, mandatoryCost, summaryMessage, contextWindow) {
-  if (mandatoryCost > budget || (summaryMessage && mandatoryCost === budget)) {
-    const window = Number(contextWindow) > 0 ? ` (currently ${contextWindow} tokens)` : '';
-    throw new Error(
-      `freshContextCompactMessages: mandatory session context/latest instruction exceeds compact budget=${budget} ` +
-        `(mandatory=${mandatoryCost}); the model context window${window} is too small for the tool definitions ` +
-        'and session context. Increase the model context size.'
-    );
-  }
+function mandatoryOverflows(budget, mandatoryCost, summaryMessage) {
+  return mandatoryCost > budget || (summaryMessage && mandatoryCost === budget);
+}
+
+export const LATEST_TURN_EXCEEDS_CONTEXT = 'LATEST_TURN_EXCEEDS_CONTEXT';
+
+// Says what does not fit and what would make it fit. A larger window is only
+// offered when one would actually hold the required size.
+function assertMandatoryFits(budget, mandatoryCost, summaryMessage, contextWindow, latestUser) {
+  if (!mandatoryOverflows(budget, mandatoryCost, summaryMessage)) return;
+  // Fixed sentences with the sizes inline: the desktop re-speaks each one
+  // through its catalog (error-notice-copy / transcript-failure-text).
+  const count = (value) => Number(value).toLocaleString('en-US');
+  const window = Number(contextWindow) > 0 ? `${count(contextWindow)}-token` : 'current';
+  const attachments = messageAttachmentTokens(latestUser);
+  const cause =
+    attachments > 0
+      ? `Its attachments alone are about ${count(attachments)} tokens.`
+      : 'The latest message and protected session context (system rules, tool definitions) are that large.';
+  const error = new Error(
+    `The latest message cannot fit this model (${LATEST_TURN_EXCEEDS_CONTEXT}): it needs about ` +
+      `${count(mandatoryCost)} tokens, but the ${window} window leaves ${count(budget)} for it. ${cause} ` +
+      'Shorten the message or move large pasted text into a file the model can read. ' +
+      `A larger context window helps only if it holds ${count(mandatoryCost)} tokens plus room for the answer.`
+  );
+  error.code = LATEST_TURN_EXCEEDS_CONTEXT;
+  throw error;
+}
+
+// The source with the latest request's attachments sent by reference. Same
+// source when it carries none.
+function withLatestAttachmentsReferenced(source) {
+  const latest = latestActualUserInstructionIndex(source.live);
+  if (latest < 0 || !messageHasReferencableMedia(source.live[latest])) return source;
+  const live = source.live.slice();
+  live[latest] = referenceMessageMedia(live[latest]);
+  return { ...source, live };
 }
 
 function assertHandoffFits(summaryMessage, room) {
@@ -584,14 +622,26 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     });
   }
 
-  const source = splitFreshSource(baseSanitized);
-  const { handoffText, summaryMessage, tail, stableHead, mandatory, mandatoryCost } = freshContextLayout(
-    source,
-    budgetTokens,
-    opts
-  );
-  const budget = freshContextBudget({ targetBudget, budgetTokens, mandatoryCost, summaryMessage, opts });
-  assertMandatoryFits(budget, mandatoryCost, summaryMessage, opts.contextWindow);
+  let source = splitFreshSource(baseSanitized);
+  let layout = freshContextLayout(source, budgetTokens, opts);
+  let budget = freshContextBudget({ targetBudget, budgetTokens, ...layout, opts });
+  // The latest request is mandatory and kept verbatim — except its
+  // attachments: when they are what does not fit (or the provider already
+  // refused this request as too long), they travel by reference instead of
+  // failing the turn, and every later turn, forever.
+  if (
+    opts.referenceLatestAttachments === true ||
+    mandatoryOverflows(budget, layout.mandatoryCost, layout.summaryMessage)
+  ) {
+    const referenced = withLatestAttachmentsReferenced(source);
+    if (referenced !== source) {
+      source = referenced;
+      layout = freshContextLayout(source, budgetTokens, opts);
+      budget = freshContextBudget({ targetBudget, budgetTokens, ...layout, opts });
+    }
+  }
+  const { handoffText, summaryMessage, tail, stableHead, mandatory, mandatoryCost } = layout;
+  assertMandatoryFits(budget, mandatoryCost, summaryMessage, opts.contextWindow, tail.latestUser);
   const handoff = handoffRoomFor(budget, mandatoryCost, opts);
   const summaryContent = String(summaryMessage?.content || '');
   assertHandoffFits(summaryMessage, handoff.room);

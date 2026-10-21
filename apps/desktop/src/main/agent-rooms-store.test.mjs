@@ -76,7 +76,7 @@ test('a save keeps the replaced version, so a damaged file brings the rooms back
   writeFileSync(file, Buffer.alloc(64));
   assert.deepEqual(Object.keys((await store.load()).rooms), ['r1']);
   assert.equal(
-    readdirSync(join(file, '..')).some((name) => name.endsWith('.tmp')),
+    readdirSync(join(file, '..')).some((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
     false
   );
 });

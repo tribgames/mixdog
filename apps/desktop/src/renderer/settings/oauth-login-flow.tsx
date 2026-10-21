@@ -9,6 +9,7 @@ import '../desktop/github-device-code.css';
 import { ErrorNotice } from '../ErrorNotice';
 import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { registerMobileBack } from '../mobile-back';
 import { record } from '../record-utils';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
@@ -216,9 +217,7 @@ export function OAuthLoginDialog({
     <div
       className="settings-oauth-layer"
       data-over-dialog={portal ? '' : undefined}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      {...scrimDismiss(onClose)}
       onKeyDown={
         portal
           ? (event) => {

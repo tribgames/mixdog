@@ -30,9 +30,14 @@ test('desktop and web share ordered pins, atomic initialization, revisions and n
   const operations = createDesktopOperations({
     userDataPath: directory,
     loadConfig: async () => configModule,
-    emit: (event) => { for (const listener of listeners) listener(event); },
+    emit: (event) => {
+      for (const listener of listeners) listener(event);
+    },
   });
-  t.after(async () => { await operations.dispose(); await rm(directory, { recursive: true, force: true }); });
+  t.after(async () => {
+    await operations.dispose();
+    await rm(directory, { recursive: true, force: true });
+  });
   const host = {
     subscribe: () => () => {},
     subscribeSessionStates: () => () => {},
@@ -46,12 +51,19 @@ test('desktop and web share ordered pins, atomic initialization, revisions and n
   const handlers = new Map();
   const deliveries = [];
   const mainFrame = {};
-  const webContents = { mainFrame, isDestroyed: () => false, send: (channel, value) => deliveries.push([channel, value]) };
+  const webContents = {
+    mainFrame,
+    isDestroyed: () => false,
+    send: (channel, value) => deliveries.push([channel, value]),
+    on() {},
+    removeListener() {},
+  };
   const ipcMain = new EventEmitter();
   ipcMain.handle = (channel, handler) => handlers.set(channel, handler);
   ipcMain.removeHandler = (channel) => handlers.delete(channel);
   const remove = registerDesktopIpc({ webContents, isDestroyed: () => false }, host, {
-    app: { quit() {} }, ipcMain,
+    app: { quit() {} },
+    ipcMain,
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
     shell: { openPath: async () => '', openExternal: async () => {} },
   });
@@ -67,7 +79,10 @@ test('desktop and web share ordered pins, atomic initialization, revisions and n
   const event = { sender: webContents, senderFrame: mainFrame };
   const invoke = (key, ...args) => handlers.get(DESKTOP_IPC[key])(event, ...args);
   assert.equal(await invoke('readActivityRailPins'), null);
-  assert.throws(() => handlers.get(DESKTOP_IPC.updateActivityRailPins)({ sender: {}, senderFrame: mainFrame }, []), /rejected/);
+  assert.throws(
+    () => handlers.get(DESKTOP_IPC.updateActivityRailPins)({ sender: {}, senderFrame: mainFrame }, []),
+    /rejected/
+  );
 
   const desktop = await invoke('updateActivityRailPins', ['projects', 'sessions', 'projects'], true);
   assert.deepEqual(desktop, { pins: ['projects', 'sessions'], revision: 1 });
@@ -77,7 +92,11 @@ test('desktop and web share ordered pins, atomic initialization, revisions and n
   assert.deepEqual(await invoke('readActivityRailPins'), web);
   assert.deepEqual(deliveries.at(-1), [DESKTOP_IPC.activityRailPinsChanged, web]);
   assert.deepEqual(frames.at(-1), [{ event: ACTIVITY_RAIL_PINS_EVENT, payload: web }, false]);
-  assert.deepEqual(await invoke('updateActivityRailPins', ['sessions'], true), web, 'a late desktop bootstrap cannot replace a web edit');
+  assert.deepEqual(
+    await invoke('updateActivityRailPins', ['sessions'], true),
+    web,
+    'a late desktop bootstrap cannot replace a web edit'
+  );
   assert.equal(config.desktop.keepAwake, false);
   assert.deepEqual(config.other, { preserved: true });
 
@@ -85,7 +104,10 @@ test('desktop and web share ordered pins, atomic initialization, revisions and n
   const count = frames.length;
   for (const pins of [null, 'sessions', ['browser'], ['sessions', 1], { pins: [] }]) {
     await assert.rejects(invoke('updateActivityRailPins', pins), /supported destinations/);
-    const reply = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: 'updateActivityRailPins', params: [pins] }));
+    const reply = await executeRemoteFrame(
+      methods,
+      JSON.stringify({ id: 1, method: 'updateActivityRailPins', params: [pins] })
+    );
     assert.equal(reply.ok, false);
   }
   await assert.rejects(invoke('updateActivityRailPins', [], 'yes'), /must be a boolean/);
@@ -100,5 +122,8 @@ test('desktop and web share ordered pins, atomic initialization, revisions and n
     { pins: ['search', 'sessions'], revision: 3 },
     { pins: [], revision: 4 },
   ]);
-  assert.deepEqual(await new DesktopSettingsStore({ loadConfig: async () => configModule }).readActivityRailPins(), { pins: [], revision: 4 });
+  assert.deepEqual(await new DesktopSettingsStore({ loadConfig: async () => configModule }).readActivityRailPins(), {
+    pins: [],
+    revision: 4,
+  });
 });

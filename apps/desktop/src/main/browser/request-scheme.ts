@@ -1,6 +1,8 @@
 /** What a Browser Use page request is, by its scheme: web traffic the URL
  *  policy must admit, a request the session can let through as is, or one it
  *  refuses outright. */
+import { isDialogBridgeFallback } from './dialog-bridge';
+
 export type BrowserRequestDisposition = 'web' | 'allow' | 'deny';
 
 const DOCUMENT_PROTOCOLS = new Set(['http:', 'https:']);
@@ -34,6 +36,10 @@ export function browserRequestDisposition(url: string, resourceType: string): Br
     return 'deny';
   }
   if (resourceType === 'mainFrame') return DOCUMENT_PROTOCOLS.has(protocol) ? 'web' : 'deny';
+  // Address validation runs before the debugger pauses the request, and a
+  // reserved .invalid host never passes it; refusing it here would dismiss
+  // every dialog an about:blank page opens.
+  if (resourceType === 'xhr' && isDialogBridgeFallback(url)) return 'allow';
   if (WEB_PROTOCOLS.has(protocol)) return 'web';
   return EMBEDDED_ONLY_PROTOCOLS.has(protocol) || BROWSER_INTERNAL_PROTOCOLS.has(protocol) ? 'allow' : 'deny';
 }

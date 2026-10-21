@@ -33,14 +33,26 @@ An attached Desktop or TUI may navigate and return `opened:true`.
 
 ## Desktop map
 
-- Settings → General: profile, Web Search exposure, display language, theme,
+- Settings → General: profile, Web Search exposure, display language,
   side panels, and notifications.
 - Settings → Context: auto-compact and auto-clear.
 - Settings → Output style: output style selection, plus the desktop-only
   "Expand tool activity" choice (collapsed / commands and edits / everything),
   saved per device; Ctrl+O toggles everything open for the current window.
+- Settings → Theme (one page): System / Dark / Light or a skin picture
+  (plate, accent, transparency), imported JSON color themes (about 26 color
+  roles), installed fonts, font sizes and chat text size. Saved on this device
+  only. First-run setup has a Theme step with the same System / Dark /
+  Light / skin choice.
+- Settings → Bots (desktop only): the representative bot overlay, a small
+  window with the representative bot that opens a quick message to it. On
+  by default; options to pin it above the message box (default on), keep it
+  above other windows (default off: it follows the app window's layer),
+  collapse its bubble and reset its position. The overlay's right-click
+  menu has the same options. Saved on this PC.
 - Settings → Providers: API-key, OAuth, custom provider registration, local
-  providers, and usage sign-in.
+  providers, and usage sign-in. A custom provider's model list waits up to
+  60 s, can be skipped, and then takes model ids typed by hand.
 - Extensions → Plugin → Git & GitHub: Git/GitHub CLI installation and connection.
 - Settings → Connection: web-app pairing and linked devices.
 - Settings → System: update, keep-awake, run in background after the window
@@ -78,7 +90,15 @@ The setup tool does not mutate:
   `/mcp login` and `/mcp logout`; remote windows paste the redirect address);
 - notification permission and subscription on the receiving device;
 - web-app pairing credentials and OS permission dialogs;
-- TUI-local theme palettes (use `/theme`; Desktop themes are separate).
+- TUI-local theme palettes (use `/theme`; Desktop themes are separate);
+- importing or exporting a JSON color theme file, choosing a skin or custom
+  skin picture, and the Lead's pixel face (stored on the host as `leadAvatar`,
+  edited from the Desktop or a paired client, and shared by all of them; every
+  Lead-class row and agent wears it, and the agent edit dialog has no avatar);
+- approval grants ("항상 허용" is per feature and per bot, never for payment,
+  permanent delete, Lead, workflow, Mixy link, group rooms or schedules) and
+  browser action confirmations (`MIXDOG_BROWSER_CONFIRM_ACTIONS`,
+  `MIXDOG_BROWSER_CONFIRM_SUBMIT`; see the browser-use skill).
 
 Use `open` where a target exists, then let the user act.
 

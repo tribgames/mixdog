@@ -46,28 +46,27 @@ list. Authentication is managed in the plugin details.
 
 ## Workspace activity recovery
 
-"Workspace activity cannot be verified. Nothing was changed." can mean the
-repository's shared activity ledger is unreadable or damaged. Mixdog preserves
-that file and refuses new work and workspace changes: its missing contents
-cannot establish whether another profile still has a running turn, background
-command, or branch change. Valid records still reclaim leases whose processes
-are confirmed dead; restarting alone does not repair a damaged record.
+"Workspace activity cannot be verified. Nothing was changed." means the
+repository's shared activity ledger (`mixdog-workspace-admission.json` in the
+shared Git directory, `git rev-parse --path-format=absolute --git-common-dir`)
+could not be used.
 
-To recover a damaged ledger:
-
-1. Finish or stop all Mixdog work using the repository **and its linked
-   worktrees**, including background commands in every profile. Stop those
-   runtimes so new work cannot enter during recovery; closing a window alone
-   may leave its runtime or commands running.
-2. From a checkout, locate the shared Git directory with
-   `git rev-parse --path-format=absolute --git-common-dir`. Inspect and preserve
-   its `mixdog-workspace-admission.json` file.
-3. If permissions or storage errors prevented the read, restore access instead
-   of resetting the ledger. If the contents are damaged and all work is stopped,
-   manually move **only that file** to a separate name for inspection, then
-   restart Mixdog. The absent ledger can now start empty without losing live
-   ownership. Do not delete the Git directory or substitute an older ledger
-   snapshot that may omit still-running work.
+- **Damaged contents** (truncated, malformed, or zero-filled): nothing for you
+  to do. Mixdog keeps the damaged file as
+  `mixdog-workspace-admission.json.corrupt-<time>` and starts a new ledger.
+  Prompts and shell commands keep running. Only branch and worktree changes
+  (merge, cleanup, branch switches) are refused for about 15 seconds while every
+  running Mixdog process republishes the work it holds; a change that touches a
+  folder with running work keeps being refused by name, and changes resume on
+  their own afterwards. Keep the `.corrupt-` file if you want to report the
+  damage.
+- **Unreadable file** (permissions, file in use, or other storage errors):
+  Mixdog leaves the file as it is and refuses new work and workspace changes
+  until it can be read again. Restore access; do not delete it, the Git
+  directory, or substitute an older copy that may omit still-running work.
+- **Written by a newer Mixdog** (after a downgrade): the file is left untouched.
+  Prompts and shell commands continue, but workspace changes are refused until
+  you run the newer version again.
 
 ## Reference review
 

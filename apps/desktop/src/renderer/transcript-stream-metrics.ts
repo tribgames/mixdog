@@ -75,7 +75,6 @@ let visibleCount = 0;
 let lastHeight = -1;
 let receivedAtLastGrowth = 0;
 let frameScrollWrites = 0;
-let pacerBacklog: () => boolean = () => false;
 let observers: PerformanceObserver[] = [];
 
 function newRun(now: number, itemId: string): StreamRun {
@@ -193,7 +192,7 @@ function sample(now: number): void {
     current.frames.push({
       t: now,
       grew,
-      backlog: current.receivedGraphemes > receivedAtLastGrowth || pacerBacklog(),
+      backlog: current.receivedGraphemes > receivedAtLastGrowth,
       scrollWrites: frameScrollWrites,
     });
   }
@@ -258,11 +257,6 @@ export function noteStreamWorkerParse(startedAt: number): void {
 /** One main-thread parse of live markdown. */
 export function noteStreamSyncParse(durationMs: number, length: number): void {
   if (run) run.syncParse.push({ t: durationMs, size: length });
-}
-
-/** The paced reveal reports whether it still holds received text. */
-export function setStreamPacerBacklogProbe(probe: () => boolean): void {
-  pacerBacklog = probe;
 }
 
 function stats(values: number[]) {

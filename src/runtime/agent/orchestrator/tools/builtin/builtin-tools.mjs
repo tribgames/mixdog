@@ -87,7 +87,13 @@ export const BUILTIN_TOOLS = [
           type: 'integer',
           minimum: 1,
           maximum: PUBLIC_READ_WINDOW_MAX,
-          description: 'Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default.',
+          description:
+            'Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.',
+        },
+        pages: {
+          type: 'string',
+          description:
+            'PDF page range "N" or "N-M", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.',
         },
       },
       required: ['file_path'],

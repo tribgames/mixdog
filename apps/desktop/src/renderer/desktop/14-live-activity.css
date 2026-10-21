@@ -413,6 +413,12 @@
   margin-right: 7px;
   color: var(--mx-text-faint);
 }
+/* The pinned bot overlay stands over the transcript's column (a narrow
+   window): the token readout, which reaches the row's right end, gives way
+   so the row ends before the bot. The verb and the clock stay. */
+html[data-pet-over-transcript] .live-activity-tokens {
+  display: none;
+}
 .thinking-disclosure {
   max-width: 100%;
   color: var(--mx-text-muted);

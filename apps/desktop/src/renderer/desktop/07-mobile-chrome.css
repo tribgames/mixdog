@@ -149,8 +149,7 @@ html[data-mixdog-mobile-tabs] .workspace-tabs-trailing .pane-dock-toggle svg.luc
    rather than keeping the desktop 28 — a 28 + one pane away from a 44 + was
    the loudest half of the mismatch. Tier 2 (the standalone create +) is
    defined further down. */
-html[data-mixdog-mobile-tabs] .composer-footer,
-html[data-mixdog-mobile-tabs] .studio-composer-bar {
+html[data-mixdog-mobile-tabs] .composer-footer {
   height: 44px;
   /* Tighter than the desktop 8: the 44 touch boxes already carry their own
      air, so the +/model/gauge cluster hugs the card edge like the desktop
@@ -173,9 +172,7 @@ html[data-mixdog-mobile-tabs] .composer textarea {
   line-height: calc(24px * var(--mx-content-scale, 1));
 }
 html[data-mixdog-mobile-tabs] .composer-tool,
-html[data-mixdog-mobile-tabs] .send-button,
-html[data-mixdog-mobile-tabs] .studio-attach,
-html[data-mixdog-mobile-tabs] .studio-generate {
+html[data-mixdog-mobile-tabs] .send-button {
   width: 44px;
   height: 44px;
   min-width: 44px;
@@ -192,6 +189,16 @@ html[data-mixdog-mobile-tabs] :is(.composer-mic, .send-button) {
   padding: 4px;
   border-radius: var(--mx-radius-pill);
   background-clip: content-box;
+}
+/* Studio's card is the same pill as the chat one: 44px touch discs 6px in a
+   56px bar. */
+html[data-mixdog-mobile-tabs] .studio-composer {
+  --mx-chat-bar-inset: 6px;
+  min-height: 56px;
+}
+html[data-mixdog-mobile-tabs] .studio-composer textarea {
+  min-height: 56px;
+  padding: 16px 6px;
 }
 /* ── Composer discs, restated as DESKTOP proportions ── desktop draws a 28px button that IS the disc; the phone keeps a
    44 touch target and paints a 36 disc inside it, so the DISC is what the eye
@@ -212,25 +219,23 @@ html[data-mixdog-mobile-tabs] .composer-mic {
    here too. */
 html[data-mixdog-mobile-tabs] .composer-tool > svg,
 html[data-mixdog-mobile-tabs] .composer-mic-spinner,
-html[data-mixdog-mobile-tabs] .send-button > svg,
-html[data-mixdog-mobile-tabs] .studio-attach > svg,
-html[data-mixdog-mobile-tabs] .studio-generate > svg {
+html[data-mixdog-mobile-tabs] .send-button > svg {
   width: calc(36px * 16 / 28);
   height: calc(36px * 16 / 28);
 }
-html[data-mixdog-mobile-tabs] .composer-tool > svg.lucide,
-html[data-mixdog-mobile-tabs] .studio-attach > svg.lucide {
+/* The mic glyph is one step larger (18 on desktop) so it reads as big as the
+   send arrow beside it; the recording stop square keeps its own measure. */
+html[data-mixdog-mobile-tabs] .composer-mic:not(.is-recording) > svg.lucide {
+  width: calc(36px * 18 / 28);
+  height: calc(36px * 18 / 28);
+}
+html[data-mixdog-mobile-tabs] .composer-tool > svg.lucide {
   stroke-width: calc(1px * 36 / 28);
 }
 /* The two disc glyphs carry the composer's heavier 1.75px line; same measure. */
 html[data-mixdog-mobile-tabs] .composer-mic > svg.lucide,
-html[data-mixdog-mobile-tabs] .send-button > svg.lucide,
-html[data-mixdog-mobile-tabs] .studio-generate > svg.lucide {
+html[data-mixdog-mobile-tabs] .send-button > svg.lucide {
   stroke-width: calc(1.75px * 36 / 28);
-}
-html[data-mixdog-mobile-tabs] .studio-generate {
-  padding: 4px;
-  background-clip: content-box;
 }
 /* During dictation the send action stays disabled, but dimming the whole
    button made its equal 36dp disc look smaller beside the recording disc.
@@ -640,9 +645,14 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
   overflow: hidden;
   transform: translateX(-110%);
   visibility: hidden;
+  /* `visibility` eases only toward hidden (the exit stays visible until it is
+     off-screen); an open takes it at once (0s below). A drawer still hidden
+     when its slide starts has "no visible change" to Chromium, which then
+     runs the slide on the main thread, where any long task freezes it. */
+  --mx-drawer-visibility-motion: var(--mx-sheet-motion);
   transition:
     transform var(--mx-sheet-motion),
-    visibility var(--mx-sheet-motion);
+    visibility var(--mx-drawer-visibility-motion);
 }
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .workbench-side-panel {
   width: calc(100% - 48px);
@@ -728,8 +738,17 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .remote-pc-card > .remote-
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-state="open"] {
   transform: none;
   visibility: visible;
+  --mx-drawer-visibility-motion: 0s;
 }
-html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-motion="instant"] {
+/* An instant change (a navigation close, the phone start) never animates. A
+   tap's intent stamp is always animated, so it is exempt: the phone starts
+   with an instant close, and the first tap's stamp otherwise opened the
+   drawer in one jump before the commit reset data-motion. The scrim is the
+   frame's next sibling (AppShellLayout) and follows the same motion. */
+html[data-mixdog-mobile-tabs]:not([data-drawer-intent]) .sidebar-drawer-frame[data-motion="instant"],
+html[data-mixdog-mobile-tabs]:not([data-drawer-intent])
+  .sidebar-drawer-frame[data-motion="instant"]
+  + .sidebar-backdrop {
   transition: none;
 }
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .activity-rail {
@@ -771,14 +790,18 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  /* Same as the drawer: the fade-in takes `visibility` at once, so the
+     opacity runs on the compositor. */
+  --mx-drawer-visibility-motion: var(--mx-sheet-motion);
   transition:
     opacity var(--mx-sheet-motion),
-    visibility var(--mx-sheet-motion);
+    visibility var(--mx-drawer-visibility-motion);
 }
 html[data-mixdog-mobile-tabs] .sidebar-backdrop[data-state="open"] {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+  --mx-drawer-visibility-motion: 0s;
 }
 /* Tap intent (drawer-intent.ts): a drawer tap stamps html[data-drawer-intent]
    before its React state commits, so the sheet and scrim move on the tap's own
@@ -787,6 +810,7 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop[data-state="open"] {
 html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame {
   transform: none;
   visibility: visible;
+  --mx-drawer-visibility-motion: 0s;
 }
 html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame > .workbench-side-panel[hidden] {
   display: flex;
@@ -795,15 +819,18 @@ html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-backdrop {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+  --mx-drawer-visibility-motion: 0s;
 }
 html[data-mixdog-mobile-tabs][data-drawer-intent="closed"] .sidebar-drawer-frame {
   transform: translateX(-110%);
   visibility: hidden;
+  --mx-drawer-visibility-motion: var(--mx-sheet-motion);
 }
 html[data-mixdog-mobile-tabs][data-drawer-intent="closed"] .sidebar-backdrop {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  --mx-drawer-visibility-motion: var(--mx-sheet-motion);
 }
 /* Edge swipes (touch-gestures.ts) read horizontal drags straight off the
    content, so no overlay sits on the screen edge and every tap lands on the
@@ -821,6 +848,68 @@ html[data-mixdog-mobile-tabs]
 }
 html[data-mixdog-mobile-tabs] .session-sidebar-resize {
   display: none;
+}
+
+/* ── Drawer inset system ── ONE horizontal grammar for every drawer page. The
+   panel pads 8 and its containers 4, so header text, search, chips, section
+   headings, cards and footer pills open on the 12px box line (x 60 / 309.4 of
+   a 412dp phone). Row highlights (hover, selected, Mixy's card, a session or
+   launcher wash) bleed --mx-drawer-bleed past that line on BOTH sides, with
+   the row's own text padded back by the same amount, so text stays on the
+   line. Trailing controls keep their absolute centerline: a bleeding list
+   pays the bleed back in --mx-rail-trailing-center. */
+html[data-mixdog-mobile-tabs] {
+  --mx-drawer-bleed: 4px;
+}
+/* The pinned search/tab bar paints the panel's tone around itself; the drawer
+   panel sits on the workspace sheet, not the lighter window band the desktop
+   rail uses, so the old tone showed as a wider block behind the field. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame .workbench-side-panel {
+  --mx-side-panel-surface: var(--mx-workspace-sheet);
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame .session-sidebar {
+  --mx-rail-pin-bg: var(--mx-workspace-sheet);
+}
+html[data-mixdog-mobile-tabs] .session-sidebar-sessions .sidebar-recent > .session-list {
+  margin-inline: calc(-1 * var(--mx-drawer-bleed));
+  --mx-rail-trailing-center: calc(20px + var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row:not(.editing) {
+  padding-left: calc(8px - var(--mx-drawer-bleed));
+  padding-right: calc(var(--mx-rail-gutter) + var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .automation-group-past .session-row:not(.editing) {
+  padding-left: calc(20px - var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .project-group-sessions .session-row:not(.editing) {
+  padding-left: calc(32px - var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .sidebar-section-empty {
+  padding-left: calc(8px - var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .project-group-sessions .sidebar-section-empty {
+  padding-left: calc(32px - var(--mx-drawer-bleed));
+}
+/* The static dot and status ride the row's right edge with fixed offsets. */
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row-unread-dot {
+  right: calc(16.5px + var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row-status {
+  right: calc(14px + var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .task-link.session-launcher-row {
+  width: calc(100% + 2 * var(--mx-drawer-bleed));
+  margin-inline: calc(-1 * var(--mx-drawer-bleed));
+  padding-inline: var(--mx-drawer-bleed);
+}
+/* Agents page: rows are the 56..313.4 highlight; their content sits on the line. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row-main {
+  padding-inline: var(--mx-drawer-bleed);
+}
+/* The footer pill is a box-line item. The desktop pull-out (-scrollbar gutter
+   + 2px) overflowed the panel wherever a gutter was measured. */
+html[data-mixdog-mobile-tabs] .agent-activity-page > .connectors-pill {
+  margin-inline: var(--mx-drawer-bleed);
 }
 
 /* ── Mobile right drawer ── the pane's side-dock UNIT — header (title,
@@ -851,9 +940,10 @@ html[data-mixdog-mobile-tabs] .pane-side-dock {
      it — the exit runs on the same curve as the entry. */
   transform: translateX(0);
   visibility: visible;
-  transition:
-    transform var(--mx-sheet-motion),
-    visibility var(--mx-sheet-motion);
+  /* The open takes `visibility` at once: a sheet still hidden when its slide
+     starts has "no visible change" to Chromium, which then runs the transform
+     on the main thread, where the body mount's long task froze it mid-slide. */
+  transition: transform var(--mx-sheet-motion);
 }
 /* The session drawer opens above an open dock sheet (and its terminal/browser
    surfaces at 151): a chat tapped in it navigates, and the sheet yields as the
@@ -877,6 +967,10 @@ html[data-mixdog-mobile-tabs] .pane-side-dock[data-open="false"] {
   transform: translateX(100%);
   visibility: hidden;
   pointer-events: none;
+  /* The exit keeps the sheet visible until it is off-screen. */
+  transition:
+    transform var(--mx-sheet-motion),
+    visibility var(--mx-sheet-motion);
 }
 /* Responsive band corrections are layout, not gesture — they never animate. */
 html[data-mixdog-mobile-tabs]
@@ -1191,7 +1285,7 @@ html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page {
    with phone sizes; the row menu opens by long-press. */
 html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="contact"] {
   --agent-contact-avatar-size: 48px;
-  --agent-contact-padding: 10px 10px 10px 12px;
+  --agent-contact-padding: 10px var(--mx-drawer-bleed);
   --agent-contact-gap: 10px;
   --agent-contact-min-height: 72px;
   /* A touch list keeps the meta size the desktop list steps under. */
@@ -1331,6 +1425,13 @@ html[data-mixdog-mobile-tabs]
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+/* The guided-setup card fills the layer's gutter box; its own 100vw width
+   (21-onboarding) ignored the gutter and spilled over the right edge. */
+html[data-mixdog-mobile-tabs] .onboarding-dialog {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--mx-popup-radius-card);
+}
 html[data-mixdog-mobile-tabs]
   :is(.schedules-dialog, .settings-confirm-dialog, .settings-oauth-dialog, .mx-dialog)
   > header {
@@ -1364,7 +1465,8 @@ html[data-mixdog-mobile-tabs]
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html[data-mixdog-mobile-tabs] :is(.sidebar-drawer-frame, .pane-side-dock, .sidebar-backdrop) {
+  html[data-mixdog-mobile-tabs] :is(.sidebar-drawer-frame, .pane-side-dock, .sidebar-backdrop),
+  html[data-mixdog-mobile-tabs] .pane-side-dock[data-open="false"] {
     transition: none;
   }
 }
@@ -1831,7 +1933,7 @@ html[data-mixdog-mobile-tabs] .dock-file-menu button {
 /* The card is the row itself, so its hover and selected fills (10-rail-pages)
    take the same inset and radius instead of a full-width plate behind it. */
 html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row[data-kind="contact"][data-agent-contact="lead"] {
-  margin: 0 10px;
+  margin: 0;
   overflow: hidden;
   border-radius: 16px;
 }

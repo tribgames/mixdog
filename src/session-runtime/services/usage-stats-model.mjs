@@ -535,7 +535,8 @@ function exportUnpricedModels(state) {
   const rows = [];
   for (const provider of state.providers.values()) {
     for (const model of provider.models.values()) {
-      if (model.turns > 0 && model.costKnownTurns < model.turns) rows.push({ provider: provider.provider, model: model.model });
+      if (model.turns > 0 && model.costKnownTurns < model.turns)
+        rows.push({ provider: provider.provider, model: model.model });
     }
   }
   return rows.sort((a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model));

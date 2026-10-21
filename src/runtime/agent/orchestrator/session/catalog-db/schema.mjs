@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 
 /** Bumped whenever the table layout or a codec changes: the DB is then
  *  dropped and backfilled again from the JSON catalog. */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 /** PRAGMA application_id ('MXSC'): a file without it is not this catalog. */
 export const APPLICATION_ID = 0x4d585343;
 
@@ -65,6 +65,9 @@ const FIELDS = [
   ['lastMessageRoutine', 'last_message_routine', 'json'],
   // 'agent' | 'coding' (session/agent-mode.mjs) (schema 9).
   ['sessionMode', 'session_mode', 'loose'],
+  // Places of the incoming messages with text among the counted ones, for the
+  // unread count of a bot home / room log; absent otherwise (schema 10).
+  ['incomingTail', 'incoming_tail', 'optjson'],
 ];
 
 const COLUMN_TYPES = { text: 'TEXT', real: 'REAL', int: 'INTEGER', bool: 'INTEGER', json: 'TEXT', optjson: 'TEXT' };

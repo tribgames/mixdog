@@ -22,6 +22,7 @@ import { STALE_SESSION_VIEW_MARKER } from '../shared/session-devices';
 import { isSensitivePath } from './remote-sensitive-paths';
 import { findToolRecord, remoteToolOutput, toolRecordsNamedPaths } from './remote-transcript';
 import { sessionSidebarActions } from './session-sidebar-actions';
+import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
 import type { RemoteMethod, RemoteMethodClient, RemoteMethodDependencies } from './remote-methods';
 
 export const READ_NOT_VIEWED = 'This session is not open on this device.';
@@ -153,10 +154,13 @@ export function sessionRemoteMethods(
         device: await connectionDevice(),
       }),
     resolveToolApprovalForSession: async ([sessionId, id, decision]) =>
-      host.resolveToolApprovalForSession(requiredSessionId(sessionId), requiredString(id, 'approval id', 1_024), {
-        ...requiredToolApprovalDecision(decision),
-        device: await connectionDevice(),
-      }),
+      resolveToolApprovalAnnouncingGrant(
+        host,
+        (name, args) => host.invokeDesktopOperation(name, args),
+        requiredSessionId(sessionId),
+        requiredString(id, 'approval id', 1_024),
+        { ...requiredToolApprovalDecision(decision), device: await connectionDevice() }
+      ),
     // Per-agent push mute (profile panel, contact menu on a paired phone).
     getAgentNotificationMute: ([agentId]) => host.getAgentNotificationMute(requiredString(agentId, 'agent id', 200)),
     setAgentNotificationMute: ([agentId, muted]) => {

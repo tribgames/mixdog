@@ -9,11 +9,7 @@ import { JSDOM } from 'jsdom';
 
 import { visualizeFeedbackScript } from '../../shared/visualize-feedback.ts';
 import { requiredVisualizeCaptureRect, requiredVisualizeGestureTarget } from '../ipc-validation.ts';
-import {
-  createVisualizeGestureTokens,
-  VISUALIZE_GESTURE_TTL_MS,
-  visualizeGestureTarget,
-} from './gestures.ts';
+import { createVisualizeGestureTokens, VISUALIZE_GESTURE_TTL_MS, visualizeGestureTarget } from './gestures.ts';
 import { createDesktopVisualize } from './host.ts';
 
 function workspace() {
@@ -101,7 +97,12 @@ test('the desktop runs the feedback script in the panel’s own HTML frames and 
     browserAvailable: () => true,
   });
   try {
-    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: [join(cwd, 'site', 'index.html')] } });
+    await service.execute({
+      sessionId: 's1',
+      cwd,
+      action: 'open',
+      input: { targets: [join(cwd, 'site', 'index.html')] },
+    });
     // Feedback names the file project-relative even when the agent passed a host path.
     const pane = fake.events.at(-1).state.tabs[0].panes[0];
     assert.equal(pane.file, 'site/index.html');
@@ -118,7 +119,10 @@ test('the desktop runs the feedback script in the panel’s own HTML frames and 
     await service.attachFeedback('s1', 'v9');
     assert.equal(fake.injected.length, 1);
 
-    assert.equal(await service.captureRect({ x: 10, y: 20, width: 30, height: 40 }), Buffer.from('PNG').toString('base64'));
+    assert.equal(
+      await service.captureRect({ x: 10, y: 20, width: 30, height: 40 }),
+      Buffer.from('PNG').toString('base64')
+    );
     assert.deepEqual(fake.captures, [{ x: 15, y: 30, width: 45, height: 60 }], 'CSS px scale with the zoom factor');
 
     // One crop at a time: a second request while one runs is refused.
@@ -163,8 +167,17 @@ test('gesture tokens: one per real gesture, per pane, short-lived, after any pen
   resolve();
   assert.equal(await consuming, true);
 
-  assert.deepEqual(visualizeGestureTarget({ sessionId: 's1', tabId: 'v1', pane: 1 }), { sessionId: 's1', tabId: 'v1', pane: 1 });
-  for (const bad of [null, 'x', { sessionId: '', tabId: 'v1', pane: 0 }, { sessionId: 's1', tabId: 'v1', pane: Number.NaN }]) {
+  assert.deepEqual(visualizeGestureTarget({ sessionId: 's1', tabId: 'v1', pane: 1 }), {
+    sessionId: 's1',
+    tabId: 'v1',
+    pane: 1,
+  });
+  for (const bad of [
+    null,
+    'x',
+    { sessionId: '', tabId: 'v1', pane: 0 },
+    { sessionId: 's1', tabId: 'v1', pane: Number.NaN },
+  ]) {
     assert.equal(visualizeGestureTarget(bad), null);
   }
 });
@@ -181,7 +194,8 @@ test('main mints choice gestures only from real input that lands in a pane', asy
   });
   const contents = fake.window.webContents;
   const target = { sessionId: 's1', tabId: 'v1', pane: 0 };
-  const mouse = (type, globalX, globalY) => contents.emit('before-mouse-event', {}, { type, globalX, globalY, x: 0, y: 0 });
+  const mouse = (type, globalX, globalY) =>
+    contents.emit('before-mouse-event', {}, { type, globalX, globalY, x: 0, y: 0 });
   const key = (key, extra = {}) => contents.emit('before-input-event', {}, { type: 'keyDown', key, ...extra });
   try {
     await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
@@ -208,7 +222,11 @@ test('main mints choice gestures only from real input that lands in a pane', asy
     ]) {
       fake.hit.element = element;
       mouse('mouseUp', ...screen(250, 150));
-      assert.equal(await service.consumeChoiceGesture(target), false, `no token from ${element?.className || element?.textContent || 'nothing'}`);
+      assert.equal(
+        await service.consumeChoiceGesture(target),
+        false,
+        `no token from ${element?.className || element?.textContent || 'nothing'}`
+      );
     }
     // An iframe outside a visualize pane, or one in a hidden body, mints nothing.
     const stray = doc.createElement('iframe');
@@ -257,14 +275,30 @@ test('gesture targets from the renderer are validated', () => {
     tabId: 'v1',
     pane: 2,
   });
-  for (const bad of [null, { sessionId: 's1', tabId: 'v1', pane: -1 }, { sessionId: 's1', tabId: 'v1', pane: 1.5 }, { sessionId: 's1', pane: 0 }]) {
+  for (const bad of [
+    null,
+    { sessionId: 's1', tabId: 'v1', pane: -1 },
+    { sessionId: 's1', tabId: 'v1', pane: 1.5 },
+    { sessionId: 's1', pane: 0 },
+  ]) {
     assert.throws(() => requiredVisualizeGestureTarget(bad), TypeError);
   }
 });
 
 test('capture areas from the renderer are validated', () => {
-  assert.deepEqual(requiredVisualizeCaptureRect({ x: 0, y: 1.5, width: 2, height: 3 }), { x: 0, y: 1.5, width: 2, height: 3 });
-  for (const bad of [null, { x: -1, y: 0, width: 1, height: 1 }, { x: 0, y: 0, width: 0, height: 1 }, { x: 0, y: 0, width: 1, height: Infinity }, { x: '1', y: 0, width: 1, height: 1 }]) {
+  assert.deepEqual(requiredVisualizeCaptureRect({ x: 0, y: 1.5, width: 2, height: 3 }), {
+    x: 0,
+    y: 1.5,
+    width: 2,
+    height: 3,
+  });
+  for (const bad of [
+    null,
+    { x: -1, y: 0, width: 1, height: 1 },
+    { x: 0, y: 0, width: 0, height: 1 },
+    { x: 0, y: 0, width: 1, height: Infinity },
+    { x: '1', y: 0, width: 1, height: 1 },
+  ]) {
     assert.throws(() => requiredVisualizeCaptureRect(bad), TypeError);
   }
 });

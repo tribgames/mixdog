@@ -130,6 +130,29 @@ test('a damaged relay-device-revocations.json revokes every paired phone before 
     await assertPairingReset(context);
   }));
 
+test('a wrong-shaped remote-clients.json revokes every paired phone before the relay opens', async () => {
+  for (const content of ['{"pendingRevokes":{}}', '{"pendingRevokes":["c1",2]}']) {
+    await paired(async (context) => {
+      writeFileSync(join(context.dir, CLIENTS), content);
+      const invoke = await context.start();
+      await invoke('remoteAccessStart');
+      await assertPairingReset(context);
+      assert.equal(JSON.parse(readFileSync(join(context.dir, CLIENTS), 'utf8')).repairRequired, false, content);
+    });
+  }
+});
+
+test('a relay-device-revocations.json holding an invalid identity revokes every paired phone before the relay opens', async () => {
+  for (const content of ['[{}]', '[{"deviceId":"x"},{}]']) {
+    await paired(async (context) => {
+      writeFileSync(join(context.dir, QUEUE), content);
+      const invoke = await context.start();
+      await invoke('remoteAccessStart');
+      await assertPairingReset(context);
+    });
+  }
+});
+
 test('a damaged remote-clients.json is answered by the reset even while remote access is off, when it is next switched on', () =>
   paired(async (context) => {
     writeFileSync(join(context.dir, CLIENTS), Buffer.alloc(40));

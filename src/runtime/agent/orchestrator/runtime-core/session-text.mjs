@@ -1,6 +1,7 @@
 // Session message/preview text helpers. Pure, no runtime-closure deps.
 import { clean } from '../../../shared/clean.mjs';
 import { stripInjectedBlocks } from '../../../shared/injected-display-text.mjs';
+import { CONTROL_MARKER_RE } from '../../../shared/tool-execution-contract.mjs';
 
 export function sessionMessageText(content) {
   if (content == null) return '';
@@ -42,7 +43,7 @@ function messageContextText(message) {
 const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
   /^\[mixdog-runtime\]/i,
   // User-cancel + process-restart control rows must never title/preview a session.
-  /^\[(?:truncated|request interrupted by (?:user(?: for tool use)?|process restart))\]$/i,
+  CONTROL_MARKER_RE,
   /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
   // Compact/auto-clear re-seed handoff variants: these lead the FIRST user
   // message of every post-compaction session, so titling from them painted

@@ -31,8 +31,9 @@ const PROMPTED = new Set([
 ]);
 
 /** Granted without asking, as Chrome grants them to every site: protected
- *  media playback. */
-const GRANTED_BY_DEFAULT = new Set(['mediaKeySystem']);
+ *  media playback, and element fullscreen (Chromium only asks after a user
+ *  gesture, and Esc always leaves it), so a video's own fullscreen button works. */
+const GRANTED_BY_DEFAULT = new Set(['mediaKeySystem', 'fullscreen']);
 
 /** Clipboard operations that reach beyond the page: reading, and writing
  *  without a gesture (which Chromium asks for as `clipboard-read` or
@@ -109,8 +110,8 @@ function originOf(url: string): string {
  * remembered for that site until the app quits. Nothing that reaches a
  * camera, microphone, location or device is ever granted without that
  * answer, and the agent has no way to give it. Requests that are not a
- * person's to grant here (external apps, screen capture, fullscreen, pointer
- * lock, attached devices) are refused outright.
+ * person's to grant here (external apps, screen capture, pointer lock,
+ * attached devices) are refused outright.
  */
 export function createBrowserPermissions(options: BrowserPermissionOptions = {}) {
   const userActivation = options.userActivation ?? frameActivations;

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { projectSettledTranscriptRows } from './transcript-rows.ts';
 import { transcriptRowNode } from './conversation-support.tsx';
-import { TurnChangesCard } from './TurnChangesCard.tsx';
+// The changes card under a turn's row, listing none of its preview card's files.
+import { PreviewedTurnChangesCard as TurnChangesCard } from './transcript-visualize-card.tsx';
 
 /** Turn keys follow the prompt that opened each turn, like transcriptTurnKeys. */
 function project(items, failed = []) {

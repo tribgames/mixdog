@@ -98,6 +98,13 @@ export interface DesktopBrowserRemoteViewerChange {
   driving?: boolean;
 }
 
+/** A session's shown page entered or left element fullscreen (a video's own
+ *  button, `requestFullscreen()`): the pane fills the fullscreen window. */
+export interface DesktopBrowserFullscreenChange {
+  sessionId: string;
+  active: boolean;
+}
+
 export interface DesktopBrowserOpenRequest {
   sessionId: string;
   /** False creates or retains the surface without opening its session dock. */
@@ -184,6 +191,10 @@ export interface DesktopBrowserPageFrame extends DesktopRemoteBrowserFrame {
   surfaceHeight?: number;
   fault?: string;
   tabs?: DesktopBrowserTab[];
+  /** The tab the session's agent last drove, and the turn that did; every
+   *  pane showing the session follows it unless `paused` (the person picked a
+   *  tab of their own during that turn). */
+  agentPage?: { tabId: string; turn: number; paused: boolean };
   dialog?: DesktopBrowserPageDialog;
   fileChooser?: { id: string; multiple: boolean };
 }
@@ -219,7 +230,8 @@ export type DesktopBrowserPageAction =
     }
   | { type: 'choose-files'; requestId: string; cancel?: boolean }
   | { type: 'new-tab' }
-  | { type: 'select-tab' | 'close-tab'; tabId: string }
+  | { type: 'select-tab'; tabId: string; follow?: 'agent' | 'resume' }
+  | { type: 'close-tab'; tabId: string }
   | { type: 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
   | { type: 'resize'; width: number; height: number }

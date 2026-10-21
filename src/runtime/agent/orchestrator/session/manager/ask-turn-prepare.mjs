@@ -20,6 +20,7 @@ import {
   snapshotPendingSetupNotice,
 } from './prompt-utils.mjs';
 import { snapshotPendingWorkflowNotice } from './workflow-switch-notice.mjs';
+import { snapshotPendingOrchestrationModeNotice } from './orchestration-mode-switch-notice.mjs';
 import { codexWireSendOpts } from './session-id.mjs';
 import { _tryBridgeExplicitPrefetch } from './prefetch-bridge.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
@@ -184,8 +185,12 @@ export async function buildUserTurn({
   // A mid-conversation workflow switch: the prompt and tools were rebuilt
   // for the new workflow; this turn tells the model once.
   const workflowNotice = snapshotPendingWorkflowNotice(session);
+  // A mid-conversation orchestration mode switch, after the workflow notice
+  // so the mode it names wins over the one a workflow reminder carries.
+  const orchestrationModeNotice = snapshotPendingOrchestrationModeNotice(session);
   const reminderBlock = [
     workflowNotice?.content || '',
+    orchestrationModeNotice?.content || '',
     workspaceNotice?.content || '',
     setupNotice?.content || '',
     currentTimeBlock ? `<system-reminder>\n# Current Time\n${currentTimeBlock}\n</system-reminder>` : '',
@@ -215,6 +220,7 @@ export async function buildUserTurn({
     deferredToolDelta,
     goalReminder,
     workflowNotice,
+    orchestrationModeNotice,
     workspaceNotice,
     setupNotice,
     userTurnMessage,

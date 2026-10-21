@@ -126,6 +126,10 @@ export interface DesktopSessionSummary {
   /** User/assistant message count — the unread dot keys off GROWTH here, not
    *  updatedAt, so housekeeping saves never re-dot an already-checked session. */
   messageCount: number;
+  /** Places (in `messageCount` numbering) of the last incoming chat messages of
+   *  a bot home / room log; the unread pill counts those past the read cursor
+   *  (shared/incoming-tail.ts). Absent when unknown. */
+  incomingTail?: number[];
   /** Host-persisted read cursor shared by desktop and paired mobile surfaces. */
   readMessageCount?: number;
   /** Monotonic cursor revision; advances for completion-only reads too. */
@@ -151,6 +155,10 @@ export interface DesktopSessionSummary {
   /** The agent that created this coding task session (session create): the
    *  Agents pane lists it under that agent's contact. */
   taskAgent?: string;
+  /** Where `taskAgent` created it: its own chat (`home`), a group room, or a
+   *  schedule/webhook run; absent when not recorded (an older session). Only a
+   *  `home` task acts as the bot for Browser Use approvals. */
+  taskFrom?: 'home' | 'room' | 'run';
   /** 'agent' for a Lead created as an agent (an agent home, a room member, an
    *  agent's schedule/webhook run: session/agent-mode.mjs); absent = coding. */
   sessionMode?: 'agent';

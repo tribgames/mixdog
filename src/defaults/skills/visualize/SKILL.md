@@ -56,13 +56,16 @@ testing a page belong to `browser`.
    missing assets, blocked network requests: the page must be self-contained)
    in the file, then `check` again until it reports none; a
    "Page problems" section on any `open`, `annotate`, or `capture` result counts
-   the same. Then run `visualize inspect` on the tab: once at the panel's
-   width and, when the design is responsive, again with `viewport`
-   `{width: 375, height: 812}`; fix every finding it lists (overflow, clipped
+   the same. Then run `visualize inspect` on the tab twice, for every page
+   (fixed-size app frames included, not only responsive designs): once with
+   no `viewport` (the side panel's width) and once with `viewport`
+   `{width: 375, height: 812}`. Fix every finding it lists (overflow, clipped
    text, tiny or overlapping targets, low contrast, missing alt or labels) in
-   the file before reporting. Then `capture` the tab (or read it through
-   `browser`) and check it against `references/craft.md` §5; fix what fails
-   before the user sees the report.
+   the file before reporting. Two findings are not defects and may stay: text
+   caught mid fade-in, and targets shrunk only because a fixed frame is scaled
+   down to fit (craft.md §6); name each one left and why in the report. Then
+   `capture` the tab (or read it through `browser`) and check it against
+   `references/craft.md` §5; fix what fails before the user sees the report.
 6. **Report** in chat: path, the states shown, what to confirm, and the open
    questions. Then stop — implementation waits for approval.
 7. **Iterate in place.** Feedback edits the same file; the tab reloads and the

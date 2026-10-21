@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier.ts';
+import { agentHomeName } from './browser/approval-requester.ts';
 import { sessionFinalAnswer } from './session-final-answer.ts';
 import { restoreTranscriptItems } from '../../../../src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 import { notificationPreview } from './notification-preview.ts';
@@ -10,7 +11,8 @@ import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
 
 function harness(t, extraOptions = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000 });
-  const state = { foreground: false, enabled: true, supported: true, failure: '', pending: false };
+  // `onScreen`: the sessions the focused window actually shows.
+  const state = { onScreen: new Set(), enabled: true, supported: true, failure: '', pending: false };
   const notifications = [];
   const events = [];
   const opened = [];
@@ -24,7 +26,7 @@ function harness(t, extraOptions = {}) {
   const notifier = createDesktopTurnNotifier({
     isEnabled: () => state.enabled,
     isSupported: () => state.supported,
-    isForeground: () => state.foreground,
+    isSessionOnScreen: (sessionId) => state.onScreen.has(sessionId),
     readFinalAnswer: async (_id, since) => (state.pending ? null : sessionFinalAnswer({ items, busy: false }, since)),
     createNotification: (content) => {
       if (state.failure === 'construct') throw new Error('constructor failed');
@@ -51,16 +53,21 @@ function harness(t, extraOptions = {}) {
     ...extraOptions,
   });
   t.after(() => notifier.dispose());
-  const finish = (extra = {}) => {
-    notifier.onSessions([{ id: 'a', title: 'Task', working: true, ...extra }]);
-    notifier.onSessions([{ id: 'a', title: 'Task', ...extra }]);
+  const finish = (extra = {}, id = 'a') => {
+    notifier.onSessions([{ id, title: 'Task', working: true, ...extra }]);
+    notifier.onSessions([{ id, title: 'Task', ...extra }]);
+  };
+  // One roster holding every session, as the real roster does.
+  const finishAll = (ids) => {
+    notifier.onSessions(ids.map((id) => ({ id, title: 'Task', working: true })));
+    notifier.onSessions(ids.map((id) => ({ id, title: 'Task' })));
   };
   const tick = async (ms = 2_500) => {
     t.mock.timers.tick(ms);
-    await Promise.resolve();
-    await Promise.resolve();
+    // Reads are serialized, so several sessions need more than two hops.
+    for (let hop = 0; hop < 20; hop++) await Promise.resolve();
   };
-  return { notifier, state, notifications, events, opened, finish, tick };
+  return { notifier, state, notifications, events, opened, finish, finishAll, tick };
 }
 
 test('a session titled by attachments alone is notified with its kind in this PC’s language', async (t) => {
@@ -76,6 +83,37 @@ test('without labels an attachment-only title is notified in English', async (t)
   await h.tick(300);
   assert.equal(h.notifications[0].content.title, 'Video');
 });
+
+test('a bot’s home chat is notified under the bot’s name, a rename included; a room under its room name', async (t) => {
+  const catalog = [
+    { id: 'secretary', custom: true, kind: 'bot', label: '비서' },
+    { id: 'pm', custom: true, kind: 'bot', label: '개발 PM', definition: { name: '새 이름' } },
+  ];
+  const h = harness(t, { agentName: async (id) => agentHomeName(catalog, id) });
+  const roster = [
+    { id: 'bot-a', title: '', agentHome: 'secretary' },
+    { id: 'bot-b', title: '', agentHome: 'pm' },
+    { id: 'room-a', title: '', agentRoom: { name: '기획 회의' } },
+    { id: 'code-a', title: 'Fix the bug' },
+  ];
+  h.notifier.onSessions(roster.map((row) => ({ ...row, working: true })));
+  h.notifier.onSessions(roster);
+  await h.tick(300);
+  const titles = h.notifications.map((n) => n.content.title).sort();
+  assert.deepEqual(titles, ['Fix the bug', '기획 회의', '비서', '새 이름'].sort());
+});
+
+for (const [leadName, expected] of [
+  ['', 'Mixy'],
+  ['미식이', '미식이'],
+]) {
+  test(`Mixy’s home chat is notified as “${expected}” (identity name “${leadName}”)`, async (t) => {
+    const h = harness(t, { agentName: async (id) => agentHomeName([], id, leadName) });
+    h.finish({ title: '', agentHome: 'lead' });
+    await h.tick(300);
+    assert.equal(h.notifications[0].content.title, expected);
+  });
+}
 
 test('a restored background completion produces one native notification with plain text and opens its session', async (t) => {
   const h = harness(t);
@@ -96,10 +134,10 @@ test('a restored background completion produces one native notification with pla
   );
 });
 
-for (const mode of ['foreground', 'disabled', 'unsupported']) {
+for (const mode of ['foreground-visible', 'disabled', 'unsupported']) {
   test(`${mode} produces an explicit suppression, not a claimed native delivery`, async (t) => {
     const h = harness(t);
-    if (mode === 'foreground') h.state.foreground = true;
+    if (mode === 'foreground-visible') h.state.onScreen.add('a');
     if (mode === 'disabled') h.state.enabled = false;
     if (mode === 'unsupported') h.state.supported = false;
     h.finish();
@@ -109,21 +147,53 @@ for (const mode of ['foreground', 'disabled', 'unsupported']) {
   });
 }
 
-test('a schedule still notifies in the foreground', async (t) => {
+test('a focused window showing session A does not suppress session B’s completion', async (t) => {
   const h = harness(t);
-  h.state.foreground = true;
+  h.state.onScreen.add('a');
+  h.finishAll(['a', 'b']);
+  await h.tick();
+  assert.equal(h.notifications.length, 1, 'only B notifies; A, on screen, stays suppressed');
+  h.notifications[0].emit('click');
+  assert.deepEqual(h.opened, ['b']);
+  const suppressed = h.events.filter((event) => event.event === 'suppressed');
+  assert.deepEqual(
+    suppressed.map((event) => [event.sessionId, event.reason]),
+    [['a', 'foreground-visible']]
+  );
+});
+
+test('every split pane session stays suppressed while a background session notifies', async (t) => {
+  const h = harness(t);
+  h.state.onScreen.add('left').add('right');
+  h.finishAll(['left', 'right', 'tab']);
+  await h.tick();
+  assert.equal(h.notifications.length, 1);
+  assert.equal(h.events.filter((event) => event.reason === 'foreground-visible').length, 2);
+});
+
+test('a window that is focused but minimized or hidden shows nothing, so the completion notifies', async (t) => {
+  const h = harness(t);
+  // The wiring reports an empty on-screen set for such a window.
+  h.finish();
+  await h.tick();
+  assert.equal(h.notifications.length, 1);
+});
+
+test('a schedule still notifies on screen', async (t) => {
+  const h = harness(t);
+  h.state.onScreen.add('a');
   h.finish({ sourceType: 'schedule' });
   await h.tick();
   assert.equal(h.notifications.length, 1);
 });
 
-test('foreground is rechecked at native delivery, including return during the quiet period', async (t) => {
+test('on-screen state is rechecked at native delivery, including return during the quiet period', async (t) => {
   const h = harness(t);
   h.finish();
-  h.state.foreground = true;
+  h.state.onScreen.add('a');
   await h.tick();
   assert.equal(h.notifications.length, 0);
-  assert.equal(h.events.at(-1).reason, 'foreground');
+  assert.equal(h.events.at(-1).reason, 'foreground-visible');
 });
 
 for (const failure of ['construct', 'show', 'native']) {
@@ -247,7 +317,7 @@ for (const mode of ['foreground', 'disabled', 'show']) {
         return 'played';
       },
     });
-    if (mode === 'foreground') h.state.foreground = true;
+    if (mode === 'foreground') h.state.onScreen.add('a');
     if (mode === 'disabled') h.state.enabled = false;
     if (mode === 'show') h.state.failure = 'show';
     h.finish();

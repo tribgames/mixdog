@@ -88,9 +88,9 @@ for (const specifier of ['react', 'react-dom']) {
 // Resolved to a data: URL here because a synchronous `load` hook must hand
 // back a source for every module it sees, which breaks the CommonJS path.
 const EMPTY_MODULE_URL = 'data:text/javascript,';
-// Image imports become Vite asset URLs at build time; under test they resolve
-// to a module whose default export is the specifier, the same string shape.
-const IMAGE_SPECIFIER = /\.(?:png|jpe?g|gif|webp|avif|svg)$/i;
+// Image and video imports become Vite asset URLs at build time; under test they
+// resolve to a module whose default export is the specifier, the same string shape.
+const IMAGE_SPECIFIER = /\.(?:png|jpe?g|gif|webp|avif|svg|webm|mp4)$/i;
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const url = pinnedReactUrls.get(specifier);

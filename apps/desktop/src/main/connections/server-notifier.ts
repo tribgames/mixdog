@@ -34,6 +34,8 @@ export interface ServerNotifierOptions {
   isSupported(): boolean;
   /** The server's window is visible and focused. */
   isForeground(): boolean;
+  /** The server's focused window is showing this very session. */
+  isSessionOnScreen(sessionId: string): boolean;
   createNotification(content: { title: string; body: string }): Pick<Notification, 'on' | 'show' | 'close'>;
   playSound?(): Promise<string>;
   /** Bring the server's window to the front, on `sessionId` when given. */
@@ -111,7 +113,7 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
   const turns = createDesktopTurnNotifier({
     isEnabled: options.isEnabled,
     isSupported: options.isSupported,
-    isForeground: options.isForeground,
+    isSessionOnScreen: options.isSessionOnScreen,
     createNotification: (content) => create({ ...content, title: label(content.title) }),
     ...(options.playSound ? { playSound: options.playSound } : {}),
     readFinalAnswer: options.sources.readFinalAnswer,

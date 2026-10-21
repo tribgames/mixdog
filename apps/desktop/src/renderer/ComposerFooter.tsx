@@ -30,6 +30,7 @@ type ModelProps = Pick<
   | 'onOpenSettings'
   | 'onDraftModelSelection'
   | 'onRoutePreferenceApplied'
+  | 'sessionChoices'
 >;
 
 export type ComposerModelControlProps = ModelProps & {

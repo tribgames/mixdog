@@ -375,6 +375,14 @@ function agentManifest(agent) {
   return {};
 }
 
+/** The name a bot goes by (its manifest name, Mixy's display name), else its id. */
+export function agentDisplayName(agent) {
+  if (agent === 'lead') return mixyDisplayName();
+  if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return String(agent || '');
+  const name = agentManifest(agent).name;
+  return (typeof name === 'string' ? name.replace(/\s+/g, ' ').trim() : '') || agent;
+}
+
 export function agentModeIdentityLine(agent) {
   if (agent === 'lead') return `You are ${mixyDisplayName()}, the user's assistant in Mixdog.`;
   if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
@@ -489,7 +497,7 @@ export function composeSystemPrompt(opts) {
   //    variants, AGENT_MODE.md, the sub-agent catalog (the same for every
   //    agent other than Mixy);
   // 3. Mixy only — MIXY.md and its contact-agent catalog;
-  // 4. per session or agent, last — routine line, identity, caller prompt,
+  // 4. per session or agent, last — identity, caller prompt,
   //    role, persona, instruction files and core memory (changes most).
   const sessionMarkerCore = joinPromptSlices([
     trimmedPromptSlice(opts.workflowContext),
@@ -500,7 +508,6 @@ export function composeSystemPrompt(opts) {
     trimmedPromptSlice(opts.agentCatalogContext),
     opts.mixyRules || '',
     trimmedPromptSlice(opts.contactCatalogContext),
-    opts.routineRules || '',
     opts.identityContext || '',
     opts.userPrompt || '',
     roleInstructionContext,

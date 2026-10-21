@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { ChevronDown, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { OpenSelect } from '../OpenSelect';
 import { ActionButton, CompactSwitch, ResourceRow } from './capability-controls';
 import { providerLabel, type PanelContext, type RecordValue } from './capability-data';
@@ -9,6 +10,8 @@ import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CustomModelEditor } from './custom-model-editor';
+import { CustomProviderKeyFields, useKeyEnvPresence } from './custom-provider-key-fields';
+import { type CustomModel, CustomProviderModelsList } from './custom-provider-models-list';
 import { errorMessageText } from '../ErrorNotice';
 
 export const CUSTOM_PROTOCOLS = [
@@ -18,14 +21,6 @@ export const CUSTOM_PROTOCOLS = [
 ] as const;
 
 type Protocol = (typeof CUSTOM_PROTOCOLS)[number]['value'];
-interface CustomModel {
-  id: string;
-  name?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  hidden?: boolean;
-  manual?: boolean;
-}
 
 function isCustomProvider(provider: RecordValue): boolean {
   return provider.custom === true;
@@ -124,7 +119,75 @@ function nameError(value: string): string {
 }
 
 const API_KEY_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
-const ENV_CHECK_DEBOUNCE_MS = 300;
+
+/** The form as the runtime's custom provider input; throws the message to
+ *  show for a Base URL that is not HTTPS (or loopback HTTP) or an invalid
+ *  environment variable name. */
+function customProviderInput({
+  provider,
+  name,
+  protocol,
+  baseURL,
+  keyless,
+  overrides,
+  models,
+  modelDraft,
+  envMode,
+  envValid,
+  envName,
+  apiKey,
+  savedEnv,
+}: {
+  provider?: RecordValue;
+  name: string;
+  protocol: Protocol;
+  baseURL: string;
+  keyless: boolean;
+  overrides: RecordValue;
+  models: CustomModel[];
+  modelDraft: string;
+  envMode: boolean;
+  envValid: boolean;
+  envName: string;
+  apiKey: string;
+  savedEnv: string;
+}): RecordValue {
+  let url: URL | null = null;
+  try {
+    url = new URL(baseURL.trim());
+  } catch {
+    // Reported below.
+  }
+  const loopback = url !== null && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (!url || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))) {
+    throw new Error(t('Base URL must use HTTPS (HTTP is allowed only for localhost).'));
+  }
+  // Every visible manual model is submitted as a v2 manual override (the
+  // user can remove any); none means automatic discovery.
+  const draft = modelDraft.trim();
+  const withDraft = draft && !models.some((model) => model.id === draft) ? [...models, { id: draft }] : models;
+  const input: RecordValue = {
+    schemaVersion: 2,
+    name: name.trim(),
+    protocol,
+    baseURL: baseURL.trim(),
+    auth: keyless ? 'none' : 'key',
+    modelOverrides: overridesWithManual(overrides, withDraft),
+  };
+  if (provider) input.id = provider.id;
+  if (!keyless && envMode) {
+    if (!envValid) {
+      throw new Error(
+        t('Enter a valid environment variable name (letters, digits and underscores; it cannot start with a digit).')
+      );
+    }
+    input.apiKeyEnv = envName.trim();
+  } else {
+    if (!keyless && apiKey.trim()) input.apiKey = apiKey;
+    if (savedEnv) input.apiKeyEnv = null;
+  }
+  return input;
+}
 
 // Guidance comes only from the backend's explicit discovery error kind.
 function discoveryFailure(error: RecordValue): string {
@@ -140,7 +203,15 @@ function discoveryFailure(error: RecordValue): string {
       );
     case 'empty':
       return t('Automatic discovery returned no models. Add model IDs manually.');
+    case 'timeout':
+      return t('The service did not return its model list in time. Retry later, or add model IDs manually.');
     default: {
+      if (serverFailure(error)) {
+        return t(
+          'The service failed to return its model list (HTTP {{status}}). Retry later, or add model IDs manually.',
+          { status: String(error.status) }
+        );
+      }
       const raw = String(error.message || '');
       const friendly = friendlyMessage(raw);
       // A recognized failure already reads as a full sentence.
@@ -150,13 +221,160 @@ function discoveryFailure(error: RecordValue): string {
   }
 }
 
+const serverFailure = (error: RecordValue) =>
+  error.kind === 'request' && typeof error.status === 'number' && error.status >= 500;
+
 // Only these outcomes make manual entry the next step.
-const needsManualEntry = (error: RecordValue) => error.kind === 'unavailable' || error.kind === 'empty';
+const needsManualEntry = (error: RecordValue) =>
+  error.kind === 'unavailable' || error.kind === 'empty' || error.kind === 'timeout' || serverFailure(error);
 
 /** The failure of a discovery answer; null when it listed models. */
 function discoveryOutcome(found: RecordValue, listed: CustomModel[]): RecordValue | null {
   if (found.error) return record(found.error);
   return listed.length ? null : { kind: 'empty' };
+}
+
+/** The form's connection actions — Refresh models, Test connection, Save —
+ *  and their outcome. One attempt runs at a time; discovery can take up to a
+ *  minute on a slow service, so "Stop waiting" bumps the attempt: the pending
+ *  answer is then ignored and manual entry opens. */
+function useCustomProviderConnection({
+  run,
+  uid,
+  buildInput,
+  setRows,
+  openManualEntry,
+  onSaved,
+}: {
+  run: Run;
+  uid: string;
+  /** The runtime input; throws the message to show for an invalid form. */
+  buildInput(): RecordValue;
+  /** The discovered model rows (Refresh models). */
+  setRows(rows: CustomModel[]): void;
+  openManualEntry(): void;
+  onSaved(): void;
+}) {
+  const [working, setWorking] = useState<'' | 'test' | 'save'>('');
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [saveError, setSaveError] = useState('');
+  // Discovery errors come from discoverCustomProviderModels (Refresh models).
+  const [discoveryError, setDiscoveryError] = useState('');
+  const attempt = useRef(0);
+
+  const refreshModels = async () => {
+    const mine = ++attempt.current;
+    setWorking('test');
+    setSaveError('');
+    try {
+      const found = record(
+        await run('discoverCustomProviderModels', [buildInput()], `custom-refresh-${uid}`, false, true, 'throw')
+      );
+      if (attempt.current !== mine) return;
+      const listed = customModels(found);
+      setRows(listed);
+      const error = discoveryOutcome(found, listed);
+      setDiscoveryError(error ? discoveryFailure(error) : '');
+      if (error && needsManualEntry(error)) openManualEntry();
+    } catch (reason) {
+      if (attempt.current === mine) setDiscoveryError(failure(reason));
+    } finally {
+      if (attempt.current === mine) setWorking('');
+    }
+  };
+
+  // Automatic discovery for an empty catalog during registration. Returns true
+  // when models were found; otherwise reports guidance and opens manual entry
+  // (unless the user stopped waiting meanwhile).
+  const discover = async (input: RecordValue, mine: number): Promise<boolean> => {
+    const found = record(
+      await run('discoverCustomProviderModels', [input], `custom-discover-${uid}`, false, true, 'throw')
+    );
+    const error = discoveryOutcome(found, customModels(found));
+    if (!error) return true;
+    if (attempt.current === mine) {
+      setSaveError(discoveryFailure(error));
+      if (needsManualEntry(error)) openManualEntry();
+    }
+    return false;
+  };
+
+  const test = async () => {
+    const mine = ++attempt.current;
+    setWorking('test');
+    setTestResult(null);
+    try {
+      const result = record(
+        await run('testCustomProvider', [buildInput()], `custom-test-${uid}`, false, true, 'throw')
+      );
+      if (attempt.current !== mine) return;
+      if (result.ok !== true && result.phase === 'discovery') {
+        const error = record(result.error);
+        if (needsManualEntry(error)) openManualEntry();
+        setTestResult({ ok: false, message: discoveryFailure(error) });
+        return;
+      }
+      setTestResult(
+        result.ok === true
+          ? { ok: true, message: t('Connection successful.') }
+          : { ok: false, message: t('Connection test failed.') }
+      );
+    } catch (reason) {
+      if (attempt.current === mine) setTestResult({ ok: false, message: failure(reason) });
+    } finally {
+      if (attempt.current === mine) setWorking('');
+    }
+  };
+
+  /** `precheck` throws the message to show for a form that cannot be saved. */
+  const save = async (precheck: () => void) => {
+    const mine = ++attempt.current;
+    setWorking('save');
+    setSaveError('');
+    try {
+      precheck();
+      const input = buildInput();
+      if (!manualModels(input).length) {
+        // An environment key may be unset yet: discovery failing then is not a reason to refuse saving.
+        const viaEnv = input.apiKeyEnv !== undefined && input.apiKeyEnv !== null;
+        const found = viaEnv ? await discover(input, mine).catch(() => false) : await discover(input, mine);
+        if (attempt.current !== mine) return;
+        if (viaEnv) setSaveError('');
+        else if (!found) {
+          setWorking('');
+          return;
+        }
+      }
+      const saved = await run('saveCustomProvider', [input], `custom-save-${uid}`, true, true, 'throw');
+      if (!saved) throw new Error(t('Could not save the custom provider.'));
+      onSaved();
+    } catch (reason) {
+      if (attempt.current !== mine) return;
+      setSaveError(failure(reason));
+      setWorking('');
+    }
+  };
+
+  return {
+    working,
+    testResult,
+    saveError,
+    discoveryError,
+    refreshModels,
+    test,
+    save,
+    stopWaiting() {
+      attempt.current += 1;
+      setWorking('');
+      openManualEntry();
+    },
+    /** An edited field invalidates the last test and save outcome. */
+    clearOutcome() {
+      setTestResult(null);
+      setSaveError('');
+    },
+    clearSaveError: () => setSaveError(''),
+  };
 }
 
 function CustomProviderForm({
@@ -188,8 +406,6 @@ function CustomProviderForm({
   const overrides = { ...record(provider?.modelOverrides), ...savedOverrides };
   const existing = manualModels(provider);
   const [keyless, setKeyless] = useState(provider?.auth === 'none');
-  // Discovery errors come from discoverCustomProviderModels (Refresh models).
-  const [discoveryError, setDiscoveryError] = useState('');
   const [editingModel, setEditingModel] = useState<string | null>(null);
   const [name, setName] = useState(provider ? String(provider.name || '') : '');
   const [protocol, setProtocol] = useState<Protocol>(
@@ -202,108 +418,50 @@ function CustomProviderForm({
   const savedEnv = typeof provider?.apiKeyEnv === 'string' ? provider.apiKeyEnv : '';
   const [envMode, setEnvMode] = useState(savedEnv !== '');
   const [envName, setEnvName] = useState(savedEnv);
-  const [envFound, setEnvFound] = useState<boolean | null>(null);
   const envValid = API_KEY_ENV_PATTERN.test(envName.trim());
-  const [working, setWorking] = useState<'' | 'test' | 'save'>('');
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [saveError, setSaveError] = useState('');
   const [nameProblem, setNameProblem] = useState('');
   const [models, setModels] = useState<CustomModel[]>(existing);
   const [manualOpen, setManualOpen] = useState(existing.length > 0);
   const [modelDraft, setModelDraft] = useState('');
+
+  const checkedName = envMode && !keyless && envValid ? envName.trim() : '';
+  const envFound = useKeyEnvPresence(run, uid, checkedName);
+
+  const buildInput = () =>
+    customProviderInput({
+      provider,
+      name,
+      protocol,
+      baseURL,
+      keyless,
+      overrides,
+      models,
+      modelDraft,
+      envMode,
+      envValid,
+      envName,
+      apiKey,
+      savedEnv,
+    });
+  const connection = useCustomProviderConnection({
+    run,
+    uid,
+    buildInput,
+    setRows,
+    openManualEntry: () => setManualOpen(true),
+    onSaved: onClose,
+  });
+  const { working, testResult, saveError, discoveryError, refreshModels, test, stopWaiting } = connection;
+  const changed = connection.clearOutcome;
   const disabled = busy || working !== '';
   const close = () => {
     if (!disabled) onClose();
   };
   useMobileBack(true, close);
   useEffect(() => acquireTitleBarDim(), []);
-
-  // Debounced presence check of the named variable (on open and on typing).
-  const checkedName = envMode && !keyless && envValid ? envName.trim() : '';
-  const runRef = useRef(run);
-  runRef.current = run;
-  useEffect(() => {
-    setEnvFound(null);
-    if (!checkedName) return;
-    let stale = false;
-    const timer = setTimeout(() => {
-      runRef.current('checkCustomProviderKeyEnv', [checkedName], `custom-env-${uid}`, false, true, 'throw').then(
-        (result) => {
-          if (!stale) setEnvFound(record(result).found === true);
-        },
-        () => {
-          if (!stale) setEnvFound(null);
-        }
-      );
-    }, ENV_CHECK_DEBOUNCE_MS);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [checkedName, uid]);
-
-  const buildInput = () => {
-    let url: URL | null = null;
-    try {
-      url = new URL(baseURL.trim());
-    } catch {
-      // Reported below.
-    }
-    const loopback = url !== null && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-    if (!url || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))) {
-      throw new Error(t('Base URL must use HTTPS (HTTP is allowed only for localhost).'));
-    }
-    // Every visible manual model is submitted as a v2 manual override (the
-    // user can remove any); none means automatic discovery.
-    const draft = modelDraft.trim();
-    const withDraft = draft && !models.some((model) => model.id === draft) ? [...models, { id: draft }] : models;
-    const input: RecordValue = {
-      schemaVersion: 2,
-      name: name.trim(),
-      protocol,
-      baseURL: baseURL.trim(),
-      auth: keyless ? 'none' : 'key',
-      modelOverrides: overridesWithManual(overrides, withDraft),
-    };
-    if (provider) input.id = provider.id;
-    if (!keyless && envMode) {
-      if (!envValid) {
-        throw new Error(
-          t('Enter a valid environment variable name (letters, digits and underscores; it cannot start with a digit).')
-        );
-      }
-      input.apiKeyEnv = envName.trim();
-    } else {
-      if (!keyless && apiKey.trim()) input.apiKey = apiKey;
-      if (savedEnv) input.apiKeyEnv = null;
-    }
-    return input;
-  };
-  const refreshModels = async () => {
-    setWorking('test');
-    setSaveError('');
-    try {
-      const found = record(
-        await run('discoverCustomProviderModels', [buildInput()], `custom-refresh-${uid}`, false, true, 'throw')
-      );
-      const listed = customModels(found);
-      setRows(listed);
-      const error = discoveryOutcome(found, listed);
-      setDiscoveryError(error ? discoveryFailure(error) : '');
-      if (error && needsManualEntry(error)) setManualOpen(true);
-    } catch (reason) {
-      setDiscoveryError(failure(reason));
-    } finally {
-      setWorking('');
-    }
-  };
   const connectionReady = baseURL.trim() !== '';
   // A saved key (stored or from the environment) is kept only when this provider already has one.
   const needsKey = !provider || provider.auth === 'none' || savedEnv !== '';
-  const changed = () => {
-    setTestResult(null);
-    setSaveError('');
-  };
 
   const addModel = () => {
     const id = modelDraft.trim();
@@ -312,71 +470,14 @@ function CustomProviderForm({
     changed();
   };
 
-  // Automatic discovery for an empty catalog during registration. Returns true
-  // when models were found; otherwise reports guidance and opens manual entry.
-  const discover = async (input: RecordValue): Promise<boolean> => {
-    const found = record(
-      await run('discoverCustomProviderModels', [input], `custom-discover-${uid}`, false, true, 'throw')
-    );
-    const error = discoveryOutcome(found, customModels(found));
-    if (!error) return true;
-    setSaveError(discoveryFailure(error));
-    if (needsManualEntry(error)) setManualOpen(true);
-    return false;
-  };
-
-  const test = async () => {
-    setWorking('test');
-    setTestResult(null);
-    try {
-      const result = record(
-        await run('testCustomProvider', [buildInput()], `custom-test-${uid}`, false, true, 'throw')
-      );
-      if (result.ok !== true && result.phase === 'discovery') {
-        const error = record(result.error);
-        if (needsManualEntry(error)) setManualOpen(true);
-        setTestResult({ ok: false, message: discoveryFailure(error) });
-        return;
-      }
-      setTestResult(
-        result.ok === true
-          ? { ok: true, message: t('Connection successful.') }
-          : { ok: false, message: t('Connection test failed.') }
-      );
-    } catch (reason) {
-      setTestResult({ ok: false, message: failure(reason) });
-    } finally {
-      setWorking('');
-    }
-  };
-
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const problem = nameError(name);
     setNameProblem(problem);
     if (problem) return;
-    setWorking('save');
-    setSaveError('');
-    try {
+    await connection.save(() => {
       if (!keyless && !envMode && !apiKey.trim() && needsKey) throw new Error(t('No API key'));
-      const input = buildInput();
-      if (!manualModels(input).length) {
-        // An environment key may be unset yet: discovery failing then is not a reason to refuse saving.
-        const viaEnv = input.apiKeyEnv !== undefined && input.apiKeyEnv !== null;
-        const found = viaEnv ? await discover(input).catch(() => false) : await discover(input);
-        if (viaEnv) setSaveError('');
-        else if (!found) {
-          setWorking('');
-          return;
-        }
-      }
-      const saved = await run('saveCustomProvider', [input], `custom-save-${uid}`, true, true, 'throw');
-      if (!saved) throw new Error(t('Could not save the custom provider.'));
-      onClose();
-    } catch (reason) {
-      setSaveError(failure(reason));
-      setWorking('');
-    }
+    });
   };
 
   const nameId = `${uid}-name`;
@@ -384,13 +485,8 @@ function CustomProviderForm({
   const keyId = `${uid}-key`;
   const formId = `${uid}-form`;
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
-    <div
-      className="settings-oauth-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) close();
-      }}
-    >
+    // Scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
+    <div className="settings-oauth-layer" {...scrimDismiss(close)}>
       <section
         className="settings-oauth-dialog settings-custom-provider-dialog"
         role="dialog"
@@ -427,7 +523,7 @@ function CustomProviderForm({
             onChange={(event) => {
               setName(event.target.value);
               setNameProblem('');
-              setSaveError('');
+              connection.clearSaveError();
             }}
           />
           {nameProblem && (
@@ -462,74 +558,30 @@ function CustomProviderForm({
               changed();
             }}
           />
-          <div className="settings-custom-provider-key-row">
-            <label htmlFor={keyId}>{envMode ? t('API key environment variable') : t('API key')}</label>
-            {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the MCP transport picker. */}
-            <div className="mx-segmented mx-segmented-compact" role="group" aria-label={t('API key source')}>
-              {[
-                { env: false, label: t('Direct input') },
-                { env: true, label: t('Environment variable') },
-              ].map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  aria-pressed={envMode === option.env}
-                  disabled={disabled || keyless}
-                  onClick={() => {
-                    setEnvMode(option.env);
-                    changed();
-                  }}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          {envMode ? (
-            <input
-              id={keyId}
-              type="text"
-              className="settings-custom-provider-env"
-              value={envName}
-              disabled={disabled || keyless}
-              required={!keyless}
-              aria-invalid={envName.trim() !== '' && !envValid}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="MY_API_KEY"
-              onChange={(event) => {
-                setEnvName(event.target.value);
-                changed();
-              }}
-            />
-          ) : (
-            <input
-              id={keyId}
-              type="password"
-              value={apiKey}
-              disabled={disabled || keyless}
-              required={!keyless && needsKey}
-              autoComplete="new-password"
-              placeholder={
-                provider && provider.auth !== 'none' && !savedEnv
-                  ? t('Leave blank to keep the saved key')
-                  : t('API key')
-              }
-              onChange={(event) => {
-                setApiKey(event.target.value);
-                changed();
-              }}
-            />
-          )}
-          {envMode && !keyless && envFound !== null && (
-            <p className={`settings-custom-provider-hint ${envFound ? 'ok' : 'warn'}`} role="status">
-              {envFound
-                ? t('Environment variable found. The key is read each time and is not stored.')
-                : t('{{name}} was not found yet. If you just set it, restart Mixdog to apply it.', {
-                    name: envName.trim(),
-                  })}
-            </p>
-          )}
+          <CustomProviderKeyFields
+            keyId={keyId}
+            envMode={envMode}
+            envName={envName}
+            envValid={envValid}
+            envFound={envFound}
+            apiKey={apiKey}
+            keyless={keyless}
+            disabled={disabled}
+            needsKey={needsKey}
+            keepsSavedKey={Boolean(provider && provider.auth !== 'none' && !savedEnv)}
+            onEnvMode={(env) => {
+              setEnvMode(env);
+              changed();
+            }}
+            onEnvName={(value) => {
+              setEnvName(value);
+              changed();
+            }}
+            onApiKey={(value) => {
+              setApiKey(value);
+              changed();
+            }}
+          />
           <div className="settings-model-check">
             <CompactSwitch
               label={t('No authentication (local server)')}
@@ -543,95 +595,31 @@ function CustomProviderForm({
             />
             <span>{t('No authentication (local server)')}</span>
           </div>
-          <details
-            className="settings-custom-models"
+          <CustomProviderModelsList
             open={manualOpen}
-            onToggle={(event) => setManualOpen(event.currentTarget.open)}
-          >
-            <summary>
-              <span>{t('Add models manually')}</span>
-              <ChevronDown size={14} aria-hidden="true" />
-            </summary>
-            <p>{t('Optional. Leave empty to discover models automatically.')}</p>
-            <div className="settings-custom-models-add">
-              <input
-                value={modelDraft}
-                disabled={disabled}
-                autoComplete="off"
-                aria-label={t('Model ID')}
-                placeholder={t('Model ID')}
-                onChange={(event) => {
-                  setModelDraft(event.target.value);
-                  changed();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                    event.preventDefault();
-                    addModel();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="provider-account-add-button"
-                aria-label={t('Add model')}
-                title={t('Add model')}
-                disabled={disabled || !modelDraft.trim()}
-                onClick={addModel}
-              >
-                <Plus size={16} aria-hidden="true" />
-              </button>
-            </div>
-            <ul>
-              {(provider
-                ? [...rows, ...models.filter((model) => !rows.some((row) => row.id === model.id))]
-                : models
-              ).map((model) => {
-                const explicit = models.find((item) => item.id === model.id);
-                const backed = rows.some((row) => row.id === model.id);
-                return (
-                  <li
-                    className={`extensions-mcp-list-row${model.hidden ? ' settings-model-hidden' : ''}`}
-                    key={model.id}
-                  >
-                    <span title={model.id}>
-                      {model.id}
-                      {model.hidden ? ` (${t('Hidden')})` : ''}
-                    </span>
-                    {provider && backed && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={disabled}
-                        aria-label={t('Edit model {{name}}', { name: model.id })}
-                        onClick={() => setEditingModel(model.id)}
-                      >
-                        {t('Edit')}
-                      </button>
-                    )}
-                    {explicit && (
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        aria-label={t('Remove {{name}}', { name: model.id })}
-                        onClick={() => {
-                          setModels(models.filter((item) => item !== explicit));
-                          changed();
-                        }}
-                      >
-                        <X size={14} aria-hidden="true" />
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            {provider && (
-              <button type="button" className="secondary" disabled={disabled} onClick={() => void refreshModels()}>
-                {t('Refresh models')}
-              </button>
-            )}
-          </details>
+            editable={Boolean(provider)}
+            rows={rows}
+            models={models}
+            modelDraft={modelDraft}
+            disabled={disabled}
+            onToggle={setManualOpen}
+            onDraftChange={(draft) => {
+              setModelDraft(draft);
+              changed();
+            }}
+            onAdd={addModel}
+            onEdit={setEditingModel}
+            onRemove={(explicit) => {
+              setModels(models.filter((item) => item !== explicit));
+              changed();
+            }}
+            onRefresh={() => void refreshModels()}
+          />
+          {working !== '' && (
+            <p role="status">
+              {t('Waiting for the service to list its models. This can take up to a minute; you can stop waiting.')}
+            </p>
+          )}
           {discoveryError && (
             <p className="settings-error" role="alert">
               {discoveryError}
@@ -657,9 +645,15 @@ function CustomProviderForm({
           <button type="button" disabled={disabled || !connectionReady} onClick={() => void test()}>
             {t(working === 'test' ? 'Testing…' : 'Test connection')}
           </button>
-          <button type="button" className="secondary" disabled={disabled} onClick={close}>
-            {t('Cancel')}
-          </button>
+          {working === '' ? (
+            <button type="button" className="secondary" disabled={disabled} onClick={close}>
+              {t('Cancel')}
+            </button>
+          ) : (
+            <button type="button" className="secondary" onClick={stopWaiting}>
+              {t('Stop waiting')}
+            </button>
+          )}
           <button type="submit" form={formId} disabled={disabled}>
             {t('Save')}
           </button>

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 import { useMobileBack } from './mobile-back';
 import { acquireTitleBarDim } from './titlebar-dim';
 
@@ -14,9 +15,7 @@ function dialogLayerPortal(className: string, host: HTMLElement, onClose: () => 
     // biome-ignore lint/a11y/noStaticElementInteractions: scrim container; backdrop press and Escape dismissal are delegated here for the dialog inside
     <div
       className={className}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      {...scrimDismiss(onClose)}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.preventDefault();

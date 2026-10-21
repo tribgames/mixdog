@@ -11,13 +11,20 @@ import type { DesktopBrowserTab, DesktopBrowserTabControlResult } from '../../sh
 /** The session's tab strip: the one the local pane shows and paired clients drive. */
 export interface SessionTabStrip {
   list(sessionId: string): DesktopBrowserTab[];
-  select(sessionId: string, tabId: string): void;
+  select(sessionId: string, tabId: string, follow?: SessionTabFollow): void;
   create(sessionId: string): void;
   close(sessionId: string, tabId: string): void;
   isReplacement?(sessionId: string, tabId: string): boolean;
 }
 
-type SessionTabControl = { type: 'new-tab' } | { type: 'select-tab' | 'close-tab'; tabId: string };
+/** How a `select-tab` is not the user's own pick: `agent` is a pane following
+ *  the agent's page, `resume` the user asking to see it again. */
+export type SessionTabFollow = 'agent' | 'resume';
+
+type SessionTabControl =
+  | { type: 'new-tab' }
+  | { type: 'select-tab'; tabId: string; follow?: SessionTabFollow }
+  | { type: 'close-tab'; tabId: string };
 
 /** Tab chrome targets the session's pages, not the document inside one. */
 export function isSessionTabControl<T extends { type: string }>(
@@ -34,7 +41,7 @@ export async function controlSessionTab(
 ): Promise<DesktopBrowserTabControlResult | void> {
   if (!tabs) throw new Error('Browser tabs are unavailable.');
   if (control.type === 'new-tab') tabs.create(sessionId);
-  else if (control.type === 'select-tab') tabs.select(sessionId, control.tabId);
+  else if (control.type === 'select-tab') tabs.select(sessionId, control.tabId, control.follow);
   else return closeSessionTab(tabs, sessionId, control.tabId);
 }
 

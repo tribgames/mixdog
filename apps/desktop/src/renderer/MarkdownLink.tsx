@@ -30,6 +30,8 @@ import type { FileDownloadSource } from '../shared/file-downloads';
 import { fileDownloadReasonMessage } from './file-download-transfer';
 import { fileDownloadBlockedReason, startFileDownload, useFileDownloadSupport } from './file-download-panel';
 import { startFolderDownload } from './project-file-download';
+import { visualizeKindForPath } from '../shared/visualize';
+import { reopenVisualizeTargets } from './visualize-store';
 
 /** Plain text of rendered children: highlighted code and link captions are
  *  hast-derived spans, so a String() cast would not yield their source. */
@@ -500,6 +502,31 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         return;
       }
       const { project, path: file, accessToken, directory } = await resolveTarget();
+      // A previewable file inside the session's working directory opens in the
+      // session's Visualize panel through main's validated reopen. The target
+      // goes as an absolute path: main checks it against the session's own
+      // working directory (symlinks resolved) and a refusal, e.g. outside that
+      // directory, falls through to the regular opening below.
+      const projectFile =
+        !external &&
+        !remote &&
+        !serverWindow &&
+        !accessToken &&
+        !directory &&
+        kind === 'file' &&
+        sessionId &&
+        window.mixdogDesktop?.visualizeCommand
+          ? projectRelativeFilePath(project, file)
+          : null;
+      if (projectFile && visualizeKindForPath(projectFile) && (pageLink || !isLocalWebPage(projectFile))) {
+        try {
+          const absolute = `${project.replace(/\\/g, '/').replace(/\/+$/, '')}/${projectFile}`;
+          await reopenVisualizeTargets(sessionId, 'preview', [absolute]);
+          return;
+        } catch {
+          // Fall back to the regular opening.
+        }
+      }
       // A web page opens in the session's browser pane from a loopback address
       // main serves; with no pane to reveal (a draft) the system browser takes
       // the same address. Without the server (a paired phone) it stays source.
@@ -849,12 +876,28 @@ export function MarkdownLink({
       </span>
     );
   }
-  if (!external && !local)
+  if (!external && !local) {
+    // A mail address opens the system mail app; left to the anchor, the click
+    // was a renderer navigation the window blocks, so nothing happened.
+    const mail = /^mailto:/i.test(target);
     return (
-      <a href={href} className={className} title={title}>
+      <a
+        href={href}
+        className={className}
+        title={title}
+        onClick={
+          mail
+            ? (event) => {
+                event.preventDefault();
+                openWebLinkInSystemBrowser(sessionId, target);
+              }
+            : undefined
+        }
+      >
         {children}
       </a>
     );
+  }
   const openLocal = link.open;
 
   return (

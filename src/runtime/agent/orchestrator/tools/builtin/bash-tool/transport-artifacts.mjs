@@ -79,6 +79,15 @@ export function removeTransportFileNow(file) {
   finishTransportArtifact(file, removeTransportFile);
 }
 
+/** Remove `file` once a run's own lifetime promise settles: a queued command
+ *  has no job to subscribe to until it runs. */
+export function cleanupArtifactAfter(file, settled, remove = removeTransportFile) {
+  if (!file) return;
+  registerTransportArtifact(file);
+  const done = () => finishTransportArtifact(file, remove);
+  Promise.resolve(settled).then(done, done);
+}
+
 export function cleanupArtifactOnTaskSettled(file, jobId, remove = removeTransportFile) {
   if (!file) return;
   registerTransportArtifact(file);

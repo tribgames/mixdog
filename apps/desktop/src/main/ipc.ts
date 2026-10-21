@@ -32,14 +32,16 @@ import type { RemoteHostWindows } from './remote-host-windows';
 import { registerSourceControlIpc } from './ipc-source-control';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
 import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
-import { registerWindowSettingsIpc } from './ipc-window-settings';
+import { registerWindowSettingsIpc, type PcQuotaHost } from './ipc-window-settings';
 import { SelectedFileAccess } from './selected-file-access';
+import { registerScreenSessions } from './screen-sessions';
 import type { ConnectionKind } from './connections/contract';
 import { connectionFeatureGate } from './connections/feature-gates';
 import {
   requiredAttachmentFile,
   requiredVisualizeCaptureRect,
   requiredVisualizeGestureTarget,
+  requiredVisualizePanelSize,
   requiredVisualizeTabCommand,
 } from './ipc-validation';
 import { createServerFiles, uploadServerBytes } from './server-file-access';
@@ -164,7 +166,7 @@ interface DesktopIpcDependencies {
   /** Extensions → Computer Use: OS readiness reads and one-press fixes. */
   computer?: ComputerIpcHost;
   /** Agent `visualize` tabs (this PC's window only). */
-  visualize?: Pick<VisualizeService, 'snapshot' | 'command' | 'paneText'> &
+  visualize?: Pick<VisualizeService, 'snapshot' | 'command' | 'paneText' | 'setPanelSize'> &
     Partial<Pick<DesktopVisualize, 'attachFeedback' | 'captureRect' | 'consumeChoiceGesture'>>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
@@ -184,6 +186,9 @@ interface DesktopIpcDependencies {
   /** Where the connection's daemon keeps user data (editor backups, editor
    *  settings); this PC's userData unless given. */
   serviceUserDataPath?: () => string;
+  /** This PC's own daemon, for a server window: the sign-ins a server's model
+   *  calls run on are this PC's, so their quota reads are answered here. */
+  pcHost?: PcQuotaHost;
 }
 
 export function registerDesktopIpc(
@@ -212,6 +217,7 @@ export function registerDesktopIpc(
     visualize,
     connectionKind = 'local',
     serviceUserDataPath,
+    pcHost,
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
@@ -337,6 +343,9 @@ export function registerDesktopIpc(
     const target = requiredVisualizeGestureTarget({ sessionId, tabId, pane: index });
     return visualize.paneText(target.sessionId, target.tabId, target.pane);
   });
+  handle(DESKTOP_IPC.visualizePanelSize, (_event, size) => {
+    visualize?.setPanelSize(requiredVisualizePanelSize(size));
+  });
   handle(DESKTOP_IPC.visualizeFeedbackAttach, async (_event, sessionId, tabId) => {
     const target = requiredVisualizeTabCommand({ sessionId, tabId, action: 'activate' });
     await visualize?.attachFeedback?.(target.sessionId, target.tabId);
@@ -356,6 +365,7 @@ export function registerDesktopIpc(
     handle,
     readsLocalOnboardingStatus: connectionKind === 'local',
     raiseOnSignIn: connectionKind === 'local',
+    pcHost: connectionKind === 'local' ? undefined : pcHost,
     invokeDesktopOperation,
     settingsStore,
     onDesktopSettingsChanged,
@@ -375,6 +385,8 @@ export function registerDesktopIpc(
     (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));
   };
   ipcMain.on(DESKTOP_IPC.perfLog, onPerfLog);
+  // What this window paints, for the completion-notification rule.
+  const disposeScreenSessions = registerScreenSessions(window, ipcMain);
   const disposeTerminalIpc = registerTerminalIpc({
     window,
     ipcMain,
@@ -401,6 +413,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.stateResync,
     DESKTOP_IPC.updaterState,
     DESKTOP_IPC.perfLog,
+    DESKTOP_IPC.reportScreenSessions,
     DESKTOP_IPC.rendererDiagnostic,
     DESKTOP_IPC.termWrite,
     DESKTOP_IPC.termResize,
@@ -425,6 +438,7 @@ export function registerDesktopIpc(
     void server?.dispose();
     disposeTerminalIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
+    disposeScreenSessions();
     for (const channel of channels) ipcMain.removeHandler(channel);
   };
 }

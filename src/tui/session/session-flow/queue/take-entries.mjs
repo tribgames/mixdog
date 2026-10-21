@@ -13,6 +13,12 @@ import {
 import { hydratePastedAttachments, hydrateRestorableFileParts } from '../../../../runtime/attachments/store.mjs';
 import { dropTuiSteeringPersist } from '../../tui-steering-persist.mjs';
 
+/** Who an entry's words are attributed to (its `sender`, sending bot and chain hop). */
+const attributionOf = (entry) =>
+  `${String(entry?.transcriptMeta?.sender || '').toLowerCase()}|${entry?.transcriptMeta?.fromAgent || ''}|${
+    entry?.transcriptMeta?.hop || 0
+  }`;
+
 export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQueuedEntries, leadSessionId }) {
   function dequeueQueueBatch(maxPriority = 'later', options = {}) {
     if (pending.length === 0) return [];
@@ -40,6 +46,8 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
         queuePriorityValue(entry.priority) === bestPriority
       ) {
         if (batch.length > 0 && entry.retryTurnId) break;
+        // One turn records one sender: a bot's message never merges with the user's.
+        if (batch.length > 0 && attributionOf(entry) !== attributionOf(batch[0])) break;
         batch.push(entry);
         pending.splice(i, 1);
         if (entry.mode === 'task-notification' && entry.key) pendingNotificationKeys.delete(entry.key);

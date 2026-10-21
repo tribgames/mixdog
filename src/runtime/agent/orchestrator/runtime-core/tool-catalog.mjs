@@ -401,7 +401,18 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
   // Solo keeps `agent` in the deferred pool: loadable on request, never eager.
-  if (session.orchestrationMode === 'none') defaultNames.delete('agent');
+  // The mode the prompt was built with: a mid-conversation workflow or
+  // orchestration mode switch (workflowOverlay, orchestrationModeOverlay)
+  // never reshapes the surface.
+  let orchestrationMode = session.orchestrationMode;
+  if (session.workflowOverlay) orchestrationMode = session.workflowOverlay.promptOrchestrationMode;
+  else if (session.orchestrationModeOverlay) orchestrationMode = session.orchestrationModeOverlay.prompt;
+  if (orchestrationMode === 'none') defaultNames.delete('agent');
+  // Tools a workflow switch opened stay loadable, never eager, until the
+  // prompt is rebuilt (session-runtime/tool-policy-refresh.mjs).
+  for (const name of Array.isArray(session.workflowOpenedTools) ? session.workflowOpenedTools : []) {
+    defaultNames.delete(name);
+  }
   // Bridge sessions expose the mode's core only: a stored (legacy all-selected)
   // selection never widens the wire surface, and load_tool is the bridge's own.
   const storedNames = providerMode === 'native' || bridge ? [] : storedDeferredToolNames(session);

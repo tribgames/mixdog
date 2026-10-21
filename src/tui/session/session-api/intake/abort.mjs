@@ -2,6 +2,7 @@
 // during a turn cancels it and, unless a steering prompt is already queued,
 // reclaims the in-flight prompt, its history slot and its requeue entries.
 import { hydratePastedAttachments, hydrateRestorableFileParts } from '../../../../runtime/attachments/store.mjs';
+import { USER_CANCEL_KEEP_PROMPT_REASON } from '../../../../runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 import { abortGoalTurn } from '../../goal-turn-state.mjs';
 import { promptHistoryWithout } from '../../prompt-history.mjs';
 import { isQueuedEntryEditable } from '../../queue-helpers.mjs';
@@ -146,7 +147,17 @@ export function createAbortAction(bag) {
             (entry) => entry?.abortDiscardOnAbort !== true && entry?.mode !== 'pending-resume'
           )
         : [];
-    const aborted = abortGoalTurn(runtime, flags, hasPendingSteering, reason);
+    // A user Stop that hands the prompt back is rewound by the runtime (the
+    // prompt returns to the input box); one that does not keeps it in the
+    // stored transcript, as it stays in the visible one. A turn that already
+    // committed (output produced) needs neither.
+    const keepsPrompt = reason === 'user-cancel' && !canRestore && restoreState?.restorable && !restoreState.committed;
+    const aborted = abortGoalTurn(
+      runtime,
+      flags,
+      hasPendingSteering,
+      keepsPrompt ? USER_CANCEL_KEEP_PROMPT_REASON : reason
+    );
     if (restoreState) {
       // A user Stop consumes this input even when no draft is requested.
       // Explicit draft reclamation also releases it; automatic interruptions

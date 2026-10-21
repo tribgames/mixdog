@@ -35,8 +35,12 @@ function compactElapsed(value) {
   return `${Math.max(1, Math.ceil(n / 1000))}s`;
 }
 
+function compactionRunning(compaction) {
+  return compaction.inProgress === true || compaction.lastStage === 'compacting';
+}
+
 function compactionState(compaction) {
-  const compactRunning = compaction.inProgress === true || compaction.lastStage === 'compacting';
+  const compactRunning = compactionRunning(compaction);
   const autoClearFailed = compaction.lastStage === 'auto_clear_failed' || !!compaction.lastClearCompactError;
   const autoClearStage = compaction.lastStage === 'auto_clear' || compaction.lastClearAt;
   const compactInterrupted = compaction.lastStage === 'interrupted';
@@ -99,7 +103,9 @@ function contextMetrics({ toolsStatus, mcpStatus, skillsStatus, pluginsStatus, c
   );
   const cacheDenom = Number(usage.lastContextTokens || 0) || cachedRead + freshInput + cacheWrite;
   const compactState = compactionState(compaction);
-  const compactDuration = compactElapsed(compaction.lastDurationMs);
+  // lastDurationMs belongs to the previous, finished compaction: a running
+  // one shows no duration rather than one that reads as its elapsed time.
+  const compactDuration = compactionRunning(compaction) ? '' : compactElapsed(compaction.lastDurationMs);
   return {
     tools,
     mcp,

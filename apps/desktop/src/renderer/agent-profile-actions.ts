@@ -10,6 +10,7 @@ import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
 import type { ScmContextMenuItem } from './ScmContextMenu';
+import { setBotHiddenInSidebar, sidebarHiddenBots } from './sidebar-hidden-bots-store';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
 export type AgentActionsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'resetAgentHome'>>;
@@ -85,6 +86,7 @@ export async function deleteAgent(deps: AgentActionDeps, agentId: string, name: 
   try {
     await api.invokeCapability({ capability: 'deleteAgentDefinition', args: [agentId] });
     invalidateSidebarReferenceForMutation('deleteAgentDefinition');
+    setBotHiddenInSidebar(agentId, false); // a deleted bot leaves no stale hidden flag
     window.dispatchEvent(new CustomEvent(BOT_DELETED_EVENT, { detail: { sessionId: agentHomeSessionId(agentId) } }));
     showDesktopToast(t('Deleted bot "{{id}}".', { id: name }), 'success');
     return true;
@@ -157,26 +159,54 @@ export function agentRoomMenuItems(
   ];
 }
 
-/** A contact row's menu (봇 page and the Sessions 봇 section): 프로필 보기,
- *  끄기, 삭제 (agent mode opens no tabs, so there is no 탭에서 열기). Mixy (the
- *  Lead) is never switched off or deleted. Listed contacts are on
- *  (contactAgentRows), so the toggle reads 끄기. */
+/** A contact row's menu (agent mode opens no tabs, so there is no 탭에서 열기).
+ *  The Sessions 봇 section (`surface: 'sidebar'`): 프로필 보기, 목록에서 숨기기 —
+ *  the bot only leaves that list. The 봇 page: 프로필 보기, 사이드바에 표시 (only
+ *  while the bot is hidden there), 끄기, 삭제. Mixy (the Lead) is never switched
+ *  off or deleted. The toggle reads 끄기, or 켜기 on a switched-off bot. */
 export function agentContactMenuItems(
-  contact: Pick<AgentContact, 'agentId' | 'name' | 'mixy'>,
+  contact: Pick<AgentContact, 'agentId' | 'name' | 'mixy'> & { disabled?: boolean },
   handlers: { onOpen(contact: AgentContact): void; onProfile(contact: AgentContact): void },
-  deps: AgentActionDeps = {}
+  deps: AgentActionDeps = {},
+  surface: 'page' | 'sidebar' = 'page'
 ): ScmContextMenuItem[] {
   const row = contact as AgentContact;
+  const profile = { id: 'agent-profile', label: t('View profile'), onSelect: () => handlers.onProfile(row) };
+  if (surface === 'sidebar') {
+    return [
+      profile,
+      {
+        id: 'agent-hide-from-list',
+        label: t('Hide from list'),
+        onSelect: () => setBotHiddenInSidebar(contact.agentId, true),
+      },
+    ];
+  }
   return [
-    { id: 'agent-profile', label: t('View profile'), onSelect: () => handlers.onProfile(row) },
+    profile,
+    ...(sidebarHiddenBots().has(contact.agentId)
+      ? [
+          {
+            id: 'agent-show-in-sidebar',
+            label: t('Show in sidebar'),
+            onSelect: () => setBotHiddenInSidebar(contact.agentId, false),
+          },
+        ]
+      : []),
     ...(contact.mixy
       ? []
       : [
-          {
-            id: 'agent-turn-off',
-            label: t('Turn off'),
-            onSelect: () => void setAgentOn(deps, contact.agentId, false),
-          },
+          contact.disabled
+            ? {
+                id: 'agent-turn-on',
+                label: t('Turn on'),
+                onSelect: () => void setAgentOn(deps, contact.agentId, true),
+              }
+            : {
+                id: 'agent-turn-off',
+                label: t('Turn off'),
+                onSelect: () => void setAgentOn(deps, contact.agentId, false),
+              },
           {
             id: 'agent-delete',
             label: t('Delete'),

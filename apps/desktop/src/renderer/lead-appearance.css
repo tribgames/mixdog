@@ -1,0 +1,17 @@
+/* The Leads' Appearance dialog: the face preview, the size of a room's tile. */
+.lead-appearance-face {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  display: grid;
+}
+.lead-appearance-face > .agent-contact-mascot {
+  width: 100%;
+  height: 100%;
+}
+
+.lead-appearance-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}

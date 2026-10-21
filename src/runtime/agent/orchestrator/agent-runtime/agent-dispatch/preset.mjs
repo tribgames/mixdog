@@ -1,5 +1,6 @@
 // Preset resolution for a dispatch: the maintenance route (or preset name)
 // becomes the preset object and runtime spec the session is built from.
+import { normalizeContextTokens } from '../../../../shared/llm/default-context-window.mjs';
 import { resolveRuntimeSpec } from '../../config.mjs';
 import { resolveMaintenanceRoute } from '../maintenance-route.mjs';
 
@@ -39,6 +40,10 @@ function maintenanceRouteToPreset(routeOrName, agent) {
   if (routeOrName.autoEffort === false) out.autoEffort = false;
   if (routeOrName.modelParameters && typeof routeOrName.modelParameters === 'object') {
     out.modelParameters = { ...routeOrName.modelParameters };
+  }
+  if (Number(routeOrName.contextPercent) > 0) out.contextPercent = Number(routeOrName.contextPercent);
+  if (normalizeContextTokens(routeOrName.contextTokens)) {
+    out.contextTokens = normalizeContextTokens(routeOrName.contextTokens);
   }
   return out;
 }

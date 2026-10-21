@@ -6,11 +6,26 @@
  */
 import { createHash } from 'node:crypto';
 import { makeModelCache } from '../agent/orchestrator/providers/model-cache.mjs';
-import { resolveAntigravityAuth, resolveGeminiKey, resolveXaiAuth } from './auth.mjs';
+import {
+  imageApiLane,
+  resolveAntigravityAuth,
+  resolveGeminiKey,
+  resolveImageApiAuth,
+  resolveXaiAuth,
+} from './auth.mjs';
 import { catalogHttpError, staleCatalog } from './catalog-errors.mjs';
 
 const TTL_MS = 24 * 60 * 60_000;
 const REQUEST_MS = 10_000;
+// Gateway image catalogs can sit behind a slow edge: api.nano-gpt.com's
+// /models answered only after ~44 s, so the 10 s default would read a slow
+// catalog as an outage. Same budget as custom-provider discovery.
+const GATEWAY_CATALOG_MS = 60_000;
+
+/** Per-lane timeout of one catalog request. */
+export function mediaCatalogTimeoutMs(lane) {
+  return imageApiLane(lane) ? GATEWAY_CATALOG_MS : REQUEST_MS;
+}
 const natural = new Intl.Collator('en', { numeric: true });
 
 function methodsAllow(row, method) {
@@ -39,8 +54,51 @@ function grokLane(lane) {
   return lane === 'xai' || lane === 'grok-oauth';
 }
 
+// Image API catalogs (OpenRouter, NanoGPT) describe each model with typed
+// capability descriptors; only enum values become pickable controls.
+const IMAGE_API_CONTROLS = Object.freeze({
+  aspect_ratio: 'aspectRatio',
+  resolution: 'resolution',
+  quality: 'quality',
+  background: 'background',
+});
+// The request schema's documented ceiling for `input_references`.
+const IMAGE_API_MAX_REFERENCES = 16;
+
+function imageApiOutputsImage(row) {
+  const outputs = row.architecture?.output_modalities;
+  // Image-to-image-only models (upscalers, editors) need an input image;
+  // Studio also runs prompt-only, so they stay out.
+  return Array.isArray(outputs) && outputs.includes('image') && row.capabilities?.image_generation !== false;
+}
+
+function imageApiReferenceCap(row) {
+  const descriptor = row.supported_parameters?.input_references;
+  if (descriptor?.type === 'range' && Number.isFinite(Number(descriptor.max))) {
+    return Math.max(0, Math.min(IMAGE_API_MAX_REFERENCES, Math.trunc(Number(descriptor.max))));
+  }
+  const inputs = row.architecture?.input_modalities;
+  const acceptsImages = Array.isArray(inputs) && inputs.includes('image') && row.capabilities?.image_to_image !== false;
+  return acceptsImages ? IMAGE_API_MAX_REFERENCES : 0;
+}
+
+function imageApiControls(row) {
+  const controls = {};
+  for (const [param, control] of Object.entries(IMAGE_API_CONTROLS)) {
+    const descriptor = row.supported_parameters?.[param];
+    const values =
+      descriptor?.type === 'enum' && Array.isArray(descriptor.values)
+        ? [...new Set(descriptor.values.map((value) => String(value).trim()).filter(Boolean))]
+        : [];
+    if (values.length) controls[control] = values;
+  }
+  controls.maxReferences = imageApiReferenceCap(row);
+  return controls;
+}
+
 function kindFor(lane, row, id) {
   if (row.deprecated === true || row.disabled === true) return null;
+  if (imageApiLane(lane)) return imageApiOutputsImage(row) ? 'image' : null;
   if (lane === 'openai-oauth') return imageToolSupported(row, id) ? 'image' : null;
   if (grokLane(lane)) {
     if (/^grok-imagine-image(?:-|$)/.test(id)) return 'image';
@@ -118,7 +176,9 @@ export function projectMediaModels(lane, rows) {
     const kind = kindFor(lane, row, id);
     if (!kind) continue;
     let controls = {};
-    if (grokLane(lane) && kind === 'video') {
+    if (imageApiLane(lane)) {
+      controls = imageApiControls(row);
+    } else if (grokLane(lane) && kind === 'video') {
       controls = { resolution: ['480p', '720p'] };
     } else if (lane === 'gemini' && /^gemini-omni-/.test(id)) {
       controls = { resolution: [], durations: [], maxReferences: 3 };
@@ -181,6 +241,7 @@ async function providerSource(lane) {
   let auth;
   if (lane === 'gemini') auth = { token: resolveGeminiKey() };
   else if (lane === 'antigravity-oauth') auth = await resolveAntigravityAuth();
+  else if (imageApiLane(lane)) auth = resolveImageApiAuth(lane);
   else auth = await resolveXaiAuth(lane);
   // API-key and OAuth catalogs must not leak availability across credentials.
   // Persist only a one-way scope hash, never a key or a bearer. OAuth bearers
@@ -200,7 +261,7 @@ async function providerSource(lane) {
 }
 
 export async function fetchMediaModelRows({ lane, auth, fetchFn = fetch }) {
-  const signal = AbortSignal.timeout(REQUEST_MS);
+  const signal = AbortSignal.timeout(mediaCatalogTimeoutMs(lane));
   if (lane === 'gemini') {
     const { fetchGeminiModelPages } = await import('../agent/orchestrator/providers/lib/gemini-model-catalog.mjs');
     return fetchGeminiModelPages(auth.token, async (url, init) => {
@@ -217,7 +278,8 @@ export async function fetchMediaModelRows({ lane, auth, fetchFn = fetch }) {
     return Object.entries(models).map(([id, row]) => ({ ...(row && typeof row === 'object' ? row : {}), id }));
   }
   const { getLlmDispatcher } = await import('../shared/llm/http-agent.mjs');
-  const response = await fetchFn(`${auth.baseURL}/models`, {
+  // The Image API lists its generation models apart from the chat catalog.
+  const response = await fetchFn(`${auth.baseURL}/${imageApiLane(lane) ? 'images/models' : 'models'}`, {
     headers: { Authorization: `Bearer ${auth.token}` },
     redirect: 'error',
     signal,

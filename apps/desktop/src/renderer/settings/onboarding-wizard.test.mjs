@@ -162,19 +162,33 @@ test('Ctrl+Enter commits the focused profile title before leaving the step', asy
   assert.equal(document.querySelector('input[name="title"]').value, 'After');
 });
 
-test('the wizard is profile, providers, Git, and star, and Finish marks onboarding done', async (t) => {
+test('the wizard is profile, appearance, providers, Git, and star, and Finish marks onboarding done', async (t) => {
   const { calls, completed } = await mount(t);
-  assert.equal(document.querySelectorAll('.onboarding-progress-bar').length, 4);
-  await go(3);
+  assert.equal(document.querySelectorAll('.onboarding-progress-bar').length, 5);
+  await go(4);
   assert.match(document.querySelector('h1').textContent, /One last thing/);
   await click(button('Finish'));
   assert.deepEqual(calls.at(-1), { capability: 'skipOnboarding', args: [] });
   assert.equal(completed(), 1);
 });
 
+test('the Theme step follows the profile step and applies the picked tile at once', async (t) => {
+  await mount(t, { step: 1 });
+  assert.match(document.querySelector('h1').textContent, /Pick how Mixdog looks/);
+  assert.equal(
+    document.querySelector('.onboarding-progress-bar[title="Theme"]'),
+    document.querySelectorAll('.onboarding-progress-bar')[1]
+  );
+  assert.equal(document.querySelector('[role="radio"][aria-checked="true"]').dataset.skin, 'dark');
+  await click(document.querySelector('[role="radio"][data-skin="white"]'));
+  assert.equal(window.localStorage.getItem('mixdog.desktop-theme-preference'), 'white');
+  assert.equal(document.querySelector('[role="radio"][aria-checked="true"]').dataset.skin, 'white');
+  assert.equal(document.querySelector('input[aria-label="UI font"]'), null, 'no fonts in onboarding');
+});
+
 test('a star given from the wizard is remembered like the About panel does', async (t) => {
   await mount(t, {
-    step: 3,
+    step: 4,
     githubStarStatus: async () => ({ available: true, starred: false }),
     starGithub: async () => ({ starred: true }),
   });
@@ -184,7 +198,7 @@ test('a star given from the wizard is remembered like the About panel does', asy
 });
 
 test('providers explain the supported local-model installation path', async (t) => {
-  await mount(t, { step: 1 });
+  await mount(t, { step: 2 });
   assert.match(document.body.textContent, /Local models/);
   assert.match(document.body.textContent, /local-provider skill checks your PC/);
   assert.doesNotMatch(document.body.textContent, /local endpoint/);
@@ -203,7 +217,7 @@ test('a finished GitHub sign-in shows the account at once instead of offering Si
   let statusCalls = 0;
   const account = { login: 'tester', name: 'Test User', email: 'test@example.com' };
   await mount(t, {
-    step: 2,
+    step: 3,
     // First probe: signed out. The post-login refresh probe never settles, so
     // only the flow's own success can flip the card.
     githubCliStatus: () =>
@@ -237,7 +251,7 @@ async function mountSignedInGit(t, { config, fail = false }) {
   const writes = [];
   const account = { login: 'tester', name: 'Test User', email: 'test@example.com' };
   await mount(t, {
-    step: 2,
+    step: 3,
     githubCliStatus: async () => ({ installed: true, authenticated: true, login: 'tester' }),
     githubCliAccount: async () => account,
     gitGlobalConfig: async () => config,
@@ -281,7 +295,7 @@ for (const [name, github, git, installs] of [
   test(`moving past the Git step with ${name} ${installs ? 'installs' : 'leaves'} the Git built-in`, async (t) => {
     const account = { login: 'tester', name: 'Test User', email: 'test@example.com' };
     const { calls } = await mount(t, {
-      step: 2,
+      step: 3,
       githubCliStatus: async () => github,
       gitCliStatus: async () => git,
       githubCliAccount: async () => account,
@@ -306,7 +320,7 @@ test('a star confirmed while earlier steps are open shows Starred at once on the
     },
   });
   await settle();
-  await go(3);
+  await go(4);
   assert.ok(button('Starred').disabled);
   assert.equal(probes, 1);
 });
@@ -317,7 +331,7 @@ test('API provider detail from the backend is shown literally even when it match
   await i18next.changeLanguage('ko');
   t.after(() => i18next.changeLanguage('en'));
   await mount(t, {
-    step: 1,
+    step: 2,
     reads: {
       getProviderSetup: {
         api: [
@@ -335,7 +349,7 @@ test('API provider detail from the backend is shown literally even when it match
 for (const unavailable of [false, true]) {
   test(`SSH onboarding shows desktop availability without credential actions (offline=${unavailable})`, async (t) => {
     const { calls } = await mount(t, {
-      step: 1,
+      step: 2,
       reads: {
         getProviderSetup: {
           managedByClient: true,
@@ -382,7 +396,7 @@ for (const event of ['focus', 'mixdog:remote-reconnected', 'poll']) {
     }
     const reads = [];
     await mount(t, {
-      step: 1,
+      step: 2,
       readCapabilities: async (requests) =>
         requests.map(({ capability, args }) => {
           reads.push({ capability, args });

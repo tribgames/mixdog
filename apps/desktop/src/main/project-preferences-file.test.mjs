@@ -50,7 +50,7 @@ test('a save keeps the replaced version, which a damaged file is restored from',
   assert.deepEqual(await readProjectPreferences(root), first);
   assert.deepEqual(JSON.parse(readFileSync(join(root, FILE), 'utf8')), first, 'the restored copy is the file again');
   assert.equal(
-    readdirSync(root).some((name) => name.endsWith('.tmp')),
+    readdirSync(root).some((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
     false
   );
 });

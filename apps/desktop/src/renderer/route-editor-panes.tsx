@@ -63,9 +63,57 @@ export const ROUTE_MODEL_FLYOUT_MAX_HEIGHT = 360;
 /** Height cap of a pane's flyout; the flyout itself sizes to its content. */
 export function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number): number {
   if (pane === 'model') return ROUTE_MODEL_FLYOUT_MAX_HEIGHT;
-  if (pane === 'effort') return Math.min(300, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 34));
+  if (pane === 'effort') return Math.min(340, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 34));
   if (pane === 'context') return 100;
+  if (pane.startsWith('session:')) return 340;
   return 132;
+}
+
+/** A conversation setting the route menu carries below its model rows (the
+ *  session's workflow and delegation mode): one row, one radio pane. */
+export interface RouteSessionChoice {
+  id: string;
+  label: string;
+  /** The selected option's value, and the name the row shows for it. */
+  value: string;
+  valueLabel: string;
+  options: Array<{ value: string; label: string; description?: string }>;
+  /** Chosen during a turn: shown now, applied from the next response. */
+  pending?: boolean;
+  disabled?: boolean;
+  onSelect(value: string): void;
+}
+
+export function routeSessionChoicePane({
+  choice,
+  onOptionKeyDown,
+}: {
+  choice: RouteSessionChoice;
+  onOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void;
+}): ReactNode {
+  return choice.options.map((option) => {
+    const selected = option.value === choice.value;
+    return (
+      <button
+        type="button"
+        key={option.value}
+        className={`route-sheet-option${option.description ? ' route-sheet-option--rich' : ''}`}
+        role="menuitemradio"
+        aria-checked={selected}
+        disabled={choice.disabled}
+        onClick={() => {
+          if (!selected) choice.onSelect(option.value);
+        }}
+        onKeyDown={onOptionKeyDown}
+      >
+        <span className="route-sheet-option-copy">
+          <span>{option.label}</span>
+          {option.description && <small>{option.description}</small>}
+        </span>
+        {selected && <RouteSelectionCheck />}
+      </button>
+    );
+  });
 }
 
 /** The model catalog needs more room than the menu column; the option panes
@@ -114,36 +162,66 @@ export type RouteAutoEffort = { enabled: boolean; pending: boolean } | null;
 export function routeEffortPane({
   effort,
   effortOptions,
+  autoEffort = null,
+  autoEffortOn = false,
   tuningDisabled,
   onChangeEffort,
+  onChangeAutoEffort,
   onOptionKeyDown,
 }: {
   effort: string;
   effortOptions: Array<{ value: string; label: string }>;
+  /** Present only for a model that supports Auto: adds "Auto" as the first item. */
+  autoEffort?: RouteAutoEffort;
+  /** Auto is the displayed effort (on and the model supports it). */
+  autoEffortOn?: boolean;
   tuningDisabled: boolean;
   onChangeEffort(value: string): void;
+  onChangeAutoEffort?(enabled: boolean): void;
   onOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void;
 }): ReactNode {
-  return effortOptions.map((option) => {
-    const selected = option.value === effort;
-    return (
-      <button
-        type="button"
-        key={option.value}
-        className="route-sheet-option"
-        role="menuitemradio"
-        aria-checked={selected}
-        disabled={tuningDisabled}
-        onClick={() => {
-          if (option.value !== effort) onChangeEffort(option.value);
-        }}
-        onKeyDown={onOptionKeyDown}
-      >
-        <span>{option.label}</span>
-        {selected && <RouteSelectionCheck />}
-      </button>
-    );
-  });
+  return (
+    <>
+      {autoEffort && (
+        <button
+          type="button"
+          key="auto"
+          className="route-sheet-option"
+          role="menuitemradio"
+          data-effort-option="auto"
+          aria-checked={autoEffortOn}
+          disabled={tuningDisabled || autoEffort.pending}
+          onClick={() => {
+            if (!autoEffort.enabled) onChangeAutoEffort?.(true);
+          }}
+          onKeyDown={onOptionKeyDown}
+        >
+          <span>Auto</span>
+          {autoEffortOn && <RouteSelectionCheck />}
+        </button>
+      )}
+      {effortOptions.map((option) => {
+        const selected = option.value === effort && !autoEffortOn;
+        return (
+          <button
+            type="button"
+            key={option.value}
+            className="route-sheet-option"
+            role="menuitemradio"
+            aria-checked={selected}
+            disabled={tuningDisabled}
+            onClick={() => {
+              if (option.value !== effort || autoEffort?.enabled) onChangeEffort(option.value);
+            }}
+            onKeyDown={onOptionKeyDown}
+          >
+            <span>{option.label}</span>
+            {selected && <RouteSelectionCheck />}
+          </button>
+        );
+      })}
+    </>
+  );
 }
 
 /** The speed word's ink, shared with the model chip: Fast blue, Ultrafast orange. */

@@ -409,6 +409,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
   width: 100%;
   height: 100%;
 }
+/* A skin's picture or a user theme replaces the built-in look, so the
+   watermark steps aside; the box keeps its place so nothing below moves. */
+html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
+  visibility: hidden;
+}
 /* The empty workspace surface (no pane yet): flat on the window band,
    content centered in the whole main area. */
 .workspace-empty {
@@ -686,8 +691,9 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
    stays in the tab order and shows on keyboard focus. Touch (`data-touch`:
    coarse pointer or the phone client) has no hover, so there it always shows. */
 .message.user .message-steer {
-  min-height: 20px;
-  margin: 4px 2px 0 0;
+  height: 20px;
+  margin: 4px 0 0 0;
+  /* Ends on the bubble's right edge with the bubble (a user line). */
   align-self: flex-end;
   display: inline-flex;
   align-items: center;
@@ -698,6 +704,19 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
 }
 .message-steer-note {
   padding: 0 4px;
+}
+/* The control's fixed box (✕, ✓ or empty): the same size in every state. */
+.message-steer-slot {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: grid;
+  /* The ✓ ends flush with the bubble's right edge like the ✕ box does. */
+  place-items: center end;
+}
+.message-steer[data-touch] .message-steer-slot {
+  width: 44px;
+  height: 44px;
 }
 .message-steer[data-steer="failed"] .message-steer-note {
   color: var(--mx-danger);
@@ -734,7 +753,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
   height: 44px;
 }
 .message.user .message-steer[data-touch] {
-  min-height: 44px;
+  height: 44px;
 }
 .message-steer-action:hover:not(:disabled),
 .message-steer-action:focus-visible,
@@ -749,8 +768,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
   cursor: default;
 }
 .message.user .message-steer-read {
-  margin: 4px 8px 0 0;
-  align-self: flex-end;
   display: inline-flex;
   color: var(--mx-icon-muted);
   opacity: 0.7;
@@ -793,7 +810,7 @@ html[data-mixdog-mobile-tabs] .message.user .message-steer {
      code blocks, shell output, diffs, and tables all read as quiet cards,
      one step under the prompt card's 16px. */
   border-radius: var(--mx-radius-lg);
-  color: var(--mx-text);
+  color: var(--mx-code-ink, var(--mx-text));
   /* Code blocks sit on the sheet tone with a hairline border — not a darker
      inset well. */
   background: transparent;

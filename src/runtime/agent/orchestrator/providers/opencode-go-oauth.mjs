@@ -4,11 +4,14 @@
  * The organization's remote config (`/api/v2/config` → providers.opencode-go)
  * is the authority for the inference base URL, the request headers and the
  * model catalog (the gateway's own `/models` is not served on this base).
+ * When that config lists no models at all (the console serves `models: {}` for
+ * an organization without overrides, as the OpenCode CLI sees it), the catalog
+ * is the models.dev `opencode-go` provider, the list the CLI itself shows.
  * Requests run on the OpenCode Go gateway engines (opencode-go.mjs) with the
  * access token as the bearer; a 401 refreshes the token once and retries.
  */
 import { scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
-import { getModelMetadataSync } from './model-catalog.mjs';
+import { getModelMetadataSync, getModelsDevProviderModelsSync, loadModelsDevCatalog } from './model-catalog.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { OpenCodeGoProvider, WIRE_API_BY_NPM, resolveOpenCodeGoWireRoute } from './opencode-go.mjs';
 import { fetchOpenCodeGoOAuthUsageSnapshot } from './opencode-go-usage.mjs';
@@ -90,11 +93,51 @@ function catalogRow(id, model, providerPackage) {
   };
 }
 
+// A models.dev row in the remote config's model shape, for catalogRow.
+function configModelFromModelsDev(row) {
+  const cost = isPlainObject(row.cost) ? row.cost : null;
+  const effort = Array.isArray(row.reasoning_options)
+    ? row.reasoning_options.find((option) => option?.type === 'effort')?.values
+    : null;
+  return {
+    name: row.name,
+    ...(typeof row.npm === 'string' ? { package: row.npm } : {}),
+    limit: row.limit,
+    ...(cost
+      ? { cost: { input: cost.input, output: cost.output, cache: { read: cost.cache_read, write: cost.cache_write } } }
+      : {}),
+    ...(typeof row.reasoning === 'boolean'
+      ? { capabilities: { reasoning: { supported: row.reasoning, ...(effort ? { effort } : {}) } } }
+      : {}),
+  };
+}
+
+// models.dev serves the Go models over the OpenAI-compatible package unless a row names its own.
+const MODELS_DEV_PROVIDER_PACKAGE = '@ai-sdk/openai-compatible';
+
+const listsGoModels = (json) => Object.keys(json?.providers?.[CONFIG_PROVIDER_KEY]?.models || {}).length > 0;
+
+// The models.dev Go catalog, loaded first because the sync read is null on a cold cache.
+// The loader swallows its own failure, so a missing catalog is a failed discovery
+// (the last published roster stays), never an authoritative empty roster.
+async function loadModelsDevGoModels() {
+  await loadModelsDevCatalog();
+  const models = getModelsDevProviderModelsSync(CONFIG_PROVIDER_KEY);
+  if (!models || Object.keys(models).length === 0) {
+    throw openCodeGoError(
+      `[${PROVIDER_ID}] the OpenCode organization config lists no models and the models.dev OpenCode Go catalog is unavailable`,
+      { kind: 'catalog' }
+    );
+  }
+  return models;
+}
+
 /**
  * The Go provider of a remote config response: `{ baseURL, headers, models }`
- * with one catalog row per enabled model.
+ * with one catalog row per enabled model. A config that lists no models takes
+ * the models.dev Go models (`modelsDevModels`, id → row) instead.
  */
-export function goConfigFromResponse(json) {
+export function goConfigFromResponse(json, modelsDevModels = null) {
   const entry = json?.providers?.[CONFIG_PROVIDER_KEY];
   if (!isPlainObject(entry)) {
     throw openCodeGoError(`[${PROVIDER_ID}] the OpenCode organization config has no OpenCode Go provider`, {
@@ -102,9 +145,20 @@ export function goConfigFromResponse(json) {
     });
   }
   const providerPackage = typeof entry.package === 'string' ? entry.package : '';
-  const models = Object.entries(isPlainObject(entry.models) ? entry.models : {})
+  const fallback = !listsGoModels(json) && isPlainObject(modelsDevModels);
+  const source = fallback
+    ? Object.fromEntries(
+        Object.entries(modelsDevModels).map(([id, row]) => [
+          id,
+          isPlainObject(row) ? configModelFromModelsDev(row) : row,
+        ])
+      )
+    : isPlainObject(entry.models)
+      ? entry.models
+      : {};
+  const models = Object.entries(source)
     .filter(([id, model]) => id && isPlainObject(model) && model.disabled !== true)
-    .map(([id, model]) => catalogRow(id, model, providerPackage));
+    .map(([id, model]) => catalogRow(id, model, fallback ? MODELS_DEV_PROVIDER_PACKAGE : providerPackage));
   return {
     baseURL:
       typeof entry.settings?.baseURL === 'string' && entry.settings.baseURL
@@ -172,9 +226,8 @@ export class OpenCodeGoOAuthProvider {
       const current = loadTokens();
       return current?.account_id === tokens.account_id && current?.org_id === tokens.org_id;
     });
-    const remote = goConfigFromResponse(
-      await consoleGetJson(CONFIG_URL, tokens, { fetchFn: this.config.fetchImpl, refresh: true })
-    );
+    const response = await consoleGetJson(CONFIG_URL, tokens, { fetchFn: this.config.fetchImpl, refresh: true });
+    const remote = goConfigFromResponse(response, listsGoModels(response) ? null : await loadModelsDevGoModels());
     publish(remote.models, {
       baseURL: remote.baseURL,
       headers: remote.headers,

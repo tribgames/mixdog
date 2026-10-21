@@ -29,6 +29,7 @@ import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning
 import { projectEffortConfiguration, withEffortConfigurationFallback } from './effort-configuration.mjs';
 import { normalizeCacheKey } from '../agent-runtime/cache-strategy.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
+import { splitTailReminder } from './lib/tail-reminder-split.mjs';
 import {
   applyCompatToolChoice,
   compatResponsesReplayProvider,
@@ -296,7 +297,13 @@ export function sendCompatResponses(provider, messages, useModel, tools, opts = 
   return withEffortConfigurationFallback(provider.name, useModel, opts, send);
 }
 
-async function sendCompatResponsesOnce(provider, messages, useModel, tools, opts) {
+async function sendCompatResponsesOnce(provider, requestMessages, useModel, tools, opts) {
+  // The continuation state below is indexed by transcript position
+  // (seenMessageCount, reasoning messageIndex): the ephemeral tail reminder is
+  // not part of the transcript, so it is lifted off here and appended to the
+  // wire input last.
+  const { messages: transcript, reminder } = splitTailReminder(requestMessages);
+  let messages = transcript;
   const replayProvider = compatResponsesReplayProvider(provider.name);
   const signal = opts.signal || null;
   if (signal?.aborted) {
@@ -320,6 +327,7 @@ async function sendCompatResponsesOnce(provider, messages, useModel, tools, opts
     includeSystem: provider.config?.responsesSystemAsInstructions !== true,
   });
   const instructions = provider.config?.responsesSystemAsInstructions === true ? xaiSystemInstructions(messages) : '';
+  if (reminder) input.push({ role: 'user', content: [{ type: 'input_text', text: reminder }] });
   const params = buildCompatResponsesParams({
     provider,
     useModel,

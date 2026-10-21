@@ -19,6 +19,25 @@ export function isTurnInFlight(entry) {
   return IN_FLIGHT_STAGES.has(entry.stage);
 }
 
+// Sessions whose turn was handed to the runtime but has not claimed its
+// controller yet (spawn dispatched, askSession still loading the session).
+// The row already declares work; without this the pool cannot tell that
+// first-turn gap from a worker it lost track of, and reads `unknown`.
+const dispatchedTurns = new Map();
+
+/** Runs `run` (the turn's dispatch) with `id` counted as working until it
+ *  settles, covering the gap before the turn's own runtime entry is in flight. */
+export async function whileTurnDispatched(id, run) {
+  dispatchedTurns.set(id, (dispatchedTurns.get(id) || 0) + 1);
+  try {
+    return await run();
+  } finally {
+    const left = dispatchedTurns.get(id) - 1;
+    if (left > 0) dispatchedTurns.set(id, left);
+    else dispatchedTurns.delete(id);
+  }
+}
+
 const cleanLower = (value) =>
   String(value || '')
     .trim()
@@ -32,6 +51,7 @@ const cleanLower = (value) =>
 export function inFlightSessionActivity() {
   const working = new Set();
   const agentWorking = new Set();
+  for (const id of dispatchedTurns.keys()) working.add(id);
   for (const [id, entry] of runtimeState) {
     if (!isTurnInFlight(entry)) continue;
     working.add(id);

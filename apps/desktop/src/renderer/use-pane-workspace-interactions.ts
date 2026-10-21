@@ -160,10 +160,16 @@ export function usePaneDropPreview(
       const pane = strip?.closest<HTMLElement>('[data-pane-id]');
       return pane?.dataset.paneId === drag.sourceLeafId;
     };
+    // A bot list inside a pane reorders its own rows (bot-reorder.tsx): a
+    // session dragged over it is the list's, never a split preview or pane drop.
+    const inBotOrderZone = (event: DragEvent): boolean => {
+      const target = event.target instanceof Element ? event.target : null;
+      return currentPaneDrag()?.kind === 'session' && target?.closest('[data-pane-drag-zone="bot-order"]') != null;
+    };
     const onDragEnter = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
       enterCounter += 1;
-      if (isSourceStripReorder(event)) {
+      if (isSourceStripReorder(event) || inBotOrderZone(event)) {
         cancelPaneDragPreview();
         return;
       }
@@ -174,7 +180,7 @@ export function usePaneDropPreview(
     };
     const onDragOver = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
-      if (isSourceStripReorder(event)) {
+      if (isSourceStripReorder(event) || inBotOrderZone(event)) {
         cancelPaneDragPreview();
         return;
       }
@@ -188,7 +194,7 @@ export function usePaneDropPreview(
     const onDrop = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
       enterCounter = 0;
-      if (isSourceStripReorder(event)) {
+      if (isSourceStripReorder(event) || inBotOrderZone(event)) {
         cancelPaneDragPreview();
         return;
       }

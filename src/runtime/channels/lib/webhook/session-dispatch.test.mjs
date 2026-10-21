@@ -1,7 +1,54 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildFencedPayload, webhookRunPrompt } from './session-dispatch.mjs';
+import { buildFencedPayload, createWebhookSessionDispatcher, webhookRunPrompt } from './session-dispatch.mjs';
+
+test('a webhook run waiting on the user is never cut off by a dispatch timeout; the caller got 202 at once', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const statuses = [];
+  let signal = null;
+  let finishRun;
+  const dispatcher = createWebhookSessionDispatcher({
+    getBridgeDispatch: () => (options) => {
+      signal = options.signal;
+      return new Promise((resolve) => {
+        finishRun = resolve;
+      });
+    },
+    store: {
+      recordEndpointEvent: async () => {},
+      updateDeliveryStatus: async (_name, _id, status) => statuses.push(status),
+    },
+  });
+  const res = {
+    head: null,
+    body: '',
+    writeHead(code) {
+      this.head = code;
+    },
+    end(text) {
+      this.body = text;
+    },
+  };
+  const ok = await dispatcher.dispatchEndpoint({
+    name: 'hook',
+    body: {},
+    headers: {},
+    res,
+    deliveryId: 'd1',
+    endpoint: { instructions: 'Go.', ownerAgentId: 'lead' },
+  });
+  assert.equal(ok, true);
+  assert.equal(res.head, 202, 'the HTTP response returns before the run ends');
+  assert.equal(JSON.parse(res.body).id, 'd1');
+  t.mock.timers.tick(24 * 60 * 60_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.notEqual(signal?.aborted, true, 'no timeout cancels the run');
+  assert.deepEqual(statuses, ['processing'], 'the delivery is not failed while the run waits');
+  finishRun({ sessionId: 'sess_home_lead', result: 'ok' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(statuses, ['processing', 'done']);
+});
 
 test('the run prompt carries the fenced payload, but only the endpoint instructions select skills', () => {
   const run = webhookRunPrompt(

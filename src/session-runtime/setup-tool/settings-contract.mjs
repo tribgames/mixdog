@@ -163,7 +163,11 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       description:
         'Agent create only: "bot" (a contact the user chats with) or "agent" (a workflow sub-agent). Omitted: a bot when created from the representative bot\'s chat, else a workflow agent. Fixed after creation.',
     },
-    whenToUse: text,
+    whenToUse: {
+      ...text,
+      description:
+        'Skill only: the SKILL.md when_to_use trigger line shown in the model\'s skill listing; "" clears it.',
+    },
     toolDependencies: {
       type: ['array', 'null'],
       items: object({ type: { type: 'string', enum: ['tool', 'mcp'] }, value: text }, ['type', 'value']),
@@ -238,6 +242,32 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     markdownDefaultView: { type: 'string', enum: ['preview', 'rich', 'source'] },
     linkPreview: boolean,
     toolActivityExpansion: { type: 'string', enum: ['collapsed', 'commands', 'all'] },
+    uiFont: { ...text, description: 'Installed font family for the UI; "" restores the built-in font.' },
+    codeFont: { ...text, description: 'Installed font family for code; "" restores the built-in font.' },
+    skinTransparency: {
+      type: 'integer',
+      minimum: 0,
+      maximum: 100,
+      description: 'Sets both skin transparency sliders at once, 0-100 (defaults: outer 20, main 40).',
+    },
+    skinOuterTransparency: {
+      type: 'integer',
+      minimum: 0,
+      maximum: 100,
+      description:
+        'How much of the skin picture shows through the outer panels (window frame, titlebar, rail, sidebar, side dock), 0-100 (default 20).',
+    },
+    skinMainTransparency: {
+      type: 'integer',
+      minimum: 0,
+      maximum: 100,
+      description:
+        'How much of the skin picture shows through the main panel (conversation area, composer card, status island), 0-100 (default 40).',
+    },
+    colorTheme: {
+      ...text,
+      description: 'Imported JSON color theme id from status appearance colorThemes; "builtin" turns themes off.',
+    },
   }),
   hookRule: object(
     {

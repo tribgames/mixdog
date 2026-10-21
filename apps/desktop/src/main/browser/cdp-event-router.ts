@@ -19,6 +19,7 @@ import { onRequestPaused, type RequestPauseHost } from './cdp-events-fetch';
 import { onAttachedToTarget, type TargetAttachHost } from './cdp-events-target';
 import { parseDialogBridgeNotice } from './dialog-bridge';
 import type { BrowserGuestStateStore } from './guest-state';
+import { recordWindowOpen } from './popup-focus';
 import { redactBrowserText } from './redaction';
 
 type CdpParams = Record<string, unknown>;
@@ -95,6 +96,8 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
       // The gesture that armed interception is waiting on this exact event.
       if (data) diagnostics.notifyInterceptedDrag?.(data);
     },
+    // Sent before Electron asks for the window; decides whether it comes forward.
+    'Page.windowOpen': ({ diagnostics, params }) => recordWindowOpen(diagnostics, params),
     'Page.javascriptDialogOpening': ({ diagnostics, params, sessionId }) => {
       diagnostics.pendingDialog = {
         type: String(params.type || 'dialog'),

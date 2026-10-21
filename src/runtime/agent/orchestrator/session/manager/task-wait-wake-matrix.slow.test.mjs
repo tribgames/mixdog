@@ -273,7 +273,10 @@ for (const path of ['lead', 'agent']) {
     assertWokeAndDelivered(run, null, { stillRunning: false });
     assert.match(run.toolText, /status: completed/);
     assert.match(run.toolText, /waited task out/);
-    assert.equal(countIn(run.marks.stored, '<task-notification>'), 0, 'no second delivery as a notification');
+    // The system rules name the `<task-notification>` block (shared/10-tool-workflow.md), so only
+    // the conversation (non-system) messages can show a delivery.
+    const conversation = run.marks.stored.filter((m) => m.role !== 'system');
+    assert.equal(countIn(conversation, '<task-notification>'), 0, 'no second delivery as a notification');
   });
 
   test(`[${path}] task wait: user input -> wait ends, delivered in the same turn`, async (t) => {

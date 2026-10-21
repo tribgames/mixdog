@@ -2,21 +2,9 @@
 // Chrome-parity layout/animation model and the drag gestures (reorder inside
 // the strip, drag below it to split/move) all live here. Class names are
 // contract for the strip-contract dom tests and the shared CSS.
-import React, {
-  type KeyboardEvent,
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-  startTransition,
-} from 'react';
+import React, { type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useStableEvent } from './use-stable-event';
-import { createPortal, flushSync } from 'react-dom';
-import { clampOverlayIntoView } from './anchored-panel';
+import { createPortal } from 'react-dom';
 import { explorerAbsolutePath } from './explorer-tree-model';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { FileText, FileDiff, Folder, Globe, MessageCircle, Plus, Sparkles, Terminal, X } from 'lucide-react';
@@ -30,29 +18,22 @@ import { t } from './i18n';
 import { revealFileFromWindow } from './server-transfers';
 import { prefetchSurfaceForSelection } from './lazy-widgets';
 import { useMobileRemoteSurface } from './mobile-surface';
-import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
 import { RemotePcBrandDot } from './RemotePcSwitcher';
 import { MixdogMark } from './mixdog-mark';
 import { isAgentChatSession } from './agent-chat-mode';
 import { AgentChatTabFace } from './agent-chat-header';
 import { useTabStripReveal } from './use-tab-strip-reveal';
+import { calculateChromeTabWidths, type TabMenuAnchor, type SetTabMenu, tabMenuAnchorAt } from './workspace-tab-layout';
 import {
-  acceptPaneDrag,
-  beginPaneDrag,
-  currentPaneDrag,
-  finishPaneDrag,
-  type PaneDragSession,
-} from './pane-drag-session';
-import {
-  TAB_MOTION_SETTLE_MS,
-  calculateChromeTabWidths,
-  type TabMenuAnchor,
-  type SetTabMenu,
-  tabMenuAnchorAt,
-  tabsWithClosingGhosts,
-  tabDropIndex,
-} from './workspace-tab-layout';
+  type TabRename,
+  useNewTaskTap,
+  useTabMenuDismiss,
+  useTabMotion,
+  useTabRename,
+  useTabRunWidth,
+  useTabStripDrag,
+} from './workspace-tab-strip-state';
 
 interface WorkspaceTabStripProps {
   tabs: WorkspaceTab[];
@@ -77,14 +58,6 @@ interface WorkspaceTabStripProps {
   /** Session tabs rename in place on double-click (same commit rules as the sidebar row). */
   onRenameSession?(sessionId: string, title: string): unknown;
   onNewTask(): void;
-}
-
-interface TabRename {
-  draft: string | null;
-  start(tab: WorkspaceTab): void;
-  change(value: string): void;
-  commit(tab: WorkspaceTab): void;
-  cancel(): void;
 }
 
 function tabIsWorking(
@@ -229,7 +202,7 @@ function closingTabGhost(tab: WorkspaceTab, active: boolean) {
     >
       <button type="button" className="workspace-tab-main" tabIndex={-1}>
         {tabGlyph(tab)}
-        <span>{tab.title}</span>
+        <span className="workspace-tab-title">{tab.title}</span>
       </button>
       <button type="button" className="workspace-tab-close" tabIndex={-1}>
         <X size={18} aria-hidden="true" />
@@ -427,7 +400,7 @@ function workspaceTabNode({
         ) : (
           tabGlyph(tab)
         )}
-        <span>{tab.title}</span>
+        <span className="workspace-tab-title">{tab.title}</span>
         {attention === 'unread' && (
           <i
             className="workspace-tab-unread-dot"
@@ -569,41 +542,7 @@ export function WorkspaceTabStrip({
   onRenameSession,
   onNewTask,
 }: WorkspaceTabStripProps) {
-  const [renaming, setRenaming] = useState<{ key: string; draft: string } | null>(null);
-  const renamingRef = useRef(renaming);
-  renamingRef.current = renaming;
-  const cancelRename = useCallback(() => {
-    // Cleared synchronously so the blur fired by the field unmounting cannot commit the draft.
-    renamingRef.current = null;
-    setRenaming(null);
-  }, []);
-  const commitRename = useCallback(
-    (tab: WorkspaceTab) => {
-      const current = renamingRef.current;
-      if (!current || current.key !== tab.key) return;
-      renamingRef.current = null;
-      setRenaming(null);
-      const title = current.draft.trim();
-      if (!title || title === tab.title || tab.selection.kind !== 'session') return;
-      void onRenameSession?.(tab.selection.id, title);
-    },
-    [onRenameSession]
-  );
-  // One identity for the rename actions: the memoised tab cells compare the
-  // draft alone (sameTabCell).
-  const renameActions = useMemo(
-    () => ({
-      start: (target: WorkspaceTab) => setRenaming({ key: target.key, draft: target.title }),
-      change: (value: string) => setRenaming((current) => (current ? { ...current, draft: value } : current)),
-      commit: commitRename,
-      cancel: cancelRename,
-    }),
-    [commitRename, cancelRename]
-  );
-  const tabRename = (tab: WorkspaceTab): TabRename | null => {
-    if (!onRenameSession || tab.selection.kind !== 'session') return null;
-    return { draft: renaming?.key === tab.key ? renaming.draft : null, ...renameActions };
-  };
+  const tabRename = useTabRename(onRenameSession);
   // The strip's owner hands fresh handlers on every App commit; the cells
   // call them through these, so an unchanged tab skips the commit.
   const selectTabEvent = useStableEvent(onSelectTab);
@@ -629,167 +568,22 @@ export function WorkspaceTabStrip({
   );
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
   const tabStrip = useRef<HTMLElement>(null);
-  const nativeDrag = useRef<PaneDragSession | null>(null);
-  const dragSourceMounted = useRef(true);
-  const suppressTabClick = useRef('');
-  const [draggingKey, setDraggingKey] = useState('');
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const [draggingGroup, setDraggingGroup] = useState(false);
-  const [dragScroll, setDragScroll] = useState(false);
   const [tabMenu, setTabMenu] = useState<TabMenuAnchor | null>(null);
   const tabMenuNode = useRef<HTMLDivElement>(null);
   // Every renderer follows ONE tab-strip layout —
   // tabs shrink to sliver floors and never switch to a device-specific mode.
   const shellNode = useRef<HTMLDivElement>(null);
-  const [, setShellWidth] = useState(0);
-  const [stripAvailable, setStripAvailable] = useState(0);
   // The phone draws the SAME strip as the desktop (user: PC에 최대한 맞춰서 —
   // 헤더가 완전 다르다): real tabs, X, + and the dock toggles. Its only
   // addition is the brand mark at the front, which opens the session drawer
   // the desktop reaches through its activity rail.
   const mobile = useMobileRemoteSurface();
-  // Phone tap feedback for +: the pill names the new task on the tap itself
-  // while the navigation (a pane-wide render) commits as a transition behind
-  // it. The mark holds the tab that was active at the tap and ends when the
-  // active tab changes, or after a beat if the tap changed nothing.
-  const [newTaskTappedFrom, setNewTaskTappedFrom] = useState<string | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the active tab changing is the settle trigger; the body does not read it
-  useEffect(() => setNewTaskTappedFrom(null), [activeKey]);
-  useEffect(() => {
-    if (newTaskTappedFrom === null) return undefined;
-    const timer = window.setTimeout(() => setNewTaskTappedFrom(null), 800);
-    return () => window.clearTimeout(timer);
-  }, [newTaskTappedFrom]);
-  const tapNewTask = () => {
-    if (!mobile) return onNewTask();
-    setNewTaskTappedFrom(activeKey);
-    startTransition(onNewTask);
-  };
+  const [newTaskPending, tapNewTask] = useNewTaskTap(mobile, activeKey, onNewTask);
   // Needs-you and failure signals; working and unread come in as props.
   const attentionIndex = useSessionAttentionIndex();
-  // Layout INPUT: the width the tab run may spend — the shell minus the
-  // home slot, the fixed + slot and the three-control trailing safe zone.
-  const measureWidths = useCallback(() => {
-    const shell = shellNode.current;
-    if (!shell) return;
-    const width = shell.clientWidth;
-    setShellWidth((previous) => (previous === width ? previous : width));
-    const homeButton = shell.querySelector<HTMLElement>(':scope > .workspace-tab-home');
-    const newButton = shell.querySelector<HTMLElement>(':scope > .workspace-tab-new');
-    const trailingBox = shell.querySelector<HTMLElement>(':scope > .workspace-tabs-trailing');
-    const available =
-      width - (homeButton?.offsetWidth ?? 0) - (newButton?.offsetWidth ?? 0) - (trailingBox?.offsetWidth ?? 0);
-    setStripAvailable((previous) => (previous === available ? previous : available));
-  }, []);
-  // A geometry change (window resize, a sidebar or dock moving the pane edge)
-  // re-fits the run in the frame the shell resized, without the glide: the
-  // observer's update is rendered synchronously, before that frame paints, and
-  // the strip's width transitions stay off for the beat. Left to React's
-  // scheduler the labels re-collapsed a frame or more after the pane snapped.
-  const geometrySnapFrame = useRef(0);
-  const observeWidths = useCallback(() => {
-    const shell = shellNode.current;
-    if (!shell) return;
-    shell.dataset.geometrySnap = 'true';
-    window.cancelAnimationFrame(geometrySnapFrame.current);
-    geometrySnapFrame.current = window.requestAnimationFrame(() => {
-      geometrySnapFrame.current = window.requestAnimationFrame(() => {
-        geometrySnapFrame.current = 0;
-        delete shell.dataset.geometrySnap;
-      });
-    });
-    flushSync(measureWidths);
-  }, [measureWidths]);
-  useEffect(() => () => window.cancelAnimationFrame(geometrySnapFrame.current), []);
-  // Tab context menu (Close / Close Others / Close to the
-  // Right / Keep Open) with standard outside-click dismissal.
-  useEffect(() => {
-    if (!tabMenu) return undefined;
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && tabMenuNode.current?.contains(target)) return;
-      setTabMenu(null);
-    };
-    const closeMenu = () => setTabMenu(null);
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setTabMenu(null);
-    };
-    document.addEventListener('pointerdown', closeOutside);
-    document.addEventListener('keydown', closeOnEscape);
-    window.addEventListener('resize', closeMenu);
-    window.addEventListener('scroll', closeMenu, true);
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside);
-      document.removeEventListener('keydown', closeOnEscape);
-      window.removeEventListener('resize', closeMenu);
-      window.removeEventListener('scroll', closeMenu, true);
-    };
-  }, [tabMenu]);
-  // ABB: the context menu closes on hardware back like every other layer.
-  useMobileBack(Boolean(tabMenu), () => setTabMenu(null));
-  // Shell width drives the Chrome tab-width ladder.
-  const hasTrailing = Boolean(trailing);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: hasTrailing re-attaches the observer when the trailing box mounts or unmounts
-  useLayoutEffect(() => {
-    const shell = shellNode.current;
-    if (!shell || typeof ResizeObserver === 'undefined') return undefined;
-    measureWidths();
-    const observer = new ResizeObserver(observeWidths);
-    observer.observe(shell);
-    // The trailing controls resize WITHOUT resizing the shell (a dock toggle
-    // appears, a status chip grows); observing the box itself replaces the
-    // old re-measure on every render that handed a fresh `trailing` node —
-    // which was every App render, each a forced layout inside the commit.
-    const trailingBox = shell.querySelector<HTMLElement>(':scope > .workspace-tabs-trailing');
-    if (trailingBox) observer.observe(trailingBox);
-    return () => observer.disconnect();
-  }, [measureWidths, observeWidths, hasTrailing]);
-  // Tab-count changes move the available width without resizing the shell —
-  // re-measure on those renders too.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tab count and trailing presence move the available width without resizing the shell
-  useLayoutEffect(() => {
-    measureWidths();
-  }, [tabs.length, hasTrailing, measureWidths]);
-  // Menus can anchor hard against the window's right edge; the measured box
-  // is what keeps them on screen.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the menu box is re-clamped whenever a menu opens or moves
-  useLayoutEffect(() => {
-    clampOverlayIntoView(tabMenuNode.current);
-  }, [tabMenu]);
-  // Survivor widths follow the recalculated run immediately; the CSS width
-  // transition glides them instead of holding then jumping.
-  // A tab the strip has just lost stays mounted as a ghost for one motion beat,
-  // collapsing to nothing so its neighbours slide into the released space
-  // instead of jumping across it; a tab the strip has just gained lands whole
-  // in its own commit, the run taking its new cells at once for that beat
-  // (04-workspace-tabs.css), so it never overflows the strip and nothing
-  // slides afterwards. Both are derived during render from the previous tab list: the
-  // closing element is the very node that was open (its width transition
-  // starts from where it stands), and the entering mark is on the node when
-  // it is inserted. A same-length change (a draft promoted to its session)
-  // animates nothing — that is a replacement, not an add or a close.
-  const previousTabs = useRef(tabs);
-  const previousActiveKey = useRef(activeKey);
-  const closingTabs = useRef(new Map<string, { tab: WorkspaceTab; index: number; active: boolean }>());
-  const enteringKeys = useRef(new Set<string>());
-  const [, settleTabMotion] = useReducer((count: number) => count + 1, 0);
-  const displayTabs = tabsWithClosingGhosts(tabs, previousTabs, closingTabs, enteringKeys, previousActiveKey.current);
-  useLayoutEffect(() => {
-    previousTabs.current = tabs;
-    previousActiveKey.current = activeKey;
-  }, [tabs, activeKey]);
-  // One beat after the last change the ghosts unmount and the entering marks
-  // drop; a change inside the beat restarts it so every tab settles together.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a tab list change restarts the settle beat
-  useEffect(() => {
-    if (!closingTabs.current.size && !enteringKeys.current.size) return undefined;
-    const timer = window.setTimeout(() => {
-      closingTabs.current.clear();
-      enteringKeys.current.clear();
-      settleTabMotion();
-    }, TAB_MOTION_SETTLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [tabs]);
+  const stripAvailable = useTabRunWidth(shellNode, tabs.length, Boolean(trailing));
+  useTabMenuDismiss(tabMenu, tabMenuNode, setTabMenu);
+  const { displayTabs, enteringKeys } = useTabMotion(tabs, activeKey);
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
     if (node) tabNodes.current.set(key, node);
     else tabNodes.current.delete(key);
@@ -813,91 +607,19 @@ export function WorkspaceTabStrip({
     return () => window.removeEventListener('mixdog:close-active-tab', closeActive);
   }, [activeKey, focused, onCloseTab, tabs]);
 
-  const clearNativeDrag = useCallback(() => {
-    const drag = nativeDrag.current;
-    nativeDrag.current = null;
-    delete document.body.dataset.tabDragging;
-    if (!dragSourceMounted.current) return;
-    setDraggingKey('');
-    setDraggingGroup(false);
-    setDragScroll(false);
-    setDropIndex(null);
-    if (drag?.kind === 'tab') {
-      suppressTabClick.current = drag.key;
-      window.setTimeout(() => {
-        if (suppressTabClick.current === drag.key) suppressTabClick.current = '';
-      }, 0);
-    }
-  }, []);
-  const finishNativeDrag = useCallback(() => finishPaneDrag(), []);
-  useEffect(() => {
-    dragSourceMounted.current = true;
-    return () => {
-      dragSourceMounted.current = false;
-      if (nativeDrag.current) finishPaneDrag();
-      nativeDrag.current = null;
-      delete document.body.dataset.tabDragging;
-    };
-  }, []);
-
-  const startNativeDrag = useCallback(
-    (event: React.DragEvent<HTMLElement>, kind: 'tab' | 'group', sourceTab: WorkspaceTab | undefined) => {
-      if (!sourceTab) {
-        event.preventDefault();
-        return;
-      }
-      const drag: PaneDragSession = {
-        kind,
-        key: sourceTab.key,
-        title: sourceTab.title,
-        selection: sourceTab.selection,
-        sourceLeafId: paneId,
-      };
-      beginPaneDrag(event.nativeEvent, drag, event.currentTarget, clearNativeDrag);
-      nativeDrag.current = drag;
-      if (kind === 'group') setDraggingGroup(true);
-      else setDraggingKey(sourceTab.key);
-      document.body.dataset.tabDragging = '1';
-    },
-    [clearNativeDrag, paneId]
-  );
-
-  const dropIndexAt = useCallback(
-    (clientX: number, target: EventTarget | null): number | null => {
-      const strip = tabStrip.current;
-      if (!strip) return null;
-      return tabDropIndex({ tabs, tabNodes: tabNodes.current, strip, clientX, target });
-    },
-    [tabs]
-  );
-
-  const handleNativeDragOver = useCallback(
-    (event: React.DragEvent<HTMLElement>) => {
-      const drag = currentPaneDrag();
-      if (!drag) return;
-      setDragScroll(true);
-      if (drag.kind !== 'tab' || drag.sourceLeafId !== paneId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-      setDropIndex(dropIndexAt(event.clientX, event.target));
-    },
-    [dropIndexAt, paneId]
-  );
-
-  const handleNativeDrop = useCallback(
-    (event: React.DragEvent<HTMLElement>) => {
-      const drag = currentPaneDrag();
-      if (drag?.kind !== 'tab' || drag.sourceLeafId !== paneId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const index = dropIndexAt(event.clientX, event.target);
-      if (index !== null) onReorderTab(drag.key, index);
-      acceptPaneDrag();
-      setDropIndex(null);
-    },
-    [dropIndexAt, onReorderTab, paneId]
-  );
+  const {
+    draggingKey,
+    dropIndex,
+    draggingGroup,
+    dragScroll,
+    suppressTabClick,
+    startNativeDrag,
+    finishNativeDrag,
+    handleNativeDragOver,
+    handleNativeDrop,
+    enterStrip,
+    leaveStrip,
+  } = useTabStripDrag({ tabs, paneId, tabStrip, tabNodes, onReorderTab });
 
   // Chromium CalculateTabBounds output for the current strip input; the
   // per-tab width variable pins basis/min/max exactly like gfx::Rect bounds.
@@ -936,7 +658,7 @@ export function WorkspaceTabStrip({
           activeKey,
           activeBusy,
           workingSessionIds,
-          pendingNewTask: newTaskTappedFrom !== null && newTaskTappedFrom === activeKey,
+          pendingNewTask: newTaskPending,
           setTabMenu,
           onSelectTab: selectTab,
         })}
@@ -960,13 +682,9 @@ export function WorkspaceTabStrip({
             if (event.target !== event.currentTarget) return;
             startNativeDrag(event, 'group', tabs.find((tab) => tab.key === activeKey) ?? tabs[0]);
           }}
-          onDragEnter={() => setDragScroll(true)}
+          onDragEnter={enterStrip}
           onDragOver={handleNativeDragOver}
-          onDragLeave={(event) => {
-            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-            setDragScroll(false);
-            setDropIndex(null);
-          }}
+          onDragLeave={leaveStrip}
           onDrop={handleNativeDrop}
           onDragEnd={finishNativeDrag}
         >

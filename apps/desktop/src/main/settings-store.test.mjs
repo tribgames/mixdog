@@ -331,6 +331,8 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
     mainFrame,
     isDestroyed: () => false,
     send() {},
+    on() {},
+    removeListener() {},
   };
   const window = { webContents, isDestroyed: () => false };
   const writes = [];

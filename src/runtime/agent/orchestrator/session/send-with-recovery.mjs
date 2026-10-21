@@ -4,6 +4,7 @@
 // context-overflow compact retry (caller re-enters the pre-send compact
 // pass), and unrecoverable errors throw.
 import { appendAgentTrace } from '../agent-trace.mjs';
+import { withTailReminder } from './tail-reminder-rules.mjs';
 import {
   classifyError,
   isConnectFailure,
@@ -256,7 +257,10 @@ export async function sendWithRecovery(ctx) {
     try {
       const { timedOpts } = hooks;
       const admittedOpts = timedOpts?.admissionOwner ? timedOpts : { ...(timedOpts || {}), admissionOwner: sessionId };
-      response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, admittedOpts);
+      // Ephemeral tail reminder (tail-reminder-rules.mjs): added to this request's
+      // copy only, never to the stored transcript.
+      const requestMessages = withTailReminder(messages, { session: ctx.sessionRef, provider, model });
+      response = await provider.send(requestMessages, model, sendTools.length ? sendTools : undefined, admittedOpts);
       hooks.logTurnTiming('ok');
     } catch (sendErr) {
       hooks.logTurnTiming(`err:${sendErr?.code || sendErr?.name || 'unknown'}`);

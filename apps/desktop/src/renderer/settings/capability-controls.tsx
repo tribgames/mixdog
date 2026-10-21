@@ -7,6 +7,7 @@ import { OpenSelect } from '../OpenSelect';
 // The primitives render their string props literally. Call sites localize
 // app-authored copy with t(...); custom names and content stay untouched.
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
 import type { SettingsConfirmation } from './capability-data';
@@ -298,9 +299,7 @@ export function SettingsConfirmDialog({
     // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; Escape closes it here unless the settings dialog's capture handler already did.
     <div
       className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      {...scrimDismiss(onClose)}
       onKeyDown={(event) => {
         if (event.key === 'Tab') {
           const stops = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])];

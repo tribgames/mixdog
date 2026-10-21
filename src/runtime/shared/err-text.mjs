@@ -257,6 +257,10 @@ export function presentErrorText(error, options = {}) {
   if (code === 'TOOL_SURFACE_EXCEEDS_CONTEXT' || /\(TOOL_SURFACE_EXCEEDS_CONTEXT\)/.test(text)) {
     return stripErrorPrefix(text);
   }
+  // Likewise a latest message that cannot fit names its size and what would
+  // help; a wrapper's prefix ("agent compact failed (...): ") is dropped.
+  const latestTurn = /The latest message cannot fit this model \(LATEST_TURN_EXCEEDS_CONTEXT\)[\s\S]*$/.exec(text);
+  if (latestTurn) return latestTurn[0].replace(' (LATEST_TURN_EXCEEDS_CONTEXT)', '');
   const jsonError = extractJsonError(text);
   if (jsonError) text = jsonError;
   const embeddedError = extractEmbeddedError(text);

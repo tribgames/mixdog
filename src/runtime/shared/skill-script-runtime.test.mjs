@@ -407,10 +407,24 @@ for (const shell of powerShells()) {
         'ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { "E:$_" } else { "O:$_" } }';
       const lines = (text) => text.trim().split(/\r?\n/);
 
-      // 2>&1 merges stderr into the pipeline, in order, as error records.
+      // 2>&1 merges stderr into the pipeline as error records (not exceptions,
+      // not plain strings) while stdout stays plain strings, each stream in
+      // its own order. PowerShell reads the child's two pipes independently,
+      // so the interleaving between the streams is not defined and is not
+      // asserted.
       const merged = await ps(`mixdog-skill-node 'streams.mjs' small 0 2>&1 | ${tag}; "after:$LASTEXITCODE"`);
       assert.equal(merged.code, 0, merged.stderr);
-      assert.deepEqual(lines(merged.stdout), ['O:out1 한글', 'E:err1 üñí 한글', 'O:out2', 'E:err2', 'after:0']);
+      const mergedLines = lines(merged.stdout);
+      assert.equal(mergedLines.pop(), 'after:0');
+      assert.equal(mergedLines.length, 4, mergedLines.join('\n'));
+      assert.deepEqual(
+        mergedLines.filter((line) => line.startsWith('O:')),
+        ['O:out1 한글', 'O:out2']
+      );
+      assert.deepEqual(
+        mergedLines.filter((line) => line.startsWith('E:')),
+        ['E:err1 üñí 한글', 'E:err2']
+      );
 
       // Early stop ends the producer and the command goes on.
       const flood = await ps("mixdog-skill-node 'streams.mjs' flood 0 | Select-Object -First 1; 'end'");

@@ -306,12 +306,12 @@ export function cleanupBackgroundTasks(options = {}) {
 // `notify`: true notifies immediately, false never notifies (owner teardown).
 // Left unset, a `notifyOnCancel` task defers its single `cancelled`
 // notification until its run settles (see settleCancelledBackgroundTask); any
-// other task stays silent.
-function cancelRunningTask(task, reason, notify) {
+// other task stays silent. `terminalReason` records why it was cancelled.
+function cancelRunningTask(task, reason, notify, terminalReason = null) {
   try {
     task.cancel?.();
   } catch {}
-  completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: notify === true });
+  completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: notify === true, terminalReason });
   if (task.notifyOnCancel !== true || notify === true || task.status !== 'cancelled' || task.cancelNotify) return;
   if (notify === false) {
     task.cancelNotify = 'silent';
@@ -362,8 +362,11 @@ export function settleCancelledBackgroundTask(taskId, { result } = {}) {
   return task;
 }
 
+/** Cancel the running tasks `options` selects. `terminalReason` (optional) is
+ *  stamped on each one cancelled, so its run's settlement can tell why. */
 export function cancelBackgroundTasks(options = {}) {
   const reason = clean(options.reason) || 'cancelled';
+  const terminalReason = clean(options.terminalReason) || null;
   const wanted = clean(options.surface);
   const executionSessionId = clean(options.executionSessionId);
   const scope = normalizeTaskScope(options);
@@ -382,7 +385,7 @@ export function cancelBackgroundTasks(options = {}) {
       if (options.notify === false) silenceCancelledNotification(task);
       continue;
     }
-    cancelRunningTask(task, reason, options.notify);
+    cancelRunningTask(task, reason, options.notify, terminalReason);
     cancelled += 1;
   }
   return { cancelled };

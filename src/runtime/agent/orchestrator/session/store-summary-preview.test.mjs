@@ -137,6 +137,26 @@ test('the last-message line survives every summary projection into the session c
   assert.equal(lead.preview, 'hello');
 });
 
+test('a kept stopped prompt plus its interruption marker previews as the prompt, never the marker', () => {
+  for (const marker of ['[Request interrupted]', '[Request interrupted by user]', '[truncated]']) {
+    assert.equal(isSessionPreviewNoise(marker), true, marker);
+  }
+  const summary = _sessionSummary({
+    id: 'sess_stopped_first',
+    updatedAt: 1,
+    messages: [
+      { role: 'user', content: 'slow first prompt' },
+      { role: 'user', content: '[Request interrupted]' },
+    ],
+  });
+  assert.equal(summary.lastMessagePreview, 'slow first prompt');
+  assert.equal(summary.preview, 'slow first prompt');
+  assert.equal(summary.realTurnCount, 1);
+  assert.equal(normalizedRow(summary).lastMessagePreview, 'slow first prompt');
+  const [lead] = listLeadSessions({ listSessions: () => [summary] });
+  assert.equal(lead.lastMessagePreview, 'slow first prompt');
+});
+
 test('re-normalizing stored rows is identical to the unmemoized cleaning', () => {
   const rows = firstMessages.map((first, index) => ({
     id: `sess_row_${index}`,

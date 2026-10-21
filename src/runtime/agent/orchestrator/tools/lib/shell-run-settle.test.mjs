@@ -21,6 +21,7 @@ mock.module('../builtin/shell-jobs.mjs', {
   },
 });
 const { createSettle } = await import('./shell-run-settle.mjs');
+const { TaskOutput } = await import('../shell-exec-output.mjs');
 const { createProcessTreeTracker, PROCESS_TABLE_READ_BOUND_MS } = await import('./shell-descendants.mjs');
 const { forceReleaseTerminationHold } = await import('../builtin/lib/shell-job-records.mjs');
 const { registerForegroundOwnedTree, treeKillForceSettle } = await import('./shell-run-state.mjs');
@@ -195,6 +196,49 @@ test(
     assert.equal(isHeld(repo), false);
     assert.equal(run.workspaceAdmission, null);
     assert.deepEqual(records.retired, ['job_unconfirmed_kill']);
+  })
+);
+
+test(
+  'a kill whose captured descendant survives keeps its capture until the tree is gone',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = runningChild();
+    const { run, counters } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    run.foregroundRecordId = 'job_killed_tree_capture';
+    run.taskOutput = new TaskOutput('killed_tree_capture');
+    run.taskOutput.forceSpill();
+    run.taskOutput.writeStdout('before the kill\n');
+    const capture = run.taskOutput.stdoutPath;
+    let result;
+    run.resolveResult = (value) => {
+      result = value;
+    };
+    const survivor = { pid: 4410, ppid: ROOT, token: 'worker' };
+    await capturedBeforeKill(run, [{ pid: ROOT }, survivor]);
+    exitChild(child, 137);
+    tree.state.next = () => processTable([{ ...survivor, ppid: 1 }]);
+    try {
+      await settleAndFlush(run);
+      assert.equal(counters.resourceLeases, 1, 'the foreground slot is returned with the result');
+      assert.equal(result.stdoutPath, null, 'an inline-sized capture is not reported as a file');
+      assert.equal(existsSync(capture), true, 'the surviving worker may still write it');
+      run.taskOutput.writeStdout('from the survivor\n');
+      assert.equal(run.taskOutput.writeError, null);
+      let ended = false;
+      void result.settled.then(() => {
+        ended = true;
+      });
+      await tick(5_000);
+      assert.equal(ended, false);
+      tree.state.next = () => processTable([]);
+      await tick(5_000);
+      assert.equal(ended, true, 'the result reports when its tree is gone');
+      assert.equal(existsSync(capture), false, 'and the capture goes with it');
+    } finally {
+      run.stopTerminationWatch?.();
+      run.taskOutput.deleteFiles();
+    }
   })
 );
 

@@ -276,3 +276,61 @@ test('appearance markdownDefaultView, linkPreview and toolActivityExpansion writ
   assert.equal(after.linkPreview, false);
   assert.equal(after.toolActivityExpansion, 'all');
 });
+
+test('appearance fonts, skin transparency and an imported color theme write, read back and reject bad values', async (t) => {
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  installTestDom(t, { actEnvironment: false, expose: ['MutationObserver'] });
+  const { desktopSetupPreferences } = await import('./use-setup-desktop-request.ts');
+  const { importUserTheme } = await import('./appearance/user-theme.ts');
+  const { THEME_SCHEMA_URL } = await import('./appearance/theme-file.ts');
+  const imported = importUserTheme(
+    JSON.stringify({ $schema: THEME_SCHEMA_URL, name: 'Harbor', roles: { background: '#0f1720', text: '#e6edf3' } })
+  );
+  assert.ok(imported.ok);
+  const prefs = desktopSetupPreferences({});
+  const start = await prefs.read();
+  assert.equal(start.skinOuterTransparency, 50);
+  assert.equal(start.skinMainTransparency, 50);
+  assert.equal(start.uiFont, '');
+  assert.equal(start.colorTheme, imported.id);
+  assert.deepEqual(
+    start.colorThemes.map((entry) => entry.value),
+    ['builtin', imported.id]
+  );
+  const result = await prefs.write({
+    uiFont: ' "Inter" ',
+    codeFont: 'Fira Code',
+    skinTransparency: 80,
+    colorTheme: 'builtin',
+  });
+  assert.equal(result.saved, true);
+  assert.equal(result.uiFont, 'Inter');
+  assert.equal(result.codeFont, 'Fira Code');
+  assert.equal(result.skinOuterTransparency, 80);
+  assert.equal(result.skinMainTransparency, 80);
+  assert.equal(result.colorTheme, 'builtin');
+  const split = await prefs.write({ skinTransparency: 30, skinMainTransparency: 70 });
+  assert.equal(split.skinOuterTransparency, 30, 'skinTransparency sets both, a slider field overrides its own');
+  assert.equal(split.skinMainTransparency, 70);
+  const outerOnly = await prefs.write({ skinOuterTransparency: 5 });
+  assert.equal(outerOnly.skinOuterTransparency, 5);
+  assert.equal(outerOnly.skinMainTransparency, 70, 'the other slider stays');
+  await prefs.write({ skinTransparency: 80 });
+  await prefs.write({ uiFont: '', colorTheme: imported.id });
+  const status = await prefs.read();
+  assert.equal(status.uiFont, '');
+  assert.equal(status.codeFont, 'Fira Code');
+  assert.equal(status.colorTheme, imported.id);
+  await assert.rejects(prefs.write({ uiFont: 'Inter; color: red' }), /font family/);
+  await assert.rejects(prefs.write({ codeFont: 'monospace' }), /font family/);
+  await assert.rejects(prefs.write({ skinTransparency: 101 }), /0 to 100/);
+  await assert.rejects(prefs.write({ skinTransparency: 12.5 }), /0 to 100/);
+  await assert.rejects(prefs.write({ skinOuterTransparency: -1 }), /skinOuterTransparency.*0 to 100/);
+  await assert.rejects(prefs.write({ skinMainTransparency: 100.5 }), /skinMainTransparency.*0 to 100/);
+  await assert.rejects(prefs.write({ colorTheme: 'theme-missing' }), /Unknown color theme/);
+  const after = await prefs.read();
+  assert.equal(after.codeFont, 'Fira Code');
+  assert.equal(after.skinOuterTransparency, 80);
+  assert.equal(after.skinMainTransparency, 80);
+  assert.equal(after.colorTheme, imported.id);
+});

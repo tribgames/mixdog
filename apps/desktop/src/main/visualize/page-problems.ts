@@ -88,7 +88,12 @@ export function buildProblem(
 }
 
 const sameProblem = (a: VisualizeProblem, b: VisualizeProblem) =>
-  a.kind === b.kind && a.pane === b.pane && a.version === b.version && a.message === b.message && a.source === b.source && a.line === b.line;
+  a.kind === b.kind &&
+  a.pane === b.pane &&
+  a.version === b.version &&
+  a.message === b.message &&
+  a.source === b.source &&
+  a.line === b.line;
 
 /** `problem` added to `list`: a repeat only raises the count of the existing
  *  entry; a new one is dropped once the list holds the cap. `added` is true
@@ -108,7 +113,11 @@ export function recordProblem(
 }
 
 /** The "Page problems" section of a tool result, or '' when there are none. */
-export function formatProblemsSection(tabId: string, problems: readonly VisualizeProblem[], paneLabels: string[]): string {
+export function formatProblemsSection(
+  tabId: string,
+  problems: readonly VisualizeProblem[],
+  paneLabels: string[]
+): string {
   if (!problems.length) return '';
   const lines = problems.slice(0, MAX_LISTED_PROBLEMS).map((problem) => {
     const where = visualizeProblemLocation(problem);
@@ -118,10 +127,17 @@ export function formatProblemsSection(tabId: string, problems: readonly Visualiz
     return `- ${pane}${problem.kind}: ${problem.message}${where ? ` (${where})` : ''}${problem.count > 1 ? ` ×${problem.count}` : ''}`;
   });
   if (problems.length > lines.length) lines.push(`- …and ${problems.length - lines.length} more`);
-  const blocked = problems.some((problem) => problem.kind === 'blocked-network' || problem.kind === 'blocked-navigation')
+  const blocked = problems.some(
+    (problem) => problem.kind === 'blocked-network' || problem.kind === 'blocked-navigation'
+  )
     ? [
         'blocked-network: visualize pages cannot reach the outside network unless the user allows it; make the page self-contained (inline or bundle the file in the project) instead of loading it from a CDN or API.',
       ]
     : [];
-  return [`Page problems on tab ${tabId} (${problems.length}):`, ...lines, ...blocked, 'Fix these before reporting.'].join('\n');
+  return [
+    `Page problems on tab ${tabId} (${problems.length}):`,
+    ...lines,
+    ...blocked,
+    'Fix these before reporting.',
+  ].join('\n');
 }

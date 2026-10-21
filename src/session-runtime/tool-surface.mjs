@@ -15,6 +15,7 @@ import {
   filterModelToolsForProfile,
 } from '../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { workflowDisallowsAgentTool } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import { promptWorkflowOf } from '../runtime/agent/orchestrator/session/manager/workflow-switch-notice.mjs';
 import { configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
 
 export function createToolSurface({
@@ -35,12 +36,13 @@ export function createToolSurface({
 }) {
   let preSessionSurface = null;
 
-  // A live session keeps its frozen capability; a new session uses current
-  // agents. Solo still offers the tool (deferred) for explicit user requests.
+  // A live session keeps its frozen capability (the workflow its prompt was
+  // built with, even after a mid-conversation switch); a new session uses
+  // current agents. Solo still offers the tool (deferred) for explicit user requests.
   function workflowAllowsAgents() {
     const session = getSession();
     if (session?.id || session?.workflow || session?.orchestrationMode) {
-      return !workflowDisallowsAgentTool(session?.workflow);
+      return !workflowDisallowsAgentTool(promptWorkflowOf(session));
     }
     return (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0;
   }

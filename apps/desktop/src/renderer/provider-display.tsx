@@ -23,6 +23,8 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   'antigravity-oauth': 'Antigravity OAuth',
   'cursor-oauth': 'Cursor OAuth',
   'mixdog-local': 'Local Provider',
+  // Media Studio's NanoGPT lane (the key comes from a NanoGPT custom provider).
+  'nano-gpt': 'NanoGPT',
   openai: 'OpenAI API',
   'openai-api': 'OpenAI API',
   'openai-oauth': 'OpenAI OAuth',

@@ -38,12 +38,16 @@ export const CODE_GRAPH_DISK_MEMORY_MAX_BYTES = Math.max(
 // Younger .tmp files may belong to an in-flight persist still holding the sibling .lock;
 // DEFAULT_LOCK_TIMEOUT_MS is 8s — 120s is a safe margin for large graph JSON writes.
 export const ORPHAN_TMP_MIN_AGE_MS = 120_000;
-export const RE_CACHE_TMP = /^\.[0-9a-f]{16}\.json\.[0-9a-f]{24}\.tmp$/i;
-export const RE_MANIFEST_TMP = /^\.manifest\.json\.[0-9a-f]{24}\.tmp$/i;
+// Atomic writer temp name: `<basename>.mixdog-tmp-<16hex>`; the dot-prefixed
+// `.<basename>.<24hex>.tmp` is what older builds left behind.
+export const RE_CACHE_TMP =
+  /^(?:\.[0-9a-f]{16}\.json\.[0-9a-f]{24}\.tmp|[0-9a-f]{16}\.json\.mixdog-tmp-[0-9a-f]{16,24})$/i;
+export const RE_MANIFEST_TMP = /^(?:\.manifest\.json\.[0-9a-f]{24}\.tmp|manifest\.json\.mixdog-tmp-[0-9a-f]{16,24})$/i;
 export const RE_CACHE_LOCK = /^[0-9a-f]{16}\.json\.lock$/i;
 // Same debris, for the `<hash>.calls.json` call-site sidecar written beside
-// each entry (atomic writer temp name: `.<basename>.<24hex>.tmp`).
-export const RE_CALLS_CACHE_TMP = /^\.[0-9a-f]{16}\.calls\.json\.[0-9a-f]{24}\.tmp$/i;
+// each entry.
+export const RE_CALLS_CACHE_TMP =
+  /^(?:\.[0-9a-f]{16}\.calls\.json\.[0-9a-f]{24}\.tmp|[0-9a-f]{16}\.calls\.json\.mixdog-tmp-[0-9a-f]{16,24})$/i;
 export const RE_CALLS_CACHE_LOCK = /^[0-9a-f]{16}\.calls\.json\.lock$/i;
 export const CODE_GRAPH_MEMORY_MAX_ENTRIES = Math.max(
   1,

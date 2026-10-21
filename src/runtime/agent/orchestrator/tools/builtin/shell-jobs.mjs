@@ -339,41 +339,58 @@ export function peekShellJob(jobId) {
   return attachJobInsights(normalizeShellJobDetail(getNativeTask(jobId)));
 }
 
-/** True while the job's process is still alive in this daemon. Owners of
- *  in-use artifacts consult it before a fallback cleanup fires. */
-export function isShellJobRunning(jobId) {
-  return getNativeTask(String(jobId || ''))?.status === 'running';
+/** Run `onTreeSettled` once a job whose native task is terminal is over as a
+ *  whole: at once for an untracked job, else once every process of its tree is
+ *  confirmed gone (or the user released it) — a root's exit is not the end of
+ *  what it started. */
+function afterTreeSettled(jobId, onTreeSettled) {
+  const entry = backgroundTrackers.get(jobId);
+  if (entry) void entry.terminated.then(onTreeSettled);
+  else onTreeSettled();
 }
 
-/** Run `onSettled` once the job leaves 'running' (immediately when it already
- *  has). Owners of per-command artifacts (hoisted script files, tee captures,
- *  cache invalidation) use this instead of a fixed timer, which either fired
- *  under a still-running command or never at all. Returns an unsubscribe, or
- *  null when the job is unknown here — the caller then keeps its own fallback. */
+/** True while a process of the job is still alive in this daemon. Owners of
+ *  in-use artifacts consult it before a fallback cleanup fires. */
+export function isShellJobRunning(jobId) {
+  const key = String(jobId || '');
+  return getNativeTask(key)?.status === 'running' || backgroundTrackers.has(key);
+}
+
+/** Run `onSettled` once the job leaves 'running' and its tree has settled
+ *  (immediately when both already have). Owners of per-command artifacts
+ *  (hoisted script files, tee captures, cache invalidation) use this instead of
+ *  a fixed timer, which either fired under a still-running command or never at
+ *  all. Returns an unsubscribe, or null when the job is unknown here — the
+ *  caller then keeps its own fallback. */
 export function subscribeShellJobSettled(jobId, onSettled) {
   const key = String(jobId || '').trim();
   if (!key || typeof onSettled !== 'function') return null;
   const current = getNativeTask(key);
   if (!current) return null;
-  if (current.status !== 'running') {
-    queueMicrotask(() => {
+  let done = false;
+  const deliver = (task) =>
+    afterTreeSettled(key, () => {
+      if (done) return;
+      done = true;
       try {
-        onSettled(current);
+        onSettled(task);
       } catch {}
     });
-    return () => {};
+  if (current.status !== 'running') {
+    queueMicrotask(() => deliver(current));
+    return () => {
+      done = true;
+    };
   }
-  let done = false;
+  let seen = false;
   let unsubscribe = () => {};
   const fire = (task) => {
-    if (done || !task || task.status === 'running') return;
-    done = true;
+    if (seen || done || !task || task.status === 'running') return;
+    seen = true;
     try {
       unsubscribe();
     } catch {}
-    try {
-      onSettled(task);
-    } catch {}
+    deliver(task);
   };
   unsubscribe = subscribeNativeTask(key, fire);
   return () => {

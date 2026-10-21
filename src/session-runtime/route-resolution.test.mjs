@@ -30,6 +30,24 @@ test('an empty route with no provider models keeps the sign-in message', async (
   await assert.rejects(() => api.resolveMissingRouteModelForFirstTurn(), /No provider models available/);
 });
 
+test('a model chosen while the catalog is read is taken, not refused', async () => {
+  // A new task's reservation prewarm starts on the still-empty route; the
+  // draft's model (setRoute) lands while the provider catalog is awaited, and
+  // the first prompt joins this prewarm.
+  const rt = { route: { provider: '', model: '' }, config: {} };
+  const picked = { provider: 'custom-x', model: 'fake-1' };
+  const api = createRouteResolution({
+    rt,
+    collectProviderModels: async () => {
+      rt.route = picked;
+      return [{ provider: 'custom-x', id: 'fake-1' }];
+    },
+    ensureProvidersReady: async () => {},
+    lookupModelMeta: async () => null,
+  });
+  assert.equal(await api.resolveMissingRouteModelForFirstTurn(), picked);
+});
+
 test('a route with a model is returned as is without reading the catalog', async () => {
   const route = { provider: 'openai', model: 'gpt-6' };
   const { api, collected } = make([], route);

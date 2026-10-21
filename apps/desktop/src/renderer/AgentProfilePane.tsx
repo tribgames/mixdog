@@ -40,6 +40,7 @@ import {
 import { useDeletedBotSession } from './agent-chat-mode';
 import { AgentInstructionEditors } from './agent-instruction-editors';
 import { ConnectorSwitchList } from './connector-switches';
+import { AlwaysAllowedList } from './agent-always-allowed';
 import { type AgentActionsApi, deleteAgent, resetConversation, setAgentOn } from './agent-profile-actions';
 import { subscribeAgentRouteChange } from './agent-chat-route';
 import { usePublishDockPanelActions } from './dock-panel-actions';
@@ -49,8 +50,8 @@ import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { InitialSurface } from './InitialSurface';
-import { ModelRouteEditor } from './ModelRouteEditor';
-import { filterConfiguredModels } from './model-catalog';
+import { RouteChainEditor, routeChainComplete } from './RouteChainEditor';
+import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import { normalizeModelOptions } from './provider-display';
 import { record } from './record-utils';
 import { defaultSessionLaneStore } from './session-lane-store';
@@ -86,13 +87,15 @@ export function isAgentDefinitionConflict(reason: unknown): boolean {
   return code === 'AGENT_DEFINITION_CONFLICT' || /AGENT_DEFINITION_CONFLICT/.test(errorMessageText(reason));
 }
 
-/** The editor-relevant fields of a stored route (never its fallbacks). */
-function routeSelection(value: unknown): DesktopModelSelection {
+/** The editor-relevant fields of a stored route, with its fallback models. */
+function routeSelection(value: unknown, leaf = false): DesktopModelSelection {
   const route = record(Array.isArray(value) ? value[0] : value);
   const provider = String(route.provider || '');
   const model = String(route.model || '');
   if (!provider || !model) return EMPTY_ROUTE;
+  const fallbacks = !leaf && Array.isArray(route.fallbacks) ? route.fallbacks : [];
   return {
+    ...(fallbacks.length ? { fallbacks: fallbacks.map((entry) => routeSelection(entry, true)) } : {}),
     provider,
     model,
     ...(typeof route.effort === 'string' && route.effort ? { effort: route.effort } : {}),
@@ -135,8 +138,12 @@ async function loadProfile(api: AgentProfileApi | undefined, agentId: string, se
       name: String(lead.name || '') || MIXY_DEFAULT_NAME,
       description: t('Primary assistant'),
       avatar: agentAvatar(MIXY_AGENT_ID, lead.avatar ?? null),
-      // What the Lead actually runs on: its thread's own route.
-      route: draftModelSelectionFromSnapshot(defaultSessionLaneStore.get(sessionId) ?? EMPTY_SNAPSHOT) ?? EMPTY_ROUTE,
+      // What the Lead actually runs on: its thread's own route, with the
+      // fallback models of Mixy's own route (bots/mixy).
+      route: {
+        ...(draftModelSelectionFromSnapshot(defaultSessionLaneStore.get(sessionId) ?? EMPTY_SNAPSHOT) ?? EMPTY_ROUTE),
+        ...(routeSelection(lead.route).fallbacks ? { fallbacks: routeSelection(lead.route).fallbacks } : {}),
+      },
       persona: String(persona?.value || ''),
       // agents/lead/AGENT.md: Mixy's 일하는 방식; empty means none.
       body: String(body?.value || ''),
@@ -162,6 +169,7 @@ export function AgentProfileForm({
   agentId,
   profile,
   models,
+  providerNames,
   busy,
   error,
   conflict = false,
@@ -172,6 +180,8 @@ export function AgentProfileForm({
   agentId: string;
   profile: AgentProfile;
   models: DesktopModelOption[];
+  /** Custom provider names from the provider setup, as the composer picker shows them. */
+  providerNames?: Record<string, string>;
   busy: boolean;
   error: string;
   /** The last save was refused: the stored agent changed elsewhere. */
@@ -213,7 +223,7 @@ export function AgentProfileForm({
     ...(name.trim() !== profile.name ? { name: name.trim() } : {}),
     ...(!mixy && description.trim() !== profile.description ? { description: description.trim() } : {}),
     ...(avatarChanged ? { avatar: avatarChange } : {}),
-    ...(!sameRoute(route, profile.route) && route.provider && route.model ? { route } : {}),
+    ...(!sameRoute(route, profile.route) && routeChainComplete(route as unknown as RecordValue) ? { route } : {}),
     ...(persona.trim() !== profile.persona.trim() ? { persona: persona.trim() } : {}),
     ...(body.trim() !== profile.body.trim() ? { body: body.trim() } : {}),
   };
@@ -298,14 +308,15 @@ export function AgentProfileForm({
           />
         </label>
         <div className="agent-create-field">
-          <span>{t('Model')}</span>
-          <ModelRouteEditor
-            ariaLabel={t('Model')}
+          {/* The same model + fallback chain editor the agent and Lead dialogs use. */}
+          <RouteChainEditor
+            label={t('Model')}
             models={models}
-            value={route}
+            providerNames={providerNames}
+            route={route as unknown as RecordValue}
             disabled={busy}
             composerParity
-            onChange={setRoute}
+            onChange={(next) => setRoute(next as unknown as DesktopModelSelection)}
           />
         </div>
         {!mixy && (
@@ -386,6 +397,7 @@ export function AgentProfilePane({
     [values.quickProviderModels, values.providerSetup]
   );
   const models = givenModels ?? cachedModels;
+  const providerNames = useMemo(() => customProviderDisplayNames(values.providerSetup), [values.providerSetup]);
   // `profile` with the count of loads that produced it: the form restarts
   // from each newly loaded profile, never from a stale one mid-reload.
   const [loaded, setLoaded] = useState<{ profile: AgentProfile; count: number } | null>(() => {
@@ -574,6 +586,7 @@ export function AgentProfilePane({
         agentId={agentId}
         profile={profile}
         models={models}
+        providerNames={providerNames}
         busy={busy}
         error={error}
         conflict={conflict}
@@ -584,6 +597,7 @@ export function AgentProfilePane({
         <h3>{t('Connectors')}</h3>
         <ConnectorSwitchList api={api} kind="agent" target={agentId} active={active} />
       </section>
+      <AlwaysAllowedList api={api} agentId={agentId} active={active} />
     </div>
   );
 }

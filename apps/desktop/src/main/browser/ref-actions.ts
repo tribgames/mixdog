@@ -30,6 +30,12 @@ export interface BrowserRefActionsHost {
   /** The same expression in every attached frame. A drop zone can live in
    *  one, and its drop never reaches the top document's listeners. */
   evaluateInFrames<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T[]>;
+  /** The same, with the frame id and execution context each value came from. */
+  evaluateInFramesByFrame<T>(
+    guest: WebContents,
+    expression: string,
+    signal?: AbortSignal
+  ): Promise<Array<[frameId: string, value: T, executionContextId: number]>>;
   cdp: BrowserCdpPort;
   /** The accessibility snapshot's ref table, when this page still has one. */
   accessibilityRefs(guest: WebContents):
@@ -37,6 +43,15 @@ export interface BrowserRefActionsHost {
         refs: Map<string, { backendNodeId: number; sessionId?: string }>;
       }
     | undefined;
+  /** The cross-origin frame sessions the page has attached, and where a
+   *  session's frame sits on the top document; a browser-side hit test
+   *  descends through them. Without them it stops at the top document. */
+  frames?(guest: WebContents): Map<string, { frameId?: string }>;
+  frameOffsetForSession?(
+    guest: WebContents,
+    sessionId: string,
+    signal?: AbortSignal
+  ): Promise<{ x: number; y: number }>;
   /** Where the ref sits right now, refused when something covers it. */
   resolveRefPoint(guest: WebContents, ref: string, signal?: AbortSignal): Promise<{ x: number; y: number }>;
   input: Pick<ReturnType<typeof createBrowserInputDriver>, 'pressKey' | 'clickAt' | 'typeText' | 'dropFilesAt'>;
@@ -67,5 +82,6 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     checkedRefState: controls.checkedRefState,
     setCheckedRef: controls.setCheckedRef,
     uploadRef: upload.uploadRef,
+    uploadReceiver: upload.receiver,
   };
 }

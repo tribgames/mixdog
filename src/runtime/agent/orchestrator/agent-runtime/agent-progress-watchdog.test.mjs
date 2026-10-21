@@ -78,6 +78,34 @@ test('a long tool call is not a stall while its heartbeat keeps progress fresh',
   assert.match(evaluateAgentWatchdogAbort(silent, now, policy).message, /^agent task stale \(/);
 });
 
+test("a turn waiting on the user's approval is waiting on them, not stalled, however long it takes", () => {
+  const policy = resolveAgentWatchdogPolicy('worker');
+  const now = 10_000_000;
+  const hours = 3 * 60 * 60_000;
+  const waiting = {
+    stage: 'tool_running',
+    currentTool: 'mcp__gmail__send_email',
+    awaitingUser: 'approval',
+    modelRequestStartedAt: now - hours,
+    toolStartedAt: now - hours,
+    lastProgressAt: now - hours,
+    firstSemanticAt: now - hours,
+  };
+  assert.equal(evaluateAgentWatchdogAbort(waiting, now, policy), null, 'no idle stall');
+  // Even a snapshot still counting a model response (a call dispatched while the
+  // stream was open) is not aborted by the first-response deadlines.
+  const streaming = {
+    ...waiting,
+    stage: 'streaming',
+    waitingForTransport: true,
+    waitingForFirstSemantic: true,
+  };
+  assert.equal(evaluateAgentWatchdogAbort(streaming, now, policy), null, 'no first-response stall');
+  // The same silence without a pending approval is still a stall.
+  const { awaitingUser: _awaiting, ...silent } = waiting;
+  assert.match(evaluateAgentWatchdogAbort(silent, now, policy).message, /^agent task stale \(/);
+});
+
 test('a stall error that carries its own partial handoff is reported as a stop with that text', () => {
   const error = new AgentStallAbortError('agent task stale (100ms without stream/tool progress)');
   error.partialHandoff = 'carried';

@@ -6,8 +6,7 @@ import {
 } from './transcript-history';
 import { transcriptScrollExtent, transcriptScrollGeometryRegistered } from './use-transcript-follow';
 
-/** Distance from the top within which an unfilled transcript asks for older
- *  history (see useTranscriptHistoryFill), and the floor of the scroll lead. */
+/** The floor of the scroll lead (an unmeasured or tiny pane). */
 export const TRANSCRIPT_HISTORY_TOP_PX = 320;
 
 /** Viewport heights above the reader at which a scroll asks for older history.
@@ -20,6 +19,10 @@ export const TRANSCRIPT_HISTORY_TOP_PX = 320;
  *  but the (bounded) pages themselves. */
 export const TRANSCRIPT_HISTORY_LEAD_VIEWPORTS = 10;
 
+/** Pages one entry may ask for to extend a scrollable first window toward the
+ *  lead (see useTranscriptHistoryFill). */
+export const TRANSCRIPT_HISTORY_FILL_LEAD_PAGES = 4;
+
 /** Scroll offset at or below which older history is requested. */
 export function transcriptHistoryLead(viewportHeight: number): number {
   return Math.max(TRANSCRIPT_HISTORY_TOP_PX, viewportHeight * TRANSCRIPT_HISTORY_LEAD_VIEWPORTS);
@@ -27,11 +30,16 @@ export function transcriptHistoryLead(viewportHeight: number): number {
 
 /** A first window may hold only a few rows (the daemon's byte budget cuts a
  *  window of huge rows to 8), and collapsed rows may not fill the pane: with
- *  nothing to scroll, no scroll ever reaches the top. While the whole
- *  transcript sits within the top threshold, ask for older history — again
- *  after each page lands or the rows' measured height changes. The request
- *  itself dedupes, waits for the previous page, and stops when the host says
- *  nothing older exists. */
+ *  nothing to scroll, no scroll ever reaches the top. A window shorter than
+ *  the scroll lead puts the reader inside it from the first fling, so a page
+ *  lands under nearly every early fling, and a fling can cross the whole
+ *  window before the page's round trip. While the whole transcript sits
+ *  within the lead, ask for older history — again after each page lands or
+ *  the rows' measured height changes. A pane that already scrolls extends
+ *  toward the lead by at most TRANSCRIPT_HISTORY_FILL_LEAD_PAGES pages per
+ *  entry (pages of tiny rows would otherwise page in the whole history);
+ *  past that the scroll lead asks. The request itself dedupes, waits for the
+ *  previous page, and stops when the host says nothing older exists. */
 export function useTranscriptHistoryFill(
   viewport: RefObject<HTMLElement | null>,
   requestEarlier: () => void,
@@ -40,6 +48,8 @@ export function useTranscriptHistoryFill(
 ): void {
   const requestRef = useRef(requestEarlier);
   requestRef.current = requestEarlier;
+  const countRef = useRef(itemCount);
+  countRef.current = itemCount;
   const checkRef = useRef<(() => void) | null>(null);
   // A landed page re-checks through the long-lived observer below. Recreating
   // that observer per item count re-delivered (and re-measured) the whole
@@ -53,11 +63,13 @@ export function useTranscriptHistoryFill(
     if (!ready || !root) return undefined;
     let overflowing = false;
     let space: Element | null = null;
+    // Item counts a lead page was asked at, this entry.
+    const leadPages = new Set<number>();
     // The virtual list writes its total height to this spacer directly.
     const observer =
       typeof ResizeObserver === 'function'
         ? new ResizeObserver((entries) => {
-            // Once the rows overflow, scrolling takes over: only a viewport
+            // Once the rows overflow the lead, scrolling takes over: only a viewport
             // resize can make the pane unfilled again.
             if (overflowing && !entries.some((entry) => entry.target === root)) return;
             check();
@@ -73,8 +85,15 @@ export function useTranscriptHistoryFill(
         space = next;
         if (space) observer.observe(space);
       }
-      overflowing = transcriptScrollExtent(root).maxScrollTop > TRANSCRIPT_HISTORY_TOP_PX;
-      if (!overflowing) requestRef.current();
+      const extent = transcriptScrollExtent(root);
+      overflowing = extent.maxScrollTop > transcriptHistoryLead(extent.viewportHeight);
+      if (overflowing) return;
+      if (extent.maxScrollTop > TRANSCRIPT_HISTORY_TOP_PX) {
+        const count = countRef.current;
+        if (!leadPages.has(count) && leadPages.size >= TRANSCRIPT_HISTORY_FILL_LEAD_PAGES) return;
+        leadPages.add(count);
+      }
+      requestRef.current();
     };
     observer?.observe(root);
     checkRef.current = check;

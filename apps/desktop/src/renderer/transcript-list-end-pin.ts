@@ -2,6 +2,8 @@ import { type MutableRefObject, type RefObject, useCallback, useLayoutEffect, us
 import { createTranscriptEndPin } from './transcript-end-pin';
 import { type TranscriptVirtualizer, viewportSize } from './transcript-list-geometry';
 import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
+import type { TranscriptRowModel } from './transcript-rows';
+import { createWholeReplyAnchor } from './transcript-whole-reply-anchor';
 
 /** The list's committed scroll extent and the end pin that keeps a following
  *  timeline at it. */
@@ -14,7 +16,13 @@ export function useTranscriptEndPin({
   domTop,
   markProgrammaticScrollRef,
   deviation,
+  rowsRef,
+  pauseFollowRef,
 }: {
+  rowsRef: MutableRefObject<readonly TranscriptRowModel[]>;
+  /** Lets go of follow (the follow hook's pause): a long reply that arrived
+   *  whole is read from its first line. */
+  pauseFollowRef: MutableRefObject<(() => void) | undefined>;
   viewport: RefObject<HTMLDivElement | null>;
   spacer: RefObject<HTMLDivElement | null>;
   scrollInset: MutableRefObject<number>;
@@ -37,6 +45,15 @@ export function useTranscriptEndPin({
     () => Math.max(0, contentHeight() - viewportSize(virtualizerRef.current)),
     [contentHeight, virtualizerRef]
   );
+  const wholeReply = useMemo(
+    () =>
+      createWholeReplyAnchor({
+        getRows: () => rowsRef.current,
+        getVirtualizer: () => virtualizerRef.current,
+        getScrollInset: () => scrollInset.current,
+      }),
+    [rowsRef, virtualizerRef, scrollInset]
+  );
   const endPin = useMemo(
     () =>
       createTranscriptEndPin({
@@ -50,9 +67,22 @@ export function useTranscriptEndPin({
           markProgrammaticScrollRef.current?.(top, intended);
         },
         dropDeviation: () => deviation.drop(),
+        takeArrival: (max) => wholeReply.take(max),
+        onArrival: () => pauseFollowRef.current?.(),
       }),
-    [maxScrollTop, viewport, virtualizerRef, spacer, hasScrollGestureRef, domTop, markProgrammaticScrollRef, deviation]
+    [
+      maxScrollTop,
+      viewport,
+      virtualizerRef,
+      spacer,
+      hasScrollGestureRef,
+      domTop,
+      markProgrammaticScrollRef,
+      deviation,
+      wholeReply,
+      pauseFollowRef,
+    ]
   );
   useLayoutEffect(() => () => endPin.cancel(), [endPin]);
-  return { contentHeight, maxScrollTop, endPin };
+  return { contentHeight, maxScrollTop, endPin, wholeReply };
 }

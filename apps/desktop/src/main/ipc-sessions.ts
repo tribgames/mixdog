@@ -28,6 +28,7 @@ import type { RemoteHostWindows } from './remote-host-windows';
 import { requiredAgentMemoryEntry } from './agent-memory';
 import { secretInputs } from './secret-input';
 import { takeoverGate } from './takeover-gate';
+import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
 
 interface SessionIpcOptions {
   handle: Handle;
@@ -126,7 +127,7 @@ export function registerSessionIpc({
     browserHost?.releaseSession(ownerSessionId);
     return snapshot;
   });
-  registerSessionRoutingIpc({ handle, host });
+  registerSessionRoutingIpc({ handle, host, invokeDesktopOperation });
 }
 
 function registerRemoteAccessIpc({
@@ -199,7 +200,11 @@ function registerRemoteAccessIpc({
   });
 }
 
-function registerSessionRoutingIpc({ handle, host }: Pick<SessionIpcOptions, 'handle' | 'host'>): void {
+function registerSessionRoutingIpc({
+  handle,
+  host,
+  invokeDesktopOperation,
+}: Pick<SessionIpcOptions, 'handle' | 'host' | 'invokeDesktopOperation'>): void {
   handle(DESKTOP_IPC.submitNewTask, (_event, prompt, options, draft) =>
     host.submitNewTask(requiredPromptContent(prompt), requiredSubmitOptions(options), requiredNewTaskDraft(draft))
   );
@@ -226,13 +231,17 @@ function registerSessionRoutingIpc({ handle, host }: Pick<SessionIpcOptions, 'ha
     if (typeof muted !== 'boolean') throw new TypeError('muted must be a boolean.');
     return host.setAgentNotificationMute(requiredString(agentId, 'agent id', 200), muted);
   });
-  handle(DESKTOP_IPC.resolveToolApprovalForSession, (_event, sessionId, id, input) =>
-    host.resolveToolApprovalForSession(
+  handle(DESKTOP_IPC.resolveToolApprovalForSession, async (_event, sessionId, id, input) => {
+    const decision = requiredToolApprovalDecision(input);
+    return resolveToolApprovalAnnouncingGrant(
+      host,
+      invokeDesktopOperation,
       requiredSessionId(sessionId),
       requiredString(id, 'approval id', 1_024),
-      requiredToolApprovalDecision(input)
-    )
-  );
+      // This PC answered: every other device names it ("Allowed from <PC>").
+      { ...decision, device: hostDeviceName() }
+    );
+  });
   handle(DESKTOP_IPC.inheritSession, (_event, sourceSessionId, selection, options) =>
     host.inheritSession(
       requiredSessionId(sourceSessionId),

@@ -55,6 +55,140 @@ try {
   /* default dark */
 }
 
+// First-paint skin and user theme. The bundle paints both only after it has
+// run, so the first frame was the default theme (and a skin's picture arrived
+// before its plates). skin-boot-snapshot.ts records what the bundle set on
+// <html> (attributes, --mx-skin-* values, the user theme's style sheet text);
+// replaying it here, before anything paints, makes the bundle's later paint a
+// no-op. mixdogBootSig (this build's chunk list) and mixdogThemeInputs (what the
+// appearance above is resolved from) tell a record made for another build or
+// another appearance apart: such a record is ignored, never half-applied.
+var mixdogBootSig = '';
+try {
+  var mixdogSigHost = document.getElementById('mixdog-first-screen');
+  var mixdogSigLinks =
+    mixdogSigHost && mixdogSigHost.content ? mixdogSigHost.content.querySelectorAll('link[rel="modulepreload"]') : [];
+  var mixdogSigHash = 0;
+  for (var mixdogSigIndex = 0; mixdogSigIndex < mixdogSigLinks.length; mixdogSigIndex += 1) {
+    var mixdogSigHref = mixdogSigLinks[mixdogSigIndex].getAttribute('href') || '';
+    for (var mixdogSigChar = 0; mixdogSigChar < mixdogSigHref.length; mixdogSigChar += 1) {
+      mixdogSigHash = (mixdogSigHash * 31 + mixdogSigHref.charCodeAt(mixdogSigChar)) | 0;
+    }
+  }
+  if (mixdogSigLinks.length) mixdogBootSig = String(mixdogSigHash);
+} catch (error) {
+  /* an unreadable hint list is a build nothing is recorded for */
+}
+window.mixdogBootSig = mixdogBootSig;
+window.mixdogThemeInputs = function () {
+  var preference = '';
+  var userTheme = '';
+  var systemLight = false;
+  try {
+    preference = localStorage.getItem('mixdog.desktop-theme-preference') || '';
+    userTheme = localStorage.getItem('mixdog.desktop.user-theme.v1') || '';
+    systemLight = Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  } catch (error) {
+    /* unreadable storage resolves like a fresh profile */
+  }
+  return preference + '|' + (systemLight ? '1' : '0') + '|' + userTheme;
+};
+var mixdogSkinned = false;
+var mixdogUserThemed = false;
+try {
+  var mixdogBootRaw = localStorage.getItem('mixdog.desktop.skin-boot.v1');
+  var mixdogBoot = mixdogBootRaw ? JSON.parse(mixdogBootRaw) : null;
+  var mixdogBootSkin = mixdogBoot && mixdogBoot.skin;
+  var mixdogBootTheme = mixdogBoot && mixdogBoot.userTheme;
+  var mixdogBootPicture = '';
+  var mixdogBootValid =
+    Boolean(mixdogBoot) &&
+    mixdogBoot.v === 1 &&
+    mixdogBoot.sig === mixdogBootSig &&
+    mixdogBoot.inputs === window.mixdogThemeInputs() &&
+    Boolean(mixdogBootSkin || mixdogBootTheme);
+  if (mixdogBootValid && mixdogBootSkin) {
+    var mixdogBootAttributes = mixdogBootSkin.attributes;
+    var mixdogBootVars = mixdogBootSkin.vars;
+    var mixdogBootImage = mixdogBootSkin.image;
+    mixdogBootValid =
+      Boolean(mixdogBootAttributes) &&
+      typeof mixdogBootAttributes['data-mixdog-skin'] === 'string' &&
+      Boolean(mixdogBootVars) &&
+      Object.keys(mixdogBootAttributes).every(function (name) {
+        return /^data-mixdog-skin(-plate|-photo)?$/.test(name) && typeof mixdogBootAttributes[name] === 'string';
+      }) &&
+      Object.keys(mixdogBootVars).every(function (name) {
+        return /^--mx-skin-[a-z0-9-]+$/.test(name) && typeof mixdogBootVars[name] === 'string';
+      });
+    if (mixdogBootValid && mixdogBootImage) {
+      if (typeof mixdogBootImage.url === 'string') {
+        mixdogBootValid = /^url\("[^"\\]*"\)$/.test(mixdogBootImage.url);
+        mixdogBootPicture = mixdogBootImage.url;
+      } else {
+        // A custom picture stays under its own key (a data URL too large to copy).
+        var mixdogBootCustom =
+          mixdogBootImage.custom === 'mixdog.desktop.skin-custom-image.v1'
+            ? localStorage.getItem(mixdogBootImage.custom)
+            : null;
+        mixdogBootValid = Boolean(mixdogBootCustom);
+        mixdogBootPicture = 'url("' + mixdogBootCustom + '")';
+      }
+    }
+  }
+  if (mixdogBootValid && mixdogBootTheme) {
+    mixdogBootValid =
+      typeof mixdogBootTheme.id === 'string' && typeof mixdogBootTheme.css === 'string' && mixdogBootTheme.id !== '';
+  }
+  if (mixdogBootValid) {
+    var mixdogBootRoot = document.documentElement;
+    // The appearance the recorded values were computed for (a single-appearance
+    // user theme can differ from the stored preference).
+    if (mixdogBoot.themeId === 'basic' || mixdogBoot.themeId === 'light') {
+      mixdogLight = mixdogBoot.themeId === 'light';
+      mixdogBootRoot.dataset.mixdogTheme = mixdogBoot.themeId;
+      mixdogBootRoot.style.colorScheme = mixdogLight ? 'light' : 'dark';
+    }
+    if (mixdogBootSkin) {
+      for (var mixdogBootName in mixdogBootAttributes) {
+        mixdogBootRoot.setAttribute(mixdogBootName, mixdogBootAttributes[mixdogBootName]);
+      }
+      for (var mixdogBootVar in mixdogBootVars) {
+        mixdogBootRoot.style.setProperty(mixdogBootVar, mixdogBootVars[mixdogBootVar]);
+      }
+      if (mixdogBootPicture) {
+        mixdogBootRoot.style.setProperty('--mx-skin-image', mixdogBootPicture);
+        // Fetch and decode the picture now, not when the bundle's CSS first asks for it.
+        var mixdogPictureImage = new Image();
+        mixdogPictureImage.src = mixdogBootPicture.slice(5, -2);
+        if (mixdogPictureImage.decode) mixdogPictureImage.decode().catch(function () {});
+        window.mixdogBootPictureImage = mixdogPictureImage;
+      }
+      // The picture needs its plates in the SAME frame: until the app mounts
+      // (#root is empty) the frame and veil plates are drawn over it here. The
+      // boot cover (19-studio.css) wears the identical wash once it exists.
+      var mixdogWashSheet = document.createElement('style');
+      mixdogWashSheet.id = 'mixdog-boot-skin';
+      mixdogWashSheet.textContent =
+        'html[data-mixdog-skin] body::after{content:"";position:fixed;z-index:-1;inset:0;pointer-events:none;opacity:0;' +
+        'background:linear-gradient(var(--mx-skin-veil),var(--mx-skin-veil)),var(--mx-skin-frame)}' +
+        'html[data-mixdog-skin] body:has(> #root:empty)::after{opacity:1}';
+      document.head.appendChild(mixdogWashSheet);
+      mixdogSkinned = true;
+    }
+    if (mixdogBootTheme) {
+      mixdogBootRoot.dataset.mixdogUserTheme = mixdogBootTheme.id;
+      var mixdogThemeSheet = document.createElement('style');
+      mixdogThemeSheet.id = 'mixdog-user-theme';
+      mixdogThemeSheet.textContent = mixdogBootTheme.css;
+      document.head.appendChild(mixdogThemeSheet);
+      mixdogUserThemed = true;
+    }
+  }
+} catch (error) {
+  /* a corrupt record paints nothing here; the bundle paints the skin later */
+}
+
 // Desktop-only hints (the Seti file-icon font) are kept out of the parsed head
 // so a phone never fetches them ahead of its relay transport; Electron
 // promotes them here, at the point in the parse where the markup used to.
@@ -123,10 +257,24 @@ if (mixdogInstalledApp) {
   mixdogGate.id = 'mixdog-boot-gate';
   // --mx-window-band of each theme (desktop/01-tokens.css) — the gate paints
   // the color the settled app keeps, so releasing it never changes the backdrop.
+  // A recorded skin or user theme already painted above: the gate then holds
+  // the window in THEIR colours (the skin's picture under its frame and veil
+  // plates, never bare; the user theme's band), not the built-in ones.
+  var mixdogGateBand = mixdogLight ? '#f7f7f7' : '#181818';
   mixdogGate.textContent =
     'html[data-mixdog-booting]{background:' +
-    (mixdogLight ? '#f7f7f7' : '#181818') +
+    (mixdogSkinned
+      ? 'var(--mx-skin-tint,' + mixdogGateBand + ')'
+      : mixdogUserThemed
+        ? 'var(--mx-window-band,' + mixdogGateBand + ')'
+        : mixdogGateBand) +
     '}' +
+    (mixdogSkinned
+      ? // The boot wash (above) stays through the gate and fades out with the
+        // reveal, in step with #root fading in.
+        'html[data-mixdog-skin] body::after{transition:opacity 160ms ease-out}' +
+        'html[data-mixdog-booting][data-mixdog-skin] body::after{opacity:1}'
+      : '') +
     'html[data-mixdog-booting] #root{opacity:0}' +
     '#root{transition:opacity 160ms ease-out}';
   document.documentElement.dataset.mixdogBooting = '';

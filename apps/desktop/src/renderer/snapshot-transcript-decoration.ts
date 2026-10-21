@@ -54,7 +54,7 @@ export function createTranscriptSnapshotDecorator({ register = true } = {}): Tra
       const raw = next && typeof next === 'object' ? (next as Snapshot) : EMPTY_SNAPSHOT;
       if (raw === EMPTY_SNAPSHOT) return raw;
       // The live row paints the unfinished streamed line too, so every reader
-      // downstream (rows, pacer, metrics) sees one growing text.
+      // downstream (rows, reveal, metrics) sees one growing text.
       const state = identity.reconcile(withStreamingPartial(raw));
       const sessionId = String(state.sessionId || '');
       const scope = `${String(state.currentProject || state.project || state.cwd || '')}\n${sessionId}`;

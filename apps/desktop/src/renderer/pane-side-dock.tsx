@@ -27,13 +27,21 @@ import { useVisualizeAvailable } from './visualize-store';
 import { usePhoneSheetBodyReady } from './phone-deferred-mount';
 import { publishPhoneDockSwitch, type PhoneDockSwitchItem } from './phone-dock-switch';
 import {
+  clampPaneDockHeight,
   commitWidthPref,
+  PANE_SIDE_DOCK_DEFAULT_HEIGHT,
+  PANE_SIDE_DOCK_HEIGHT_KEY,
+  PANE_SIDE_DOCK_MIN_HEIGHT,
+  paneDockResizeAxis,
   useDiffColumnResize,
   useDockCellWidth,
   useDockCloseRequest,
   useDockExpansion,
+  useDockHeightDrag,
   useDockMounting,
+  useDockRoomHeight,
   usePanelWidthDrag,
+  useSidePanelPlacement,
   useSideFileProblems,
 } from './pane-side-dock-hooks';
 import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
@@ -1396,6 +1404,7 @@ function renderPaneDockMain(
     asideWidth,
     panelWidthDrag,
     widthRange,
+    widthResizable,
   }: {
     openNow: boolean;
     dockBodyMounted: boolean;
@@ -1406,6 +1415,7 @@ function renderPaneDockMain(
     asideWidth: number;
     panelWidthDrag: ReturnType<typeof usePanelWidthDrag>;
     widthRange: ReturnType<typeof dockWidthRange>;
+    widthResizable: boolean;
   }
 ) {
   const { entry, groups, descriptors, onSelect, onMoveGroup, onMoveView, renderView } = props;
@@ -1428,6 +1438,7 @@ function renderPaneDockMain(
         widthOverride={asideWidth}
         onWidthDrag={panelWidthDrag}
         widthRange={widthRange}
+        resizable={widthResizable}
         renderView={(id, active, titleDragProps) =>
           dockBodyMounted ? renderView(id, active && bodyShown, titleDragProps) : null
         }
@@ -1568,8 +1579,14 @@ export function PaneSideDock(props: PaneSideDockProps) {
   // (their activity, focus, fit) follows `bodyShown`.
   const showing = paneDockShowing(entry, openNow);
   const bodyShowing = paneDockShowing(entry, bodyShown);
-  const { browserShowing, terminalShowing, sessionSurfaceShowing, widthSurfaceShowing, diffShowing, sessionDiffPanelShowing } =
-    showing;
+  const {
+    browserShowing,
+    terminalShowing,
+    sessionSurfaceShowing,
+    widthSurfaceShowing,
+    diffShowing,
+    sessionDiffPanelShowing,
+  } = showing;
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
     useDockWidthPrefs();
@@ -1577,7 +1594,37 @@ export function PaneSideDock(props: PaneSideDockProps) {
   const diffView = useDiffViewState('pane-side-dock');
   const hostRef = useRef<HTMLDivElement | null>(null);
   const cellWidth = useDockCellWidth(hostRef, openNow);
-  const { expanded, expandedRect, restWidth, toggleExpanded } = useDockExpansion(
+  // Desktop placement (Settings → Side panel position); the phone sheet keeps
+  // its overlay grammar, so it always resolves to the right-hand layout.
+  const desktopPlacement = useSidePanelPlacement();
+  const placement = mobileSheet ? 'right' : desktopPlacement;
+  const bottom = paneDockResizeAxis(placement) === 'height';
+  const [heightPref, setHeightPref] = useState(() =>
+    readStoredWidth(PANE_SIDE_DOCK_HEIGHT_KEY, PANE_SIDE_DOCK_MIN_HEIGHT, 4_000, PANE_SIDE_DOCK_DEFAULT_HEIGHT)
+  );
+  // The chat floor is held against the room the strip, Problems panel and
+  // footer leave, re-measured as they open, close or resize.
+  const dockRoom = useDockRoomHeight(hostRef, openNow && bottom);
+  const dockHeight = clampPaneDockHeight(heightPref, dockRoom);
+  const heightDrag = useDockHeightDrag({
+    heightPref,
+    setHeightPref,
+    renderedHeight: dockHeight,
+    room: dockRoom,
+    storageKey: PANE_SIDE_DOCK_HEIGHT_KEY,
+  });
+  // The pane cell switches to its one-column grid (dock row under the chat)
+  // through this flag rather than a :has() over the whole cell.
+  const hostMounted = groups.length > 0;
+  useLayoutEffect(() => {
+    const cell = hostRef.current?.parentElement;
+    if (!cell || !bottom || !hostMounted) return undefined;
+    cell.dataset.dockPlacement = 'bottom';
+    return () => {
+      delete cell.dataset.dockPlacement;
+    };
+  }, [bottom, hostMounted]);
+  const { expanded, expandedRect, restWidth, restHeight, toggleExpanded } = useDockExpansion(
     hostRef,
     entry.surface,
     entry.view,
@@ -1635,8 +1682,18 @@ export function PaneSideDock(props: PaneSideDockProps) {
   if (groups.length === 0) return null;
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
   const session = dockSessionWidths(terminalShowing, terminalPref, browserPref);
-  const room = cellWidth > 0 ? cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame : Number.POSITIVE_INFINITY;
-  const { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth } = resolveDockLayout({
+  // Below the chat the unit owns the cell's whole width (its two borders
+  // aside): no conversation floor to leave beside it, so it never overlays.
+  let room = Number.POSITIVE_INFINITY;
+  if (cellWidth > 0) room = bottom ? cellWidth - 2 : cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame;
+  const {
+    diffDesired,
+    twoDepth,
+    pairShowing,
+    overlay: sideOverlay,
+    baseAsideWidth,
+    diffWidth,
+  } = resolveDockLayout({
     cellWidth,
     room,
     openNow,
@@ -1648,10 +1705,11 @@ export function PaneSideDock(props: PaneSideDockProps) {
     panelPref,
     diffPref,
   });
+  const overlay = sideOverlay && !bottom;
   const dockExpanded = expanded && openNow && !mobileSheet;
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
   const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
-  committedEdge.current = `${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}`;
+  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}`;
   const diffContext: DockDiffSurfaceContext = {
     diffShowing: bodyShowing.diffShowing,
     diffView,
@@ -1677,20 +1735,23 @@ export function PaneSideDock(props: PaneSideDockProps) {
     </PaneDockDiffColumn>
   );
   const { chromeRow, phoneSwitch } = renderPaneDockHeader(props, { openNow, mobileSheet, showing, diffView });
+  // The spacer holds the dock's row (below) or column (beside) while expanded.
+  const spacerStyle = bottom ? { height: restHeight.current } : { width: restWidth.current };
   return (
     <PaneDockExpandContext.Provider value={dockExpandValue}>
-      {dockExpanded && expandedRect && (
-        <div className="pane-side-dock-spacer" style={{ width: restWidth.current }} aria-hidden="true" />
-      )}
+      {dockExpanded && expandedRect && <div className="pane-side-dock-spacer" style={spacerStyle} aria-hidden="true" />}
       <div
         className="pane-side-dock"
         ref={hostRef}
         data-pane-id={leafId}
+        data-placement={placement}
         data-open={openNow ? 'true' : 'false'}
         data-overlay={overlay ? 'true' : 'false'}
         data-expanded={dockExpanded ? 'true' : 'false'}
         data-body-pending={openNow && !bodyShown ? 'true' : undefined}
-        style={expandedHostStyle(dockExpanded, expandedRect)}
+        style={
+          expandedHostStyle(dockExpanded, expandedRect) ?? (bottom && openNow ? { height: dockHeight } : undefined)
+        }
         onPointerDownCapture={
           focused
             ? undefined
@@ -1699,6 +1760,15 @@ export function PaneSideDock(props: PaneSideDockProps) {
               }
         }
       >
+        {bottom && openNow && !dockExpanded && (
+          // biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins.
+          <div
+            className="pane-side-dock-height-resize"
+            role="separator"
+            aria-orientation="horizontal"
+            {...heightDrag}
+          />
+        )}
         {chromeRow}
         {phoneSwitch}
         {panelMounted &&
@@ -1712,6 +1782,9 @@ export function PaneSideDock(props: PaneSideDockProps) {
             asideWidth,
             panelWidthDrag,
             widthRange: dockWidthRange(widthSurfaceShowing, session),
+            // Below the chat the panel fills the width; only the diff pair
+            // keeps its width edge (between the diff and the panel).
+            widthResizable: !bottom || pairShowing,
           })}
       </div>
     </PaneDockExpandContext.Provider>

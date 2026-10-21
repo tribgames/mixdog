@@ -2,8 +2,6 @@ import { logWebhook } from './log.mjs';
 import { recordEndpointEvent, updateDeliveryStatus } from '../webhooks-db.mjs';
 import { UNTRUSTED_MARKER, scrubFenceMarker } from './untrusted-fence.mjs';
 
-const DISPATCH_TIMEOUT_MS = 10 * 60 * 1000;
-
 /** The headers a run's prompt shows (and a stored event keeps). */
 function promptHeaders(headers) {
   return Object.fromEntries(Object.entries(headers || {}).filter(([k]) => k.startsWith('x-') || k === 'content-type'));
@@ -47,33 +45,16 @@ function webhookEventSummary(headers, body) {
   return [type, field(body?.action)].filter(Boolean).join(' · ').slice(0, 120);
 }
 
-function trackDispatch({ name, deliveryId, dispatchP, controller }) {
+function trackDispatch({ name, deliveryId, dispatchP, updateDeliveryStatus }) {
   let settled = false;
-  const timeoutHandle = setTimeout(
-    () => controller.abort(new Error(`bridge dispatch timed out after ${DISPATCH_TIMEOUT_MS}ms`)),
-    DISPATCH_TIMEOUT_MS
-  );
   const finish = (status, fields, message) => {
     if (settled) return;
     settled = true;
-    clearTimeout(timeoutHandle);
     void updateDeliveryStatus(name, deliveryId, status, fields).catch((e) =>
       logWebhook(`${name}: delivery status update failed: ${e?.message || e}`)
     );
     logWebhook(message);
   };
-  controller.signal.addEventListener(
-    'abort',
-    () => {
-      const reason = controller.signal.reason;
-      finish(
-        'failed',
-        { error: String(reason?.message || reason) },
-        `${name}: webhook session run aborted: ${reason?.message || reason}`
-      );
-    },
-    { once: true }
-  );
   dispatchP.then(
     (run) =>
       run?.skipped
@@ -88,23 +69,20 @@ function trackDispatch({ name, deliveryId, dispatchP, controller }) {
   );
 }
 
-function createWebhookSessionDispatcher({ getBridgeDispatch }) {
+// `store` is the delivery record (injectable for tests).
+function createWebhookSessionDispatcher({ getBridgeDispatch, store = { recordEndpointEvent, updateDeliveryStatus } }) {
+  const { recordEndpointEvent: recordEvent, updateDeliveryStatus: setStatus } = store;
   async function dispatchSessionRun(name, fullPrompt, deliveryId, res, extra = {}) {
-    await updateDeliveryStatus(name, deliveryId, 'processing');
-    // Session dispatch must not be allowed to hang forever — without a
-    // ceiling a stuck LLM call leaves the delivery in `processing`
-    // for the lifetime of the process and dedup keeps re-running
-    // forever. 10 minutes covers the slowest handler run we ship.
-    // Racing a bare timer against the dispatch promise reported failure while
-    // the run itself kept going: the delivery row was already `failed` when the
-    // late result arrived and flipped it again. The timeout now aborts the
-    // dispatch through a signal the dispatcher receives, and the first outcome
-    // to land is the only one that writes a terminal status.
-    const controller = new AbortController();
+    await setStatus(name, deliveryId, 'processing');
+    // The HTTP caller is answered 202 at once; the run is a turn in the bot's
+    // chat and has no deadline (a run may wait on the user's approval for as
+    // long as it takes), so nothing here cancels it. The delivery stays
+    // `processing` until the run ends, then `done` / `skipped` / `failed`; a
+    // second delivery meanwhile is skipped by the run's own overlap rule.
     const dispatchP = Promise.resolve(
       getBridgeDispatch()({
         prompt: fullPrompt,
-        signal: controller.signal,
+        signal: null,
         // The endpoint's project folder, named to the bot in the turn.
         cwd: extra.cwd || null,
         attachments: extra.attachments || null,
@@ -123,7 +101,7 @@ function createWebhookSessionDispatcher({ getBridgeDispatch }) {
         },
       })
     );
-    trackDispatch({ name, deliveryId, dispatchP, controller });
+    trackDispatch({ name, deliveryId, dispatchP, updateDeliveryStatus: setStatus });
     res.writeHead(202, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'accepted', handler: 'session', id: deliveryId }));
   }
@@ -135,7 +113,7 @@ function createWebhookSessionDispatcher({ getBridgeDispatch }) {
       if (!getBridgeDispatch()) throw new Error(`[webhook] session dispatch requires bridgeDispatch`);
       // Kept for the app's "Run now", which re-runs the latest event. Losing
       // the record never blocks the delivery itself.
-      await recordEndpointEvent(name, { body, headers: promptHeaders(headers) }).catch((e) =>
+      await recordEvent(name, { body, headers: promptHeaders(headers) }).catch((e) =>
         logWebhook(`${name}: event record failed: ${e?.message || e}`)
       );
       await dispatchSessionRun(name, run.prompt, deliveryId, res, {
@@ -148,7 +126,7 @@ function createWebhookSessionDispatcher({ getBridgeDispatch }) {
       });
       return true;
     } catch (err) {
-      await updateDeliveryStatus(name, deliveryId, 'failed', { error: String(err?.message || err) });
+      await setStatus(name, deliveryId, 'failed', { error: String(err?.message || err) });
       logWebhook(`${name}: folder handler error: ${err}`);
       return false;
     }

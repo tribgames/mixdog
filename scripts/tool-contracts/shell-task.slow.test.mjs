@@ -2,6 +2,9 @@
 // auto-backgrounding, and task action argument shapes.
 import './_env.mjs';
 import test from 'node:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { resolve } from 'node:path';
 import { root } from './_env.mjs';
 import { assertOk, waitFor } from './_helpers.mjs';
@@ -11,6 +14,13 @@ import { resolveShellFor } from '../../src/runtime/agent/orchestrator/tools/buil
 import { validateBuiltinArgs } from '../../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { normalizeToolEnvelope } from '../../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { stripShellExitHeader } from '../../src/tui/session/tool-result-text.mjs';
+
+// Bound for a promoted child to start, finish and notify, and the command's own `timeout_ms`.
+// Measured: 0.9-1.0 s for a 600 ms child solo and 0.85 s inside the quiet full suite, but a
+// loaded machine (suite files in parallel plus other agents) stalled node start-up past the former
+// 5 s budget (a child killed by its own timeout at 3988 ms). The promotion timer itself is set
+// explicitly by withAutoBackgroundMs, so this is only a "did not hang" bound; a miss shows as all of it.
+const PROMOTED_SHELL_BOUND_MS = 30_000;
 
 function shellTaskId(text) {
   return (/task_id:\s*(\S+)/i.exec(String(text)) || [])[1] || '';
@@ -36,7 +46,11 @@ function assertBackgroundStart(label, output) {
   return taskId;
 }
 async function assertSingleShellCompletion(events, taskId, label) {
-  await waitFor(() => events.some((event) => event.text.includes(taskId)), `${label} completion notification`, 5000);
+  await waitFor(
+    () => events.some((event) => event.text.includes(taskId)),
+    `${label} completion notification`,
+    PROMOTED_SHELL_BOUND_MS
+  );
   await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   const matches = events.filter((event) => event.text.includes(taskId));
   if (matches.length !== 1) {
@@ -271,64 +285,73 @@ test('short shell commands complete inline without tasks or notifications', asyn
 test('task read returns incremental output and task wait returns a settled verdict', async () => {
   const shellCheckEvents = [];
   const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'snapshot_read');
-  // The progress line is written well before promotion, so the promotion
-  // result always delivers it and every later read must continue after it.
-  const shellCheckOut = await withAutoBackgroundMs(1000, () =>
-    executeBuiltinTool(
-      'shell',
+  const releaseDir = mkdtempSync(join(tmpdir(), 'tool-contracts-release-'));
+  const releaseFile = join(releaseDir, 'release').replaceAll('\\', '/');
+  try {
+    // The progress line is written well before promotion, so the promotion
+    // result always delivers it and every later read must continue after it.
+    const shellCheckOut = await withAutoBackgroundMs(1000, () =>
+      executeBuiltinTool(
+        'shell',
+        {
+          command:
+            // Prints its first chunk, then blocks until the test creates the release file, so
+            // "running" at the read below does not depend on any timing.
+            `node -e "console.log('tool-contracts-snapshot-read-progress'); const t = setInterval(() => { if (require('fs').existsSync('${releaseFile}')) { clearInterval(t); console.log('tool-contracts-snapshot-read-done'); } }, 50)"`,
+          timeout_ms: PROMOTED_SHELL_BOUND_MS,
+        },
+        root,
+        shellCheckOptions
+      )
+    );
+    const shellCheckTaskId = assertBackgroundStart('shell snapshot-read start', shellCheckOut);
+    const shellSnapshotRead = await executeBuiltinTool(
+      'task',
       {
-        command:
-          "node -e \"console.log('tool-contracts-snapshot-read-progress'); setTimeout(() => console.log('tool-contracts-snapshot-read-done'), 3000)\"",
-        timeout_ms: 5000,
+        action: 'read',
+        task_id: shellCheckTaskId,
       },
       root,
       shellCheckOptions
-    )
-  );
-  const shellCheckTaskId = assertBackgroundStart('shell snapshot-read start', shellCheckOut);
-  const shellSnapshotRead = await executeBuiltinTool(
-    'task',
-    {
-      action: 'read',
-      task_id: shellCheckTaskId,
-    },
-    root,
-    shellCheckOptions
-  );
-  if (!/status:\s*running/i.test(String(shellSnapshotRead))) {
-    throw new Error(`task read must return the current running snapshot:\n${shellSnapshotRead}`);
+    );
+    if (!/status:\s*running/i.test(String(shellSnapshotRead))) {
+      throw new Error(`task read must return the current running snapshot:\n${shellSnapshotRead}`);
+    }
+    if (!String(shellCheckOut).includes('tool-contracts-snapshot-read-progress')) {
+      throw new Error(`the promotion result must carry the output written before it:\n${shellCheckOut}`);
+    }
+    if (String(shellSnapshotRead).includes('tool-contracts-snapshot-read-progress')) {
+      throw new Error(`task read repeated output the promotion result already delivered:\n${shellSnapshotRead}`);
+    }
+    writeFileSync(releaseFile, '');
+    // wait replaces the polling loop: one call returns the settled task, so a
+    // still-running status here would mean the wait handed back a bare snapshot.
+    const shellWaitSettled = await executeBuiltinTool(
+      'task',
+      {
+        action: 'wait',
+        task_id: shellCheckTaskId,
+        timeout_ms: 30_000,
+      },
+      root,
+      shellCheckOptions
+    );
+    if (!/status:\s*completed/i.test(String(shellWaitSettled)) || !/exit_code:\s*0/.test(String(shellWaitSettled))) {
+      throw new Error(`task wait must return only after the task settles:\n${shellWaitSettled}`);
+    }
+    if (!String(shellWaitSettled).includes('tool-contracts-snapshot-read-done')) {
+      throw new Error(`task wait must retain the new final output:\n${shellWaitSettled}`);
+    }
+    if (
+      /tool-contracts-snapshot-read-progress/.test(`${shellCheckOut}\n${shellSnapshotRead}`) &&
+      /tool-contracts-snapshot-read-progress/.test(String(shellWaitSettled))
+    ) {
+      throw new Error(`task wait repeated previously delivered progress:\n${shellWaitSettled}`);
+    }
+    await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell snapshot read');
+  } finally {
+    rmSync(releaseDir, { recursive: true, force: true });
   }
-  if (!String(shellCheckOut).includes('tool-contracts-snapshot-read-progress')) {
-    throw new Error(`the promotion result must carry the output written before it:\n${shellCheckOut}`);
-  }
-  if (String(shellSnapshotRead).includes('tool-contracts-snapshot-read-progress')) {
-    throw new Error(`task read repeated output the promotion result already delivered:\n${shellSnapshotRead}`);
-  }
-  // wait replaces the polling loop: one call returns the settled task, so a
-  // still-running status here would mean the wait handed back a bare snapshot.
-  const shellWaitSettled = await executeBuiltinTool(
-    'task',
-    {
-      action: 'wait',
-      task_id: shellCheckTaskId,
-      timeout_ms: 30_000,
-    },
-    root,
-    shellCheckOptions
-  );
-  if (!/status:\s*completed/i.test(String(shellWaitSettled)) || !/exit_code:\s*0/.test(String(shellWaitSettled))) {
-    throw new Error(`task wait must return only after the task settles:\n${shellWaitSettled}`);
-  }
-  if (!String(shellWaitSettled).includes('tool-contracts-snapshot-read-done')) {
-    throw new Error(`task wait must retain the new final output:\n${shellWaitSettled}`);
-  }
-  if (
-    /tool-contracts-snapshot-read-progress/.test(`${shellCheckOut}\n${shellSnapshotRead}`) &&
-    /tool-contracts-snapshot-read-progress/.test(String(shellWaitSettled))
-  ) {
-    throw new Error(`task wait repeated previously delivered progress:\n${shellWaitSettled}`);
-  }
-  await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell snapshot read');
 });
 
 test('auto-promotion returns a tracked task with completion guidance', async () => {
@@ -341,7 +364,7 @@ test('auto-promotion returns a tracked task with completion guidance', async () 
       'shell',
       {
         command: 'node -e "setTimeout(() => console.log(\'tool-contracts-autopromote-done\'), 600)"',
-        timeout_ms: 5000,
+        timeout_ms: PROMOTED_SHELL_BOUND_MS,
       },
       root,
       shellAutoNotifyOptions
@@ -363,7 +386,12 @@ test('a promoted task that printed nothing reads back as empty output', async ()
   const events = [];
   const options = shellNotifyOptions(events, 'silent');
   const startOut = await withAutoBackgroundMs(50, () =>
-    executeBuiltinTool('shell', { command: 'node -e "setTimeout(() => {}, 600)"', timeout_ms: 5000 }, root, options)
+    executeBuiltinTool(
+      'shell',
+      { command: 'node -e "setTimeout(() => {}, 600)"', timeout_ms: PROMOTED_SHELL_BOUND_MS },
+      root,
+      options
+    )
   );
   const taskId = assertBackgroundStart('silent promoted shell', startOut);
   await assertSingleShellCompletion(events, taskId, 'silent promoted shell');

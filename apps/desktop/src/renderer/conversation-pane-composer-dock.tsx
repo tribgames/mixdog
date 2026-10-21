@@ -1,6 +1,7 @@
 import type { ComponentProps, RefObject } from 'react';
 import { BranchChip } from './BranchChip';
 import { Composer, OrchestrationModeSelect, WorkflowSelect } from './Composer';
+import { useSessionRouteChoices } from './model-controls';
 import { ComposerContextChips } from './composer-context-chips';
 import { ProjectContextSelector } from './composer-support';
 import { ComposerDock } from './ComposerDock';
@@ -176,29 +177,27 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     dismissQuestion && answerQuestion
       ? questionAwareSubmit(actions.composerSubmit, answerQuestion, dismissQuestion)
       : actions.composerSubmit;
-  // An existing coding session has no context bar: its workflow selector
-  // sits beside the model trigger and switches that session alone (from its
-  // next turn; refused while a turn runs). Agent mode has no workflow.
-  const sessionId = draftMode || agentMode ? '' : String(routeSnapshot.sessionId || '');
-  const modelAside = sessionId ? (
-    <>
-      <WorkflowSelect
-        sessionId={sessionId}
-        workflow={(routeSnapshot.workflow as RecordValue | null) ?? null}
-        disabled={transitioning || Boolean(routeSnapshot.busy || routeSnapshot.commandBusy)}
-        invokeResult={actions.composerInvokeResult}
-        applySnapshot={actions.composerApplySnapshot}
-      />
-      {contextIndicator}
-    </>
-  ) : (
-    contextIndicator
-  );
+  // An existing coding session has no context bar: its workflow and
+  // delegation mode are rows of the model menu and switch that session
+  // alone — at once between turns, from the next response while one runs
+  // (never refused). Agent mode has neither.
+  const sessionChoices = useSessionRouteChoices({
+    sessionId: draftMode || agentMode ? '' : String(routeSnapshot.sessionId || ''),
+    workflow: (routeSnapshot.workflow as RecordValue | null) ?? null,
+    mode: routeSnapshot.orchestrationMode,
+    pendingWorkflow: routeSnapshot.pendingWorkflowSwitch === true,
+    pendingMode: routeSnapshot.pendingOrchestrationModeSwitch === true,
+    disabled: transitioning || Boolean(routeSnapshot.commandBusy),
+    invokeResult: actions.composerInvokeResult,
+    applySnapshot: actions.composerApplySnapshot,
+  });
+  const modelAside = contextIndicator;
   return (
     <ComposerDock
       sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
       goalIsland={goalIsland}
       goalSubmissionId={submission.goalSubmissionId}
+      approval={island.approval}
       islandFlash={island.islandFlash}
       quotaCard={island.quotaCard}
       quotaResume={island.quotaResume}
@@ -242,6 +241,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         onDraftModelSelection={onDraftModelSelection}
         onRoutePreferenceApplied={onRoutePreferenceApplied}
         modelAside={modelAside}
+        sessionChoices={sessionChoices}
         // Before the first message the pickers stand in for the readout.
         contextBar={
           showProjectSelector && !agentMode ? (

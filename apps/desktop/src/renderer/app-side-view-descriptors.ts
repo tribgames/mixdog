@@ -1,7 +1,6 @@
 import {
   Bot,
   Clock,
-  Eye,
   FileDiff,
   GitCompare,
   Github,
@@ -19,6 +18,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import { t } from './i18n';
+import { VisualizeIcon } from './visualize-icon';
 
 import type { WorkbenchSideViewDescriptor, WorkbenchSideViewId } from './workbench-side-view-layout';
 
@@ -64,7 +64,7 @@ export function createAppSideViewDescriptors(
         onPrefetch: () => onPrefetch('session-diff'),
       },
     ],
-    ['visualize', { id: 'visualize', label: t('Visualize'), tooltip: t('Visualize'), icon: Eye }],
+    ['visualize', { id: 'visualize', label: t('Visualize'), tooltip: t('Visualize'), icon: VisualizeIcon }],
     // A home thread's agent panel (프로필 · 루틴); the view id stays 'routines'.
     ['routines', { id: 'routines', label: t('Profile'), tooltip: t('Profile'), icon: IdCard }],
     // A group room's panel: members, limits, leave/delete.

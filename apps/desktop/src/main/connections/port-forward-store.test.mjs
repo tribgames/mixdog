@@ -40,7 +40,7 @@ test('a save keeps the replaced list, which a damaged file is restored from', as
   writeFileSync(join(dir, PORT_FORWARDS_FILE), Buffer.alloc(90));
   assert.deepEqual(await createPortForwardStore(dir).load('box'), [forward(3000)]);
   assert.equal(
-    readdirSync(dir).some((name) => name.endsWith('.tmp')),
+    readdirSync(dir).some((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
     false
   );
 });

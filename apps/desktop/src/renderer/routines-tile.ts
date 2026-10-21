@@ -45,10 +45,20 @@ export function paneRightGroupsFor(
 }
 
 /** An agent-mode chat's header toggles: its info panel (the profile, or the
- *  room's info) and Visualize. The coding docks stay off it; Changes too, as
- *  the chat's changes card opens the diff. */
+ *  room's info), Visualize and the browser the bot works in. The terminal
+ *  stays off it; Changes too, as the chat's changes card opens the diff. */
 export function agentChatStripGroups(groups: readonly WorkbenchSideViewGroup[]): readonly WorkbenchSideViewGroup[] {
-  return groups.filter((group) => group.includes('routines') || group.includes('room') || group.includes('visualize'));
+  return groups.filter(
+    (group) =>
+      group.includes('routines') || group.includes('room') || group.includes('visualize') || group.includes('browser')
+  );
+}
+
+/** A coding pane's header toggles: Visualize in the Changes slot (it opens the
+ *  turn's outputs), then the coding docks. The changes card and Source
+ *  Control open Changes. */
+export function codingStripGroups(groups: readonly WorkbenchSideViewGroup[]): readonly WorkbenchSideViewGroup[] {
+  return groups.filter((group) => !group.includes('session-diff'));
 }
 
 /** Per-session panel views with the Routines tile filled in for every home

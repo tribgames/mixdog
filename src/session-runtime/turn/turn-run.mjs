@@ -21,6 +21,7 @@ export function createTurnRunner(deps) {
     getCurrentCwd,
     mgr,
     mcpTurnGraceMs = 0,
+    mcpAgentGraceMs = 3_000,
     endComputerExecution = async () => false,
     deferComputerSessionRelease = () => false,
     beginTurnSnapshotForTurn = beginTurnSnapshot,
@@ -31,7 +32,7 @@ export function createTurnRunner(deps) {
   const transcript = createTurnTranscript(deps);
   const openTurn = createTurnOpener({
     ...deps,
-    createTiming: createTurnTimingFactory({ ...deps, mcpTurnGraceMs }),
+    createTiming: createTurnTimingFactory({ ...deps, mcpTurnGraceMs, mcpAgentGraceMs }),
     createSnapshot: createSnapshotTrackerFactory({
       getCurrentCwd,
       beginTurnSnapshotForTurn,

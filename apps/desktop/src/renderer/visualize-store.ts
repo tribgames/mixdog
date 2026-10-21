@@ -71,6 +71,10 @@ interface UserOpen {
 }
 const userOpens = new Map<string, UserOpen>();
 const USER_OPEN_TTL_MS = 15_000;
+/** A turn's end opening its previews (openTurnPreviews), one entry per open
+ *  request: when main's open of exactly that tab arrives, a panel the user
+ *  keeps closed at that moment stays closed (the tab is only made or updated). */
+const previewOpens = new Map<string, UserOpen[]>();
 /** Tabs opened or updated behind the user's pick, per session. */
 let updatedTabs = new Map<string, ReadonlySet<string>>();
 const NO_UPDATES: ReadonlySet<string> = new Set();
@@ -113,6 +117,7 @@ export function resetVisualizePanelMemory(): void {
   onScreen.clear();
   userPicks.clear();
   userOpens.clear();
+  previewOpens.clear();
   updatedTabs = new Map();
   heldStates = new Map();
   heldSince.clear();
@@ -309,6 +314,23 @@ function takeUserOpen(sessionId: string, tab: VisualizeTabView | undefined): boo
   return true;
 }
 
+/** Consumes the session's pending preview open of exactly `tab` (expired
+ *  ones are dropped). */
+function takePreviewOpen(sessionId: string, tab: VisualizeTabView | undefined): boolean {
+  const now = Date.now();
+  const pending = (previewOpens.get(sessionId) ?? []).filter((open) => open.expires > now);
+  const at = tab ? pending.findIndex((open) => open.matches(tab)) : -1;
+  if (at >= 0) pending.splice(at, 1);
+  if (pending.length) previewOpens.set(sessionId, pending);
+  else previewOpens.delete(sessionId);
+  return at >= 0;
+}
+
+/** The user keeps the session's panel closed right now. */
+function panelClosedByUser(sessionId: string): boolean {
+  return visualizeRevealSuppressed(sessionId) && !onScreen.has(sessionId);
+}
+
 /** Apply the open policy to an open or update of `tabId` (`incoming`: the
  *  state that came with it). Shown: the tab becomes active (main told when it
  *  did not pick it itself, as for a file-change update) and the panel is
@@ -317,16 +339,16 @@ function takeUserOpen(sessionId: string, tab: VisualizeTabView | undefined): boo
 function showUpdatedTab(sessionId: string, tabId: string, incoming?: VisualizeSessionState): void {
   const base = incoming ?? states.get(sessionId);
   if (!base) return;
-  if (
-    !takeUserOpen(
-      sessionId,
-      base.tabs.find((tab) => tab.id === tabId)
-    ) &&
-    phonePanelClosed(sessionId)
-  ) {
+  const opened = base.tabs.find((tab) => tab.id === tabId);
+  const user = takeUserOpen(sessionId, opened);
+  // A turn preview's open: whether the user keeps the panel closed is asked
+  // now, at its reveal, so a close made while it was pending holds.
+  const preview = !user && takePreviewOpen(sessionId, opened);
+  if (!user && (phonePanelClosed(sessionId) || (preview && panelClosedByUser(sessionId)))) {
     // Phone: an agent open or update never brings the panel up or moves its
     // selection; the tab is only made or updated (the turn card's tile opens
-    // it), and one not selected wears the dot.
+    // it), and one not selected wears the dot. A turn's previews do the same
+    // while the user keeps the panel closed.
     const kept = keptLocalActive(base);
     setState(kept);
     if (tabId && kept.tabs.some((tab) => tab.id === tabId)) setUpdated(sessionId, tabId, kept.active !== tabId);
@@ -367,11 +389,27 @@ export function useVisualizeUpdatedTabs(sessionId: string): ReadonlySet<string> 
  *  the user's tab pick no longer holds back opens and updates. */
 export function setVisualizePanelOnScreen(sessionId: string, shown: boolean): void {
   if (!sessionId) return;
+  const was = onScreen.has(sessionId);
   if (shown) onScreen.add(sessionId);
   else {
     onScreen.delete(sessionId);
     userPicks.delete(sessionId);
   }
+  // Chat card tiles mark the tab "Showing" only while the panel is on screen.
+  if (was !== shown) emit();
+}
+
+/** Whether the session's visualize panel is on screen right now. */
+export function visualizePanelOnScreen(sessionId: string): boolean {
+  return onScreen.has(sessionId);
+}
+
+export function useVisualizePanelOnScreen(sessionId: string): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => visualizePanelOnScreen(sessionId),
+    () => false
+  );
 }
 
 /** The newest version number of each tab (0 without versions). */
@@ -633,6 +671,42 @@ export function reopenVisualizeTargets(sessionId: string, tabId: string, targets
       ...(label ? { label } : {}),
     })
   );
+}
+
+/** A turn's end opening its confident previews (transcript-visualize-card.tsx),
+ *  each file in its own tab, in order, through main's reopen: validated like
+ *  an agent open, with its versions, reload watch and "updated" marks, and
+ *  brought up by the open policy as an agent open is, so the last one shows.
+ *  A panel the user keeps closed stays closed: each open is marked as a
+ *  preview's, and whether the panel is closed is asked when that open's
+ *  reveal arrives (showUpdatedTab), so a close made at any point while the
+ *  opens are pending holds; those opens only make or update their tabs
+ *  (their tiles still open them). A file that fails to open is reported and
+ *  the rest still open. */
+export async function openTurnPreviews(sessionId: string, targets: readonly string[]): Promise<void> {
+  for (const target of targets) {
+    const request: UserOpen = {
+      matches: (tab) => {
+        const live = livePanes(tab);
+        return live.length === 1 && sameTarget(live[0].target, target);
+      },
+      expires: Date.now() + USER_OPEN_TTL_MS,
+    };
+    previewOpens.set(sessionId, [...(previewOpens.get(sessionId) ?? []), request]);
+    try {
+      await window.mixdogDesktop?.visualizeCommand?.({
+        sessionId,
+        tabId: 'preview',
+        action: 'reopen',
+        targets: [target],
+      });
+    } catch (error) {
+      const left = (previewOpens.get(sessionId) ?? []).filter((open) => open !== request);
+      if (left.length) previewOpens.set(sessionId, left);
+      else previewOpens.delete(sessionId);
+      console.warn(`turn preview did not open (${target}):`, error instanceof Error ? error.message : error);
+    }
+  }
 }
 
 /** The host's reuse identity of inline content (main `inlineKey`): its

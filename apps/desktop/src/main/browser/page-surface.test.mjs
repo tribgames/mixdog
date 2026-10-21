@@ -8,13 +8,20 @@ test('human copy shortcuts use the selected page native edit command without typ
     const record = { documentGeneration: 1 };
     let copies = 0;
     let changeDuringWait = false;
-    const guest = { isDestroyed: () => false, copy: () => { copies++; } };
+    const guest = {
+      isDestroyed: () => false,
+      copy: () => {
+        copies++;
+      },
+    };
     const surface = createBrowserPageSurface({
       ensureGuest: async () => guest,
       currentGuest: () => guest,
       state: { pageId: () => 'p1', for: () => record, invalidateInteraction() {} },
       cdp: {
-        waitForIdle: async () => { if (changeDuringWait) record.documentGeneration++; },
+        waitForIdle: async () => {
+          if (changeDuringWait) record.documentGeneration++;
+        },
         guestDebugger: async () => ({}),
         sendCdpInput: async () => assert.fail('copy must not become a synthetic key or text input'),
       },
@@ -125,6 +132,61 @@ test('a popup whose opener shows a dialog is presented without asking its blocke
   assert.equal(unblocked.image.data, 'png');
   assert.equal(unblocked.dialog, undefined);
   assert.deepEqual(unblocked.fileChooser, { id: 'prompt_2', multiple: false });
+});
+
+test('a dialog that opens while a frame read waits on the page answers with the dialog, not a timeout', async () => {
+  // A popup selected as it opens alerts while the pane first reads it: the
+  // metrics request waits on the renderer the alert now holds.
+  const record = { documentGeneration: 1, pendingDialog: null };
+  const guest = {
+    id: 9,
+    isDestroyed: () => false,
+    getURL: () => 'https://pay.test/easy',
+    getTitle: () => 'Easy',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  };
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    currentGuest: () => guest,
+    prompts: {
+      describe: () => (record.pendingDialog ? { dialog: { id: 'prompt_1', type: 'alert', message: 'Notice' } } : {}),
+    },
+    state: { pageId: () => 'p3', for: () => record },
+    cdp: {
+      guestDebugger: async () => ({
+        sendCommand: async () => {
+          record.pendingDialog = { type: 'alert', message: 'Notice', openedAt: 0 };
+          throw new Error('Browser display viewport timed out after 2000ms');
+        },
+      }),
+      bounded: async (work) => work,
+    },
+    viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
+    capture: async () => ({ width: 800, height: 600, data: 'png', mimeType: 'image/png', fullPage: false }),
+  });
+  const frame = await surface.frame('owner');
+  assert.deepEqual(frame.dialog, { id: 'prompt_1', type: 'alert', message: 'Notice' });
+  assert.equal(frame.url, 'https://pay.test/easy');
+
+  // Without a dialog, the failure is the read's own.
+  record.pendingDialog = null;
+  const failing = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    currentGuest: () => guest,
+    state: { pageId: () => 'p3', for: () => record },
+    cdp: {
+      guestDebugger: async () => ({
+        sendCommand: async () => {
+          throw new Error('Browser display viewport timed out after 2000ms');
+        },
+      }),
+      bounded: async (work) => work,
+    },
+    viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
+    capture: async () => ({ width: 800, height: 600, data: 'png', mimeType: 'image/png', fullPage: false }),
+  });
+  await assert.rejects(failing.frame('owner'), /viewport timed out/);
 });
 
 test('viewport changes discard old captures and cached images instead of stretching them into new geometry', async () => {

@@ -25,7 +25,7 @@ export function openAiCatalogMeta(model) {
 // gpt-5.4 -> [5, 4]; gpt-6-astra -> [6, 0]; non-GPT ids -> null.
 // A bare multi-digit major with no minor or family suffix (gpt-60) is not a
 // generation id.
-function gptVersion(id) {
+export function gptVersion(id) {
   const m = /^gpt-(\d+)(?:\.(\d+))?(?=-|$)/.exec(id);
   if (!m || (m[1].length > 1 && m[2] === undefined && m[0] === id)) return null;
   return [Number(m[1]), Number(m[2] || 0)];

@@ -26,7 +26,8 @@ function requestOptions(opts) {
 }
 
 /** A request in the stored shape: its own message list and only the send
- *  options a fork may reuse. `response` is null until the reply settles. */
+ *  options a fork may reuse. `response` is null until the reply settles;
+ *  `sentAt` is when the provider read (and refreshed) its prompt cache. */
 export function sideQuestionRequestSnapshot({ provider, model, messages, tools, opts }) {
   return {
     provider,
@@ -35,6 +36,7 @@ export function sideQuestionRequestSnapshot({ provider, model, messages, tools, 
     tools: Array.isArray(tools) ? tools : [],
     opts: requestOptions(opts),
     response: null,
+    sentAt: Date.now(),
   };
 }
 

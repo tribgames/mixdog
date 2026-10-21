@@ -104,8 +104,9 @@ export function createShellRun({ abortSignal, resolve, jobId = null }) {
     // `settled`: whichever transition wins first wins for good.
     autoBackgrounded: false,
     autoBackgroundJobId: null,
-    // [exitCode, signal] of a 'close' that arrived while promotion was in
-    // flight; a promotion that then fails settles the run with it.
+    // [exitCode, signal] of a 'close' (or an expired drain grace) that arrived
+    // while promotion was in flight; a promotion that then fails settles the
+    // run with it.
     promotionClose: null,
     autoBgTimer: null,
     killUnconfirmed: false,
@@ -125,6 +126,9 @@ export function createShellRun({ abortSignal, resolve, jobId = null }) {
     // observation loop that holds the workspace until they are gone.
     terminationTracker: null,
     stopTerminationWatch: null,
+    // Settles when that loop ends (lib/shell-run-settle.mjs treeSettled).
+    treeSettled: null,
+    resolveTreeSettled: null,
   };
 }
 

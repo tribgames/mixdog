@@ -19,12 +19,15 @@ import { retainedFailedTurnInput, rewindUnansweredPrompt } from './failed-turn-r
 import { buildAgentLoopOptions, trackedToolCallHook } from './ask-turn-loop-options.mjs';
 import { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
 import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
+import { stampTurnHop } from '../../../../shared/bot-hops.mjs';
 
 /** Resolves the provider, builds the user turn and pre-commits it; returns
  *  what the loop and the commit need from this preparation. */
 export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta }) {
   const { turn, runtime, turnSignal, askGeneration, checkpoint, turnToken, startedAt, codexTurnId } = opened;
   const session = turn.session;
+  // Where the turn sits in a bot-to-bot chain (session-runtime/bot-hops.mjs).
+  stampTurnHop(session, transcriptMeta, input.promptSource);
   const retained = input.retryTurnId
     ? retainedFailedTurnInput(session.messages, input.retryTurnId, input.retryAttemptId)
     : null;
@@ -187,6 +190,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
     deferredToolDelta: userTurn.deferredToolDelta,
     goalReminder: userTurn.goalReminder,
     workflowNotice: userTurn.workflowNotice,
+    orchestrationModeNotice: userTurn.orchestrationModeNotice,
     workspaceNotice: userTurn.workspaceNotice,
     setupNotice: userTurn.setupNotice,
   };

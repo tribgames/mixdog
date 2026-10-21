@@ -1,4 +1,5 @@
 import { configuredAgentRouteCandidates, isAgentDisabled } from '../../../shared/agent-route-config.mjs';
+import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
 import { loadConfig } from '../config.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
 
@@ -13,6 +14,13 @@ function normalizeMaintenanceCandidate(candidate) {
     effort: String(candidate.effort || '').trim() || undefined,
     fast: candidate.fast === true,
     ...(candidate.autoEffort === false ? { autoEffort: false } : {}),
+    ...(candidate.modelParameters && typeof candidate.modelParameters === 'object'
+      ? { modelParameters: { ...candidate.modelParameters } }
+      : {}),
+    ...(Number(candidate.contextPercent) > 0 ? { contextPercent: Number(candidate.contextPercent) } : {}),
+    ...(normalizeContextTokens(candidate.contextTokens)
+      ? { contextTokens: normalizeContextTokens(candidate.contextTokens) }
+      : {}),
   };
 }
 

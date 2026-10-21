@@ -36,8 +36,10 @@ async function mountList(t) {
     const top = index * ROW_PX - scroller.scrollTop;
     return { top, bottom: top + ROW_PX, left: 0, right: 200, height: ROW_PX };
   };
-  function List({ rows }) {
+  function List({ rows, favorites = [] }) {
+    const scrollerRef = React.useRef(null);
     const { recentScrollerRef, handleRecentScroll } = useSidebarListScroll({
+      scrollerRef,
       open: true,
       panelActive: false,
       selection: { kind: 'new' },
@@ -72,16 +74,21 @@ async function mountList(t) {
       Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => rowEls().length * ROW_PX });
       Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => VIEWPORT_PX });
     };
-    return React.createElement(
-      'div',
-      { ref: attach, onScroll: handleRecentScroll },
-      rows.map((row) =>
-        React.createElement('div', { key: row.id, className: 'session-row', 'data-session-id': row.id })
-      )
-    );
+    const list = (key, items) =>
+      React.createElement(
+        'div',
+        { key },
+        items.map((row) =>
+          React.createElement('div', { key: row.id, className: 'session-row', 'data-session-id': row.id })
+        )
+      );
+    return React.createElement('div', { ref: attach, onScroll: handleRecentScroll }, [
+      list('favorites', favorites),
+      list('recent', rows),
+    ]);
   }
   return {
-    render: (rows) => act(async () => root.render(React.createElement(List, { rows }))),
+    render: (rows, favorites) => act(async () => root.render(React.createElement(List, { rows, favorites }))),
     /** The browser moved the list; `report` also delivers its scroll event. */
     scrollTo: async (top, report) => {
       scroller.scrollTop = top;
@@ -127,4 +134,76 @@ test('rows removed above a list at its end keep the reader on the same row', asy
   await list.scrollTo(900, true);
   await list.render(rows.slice(2));
   assert.equal(list.scrollTop(), 820);
+});
+
+test('a session listed twice anchors on the copy the reader sees', async (t) => {
+  const list = await mountList(t);
+  const rows = ids(0, 40);
+  // s5 is a favorite inside its folder: one copy at the top (Favorites), one
+  // at 240px. The reader sees the second copy at the top of the viewport.
+  await list.render(rows, [rows[5]]);
+  await list.scrollTo(240, true);
+  await list.render([...rows], [rows[5]]);
+  assert.equal(list.scrollTop(), 240, 'a live update does not jump to the Favorites copy');
+});
+
+test('the reader’s top row re-sorted by activity does not carry the list along', async (t) => {
+  const list = await mountList(t);
+  const rows = ids(0, 40);
+  await list.render(rows);
+  // s10 is the first visible row; it gets activity and moves to the top.
+  await list.scrollTo(400, true);
+  await list.render([rows[10], ...rows.slice(0, 10), ...rows.slice(11)]);
+  assert.equal(list.scrollTop(), 400, 'the rows around the reader stay where they were');
+});
+
+/** useHeldDuringUserScroll over a scroller element the test touches. */
+async function mountHeld(t) {
+  const { root, document, window } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement'] });
+  const { useHeldDuringUserScroll } = await import('./session-sidebar-scroll.ts');
+  let shown = null;
+  function Probe({ value }) {
+    const scrollerRef = React.useRef(null);
+    shown = useHeldDuringUserScroll(scrollerRef, value);
+    return React.createElement('div', { ref: scrollerRef, className: 'scroller' }, React.createElement('i'));
+  }
+  const render = (value) => act(async () => root.render(React.createElement(Probe, { value })));
+  const fire = (type, target, init = {}) =>
+    act(async () => {
+      const event = new window.Event(type, { bubbles: true });
+      Object.assign(event, init);
+      target.dispatchEvent(event);
+    });
+  const idle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 260)));
+  return { render, fire, idle, document, shown: () => shown };
+}
+
+test('a catalog update holds while a finger scrolls the list and lands once the fling ends', async (t) => {
+  const held = await mountHeld(t);
+  await held.render('a');
+  const row = held.document.querySelector('.scroller > i');
+  await held.fire('touchstart', row, { touches: [{}] });
+  await held.render('b');
+  assert.equal(held.shown(), 'a', 'no re-sort under the finger');
+  await held.fire('touchend', row, { touches: [] });
+  // The fling keeps scrolling after the finger lifts.
+  await held.fire('scroll', held.document.querySelector('.scroller'));
+  assert.equal(held.shown(), 'a', 'no re-sort during the fling');
+  await held.idle();
+  assert.equal(held.shown(), 'b', 'the update lands once the scroll is over');
+  await held.render('c');
+  assert.equal(held.shown(), 'c', 'a list at rest updates at once');
+});
+
+test('a wheel burst holds the update too; touches outside the list do not', async (t) => {
+  const held = await mountHeld(t);
+  await held.render('a');
+  await held.fire('wheel', held.document.querySelector('.scroller > i'));
+  await held.render('b');
+  assert.equal(held.shown(), 'a');
+  await held.idle();
+  assert.equal(held.shown(), 'b');
+  await held.fire('touchstart', held.document.body, { touches: [{}] });
+  await held.render('c');
+  assert.equal(held.shown(), 'c');
 });

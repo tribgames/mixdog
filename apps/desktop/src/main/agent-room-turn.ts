@@ -1,0 +1,260 @@
+// One member's turn in a group room (agent-rooms.ts drives the exchange):
+// hand the member the rows new since it last spoke, wait for its answer while
+// relaying any approval it asks for, then post its words or a pass.
+import {
+  type RoomRow,
+  type RoomTurn,
+  type RoomTurnAnswer,
+  isPassReply,
+  roomMentionOf,
+  roomTurnPrompt,
+  rowsSinceCursor,
+  withoutPassMarker,
+} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import type { SessionSnapshot } from '../shared/contract';
+import type { AgentRoomRecord } from './agent-rooms';
+import { sessionFinalAnswer } from './session-final-answer';
+
+/** The exchange of one room in flight. */
+export interface RunState {
+  stop: boolean;
+  speaking: string;
+  speakingName: string;
+  /** The typing row's id for the turn in flight, unique for the room's life.
+   *  The views carry a typing row's id over to the message that replaces it
+   *  (transcript-identity.ts), so an id built from speaker and round came back
+   *  in the next exchange: two rows shared one key, and the transcript's rows
+   *  fought over one measured size and shook up and down. */
+  typingId: string;
+  memberSession: string;
+  approval: Record<string, unknown> | null;
+  /** A message sent while members were speaking: the turns still queued are
+   *  dropped at the next turn boundary and its exchange runs next. */
+  pending: { to: string[]; waiting: true } | null;
+  /** The user's newest message has no answer from this exchange yet: set when
+   *  a user message starts it, cleared by its first speech. A reply the member
+   *  in flight finishes after a newer message is not an answer to it. */
+  waiting: boolean;
+}
+
+export interface MemberLabel {
+  id: string;
+  name: string;
+  route: unknown;
+  description: string;
+}
+
+/** What a member's turn needs from the room host, bound to one room. */
+export interface RoomTurnHost {
+  roomId: string;
+  /** The room's record; throws once the room no longer exists. */
+  room(): AgentRoomRecord;
+  /** The room's rows in log order. */
+  rows(): Promise<RoomRow[]>;
+  post(rows: RoomRow[]): Promise<void>;
+  /** Publish the room log's held snapshot again. */
+  republish(): void;
+  /** The member's own session in this room, created on first use. */
+  memberSession(member: { id: string; route: unknown }): Promise<string>;
+  submit(sessionId: string, prompt: ReturnType<typeof roomTurnPrompt>): Promise<boolean>;
+  readSnapshot(sessionId: string): Promise<SessionSnapshot>;
+  abort(sessionId: string): Promise<void>;
+  persist(): Promise<void>;
+  now(): number;
+  newId(): string;
+  sleep(ms: number): Promise<void>;
+  pollMs: number;
+  log(line: string): void;
+}
+
+const TOOL_SUMMARY = 400;
+
+/** A finished member turn's tool calls, one bounded line each. */
+function toolSummaries(snapshot: SessionSnapshot, startedAt: number): Array<{ name: string; summary: string }> {
+  const items = (snapshot?.items ?? []) as Array<Record<string, unknown>>;
+  let start = items.length;
+  while (start > 0 && items[start - 1]?.kind !== 'user') start -= 1;
+  return items
+    .slice(start)
+    .filter((item) => item.kind === 'tool' && (Number(item.at) || startedAt) >= startedAt)
+    .map((item) => {
+      const result = typeof item.result === 'string' ? item.result : JSON.stringify(item.result ?? '');
+      return { name: String(item.name || 'tool'), summary: result.slice(0, TOOL_SUMMARY) };
+    });
+}
+
+/** A turn that finished without any reply text: a member saying nothing
+ *  passes (sessionFinalAnswer waits for text, which never comes). */
+function emptyFinishedTurn(snapshot: SessionSnapshot, startedAt: number): ReturnType<typeof sessionFinalAnswer> {
+  if (!snapshot || snapshot.busy || snapshot.streamingTail) return null;
+  const items = (snapshot.items ?? []) as Array<Record<string, unknown>>;
+  const done = [...items].reverse().find((item) => item.kind === 'turndone');
+  if (done?.status !== 'done' || typeof done.at !== 'number' || done.at < startedAt) return null;
+  const last = items.at(-1);
+  if (last !== done) return null;
+  const answer = items.find((item) => item.id === done.finalAssistantId && item.kind === 'assistant');
+  if (answer && String(answer.text ?? '').trim()) return null;
+  return { id: done.id as string, at: done.at, status: 'done', text: '' };
+}
+
+/** A pass never shows its marker: while the user waits, what the member
+ *  wrote before "(pass)" is its answer; otherwise the turn is a pass. */
+function spokenText(answer: NonNullable<ReturnType<typeof sessionFinalAnswer>>, waiting: boolean): string {
+  const passed = answer.status !== 'done' || isPassReply(answer.text);
+  return answer.status === 'done' && (!passed || waiting) ? withoutPassMarker(answer.text) : '';
+}
+
+/** One member's turn: hand it the new rows, wait for its answer (relaying
+ *  any approval it asks for into the room), then post its words or a pass. */
+export async function speakInRoom(
+  host: RoomTurnHost,
+  state: RunState,
+  labels: Map<string, MemberLabel>,
+  agentId: string,
+  { addressed, instruction, mentionedBy, scene }: RoomTurn
+): Promise<RoomTurnAnswer> {
+  const { now, newId } = host;
+  const room = host.room();
+  const member = labels.get(agentId) ?? { id: agentId, name: agentId, route: undefined, description: '' };
+  // Whether the user's newest message still has no answer in the room.
+  const waiting = state.waiting;
+  const rows = await host.rows();
+  let shown = rowsSinceCursor(rows, room.cursors[agentId], agentId, room.seen?.[agentId]);
+  // A user still waiting keeps their newest message in view, as context
+  // when this member was already handed it.
+  const asked = waiting ? [...rows].reverse().find((row) => row.kind === 'user') : undefined;
+  if (asked && !shown.some((row) => row.id === asked.id)) shown = [{ ...asked, seen: true }, ...shown];
+  // Nothing new, nobody asking for it (the user, a peer's @mention or the
+  // supervisor's note) and no user waiting: there is no turn to hand, so
+  // none is; the member counts as passing and nothing is posted.
+  const called = addressed.length > 0 || Boolean(mentionedBy) || Boolean(instruction.trim());
+  if (!waiting && !called && !shown.some((row) => !row.seen)) return 'pass';
+  Object.assign(state, {
+    speaking: agentId,
+    speakingName: member.name,
+    typingId: `room-typing-${newId()}`,
+    memberSession: '',
+    approval: null,
+  });
+  host.republish();
+  // A newer user message cuts this turn short: its answer would only
+  // respond to rows older than that message, so nothing is posted for it
+  // (no speech, no pass), the member's session is aborted, and the rows it
+  // was handed come again on its next turn, marked as already shown
+  // (`seen` stays), with the message that cut it off as the new request.
+  const cursorBefore = room.cursors[agentId];
+  const interrupted = () => Boolean(state.pending) && !state.stop;
+  const cutShort = async (): Promise<'superseded'> => {
+    if (cursorBefore === undefined) delete room.cursors[agentId];
+    else room.cursors[agentId] = cursorBefore;
+    if (state.memberSession) await host.abort(state.memberSession).catch(() => undefined);
+    return 'superseded';
+  };
+  const passRow = (failed = false): RoomRow => ({
+    id: `row_${newId()}`,
+    kind: 'pass',
+    speaker: agentId,
+    name: member.name,
+    at: now(),
+    text: '',
+    ...(failed ? { failed: true } : {}),
+  });
+  let answer: ReturnType<typeof sessionFinalAnswer> = null;
+  let snapshot: SessionSnapshot = null;
+  let startedAt = 0;
+  try {
+    const sessionId = await host.memberSession(member);
+    state.memberSession = sessionId;
+    const prompt = roomTurnPrompt({
+      roomName: room.name,
+      self: member,
+      members: room.members.map((id) => labels.get(id) ?? { id, name: id }),
+      rows: shown,
+      shareTools: room.shareTools,
+      addressed,
+      mentionedBy: mentionedBy ? (labels.get(mentionedBy)?.name ?? mentionedBy) : '',
+      instruction,
+      scene,
+      waiting,
+    });
+    const last = rows.at(-1);
+    if (last) room.cursors[agentId] = last.id;
+    if (state.stop) return 'stopped';
+    if (interrupted()) return await cutShort();
+    startedAt = now();
+    if (!(await host.submit(sessionId, prompt))) throw new Error('the turn was not accepted');
+    // The member's session now holds every row up to the newest: a cut
+    // short restores the cursor, never this.
+    const handed = rows.at(-1)?.id;
+    if (handed) room.seen = { ...room.seen, [agentId]: handed };
+    let misses = 0;
+    while (!answer) {
+      if (state.stop) return 'stopped';
+      if (interrupted()) return await cutShort();
+      await host.sleep(host.pollMs);
+      try {
+        snapshot = await host.readSnapshot(sessionId);
+        misses = 0;
+      } catch (error) {
+        misses += 1;
+        if (misses >= 6) throw error;
+        continue;
+      }
+      const approval = (snapshot?.toolApproval as Record<string, unknown> | null | undefined) ?? null;
+      if (String(approval?.id ?? '') !== String(state.approval?.id ?? '')) {
+        state.approval = approval;
+        host.republish();
+      }
+      answer = sessionFinalAnswer(snapshot, startedAt) ?? emptyFinishedTurn(snapshot, startedAt);
+    }
+  } catch (error) {
+    host.log(
+      `${agentId} could not speak in room ${host.roomId}: ${error instanceof Error ? error.message : String(error)}`
+    );
+    if (state.stop) return 'stopped';
+    if (interrupted()) return await cutShort();
+    await host.post([passRow(true)]);
+    return 'pass';
+  } finally {
+    state.approval = null;
+    void host.persist();
+  }
+  if (!answer || (answer.status === 'cancelled' && state.stop)) return 'stopped';
+  if (interrupted()) {
+    const cut = await cutShort();
+    void host.persist();
+    return cut;
+  }
+  const text = spokenText(answer, waiting);
+  if (!text) {
+    await host.post([passRow(answer.status !== 'done')]);
+    return 'pass';
+  }
+  const row: RoomRow = {
+    id: `row_${newId()}`,
+    kind: 'speech',
+    speaker: agentId,
+    name: member.name,
+    at: now(),
+    text,
+    // The log takes in the files this turn produced (agent-room-delivery.mjs).
+    ...(state.memberSession ? { artifactsFrom: { sessionId: state.memberSession, since: startedAt } } : {}),
+  };
+  // The one peer the speech addresses: shown on its bubble, and a turn for
+  // that peer, never authority.
+  const mention = roomMentionOf(
+    row.text,
+    room.members.map((id) => labels.get(id) ?? { id, name: id }),
+    agentId
+  );
+  if (mention) Object.assign(row, { to: [mention], toName: [labels.get(mention)?.name ?? mention] });
+  const tools = toolSummaries(snapshot, startedAt);
+  if (tools.length) row.tools = tools;
+  await host.post([row]);
+  state.waiting = false;
+  // The cursor stays on the last row this turn was handed: a message that
+  // landed while the member spoke sits after it and reaches the next turn
+  // (the member's own speech is left out of what it is shown).
+  Object.assign(room, { lastSpeaker: agentId, lastAt: row.at });
+  return { result: 'speech', mention };
+}

@@ -13,6 +13,7 @@ import type { DismissedBrowserDialog, PendingBrowserDialog } from './dialog-repo
 import type { BrowserDragData } from './input';
 import { BrowserNetworkLedger } from './network';
 import type { ActiveBrowserPerformanceTrace } from './performance';
+import type { PageActor, WindowOpenGesture } from './popup-focus';
 import { redactBrowserKnownSecrets, redactBrowserText } from './redaction';
 import type { VisualGrounding } from './ref-points';
 import type { BrowserRefSet } from './ref-recovery';
@@ -80,6 +81,14 @@ interface BrowserGuestState extends BrowserDiagnostics {
   /** A person clicked or typed into this document. What they entered lives
    *  only in the document, so it must not be unloaded to save memory. */
   userInput: boolean;
+  /** Who acted on this document last: a person's press, key or dialog
+   *  answer, or an agent command. A window it opens is that actor's. */
+  actor?: PageActor;
+  /** When the person last answered one of this document's dialogs. */
+  personDialogAnswerAt?: number;
+  /** Chromium's recent Page.windowOpen reports: whether each window being
+   *  opened had a user gesture (popup-focus). */
+  windowOpens: WindowOpenGesture[];
   accessibilityRefs?: AccessibilityRefSnapshot;
   refSet?: BrowserRefSet;
   visualGrounding?: VisualGrounding;
@@ -127,6 +136,7 @@ export class BrowserGuestStateStore {
       // before it existed. A new page has already heard about all of them.
       downloadsReportedAt: Date.now(),
       openedPopups: [],
+      windowOpens: [],
       crashed: false,
       userInput: false,
       pendingDialog: null,
@@ -294,6 +304,9 @@ export class BrowserGuestStateStore {
     state.pendingDialog = null;
     state.dismissedDialog = null;
     state.userInput = false;
+    state.actor = undefined;
+    state.personDialogAnswerAt = undefined;
+    state.windowOpens = [];
   }
 
   /** Text bound for the caller, minus the page's known secrets. */

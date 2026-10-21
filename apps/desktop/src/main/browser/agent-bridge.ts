@@ -33,7 +33,7 @@ export function createBrowserAgentBridge(options: {
   const server = new BrowserBridgeServer<BrowserCommand>({
     dataDirectory: bridgeDiscoveryDirectory,
     execute: (command, signal) => {
-      const { session_id, turn_id, internalStep, ...input } = command;
+      const { session_id, turn_id, internalStep, unattended_run, unattended_agent, ...input } = command;
       if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
       // Runtime-only lifecycle message: deliberately absent from tool schemas.
       if (command.action === 'finish_turn') {
@@ -53,7 +53,17 @@ export function createBrowserAgentBridge(options: {
       }
       const validated = validateBrowserToolArgs(input);
       if (!validated.ok) throw new Error(validated.error);
-      return options.execute({ ...validated.input, action: validated.action, session_id, turn_id }, signal);
+      return options.execute(
+        {
+          ...validated.input,
+          action: validated.action,
+          session_id,
+          turn_id,
+          // Runtime-set (client.mjs), outside the tool schema: a schedule/webhook run.
+          ...(unattended_run === true ? { unattended_run: true, unattended_agent } : {}),
+        },
+        signal
+      );
     },
     redactError: redactBrowserText,
     onReady: () => {

@@ -452,8 +452,8 @@ test('a v5 catalog DB opens through openChecked and is rebuilt to v6 with the ca
   await closeSessionCatalogDb();
   const rebuilt = new DatabaseSync(dbPath());
   try {
-    assert.equal(SCHEMA_VERSION, 9);
-    assert.equal(rebuilt.prepare("SELECT value FROM meta WHERE key='schema_version'").get().value, '9');
+    assert.equal(SCHEMA_VERSION, 10);
+    assert.equal(rebuilt.prepare("SELECT value FROM meta WHERE key='schema_version'").get().value, '10');
     assert.equal(rebuilt.prepare('PRAGMA application_id').get().application_id, APPLICATION_ID);
     const columns = rebuilt
       .prepare('PRAGMA table_info(sessions)')
@@ -463,6 +463,7 @@ test('a v5 catalog DB opens through openChecked and is rebuilt to v6 with the ca
     assert.equal(columns.includes('last_heartbeat_at'), true);
     assert.equal(columns.includes('last_message_routine'), true);
     assert.equal(columns.includes('session_mode'), true);
+    assert.equal(columns.includes('incoming_tail'), true);
     assert.equal(rebuilt.prepare('SELECT count(*) AS n FROM sessions').get().n, 5);
     assert.equal(rebuilt.prepare("SELECT count(*) AS n FROM sessions WHERE id='v5_stale'").get().n, 0);
   } finally {

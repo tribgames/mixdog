@@ -29,6 +29,8 @@ const SURFACE_KEYBOARD_OWNER_SELECTOR = [
   '.xterm',
   '.monaco-editor',
   "[role='dialog']",
+  // An approval card: Space and Enter on its focused button are the card's.
+  "[role='alertdialog']",
   "[role='listbox']",
   "[role='menu']",
   "[role='menuitem']",

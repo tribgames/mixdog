@@ -28,6 +28,16 @@ export function restartNotificationId(row) {
   return `restart:${clean(row.task_id) || `${clean(row.sessionId)}:${clean(row.finishedAt)}`}`;
 }
 
+/** The agent task id an execution id names: a task's own id, or the task a
+ *  restart notification (restartNotificationId) reports; null for one keyed
+ *  by session because its row recorded no task id. */
+export function agentTaskIdOfExecution(executionId) {
+  const id = clean(executionId);
+  if (!id.startsWith('restart:')) return id || null;
+  const rest = id.slice('restart:'.length);
+  return rest && !rest.includes(':') ? rest : null;
+}
+
 /** `pendingRestartFailures()` lists rows whose owner is not yet told;
  *  `markRestartNotified(rows)` stamps them. `mgr` supplies the persisted
  *  pending queue (enqueuePendingMessage / markCompletionEntry /

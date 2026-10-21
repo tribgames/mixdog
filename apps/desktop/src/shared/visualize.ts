@@ -1,11 +1,21 @@
 // The agent `visualize` tool's side-panel tabs, shared by main and renderer.
 // Main owns the tab state; the renderer only draws it and reports the user's
 // tab clicks and closes.
+import { fileExtension } from './file-extension';
+import { documentPreviewFormatForPath, filePreviewTypeForPath } from './file-preview';
 import { type VisualizeAnnotation, visualizeAnnotations } from './visualize-annotations';
 
 /** How one pane renders: HTML through the local page server, Office
  *  documents through their PDF conversion, the rest as native previews. */
 export type VisualizePaneKind = 'html' | 'document' | 'pdf' | 'image' | 'audio' | 'video' | 'inline';
+
+/** The pane kind a file renders as, or '' when visualize cannot show it. */
+export function visualizeKindForPath(path: string): Exclude<VisualizePaneKind, 'inline'> | '' {
+  const extension = fileExtension(path);
+  if (extension === 'html' || extension === 'htm') return 'html';
+  if (documentPreviewFormatForPath(path)) return 'document';
+  return filePreviewTypeForPath(path)?.kind ?? '';
+}
 
 /** What `open` can render straight from `input.content`, with no file. */
 export const VISUALIZE_INLINE_KINDS = ['mermaid', 'svg', 'chart', 'html', 'markdown'] as const;
@@ -49,6 +59,38 @@ export interface VisualizeVersionView {
   /** When it was kept (ms since epoch). */
   at: number;
   label?: string;
+  /** The agent turns (start, end; ms since epoch) that ended on this version
+   *  of the tab: a turn's card reads the version its turn produced from here,
+   *  on any device and after any renderer reload. Kept with the version. */
+  turns?: VisualizeVersionTurn[];
+}
+
+/** One agent turn's span, as the host saw it start and end. */
+export interface VisualizeVersionTurn {
+  since: number;
+  end: number;
+}
+
+/** Most turns one version remembers. */
+export const MAX_VERSION_TURNS = 20;
+
+/** The version of `versions` whose turn contains `at` (ms): what the card of
+ *  a call made at `at` stands for; 0 when no turn of this tab ended there. */
+export function versionProducedAt(versions: readonly VisualizeVersionView[] | undefined, at: number): number {
+  if (!versions || !at) return 0;
+  // A turn start is seen a moment after its first call was made.
+  const SLACK_MS = 2000;
+  let found = 0;
+  let foundEnd = Infinity;
+  for (const version of versions) {
+    for (const turn of version.turns ?? []) {
+      if (turn.end >= at && turn.since - SLACK_MS <= at && turn.end < foundEnd) {
+        found = version.n;
+        foundEnd = turn.end;
+      }
+    }
+  }
+  return found;
 }
 
 /** Most versions a tab keeps; older ones are evicted first. */
@@ -104,7 +146,9 @@ export const MAX_VISUALIZE_PROBLEMS = 20;
 
 /** `source:line` of a problem (the line only when known). */
 export function visualizeProblemLocation(problem: Pick<VisualizeProblem, 'source' | 'line'>): string {
-  return problem.source ? `${problem.source}${problem.line > 0 ? `:${problem.line}` : ''}` : '';
+  if (!problem.source) return '';
+  const line = problem.line > 0 ? `:${problem.line}` : '';
+  return `${problem.source}${line}`;
 }
 
 /** A page-server URL (`http://127.0.0.1:<port>/<token>/rel`) reduced to the
@@ -430,6 +474,16 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
         ...(typeof problem.version === 'number' ? { version: problem.version } : {}),
       }));
       const annotations = visualizeAnnotations(tab.annotations);
+      const remoteVersion = (version: NonNullable<typeof tab.versions>[number]) => {
+        const turns = version.turns?.length ? { turns: version.turns.map(({ since, end }) => ({ since, end })) } : {};
+        return { n: version.n, at: version.at, ...(version.label ? { label: version.label } : {}), ...turns };
+      };
+      const versionFields = (versions: NonNullable<typeof tab.versions>) => ({
+        versions: versions.map(remoteVersion),
+        version: tab.version ?? null,
+        ...(tab.compare ? { compare: true } : {}),
+        ...(tab.restoreAssets?.length ? { restoreAssets: tab.restoreAssets.map(String) } : {}),
+      });
       return {
         id: tab.id,
         label: tab.remoteLabel,
@@ -448,18 +502,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
         ...(problems.length ? { problems } : {}),
         // The device's frame drops its no-outside-network CSP only on this flag.
         ...(tab.networkAllowed === true ? { networkAllowed: true as const } : {}),
-        ...(tab.versions
-          ? {
-              versions: tab.versions.map((version) => ({
-                n: version.n,
-                at: version.at,
-                ...(version.label ? { label: version.label } : {}),
-              })),
-              version: tab.version ?? null,
-              ...(tab.compare ? { compare: true } : {}),
-              ...(tab.restoreAssets?.length ? { restoreAssets: tab.restoreAssets.map(String) } : {}),
-            }
-          : {}),
+        ...(tab.versions ? versionFields(tab.versions) : {}),
         ...(visualizeThumbnail(tab.thumbnail) ? { thumbnail: visualizeThumbnail(tab.thumbnail) } : {}),
         ...(visualizeThumbnail(tab.thumbnail) && Number.isInteger(tab.thumbnailVersion)
           ? { thumbnailVersion: tab.thumbnailVersion }

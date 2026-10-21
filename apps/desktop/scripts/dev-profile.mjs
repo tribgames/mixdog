@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
+import { refreshStaleLocalBinaries } from '../../../scripts/native-release-status.mjs';
+
 export const DEV_DEBUG_PORT = 9342;
 const desktopDir = fileURLToPath(new URL('..', import.meta.url));
 const PROFILE_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/i;
@@ -138,6 +140,7 @@ async function main() {
   console.log(`Test debug port: ${port}`);
   if (!values.preview) console.log(`Renderer dev server port: ${env.MIXDOG_DEV_RENDERER_PORT}`);
   await buildComputerBackend();
+  await refreshStaleLocalBinaries();
   // Never remove a profile here: a kept profile is the user's dev workspace,
   // and a fresh one is retained for diagnosis while Electron or an isolated
   // daemon may still be shutting down.

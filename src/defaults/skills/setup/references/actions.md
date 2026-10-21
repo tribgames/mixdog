@@ -28,12 +28,13 @@ Read this when choosing a `setup` mutation.
 | Active workflow pack | `set_workflow` |
 | Output style | `set_output_style` |
 | User title, language, or experience level | `set_profile` |
-| Idle session clearing | `set_autoclear` |
+| Idle session clearing, per provider, including `unlimited` | `set_autoclear` |
 | Automatic context compaction | `set_compaction` |
 | Memory capability | `set_memory_enabled` |
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
 | Which user instruction files (AGENTS.md / CLAUDE.md) new sessions load: all, agents, claude, or off | `set_instruction_files` |
+| The reasoning effort Auto works around: low, medium (default), or high | `set_auto_effort_base` |
 | Git, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, voice, or Visualize enabled state | `set_builtin_enabled` |
 | Git, Memory, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice preparation | `install_builtin` |
 | Managed local model installation | `install_local_model` |
@@ -78,7 +79,7 @@ Read this when choosing a `setup` mutation.
 | Run a schedule once now, or re-run a webhook on its latest received payload; the result posts into the owning agent's thread | `run_automation` |
 | Webhook listener enabled state, port, or domain | `set_webhook_config` |
 | Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, usage rail short + long bars, or Computer observe-only state | `set_desktop_settings` |
-| Desktop theme, display language, side panels, markdown default view, link previews, or tool activity expansion | `set_appearance` |
+| Desktop theme, imported color theme, UI/code font, skin transparency (outer or main panels), display language, side panels, markdown default view, link previews, or tool activity expansion | `set_appearance` |
 | Add a before-tool hook rule | `add_hook_rule` |
 | Enable or disable a hook rule by its `status hooks` index | `set_hook_rule_enabled` |
 | Delete a hook rule by its `status hooks` index | `delete_hook_rule` |
@@ -109,13 +110,26 @@ workflow` before changing the corresponding domain.
 - Definition actions use `definitionKind` (workflow, agent, skill).
   Workflow/agent ids cannot be renamed through
   a save; change their display name instead. User skills may be renamed with
-  `originalName` and `name`. Skill deletion is not exposed; disable it instead.
+  `originalName` and `name`. A user skill's trigger line (`when_to_use`) is
+  `definition.whenToUse` on create and save. Skill deletion is not exposed;
+  disable it instead.
   Built-in and plugin skills accept only `toolDependencies` edits (`null`
   restores their declared dependencies).
 - A created agent is a bot (`definition.kind: "bot"`) or a workflow agent
   (`"agent"`); omitted, the representative bot's chat creates a bot and any other chat a
   workflow agent. The kind is fixed after creation.
 - Changing orchestration does not rewrite workflow instructions or agents.
+- `set_route` is the Lead default for new sessions. A model chosen in New Task
+  changes that default only when the user actually picks one there.
+  `route.fallbacks` (ordered models on other providers; `[]` clears) works the
+  same on `set_route` (Lead), `set_agent_route` (agents and bots, Mixy included).
+- A workflow switch reaches a running conversation as a reminder on its next
+  turn (the cached prompt is not swapped). A bot definition's instruction,
+  persona or name applies when the user presses 적용, with one cache break.
+  Connector and built-in feature changes reach a bot's open chat at once for
+  availability: opened tools join the deferred catalog, removed ones are
+  refused at call time, and the next turn's notice names both. Only the prompt
+  text describing them waits until the cache next expires.
 
 ## Providers and authentication
 
@@ -126,6 +140,8 @@ key's source.
   authentication in the visible UI.
 - Custom providers are registered, tested, and removed in the Providers UI;
   `status providers` with `detail: true` lists them as API rows with `custom: true`.
+  Their model list (Nano-GPT included) loads there with up to a 60 s wait; the
+  user can skip it and type model ids by hand.
 - Local Provider is installed and enabled as a Built-in. Its endpoint is
   Mixdog-managed and is never configured by the user.
   Use the `local-provider` skill for hardware checks, model selection, downloads,
@@ -155,6 +171,18 @@ key's source.
   duration; `provider: "default"` sets the fallback for providers without a
   built-in window. A reset and a duration are mutually exclusive; provider
   reset requires a provider.
+- `duration: "unlimited"` (or `"never"`) stops idle clearing for a provider;
+  without `provider` it applies to the current route's provider. `status
+  autoclear` reports `unlimited`, `label` and per-provider `providerDefaults`
+  (`builtInUnlimited` marks a built-in unlimited window); a provider reset
+  restores its built-in window. Built-ins follow each provider's cache: Codex/
+  ChatGPT login unlimited, OpenAI API 30 min, Anthropic and Gemini 1h. The
+  OpenAI API caches a Lead-class session's stable prefix for 12h and its
+  moving tail for 30 min (Lead, bot chats, bot task sessions, routine and
+  webhook runs), so the 30 min window clears only a cold tail. Finished
+  sub-agent sessions are always released on a finite timer (the provider's
+  window, e.g. DeepSeek 24h; 1h for Codex/ChatGPT logins); unlimited does not
+  disable it.
 - Compaction supports `enabled` and a `compaction` object with either
   `mainBufferTokens` or `mainBufferPercent`. Changing representation replaces the previous budget.
 - If no supported action exposes a requested Memory interval, report it as
@@ -207,6 +235,8 @@ markers are read with `status desktop`.
 - `add_hook_rule` with modify/rewrite needs exactly one of `patch` or `args`.
 - `delete_hook_rule` is destructive and requires explicit approval for the
   named rule; disabling with `set_hook_rule_enabled` preserves it.
+- Hook rule changes apply to open sessions and their sub-agents on the next
+  tool call; no new session or restart is needed.
 - `status media` shows the remembered lane/model per kind. `set_media_default`
   accepts only a signed-in lane that offers the kind (and the model, when
   given) in the live media catalog; the media tool's `list` reads that catalog.
@@ -256,6 +286,15 @@ markers are read with `status desktop`.
 - Desktop-only operations require the owning conversation visible in the local
   Desktop app. Never claim a persisted change from merely delivering a request.
 - A display-language change returns `requiresReload`.
+- `set_appearance` also takes `uiFont` / `codeFont` (a family name, `""` =
+  built-in; text it lacks falls back to the built-in fonts), skin transparency
+  (0–100, defaults outer 20 / main 40; higher shows more of the skin picture):
+  `skinOuterTransparency` (window frame, titlebar, rail, sidebar, side dock),
+  `skinMainTransparency` (conversation area and its cards), or `skinTransparency`
+  to set both; and `colorTheme`
+  (an imported theme id from `status appearance` `colorThemes`, or `"builtin"`).
+  All are stored on that Desktop device only. Importing a theme file and
+  choosing a skin or custom picture stay in the UI.
 - A Project removal unregisters it only.
 - Inspect schedules/webhooks before editing. `overwrite:true` updates an
   existing named entry and preserves omitted fields; a new schedule needs
@@ -264,6 +303,14 @@ markers are read with `status desktop`.
   Omitted attachments and existing webhook secrets are preserved. A saved
   secret is never shown again: tell the user to open the Webhooks panel, edit
   the webhook, press Regenerate secret, copy the new value, and save.
+- A routine run (schedule or webhook) is a turn in the owning bot's chat with
+  nobody to approve: it never prompts, refuses payment and permanent-delete
+  connectors (trash moves are allowed), and still honors bot permission
+  "block". It can change only its own bot's automations and route. A webhook
+  answers "accepted" at once and a delivery that arrives while its run is
+  active is skipped. In an attended bot conversation (chat, room, or work a
+  bot started) the same payment and permanent-delete connectors ask first,
+  allow once or deny only; a coding session is not asked.
 - Enabling or creating automation may start its background worker. This is a
   persisted automation change, not permission to run an unrelated task now.
 

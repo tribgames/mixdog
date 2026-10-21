@@ -6,15 +6,20 @@ import { resolvePreToolAskApproval } from '../tool-helpers.mjs';
 import { runAbortable, throwIfAborted } from '../../../../../shared/abort-race.mjs';
 import { evaluateExecPolicy } from '../../../tools/bash-policy-scan.mjs';
 import { beginSessionApprovalWait } from '../../manager/runtime-liveness.mjs';
-import { agentMcpToolPermission } from '../../../mcp/agent-connectors.mjs';
-import { humanGateDecision, recordHumanDecision } from '../../human-gate/gate.mjs';
+import { agentMcpToolPermission, writeAgentMcpToolPermission } from '../../../mcp/agent-connectors.mjs';
+import {
+  actingContactBotId,
+  humanGateDecision,
+  recordHumanDecision,
+  rememberSurfaceOf,
+} from '../../human-gate/gate.mjs';
 import { applyEditedArgs } from '../../human-gate/requests.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
 async function askApproval(
   call,
-  { callerSessionId, executeOpts, toolApprovalHook, decision, request = null, gate = null }
+  { callerSessionId, executeOpts, toolApprovalHook, decision, request = null, gate = null, onApproved = null }
 ) {
   const askReason = String(decision?.reason || 'approval requested by hook').trim();
   // While the user decides, the session is waiting on them, not working.
@@ -46,26 +51,52 @@ async function askApproval(
   }
   // The user approved this very call on the richer outbound card.
   if (request?.kind === 'outbound') call.outboundApproved = true;
+  await onApproved?.(approval);
   return null;
 }
 
+/** The renderer translates this exact text (desktop-toasts.tsx ALLOW_NOT_SAVED_TEXT). */
+export const ALLOW_NOT_SAVED_NOTICE = 'Allowed this once. The setting could not be saved.';
 export const CONNECTOR_APPROVAL_REASON = 'This connector tool is set to ask before it runs for this agent.';
 
 /**
  * A connector tool the running agent set to `needs_approval` asks through the
  * ordinary approval hook, whatever the PreToolUse hooks decided. Run after
  * them, on the final call: a renamed call is judged under its final name.
- * A call the outbound card already got approved is not asked a second time.
+ * A call the outbound gate owns (its card approved it, or a remembered
+ * outbound grant answered it) is not asked a second time.
  * @returns {Promise<{ denial: string } | null>} the denial, or null to run
  */
 export function applyConnectorApproval(call, { agentId, callerSessionId, executeOpts, toolApprovalHook }) {
   if (call.outboundApproved) return null;
   if (agentMcpToolPermission(agentId, call.name) !== 'needs_approval') return null;
+  // "Always allow" is offered only to the contact bot that is acting, for its
+  // own policy entry for this one tool: never another bot, Mixy or the Lead.
+  const botId = actingContactBotId(callerSessionId);
+  const rememberable = Boolean(botId) && botId === agentId;
   return askApproval(call, {
     callerSessionId,
     executeOpts,
     toolApprovalHook,
     decision: { reason: CONNECTOR_APPROVAL_REASON },
+    request: rememberable
+      ? {
+          kind: 'approval',
+          agentId: botId,
+          remember: ['once', 'agent'],
+          rememberAt: rememberSurfaceOf(callerSessionId),
+        }
+      : null,
+    onApproved: async (approval) => {
+      if (!rememberable || approval?.remember !== 'agent') return;
+      try {
+        if (await writeAgentMcpToolPermission(botId, call.name, 'auto')) return;
+      } catch {
+        // fall through to the notice below
+      }
+      // Not saved: this call still runs once, and the next one asks again.
+      toolApprovalHook?.notice?.(ALLOW_NOT_SAVED_NOTICE, 'warn');
+    },
   });
 }
 
@@ -120,7 +151,7 @@ export async function applyBeforeToolHook({
     // Judged as the call will run: only a rewriting decision changes name/args.
     const hookAction = String(hookDecision?.action || hookDecision?.decision || '').toLowerCase();
     const rewritten = hookAction === 'ask' || hookAction === 'modify' || hookAction === 'rewrite';
-    const { decision, request, gate } = await humanGateDecision(
+    const { decision, request, gate, remembered } = await humanGateDecision(
       {
         name:
           rewritten && typeof hookDecision?.name === 'string' && hookDecision.name.trim()
@@ -132,6 +163,8 @@ export async function applyBeforeToolHook({
       { sessionId: callerSessionId, mcpScopeId }
     );
     const action = String(decision?.action || decision?.decision || '').toLowerCase();
+    // A remembered outbound grant answered this call: the connector ask is not repeated.
+    if (remembered) call.outboundApproved = true;
     if (action === 'deny' || action === 'block') {
       const reason = decision?.reason ? `: ${decision.reason}` : '';
       return { denial: `Error: tool "${name}" denied by hook${reason}` };

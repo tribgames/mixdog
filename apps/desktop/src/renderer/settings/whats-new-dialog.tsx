@@ -4,6 +4,7 @@ import { version as appVersion } from '../../../package.json';
 import MarkdownBody from '../MarkdownBody';
 import { parseStreamingMarkdownAst } from '../markdown-worker-client';
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CopyControl } from '../transcript-primitives';
@@ -54,14 +55,8 @@ export default function WhatsNewDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
-    <div
-      ref={layerRef}
-      className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
+    // Scrim click-to-dismiss; keyboard dismissal is the dialog's close button and Escape.
+    <div ref={layerRef} className="settings-confirm-layer" {...scrimDismiss(onClose)}>
       <section
         className="settings-confirm-dialog settings-changelog-dialog"
         role="dialog"

@@ -5,6 +5,7 @@
 import { SUMMARY_PREFIX_ANCHOR } from './summary-anchor.mjs';
 import { isImportedMessage } from '../imported-message.mjs';
 import {
+  CONTROL_MARKER_RE,
   isInternalRuntimeNotificationText,
   isModelVisibleToolCompletionWrapper,
 } from '../../../../shared/tool-execution-contract.mjs';
@@ -132,7 +133,6 @@ export function isActualUserInstructionMessage(message) {
 // isActualUserInstructionMessage deliberately keeps treating "[truncated]" as
 // an instruction (compaction tail selection depends on it), so the real-turn
 // predicate below recognizes it on its own.
-const CONTROL_MARKER_RE = /^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$/i;
 
 /** Whether a message stands for real human conversation: a compact summary
  *  (it replaced earlier human turns), imported prose, or the user's own

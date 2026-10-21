@@ -1523,33 +1523,31 @@ button.quota-chart-slot[aria-expanded="true"] {
 }
 
 /* highlight.js ink over the shared code card, Dark+/Light+ class.
-   Explicit-language fences only; token hues live as theme tokens so the
-   light sheet swaps the whole ramp in one place. */
+   Explicit-language fences only; the ramps are named per appearance
+   (--mx-tone-dark-syntax-* / --mx-tone-light-syntax-*, 01-tokens.css): each
+   theme block picks its own, and a skin whose plate is the other tone picks
+   the plate's (33-skin.css). */
 :root {
-  --mx-syntax-comment: #78aa68;
-  --mx-syntax-keyword: #5aa9ff;
-  --mx-syntax-control: #d096f5;
-  --mx-syntax-string: #f0a070;
-  --mx-syntax-number: #8fd18a;
-  --mx-syntax-type: #3fd0b4;
-  --mx-syntax-function: #e8cf70;
-  --mx-syntax-variable: #8fd0ff;
-  --mx-syntax-meta: #f58585;
+  --mx-syntax-comment: var(--mx-tone-dark-syntax-comment);
+  --mx-syntax-keyword: var(--mx-tone-dark-syntax-keyword);
+  --mx-syntax-control: var(--mx-tone-dark-syntax-control);
+  --mx-syntax-string: var(--mx-tone-dark-syntax-string);
+  --mx-syntax-number: var(--mx-tone-dark-syntax-number);
+  --mx-syntax-type: var(--mx-tone-dark-syntax-type);
+  --mx-syntax-function: var(--mx-tone-dark-syntax-function);
+  --mx-syntax-variable: var(--mx-tone-dark-syntax-variable);
+  --mx-syntax-meta: var(--mx-tone-dark-syntax-meta);
 }
 :root[data-mixdog-theme="light"] {
-  /* A calm light ramp. The stock Light+ primaries (#0000ff, #a31515, #008000)
-     were built for a white editor; on the tinted code plates they read as
-     harsh, dated ink. Every hue keeps >= 4.5:1 on
-     the layer-1 plate. */
-  --mx-syntax-comment: #646b78;
-  --mx-syntax-keyword: #0a58ca;
-  --mx-syntax-control: #8a2fc9;
-  --mx-syntax-string: #b8420a;
-  --mx-syntax-number: #06756a;
-  --mx-syntax-type: #0b6f8a;
-  --mx-syntax-function: #7a5700;
-  --mx-syntax-variable: #1f4fa6;
-  --mx-syntax-meta: #c42b2b;
+  --mx-syntax-comment: var(--mx-tone-light-syntax-comment);
+  --mx-syntax-keyword: var(--mx-tone-light-syntax-keyword);
+  --mx-syntax-control: var(--mx-tone-light-syntax-control);
+  --mx-syntax-string: var(--mx-tone-light-syntax-string);
+  --mx-syntax-number: var(--mx-tone-light-syntax-number);
+  --mx-syntax-type: var(--mx-tone-light-syntax-type);
+  --mx-syntax-function: var(--mx-tone-light-syntax-function);
+  --mx-syntax-variable: var(--mx-tone-light-syntax-variable);
+  --mx-syntax-meta: var(--mx-tone-light-syntax-meta);
 }
 .markdown-code .hljs-comment,
 .markdown-code .hljs-quote {

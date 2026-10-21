@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -14,9 +13,10 @@ import {
   writeProjectTextFileIn as save,
   writeProjectTextFilesIn as saveMany,
 } from './project-files.ts';
+import { hookProjectSwap } from './project-swap-hook.mjs';
 
 // Only leaf IO is paused/faulted. Public operations, path guards, mutation
-// ownership, compare checks, actual temp files and renames all run unchanged.
+// ownership, compare checks and the in-place writes all run unchanged.
 async function fixture(t, files = { 'a.txt': 'initial' }) {
   const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-file-mutations-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -50,11 +50,20 @@ function pauseRead(t, file) {
     }
     return bytes;
   });
-  return { entered: entered.promise, release: released.resolve, get reads() { return reads; } };
+  return {
+    entered: entered.promise,
+    release: released.resolve,
+    get reads() {
+      return reads;
+    },
+  };
 }
 
 async function assertClean(root) {
-  assert.deepEqual((await fs.readdir(root)).filter((name) => name.includes('.mixdog-save-')), []);
+  assert.deepEqual(
+    (await fs.readdir(root)).filter((name) => name.includes('.mixdog-save-')),
+    []
+  );
 }
 
 for (const rel of ['a.txt', './a.txt']) {
@@ -121,30 +130,23 @@ test('successful consecutive saves work with a frozen wall clock and leave no sc
   await assertClean(root);
 });
 
-test('an exclusive temp-name collision neither overwrites nor removes the existing file', async (t) => {
-  const root = await fixture(t);
-  replaceBuiltin(t, crypto, 'randomUUID', () => 'collision');
-  const temp = join(root, `a.txt.mixdog-save-${process.pid}-collision`);
-  await fs.writeFile(temp, 'belongs to somebody else');
-  await assert.rejects(save(root, 'a.txt', 'next', 'initial'), { code: 'EEXIST' });
-  assert.equal(await fs.readFile(temp, 'utf8'), 'belongs to somebody else');
-  assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'initial');
-});
-
-test('partial temp write failure closes the handle, cleans only owned temp, and releases the claim', async (t) => {
+test('a partial in-place write is undone, closes the handle and releases the claim', async (t) => {
   const root = await fixture(t);
   let handle;
   let fault = true;
   replaceBuiltin(t, fs, 'open', async (open, path, ...args) => {
     const result = await open(path, ...args);
-    if (fault && String(path).includes('.mixdog-save-')) {
+    if (fault && args[0] === 'r+') {
       fault = false;
       handle = result;
-      const write = result.writeFile.bind(result);
-      t.mock.method(result, 'writeFile', async () => {
-        await write('partial');
+      const write = result.write.bind(result);
+      let failed = false;
+      result.write = async (...values) => {
+        if (failed) return write(...values);
+        failed = true;
+        await write(Buffer.from('partial'), 0, 7, 0);
         throw Object.assign(new Error('injected disk full'), { code: 'ENOSPC' });
-      });
+      };
     }
     return result;
   });
@@ -155,15 +157,15 @@ test('partial temp write failure closes the handle, cleans only owned temp, and 
   await save(root, 'a.txt', 'recovered', 'initial');
 });
 
-test('failed replacement preserves original contents and allows a later save', async (t) => {
+test('a failed write preserves original contents and allows a later save', async (t) => {
   const root = await fixture(t);
   let fail = true;
-  replaceBuiltin(t, fs, 'rename', async (rename, from, to) => {
-    if (fail && String(from).includes('.mixdog-save-')) {
+  hookProjectSwap(t, {
+    before() {
+      if (!fail) return;
       fail = false;
-      throw Object.assign(new Error('injected rename failure'), { code: 'EPERM' });
-    }
-    return rename(from, to);
+      throw Object.assign(new Error('injected write failure'), { code: 'EPERM' });
+    },
   });
   await assert.rejects(save(root, 'a.txt', 'next', 'initial'), { code: 'EPERM' });
   assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'initial');
@@ -173,12 +175,10 @@ test('failed replacement preserves original contents and allows a later save', a
 
 test('external edits before the final compare still fail the content check', async (t) => {
   const root = await fixture(t);
-  let reads = 0;
-  replaceBuiltin(t, fs, 'readFile', async (read, path, ...args) => {
-    if (String(path) === join(root, 'a.txt') && ++reads === 2) {
-      await fs.writeFile(path, 'external');
-    }
-    return read(path, ...args);
+  replaceBuiltin(t, fs, 'open', async (open, path, ...args) => {
+    // After the save's first read, just before it compares through its handle.
+    if (String(path) === join(root, 'a.txt') && args[0] === 'r+') await fs.writeFile(path, 'external');
+    return open(path, ...args);
   });
   await assert.rejects(save(root, 'a.txt', 'next', 'initial'), /changed on disk/);
   assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'external');
@@ -205,7 +205,10 @@ for (const entry of ['a.txt', 'dir']) {
       gate.release();
       await finished;
     }
-    assert.deepEqual((await finished).map((result) => result.status), ['fulfilled', 'fulfilled']);
+    assert.deepEqual(
+      (await finished).map((result) => result.status),
+      ['fulfilled', 'fulfilled']
+    );
     const moved = entry === 'dir' ? 'renamed/a.txt' : 'renamed';
     assert.equal(await fs.readFile(join(root, moved), 'utf8'), 'saved');
     await assert.rejects(fs.stat(join(root, rel)), { code: 'ENOENT' });
@@ -256,7 +259,10 @@ test('concurrent renames to one destination have one winner and preserve the los
     renameProjectEntryIn(root, 'a.txt', 'target.txt'),
     renameProjectEntryIn(root, 'b.txt', 'target.txt'),
   ]);
-  assert.deepEqual(results.map((result) => result.status), ['fulfilled', 'rejected']);
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ['fulfilled', 'rejected']
+  );
   assert.equal(await fs.readFile(join(root, 'target.txt'), 'utf8'), 'A');
   assert.equal(await fs.readFile(join(root, 'b.txt'), 'utf8'), 'B');
 });
@@ -337,11 +343,12 @@ for (const operation of ['create', 'move', 'copy']) {
     });
     const renaming = renameProjectEntryIn(root, 'source.txt', 'target.txt');
     await entered.promise;
-    const competing = operation === 'create'
-      ? createProjectEntryIn(root, '', 'target.txt', false)
-      : operation === 'move'
-        ? moveProjectEntryIn(root, 'other/target.txt', '')
-        : copyProjectEntryIn(root, 'other/target.txt', '');
+    const competing =
+      operation === 'create'
+        ? createProjectEntryIn(root, '', 'target.txt', false)
+        : operation === 'move'
+          ? moveProjectEntryIn(root, 'other/target.txt', '')
+          : copyProjectEntryIn(root, 'other/target.txt', '');
     const finished = Promise.allSettled([renaming, competing]);
     release.resolve();
     const results = await finished;
@@ -367,12 +374,13 @@ test('a batch owns every target until all writes finish', { timeout: 5000 }, asy
     if (String(path) === join(root, 'b.txt')) bReads++;
     return read(path, ...args);
   });
-  replaceBuiltin(t, fs, 'rename', async (rename, from, to) => {
-    await rename(from, to);
-    if (String(to) === join(root, 'a.txt')) {
-      entered.resolve();
-      await release.promise;
-    }
+  hookProjectSwap(t, {
+    async after(path) {
+      if (path === join(root, 'a.txt')) {
+        entered.resolve();
+        await release.promise;
+      }
+    },
   });
   const batch = saveMany(root, [
     { relPath: 'a.txt', content: 'A1', expectedContent: 'A0' },
@@ -387,7 +395,10 @@ test('a batch owns every target until all writes finish', { timeout: 5000 }, asy
     release.resolve();
     await finished;
   }
-  assert.deepEqual((await finished).map((result) => result.status), ['fulfilled', 'rejected']);
+  assert.deepEqual(
+    (await finished).map((result) => result.status),
+    ['fulfilled', 'rejected']
+  );
   assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'A1');
   assert.equal(await fs.readFile(join(root, 'b.txt'), 'utf8'), 'B1');
 });
@@ -396,13 +407,14 @@ test('batch rollback completes before a queued save reads the restored version',
   const root = await fixture(t, { 'a.txt': 'A0', 'b.txt': 'B0' });
   const entered = Promise.withResolvers();
   const release = Promise.withResolvers();
-  replaceBuiltin(t, fs, 'rename', async (rename, from, to) => {
-    if (String(to) === join(root, 'b.txt')) {
-      entered.resolve();
-      await release.promise;
-      throw new Error('injected second-file failure');
-    }
-    return rename(from, to);
+  hookProjectSwap(t, {
+    async before(path) {
+      if (path === join(root, 'b.txt')) {
+        entered.resolve();
+        await release.promise;
+        throw new Error('injected second-file failure');
+      }
+    },
   });
   const batch = saveMany(root, [
     { relPath: 'a.txt', content: 'A1', expectedContent: 'A0' },
@@ -427,45 +439,49 @@ test('opposite-order overlapping batches settle without deadlock', { timeout: 50
     { relPath: 'b.txt', content: 'B1', expectedContent: 'B0' },
   ];
   const results = await Promise.allSettled([saveMany(root, writes), saveMany(root, [...writes].reverse())]);
-  assert.deepEqual(results.map((result) => result.status), ['fulfilled', 'rejected']);
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ['fulfilled', 'rejected']
+  );
   assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'A1');
   assert.equal(await fs.readFile(join(root, 'b.txt'), 'utf8'), 'B1');
 });
 
-
 for (const distinctCase of [false, true]) {
-test(`a retargeted ${distinctCase ? 'case-distinct ' : ''}directory alias cannot redirect a queued save outside its claim`, { timeout: 5000 }, async (t) => {
-  const original = distinctCase ? 'A' : 'one';
-  const other = distinctCase ? 'a' : 'two';
-  const root = await fixture(t, { [`${original}/a.txt`]: 'one' });
-  await fs.mkdir(join(root, other), { recursive: true });
-  if (distinctCase && await fs.realpath(join(root, original)) === await fs.realpath(join(root, other))) {
-    t.skip('fixture filesystem does not support distinct case-variant directories');
-    return;
-  }
-  await fs.writeFile(join(root, other, 'a.txt'), 'two');
-  const alias = join(root, 'alias');
-  const kind = process.platform === 'win32' ? 'junction' : 'dir';
-  await fs.symlink(join(root, original), alias, kind);
-  const gate = pauseRead(t, join(root, original, 'a.txt'));
-  const first = save(root, `${original}/a.txt`, 'saved one', 'one');
-  await gate.entered;
-  const second = save(root, 'alias/a.txt', 'must not land', 'two');
-  const finished = Promise.allSettled([first, second]);
-  try {
-    await fs.unlink(alias);
-    await fs.symlink(join(root, other), alias, kind);
-  } finally {
-    gate.release();
-    await finished;
-  }
-  const [a, b] = await finished;
-  assert.equal(a.status, 'fulfilled');
-  assert.equal(b.status, 'rejected');
-  assert.match(b.reason.message, /Project path changed/);
-  assert.equal(await fs.readFile(join(root, original, 'a.txt'), 'utf8'), 'saved one');
-  assert.equal(await fs.readFile(join(root, other, 'a.txt'), 'utf8'), 'two');
-});
+  test(`a retargeted ${distinctCase ? 'case-distinct ' : ''}directory alias cannot redirect a queued save outside its claim`, {
+    timeout: 5000,
+  }, async (t) => {
+    const original = distinctCase ? 'A' : 'one';
+    const other = distinctCase ? 'a' : 'two';
+    const root = await fixture(t, { [`${original}/a.txt`]: 'one' });
+    await fs.mkdir(join(root, other), { recursive: true });
+    if (distinctCase && (await fs.realpath(join(root, original))) === (await fs.realpath(join(root, other)))) {
+      t.skip('fixture filesystem does not support distinct case-variant directories');
+      return;
+    }
+    await fs.writeFile(join(root, other, 'a.txt'), 'two');
+    const alias = join(root, 'alias');
+    const kind = process.platform === 'win32' ? 'junction' : 'dir';
+    await fs.symlink(join(root, original), alias, kind);
+    const gate = pauseRead(t, join(root, original, 'a.txt'));
+    const first = save(root, `${original}/a.txt`, 'saved one', 'one');
+    await gate.entered;
+    const second = save(root, 'alias/a.txt', 'must not land', 'two');
+    const finished = Promise.allSettled([first, second]);
+    try {
+      await fs.unlink(alias);
+      await fs.symlink(join(root, other), alias, kind);
+    } finally {
+      gate.release();
+      await finished;
+    }
+    const [a, b] = await finished;
+    assert.equal(a.status, 'fulfilled');
+    assert.equal(b.status, 'rejected');
+    assert.match(b.reason.message, /Project path changed/);
+    assert.equal(await fs.readFile(join(root, original, 'a.txt'), 'utf8'), 'saved one');
+    assert.equal(await fs.readFile(join(root, other, 'a.txt'), 'utf8'), 'two');
+  });
 }
 
 for (const [encoding, before, after] of [

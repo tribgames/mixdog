@@ -482,6 +482,23 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     assert.match(alpha.text, /Dropped browser-upload-fixture\.txt/);
+    const seenAfterDrop = await command({ action: 'evaluate', script: 'window.dropFilesSeen', tab: 'alpha' });
+    assert.match(seenAfterDrop.text, /\b1\b/, "the approved frame's own capture listener sees the drop on its target");
+    // An element the page lays over the zone while the drag is on: the
+    // browser-side hit test right before the drop refuses, and no listener of
+    // the page ever sees the files.
+    alpha = await command({ action: 'snapshot', tab: 'alpha' });
+    await assert.rejects(
+      command({
+        action: 'upload',
+        ref: refNamed(alpha.text, 'Trap drop zone'),
+        paths: [uploadFixturePath],
+        tab: 'alpha',
+      }),
+      /upload target changed/
+    );
+    const seenAfterTrap = await command({ action: 'evaluate', script: 'window.dropFilesSeen', tab: 'alpha' });
+    assert.match(seenAfterTrap.text, /\b1\b/, 'the covered drop never reached the page');
     progress('read, wait, type, press, and upload dispatch complete');
 
     // A styled button over a hidden input: the click opens a native picker

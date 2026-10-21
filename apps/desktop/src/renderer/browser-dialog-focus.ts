@@ -1,10 +1,15 @@
-/** Keep dialog keyboard focus local and restore the trigger on cleanup. */
+import { acquireTitleBarDim } from './titlebar-dim';
+
+/** Keep dialog keyboard focus local and restore the trigger on cleanup. The
+ *  browser dialogs draw their own fullscreen scrim, so they also hold the
+ *  shared dim claim while open (caption band dimmed, the pet steps aside). */
 export function watchBrowserDialogFocus(
   dialog: { current: HTMLElement | null },
   requestClose: () => void,
   selector: string,
   initialSelector = selector
 ): () => void {
+  const releaseDim = acquireTitleBarDim();
   const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const focusFrame = window.requestAnimationFrame(() => {
     dialog.current?.querySelector<HTMLElement>(initialSelector)?.focus();
@@ -34,6 +39,7 @@ export function watchBrowserDialogFocus(
   return () => {
     window.cancelAnimationFrame(focusFrame);
     document.removeEventListener('keydown', onKeyDown);
+    releaseDim();
     returnFocus?.focus();
   };
 }

@@ -78,7 +78,12 @@ function loadPersistedDrafts(): void {
     const stored: unknown = JSON.parse(globalThis.localStorage?.getItem(PERSISTED_DRAFTS_KEY) ?? '[]');
     if (!Array.isArray(stored)) return;
     for (const entry of stored) {
-      if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string' && !composerDraftsByScope.has(entry[0])) {
+      if (
+        Array.isArray(entry) &&
+        typeof entry[0] === 'string' &&
+        typeof entry[1] === 'string' &&
+        !composerDraftsByScope.has(entry[0])
+      ) {
         composerDraftsByScope.set(entry[0], entry[1]);
       }
     }
@@ -100,9 +105,17 @@ export function persistComposerDrafts(): void {
   }
 }
 
+/** Conversations deleted for good. A composer still showing one parks its
+ *  content AFTER the deletion signal (tabs close once the session is gone), so
+ *  the stashes below refuse these identities instead of re-adding them. Ids are
+ *  never reused. */
+const forgottenComposerScopes = new Set<string>();
+const FORGOTTEN_SCOPES_LIMIT = 500;
+
 export function stashComposerDraft(scope: string, text: string): void {
   loadPersistedDrafts();
   composerDraftsByScope.delete(scope);
+  if (forgottenComposerScopes.has(scope)) return;
   if (text.trim()) composerDraftsByScope.set(scope, text);
 }
 
@@ -121,7 +134,7 @@ const PARKED_ATTACHMENT_SCOPES_LIMIT = 20;
 
 export function stashComposerAttachments(scope: string, attachments: readonly ComposerAttachment[]): void {
   composerAttachmentsByScope.delete(scope);
-  if (!attachments.length) return;
+  if (!attachments.length || forgottenComposerScopes.has(scope)) return;
   composerAttachmentsByScope.set(scope, [...attachments]);
   if (composerAttachmentsByScope.size > PARKED_ATTACHMENT_SCOPES_LIMIT) {
     composerAttachmentsByScope.delete(composerAttachmentsByScope.keys().next().value as string);
@@ -141,7 +154,22 @@ const composerTagsByScope = new Map<string, string[]>();
 
 export function stashComposerTags(scope: string, memberIds: readonly string[]): void {
   composerTagsByScope.delete(scope);
-  if (memberIds.length) composerTagsByScope.set(scope, [...memberIds]);
+  if (memberIds.length && !forgottenComposerScopes.has(scope)) composerTagsByScope.set(scope, [...memberIds]);
+}
+
+/** A conversation whose deletion the host CONFIRMED never comes back: drop
+ *  everything parked for it. Call it only from the delete action — a session
+ *  merely missing from a catalog push may reappear with its parked content. */
+export function forgetComposerScope(scope: string): void {
+  if (!scope) return;
+  loadPersistedDrafts();
+  composerDraftsByScope.delete(scope);
+  composerAttachmentsByScope.delete(scope);
+  composerTagsByScope.delete(scope);
+  forgottenComposerScopes.add(scope);
+  if (forgottenComposerScopes.size > FORGOTTEN_SCOPES_LIMIT) {
+    forgottenComposerScopes.delete(forgottenComposerScopes.values().next().value as string);
+  }
 }
 
 export function takeStashedComposerTags(scope: string): string[] {
@@ -186,6 +214,48 @@ export function composerDraftAfterScopeChange({
   if (freshDraft) return '';
   const candidate = typingLive ? liveDomDraft : currentDraft;
   return typingLive && candidate.trim() ? candidate : '';
+}
+
+// New Task drafts whose first submission minted a session, by draft scope.
+// The submit router records the pair when the host acknowledges the mint; the
+// composer reads it when its identity moves, so only the session THIS draft
+// became takes its chips along.
+const promotedDraftSessions = new Map<string, string>();
+const PROMOTED_DRAFT_LIMIT = 64;
+
+export function noteDraftPromotion(draftId: string, sessionId: string): void {
+  if (!sessionId) return;
+  const scope = `draft:${draftId || 'default'}`;
+  promotedDraftSessions.delete(scope);
+  promotedDraftSessions.set(scope, sessionId);
+  if (promotedDraftSessions.size > PROMOTED_DRAFT_LIMIT) {
+    promotedDraftSessions.delete(promotedDraftSessions.keys().next().value as string);
+  }
+}
+
+/** Whether `nextScope` is the session `previousScope`'s draft became. The
+ *  record is spent on the match, so a revisited draft cannot reuse it. */
+export function takeDraftPromotion(previousScope: string, nextScope: string): boolean {
+  if (promotedDraftSessions.get(previousScope) !== nextScope) return false;
+  promotedDraftSessions.delete(previousScope);
+  return true;
+}
+
+/** Whether the chips on screen stay with the composer across a scope change.
+ *  Like the in-flight text, chips parked by the target tab win and a fresh New
+ *  Task opens clean. Unlike the text, focus is no signal: a tab switch from a
+ *  focused composer must park them, so only the session a draft was promoted
+ *  into (`promotingDraft`, see takeDraftPromotion) takes its chips along. */
+export function composerAttachmentsCarryOver({
+  freshDraft,
+  promotingDraft,
+  parkedCount,
+}: {
+  freshDraft: boolean;
+  promotingDraft: boolean;
+  parkedCount: number;
+}): boolean {
+  return parkedCount === 0 && !freshDraft && promotingDraft;
 }
 
 // Submissions THIS device minted. Another device cancelling a turn hands the

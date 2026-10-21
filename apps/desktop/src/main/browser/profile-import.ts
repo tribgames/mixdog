@@ -370,7 +370,12 @@ export class BrowserProfileImportService {
     if (this.activeJobId) throw new Error('A browser import is running; clear its data after it finishes.');
     const root = this.options.userDataDirectory;
     // The vault's last-good copy and any damaged copy kept aside hold the same passwords.
-    const vaultCopies = (await readdir(root).catch(() => [])).filter(
+    // Only a missing directory is empty; any other failure must not report the copies as gone.
+    const entries = await readdir(root).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    const vaultCopies = entries.filter(
       (name) => name === 'browser-password-vault.bin.bak' || name.startsWith('browser-password-vault.bin.corrupt-')
     );
     await Promise.all([

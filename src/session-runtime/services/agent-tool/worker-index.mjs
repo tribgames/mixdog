@@ -22,6 +22,7 @@ import {
   createRowLiveness,
   isActiveWorkerRow,
   isStaleApprovalWait,
+  isUnnotifiedRestartFailure,
   PROCESS_RESTART_FAILURE,
   runtimeDied,
 } from './worker-index/row-liveness.mjs';
@@ -101,12 +102,15 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   const rowFromSession = (session, fallbackTag = '', extra = {}) =>
     workerRowFromSession(session, fallbackTag, extra, (sessionId) => mgr.getSessionRuntime?.(sessionId));
 
+  // A row whose owner is still owed its restart failure stays: closing the
+  // worker (a process exit closes every one) must not lose that result.
   function removeWorkerRow({ tag = '', sessionId = '' } = {}) {
     const targetTag = clean(tag);
     const targetSessionId = clean(sessionId);
     batch.flush();
     store.write((byKey) => {
       for (const [key, row] of [...byKey.entries()]) {
+        if (isUnnotifiedRestartFailure(row)) continue;
         if ((targetSessionId && row.sessionId === targetSessionId) || (targetTag && row.tag === targetTag)) {
           byKey.delete(key);
         }
@@ -193,12 +197,6 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     if (staleWaits) store.update((byKey) => clearAwaitingUser(byKey, isStaleApprovalWait));
     return true;
   }
-
-  const isUnnotifiedRestartFailure = (row) =>
-    row.status === 'failed' &&
-    row.failureReason === PROCESS_RESTART_FAILURE &&
-    Boolean(clean(row.ownerSessionId)) &&
-    !row.restartNotified;
 
   /** Rows whose turn a process restart ended and whose owner has not been told
    *  yet — whoever settled the row (this process at startup, or the

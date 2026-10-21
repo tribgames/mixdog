@@ -53,6 +53,20 @@ export function normalizeMessageAttachments(value) {
   return out;
 }
 
+/**
+ * Who a user-kind row came from, as the row's own fields: the sender, the
+ * submitting device and the bot that sent it. One definition for the delivered
+ * steering row and the still-queued one, so both render the same.
+ */
+export function transcriptSourceFields(value) {
+  if (!value || typeof value !== 'object') return {};
+  return {
+    ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
+    ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    ...(typeof value.fromAgent === 'string' && value.fromAgent ? { fromAgent: value.fromAgent } : {}),
+  };
+}
+
 /** A new stable message id (`meta.transcript.messageId`). */
 export function newTranscriptMessageId() {
   return `msg_${globalThis.crypto.randomUUID().replaceAll('-', '')}`;
@@ -71,14 +85,19 @@ export function persistedUserTranscriptMetadata(value) {
     ...(typeof value.attemptId === 'string' && value.attemptId ? { attemptId: value.attemptId } : {}),
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
-    ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
-    // The device that submitted the prompt (host-stamped display name).
-    ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    // Sender, the submitting device (host-stamped display name) and the bot
+    // that sent this message to this session (agent-task-sessions.mjs).
+    ...transcriptSourceFields(value),
+    // Bot-to-bot chain position of a bot's message (session-runtime/bot-hops.mjs).
+    ...(Number.isInteger(value.hop) && value.hop > 0 ? { hop: value.hop } : {}),
     // The turn's change-record key (the outer prompt id), so a restored user
     // row still addresses its turn's Undo/Reapply.
     ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
     // Every submission a merged queued batch delivered as this turn.
     ...submissionIdsField(value.submissionIds),
+    // The executions a woken batch delivered (session-flow/drain.mjs): the
+    // provenance a task session's report follows (agent-task-sessions.mjs).
+    ...consumedExecutionIdsField(value.consumedExecutionIds),
     ...attachmentsField(value.attachments),
     // A routine fire delivered as this turn (routine-trigger.mjs).
     ...routineTriggerField(value),
@@ -88,6 +107,12 @@ export function persistedUserTranscriptMetadata(value) {
 function submissionIdsField(value) {
   const ids = Array.isArray(value) ? value.filter((id) => typeof id === 'string' && id) : [];
   return ids.length ? { submissionIds: ids } : {};
+}
+
+// Positions are kept: a null stands for a delivered entry that named no execution.
+function consumedExecutionIdsField(value) {
+  if (!Array.isArray(value) || !value.length) return {};
+  return { consumedExecutionIds: value.map((id) => (typeof id === 'string' && id ? id : null)) };
 }
 
 function attachmentsField(value) {

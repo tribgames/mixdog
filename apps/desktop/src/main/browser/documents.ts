@@ -3,7 +3,8 @@
 import type { WebContents } from 'electron';
 import { createBrowserFrameCollector, type BrowserFrameHost } from './document-frames';
 import { browserQueryMatchesLine, parseBrowserQuery } from './semantic-query';
-import { browserRenderCheckpoint } from './render-checkpoint';
+import { browserRenderCheckpointEnd, browserRenderCheckpointPoll } from './render-checkpoint';
+import { pause } from './settle';
 import { observeBrowserDocumentChanges } from './document-changes';
 
 export const BROWSER_DOCUMENT_ROOTS = `function() {
@@ -120,7 +121,17 @@ export function filterBrowserReadLines(text: string, query: string): string {
     .join('\n');
 }
 
-export function createBrowserDocuments(host: BrowserFrameHost) {
+/** The old checkpoint settled within ~100ms; a frame that has not confirmed
+ *  after ten times that is not going to run timers. The deadline bounds the
+ *  whole checkpoint, including a read still outstanding when it passes. */
+const CHECKPOINT_DEADLINE_MS = 1_000;
+const CHECKPOINT_POLL_MS = 10;
+let nextCheckpoint = 0;
+
+export function createBrowserDocuments(
+  host: BrowserFrameHost,
+  { checkpointDeadlineMs = CHECKPOINT_DEADLINE_MS }: { checkpointDeadlineMs?: number } = {}
+) {
   const collect = createBrowserFrameCollector(host);
   const explicitScrolls = new WeakMap<WebContents, number>();
   const recordScroll = (guest: WebContents) => {
@@ -205,8 +216,50 @@ export function createBrowserDocuments(host: BrowserFrameHost) {
     const frames = await collect<string>(guest, BROWSER_OBSERVATION_REVISION, signal);
     return frames.map((frame) => `${frame}:${explicitScrolls.get(guest) || 0}`).join('|');
   }
-  async function renderCheckpoint(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<void> {
-    await collect<boolean>(guest, `(${browserRenderCheckpoint(background)}).then(() => true)`, signal);
+  /** Flushes pending rendering work in every frame. Each frame schedules the
+   *  checkpoint and answers at once; the markers are then polled with
+   *  synchronous reads, so a frame that can never run timers (sandboxed
+   *  without allow-scripts, hidden) holds nothing and is only given until the
+   *  deadline. Resolves false when some frame stayed unconfirmed: its pending
+   *  work is unknown, so it must never count as proof that nothing changed. */
+  async function renderCheckpoint(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<boolean> {
+    const id = ++nextCheckpoint;
+    const deadline = AbortSignal.timeout(checkpointDeadlineMs);
+    const bounded = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    // Frames that reported done are not read again while they stay in the
+    // context that confirmed (a navigation keeps the frame id, not the
+    // context); a frame that appears mid-checkpoint is scheduled and awaited too.
+    const done = new Map<string, number>();
+    let confirmed = false;
+    try {
+      for (;;) {
+        const polled = await collect.byFrame<boolean>(
+          guest,
+          browserRenderCheckpointPoll(id, background),
+          bounded,
+          done
+        );
+        for (const [frameId, finished, contextId] of polled)
+          if (finished) done.set(frameId, contextId);
+          else done.delete(frameId);
+        if (polled.every(([, finished]) => finished)) {
+          confirmed = true;
+          return true;
+        }
+        await pause(CHECKPOINT_POLL_MS, bounded);
+      }
+    } catch (error) {
+      // The deadline ends an outstanding read too, and only that rejection is
+      // "unconfirmed"; the caller's cancellation or a real failure is an error.
+      if (signal?.aborted || !deadline.aborted || error !== deadline.reason) throw error;
+      return false;
+    } finally {
+      // Finished frames consumed their own marker; the rest are cleared so
+      // none outlives the checkpoint and a late timer finds nothing to set.
+      if (!confirmed) {
+        await collect(guest, browserRenderCheckpointEnd(id), AbortSignal.timeout(500)).catch(() => undefined);
+      }
+    }
   }
   const observeChanges = (guest: WebContents, signal?: AbortSignal) =>
     observeBrowserDocumentChanges(host, collect, BROWSER_DOCUMENT_ROOTS, guest, signal);

@@ -26,6 +26,7 @@ import { saveSessionAsync } from '../../../../runtime/agent/orchestrator/session
 import { presetDescriptor } from './spawn-prep.mjs';
 import { workerStageForStatus } from '../worker-rows.mjs';
 import { handoffContent } from '../../../handoff-attachments.mjs';
+import { whileTurnDispatched } from '../../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 
 // Mid-turn worker persistence cadence. The watchdog sweep runs every second;
 // a transcript save is far more expensive than a bookkeeping stamp, so the
@@ -121,10 +122,12 @@ export function createSpawnRunner({
     const { args, session, workerCwd } = prepared;
     // The caller's forwarded files ride along as attachment parts.
     const prompt = handoffContent(prepared.prompt, args.attachmentParts);
-    if (typeof sessionSurface?.runTurn === 'function' && sessionSurface.canRun?.(session) !== false) {
-      return sessionSurface.runTurn({ session, prompt, context: args.context || null, cwd: workerCwd, ...turnHooks });
-    }
-    return mgr.askSession(session.id, prompt, args.context || null, null, workerCwd, null, turnHooks);
+    return whileTurnDispatched(session.id, () => {
+      if (typeof sessionSurface?.runTurn === 'function' && sessionSurface.canRun?.(session) !== false) {
+        return sessionSurface.runTurn({ session, prompt, context: args.context || null, cwd: workerCwd, ...turnHooks });
+      }
+      return mgr.askSession(session.id, prompt, args.context || null, null, workerCwd, null, turnHooks);
+    });
   }
 
   async function runSpawn(prepared, notifyContext = null, job = null) {
@@ -221,7 +224,7 @@ export function createSpawnRunner({
       watchdog?.stop?.();
       upsertWorkerSessionDeferred(session, tag, {
         ...presetDescriptor(agent, preset, presetName),
-        ...settledWorkerStatus(finalStatus, stalled),
+        ...settledWorkerStatus(finalStatus, stalled, job),
         finishedAt: new Date().toISOString(),
       });
       setImmediate(notifyStatusChange);

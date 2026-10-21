@@ -2,6 +2,7 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 let active;
+let routeOptions;
 const initialized = [];
 const provider = {
   name: 'second',
@@ -20,7 +21,10 @@ mock.module('../../config.mjs', {
 });
 mock.module('../manager/session-lifecycle.mjs', {
   namedExports: {
-    updateSessionRoute: (_id, route) => Object.assign(active, route, { tools: ['new-tool'], providerState: undefined }),
+    updateSessionRoute: (_id, route, options) => {
+      routeOptions = options;
+      return Object.assign(active, route, { tools: ['new-tool'], providerState: undefined });
+    },
   },
 });
 mock.module('../../providers/wire-route.mjs', {
@@ -74,6 +78,8 @@ test('a rejected first request switches once and rebuilds request state without 
   const current = state();
   const callback = current.opts.onTextDelta;
   assert.equal(await advanceAgentRoute(current, { status: 429 }), true);
+  // The registry gets the providers map itself, with the next provider switched on.
+  assert.equal(initialized.at(-1)?.second?.enabled, true);
   assert.equal(current.provider, provider);
   assert.equal(current.model, 'b');
   assert.equal(current.sessionRef.routeFallbackIndex, 1);
@@ -282,4 +288,26 @@ test('fallback resolves its own selected context before route recomputation', as
     assert.equal(await advanceAgentRoute(current, { status: 429 }), true);
     assert.equal(current.sessionRef.selectedContextWindow, expected);
   }
+});
+
+test('the fallback changes the live turn object in place (it hands it to the route update)', async () => {
+  const current = state();
+  const live = current.sessionRef;
+  assert.equal(await advanceAgentRoute(current, { status: 429 }), true);
+  assert.equal(routeOptions.session, live);
+  assert.equal(routeOptions.crossProvider, true);
+  assert.equal(current.sessionRef, live);
+});
+
+test('a Lead-class session (agent "lead") advances on a usage limit like an agent; without fallbacks it stays', async () => {
+  const lead = state();
+  lead.sessionRef.agent = 'lead';
+  assert.equal(await advanceAgentRoute(lead, { status: 429 }), true);
+  assert.equal(lead.model, 'b');
+  assert.equal(lead.sessionRef.routeFallbackIndex, 1);
+  const plain = state();
+  plain.sessionRef.agent = 'lead';
+  plain.sessionRef.routeFallbacks = undefined;
+  assert.equal(await advanceAgentRoute(plain, { status: 429 }), false);
+  assert.equal(plain.model, undefined);
 });

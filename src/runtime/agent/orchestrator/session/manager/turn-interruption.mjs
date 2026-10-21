@@ -20,7 +20,15 @@ const INTERRUPTED_TOOL_RESULT = 'Cancelled';
 // PRESERVE the just-sent user turn: nothing restores the prompt there, and
 // rewinding erases the user's message from the persisted transcript (the
 // exact loss seen when the desktop app quits mid-turn).
-const USER_CANCEL_ABORT_REASONS = new Set(['cli-abort', 'user-cancel', 'turn-abort']);
+//
+// A user cancel the host will NOT answer with the prompt back in the input box
+// (the desktop Stop button, a prompt carrying attachments cancelled from
+// another device) names `USER_CANCEL_KEEP_PROMPT_REASON`: it is still a user
+// cancel, but the unanswered prompt stays in the stored transcript. Rewinding
+// it left a first message with zero stored messages — a session every catalog
+// hides — and its text nowhere.
+export const USER_CANCEL_KEEP_PROMPT_REASON = 'user-cancel-keep-prompt';
+const USER_CANCEL_ABORT_REASONS = new Set(['cli-abort', 'user-cancel', 'turn-abort', USER_CANCEL_KEEP_PROMPT_REASON]);
 
 function provisionalUserTurnIndex(messages, currentUserContent) {
   const currentText = promptContentText(currentUserContent);
@@ -78,7 +86,17 @@ function finalizeInterruptedTurn({
   // turn and its side effects from history.
   const preserveResponse = responseStarted && (producedOutput || !userCancelled);
   if (!preserveResponse) {
-    if (!userCancelled) {
+    if (!userCancelled || abortReason === USER_CANCEL_KEEP_PROMPT_REASON) {
+      // A kept prompt gets the generic interruption row (rendered as the
+      // Cancelled status, unlike the hidden by-user control row): without it a
+      // rebuilt transcript shows the stopped prompt as if it were still
+      // awaiting an answer, directly above the next one.
+      if (
+        abortReason === USER_CANCEL_KEEP_PROMPT_REASON &&
+        provisionalUserTurnIndex(messages, currentUserContent) >= 0
+      ) {
+        messages.push({ role: 'user', content: SESSION_INTERRUPT_MESSAGE });
+      }
       return {
         messages,
         responsePreserved: false,
@@ -145,18 +163,16 @@ function appendObservedTurnOutput(
     if (!result?.toolCallId || representedToolResultIds.has(result.toolCallId)) continue;
     messages.push({
       role: 'tool',
-      content: result.content == null ? '' : result.content,
+      content: result.content ?? '',
       toolCallId: result.toolCallId,
       ...(result.toolKind ? { toolKind: result.toolKind } : {}),
     });
     representedToolResultIds.add(result.toolCallId);
   }
 
-  const allToolCallIds = [];
+  const allToolCallIds = new Set();
   for (const message of messages) {
-    for (const id of assistantToolCallIds(message)) {
-      if (!allToolCallIds.includes(id)) allToolCallIds.push(id);
-    }
+    for (const id of assistantToolCallIds(message)) allToolCallIds.add(id);
   }
   for (const callId of allToolCallIds) {
     if (representedToolResultIds.has(callId)) continue;
@@ -283,7 +299,7 @@ export function createTurnInterruptionTracker() {
       if (message.__earlyNotify === true) {
         state.observedToolResults.set(callId, {
           role: 'tool',
-          content: message.content == null ? '' : message.content,
+          content: message.content ?? '',
           toolCallId: callId,
           toolKind: message.toolKind || (message.isError ? 'error' : null),
         });

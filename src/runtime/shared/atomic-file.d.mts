@@ -55,8 +55,14 @@ export function readJsonState<T = unknown>(filePath: string, options?: JsonState
 
 export function readJsonStateSync<T = unknown>(filePath: string, options?: JsonStateOptions<T>): T;
 
+/** A collision-proof, non-dot-prefixed destination for a damaged copy: `<path>.corrupt-<ms>` (the first ms whose name is unused). Call under the file's lock. */
+export function quarantinePath(filePath: string): string;
+
 /** For `validate`: an intact file in a newer build's format; it is left in place and the read answers the fallback. */
 export function unsupportedState(message: string): Error;
+
+/** True when `err` is a filesystem refusing fsync on a file (EPERM, ENOTSUP, EINVAL), not a real I/O error. */
+export function isFileFsyncUnsupported(err: unknown): boolean;
 
 /** True when the content is only NUL bytes and whitespace (what a crash leaves). */
 export function holdsNoData(content: string | Uint8Array): boolean;

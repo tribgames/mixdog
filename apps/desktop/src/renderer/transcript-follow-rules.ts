@@ -10,11 +10,12 @@ const BOTTOM_THRESHOLD_PX = 10;
 // Browser anchoring and virtual-core both compensate rows that resize above
 // the viewport, so enabling both makes upward reader motion oscillate.
 export const TRANSCRIPT_OVERFLOW_ANCHOR = 'none';
-// Re-attaching tolerates more slack than releasing does: while a turn streams,
-// the tail keeps moving away between the reader's last scroll frame and this
-// handler, so a deliberate scroll back down lands tens of px above a bottom
-// that has already grown.
-const REATTACH_THRESHOLD_PX = 32;
+// The reader is at the end of the content: follow re-engages only here, at
+// the very bottom the reader scrolled to themselves. A wider band handed the
+// viewport back to the end pin while the reader was still scrolling down, and
+// the pin snapped the last tens of px for them and pushed new output up under
+// their hand.
+const END_REACHED_PX = 2;
 export const SCROLL_KEYS = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '];
 // A release must be a real upward move, not sub-pixel reflow noise. Fractional
 // row heights under a parallel stream deliver 1px scrollTop wobble that is not
@@ -32,6 +33,10 @@ export const POINTER_DRAG_PX = 4;
 // browser's own scrollend — this idle is only the fallback for engines that do
 // not fire it.
 const TOUCH_FLING_IDLE_MS = 700;
+/** iOS WebKit: a touch scroll's held corrections land once its scroll stream
+ *  (finger or momentum) has been quiet this long. iOS fires its last touch
+ *  event as momentum starts, so quiet scroll events are the only end signal. */
+export const IOS_TOUCH_SETTLE_MS = 150;
 // Programmatic writes arrive in BURSTS: one measurement commit can move the
 // offset several times (core adjustment, spacer growth, end re-pin) before a
 // single scroll event lands. Remembering only the last one made every earlier
@@ -63,16 +68,16 @@ export const JUMP_PIN_SETTLE_FRAMES = 3;
 export function grewWhileAtBottom({
   distanceBefore,
   growth,
-  threshold = BOTTOM_THRESHOLD_PX,
+  threshold = END_REACHED_PX,
 }: {
-  /** Distance from the bottom BEFORE the mutation that produced `growth`. */
+  /** Distance from the content end BEFORE the mutation that produced `growth`. */
   distanceBefore: number;
   growth: number;
   threshold?: number;
 }): boolean {
   if (!Number.isFinite(distanceBefore) || !Number.isFinite(growth)) return false;
   if (growth <= 0) return false;
-  return distanceBefore < threshold;
+  return distanceBefore <= threshold;
 }
 
 /** Scrollbar / empty padding: the event target IS the overflow root. */
@@ -349,30 +354,13 @@ export function canScroll(metrics: ScrollMetrics): boolean {
   return metrics.maxScrollTop > 1;
 }
 
-// The downward-arrival band scales with the pane: on a tall transcript a fast
-// turn appends far more than 32px between the reader's last scroll frame and
-// the scroll event that lands, so a fixed band left the reader detached right
-// under the tail (user: 스크롤이 너무 자주 풀린다).
-function reattachBand(metrics: ScrollMetrics): number {
-  return Math.max(REATTACH_THRESHOLD_PX, Math.round(metrics.viewportHeight * 0.12));
-}
-
-/** Has the viewport arrived back at the tail? A transcript that no longer
- *  overflows holds no reading position at all, the ten-pixel band IS the
- *  bottom, and a DOWNWARD arrival is judged against the wider band: while a
- *  turn streams, the bottom keeps moving away between the reader's last scroll
- *  frame and the handler, so the narrow band could never be met on the way
- *  back. Re-attaching only flips the flag; nothing here writes scrollTop. */
-export function scrollShouldReattachFollow(metrics: ScrollMetrics, previousTop: number): boolean {
+/** Has the reader reached the end of the content? A transcript that no
+ *  longer overflows holds no reading position at all; otherwise only the very
+ *  end counts. Deciding re-attachment only: nothing here writes scrollTop,
+ *  and the caller waits for the reader's scroll to settle first. */
+export function transcriptEndReached(metrics: ScrollMetrics): boolean {
   if (!canScroll(metrics)) return true;
-  const distance = distanceFromBottom(metrics);
-  // An upward frame is the reader leaving: the first smooth-scroll frame of
-  // the wheel notch that just released follow still lands inside the band,
-  // and re-attaching there kept follow armed for the whole climb, so the next
-  // resize (a card opening, the side panel) yanked the reader to the bottom.
-  if (metrics.top < previousTop) return false;
-  if (distance < BOTTOM_THRESHOLD_PX) return true;
-  return metrics.top > previousTop && distance <= reattachBand(metrics);
+  return distanceFromBottom(metrics) <= END_REACHED_PX;
 }
 
 /** Is the tail far enough out of sight to offer the jump? One viewport, and

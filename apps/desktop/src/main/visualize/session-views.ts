@@ -204,7 +204,9 @@ export function createPublish(ctx: Pick<VisualizeServiceContext, 'deps' | 'views
       ctx.deps.publishHost?.({ sessionId, state: ctx.views.hostStateOf(sessionId), ...held, ...updated });
       return;
     }
-    const reveal = revealTab ? { reveal: true, tab: revealTab } : updatedTab ? { updated: updatedTab } : {};
+    let reveal: { reveal: true; tab: string } | { updated: string } | Record<string, never> = {};
+    if (revealTab) reveal = { reveal: true, tab: revealTab };
+    else if (updatedTab) reveal = { updated: updatedTab };
     ctx.deps.publish({ sessionId, state: ctx.views.stateOf(sessionId), ...reveal });
     ctx.deps.publishHost?.({ sessionId, state: ctx.views.hostStateOf(sessionId), ...reveal });
   };

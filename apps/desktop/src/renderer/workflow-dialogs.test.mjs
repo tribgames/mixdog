@@ -90,8 +90,9 @@ test('fallback rows add empty, block saving, reorder with tuning, and remove', a
   assert.equal(dialog.querySelector('button[type="submit"]').disabled, false);
 });
 
-test('Lead is a single-model route: no fallback UI, and a changed option saves a plain valid selection', async (t) => {
+test('Lead has the agents fallback section: it renders, saves and clears the chain with valid selections', async (t) => {
   const render = harness(t);
+  const secondary = { provider: 'anthropic', model: 'second' };
   const effortModel = {
     ...route,
     display: 'Test model',
@@ -109,21 +110,23 @@ test('Lead is a single-model route: no fallback UI, and a changed option saves a
         modelKind: 'main',
         capability: 'setModelRoute',
         readOnlyDefinition: false,
-        route: { ...route, effort: 'low' },
+        route: { ...route, effort: 'low', fallbacks: [secondary] },
       },
-      models: [effortModel, { provider: 'gemini', model: 'other', display: 'Other', effortOptions: [] }],
+      models: [
+        effortModel,
+        { ...secondary, display: 'Second', effortOptions: [] },
+        { provider: 'gemini', model: 'other', display: 'Other', effortOptions: [] },
+      ],
       busy: false,
       onCancel() {},
       onSave: (value) => saved.push(value),
     })
   );
   const dialog = document.querySelector('[role="dialog"]');
-  assert.equal(dialog.querySelector('[aria-label="Add fallback model"]'), null);
-  assert.equal(dialog.querySelector('.route-chain-handle'), null);
-  assert.equal(dialog.querySelector('.route-chain-remove'), null);
-  assert.equal(dialog.querySelector('.route-chain-unavailable'), null);
-  assert.doesNotMatch(dialog.textContent, /first model is used first|fallback/i);
-  assert.equal(dialog.querySelectorAll('.route-chain-row').length, 1);
+  assert.ok(dialog.querySelector('.route-chain-heading [aria-label="Add fallback model"]'));
+  assert.ok(dialog.querySelector('.route-chain-handle'));
+  assert.match(dialog.textContent, /first model is used first/);
+  assert.equal(dialog.querySelectorAll('.route-chain-row').length, 2);
 
   const rowByLabel = (label) =>
     [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.includes(label));
@@ -138,8 +141,15 @@ test('Lead is a single-model route: no fallback UI, and a changed option saves a
   );
   assert.equal(saved.length, 1);
   assert.equal(saved[0].effort, 'high');
-  assert.equal('fallbacks' in saved[0], false);
+  assert.deepEqual(saved[0].fallbacks, [secondary]);
   assert.deepEqual(requiredModelSelection(saved[0]), saved[0]);
+  // Removing the last fallback saves an explicit empty list (it clears the stored chain).
+  await act(async () => dialog.querySelector('[aria-label="Remove model 2"]').click());
+  await act(async () =>
+    dialog.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  );
+  assert.deepEqual(saved[1].fallbacks, []);
+  assert.deepEqual(requiredModelSelection(saved[1]), saved[1]);
 });
 
 function harness(t) {
@@ -220,6 +230,47 @@ test('the agent editor keeps an existing AGENT.md and fills an emptied one from 
   assert.match(saved[1].body, /^# Reviewer\n\nReviews PRs\n\n/);
 });
 
+test('the agent editor has no avatar section and saves no avatar (agents wear the Lead face)', async (t) => {
+  const render = harness(t);
+  const priorFormData = globalThis.FormData;
+  globalThis.FormData = dom.window.FormData;
+  t.after(() => {
+    globalThis.FormData = priorFormData;
+  });
+  const saved = [];
+  for (const agent of [
+    {
+      id: 'reviewer',
+      name: 'Reviewer',
+      body: 'x',
+      route,
+      avatar: { kind: 'mascot', species: 'corgi', accessory: 'none', expression: 'calm', color: '#5b9bff' },
+    },
+    null,
+  ]) {
+    await render(
+      React.createElement(AgentEditorDialog, {
+        agent,
+        models: [],
+        busy: false,
+        onCancel() {},
+        onSave: (value) => saved.push(value),
+      })
+    );
+    const dialog = document.querySelector('.workflows-dialog');
+    assert.equal(dialog.querySelector('.agent-avatar-picker'), null);
+    assert.doesNotMatch(dialog.textContent, /Avatar/);
+    await act(async () => {
+      const name = dialog.querySelector('input[name="agent-name"]');
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(name, 'N');
+      name.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      dialog.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    });
+  }
+  assert.ok(saved.length >= 1);
+  for (const value of saved) assert.equal('avatar' in value, false);
+});
+
 test('workflow editor contains only instructions and metadata, not delegation controls', async (t) => {
   const render = harness(t);
   await render(
@@ -275,7 +326,8 @@ test('Web Search adds from its own catalog and excludes the occupied provider', 
   const sheet = document.querySelector('.route-sheet');
   assert.ok(sheet, 'uses the existing model picker');
   await act(async () => sheet.querySelector('.route-sheet-row').click());
-  const catalog = document.querySelector('.route-sheet-flyout');
+  // A chain row's picker drops down: the catalog opens inside the same sheet.
+  const catalog = document.querySelector('.route-sheet[data-dropdown][data-drilled]');
   assert.ok(catalog);
   assert.match(catalog.textContent, /Search second/);
   assert.doesNotMatch(catalog.textContent, /Test model/);

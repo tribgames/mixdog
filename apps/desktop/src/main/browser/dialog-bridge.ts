@@ -14,13 +14,20 @@ const DIALOG_DISMISSED_NOTICE = '__mixdogDialogDismissed';
  *  the bridge uses is captured before the page can replace it. */
 export const DIALOG_BRIDGE_SCRIPT = `(() => {
   const win = window;
-  const endpoint = (() => {
+  const Address = URL;
+  const addressText = Object.getOwnPropertyDescriptor(Address.prototype, 'href')?.get;
+  // Resolved per dialog, not once: a window.open popup's first document
+  // reuses the window (and this script's closure) of its initial
+  // about:blank, so an address fixed then would never be the page's own.
+  const endpoint = () => {
     try {
-      return new URL(${JSON.stringify(DIALOG_BRIDGE_PATH)}, location.href).href;
+      // location is unforgeable: a page can neither replace nor shadow it.
+      const address = new Address(${JSON.stringify(DIALOG_BRIDGE_PATH)}, location.href);
+      return addressText ? apply(addressText, address, []) : address.href;
     } catch {
       return ${JSON.stringify(`http://${DIALOG_BRIDGE_HOST}${DIALOG_BRIDGE_PATH}`)};
     }
-  })();
+  };
   const apply = Reflect.apply;
   const Request = XMLHttpRequest;
   const { open, send } = Request.prototype;
@@ -43,7 +50,7 @@ export const DIALOG_BRIDGE_SCRIPT = `(() => {
         defaultPrompt: String(defaultPrompt == null ? '' : defaultPrompt),
       });
       const request = new Request();
-      apply(open, request, ['GET', endpoint + '?' + apply(queryText, query, []), false]);
+      apply(open, request, ['GET', endpoint() + '?' + apply(queryText, query, []), false]);
       apply(send, request, [null]);
       answer = parse((responseText ? apply(responseText, request, []) : request.responseText) || 'null');
     } catch {
@@ -74,6 +81,17 @@ export const DIALOG_BRIDGE_SCRIPT = `(() => {
     win[name] = new Proxy(own, { apply: (_target, _self, args) => answer(args[0], args[1]) });
   }
 })()`;
+
+/** The address a page with no origin of its own (about:blank) asks. Its host
+ *  never resolves; only the debugger answers it. */
+export function isDialogBridgeFallback(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === 'http:' && url.host === DIALOG_BRIDGE_HOST && url.pathname === DIALOG_BRIDGE_PATH;
+  } catch {
+    return false;
+  }
+}
 
 const dialogType = (raw: string) => (BRIDGED_DIALOG_TYPES.has(raw) ? raw : 'dialog');
 const dialogMessage = (raw: string) => raw.slice(0, 4_000);

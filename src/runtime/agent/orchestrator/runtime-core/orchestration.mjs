@@ -25,13 +25,11 @@ export const AGENT_MODE_DELEGATION = `# Delegation
 Handle conversation yourself. Delegate specialised work to sub-agents. Hand
 substantial coding to a new agent task session (\`session create\`) with
 a self-contained brief: start it when already requested, otherwise suggest it. Then relay the
-result in your own words. Work sent to an existing session (\`session send\`)
-reports back only when its result says reportsBack: true; promise to report
-only then.`;
+result in your own words. Promise a follow-up only when the session result allows it.`;
 
-/** Mixy only: it also routes requests to the user's contact agents. */
-export const MIXY_CONTACTS_INTRO = `You also coordinate the user's contact agents: route a request to the
-contact best suited for it with the same kind of brief.`;
+/** Mixy only: the user's other bots, its contact catalog's intro. */
+export const MIXY_CONTACTS_INTRO = `The user's other bots. Hand one a request with \`session send\` to its chat and a
+self-contained brief.`;
 
 export function orchestrationInstructions(value) {
   const mode = normalizeOrchestrationMode(value);

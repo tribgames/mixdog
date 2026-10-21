@@ -194,7 +194,8 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
     focused: boolean,
     focusPane: () => void,
     leafId: string,
-    warm = false
+    warm = false,
+    visible = true
   ): React.ReactElement {
     // A warm (retained) surface already shows its own session; a close
     // handoff presents the closed one only in the pane's cold surface.
@@ -257,6 +258,7 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           focused,
           sessionId: paneSessionId,
           hidden: false,
+          surfaceVisible: visible,
           transcriptPending: Boolean(paneSessionId) && options.paneTranscriptRendererPending,
           reconcileOnMount: paneSessionId !== options.requestedSessionId,
           invokeResult: options.invokeResult,

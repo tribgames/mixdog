@@ -100,10 +100,11 @@ test("close on process exit reaps every session's work and tombstones only a scr
   assert.equal(await f.teardown.close('cli-exit'), true);
   assert.equal(f.state.closeRequested, true);
   assert.equal(f.state.session, null);
+  // The exit cuts the work off: the next process tells each owner (restart-notify).
   assert.deepEqual(f.named('cancelBackgroundTasks'), [
-    ['cancelBackgroundTasks', { reason: 'cli-exit', notify: false }],
+    ['cancelBackgroundTasks', { reason: 'cli-exit', notify: false, terminalReason: 'process-restart' }],
   ]);
-  assert.deepEqual(f.named('agentTool.closeAll'), [['agentTool.closeAll', 'cli-exit', {}]]);
+  assert.deepEqual(f.named('agentTool.closeAll'), [['agentTool.closeAll', 'cli-exit', { processExit: true }]]);
   assert.deepEqual(f.named('closeSurfaceSession'), [['closeSurfaceSession', 's1', 'cli-exit', { tombstone: false }]]);
   assert.deepEqual(f.named('hooks.dispatch'), [['hooks.dispatch', 'SessionEnd', { session_id: 's1', reason: 'exit' }]]);
   assert.deepEqual(f.named('mcp.disconnectAll'), [['mcp.disconnectAll', { scopeId: 'scope-1' }]]);
@@ -324,7 +325,8 @@ test("a process-exit close after a Lead A scoped close still closes Lead B's wor
     await releaseLock();
     await Promise.all([scoped, exit]);
     assert.deepEqual(closedSessions, ['wa', 'wb'], 'only process exit closes delegated sessions');
-    assert.deepEqual(idx.readRows(), {}, "Lead B's worker row is purged, not left indexed");
+    // The next process lists them (finished) or settles them (cut off).
+    assert.deepEqual(Object.keys(idx.readRows()).sort(), ['wa', 'wb'], 'the exit keeps the worker rows');
     assert.equal(exitFlushCount(), before - 1, 'exit hook released at final shutdown');
   } finally {
     f.cleanup();
@@ -503,7 +505,7 @@ test('a scratch session is tombstoned and an empty runtime closes without a sess
   assert.equal(await empty.teardown.close('cli-exit'), false);
   assert.deepEqual(empty.named('hooks.dispatch'), []);
   assert.deepEqual(empty.named('cancelBackgroundTasks'), [
-    ['cancelBackgroundTasks', { reason: 'cli-exit', notify: false }],
+    ['cancelBackgroundTasks', { reason: 'cli-exit', notify: false, terminalReason: 'process-restart' }],
   ]);
   empty.cleanup();
 });

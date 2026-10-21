@@ -486,6 +486,9 @@ interface WorkbenchSidePanelProps {
    *  is aborted: the width then is only the rendered (possibly constrained)
    *  width at gesture start, so the owner restores its own snapshot instead. */
   onWidthDrag?(width: number, phase: 'preview' | 'commit' | 'cancel'): void;
+  /** False drops the width resize edge (a pane dock docked below the chat
+   *  fills the cell's width and resizes its height instead). */
+  resizable?: boolean;
   /** Pane docks render ONE unit-wide header themselves (user: 헤더 한 줄),
    *  so the panel's own tab header stays off. */
   hideTabs?: boolean;
@@ -519,6 +522,7 @@ export function WorkbenchSidePanel({
   widthRange,
   widthOverride,
   onWidthDrag,
+  resizable = true,
   hideTabs = false,
   groups,
   activeRoot,
@@ -666,29 +670,31 @@ export function WorkbenchSidePanel({
         } as React.CSSProperties
       }
     >
-      {/* biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins. */}
-      <div
-        className="workbench-side-panel-resize"
-        role="separator"
-        aria-orientation="vertical"
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          resizeGesture.begin(event);
-          resizeStart.current = { x: event.clientX, width: effectiveWidth };
-          dragPending.current = null;
-        }}
-        onPointerMove={(event) => {
-          const start = resizeStart.current;
-          if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-          const delta = side === 'left' ? event.clientX - start.x : start.x - event.clientX;
-          const next = Math.max(widthMin, Math.min(widthMax, Math.round(start.width + delta)));
-          if (onWidthDrag) {
-            dragPending.current = next;
-            onWidthDrag(next, 'preview');
-          } else setWidth(next);
-        }}
-        {...resizeGesture.handlers}
-      />
+      {resizable && (
+        // biome-ignore lint/a11y/useSemanticElements: a draggable resize handle, not a thematic break; <hr> brings its own border and margins.
+        <div
+          className="workbench-side-panel-resize"
+          role="separator"
+          aria-orientation="vertical"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            resizeGesture.begin(event);
+            resizeStart.current = { x: event.clientX, width: effectiveWidth };
+            dragPending.current = null;
+          }}
+          onPointerMove={(event) => {
+            const start = resizeStart.current;
+            if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+            const delta = side === 'left' ? event.clientX - start.x : start.x - event.clientX;
+            const next = Math.max(widthMin, Math.min(widthMax, Math.round(start.width + delta)));
+            if (onWidthDrag) {
+              dragPending.current = next;
+              onWidthDrag(next, 'preview');
+            } else setWidth(next);
+          }}
+          {...resizeGesture.handlers}
+        />
+      )}
       <div className="workbench-side-panel-content">
         {side === 'right' && !hideTabs && (
           <header className="workbench-side-panel-tabs">

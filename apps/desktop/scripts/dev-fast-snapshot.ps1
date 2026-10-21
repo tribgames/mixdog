@@ -173,6 +173,12 @@ try {
     Restore-DependencyTree $repoRoot 'root'
     Restore-DependencyTree $desktopDir 'desktop'
 
+    # The installed app runs the native tools its manifests pin (downloaded
+    # releases), never target/release, so committed native changes that were
+    # not released yet are silently absent from this build. Say so (stdout:
+    # native stderr would be a terminating error here; informational only).
+    try { & node (Join-Path $repoRoot 'scripts\native-release-status.mjs') --warn-dev } catch {}
+
     # A commit object for the current tree, index included. It is unreachable
     # until the worktree references it, and nothing in the real checkout moves.
     #

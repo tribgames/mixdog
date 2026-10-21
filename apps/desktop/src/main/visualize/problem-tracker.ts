@@ -27,27 +27,29 @@ const rootsOf = (tab: TabState): string[] => {
   return real === tab.cwd ? [tab.cwd] : [tab.cwd, real];
 };
 
+/** The tab and HTML pane whose page-server lease any of `urls` belongs to,
+ *  among the panes the tab displays (a kept version's, compare layout
+ *  included): `index` is the displayed index, `version` the kept version. */
+function paneOfLeaseUrl(sessions: VisualizeServiceContext['sessions'], urls: string[]): PaneOfTab | null {
+  for (const [sessionId, state] of sessions) {
+    for (const tab of state.tabs) {
+      const panes = displayedPanes(tab);
+      const index = panes.findIndex((pane) => {
+        const prefix = pane.kind === 'html' ? leasePrefixOf(pane.url) : '';
+        return prefix !== '' && urls.some((url) => url.startsWith(prefix));
+      });
+      if (index >= 0) return { sessionId, tab, index, version: panes[index].version };
+    }
+  }
+  return null;
+}
+
 export function createProblemTracker(ctx: Pick<VisualizeServiceContext, 'sessions' | 'delay' | 'views' | 'publish'>) {
   const { sessions, delay } = ctx;
   const { renderIdOf } = ctx.views;
   const publish = (sessionId: string) => ctx.publish(sessionId);
 
-  /** The tab and HTML pane whose page-server lease any of `urls` belongs to,
-   *  among the panes the tab displays (a kept version's, compare layout
-   *  included): `index` is the displayed index, `version` the kept version. */
-  const paneOfUrl = (urls: string[]): PaneOfTab | null => {
-    for (const [sessionId, state] of sessions) {
-      for (const tab of state.tabs) {
-        const panes = displayedPanes(tab);
-        const index = panes.findIndex((pane) => {
-          const prefix = pane.kind === 'html' ? leasePrefixOf(pane.url) : '';
-          return prefix !== '' && urls.some((url) => url.startsWith(prefix));
-        });
-        if (index >= 0) return { sessionId, tab, index, version: panes[index].version };
-      }
-    }
-    return null;
-  };
+  const paneOfUrl = (urls: string[]): PaneOfTab | null => paneOfLeaseUrl(sessions, urls);
 
   const recordPageProblem = (
     found: PaneOfTab,

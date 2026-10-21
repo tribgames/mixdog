@@ -7,7 +7,12 @@ import test from 'node:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { createTurnRunner } from './turn-run.mjs';
+import { createMcpGlue } from '../mcp-glue.mjs';
+import { _registerMcpServerForTest, disconnectAll } from '../../runtime/agent/orchestrator/mcp/client.mjs';
+import { TOOL_SEARCH_TOOL } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
+import { applyDeferredToolSurface } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { runHeadlessExec } from '../../headless-exec.mjs';
 import { createNativeWebSearch } from '../native-web-search.mjs';
 import { reportNativeWebSearchUsage } from '../native-web-search-usage.mjs';
@@ -107,6 +112,7 @@ function makeHarness(overrides = {}) {
     agentTool: { upsertLeadSession: (session, patch) => record('lead', session?.id, patch.status) },
     awaitInitialMcpConnect: async (grace) => record('mcpGrace', grace),
     mcpTurnGraceMs: 250,
+    mcpAgentGraceMs: 3000,
     awaitRoutePreparation: async () => record('route'),
     getReservedSessionId: () => 'sess_reserved',
     sessionTitles: {
@@ -218,7 +224,7 @@ test('a first turn creates the session, folds MCP once, bridges the callbacks an
   );
 });
 
-test("an agent session's first turn waits for the initial MCP connect instead of the TTFT grace", async () => {
+test("an agent session's first turn waits for the initial MCP connect only up to the bounded agent grace", async () => {
   const h = makeHarness({
     createCurrentSession: async () => {
       const session = { id: 'sess_agent', owner: 'agent', deferredInitialRefreshPending: true };
@@ -230,8 +236,8 @@ test("an agent session's first turn waits for the initial MCP connect instead of
   await h.runner.ask('use the MCP tools', {});
   assert.deepEqual(
     h.named('mcpGrace'),
-    [['mcpGrace', undefined]],
-    'an undefined cap bounds the wait by the server startup budget only'
+    [['mcpGrace', 3000]],
+    'a slow server (20 s handshake) must not hold the first model request past the agent grace'
   );
   assert.equal(h.state.session.deferredInitialRefreshPending, false);
 
@@ -242,6 +248,131 @@ test("an agent session's first turn waits for the initial MCP connect instead of
     ['mcpGrace', 250],
     'later agent turns keep the late-tool path with the normal grace'
   );
+});
+
+test("an agent's first turn proceeds at the grace bound without a slow server, which joins by delta on the next turn", async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const flush = async () => {
+    for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  };
+  // Drive a turn to completion under the fake clock (settlement may use timers).
+  const pump = async (promise) => {
+    let done = false;
+    promise.finally(() => {
+      done = true;
+    });
+    while (!done) {
+      await flush();
+      t.mock.timers.tick(100);
+    }
+    return promise;
+  };
+
+  const scopeId = randomUUID();
+  const server = `slow-${scopeId}`;
+  const toolName = `mcp__${server}__menu`;
+  t.after(() => disconnectAll({ scopeId }));
+
+  // A fake MCP connect that stays in flight until the test settles it: the
+  // real awaitInitialMcpConnect gate (not a mock) sits in front of the turn.
+  let finishConnect;
+  const state = {
+    mcpFailures: [],
+    mcpConnectGeneration: 0,
+    mcpConnectInFlight: new Promise((resolve) => {
+      finishConnect = resolve;
+    }),
+  };
+  const glue = createMcpGlue({
+    mcpClient: {
+      resolveMcpTransportKind: () => 'http',
+      getMcpServerStatus: () => [],
+      resolveMcpStartupTimeoutMs: () => 30_000,
+    },
+    getConfig: () => ({ mcpServers: { slow: { type: 'http', url: 'http://127.0.0.1:1/mcp' } } }),
+    getCurrentCwd: () => process.cwd(),
+    state,
+  });
+
+  const h = makeHarness({
+    awaitInitialMcpConnect: glue.awaitInitialMcpConnect,
+    createCurrentSession: async () => {
+      const session = {
+        id: scopeId,
+        mcpScopeId: scopeId,
+        owner: 'agent',
+        provider: 'openai-oauth',
+        model: 'gpt-6-astra',
+        cwd: process.cwd(),
+        toolSpec: 'full',
+        tools: [TOOL_SEARCH_TOOL],
+        messages: [{ role: 'system', content: 'SYSTEM PREFIX' }],
+        compaction: { auto: false },
+        deferredInitialRefreshPending: true,
+      };
+      applyDeferredToolSurface(session, 'full');
+      h.sessions.set(session.id, session);
+      h.state.session = session;
+      return session;
+    },
+  });
+  const prefixOf = (session) =>
+    JSON.stringify({ messages: session.messages, tools: session.tools, boot: session.deferredToolCatalog });
+  const toolNames = (list) => (list || []).map((entry) => entry.name);
+  const asks = () => h.named('askSession').length;
+
+  let prefixAtRequest;
+  let prefixAtEnd;
+  let lateAtEnd;
+  let deltaAtEnd;
+  h.askResult = async () => {
+    const session = h.state.session;
+    prefixAtRequest = prefixOf(session);
+    // The server finishes its handshake DURING the first turn.
+    _registerMcpServerForTest(
+      scopeId,
+      server,
+      [{ name: toolName, description: 'menu', inputSchema: { type: 'object' } }],
+      {
+        callTool: async () => ({}),
+      }
+    );
+    finishConnect();
+    state.mcpConnectInFlight = null;
+    await flush();
+    prefixAtEnd = prefixOf(session);
+    lateAtEnd = session.deferredLateToolCatalog;
+    deltaAtEnd = session.pendingDeferredToolDelta;
+    return { content: 'first answer' };
+  };
+
+  // Turn 1: the slow server holds the request for the agent grace and no longer.
+  const first = h.runner.ask('use the menu', {});
+  await flush();
+  t.mock.timers.tick(2_999);
+  await flush();
+  assert.equal(asks(), 0, 'the first model request still waits inside the 3 s agent grace');
+  t.mock.timers.tick(1);
+  await flush();
+  assert.equal(asks(), 1, 'the request goes out at the grace bound although the server never connected');
+  assert.equal(h.state.session.deferredInitialRefreshPending, false);
+  await pump(first);
+
+  assert.equal(prefixAtEnd, prefixAtRequest, 'system + tools prefix is unchanged while the server connects mid-turn');
+  assert.ok(!toolNames(h.state.session.deferredToolCatalog).includes(toolName), 'boot catalog has no late server tool');
+  assert.deepEqual(toolNames(lateAtEnd), [], 'no late tools surface during the first turn');
+  assert.equal(deltaAtEnd, undefined, 'no tool delta is queued during the first turn');
+
+  // Turn 2: the connected server arrives through the deferred delta only.
+  h.askResult = async () => {
+    const session = h.state.session;
+    assert.deepEqual(toolNames(session.pendingDeferredToolDelta?.added), [toolName]);
+    assert.deepEqual(toolNames(session.deferredLateToolCatalog), [toolName]);
+    assert.equal(prefixOf(session), prefixAtRequest, 'the delta never rewrites the cached prefix');
+    return { content: 'second answer' };
+  };
+  await pump(h.runner.ask('again', {}));
+  assert.equal(asks(), 2);
 });
 
 test('a later turn on an existing session skips creation, the first-turn fold and the one-shot warmups', async () => {

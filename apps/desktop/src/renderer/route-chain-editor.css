@@ -52,9 +52,12 @@
   padding: 10px 0 10px 4px;
   border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
 }
+/* The row's lane: its picker drops down at this width (RouteEditor dropdown);
+   the chip inside keeps its own width. */
 .route-chain-row > .route-editor {
   min-width: 0;
-  flex: 0 1 auto;
+  width: auto;
+  flex: 1 1 auto;
 }
 .route-chain-handle,
 .route-chain-remove {

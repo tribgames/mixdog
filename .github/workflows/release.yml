@@ -150,6 +150,12 @@ jobs:
       - name: Verify bundled release assets
         run: node scripts/verify-release-assets.mjs
 
+      # Last line of defence for native tools: whatever path led here, the
+      # release must not bundle a manifest that pins an older native build than
+      # the native source being released (Deploy builds and pins it first).
+      - name: Verify native sources match the pinned native releases
+        run: node scripts/native-release-status.mjs --check
+
       # Retried for a transient registry failure; a deterministic one fails
       # all three attempts.
       - name: Install

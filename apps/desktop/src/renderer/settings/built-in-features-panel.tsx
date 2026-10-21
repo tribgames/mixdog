@@ -133,6 +133,8 @@ type FeatureState = {
   info: RecordValue;
   /** Computer Use only: the OS still lacks something that blocks work. */
   readinessBlocking: boolean;
+  /** Code Tidy only: installed, but a core engine it should have is missing. */
+  enginesMissing?: boolean;
 };
 
 /** Short list tag for noteworthy states (not installed, installing, failed, disabled). */
@@ -145,6 +147,7 @@ export function featureStatus({
   progressPercent,
   enabled,
   readinessBlocking,
+  enginesMissing,
 }: FeatureState): SidebarResourceTag | null {
   if (!ready) return null;
   if (!available) return supported ? null : { label: t('Unavailable'), tone: 'muted' };
@@ -155,7 +158,7 @@ export function featureStatus({
   if (action?.status === 'failed') return { label: t('Failed'), tone: 'danger' };
   if (!installed) return { label: t('Not installed'), tone: 'muted' };
   if (!enabled) return { label: t('Disabled'), tone: 'muted' };
-  if (readinessBlocking) return { label: t('Setup needed'), tone: 'warn' };
+  if (readinessBlocking || enginesMissing) return { label: t('Setup needed'), tone: 'warn' };
   return null;
 }
 
@@ -216,6 +219,7 @@ function FeatureDetailDialog({
   officeDependency,
   tidyStatus,
   tidyInstallStatus,
+  onInstallTidyEngine,
   computerReadiness,
   media,
 }: {
@@ -227,6 +231,7 @@ function FeatureDetailDialog({
   officeDependency: DesktopLibreOfficeStatus | null;
   tidyStatus: DesktopTidyEngineStatus | null;
   tidyInstallStatus: DesktopTidyInstallStatus | null;
+  onInstallTidyEngine(id: string): void;
   onInstall(): void;
   onToggle(enabled: boolean): void;
   onClose(): void;
@@ -267,7 +272,15 @@ function FeatureDetailDialog({
       />
       {feature.id === 'git' && <GitPanel api={api} />}
       {feature.id === 'localProvider' && <LocalProviderModels status={state.localProvider} actions={localActions} />}
-      {feature.id === 'tidy' && <TidyEngines status={tidyStatus} installStatus={tidyInstallStatus} />}
+      {feature.id === 'tidy' && (
+        <TidyEngines
+          status={tidyStatus}
+          installStatus={tidyInstallStatus}
+          installed={installed}
+          busy={state.busy}
+          onInstallEngine={onInstallTidyEngine}
+        />
+      )}
       {/* Provider accounts live on the desktop, so a server window has no
           generators or accounts to choose from. */}
       {feature.id === 'media' && !serverWindow && <MediaGenerationSettings data={media} />}
@@ -312,8 +325,9 @@ export function BuiltInFeaturesPanel({
   );
   const tidy = useTidyEngineStatus(
     api,
-    openId === 'tidy' || action?.id === 'tidy',
-    action?.id === 'tidy' && action?.status === 'installing'
+    openId === 'tidy' || action?.id === 'tidy' || record(toolModules.tidy).installed === true,
+    action?.id === 'tidy' && action?.status === 'installing',
+    openId === 'tidy'
   );
   const autoEffort = useAutoEffortStatus(api, toolModules.autoEffort);
   const computerReadiness = useComputerReadiness(api, openId === 'computer');
@@ -460,6 +474,16 @@ export function BuiltInFeaturesPanel({
       setAction(null);
     })().catch((error: unknown) => setAction({ id, status: 'failed', message: reason(error) }));
   };
+  // Retry/Install for one missing Code Tidy engine: only that engine is
+  // downloaded, and the feature's installed/enabled state is left alone.
+  const installTidyEngine = (engine: string) => {
+    if ((action && action.status !== 'failed') || pending) return;
+    setAction({ id: 'tidy', status: 'installing' });
+    void run('installBuiltinFeature', ['tidy', { engines: [engine] }], 'built-in-tidy')
+      .then(() => tidy.refresh())
+      .then(() => setAction(null))
+      .catch((error: unknown) => setAction({ id: 'tidy', status: 'failed', message: reason(error) }));
+  };
   const localInstalling =
     Array.isArray(localProvider.installations) &&
     localProvider.installations.some((entry) => installationActive(record(entry)));
@@ -510,6 +534,9 @@ export function BuiltInFeaturesPanel({
           ? { generators: mediaGeneratorNames(media.lanes) }
           : record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
       readinessBlocking: feature.id === 'computer' && computerReadinessBlocking(computerReadiness.rows),
+      enginesMissing:
+        feature.id === 'tidy' &&
+        tidy.status?.engines.some((engine) => engine.core && engine.installable && engine.source === 'missing'),
     };
   };
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
@@ -523,6 +550,7 @@ export function BuiltInFeaturesPanel({
       officeDependency={officeDependency}
       tidyStatus={tidy.status}
       tidyInstallStatus={tidy.installStatus}
+      onInstallTidyEngine={installTidyEngine}
       computerReadiness={computerReadiness}
       media={media}
       onInstall={() => install(open.id)}

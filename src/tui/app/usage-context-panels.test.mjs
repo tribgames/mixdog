@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
 import { createUsageContextPanels } from './usage-context-panels.mjs';
+import { buildContextPanelModel } from './usage-context-panels/context-model.mjs';
 
 // Pins the /usage and /context panel builders: the rows and detail the
 // context panel derives from the runtime status getters, and the claim-owned
@@ -181,6 +182,23 @@ test('openContextPicker renders the context rows from the runtime status getters
 
   await panel.onInspect('entry-1', 4);
   assert.deepEqual(store.contextCalls.at(-1), { inspect: true, entryId: 'entry-1', revision: 4 });
+});
+
+test('a running compaction shows no duration; the finished one shows its lastDurationMs', () => {
+  const description = (compaction) =>
+    buildContextPanelModel({ contextStatus: { contextWindow: 100_000, compaction }, state: {} })
+      .rows.find((row) => row.value === 'compaction')
+      .description.split(' · ')
+      .slice(0, -2)
+      .join(' · ');
+  // The previous compaction's 4.2s must not read as the running one's time.
+  assert.equal(description({ lastStage: 'compacting', lastDurationMs: 4200 }), 'Compacting conversation');
+  assert.equal(description({ inProgress: true, lastDurationMs: 4200 }), 'Compacting conversation');
+  assert.equal(
+    description({ lastStage: 'pre_send', lastChanged: true, lastDurationMs: 4200 }),
+    'Compact complete · 5s'
+  );
+  assert.equal(description({ lastStage: 'pre_send_check', lastDurationMs: 4200 }), 'Compact checked · 5s');
 });
 
 test('openContextPicker falls back to the visible window and placeholders when getters fail', async () => {

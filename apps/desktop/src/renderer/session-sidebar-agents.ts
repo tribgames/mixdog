@@ -7,10 +7,12 @@ import { type AgentContact, agentContacts } from './agent-contacts-model';
 import { openAgentProfile } from './agent-panel-tab';
 import { type RoomMemberLabel, useRoomContacts } from './agent-room-parts';
 import { type AgentRoomRowModel, agentRoomRows } from './agent-rooms-model';
+import { applyBotOrder, useBotOrder } from './bot-order-store';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { useMixyCreated } from './mixy-first';
+import { useSidebarHiddenBots } from './sidebar-hidden-bots-store';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { useStableEvent } from './use-stable-event';
 import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
@@ -25,16 +27,27 @@ export function useSidebarAgents(
   sessions: readonly DesktopSessionSummary[],
   unreadSessionIds: ReadonlySet<string> | undefined,
   active: boolean,
-  onOpenAgent: ((sessionId: string, title: string) => void) | undefined
+  onOpenAgent: ((sessionId: string, title: string) => void) | undefined,
+  needsUserSessionIds?: ReadonlySet<string>
 ) {
   const { values } = useSidebarReferences(window.mixdogDesktop, AGENT_KEYS, active);
   const mixyCreated = useMixyCreated(window.mixdogDesktop, active);
+  const hidden = useSidebarHiddenBots();
+  const order = useBotOrder(); // the Bots page's order, shared through the host
   const contacts = useMemo(
     () =>
-      agentContacts(values.agents, sessions, NO_GROUPS, unreadSessionIds).filter(
-        (contact) => !contact.mixy || mixyCreated === true
+      applyBotOrder(
+        agentContacts(values.agents, sessions, NO_GROUPS, unreadSessionIds).filter(
+          (contact) =>
+            (!contact.mixy || mixyCreated === true) &&
+            // A hidden bot shows again while it has unread messages or waits on the user.
+            (!hidden.has(contact.agentId) ||
+              contact.indicator?.kind === 'unread' ||
+              (contact.session !== null && needsUserSessionIds?.has(contact.session.id) === true))
+        ),
+        order
       ),
-    [values.agents, sessions, unreadSessionIds, mixyCreated]
+    [values.agents, sessions, unreadSessionIds, mixyCreated, hidden, needsUserSessionIds, order]
   );
   // The 봇 page's room list, same data and order; opens like a bot row.
   const { label } = useRoomContacts(active);

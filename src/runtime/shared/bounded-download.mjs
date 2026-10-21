@@ -55,7 +55,7 @@ export async function readResponseBuffer(response, { maxBytes, label = 'download
 export async function streamResponseToFile(
   response,
   destPath,
-  { maxBytes, expectedBytes = 0, label = 'download', onProgress = null } = {}
+  { maxBytes, expectedBytes = 0, label = 'download', onProgress = null, signal = undefined } = {}
 ) {
   const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
   const advertised = responseByteLength(response, maximum, label);
@@ -96,7 +96,7 @@ export async function streamResponseToFile(
   try {
     // flush: the bytes reach disk before the caller installs the file, so a
     // crash cannot leave an installed binary that is all NUL.
-    await pipeline(response.body, guard, createWriteStream(destPath, { flush: true }));
+    await pipeline(response.body, guard, createWriteStream(destPath, { flush: true }), { signal });
     return downloaded;
   } catch (error) {
     try {

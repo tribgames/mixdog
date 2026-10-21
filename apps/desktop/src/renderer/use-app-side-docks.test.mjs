@@ -194,6 +194,31 @@ test('back folds the dock of the focused pane, not the first one', async () => {
   }
 });
 
+const DOCK_KEY = 'mixdog.desktop.pane-side-dock.v1';
+
+test("reload: a terminal dock stored open comes back open on its pane's session, and only there", async () => {
+  dom.window.localStorage.clear();
+  const entry = (open, surface) => ({ open, view: null, surface, diff: null });
+  dom.window.localStorage.setItem(
+    DOCK_KEY,
+    JSON.stringify({ L1: entry(true, 'terminal'), L2: entry(false, 'terminal'), L3: entry(true, '') })
+  );
+  const leaves = [leaf('L1', 's1'), leaf('L2', 's2'), leaf('L3', 's3')];
+  const phone = await mountPhone({ leaves, focusedLeafId: 'L1' });
+  try {
+    assert.equal(phone.sessionSurfaces.sessionSideSurfaces.get('s1'), 'terminal');
+    assert.equal(phone.sideDocks.focusedPaneDockOpen, true, 'the displayed dock is the terminal');
+    assert.equal(phone.sessionSurfaces.sessionSideSurfaces.has('s2'), false, 'a dock closed on purpose stays closed');
+    assert.equal(phone.sessionSurfaces.sessionSideSurfaces.has('s3'), false, 'no terminal surface to restore');
+  } finally {
+    // Folded again like every other test here: the mobile-back hook keeps
+    // module-level history bookkeeping that an unmount with an open dock leaves behind.
+    await act(async () => phone.sideDocks.closePaneRightRegion('L1'));
+    await phone.unmount();
+    dom.window.localStorage.clear();
+  }
+});
+
 test('CloseWatcher path: a user-opened dock closes through its watcher', async () => {
   const { live, uninstall } = installWatchers();
   const phone = await mountPhone({ leaves: LEAVES, focusedLeafId: 'L1' });

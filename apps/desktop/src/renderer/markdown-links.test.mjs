@@ -248,6 +248,124 @@ test('transcript link formats land in the side editor, side browser or OS as tab
   }
 });
 
+test('previewable local files open in the session Visualize panel; the rest keep their routes', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-viz' }, renderers.settled(text));
+  const stopReveal = onBrowserPageRevealRequested(() => {});
+  t.after(stopReveal);
+  const files = ['site/index.html', 'docs/a.pdf', 'docs/a.docx', 'img/a.png', 'src/app.ts'];
+  const setup = (fixture) => {
+    installProjectFiles(fixture, { [PROJECT]: files });
+    fixture.sent = [];
+    fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
+      fixture.sent.push(command);
+    };
+    fixture.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => `http://127.0.0.1:9/token/${rel}`;
+  };
+  const f = await mount(
+    t,
+    withSession,
+    '[h](site/index.html) [p](docs/a.pdf) [d](docs/a.docx) [i](img/a.png) [s](src/app.ts) [w](https://example.com/a)',
+    PROJECT,
+    setup
+  );
+  for (let index = 0; index < 4; index++) await f.click(index);
+  assert.deepEqual(
+    f.sent.map(({ sessionId, action, targets }) => [sessionId, action, targets]),
+    ['site/index.html', 'docs/a.pdf', 'docs/a.docx', 'img/a.png'].map((rel) => [
+      'sess-viz',
+      'reopen',
+      [`${PROJECT}/${rel}`],
+    ])
+  );
+  assert.deepEqual(f.local, []);
+  assert.deepEqual(f.opened, []);
+  await f.click(4);
+  assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', undefined]]);
+  assert.equal(f.sent.length, 4);
+  await f.click(5);
+  assert.deepEqual(f.external, [['https://example.com/a']]);
+  assert.equal(f.sent.length, 4);
+  // Ctrl-click keeps the external behaviour.
+  await f.click(1, { ctrlKey: true });
+  assert.equal(f.sent.length, 4);
+  // A refused open falls back to the regular route (the side file tab).
+  f.dom.window.mixdogDesktop.visualizeCommand = async () => {
+    throw new Error('refused');
+  };
+  await f.click(1);
+  assert.deepEqual(f.opened.at(-1), [PROJECT, 'docs/a.pdf', undefined]);
+});
+
+test('Visualize targets are checked against the session cwd, a subfolder of the Project', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-sub' }, renderers.settled(text));
+  const stopReveal = onBrowserPageRevealRequested(() => {});
+  t.after(stopReveal);
+  const sessionCwd = `${PROJECT}/sub`;
+  const f = await mount(
+    t,
+    withSession,
+    '[root](a.pdf) [inner](sub/a.pdf) [outside](docs/b.pdf)',
+    PROJECT,
+    (fixture) => {
+      installProjectFiles(fixture, { [PROJECT]: ['a.pdf', 'sub/a.pdf', 'docs/b.pdf'] });
+      fixture.sent = [];
+      // Main resolves an absolute target against the session cwd and refuses
+      // anything outside it.
+      fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
+        const [target] = command.targets;
+        if (!target.startsWith(`${sessionCwd}/`)) throw new Error('target is outside the working directory');
+        fixture.sent.push(target);
+      };
+    }
+  );
+  // Outside the session cwd: refused, so the regular route runs.
+  await f.click(0);
+  await f.click(2);
+  assert.deepEqual(f.sent, []);
+  assert.deepEqual(f.opened, [
+    [PROJECT, 'a.pdf', undefined],
+    [PROJECT, 'docs/b.pdf', undefined],
+  ]);
+  // Inside it: the exact file, not a same-named one at the Project root.
+  await f.click(1);
+  assert.deepEqual(f.sent, [`${PROJECT}/sub/a.pdf`]);
+  assert.equal(f.opened.length, 2);
+});
+
+test('previewable links of a paired device or behind an access token keep their old route', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-viz2' }, renderers.settled(text));
+  const f = await mount(t, withSession, '[p](docs/a.pdf)', PROJECT, (fixture) => {
+    installProjectFiles(fixture, { [PROJECT]: ['docs/a.pdf'] });
+    fixture.sent = [];
+    fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
+      fixture.sent.push(command);
+    };
+    fixture.dom.window.mixdogRemoteServer = 'wss://relay.example';
+  });
+  t.after(() => delete f.dom.window.mixdogRemoteServer);
+  await f.click();
+  assert.deepEqual(f.sent, []);
+});
+
+test('a previewable file outside the session working directory (access token) is not reopened', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-viz3' }, renderers.settled(text));
+  const outside = await mount(t, withSession, '[p](C:/private/report.pdf)', PROJECT, (fixture) => {
+    fixture.sent = [];
+    fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
+      fixture.sent.push(command);
+    };
+    fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
+      { absolutePath, projectPath: 'C:/private', relPath: 'report.pdf', accessToken: 'grant', dir: false },
+    ];
+  });
+  await outside.click();
+  assert.deepEqual(outside.sent, []);
+});
+
 test('a Project folder link reveals the dock Files tree, never the file manager', async (t) => {
   const f = await mount(
     t,
@@ -368,6 +486,17 @@ test('http(s) without a session falls back to the system browser', async (t) => 
   await draft.click();
   assert.deepEqual(draft.external, [['https://example.com/draft']]);
 });
+
+for (const [pipeline, render] of Object.entries(renderers)) {
+  test(`${pipeline}: a mail address opens the system mail app instead of doing nothing`, async (t) => {
+    const f = await mount(t, render, 'Write to admin@tribgames.com or [support](mailto:help@example.com).');
+    const first = await f.click(0);
+    const second = await f.click(1);
+    assert.equal(first.defaultPrevented, true);
+    assert.equal(second.defaultPrevented, true);
+    assert.deepEqual(f.external, [['mailto:admin@tribgames.com'], ['mailto:help@example.com']]);
+  });
+}
 
 for (const [pipeline, render] of Object.entries(renderers)) {
   test(`${pipeline}: files in another registered Project open without changing the conversation Project`, async (t) => {

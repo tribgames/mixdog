@@ -74,6 +74,15 @@ test('a NUL-filled job record is no record, even for a strict reader', async () 
     writeFileSync(join(root, 'shell-jobs', 'job_nul.json'), '\0'.repeat(40));
     assert.equal(await readShellJobRecord('job_nul', { strict: true }), null);
     assert.deepEqual(await listShellJobRecords({ strict: true }), []);
+    // Beside a readable record the NUL one is skipped, not listed or fatal.
+    writeFileSync(
+      join(root, 'shell-jobs', 'job_ok.json'),
+      JSON.stringify({ jobId: 'job_ok', status: 'running', cwd: root, recordedAt: new Date().toISOString() })
+    );
+    assert.deepEqual(
+      (await listShellJobRecords({ strict: true })).map((record) => record.jobId),
+      ['job_ok']
+    );
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;

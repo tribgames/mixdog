@@ -77,25 +77,13 @@ export function connectedProviderEntries(
   return providerSetupEntries(providerSetup).filter((entry) => providerEntryUsable(entry, providerSetup));
 }
 
-/** A connected provider whose model list failed, with the failure as ErrorNotice
- *  reads it (the daemon's `catalogError`: message + provider-kind descriptor). */
-export interface ProviderCatalogFailure {
-  id: string;
-  error: unknown;
-}
-
+/** A connected provider's failed model list as ErrorNotice reads it (the
+ *  daemon's `catalogError`: message + provider-kind descriptor). */
 export function providerCatalogFailure(entry: RecordValue): unknown {
   const failure = record(entry.catalogError);
   return typeof failure.message === 'string' && failure.message
     ? errorWithKind(failure.message, failure.errorKind)
     : null;
-}
-
-export function providerCatalogFailures(providerSetup: unknown): ProviderCatalogFailure[] {
-  return connectedProviderEntries(providerSetup).flatMap((entry) => {
-    const error = providerCatalogFailure(entry);
-    return error ? [{ id: String(entry.id || entry.provider || ''), error }] : [];
-  });
 }
 
 export function filterConfiguredModels(
@@ -166,7 +154,6 @@ export function ModelCatalog({
   catalogLoaded = true,
   catalogRefreshing = false,
   catalogError = '',
-  providerCatalogErrors = [],
   providerSetupError = '',
   onSelect,
   onOpenProviders,
@@ -183,8 +170,6 @@ export function ModelCatalog({
   catalogLoaded?: boolean;
   catalogRefreshing?: boolean;
   catalogError?: string;
-  /** Connected providers whose model list failed: each says why it has no rows. */
-  providerCatalogErrors?: ProviderCatalogFailure[];
   providerSetupError?: string;
   onSelect(option: DesktopModelOption): unknown;
   onOpenProviders?: () => void;
@@ -494,11 +479,6 @@ export function ModelCatalog({
             </div>
             <div ref={modelList} className="model-list" role="listbox" aria-label={t('Available models')}>
               {catalogError && <ErrorNotice error={catalogError} role="status" />}
-              {providerCatalogErrors
-                .filter(({ id }) => !models.some((option) => option.provider === id))
-                .map(({ id, error }) => (
-                  <ErrorNotice key={id} error={error} title={resolveProviderLabel(id)} role="status" />
-                ))}
               {providerSetupError && (
                 <p className="model-notice" role="status">
                   {t('Provider status is temporarily unavailable. Try again.')}

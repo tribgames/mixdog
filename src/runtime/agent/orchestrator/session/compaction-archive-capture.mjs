@@ -226,7 +226,7 @@ const recordExists = (dir, sessionId) => existsSync(join(dir, `${sessionId}.json
  *  since `epoch` was captured wins. Any outcome but a rename removes the temp
  *  file. */
 async function publishArchive({ dir, path, sessionId, text, epoch }) {
-  const tmp = join(dir, `.${basename(path)}.${randomBytes(8).toString('hex')}.tmp`);
+  const tmp = join(dir, `${basename(path)}.mixdog-tmp-${randomBytes(4).toString('hex')}`);
   const removeTmp = () => {
     try {
       unlinkSync(tmp);

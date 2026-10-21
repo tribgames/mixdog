@@ -40,6 +40,8 @@ import {
   type ComposerIslandTab,
   type IslandReservedSegment,
   type IslandSegmentReserves,
+  petIslandReserveFor,
+  subscribePetIslandReserve,
 } from './composer-island-state';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT } from './desktop-types';
@@ -132,27 +134,47 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     // Read inside the mount commit, both forced a layout of the whole page.
     let needed = -1;
     let room = -1;
+    const measureFull = (key: string) => {
+      island.removeAttribute('data-compact');
+      island.setAttribute('data-measuring', '');
+      needed = pill.offsetWidth;
+      island.removeAttribute('data-measuring');
+      fullLabelWidths.set(key, needed);
+      for (const oldest of fullLabelWidths.keys()) {
+        if (fullLabelWidths.size <= FULL_LABEL_WIDTHS_MAX) break;
+        fullLabelWidths.delete(oldest);
+      }
+    };
+    const overflows = () => pill.scrollWidth > pill.clientWidth;
+    // The width the full labels may take: the room, less what the overlay bot
+    // pinned above this message box takes at its right end — on both sides,
+    // as the pill is centred — so they show only where they clear the bot.
+    // The bot's width moves with its setting, scale and zoom, never with the
+    // pill's, so the switch cannot feed back on itself.
+    const budget = () => room - 2 * petIslandReserveFor(island);
     const fitLabels = (contentChanged: boolean) => {
       if (room < 0) return;
       if (contentChanged || needed < 0) {
         const key = labelFitKey(pill);
         const known = fullLabelWidths.get(key);
-        if (known !== undefined) {
-          needed = known;
-        } else {
-          island.removeAttribute('data-compact');
-          island.setAttribute('data-measuring', '');
-          needed = pill.offsetWidth;
-          island.removeAttribute('data-measuring');
-          fullLabelWidths.set(key, needed);
-          for (const oldest of fullLabelWidths.keys()) {
-            if (fullLabelWidths.size <= FULL_LABEL_WIDTHS_MAX) break;
-            fullLabelWidths.delete(oldest);
-          }
-        }
+        if (known !== undefined) needed = known;
+        else measureFull(key);
       }
-      const compact = needed > room;
+      const compact = needed > budget();
       if (compact !== island.hasAttribute('data-compact')) island.toggleAttribute('data-compact', compact);
+      // The remembered width came from other glyph metrics (a web font that
+      // landed since, a fallback face): the labels as laid out overflow, so
+      // they are read again instead of trusted.
+      if (!compact && overflows()) {
+        measureFull(labelFitKey(pill));
+        island.toggleAttribute('data-compact', needed > budget() || overflows());
+      }
+    };
+    // Last resort once compact still overflows: the agents' running state
+    // gives way to the segment's pulse and padding tightens.
+    const fitTight = () => {
+      island.removeAttribute('data-fit-tight');
+      if (island.hasAttribute('data-compact') && overflows()) island.setAttribute('data-fit-tight', '');
     };
     // The worktree name is the one label that gives way after compact (which
     // already drops its prefix and caps it): a name squeezed below its cap
@@ -172,14 +194,25 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
       if (room < 0) return;
       fitLabels(contentChanged);
       fitWorktree();
+      fitTight();
     };
     // Delivered after the frame's layout: the room's read costs no layout.
+    // The pill is watched too: type that lands later (fonts) resizes it with
+    // no change of room or content.
     const resize = new ResizeObserver(() => {
       const first = room < 0;
       room = stage.clientWidth;
       fit(first);
     });
     resize.observe(stage);
+    resize.observe(pill);
+    const fonts = document.fonts;
+    const refit = () => {
+      fullLabelWidths.clear();
+      fit(true);
+    };
+    fonts?.addEventListener?.('loadingdone', refit);
+    const stopReserve = subscribePetIslandReserve(() => fit(false));
     const mutation = new MutationObserver(() => fit(true));
     mutation.observe(pill, {
       subtree: true,
@@ -190,6 +223,8 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     return () => {
       resize.disconnect();
       mutation.disconnect();
+      stopReserve();
+      fonts?.removeEventListener?.('loadingdone', refit);
     };
   }, [islandRef, pillRef]);
 }
@@ -308,6 +343,61 @@ function rememberSlotHeight(sessionId: string, height: number): void {
 const SLOT_HEIGHT = '--island-slot-height';
 /** Pane height above an open panel's floor; the stylesheet caps the panel to it. */
 const PANEL_ROOM = '--island-panel-room';
+/** The pane's height above the dock's floor: a docked approval may take all of
+ *  it (it outranks the transcript), so its buttons are never cut off. */
+const APPROVAL_ROOM = '--island-approval-room';
+/** Below this room (a phone with its keyboard up) the card drops its face. */
+const APPROVAL_TIGHT_ROOM = 420;
+/** The gap a docked card keeps clear of the pane's top edge (the tab bar),
+ *  so its top border and corners never sit flush against it. */
+const APPROVAL_TOP_GAP = 10;
+/** The order a docked card short of room gives up space in, before its
+ *  preview gets smaller than readable (15-approval-prompt.css): the stacked
+ *  buttons go side by side; the last resort scrolls the island with the
+ *  buttons at its floor. */
+const APPROVAL_FIT_STEPS = ['row', 'compact', 'scroll'];
+/** The preview's readable floor: this many lines, or all of it. */
+const APPROVAL_PREVIEW_LINES = 3;
+
+/** Fits a docked approval into the island's room: the preview's floor is
+ *  measured, then space is reclaimed step by step until nothing spills. */
+function fitDockedApproval(slot: HTMLElement, island: HTMLElement): void {
+  slot.removeAttribute('data-approval-fit');
+  const prompt = island.querySelector<HTMLElement>('.composer-island-approval > .approval-prompt');
+  if (!prompt) return;
+  const preview = prompt.querySelector<HTMLElement>(':scope > .approval-preview');
+  if (preview?.offsetParent) {
+    const style = getComputedStyle(preview);
+    const px = (value: string) => Number.parseFloat(value) || 0;
+    const borders = px(style.borderTopWidth) + px(style.borderBottomWidth);
+    const lines =
+      px(style.paddingTop) + px(style.paddingBottom) + borders + APPROVAL_PREVIEW_LINES * px(style.lineHeight);
+    const floor = Math.ceil(Math.min(preview.scrollHeight + borders, lines));
+    slot.style.setProperty('--approval-preview-min', `${floor}px`);
+    // The compact step's floor: the preview's first row (the recipient, the
+    // site, the amount), whole.
+    const first =
+      preview.querySelector<HTMLElement>('.approval-preview-row, .approval-amount') ?? preview.firstElementChild;
+    const one =
+      first instanceof HTMLElement
+        ? px(style.paddingTop) + px(style.paddingBottom) + borders + first.offsetHeight
+        : floor;
+    slot.style.setProperty('--approval-preview-compact', `${Math.ceil(Math.min(one, floor))}px`);
+  }
+  // Its content and its bottom padding inside the card (an overflow the
+  // card's scrollHeight would not count), the card inside the island.
+  const padding = Number.parseFloat(getComputedStyle(prompt).paddingBottom) || 0;
+  const fits = () => {
+    const end = Math.max(0, ...[...prompt.children].map((child) => child.getBoundingClientRect().bottom));
+    return end + padding <= prompt.getBoundingClientRect().bottom + 1 && island.scrollHeight <= island.clientHeight + 1;
+  };
+  const taken: string[] = [];
+  for (const step of APPROVAL_FIT_STEPS) {
+    if (fits()) return;
+    taken.push(step);
+    slot.setAttribute('data-approval-fit', taken.join(' '));
+  }
+}
 
 /**
  * Owns the slot's explicit height and data-presence. Content opens the slot
@@ -331,6 +421,63 @@ const PANEL_ROOM = '--island-panel-room';
  * replaces) and holds it up to ISLAND_RESERVE_HOLD_MS for the first segment,
  * so an entry opens without moving the composer.
  */
+/** A panel paints upward from the pill's resting floor, so its real room is
+ *  the pane's top down to that floor (the dock's height varies). */
+function measurePanelRoom(slot: HTMLElement, stage: HTMLElement, pane: Element) {
+  const pillHeight = Number.parseFloat(getComputedStyle(slot).getPropertyValue('--island-pill-height')) || 0;
+  const room = stage.getBoundingClientRect().top - pane.getBoundingClientRect().top + pillHeight;
+  slot.style.setProperty(PANEL_ROOM, `${Math.max(0, Math.floor(room))}px`);
+}
+
+/** A docked approval sits on the dock's floor (the stage's bottom less its
+ *  gap, which never moves as the card grows) and may reach the pane's top. */
+function measureApprovalRoom(slot: HTMLElement, island: HTMLElement, stage: HTMLElement, pane: Element) {
+  const gap = Number.parseFloat(getComputedStyle(stage).paddingBottom) || 0;
+  const room = Math.floor(
+    stage.getBoundingClientRect().bottom - gap - pane.getBoundingClientRect().top - APPROVAL_TOP_GAP
+  );
+  slot.style.setProperty(APPROVAL_ROOM, `${Math.max(0, room)}px`);
+  slot.toggleAttribute('data-approval-tight', room < APPROVAL_TIGHT_ROOM);
+  // Fitted at the island's own height, not the slot's current (eased or
+  // last-fitted) one.
+  slot.setAttribute('data-measuring', '');
+  fitDockedApproval(slot, island);
+  slot.removeAttribute('data-measuring');
+}
+
+/** Calls `sync` on size changes without a DOM change (wrapping, the pane's
+ *  height bound); returns the teardown. */
+function observeIslandSizes(slot: HTMLElement, island: HTMLElement, pane: Element | null, sync: () => void) {
+  // Only a HEIGHT change can move the slot's target: a width-only change
+  // (every step of a window drag) must not toggle data-measuring and force
+  // two style passes for a target that cannot have changed.
+  const observedHeights = new WeakMap<Element, number>();
+  const resizeObserver = new ResizeObserver((entries) => {
+    let heightChanged = false;
+    for (const entry of entries) {
+      const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+      if (observedHeights.get(entry.target) === height) continue;
+      observedHeights.set(entry.target, height);
+      heightChanged = true;
+    }
+    if (heightChanged) sync();
+  });
+  resizeObserver.observe(island);
+  // The dock (textarea, queue, /btw) and the pane move the panel's floor.
+  if (pane) resizeObserver.observe(pane);
+  const region = slot.closest('.composer-region');
+  if (region) resizeObserver.observe(region);
+  for (const child of island.children) resizeObserver.observe(child);
+  const children = new MutationObserver(() => {
+    for (const child of island.children) resizeObserver.observe(child);
+  });
+  children.observe(island, { childList: true });
+  return () => {
+    children.disconnect();
+    resizeObserver.disconnect();
+  };
+}
+
 function useIslandSlotPresence(
   slotRef: RefObject<HTMLDivElement | null>,
   islandRef: RefObject<HTMLDivElement | null>,
@@ -393,17 +540,9 @@ function useIslandSlotPresence(
         presence('closed');
       }
     };
-    // A panel paints upward from the pill's resting floor, so its real room is
-    // the pane's top down to that floor (the dock's height varies).
     const pane = slot.closest('.conversation');
-    const measureRoom = () => {
-      if (!pane) return;
-      const room = stage.getBoundingClientRect().top - pane.getBoundingClientRect().top + pillHeight();
-      slot.style.setProperty(PANEL_ROOM, `${Math.max(0, Math.floor(room))}px`);
-    };
-    const pillHeight = () => Number.parseFloat(getComputedStyle(slot).getPropertyValue('--island-pill-height')) || 0;
     const sync = () => {
-      if (island.getAttribute('data-mode') === 'panel') measureRoom();
+      if (pane && island.getAttribute('data-mode') === 'panel') measurePanelRoom(slot, stage, pane);
       const animate = armed && !reducedMotion.matches;
       const content = Boolean(island.querySelector(ISLAND_CONTENT));
       const mode = island.getAttribute('data-mode');
@@ -417,6 +556,7 @@ function useIslandSlotPresence(
         reserving = false;
         // Shown first: a closed slot has no box to measure.
         presence('open');
+        if (pane && mode === 'approval') measureApprovalRoom(slot, island, stage, pane);
         const target = natural();
         resize(target, animate);
         if (mode === 'pill') {
@@ -467,39 +607,14 @@ function useIslandSlotPresence(
     });
     const mutation = new MutationObserver(sync);
     mutation.observe(island, { subtree: true, childList: true, characterData: true, attributes: true });
-    // Size changes without a DOM change (wrapping, the pane's height bound).
-    // Only a HEIGHT change can move the slot's target: a width-only change
-    // (every step of a window drag) must not toggle data-measuring and force
-    // two style passes for a target that cannot have changed.
-    const observedHeights = new WeakMap<Element, number>();
-    const resizeObserver = new ResizeObserver((entries) => {
-      let heightChanged = false;
-      for (const entry of entries) {
-        const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
-        if (observedHeights.get(entry.target) === height) continue;
-        observedHeights.set(entry.target, height);
-        heightChanged = true;
-      }
-      if (heightChanged) sync();
-    });
-    resizeObserver.observe(island);
-    // The dock (textarea, queue, /btw) and the pane move the panel's floor.
-    if (pane) resizeObserver.observe(pane);
-    const region = slot.closest('.composer-region');
-    if (region) resizeObserver.observe(region);
-    for (const child of island.children) resizeObserver.observe(child);
-    const children = new MutationObserver(() => {
-      for (const child of island.children) resizeObserver.observe(child);
-    });
-    children.observe(island, { childList: true });
+    const stopObserving = observeIslandSizes(slot, island, pane, sync);
     slot.addEventListener('transitionend', onTransitionEnd);
     reducedMotion.addEventListener('change', onMotionPreference);
     return () => {
       window.cancelAnimationFrame(frame);
       cancelGrace();
       mutation.disconnect();
-      children.disconnect();
-      resizeObserver.disconnect();
+      stopObserving();
       slot.removeEventListener('transitionend', onTransitionEnd);
       reducedMotion.removeEventListener('change', onMotionPreference);
     };
@@ -594,14 +709,15 @@ function JobsPanelHead({
 }
 
 /** The listed agents tallied by state, read by both the pill segment and the
- *  panel head. `waiting` is queued or waiting on tasks; `idle` rests. */
+ *  panel head. An agent waiting on its own tasks is still at work (its
+ *  timer runs), so it counts as running; `waiting` is queued only; `idle` rests. */
 function islandAgentCounts(agents: readonly IslandAgentRow[]) {
   const count = (...states: DesktopAgentActivityState[]) => agents.filter(({ state }) => states.includes(state)).length;
   return {
-    running: count('running', 'cancel-unconfirmed'),
+    running: count('running', 'waiting', 'cancel-unconfirmed'),
     needsUser: count('needs-user'),
     failed: count('failed'),
-    waiting: count('queued', 'waiting'),
+    waiting: count('queued'),
     idle: count('idle'),
   };
 }
@@ -644,41 +760,51 @@ function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
   );
 }
 
+/** Shown for a figure the ledger has not answered yet or cannot attribute
+ *  exactly: never an invented zero. */
+const SUMMARY_UNKNOWN = '-';
+/** The widest figures the footer reserves room for, so a measured value lands
+ *  in the box its "-" placeholder already holds. */
+const SUMMARY_SAMPLE_TOKENS = 999_900_000;
+const SUMMARY_SAMPLE_COST = 9_999.99;
+
+/** One footer stat. Its box is sized by `reserve` (the same words with the
+ *  widest figures, drawn invisibly by CSS), not by the live text, so the
+ *  placeholder and the measured value wrap and measure alike. */
+function SummaryStat({ reserve, children }: { reserve: string; children: ReactNode }) {
+  return (
+    <span className="composer-island-summary-stat" data-reserve={reserve}>
+      <span>{children}</span>
+    </span>
+  );
+}
+
 /** The session's totals below the agent rows: the ledger's exact figures for
- *  the Lead and its listed agents. A figure the ledger cannot attribute
- *  exactly is left out, never estimated. */
+ *  the Lead and its listed agents. The three stats and the Lead/Agents split
+ *  are laid out from the first render; a figure not yet measured, or one the
+ *  ledger cannot attribute exactly, reads "-", never an estimate or a zero. */
 function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
   const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
-  const empty = totalTokens === null && cacheHitRate === null && costUsd === null;
+  const splitKnown = totalTokens !== null && leadTokens !== null && agentTokens !== null;
+  const split = (lead: string, agents: string) => `(${t('Lead {{lead}} · Agents {{agents}}', { lead, agents })})`;
+  const sampleTokens = statsTokens(SUMMARY_SAMPLE_TOKENS);
   return (
     // biome-ignore lint/a11y/useSemanticElements: fieldset default border/padding/margin would change the styling.
     <div className="composer-island-summary" role="group" aria-label={t('Session usage')}>
-      {/* Until the ledger answers (or when it cannot attribute a figure) the
-          footer keeps its one-line height, so the rows above never move. */}
-      {empty ? <span aria-hidden="true">{'\u00a0'}</span> : null}
-      {totalTokens !== null && leadTokens !== null && agentTokens !== null ? (
-        <span>
-          {t('Island: Total tokens')} <b>{statsTokens(totalTokens)}</b>{' '}
-          <span className="composer-island-summary-split">
-            (
-            {t('Lead {{lead}} · Agents {{agents}}', {
-              lead: statsTokens(leadTokens),
-              agents: statsTokens(agentTokens),
-            })}
-            )
-          </span>
+      <SummaryStat reserve={`${t('Island: Total tokens')} ${sampleTokens} ${split(sampleTokens, sampleTokens)}`}>
+        {t('Island: Total tokens')} <b>{totalTokens === null ? SUMMARY_UNKNOWN : statsTokens(totalTokens)}</b>{' '}
+        <span className="composer-island-summary-split">
+          {splitKnown
+            ? split(statsTokens(leadTokens), statsTokens(agentTokens))
+            : split(SUMMARY_UNKNOWN, SUMMARY_UNKNOWN)}
         </span>
-      ) : null}
-      {cacheHitRate !== null ? (
-        <span>
-          {t('Island: Cache hit rate')} <b>{statsPercent(cacheHitRate)}</b>
-        </span>
-      ) : null}
-      {costUsd !== null ? (
-        <span>
-          {t('Island: Approx. cost')} <b>{usageMoney(costUsd)}</b>
-        </span>
-      ) : null}
+      </SummaryStat>
+      <SummaryStat reserve={`${t('Island: Cache hit rate')} ${statsPercent(1)}`}>
+        {t('Island: Cache hit rate')} <b>{cacheHitRate === null ? SUMMARY_UNKNOWN : statsPercent(cacheHitRate)}</b>
+      </SummaryStat>
+      <SummaryStat reserve={`${t('Island: Approx. cost')} ${usageMoney(SUMMARY_SAMPLE_COST)}`}>
+        {t('Island: Approx. cost')} <b>{costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd)}</b>
+      </SummaryStat>
     </div>
   );
 }

@@ -1,14 +1,17 @@
 // PDF OCR: tesseract TSV/block parsing, readiness probe and the ocr operation.
 import { createRequire } from 'node:module';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { SAVE_OPTIONS } from './pdf-draw.mjs';
 import { embedDocumentFont, fontCovers } from './pdf-fonts.mjs';
-import { renderPdfPages } from './pdf-render.mjs';
+import { PDF_RENDER_MAX_EXPLICIT_PAGES, renderPdfPages } from './pdf-render.mjs';
 import { selectedPages } from './pdf-document.mjs';
+import { acquireOcrEngine } from './ocr-engine.mjs';
 
 const require = createRequire(import.meta.url);
+
+const DEFAULT_MIN_CONFIDENCE = 40;
 
 // The engine's own column order. Tesseract writes this table with a header
 // row through its command line and without one through the worker API, so the
@@ -208,7 +211,7 @@ export async function pdfOcrReadiness(dataDir) {
 
 // Renders and recognizes one page; the rendered image path is recorded on
 // `temporaryImages` for cleanup.
-async function recognizePage(worker, path, pageNumber, operation, signal, temporaryImages) {
+async function recognizePage(engine, path, pageNumber, operation, signal, temporaryImages) {
   const rendered = await renderPdfPages(path, {
     pages: [pageNumber],
     maxWidth: Math.max(1200, Math.min(3200, Number(operation.maxWidth) || 2400)),
@@ -216,13 +219,13 @@ async function recognizePage(worker, path, pageNumber, operation, signal, tempor
   });
   const image = rendered.images[0];
   temporaryImages.push(image.path);
-  const recognized = await worker.recognize(image.path, {}, { text: true, tsv: true, blocks: true });
-  const lines = ocrTextLines(recognized.data.tsv, recognized.data.text);
-  const minConfidence = Number(operation.minConfidence ?? 40);
-  const words = (lines.length ? lines.flatMap((line) => line.words) : parseOcrBlocks(recognized.data.blocks)).filter(
+  const recognized = await engine.recognize(image.path, { output: { text: true, tsv: true, blocks: true }, signal });
+  const lines = ocrTextLines(recognized.tsv, recognized.text);
+  const minConfidence = Number(operation.minConfidence ?? DEFAULT_MIN_CONFIDENCE);
+  const words = (lines.length ? lines.flatMap((line) => line.words) : parseOcrBlocks(recognized.blocks)).filter(
     (word) => word.confidence >= minConfidence
   );
-  return { pageNumber, image, lines, words, text: recognized.data.text || '' };
+  return { pageNumber, image, lines, words, text: recognized.text || '' };
 }
 
 // One font for all the recognized text: Helvetica when it is Latin, an
@@ -285,18 +288,15 @@ function placeRecognizedText(document, { pageNumber, image, lines, words }, font
   }
 }
 
-async function createOcrWorker(operation, dataDir) {
+// The shared engine for the operation's languages (ocr-engine.mjs): it starts
+// on its own thread, so a stalled first-use download or a cancellation ends
+// it at once.
+async function openOcrEngine(operation, dataDir, signal) {
   const languages = Array.isArray(operation.languages)
     ? operation.languages.map(String).join('+')
     : String(operation.languages || 'eng+kor');
-  const cachePath = ocrCachePath(dataDir);
-  await mkdir(cachePath, { recursive: true });
-  const tesseract = require('tesseract.js');
-  const worker = await tesseract.createWorker(languages, tesseract.OEM.LSTM_ONLY, {
-    cachePath,
-    gzip: true,
-  });
-  return { worker, languages };
+  const engine = await acquireOcrEngine({ languages, cachePath: ocrCachePath(dataDir), signal });
+  return { engine, languages };
 }
 
 function ocrResult(operation, { pages, languages, text, tally, fontPath, embedded }) {
@@ -318,6 +318,36 @@ function ocrResult(operation, { pages, languages, text, tally, fontPath, embedde
   };
 }
 
+/**
+ * Read-only OCR: the recognized text of `pages` (1-based) of the PDF at
+ * `path`, as `[{ page, text }]`. Pages are rendered in memory and nothing is
+ * written next to the PDF or into it. Throws when the engine or its language
+ * data is unavailable (no network on first use).
+ */
+export async function recognizePdfPageTexts(path, pages, { dataDir, signal = null, languages } = {}) {
+  const { engine } = await openOcrEngine({ languages }, dataDir, signal);
+  const out = [];
+  try {
+    for (let offset = 0; offset < pages.length; offset += PDF_RENDER_MAX_EXPLICIT_PAGES) {
+      if (signal?.aborted) throw new Error('PDF OCR was cancelled');
+      const rendered = await renderPdfPages(path, {
+        pages: pages.slice(offset, offset + PDF_RENDER_MAX_EXPLICIT_PAGES),
+        maxWidth: 2000,
+        signal,
+        writeImages: false,
+      });
+      for (const image of rendered.images) {
+        if (signal?.aborted) throw new Error('PDF OCR was cancelled');
+        const recognized = await engine.recognize(Buffer.from(image.data, 'base64'), { signal });
+        out.push({ page: image.page, text: String(recognized?.text || '').trim() });
+      }
+    }
+    return out;
+  } finally {
+    engine.release();
+  }
+}
+
 export async function ocrPdf(path, operation, { dataDir, signal = null } = {}) {
   const source = await readFile(path);
   const document = await PDFDocument.load(source, {
@@ -325,7 +355,7 @@ export async function ocrPdf(path, operation, { dataDir, signal = null } = {}) {
     updateMetadata: false,
   });
   const pages = selectedPages(document.getPageCount(), operation.pages || (operation.page ? [operation.page] : null));
-  const { worker, languages } = await createOcrWorker(operation, dataDir);
+  const { engine, languages } = await openOcrEngine(operation, dataDir, signal);
   const tally = { wordCount: 0, skippedWords: 0, totalConfidence: 0 };
   let text = '';
   const temporaryImages = [];
@@ -335,19 +365,19 @@ export async function ocrPdf(path, operation, { dataDir, signal = null } = {}) {
     // it produced.
     for (const pageNumber of pages) {
       if (signal?.aborted) throw new Error('PDF OCR was cancelled');
-      const recognized = await recognizePage(worker, path, pageNumber, operation, signal, temporaryImages);
+      const recognized = await recognizePage(engine, path, pageNumber, operation, signal, temporaryImages);
       recognizedPages.push(recognized);
       text += `${text ? '\n\n' : ''}--- Page ${pageNumber} ---\n${recognized.text}`;
     }
     const { font, fontPath, embedded } = await selectOcrFont(document, operation, recognizedPages);
-    const minConfidence = Number(operation.minConfidence ?? 40);
+    const minConfidence = Number(operation.minConfidence ?? DEFAULT_MIN_CONFIDENCE);
     for (const entry of recognizedPages) placeRecognizedText(document, entry, font, minConfidence, tally);
     if (tally.wordCount > 0) {
       await writeFile(path, await document.save(SAVE_OPTIONS));
     }
     return ocrResult(operation, { pages, languages, text, tally, fontPath, embedded });
   } finally {
-    await worker.terminate().catch(() => {});
+    engine.release();
     for (const image of temporaryImages) await rm(image, { force: true }).catch(() => {});
   }
 }

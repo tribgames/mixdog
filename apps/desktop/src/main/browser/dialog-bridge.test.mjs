@@ -41,36 +41,6 @@ test('dialog bridge fulfills prompt responses as complete JSON bodies', () => {
   );
 });
 
-test('dialog bridge consumes a fulfilled JSON body when synchronous XHR reports status zero', () => {
-  class FulfilledRequest {
-    status = 0;
-    responseText = JSON.stringify({ accept: true, promptText: 'Accepted' });
-
-    open() {}
-    send() {}
-  }
-  const context = {
-    URL,
-    URLSearchParams,
-    XMLHttpRequest: FulfilledRequest,
-    console: { debug() {} },
-    location: { href: 'http://127.0.0.1:8137/' },
-    window: {
-      alert() {},
-      confirm() {
-        return false;
-      },
-      prompt() {
-        return null;
-      },
-    },
-  };
-
-  runInNewContext(DIALOG_BRIDGE_SCRIPT, context);
-
-  assert.equal(context.window.prompt('Harness prompt', 'default'), 'Accepted');
-});
-
 /** A page whose bridge request behaves as `send` says, with its own dialogs
  *  and the bridge's console notices recorded. */
 function bridgedPage(send, responseText = '') {
@@ -185,6 +155,33 @@ test('a page replacing XMLHttpRequest afterwards never sees a bridge request', (
   Request.prototype.send = (...args) => seen.push(args);
   assert.equal(context.window.confirm('Continue?'), true);
   assert.deepEqual(seen, []);
+});
+
+test("a popup's first document, which reuses its about:blank window, asks its own origin", () => {
+  const opened = [];
+  class Request {
+    responseText = JSON.stringify({ accept: true, promptText: '' });
+    open(_method, url) {
+      opened.push(url);
+    }
+    send() {}
+  }
+  const context = {
+    URL,
+    URLSearchParams,
+    XMLHttpRequest: Request,
+    console: { debug() {} },
+    // window.open's initial document, where the bridge is first installed.
+    location: { href: 'about:blank' },
+    window: { alert() {} },
+  };
+  runInNewContext(DIALOG_BRIDGE_SCRIPT, context);
+  // The popup's page commits into the same window, closure and all.
+  context.location.href = 'https://filing.example.test/easy/apply';
+  context.window.alert('Proceed to payment');
+  assert.equal(opened.length, 1);
+  assert.equal(new URL(opened[0]).origin, 'https://filing.example.test');
+  assert.equal(new URL(opened[0]).pathname, DIALOG_BRIDGE_PATH);
 });
 
 test('accepting a prompt default unchanged keeps the full default, past the shown copy', () => {

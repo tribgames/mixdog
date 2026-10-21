@@ -204,11 +204,6 @@
   visibility: hidden;
   animation: none;
 }
-/* An approval is marked by its ring alone: a 1px amber edge in place of the
-   neutral one (no icon, no stripe). :root outranks the light-theme tokens. */
-:root .composer-island[data-mode="approval"] {
-  --composer-island-edge: 0 0 0 1px color-mix(in srgb, var(--mx-warning) 55%, transparent);
-}
 /* A distinct animation name per mode replays the fade whenever the island
    changes shape. */
 :where(.composer-island-slot[data-entry]) .composer-island[data-mode="approval"] {
@@ -409,16 +404,13 @@
 }
 .composer-island-git-main {
   gap: 6px;
-  padding: 0 3px 0 10px;
-}
-.composer-island-git-caret {
-  padding: 0 8px 0 3px;
+  padding: 0 10px;
 }
 .composer-island[data-compact] .composer-island-git-main > span {
   display: none;
 }
 .composer-island[data-compact] .composer-island-git-main {
-  padding-inline-start: 8px;
+  padding: 0 8px;
 }
 /* The branch and git tabs expand the island upward in place, like the files
    menu (their panels are rendered beside their segments in the pill). */
@@ -444,7 +436,7 @@
   display: flex;
   flex-direction: column;
 }
-/* A row: the selecting body (icon, label, ✓) and its own Run at the right. */
+/* A row: the action's icon and label, and its own Run at the right. */
 .composer-island-git-row {
   min-height: 40px;
   display: flex;
@@ -456,11 +448,10 @@
 .composer-island-git-row + .composer-island-git-row {
   border-top: var(--mx-hairline) solid var(--composer-island-rule);
 }
-.composer-island-git-row:hover,
-.composer-island-git-row[data-selected] {
+.composer-island-git-row:hover {
   background: var(--composer-island-wash);
 }
-.composer-island-git-pick {
+.composer-island-git-label {
   min-width: 0;
   min-height: 32px;
   flex: 1 1 auto;
@@ -468,32 +459,19 @@
   align-items: center;
   gap: 10px;
   padding: 0 6px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: transparent;
-  font: inherit;
   font-weight: 500;
-  text-align: start;
-  cursor: pointer;
 }
-.composer-island-git-pick:focus-visible {
-  outline: 1px solid var(--mx-accent);
-  outline-offset: -1px;
-}
-.composer-island-git-pick > svg {
+.composer-island-git-label > svg {
   flex: none;
   color: var(--mx-icon-muted);
 }
-.composer-island-git-pick > span {
+.composer-island-git-label > span {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.composer-island-git-pick > .composer-island-git-check {
-  color: var(--mx-accent);
 }
 .composer-island-git-row > .composer-island-git-run {
   flex: none;
@@ -683,6 +661,15 @@
 .composer-island[data-compact] .composer-island-seg-branch .composer-island-seg-text {
   max-width: 104px;
 }
+/* Still overflowing once compact (useIslandFit): the running state leaves the
+   agents segment (its pulse stays) and every segment tightens. */
+.composer-island[data-fit-tight] .composer-island-seg-states {
+  display: none;
+}
+.composer-island[data-fit-tight] :is(.composer-island-seg, .session-goal-trigger) {
+  gap: 4px;
+  padding-inline: 6px;
+}
 .composer-island[data-fit-pips] .session-goal-pips,
 .composer-island[data-fit-glyph] .composer-island-seg-branch .composer-island-seg-text {
   display: none;
@@ -768,7 +755,7 @@
   max-width: 100%;
 }
 .composer-island-phead {
-  height: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -790,6 +777,7 @@
   white-space: nowrap;
 }
 .composer-island-close {
+  flex: none;
   width: 28px;
   height: 28px;
   display: grid;
@@ -941,11 +929,17 @@
    total the supporting line, both at the right edge. */
 .composer-island-agent-item[data-tokens="true"] .agent-activity-status {
   align-self: flex-start;
+  /* As wide as the total below it, so the model line ends before the total. */
+  min-width: 4.5rem;
 }
 .composer-island-agent-tokens {
   position: absolute;
   right: 0;
   bottom: 6px;
+  max-width: 4.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--mx-text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -954,10 +948,11 @@
 /* State counts beside the panel title: quiet, one line. */
 .composer-island-phead-meta {
   min-width: 0;
+  flex: 1 1 0;
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 2px 10px;
   margin-inline-start: 8px;
-  overflow: hidden;
   color: var(--mx-text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -966,6 +961,44 @@
 .composer-island-phead-meta b {
   color: var(--mx-text);
   font-weight: 500;
+}
+/* Counts wrap among themselves, never under a button. When the pane is too
+   narrow for them beside the title and the buttons (a phone, a split pane, a
+   long translation) they take their own second line. */
+@container composer-island (max-width: 559px) {
+  .composer-island-phead:has(> .composer-island-phead-meta) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: 44px auto;
+    grid-template-areas:
+      "tab action close"
+      "meta meta meta";
+    column-gap: 8px;
+    padding-bottom: 10px;
+  }
+  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-tab {
+    grid-area: tab;
+  }
+  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-phead-action {
+    grid-area: action;
+    justify-self: end;
+    max-width: 100%;
+    height: auto;
+    min-height: 32px;
+    margin: 0;
+    padding-block: 5px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+  }
+  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-close {
+    grid-area: close;
+    margin-inline-start: 0;
+  }
+  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-phead-meta {
+    grid-area: meta;
+    margin: 0 11px;
+  }
 }
 /* The session's totals below the agent rows: one quiet footer line. */
 .composer-island-summary {
@@ -981,6 +1014,27 @@
 .composer-island-summary b {
   color: var(--mx-text);
   font-weight: 500;
+}
+/* Each stat's box comes from its data-reserve text (the widest figures), drawn
+ * invisibly beside the live text in one grid cell: "-" and the measured value
+ * wrap and size alike, so the footer never moves when the ledger answers. */
+.composer-island-summary-stat {
+  display: inline-grid;
+  max-width: 100%;
+  min-width: 0;
+}
+.composer-island-summary-stat::after {
+  content: attr(data-reserve);
+  grid-area: 1 / 1;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  visibility: hidden;
+  pointer-events: none;
+}
+.composer-island-summary-stat > span {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .composer-island-agents .agent-pool-row:disabled {
   cursor: default;
@@ -1013,8 +1067,10 @@
 }
 .composer-island-agents .agent-route-summary > .model-route-label {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  vertical-align: top;
 }
 .composer-island-agents .agent-activity-status {
   flex: none;
@@ -1156,7 +1212,8 @@
 }
 .composer-island-button-primary,
 .composer-island-button-primary:hover {
-  color: var(--mx-grey-50);
+  /* A theme's accent-text (unset: the same white). */
+  color: var(--mx-accent-fg, var(--mx-grey-50));
   background: var(--mx-accent-bg);
   box-shadow: none;
 }
@@ -1435,93 +1492,9 @@
   opacity: 0.6;
   cursor: default;
 }
-/* The approval card (ApprovalCard.tsx) is a question card; only its content
-   blocks are extra: the target, the mail fields, the editable preview on the
-   `.question-other` surface, the amount, a note. They hang on the option
-   text's edge (38px). */
-.question-icon[data-tone="need"],
+/* The "decide later" chip's need mark (a login takeover, ApprovalCard.tsx). */
 .question-chip .question-need {
   color: var(--mx-warning);
-}
-.question-target {
-  display: grid;
-  gap: 2px;
-  padding: 6px 12px 6px 38px;
-}
-.question-target-main {
-  font-weight: var(--mx-weight-medium);
-  overflow-wrap: anywhere;
-}
-.question-fields {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 4px 10px;
-  margin: 0;
-  padding: 4px 12px 6px 38px;
-}
-.question-fields > div {
-  display: contents;
-}
-.question-fields dt {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-}
-.question-fields dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.question-other[data-preview] {
-  align-items: stretch;
-}
-.question-other textarea {
-  width: 100%;
-  min-width: 0;
-  max-height: 240px;
-  padding: 0;
-  border: 0;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: var(--mx-text);
-  font: inherit;
-  font-weight: 400;
-  field-sizing: content;
-}
-.question-edit-row {
-  min-height: 28px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px 4px 38px;
-}
-.question-edit-row .question-hint {
-  flex: none;
-}
-.question-edit-row .question-hint[data-edited] {
-  color: var(--mx-text);
-  font-weight: var(--mx-weight-medium);
-}
-.question-amount {
-  display: grid;
-  gap: 2px;
-  padding: 8px 12px 8px 38px;
-}
-.question-amount b {
-  font-size: 28px;
-  line-height: 36px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-.question-note {
-  padding: 2px 12px 8px 38px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.question-card .question-detail,
-.question-card .office-approval-preview {
-  margin: 2px 12px 8px 38px;
 }
 /* ✕ = decide later: the card folds into one line that reopens it. */
 .question-chip {
@@ -1583,9 +1556,6 @@ html[data-mixdog-mobile-tabs] .question-title {
 html[data-mixdog-mobile-tabs] .question-meta {
   white-space: normal;
 }
-html[data-mixdog-mobile-tabs] .question-card[data-approval] .question-foot:not([data-status]) {
-  display: none;
-}
 .composer-island-flash {
   height: var(--island-pill-height);
   display: flex;
@@ -1632,7 +1602,7 @@ html[data-mixdog-mobile-tabs] :is(.composer-island-dot, .composer-island-pulse) 
 /* Panel controls share the Goal controls' 32px touch box; the header and
    rows are tall enough to hold it. */
 html[data-mixdog-mobile-tabs] .composer-island-phead {
-  height: 44px;
+  min-height: 44px;
   padding-inline: 8px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-tab {
@@ -1640,9 +1610,21 @@ html[data-mixdog-mobile-tabs] .composer-island-tab {
   gap: 7px;
   padding-inline: 11px;
 }
+/* Header buttons: a 44px tap area. The close box is 44 with its glyph kept
+   where the 32px box put it; the header action keeps its look and grows an
+   invisible 44px pad. */
 html[data-mixdog-mobile-tabs] .composer-island-close {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  margin-inline-end: -6px;
+}
+html[data-mixdog-mobile-tabs] .composer-island-phead-action {
+  position: relative;
+}
+html[data-mixdog-mobile-tabs] .composer-island-phead-action::after {
+  content: "";
+  position: absolute;
+  inset: -6px 0;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-close, .composer-island-flash) > svg {
   width: 16px;
@@ -2127,6 +2109,12 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .composer-mic svg.lucide,
 .send-button svg.lucide {
   stroke-width: 1.75px;
+}
+/* The mic outline is airy at 16px next to the filled send arrow: one icon step
+   up (18px) in the same 28px box as the send disc. */
+.composer-mic:not(.is-recording) > svg.lucide {
+  width: var(--mx-icon-lg);
+  height: var(--mx-icon-lg);
 }
 .composer-mic.is-recording > svg.lucide {
   width: var(--mx-icon-xs);
@@ -3318,4 +3306,9 @@ html[data-mixdog-mobile-tabs] .composer-paste-dialog textarea {
   font-family: var(--mx-font-ui);
   font-size: var(--mx-font-ui);
   color: var(--mx-text-muted);
+}
+
+/* In the transcript the question card and its answered record span the reply column like the turn-changes card, not a 560px strip. */
+.transcript-virtual-row-content :is(.question-card:not([data-agent-mode]), .ask-user-record) {
+  width: 100%;
 }

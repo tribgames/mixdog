@@ -221,7 +221,10 @@ function dpApiFile(account) {
 function writeOwnerOnlyAtomicSync(file, text) {
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const temporary = path.join(dir, `.${path.basename(file)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
+  const temporary = path.join(
+    dir,
+    `${path.basename(file)}.mixdog-tmp-${process.pid}-${randomBytes(4).toString('hex')}`
+  );
   let descriptor = null;
   try {
     descriptor = fs.openSync(temporary, 'wx', 0o600);

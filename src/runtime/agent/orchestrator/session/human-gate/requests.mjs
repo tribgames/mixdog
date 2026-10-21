@@ -84,6 +84,8 @@ export function humanRequestFields(input = {}) {
   const fields = { remember: rememberScopes(input.remember) };
   // The agent the request acts for (its name on the card and the remembered grant).
   if (text(input.agentId)) fields.agentId = text(input.agentId);
+  // The one session a remembering answer may come from (gate.mjs rememberSurfaceOf).
+  if (text(input.rememberAt)) fields.rememberAt = text(input.rememberAt);
   if (kind === 'outbound' && isRecord(input.outbound)) {
     const outbound = input.outbound;
     const details = isRecord(outbound.details) ? outbound.details : {};
@@ -119,13 +121,16 @@ export function humanRequestFields(input = {}) {
     // browser page ID, or a computer window id and app, so the card can bring
     // exactly that window forward on the user's click.
     const token = (value, limit) => (/^[\w.:#@-]+$/.test(text(value, limit)) ? text(value, limit) : '');
-    const identity =
-      surface === 'browser'
-        ? { ...(token(takeover.tab, 64) ? { tab: token(takeover.tab, 64) } : {}) }
-        : {
-            ...(token(takeover.windowId, 128) ? { windowId: token(takeover.windowId, 128) } : {}),
-            ...(text(takeover.app, 120) ? { app: text(takeover.app, 120) } : {}),
-          };
+    const tab = token(takeover.tab, 64);
+    const windowId = token(takeover.windowId, 128);
+    const app = text(takeover.app, 120);
+    const identity = {};
+    if (surface === 'browser') {
+      if (tab) identity.tab = tab;
+    } else {
+      if (windowId) identity.windowId = windowId;
+      if (app) identity.app = app;
+    }
     // A login takeover (purpose 'login') opens the desktop's sign-in window on
     // its validated page instead of handing over the side panel.
     const login = surface === 'browser' && takeover.purpose === 'login' ? loginPageUrl(takeover.url) : null;
@@ -143,7 +148,13 @@ export function humanRequestFields(input = {}) {
     fields.permission = {
       scopes: scopes
         .filter((scope) => isRecord(scope) && text(scope.id))
-        .map((scope) => ({ id: text(scope.id), label: text(scope.label) || text(scope.id) })),
+        .map((scope) => ({
+          id: text(scope.id),
+          label: text(scope.label) || text(scope.id),
+          // The option's kind (allow_always / allow_once / reject, as an ACP or
+          // MCP permission request names them); the card maps buttons by it.
+          ...(text(scope.kind) ? { kind: text(scope.kind) } : {}),
+        })),
     };
   }
   return fields;
@@ -191,5 +202,6 @@ export function normalizeHumanResponse(request, approved, extra = {}) {
 /** `args` with the card's edited fields in place of the model's. */
 export function applyEditedArgs(args, editedArgs, editable) {
   const edits = editableArgs(editedArgs, editable);
-  return Object.keys(edits).length ? { ...(isRecord(args) ? args : {}), ...edits } : args;
+  if (!Object.keys(edits).length) return args;
+  return { ...(isRecord(args) ? args : {}), ...edits };
 }

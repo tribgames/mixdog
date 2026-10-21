@@ -527,6 +527,7 @@ test('providerConfig tells a server availability and traits only; disallowed pro
               accountLabel: 'work@acme.example',
               modelProxy: { nativePdf: true, consumesReadWindows: true, extra: 'x' },
             },
+            'mixdog-local': { enabled: true, modelProxy: { nativePdf: false, takesImages: false } },
             'custom-1': { type: 'custom', enabled: true, baseURL: 'http://10.0.0.5' },
           },
         }),
@@ -536,7 +537,10 @@ test('providerConfig tells a server availability and traits only; disallowed pro
   );
   // A provider the server may not use is not even named to it.
   assert.deepEqual(await channel.request({ provider: '', method: 'providerConfig' }), {
-    providers: { openai: { enabled: true, modelProxy: { nativePdf: true, consumesReadWindows: true } } },
+    providers: {
+      openai: { enabled: true, modelProxy: { nativePdf: true, consumesReadWindows: true } },
+      'mixdog-local': { enabled: true, modelProxy: { nativePdf: false, takesImages: false } },
+    },
     ready: true,
   });
   await assert.rejects(new ModelProxyProvider('custom-1', {}, channel).send([], 'm', undefined, {}), {
@@ -835,6 +839,20 @@ test('an unreadable credential with a live adapter is advertised on the first re
     (await channel.request({ provider: '', method: 'providerConfig' })).providers['openai-oauth'];
   assert.deepEqual(await read(), { enabled: true, authState: 'unreadable', modelProxy: {} });
   assert.deepEqual(await read(), { enabled: true, authState: 'unreadable', modelProxy: {} });
+});
+
+test("a text-only adapter's image trait is advertised, so a remote read sends it OCR text", async (t) => {
+  const modules = pcModules({ 'mixdog-local': { enabled: true }, openai: { enabled: true } });
+  const initProviders = modules.initProviders;
+  modules.initProviders = async (config) => {
+    await initProviders(config);
+    // The PC registry's real local adapter declares itself text-only.
+    Object.assign(modules.live.get('mixdog-local'), { nativePdf: false, takesImages: false });
+  };
+  const { channel } = connect(t, createModelProxyRuntime(modules));
+  const { providers } = await channel.request({ provider: '', method: 'providerConfig' });
+  assert.deepEqual(providers['mixdog-local'].modelProxy, { nativePdf: false, takesImages: false });
+  assert.deepEqual(providers.openai.modelProxy, {}, 'an adapter that takes images reports nothing');
 });
 
 test('a custom provider advertises only the ids of its hidden models', async (t) => {

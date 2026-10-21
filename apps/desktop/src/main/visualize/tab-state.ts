@@ -13,6 +13,7 @@ import type {
   VisualizePaneView,
   VisualizeProblem,
   VisualizeTabView,
+  VisualizeVersionTurn,
   VisualizeVersionView,
 } from '../../shared/visualize';
 import type { VisualizeAnnotation } from '../../shared/visualize-annotations';
@@ -100,7 +101,13 @@ export interface TabState {
   inline?: VisualizeInlineContent;
   /** Kept contents of an inline tab, oldest first (held in memory), with the
    *  card picture each version's turn ended on. */
-  inlineHistory?: Array<{ n: number; at: number; content: VisualizeInlineContent; thumbnail?: string }>;
+  inlineHistory?: Array<{
+    n: number;
+    at: number;
+    content: VisualizeInlineContent;
+    thumbnail?: string;
+    turns?: VisualizeVersionTurn[];
+  }>;
   /** Displayed pane indices whose inline render finished since the last open. */
   rendered?: Set<number>;
   /** Render ids already spent, with the tab revision they were issued for. */

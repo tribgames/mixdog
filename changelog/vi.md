@@ -4,6 +4,82 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đã thêm giao diện và skin hình ảnh, lớp phủ bot chính và chuyển đổi quy trình cùng chế độ ủy quyền ngay trong cuộc trò chuyện, cùng chữ ký mã nguồn Windows và các bản sửa lỗi toàn diện về nén, phê duyệt và tệp đính kèm.
+
+### Tính năng mới
+
+- **Giao diện** — Đã thêm Cài đặt → Giao diện để chọn Hệ thống, Tối tăm hoặc Trắng, một trong bốn skin hình ảnh động, ảnh của riêng bạn hoặc video ngắn, cùng phông chữ và kích cỡ văn bản trên cùng một màn hình.
+- **Lớp phủ bot chính** — Đã thêm bot chính xuất hiện phía trên ô nhập của ứng dụng PC, hiển thị câu trả lời trong bong bóng tự động lật trang cho các câu trả lời dài; nhấp vào đó để gửi tin nhắn hoặc nhấp chuột phải để chỉnh kích cỡ, ghim vị trí và cài đặt. Chọn bot trong Cài đặt → Bot.
+- **Mô hình dự phòng** — Đã thêm mô hình dự phòng cho Lead, bot chính và hồ sơ bot, tự động chuyển sang mô hình tiếp theo khi một mô hình đạt đến giới hạn sử dụng.
+- **Chuyển đổi quy trình và ủy quyền** — Đã thêm tính năng chuyển đổi quy trình và chế độ ủy quyền từ menu mô hình trong cuộc trò chuyện; áp dụng từ lượt tiếp theo chỉ cho riêng cuộc trò chuyện đó.
+- **Nén thông minh** — Đã thêm Cài đặt → Ngữ cảnh → "Mô hình tóm tắt nén" với các tùy chọn Thông minh, Maintainer hoặc Mô hình cuộc trò chuyện. Thông minh là mặc định.
+- **Mức suy luận tự động cơ sở** — Đã thêm Cài đặt → Chung → "Mức suy luận tự động cơ sở" để chọn mức suy luận mà Tự động căn cứ vào.
+- **Tạo hình ảnh** — Đã thêm tính năng tạo hình ảnh trong Studio với các mô hình hình ảnh OpenRouter và NanoGPT.
+- **Vị trí bảng bên** — Đã thêm tùy chọn trong Cài đặt → Chung để đặt bảng bên ở bên phải, bên dưới hoặc tự động.
+- **Bố cục trang bot** — Đã thêm thao tác kéo bot để sắp xếp lại thứ tự, hiện hoặc ẩn bot chính, bot, phòng và agent từ menu `…`, và một nơi tập trung cho các tác vụ đang chạy.
+
+### Thay đổi
+
+- Trình cài đặt và ứng dụng Windows hiện đã được ký mã nguồn, giúp giảm các cảnh báo bảo mật của Windows và cảnh báo sai từ phần mềm diệt virus.
+- Phê duyệt browser-use đã chuyển từ cửa sổ hệ điều hành sang thẻ phê duyệt trong cuộc trò chuyện, và tải tệp lên hiện cũng yêu cầu xác nhận.
+- Thẻ phê duyệt hiện hiển thị bot yêu cầu và câu hỏi một dòng, từ chối chỉ với một lần nhấp và không bao giờ tự động từ chối khi đang chờ.
+- Yêu cầu phê duyệt từ agent phụ hiện cũng xuất hiện trong cuộc trò chuyện chính, cùng với "Mở phiên" để chuyển ngay đến đó.
+- Hồ sơ bot hiện liệt kê các mục được đặt thành "Luôn cho phép" và cho phép chuyển từng mục về lại "Hỏi lại".
+- Lịch trình và webhook hiện chỉ hỏi một lần khi lưu và không hỏi lại trong khi chạy; thanh toán và xóa vĩnh viễn không bao giờ chạy khi không giám sát.
+- Điện thoại được liên kết hiện chỉ có thể thu hẹp, không bao giờ mở rộng, quyền hạn và trình kết nối của bot.
+- Bot bị tắt vẫn hiển thị trên trang Bot ở trạng thái "Tắt" để có thể bật lại, và có thể ẩn khỏi thanh bên một cách riêng biệt (#153).
+- Agent phụ hiện mở rộng bằng cách nhấp vào khuôn mặt hoặc nhấp chuột phải chọn "Hiện agent phụ" thay vì nhấp vào mũi tên.
+- Bộ chọn mô hình đã bỏ công tắc "Suy luận tự động" và liệt kê Tự động ở đầu danh sách mức suy luận.
+- Bộ chọn mô hình hiện mở ngay bên dưới hàng của nó, và các nhà cung cấp tùy chỉnh hiển thị tên bạn đã đặt.
+- Đã điều chỉnh các phòng bot để bot trò chuyện tự nhiên hơn thay vì đồng ý với nhau mọi lúc; khi không có mô hình Maintainer, mỗi bot được nhắc đến sẽ trả lời một lần.
+- Tin nhắn giữa các bot hiện hiển thị bot gửi và bot nhận, đồng thời giới hạn qua lại liên tục giữa các bot tối đa ba lượt trao đổi.
+- Thông báo trả lời của bot trên PC và điện thoại hiện sử dụng tên của bot hoặc phòng làm tiêu đề.
+- Nút Git của khung soạn thảo hiện mở tab Git, nơi "Tạo PR", "Cam kết · đẩy" và "Tạo commit" đều có nút "Chạy" riêng.
+- Thẻ kết thúc tác vụ hiện chỉ hiển thị hình thu nhỏ của các tệp được liên kết trong câu trả lời hoặc mở trong bảng bên.
+- Đã thay đổi thao tác cuộn để khung xem chỉ di chuyển khi bạn cuộn và tiếp tục cuộn theo các câu trả lời mới khi bạn chạm đáy; các câu trả lời dài gửi đến cùng lúc bắt đầu hiển thị từ dòng đầu tiên.
+- Máy chủ MCP phản hồi chậm chỉ làm trễ câu trả lời đầu tiên tối đa 3 giây; các công cụ kết nối sau đó sẽ khả dụng từ lượt tiếp theo.
+- Đã thay đổi câu trả lời phát trực tuyến để xuất hiện từng bước nhỏ kèm hiệu ứng mờ dần ngắn cho các từ mới, giúp văn bản không còn bị bật lên theo từng khối.
+- Đã thêm tính năng ghim agent trên trang bot từ menu chuột phải và tùy chọn "Giữ các agent đã hoàn tất" trong menu `…` cho 1 giờ, 1 ngày, 7 ngày hoặc Vĩnh viễn.
+- Đã thêm "Không giới hạn" vào tính năng tự động dọn dẹp các phiên không hoạt động.
+- Đã điều chỉnh dòng mã thông báo và chi phí trong cửa sổ agent để giữ vị trí ngay từ đầu, giúp khung xem không còn bị dịch chuyển.
+- Đã điều chỉnh hướng dẫn của công cụ setup để AI có thể đặt dòng kích hoạt kỹ năng (`when_to_use`) khi tạo hoặc chỉnh sửa kỹ năng.
+
+### Sửa lỗi
+
+- Đã sửa lỗi cuộc trò chuyện Anthropic có hình ảnh hoặc tệp PDF lớn liên tục thất bại với "attachmentReference: Extra inputs are not permitted".
+- Đã sửa lỗi đính kèm nhiều tệp PDF làm nghẽn cuộc trò chuyện do vượt quá ngữ cảnh; các tệp đính kèm lớn vẫn nằm trên PC này và chỉ đọc các phần cần thiết (#150).
+- Đã sửa lỗi văn bản có định dạng sao chép từ Word, Excel hoặc trình duyệt bị đính kèm dưới dạng hình ảnh (#135).
+- Đã sửa lỗi các tệp đính kèm chưa gửi bị biến mất sau khi chuyển sang xem phiên khác (#139).
+- Đã sửa lỗi mô hình và mức suy luận của Lead bị thay đổi mỗi khi mở một tác vụ mới (#149).
+- Đã sửa lỗi Claude Opus 5.5 trả lời bằng tiếng Anh thay vì tiếng Hàn ở cuối các tác vụ dài; câu trả lời cuối cùng của Lead và bot hiện xuất bằng tiếng Hàn.
+- Đã sửa lỗi tệp cài đặt và tài khoản bị hỏng sau khi tắt đột ngột dẫn đến mất đăng nhập và cấu hình; hiện đã được khôi phục từ bản sao hợp lệ gần nhất (#151).
+- Đã sửa lỗi tạo hoặc chỉnh sửa tệp trong các thư mục đồng bộ như NAVER MYBOX thất bại với mã EPERM (#138).
+- Đã sửa lỗi danh sách mô hình bị trống sau khi đăng nhập vào OpenCode Go (#141).
+- Đã sửa lỗi quá trình cài đặt engine code-tidy bị gián đoạn bị kẹt và không bao giờ cài đặt lại; hiện đã báo cáo lỗi và cài đặt lại theo từng engine (#152).
+- Đã sửa lỗi lưu nhà cung cấp tùy chỉnh có danh sách mô hình tải chậm bị thất bại do hết thời gian chờ.
+- Đã sửa lỗi bắt đầu một tác vụ mới quay trở về màn hình trống.
+- Đã sửa lỗi danh sách agent phụ đã hoàn thành bị biến mất sau khi khởi động lại ứng dụng hoặc dịch vụ nền.
+- Đã sửa lỗi agent phụ trong công việc do bot chính bàn giao báo cáo câu trả lời tạm thời làm kết quả trước khi hoàn thành.
+- Đã sửa lỗi các tác vụ đang chờ phê duyệt hiển thị như bị dừng hoặc bị ngắt do hết thời gian chờ.
+- Đã sửa lỗi agent phụ áp dụng cài đặt ngữ cảnh, mức suy luận và tốc độ của cuộc trò chuyện chính mà bỏ qua cài đặt Maintainer.
+- Đã sửa lỗi câu trả lời dài gửi đến cùng lúc trông bị trắng và mờ trong giây lát.
+- Đã sửa lỗi đầu vào trong hàng đợi đã dừng bị chạy lại sau khi khôi phục (#142, thanks @22nsuk).
+- Đã sửa lỗi các tác vụ shell chưa được xác nhận thoát vẫn bị coi là đã hoàn thành (#133, thanks @22nsuk).
+- Đã sửa lỗi các tác vụ đang chạy bị mất chế độ bảo vệ khi bản ghi không gian làm việc bị hỏng (#117, thanks @22nsuk).
+- Đã sửa lỗi các mô hình Cursor làm mất ID lệnh gọi công cụ và quá trình chuyển giao công cụ bị kẹt không bao giờ kết thúc (#156, thanks @22nsuk).
+- Đã sửa lỗi chỉ báo đang gõ không bao giờ kết thúc trong phòng bot và tin nhắn gửi giữa lúc đang trả lời bị thất lạc.
+- Đã sửa lỗi thông báo "results omitted" không xuất hiện trong cuộc trò chuyện của bot khi tích tụ nhiều kết quả quy trình.
+- Đã sửa lỗi số lượng chưa đọc trong danh sách Bot tính gộp cả các lệnh gọi công cụ.
+- Đã sửa lỗi thông báo hoàn thành của các phiên khác không xuất hiện khi ứng dụng đang hiển thị trên màn hình.
+- Đã sửa lỗi danh sách phiên bị nhảy trên điện thoại khi thứ tự thay đổi trong khi cuộn, và các bảng cài đặt trên iPhone không đóng khi chạm ra ngoài.
+- Đã sửa lỗi các liên kết địa chỉ email trong câu trả lời không có phản hồi khi nhấp vào.
+- Đã sửa lỗi các hook PreToolUse bị bỏ qua trong các phiên mở lại sau đó, chẳng hạn như lượt theo dõi của một agent (#161).
+- Đã sửa lỗi đăng nhập GitHub bị kẹt ở "Đang bắt đầu đăng nhập GitHub…" (#162).
+- Đã sửa lỗi mức suy luận vẫn hiển thị Tự động sau khi bạn chọn một mức khác (#131).
+- Đã sửa lỗi nút toàn màn hình của video trong bảng bên không hoạt động (#160, thanks @Deno2026).
+- Đã sửa lỗi ứng dụng hiển thị "Object has been destroyed" khi đóng cửa sổ trong lúc lớp phủ bot chính đang bật.
+- Đã sửa lỗi lệnh Git chậm khiến ứng dụng kết nối lại với dịch vụ nền và tạm thời mất các cập nhật phiên trực tiếp.
+
 ## v1.3.1 - 2026-10-20
 
 Bản vá ổn định cho các sự cố phát hiện từ bản 1.3.0, cùng bộ đánh giá mức suy luận được nâng cấp.

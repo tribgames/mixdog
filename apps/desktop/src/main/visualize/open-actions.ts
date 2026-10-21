@@ -46,6 +46,12 @@ type OpenContext = Pick<
   | 'holds'
 >;
 
+/** A reopened tab goes to the end of the session's tabs, like a fresh open. */
+function moveToEnd(tabs: TabState[], tab: TabState): void {
+  tabs.splice(tabs.indexOf(tab), 1);
+  tabs.push(tab);
+}
+
 /** Show the kept `version` a request asks for; the error is reported only
  *  after the tab was published live. */
 async function selectRequested(
@@ -132,8 +138,7 @@ async function openInline(
     tab.panes = [pane];
     tab.problems = [];
     ctx.thumbnails.invalidate(tab);
-    state.tabs.splice(state.tabs.indexOf(tab), 1);
-    state.tabs.push(tab);
+    moveToEnd(state.tabs, tab);
   } else {
     state.counter += 1;
     tab = {
@@ -165,7 +170,7 @@ async function openInline(
     if (history.length > MAX_VISUALIZE_VERSIONS) history.shift();
   }
   tab.inlineHistory = history;
-  tab.versions = history.map(({ n, at }) => ({ n, at }));
+  tab.versions = history.map(({ n, at, turns }) => ({ n, at, ...(turns?.length ? { turns } : {}) }));
   const versionError =
     request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
   // A held open activates nothing: the turn's end shows its last tab.
@@ -257,8 +262,7 @@ export function createOpenActions(ctx: OpenContext) {
     const stale = tab !== undefined && !loadIsCurrent(tab, stamp);
     if (tab && stale) {
       tab.label = request.label ?? tab.label;
-      state.tabs.splice(state.tabs.indexOf(tab), 1);
-      state.tabs.push(tab);
+      moveToEnd(state.tabs, tab);
     } else if (tab) {
       ctx.tabs.dispose(tab);
       tab.label = request.label ?? tab.label;
@@ -271,8 +275,7 @@ export function createOpenActions(ctx: OpenContext) {
       tab.problems = [];
       ctx.thumbnails.invalidate(tab);
       // Reopening moves the tab to the end, like a fresh open.
-      state.tabs.splice(state.tabs.indexOf(tab), 1);
-      state.tabs.push(tab);
+      moveToEnd(state.tabs, tab);
     } else {
       state.counter += 1;
       tab = {

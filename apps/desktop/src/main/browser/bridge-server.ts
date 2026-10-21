@@ -21,6 +21,13 @@ const HEARTBEAT_MS = 60_000;
 const DEFAULT_MAX_REQUEST_BYTES = 256 * 1024;
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 32;
 const MAX_CONNECTIONS = 64;
+/** A command that has not answered after this long starts a keep-alive: the
+ *  response is committed (200, JSON) and a space goes out every period until
+ *  the real body ends it. A command can legitimately wait on the person with
+ *  no limit (an approval card); the runtime client times a request out on
+ *  silence, so these bytes — not a longer ceiling — are what tell it the
+ *  bridge is alive. Leading whitespace is valid JSON. */
+const DEFAULT_KEEP_ALIVE_MS = 15_000;
 
 interface BrowserBridgeServerOptions<TCommand extends object> {
   execute(command: TCommand, signal: AbortSignal): Promise<unknown>;
@@ -33,6 +40,8 @@ interface BrowserBridgeServerOptions<TCommand extends object> {
   maxRequestBytes?: number;
   maxConcurrentRequests?: number;
   heartbeatMs?: number;
+  /** Period of the response keep-alive for a command still running (tests). */
+  keepAliveMs?: number;
 }
 
 export class BrowserBridgeServer<TCommand extends object> {
@@ -92,18 +101,38 @@ export class BrowserBridgeServer<TCommand extends object> {
     response.once('close', () => {
       if (!response.writableEnded) abort();
     });
+    // Once the response is committed for the keep-alive, the body ends it.
+    let committed = false;
+    const keepAlive = setInterval(
+      () => {
+        if (response.destroyed || response.writableEnded) return;
+        if (!committed) {
+          committed = true;
+          response.writeHead(200, { 'content-type': 'application/json' });
+        }
+        response.write(' ');
+      },
+      Math.max(1, this.options.keepAliveMs || DEFAULT_KEEP_ALIVE_MS)
+    );
+    keepAlive.unref?.();
+    response.once('close', () => clearInterval(keepAlive));
+    const reply = (body: unknown) => {
+      if (committed) response.end(JSON.stringify(body));
+      else this.respond(response, 200, body);
+    };
     try {
       const value = await this.options.execute(command, controller.signal);
       if (controller.signal.aborted || response.destroyed) return;
-      this.respond(response, 200, { ok: true, value });
+      reply({ ok: true, value });
     } catch (error) {
       if (controller.signal.aborted || response.destroyed) return;
-      this.respond(response, 200, {
+      reply({
         ok: false,
         error: this.options.redactError((error as Error).message || String(error)),
         timing: browserFailureTiming(error),
       });
     } finally {
+      clearInterval(keepAlive);
       request.removeListener('aborted', abort);
       this.controllers.delete(controller);
     }

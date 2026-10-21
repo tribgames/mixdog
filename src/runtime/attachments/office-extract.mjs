@@ -6,6 +6,7 @@
 // No external dependencies.
 import { readFile, stat } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
+import { stripTrailingReplacementChars } from '../shared/utf8-cut.mjs';
 
 // Longest run of attributes inside one tag that a pattern will cross. Bounded
 // so a tag with no closing bracket cannot make a pattern rescan the part.
@@ -675,12 +676,8 @@ function sheetFigures(buf, entries, sheetPart) {
 function capOutput(text, maxOutputBytes) {
   const buf = Buffer.from(text, 'utf8');
   if (buf.length <= maxOutputBytes) return text;
-  let cut = buf.subarray(0, maxOutputBytes).toString('utf8');
-  // Drop the replacement characters a split multi-byte sequence leaves (a loop:
-  // `/\uFFFD+$/` is quadratic on a long run of them).
-  let end = cut.length;
-  while (end > 0 && cut[end - 1] === '\uFFFD') end -= 1;
-  cut = cut.slice(0, end);
+  // Drop the replacement characters a split multi-byte sequence leaves.
+  const cut = stripTrailingReplacementChars(buf.subarray(0, maxOutputBytes).toString('utf8'));
   return `${cut}\n... [office text truncated at ${maxOutputBytes} bytes]`;
 }
 

@@ -67,8 +67,7 @@ function annotateEndedChain(session, error, skipped = null) {
 
 // A context overflow moves only to a model whose window is larger.
 async function nextContextGrows(state, next) {
-  const config = ensureProviderEnabled(loadConfig(), next.provider);
-  await initProviders(config.providers, { signal: state.signal });
+  await initProviders(ensureProviderEnabled(loadConfig(), next.provider), { signal: state.signal });
   state.throwIfAborted();
   const provider = getProvider(next.provider);
   if (!provider) return false;
@@ -93,8 +92,7 @@ export async function advanceAgentRoute(state, error) {
     return false;
   }
   state.throwIfAborted();
-  const config = ensureProviderEnabled(loadConfig(), next.provider);
-  await initProviders(config.providers, { signal: state.signal });
+  await initProviders(ensureProviderEnabled(loadConfig(), next.provider), { signal: state.signal });
   state.throwIfAborted();
   const provider = getProvider(next.provider);
   if (!provider) throw new Error(`Provider "${next.provider}" not available`);
@@ -128,7 +126,9 @@ export async function advanceAgentRoute(state, error) {
       contextTokens: next.contextTokens,
       selectedContextWindow: resolveSessionContextMeta(provider, next.model, next).rawContextWindow,
     },
-    { crossProvider: true }
+    // The live turn object is what changes: the route is applied to it in place, never to
+    // another copy of the id (a disk reload after a generation takeover).
+    { crossProvider: true, session }
   );
   if (!updated) throw new Error('agent session closed during model fallback');
   updated.routeFallbackIndex = index + 1;

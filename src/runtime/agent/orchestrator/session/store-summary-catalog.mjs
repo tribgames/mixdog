@@ -22,7 +22,7 @@ import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './stor
 import { applySummaryLogText, summaryLogPath } from './store-summary-log.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 import { normalizeRoutineProvenance } from './routine-result.mjs';
-import { lastMessageLine, lastMessageSummary } from './store-summary-last-message.mjs';
+import { lastMessageLine, lastMessageSummary, normalizedIncomingTail } from './store-summary-last-message.mjs';
 import {
   desktopSession,
   importKey,
@@ -211,6 +211,9 @@ export function normalizedRow(row) {
     permission: row.permission || null,
     toolPermission: row.toolPermission || null,
     messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
+    // Absent from a row read off a session file: its assistant text is not
+    // decoded there, so the unread count falls back until the next save.
+    ...(Array.isArray(row.incomingTail) ? { incomingTail: normalizedIncomingTail(row.incomingTail) } : {}),
     realTurnCount: realTurnCount(row),
     title: cleanText(row.title, 100),
     preview: cleanText(row.preview),

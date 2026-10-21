@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { remoteVisualizeState } from '../../shared/visualize.ts';
+import { remoteVisualizeState, versionProducedAt } from '../../shared/visualize.ts';
 import { VISIBLE_PASSWORD_SCRIPT } from './export-render.ts';
 import { exportTabBytes, thumbnailRenderers } from './host-export-path.ts';
 import { createVisualizeService } from './service.ts';
@@ -133,6 +133,117 @@ test('each version keeps its own picture; an earlier card asks for it by version
     await t.run('open', { targets: ['site/a.html'] });
     await t.service.setTurnActive(SESSION, false);
     assert.deepEqual(t.log, ['publish:reveal']);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('a later turn that only changes the open tab takes the picture of its new version', async () => {
+  const changes = [];
+  const t = setup({
+    watch: (_path, onChange) => {
+      changes.push(onChange);
+      return () => {};
+    },
+  });
+  try {
+    await t.service.setTurnActive(SESSION, true);
+    await t.run('open', { targets: ['site/a.html'] });
+    await t.service.setTurnActive(SESSION, false);
+    await t.service.settled();
+    t.log.length = 0;
+    await t.service.setTurnActive(SESSION, true);
+    writeFileSync(join(t.cwd, 'site', 'a.html'), '<h1>two</h1>');
+    for (const onChange of changes) onChange();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.service.settled();
+    await t.service.setTurnActive(SESSION, false);
+    await t.service.settled();
+    const tab = t.shownTabs()[0];
+    assert.equal(tab.versions.at(-1).n, 2);
+    assert.equal(tab.thumbnailVersion, 2);
+    assert.equal(await t.thumbnailOf('v1', 1), dataUrl('PIC1'), 'the old turn keeps its picture');
+    assert.equal(await t.thumbnailOf('v1', 2), dataUrl('PIC2'));
+    // Each turn's version is recorded with the version, in the state every card reads.
+    const [first, second] = tab.versions;
+    assert.equal(first.turns.length, 1);
+    assert.equal(second.turns.length, 1);
+    assert.ok(first.turns[0].end <= second.turns[0].since + 5, 'turns in order');
+    const mid = (turn) => Math.floor((turn.since + turn.end) / 2);
+    assert.equal(versionProducedAt(tab.versions, mid(first.turns[0])), 1);
+    assert.equal(versionProducedAt(tab.versions, mid(second.turns[0])), 2);
+    // A paired device gets the same record.
+    const remote = remoteVisualizeState(t.hostEvents.at(-1).state);
+    assert.deepEqual(
+      remote.tabs[0].versions.map((v) => v.turns?.length),
+      [1, 1]
+    );
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('a turn starting while the previous turn flushes keeps its own span; versions are not merged', async () => {
+  const changes = [];
+  let gate = null;
+  let reached = null;
+  const t = setup({
+    watch: (_path, onChange) => {
+      changes.push(onChange);
+      return () => {};
+    },
+    async preparePane(target) {
+      if (gate) {
+        reached?.();
+        await gate;
+      }
+      return `http://127.0.0.1:1/${'t'.repeat(32)}/${target.label}`;
+    },
+  });
+  const edit = async (text) => {
+    writeFileSync(join(t.cwd, 'site', 'a.html'), text);
+    for (const onChange of changes) onChange();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  };
+  try {
+    // Turn A opens the page (version 1) and edits it (version 2, made by its end's reload).
+    await t.service.setTurnActive(SESSION, true);
+    await t.run('open', { targets: ['site/a.html'] });
+    await edit('<h1>two</h1>');
+    let release;
+    gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const blocked = new Promise((resolve) => {
+      reached = resolve;
+    });
+    const flushA = t.service.setTurnActive(SESSION, false);
+    await blocked;
+    // Turn B starts while A's reload is still running.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await t.service.setTurnActive(SESSION, true);
+    gate = null;
+    release();
+    await flushA;
+    // Turn B edits the page again (version 3) and ends.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await edit('<h1>three</h1>');
+    await t.service.setTurnActive(SESSION, false);
+    await t.service.settled();
+
+    const tab = t.shownTabs()[0];
+    const spans = tab.versions.map((version) => version.turns ?? []);
+    assert.deepEqual(
+      spans.map((list) => list.length),
+      [0, 1, 1],
+      'turn A on version 2, turn B on version 3'
+    );
+    const [a] = spans[1];
+    const [b] = spans[2];
+    assert.ok(a.end <= b.since, 'A ended before B began');
+    const mid = (turn) => Math.floor((turn.since + turn.end) / 2);
+    assert.equal(versionProducedAt(tab.versions, mid(a)), 2);
+    assert.equal(versionProducedAt(tab.versions, mid(b)), 3);
   } finally {
     t.cleanup();
   }

@@ -9,10 +9,10 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { writeProjectTextFilesIn } from './project-files.ts';
 import { projectRecoveryIn } from './project-recovery.ts';
+import { hookProjectSwap } from './project-swap-hook.mjs';
 import {
   beginProjectRecovery,
   projectRecoveryStorePath,
-  readRecoveryRecord,
   recoveryIdentity,
   recoveryLocation,
   releaseRecoveryDirectory,
@@ -79,9 +79,10 @@ test('successful journaled writes preserve the void contract and clear completed
 
 test('failed batches retain structured per-file recovery evidence', async (t) => {
   const f = await fixture(t);
-  hook(t, 'rename', (rename, from, to) => {
-    if (to === join(f.root, 'b.txt')) throw new Error('test second-write failure');
-    return rename(from, to);
+  hookProjectSwap(t, {
+    before(path) {
+      if (path === join(f.root, 'b.txt')) throw new Error('test second-write failure');
+    },
   });
   await assert.rejects(writeProjectTextFilesIn(f.root, writes, f.data), { name: 'ProjectTextBatchWriteError' });
   const { records } = await projectRecoveryIn(f.data, f.root, { action: 'list' });
@@ -97,13 +98,14 @@ test('failed batches retain structured per-file recovery evidence', async (t) =>
 test('a later confirmed retry restores only bytes still owned by the failed batch', async (t) => {
   const f = await fixture(t);
   let rollback = false;
-  const restoreHook = hook(t, 'rename', (rename, from, to) => {
-    if (to === join(f.root, 'b.txt')) {
-      rollback = true;
-      throw new Error('write denied');
-    }
-    if (rollback && to === join(f.root, 'a.txt')) throw new Error('rollback denied');
-    return rename(from, to);
+  const restoreHook = hookProjectSwap(t, {
+    before(path) {
+      if (path === join(f.root, 'b.txt')) {
+        rollback = true;
+        throw new Error('write denied');
+      }
+      if (rollback && path === join(f.root, 'a.txt')) throw new Error('rollback denied');
+    },
   });
   await assert.rejects(writeProjectTextFilesIn(f.root, writes, f.data));
   restoreHook();
@@ -197,16 +199,23 @@ test('completed records are not an undo command and require approval even for di
   assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A1');
 });
 
-test('a real process exit after the first rename leaves a usable restart journal', async (t) => {
+test('a real process exit after the first write leaves a usable restart journal', async (t) => {
   const f = await fixture(t);
   const script = `
     import fs from 'node:fs/promises';
     import { syncBuiltinESMExports } from 'node:module';
     import { writeProjectTextFilesIn } from ${JSON.stringify(new URL('./project-files.ts', import.meta.url).href)};
-    const rename = fs.rename;
-    fs.rename = async (from, to) => {
-      await rename(from, to);
-      if (to === ${JSON.stringify(join(f.root, 'a.txt'))}) process.exit(23);
+    const open = fs.open;
+    fs.open = async (path, ...args) => {
+      const handle = await open(path, ...args);
+      if (path === ${JSON.stringify(join(f.root, 'a.txt'))} && args[0] === 'r+') {
+        const datasync = handle.datasync.bind(handle);
+        handle.datasync = async () => {
+          await datasync();
+          process.exit(23);
+        };
+      }
+      return handle;
     };
     syncBuiltinESMExports();
     await writeProjectTextFilesIn(${JSON.stringify(f.root)}, ${JSON.stringify(writes)}, ${JSON.stringify(f.data)});
@@ -301,15 +310,16 @@ for (const replaceRoot of [true, false]) {
       await fs.writeFile(join(target, 'b.txt'), 'B0');
     }
     let moved = false;
-    hook(t, 'rename', async (rename, from, to) => {
-      await rename(from, to);
-      if (!moved && to === join(target, 'a.txt')) {
-        moved = true;
-        await rename(target, target + '-old');
-        await fs.mkdir(target);
-        await fs.writeFile(join(target, 'a.txt'), 'A1');
-        await fs.writeFile(join(target, 'b.txt'), 'B0');
-      }
+    hookProjectSwap(t, {
+      async after(path) {
+        if (!moved && path === join(target, 'a.txt')) {
+          moved = true;
+          await fs.rename(target, target + '-old');
+          await fs.mkdir(target);
+          await fs.writeFile(join(target, 'a.txt'), 'A1');
+          await fs.writeFile(join(target, 'b.txt'), 'B0');
+        }
+      },
     });
     const input = writes.map((write) => ({ ...write, relPath: replaceRoot ? write.relPath : `sub/${write.relPath}` }));
     await assert.rejects(writeProjectTextFilesIn(f.root, input, f.data), { name: 'ProjectTextBatchWriteError' });
@@ -324,7 +334,7 @@ for (const replaceRoot of [true, false]) {
   });
 }
 
-test('explicit discard removes only a record that still validates as this root\'s inspected journal', async (t) => {
+test("explicit discard removes only a record that still validates as this root's inspected journal", async (t) => {
   const f = await fixture(t);
   const id = await record(f);
   const location = await recoveryLocation(f.data, f.root, id);
@@ -354,7 +364,10 @@ test('explicit discard removes only a record that still validates as this root\'
   // Foreign: a valid manifest of another project root is not this journal.
   const manifest = JSON.parse(await fs.readFile(join(location, 'manifest.json'), 'utf8'));
   const original = JSON.stringify(manifest);
-  await fs.writeFile(join(location, 'manifest.json'), JSON.stringify({ ...manifest, root: join(f.base, 'other-project') }));
+  await fs.writeFile(
+    join(location, 'manifest.json'),
+    JSON.stringify({ ...manifest, root: join(f.base, 'other-project') })
+  );
   approved = await inspect(f, id);
   await assert.rejects(discard(approved.revision), { code: 'RECOVERY_MANUAL_INSPECTION' });
   assert.deepEqual(await listed(), [id]);
@@ -409,12 +422,13 @@ test('an active journal cannot be discarded or restored by another request', asy
   const f = await fixture(t);
   const entered = Promise.withResolvers(),
     release = Promise.withResolvers();
-  const restoreHook = hook(t, 'rename', async (rename, from, to) => {
-    if (to === join(f.root, 'a.txt')) {
-      entered.resolve();
-      await release.promise;
-    }
-    return rename(from, to);
+  const restoreHook = hookProjectSwap(t, {
+    async before(path) {
+      if (path === join(f.root, 'a.txt')) {
+        entered.resolve();
+        await release.promise;
+      }
+    },
   });
   const writing = writeProjectTextFilesIn(f.root, writes, f.data);
   try {
@@ -463,7 +477,6 @@ test('a root change after a prepared file read is rejected before any target mut
   assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);
 });
 
-
 test('list reports bounded metadata, unknown sizes and resolved slots without reading payloads', async (t) => {
   const f = await fixture(t);
   await record(f);
@@ -477,8 +490,14 @@ test('list reports bounded metadata, unknown sizes and resolved slots without re
   });
   const result = await projectRecoveryIn(f.data, f.root, { action: 'list' });
   assert.deepEqual(result.storage, {
-    usedRecords: 3, maxRecords: 20, unresolvedRecords: 2, resolvedRecords: 1,
-    payloadBytes: 16, unknownSizeRecords: 1, maxBatchBytes: 16777216, maxBatchFiles: 100,
+    usedRecords: 3,
+    maxRecords: 20,
+    unresolvedRecords: 2,
+    resolvedRecords: 1,
+    payloadBytes: 16,
+    unknownSizeRecords: 1,
+    maxBatchBytes: 16777216,
+    maxBatchFiles: 100,
   });
   assert.equal(result.rootAvailable, true);
 });
@@ -506,7 +525,6 @@ test('capacity errors retain all records and leave target bytes unchanged', asyn
   assert.equal(await fs.readFile(join(f.root, 'a.txt'), 'utf8'), 'A0');
 });
 
-
 test('storage exhaustion is actionable and never starts target mutation', async (t) => {
   const f = await fixture(t);
   hook(t, 'mkdir', (mkdir, path, ...args) => {
@@ -526,32 +544,35 @@ for (const stage of ['writeFile', 'sync', 'close', 'rename']) {
     const entries = (await fs.readdir(directory)).sort();
     const failure = new Error(`injected state ${stage} failure`);
     let injected = false;
-    const restore = stage === 'rename'
-      ? hook(t, 'rename', async (rename, from, to) => {
-          if (dirname(from) === directory && from.endsWith('.tmp')) {
-            injected = true;
-            throw failure;
-          }
-          return rename(from, to);
-        })
-      : hook(t, 'open', async (open, path, ...args) => {
-          const handle = await open(path, ...args);
-          if (dirname(path) === directory && path.endsWith('.tmp')) {
-            assert.equal(args[0], 'wx');
-            const original = handle[stage].bind(handle);
-            handle[stage] = async (...values) => {
+    const restore =
+      stage === 'rename'
+        ? hook(t, 'rename', async (rename, from, to) => {
+            if (dirname(from) === directory && from.endsWith('.tmp')) {
               injected = true;
-              if (stage === 'writeFile') await original(values[0].subarray(0, 3));
-              // A close error can be reported after the descriptor is closed.
-              // Close the real handle so this injection also works on Windows.
-              if (stage === 'close') await original();
               throw failure;
-            };
-          }
-          return handle;
-        });
-    await assert.rejects(writeRecoveryState(directory, { phase: 'recovered', message: 'retry', restored: [] }),
-      (error) => error === failure);
+            }
+            return rename(from, to);
+          })
+        : hook(t, 'open', async (open, path, ...args) => {
+            const handle = await open(path, ...args);
+            if (dirname(path) === directory && path.endsWith('.tmp')) {
+              assert.equal(args[0], 'wx');
+              const original = handle[stage].bind(handle);
+              handle[stage] = async (...values) => {
+                injected = true;
+                if (stage === 'writeFile') await original(values[0].subarray(0, 3));
+                // A close error can be reported after the descriptor is closed.
+                // Close the real handle so this injection also works on Windows.
+                if (stage === 'close') await original();
+                throw failure;
+              };
+            }
+            return handle;
+          });
+    await assert.rejects(
+      writeRecoveryState(directory, { phase: 'recovered', message: 'retry', restored: [] }),
+      (error) => error === failure
+    );
     assert.equal(injected, true);
     restore();
     assert.deepEqual(await fs.readFile(join(directory, 'state.json')), previous);
@@ -572,13 +593,17 @@ test('recovery state exclusive-create failure preserves the file it did not crea
     if (dirname(path) === directory && path.endsWith('.tmp')) {
       collision = path;
       const other = await open(path, 'wx', 0o600);
-      try { await other.writeFile('existing file owned by another operation'); }
-      finally { await other.close(); }
+      try {
+        await other.writeFile('existing file owned by another operation');
+      } finally {
+        await other.close();
+      }
     }
     return open(path, ...args);
   });
-  await assert.rejects(writeRecoveryState(directory, { phase: 'recovered', message: '', restored: [] }),
-    { code: 'EEXIST' });
+  await assert.rejects(writeRecoveryState(directory, { phase: 'recovered', message: '', restored: [] }), {
+    code: 'EEXIST',
+  });
   restore();
   assert.ok(collision);
   assert.equal(await fs.readFile(collision, 'utf8'), 'existing file owned by another operation');
@@ -595,9 +620,18 @@ test('aggregate UTF-16 preflight byte exhaustion returns the batch-limit code be
     if (file === join(f.root, 'b.txt') && args[0] === 'r') readOversizedBody = true;
     return open(file, ...args);
   });
-  await assert.rejects(writeProjectTextFilesIn(f.root, ['a.txt', 'b.txt'].map((relPath) => ({
-    relPath, expectedContent: content, content: content + 'y',
-  })), f.data), { code: 'RECOVERY_BATCH_LIMIT' });
+  await assert.rejects(
+    writeProjectTextFilesIn(
+      f.root,
+      ['a.txt', 'b.txt'].map((relPath) => ({
+        relPath,
+        expectedContent: content,
+        content: content + 'y',
+      })),
+      f.data
+    ),
+    { code: 'RECOVERY_BATCH_LIMIT' }
+  );
   assert.equal(readOversizedBody, false, 'reject over-budget input before allocating/reading its payload');
   for (const rel of ['a.txt', 'b.txt']) assert.deepEqual(await fs.readFile(join(f.root, rel)), bytes);
   assert.deepEqual((await projectRecoveryIn(f.data, f.root, { action: 'list' })).records, []);

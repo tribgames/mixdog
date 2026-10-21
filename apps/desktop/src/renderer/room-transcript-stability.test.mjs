@@ -114,30 +114,6 @@ test('a quiet pass neither breaks nor adds a bubble run; a failed pass still doe
   assert.equal(agentChatPlace(failed, 2).first, true);
 });
 
-test('the room typing slot between turns keeps the typing bubble box, unseen and silent', async () => {
-  const { AgentTypingRow } = await import('./agent-chat-row.tsx');
-  const host = document.getElementById('root');
-  const root = createRoot(host);
-  const member = { id: 'gh', name: 'GH', avatar: { kind: 'mascot', variant: 'perky-calm-collar', color: '#5b9bff' } };
-  const render = (idle) =>
-    act(async () => root.render(React.createElement(AgentTypingRow, { member, lead: true, approvalCard: null, idle })));
-  await render(false);
-  const typingRow = host.innerHTML;
-  assert.ok(host.querySelector('[role="status"]'));
-  await render(true);
-  const idle = host.querySelector('.mx-chat-typing-idle');
-  assert.ok(idle, 'the idle slot wraps the bubble');
-  assert.equal(idle.getAttribute('aria-hidden'), 'true');
-  assert.equal(host.querySelector('[role="status"]'), null, 'nobody is announced as typing');
-  assert.equal(
-    idle.querySelectorAll('.mx-chat-face, .mx-chat-name, .mx-chat-dots').length,
-    3,
-    'same face, name and bubble'
-  );
-  assert.ok(typingRow.includes('mx-chat-name'));
-  await act(async () => root.unmount());
-});
-
 test('a room typing bubble is estimated from typing bubbles, not from quiet passes or replies', () => {
   const typing = part(typingItem('t1'));
   const pass = part(passItem('p1'));

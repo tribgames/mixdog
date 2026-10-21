@@ -1,5 +1,9 @@
 import { oneLine } from '../../runtime/shared/clean.mjs';
-import { normalizeAgentId, normalizeWorkflowId, normalizeWorkflowRoute } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import {
+  normalizeAgentId,
+  normalizeWorkflowId,
+  normalizeWorkflowRoute,
+} from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 
 export function resolveDataDir({ cfgMod, STANDALONE_DATA_DIR }) {
   return cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;

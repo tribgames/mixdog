@@ -37,7 +37,9 @@ export function createCloseFlow({ mgr, registry, views }) {
     }
   }
 
-  async function close(args, context = {}) {
+  /** `keepRow`: a process exit closes the worker but leaves its row (and its
+   *  descendants') for the next process (close-all.mjs). */
+  async function close(args, context = {}, { keepRow = false } = {}) {
     const scopedContext = agentScope(args, context);
     registry.refreshTagsFromSessions({ scanSessions: registry.wantsSessionScan(args), context: scopedContext });
     const taskId = taskIdFromArgs(args);
@@ -73,7 +75,7 @@ export function createCloseFlow({ mgr, registry, views }) {
     if (task?.taskId) cancelBackgroundTask(task.taskId, CLOSE_REASON);
     // Drop the row only once the cancellation is DURABLY recorded: a failed
     // close that still forgot the row would leave no cancelled state behind.
-    if (ok) {
+    if (ok && !keepRow) {
       registry.forgetTerminalSession(tag, sessionId);
       for (const descendantSessionId of descendantSessionIds) {
         registry.removeWorkerRow({ sessionId: descendantSessionId });

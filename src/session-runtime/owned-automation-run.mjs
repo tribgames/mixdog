@@ -101,7 +101,7 @@ async function queueResult(row, item, entry, { deliver, recordDelivery, onDelive
 /**
  * `row` is `{ name, ownerAgentId }`; `run({ signal })` resolves `{ sessionId,
  * result }` (`signal` is the caller's cancellation, if any). Resolves the
- * outcome, or `{ skipped: true, reason: 'owner' | 'overlap' | 'backoff' }`
+ * outcome, or `{ skipped: true, reason: 'owner' | 'overlap' | 'backoff' | 'paused' }`
  * (an owner skip also names `ownerProblem` and its `message`); a failed run
  * rejects.
  */
@@ -141,6 +141,13 @@ export async function runOwnedAutomation(kind, row, run, deps = {}) {
       const state = await Promise.resolve()
         .then(() => record.state(name))
         .catch(() => null);
+      // Switched off (by the user, or by the failure limit): the cron claim and
+      // the webhook handler already refuse it, but a one-shot timer or a
+      // dispatch that raced the pause must not run it either.
+      if (state?.enabled === false) {
+        log(`${kind} "${name}": skipped, switched off`);
+        return await skip('paused');
+      }
       const wait = routineBackoffRemaining(state, now(), limits);
       if (wait > 0) {
         log(`${kind} "${name}": skipped, backing off ${Math.ceil(wait / 1000)}s after failures in a row`);

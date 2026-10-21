@@ -1,12 +1,14 @@
 /**
- * Held requests: unattended runs never auto-approve. In a schedule, webhook or
- * group-room-member run, an approval-needing call is HELD instead of shown as
+ * Unattended runs. A schedule or webhook run never asks (its saved routine is
+ * the user's grant; human-gate/run-policy.mjs), so only group-room members
+ * still use held requests: an approval-needing call is HELD instead of shown as
  * a card: the run pauses on it, a structured held-request row lands in the
  * owning agent's home thread (agent-home-delivery.mjs queue), a phone push
  * says only "<agent>가 승인을 기다립니다" (no tool, arguments or text), and the
- * request expires after HELD_REQUEST_EXPIRY_MS into a deny, so the run goes
- * on with the denial. The user answers from the home thread through the
- * ordinary approval call with the held id (runtime/shared/held-request-host.mjs).
+ * request waits, like any approval, until the user answers it (Approve/Deny,
+ * through the ordinary approval call with the held id,
+ * runtime/shared/held-request-host.mjs) or the run is cancelled (Stop, abort,
+ * app quit), which denies it. It never expires on a timer.
  *
  * Importing this module installs the unattended port of human-gate/gate.mjs.
  * Rooms: a room member session counts as unattended by its id; a surface that
@@ -23,19 +25,12 @@ import {
 } from '../runtime/agent/orchestrator/session/human-gate/gate.mjs';
 import { normalizeHumanResponse } from '../runtime/agent/orchestrator/session/human-gate/requests.mjs';
 import { normalizeHeldRequest } from '../runtime/agent/orchestrator/session/human-gate/held-message.mjs';
+import { delegationOf } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import {
   notifyHeldRequest,
   recordRunOwner,
   registerHeldRequestResolver,
 } from '../runtime/shared/held-request-host.mjs';
-
-/** Default expiry; MIXDOG_HELD_REQUEST_EXPIRY_MS overrides it. */
-export const HELD_REQUEST_EXPIRY_MS = 5 * 60_000;
-
-function configuredExpiryMs() {
-  const value = Number(process.env.MIXDOG_HELD_REQUEST_EXPIRY_MS);
-  return Number.isFinite(value) && value > 0 ? value : HELD_REQUEST_EXPIRY_MS;
-}
 
 const runs = new Map(); // sessionId → { kind, agentId, name }
 
@@ -54,12 +49,28 @@ export function markUnattendedRun(sessionId, { kind, agentId, name = '' }) {
   };
 }
 
-/** The unattended run `sessionId` belongs to, or null for an attended session. */
+/** The unattended run `sessionId` belongs to, or null for an attended session.
+ *  Work delegated from a run or a room (a sub-agent at any depth, a task
+ *  session the bot created) belongs to it by the origin recorded on its own
+ *  session record when it was created (human-gate/delegation.mjs) — however
+ *  long ago that run ended, across restarts: its approvals are held like the
+ *  run's own. */
 export function unattendedRunOf(sessionId) {
   const run = runs.get(sessionId);
   if (run) return run;
   const member = roomMemberOfSession(sessionId);
-  return member ? { kind: 'room', agentId: member.agentId, name: member.roomId } : null;
+  if (member) return { kind: 'room', agentId: member.agentId, name: member.roomId };
+  const delegation = delegationOf(sessionId);
+  if (delegation.state !== 'resolved') return null;
+  if (delegation.via === 'run') {
+    return {
+      kind: delegation.run.kind === 'webhook' ? 'webhook' : 'schedule',
+      agentId: delegation.rootAgentId,
+      name: String(delegation.run.name || ''),
+    };
+  }
+  const root = delegation.via === 'room' ? roomMemberOfSession(delegation.rootSessionId) : null;
+  return root ? { kind: 'room', agentId: root.agentId, name: root.roomId } : null;
 }
 
 /**
@@ -98,9 +109,7 @@ export function createHeldRequests({
   push = notifyHeldRequest,
   record = recordHumanDecision,
   agentName = defaultAgentName,
-  expiryMs = configuredExpiryMs,
   runOf = unattendedRunOf,
-  now = Date.now,
   log = (line) => process.stderr.write(`mixdog held-requests: ${line}\n`),
 }) {
   const pending = new Map();
@@ -113,7 +122,6 @@ export function createHeldRequests({
     const entry = pending.get(id);
     if (!entry) return false;
     pending.delete(id);
-    clearTimeout(entry.timer);
     entry.release();
     void post(entry.agentId, { ...entry.held, status, ...(approval.device ? { device: approval.device } : {}) });
     void Promise.resolve()
@@ -123,11 +131,10 @@ export function createHeldRequests({
     return true;
   }
 
-  /** Hold `request` (the approval hook's payload) until answered or expired. */
+  /** Hold `request` (the approval hook's payload) until answered or the run is cancelled. */
   function hold(request = {}, { signal } = {}) {
     const run = runOf(request.sessionId) || { kind: 'schedule', agentId: MIXY_AGENT_ID, name: '' };
     const id = `held_${randomUUID()}`;
-    const ms = typeof expiryMs === 'function' ? expiryMs() : expiryMs;
     const held = normalizeHeldRequest({
       id,
       status: 'pending',
@@ -145,12 +152,13 @@ export function createHeldRequests({
             details: request.outbound?.details,
           }
         : {}),
-      remember: request.remember || ['once'],
+      // An unattended run never remembers: its held row offers once only.
+      remember: ['once'],
       run: { kind: run.kind, name: run.name, sessionId: request.sessionId },
-      expiresAt: now() + ms,
     });
-    const shape = { kind: held.kind, outbound: request.outbound, remember: request.remember || ['once'] };
+    const shape = { kind: held.kind, outbound: request.outbound, remember: ['once'] };
     const gate = {
+      remember: ['once'],
       agentId: run.agentId,
       kind: held.kind,
       ...(held.action ? { action: held.action } : {}),
@@ -167,17 +175,7 @@ export function createHeldRequests({
         agentId: run.agentId,
         resolve,
         release: () => signal?.removeEventListener?.('abort', onAbort),
-        timer: setTimeout(
-          () =>
-            settle(
-              id,
-              { ...normalizeHumanResponse(shape, false), reason: 'held request expired', timedOut: true },
-              'expired'
-            ),
-          ms
-        ),
       };
-      entry.timer.unref?.();
       pending.set(id, entry);
       void post(run.agentId, held);
       try {
@@ -217,6 +215,11 @@ async function defaultDeliver(agentId, held) {
 function heldRequests() {
   processHeld ??= createHeldRequests({ deliver: defaultDeliver });
   return processHeld;
+}
+
+/** The held requests still waiting for an answer (session bots reads them). */
+export function pendingHeldRequests() {
+  return processHeld ? processHeld.pending() : [];
 }
 
 /** Hold one request for its session's agent (rooms call this from their own hook). */

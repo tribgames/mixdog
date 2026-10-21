@@ -1,6 +1,6 @@
 /* A turn's `visualize` opens in the chat, ONE card: the changed-files card's
-   frame (header surface, hairline, 44px header) with the icon, "Visualizations
-   N", the turn's Undo (when it stands in for the changed files) and "Show all",
+   frame (header surface, hairline, 44px header) with the icon, "Previews N",
+   the turn's Undo (when it stands in for the changed files) and "Show all",
    over a grid of tiles: the picture of each tab's final version (16:10), its
    title, version and where it is. Agent mode seats the same card in the bubble
    column, ending on the bubbles' edge. */
@@ -104,20 +104,42 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-tiles {
   gap: 6px;
   padding: 8px 10px 10px;
 }
+/* 96px tiles: the mark and the version chip share the top edge, so the
+   chip keeps just the number ("Version 2" is in the tile's accessible name). */
+html[data-mixdog-mobile-tabs] .transcript-visualize-version-word {
+  display: none;
+}
 html[data-mixdog-mobile-tabs] .transcript-visualize-head {
   padding-left: 10px;
 }
+/* An article card: ONE bordered frame per tile, the picture on top and the
+   title strip under it inside the same border. The frame is a ring on the
+   tile (so it never moves the layout) over the card header's own plate. */
 .transcript-visualize-tile {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  align-content: start;
+  gap: 0;
   padding: 0;
   border: 0;
-  background: transparent;
+  border-radius: var(--mx-radius-md);
+  overflow: hidden;
+  background: var(--mx-card-header-surface);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+}
+.transcript-visualize-tile:hover {
+  box-shadow: 0 0 0 1px var(--mx-border-strong, var(--mx-border));
+}
+/* The tab on screen in the panel: a neutral, stronger ring. */
+.transcript-visualize-tile.is-shown {
+  box-shadow: 0 0 0 1.5px var(--mx-text-muted);
+}
+.transcript-visualize-tile.is-shown:hover {
+  box-shadow: 0 0 0 1.5px var(--mx-text);
 }
 .transcript-visualize-thumb {
   position: relative;
@@ -125,18 +147,11 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-head {
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: var(--mx-radius-md);
   color: var(--mx-icon-muted);
-  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
-.transcript-visualize-tile:hover .transcript-visualize-thumb {
-  box-shadow: 0 0 0 1px var(--mx-border);
-}
-/* The tab on screen in the panel: a neutral, stronger ring. */
-.transcript-visualize-tile.is-shown .transcript-visualize-thumb {
-  box-shadow: 0 0 0 1.5px var(--mx-text-muted);
-}
-.transcript-visualize-tile.is-closed .transcript-visualize-thumb {
+/* A closed tile dims its picture only; the chips stay readable. */
+.transcript-visualize-tile.is-closed .transcript-visualize-thumb > img,
+.transcript-visualize-tile.is-closed .transcript-visualize-monogram {
   opacity: 0.55;
 }
 .transcript-visualize-monogram {
@@ -154,34 +169,53 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-head {
   object-fit: cover;
   object-position: top left;
 }
-.transcript-visualize-tile > b,
-.transcript-visualize-tile > small {
+/* The title strip, inside the tile's frame. */
+.transcript-visualize-name {
   min-width: 0;
+  padding: 6px 8px 7px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.transcript-visualize-tile > b {
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-ui);
 }
-.transcript-visualize-tile > small {
-  margin-top: -4px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.transcript-visualize-status {
+/* Where the tile is, bottom-left of the picture (Showing, Updated, Closed…). */
+.transcript-visualize-badge.is-status {
+  top: auto;
+  right: auto;
+  left: 4px;
+  bottom: 4px;
+  max-width: calc(100% - 8px);
   color: var(--mx-text-accent);
 }
-.transcript-visualize-tile.is-closed .transcript-visualize-status {
+.transcript-visualize-tile:has(.is-problem) .transcript-visualize-badge.is-status {
+  max-width: calc(100% - 56px);
+}
+.transcript-visualize-badge.is-status::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.transcript-visualize-tile.is-closed .transcript-visualize-badge.is-status {
   color: var(--mx-text-muted);
+}
+/* "Version N", top-right: opposite the New/Mockup mark. */
+.transcript-visualize-badge.is-version {
+  color: var(--mx-text);
 }
 .transcript-visualize-badge {
   position: absolute;
   top: 4px;
   right: 4px;
+  max-width: calc(100% - 8px);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -193,8 +227,63 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-head {
   background: var(--mx-card-header-surface, rgba(0, 0, 0, 0.6));
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
+/* The page-problem count sits bottom-right: the corner no other chip uses. */
 .transcript-visualize-badge.is-problem {
+  top: auto;
+  bottom: 4px;
   color: var(--mx-warning, #b7791f);
+}
+/* What the turn did to the file, on the picture's top-left: "New" (created)
+   or "Mockup" (under design/mockups/). */
+.transcript-visualize-badge.is-mark {
+  left: 4px;
+  right: auto;
+  color: var(--mx-text-soft);
+}
+.transcript-visualize-badge.is-new {
+  color: var(--mx-text-accent);
+}
+.transcript-visualize-badge.is-mockup {
+  color: var(--mx-warning, #f2cf76);
+}
+/* More than one page of tiles: prev, "1 / 2", next at the bottom-right. */
+.transcript-visualize-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+.transcript-visualize-page-label {
+  min-width: 40px;
+  text-align: center;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+}
+.transcript-visualize-page {
+  display: grid;
+  place-items: center;
+  width: calc(28px * var(--mx-content-scale, 1));
+  height: calc(28px * var(--mx-content-scale, 1));
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-text-soft);
+  cursor: pointer;
+}
+.transcript-visualize-page:hover:not(:disabled) {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.transcript-visualize-page:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.transcript-visualize-page:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: -2px;
 }
 .transcript-visualize-error {
   display: block;

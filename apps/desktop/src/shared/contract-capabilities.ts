@@ -32,6 +32,7 @@ export const DESKTOP_CAPABILITIES = [
   'getToolModuleSettings',
   'setWebSearchEnabled',
   'setInstructionFiles',
+  'setAutoEffortBase',
   'setMemoryToolsEnabled',
   'getDeveloperSettings',
   'setDeveloperOption',
@@ -146,15 +147,29 @@ export const DESKTOP_CAPABILITIES = [
   'setAgentConnectorToolPermission',
   'getProjectConnectors',
   'setProjectConnectorEnabled',
+  // getAgentAlwaysAllowedTools(agentId) → `[{ connector, tool }]` the agent runs
+  // without asking; setAgentConnectorToolPermission(…, 'needs_approval') turns one back.
+  'getAgentAlwaysAllowedTools',
   // Per-agent action-kind permissions: getAgentPermissions(agentId) →
   // DesktopAgentPermission[]; setAgentPermission(agentId, action, mode).
   'getAgentPermissions',
   'setAgentPermission',
+  // recordAgentApprovalAudit(agentId, action, decision): the desktop's audit line
+  // for a Browser Use approval of a bot; refused over remote access.
+  'recordAgentApprovalAudit',
   'getLeadPersona',
   'saveLeadPersona',
   'getLeadAgentBody',
   'saveLeadAgentBody',
   'getLeadStatus',
+  // The one pixel face every Lead row on the bot page wears: `{ avatar }`
+  // (null = the grey default), set from a mascot look or null.
+  'getLeadAppearance',
+  'setLeadAppearance',
+  // The one bot order (agent ids; Mixy stays first and is not in it), shared by
+  // the Bots page and the Sessions bot section on every device: `{ order }`.
+  'getBotOrder',
+  'setBotOrder',
   'setLeadCreated',
   'saveLeadIdentity',
   'saveAgentDefinition',
@@ -272,12 +287,15 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getAgentAvatarImage',
   'getAgentConnectors',
   'getProjectConnectors',
+  'getAgentAlwaysAllowedTools',
   'getAgentPermissions',
   'listConnectors',
   'listConnectorTools',
   'getLeadPersona',
   'getLeadAgentBody',
   'getLeadStatus',
+  'getLeadAppearance',
+  'getBotOrder',
   'getOutputStyle',
   'listOutputStyles',
   'listThemes',
@@ -327,7 +345,19 @@ export type DesktopCapabilityReadResult = { ok: true; value: unknown } | { ok: f
  *  and whether the agent asks, may (`allow`, "다시 묻지 않기") or is blocked.
  *  `rememberable: false` (payment, delete) never takes `allow`. */
 export interface DesktopAgentPermission {
-  action: 'comment' | 'review' | 'message' | 'email' | 'publish' | 'form' | 'payment' | 'delete' | 'trash';
+  action:
+    | 'comment'
+    | 'review'
+    | 'message'
+    | 'email'
+    | 'publish'
+    | 'form'
+    | 'payment'
+    | 'delete'
+    | 'trash'
+    | 'browser_submit'
+    | 'browser_post'
+    | 'browser_upload';
   mode: 'ask' | 'allow' | 'block';
   rememberable: boolean;
 }
@@ -349,6 +379,8 @@ export interface TurnChangesFile {
   patchOmitted?: true;
   /** The record kept no line counts for it (an old outside-root edit). */
   unmeasured?: true;
+  /** Git ignores it (build output a file tool wrote): no turn preview. */
+  ignored?: true;
 }
 
 /**

@@ -111,6 +111,7 @@ export class ModelProxyProvider {
     // Adapter traits are reported by the PC's real instance.
     if (typeof this.config.modelProxy?.nativePdf === 'boolean') this.nativePdf = this.config.modelProxy.nativePdf;
     if (this.config.modelProxy?.consumesReadWindows === true) this.consumesReadWindows = true;
+    if (this.config.modelProxy?.takesImages === false) this.takesImages = false;
   }
 
   #call(method, fields = {}, options = {}) {

@@ -3,10 +3,14 @@ import { transportErrorText } from './transport-error-text.mjs';
 
 const DETAILS_LIMIT = 12_000;
 const SUMMARY_LIMIT = 180;
+// "<wrapper>: The latest message cannot fit this model (CODE): <sizes>. <cause and remedy>"
+const LATEST_TURN_RE =
+  /The latest message cannot fit this model \(LATEST_TURN_EXCEEDS_CONTEXT\)(: it needs about [\d,]+ tokens, but the [^.]* window leaves [\d,]+ for it\.)([\s\S]*)$/;
 
 /** Diagnostic text must be safe before it reaches a view, copy button or log. */
 export function safeErrorDetails(value) {
   let text = String(value ?? '')
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI escape sequences (ESC) from diagnostic text
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\r\n?/g, '\n')
     .replace(/\b((?:https?|ssh):\/\/)[^/\s@]+@/gi, '$1[redacted]@')
@@ -135,7 +139,9 @@ function resetLabel(resetAt) {
   const reset = new Date(resetAt);
   const pad = (n) => String(n).padStart(2, '0');
   const time = `${pad(reset.getHours())}:${pad(reset.getMinutes())}`;
-  return reset.toDateString() === new Date().toDateString() ? time : `${reset.getMonth() + 1}/${reset.getDate()} ${time}`;
+  return reset.toDateString() === new Date().toDateString()
+    ? time
+    : `${reset.getMonth() + 1}/${reset.getDate()} ${time}`;
 }
 
 // A refused request that names its model as unknown, retired or not offered
@@ -286,7 +292,9 @@ export function describeError(value) {
   if (
     value?.reauthRequired === true ||
     (!typed &&
-      /invalid_grant|refresh token (?:expired|revoked|not available)|sign in again|sign-in expired|Reauth Required/i.test(raw))
+      /invalid_grant|refresh token (?:expired|revoked|not available)|sign in again|sign-in expired|Reauth Required/i.test(
+        raw
+      ))
   ) {
     kind = 'reauth';
     summary = 'Sign-in expired.';
@@ -294,7 +302,9 @@ export function describeError(value) {
   } else if (
     descriptor.kind === 'auth' ||
     (descriptor.kind === 'unknown' &&
-      /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b|Provider authentication failed/i.test(clean))
+      /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b|Provider authentication failed/i.test(
+        clean
+      ))
   ) {
     kind = 'authentication';
     summary = 'Provider authentication failed';
@@ -331,6 +341,13 @@ export function describeError(value) {
     kind = 'not-found';
     summary = firstReadableLine(clean) || NOT_FOUND_SUMMARY;
     recovery = MODEL_UNAVAILABLE_COPY[2];
+  } else if (LATEST_TURN_RE.test(clean)) {
+    // The latest message cannot fit the window (compact/runner.mjs): the
+    // sizes are the headline, the cause and remedy the next step.
+    const [, headline, rest] = LATEST_TURN_RE.exec(clean);
+    kind = 'latest-turn-size';
+    summary = `The latest message cannot fit this model${headline}`;
+    recovery = rest.trim();
   } else if (
     descriptor.kind === 'unknown' &&
     /payload too large|request (?:body )?too large|The request exceeds the size limit/i.test(clean)
@@ -366,6 +383,7 @@ export function describeError(value) {
   }
   summary = summary.replace(/\s+/g, ' ').trim() || 'Something went wrong.';
   if (summary.length > SUMMARY_LIMIT) summary = `${summary.slice(0, SUMMARY_LIMIT - 1).trimEnd()}…`;
+  const fingerprintStatus = kind === 'reauth' ? '' : status || '';
   return {
     kind,
     summary,
@@ -378,6 +396,6 @@ export function describeError(value) {
     details,
     // Known structured failures ignore volatile indexes; unknown failures
     // retain their diagnostic identity rather than merging unrelated work.
-    fingerprint: kind === 'unknown' ? details : `${kind}:${kind === 'reauth' ? '' : status || ''}`,
+    fingerprint: kind === 'unknown' ? details : `${kind}:${fingerprintStatus}`,
   };
 }

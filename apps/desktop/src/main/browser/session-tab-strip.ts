@@ -11,6 +11,13 @@ export function createBrowserSessionTabStrip(options: {
     ReturnType<typeof createBrowserTabs>,
     'displayTabs' | 'selectDisplayTab' | 'createDisplayTab' | 'closeDisplayTab'
   >;
+  /** Whether panes follow the agent's page: a user's own pick or new tab
+   *  pauses it for the turn; `resume` ("보기") lifts that. */
+  agentFollow?: {
+    isPaused(sessionId: string): boolean;
+    pause(sessionId: string): void;
+    resume(sessionId: string): void;
+  };
   currentGuest: BrowserSessionRegistry['currentGuest'];
   lifecycle: {
     claimPage(sessionId: string, guest: WebContents): void;
@@ -22,7 +29,17 @@ export function createBrowserSessionTabStrip(options: {
   const { tabs, currentGuest, lifecycle } = options;
   return {
     list: (sessionId) => tabs.displayTabs(sessionId),
-    select: (sessionId, tabId) => {
+    select: (sessionId, tabId, follow) => {
+      const { agentFollow } = options;
+      if (follow) {
+        // A pane following the agent shows its page without claiming it, and
+        // never overrides a pick the user made in another window.
+        if (follow === 'agent' && agentFollow?.isPaused(sessionId)) return;
+        if (follow === 'resume') agentFollow?.resume(sessionId);
+        tabs.selectDisplayTab(sessionId, tabId, { retain: false });
+        return;
+      }
+      agentFollow?.pause(sessionId);
       tabs.selectDisplayTab(sessionId, tabId);
       const guest = currentGuest(sessionId);
       if (guest) {
@@ -31,6 +48,7 @@ export function createBrowserSessionTabStrip(options: {
       }
     },
     create: (sessionId) => {
+      options.agentFollow?.pause(sessionId);
       tabs.createDisplayTab(sessionId);
       // "+" may reuse the blank stand-in page: it is the user's tab from now on.
       const guest = currentGuest(sessionId);

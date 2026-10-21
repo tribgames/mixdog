@@ -81,7 +81,7 @@ function holdWrites(t) {
     for (const w of gate.waiters.splice(0)) w();
   };
   t.mock.method(fs, 'open', async (path, ...rest) => {
-    if (String(path).startsWith(cacheDir) && /\.json\.[0-9a-f]+\.tmp$/.test(String(path))) {
+    if (String(path).startsWith(cacheDir) && /\.json\.mixdog-tmp-[0-9a-f]+$/.test(String(path))) {
       gate.entered += 1;
       if (!gate.open) await new Promise((resolve) => gate.waiters.push(resolve));
     }

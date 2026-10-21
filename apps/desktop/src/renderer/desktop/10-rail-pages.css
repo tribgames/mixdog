@@ -584,6 +584,24 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   color: var(--mx-text-muted);
   transform: translateY(1px);
 }
+/* The Working section's heading wraps its fold button (heading semantics);
+   the button wears the heading's label type. */
+.utility-dock .agent-work-heading {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.utility-dock .agent-work-heading .agent-session-heading {
+  font: inherit;
+  color: inherit;
+}
+.utility-dock .agent-work-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .utility-dock .agent-session-heading:hover .agent-session-chevron {
   color: var(--mx-text-soft);
 }
@@ -920,9 +938,9 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .utility-dock .agent-chat-row[data-kind="contact"] {
   /* 3px a mascot cell. */
   --agent-contact-avatar-size: 48px;
-  --agent-contact-padding: 8px 8px 8px 10px;
+  --agent-contact-padding: 6px 8px 6px 10px;
   --agent-contact-gap: 8px;
-  --agent-contact-min-height: 64px;
+  --agent-contact-min-height: 60px;
   /* The app's own scale: name = UI size, time = meta size, the preview one
      step under it (KakaoTalk PC's 12px), each on a fixed line so every row is
      the same height and a line holds more of the message. */
@@ -948,11 +966,17 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   width: var(--agent-contact-avatar-size);
   height: var(--agent-contact-avatar-size);
 }
+/* A switched-off bot stays listed, dimmed. */
+.utility-dock .agent-chat-row[data-agent-disabled="true"] > .agent-chat-row-main {
+  opacity: 0.55;
+}
 /* The text block: name | time, preview | status; the right column is always
    reserved. The block centres on the face, so one preview line sits mid-row. */
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--agent-contact-side);
+  /* The right column is as wide as its actual time/status, not a reserved
+     width: the name takes everything up to it. */
+  grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 8px;
   align-items: start;
 }
@@ -981,6 +1005,11 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   color: var(--mx-text-muted);
   font-size: var(--agent-contact-time);
   line-height: var(--agent-contact-name-line);
+}
+/* A pinned Lead's mark: a quiet pin under the time (and status). */
+.utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-lead-pin {
+  display: inline-flex;
+  color: var(--mx-text-faint);
 }
 /* The name is one line; the preview up to two (KakaoTalk), both inside the
    text column — never under the time/status column. */
@@ -1111,6 +1140,26 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
      palette's yellow. */
   color: #f2c94c;
 }
+/* A Lead's face is its provider's mark: a faint tinted plate filling the
+   avatar box, the icon centred. Tints come from tokens, so every skin reads. */
+.utility-dock .agent-chat-row[data-agent-lead] .agent-chat-avatar {
+  /* Not part of the row's open area: pointers fall through to the sub-agent
+     toggle laid over it, or to the plain row (default cursor, no open). */
+  pointer-events: none;
+}
+/* A Lead's face is its provider mark alone: no plate, no ring, no tint, in
+   the silver icon ink, centred in the avatar box. */
+.utility-dock .agent-lead-plate {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-soft);
+}
+.utility-dock .agent-lead-plate > svg {
+  width: calc(var(--agent-contact-avatar-size) * 0.625);
+  height: calc(var(--agent-contact-avatar-size) * 0.625);
+}
 /* Work sessions follow the contacts after one hairline, no heading; the same
    hairline sets Mixy (pinned on top) apart from the other bots. */
 .utility-dock :is(.agent-chat-divider, .agent-contact-divider) {
@@ -1118,6 +1167,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   height: 0;
   margin: 6px 8px;
   border: 0;
+  border-radius: 0;
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 /* The header search filters in place: the rail's search field look. */
@@ -1656,6 +1706,15 @@ html[data-mixdog-mobile-tabs]
 .session-sidebar .task-link.session-launcher-row:is(:hover, :focus-visible) {
   color: var(--mx-row-title-ink-active);
 }
+/* The launcher's hover box opens on the same line as the session rows' pill
+   (`.sidebar-recent > .session-list` reaches 8px past the text line), so the
+   highlights of the launchers and of every row below share both edges; the
+   icon stays on the text line. The phone drawer has its own bleed above. */
+html:not([data-mixdog-mobile-tabs]) .session-sidebar .task-link.session-launcher-row {
+  width: calc(100% + 8px);
+  margin-left: -8px;
+  padding-left: 8px;
+}
 .session-launcher-label {
   min-width: 0;
   flex: 1;
@@ -2002,6 +2061,10 @@ html[data-mixdog-mobile-tabs]
 /* No action cluster here, so the dot stays visible on hover. */
 .agent-session-row:hover .session-row-unread-dot,
 .agent-session-row:has(:focus-visible) .session-row-unread-dot {
+  visibility: visible;
+}
+.session-row.agent-session-row:hover .session-row-status,
+.session-row.agent-session-row:has(:focus-visible) .session-row-status {
   visibility: visible;
 }
 .session-sidebar .recent-session-list .sidebar-section-empty {

@@ -26,6 +26,8 @@ const { adoptSidebarReferenceHost, resetSidebarReferenceCache, updateSidebarRefe
   './sidebar-reference-cache.ts'
 );
 
+const FALLBACK = { provider: 'openai', model: 'gpt-test' };
+
 const AGENTS = [
   { id: 'maintainer', label: 'Maintainer', locked: true, disabled: true, route: {} },
   { id: 'worker', custom: true, label: 'Worker', kind: null, route: {} },
@@ -76,7 +78,11 @@ test('the Workflows page lists workflow agents, not bots; built-in agents are th
 test('the Lead agent row sits above the built-in agents and edits the Main route', async (t) => {
   const routes = [];
   const api = {
-    async invokeCapability() {
+    async invokeCapability({ capability }) {
+      // The Lead's fallback models live on its preset.
+      if (capability === 'listPresets') {
+        return { value: [{ id: 'workflow-lead', provider: 'anthropic', model: 'claude-test', fallbacks: [FALLBACK] }] };
+      }
       return { value: undefined };
     },
     async listProviderModels() {
@@ -123,4 +129,49 @@ test('the Lead agent row sits above the built-in agents and edits the Main route
   assert.equal(routes.length, 1);
   assert.equal(routes[0].provider, 'anthropic');
   assert.equal(routes[0].model, 'claude-test');
+  assert.deepEqual(routes[0].fallbacks, [FALLBACK], 'the stored Lead fallbacks are loaded and saved back');
+});
+
+test('the Lead row and editor follow the stored Lead preset live (a New task pick), not the empty snapshot', async (t) => {
+  const { SETUP_CHANGED_EVENT } = await import('./setup-change-refresh.ts');
+  let preset = null;
+  const api = {
+    async invokeCapability({ capability }) {
+      return { value: capability === 'listPresets' && preset ? [preset] : undefined };
+    },
+    async listProviderModels() {
+      return [];
+    },
+    async getSnapshot() {
+      return {};
+    },
+    async setModelRoute(selection) {
+      return { ...selection };
+    },
+  };
+  resetSidebarReferenceCache();
+  adoptSidebarReferenceHost(api);
+  updateSidebarReference('workflows', []);
+  updateSidebarReference('agents', AGENTS);
+  updateSidebarReference('webSearchRoute', {});
+  updateSidebarReference('webSearchModels', []);
+  updateSidebarReference('providerSetup', {});
+  updateSidebarReference('quickProviderModels', []);
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    resetSidebarReferenceCache();
+  });
+  await act(async () => {
+    root.render(React.createElement(WorkflowsPane, { api, active: true }));
+  });
+  const leadRow = () => host.querySelector('section[aria-label="Lead agent"] .sidebar-resource-row');
+  assert.doesNotMatch(leadRow().textContent, /gpt-picked/i);
+  preset = { id: 'workflow-lead', name: 'WORKFLOW LEAD', provider: 'openai', model: 'gpt-picked' };
+  await act(async () => window.dispatchEvent(new dom.window.Event(SETUP_CHANGED_EVENT)));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.match(leadRow().textContent, /gpt-picked/i);
 });

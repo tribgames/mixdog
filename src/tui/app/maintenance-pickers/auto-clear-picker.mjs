@@ -3,10 +3,14 @@
 // the Advanced list of provider default idle windows edited as text.
 
 // Lead BP4 messages cache TTL follows autoClear (cache-strategy.mjs
-// resolveLeadMessagesTtl): off or idle>=1h -> 1h, shorter idle -> 5m.
+// resolveLeadMessagesTtl): off or idle>=1h (incl. unlimited) -> 1h, shorter
+// idle -> 5m.
 const HOUR_MS = 60 * 60 * 1000;
+// Typed (and shown) for "never auto-clear"; the runtime stores it as 0.
+const UNLIMITED_INPUT = 'unlimited';
 
-const formatDurationInput = (ms) => {
+const formatDurationInput = (ms, unlimited = false) => {
+  if (unlimited) return UNLIMITED_INPUT;
   const value = Math.max(0, Math.round(Number(ms) || 0));
   if (value > 0 && value % HOUR_MS === 0) return `${value / HOUR_MS}h`;
   if (value > 0 && value % 60_000 === 0) return `${value / 60_000}m`;
@@ -39,7 +43,7 @@ export function createAutoClearPicker({
       label: entry.provider,
       marker: entry.provider === provider ? '✓' : '',
       markerColor: theme.success,
-      meta: `${formatDuration(entry.idleMs)}${entry.custom ? ' custom' : ''}`,
+      meta: `${entry.unlimited ? 'Unlimited' : formatDuration(entry.idleMs)}${entry.custom ? ' custom' : ''}`,
       description: `Default idle window for ${entry.provider}. Enter to edit as text.`,
       _action: 'provider-default',
       _entry: entry,
@@ -66,10 +70,10 @@ export function createAutoClearPicker({
             store.pushNotice('autoclear unavailable', 'warn');
             return;
           }
-          store.pushNotice(
-            next.enabled ? `autoclear on · idle ${formatDuration(next.idleMs)}` : 'autoclear off',
-            'info'
-          );
+          let notice = 'autoclear off';
+          if (next.enabled)
+            notice = next.unlimited ? 'autoclear on · unlimited' : `autoclear on · idle ${formatDuration(next.idleMs)}`;
+          store.pushNotice(notice, 'info');
         })
         .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'))
         .finally(settled);
@@ -80,8 +84,8 @@ export function createAutoClearPicker({
       setSettingsPrompt({
         kind: 'autoclear-provider',
         label: `Auto-clear · ${entry.provider}`,
-        hint: `Type a duration like 10m, 1h, or 24h. Empty resets to built-in ${formatDurationInput(entry.builtInMs)}.`,
-        initialValue: formatDurationInput(entry.idleMs),
+        hint: `Type a duration like 10m, 1h, or 24h, or ${UNLIMITED_INPUT} to never auto-clear. Empty resets to built-in ${formatDurationInput(entry.builtInMs, entry.builtInUnlimited)}.`,
+        initialValue: formatDurationInput(entry.idleMs, entry.unlimited),
         provider: entry.provider,
         builtInMs: entry.builtInMs,
         returnTo,
@@ -109,18 +113,20 @@ export function createAutoClearPicker({
       const current = await readCurrent();
       const enabled = current?.enabled !== false;
       const idleMs = Number(current?.idleMs || HOUR_MS);
+      const unlimited = current?.unlimited === true;
       const cacheTtlLabel = !enabled || idleMs >= HOUR_MS ? '1h' : '5m';
       let sourceLabel = `${current?.provider || 'default'} default`;
       if (current?.providerCustom) sourceLabel = `${current.provider} override`;
       else if (current?.custom) sourceLabel = 'global';
+      const clearText = unlimited
+        ? `Never clear idle sessions (${sourceLabel})`
+        : `Clear idle sessions after ${formatDuration(idleMs)} (${sourceLabel})`;
       const items = [
         {
           value: 'toggle',
           label: 'Auto-clear',
           meta: enabled ? 'On' : 'Off',
-          description: enabled
-            ? `Clear idle sessions after ${formatDuration(idleMs)} (${sourceLabel}) · lead cache TTL ${cacheTtlLabel}.`
-            : 'Idle auto-clear disabled.',
+          description: enabled ? `${clearText} · lead cache TTL ${cacheTtlLabel}.` : 'Idle auto-clear disabled.',
           _action: 'toggle',
         },
         {
@@ -132,7 +138,7 @@ export function createAutoClearPicker({
       ];
       own.paint({
         title: 'Auto-clear',
-        description: `Clear idle context after ${enabled ? `${formatDuration(idleMs)} (${sourceLabel})` : 'never'} · lead cache TTL ${cacheTtlLabel}.`,
+        description: `Clear idle context after ${enabled && !unlimited ? `${formatDuration(idleMs)} (${sourceLabel})` : 'never'} · lead cache TTL ${cacheTtlLabel}.`,
         help: '↑/↓ Select · ←/→ Toggle On/Off · Enter Open/Toggle · Esc Close',
         indexMode: 'always',
         labelWidth: 10,

@@ -6,8 +6,7 @@
 // metrics (transcript-stream-metrics.ts, enabled by the scroll-diagnostics
 // flag) sample what is painted every frame; this file only reads their output.
 //
-// Thresholds below were taken from measured runs of this exact stream, not
-// guessed. See the BASELINES comment for the numbers and how they were chosen.
+// See the THRESHOLDS comment for what the gate holds.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -257,14 +256,13 @@ async function buildAssets() {
 }
 
 /** Streams the reply once in a fresh page and returns what was measured. */
-async function streamOnce(browser, assets, { reducedMotion = false, shrinkAtMs, seed = STREAM_SEED } = {}) {
+async function streamOnce(browser, assets, { shrinkAtMs, seed = STREAM_SEED } = {}) {
   const stream = createBurstyStream({ seed });
   const page = await browser.newPage();
   try {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.setViewport(VIEWPORT);
-    if (reducedMotion) await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.setContent('<!doctype html><html><head></head><body><div id="root"></div></body></html>');
     await page.evaluate(() => {
       // The stream metrics run behind the scroll-diagnostics flag.
@@ -325,51 +323,19 @@ function streamedWindow(frames) {
   return first < 0 ? [] : frames.slice(first, last + 1);
 }
 
-function coefficientOfVariation(values) {
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-  return Math.round((Math.sqrt(variance) / mean) * 100) / 100;
-}
-
-/** The largest one-frame growth after the reply's opening sentence. A part's
- *  first received text paints with its arrival (use-paced-transcript-text.ts),
- *  so the opening is not a burst; every later frame is measured. The
- *  opening is the heading plus the first sentence of BURSTY_MARKDOWN. */
-function maxBurstAfterOpening(perFrame) {
-  const opening = BURSTY_MARKDOWN.slice(0, BURSTY_MARKDOWN.indexOf('.') + 1)
-    .replace('## ', '')
-    .replace('\n\n', '');
-  const openingGraphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(opening)].length;
-  let painted = 0;
-  let after = 0;
-  while (after < perFrame.length && painted < openingGraphemes) {
-    painted += perFrame[after];
-    after += 1;
-  }
-  return Math.max(0, ...perFrame.slice(after));
-}
-
 function describe({ raw, summary, quiet }) {
   const window = streamedWindow(raw.frames);
-  const perFrame = window.map((frame) => frame.grew);
-  const growth = perFrame.filter((value) => value > 0);
   const windowMs = window.length > 1 ? window.at(-1).t - window[0].t : 0;
   return {
     windowMs: Math.round(windowMs),
     fps: Math.round((window.length * 1000) / windowMs),
-    streamFrames: perFrame.length,
-    visibleFrames: growth.length,
+    streamFrames: window.length,
     receivedGraphemes: summary.receivedGraphemes,
     visibleGraphemes: summary.visibleGraphemes,
-    meanPerFrame: Math.round((growth.reduce((sum, value) => sum + value, 0) / perFrame.length) * 100) / 100,
-    cvPerFrame: coefficientOfVariation(perFrame),
-    cvVisibleFrames: coefficientOfVariation(growth),
-    maxBurst: maxBurstAfterOpening(perFrame),
     p95GapMs: summary.paintGrowthGapMs.p95,
     maxGapMs: summary.paintGrowthGapMs.max,
     rowShrinks: raw.shrinks,
     rowShrinkPx: Math.round(raw.shrinkPx),
-    emptyFramesWithBacklog: summary.emptyFramesWithBacklog,
     longTasks: summary.longTasks.n,
     longTaskMaxMs: summary.longTasks.max,
     scrollEventsAfterSettle: quiet.scrollEvents,
@@ -377,32 +343,12 @@ function describe({ raw, summary, quiet }) {
   };
 }
 
-// BASELINES (headless Chrome on Windows, seed 7, 900x560 pane, 1839 graphemes
-// arriving over ~7.3 s, ~163 fps). Pacer on versus pacer off
-// (prefers-reduced-motion, which paints every arrival at once). Ranges are over
-// the measured runs (pacer on: 6 runs, pacer off: 4 runs; the widest values
-// come from one run on a loaded machine, ~66 fps and 15 long tasks unpaced):
-//
-//                                   pacer on         pacer off
-//   cvVisibleFrames (stdev/mean     1.18 - 1.31     1.48 - 2.52
-//     of graphemes per painting frame)
-//   maxBurst (graphemes in 1 frame)  102 - 112        451
-//   p95GapMs (between visible        151.5 - 151.7    431 - 1838
-//     updates)
-//   rowShrinks / scroll moves        0 / 0            0 / 0
-//
-// The pacer-on column is the v1.3 pacer (50 ms reveal steps, 750 ms target
-// lag, stream-reveal-hold): tables rows, headings and code lines deliberately
-// appear whole, so a held line paints as one burst and a code line waits for
-// its newline. Pacer-on values are deterministic (seed 7), not load noise.
-// Each threshold sits between the two columns, so scheduler noise on a busy
-// runner does not trip it while a disabled pacer always does. Row shrinks and scroll moves
-// after settling have a baseline of zero, so their threshold is zero; the
-// injected-shrink control proves the shrink check can fail.
+// Received text paints as it arrives (use-transcript-text-reveal.ts), so how
+// evenly it grows follows the stream itself; the gate holds what the reveal
+// must never do. Row shrinks and scroll moves after settling have a baseline
+// of zero, so their threshold is zero; the injected-shrink control proves the
+// shrink check can fail.
 const THRESHOLDS = {
-  cvVisibleFrames: 1.4,
-  maxBurst: 180,
-  p95GapMs: 250,
   rowShrinks: 0,
   scrollEventsAfterSettle: 0,
   scrollMovesAfterSettle: 0,
@@ -410,17 +356,12 @@ const THRESHOLDS = {
 
 /** Every threshold the measurement breaks, by name. */
 function violations(measured) {
-  const broken = [];
-  if (measured.cvVisibleFrames > THRESHOLDS.cvVisibleFrames) broken.push('cvVisibleFrames');
-  if (measured.maxBurst > THRESHOLDS.maxBurst) broken.push('maxBurst');
-  if (measured.p95GapMs > THRESHOLDS.p95GapMs) broken.push('p95GapMs');
-  if (measured.rowShrinks > THRESHOLDS.rowShrinks) broken.push('rowShrinks');
-  if (measured.scrollEventsAfterSettle > THRESHOLDS.scrollEventsAfterSettle) broken.push('scrollEventsAfterSettle');
-  if (measured.scrollMovesAfterSettle > THRESHOLDS.scrollMovesAfterSettle) broken.push('scrollMovesAfterSettle');
-  return broken;
+  return Object.entries(THRESHOLDS)
+    .filter(([name, limit]) => measured[name] > limit)
+    .map(([name]) => name);
 }
 
-test('a bursty streamed reply paints evenly, never shrinks and rests when settled', async (t) => {
+test('a bursty streamed reply never shrinks and rests when settled', async (t) => {
   const stream = createBurstyStream({ seed: STREAM_SEED });
   assert.equal(stream.text, BURSTY_MARKDOWN);
   assert.ok(stream.pauses >= 2 && stream.lumps >= 3, 'the stream has pauses and lumps');
@@ -433,7 +374,7 @@ test('a bursty streamed reply paints evenly, never shrinks and rests when settle
 
   const steady = await streamOnce(browser, assets);
   const measured = describe(steady);
-  t.diagnostic(`pacer on: ${JSON.stringify(measured)}`);
+  t.diagnostic(`measured: ${JSON.stringify(measured)}`);
   assert.equal(steady.quiet.settledArticle, true, 'the reply settled');
   assert.equal(steady.quiet.hasTable, true, 'the table rendered');
   assert.ok(steady.quiet.codeFences >= 2, 'the code fences rendered');
@@ -441,14 +382,6 @@ test('a bursty streamed reply paints evenly, never shrinks and rests when settle
   assert.equal(steady.quiet.scrolls, true, 'the reply overflows the pane, so following is exercised');
   assert.equal(steady.quiet.pinnedToEnd, true, 'the settled reply is pinned to the end');
   assert.deepEqual(violations(measured), []);
-
-  await t.test('negative control: without the pacer the gate fails', async () => {
-    const unpaced = describe(await streamOnce(browser, assets, { reducedMotion: true }));
-    t.diagnostic(`pacer off: ${JSON.stringify(unpaced)}`);
-    const broken = violations(unpaced);
-    for (const name of ['cvVisibleFrames', 'maxBurst', 'p95GapMs'])
-      assert.ok(broken.includes(name), `${name}: ${broken}`);
-  });
 
   await t.test('negative control: an injected row shrink fails the gate', async () => {
     const shrunk = describe(await streamOnce(browser, assets, { shrinkAtMs: 3_000 }));

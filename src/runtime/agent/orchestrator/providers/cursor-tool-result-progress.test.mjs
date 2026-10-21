@@ -132,7 +132,10 @@ test('Cursor preserves long, multiline and native call ids through result conver
 
   const response = wire.resumeRun(f.active, parsed.toolResults, '', 'grok-4.7', f.key);
   const sent = replies(f.bridge);
-  assert.deepEqual(sent.map((result) => result.execId), ['exec-1', 'exec-2', 'exec-3']);
+  assert.deepEqual(
+    sent.map((result) => result.execId),
+    ['exec-1', 'exec-2', 'exec-3']
+  );
   assert.ok(sent[0].mcpResult.success);
   assert.ok(sent[1].mcpResult.success);
   assert.equal(sent[2].readResult.success.content, 'fixture');

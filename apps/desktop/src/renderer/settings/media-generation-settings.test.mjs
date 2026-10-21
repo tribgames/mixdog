@@ -59,13 +59,13 @@ const LANES = [
   },
 ];
 
-function fakeApi({ pins = { image: null, video: null }, accounts = {} } = {}) {
+function fakeApi({ pins = { image: null, video: null }, accounts = {}, lanes = LANES } = {}) {
   const saved = [];
   const state = { ...pins };
   return {
     saved,
     async invokeCapability({ capability, args }) {
-      if (capability === 'listMediaLanes') return { value: LANES };
+      if (capability === 'listMediaLanes') return { value: lanes };
       if (capability === 'getMediaPins') return { value: { ...state } };
       if (capability === 'getProviderAccounts') return { value: { accounts: accounts[args[0]] ?? [] } };
       if (capability === 'setMediaPin') {
@@ -159,6 +159,139 @@ test('the model sheet lists Auto first, groups by provider, and mutes a provider
     assert.deepEqual(api.saved, [], 'a signed-out provider cannot be pinned');
   } finally {
     await view.dispose();
+  }
+});
+
+test('gateway image lanes group under their provider name and icon and can be pinned', async () => {
+  const gateway = (id, label, models) => ({
+    id,
+    label,
+    authType: 'api-key',
+    authProvider: id,
+    authenticated: true,
+    supportedKinds: ['image'],
+    kinds: ['image'],
+    image: spec(models),
+    video: null,
+  });
+  const api = fakeApi({
+    lanes: [
+      gateway('openrouter', 'OpenRouter', [{ id: 'qwen/qwen-image-2.1-turbo', label: 'Qwen Image 2.1 Turbo' }]),
+      gateway('nano-gpt', 'NanoGPT', [
+        { id: 'openai/gpt-image-2.5/sunburst/text-to-image', label: 'GPT Image 2.5 Sunburst' },
+      ]),
+    ],
+  });
+  const view = await mount(api);
+  try {
+    await click(trigger('image'));
+    await click(sheetRow('Model'));
+    const groups = [...document.querySelectorAll('.model-group--provider h3')].map((heading) => [
+      heading.querySelector('svg').getAttribute('data-provider-icon'),
+      heading.textContent,
+    ]);
+    assert.deepEqual(groups, [
+      ['openrouter', 'OpenRouterAPI key'],
+      ['synthetic', 'NanoGPTAPI key'],
+    ]);
+    await click(optionRows().find((row) => name(row) === 'GPT Image 2.5 Sunburst'));
+    assert.deepEqual(api.saved, [
+      { kind: 'image', lane: 'nano-gpt', model: 'openai/gpt-image-2.5/sunburst/text-to-image', account: '' },
+    ]);
+  } finally {
+    await view.dispose();
+  }
+});
+
+test('a slow gateway catalog lists as loading, re-polls until its models land, and a failure offers Retry', async () => {
+  const nano = {
+    id: 'nano-gpt',
+    label: 'NanoGPT',
+    authType: 'api-key',
+    authProvider: 'nano-gpt',
+    authenticated: true,
+    supportedKinds: ['image'],
+    kinds: [],
+    image: null,
+    video: null,
+  };
+  const loaded = {
+    ...nano,
+    kinds: ['image'],
+    image: spec([{ id: 'hidream', label: 'HiDream' }]),
+  };
+  const failed = {
+    ...nano,
+    catalogErrorCode: 'MEDIA_CATALOG_TIMEOUT',
+    catalogError: 'NanoGPT (API key): Model catalog request timed out. Retry after checking the connection.',
+  };
+  let nanoState = { ...nano, catalogPending: true };
+  const laneCalls = [];
+  const api = fakeApi();
+  const base = api.invokeCapability;
+  api.invokeCapability = async (request) => {
+    if (request.capability !== 'listMediaLanes') return base(request);
+    laneCalls.push(request.args);
+    return { value: [LANES[1], nanoState] };
+  };
+  const escape = () =>
+    act(async () => document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  const imageRows = async () => {
+    await click(trigger('image'));
+    await click(sheetRow('Model'));
+    const rows = optionRows().map((row) => ({ name: name(row), text: row.textContent, disabled: row.disabled }));
+    await escape();
+    await escape();
+    return rows;
+  };
+  const retryButton = () =>
+    [...document.querySelectorAll('[data-media-generation] button')].find((button) => button.textContent === 'Retry');
+  const wait = (ms) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+
+  const view = await mount(api);
+  try {
+    assert.ok(laneCalls[0]?.[0]?.budgetMs > 0, 'the dialog bounds the listing so one slow catalog cannot hold it');
+    let rows = await imageRows();
+    assert.ok(
+      rows.some((row) => row.name === 'GPT Image 2' && !row.disabled),
+      'the ready provider stays choosable'
+    );
+    const loading = rows.find((row) => row.text.includes('NanoGPT'));
+    assert.ok(loading, 'the slow provider is listed instead of vanishing');
+    assert.match(loading.text, /Loading models…/);
+    assert.equal(loading.disabled, true);
+
+    nanoState = loaded;
+    await wait(1_200);
+    assert.ok(laneCalls.length >= 2, 'a pending catalog is polled again');
+    rows = await imageRows();
+    assert.ok(
+      rows.some((row) => row.name === 'HiDream' && !row.disabled),
+      'the late models become choosable'
+    );
+    const settled = laneCalls.length;
+    await wait(1_200);
+    assert.equal(laneCalls.length, settled, 'polling stops once every catalog answered');
+    assert.equal(retryButton(), undefined, 'no Retry while every catalog answered');
+  } finally {
+    await view.dispose();
+  }
+
+  nanoState = failed;
+  const again = await mount(api);
+  try {
+    const rows = await imageRows();
+    assert.match(rows.find((row) => row.text.includes('NanoGPT')).text, /Couldn't load models/);
+    assert.match(document.querySelector('[data-media-generation]').textContent, /Model catalog request timed out/);
+    const calls = laneCalls.length;
+    nanoState = loaded;
+    await click(retryButton());
+    assert.equal(laneCalls.length, calls + 1, 'Retry lists the catalogs again');
+    assert.ok((await imageRows()).some((row) => row.name === 'HiDream' && !row.disabled));
+    assert.doesNotMatch(document.querySelector('[data-media-generation]').textContent, /timed out/);
+    assert.equal(retryButton(), undefined, 'Retry leaves once the catalog answered');
+  } finally {
+    await again.dispose();
   }
 });
 

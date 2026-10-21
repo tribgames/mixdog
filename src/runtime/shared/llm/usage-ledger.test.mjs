@@ -366,7 +366,7 @@ test('a corrupt legacy rollup keeps other usage available and retries after repa
   };
   mkdirSync(join(dir, 'history'));
   const tracePath = join(dir, 'history', 'agent-trace.jsonl');
-  const traceOriginal = JSON.stringify(trace) + '\n';
+  const traceOriginal = `${JSON.stringify(trace)}\n`;
   writeFileSync(tracePath, traceOriginal);
   const gateway = {
     ts: now - 1000,
@@ -378,7 +378,7 @@ test('a corrupt legacy rollup keeps other usage available and retries after repa
     outputTokens: 4,
   };
   const gatewayPath = join(dir, 'gateway-usage.local.jsonl');
-  const gatewayOriginal = [gateway, gateway].map((event) => JSON.stringify(event)).join('\n') + '\n';
+  const gatewayOriginal = `${[gateway, gateway].map((event) => JSON.stringify(event)).join('\n')}\n`;
   writeFileSync(gatewayPath, gatewayOriginal);
   // The database and diagnostic file can contain the same historical send.
   const { ledger, warnings, api } = legacyStatsApi(t, dir, async () => [trace]);

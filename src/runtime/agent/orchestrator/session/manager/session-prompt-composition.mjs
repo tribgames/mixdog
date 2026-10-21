@@ -5,7 +5,7 @@
 import { buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
 import { configuredInstructionFilesMode, loadInstructionFilesContext } from '../../context/instruction-files.mjs';
 import { agentModeIdentityLine } from '../../context/role-instructions.mjs';
-import { AGENT_MODE, isRoutineSource, sessionModeOf } from '../agent-mode.mjs';
+import { AGENT_MODE, sessionModeOf } from '../agent-mode.mjs';
 import { MIXY_AGENT_ID } from '../agent-home.mjs';
 import {
   _buildBaseRules,
@@ -98,12 +98,9 @@ export function buildWorkspacePromptContext(session, cwd) {
 // A Lead's BP3 rule slices, ordered for prefix sharing (composeSystemPrompt):
 // LEAD.md's common lines first; then the mode block (coding: LEAD.md's two
 // passages; agent mode: their conversational variants and AGENT_MODE.md);
-// then Mixy's MIXY.md; last the per-session tail — routine line, identity.
+// then Mixy's MIXY.md; last the per-session tail — identity.
 // Agent mode is a Lead created as an agent (agent-mode.mjs).
-export function sessionRolePromptFields(
-  identity,
-  { ownerIsAgent, toolFreeRole, delegationFree, sessionMode, routine = false }
-) {
+export function sessionRolePromptFields(identity, { ownerIsAgent, toolFreeRole, delegationFree, sessionMode }) {
   const skipRules = identity.skipAgentRules || toolFreeRole;
   const lead = !ownerIsAgent && !skipRules;
   const agentMode = lead && sessionMode === AGENT_MODE;
@@ -131,7 +128,6 @@ export function sessionRolePromptFields(
       ? {
           agentModeRules: _buildAgentModeRules({ part: 'conduct' }),
           ...(mixy ? { mixyRules: _buildAgentModeRules({ part: 'mixy' }) } : {}),
-          ...(routine ? { routineRules: _buildAgentModeRules({ part: 'routine' }) } : {}),
         }
       : {}),
     userPrompt: identity.systemPrompt,
@@ -176,7 +172,6 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     toolFreeRole,
     delegationFree,
     sessionMode,
-    routine: isRoutineSource(opts.sourceType),
   });
   const leadOnly = !skipAgentRules && !ownerIsAgent;
   const metaContext = leadOnly ? _buildLeadMetaContext({ includeOutputStyle: !agentMode }) : '';

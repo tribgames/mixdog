@@ -31,6 +31,9 @@ export class BrowserSessionRegistry {
   private readonly sessionByGuest = new Map<WebContents, string>();
   private readonly activeBySession = new Map<string, WebContents>();
   private readonly waitersBySession = new Map<string, Set<GuestWaiter>>();
+  private readonly agentPageBySession = new Map<string, { guest: WebContents; turn: number }>();
+  /** The turn whose agent page the user stopped the panels from following. */
+  private readonly followPausedTurn = new Map<string, number>();
   private readonly backgroundsBySession = new Map<string, Map<string, BackgroundPage>>();
 
   registerVisibleGuest(guest: WebContents): void {
@@ -42,6 +45,7 @@ export class BrowserSessionRegistry {
     if (index >= 0) this.visibleOrder.splice(index, 1);
     const sessionId = this.sessionByGuest.get(guest);
     this.sessionByGuest.delete(guest);
+    this.forgetAgentPage(guest);
     if (!sessionId || this.activeBySession.get(sessionId) !== guest) return;
     const fallback =
       this.visibleGuests(sessionId)[0] ??
@@ -56,6 +60,7 @@ export class BrowserSessionRegistry {
     if (!guest) return this.liveGuest(sessionId);
 
     const previousSessionId = this.sessionByGuest.get(guest);
+    if (previousSessionId && previousSessionId !== sessionId) this.forgetAgentPage(guest);
     if (previousSessionId && previousSessionId !== sessionId && this.activeBySession.get(previousSessionId) === guest) {
       const fallback = this.visibleGuests(previousSessionId).find((candidate) => candidate !== guest);
       if (fallback) this.activeBySession.set(previousSessionId, fallback);
@@ -80,6 +85,45 @@ export class BrowserSessionRegistry {
     this.activeBySession.set(sessionId, guest);
   }
 
+  /** The page the agent's latest command drove, with the turn it ran in. It
+   *  is independent of the pane's selected tab, which the user may move. */
+  setAgentPage(sessionId: string, guest: WebContents, turn: number): void {
+    this.agentPageBySession.set(sessionId, { guest, turn });
+  }
+
+  /** `paused`: the user picked a tab during this turn, so every window showing
+   *  the session stops following until a later turn drives a page or the
+   *  user asks to see the agent's page again. */
+  agentPage(sessionId: string): { guest: WebContents; turn: number; paused: boolean } | null {
+    const page = this.agentPageBySession.get(sessionId);
+    if (page && !page.guest.isDestroyed() && this.sessionByGuest.get(page.guest) === sessionId) {
+      return { ...page, paused: this.followPausedTurn.get(sessionId) === page.turn };
+    }
+    this.agentPageBySession.delete(sessionId);
+    return null;
+  }
+
+  pauseAgentFollow(sessionId: string): void {
+    const page = this.agentPage(sessionId);
+    if (page) this.followPausedTurn.set(sessionId, page.turn);
+  }
+
+  resumeAgentFollow(sessionId: string): void {
+    this.followPausedTurn.delete(sessionId);
+  }
+
+  /** The session no longer has an agent page (released, or its owner went away). */
+  clearAgentPage(sessionId: string): void {
+    this.agentPageBySession.delete(sessionId);
+    this.followPausedTurn.delete(sessionId);
+  }
+
+  private forgetAgentPage(guest: WebContents): void {
+    for (const [sessionId, page] of this.agentPageBySession) {
+      if (page.guest === guest) this.agentPageBySession.delete(sessionId);
+    }
+  }
+
   sessionIdForGuest(guest: WebContents): string | undefined {
     return this.sessionByGuest.get(guest);
   }
@@ -97,8 +141,22 @@ export class BrowserSessionRegistry {
   currentGuest(sessionId: string): WebContents | null {
     const current = this.activeBySession.get(sessionId);
     if (current && !current.isDestroyed() && this.sessionByGuest.get(current) === sessionId) return current;
+    // A popup that closed itself is destroyed before its window reports it.
+    const opener = current ? this.liveOpener(sessionId, current) : null;
+    if (opener) {
+      this.activeBySession.set(sessionId, opener);
+      return opener;
+    }
     this.activeBySession.delete(sessionId);
     return null;
+  }
+
+  /** The live page of this session that opened `guest`, a popup, if any:
+   *  closing the selected popup returns to it, as Chrome returns to the
+   *  tab that opened a closing one. */
+  private liveOpener(sessionId: string, guest: WebContents): WebContents | null {
+    const opener = this.backgroundPageForGuest(sessionId, guest)?.opener;
+    return opener && !opener.isDestroyed() && this.sessionByGuest.get(opener) === sessionId ? opener : null;
   }
 
   liveGuest(sessionId: string): WebContents | null {
@@ -153,13 +211,17 @@ export class BrowserSessionRegistry {
     if (!pages) return;
     if (page && pages.get(name) !== page) return;
     const removed = pages.get(name);
+    const opener = removed ? this.liveOpener(sessionId, removed.guest) : null;
     pages.delete(name);
+    if (removed) this.forgetAgentPage(removed.guest);
     if (removed && this.sessionByGuest.get(removed.guest) === sessionId) {
       this.sessionByGuest.delete(removed.guest);
     }
     if (removed && this.activeBySession.get(sessionId) === removed.guest) {
       const fallback =
-        this.visibleGuests(sessionId)[0] ?? [...pages.values()].find((page) => !page.guest.isDestroyed())?.guest;
+        opener ??
+        this.visibleGuests(sessionId)[0] ??
+        [...pages.values()].find((page) => !page.guest.isDestroyed())?.guest;
       if (fallback) this.activeBySession.set(sessionId, fallback);
       else this.activeBySession.delete(sessionId);
     }
@@ -187,6 +249,7 @@ export class BrowserSessionRegistry {
 
   clearBackgroundPages(): void {
     for (const [sessionId, , page] of this.allBackgroundEntries()) {
+      this.forgetAgentPage(page.guest);
       if (this.sessionByGuest.get(page.guest) === sessionId) {
         this.sessionByGuest.delete(page.guest);
       }

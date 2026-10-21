@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
+import fs, { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { admitWorkspaceActivity, holdWorkspaceActivity, tryAdmitWorkspaceActivity } from './activity-gate.mjs';
@@ -209,9 +210,12 @@ const asideCopies = (repo) =>
     .map((name) => join(repo, '.git', name));
 
 const RECOVERY_MS = 400;
-async function withShortRecovery(run) {
+// The gate reads Date.now() directly, so a test that asserts a refusal INSIDE
+// the window needs one long enough that a loaded CI disk cannot outrun it.
+const LOAD_PROOF_RECOVERY_MS = 3500;
+async function withShortRecovery(run, windowMs = RECOVERY_MS) {
   const saved = [process.env.MIXDOG_ADMISSION_RECOVERY_MS, process.env.MIXDOG_ADMISSION_HEAL_MS];
-  process.env.MIXDOG_ADMISSION_RECOVERY_MS = String(RECOVERY_MS);
+  process.env.MIXDOG_ADMISSION_RECOVERY_MS = String(windowMs);
   process.env.MIXDOG_ADMISSION_HEAL_MS = '100';
   try {
     await run();
@@ -291,9 +295,118 @@ test('a recovered ledger refuses management only for the unknown window, then th
       code: 'WORKTREE_BUSY_JOBS',
       details: { reason: 'workspace-admission-unreadable' },
     });
-    await sleep(RECOVERY_MS + 100);
+    await sleep(LOAD_PROOF_RECOVERY_MS + 100);
     holdWorkspaceActivity([repo])();
     assert.equal(ledgerOf(repo).recoveredAt, undefined);
+  }, LOAD_PROOF_RECOVERY_MS);
+});
+
+test('a writer that meets the damage first keeps the recovery, so the next writer still waits', async () => {
+  await withShortRecovery(async () => {
+    const repo = makeRepo();
+    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), Buffer.alloc(64));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      assert.throws(() => holdWorkspaceActivity([repo]), {
+        code: 'WORKTREE_BUSY_JOBS',
+        details: { reason: 'workspace-admission-unreadable' },
+      });
+    }
+    assert.ok(Number.isFinite(ledgerOf(repo).recoveredAt), 'the refused writer published the recovery');
+    await sleep(RECOVERY_MS + 100);
+    holdWorkspaceActivity([repo])();
+  });
+});
+
+// Runs `interleave` once, right after the ledger lock is first released: the
+// instant another process can take the lock. A throw inside the release is
+// swallowed by the lock, so `interleave` records its own outcome.
+function afterLedgerLockRelease(interleave) {
+  const unlink = fs.unlinkSync;
+  let fired = false;
+  fs.unlinkSync = function (path, ...rest) {
+    const result = unlink.call(this, path, ...rest);
+    if (!fired && String(path).endsWith('mixdog-workspace-admission.json.lock')) {
+      fired = true;
+      interleave();
+    }
+    return result;
+  };
+  syncBuiltinESMExports();
+  return () => {
+    fs.unlinkSync = unlink;
+    syncBuiltinESMExports();
+  };
+}
+
+test('a writer that takes the lock the instant a recovery releases it still waits for the recovery window', async () => {
+  await withShortRecovery(async () => {
+    const repo = makeRepo();
+    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), Buffer.alloc(64));
+    let interleaved = { error: new Error('no writer ran at the lock release') };
+    const stop = afterLedgerLockRelease(() => {
+      try {
+        interleaved = { release: holdWorkspaceActivity([repo]) };
+      } catch (error) {
+        interleaved = { error };
+      }
+    });
+    try {
+      holdWorkspaceActivity([repo])();
+    } catch {
+      // The first writer is refused for the window; only the interleaved one is under test.
+    } finally {
+      stop();
+    }
+    interleaved.release?.();
+    assert.equal(
+      interleaved.error?.details?.reason,
+      'workspace-admission-unreadable',
+      `a writer admitted between the move-aside and the recovery read the missing ledger as empty: ${interleaved.error?.message ?? 'admitted'}`
+    );
+    assert.ok(Number.isFinite(ledgerOf(repo).recoveredAt), 'the recovery marker is published');
+    await sleep(RECOVERY_MS + 100);
+    holdWorkspaceActivity([repo])();
+  });
+});
+
+test('a crash between keeping the damaged ledger aside and publishing the recovery still refuses management', async () => {
+  await withShortRecovery(async () => {
+    const repo = makeRepo();
+    const damaged = Buffer.alloc(64);
+    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), damaged);
+    const crashed = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+          import fs from 'node:fs';
+          import { syncBuiltinESMExports } from 'node:module';
+          import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+          const rename = fs.renameSync;
+          // The process dies as the recovered ledger is about to be published.
+          fs.renameSync = (from, to) => {
+            if (String(to).endsWith('mixdog-workspace-admission.json')) process.exit(86);
+            return rename(from, to);
+          };
+          syncBuiltinESMExports();
+          holdWorkspaceActivity([process.argv[1]]);
+        `,
+        repo,
+      ],
+      { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+    );
+    assert.equal(crashed.status, 86, crashed.stderr);
+    assert.ok(
+      asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
+      'the damaged bytes were kept before the crash'
+    );
+    assert.throws(() => holdWorkspaceActivity([repo]), {
+      code: 'WORKTREE_BUSY_JOBS',
+      details: { reason: 'workspace-admission-unreadable' },
+    });
+    await sleep(RECOVERY_MS + 100);
+    holdWorkspaceActivity([repo])();
   });
 });
 

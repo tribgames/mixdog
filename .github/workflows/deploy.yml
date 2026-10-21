@@ -137,6 +137,7 @@ jobs:
           import { execFileSync, spawnSync } from 'node:child_process';
           import { RELEASE_CRITICAL_PATHS } from './scripts/release-paths.mjs';
           import { checkChangelogLocales } from './scripts/check-changelog-locales.mjs';
+          import { nativeReleaseStatuses, unreleasedProblems } from './scripts/native-release-status.mjs';
 
           const output = process.env.GITHUB_OUTPUT;
           const mode = process.env.NATIVE_MODE;
@@ -245,6 +246,15 @@ jobs:
             tagPrefix: 'spawn-v',
             paths: ['native/mixdog-spawn'],
           });
+          // native=skip reuses the pinned manifests. That is only safe while no
+          // native source moved since the release each manifest pins; otherwise
+          // the app would ship without the committed native fix.
+          if (mode === 'skip') {
+            const problems = unreleasedProblems(nativeReleaseStatuses());
+            if (problems.length) {
+              throw new Error(`native=skip would ship stale native tools. Re-run Deploy with native=auto.\n${problems.join('\n')}`);
+            }
+          }
           const runtimeTag = readJson('src/runtime/memory/data/runtime-manifest.json').release_tag;
           if (!/^runtime-v\d+\.\d+\.\d+$/.test(runtimeTag)) throw new Error(`Invalid runtime tag ${runtimeTag}`);
           const nativeChanged = mode !== 'skip'

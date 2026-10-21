@@ -190,6 +190,13 @@ test('an ambiguous failure restored onto a colliding chip id is renumbered and r
   let current;
   const sends = [];
   let failFirst;
+  // A send awaits its retry key (the chips' Web Crypto digests) before it
+  // calls submit, so submit has not run when act() returns. The stub signals
+  // the call, and the test waits on that.
+  let firstSubmitCalled;
+  const firstSubmitted = new Promise((resolve) => {
+    firstSubmitCalled = resolve;
+  });
   function Harness() {
     const [draft, setDraft] = useState('review this');
     const [, setSubmitting] = useState(false);
@@ -244,6 +251,7 @@ test('an ambiguous failure restored onto a colliding chip id is renumbered and r
           if (sends.length === 1) {
             return new Promise((_resolve, reject) => {
               failFirst = () => reject(new Error('connection interrupted'));
+              firstSubmitCalled();
             });
           }
           return Promise.resolve(true);
@@ -270,6 +278,7 @@ test('an ambiguous failure restored onto a colliding chip id is renumbered and r
     let first;
     await act(async () => {
       first = current.send();
+      await firstSubmitted;
     });
     // Meanwhile a new chip takes id 1 in the cleared composer.
     const image = { id: 1, name: 'shot.png', kind: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=', token: '' };

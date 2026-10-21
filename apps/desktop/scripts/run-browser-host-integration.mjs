@@ -10,18 +10,20 @@ import {
   withTempWorkspace,
 } from './electron-harness.mjs';
 
+function integrationEntryName() {
+  for (const name of ['cdp-lifecycle', 'document-checkpoint', 'user-dialogs']) {
+    if (process.argv.includes(`--${name}`)) return name;
+  }
+  return 'host';
+}
+
 await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
   const output = join(staging, 'browser-host-integration.mjs');
   const progressPath = join(staging, 'progress.log');
   let progressPrinted = false;
   try {
     await bundleElectronEntry({
-      entry: new URL(
-        process.argv.includes('--cdp-lifecycle')
-          ? '../src/main/browser/cdp-lifecycle.integration.ts'
-          : '../src/main/browser/host.integration.ts',
-        import.meta.url
-      ),
+      entry: new URL(`../src/main/browser/${integrationEntryName()}.integration.ts`, import.meta.url),
       outfile: output,
       plugins: [computerSourceEsbuildPlugin()],
       external: ['electron', 'ws'],
@@ -31,6 +33,10 @@ await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
     const env = electronProcessEnv({
       MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
       MIXDOG_BROWSER_CONTINUATION_ONLY: process.argv.includes('--action-continuation') ? '1' : '0',
+      // --user-dialogs runs one presentation per process: --native picks it.
+      ...(process.argv.includes('--user-dialogs')
+        ? { MIXDOG_BROWSER_NATIVE_VIEW: process.argv.includes('--native') ? '1' : '0' }
+        : {}),
     });
     const child = spawnElectron(output, { env });
     const exitCode = await waitForChildExit(child, {

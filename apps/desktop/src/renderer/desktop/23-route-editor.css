@@ -234,6 +234,15 @@
   text-align: left;
   cursor: pointer;
 }
+/* Between the model rows and the conversation's workflow / delegation rows
+   (RouteEditor ROUTE_SEPARATOR_HEIGHT: 4 + 1 + 4). */
+.route-sheet-separator {
+  flex: 0 0 1px;
+  height: 1px;
+  margin: 4px 8px;
+  border: 0;
+  background: var(--border, rgba(255, 255, 255, 0.08));
+}
 .route-sheet-row {
   height: 36px;
   min-height: 36px;
@@ -1218,9 +1227,6 @@
 
 @media (max-width: 640px) {
   .composer textarea {
-    padding-inline: 12px;
-  }
-  .studio-composer textarea {
     padding-inline: 12px;
   }
   .route-controls {

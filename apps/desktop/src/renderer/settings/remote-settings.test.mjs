@@ -52,14 +52,15 @@ const railLabels = (document) =>
     button.getAttribute('aria-label')
   );
 
-test('remote settings: This device group holds Display, the PC group holds the rest, pages carry a where badge', async (t) => {
+test('remote settings: This device group holds Display and Theme, the PC group holds the rest, pages carry a where badge', async (t) => {
   const document = await renderSettings(t, { remote: true });
   const groups = [...document.querySelectorAll('.mixdog-settings__rail-group')];
   assert.equal(groups.length, 2);
   assert.match(groups[0].querySelector('.mixdog-settings__rail-group-label').textContent, /This device/);
   assert.deepEqual(
     [...groups[0].querySelectorAll('button')].map((button) => button.getAttribute('aria-label')),
-    ['Display']
+    // Theme, skin, fonts and color themes are stored per device (localStorage).
+    ['Display', 'Theme']
   );
   assert.match(groups[1].querySelector('.mixdog-settings__rail-group-label').textContent, /Home PC/);
   assert.ok(railLabels(document).includes('General'));
@@ -71,7 +72,7 @@ test('remote settings: This device group holds Display, the PC group holds the r
   assert.equal(document.querySelector('#mixdog-settings-title').textContent, 'Display');
   assert.equal(document.querySelector('.mixdog-settings__where').dataset.settingsWhere, 'device');
   assert.match(document.querySelector('.mixdog-settings__where').textContent, /This device/);
-  for (const title of ['Display language', 'Theme', 'Link preview', 'Side panels']) {
+  for (const title of ['Display language', 'Link preview', 'Side panels']) {
     assert.ok(document.body.textContent.includes(title), title);
   }
 });
@@ -82,7 +83,7 @@ test('main PC settings keep one flat nav with no group labels, badge or Display 
   assert.equal(document.querySelector('.mixdog-settings__rail-group-label'), null);
   assert.equal(document.querySelector('.mixdog-settings__where'), null);
   assert.equal(railLabels(document).includes('Display'), false);
-  for (const title of ['Display language', 'Theme', 'Side panels']) {
+  for (const title of ['Display language', 'Side panels']) {
     assert.ok(document.body.textContent.includes(title), title);
   }
 });

@@ -15,6 +15,13 @@ const execFile = promisify(execFileCallback);
 const binary = graphBinaryPath();
 assert.ok(binary, 'The native graph binary must be prepared before running these tests');
 
+// Announced paths are native: backslashes on Windows, whose names also
+// compare case-insensitively.
+function comparablePath(path) {
+  const slashed = String(path).replaceAll('\\', '/').replace(/\/+$/, '');
+  return process.platform === 'win32' ? slashed.toLowerCase() : slashed;
+}
+
 function session(root, data) {
   const child = spawn(binary, [root, '--serve-search'], {
     env: { ...process.env, MIXDOG_DATA_DIR: data },
@@ -39,7 +46,7 @@ function session(root, data) {
   reader.on('line', (line) => {
     const value = JSON.parse(line);
     if (value.event === 'invalidate') {
-      for (const waiter of changes) waiter.resolve(value);
+      for (const waiter of changes) waiter.announced(value.paths);
     }
     pending.get(value.id)?.resolve(value);
   });
@@ -73,8 +80,23 @@ function session(root, data) {
       assert.equal(response.scanErrors, 0);
       return response.lines.map((line) => line.replaceAll('\\', '/').replace(/^\.\//, '')).sort();
     },
-    async changed(action) {
+    // One operation can reach the server as several watcher events, each
+    // announced as soon as it is applied: Linux inotify reports a rename as
+    // MOVED_FROM then MOVED_TO, so the first announcement names only the old
+    // path and a search sent on it sees the move half done. `touched` lists
+    // every path the action changes; the change has landed once each one was
+    // announced, itself or under an announced root. Without `touched` the
+    // first announcement is enough (single-path edits).
+    async changed(action, touched = []) {
       const waiting = waiter();
+      const remaining = new Set(touched.map(comparablePath));
+      waiting.announced = (paths) => {
+        const announced = (paths || []).map(comparablePath);
+        for (const path of remaining) {
+          if (announced.some((root) => path === root || path.startsWith(`${root}/`))) remaining.delete(path);
+        }
+        if (remaining.size === 0) waiting.resolve();
+      };
       changes.add(waiting);
       try {
         await action();
@@ -161,19 +183,19 @@ test('rename, delete and directory moves preserve membership across concurrent r
     const warm = open();
     const args = ['--files', '.'];
     assert.deepEqual(await warm.query(args), ['source/before.txt']);
-    async function check(action, expected) {
-      await warm.changed(action);
+    async function check(action, touched, expected) {
+      await warm.changed(action, touched);
       const concurrent = await Promise.all(Array.from({ length: 6 }, () => warm.query(args)));
       for (const paths of concurrent) assert.deepEqual(paths, expected);
       assert.deepEqual(concurrent[0], await open().query(args));
     }
-    await check(
-      () => rename(join(root, 'source', 'before.txt'), join(root, 'source', 'after.txt')),
-      ['source/after.txt']
-    );
-    await check(() => rename(join(root, 'source'), join(root, 'ignored')), []);
-    await check(() => rename(join(root, 'ignored'), join(root, 'restored')), ['restored/after.txt']);
-    await check(() => rm(join(root, 'restored', 'after.txt')), []);
+    // A move touches both of its ends.
+    const move = (from, to, expected) => check(() => rename(from, to), [from, to], expected);
+    await move(join(root, 'source', 'before.txt'), join(root, 'source', 'after.txt'), ['source/after.txt']);
+    await move(join(root, 'source'), join(root, 'ignored'), []);
+    await move(join(root, 'ignored'), join(root, 'restored'), ['restored/after.txt']);
+    const removed = join(root, 'restored', 'after.txt');
+    await check(() => rm(removed), [removed], []);
   });
 });
 

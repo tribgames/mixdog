@@ -149,7 +149,7 @@ function _markLatestByFamily(models) {
   for (const m of byFamily.values()) m.latest = true;
 }
 
-function _compareVersion(a, b) {
+export function _compareVersion(a, b) {
   const na = (a.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i) || []).slice(1).map(Number);
   const nb = (b.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i) || []).slice(1).map(Number);
   for (let i = 0; i < Math.max(na.length, nb.length); i++) {

@@ -42,6 +42,8 @@ function harness({
   // The log read hands back only its newest rows, as a session read's tail
   // window does (0: nothing, the in-memory rows alone).
   readWindow = 0,
+  // Called on every republish of a room's log view.
+  onRepublish = () => {},
 } = {}) {
   const logs = [];
   /** Every session created, with its create params. */
@@ -131,7 +133,7 @@ function harness({
       resets.push(['resetMember', id]);
     },
     taskWorkspace: async () => '/tmp',
-    republish: () => {},
+    republish: (id) => onRepublish(id),
     republishCatalog: () => {},
     now: () => (clock += 1),
     random: () => random(),
@@ -210,6 +212,29 @@ test('the supervisor picks every speaker; its step cap (rounds × members) ends 
   );
   assert.equal(h.decisions.length, 6);
   assert.deepEqual(h.log.at(-1), { ...h.log.at(-1), kind: 'cap', limit: 'rounds', rounds: 2 });
+});
+
+test('with no Maintainer model every member answers a whole-room call once, in order; no follow-ups', async () => {
+  const h = harness({
+    decide: () => ({ action: 'unmanaged' }),
+    // A speech that @mentions a peer must not start a bot-to-bot turn.
+    script: (agentId) => (agentId === 'gh' ? '@Bench your view?' : 'ok'),
+  });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, '얘들아');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'rel', 'bench']
+  );
+  const named = harness({ decide: () => ({ action: 'unmanaged' }) });
+  const made = await room(named);
+  await named.rooms.send(made.sessionId, '/ask bench, gh status?');
+  await named.idle(made.roomId);
+  assert.deepEqual(
+    named.prompts.map((p) => p.agentId),
+    ['bench', 'gh']
+  );
 });
 
 test('the supervisor reads a bounded window as data: members with one line each, messages without tools', async () => {
@@ -524,7 +549,7 @@ test("the supervisor's scene reaches each member's prompt: casual banter, then w
   );
   const [rel, gh, bench] = h.prompts.map((p) => p.prompt);
   for (const prompt of [rel, gh]) assert.match(prompt, /casual small talk, not a task/);
-  assert.match(gh, /React to what was just said/);
+  assert.match(gh, /Reply with your own take, in your own voice/);
   assert.doesNotMatch(bench, /casual small talk/);
   assert.match(bench, /nobody has answered yet: reply to the user now/);
   assert.match(bench, /Do not repeat another member just to agree/);
@@ -663,6 +688,41 @@ test('a message sent while a member speaks cancels that turn: nothing is posted 
   assert.match(String(h.prompts[1].prompt), /first/);
   assert.match(String(h.prompts[1].prompt), /second/);
   assert.equal(h.logs.length, 0);
+});
+
+test('a message sent while a member speaks keeps the room busy across the hand-off to its exchange', async () => {
+  let rooms;
+  let session;
+  // The busy flag every published view of the log carried: it drives the
+  // composer's stop button and the transcript's typing band, so a view that
+  // dropped it for the hand-off made the room jump up and down under the user.
+  const published = [];
+  const h = harness({
+    script: async (agentId, prompt) => {
+      if (agentId === 'gh' && /first/.test(String(prompt)) && !/second/.test(String(prompt))) {
+        await rooms.send(session, 'second');
+      }
+      return `answer by ${agentId}`;
+    },
+    decide: (input) => (input.mustPick ? { action: 'speak', agentId: 'gh' } : { action: 'finish' }),
+    onRepublish: () => published.push(rooms.decorate(session, { items: [] }).busy === true),
+  });
+  rooms = h.rooms;
+  const { sessionId, roomId } = await room(h);
+  session = sessionId;
+  await h.rooms.send(sessionId, 'first');
+  for (let i = 0; i < 2000 && h.prompts.length < 2; i += 1) await new Promise((r) => setImmediate(r));
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'gh']
+  );
+  assert.equal(published.at(-1), false, 'the room is idle once its last exchange ends');
+  assert.equal(
+    published.slice(0, -1).every(Boolean),
+    true,
+    `no view of the room reported idle between the two exchanges: ${published.join()}`
+  );
 });
 
 test('a turn cut short hands its rows again only as already-shown context; the newer message is the request', async () => {
@@ -1135,6 +1195,22 @@ test('stop cancels the speaking member and posts a stopped notice', async () => 
     ['gh']
   );
   assert.equal(h.log.at(-1).kind, 'stopped');
+});
+
+test("a listed room's row time follows its latest speech, not the log's older catalog time", async () => {
+  const h = harness();
+  const { sessionId, roomId } = await room(h);
+  const catalogRow = { id: sessionId, title: 'x', preview: '', updatedAt: 5, activityAt: 5, messageCount: 0 };
+  assert.equal(h.rooms.withRooms([catalogRow])[0].activityAt, 5, 'before anyone spoke the catalog time stands');
+  await h.rooms.send(sessionId, 'hello');
+  await h.idle(roomId);
+  const lastAt = h.saved.doc.rooms[roomId].lastAt;
+  assert.ok(lastAt > 5);
+  const [row] = h.rooms.withRooms([catalogRow]);
+  assert.equal(row.activityAt, lastAt);
+  assert.equal(row.updatedAt, lastAt);
+  const newer = { ...catalogRow, updatedAt: lastAt + 50, activityAt: lastAt + 50 };
+  assert.equal(h.rooms.withRooms([newer])[0].activityAt, lastAt + 50, 'a newer catalog time is kept');
 });
 
 test('remove surfaces a failed cleanup', async () => {

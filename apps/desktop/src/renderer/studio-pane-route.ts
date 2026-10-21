@@ -72,6 +72,10 @@ export function useStudioRouteSync({
       if (next.aspectRatio?.length && !next.aspectRatio.includes(current.aspectRatio)) {
         patch.aspectRatio = next.aspectRatio[0];
       }
+      // Gateway models publish their own quality tiers, often without "auto".
+      if (next.quality?.length && !next.quality.includes(current.quality)) {
+        patch.quality = next.quality[0];
+      }
       // Duration is NOT snapped here: a patch that fed back into this effect
       // could re-enter on every render. The request clamps it instead.
       return Object.keys(patch).length ? { ...current, ...patch } : current;

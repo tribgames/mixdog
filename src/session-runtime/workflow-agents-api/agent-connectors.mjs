@@ -1,13 +1,16 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  assertConnectorPolicyNotWidened,
   CONNECTOR_PERMISSIONS,
   connectorEnabled,
   DENY_ALL_CONNECTORS,
   migrateLegacyConnectorPolicy,
+  NO_WIDEN_MESSAGE,
   PROJECT_CONNECTORS_FILE,
   parseConnectorPolicy,
   readProjectConnectorsFile,
+  setConnectorToolPermissionWriter,
   storedConnectorPolicy,
 } from '../../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
 import {
@@ -88,19 +91,26 @@ export function createAgentConnectorsApi(deps, editor) {
     return switches(editor.getAgentConnectorPolicy(agentId));
   }
 
-  /** Switch one connector on or off for the agent; returns its switches. */
-  async function setAgentConnectorEnabled(agentId, connectorId, enabled) {
+  /** Switch one connector on or off for the agent; returns its switches.
+   *  `options.noWiden` (set by the host for a remote client, never by a caller's
+   *  payload) refuses a change that gives the agent more authority; it is judged
+   *  against the stored policy in the same synchronous stretch as the write, so
+   *  a restriction landing meanwhile is never overwritten. */
+  async function setAgentConnectorEnabled(agentId, connectorId, enabled, options) {
     const id = requireId(connectorId, 'connector id');
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean');
     const policy = editablePolicy(agentId);
     const off = enabled ? policy.off.filter((entry) => entry !== id) : [...policy.off, id];
+    if (options?.noWiden) {
+      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), { off, tools: policy.tools });
+    }
     await editor.setAgentConnectorPolicy(agentId, storedConnectorPolicy({ off, tools: policy.tools }));
     return getAgentConnectors(agentId);
   }
 
   // Older per-tool overrides keep working (the profile no longer shows them):
   // `permission` null drops the tool's entry, so the tool is auto again.
-  async function setAgentConnectorToolPermission(agentId, connectorId, toolName, permission) {
+  async function setAgentConnectorToolPermission(agentId, connectorId, toolName, permission, options) {
     if (permission != null && !CONNECTOR_PERMISSIONS.includes(permission)) {
       throw new Error(`permission must be one of ${CONNECTOR_PERMISSIONS.join(', ')}`);
     }
@@ -110,10 +120,43 @@ export function createAgentConnectorsApi(deps, editor) {
     const own = { ...policy.tools[server] };
     if (permission == null) delete own[tool];
     else own[tool] = permission;
+    if (options?.noWiden) {
+      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), {
+        off: policy.off,
+        tools: { ...policy.tools, [server]: own },
+      });
+    }
     return editor.setAgentConnectorPolicy(
       agentId,
       storedConnectorPolicy({ off: policy.off, tools: { ...policy.tools, [server]: own } })
     );
+  }
+
+  // A card's "항상 허용" for a connector tool saves through this same writer.
+  setConnectorToolPermissionWriter(setAgentConnectorToolPermission);
+
+  /** `[{ connector, tool }]`: the connector tools this agent may run without
+   *  asking (an explicit `auto` entry in its own policy). The profile lists
+   *  them so each can be turned back to asking. */
+  function getAgentAlwaysAllowedTools(agentId) {
+    const tools = editor.getAgentConnectorPolicy(agentId)?.tools || {};
+    return Object.entries(tools)
+      .flatMap(([connector, own]) =>
+        Object.entries(own)
+          .filter(([, permission]) => permission === 'auto')
+          .map(([tool]) => ({ connector, tool }))
+      )
+      .sort((a, b) => a.connector.localeCompare(b.connector) || a.tool.localeCompare(b.tool));
+  }
+
+  /** Replace the agent's connector policy (null removes it). With `options.noWiden`
+   *  the replacement may not give any tool more authority than the stored policy. */
+  async function setAgentConnectors(agentId, connectors, options) {
+    if (options?.noWiden) {
+      const next = connectors == null ? null : parseConnectorPolicy(connectors);
+      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), next);
+    }
+    return editor.setAgentConnectorPolicy(agentId, connectors);
   }
 
   /** The registered Project at `projectPath` (its path is the policy key). */
@@ -157,13 +200,16 @@ export function createAgentConnectorsApi(deps, editor) {
   }
 
   /** Switch one connector on or off for the project; returns its switches. */
-  function setProjectConnectorEnabled(projectPath, connectorId, enabled) {
+  function setProjectConnectorEnabled(projectPath, connectorId, enabled, options) {
     const id = requireId(connectorId, 'connector id');
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean');
     const root = registeredProject(projectPath);
     updateProjectPolicies((byRoot) => {
       const key = [...byRoot.keys()].find((entry) => samePath(entry, root)) ?? root;
-      const off = (byRoot.get(key) || []).filter((entry) => entry !== id);
+      const current = byRoot.get(key) || [];
+      // Under the policy file lock, against the file as it is now.
+      if (options?.noWiden && enabled && current.includes(id)) throw new Error(NO_WIDEN_MESSAGE);
+      const off = current.filter((entry) => entry !== id);
       byRoot.set(key, enabled ? off : [...off, id]);
     });
     return getProjectConnectors(root);
@@ -229,9 +275,10 @@ export function createAgentConnectorsApi(deps, editor) {
     listConnectors,
     listConnectorTools,
     getAgentConnectors,
-    setAgentConnectors: editor.setAgentConnectorPolicy,
+    setAgentConnectors,
     setAgentConnectorEnabled,
     setAgentConnectorToolPermission,
+    getAgentAlwaysAllowedTools,
     getProjectConnectors,
     setProjectConnectorEnabled,
     migrateConnectorPolicies,

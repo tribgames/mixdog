@@ -128,6 +128,8 @@ export function useAppSessionCommands(
     () => window.mixdogDesktop?.subscribeShowConnectionSettings?.(() => openSettings('connection')),
     [openSettings]
   );
+  // The representative bot overlay's menu asks for Settings → Bots.
+  useEffect(() => window.mixdogDesktop?.subscribeDesktopPetOpenSettings?.(() => openSettings('bots')), [openSettings]);
 
   // The title-bar PC menu and the "a device is asking to connect" notice open
   // the page (with the dialog they asked for).

@@ -1433,6 +1433,39 @@ test('a finished background task with nothing to read cannot open and shows its 
   }
 });
 
+test('the live status token readout is its own span, hidden only while the pinned bot stands over the transcript', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(LiveActivity, {
+          snapshot: { spinner: { active: true, startedAt: Date.now() - 119_000, mode: 'working', outputTokens: 5900 } },
+        })
+      );
+    });
+    const meta = document.querySelector('.live-activity-meta');
+    const tokens = meta?.querySelector('.live-activity-tokens');
+    assert.ok(tokens, 'the readout has its own span');
+    assert.match(tokens.textContent, /^ · .*tokens$/);
+    assert.match(meta.textContent, /^1m 5\ds · .*tokens$/, 'the same text as before');
+    assert.equal(meta.textContent.replace(tokens.textContent, '').trim().length > 0, true, 'the clock stays');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('./desktop/14-live-activity.css', import.meta.url), 'utf8')).replace(
+    /\/\*[\s\S]*?\*\//g,
+    ''
+  );
+  const rules = [...css.matchAll(/([^{}]*\.live-activity-tokens[^{}]*)\{([^}]*)\}/g)];
+  assert.deepEqual(
+    rules.map(([, selector, body]) => [selector.trim(), body.trim()]),
+    [['html[data-pet-over-transcript] .live-activity-tokens', 'display: none;']],
+    'hidden only under the flag'
+  );
+});
+
 test('the thinking spinner shows the runtime-resolved turn effort, falling back to the saved level', async () => {
   const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
   const thinkingText = async (snapshot) => {
@@ -1479,8 +1512,8 @@ test('the thinking spinner shows the runtime-resolved turn effort, falling back 
     assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: 'medium' }), /Thinking \(Medium\)/);
     assert.match(await thinkingText({ ...capable, effort: 'high', turnEffort: null }), /Thinking$/);
     assert.match(await thinkingText({ ...capable, effort: 'high' }), /Thinking$/);
-    // A saved max/ultra is respected by the runtime, so it stays shown.
-    assert.match(await thinkingText({ ...capable, effort: 'max' }), /Thinking \(Max\)/);
+    // A saved max/ultra no longer disables Auto: no stand-in either.
+    assert.match(await thinkingText({ ...capable, effort: 'max' }), /Thinking$/);
     // Auto on but the model is not capable: the saved level stands.
     assert.match(await thinkingText({ ...plain, effort: 'high' }), /Thinking \(High\)/);
     await setAuto(false);

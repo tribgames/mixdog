@@ -66,9 +66,9 @@ export function useDeferredResizes({
       return;
     }
     // A pending row the reader scrolled back INTO must not keep painting at
-    // stale geometry. It applies with its compensation now; during a touch
-    // scroll that compensation is held as a row offset, never written into
-    // the fling (transcript-list-touch-deviation).
+    // stale geometry. It applies with its compensation now; during a wheel
+    // ramp or a touch fling that compensation is held as a row offset, never
+    // written into the scroll (transcript-list-touch-deviation).
     const instance = virtualizerRef.current;
     const offset = visibleTop(instance);
     pending.forEach((entry, key) => {

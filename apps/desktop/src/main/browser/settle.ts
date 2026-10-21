@@ -21,7 +21,8 @@ interface BrowserSettleDiagnostics {
 interface BrowserSettleHost {
   diagnostics(guest: WebContents): BrowserSettleDiagnostics;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
-  renderCheckpoint(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<void>;
+  /** Resolves false when a frame never confirmed the checkpoint. */
+  renderCheckpoint(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<boolean | void>;
   pageText(guest: WebContents, signal?: AbortSignal): Promise<string>;
   /** How long the page must stay quiet before a gesture counts as settled. */
   quietMs: number;
@@ -114,12 +115,16 @@ async function stepSettleResult(
   host: BrowserSettleHost,
   guest: WebContents,
   signal?: AbortSignal,
-  background = false
+  background = false,
+  onUnconfirmed?: () => void
 ): Promise<BrowserCommandResult> {
   throwIfBrowserCancelled(signal);
   if (!host.diagnostics(guest).pendingDialog) {
     try {
-      await host.renderCheckpoint(guest, background, signal);
+      // A frame that never confirmed (scripts blocked, no timers) is not a
+      // failure and the input is never replayed, but its pending work is
+      // unknown, so the caller must not treat an idle network as settled.
+      if ((await host.renderCheckpoint(guest, background, signal)) === false) onUnconfirmed?.();
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
       // The old document has nothing left to render; the navigation the input
@@ -174,6 +179,25 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     timeoutMs: host.domTimeoutMs,
   });
 
+  /** Load, DOM, and network observation together, each bounded by its timeout. */
+  async function observeQuiet(
+    guest: WebContents,
+    signal?: AbortSignal,
+    settleSignal = signal,
+    earlyExit?: Promise<unknown>
+  ): Promise<void> {
+    const observed = Promise.allSettled([
+      waitForLoadSettle(host, guest, host.loadTimeoutMs, settleSignal),
+      waitForDomQuiet(guest, signal, earlyExit),
+      waitForNetworkQuiet(host, guest, settleSignal),
+    ]);
+    // Racing the group, not just aborting it: allSettled still waits for any
+    // observer that does not watch the cutoff signal, which made the early
+    // exit worth only ~200ms instead of the full quiet window.
+    await (earlyExit ? Promise.race([observed, earlyExit]) : observed);
+    throwIfBrowserCancelled(signal);
+  }
+
   /** Post-gesture settle starts load, DOM, and network observation together.
    *  Long-polling pages cannot hold the command forever.
    *
@@ -225,26 +249,23 @@ export function createBrowserSettle(host: BrowserSettleHost) {
       // then wait only when actual load/network work remains. A future timer
       // has no knowable completion time; explicit expect/settleMs own that
       // dependency and are still awaited independently by reply.
-      const checkpoint = await stepSettleResult(host, guest, signal, options.background);
+      let unconfirmed = false;
+      const checkpoint = await stepSettleResult(host, guest, signal, options.background, () => {
+        unconfirmed = true;
+      });
       if (checkpoint.outcome === 'blocked') return;
       if (checkpoint.outcome !== 'completed') throw new Error(checkpoint.text);
+      // An unconfirmed frame may still be rendering: run the bounded quiet
+      // observation instead of returning on an idle network alone.
       if (
         !options.requireQuiet &&
+        !unconfirmed &&
         !routeChanged &&
         !guest.isLoading() &&
         host.diagnostics(guest).network.recentInflight().length === 0
       )
         return;
-      const observed = Promise.allSettled([
-        waitForLoadSettle(host, guest, host.loadTimeoutMs, settleSignal),
-        waitForDomQuiet(guest, signal, earlyExit),
-        waitForNetworkQuiet(host, guest, settleSignal),
-      ]);
-      // Racing the group, not just aborting it: allSettled still waits for any
-      // observer that does not watch the cutoff signal, which made the early
-      // exit worth only ~200ms instead of the full quiet window.
-      await (earlyExit ? Promise.race([observed, earlyExit]) : observed);
-      throwIfBrowserCancelled(signal);
+      await observeQuiet(guest, signal, settleSignal, earlyExit);
     } finally {
       cutoff.abort();
       signal?.removeEventListener('abort', stopOnAbort);
@@ -256,8 +277,19 @@ export function createBrowserSettle(host: BrowserSettleHost) {
       waitForLoadSettle(host, guest, timeoutMs, signal)
     ),
     settleAfterAction,
-    stepSettleResult: timedBrowserOperation('wait', (guest: WebContents, signal?: AbortSignal, background?: boolean) =>
-      stepSettleResult(host, guest, signal, background)
+    // A sequence step whose frame never confirmed the checkpoint gets the same
+    // bounded load/DOM/network quiet observation as a final settle; the input
+    // is neither replayed nor failed.
+    stepSettleResult: timedBrowserOperation(
+      'wait',
+      async (guest: WebContents, signal?: AbortSignal, background?: boolean) => {
+        let unconfirmed = false;
+        const step = await stepSettleResult(host, guest, signal, background, () => {
+          unconfirmed = true;
+        });
+        if (unconfirmed && step.outcome === 'completed') await observeQuiet(guest, signal);
+        return step;
+      }
     ),
     postconditionMatchesGuest: (guest: WebContents, expected: BrowserPostcondition, signal?: AbortSignal) =>
       postconditionMatchesGuest(host, guest, expected, signal),

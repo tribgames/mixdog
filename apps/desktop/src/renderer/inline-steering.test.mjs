@@ -86,7 +86,6 @@ test('a message sent while the reply streams is a bubble right away, below the r
     rows.map((row) => row._tag),
     ['UserMessage', 'AssistantPart', 'TurnGap', 'UserMessage', 'Thinking']
   );
-  assert.equal(rows[1].newest, true, 'the streaming reply keeps its own reveal pace');
   assert.equal(rows[3].item.text, 'add a one-line summary');
   assert.equal(rows.at(-1)._tag, 'Thinking', 'the working row stays last');
 
@@ -104,6 +103,18 @@ test('a message sent while the reply streams is a bubble right away, below the r
   assert.equal(bubble.key, rows[3].key, 'no remount when the bubble settles');
   assert.equal(bubble.item.steered, true);
   assert.equal(delivered.at(-1).key, rows.at(-1).key, 'the working row keeps its identity');
+});
+
+test('a queued bot message keeps its sending bot, like the delivered row', () => {
+  const [row] = steerPromptItems(
+    [{ id: 'bot-1', displayText: 'check the build', submittedAt: 10, sender: 'lead', fromAgent: 'alpha' }],
+    []
+  );
+  assert.equal(row.fromAgent, 'alpha');
+  assert.equal(row.sender, 'lead');
+  assert.equal(row.text, 'check the build');
+  const [plain] = steerPromptItems([{ id: 'u-1', displayText: 'hi', submittedAt: 11, sender: 'user' }], []);
+  assert.equal(plain.fromAgent, undefined);
 });
 
 test('several waiting messages keep their order; a slash command is held for the turn end', () => {
@@ -204,7 +215,7 @@ test('✕ shows without hover on touch (coarse pointer, phone) as a 44px target;
   assert.equal(window.getComputedStyle(cancel()).width, '44px');
   assert.equal(window.getComputedStyle(cancel()).height, '44px');
   assert.equal(window.getComputedStyle(line.querySelector('.message-steer-action')).minHeight, '44px');
-  assert.equal(cancel().nextElementSibling.textContent, 'Send now');
+  assert.equal(cancel().parentElement.nextElementSibling.textContent, 'Send now');
 
   // The phone client (marked root), even without a coarse pointer report.
   coarse = false;
@@ -216,6 +227,54 @@ test('✕ shows without hover on touch (coarse pointer, phone) as a 44px target;
   } finally {
     document.documentElement.removeAttribute('data-mixdog-mobile-tabs');
   }
+});
+
+test('the steer line keeps one box through every state: waiting, held, failed, sending, read (no row shift)', async (t) => {
+  const { document, root } = mount(t);
+  const style = document.createElement('style');
+  style.textContent = readFileSync(new URL('./desktop/12-transcript.css', import.meta.url), 'utf8');
+  document.head.append(style);
+  const window = document.defaultView;
+  let coarse = false;
+  window.matchMedia = (query) => ({ matches: query === '(pointer: coarse)' && coarse, media: query });
+  const actions = { sendNow() {}, cancel() {}, retry() {} };
+  const base = { kind: 'user', id: 'q1', text: 'x' };
+  const states = [
+    { ...base, steer: 'pending' },
+    { ...base, steer: 'pending', steerLocal: true },
+    { ...base, steer: 'held' },
+    { ...base, steer: 'failed' },
+    { ...base, steer: 'sending' },
+    { ...base, steered: true },
+  ];
+  for (const [height, isCoarse] of [
+    ['20px', false],
+    ['44px', true],
+  ]) {
+    coarse = isCoarse;
+    for (const item of states) {
+      await act(async () =>
+        root.render(
+          React.createElement(
+            SteerContext.Provider,
+            { value: { actions, draft: { current: null } } },
+            React.createElement('article', { className: 'message user' }, React.createElement(SteerStatus, { item }))
+          )
+        )
+      );
+      const label = `${item.steer ?? 'read'} ${isCoarse ? 'touch' : 'mouse'}`;
+      const line = document.querySelector('.message-steer');
+      assert.ok(line, `${label}: the line is there`);
+      const slot = line.firstElementChild;
+      assert.equal(slot.className, 'message-steer-slot', `${label}: the control slot leads the line`);
+      assert.equal(window.getComputedStyle(line).height, height, `${label}: line height`);
+      assert.equal(window.getComputedStyle(slot).width, height, `${label}: slot width`);
+      assert.equal(window.getComputedStyle(slot).height, height, `${label}: slot height`);
+    }
+  }
+  // A plain prompt has no line at all.
+  await renderStatus(root, base, actions);
+  assert.equal(document.querySelector('.message-steer'), null);
 });
 
 test('an unread bubble offers Send now and ✕; a read one shows only a muted ✓', async (t) => {
@@ -244,10 +303,12 @@ test('an unread bubble offers Send now and ✕; a read one shows only a muted �
 
   // Being sent now: the action row gives way.
   await renderStatus(root, { kind: 'user', id: 'q1', text: 'x', steer: 'sending' }, actions);
-  assert.equal(document.querySelector('.message-steer'), null);
+  assert.equal(document.querySelector('.message-steer-action'), null);
+  assert.equal(document.querySelector('.message-steer-cancel'), null);
 
   await renderStatus(root, { kind: 'user', id: 'q1', text: 'x', steered: true }, actions);
-  assert.equal(document.querySelector('.message-steer'), null, 'read: no action row');
+  assert.equal(document.querySelector('.message-steer-action'), null, 'read: no action');
+  assert.equal(document.querySelector('.message-steer-cancel'), null, 'read: no action');
   const read = document.querySelector('.message-steer-read');
   assert.equal(read.getAttribute('aria-label'), 'Read by the model');
   assert.ok(read.querySelector('svg'));

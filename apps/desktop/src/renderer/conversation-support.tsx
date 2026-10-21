@@ -25,7 +25,7 @@ import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActiv
 import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
 import { AskUserRecord, splitAskUser } from './ask-user-record';
-import { TurnChangesCard } from './TurnChangesCard';
+import { PreviewedTurnChangesCard } from './transcript-visualize-card';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
 import { isMobileRemoteSurface } from './mobile-surface';
@@ -399,7 +399,7 @@ function errorRowNode(
     <>
       {notice}
       {seatTurnCards(turnCards)}
-      <TurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
+      <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
     </>
   ) : (
     notice
@@ -423,7 +423,6 @@ export function transcriptRowNode(
     onRetryTurn,
     onOpenSettings,
     questionCard,
-    approvalCard,
     quietTools = false,
     turnCards,
   }: {
@@ -445,8 +444,6 @@ export function transcriptRowNode(
     onOpenSettings(section?: SettingsSection | null): void;
     /** The pending ask_user card, shown where its tool call sits. */
     questionCard?: ReactNode;
-    /** The pending approval card: the turn waits on it, so it leads the live row. */
-    approvalCard?: ReactNode;
   }
 ): ReactNode {
   if (row._tag === 'TurnGap') {
@@ -466,7 +463,6 @@ export function transcriptRowNode(
   if (row._tag === 'Thinking') {
     return (
       <div className="live-activity-slot" data-busy="true">
-        {approvalCard}
         <LiveActivity
           snapshot={snapshot}
           optimisticStartedAt={optimisticActivityStartedAt}
@@ -510,8 +506,7 @@ export function transcriptRowNode(
   const assistantProps: TranscriptAssistantRowProps = {
     item: row.item,
     live: Boolean(row.live),
-    paceKey: row.key,
-    pace: Boolean(row.newest),
+    revealKey: row.key,
     completion: row.completion,
     backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
     animateComplete: hadLiveActivity(sessionId, turnIdentity),
@@ -527,7 +522,7 @@ export function transcriptRowNode(
     <>
       {assistant}
       {seatTurnCards(turnCards)}
-      <TurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
+      <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
     </>
   ) : (
     assistant

@@ -37,6 +37,9 @@ function ghPathCandidates(): string[] {
   return ['gh', '/usr/bin/gh', '/usr/local/bin/gh'];
 }
 
+/** Command runner; swappable by tests through githubCliLoginTestHooks.run. */
+const exec = (): typeof run => githubCliLoginTestHooks.run ?? run;
+
 const INSTALL_TIMEOUT_MS = 10 * 60_000;
 let cachedGh: { path: string; version: string } | null | undefined;
 let cachedGit: { path: string; version: string } | null | undefined;
@@ -48,7 +51,7 @@ async function resolveGh(refresh = false): Promise<{ path: string; version: stri
   if (!refresh && cachedGh !== undefined) return cachedGh;
   for (const candidate of ghPathCandidates()) {
     if (candidate !== 'gh' && !existsSync(candidate)) continue;
-    const probe = await run(candidate, ['--version']);
+    const probe = await exec()(candidate, ['--version']);
     if (probe.code === 0) {
       cachedGh = { path: candidate, version: /gh version (\S+)/.exec(probe.stdout)?.[1] || '' };
       return cachedGh;
@@ -71,9 +74,9 @@ export async function githubCliStatus(refresh = false): Promise<DesktopGithubCli
   // account has a stale token, even though the active one is signed in, so a
   // successful login was reported as "no account is signed in". gh < 2.40 has
   // no --active flag; fall back to the plain check there.
-  let auth = await run(gh.path, ['auth', 'status', '--hostname', 'github.com', '--active']);
+  let auth = await exec()(gh.path, ['auth', 'status', '--hostname', 'github.com', '--active']);
   if (auth.code !== 0 && /unknown flag:? --active/i.test(`${auth.stdout}\n${auth.stderr}`)) {
-    auth = await run(gh.path, ['auth', 'status', '--hostname', 'github.com']);
+    auth = await exec()(gh.path, ['auth', 'status', '--hostname', 'github.com']);
   }
   const authenticated = auth.code === 0;
   const login = authenticated ? loginFromAuthOutput(`${auth.stdout}\n${auth.stderr}`) : '';
@@ -168,13 +171,8 @@ interface ActiveLoginFlow {
   flow: DesktopGithubCliLoginFlow;
   pty: import('@homebridge/node-pty-prebuilt-multiarch').IPty | null;
   output: string;
-  answeredGitPrompt: boolean;
-  pressedEnterToOpen: boolean;
-  /** The user asked to open the device page (the code card's button). */
-  browserRequested: boolean;
-  /** gh was spawned with a real browser launcher (false for remote sign-ins). */
-  hostOpensBrowser: boolean;
   timer: NodeJS.Timeout | null;
+  stallTimer: NodeJS.Timeout | null;
 }
 
 const loginFlows = new Map<string, ActiveLoginFlow>();
@@ -183,6 +181,8 @@ let flowSequence = 0;
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007]*\u0007/g;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const LOGIN_OUTPUT_LIMIT = 20_000;
+/** gh prints the one-time code within seconds; silence past this is a stall. */
+const LOGIN_CODE_STALL_MS = 45_000;
 
 function stripControl(text: string): string {
   return text.replace(ANSI_PATTERN, '').replace(/\r/g, '');
@@ -191,20 +191,27 @@ function stripControl(text: string): string {
 /** A command that exits 0 and ignores the URL argument, per platform. */
 const NO_OP_BROWSER = process.platform === 'win32' ? 'cmd /c exit 0' : 'true';
 
-/** Environment for `gh auth login`; `openBrowser: false` points gh's browser
- *  launcher at a no-op so the host never opens a window for a remote client. */
-export function githubLoginEnvironment(openBrowser: boolean): Record<string, string> {
-  const env = childEnvironment() as Record<string, string>;
-  return openBrowser ? env : { ...env, BROWSER: NO_OP_BROWSER, GH_BROWSER: NO_OP_BROWSER };
+/** Environment for `gh auth login`. Prompts are disabled so gh never asks the
+ *  git-protocol / git-credentials questions (and skips its press-Enter stop),
+ *  and its browser launcher is a no-op: the renderer opens the device page
+ *  itself, on the browser the user actually sits at. */
+export function githubLoginEnvironment(): Record<string, string> {
+  return {
+    ...(childEnvironment() as Record<string, string>),
+    GH_PROMPT_DISABLED: '1',
+    BROWSER: NO_OP_BROWSER,
+    GH_BROWSER: NO_OP_BROWSER,
+  };
 }
 
-/** Test seam: substitute the PTY module and the resolved gh. */
-export const githubCliLoginTestHooks: { pty?: PtyModule; gh?: { path: string; version: string } } = {};
+/** Test seam: substitute the PTY module, the resolved gh and the command runner. */
+export const githubCliLoginTestHooks: {
+  pty?: PtyModule;
+  gh?: { path: string; version: string };
+  run?: typeof run;
+} = {};
 
-export async function githubCliLoginStart(
-  options: { openBrowser?: boolean } = {}
-): Promise<DesktopGithubCliLoginFlow> {
-  const openBrowser = options.openBrowser !== false;
+export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> {
   const gh = githubCliLoginTestHooks.gh ?? (await resolveGh());
   if (!gh) throw new Error('GitHub CLI is not installed.');
   // One login at a time: a fresh start supersedes (and kills) earlier flows.
@@ -216,21 +223,31 @@ export async function githubCliLoginStart(
     flow: { flowId, state: 'pending' },
     pty: null,
     output: '',
-    answeredGitPrompt: false,
-    pressedEnterToOpen: false,
-    browserRequested: false,
-    hostOpensBrowser: openBrowser,
     timer: null,
+    stallTimer: null,
   };
   loginFlows.set(flowId, entry);
-  const pty = spawn(gh.path, ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'], {
+  const pty = spawn(gh.path, ['auth', 'login', '--hostname', 'github.com', '--web'], {
     name: 'xterm-256color',
     cols: 120,
     rows: 30,
     cwd: homedir(),
-    env: githubLoginEnvironment(openBrowser),
+    env: githubLoginEnvironment(),
   });
   entry.pty = pty;
+  entry.stallTimer = setTimeout(() => {
+    if (entry.flow.state !== 'pending') return;
+    entry.flow = {
+      ...entry.flow,
+      state: 'error',
+      message: 'GitHub sign-in did not start. Run `gh auth login` in a terminal instead.',
+    };
+    try {
+      pty.kill();
+    } catch {
+      /* already gone */
+    }
+  }, LOGIN_CODE_STALL_MS);
   entry.timer = setTimeout(() => {
     if (entry.flow.state === 'pending' || entry.flow.state === 'code') {
       entry.flow = { ...entry.flow, state: 'error', message: 'Login timed out after 10 minutes.' };
@@ -248,31 +265,33 @@ export async function githubCliLoginStart(
     const code = /one-time code(?::\s*|\s*\()([A-Z0-9-]{6,})/i.exec(entry.output)?.[1];
     const url = /(https:\/\/github\.com\/login\/device\S*)/.exec(entry.output)?.[1];
     if (code && entry.flow.state === 'pending') {
+      if (entry.stallTimer) clearTimeout(entry.stallTimer);
+      entry.stallTimer = null;
       entry.flow = { ...entry.flow, state: 'code', code, url: url || 'https://github.com/login/device' };
     } else if (url && !entry.flow.url) {
       entry.flow = { ...entry.flow, url };
     }
-    // gh's interactive pauses (TTY-only): default-accept the git
-    // credential-helper question. The press-Enter-to-open-browser stop is held
-    // until the user asks for the device page (githubCliLoginOpenBrowser), so
-    // the browser never covers the code before it has been seen.
-    if (!entry.answeredGitPrompt && /Authenticate Git with your GitHub credentials/.test(entry.output)) {
-      entry.answeredGitPrompt = true;
-      pty.write('\r');
-    }
-    pressEnterToOpen(entry);
   });
   pty.onExit(({ exitCode }) => {
-    if (entry.timer) {
-      clearTimeout(entry.timer);
-      entry.timer = null;
+    for (const key of ['timer', 'stallTimer'] as const) {
+      if (entry[key]) clearTimeout(entry[key]);
+      entry[key] = null;
     }
     entry.pty = null;
     if (entry.flow.state === 'error') return;
     if (exitCode === 0) {
-      void githubCliStatus(true).then((status) => {
+      void githubCliStatus(true).then(async (status) => {
         if (status.authenticated) {
-          entry.flow = { ...entry.flow, state: 'success', ...(status.login ? { login: status.login } : {}) };
+          // Non-interactive login skips gh's git-credentials step; wire it up here.
+          const setup = await exec()(gh.path, ['auth', 'setup-git', '--hostname', 'github.com'], 30_000);
+          entry.flow =
+            setup.code === 0
+              ? { ...entry.flow, state: 'success', ...(status.login ? { login: status.login } : {}) }
+              : {
+                  ...entry.flow,
+                  state: 'error',
+                  message: `Signed in to GitHub, but Git could not be set up to use it: ${setup.stderr.trim() || `gh auth setup-git exited with code ${setup.code}`}`,
+                };
         } else {
           entry.flow = { ...entry.flow, state: 'error', message: 'gh finished, but no account is signed in.' };
         }
@@ -285,24 +304,12 @@ export async function githubCliLoginStart(
   return entry.flow;
 }
 
-function pressEnterToOpen(entry: ActiveLoginFlow): void {
-  if (entry.pressedEnterToOpen || !entry.browserRequested || !/Press Enter to open/.test(entry.output)) return;
-  entry.pressedEnterToOpen = true;
-  entry.pty?.write('\r');
-}
-
-/** The code card's "Copy & open GitHub": releases gh's press-Enter stop so gh
- *  opens the device page (and starts polling). Returns false when gh already
- *  did — a repeat open is then the renderer's own. With `openBrowser: false`
- *  (remote client) gh still advances, but only to a no-op launcher, so the
- *  host opens nothing and false is returned. */
-export function githubCliLoginOpenBrowser(flowId: string, options: { openBrowser?: boolean } = {}): boolean {
-  const entry = loginFlows.get(flowId);
-  if (!entry) throw new Error('Unknown GitHub login flow.');
-  if (entry.browserRequested) return false;
-  entry.browserRequested = true;
-  pressEnterToOpen(entry);
-  return entry.hostOpensBrowser && options.openBrowser !== false;
+/** The code card's "Copy & open GitHub". gh itself never opens a browser
+ *  (no-op launcher, prompts disabled), so this always returns false and the
+ *  renderer opens the device page. */
+export function githubCliLoginOpenBrowser(flowId: string): boolean {
+  if (!loginFlows.has(flowId)) throw new Error('Unknown GitHub login flow.');
+  return false;
 }
 
 export function githubCliLoginStatus(flowId: string): DesktopGithubCliLoginFlow {
@@ -315,6 +322,7 @@ export function cancelGithubCliLogin(flowId: string): void {
   const entry = loginFlows.get(flowId);
   if (!entry) return;
   if (entry.timer) clearTimeout(entry.timer);
+  if (entry.stallTimer) clearTimeout(entry.stallTimer);
   try {
     entry.pty?.kill();
   } catch {

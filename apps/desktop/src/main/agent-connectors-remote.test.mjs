@@ -45,7 +45,11 @@ test('the phone and the desktop send the same validated call to the host', async
       return { value: null };
     },
     readCapabilities: async (requests) => {
-      for (const request of requests) hostCalls.push([request.capability, request.args, undefined]);
+      // The remote host's own pre-write comparison reads (remote-authority.ts) are not the call under test.
+      for (const request of requests) {
+        if (request.capability === 'getAgentConnectorPolicy' || request.capability === 'getAgentPermissions') continue;
+        hostCalls.push([request.capability, request.args, undefined]);
+      }
       return requests.map(() => ({ ok: true, value: null }));
     },
   };
@@ -54,7 +58,11 @@ test('the phone and the desktop send the same validated call to the host', async
     const desktop = requiredDesktopCapabilityRequest({ capability, args });
     await host.invokeCapability(desktop.capability, desktop.args, desktop.sessionId);
     await remote.invokeCapability([{ capability, args }]);
-    assert.deepEqual(hostCalls.at(-1), hostCalls.at(-2), capability);
+    // The phone's call is the desktop's plus the host's no-widen mark on the authority setters
+    // (the runtime writer judges it atomically; see approval-remote-exclusion.test.mjs).
+    const [sent, sentArgs, sentSession] = hostCalls.at(-1);
+    const unmarked = sentArgs.at(-1)?.noWiden === true ? sentArgs.slice(0, -1) : sentArgs;
+    assert.deepEqual([sent, unmarked, sentSession], hostCalls.at(-2), capability);
   }
   for (const [capability, args] of Object.entries(READS)) {
     const desktop = requiredDesktopCapabilityReadRequests([{ capability, args }]);

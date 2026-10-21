@@ -16,6 +16,10 @@ import {
   clean,
 } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 
+import {
+  incomingTailOf,
+  wantsIncomingTail,
+} from '../../runtime/agent/orchestrator/session/store-summary-last-message.mjs';
 import { isRealTurnMessage } from '../../runtime/agent/orchestrator/session/compact/user-message-kind.mjs';
 import { realTurnCount as realTurnCountOf } from '../../runtime/agent/orchestrator/session/store-summary-fields.mjs';
 
@@ -44,6 +48,7 @@ function previewOf(s) {
   let preview = isSessionPreviewNoise(rawPreview) ? '' : cleanSessionPreview(rawPreview);
   let messageCount = Math.max(0, Number(s.messageCount) || 0);
   let realTurnCount = realTurnCountOf(s);
+  let incomingTail = Array.isArray(s.incomingTail) ? s.incomingTail : null;
   if (!preview && Array.isArray(s.messages)) {
     realTurnCount = s.messages.filter(isRealTurnMessage).length;
     const msgs = s.messages;
@@ -55,8 +60,9 @@ function previewOf(s) {
       .filter(Boolean);
     preview = userPreviews[0] || '';
     messageCount = msgs.filter((m) => m && (m.role === 'user' || m.role === 'assistant')).length;
+    if (wantsIncomingTail(s.id)) incomingTail = incomingTailOf(msgs);
   }
-  return { preview, messageCount, realTurnCount };
+  return { preview, messageCount, realTurnCount, incomingTail };
 }
 
 /** `working`: this session's turn is running in the daemon right now. */
@@ -70,7 +76,7 @@ export function leadSessionRow(s, working = false) {
   // One-shot `mixdog exec` runs are never resumable conversations.
   if (sourceType === 'exec') return null;
   if (!agentSession && !isLeadShaped(s, owner, sourceType)) return null;
-  const { preview, messageCount, realTurnCount } = previewOf(s);
+  const { preview, messageCount, realTurnCount, incomingTail } = previewOf(s);
   if (!preview && messageCount === 0) return null;
   const lastMessageRoutine = normalizeRoutineProvenance(s.lastMessageRoutine);
   return {
@@ -95,6 +101,10 @@ export function leadSessionRow(s, working = false) {
     model: s.model,
     provider: s.provider,
     messageCount,
+    // Where the messages that arrived (not the user's own, not tool calls)
+    // sit among the counted ones: a bot row's unread pill counts those past
+    // the read cursor. Absent when unknown; clients then show one.
+    ...(incomingTail ? { incomingTail } : {}),
     title: cleanSessionPreview(s.title || '', 100),
     preview,
     // The latest user or assistant line (an agent contact's row shows it).

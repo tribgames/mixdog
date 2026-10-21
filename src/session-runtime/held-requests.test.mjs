@@ -1,10 +1,15 @@
+// First: an unattended run's ask reaches the process delivery, whose queue
+// lives in the data dir; run directly (not through scripts/test.mjs) this test
+// once queued its held rows into the user's real routine-results.json.
+import '../../scripts/test-data-dir.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createHeldRequests, markUnattendedRun, unattendedRunOf } from './held-requests.mjs';
+import { createHeldRequests, markUnattendedRun, pendingHeldRequests, unattendedRunOf } from './held-requests.mjs';
+import { roomMemberSessionId } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { createAgentHomeDelivery, createRoutineResultQueue } from './agent-home-delivery.mjs';
 import { resolvePreToolAskApproval } from '../runtime/agent/orchestrator/session/loop/tool-helpers.mjs';
 import { createHumanGateStore, setHumanGateStore } from '../runtime/agent/orchestrator/session/human-gate/store.mjs';
@@ -12,7 +17,7 @@ import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/tr
 import { isActualUserInstructionMessage } from '../runtime/agent/orchestrator/session/compact/user-message-kind.mjs';
 import { registerHeldRequestNotifier, resolveHeldRequest } from '../runtime/shared/held-request-host.mjs';
 
-function harness({ expiryMs = 60_000 } = {}) {
+function harness() {
   const delivered = [];
   const pushes = [];
   const audits = [];
@@ -20,7 +25,6 @@ function harness({ expiryMs = 60_000 } = {}) {
     deliver: async (agentId, row) => delivered.push([agentId, row]),
     push: (event) => pushes.push(event),
     record: async (gate, approval) => audits.push([gate, approval]),
-    expiryMs,
     runOf: (sessionId) =>
       sessionId === 'sess_run' ? { kind: 'schedule', agentId: 'reviewer', name: 'nightly' } : null,
   });
@@ -47,7 +51,6 @@ test('a held request is delivered to the owner, pushed without any text, and ans
   assert.equal(row.tool, 'github');
   assert.equal(row.target, 'o/r#4');
   assert.equal(row.run.kind, 'schedule');
-  assert.ok(row.expiresAt > Date.now());
   assert.equal(h.pushes.length, 1);
   assert.deepEqual(Object.keys(h.pushes[0]).sort(), ['agentId', 'agentName', 'requestId', 'sessionId']);
   assert.equal(h.pushes[0].sessionId, 'sess_home_reviewer');
@@ -62,39 +65,99 @@ test('a held request is delivered to the owner, pushed without any text, and ans
   assert.equal(h.audits[0][1].device, 'Pixel');
 });
 
-test('an unanswered held request expires into a deny and the run continues with it', async () => {
-  const h = harness({ expiryMs: 15 });
-  // The expiry timer is unref'd (it never holds the daemon open); keep this process alive for it.
-  const keepAlive = setTimeout(() => {}, 5_000);
-  const result = await h.held.hold(outboundRequest).finally(() => clearTimeout(keepAlive));
-  assert.equal(result.approved, false);
-  assert.equal(result.response, 'deny');
-  assert.equal(result.timedOut, true);
+test('a held request never offers or keeps a remembering scope, whatever the gate asked', async () => {
+  const h = harness();
+  const answer = h.held.hold(outboundRequest);
   await Promise.resolve();
-  assert.equal(h.delivered.at(-1)[1].status, 'expired');
-  assert.equal(h.audits[0][1].timedOut, true);
+  const [[, row]] = h.delivered;
+  assert.deepEqual(row.remember, ['once']);
+  assert.equal(h.held.resolve(row.id, { approved: true, response: 'approve', remember: 'agent' }), true);
+  const result = await answer;
+  assert.equal(result.remember, 'once');
+  assert.deepEqual(h.audits[0][0].remember, ['once'], 'the stored gate offers once only: no grant');
 });
 
-test('an unattended schedule run never auto-approves: its ask becomes a held request', async (t) => {
+test('an unanswered held request never expires: it waits for an answer like any approval', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const h = harness();
+  let settled = false;
+  const answer = h.held.hold(outboundRequest).then((result) => {
+    settled = true;
+    return result;
+  });
+  await Promise.resolve();
+  const [[, row]] = h.delivered;
+  assert.equal('expiresAt' in row, false, 'no countdown for the card');
+  t.mock.timers.tick(24 * 60 * 60_000);
+  await Promise.resolve();
+  assert.equal(settled, false, 'still pending after a day');
+  assert.equal(h.held.pending().length, 1);
+  assert.equal(h.delivered.length, 1, 'nothing posted but the pending row');
+  assert.equal(h.held.resolve(row.id, { approved: true }), true);
+  assert.equal((await answer).approved, true);
+});
+
+test('Stop or run cancellation denies a pending held request', async () => {
+  const h = harness();
+  const controller = new AbortController();
+  const answer = h.held.hold(outboundRequest, { signal: controller.signal });
+  await Promise.resolve();
+  controller.abort();
+  const result = await answer;
+  assert.equal(result.approved, false);
+  assert.equal(result.reason, 'run cancelled');
+  await Promise.resolve();
+  assert.equal(h.delivered.at(-1)[1].status, 'denied');
+  assert.equal(h.held.pending().length, 0);
+});
+
+test('a schedule or webhook run never asks and never holds: no row, no push', async (t) => {
+  const events = [];
+  const unregister = registerHeldRequestNotifier((event) => events.push(event));
+  const unmarks = [
+    markUnattendedRun('sess_sched_1', { kind: 'schedule', agentId: 'reviewer', name: 'nightly' }),
+    markUnattendedRun('sess_hook_1', { kind: 'webhook', agentId: 'reviewer', name: 'issues' }),
+  ];
+  t.after(() => {
+    for (const unmark of unmarks) unmark();
+    unregister();
+  });
+  assert.deepEqual(unattendedRunOf('sess_sched_1'), { kind: 'schedule', agentId: 'reviewer', name: 'nightly' });
+  for (const sessionId of ['sess_sched_1', 'sess_hook_1']) {
+    const outcome = await resolvePreToolAskApproval({
+      toolName: 'github',
+      args: outboundRequest.args,
+      sessionId,
+      askReason: 'needs approval',
+      // The approval UI is not consulted for a run: saving it was the grant.
+      toolApprovalHook: async () => assert.fail('a run has no card'),
+      request: { kind: 'outbound', outbound: outboundRequest.outbound, remember: ['once'] },
+    });
+    assert.equal(outcome.denial, undefined, sessionId);
+    assert.equal(outcome.approval.approved, true, sessionId);
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, [], 'no push either');
+  assert.deepEqual(pendingHeldRequests(), [], 'nothing waits for an answer');
+});
+
+test('a room member without an approval UI still holds its ask for the owner', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'held-gate-'));
   setHumanGateStore(createHumanGateStore(dir));
   const events = [];
   const unregister = registerHeldRequestNotifier((event) => events.push(event));
-  const unmark = markUnattendedRun('sess_sched_1', { kind: 'schedule', agentId: 'reviewer', name: 'nightly' });
   t.after(() => {
-    unmark();
     unregister();
     setHumanGateStore(null);
     rmSync(dir, { recursive: true, force: true });
   });
-  assert.deepEqual(unattendedRunOf('sess_sched_1'), { kind: 'schedule', agentId: 'reviewer', name: 'nightly' });
+  const member = roomMemberSessionId('room123abc', 'reviewer');
   const outcome = resolvePreToolAskApproval({
     toolName: 'github',
     args: outboundRequest.args,
-    sessionId: 'sess_sched_1',
+    sessionId: member,
     askReason: 'needs approval',
-    // Even an approving hook is not consulted for an unattended run.
-    toolApprovalHook: async () => ({ approved: true }),
+    toolApprovalHook: null,
     request: { kind: 'outbound', outbound: outboundRequest.outbound, remember: ['once'] },
   });
   for (let i = 0; i < 10 && !events.length; i += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -102,7 +165,7 @@ test('an unattended schedule run never auto-approves: its ask becomes a held req
   assert.equal(events[0].agentName, 'reviewer');
   assert.equal(resolveHeldRequest(events[0].requestId, { approved: false, device: 'Pixel' }), true);
   const { denial } = await outcome;
-  assert.match(denial, /denied by hook: denied by user/);
+  assert.match(denial, /^Error: tool "github" was not approved: denied by user\./);
 });
 
 test('the home thread receives a structured held-request row that never reads as the user', async (t) => {

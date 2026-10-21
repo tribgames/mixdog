@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/tribgames/mixdog/main/apps/desktop/src/renderer/appearance/schema/mixdog-theme/v1.json",
+  "title": "Mixdog theme (mixdog-theme/v1)",
+  "description": "A Mixdog color theme. Every role is optional: a missing role keeps the built-in color. A role is a color or a { \"dark\", \"light\" } pair; colors are #rgb, #rrggbb or #rrggbbaa, or the name of a defs entry.",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "$schema": { "type": "string", "description": "This schema's URL; Mixdog reads the mixdog-theme/v1 format." },
+    "name": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Shown in Settings → Theme." },
+    "appearance": {
+      "enum": ["dark", "light"],
+      "description": "Declare for a single-appearance theme: Mixdog switches to it while the theme is on. Leave out to follow the app's light/dark setting."
+    },
+    "defs": {
+      "type": "object",
+      "description": "Named palette colors the roles (and other defs) can refer to by name.",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$" },
+      "additionalProperties": { "$ref": "#/$defs/colorOrRef" }
+    },
+    "roles": {
+      "type": "object",
+      "description": "Semantic colors. Unknown roles are ignored with a warning.",
+      "properties": {
+        "background": { "$ref": "#/$defs/value", "description": "Window background and the reading canvas." },
+        "surface": { "$ref": "#/$defs/value", "description": "Cards, the message box and menus." },
+        "surface-raised": { "$ref": "#/$defs/value", "description": "Raised plates over a surface (popups, chips)." },
+        "sidebar": { "$ref": "#/$defs/value", "description": "Title bar, activity rail and side panels." },
+        "text": { "$ref": "#/$defs/value", "description": "Body text and icons." },
+        "text-muted": { "$ref": "#/$defs/value", "description": "Secondary text." },
+        "border": { "$ref": "#/$defs/value", "description": "Hairlines and card outlines." },
+        "border-strong": { "$ref": "#/$defs/value", "description": "Emphasized outlines." },
+        "accent": { "$ref": "#/$defs/value", "description": "Accent ink (highlights, active states)." },
+        "accent-fill": { "$ref": "#/$defs/value", "description": "Primary button fill. Defaults to accent." },
+        "accent-text": { "$ref": "#/$defs/value", "description": "Text on the accent fill." },
+        "link": { "$ref": "#/$defs/value", "description": "Links in messages. Defaults to accent." },
+        "selection": { "$ref": "#/$defs/value", "description": "Selected text background (use alpha)." },
+        "focus-ring": { "$ref": "#/$defs/value", "description": "Focus outline." },
+        "hover": { "$ref": "#/$defs/value", "description": "Hover wash (use alpha)." },
+        "selected": { "$ref": "#/$defs/value", "description": "Selected / pressed wash (use alpha)." },
+        "danger": { "$ref": "#/$defs/value", "description": "Errors and destructive actions." },
+        "warning": { "$ref": "#/$defs/value", "description": "Warnings." },
+        "success": { "$ref": "#/$defs/value", "description": "Success states." },
+        "code-background": { "$ref": "#/$defs/value", "description": "Code block background." },
+        "code-text": { "$ref": "#/$defs/value", "description": "Code block text. Defaults to text." },
+        "user-bubble": { "$ref": "#/$defs/value", "description": "Your messages." },
+        "scrollbar": { "$ref": "#/$defs/value", "description": "Scrollbar thumb." },
+        "scrim": { "$ref": "#/$defs/value", "description": "Dim behind dialogs (use alpha)." },
+        "terminal-background": { "$ref": "#/$defs/value", "description": "Terminal background." },
+        "terminal-text": { "$ref": "#/$defs/value", "description": "Terminal text." }
+      }
+    }
+  },
+  "$defs": {
+    "colorOrRef": {
+      "type": "string",
+      "pattern": "^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|[A-Za-z_][A-Za-z0-9_.-]*)$"
+    },
+    "value": {
+      "oneOf": [
+        { "$ref": "#/$defs/colorOrRef" },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": { "dark": { "$ref": "#/$defs/colorOrRef" }, "light": { "$ref": "#/$defs/colorOrRef" } }
+        }
+      ]
+    }
+  }
+}

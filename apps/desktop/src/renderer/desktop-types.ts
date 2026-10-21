@@ -15,6 +15,8 @@ export type TranscriptItem = RecordValue & {
   agent?: string;
   /** Device that submitted this prompt (user rows only). */
   device?: string;
+  /** The bot that sent this user-kind row into this chat (a bot's `session send`). */
+  fromAgent?: string;
   /** A message the model read inside its running turn (user rows only). */
   steered?: boolean;
   /** A message sent while a turn runs that the model has not read yet: it
@@ -215,6 +217,8 @@ export type Snapshot = RecordValue & {
   };
   workflow?: RecordValue | null;
   orchestrationMode?: import('../shared/contract').DesktopOrchestrationMode;
+  pendingWorkflowSwitch?: boolean;
+  pendingOrchestrationModeSwitch?: boolean;
 };
 
 export const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };

@@ -34,6 +34,23 @@ test('web traffic goes to the URL policy; a page document is only ever an http(s
   }
 });
 
+test("an about:blank page's dialog bridge request is let through for the host to answer, nothing else on its host", () => {
+  // window.open('') pages have no origin of their own to ask; the bridge asks
+  // a reserved host that never resolves, and the debugger answers it.
+  assert.equal(
+    browserRequestDisposition('http://mixdog-dialog-bridge.invalid/.well-known/mixdog-dialog-bridge?type=alert', 'xhr'),
+    'allow'
+  );
+  for (const [url, type] of [
+    ['http://mixdog-dialog-bridge.invalid/other', 'xhr'],
+    ['http://mixdog-dialog-bridge.invalid/.well-known/mixdog-dialog-bridge', 'mainFrame'],
+    ['https://mixdog-dialog-bridge.invalid/.well-known/mixdog-dialog-bridge', 'xhr'],
+    ['http://evil.test/.well-known/mixdog-dialog-bridge', 'xhr'],
+  ]) {
+    assert.equal(browserRequestDisposition(url, type), 'web', url);
+  }
+});
+
 test("embedded content and the browser's own components load; other schemes do not", () => {
   // Chromium's PDF viewer: its frame, its scripts and the shared modules it imports.
   for (const [url, type] of [
@@ -46,7 +63,14 @@ test("embedded content and the browser's own components load; other schemes do n
   ]) {
     assert.equal(browserRequestDisposition(url, type), 'allow', url);
   }
-  for (const url of ['file:///C:/secret.txt', 'ftp://a.test/x', 'mixdog-media://x', 'devtools://devtools/bundled/devtools_app.html', 'chrome-untrusted://print/1/0/print.pdf', 'not a url']) {
+  for (const url of [
+    'file:///C:/secret.txt',
+    'ftp://a.test/x',
+    'mixdog-media://x',
+    'devtools://devtools/bundled/devtools_app.html',
+    'chrome-untrusted://print/1/0/print.pdf',
+    'not a url',
+  ]) {
     assert.equal(browserRequestDisposition(url, 'subFrame'), 'deny', url);
   }
 });

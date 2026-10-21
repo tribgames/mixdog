@@ -54,7 +54,10 @@ export function createCanonicalAgentControl({ getSessionService, getSessionRunti
       ownerSessionId: sessionService.rootOwnerSessionId(parentSessionId),
     };
     if (String(args?.type || '') === '__close_all') {
-      await tool.closeAll?.(String(args?.reason || 'agent owner closed'), { callerSessionId: parentSessionId || null });
+      await tool.closeAll?.(String(args?.reason || 'agent owner closed'), {
+        callerSessionId: parentSessionId || null,
+        processExit: args?.processExit === true,
+      });
       await sessionService.cancelAgentDescendants(parentSessionId, String(args?.reason || 'agent owner closed'));
       return 'agent close all: ok';
     }

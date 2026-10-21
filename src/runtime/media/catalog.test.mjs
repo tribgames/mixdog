@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMediaModelLoader, fetchMediaModelRows, projectMediaModels } from './catalog.mjs';
+import { createMediaModelLoader, fetchMediaModelRows, mediaCatalogTimeoutMs, projectMediaModels } from './catalog.mjs';
 import { _normalizeCodexModel } from '../agent/orchestrator/providers/openai-codex-model.mjs';
 import { catalogHttpError } from './catalog-errors.mjs';
 
@@ -288,4 +288,133 @@ test('catalog outages expose stale state, but billing and credential rejection c
     }
     assert.doesNotMatch(error.message, /secret-id/);
   }
+});
+
+// Rows in the documented `GET /images/models` shapes:
+// https://openrouter.ai/docs/api/api-reference/images/list-image-generation-models
+// https://docs.nano-gpt.com/api-reference/endpoint/image-api-models
+const OPENROUTER_IMAGE_ROWS = [
+  {
+    id: 'bytedance-seed/seedream-4.5',
+    name: 'Seedream 4.5',
+    description: 'A text-to-image model.',
+    created: 1692901234,
+    architecture: { input_modalities: ['text', 'image'], output_modalities: ['image'] },
+    supported_parameters: {
+      resolution: { type: 'enum', values: ['1K', '2K', '4K'] },
+      aspect_ratio: { type: 'enum', values: ['auto', '1:1', '16:9'] },
+      seed: { type: 'boolean' },
+      output_compression: { type: 'range', min: 0, max: 100 },
+    },
+    supports_streaming: false,
+    endpoints: '/api/v1/images/models/bytedance-seed/seedream-4.5/endpoints',
+  },
+  {
+    id: 'qwen/qwen-image-2.1-turbo',
+    name: 'Qwen Image 2.1 Turbo',
+    created: 1792901234,
+    architecture: { input_modalities: ['text'], output_modalities: ['image'] },
+    supported_parameters: { quality: { type: 'enum', values: ['auto', 'low', 'high'] } },
+  },
+  {
+    id: 'openai/gpt-5.6-chat',
+    name: 'Chat only',
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+    supported_parameters: {},
+  },
+];
+const NANO_GPT_IMAGE_ROWS = [
+  {
+    id: 'openai/gpt-image-2.5/flare/text-to-image',
+    name: 'GPT Image 2.5 Flare',
+    created: 1760000000,
+    owned_by: 'openai',
+    architecture: { input_modalities: ['text', 'image'], output_modalities: ['image'] },
+    supported_parameters: {
+      resolution: { type: 'enum', values: ['1k', '2k', '4k'], default: '1k' },
+      n: { type: 'range', min: 1, max: 4, default: 1 },
+      quality: { type: 'enum', values: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'high' },
+      background: { type: 'enum', values: ['auto', 'opaque', 'transparent'] },
+      input_references: { type: 'range', min: 0, max: 8 },
+    },
+    capabilities: { image_generation: true, image_to_image: true, inpainting: false, nsfw: false },
+    category: 'image',
+  },
+  {
+    id: 'upscaler/clarity',
+    name: 'Clarity Upscaler',
+    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
+    supported_parameters: {},
+    capabilities: { image_generation: false, image_to_image: true },
+  },
+];
+
+test('Image API catalogs keep image-output models and publish only the parameters each model advertises', () => {
+  const openrouter = projectMediaModels('openrouter', OPENROUTER_IMAGE_ROWS);
+  assert.deepEqual(openrouter.video, []);
+  assert.deepEqual(
+    openrouter.image.map((row) => [row.id, row.label]),
+    [
+      ['qwen/qwen-image-2.1-turbo', 'Qwen Image 2.1 Turbo'],
+      ['bytedance-seed/seedream-4.5', 'Seedream 4.5'],
+    ]
+  );
+  assert.deepEqual(openrouter.image[0].controls, { quality: ['auto', 'low', 'high'], maxReferences: 0 });
+  assert.deepEqual(openrouter.image[1].controls, {
+    aspectRatio: ['auto', '1:1', '16:9'],
+    resolution: ['1K', '2K', '4K'],
+    maxReferences: 16,
+  });
+
+  const nano = projectMediaModels('nano-gpt', NANO_GPT_IMAGE_ROWS);
+  assert.deepEqual(
+    nano.image.map((row) => row.id),
+    ['openai/gpt-image-2.5/flare/text-to-image'],
+    'a model that cannot generate from a prompt alone stays out'
+  );
+  assert.deepEqual(nano.image[0].controls, {
+    resolution: ['1k', '2k', '4k'],
+    quality: ['low', 'medium', 'high', 'xhigh', 'max'],
+    background: ['auto', 'opaque', 'transparent'],
+    maxReferences: 8,
+  });
+});
+
+test('gateway image catalogs get the slow-gateway timeout; other catalogs keep theirs', () => {
+  // api.nano-gpt.com's /models took ~44 s to answer, so the 10 s default would
+  // turn a slow catalog into "no models".
+  assert.equal(mediaCatalogTimeoutMs('nano-gpt'), 60_000);
+  assert.equal(mediaCatalogTimeoutMs('openrouter'), 60_000);
+  for (const lane of ['xai', 'grok-oauth', 'gemini', 'antigravity-oauth'])
+    assert.equal(mediaCatalogTimeoutMs(lane), 10_000);
+});
+
+test('Image API discovery reads /images/models from the lane base with the lane key', async (t) => {
+  const { createServer } = await import('node:http');
+  const seen = [];
+  const server = createServer((req, res) => {
+    seen.push({ url: req.url, authorization: req.headers.authorization });
+    const rows = req.url.startsWith('/nano') ? NANO_GPT_IMAGE_ROWS : OPENROUTER_IMAGE_ROWS;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(
+      JSON.stringify(req.url.startsWith('/nano') ? { object: 'list', data: rows, meta: { count: 2 } } : { data: rows })
+    );
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const openrouter = await fetchMediaModelRows({
+    lane: 'openrouter',
+    auth: { baseURL: `${origin}/api/v1`, token: 'or-key' },
+  });
+  const nano = await fetchMediaModelRows({
+    lane: 'nano-gpt',
+    auth: { baseURL: `${origin}/nano/api/v1`, token: 'ng-key' },
+  });
+  assert.deepEqual(openrouter, OPENROUTER_IMAGE_ROWS);
+  assert.deepEqual(nano, NANO_GPT_IMAGE_ROWS);
+  assert.deepEqual(seen, [
+    { url: '/api/v1/images/models', authorization: 'Bearer or-key' },
+    { url: '/nano/api/v1/images/models', authorization: 'Bearer ng-key' },
+  ]);
 });

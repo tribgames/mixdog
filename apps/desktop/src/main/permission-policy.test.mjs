@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { desktopPermissionAllowed } from './permission-policy.ts';
 
-test('the trusted desktop renderer can copy text and use camera/microphone', () => {
+test('the trusted desktop renderer can copy text, use camera/microphone and enter fullscreen', () => {
   const renderer = {};
-  for (const permission of ['clipboard-sanitized-write', 'media']) {
+  for (const permission of ['clipboard-sanitized-write', 'media', 'fullscreen']) {
     assert.equal(desktopPermissionAllowed(permission, renderer, renderer), true, permission);
   }
 });
@@ -25,9 +25,9 @@ test('clipboard reads and unrelated permissions remain denied in the desktop ren
   }
 });
 
-test('other pages and missing senders cannot obtain desktop copy or media permissions', () => {
+test('other pages and missing senders cannot obtain desktop copy, media or fullscreen permissions', () => {
   const renderer = {};
-  for (const permission of ['clipboard-sanitized-write', 'media']) {
+  for (const permission of ['clipboard-sanitized-write', 'media', 'fullscreen']) {
     for (const sender of [{}, null, undefined]) {
       assert.equal(desktopPermissionAllowed(permission, sender, renderer), false, permission);
     }

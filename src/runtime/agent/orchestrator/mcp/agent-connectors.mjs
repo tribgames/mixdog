@@ -2,6 +2,7 @@
 // or a project may use. Every installed connector is on by default for every
 // agent and project, existing and future ones; a policy only switches some off:
 //   agents/<id>/agent.json   connectors: { off: [serverId…], tools?: { [serverId]: { [tool]: permission } } }
+//                            (bots/<id>/ for a store bot; Mixy — runtime id `lead` — in her identity folder)
 //   <data>/project-connectors.json   { projects: { [projectRoot]: { off: [serverId…] } } }
 // `tools` keeps per-tool overrides (auto | needs_approval | disabled); a tool
 // without one is auto, except a catalog connector's high-risk tools, which
@@ -17,9 +18,11 @@ import { holdsNoData, parseJsonText, readJsonStateSync } from '../../../shared/a
 const NO_DATA = new Error('the file holds no data');
 import { cwdWithinProjects } from '../../../shared/extension-scopes.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
-import { userDefinitionDir } from '../../../shared/agent-store.mjs';
+import { mixyIdentityDir, userDefinitionDir } from '../../../shared/agent-store.mjs';
 import { isSelfMcpToolName, parseMcpToolName } from '../../../shared/tool-primitives.mjs';
 import { connectorToolDefault } from '../../../shared/connector-catalog.mjs';
+import { MIXY_AGENT_ID } from '../session/agent-home.mjs';
+import { AGENT_MODE, sessionModeOf } from '../session/agent-mode.mjs';
 import { serverConnector } from './server-connectors.mjs';
 
 export const CONNECTOR_PERMISSIONS = Object.freeze(['auto', 'needs_approval', 'disabled']);
@@ -165,11 +168,22 @@ export function readConnectorsFile(path) {
   return readJson(path, (manifest) => parseConnectorPolicy(manifest?.connectors));
 }
 
-/** The agent's saved policy under `dataDir`, or null when it has none. */
+/** The agent's saved policy under `dataDir`, or null when it has none. Mixy's
+ *  runtime id is `lead`: her policy is in her identity folder (bots/mixy once
+ *  the bot store is active, agents/lead before), the file her profile writes. */
 export function agentConnectors(agentId, dataDir = resolvePluginData()) {
   const id = clean(agentId);
   if (!id || !AGENT_DIR_ID.test(id)) return null;
-  return cachedRead(join(userDefinitionDir(dataDir, id), 'agent.json'), readConnectorsFile);
+  const dir = id === MIXY_AGENT_ID ? mixyIdentityDir(dataDir) : userDefinitionDir(dataDir, id);
+  return cachedRead(join(dir, 'agent.json'), readConnectorsFile);
+}
+
+/** The agent whose connector policy `session` runs under. A coding Lead shares
+ *  Mixy's runtime id `lead` but is not her: the policy her profile edits is
+ *  hers alone, so a coding Lead has none ('') and only its Project's applies. */
+export function connectorPolicyAgentOf(session) {
+  const agent = clean(session?.agent);
+  return agent === MIXY_AGENT_ID && sessionModeOf(session) !== AGENT_MODE ? '' : agent;
 }
 
 /** Uncached: the project policy file → `[{ root, off }]`, null without one,
@@ -203,6 +217,65 @@ export function connectorToolPermission(policy, toolOrName) {
   // An explicit per-tool entry decides; otherwise a catalog connector's
   // high-risk tools ask (connectorToolDefault) and any other tool is auto.
   return policy?.tools?.[mcp.server]?.[mcp.tool] || connectorToolDefault(serverConnector(mcp.server), mcp.tool);
+}
+
+const PERMISSION_RANK = Object.freeze({ disabled: 0, needs_approval: 1, auto: 2 });
+export const NO_WIDEN_MESSAGE = 'This change would widen what the bot may do without asking; make it on the desktop.';
+
+/** Whether replacing the stored policy `before` (a stored value, a parsed
+ *  policy or null) with `after` (`{ off, tools }` or null) could give any
+ *  tool more authority, judged on EFFECTIVE permissions: a connector switched
+ *  back on, a tool allowed, or an override removed (the tool then runs on its
+ *  default, which is `needs_approval` for a catalog connector's high-risk
+ *  tools and `auto` otherwise). A legacy allow list or an unreadable policy is
+ *  not compared: it counts as widening. */
+export function connectorPolicyWidens(before, after) {
+  let old;
+  try {
+    old = before == null ? { off: [], tools: {} } : parseConnectorPolicy(before);
+  } catch {
+    return true;
+  }
+  if (old.allow) return true;
+  const next = after == null ? { off: [], tools: {} } : after;
+  const offBefore = new Set(old.off);
+  const offAfter = new Set(next.off || []);
+  for (const server of offBefore) if (!offAfter.has(server)) return true;
+  const toolsBefore = old.tools || {};
+  const toolsAfter = next.tools || {};
+  for (const server of new Set([...Object.keys(toolsBefore), ...Object.keys(toolsAfter)])) {
+    const tools = new Set([...Object.keys(toolsBefore[server] || {}), ...Object.keys(toolsAfter[server] || {})]);
+    for (const tool of tools) {
+      // No override: at least asks / at most runs freely.
+      const was = offBefore.has(server) ? 0 : (PERMISSION_RANK[toolsBefore[server]?.[tool]] ?? 1);
+      const now = offAfter.has(server) ? 0 : (PERMISSION_RANK[toolsAfter[server]?.[tool]] ?? 2);
+      if (now > was) return true;
+    }
+  }
+  return false;
+}
+
+/** Throws NO_WIDEN_MESSAGE when `after` could widen `before` (see connectorPolicyWidens). */
+export function assertConnectorPolicyNotWidened(before, after) {
+  if (connectorPolicyWidens(before, after)) throw new Error(NO_WIDEN_MESSAGE);
+}
+
+let toolPermissionWriter = null;
+/** The host attaches the one writer of an agent's per-tool permission (the
+ *  agent editor keeps every other agent.json key). */
+export function setConnectorToolPermissionWriter(write) {
+  toolPermissionWriter = typeof write === 'function' ? write : null;
+}
+
+/** Save `permission` for the connector tool `toolOrName` under `agentId`'s own
+ *  policy. False when it is no connector tool or no writer is attached. */
+export async function writeAgentMcpToolPermission(agentId, toolOrName, permission) {
+  const mcp = parseMcpToolName(toolOrName);
+  if (!toolPermissionWriter || !mcp || isSelfMcpToolName(toolOrName) || !CONNECTOR_PERMISSIONS.includes(permission)) {
+    return false;
+  }
+  await toolPermissionWriter(agentId, mcp.server, mcp.tool, permission);
+  return true;
 }
 
 /** The permission `agentId` has for the MCP tool `toolOrName`. */

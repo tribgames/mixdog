@@ -273,7 +273,7 @@ jobs:
             $signArgs = @(
               '-c.win.azureSignOptions.endpoint=https://krc.codesigning.azure.net/',
               '-c.win.azureSignOptions.codeSigningAccountName=tribgamessigning',
-              '-c.win.azureSignOptions.certificateProfileName=mixdog-public',
+              '-c.win.azureSignOptions.certificateProfileName=tribgames-public',
               "-c.win.azureSignOptions.publisherName=$env:AZURE_PUBLISHER_NAME"
             )
             $signed = 'true'

@@ -1,11 +1,14 @@
 // Deterministic PDF fixtures shared by the read and MCP media tests.
-export function makePdf(pageCount) {
+// `pageText(index)` is the text of page index+1; null draws a filled box and
+// no text, like a scanned page without a text layer.
+export function makePdf(pageCount, { pageText = (i) => `Page ${i + 1}` } = {}) {
   const objs = ['<< /Type /Catalog /Pages 2 0 R >>'];
   const kids = Array.from({ length: pageCount }, (_, i) => `${4 + i * 2} 0 R`);
   objs.push(`<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${pageCount} >>`);
   objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
   for (let i = 0; i < pageCount; i += 1) {
-    const stream = `BT /F1 12 Tf 10 10 Td (Page ${i + 1}) Tj ET`;
+    const text = pageText(i);
+    const stream = text === null ? '0.2 g 20 20 160 160 re f' : `BT /F1 12 Tf 10 10 Td (${text}) Tj ET`;
     objs.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents ${5 + i * 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`
     );
@@ -44,4 +47,3 @@ export function makeEncryptedPdf() {
   out += `trailer\n<< /Size 5 /Root 1 0 R /Encrypt 4 0 R /ID [<${'cd'.repeat(16)}> <${'cd'.repeat(16)}>] >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(out, 'latin1');
 }
-

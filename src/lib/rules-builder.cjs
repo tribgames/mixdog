@@ -58,9 +58,9 @@ function readMarkdownDirectory(dirPath) {
       .readdirSync(dirPath)
       .filter((name) => name.endsWith('.md'))
       .sort()
-      .map((name) => readOptional(path.join(dirPath, name)))
+      .map((name) => readOptional(path.join(dirPath, name)).trim())
       .filter(Boolean)
-      .join('\n');
+      .join('\n\n');
   } catch {
     return '';
   }
@@ -97,14 +97,14 @@ function profileLanguagePrompt(language) {
   const selected = String(language || 'system');
   if (selected !== 'system') {
     const prompt = profileLanguageEntry(selected).prompt;
-    return prompt ? { prompt, source: 'profile', locale: null } : null;
+    return prompt ? { id: selected, prompt, source: 'profile', locale: null } : null;
   }
   const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
   const id = systemLocaleId(locale);
   if (!id) return null;
   const prompt = profileLanguageEntry(id).prompt;
   if (!prompt) return null;
-  return { prompt, source: 'system-locale', locale };
+  return { id, prompt, source: 'system-locale', locale };
 }
 
 function buildProfilePreferencesContent(dataDir) {
@@ -403,13 +403,12 @@ function buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief = true, part = 'co
 }
 
 // The agent-mode rule files (rules/agent-mode/): `conduct` (AGENT_MODE.md,
-// every agent-mode Lead), `mixy` (MIXY.md, Mixy only) and `routine`
-// (ROUTINE.md, schedule/webhook runs only).
+// every agent-mode Lead) and `mixy` (MIXY.md, Mixy only). A routine fire's
+// conduct rides its turn's header (runtime/shared/routine-trigger.mjs).
 const AGENT_MODE_PARTS = {
   conduct: ['AGENT_MODE.md', ''],
   // Neutral heading: the user may rename Mixy (its identity line says the name).
   mixy: ['MIXY.md', '# Your Role\n\n'],
-  routine: ['ROUTINE.md', '# Routine Run\n\n'],
 };
 
 function buildAgentModeContent({ PLUGIN_ROOT, part = 'conduct' }) {
@@ -447,6 +446,13 @@ function buildLeadLanguageContent({ DATA_DIR }) {
   return buildLanguageSection(DATA_DIR);
 }
 
+/** The configured response language as {id, name} (name = the language block's); null when none. */
+function buildLeadLanguage({ DATA_DIR }) {
+  const profile = normalizeProfileConfig(readAgentConfig(DATA_DIR).profile);
+  const language = profileLanguagePrompt(profile.language);
+  return language?.prompt ? { id: language.id, name: language.prompt } : null;
+}
+
 function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
   const AGENT_DIR = path.join(PLUGIN_ROOT, 'rules', 'agent');
   if (String(profile || 'full') === 'retrieval') {
@@ -481,6 +487,7 @@ module.exports = {
   buildAgentModeContent,
   buildLeadMetaContent,
   buildLeadLanguageContent,
+  buildLeadLanguage,
   buildAgentRoleContent,
   buildAgentRetrievalInjectionContent,
   omitToolRoutes,

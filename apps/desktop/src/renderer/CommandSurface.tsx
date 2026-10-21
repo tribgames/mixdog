@@ -6,6 +6,7 @@ import type { CommandSurface as CommandSurfaceName, SettingsSection } from './sl
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { trappedTabIndex } from './list-navigation';
+import { scrimDismiss } from './scrim-dismiss';
 import { acquireModalLayer } from './modal-layer';
 import { useErrorToast } from './notifications';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
@@ -135,9 +136,7 @@ export function CommandSurface({
       data-surface-active={open ? 'true' : 'false'}
       inert={open ? undefined : true}
       aria-hidden={open ? undefined : true}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      {...scrimDismiss(onClose)}
     >
       <section
         ref={dialog}

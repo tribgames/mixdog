@@ -182,7 +182,7 @@ test('a group starts collapsed: header and Lead row (with its member badge) show
 test('an agent waiting for approval shows its state text, never a pill', async (t) => {
   const { document, render } = mount(t, [lead(running), worker('ask', { ...running, awaitingUser: 'approval' })]);
   await render();
-  await act(async () => document.querySelector('.agent-session-heading').click());
+  await act(async () => document.querySelector('.agent-activity-group .agent-session-heading').click());
   const state = document.querySelector('[data-agent-session-id="s-ask"] .agent-activity-elapsed');
   assert.ok(state.textContent.trim());
   assert.equal(document.querySelector('.agent-chat-status'), null);
@@ -198,7 +198,7 @@ test("the group's own menu hides the group and clears finished agents", async (t
   assert.ok(document.querySelector('[data-action-id="hide-agent-group"]'));
   assert.ok(document.querySelector('[data-action-id="clear-finished-agents"]'));
   await select('clear-finished-agents');
-  await act(async () => document.querySelector('.agent-session-heading').click());
+  await act(async () => document.querySelector('.agent-activity-group .agent-session-heading').click());
   assert.equal(document.querySelector('[data-agent-session-id="s-done"]'), null);
   assert.ok(document.querySelector('[data-agent-session-id="s-busy"]'));
   await openMenu();
@@ -233,7 +233,14 @@ test('the pane lists agents, then group rooms, without ordinary session work', a
     ...document.querySelectorAll('[data-agent-contact], [data-agent-room], [data-agent-owner-session-id]'),
   ].map((node) => (node.dataset.agentContact ? 'agent' : node.dataset.agentRoom ? 'room' : 'work'));
   assert.deepEqual([...new Set(order)], ['agent', 'room']);
-  assert.equal(document.querySelector('.agent-chat-divider:not(.agent-room-section-divider)'), null);
+  // Its finished Lead rests as one Lead row (inside the pane window), never as a work group.
+  assert.deepEqual(
+    [...document.querySelectorAll('.agent-chat-divider:not(.agent-room-section-divider)')].map((hr) =>
+      hr.getAttribute('aria-label')
+    ),
+    ['Leads']
+  );
+  assert.ok(document.querySelector('[data-agent-lead="lead-a"]'));
   const row = document.querySelector('[data-agent-room="abc123"]');
   assert.match(row.textContent, /Release check/);
   assert.match(row.textContent, /Looks good/);
@@ -266,7 +273,7 @@ test('a touch long-press on a group header opens the group menu without folding 
   const { document, window, render } = mount(t, [lead(), worker('done')]);
   t.after(installTouchGestures(window, 20));
   await render();
-  const heading = document.querySelector('.agent-session-heading');
+  const heading = document.querySelector('.agent-activity-group .agent-session-heading');
   touch(window, 'pointerdown', heading);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
   assert.ok(document.querySelector('.dock-scm-context-menu'), 'the long-press opened the group menu');

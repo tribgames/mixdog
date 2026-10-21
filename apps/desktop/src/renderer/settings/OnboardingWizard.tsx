@@ -2,34 +2,33 @@
 // with clickable progress bars, per-step hero titles, and Ctrl+Enter to
 // advance. The capability wiring (completeOnboarding / skipOnboarding and the
 // provider/model reads) is shared with Settings and stays authoritative.
-import { ArrowLeft, ArrowRight, Check, ExternalLink, Github, Star, UserRound, X } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ExternalLink, Github, Star, UserRound, X } from 'lucide-react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type {
   DesktopApi,
   DesktopCapability,
-  DesktopCapabilityReadRequest,
-  DesktopCapabilityReadResult,
   DesktopGithubCliAccount,
   DesktopGithubCliLoginFlow,
   DesktopGithubCliStatus,
 } from '../../shared/contract';
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { useMobileBack } from '../mobile-back';
 import { useRemoteHostOpenAccess } from '../remote-host-access';
-import { capabilityBlockedRemotely, friendlyCapabilityError, manageOnHostNote } from './remote-capability-guard';
+import { capabilityBlockedRemotely, manageOnHostNote } from './remote-capability-guard';
 import { ErrorNotice } from '../ErrorNotice';
 import { OpenSelect } from '../OpenSelect';
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { providerDisplayName } from '../provider-display';
-import { record, rows } from '../record-utils';
-import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import { rows } from '../record-utils';
 import { acquireTitleBarDim } from '../titlebar-dim';
-import { waitForDesktopProviders } from '../desktop-provider-retry';
+import { AppearanceChoice } from './appearance-choice';
 import { ClientManagedProviders } from './client-managed-providers';
 import { OAuthControl } from './CapabilitySettings';
-import { FOCUSABLE_SELECTOR, openModal, portaledMenuOpen, trapTab } from './dialog-modality';
+import { OnboardingFooter, OnboardingProgress } from './onboarding-wizard-chrome';
+import { useOnboardingModality, useOnboardingRun, useOnboardingSetup } from './onboarding-wizard-state';
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
 import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
 import { useGithubLoginPolling } from './github-login-polling';
@@ -56,6 +55,13 @@ const STEPS = [
     label: () => t('Profile'),
     title: () => t('Make it yours'),
     subtitle: () => t('Tell Mixdog what to call you, your development experience, and which language to answer in.'),
+  },
+  {
+    id: 'appearance',
+    label: () => t('Theme'),
+    title: () => t('Pick how Mixdog looks'),
+    subtitle: () =>
+      t('Follow your system, choose dark or light, or pick a picture skin. You can change it later in Settings.'),
   },
   {
     id: 'providers',
@@ -96,43 +102,16 @@ function providerTitle(value: RecordValue): string {
   return providerDisplayName(id);
 }
 
-async function readCapabilityBatch(
-  api: DesktopApi,
-  requests: DesktopCapabilityReadRequest[]
-): Promise<DesktopCapabilityReadResult[]> {
-  if (typeof api.readCapabilities === 'function') return api.readCapabilities(requests);
-  return Promise.all(
-    requests.map(async (request) => {
-      try {
-        const result = await api.invokeCapability({ capability: request.capability, args: request.args });
-        return { ok: true as const, value: result.value };
-      } catch (reason) {
-        return { ok: false as const, error: errorMessage(reason) };
-      }
-    })
-  );
-}
-
 export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): void }) {
   // Provider setup works remotely on a current host; only an older host still
   // refuses it, and re-renders this wizard when its level is learned.
   useRemoteHostOpenAccess();
   const [step, setStep] = useState(savedStep);
-  const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState('');
-  const [error, setError] = useState('');
-  const [providerSetup, setProviderSetup] = useState<RecordValue>({});
-  const [profile, setProfile] = useState<RecordValue>({});
   const [confirmSkip, setConfirmSkip] = useState(false);
   const layerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const skipTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const priorFocus = useRef<HTMLElement | null>(null);
-  const capabilityPendingRef = useRef(false);
-  const mutationChain = useRef<Promise<unknown>>(Promise.resolve());
-  const mutationCount = useRef(0);
-  const loadedRef = useRef(false);
   const advanceRef = useRef<() => void>(() => {});
   // The wizard's fullscreen scrim cannot cover the NATIVE caption controls —
   // hold the titlebar dim claim while the wizard is mounted.
@@ -161,101 +140,8 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     }
   };
 
-  const run = useCallback(
-    async <T,>(
-      capability: DesktopCapability,
-      args: unknown[] = [],
-      key: string = capability,
-      _refresh = false,
-      silent = false
-    ): Promise<T | undefined> => {
-      if (!silent) {
-        mutationCount.current += 1;
-        capabilityPendingRef.current = true;
-        setPending(key);
-        setError('');
-      }
-      const execute = async (): Promise<T | undefined> => {
-        try {
-          const result = (await api.invokeCapability<T>({ capability, args })).value;
-          // Invalidate only after the authoritative mutation has resolved.
-          invalidateSidebarReferenceForMutation(capability);
-          return result;
-        } catch (rawReason) {
-          const reason = friendlyCapabilityError(rawReason);
-          if (!silent) setError(errorMessage(reason));
-          return undefined;
-        } finally {
-          if (!silent && --mutationCount.current === 0) {
-            capabilityPendingRef.current = false;
-            setPending('');
-          }
-        }
-      };
-      // OAuth status reads must not wait behind an interactive login mutation.
-      if (silent) return execute();
-      const task = mutationChain.current.then(execute);
-      mutationChain.current = task;
-      return task;
-    },
-    [api]
-  );
-
-  const load = useCallback(
-    async (force = false) => {
-      if (!loadedRef.current) setLoading(true);
-      setError('');
-      try {
-        const readResults = await readCapabilityBatch(api, [
-          { capability: 'getProviderSetup', args: [{ force }] },
-          { capability: 'getProfile' },
-        ]);
-        const values = readResults.map((result) => (result.ok ? result.value : null));
-        const readErrors = readResults.flatMap((result) => (result.ok ? [] : [result.error]));
-        if (readErrors.length) setError(readErrors.join(' · '));
-        setProviderSetup(record(values[0]));
-        setProfile(record(values[1]));
-      } catch (reason) {
-        setError(errorMessage(reason));
-      } finally {
-        loadedRef.current = true;
-        setLoading(false);
-      }
-    },
-    [api]
-  );
-
-  useEffect(() => {
-    if (!loadedRef.current) void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (providerSetup.managedByClient !== true) return;
-    let cancelled = false;
-    let pending = false;
-    const refresh = async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const [result] = await readCapabilityBatch(api, [{ capability: 'getProviderSetup', args: [{ force: true }] }]);
-        if (!cancelled && result?.ok) setProviderSetup(record(result.value));
-      } finally {
-        pending = false;
-      }
-    };
-    const onRefresh = () => void refresh().catch(() => undefined);
-    // Desktop sign-ins have no event on a server window: follow them on the
-    // shared desktop-provider cadence, plus focus and reconnect.
-    const leave = waitForDesktopProviders(onRefresh);
-    window.addEventListener('focus', onRefresh);
-    window.addEventListener('mixdog:remote-reconnected', onRefresh);
-    return () => {
-      cancelled = true;
-      leave();
-      window.removeEventListener('focus', onRefresh);
-      window.removeEventListener('mixdog:remote-reconnected', onRefresh);
-    };
-  }, [api, providerSetup.managedByClient]);
+  const { run, pending, error, setError, capabilityPendingRef } = useOnboardingRun(api);
+  const { loading, load, providerSetup, profile, setProfile } = useOnboardingSetup(api, setError);
 
   const saveApiKey = async (event: FormEvent<HTMLFormElement>, provider: string) => {
     event.preventDefault();
@@ -319,63 +205,21 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     else void finish();
   };
 
-  useLayoutEffect(() => {
-    priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const layer = layerRef.current;
-    const restoreBackground = layer ? openModal(layer) : () => {};
-    closeRef.current?.focus();
-    return () => {
-      restoreBackground();
-      if (priorFocus.current?.isConnected) priorFocus.current.focus();
-    };
-  }, []);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the handler reaches state only through refs and stable setters, so one registration serves every render (requestSkip is a per-render closure).
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const nested = dialog.querySelector<HTMLElement>('[data-settings-nested-dialog]');
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        // Screen-local submit: never advance underneath a
-        // nested dialog (OAuth login, skip confirmation).
-        if (nested) return;
-        event.preventDefault();
-        event.stopPropagation();
-        advanceRef.current();
-        return;
-      }
-      if (event.key === 'Escape') {
-        if (portaledMenuOpen(dialog)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (nested) nested.querySelector<HTMLButtonElement>('[aria-label^="Close"]')?.click();
-        else requestSkip(closeRef.current);
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const root = nested || dialog;
-      trapTab(event, root, Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)));
-    };
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
-    // The handler reaches state only through refs and stable setters, so one
-    // registration serves every render.
-  }, []);
+  useOnboardingModality({ layerRef, dialogRef, closeRef, advanceRef, requestSkip });
 
   const meta = STEPS[step];
 
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss asks for skip confirmation; keyboard dismissal is the document Escape handler.
+    // Scrim click-to-dismiss asks for skip confirmation; keyboard dismissal is the document Escape handler.
     <div
       ref={layerRef}
       className="onboarding-layer"
-      onMouseDown={(event) => {
+      {...scrimDismiss(() => {
         // Click-off dismissal stays available on every step:
-        // only a press on the scrim itself asks for skip confirmation.
-        if (event.target !== event.currentTarget || pending || confirmSkip) return;
+        // only a tap on the scrim itself asks for skip confirmation.
+        if (pending || confirmSkip) return;
         requestSkip(closeRef.current);
-      }}
+      })}
     >
       <section
         ref={dialogRef}
@@ -391,26 +235,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
             <p>{meta.subtitle()}</p>
           </div>
           <div className="onboarding-top-actions">
-            <nav aria-label={t('Setup progress')}>
-              {STEPS.map((entry, index) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  title={entry.label()}
-                  className={`onboarding-progress-bar${progressBarState(index, step)}`}
-                  aria-label={t('Go to step {{step}}: {{label}}', { step: index + 1, label: entry.label() })}
-                  aria-current={index === step ? 'step' : undefined}
-                  disabled={Boolean(pending)}
-                  onClick={() => goToStep(index)}
-                />
-              ))}
-              <span className="onboarding-progress-count">
-                {t('{{current}} of {{total}}', {
-                  current: step + 1,
-                  total: STEPS.length,
-                })}
-              </span>
-            </nav>
+            <OnboardingProgress steps={STEPS} step={step} busy={Boolean(pending)} onGo={goToStep} />
             <button
               ref={closeRef}
               type="button"
@@ -434,6 +259,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
                     onProfile={(patch) => setProfile((current) => ({ ...current, ...patch }))}
                   />
                 )}
+                {meta.id === 'appearance' && <AppearanceChoice />}
                 {meta.id === 'providers' && capabilityBlockedRemotely('saveProviderApiKey') && (
                   <div className="onboarding-model-section">
                     <h3>{t('Providers')}</h3>
@@ -458,45 +284,16 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
             </div>
           </PaneSurfaceGate>
         </div>
-        <footer>
-          {/* On the last step Finish does exactly what Skip does: one exit only. */}
-          {step < STEPS.length - 1 && (
-            <button
-              type="button"
-              className="secondary"
-              disabled={Boolean(pending)}
-              onClick={(event) => requestSkip(event.currentTarget)}
-            >
-              {t('Skip setup')}
-            </button>
-          )}
-          <div>
-            {step > 0 && (
-              <button type="button" disabled={Boolean(pending)} onClick={() => setStep((value) => value - 1)}>
-                <ArrowLeft size={14} /> {t('Back')}
-              </button>
-            )}
-            {step < STEPS.length - 1 ? (
-              <button
-                type="button"
-                className="primary"
-                disabled={loading || Boolean(pending)}
-                onClick={() => advanceRef.current()}
-              >
-                {t('Next')} <ArrowRight size={14} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="primary"
-                disabled={loading || Boolean(pending)}
-                onClick={() => void finish()}
-              >
-                <Check size={14} /> {t('Finish')}
-              </button>
-            )}
-          </div>
-        </footer>
+        <OnboardingFooter
+          step={step}
+          stepCount={STEPS.length}
+          busy={Boolean(pending)}
+          loading={loading}
+          onSkip={requestSkip}
+          onBack={() => setStep((value) => value - 1)}
+          onNext={() => advanceRef.current()}
+          onFinish={() => void finish()}
+        />
         {confirmSkip && (
           <OnboardingSkipConfirmation onCancel={closeSkipConfirmation} onConfirm={confirmSkipOnboarding} />
         )}
@@ -515,13 +312,8 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: { onCancel(): void;
   // by the same amount the DOM does.
   useEffect(() => acquireTitleBarDim(), []);
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the dialog's cancel button and Escape.
-    <div
-      className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-    >
+    // Scrim click-to-dismiss; keyboard dismissal is the dialog's cancel button and Escape.
+    <div className="settings-confirm-layer" {...scrimDismiss(onCancel)}>
       <section
         className="settings-confirm-dialog"
         role="alertdialog"
@@ -941,11 +733,6 @@ function GitStep({ api }: { api: DesktopApi }) {
       <ErrorNotice errors={[flowState === 'error' ? flow?.message || t('unknown error') : '', gitError]} />
     </div>
   );
-}
-
-function progressBarState(index: number, step: number): string {
-  if (index === step) return ' active';
-  return index < step ? ' complete' : '';
 }
 
 // The runtime's raw status words (Set / Not Set / Signed In / Reauth Required

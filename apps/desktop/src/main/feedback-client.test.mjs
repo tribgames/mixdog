@@ -139,7 +139,7 @@ test('desktop sender-guarded IPC and paired remote method reach the same feedbac
   });
   const handlers = new Map();
   const mainFrame = {};
-  const webContents = { mainFrame, isDestroyed: () => false, send() {} };
+  const webContents = { mainFrame, isDestroyed: () => false, send() {}, on() {}, removeListener() {} };
   const host = {
     subscribe: () => () => {},
     subscribeSessionStates: () => () => {},

@@ -28,12 +28,12 @@ const { adoptSidebarReferenceHost, resetSidebarReferenceCache, updateSidebarRefe
 const setSwitch = (enabled) =>
   act(async () => publishAutoEffort({ autoEffort: { installed: true, enabled, supported: true } }));
 
-test('displayEffortLabel: Auto only when on + capable + not max/ultra', () => {
+test('displayEffortLabel: Auto when on + capable, whatever level is saved', () => {
   const on = { autoOn: true, capable: true };
   assert.equal(displayEffortLabel('high', on), 'Auto');
   assert.equal(displayEffortLabel('', on), 'Auto');
-  assert.equal(displayEffortLabel('max', on), null);
-  assert.equal(displayEffortLabel('ULTRA', on), null);
+  assert.equal(displayEffortLabel('max', on), 'Auto');
+  assert.equal(displayEffortLabel('ULTRA', on), 'Auto');
   assert.equal(displayEffortLabel('high', { autoOn: false, capable: true }), null);
   assert.equal(displayEffortLabel('high', { autoOn: true, capable: false }), null);
 });
@@ -55,8 +55,9 @@ test('ModelRouteLabel follows the Auto switch live and respects capability and m
   await setSwitch(true);
   assert.equal(await text({ effort: 'high', autoEffortCapable: true }), 'Opus Auto');
   assert.equal(await text({ effort: 'high', autoEffortCapable: false }), 'Opus High');
-  assert.equal(await text({ effort: 'max', autoEffortCapable: true }), 'Opus Max');
-  assert.equal(await text({ effort: 'ultra', autoEffortCapable: true }), 'Opus Ultra');
+  assert.equal(await text({ effort: 'max', autoEffortCapable: true }), 'Opus Auto');
+  assert.equal(await text({ effort: 'ultra', autoEffortCapable: true }), 'Opus Auto');
+  assert.equal(await text({ effort: 'max', autoEffortCapable: false }), 'Opus Max');
   await setSwitch(false);
   assert.equal(await text({ effort: 'high', autoEffortCapable: true }), 'Opus High');
 });
@@ -124,7 +125,7 @@ test('Workflows sidebar rows (agents and default agents) show Auto for capable m
   const on = summaries();
   assert.equal(on.Worker, 'capable Auto');
   assert.equal(on.Heavy, 'plain High');
-  assert.equal(on.Maxed, 'capable Max');
+  assert.equal(on.Maxed, 'capable Auto');
   assert.equal(on.Maintainer, 'capable Auto');
   // Web Search never runs per-call Auto reasoning: it shows its stored effort,
   // even on an auto-capable model with the feature on and a stale autoEffort.

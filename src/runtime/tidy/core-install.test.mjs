@@ -276,3 +276,111 @@ test('status carries the last install job so the card can report failures', asyn
     ['ruff', 'shellcheck']
   );
 });
+
+/** A PowerShell host on PATH whose probe prints `stdout` (a version, or nothing
+ *  for "module not installed"). */
+function fakePowerShellHost(root, stdout) {
+  const hostDir = join(root, 'host');
+  mkdirSync(hostDir, { recursive: true });
+  if (process.platform === 'win32') {
+    writeFileSync(join(hostDir, 'pwsh.cmd'), stdout ? `@echo ${stdout}\r\n` : '@exit /b 0\r\n');
+  } else {
+    writeFileSync(join(hostDir, 'pwsh'), `#!/bin/sh\n${stdout ? `echo ${stdout}` : 'exit 0'}\n`, { mode: 0o755 });
+  }
+  return { PATH: hostDir, Path: hostDir };
+}
+
+async function settledPsEngine(root, manifest, env) {
+  const psEngine = (status) => status.engines.find((engine) => engine.id === 'psscriptanalyzer');
+  const deadline = Date.now() + 5000;
+  let status = await tidyEngineStatus({ pluginData: root, manifest, env });
+  while (status.probing && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    status = await tidyEngineStatus({ pluginData: root, manifest, env });
+  }
+  return { status, engine: psEngine(status) };
+}
+
+test('a host-module probe still pending is reported as pending, then updates to the host module found', async (t) => {
+  const root = workspace(t);
+  const env = fakePowerShellHost(root, '1.25.0');
+  const manifest = coreManifest();
+
+  const first = await tidyEngineStatus({ pluginData: root, manifest, env });
+  const pending = first.engines.find((engine) => engine.id === 'psscriptanalyzer');
+  assert.equal(first.probing, true);
+  assert.equal(pending.probing, true);
+  assert.equal(pending.installable, undefined, 'a pending probe must not offer Install');
+
+  const { status, engine } = await settledPsEngine(root, manifest, env);
+  assert.equal(status.probing, false);
+  assert.equal(engine.source, 'host');
+  assert.equal(engine.version, '1.25.0');
+  assert.equal(engine.probing, undefined);
+  assert.equal(engine.installable, undefined);
+});
+
+test('a host-module probe that finds the module absent reports it missing and installable', async (t) => {
+  const root = workspace(t);
+  const env = fakePowerShellHost(root, '');
+  const manifest = coreManifest();
+
+  const first = await tidyEngineStatus({ pluginData: root, manifest, env });
+  assert.equal(first.engines.find((engine) => engine.id === 'psscriptanalyzer').probing, true);
+
+  const { status, engine } = await settledPsEngine(root, manifest, env);
+  assert.equal(status.probing, false);
+  assert.equal(engine.source, 'missing');
+  assert.equal(engine.probing, undefined);
+  assert.equal(engine.installable, true, 'once probed and still absent, Install is offered');
+});
+
+test('no PowerShell host means missing right away, never pending', async (t) => {
+  const root = workspace(t);
+  const status = await tidyEngineStatus({ pluginData: root, manifest: coreManifest(), env: NO_PATH_ENV });
+  const engine = status.engines.find((item) => item.id === 'psscriptanalyzer');
+  assert.equal(status.probing, false);
+  assert.equal(engine.source, 'missing');
+  assert.equal(engine.probing, undefined);
+});
+
+test('a partial install is reported per missing engine and a retry fetches only the named one', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho engine\n');
+  const manifest = coreManifest(createHash('sha256').update(payload).digest('hex'));
+  managedInstall(root, 'biome');
+  // What an interrupted download left behind: the engine dir exists, empty.
+  mkdirSync(join(root, 'tools', 'ruff', '1.2.3'), { recursive: true });
+
+  const before = await tidyEngineStatus({ pluginData: root, manifest, env: NO_PATH_ENV });
+  const byId = new Map(before.engines.map((engine) => [engine.id, engine]));
+  assert.equal(byId.get('biome').source, 'managed');
+  assert.equal(byId.get('biome').installable, undefined);
+  for (const id of ['ruff', 'shfmt', 'shellcheck']) {
+    assert.equal(byId.get(id).source, 'missing', `${id} is not installed`);
+    assert.equal(byId.get(id).installable, true, `${id} offers Install/Retry`);
+  }
+  assert.equal(byId.get('psscriptanalyzer').installable, undefined, 'no PowerShell host: nothing to install into');
+
+  const fetched = [];
+  const result = await installTidyCoreEngines({
+    pluginData: root,
+    manifest,
+    env: NO_PATH_ENV,
+    engines: ['ruff'],
+    fetchFn: async (url) => {
+      fetched.push(url);
+      return { ok: true, status: 200, headers: { get: () => '' }, body: Readable.from([payload]) };
+    },
+  });
+  assert.deepEqual(fetched, ['https://example.invalid/ruff']);
+  assert.deepEqual(
+    result.engines.map((engine) => [engine.id, engine.status]),
+    [['ruff', 'installed']]
+  );
+
+  const after = await tidyEngineStatus({ pluginData: root, manifest, env: NO_PATH_ENV });
+  const afterById = new Map(after.engines.map((engine) => [engine.id, engine]));
+  assert.equal(afterById.get('ruff').source, 'managed');
+  assert.equal(afterById.get('shfmt').installable, true);
+});

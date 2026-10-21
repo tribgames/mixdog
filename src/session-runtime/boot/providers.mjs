@@ -35,7 +35,7 @@ import { createQuickModelRows } from '../quick-model-rows.mjs';
 import { createProviderModels } from '../provider-models.mjs';
 import { createProviderUsage } from '../provider-usage.mjs';
 import { bootProfile } from '../boot-profile.mjs';
-import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
+import { standaloneDataDir } from '../runtime-paths.mjs';
 import { outputStyleStatus, resolveRoute, webSearchCapableFor } from './shared.mjs';
 
 export function wireProviders(boot) {
@@ -80,7 +80,7 @@ function wireConfigLifecycle(boot) {
     clean,
     resolve,
     onConfigReloaded: () => boot.invalidateContextStatusCache?.(),
-    STANDALONE_DATA_DIR,
+    STANDALONE_DATA_DIR: standaloneDataDir(),
   });
   const {
     disposeConfigSync,

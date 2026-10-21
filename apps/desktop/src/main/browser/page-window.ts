@@ -33,7 +33,11 @@ export function createBrowserPageWindow(
   }
   const { webPreferences, ...windowOptions } = options;
   const window = new BaseWindow(windowOptions);
-  const view = new WebContentsView(webContents ? { webContents } : { webPreferences });
+  // An adopted popup keeps its preferences only if the view is given them
+  // again: without them Electron resets the page to defaults, its dialogs
+  // turn into OS message boxes owned by this hidden window, and the page
+  // (with every page sharing its renderer) hangs on one nobody can see.
+  const view = new WebContentsView(webContents ? { webContents, webPreferences } : { webPreferences });
   const guest = view.webContents;
   // While a resized page has not yet drawn at its new size, the uncovered
   // strip shows this colour instead of the shell beneath: a page's default.

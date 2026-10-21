@@ -14,7 +14,7 @@ const ROWS = ['gpt-6.1-warn', 'gpt-6.1-quiet'].map((id) => ({
   reasoningOptions: [{ type: 'effort', values: ['none'] }],
 }));
 
-test('an empty ladder warns once per provider/model; a chosen max skips silently', async (t) => {
+test('an empty ladder warns once per provider/model, whatever effort was chosen', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-auto-effort-warn-'));
   const previous = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   const originalWrite = process.stderr.write;
@@ -50,6 +50,11 @@ test('an empty ladder warns once per provider/model; a chosen max skips silently
   assert.equal(await run('gpt-6.1-warn', 'high'), null);
   assert.equal(warnings().length, 1, 'the same provider/model warns once');
 
+  // The base is the setting, not the chosen effort, so a saved max/ultra on an
+  // empty ladder warns once per model like any other level.
   for (const effort of ['max', 'ultra']) assert.equal(await run('gpt-6.1-quiet', effort), null);
-  assert.equal(warnings().length, 1, 'a chosen max/ultra skip stays silent');
+  assert.deepEqual(warnings(), [
+    '[auto-effort] no effort ladder for openai-oauth/gpt-6.1-warn; judge skipped\n',
+    '[auto-effort] no effort ladder for openai-oauth/gpt-6.1-quiet; judge skipped\n',
+  ]);
 });

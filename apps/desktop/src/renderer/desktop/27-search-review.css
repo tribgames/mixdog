@@ -1399,20 +1399,6 @@ div.diff-tailwindcss-wrapper .diff-line {
   flex: none;
   margin-left: 0;
 }
-/* Pointing at the header swaps the totals for the muted link. */
-.turn-changes-hint {
-  display: none;
-  align-items: center;
-  gap: 3px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-}
-.turn-changes-head:hover .turn-changes-title .diff-stats {
-  display: none;
-}
-.turn-changes-head:hover .turn-changes-hint {
-  display: inline-flex;
-}
 .turn-changes-card .diff-stats {
   display: inline-flex;
   gap: 6px;

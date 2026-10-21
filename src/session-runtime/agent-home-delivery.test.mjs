@@ -96,6 +96,120 @@ test("a finished run posts ONE routine result into the owner's home thread", asy
   assert.equal(items[1].messageId, 'routine_run_1');
 });
 
+test('the "n omitted" notice of a full queue is shown live like every posted row', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'routine-results-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const queue = createRoutineResultQueue(join(dir, 'routine-results.json'), { limit: 1 });
+  const h = homes(t, ['sess_home_lead'], { queue });
+  const logs = [];
+  h.deps.log = (line) => logs.push(line);
+  const result = (runId) => ({ runId, kind: 'schedule', name: 'digest', ok: true, text: runId, at: 1 });
+  await queue.add('sess_home_lead', result('run_1'));
+  await queue.add('sess_home_lead', result('run_2'));
+  await createAgentHomeDelivery(h.deps).drain('sess_home_lead');
+  const thread = h.sessions.get('sess_home_lead').messages;
+  assert.equal(thread[1].meta.routine.omitted, 1, 'the stored omission row');
+  assert.equal(thread[1].meta.transcript.messageId, 'routine_omit_run_1');
+  assert.deepEqual(
+    h.notices.map(([id, notice]) => [id, notice.messageId]),
+    [
+      ['sess_home_lead', 'routine_omit_run_1'],
+      ['sess_home_lead', 'routine_run_2'],
+    ]
+  );
+  assert.equal(h.notices[0][1].text, '⏱ Routine results omitted: 1');
+  assert.deepEqual(h.notices[0][1].routine, { omitted: 1 });
+  assert.deepEqual(logs, [], 'no live notice failed');
+});
+
+test('a long task reply reaches the waking agent with its lines, cut at a line boundary and marked', async (t) => {
+  const h = homes(t, ['sess_home_lead']);
+  const delivery = createAgentHomeDelivery(h.deps);
+  const lines = Array.from({ length: 700 }, (_, i) => `line ${String(i).padStart(3, '0')} of the reply`);
+  const long = lines.join('\n').slice(0, 14210);
+  const task = { taskSessionId: 'sess_home_reviewer', title: 'Reviewer', status: 'completed', target: 'session' };
+  await delivery.drain(await delivery.enqueueTask('lead', { ...task, runId: 'turn_long_end', text: long }));
+  await delivery.drain(await delivery.enqueueTask('lead', { ...task, runId: 'turn_short_end', text: 'short\nanswer' }));
+  const [, longMessage, shortMessage] = h.sessions.get('sess_home_lead').messages;
+  const output = longMessage.content.match(/<task-output[^>]*>\n([\s\S]*?)\n<\/task-output>/)[1];
+  assert.ok(output.length <= 6000 && output.length > 5000);
+  assert.ok(output.includes('\nline 001 of the reply\n'), 'newlines survive');
+  assert.ok(lines.join('\n').startsWith(`${output}\n`), 'cut at a line boundary');
+  const marker = longMessage.content.split('\n').at(-1);
+  assert.ok(
+    marker.startsWith(
+      `[reply truncated: ${output.length} of ${long.length} chars — full text in session sess_home_reviewer; session tool (action:"read", session_id:"sess_home_reviewer"`
+    )
+  );
+  // Every continuation argument is spelled out; the reply's item id is not known to the report.
+  for (const part of [
+    'kind "assistant"',
+    'limit:25',
+    'offset:<row offset>',
+    'limit:1',
+    'item_id:<row id>',
+    'text_offset:<nextTextOffset>',
+  ]) {
+    assert.ok(marker.includes(part), part);
+  }
+  assert.equal(/text_offset:\d/.test(marker), false, 'no guessed text offset');
+  assert.ok(longMessage.meta.routine.summary.length <= 600, 'the row summary stays one short line');
+  assert.equal(longMessage.meta.routine.summary.includes('\n'), false);
+  assert.ok(
+    shortMessage.content.includes(
+      '<task-output session="sess_home_reviewer" status="completed">\nshort\nanswer\n</task-output>'
+    )
+  );
+  assert.equal(shortMessage.content.includes('reply truncated'), false);
+});
+
+test("a task row's one-line summary comes from the whole reply, not its bounded part", async (t) => {
+  const h = homes(t, ['sess_home_lead']);
+  const delivery = createAgentHomeDelivery(h.deps);
+  const task = { taskSessionId: 'sess_home_reviewer', title: 'Reviewer', status: 'completed', target: 'session' };
+  await delivery.drain(
+    await delivery.enqueueTask('lead', { ...task, runId: 'turn_gap_end', text: `a${' '.repeat(6001)}z` })
+  );
+  const message = h.sessions.get('sess_home_lead').messages.at(-1);
+  assert.equal(message.meta.routine.summary, 'a z');
+  assert.ok(
+    message.content.includes('<task-output session="sess_home_reviewer" status="completed">\na\n</task-output>')
+  );
+  assert.ok(message.content.includes('[reply truncated: 1 of 6003 chars'));
+});
+
+test('one wake carries a bounded amount of report text: later reports shrink to summary and pointer', async (t) => {
+  const h = homes(t, ['sess_home_lead']);
+  const wakes = [];
+  h.deps.live = () => ({ busy: () => false, notice: () => {}, wake: async (id, prompt) => wakes.push([id, prompt]) });
+  const delivery = createAgentHomeDelivery(h.deps);
+  const line = 'x'.repeat(79);
+  const body = Array.from({ length: 100 }, (_, i) => `${i} ${line}`).join('\n');
+  for (let n = 1; n <= 30; n += 1) {
+    await h.deps.queue.add('sess_home_lead', {
+      runId: `turn_${n}_end`,
+      kind: 'agent-task',
+      taskSessionId: `sess_task_${n}`,
+      title: `T${n}`,
+      status: 'completed',
+      text: body.slice(0, 6000),
+      summary: `summary ${n}`,
+      textChars: 14000,
+      roundTrip: true,
+      at: n,
+    });
+  }
+  await delivery.drain('sess_home_lead');
+  const prompts = wakes.map(([, prompt]) => prompt).join('\n');
+  assert.ok(wakes.length >= 1);
+  for (const [, prompt] of wakes) {
+    assert.ok(prompt.length < 24000 + 3000, `wake of ${prompt.length} chars`);
+  }
+  assert.ok(prompts.includes('reply condensed'));
+  assert.ok(prompts.includes('summary 4\n</task-output>'), 'a condensed report keeps its summary');
+  assert.ok(/\d+ more reports? arrived; read the rows above\./.test(prompts));
+});
+
 test('a failed run posts its failure text, and an ownerless schedule lands with Mixy', async (t) => {
   const h = homes(t, ['sess_home_lead']);
   const delivery = createAgentHomeDelivery(h.deps);

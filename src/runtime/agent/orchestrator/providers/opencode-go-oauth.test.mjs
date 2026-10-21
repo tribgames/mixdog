@@ -287,6 +287,146 @@ test('the remote config maps to the Go catalog, base URL and headers', () => {
   assert.throws(() => goConfigFromResponse({ providers: { opencode: {} } }), /no OpenCode Go provider/);
 });
 
+// The console serves `models: {}` for an organization without overrides.
+const EMPTY_REMOTE = {
+  providers: {
+    'opencode-go': { name: 'OpenCode Go', headers: { 'x-opencode-org-id': 'wrk-2' }, models: {} },
+  },
+};
+
+// The raw models.dev payload (provider → models).
+const MODELS_DEV = {
+  'opencode-go': {
+    models: {
+      'kimi-fixture': {
+        name: 'Kimi Fixture',
+        limit: { context: 262144, output: 65536 },
+        cost: { input: 0.95, output: 4, cache_read: 0.19 },
+        reasoning: true,
+        reasoning_options: [{ type: 'effort', values: ['low', 'high'] }],
+      },
+      'claude-md-fixture': {
+        name: 'Claude MD Fixture',
+        provider: { npm: '@ai-sdk/anthropic' },
+        reasoning: false,
+      },
+    },
+  },
+};
+
+const MODELS_DEV_URL = 'https://models.dev/api.json';
+
+test('a config that lists no models falls back to the models.dev Go catalog rows', () => {
+  // The resident catalog flattens `provider.npm` to `npm`.
+  const { provider, ...claude } = MODELS_DEV['opencode-go'].models['claude-md-fixture'];
+  const catalog = { ...MODELS_DEV['opencode-go'].models, 'claude-md-fixture': { ...claude, npm: provider.npm } };
+  const remote = goConfigFromResponse(EMPTY_REMOTE, catalog);
+  assert.equal(remote.baseURL, 'https://opencode.ai/inference/go/openai/v1');
+  assert.deepEqual(remote.headers, { 'x-opencode-org-id': 'wrk-2' });
+  assert.deepEqual(remote.models, [
+    {
+      id: 'kimi-fixture',
+      provider: 'opencode-go-oauth',
+      name: 'Kimi Fixture',
+      contextWindow: 262144,
+      outputTokens: 65536,
+      supportsReasoning: true,
+      reasoningOptions: [{ type: 'effort', values: ['low', 'high'] }],
+      reasoningLevels: ['low', 'high'],
+      inputCostPerM: 0.95,
+      outputCostPerM: 4,
+      cacheReadCostPerM: 0.19,
+      wire: 'chat',
+    },
+    {
+      id: 'claude-md-fixture',
+      provider: 'opencode-go-oauth',
+      name: 'Claude MD Fixture',
+      supportsReasoning: false,
+      reasoningOptions: [],
+      reasoningLevels: [],
+      wire: 'messages',
+    },
+  ]);
+  // Without a catalog there is still nothing to list.
+  assert.deepEqual(goConfigFromResponse(EMPTY_REMOTE).models, []);
+});
+
+test('a config that lists models keeps its own catalog, even when every entry is disabled', () => {
+  const catalog = MODELS_DEV['opencode-go'].models;
+  assert.deepEqual(goConfigFromResponse(REMOTE, catalog), goConfigFromResponse(REMOTE));
+  const allOff = { providers: { 'opencode-go': { models: { 'off-model': { disabled: true } } } } };
+  assert.deepEqual(goConfigFromResponse(allOff, catalog).models, []);
+});
+
+// The models.dev loader is process-wide state: this test must run while it is still cold (no
+// in-memory or disk copy), and it leaves a 60 s retry backoff behind (see the next test).
+test('an empty config with an unavailable models.dev fails discovery and keeps the cached roster', async () => {
+  signIn();
+  const ok = recorder((row) => (row.url === `${SERVER}/api/v2/config` ? json(REMOTE) : json({}, 404)));
+  await new OpenCodeGoOAuthProvider({ preconnect: false, fetchImpl: ok.fetchFn }).listModels();
+  const cachePath = join(dir, 'opencode-go-oauth-models.json');
+  const before = readFileSync(cachePath, 'utf8');
+
+  const realFetch = globalThis.fetch;
+  const realWrite = process.stderr.write;
+  globalThis.fetch = async () => json({}, 503);
+  process.stderr.write = () => true;
+  try {
+    const empty = recorder((row) => (row.url === `${SERVER}/api/v2/config` ? json(EMPTY_REMOTE) : json({}, 404)));
+    const provider = new OpenCodeGoOAuthProvider({ preconnect: false, fetchImpl: empty.fetchFn });
+    await assert.rejects(provider.listModels(), (err) => err.kind === 'catalog' && /models\.dev/.test(err.message));
+    assert.equal(readFileSync(cachePath, 'utf8'), before);
+    assert.deepEqual(
+      JSON.parse(before).models.map((row) => row.id),
+      ['glm-5.2', 'claude-fixture']
+    );
+    assert.equal(provider.getCachedModelInfo('glm-5.2').outputTokens, 32768);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.stderr.write = realWrite;
+  }
+});
+
+test('listModels loads a cold models.dev catalog before reading it when the config lists no models', async () => {
+  signIn();
+  const realFetch = globalThis.fetch;
+  const realNow = Date.now;
+  const catalogCalls = [];
+  // Past the loader's 60 s retry backoff left by the failed load above.
+  Date.now = () => realNow() + 120_000;
+  globalThis.fetch = async (input) => {
+    catalogCalls.push(String(input?.url || input));
+    return json(MODELS_DEV);
+  };
+  try {
+    const api = recorder((row) => (row.url === `${SERVER}/api/v2/config` ? json(EMPTY_REMOTE) : json({}, 404)));
+    const provider = new OpenCodeGoOAuthProvider({ preconnect: false, fetchImpl: api.fetchFn });
+    const rows = await provider.listModels();
+    assert.deepEqual(catalogCalls, [MODELS_DEV_URL]);
+    assert.deepEqual(
+      rows.map((row) => row.id),
+      ['kimi-fixture', 'claude-md-fixture']
+    );
+    assert.equal(rows[0].contextWindow, 262144);
+    assert.equal(rows[0].wire, undefined);
+    assert.equal(provider.getCachedModelInfo('kimi-fixture').outputTokens, 65536);
+
+    // A config that lists models never touches models.dev.
+    catalogCalls.length = 0;
+    const listed = recorder((row) => (row.url === `${SERVER}/api/v2/config` ? json(REMOTE) : json({}, 404)));
+    const own = await new OpenCodeGoOAuthProvider({ preconnect: false, fetchImpl: listed.fetchFn }).listModels();
+    assert.deepEqual(
+      own.map((row) => row.id),
+      ['glm-5.2', 'claude-fixture']
+    );
+    assert.deepEqual(catalogCalls, []);
+  } finally {
+    Date.now = realNow;
+    globalThis.fetch = realFetch;
+  }
+});
+
 function frame(event) {
   return `data: ${JSON.stringify(event)}\n\n`;
 }

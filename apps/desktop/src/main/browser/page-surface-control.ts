@@ -100,8 +100,13 @@ export function createPageInputDispatcher(
     host.state.invalidateInteraction(guest);
     // A click or keystroke may leave state only this document holds (a half
     // filled form), so the page is no longer safe to unload and restore.
+    // The press or key is the person's gesture: a window it opens is theirs.
     if (browserTypingInput(input) || (input.type === 'pointer' && input.phase === 'mousePressed')) {
       host.state.for(guest).userInput = true;
+      host.state.for(guest).actor = 'person';
+      // This gesture, not an earlier dialog answer, is what a window it opens
+      // comes from (Chromium reports it per window).
+      host.state.for(guest).personDialogAnswerAt = undefined;
     }
     /** Input sent under `guard`, revalidated right before every event. */
     const sender =
@@ -135,7 +140,10 @@ export function createPageInputDispatcher(
       requestLeave(
         host,
         guest,
-        () => started((sent = dispatch())),
+        () => {
+          sent = dispatch();
+          return started(sent);
+        },
         () => {
           const documentId = browserDocumentId(host.state, guest);
           return started(
@@ -156,6 +164,10 @@ export function createPageInputDispatcher(
       case 'navigate': {
         const url = normalizePageUrl(input.url, host.urlPolicy);
         await host.assertUrl(url, true);
+        // As an agent's navigate does: a fresh tab is still committing its
+        // blank first document, and a debugger attaching under the person's
+        // navigation crashes the renderer.
+        await host.cdp.guestDebugger(guest);
         assertCurrent();
         navigatePage(host, guest, { type: 'navigate', url });
         break;
@@ -311,6 +323,18 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
       host.state.invalidateInteraction(guest);
       navigatePage(host, guest, input);
       return;
+    }
+    // A click or key in the page is the user taking it, not a stand-in.
+    if (
+      (input.type === 'pointer' && input.phase === 'mousePressed') ||
+      // An address typed into the bar counts even if the load then fails.
+      input.type === 'navigate' ||
+      input.type === 'key' ||
+      input.type === 'text' ||
+      input.type === 'composition' ||
+      input.type === 'composition-end'
+    ) {
+      host.userTouched?.(sessionId, guest);
     }
     await dispatchPageInput(guest, input, assertCurrent, signal);
   };

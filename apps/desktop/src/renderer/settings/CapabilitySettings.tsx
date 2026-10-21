@@ -16,7 +16,7 @@ import { t } from '../i18n';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { invalidateSkillCatalogForMutation } from '../composer-skill-mentions';
-import { subscribeSetupChanges } from '../setup-change-refresh';
+import { announceSetupChange, subscribeSetupChanges } from '../setup-change-refresh';
 import { SettingsConfirmDialog } from './capability-controls';
 import {
   type CapabilitySettingsProps,
@@ -38,6 +38,9 @@ export { OAuthControl } from './capability-panels';
 
 // The updater is this PC's: a server window neither reads nor checks it.
 const serverWindow = isSshConnectionWindow();
+
+// Read-only provider probes that can run for most of a minute.
+const UNQUEUED_PROBES: ReadonlySet<DesktopCapability> = new Set(['discoverCustomProviderModels', 'testCustomProvider']);
 
 export const CapabilitySettings = memo(function CapabilitySettings({
   api,
@@ -203,7 +206,11 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       // Serialize instead of dropping: a fast second click used to be swallowed
       // while the first mutation was still in flight, so the toggle silently
       // ignored the press (the control stays enabled, so the user sees nothing).
-      const previous = mutationChain.current;
+      // A provider probe writes nothing: it neither waits for queued writes nor
+      // holds them, so a discovery the user stopped waiting for (up to a
+      // minute on a slow service) never blocks the Save that follows.
+      const probe = UNQUEUED_PROBES.has(capability);
+      const previous = probe ? undefined : mutationChain.current;
       const task = (async (): Promise<T | undefined> => {
         try {
           await previous;
@@ -242,10 +249,12 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           if (!silent) setPending('');
         }
       })();
-      mutationChain.current = task.then(
-        () => undefined,
-        () => undefined
-      );
+      if (!probe) {
+        mutationChain.current = task.then(
+          () => undefined,
+          () => undefined
+        );
+      }
       return task;
     },
     [api, extensionCategory, hydrating, refreshExtensions]
@@ -323,6 +332,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           ...(fast === undefined ? {} : { fast }),
           ...(autoEffort === undefined ? {} : { autoEffort }),
         });
+        announceSetupChange('set_route');
         invalidateCapabilitySettings(api);
         setRevision((value) => value + 1);
       } catch (reason) {

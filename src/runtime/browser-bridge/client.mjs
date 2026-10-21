@@ -14,8 +14,12 @@ import { base64ByteLength, inlineFileKind } from '../shared/inline-file-kind.mjs
 import { MAX_IMAGE_BYTES, SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/limits.mjs';
 
 const DISCOVERY_FILE = 'browser-bridge.json';
-/** Ceiling above the bridge's own per-action timeouts (navigation settle,
- *  surface auto-open), so the bridge's specific error wins over a bare abort. */
+/** How long a request may go without a single byte from the bridge. Above the
+ *  bridge's own per-action timeouts (navigation settle, surface auto-open), so
+ *  the bridge's specific error wins over a bare abort. It is a silence limit,
+ *  not a total: a command that waits on the person (an approval card, which has
+ *  no limit) is kept alive by the bridge with a space every few seconds
+ *  (apps/desktop/src/main/browser/bridge-server.ts), and each byte restarts it. */
 const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 150 * 1024 * 1024;
@@ -33,7 +37,7 @@ export async function finishBrowserTurn(sessionId, turnId, { aborted = false } =
   if (!discovery) return;
   turns.delete(turnId);
   if (!turns.size) browserTurns.delete(sessionId);
-  const result = await requestBridge(
+  const result = await requestBridgeWithin(
     discovery,
     JSON.stringify({
       action: 'finish_turn',
@@ -43,7 +47,7 @@ export async function finishBrowserTurn(sessionId, turnId, { aborted = false } =
       // so its pages stay; only an aborted run reclaims them.
       aborted: aborted === true,
     }),
-    AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    undefined,
     { sessionId, turnId, action: 'finish_turn' }
   );
   if (result.status !== 200 || result.body?.ok === false || result.body?.error) {
@@ -61,12 +65,10 @@ export async function browserSecretInput(sessionId, requestId, { signal } = {}) 
   const discovery = readBridgeDiscovery(DISCOVERY_FILE);
   if (!discovery || !sessionId || !requestId) return 'skipped';
   try {
-    const result = await requestBridge(
+    const result = await requestBridgeWithin(
       discovery,
       JSON.stringify({ action: 'secret_input', session_id: String(sessionId), request_id: String(requestId) }),
-      signal
-        ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), signal])
-        : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal,
       { sessionId, action: 'secret_input' }
     );
     return result.status === 200 && result.body?.ok !== false && result.body?.value?.text === 'provided'
@@ -155,8 +157,9 @@ function unavailableMessage() {
 class BrowserBridgeResponseError extends Error {}
 
 // Read the body incrementally so a chunked response (no content-length) still
-// honours MAX_RESPONSE_BYTES.
-export async function readCappedJson(response, maximum = MAX_RESPONSE_BYTES) {
+// honours MAX_RESPONSE_BYTES. `onChunk` hears every chunk read (the bridge's
+// keep-alive spaces included).
+export async function readCappedJson(response, maximum = MAX_RESPONSE_BYTES, onChunk = undefined) {
   if (!response.body) throw new Error('empty response');
   const reader = response.body.getReader();
   const chunks = [];
@@ -165,6 +168,7 @@ export async function readCappedJson(response, maximum = MAX_RESPONSE_BYTES) {
     for (;;) {
       const result = await reader.read();
       if (result.done) break;
+      onChunk?.();
       bytes += result.value.byteLength;
       if (bytes > maximum) {
         await reader.cancel().catch(() => {});
@@ -178,7 +182,50 @@ export async function readCappedJson(response, maximum = MAX_RESPONSE_BYTES) {
   return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
 }
 
-async function requestBridge(discovery, encodedPayload, signal, timingContext) {
+/** One bridge request's clock: it times out after `timeoutMs` without a byte
+ *  from the bridge (`touch` restarts it), with the same TimeoutError an
+ *  AbortSignal.timeout gives, and ends with `callerSignal` (the caller's own
+ *  reason). `stop` leaves no timer behind. */
+export function bridgeDeadline(callerSignal, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  let timer = null;
+  const stop = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  const touch = () => {
+    stop();
+    timer = setTimeout(
+      () => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+      timeoutMs
+    );
+    timer.unref?.();
+  };
+  touch();
+  return {
+    signal: callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal,
+    touch,
+    stop,
+  };
+}
+
+/** `requestBridge` under the silence limit of `bridgeDeadline`. */
+export async function requestBridgeWithin(
+  discovery,
+  encodedPayload,
+  callerSignal,
+  timingContext,
+  timeoutMs = REQUEST_TIMEOUT_MS
+) {
+  const deadline = bridgeDeadline(callerSignal, timeoutMs);
+  try {
+    return await requestBridge(discovery, encodedPayload, deadline.signal, timingContext, deadline.touch);
+  } finally {
+    deadline.stop();
+  }
+}
+
+async function requestBridge(discovery, encodedPayload, signal, timingContext, onActivity = undefined) {
   const started = performance.now();
   let body;
   let status;
@@ -192,6 +239,7 @@ async function requestBridge(discovery, encodedPayload, signal, timingContext) {
       body: encodedPayload,
       signal,
     });
+    onActivity?.();
     status = response.status;
     const contentLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
@@ -199,10 +247,12 @@ async function requestBridge(discovery, encodedPayload, signal, timingContext) {
       throw new BrowserBridgeResponseError(`browser bridge response exceeds ${MAX_RESPONSE_BYTES} bytes`);
     }
     try {
-      body = await readCappedJson(response);
+      body = await readCappedJson(response, MAX_RESPONSE_BYTES, onActivity);
       return { body, status: response.status };
     } catch (error) {
       if (error instanceof BrowserBridgeResponseError) throw error;
+      // Silence past the clock, or the caller stopping, is not a bad response.
+      if (signal?.aborted) throw signal.reason ?? error;
       throw new BrowserBridgeResponseError(`browser bridge returned an invalid response (HTTP ${response.status})`);
     }
   } finally {
@@ -225,6 +275,12 @@ export async function executeBrowserTool(args, options = {}) {
     action: validated.action,
     ...validated.input,
     session_id: sessionId,
+    // Set by the runtime from the session, never from the model's arguments: a
+    // schedule/webhook run (or work it started) whose saved routine is the
+    // user's grant for submits, posts and uploads (human-gate/run-policy.mjs).
+    ...(options.unattendedRun === true
+      ? { unattended_run: true, unattended_agent: String(options.unattendedAgent || '') }
+      : {}),
     ...(Number.isFinite(Number(options.turnId)) && Number(options.turnId) > 0
       ? { turn_id: Math.trunc(Number(options.turnId)) }
       : {}),
@@ -243,14 +299,11 @@ export async function executeBrowserTool(args, options = {}) {
   let bridgeResult;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      bridgeResult = await requestBridge(
-        discovery,
-        encodedPayload,
-        options.signal
-          ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), options.signal])
-          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        { sessionId, turnId: payload.turn_id, action: validated.action }
-      );
+      bridgeResult = await requestBridgeWithin(discovery, encodedPayload, options.signal, {
+        sessionId,
+        turnId: payload.turn_id,
+        action: validated.action,
+      });
       break;
     } catch (error) {
       if (error?.name === 'TimeoutError') {

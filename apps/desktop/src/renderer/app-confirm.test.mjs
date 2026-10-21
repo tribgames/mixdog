@@ -132,9 +132,9 @@ test('scrim and Escape both cancel and clean up', async () => {
   });
   await settle();
   await act(async () => {
-    document
-      .querySelector('.settings-confirm-layer')
-      .dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    const layer = document.querySelector('.settings-confirm-layer');
+    layer.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+    layer.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   });
   assert.equal(await result, false);
   await settle();

@@ -136,3 +136,24 @@ test('a drained prompt row is attributed to the device that submitted it', async
   assert.equal(f.items[0].id, 'p1');
   assert.deepEqual(f.items[0].extra, { device: 'Pixel' });
 });
+
+test('a bot message and a user message queued together run as separate turns, each with its own sender', async () => {
+  const f = fixture();
+  assert.equal(f.flow.enqueue('first', { id: 'u0', transcriptMeta: { sender: 'user' } }), true);
+  assert.equal(
+    f.flow.enqueue('from the marketer', { id: 'b1', transcriptMeta: { sender: 'lead', fromAgent: 'agent-1' } }),
+    true
+  );
+  assert.equal(f.flow.enqueue('from the user', { id: 'u1', transcriptMeta: { sender: 'user' } }), true);
+  f.state.busy = false;
+  await f.flow.drain();
+  await tick();
+  assert.deepEqual(
+    f.turns.map((turn) => [String(turn.content), turn.options.transcriptMeta]),
+    [
+      ['first', { sender: 'user' }],
+      ['from the marketer', { sender: 'lead', fromAgent: 'agent-1' }],
+      ['from the user', { sender: 'user' }],
+    ]
+  );
+});

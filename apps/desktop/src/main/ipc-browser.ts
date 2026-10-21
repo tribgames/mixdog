@@ -2,6 +2,7 @@ import { DESKTOP_IPC, MAIN_BROWSER_PAGE_PREFIX, type DesktopBrowserViewportConfi
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
 import type { BrowserLoginPopup } from './browser/login-popup';
+import { decideBrowserApproval } from './browser/approval-dialog';
 import { normalizeSignedInSite } from './browser/signed-in-sites';
 import type { IpcHandle as Handle } from './ipc';
 import { normalizeBrowserPageControl } from '../shared/browser-page-control';
@@ -171,6 +172,9 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
       userAgent,
     };
     return browserHost.configureGuestViewport(ownerSessionId, guestId, config);
+  });
+  handle(DESKTOP_IPC.browserApprovalDecide, (event, id, decision, reason) => {
+    decideBrowserApproval(event.sender, id, decision, reason);
   });
   handle(DESKTOP_IPC.browserProfileImportSources, () => {
     if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');

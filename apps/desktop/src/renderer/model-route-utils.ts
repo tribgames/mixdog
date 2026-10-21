@@ -44,6 +44,31 @@ export function parseModelRef(ref: string): ParsedModelRef {
 /** Effort picked for a model whose remembered choices it does not offer. */
 export const EFFORT_FALLBACK_ORDER = ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'] as const;
 
+/** Effort for choosing a model in the picker (not for picking an effort). The
+ *  effort on screen for the same model wins, then the host's saved effort; the
+ *  picker's memory of an earlier pick only follows, since it can predate a
+ *  Lead edit made elsewhere. A model offering none falls back to its own list. */
+export function effortForModelChoice({
+  values,
+  sameModel,
+  current,
+  saved,
+  remembered,
+}: {
+  values: string[];
+  sameModel: boolean;
+  current?: string;
+  saved?: string | null;
+  remembered?: string;
+}): string | undefined {
+  const candidates = [sameModel ? current : '', saved, remembered];
+  return (
+    candidates.find((candidate) => candidate && values.includes(candidate)) ||
+    EFFORT_FALLBACK_ORDER.find((value) => values.includes(value)) ||
+    values[0]
+  );
+}
+
 export function preferredModelEffort(model: DesktopModelOption | undefined): string | undefined {
   if (!model?.effortOptions.length) return undefined;
   if (model.savedEffort && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {

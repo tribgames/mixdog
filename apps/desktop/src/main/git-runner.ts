@@ -72,6 +72,10 @@ const TAIL_CHARS = 64_000;
  *  stay unbounded: git's own work bounds a commit or a push. */
 export const GIT_READ_TIMEOUT_MS = 60_000;
 
+/** Code of a git deadline. Not ETIMEDOUT: the session transport reads that as a
+ *  dead daemon connection and re-attaches, dropping every subscription. */
+export const GIT_TIMEOUT_CODE = 'EGITTIMEOUT';
+
 function runOffThread(
   runner: GitProcessRunner,
   cwd: string,
@@ -83,7 +87,11 @@ function runOffThread(
     timeoutMs = 0,
   }: { input?: string; maxBytes?: number; timeoutMs?: number } = {}
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  return runner('git', args, { cwd, env, input, timeoutMs, maxBytes });
+  return runner('git', args, { cwd, env, input, timeoutMs, maxBytes }).catch((error: NodeJS.ErrnoException) => {
+    // The runner reports its deadline as ETIMEDOUT; re-code it as a git timeout.
+    if (error?.code === 'ETIMEDOUT') error.code = GIT_TIMEOUT_CODE;
+    throw error;
+  });
 }
 
 function gitFailure(args: string[], stderr: string): Error {
@@ -96,7 +104,7 @@ export function run(cwd: string, args: string[], indexFile?: string, protectHook
 
 /** A git read cut off at its deadline: its answer is unknown, never "nothing". */
 export function isGitTimeout(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === 'ETIMEDOUT';
+  return (error as { code?: unknown } | null)?.code === GIT_TIMEOUT_CODE;
 }
 
 /** A read-only git command, killed past {@link GIT_READ_TIMEOUT_MS}. */
@@ -140,7 +148,9 @@ function runGit(
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         killChildTree(child);
-        reject(Object.assign(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`), { code: 'ETIMEDOUT' }));
+        reject(
+          Object.assign(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`), { code: GIT_TIMEOUT_CODE })
+        );
       }, timeoutMs);
     }
   });
@@ -282,7 +292,9 @@ export function streamNulRecords(
             settled = true;
             killChildTree(child);
             reject(
-              Object.assign(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`), { code: 'ETIMEDOUT' })
+              Object.assign(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`), {
+                code: GIT_TIMEOUT_CODE,
+              })
             );
           }, timeoutMs)
         : null;

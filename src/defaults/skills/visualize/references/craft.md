@@ -78,7 +78,14 @@ not shown while it lists any.
 - Readable contrast for text and controls; hit targets ≥ 44px on touch frames.
 - Motion only when it shows what changed; respect `prefers-reduced-motion`.
 - Fits the panel width without horizontal scroll; frames wider than the panel
-  scale down rather than clip.
+  scale down rather than clip. A fixed-size frame that reproduces an app
+  surface (a window, an overlay, a stage of set pixel size) sits in a wrapper
+  that scales it as a whole: the wrapper is `width: 100%; overflow: hidden`,
+  the frame gets `transform: scale(min(1, wrapperWidth / frameWidth))` from
+  `transform-origin: 0 0`, the wrapper's height is set to the scaled height,
+  and a `ResizeObserver` on the page re-runs this when the panel resizes.
+  Never give such a frame `max-width` alone: its contents keep their pixel
+  positions and spill out.
 - Self-contained: no CDN, web font, API or other network request. The panel
   blocks outside network unless the user allows it (a blocked request is a
   `blocked-network` page problem), so inline or bundle every asset in the

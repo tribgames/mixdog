@@ -69,6 +69,30 @@ test('truncated JSON, an empty file and a non-object root are damage', async (t)
   }
 });
 
+test('a well-formed JSON object with a wrong-shaped revocation record is damage, not an empty list', async (t) => {
+  const records = [
+    '{}',
+    '{"clients":[]}',
+    '{"pendingRevokes":{}}',
+    '{"pendingRevokes":"c1"}',
+    '{"pendingRevokes":null}',
+    '{"pendingRevokes":[1]}',
+    '{"pendingRevokes":[{"id":"c1"}]}',
+    '{"pendingRevokes":["c1",2]}',
+    '{"pendingRevokes":["c1",null,"c2"],"clients":[]}',
+    '{"pendingRevokes":[],"repairRequired":"yes"}',
+  ];
+  for (const content of records) {
+    const dir = tempDir(t);
+    writeFileSync(join(dir, FILE), content);
+    const cache = await loadRemoteClientCache(dir);
+    assert.equal(cache.repairRequired(), true, content);
+    assert.deepEqual(cache.pending(), [], content);
+    assert.equal(asideNames(dir).length, 1, `${content} is kept aside`);
+    assert.equal(stored(dir).repairRequired, true, `${content} is replaced by the flag`);
+  }
+});
+
 test('an older backup is never the pending queue: a damaged cache with one still asks for repair', async (t) => {
   const dir = tempDir(t);
   // The copy predates the latest revocation, which only the live file held.
@@ -109,7 +133,7 @@ test('writes land in order and leave no temporary file', async (t) => {
   await Promise.all([cache.queueRevoke('c1'), cache.queueRevoke('c2'), cache.applied('c1')]);
   assert.deepEqual(stored(dir).pendingRevokes, ['c2']);
   assert.equal(
-    readdirSync(dir).some((name) => name.endsWith('.tmp')),
+    readdirSync(dir).some((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
     false
   );
 });

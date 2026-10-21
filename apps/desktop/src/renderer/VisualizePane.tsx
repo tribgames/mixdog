@@ -6,20 +6,20 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns3,
-  Eye,
   ListTree,
   Maximize2,
   MessageSquarePlus,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { DesktopApi, DesktopDocumentPreviewPages } from '../shared/contract';
 import { type VisualizePaneSource, type VisualizePaneView, visualizeProblemLocation } from '../shared/visualize';
 import { postToPage, visualizeFeedbackPageMessage, withVisualizeFeedbackScript } from '../shared/visualize-feedback';
 import { visualizePaneMarks, withVisualizeOverlay } from '../shared/visualize-annotations';
 import { t } from './i18n';
+import { VisualizeIcon } from './visualize-icon';
 import { visualizeCommentKind } from '../shared/visualize-comment-kinds';
 import { announceVisualizeCommentMode, useVisualizeFeedbackBridge, VisualizeCommentLayer } from './VisualizeFeedback';
 import { startElementPin, useVisualizeInspection, VisualizeElements } from './VisualizeElements';
@@ -204,7 +204,9 @@ function BufferedFrame({
     }
   };
 
-  const frameProps = { title, className, sandbox, referrerPolicy };
+  // `allow` lets a page's own video fullscreen button work; the sandbox still
+  // isolates everything else.
+  const frameProps = { title, className, sandbox, referrerPolicy, allow: 'fullscreen' };
   return (
     <div className="visualize-frame-stack">
       <iframe key={front.id} ref={frontFrame} src={front.src} {...frameProps} />
@@ -500,8 +502,9 @@ function RemotePaneContent({
       networkAllowed ? withBlockedNetworkReporter(page) : withBlockedNetwork(page)
     );
     const unserve = servesFetches
-      ? servePageFetches(frame, (reference) =>
-          fetchRef.current ? fetchRef.current(reference) : Promise.reject(new Error('The page is not loaded.'))
+      ? servePageFetches(
+          frame,
+          (reference) => fetchRef.current?.(reference) ?? Promise.reject(new Error('The page is not loaded.'))
         )
       : undefined;
     const unzoom = serveFrameZoom(frame);
@@ -543,6 +546,7 @@ function RemotePaneContent({
         title={pane.label}
         sandbox="allow-scripts allow-forms allow-modals"
         referrerPolicy="no-referrer"
+        allow="fullscreen"
       />
     );
   }
@@ -591,54 +595,345 @@ export function visualizePaneChipLabel(pane: Pick<VisualizePaneView, 'label' | '
   return pane.version === undefined ? pane.label : `v${pane.version} · ${pane.label}`;
 }
 
-export function VisualizePane({ sessionId, active, onClose }: { sessionId: string; active: boolean; onClose(): void }) {
-  const state = useVisualizeState(sessionId);
-  // Present only on a paired remote client.
-  const remoteSource = window.mixdogDesktop?.visualizePaneSource;
-  const tab = state.tabs.find((candidate) => candidate.id === state.active) ?? state.tabs.at(-1) ?? null;
-  const tabId = tab?.id ?? '';
-  // The tab whose page-problem list is expanded.
-  const [problemsOpen, setProblemsOpen] = useState('');
-  const toggleProblems = (id: string, selected: boolean) => {
-    if (!selected) activateVisualizeTab(sessionId, id);
-    setProblemsOpen(selected && problemsOpen === id ? '' : id);
+/** What one pane of a kept tab shows, and whether its frame is double-buffered. */
+function visualizePaneContent({
+  sessionId,
+  shown,
+  pane,
+  index,
+  live,
+  sourceOn,
+  remoteSource,
+}: {
+  sessionId: string;
+  shown: VisualizeTab;
+  pane: VisualizePaneView;
+  index: number;
+  live: boolean;
+  sourceOn: boolean;
+  remoteSource: DesktopApi['visualizePaneSource'];
+}): { content: ReactNode; buffered: boolean; showSource: boolean } {
+  const showSource = live && sourceOn && visualizePaneHasSource(pane);
+  if (live && shown.missing) {
+    // Desktop and paired device alike: the host reloads the tab (a new
+    // revision) as soon as the file is back.
+    return {
+      content: (
+        <div className="visualize-empty" role="status">
+          {t('This file was removed. The tab reloads when it is back.')}
+        </div>
+      ),
+      buffered: false,
+      showSource,
+    };
+  }
+  if (showSource) {
+    return {
+      content: <VisualizeSource pane={pane} sessionId={sessionId} tabId={shown.id} index={index} />,
+      buffered: false,
+      showSource,
+    };
+  }
+  if (pane.kind === 'inline') {
+    // Inline content travels in the tab state (host and remote
+    // alike) and renders here in the same dead sandbox.
+    return {
+      content: (
+        <InlinePaneContent
+          pane={pane}
+          onRendered={(error) => reportVisualizeRender(sessionId, shown.id, index, pane.renderId, error)}
+        />
+      ),
+      buffered: false,
+      showSource,
+    };
+  }
+  if (remoteSource) {
+    // A page keeps its frame until the new revision's page is
+    // read (unchanged content: no reload at all).
+    const buffered = pane.kind === 'html' && !pane.inline;
+    return {
+      content: (
+        <RemotePaneContent
+          pane={pane}
+          sessionId={sessionId}
+          tabId={shown.id}
+          index={index}
+          revision={buffered ? shown.revision : 0}
+          load={remoteSource}
+          networkAllowed={shown.networkAllowed === true}
+          marks={visualizePaneMarks(shown.annotations, index)}
+        />
+      ),
+      buffered,
+      showSource,
+    };
+  }
+  // Pane frames double-buffer a reload, so the cell survives it.
+  return {
+    content: <PaneContent pane={pane} revision={shown.revision} />,
+    buffered: pane.kind === 'html' || pane.kind === 'pdf' || pane.kind === 'document',
+    showSource,
   };
+}
 
-  // Remember whether this session's panel is on screen so a renderer reload
-  // brings it back. Leaving the session is not hiding it; moving this pane's
-  // dock to another view (or closing it) is.
-  const shown = useRef({ sessionId: '', active: false });
-  useEffect(() => {
-    const previous = shown.current;
-    if (active) markVisualizePanelShown(sessionId);
-    else if (previous.active && previous.sessionId === sessionId) markVisualizePanelHidden(sessionId);
-    shown.current = { sessionId, active };
-    // On screen now: the open policy keeps the user's tab pick while it is.
-    if (!active) return undefined;
-    setVisualizePanelOnScreen(sessionId, true);
-    return () => setVisualizePanelOnScreen(sessionId, false);
-  }, [sessionId, active]);
-  // Tabs opened or updated behind the user's pick wear a dot until viewed.
-  const updated = useVisualizeUpdatedTabs(sessionId);
+/** One pane of a kept tab: its content plus the split's name chip and enlarge button. */
+function VisualizePaneCell({
+  sessionId,
+  shown,
+  pane,
+  index,
+  live,
+  solo,
+  content,
+  showSource,
+  commenting,
+  zoom,
+  showSolo,
+}: {
+  sessionId: string;
+  shown: VisualizeTab;
+  pane: VisualizePaneView;
+  index: number;
+  live: boolean;
+  solo: number | null;
+  content: ReactNode;
+  showSource: boolean;
+  commenting: boolean;
+  zoom: number;
+  showSolo(index: number | null): void;
+}) {
+  // In the split, a click on a pane shows it alone — not while
+  // commenting or reading source, and not on media (their controls
+  // take clicks); the hover name chip works for every pane.
+  const split = shown.panes.length > 1 && solo === null;
+  const clickToSolo = split && !commenting && !showSource && pane.kind !== 'audio' && pane.kind !== 'video';
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: a pointer shortcut; the name chip is the keyboard path
+    <div
+      className={`visualize-pane-cell${solo === index ? ' is-solo' : ''}${clickToSolo ? ' is-zoomable' : ''}`}
+      data-visualize-pane={index}
+      title={split ? visualizePaneTitle(shown, pane) : undefined}
+      onClick={clickToSolo ? () => showSolo(index) : undefined}
+    >
+      {split ? (
+        <button
+          type="button"
+          className="visualize-pane-chip"
+          aria-label={`${visualizePaneChipLabel(pane)} — ${t('Show alone')}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            showSolo(index);
+          }}
+        >
+          {visualizePaneChipLabel(pane)}
+        </button>
+      ) : null}
+      {split ? (
+        // Phone only (CSS): taps go into the page or video, so the cell needs its own always-visible button.
+        <button
+          type="button"
+          className="visualize-pane-enlarge"
+          aria-label={`${visualizePaneChipLabel(pane)} — ${t('Show alone')}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            showSolo(index);
+          }}
+        >
+          <Maximize2 size={16} aria-hidden="true" />
+        </button>
+      ) : null}
+      <div className="visualize-pane-content">
+        <div className="visualize-zoom-layer" style={visualizeZoomStyle(live ? zoom : 1, pane.kind)}>
+          {content}
+        </div>
+        {live && visualizeCommentKind(pane.kind) && !showSource && (
+          <VisualizeCommentLayer sessionId={sessionId} tab={shown} pane={pane} index={index} comment={commenting} />
+        )}
+      </div>
+    </div>
+  );
+}
 
-  // Closing the last tab (the user's × or the agent's close) closes the
-  // panel instead of leaving it empty. Unlike the header ×, the next agent
-  // open may reveal it again.
-  const tabCount = useRef({ sessionId, count: state.tabs.length });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the tab count reaching zero is the trigger; onClose is read at that moment
-  useEffect(() => {
-    const previous = tabCount.current;
-    tabCount.current = { sessionId, count: state.tabs.length };
-    if (!active || previous.sessionId !== sessionId || previous.count === 0 || state.tabs.length > 0) return;
-    onClose();
-    allowVisualizeReveal(sessionId);
-  }, [sessionId, active, state.tabs.length]);
+function problemCountLabel(count: number): string {
+  return count === 1 ? t('1 error') : t('{{count}} errors', { count });
+}
 
-  // Keep the selected tab in view when the strip scrolls, also once the strip
-  // has its final width (the panel opening or being resized narrows it).
-  // The run changes width with the strip and with the tab count.
+/** The header's tab strip, or the plain title while there are no tabs. */
+function VisualizeTabStrip({
+  sessionId,
+  tabs,
+  activeId,
+  strip,
+  updated,
+  problemsOpen,
+  onToggleProblems,
+}: {
+  sessionId: string;
+  tabs: VisualizeTab[];
+  activeId: string | undefined;
+  strip: RefObject<HTMLDivElement | null>;
+  updated: ReadonlySet<string>;
+  problemsOpen: string;
+  onToggleProblems(id: string, selected: boolean): void;
+}) {
+  if (!tabs.length) return <span className="dock-header-title">{t('Visualize')}</span>;
+  return (
+    <div
+      ref={strip}
+      className="visualize-tabs"
+      role="tablist"
+      aria-label={t('Visualize')}
+      onScroll={(event) => markVisualizeStripFades(event.currentTarget)}
+      onWheel={(event) => {
+        // The vertical wheel drives the horizontal run, as on the pane strip
+        // (a sideways wheel or trackpad already scrolls it natively).
+        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+          event.currentTarget.scrollBy?.({ left: event.deltaY, behavior: 'auto' });
+        }
+      }}
+    >
+      {tabs.map((candidate) => {
+        const selected = candidate.id === activeId;
+        return (
+          <div
+            key={candidate.id}
+            className={`browser-tab dock-header-chip${selected ? ' is-active' : ''}`}
+            data-visualize-tab-id={candidate.id}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className="browser-tab-select"
+              title={visualizeTabTooltip(candidate)}
+              onClick={() => activateVisualizeTab(sessionId, candidate.id)}
+            >
+              <VisualizeIcon size={14} aria-hidden="true" />
+              <span>{candidate.label}</span>
+              {updated.has(candidate.id) && !selected ? (
+                <span className="visualize-tab-updated" role="img" aria-label={t('Updated')} title={t('Updated')} />
+              ) : null}
+            </button>
+            {candidate.problems?.length ? (
+              <button
+                type="button"
+                className="visualize-problem-badge"
+                aria-expanded={selected && problemsOpen === candidate.id}
+                title={t('Page problems')}
+                onClick={() => onToggleProblems(candidate.id, selected)}
+              >
+                {problemCountLabel(candidate.problems.length)}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="browser-tab-close"
+              aria-label={t('Close tab')}
+              data-tooltip={t('Close tab')}
+              onClick={() => closeVisualizeTab(sessionId, candidate.id)}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The expanded page-problem list of the active tab. */
+function VisualizeProblemList({ tab }: { tab: VisualizeTab }) {
+  return (
+    <ul className="visualize-problems" aria-label={t('Page problems')}>
+      {(tab.problems ?? []).map((problem) => {
+        const where = visualizeProblemLocation(problem);
+        const origin = problemOrigin(tab, problem);
+        return (
+          <li key={`${problem.pane}:${problem.kind}:${problem.source}:${problem.line}:${problem.message}`}>
+            {origin ? <span className="visualize-problem-origin">{origin}</span> : null}
+            <span className="visualize-problem-kind">{problem.kind}</span>
+            <span className="visualize-problem-message">{problem.message}</span>
+            {where ? <code className="visualize-problem-source">{where}</code> : null}
+            {problem.count > 1 ? <span className="visualize-problem-count">×{problem.count}</span> : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** The zoom pill; while one pane is shown alone it also steps through the panes. */
+function VisualizeZoomPill({
+  tab,
+  solo,
+  paneCount,
+  zoom,
+  setZoom,
+  showSolo,
+}: {
+  tab: VisualizeTab | null;
+  solo: number | null;
+  paneCount: number;
+  zoom: number;
+  setZoom(scale: number): void;
+  showSolo(index: number | null): void;
+}) {
+  const positionTitle = tab && solo !== null ? visualizePaneTitle(tab, tab.panes[solo]) : '';
+  return (
+    <ZoomPill
+      before={
+        solo === null ? undefined : (
+          <>
+            <button
+              type="button"
+              className="browser-zoom-step"
+              aria-label={t('Previous pane')}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => showSolo(visualizeSoloStep(solo, paneCount, -1))}
+            >
+              <ChevronLeft size={14} aria-hidden="true" />
+            </button>
+            <span className="browser-zoom-position" title={positionTitle}>
+              {solo + 1} / {paneCount}
+            </span>
+            <button
+              type="button"
+              className="browser-zoom-step"
+              aria-label={t('Next pane')}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => showSolo(visualizeSoloStep(solo, paneCount, 1))}
+            >
+              <ChevronRight size={14} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="browser-zoom-step"
+              aria-label={t('Side by side')}
+              data-tooltip={t('Side by side (Esc)')}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => showSolo(null)}
+            >
+              <Columns3 size={14} aria-hidden="true" />
+            </button>
+          </>
+        )
+      }
+      level={zoom}
+      range={VISUALIZE_ZOOM_RANGE}
+      presets={PREVIEW_ZOOM_PRESETS}
+      step={(current, direction) => stepSnapped(current, direction, VISUALIZE_ZOOM_RANGE)}
+      onChange={setZoom}
+      lead={{ label: t('Fit to window'), checked: zoom === 1, onSelect: () => setZoom(1) }}
+    />
+  );
+}
+
+/** The tab strip's ref; keeps the selected tab in view when the strip scrolls,
+ *  also once the strip has its final width (the panel opening or being resized
+ *  narrows it). The run changes width with the strip and with the tab count. */
+function useVisualizeStripReveal(active: boolean, tabId: string, stripTabs: number) {
   const strip = useRef<HTMLDivElement>(null);
-  const stripTabs = state.tabs.length;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab count is a trigger (a closed tab narrows the run)
   useEffect(() => {
     const element = strip.current;
@@ -657,52 +952,51 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
     observer.observe(element);
     return () => observer.disconnect();
   }, [active, tabId, stripTabs]);
+  return strip;
+}
 
-  // Panes stack when the body is too narrow to give each a usable width.
-  const [body, setBody] = useState<HTMLDivElement | null>(null);
-  const [bodyWidth, setBodyWidth] = useState(0);
+/** The element's width, kept current while it is mounted (0 without one). */
+function useElementWidth(element: HTMLElement | null): number {
+  const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
-    if (!body) return;
-    setBodyWidth(body.getBoundingClientRect().width);
+    if (!element) return;
+    setWidth(element.getBoundingClientRect().width);
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver((entries) => {
-      const width = entries.at(-1)?.contentRect.width;
-      if (width !== undefined) setBodyWidth(width);
+      const next = entries.at(-1)?.contentRect.width;
+      if (next !== undefined) setWidth(next);
     });
-    observer.observe(body);
+    observer.observe(element);
     return () => observer.disconnect();
-  }, [body]);
-  // One pane of a split tab shown alone (visualize-solo-pane): the others stay
-  // mounted (no page reloads), only hidden.
-  const paneCount = tab?.panes.length ?? 0;
-  const solo = useVisualizeSoloPane(sessionId, tabId, paneCount);
-  const showSolo = (index: number | null) => setVisualizeSoloPane(sessionId, tabId, index);
-  const stacked = tab ? visualizePanesStacked(bodyWidth, solo === null ? paneCount : 1) : false;
+  }, [element]);
+  return width;
+}
 
-  // The shown tab and the last ones viewed before it stay mounted (hidden).
-  const [recentTabs, setRecentTabs] = useState<string[]>([]);
-  const keptIds = visualizeKeptTabs(
-    tabId,
-    recentTabs.filter((id) => state.tabs.some((candidate) => candidate.id === id))
-  );
-  const keptKey = keptIds.join('\n');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keptKey carries keptIds
-  useEffect(() => setRecentTabs(keptIds), [keptKey]);
-  // State order, never the viewing order: a moved iframe would reload.
-  const keptTabs = state.tabs.filter((candidate) => keptIds.includes(candidate.id));
+/** Tells the main process the size of the panel's content while the panel is
+ *  shown, so the agent's off-screen inspect / check lay pages out at it. */
+function useReportPanelSize(element: HTMLElement | null, active: boolean) {
+  useEffect(() => {
+    const report = window.mixdogDesktop?.visualizePanelSize;
+    if (!active || !element || !report || typeof ResizeObserver === 'undefined') return;
+    const send = (box: { width: number; height: number }) => {
+      if (box.width >= 1 && box.height >= 1) {
+        void report({ width: Math.round(box.width), height: Math.round(box.height) }).catch(() => undefined);
+      }
+    };
+    send(element.getBoundingClientRect());
+    const observer = new ResizeObserver((entries) => {
+      const box = entries.at(-1)?.contentRect;
+      if (box) send(box);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, active]);
+}
 
-  // Content scale of the active tab; the zoom bar is a shared preference.
-  const [panel, setPanel] = useState<HTMLElement | null>(null);
-  const zoomBarVisible = useZoomBarVisible();
-  const { scale: zoom, setScale: setZoom } = useVisualizeZoom({
-    panel,
-    // Not the revision: a reload of the tab's files keeps the user's zoom.
-    scopeKey: tab ? `${sessionId}\0${tab.id}` : '',
-    enabled: active && Boolean(tab),
-  });
-  const zoomable = Boolean(tab?.panes.some((pane) => pane.kind !== 'audio' && pane.kind !== 'video'));
-
-  // Comment mode: off by default and per session; Esc or the toggle ends it.
+/** Comment mode: off by default and per session; Esc or the toggle ends it.
+ *  `commenting` is the mode on a tab with something to comment on; the toolbar
+ *  action is there only for such a tab. */
+function useVisualizeCommentMode(sessionId: string, tab: VisualizeTab | null, body: HTMLDivElement | null) {
   const [comment, setComment] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the reset trigger
   useEffect(() => setComment(false), [sessionId]);
@@ -714,25 +1008,7 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
   useEffect(() => {
     if (commenting) announceVisualizeCommentMode(commentKinds);
   }, [commenting]);
-  useVisualizeFeedbackBridge({ sessionId, tab, body, comment: comment && commentable, setComment });
-
-  // While one pane is shown alone: ←/→ step through the panes, Esc returns to
-  // the split (comment mode keeps Esc for itself). Typing never switches.
-  useEffect(() => {
-    if (!active || solo === null || commenting) return undefined;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
-      if (event.key === 'Escape') setVisualizeSoloPane(sessionId, tabId, null);
-      else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        setVisualizeSoloPane(sessionId, tabId, visualizeSoloStep(solo, paneCount, event.key === 'ArrowLeft' ? -1 : 1));
-      } else return;
-      event.preventDefault();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [active, solo, commenting, sessionId, tabId, paneCount]);
+  useVisualizeFeedbackBridge({ sessionId, tab, body, comment: commenting, setComment });
   const commentAction = commentable
     ? [
         {
@@ -745,7 +1021,13 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
         },
       ]
     : [];
+  return { commenting, setComment, commentAction };
+}
 
+/** The Elements outline and the Tweaks drawer of the active tab, with their
+ *  toolbar actions. */
+function useVisualizeDrawers(sessionId: string, tab: VisualizeTab | null, body: HTMLDivElement | null) {
+  const tabId = tab?.id ?? '';
   // Elements: the active HTML tab read as an outline, interactive elements and
   // layout findings; the findings count shows in the open view's heading.
   const [elementsOpen, setElementsOpen] = useState(false);
@@ -790,75 +1072,261 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
         },
       ]
     : [];
+  return {
+    elementsOpen,
+    setElementsOpen,
+    inspection,
+    hasHtml,
+    elementsAction,
+    tweaksOpen,
+    setTweaksOpen,
+    hasTweaks,
+    tweaksAction,
+  };
+}
 
-  // "All visuals", the source toggle and the export menu.
-  const extras = useVisualizePanelExtras(sessionId, state, tab, Boolean(remoteSource));
+/** While one pane is shown alone: ←/→ step through the panes, Esc returns to
+ *  the split (comment mode keeps Esc for itself: it passes `active` false).
+ *  Typing never switches. */
+function useVisualizeSoloKeys({
+  active,
+  solo,
+  sessionId,
+  tabId,
+  paneCount,
+}: {
+  active: boolean;
+  solo: number | null;
+  sessionId: string;
+  tabId: string;
+  paneCount: number;
+}) {
+  useEffect(() => {
+    if (!active || solo === null) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.key === 'Escape') setVisualizeSoloPane(sessionId, tabId, null);
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        setVisualizeSoloPane(sessionId, tabId, visualizeSoloStep(solo, paneCount, event.key === 'ArrowLeft' ? -1 : 1));
+      } else return;
+      event.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [active, solo, sessionId, tabId, paneCount]);
+}
 
-  const left = state.tabs.length ? (
-    <div
-      ref={strip}
-      className="visualize-tabs"
-      role="tablist"
-      aria-label={t('Visualize')}
-      onScroll={(event) => markVisualizeStripFades(event.currentTarget)}
-      onWheel={(event) => {
-        // The vertical wheel drives the horizontal run, as on the pane strip
-        // (a sideways wheel or trackpad already scrolls it natively).
-        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-          event.currentTarget.scrollBy?.({ left: event.deltaY, behavior: 'auto' });
-        }
-      }}
-    >
-      {state.tabs.map((candidate) => {
-        const selected = candidate.id === tab?.id;
+/** The recently viewed tabs stay mounted, hidden: switching back shows the
+ *  page as it was instead of reloading it (an empty pane, then the page
+ *  painting again). Only the shown body is the panel's body. */
+function VisualizeBodies({
+  sessionId,
+  keptTabs,
+  activeId,
+  solo,
+  stacked,
+  bodyWidth,
+  setBody,
+  sourceOn,
+  remoteSource,
+  commenting,
+  zoom,
+  showSolo,
+}: {
+  sessionId: string;
+  keptTabs: VisualizeTab[];
+  activeId: string;
+  solo: number | null;
+  stacked: boolean;
+  bodyWidth: number;
+  setBody(element: HTMLDivElement | null): void;
+  sourceOn: boolean;
+  remoteSource: DesktopApi['visualizePaneSource'];
+  commenting: boolean;
+  zoom: number;
+  showSolo(index: number | null): void;
+}) {
+  return (
+    <div className="visualize-bodies">
+      {keptTabs.map((shown) => {
+        const live = shown.id === activeId;
+        const shownCount = shown.panes.length;
+        const shownSolo = live ? solo : null;
+        const shownStacked = live ? stacked : visualizePanesStacked(bodyWidth, shownCount);
         return (
           <div
-            key={candidate.id}
-            className={`browser-tab dock-header-chip${selected ? ' is-active' : ''}`}
-            data-visualize-tab-id={candidate.id}
+            key={shown.id}
+            ref={live ? setBody : undefined}
+            className={`visualize-body${shownStacked ? ' is-stacked' : ''}${shown.compare && shownCount > 2 && !shownStacked && shownSolo === null ? ' is-compare-grid' : ''}${shownSolo === null ? '' : ' is-solo'}`}
+            data-kept={live ? undefined : ''}
+            aria-hidden={live ? undefined : true}
+            inert={live ? undefined : true}
+            data-visualize-body={live ? '' : undefined}
+            data-visualize-session={live ? sessionId : undefined}
+            data-visualize-tab={live ? shown.id : undefined}
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              className="browser-tab-select"
-              title={visualizeTabTooltip(candidate)}
-              onClick={() => activateVisualizeTab(sessionId, candidate.id)}
-            >
-              <Eye size={14} aria-hidden="true" />
-              <span>{candidate.label}</span>
-              {updated.has(candidate.id) && !selected ? (
-                <span className="visualize-tab-updated" role="img" aria-label={t('Updated')} title={t('Updated')} />
-              ) : null}
-            </button>
-            {candidate.problems?.length ? (
-              <button
-                type="button"
-                className="visualize-problem-badge"
-                aria-expanded={selected && problemsOpen === candidate.id}
-                title={t('Page problems')}
-                onClick={() => toggleProblems(candidate.id, selected)}
-              >
-                {candidate.problems.length === 1
-                  ? t('1 error')
-                  : t('{{count}} errors', { count: candidate.problems.length })}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="browser-tab-close"
-              aria-label={t('Close tab')}
-              data-tooltip={t('Close tab')}
-              onClick={() => closeVisualizeTab(sessionId, candidate.id)}
-            >
-              <X size={16} aria-hidden="true" />
-            </button>
+            {shown.panes.map((pane, index) => {
+              const { content, buffered, showSource } = visualizePaneContent({
+                sessionId,
+                shown,
+                pane,
+                index,
+                live,
+                sourceOn,
+                remoteSource,
+              });
+              return (
+                <VisualizePaneCell
+                  // The revision remounts a pane when its file changed on disk
+                  // (a buffered frame swaps in place instead).
+                  // Panes are positional (pane N is the Nth file), never reordered.
+                  key={buffered ? `${shown.id}:${index}` : `${shown.id}:${shown.revision}:${index}`}
+                  sessionId={sessionId}
+                  shown={shown}
+                  pane={pane}
+                  index={index}
+                  live={live}
+                  solo={shownSolo}
+                  content={content}
+                  showSource={showSource}
+                  commenting={live && commenting}
+                  zoom={zoom}
+                  showSolo={showSolo}
+                />
+              );
+            })}
           </div>
         );
       })}
     </div>
-  ) : (
-    <span className="dock-header-title">{t('Visualize')}</span>
+  );
+}
+
+/** The shown tab and the last ones viewed before it, which stay mounted (hidden). */
+function useKeptTabs(tabs: VisualizeTab[], tabId: string): VisualizeTab[] {
+  const [recentTabs, setRecentTabs] = useState<string[]>([]);
+  const keptIds = visualizeKeptTabs(
+    tabId,
+    recentTabs.filter((id) => tabs.some((candidate) => candidate.id === id))
+  );
+  const keptKey = keptIds.join('\n');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keptKey carries keptIds
+  useEffect(() => setRecentTabs(keptIds), [keptKey]);
+  // State order, never the viewing order: a moved iframe would reload.
+  return tabs.filter((candidate) => keptIds.includes(candidate.id));
+}
+
+/** Remembers whether the session's panel is on screen, and closes the panel
+ *  when its last tab closes. */
+function useVisualizePanelLifecycle(sessionId: string, active: boolean, tabCount: number, onClose: () => void) {
+  // Remember whether this session's panel is on screen so a renderer reload
+  // brings it back. Leaving the session is not hiding it; moving this pane's
+  // dock to another view (or closing it) is.
+  const shown = useRef({ sessionId: '', active: false });
+  useEffect(() => {
+    const previous = shown.current;
+    if (active) markVisualizePanelShown(sessionId);
+    else if (previous.active && previous.sessionId === sessionId) markVisualizePanelHidden(sessionId);
+    shown.current = { sessionId, active };
+    // On screen now: the open policy keeps the user's tab pick while it is.
+    if (!active) return undefined;
+    setVisualizePanelOnScreen(sessionId, true);
+    return () => setVisualizePanelOnScreen(sessionId, false);
+  }, [sessionId, active]);
+
+  // Closing the last tab (the user's × or the agent's close) closes the
+  // panel instead of leaving it empty. Unlike the header ×, the next agent
+  // open may reveal it again.
+  const seen = useRef({ sessionId, count: tabCount });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tab count reaching zero is the trigger; onClose is read at that moment
+  useEffect(() => {
+    const previous = seen.current;
+    seen.current = { sessionId, count: tabCount };
+    if (!active || previous.sessionId !== sessionId || previous.count === 0 || tabCount > 0) return;
+    onClose();
+    allowVisualizeReveal(sessionId);
+  }, [sessionId, active, tabCount]);
+}
+
+export function VisualizePane({ sessionId, active, onClose }: { sessionId: string; active: boolean; onClose(): void }) {
+  const state = useVisualizeState(sessionId);
+  // Present only on a paired remote client.
+  const remoteSource = window.mixdogDesktop?.visualizePaneSource;
+  const tab = state.tabs.find((candidate) => candidate.id === state.active) ?? state.tabs.at(-1) ?? null;
+  const tabId = tab?.id ?? '';
+  // The tab whose page-problem list is expanded.
+  const [problemsOpen, setProblemsOpen] = useState('');
+  const toggleProblems = (id: string, selected: boolean) => {
+    if (!selected) activateVisualizeTab(sessionId, id);
+    setProblemsOpen(selected && problemsOpen === id ? '' : id);
+  };
+
+  useVisualizePanelLifecycle(sessionId, active, state.tabs.length, onClose);
+  // Tabs opened or updated behind the user's pick wear a dot until viewed.
+  const updated = useVisualizeUpdatedTabs(sessionId);
+
+  // Keep the selected tab in view when the strip scrolls, also once the strip
+  // has its final width (the panel opening or being resized narrows it).
+  // The run changes width with the strip and with the tab count.
+  const strip = useVisualizeStripReveal(active, tabId, state.tabs.length);
+
+  // Panes stack when the body is too narrow to give each a usable width.
+  const [body, setBody] = useState<HTMLDivElement | null>(null);
+  const bodyWidth = useElementWidth(body);
+  useReportPanelSize(body, active);
+  // One pane of a split tab shown alone (visualize-solo-pane): the others stay
+  // mounted (no page reloads), only hidden.
+  const paneCount = tab?.panes.length ?? 0;
+  const solo = useVisualizeSoloPane(sessionId, tabId, paneCount);
+  const showSolo = (index: number | null) => setVisualizeSoloPane(sessionId, tabId, index);
+  const visiblePanes = solo === null ? paneCount : 1;
+  const stacked = tab ? visualizePanesStacked(bodyWidth, visiblePanes) : false;
+
+  // The shown tab and the last ones viewed before it stay mounted (hidden).
+  const keptTabs = useKeptTabs(state.tabs, tabId);
+
+  // Content scale of the active tab; the zoom bar is a shared preference.
+  const [panel, setPanel] = useState<HTMLElement | null>(null);
+  const zoomBarVisible = useZoomBarVisible();
+  const { scale: zoom, setScale: setZoom } = useVisualizeZoom({
+    panel,
+    // Not the revision: a reload of the tab's files keeps the user's zoom.
+    scopeKey: tab ? `${sessionId}\0${tab.id}` : '',
+    enabled: active && Boolean(tab),
+  });
+  const zoomable = Boolean(tab?.panes.some((pane) => pane.kind !== 'audio' && pane.kind !== 'video'));
+
+  const { commenting, setComment, commentAction } = useVisualizeCommentMode(sessionId, tab, body);
+
+  useVisualizeSoloKeys({ active: active && !commenting, solo, sessionId, tabId, paneCount });
+
+  const {
+    elementsOpen,
+    setElementsOpen,
+    inspection,
+    hasHtml,
+    elementsAction,
+    tweaksOpen,
+    setTweaksOpen,
+    hasTweaks,
+    tweaksAction,
+  } = useVisualizeDrawers(sessionId, tab, body);
+
+  // "All visuals", the source toggle and the export menu.
+  const extras = useVisualizePanelExtras(sessionId, state, tab, Boolean(remoteSource));
+
+  const left = (
+    <VisualizeTabStrip
+      sessionId={sessionId}
+      tabs={state.tabs}
+      activeId={tab?.id}
+      strip={strip}
+      updated={updated}
+      problemsOpen={problemsOpen}
+      onToggleProblems={toggleProblems}
+    />
   );
   return (
     <section ref={setPanel} className="visualize-pane" aria-label={t('Visualize')} hidden={!active || undefined}>
@@ -875,23 +1343,7 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
         ])}
         onClose={onClose}
       />
-      {tab?.problems?.length && problemsOpen === tab.id ? (
-        <ul className="visualize-problems" aria-label={t('Page problems')}>
-          {tab.problems.map((problem) => {
-            const where = visualizeProblemLocation(problem);
-            const origin = problemOrigin(tab, problem);
-            return (
-              <li key={`${problem.pane}:${problem.kind}:${problem.source}:${problem.line}:${problem.message}`}>
-                {origin ? <span className="visualize-problem-origin">{origin}</span> : null}
-                <span className="visualize-problem-kind">{problem.kind}</span>
-                <span className="visualize-problem-message">{problem.message}</span>
-                {where ? <code className="visualize-problem-source">{where}</code> : null}
-                {problem.count > 1 ? <span className="visualize-problem-count">×{problem.count}</span> : null}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      {tab?.problems?.length && problemsOpen === tab.id ? <VisualizeProblemList tab={tab} /> : null}
       {tab && hasTweaks && tweaksOpen ? (
         <VisualizeTweaksDrawer sessionId={sessionId} tab={tab} onHide={() => setTweaksOpen(false)} />
       ) : null}
@@ -907,186 +1359,31 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
         />
       ) : null}
       {tab ? (
-        // The recently viewed tabs stay mounted, hidden: switching back shows
-        // the page as it was instead of reloading it (an empty pane, then the
-        // page painting again). Only the shown body is the panel's body.
-        <div className="visualize-bodies">
-          {keptTabs.map((shown) => {
-            const live = shown.id === tab.id;
-            const shownCount = shown.panes.length;
-            const shownSolo = live ? solo : null;
-            const shownStacked = live ? stacked : visualizePanesStacked(bodyWidth, shownCount);
-            return (
-              <div
-                key={shown.id}
-                ref={live ? setBody : undefined}
-                className={`visualize-body${shownStacked ? ' is-stacked' : ''}${shown.compare && shownCount > 2 && !shownStacked && shownSolo === null ? ' is-compare-grid' : ''}${shownSolo === null ? '' : ' is-solo'}`}
-                data-kept={live ? undefined : ''}
-                aria-hidden={live ? undefined : true}
-                inert={live ? undefined : true}
-                data-visualize-body={live ? '' : undefined}
-                data-visualize-session={live ? sessionId : undefined}
-                data-visualize-tab={live ? shown.id : undefined}
-              >
-                {shown.panes.map((pane, index) => {
-                  const showSource = live && extras.sourceOn && visualizePaneHasSource(pane);
-                  let content: ReactNode;
-                  let buffered = false;
-                  if (live && shown.missing) {
-                    // Desktop and paired device alike: the host reloads the tab (a new
-                    // revision) as soon as the file is back.
-                    content = (
-                      <div className="visualize-empty" role="status">
-                        {t('This file was removed. The tab reloads when it is back.')}
-                      </div>
-                    );
-                  } else if (showSource) {
-                    content = <VisualizeSource pane={pane} sessionId={sessionId} tabId={shown.id} index={index} />;
-                  } else if (pane.kind === 'inline') {
-                    // Inline content travels in the tab state (host and remote
-                    // alike) and renders here in the same dead sandbox.
-                    content = (
-                      <InlinePaneContent
-                        pane={pane}
-                        onRendered={(error) => reportVisualizeRender(sessionId, shown.id, index, pane.renderId, error)}
-                      />
-                    );
-                  } else if (remoteSource) {
-                    // A page keeps its frame until the new revision's page is
-                    // read (unchanged content: no reload at all).
-                    buffered = pane.kind === 'html' && !pane.inline;
-                    content = (
-                      <RemotePaneContent
-                        pane={pane}
-                        sessionId={sessionId}
-                        tabId={shown.id}
-                        index={index}
-                        revision={buffered ? shown.revision : 0}
-                        load={remoteSource}
-                        networkAllowed={shown.networkAllowed === true}
-                        marks={visualizePaneMarks(shown.annotations, index)}
-                      />
-                    );
-                  } else {
-                    // Pane frames double-buffer a reload, so the cell survives it.
-                    buffered = pane.kind === 'html' || pane.kind === 'pdf' || pane.kind === 'document';
-                    content = <PaneContent pane={pane} revision={shown.revision} />;
-                  }
-                  // In the split, a click on a pane shows it alone — not while
-                  // commenting or reading source, and not on media (their controls
-                  // take clicks); the hover name chip works for every pane.
-                  const split = shownCount > 1 && shownSolo === null;
-                  const commenting = live && comment && commentable;
-                  const clickToSolo =
-                    split && !commenting && !showSource && pane.kind !== 'audio' && pane.kind !== 'video';
-                  return (
-                    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: a pointer shortcut; the name chip is the keyboard path
-                    <div
-                      // The revision remounts a pane when its file changed on disk
-                      // (a buffered frame swaps in place instead).
-                      // Panes are positional (pane N is the Nth file), never reordered.
-                      key={buffered ? `${shown.id}:${index}` : `${shown.id}:${shown.revision}:${index}`}
-                      className={`visualize-pane-cell${shownSolo === index ? ' is-solo' : ''}${clickToSolo ? ' is-zoomable' : ''}`}
-                      data-visualize-pane={index}
-                      title={split ? visualizePaneTitle(shown, pane) : undefined}
-                      onClick={clickToSolo ? () => showSolo(index) : undefined}
-                    >
-                      {split ? (
-                        <button
-                          type="button"
-                          className="visualize-pane-chip"
-                          aria-label={`${visualizePaneChipLabel(pane)} — ${t('Show alone')}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            showSolo(index);
-                          }}
-                        >
-                          {visualizePaneChipLabel(pane)}
-                        </button>
-                      ) : null}
-                      {split ? (
-                        // Phone only (CSS): taps go into the page or video, so the cell needs its own always-visible button.
-                        <button
-                          type="button"
-                          className="visualize-pane-enlarge"
-                          aria-label={`${visualizePaneChipLabel(pane)} — ${t('Show alone')}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            showSolo(index);
-                          }}
-                        >
-                          <Maximize2 size={16} aria-hidden="true" />
-                        </button>
-                      ) : null}
-                      <div className="visualize-pane-content">
-                        <div className="visualize-zoom-layer" style={visualizeZoomStyle(live ? zoom : 1, pane.kind)}>
-                          {content}
-                        </div>
-                        {live && visualizeCommentKind(pane.kind) && !showSource && (
-                          <VisualizeCommentLayer
-                            sessionId={sessionId}
-                            tab={shown}
-                            pane={pane}
-                            index={index}
-                            comment={commenting}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+        <VisualizeBodies
+          sessionId={sessionId}
+          keptTabs={keptTabs}
+          activeId={tab.id}
+          solo={solo}
+          stacked={stacked}
+          bodyWidth={bodyWidth}
+          setBody={setBody}
+          sourceOn={extras.sourceOn}
+          remoteSource={remoteSource}
+          commenting={commenting}
+          zoom={zoom}
+          showSolo={showSolo}
+        />
       ) : (
         <div className="visualize-empty">{t('Results the agent shows will appear here.')}</div>
       )}
       {((zoomable && zoomBarVisible) || solo !== null) && (
-        <ZoomPill
-          before={
-            solo === null ? undefined : (
-              <>
-                <button
-                  type="button"
-                  className="browser-zoom-step"
-                  aria-label={t('Previous pane')}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => showSolo(visualizeSoloStep(solo, paneCount, -1))}
-                >
-                  <ChevronLeft size={14} aria-hidden="true" />
-                </button>
-                <span className="browser-zoom-position" title={tab ? visualizePaneTitle(tab, tab.panes[solo]) : ''}>
-                  {solo + 1} / {paneCount}
-                </span>
-                <button
-                  type="button"
-                  className="browser-zoom-step"
-                  aria-label={t('Next pane')}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => showSolo(visualizeSoloStep(solo, paneCount, 1))}
-                >
-                  <ChevronRight size={14} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="browser-zoom-step"
-                  aria-label={t('Side by side')}
-                  data-tooltip={t('Side by side (Esc)')}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => showSolo(null)}
-                >
-                  <Columns3 size={14} aria-hidden="true" />
-                </button>
-              </>
-            )
-          }
-          level={zoom}
-          range={VISUALIZE_ZOOM_RANGE}
-          presets={PREVIEW_ZOOM_PRESETS}
-          step={(current, direction) => stepSnapped(current, direction, VISUALIZE_ZOOM_RANGE)}
-          onChange={setZoom}
-          lead={{ label: t('Fit to window'), checked: zoom === 1, onSelect: () => setZoom(1) }}
+        <VisualizeZoomPill
+          tab={tab}
+          solo={solo}
+          paneCount={paneCount}
+          zoom={zoom}
+          setZoom={setZoom}
+          showSolo={showSolo}
         />
       )}
     </section>

@@ -131,6 +131,7 @@ export function runRoomExchange(options: {
   ): Promise<
     | { action: 'speak'; agentId: string; instruction?: string; scene?: RoomScene }
     | { action: 'finish'; scene?: RoomScene }
+    | { action: 'unmanaged' }
     | null
   >;
   stopped?(): boolean;

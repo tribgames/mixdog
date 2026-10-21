@@ -28,7 +28,7 @@ test('legacy Compact type settings migrate away', () => {
     prune: true,
     tailTurns: 5,
   });
-  assert.deepEqual(normalized, { auto: true, onModelChange: true });
+  assert.deepEqual(normalized, { auto: true, onModelChange: true, summaryMode: 'smart' });
 });
 
 test('fresh layout keeps protected prefix, handoff, ack, retained execution, and latest real user', () => {

@@ -5,7 +5,7 @@
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { clean } from '../session-text.mjs';
-import { readJsonSafe, readTextSafe } from '../fs-utils.mjs';
+import { defaultDirResolver, readJsonSafe, readTextSafe } from '../fs-utils.mjs';
 import { SHARED_SCAN_REVALIDATE_MS, createSharedScanCache } from './shared-scan-cache.mjs';
 import { isHiddenAgent } from '../../internal-agents.mjs';
 import { isAgentDisabled } from '../../../../shared/agent-route-config.mjs';
@@ -70,16 +70,17 @@ export const AGENT_LIST_REVALIDATE_MS = SHARED_SCAN_REVALIDATE_MS;
 const agentListCache = createSharedScanCache();
 
 export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, normalizeAgentPermissionOrNone }) {
+  const defaultDir = defaultDirResolver(dataDir);
   function agentSourceDirs(dir, id) {
     // A store bot reads only its own folder (agent-store.mjs).
-    if (isStoreBot(dir || dataDir, id)) return [userDefinitionDir(dir || dataDir, id)];
-    const userDir = join(dir || dataDir, 'agents', id);
+    if (isStoreBot(dir || defaultDir(), id)) return [userDefinitionDir(dir || defaultDir(), id)];
+    const userDir = join(dir || defaultDir(), 'agents', id);
     if (existsSync(join(userDir, AGENT_DELETED_MARKER))) return [userDir];
     return [userDir, join(rootDir, 'agents', id)];
   }
 
   function agentScan(dir) {
-    const base = dir || dataDir;
+    const base = dir || defaultDir();
     const userRoot = join(base, 'agents');
     const shippedRoot = join(rootDir, 'agents');
     const store = botStoreActive(base);
@@ -109,7 +110,7 @@ export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, n
   function loadAgentDefinition(dir, id) {
     const agentId = normalizeAgentId(id) || normalizeWorkflowId(id);
     if (!agentId) return null;
-    const cacheKey = `${dir || dataDir}\n${agentId}`;
+    const cacheKey = `${dir || defaultDir()}\n${agentId}`;
     if (agentDefinitionCache.has(cacheKey)) return agentDefinitionCache.get(cacheKey);
     const slot = FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId);
     for (const d of agentSourceDirs(dir, agentId)) {
@@ -128,7 +129,7 @@ export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, n
         kind: agentDefinitionKind({
           frontmatterKind: doc.frontmatter.kind,
           ...(d !== join(rootDir, 'agents', agentId)
-            ? { dataDir: dir || dataDir, shippedRoot: rootDir, id: agentId, manifest, body }
+            ? { dataDir: dir || defaultDir(), shippedRoot: rootDir, id: agentId, manifest, body }
             : {}),
         }),
         body,

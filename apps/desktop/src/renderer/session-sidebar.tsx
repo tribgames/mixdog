@@ -8,7 +8,12 @@ import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/con
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import type { NavigationSelection } from './nav-types';
-import { RECENT_SESSION_INITIAL_ROWS, RECENT_SESSION_PAGE_ROWS, useSidebarListScroll } from './session-sidebar-scroll';
+import {
+  RECENT_SESSION_INITIAL_ROWS,
+  RECENT_SESSION_PAGE_ROWS,
+  useHeldDuringUserScroll,
+  useSidebarListScroll,
+} from './session-sidebar-scroll';
 import {
   useCustomOrderSync,
   useProjectFolderState,
@@ -628,7 +633,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   panelTitle = '',
   panelTitleDragProps,
   children,
-  sessions,
+  sessions: liveSessions,
   sessionsReady,
   projects = NO_PROJECTS,
   onNewProjectTask,
@@ -659,6 +664,10 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const sessionsMounted = useRef(!panelActive);
   if (!panelActive) sessionsMounted.current = true;
   const hasSessionSurface = sessionsMounted.current;
+  const recentScrollerRef = useRef<HTMLDivElement | null>(null);
+  // The catalog holds still under a reader's scroll: no re-sort or row move
+  // lands until it ends (see useHeldDuringUserScroll).
+  const sessions = useHeldDuringUserScroll(recentScrollerRef, liveSessions);
   const editor = useSessionEditor(sessions, onRenameSession);
   const attentionIndex = useSessionAttentionIndex();
   // Busy = the same signals the row status shows: a running turn, a turn
@@ -712,7 +721,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
   const { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize } = useSidebarWidth();
   const { showAgents, updateShowAgents } = useSidebarSessionFilter();
-  const agents = useSidebarAgents(sessions, unreadSessionIds, open && hasSessionSurface, onOpenAgent);
+  const agents = useSidebarAgents(
+    sessions,
+    unreadSessionIds,
+    open && hasSessionSurface,
+    onOpenAgent,
+    attentionIndex.needsUser
+  );
   const {
     allRows,
     orderPrefs,
@@ -784,7 +799,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     updateCustomOrders,
   });
   const {
-    recentScrollerRef,
     recentSentinelRef,
     hasMoreRecentRows,
     archivedSentinelRef,
@@ -792,6 +806,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     hasMoreArchivedRows,
     handleRecentScroll,
   } = useSidebarListScroll({
+    scrollerRef: recentScrollerRef,
     open,
     panelActive,
     selection,
@@ -844,15 +859,20 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     onRenameProject,
     onOpenProjectSettings,
   });
-  // A bot row: the 봇 page's own contact menu (프로필 보기, 끄기, 삭제).
+  // A bot row: the 봇 page's own contact menu (프로필 보기, 목록에서 숨기기).
   const openAgentMenu = useStableEvent((contact: AgentContact, point: { x: number; y: number }) =>
     openMenu({
       label: t('Actions for {{title}}', { title: contact.name }),
       ...point,
-      items: agentContactMenuItems(contact, {
-        onOpen: (row) => void agents.openAgent(row),
-        onProfile: agents.openAgentProfile,
-      }),
+      items: agentContactMenuItems(
+        contact,
+        {
+          onOpen: (row) => void agents.openAgent(row),
+          onProfile: agents.openAgentProfile,
+        },
+        {},
+        'sidebar'
+      ),
     })
   );
   // A group room row: the room panel's own actions (agentRoomMenuItems).

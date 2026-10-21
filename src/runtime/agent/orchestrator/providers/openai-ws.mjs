@@ -142,7 +142,9 @@ export class OpenAIDirectProvider {
     // Keep public response storage and model-specific cache options out of
     // the shared OAuth payload. Storage opt-out still forces full frames in
     // _computeDelta; retained output items make those frames self-contained.
-    applyOpenAIDirectCachePolicy(body, useModel, _envFlag('MIXDOG_OAI_STORE', true));
+    applyOpenAIDirectCachePolicy(body, useModel, _envFlag('MIXDOG_OAI_STORE', true), {
+      prefixTtl: opts.promptCachePrefixTtl || null,
+    });
     // poolKey MUST be sessionId-only. Falling back to promptCacheKey would
     // let unrelated raw sessions sharing the same provider-scoped cache
     // bucket reuse each other's pooled socket and inherit lastResponseId

@@ -1,4 +1,4 @@
-import { ArrowLeftRight, FoldVertical, GitFork, ListTree, Workflow, X } from 'lucide-react';
+import { ArrowLeftRight, FoldVertical, GitFork, ListTree, Network, Workflow, X } from 'lucide-react';
 import { memo, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
@@ -23,6 +23,13 @@ import type { QuietProgressParts } from '../../../../src/runtime/shared/quiet-pr
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
+// The delegation select's labels (model-controls OrchestrationModeSelect).
+const ORCHESTRATION_MODE_LABELS: Record<string, string> = {
+  none: 'Solo',
+  focused: 'Assisted',
+  balanced: 'Collaborative',
+  swarm: 'Swarm',
+};
 // Clockwise r=8.5 rings around (12,12) starting at -120deg, 0deg and 120deg.
 // Each arc is the same ring drawn as an un-rotated path, so all three share
 // one bounding box (and so one gradient box) in every frame.
@@ -461,7 +468,24 @@ export function LiveActivity({
     return thinkingEffortLabel(effortWord, language);
   })();
   const tokensLabel = meta.showTokens ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
-  const activityMeta = [elapsed, tokensLabel, thinkingLabel].filter(Boolean).join(' · ');
+  // The token readout is its own span: where the pinned bot overlay stands
+  // over the transcript's column (a narrow window) it hides, so the row ends
+  // before the bot (html[data-pet-over-transcript], 14-live-activity.css).
+  const beforeTokens = elapsed;
+  const afterTokens = thinkingLabel;
+  const activityMeta =
+    beforeTokens || tokensLabel || afterTokens ? (
+      <span>
+        {beforeTokens}
+        {tokensLabel ? (
+          <span className="live-activity-tokens">
+            {beforeTokens ? ' · ' : ''}
+            {tokensLabel}
+          </span>
+        ) : null}
+        {afterTokens ? `${beforeTokens || tokensLabel ? ' · ' : ''}${afterTokens}` : ''}
+      </span>
+    ) : null;
   const reasoning = publicThinkingSummary(snapshot.thinking);
   const animateEnter = startedAt > 0 && startedAt >= mountedAt.current;
   return (
@@ -623,10 +647,26 @@ export function CompletionStatus({
       <div className="compaction-divider" role="status">
         <Workflow className="compaction-icon" size={16} aria-hidden="true" />
         <span>
-          {t('Switched the workflow {{from}} → {{to}}', {
-            from: String(item.from || ''),
-            to: String(item.to || ''),
-          })}
+          {item.unavailable === true
+            ? t('Workflow {{to}} is no longer available; this conversation keeps {{from}}', {
+                from: String(item.from || ''),
+                to: String(item.to || ''),
+              })
+            : t('Switched the workflow {{from}} → {{to}}', {
+                from: String(item.from || ''),
+                to: String(item.to || ''),
+              })}
+        </span>
+      </div>
+    );
+  }
+  if (item.kind === 'statusdone' && item.status === 'orchestration-mode-switched') {
+    const modeLabel = (mode: unknown) => t(ORCHESTRATION_MODE_LABELS[String(mode)] || String(mode || ''));
+    return (
+      <div className="compaction-divider" role="status">
+        <Network className="compaction-icon" size={16} aria-hidden="true" />
+        <span>
+          {t('Switched the delegation mode {{from}} → {{to}}', { from: modeLabel(item.from), to: modeLabel(item.to) })}
         </span>
       </div>
     );

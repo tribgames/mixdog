@@ -41,6 +41,26 @@ test('pointerup commits once', async () => {
   assert.deepEqual(await run((h, w) => h.dispatchEvent(new w.Event('pointerup', { bubbles: true }))), ['commit']);
 });
 
+test('Escape during the drag reverts like pointercancel; other keys do nothing', async () => {
+  const key = (w, init) => new w.KeyboardEvent('keydown', { bubbles: true, ...init });
+  assert.deepEqual(await run((_h, w) => w.dispatchEvent(key(w, { key: 'Escape' }))), ['revert']);
+  assert.deepEqual(
+    await run((h, w) => {
+      w.dispatchEvent(key(w, { key: 'a' }));
+      h.dispatchEvent(new w.Event('pointerup', { bubbles: true }));
+    }),
+    ['commit']
+  );
+  // Once the gesture ended, Escape is no longer ours: it cannot revert a committed drag.
+  assert.deepEqual(
+    await run((h, w) => {
+      h.dispatchEvent(new w.Event('pointerup', { bubbles: true }));
+      w.dispatchEvent(key(w, { key: 'Escape' }));
+    }),
+    ['commit']
+  );
+});
+
 test('pointercancel, lostpointercapture and window blur revert', async () => {
   assert.deepEqual(await run((h, w) => h.dispatchEvent(new w.Event('pointercancel', { bubbles: true }))), ['revert']);
   assert.deepEqual(await run((h, w) => h.dispatchEvent(new w.Event('lostpointercapture', { bubbles: true }))), [

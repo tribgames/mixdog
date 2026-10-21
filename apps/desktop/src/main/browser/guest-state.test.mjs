@@ -55,13 +55,20 @@ test('prompts and typed-in state end with the document, the renderer or the fram
 
   record.pendingDialog = dialog(undefined);
   record.userInput = true;
+  record.actor = 'person';
+  record.personDialogAnswerAt = 1;
+  record.windowOpens.push({ url: 'https://pay.example/', userGesture: true, at: 1 });
   store.beginDocument(page, true);
   store.beginDocument(page);
   assert.ok(record.pendingDialog, 'a started navigation may still end as a download or be cancelled');
   assert.equal(record.userInput, true);
+  assert.equal(record.actor, 'person');
   store.commitDocument(page);
   assert.equal(record.pendingDialog, null, 'the committed document has no dialog');
   assert.equal(record.userInput, false, 'nor anything typed into the old one');
+  assert.equal(record.actor, undefined, "nobody has acted on the new document: the old one's gesture is gone");
+  assert.equal(record.personDialogAnswerAt, undefined);
+  assert.deepEqual(record.windowOpens, [], "nor the old document's window-open gestures");
 
   record.pendingDialog = dialog('frame-1');
   record.pendingFileChooser = { mode: 'selectSingle', sessionId: 'frame-1', openedAt: 0 };

@@ -7,7 +7,7 @@ import { paneActiveSelection } from './pane-layout';
 import { navigationKey } from './text-format';
 import { paneDockActiveRoot, paneDockFileCloseEndsDock, PaneSideDock, type PaneSideDockFile } from './pane-side-dock';
 import { PaneDockToggles } from './pane-dock-toggles';
-import { agentChatStripGroups, paneRightGroupsFor } from './routines-tile';
+import { agentChatStripGroups, codingStripGroups, paneRightGroupsFor } from './routines-tile';
 import type { PaneDockFilesSurface as PaneDockFilesSurfaceComponent } from './pane-dock-files';
 import { useDeferredModule } from './deferred-module';
 import { paneDockFilesModule } from './first-screen-deferred';
@@ -298,7 +298,7 @@ export function renderPaneDockStripTrailing(
   const sessionId = active.kind === 'session' ? active.id : '';
   const agentChat = isAgentChatSession(sessionId);
   const paneGroups = paneRightGroupsFor(workbenchSideLayout.layout.right, sessionId);
-  const groups = agentChat ? agentChatStripGroups(paneGroups) : paneGroups;
+  const groups = agentChat ? agentChatStripGroups(paneGroups) : codingStripGroups(paneGroups);
   if (groups.length === 0) return null;
   const entry = sessionDockEntry(leaf.id, sessionId, paneSideDocks, sessionSurfaces);
   return (
@@ -307,7 +307,6 @@ export function renderPaneDockStripTrailing(
       descriptors={sideViewDescriptors}
       activeRoot={paneDockActiveRoot(entry)}
       sessionBound={Boolean(sessionId)}
-      visualizeToggle={agentChat}
       onSelect={(id) => {
         focusLeaf(leaf.id);
         selectWorkbenchSideView(id, leaf.id);

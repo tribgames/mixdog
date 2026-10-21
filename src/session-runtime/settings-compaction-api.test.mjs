@@ -64,6 +64,39 @@ test('auto-clear changes also retarget other live Lead sessions in the process',
   }
 });
 
+test('compaction summaryMode defaults to smart, migrates useMaintainer and round-trips through settings', () => {
+  let config = {};
+  const session = { id: 's1', compaction: { useMaintainer: false } };
+  const api = createCompactionSettings({
+    getConfig: () => config,
+    getRoute: () => ({}),
+    getSession: () => session,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+    hasOwn: (o, k) => Object.hasOwn(o, k),
+    normalizeCompactionConfig,
+    invalidateContextStatusCache() {},
+  });
+  assert.equal(api.getCompactionSettings().summaryMode, 'smart');
+  assert.equal(api.setCompactionSettings({ summaryMode: 'self' }).summaryMode, 'self');
+  assert.equal(config.compaction.summaryMode, 'self');
+  assert.equal(session.compaction.summaryMode, 'self');
+  assert.equal(Object.hasOwn(session.compaction, 'useMaintainer'), false, 'the replaced boolean is dropped');
+  assert.equal(api.setCompactionSettings({ auto: false }).summaryMode, 'self', 'kept across other edits');
+  assert.equal(api.setCompactionSettings({ summaryMode: 'maintainer' }).summaryMode, 'maintainer');
+  assert.throws(() => api.setCompactionSettings({ summaryMode: 'fastest' }), /summaryMode smart \| maintainer \| self/);
+  assert.equal(config.compaction.summaryMode, 'maintainer');
+  // A saved boolean from the previous release migrates on read.
+  config = { compaction: { useMaintainer: false } };
+  assert.equal(api.getCompactionSettings().summaryMode, 'self');
+  assert.equal(Object.hasOwn(api.getCompactionSettings(), 'useMaintainer'), false);
+  for (const compaction of [{ useMaintainer: true }, {}, undefined]) {
+    config = { compaction };
+    assert.equal(api.getCompactionSettings().summaryMode, 'smart');
+  }
+});
+
 test('auto-compact on model change defaults on and persists with the compaction settings', () => {
   let config = {};
   const session = { id: 's1', compaction: {} };
@@ -85,6 +118,43 @@ test('auto-compact on model change defaults on and persists with the compaction 
   assert.equal(session.compaction.onModelChange, false);
   assert.equal(api.setCompactionSettings({ auto: false }).onModelChange, false, 'kept across other edits');
   assert.equal(api.setCompactionSettings({ onModelChange: true }).onModelChange, true);
+});
+
+test('a provider idle window can be set to unlimited, reported as never, and reset', () => {
+  const session = stale();
+  const api = harness(session);
+  for (const patch of [{ unlimited: true }, { duration: 'unlimited' }, { duration: 'Never' }, { idleMs: 0 }]) {
+    const view = api.setAutoClear({ provider: 'anthropic-oauth', ...patch });
+    assert.equal(view.unlimited, true, JSON.stringify(patch));
+    assert.equal(view.label, 'unlimited');
+    assert.equal(ttl(session), '1h', 'never clearing keeps the 1h Lead tail');
+    api.setAutoClear({ provider: 'anthropic-oauth', duration: '5m' });
+    assert.equal(api.getAutoClear().unlimited, false);
+  }
+  api.setAutoClear({ provider: 'anthropic-oauth', unlimited: true });
+  const reset = api.setAutoClear({ provider: 'anthropic-oauth', resetProvider: true });
+  assert.equal(reset.unlimited, false);
+  assert.equal(reset.idleMs, 60 * 60_000);
+  assert.throws(() => api.setAutoClear({ provider: 'anthropic-oauth', duration: 'soon' }), /unlimited/);
+});
+
+test('/autoclear unlimited|never with no provider applies to the current route provider', () => {
+  const api = harness(stale());
+  for (const duration of ['unlimited', 'Never']) {
+    api.setAutoClear({ provider: 'anthropic-oauth', duration: '5m' });
+    const view = api.setAutoClear({ duration });
+    assert.equal(view.unlimited, true, duration);
+    assert.equal(view.label, 'unlimited');
+    assert.equal(api.getAutoClear().unlimited, true, 'stored for the route provider');
+  }
+  assert.throws(() => api.setAutoClear({ duration: 'soon' }), /usage/);
+});
+
+test('getAutoClear reports the human label the settings row shows', () => {
+  const api = harness(stale());
+  assert.equal(api.getAutoClear().label, String(300_000), 'formatted by the injected duration formatter');
+  api.setAutoClear({ provider: 'anthropic-oauth', unlimited: true });
+  assert.equal(api.getAutoClear().label, 'unlimited');
 });
 
 test('explicit and non-Lead cache policies are not refreshed by auto-clear changes', () => {

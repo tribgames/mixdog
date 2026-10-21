@@ -1,28 +1,16 @@
-// Traversal-guarded project directory listing, editor read/stat/atomic-write,
+// Traversal-guarded project directory listing, editor read/stat/in-place write,
 // tree mutations, and code-graph symbol lookup. Every function receives a
 // resolved project root from the service project registry.
 import { isUtf8 } from 'node:buffer';
-import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
-import {
-  cp,
-  type FileHandle,
-  lstat,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { cp, type FileHandle, lstat, mkdir, open, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { toUSVString } from 'node:util';
 
+import { isFileFsyncUnsupported } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { codeGraphModuleUrl } from './desktop-support';
 import { ProjectRecoveryError } from '../shared/project-recovery';
-import { withProjectMutationPaths } from './project-mutation-queue';
+import { withFileIdentities, withProjectMutationPaths } from './project-mutation-queue';
 import {
   beginProjectRecovery,
   RECOVERY_MAX_BYTES,
@@ -34,6 +22,7 @@ import {
   writeRecoveryState,
   retireRecoveryDirectory,
   removeRecoveryDirectory,
+  type RecoveryIdentity,
   type RecoveryPreparedFile,
 } from './project-recovery-store';
 
@@ -275,8 +264,9 @@ export async function codeGraphQueryIn(
 }
 
 /** Editor saves serialize with overlapping project mutations in this process.
- * Content is rechecked before atomic replacement. Uncooperative writers (other
- * processes, shell/agent tools, OS trash) are not locked: the last check/rename
+ * The file is rewritten in place (see replaceProjectFileBytes), after its
+ * content is rechecked through the same handle. Uncooperative writers (other
+ * processes, shell/agent tools, OS trash) are not locked: the last check/write
  * gap is NOT an atomic filesystem compare-and-swap against those writers. */
 export async function writeProjectTextFileIn(
   root: string,
@@ -329,7 +319,26 @@ async function expectedHandleText(
   return { bytes, decoded };
 }
 
-/** Replaces every byte of the open file with `bytes`, in place. */
+/** The identity of the file a handle holds: the same through every hard link. */
+export async function handleIdentity(handle: FileHandle): Promise<RecoveryIdentity> {
+  const info = await handle.stat({ bigint: true });
+  return { dev: String(info.dev), ino: String(info.ino) };
+}
+
+export const identityKey = ({ dev, ino }: RecoveryIdentity): string => `${dev}:${ino}`;
+
+/** Called once a save holds its file's identity claim: waiting for another
+ *  writer may have outlasted the path, so it must still name the file that was
+ *  opened and claimed, not a replacement or a retargeted link. */
+export function assertPathNamesFile(file: string, identity: RecoveryIdentity): void {
+  if (!sameRecoveryIdentity(recoveryIdentity(file), identity)) {
+    throw new Error('Project path changed while waiting. Retry the operation.');
+  }
+}
+
+/** Replaces every byte of the open file with `bytes`, in place. A filesystem
+ *  that refuses to flush (network and cloud-sync drives) keeps a best-effort
+ *  save; any other flush error fails it. */
 export async function rewriteFileThrough(handle: FileHandle, bytes: Buffer): Promise<void> {
   let offset = 0;
   while (offset < bytes.length) {
@@ -338,7 +347,27 @@ export async function rewriteFileThrough(handle: FileHandle, bytes: Buffer): Pro
     offset += bytesWritten;
   }
   await handle.truncate(bytes.length);
-  await handle.datasync();
+  await handle.datasync().catch((error: unknown) => {
+    if (!isFileFsyncUnsupported(error)) throw error;
+  });
+}
+
+/** rewriteFileThrough, undone on failure: an in-place write is not atomic, so
+ *  the original bytes (just verified as the file's content) are written back
+ *  through the same handle when it fails part-way. */
+async function rewriteFileOrRestore(handle: FileHandle, bytes: Buffer, original: Buffer): Promise<void> {
+  try {
+    await rewriteFileThrough(handle, bytes);
+  } catch (error) {
+    try {
+      await rewriteFileThrough(handle, original);
+    } catch {
+      throw new Error(`Save failed: ${writeFailureMessage(error)}. The original could not be restored.`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
 }
 
 /** writeProjectTextFileIn for a paired device: the file is opened through
@@ -359,25 +388,20 @@ export async function writeProjectTextFileThrough(
   return mutateProjectEntries(root, [relPath], async () => {
     const handle = await openFile(projectEntryPathIn(root, relPath));
     try {
-      const { bytes: original, decoded } = await expectedHandleText(handle, expectedContent, relPath);
-      const bytes = encodeProjectText(
-        content,
-        encoding ?? decoded.encoding,
-        encoding === undefined ? decoded.hasBom : true
-      );
-      try {
-        await rewriteFileThrough(handle, bytes);
-      } catch (error) {
-        try {
-          await rewriteFileThrough(handle, original);
-        } catch {
-          throw new Error(`Save failed: ${writeFailureMessage(error)}. The original could not be restored.`, {
-            cause: error,
-          });
-        }
-        throw error;
-      }
-      return { mtimeMs: (await handle.stat()).mtimeMs };
+      const identity = await handleIdentity(handle);
+      // Held across the check, the write and any restore: a hard link to this
+      // file is another path the claims above do not cover.
+      return await withFileIdentities([identityKey(identity)], async () => {
+        assertPathNamesFile(projectEntryPathIn(root, relPath), identity);
+        const { bytes: original, decoded } = await expectedHandleText(handle, expectedContent, relPath);
+        const bytes = encodeProjectText(
+          content,
+          encoding ?? decoded.encoding,
+          encoding === undefined ? decoded.hasBom : true
+        );
+        await rewriteFileOrRestore(handle, bytes, original);
+        return { mtimeMs: (await handle.stat()).mtimeMs };
+      });
     } finally {
       await handle.close();
     }
@@ -406,59 +430,65 @@ export async function writeProjectTextFilesThrough(
     root,
     normalized.map((write) => write.relPath),
     async () => {
-      const opened: Array<{ handle: FileHandle; relPath: string; before: Buffer; after: Buffer }> = [];
+      const handles: FileHandle[] = [];
       try {
-        for (const write of normalized) {
-          const handle = await openFile(projectEntryPathIn(root, write.relPath));
-          try {
-            const { bytes, decoded } = await expectedHandleText(handle, write.expectedContent, write.relPath);
+        for (const write of normalized) handles.push(await openFile(projectEntryPathIn(root, write.relPath)));
+        const identities = await Promise.all(handles.map(handleIdentity));
+        const keys = identities.map(identityKey);
+        // Two links of one file would both pass the check below, then the
+        // second write would silently replace the first.
+        if (new Set(keys).size !== keys.length) throw new TypeError('Workspace edit contains duplicate files.');
+        // Every file is claimed at once, held through the checks, the writes
+        // and the restore: a hard link is another path the claims above miss.
+        await withFileIdentities(keys, async () => {
+          const opened: Array<{ handle: FileHandle; relPath: string; before: Buffer; after: Buffer }> = [];
+          for (const [index, write] of normalized.entries()) {
+            assertPathNamesFile(projectEntryPathIn(root, write.relPath), identities[index]);
+            const { bytes, decoded } = await expectedHandleText(handles[index], write.expectedContent, write.relPath);
             opened.push({
-              handle,
+              handle: handles[index],
               relPath: write.relPath,
               before: bytes,
               after: encodeProjectText(write.content, decoded.encoding, decoded.hasBom),
             });
+          }
+          // The same host-owned recovery record as writeProjectTextFilesIn,
+          // published before the first byte is written.
+          const journal = recoveryDataPath
+            ? await beginProjectRecovery(recoveryDataPath, root, await openedRecoveryFiles(root, opened))
+            : undefined;
+          const written: typeof opened = [];
+          const restored = new Set<string>();
+          let failed = false;
+          let failure: unknown;
+          try {
+            for (const file of opened) {
+              // Recorded before the write: a failure part-way through this file
+              // leaves it modified, and it is restored with the earlier ones.
+              written.push(file);
+              await rewriteFileThrough(file.handle, file.after);
+            }
           } catch (error) {
-            await handle.close();
-            throw error;
+            failed = true;
+            failure = error;
+            const unrestored: string[] = [];
+            for (const file of written.reverse()) {
+              await rewriteFileThrough(file.handle, file.before).then(
+                () => restored.add(file.relPath),
+                () => unrestored.push(file.relPath)
+              );
+            }
+            if (unrestored.length) {
+              failure = new Error(
+                `Workspace edit failed: ${writeFailureMessage(error)}. Not restored: ${JSON.stringify(unrestored)}.`,
+                { cause: error }
+              );
+            }
           }
-        }
-        // The same host-owned recovery record as writeProjectTextFilesIn,
-        // published before the first byte is written.
-        const journal = recoveryDataPath
-          ? await beginProjectRecovery(recoveryDataPath, root, await openedRecoveryFiles(root, opened))
-          : undefined;
-        const written: typeof opened = [];
-        const restored = new Set<string>();
-        let failed = false;
-        let failure: unknown;
-        try {
-          for (const file of opened) {
-            // Recorded before the write: a failure part-way through this file
-            // leaves it modified, and it is restored with the earlier ones.
-            written.push(file);
-            await rewriteFileThrough(file.handle, file.after);
-          }
-        } catch (error) {
-          failed = true;
-          failure = error;
-          const unrestored: string[] = [];
-          for (const file of written.reverse()) {
-            await rewriteFileThrough(file.handle, file.before).then(
-              () => restored.add(file.relPath),
-              () => unrestored.push(file.relPath)
-            );
-          }
-          if (unrestored.length) {
-            failure = new Error(
-              `Workspace edit failed: ${writeFailureMessage(error)}. Not restored: ${JSON.stringify(unrestored)}.`,
-              { cause: error }
-            );
-          }
-        }
-        await settleRecoveryJournal(journal, failed, failure, restored);
+          await settleRecoveryJournal(journal, failed, failure, restored);
+        });
       } finally {
-        await Promise.all(opened.map((file) => file.handle.close().catch(() => undefined)));
+        await Promise.all(handles.map((handle) => handle.close().catch(() => undefined)));
       }
     }
   );
@@ -501,12 +531,12 @@ async function openedRecoveryFiles(
 type ProjectFileReplacement = {
   before: Buffer;
   after: Buffer;
-  mode: number;
   destination: string;
 };
 
-// Rename replaces the leaf itself, so resolve its parent rather than a leaf
-// symlink. Neither a save nor recovery may follow a retargeted directory alias.
+// Resolve the parent, not the leaf: neither a save nor recovery may follow a
+// retargeted directory alias. A symlinked leaf is written through to its
+// target, which projectEntryPathIn keeps inside the project.
 function replacementDestination(file: string): string {
   // Queue keys deliberately over-serialize case variants. Destination identity
   // must retain case: A/file and a/file can be different replacement targets.
@@ -557,65 +587,56 @@ async function writeProjectTextFileUnlocked(
     file,
     bytes,
     currentBytes,
-    info.mode,
     () => {
-      // Record the successful rename before any fallible post-commit metadata
+      // Record the successful write before any fallible post-commit metadata
       // lookup. A batch must roll this file back even when the stat below fails.
-      onCommitted?.({ before: currentBytes, after: bytes, mode: info.mode, destination });
+      onCommitted?.({ before: currentBytes, after: bytes, destination });
     },
     validatePath
   );
   return { mtimeMs: (await stat(file)).mtimeMs };
 }
 
-/** Shared atomic byte replacement for forward saves and exact-byte recovery.
- * The optional commit observer is internal and synchronous. A completed
- * rollback does not depend on a subsequent metadata lookup. Callers own the
- * mutation claim and path validation; this helper is not an exposed RPC. */
+/** Shared in-place byte replacement for forward saves, batch rollback and
+ * exact-byte recovery. The file is opened once, compared, rewritten and
+ * flushed through that one handle, so it keeps its identity — file ID, hard
+ * links, ACLs, attributes — and a symlink is written through to its target.
+ * Never creates a file. In-process failures restore the original bytes through
+ * the same handle; a crash mid-write is not atomic (batches publish a recovery
+ * record first). The optional commit observer is internal and synchronous. A
+ * completed rollback does not depend on a subsequent metadata lookup. Callers
+ * own the mutation claim and path validation; this helper is not an exposed
+ * RPC. */
 export async function replaceProjectFileBytes(
   file: string,
   bytes: Buffer,
   expectedBytes: Buffer,
-  mode: number,
   onCommitted?: () => void,
   validatePath?: () => void
 ): Promise<void> {
-  // Own the scratch path in a resolved parent. If an external process
-  // retargets a directory alias, cleanup must still remove our own file.
-  const temp = join(realpathSync(dirname(file)), `${basename(file)}.mixdog-save-${process.pid}-${randomUUID()}`);
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
-  let ownsTemp = false;
+  validatePath?.();
+  const handle = await open(file, 'r+');
   try {
-    validatePath?.();
-    handle = await open(temp, 'wx', mode);
-    ownsTemp = true;
-    await handle.writeFile(bytes);
-    // Flush through the writing handle before the rename publishes it: a crash
-    // after an unflushed rename leaves the source file full of NUL bytes.
-    await handle.sync().catch((error: NodeJS.ErrnoException) => {
-      // Filesystems that refuse fsync keep a best-effort save.
-      if (error.code !== 'EPERM' && error.code !== 'ENOTSUP' && error.code !== 'EINVAL') throw error;
+    const identity = await handleIdentity(handle);
+    // A hard link is another path to this file, one the path claims cannot see:
+    // take the file's identity once it is open, and hold it across the compare,
+    // the write and any restore so no other save interleaves with them.
+    await withFileIdentities([identityKey(identity)], async () => {
+      // Re-validate with the file claimed: a directory alias or the file itself
+      // retargeted before the open, or while waiting, must not receive the write.
+      validatePath?.();
+      assertPathNamesFile(file, identity);
+      // Compare the bytes we actually observed, not a potentially lossy text
+      // decoding. Never roll back over a newer external edit or BOM change.
+      if (!(await handle.readFile()).equals(expectedBytes)) {
+        throw new Error('File changed on disk. Reload or keep your edits before saving.');
+      }
+      validatePath?.();
+      await rewriteFileOrRestore(handle, bytes, expectedBytes);
+      onCommitted?.();
     });
-    // open's mode is filtered by umask. Apply the observed permissions after
-    // writing so atomic replacement preserves them rather than narrowing them.
-    if (process.platform !== 'win32') await handle.chmod(mode);
-    await handle.close();
-    handle = undefined;
-    // Compare the bytes we actually observed/wrote, not a potentially lossy
-    // text decoding. Never roll back over a newer external edit or BOM change.
-    validatePath?.();
-    if (!(await readFile(file)).equals(expectedBytes)) {
-      throw new Error('File changed on disk. Reload or keep your edits before saving.');
-    }
-    validatePath?.();
-    await rename(temp, file);
-    ownsTemp = false;
-    onCommitted?.();
   } finally {
-    await handle?.close().catch(() => {});
-    // An exclusive-create failure owns nothing, even if the random name
-    // already existed. Never delete another writer's scratch file.
-    if (ownsTemp) await rm(temp, { force: true }).catch(() => {});
+    await handle.close();
   }
 }
 
@@ -798,44 +819,7 @@ export async function writeProjectTextFilesIn(
         failure = error;
         // Preserve the original pre-commit error when no swap occurred.
         if (committed.length) {
-          const rollbackFailures: ProjectTextRollbackFailure[] = [];
-          for (const replacement of [...committed].reverse()) {
-            try {
-              const file = projectEntryPathIn(root, replacement.relPath);
-              const preparedEntry = prepared.find((entry) => entry.relPath === replacement.relPath);
-              const validatePath = () => {
-                validateRoot();
-                if (
-                  preparedEntry &&
-                  !sameRecoveryIdentity(recoveryIdentity(dirname(preparedEntry.destination)), preparedEntry.parent)
-                ) {
-                  throw new Error('Project directory changed before rollback.');
-                }
-                projectEntryPathIn(root, replacement.relPath);
-                if (replacementDestination(file) !== replacement.destination) {
-                  throw new Error('Project path changed before rollback.');
-                }
-              };
-              let mode = replacement.mode;
-              try {
-                mode = (await stat(file)).mode;
-              } catch {
-                /* Metadata is advisory during recovery. */
-              }
-              await replaceProjectFileBytes(
-                file,
-                replacement.before,
-                replacement.after,
-                mode,
-                () => {
-                  restored.add(replacement.relPath);
-                },
-                validatePath
-              );
-            } catch (cause) {
-              rollbackFailures.push({ relPath: replacement.relPath, cause });
-            }
-          }
+          const rollbackFailures = await rollBackCommitted(root, committed, prepared, validateRoot, restored);
           const committedPaths = committed.map(({ relPath }) => relPath);
           failure = new ProjectTextBatchWriteError(
             error,
@@ -852,6 +836,49 @@ export async function writeProjectTextFilesIn(
       await settleRecoveryJournal(journal, failed, failure, restored);
     }
   );
+}
+
+/** Restores committed replacements newest-first, recording each restored path
+ *  and collecting the failures instead of stopping at the first. */
+async function rollBackCommitted(
+  root: string,
+  committed: ReadonlyArray<ProjectFileReplacement & { relPath: string }>,
+  prepared: ReadonlyArray<RecoveryPreparedFile>,
+  validateRoot: () => void,
+  restored: Set<string>
+): Promise<ProjectTextRollbackFailure[]> {
+  const rollbackFailures: ProjectTextRollbackFailure[] = [];
+  for (const replacement of [...committed].reverse()) {
+    try {
+      const file = projectEntryPathIn(root, replacement.relPath);
+      const preparedEntry = prepared.find((entry) => entry.relPath === replacement.relPath);
+      const validatePath = () => {
+        validateRoot();
+        if (
+          preparedEntry &&
+          !sameRecoveryIdentity(recoveryIdentity(dirname(preparedEntry.destination)), preparedEntry.parent)
+        ) {
+          throw new Error('Project directory changed before rollback.');
+        }
+        projectEntryPathIn(root, replacement.relPath);
+        if (replacementDestination(file) !== replacement.destination) {
+          throw new Error('Project path changed before rollback.');
+        }
+      };
+      await replaceProjectFileBytes(
+        file,
+        replacement.before,
+        replacement.after,
+        () => {
+          restored.add(replacement.relPath);
+        },
+        validatePath
+      );
+    } catch (cause) {
+      rollbackFailures.push({ relPath: replacement.relPath, cause });
+    }
+  }
+  return rollbackFailures;
 }
 
 /** Settles a batch's recovery record once its writes have run: a completed

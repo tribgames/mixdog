@@ -22,6 +22,7 @@ export function createRoutedAgentTool({ rt, agentTool, executeAgentControl = nul
           {
             type: '__close_all',
             reason: String(reason || 'agent owner closed'),
+            ...(scope?.processExit === true ? { processExit: true } : {}),
           },
           {
             callerCwd: rt.currentCwd,

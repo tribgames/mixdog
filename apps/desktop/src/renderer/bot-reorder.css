@@ -1,0 +1,8 @@
+/* Where a dragged bot would land in the shared bot order: a line on the edge
+   of the row it would take the place of. Inset, so nothing shifts. */
+[data-bot-drop="before"] {
+  box-shadow: inset 0 2px 0 0 var(--mx-accent);
+}
+[data-bot-drop="after"] {
+  box-shadow: inset 0 -2px 0 0 var(--mx-accent);
+}

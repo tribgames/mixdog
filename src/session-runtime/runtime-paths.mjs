@@ -1,6 +1,6 @@
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 export const RUNTIME = '../runtime/agent/orchestrator';
 export const WEB_SEARCH_RUNTIME = '../runtime/web-search/index.mjs';
@@ -12,10 +12,16 @@ export const STATUSLINE_SESSION_ROUTES = '../vendor/statusline/src/gateway/sessi
 
 const SESSION_RUNTIME_DIR = dirname(fileURLToPath(import.meta.url));
 export const STANDALONE_ROOT = dirname(SESSION_RUNTIME_DIR);
-const mixdogHome = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
-export const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(mixdogHome, 'data');
+
+/**
+ * The standalone data directory, resolved from the environment on every call.
+ * A runtime start (a pristine boundary, a second page session) retargets
+ * MIXDOG_DATA_DIR, so a load-time constant would point every later start back
+ * at the first run's folder.
+ */
+export const standaloneDataDir = resolvePluginData;
 
 /** The data directory a runtime writes to: its config module's plugin data dir, else the standalone default. */
 export function pluginDataDir(cfgMod) {
-  return cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+  return cfgMod.getPluginData?.() || standaloneDataDir();
 }

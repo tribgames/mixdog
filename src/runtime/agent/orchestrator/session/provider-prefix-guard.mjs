@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { hasPlainPrototype } from '../../../shared/object.mjs';
+import { withoutMessageIdsReplacer } from './message-ids.mjs';
 
 const COMPACTION_INTENTS = new Set([
   'automatic_compaction',
@@ -8,8 +9,8 @@ const COMPACTION_INTENTS = new Set([
   'post_turn_compaction',
 ]);
 
-function digest(value) {
-  const encoded = JSON.stringify(value);
+function digest(value, replacer) {
+  const encoded = JSON.stringify(value, replacer);
   if (typeof encoded !== 'string') {
     throw new TypeError('provider prefix value is not serializable');
   }
@@ -82,11 +83,28 @@ function matchShape(value, tokens, cursor) {
   return count === tokens[cursor + 1] ? next : -1;
 }
 
+// A message's digest covers what the provider can see of it. The stable
+// message id (`meta.transcript.messageId`, message-ids.mjs) is display
+// bookkeeping that is stamped onto live messages in place — a compaction pass
+// stamps every unstamped message before it runs, whatever it then decides —
+// and no provider request builder reads or sends it (the rest of `meta` is
+// not bookkeeping: `meta.source` and `meta.effortConfiguration` steer the
+// wire and stay in the digest). Hashing it would make a pass that changes
+// nothing look like a rewritten prefix on the next send.
+//
+// Only the message root's own `meta` is projected: a `meta` nested in content
+// (e.g. a structured tool result) is provider-visible and stays in the digest.
+function rootMessageIdsReplacer(message) {
+  return function replacer(key, value) {
+    return this === message ? withoutMessageIdsReplacer(key, value) : value;
+  };
+}
+
 function messageDigest(message) {
   if (message === null || typeof message !== 'object') return digest(message);
   const memo = messageDigestMemo.get(message);
   if (memo && matchShape(message, memo.tokens, 0) === memo.tokens.length) return memo.hash;
-  const hash = digest(message);
+  const hash = digest(message, rootMessageIdsReplacer(message));
   const tokens = [];
   if (recordShape(message, tokens)) messageDigestMemo.set(message, { hash, tokens });
   else messageDigestMemo.delete(message);

@@ -247,6 +247,352 @@ function createBrowserRemoteRequests(
   };
 }
 
+type DesktopOperations = ReturnType<typeof createDesktopOperations>;
+
+/** Server-window upload staging sweep: shortly after start, then daily. A
+ *  folder any stored session still references is kept. Returns the stop. */
+function startUploadSweeps(
+  loadSessionStore: DesktopServiceRuntime['loadSessionStore'],
+  serverFiles: DesktopOperations['serverFiles']
+): () => void {
+  const sweepUploads = async (): Promise<void> => {
+    const store = await loadSessionStore();
+    const liveSessionIds = store
+      .listStoredSessionSummaries()
+      .map((row) => String(row.id || ''))
+      .filter(Boolean);
+    const sessionsDir = store.storedAgentWorkerIndexPath
+      ? join(dirname(store.storedAgentWorkerIndexPath()), 'sessions')
+      : null;
+    await serverFiles.sweepUploads({
+      liveSessionIds,
+      // Without the store's location no reference can be ruled out.
+      referencedFolders: async (folders) =>
+        sessionsDir ? sessionRecordsReferencing(sessionsDir, folders) : new Set(folders),
+    });
+  };
+  const runUploadSweep = (): void => void sweepUploads().catch(() => {});
+  const firstUploadSweep = setTimeout(runUploadSweep, UPLOAD_SWEEP_FIRST_MS);
+  firstUploadSweep.unref?.();
+  const uploadSweepTimer = setInterval(runUploadSweep, UPLOAD_SWEEP_INTERVAL_MS);
+  uploadSweepTimer.unref?.();
+  return () => {
+    clearTimeout(firstUploadSweep);
+    clearInterval(uploadSweepTimer);
+  };
+}
+
+type RemoteAccessSettings = ReturnType<typeof createRemoteAccessSettingsStore>;
+type RemoteClientCache = Awaited<ReturnType<typeof loadRemoteClientCache>>;
+
+/** This PC's paired devices as remote access lists them: the last list the
+ *  relay gave (while access is off the relay is closed and cannot list them,
+ *  so the last list seen is what the off state shows), each marked while its
+ *  removal is still queued, and the names the user gave them. */
+async function loadRemoteDeviceBook(userDataPath: string, accessSettings: RemoteAccessSettings) {
+  const cache = await loadRemoteClientCache(userDataPath);
+  let deviceAliases = await accessSettings.deviceAliases();
+  return {
+    cache,
+    /** Remembers the relay's list; returns it with pending removals marked. */
+    async remembered(clients: DesktopRemoteClientInfo[]): Promise<DesktopRemoteClientInfo[]> {
+      const pending = cache.pending();
+      await cache.remember(clients).catch(() => undefined);
+      return clients.map((client) => (pending.includes(client.id) ? { ...client, pendingRemoval: true } : client));
+    },
+    withAliases: (clients: DesktopRemoteClientInfo[]): DesktopRemoteClientInfo[] =>
+      clients.map((client) => (deviceAliases[client.id] ? { ...client, alias: deviceAliases[client.id] } : client)),
+    alias: (credentialId: string): string => deviceAliases[credentialId] ?? '',
+    async setAlias(clientId: string, alias: string): Promise<void> {
+      deviceAliases = await accessSettings.setDeviceAlias(clientId, alias);
+    },
+  };
+}
+
+const RELAY_RETRY_BASE_MS = 5_000;
+const RELAY_RETRY_MAX_MS = 5 * 60_000;
+
+/** The relay leg: activation, start (one at a time), retry with backoff,
+ *  identity rotation, stop and close. */
+function createRelayLeg({
+  userDataPath,
+  accessSettings,
+  clientCache,
+  relayOptions,
+  emit,
+  onStarted,
+}: {
+  userDataPath: string;
+  accessSettings: RemoteAccessSettings;
+  clientCache: RemoteClientCache;
+  relayOptions: Omit<Parameters<typeof startRemoteRelay>[0], 'relayUrl'>;
+  emit(message: DesktopServiceOutbound): void;
+  /** A leg came up. */
+  onStarted(): void;
+}) {
+  let remoteRelay: RemoteRelayHandle | null = null;
+  let remoteServicesPromise: Promise<void> | null = null;
+  // A relay leg that fails to come up must not stay down until someone opens
+  // the remote-access window: the phone that needs it is, by definition, not
+  // in front of this machine. Backoff is per failure and resets on success.
+  let relayRetryTimer: NodeJS.Timeout | null = null;
+  let relayRetryMs = 0;
+  const clearRetry = (): void => {
+    if (relayRetryTimer) {
+      clearTimeout(relayRetryTimer);
+      relayRetryTimer = null;
+    }
+  };
+  /** One pending retry at a time. Never scheduled once a leg is up: the relay
+   *  handle owns its own reconnect loop from that point on. */
+  const scheduleRelayRetry = (): void => {
+    if (relayRetryTimer || remoteRelay) return;
+    relayRetryMs = relayRetryMs > 0 ? Math.min(RELAY_RETRY_MAX_MS, relayRetryMs * 2) : RELAY_RETRY_BASE_MS;
+    relayRetryTimer = setTimeout(() => {
+      relayRetryTimer = null;
+      void startRemoteServices();
+    }, relayRetryMs);
+    relayRetryTimer.unref?.();
+  };
+  /** A damaged revocation record (the cache's pending client revocations, the
+   *  queued device revocations) may have lost a revocation, and no older copy
+   *  proves it did not. So every paired phone is revoked and must pair again:
+   *  the pairing token, device identity and E2EE identity are replaced, which
+   *  works offline and before any relay leg opens. Until it completes the relay
+   *  stays closed (the start fails and retries); local use is unaffected. */
+  const resetPairingAfterLostRevocations = async (): Promise<void> => {
+    if (!clientCache.repairRequired() && !(await revocationQueueDamaged(userDataPath))) return;
+    await Promise.all([
+      rotatePairingToken(userDataPath),
+      rotateRemoteDevice(userDataPath),
+      rotateRelayE2EEIdentity(userDataPath),
+    ]);
+    await clientCache.clear();
+  };
+  /** `explicit` is a user remote-access action: it activates (and persists)
+   *  remote access. Boot/resume/retry starts only connect once activated, so a
+   *  fresh install never registers on the relay on its own. */
+  const startRemoteServices = async (explicit = false): Promise<void> => {
+    if (remoteServicesPromise) {
+      if (!explicit) return remoteServicesPromise;
+      // A boot-time pass may have declined as not-yet-activated; run again.
+      await remoteServicesPromise;
+      return startRemoteServices(true);
+    }
+    remoteServicesPromise = (async () => {
+      if (remoteRelay) {
+        if (explicit) await activateRemote(userDataPath);
+        return;
+      }
+      try {
+        // Switched off: no relay leg, no retry, nothing activated.
+        if (await accessSettings.disabled()) return;
+        const relayUrl = resolveRelayUrl(process.env);
+        if (!relayUrl) return;
+        if (explicit) await activateRemote(userDataPath);
+        else if (!(await isRemoteActivated(userDataPath))) return;
+        await resetPairingAfterLostRevocations();
+        remoteRelay = await startRemoteRelay({ ...relayOptions, relayUrl });
+        clearRetry();
+        relayRetryMs = 0;
+        onStarted();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Logged where the daemon's own failures are read. Without this the
+        // remote leg could stay down for hours leaving no trace anywhere.
+        console.error(`[mixdog-relay] start failed: ${message}`);
+        scheduleRelayRetry();
+        emit({
+          kind: 'desktop-event',
+          name: 'remote-access-status',
+          value: {
+            leg: 'relay',
+            status: 'failed',
+            error: message,
+          },
+        });
+      }
+    })();
+    try {
+      await remoteServicesPromise;
+    } finally {
+      remoteServicesPromise = null;
+    }
+  };
+  return {
+    relay: (): RemoteRelayHandle | null => remoteRelay,
+    start: startRemoteServices,
+    /** New pairing token, device and E2EE identities: every paired phone
+     *  pairs again on a fresh leg. */
+    async rotate(): Promise<void> {
+      await startRemoteServices(true);
+      const relay = remoteRelay;
+      await Promise.all([
+        rotatePairingToken(userDataPath),
+        rotateRemoteDevice(userDataPath),
+        rotateRelayE2EEIdentity(userDataPath),
+      ]);
+      remoteRelay = null;
+      try {
+        await relay?.close();
+      } catch {}
+      await clientCache.clear();
+      await startRemoteServices(true);
+    },
+    /** Switched off: no retry; a start already in flight finishes first, then
+     *  its relay is closed (`beforeClose` reads it one last time). */
+    async stop(beforeClose: (relay: RemoteRelayHandle) => Promise<void>): Promise<void> {
+      clearRetry();
+      await remoteServicesPromise;
+      const relay = remoteRelay;
+      if (!relay) return;
+      await beforeClose(relay);
+      remoteRelay = null;
+      try {
+        await relay.close();
+      } catch {}
+    },
+    async close(): Promise<void> {
+      clearRetry();
+      try {
+        await remoteRelay?.close();
+      } catch {}
+      remoteRelay = null;
+    },
+  };
+}
+
+interface RemoteAccessInput {
+  userDataPath: string;
+  appVersion: SerializableDesktopServiceOptions['appVersion'];
+  host: DesktopService;
+  settingsStore: DesktopOperations['settingsStore'];
+  terminals: DesktopOperations['terminals'];
+  subscribeTerminalData: DesktopOperations['subscribeTerminalData'];
+  /** Asks the window process (Browser Use, OS trash, updater). */
+  windowRequest: ReturnType<typeof createBrowserRemoteRequests>['request'];
+  visualize: ReturnType<typeof createRemoteVisualizeMirror>;
+  onClientCountChanged?(): void;
+  emit(message: DesktopServiceOutbound): void;
+  publishDesktopEvent(name: string, value: unknown): void;
+}
+
+/** Remote access: the relay leg (activation, start, retry with backoff,
+ *  rotation, on/off), this PC's name, paired devices and their aliases, and
+ *  the approval claims the window answers. */
+async function createRemoteAccess(input: RemoteAccessInput) {
+  const { userDataPath, emit, publishDesktopEvent } = input;
+  const claims = createRemoteClaimArbiter((claim) => publishDesktopEvent('remote-client-claim', claim));
+  const accessSettings = createRemoteAccessSettingsStore(userDataPath);
+  let pcName = (await accessSettings.read()).name;
+  const devices = await loadRemoteDeviceBook(userDataPath, accessSettings);
+  const { cache: clientCache, remembered, withAliases } = devices;
+  const publishAccessSettings = (settings: DesktopRemoteAccessSettings): DesktopRemoteAccessSettings => {
+    publishDesktopEvent('remote-access-settings-changed', settings);
+    return settings;
+  };
+  const remoteDescriptor = async () => {
+    const remoteRelay = leg.relay();
+    if (!remoteRelay) {
+      return (await accessSettings.disabled())
+        ? { relay: { clientUrl: '', token: '', clients: withAliases(clientCache.list()) }, enabled: false }
+        : null;
+    }
+    const descriptor = await remoteAccessDescriptor(remoteRelay);
+    if (!descriptor) return null;
+    const clients = await remembered(descriptor.relay.clients);
+    return { relay: { ...descriptor.relay, clients: withAliases(clients) }, enabled: true };
+  };
+  /** Revocations asked for while access was off, applied once the relay
+   *  answers (read through `leg`, which exists before any relay connects). */
+  const applyPendingRevokes = createPendingRevokeDrain({ cache: clientCache, relay: () => leg.relay() });
+  const drainPendingRevokes = () => {
+    if (clientCache.pending().length) void applyPendingRevokes();
+  };
+  const remoteOptions = {
+    host: input.host,
+    hostName: () => pcName,
+    deviceAlias: devices.alias,
+    appVersion: input.appVersion,
+    settingsStore: input.settingsStore,
+    onDesktopSettingsChanged: (value: unknown) => {
+      emit({ kind: 'desktop-event', name: 'desktop-settings-changed', value });
+    },
+    // An oversize frame the relay refused without naming a client. It reaches
+    // the desktop window as an event so the user is told; no phone is
+    // messaged and no call is blamed.
+    onRelayPayloadRefused: (value: { bytes: number | null; limit: number | null }) => {
+      emit({ kind: 'desktop-event', name: 'relay-payload-refused', value });
+    },
+    terminals: input.terminals,
+    browserRemote: input.windowRequest,
+    hostRequest: input.windowRequest,
+    visualize: input.visualize,
+    subscribeTerminalData: input.subscribeTerminalData,
+    userDataPath,
+    onClientCountChanged: input.onClientCountChanged,
+    // Every successful (re)connection drains revocations that failed earlier.
+    onConnected: drainPendingRevokes,
+    // The window process owns the approval dialog, so the decision travels
+    // out as an event and comes back as remoteAccessResolveClaim. An
+    // unanswered request expires on its own — the relay drops it at 300s.
+    onClientClaim: (claim: RemoteClientClaim): Promise<RemoteClaimDecision> => claims.claim(claim),
+    onClaimConflict: (claimId: string): void => void claims.resolve(claimId, false),
+  };
+  const leg = createRelayLeg({
+    userDataPath,
+    accessSettings,
+    clientCache,
+    relayOptions: remoteOptions,
+    emit,
+    onStarted: drainPendingRevokes,
+  });
+  const setRemoteAccessEnabled = async (enabled: boolean): Promise<DesktopRemoteAccessSettings> => {
+    await accessSettings.setEnabled(enabled);
+    if (enabled) await leg.start(true);
+    else {
+      await leg.stop(async (relay) => {
+        const descriptor = await remoteAccessDescriptor(relay);
+        if (descriptor) await remembered(descriptor.relay.clients);
+      });
+    }
+    return publishAccessSettings(await accessSettings.read());
+  };
+  const setRemotePcName = async (name: string): Promise<DesktopRemoteAccessSettings> => {
+    const settings = await accessSettings.setName(name);
+    pcName = settings.name;
+    leg.relay()?.pushName();
+    return publishAccessSettings(settings);
+  };
+  return {
+    claims,
+    settings: accessSettings,
+    relay: leg.relay,
+    start: leg.start,
+    descriptor: remoteDescriptor,
+    async rotate() {
+      await leg.rotate();
+      return remoteDescriptor();
+    },
+    setEnabled: setRemoteAccessEnabled,
+    setName: setRemotePcName,
+    setClientAlias: devices.setAlias,
+    async revokeClient(clientId: string) {
+      await leg.start(true);
+      const remoteRelay = leg.relay();
+      if (!remoteRelay) {
+        // Off: forget it now, tell the relay on the next enable.
+        if (!(await accessSettings.disabled())) return null;
+        await clientCache.queueRevoke(clientId);
+        return remoteDescriptor();
+      }
+      await remoteRelay.revokeClient(clientId);
+      return remoteDescriptor();
+    },
+    close: leg.close,
+  };
+}
+
 /** Desktop service adapter hosted inside the singleton machine daemon.
  *
  * DesktopServiceClient remains a pure, tested projection/cache layer. The
@@ -321,27 +667,7 @@ export async function createDesktopService({
     void operations.serverFiles.removeSessionUploads(String(sessionId || '')).catch(() => {});
     return result;
   };
-  const sweepUploads = async (): Promise<void> => {
-    const store = await runtime.loadSessionStore();
-    const liveSessionIds = store
-      .listStoredSessionSummaries()
-      .map((row) => String(row.id || ''))
-      .filter(Boolean);
-    const sessionsDir = store.storedAgentWorkerIndexPath
-      ? join(dirname(store.storedAgentWorkerIndexPath()), 'sessions')
-      : null;
-    await operations.serverFiles.sweepUploads({
-      liveSessionIds,
-      // Without the store's location no reference can be ruled out.
-      referencedFolders: async (folders) =>
-        sessionsDir ? sessionRecordsReferencing(sessionsDir, folders) : new Set(folders),
-    });
-  };
-  const runUploadSweep = (): void => void sweepUploads().catch(() => {});
-  const firstUploadSweep = setTimeout(runUploadSweep, UPLOAD_SWEEP_FIRST_MS);
-  firstUploadSweep.unref?.();
-  const uploadSweepTimer = setInterval(runUploadSweep, UPLOAD_SWEEP_INTERVAL_MS);
-  uploadSweepTimer.unref?.();
+  const stopUploadSweeps = startUploadSweeps(() => runtime.loadSessionStore(), operations.serverFiles);
   const remoteHost = new Proxy(host, {
     get(target, property) {
       if (property === 'deleteSession') return deleteSessionWithUploads;
@@ -358,14 +684,6 @@ export async function createDesktopService({
       return typeof value === 'function' ? value.bind(target) : value;
     },
   }) as unknown as DesktopService;
-  let remoteRelay: RemoteRelayHandle | null = null;
-  let remoteServicesPromise: Promise<void> | null = null;
-  // A relay leg that fails to come up must not stay down until someone opens
-  // the remote-access window: the phone that needs it is, by definition, not
-  // in front of this machine. Backoff is per failure and resets on success.
-  let relayRetryTimer: NodeJS.Timeout | null = null;
-  let relayRetryMs = 0;
-  const claims = createRemoteClaimArbiter((claim) => publishDesktopEvent('remote-client-claim', claim));
   const browserRemoteRequests = createBrowserRemoteRequests((request) =>
     publishDesktopEvent('browser-remote-request', request)
   );
@@ -376,260 +694,74 @@ export async function createDesktopService({
   const modelProxy = modelProxyClientMode() ? getModelProxyChannel() : null;
   const detachModelProxy =
     modelProxy?.attachPublisher((snapshot) => publishDesktopEvent(MODEL_PROXY_REQUEST_EVENT, snapshot)) ?? null;
-  const accessSettings = createRemoteAccessSettingsStore(options.userDataPath);
-  let pcName = (await accessSettings.read()).name;
-  // While access is off the relay is closed and cannot list its paired
-  // devices, so the last list seen is what the off state shows.
-  const clientCache = await loadRemoteClientCache(options.userDataPath);
-  const remembered = async (clients: DesktopRemoteClientInfo[]): Promise<DesktopRemoteClientInfo[]> => {
-    const pending = clientCache.pending();
-    await clientCache.remember(clients).catch(() => undefined);
-    return clients.map((client) => (pending.includes(client.id) ? { ...client, pendingRemoval: true } : client));
-  };
-  let deviceAliases = await accessSettings.deviceAliases();
-  const withAliases = (clients: DesktopRemoteClientInfo[]): DesktopRemoteClientInfo[] =>
-    clients.map((client) => (deviceAliases[client.id] ? { ...client, alias: deviceAliases[client.id] } : client));
-  const publishAccessSettings = (settings: DesktopRemoteAccessSettings): DesktopRemoteAccessSettings => {
-    publishDesktopEvent('remote-access-settings-changed', settings);
-    return settings;
-  };
-  const remoteDescriptor = async () => {
-    if (!remoteRelay) {
-      return (await accessSettings.disabled())
-        ? { relay: { clientUrl: '', token: '', clients: withAliases(clientCache.list()) }, enabled: false }
-        : null;
-    }
-    const descriptor = await remoteAccessDescriptor(remoteRelay);
-    if (!descriptor) return null;
-    const clients = await remembered(descriptor.relay.clients);
-    return { relay: { ...descriptor.relay, clients: withAliases(clients) }, enabled: true };
-  };
-  /** Revocations asked for while access was off, applied once the relay answers. */
-  const applyPendingRevokes = createPendingRevokeDrain({ cache: clientCache, relay: () => remoteRelay });
-  const remoteOptions = {
-    host: remoteHost,
-    hostName: () => pcName,
-    deviceAlias: (credentialId: string) => deviceAliases[credentialId] ?? '',
-    appVersion: options.appVersion,
-    settingsStore,
-    onDesktopSettingsChanged: (value: unknown) => {
-      emit({ kind: 'desktop-event', name: 'desktop-settings-changed', value });
-    },
-    // An oversize frame the relay refused without naming a client. It reaches
-    // the desktop window as an event so the user is told; no phone is
-    // messaged and no call is blamed.
-    onRelayPayloadRefused: (value: { bytes: number | null; limit: number | null }) => {
-      emit({ kind: 'desktop-event', name: 'relay-payload-refused', value });
-    },
-    terminals: operations.terminals,
-    browserRemote: browserRemoteRequests.request,
-    hostRequest: browserRemoteRequests.request,
-    visualize: visualizeMirror,
-    subscribeTerminalData: operations.subscribeTerminalData,
+  const remote = await createRemoteAccess({
     userDataPath: options.userDataPath,
+    appVersion: options.appVersion,
+    host: remoteHost,
+    settingsStore,
+    terminals: operations.terminals,
+    subscribeTerminalData: operations.subscribeTerminalData,
+    windowRequest: browserRemoteRequests.request,
+    visualize: visualizeMirror,
     onClientCountChanged,
-    // Every successful (re)connection drains revocations that failed earlier.
-    onConnected: () => {
-      if (clientCache.pending().length) void applyPendingRevokes();
-    },
-    // The window process owns the approval dialog, so the decision travels
-    // out as an event and comes back as remoteAccessResolveClaim. An
-    // unanswered request expires on its own — the relay drops it at 300s.
-    onClientClaim: (claim: RemoteClientClaim): Promise<RemoteClaimDecision> => claims.claim(claim),
-    onClaimConflict: (claimId: string): void => void claims.resolve(claimId, false),
-  };
-  const RELAY_RETRY_BASE_MS = 5_000;
-  const RELAY_RETRY_MAX_MS = 5 * 60_000;
-  /** One pending retry at a time. Never scheduled once a leg is up: the relay
-   *  handle owns its own reconnect loop from that point on. */
-  const scheduleRelayRetry = (): void => {
-    if (relayRetryTimer || remoteRelay) return;
-    relayRetryMs = relayRetryMs > 0 ? Math.min(RELAY_RETRY_MAX_MS, relayRetryMs * 2) : RELAY_RETRY_BASE_MS;
-    relayRetryTimer = setTimeout(() => {
-      relayRetryTimer = null;
-      void startRemoteServices();
-    }, relayRetryMs);
-    relayRetryTimer.unref?.();
-  };
-  /** A damaged revocation record (the cache's pending client revocations, the
-   *  queued device revocations) may have lost a revocation, and no older copy
-   *  proves it did not. So every paired phone is revoked and must pair again:
-   *  the pairing token, device identity and E2EE identity are replaced, which
-   *  works offline and before any relay leg opens. Until it completes the relay
-   *  stays closed (the start fails and retries); local use is unaffected. */
-  const resetPairingAfterLostRevocations = async (): Promise<void> => {
-    if (!clientCache.repairRequired() && !(await revocationQueueDamaged(options.userDataPath))) return;
-    await Promise.all([
-      rotatePairingToken(options.userDataPath),
-      rotateRemoteDevice(options.userDataPath),
-      rotateRelayE2EEIdentity(options.userDataPath),
-    ]);
-    await clientCache.clear();
-  };
-  /** `explicit` is a user remote-access action: it activates (and persists)
-   *  remote access. Boot/resume/retry starts only connect once activated, so a
-   *  fresh install never registers on the relay on its own. */
-  const startRemoteServices = async (explicit = false): Promise<void> => {
-    if (remoteServicesPromise) {
-      if (!explicit) return remoteServicesPromise;
-      // A boot-time pass may have declined as not-yet-activated; run again.
-      await remoteServicesPromise;
-      return startRemoteServices(true);
-    }
-    remoteServicesPromise = (async () => {
-      if (remoteRelay) {
-        if (explicit) await activateRemote(options.userDataPath);
-        return;
-      }
-      try {
-        // Switched off: no relay leg, no retry, nothing activated.
-        if (await accessSettings.disabled()) return;
-        const relayUrl = resolveRelayUrl(process.env);
-        if (!relayUrl) return;
-        if (explicit) await activateRemote(options.userDataPath);
-        else if (!(await isRemoteActivated(options.userDataPath))) return;
-        await resetPairingAfterLostRevocations();
-        remoteRelay = await startRemoteRelay({ ...remoteOptions, relayUrl });
-        if (relayRetryTimer) {
-          clearTimeout(relayRetryTimer);
-          relayRetryTimer = null;
-        }
-        relayRetryMs = 0;
-        if (clientCache.pending().length) void applyPendingRevokes();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        // Logged where the daemon's own failures are read. Without this the
-        // remote leg could stay down for hours leaving no trace anywhere.
-        console.error(`[mixdog-relay] start failed: ${message}`);
-        scheduleRelayRetry();
-        emit({
-          kind: 'desktop-event',
-          name: 'remote-access-status',
-          value: {
-            leg: 'relay',
-            status: 'failed',
-            error: message,
-          },
-        });
-      }
-    })();
-    try {
-      await remoteServicesPromise;
-    } finally {
-      remoteServicesPromise = null;
-    }
-  };
-  const rotateRemoteAccess = async () => {
-    await startRemoteServices(true);
-    const relay = remoteRelay;
-    await Promise.all([
-      rotatePairingToken(options.userDataPath),
-      rotateRemoteDevice(options.userDataPath),
-      rotateRelayE2EEIdentity(options.userDataPath),
-    ]);
-    remoteRelay = null;
-    try {
-      await relay?.close();
-    } catch {}
-    await clientCache.clear();
-    await startRemoteServices(true);
-    return remoteDescriptor();
-  };
-  const setRemoteAccessEnabled = async (enabled: boolean): Promise<DesktopRemoteAccessSettings> => {
-    await accessSettings.setEnabled(enabled);
-    if (enabled) {
-      await startRemoteServices(true);
-    } else {
-      if (relayRetryTimer) {
-        clearTimeout(relayRetryTimer);
-        relayRetryTimer = null;
-      }
-      // A start already in flight finishes first, then its relay is closed.
-      await remoteServicesPromise;
-      const relay = remoteRelay;
-      if (relay) {
-        const descriptor = await remoteAccessDescriptor(relay);
-        if (descriptor) await remembered(descriptor.relay.clients);
-        remoteRelay = null;
-        try {
-          await relay.close();
-        } catch {}
-      }
-    }
-    return publishAccessSettings(await accessSettings.read());
-  };
-  const setRemotePcName = async (name: string): Promise<DesktopRemoteAccessSettings> => {
-    const settings = await accessSettings.setName(name);
-    pcName = settings.name;
-    remoteRelay?.pushName();
-    return publishAccessSettings(settings);
-  };
+    emit,
+    publishDesktopEvent,
+  });
   const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
   const stateSync = createDesktopServiceStateSync({ host, emit });
   const invokeServiceOperation = async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
     if (modelProxy?.handlesOperation(operation)) return modelProxy.handleOperation(operation, operationArgs);
     switch (operation) {
       case 'remoteAccessStart':
-        await startRemoteServices();
-        return remoteDescriptor();
+        await remote.start();
+        return remote.descriptor();
       case 'remoteAccessInfo':
         // activate:false is a pure read: warm an activated install, never
         // start or activate a fresh one.
-        await startRemoteServices(operationArgs[0] !== false);
-        return remoteDescriptor();
+        await remote.start(operationArgs[0] !== false);
+        return remote.descriptor();
       case 'remoteAccessSettings':
-        return accessSettings.read();
+        return remote.settings.read();
       case 'remoteAccessSetEnabled':
-        return setRemoteAccessEnabled(operationArgs[0] === true);
+        return remote.setEnabled(operationArgs[0] === true);
       case 'remoteAccessSetName':
-        return setRemotePcName(String(operationArgs[0] ?? ''));
+        return remote.setName(String(operationArgs[0] ?? ''));
       case 'remoteAccessSetClientAlias':
-        deviceAliases = await accessSettings.setDeviceAlias(
-          String(operationArgs[0] || ''),
-          String(operationArgs[1] ?? '')
-        );
+        await remote.setClientAlias(String(operationArgs[0] || ''), String(operationArgs[1] ?? ''));
         return null;
       case 'remoteAccessRotate':
-        return rotateRemoteAccess();
+        return remote.rotate();
       case 'remoteAccessListClaims':
-        return claims.list(Date.now());
+        return remote.claims.list(Date.now());
       case 'remoteAccessResolveClaim':
-        return claims.resolve(String(operationArgs[0] || ''), operationArgs[1] === true);
+        return remote.claims.resolve(String(operationArgs[0] || ''), operationArgs[1] === true);
       case 'remoteAccessPairCode': {
         // The code exists while Settings → Connection is open; opening it is
         // an explicit remote-access action like the pairing card itself.
         const requested = operationArgs[0];
         const action = requested === 'release' || requested === 'renew' ? requested : 'ensure';
-        if (action !== 'release') await startRemoteServices(true);
-        return remoteRelay?.pairCode(action) ?? null;
+        if (action !== 'release') await remote.start(true);
+        return remote.relay()?.pairCode(action) ?? null;
       }
-      case 'remoteAccessRevokeClient': {
-        await startRemoteServices(true);
-        const clientId = String(operationArgs[0] || '');
-        if (!remoteRelay) {
-          // Off: forget it now, tell the relay on the next enable.
-          if (!(await accessSettings.disabled())) return null;
-          await clientCache.queueRevoke(clientId);
-          return remoteDescriptor();
-        }
-        await remoteRelay.revokeClient(clientId);
-        return remoteDescriptor();
-      }
-      case 'remoteAccessResume':
-        if (remoteRelay) remoteRelay.resume();
-        else await startRemoteServices();
+      case 'remoteAccessRevokeClient':
+        return remote.revokeClient(String(operationArgs[0] || ''));
+      case 'remoteAccessResume': {
+        const relay = remote.relay();
+        if (relay) relay.resume();
+        else await remote.start();
         return null;
+      }
       // The window process's live Browser Use frames and explicit reveal/hide
       // requests. Frames are paced per client by the relay; an open request is
       // a desktop event the relay forwards to every paired client.
       case 'browserRemoteFrame':
-        remoteRelay?.publishBrowserFrame(operationArgs[0] as DesktopRemoteBrowserStreamFrame);
+        remote.relay()?.publishBrowserFrame(operationArgs[0] as DesktopRemoteBrowserStreamFrame);
         return null;
       case 'browserRemoteTabs':
-        remoteRelay?.publishBrowserTabs(operationArgs[0] as DesktopRemoteBrowserTab[]);
+        remote.relay()?.publishBrowserTabs(operationArgs[0] as DesktopRemoteBrowserTab[]);
         return null;
       case 'browserRemoteImportProgress':
-        remoteRelay?.publishBrowserImportProgress(operationArgs[0] as DesktopBrowserImportProgress);
+        remote.relay()?.publishBrowserImportProgress(operationArgs[0] as DesktopBrowserImportProgress);
         return null;
       case 'browserRemoteOpen':
         publishDesktopEvent(BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, operationArgs[0]);
@@ -641,7 +773,7 @@ export async function createDesktopService({
         return null;
       }
       case 'visualizeRemoteViewing':
-        return remoteRelay?.viewsSessionLane(String(operationArgs[0] || ''), REMOTE_VISUALIZE_LANE) ?? false;
+        return remote.relay()?.viewsSessionLane(String(operationArgs[0] || ''), REMOTE_VISUALIZE_LANE) ?? false;
       case 'browserRemoteResolve':
         return browserRemoteRequests.settle(
           String(operationArgs[0] || ''),
@@ -655,7 +787,7 @@ export async function createDesktopService({
   };
   return {
     get clientCount() {
-      return remoteRelay?.clientCount ?? 0;
+      return remote.relay()?.clientCount ?? 0;
     },
     async invoke(method, args): Promise<unknown> {
       if (!rpcMethods.has(method)) {
@@ -702,16 +834,8 @@ export async function createDesktopService({
       desktopEventListeners.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');
       detachModelProxy?.();
-      clearTimeout(firstUploadSweep);
-      clearInterval(uploadSweepTimer);
-      if (relayRetryTimer) {
-        clearTimeout(relayRetryTimer);
-        relayRetryTimer = null;
-      }
-      try {
-        await remoteRelay?.close();
-      } catch {}
-      remoteRelay = null;
+      stopUploadSweeps();
+      await remote.close();
       await operations.dispose();
       await host.dispose();
     },

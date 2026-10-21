@@ -169,7 +169,7 @@ export const formActions = defineBrowserActions({
   },
 
   async upload(context) {
-    const { guest, command, signal, refRecovery, actionSnapshot, services } = context;
+    const { guest, command, signal, refRecovery, actionSnapshot, services, approvedReceiver } = context;
     const ref = await actionRef(context);
     if (ref && !refRecovery.source?.refs.has(ref)) {
       throw new Error('upload requires a ref from the latest snapshot; upload refs are never auto-recovered');
@@ -178,7 +178,9 @@ export const formActions = defineBrowserActions({
       guest,
       ref,
       Array.isArray(command.paths) ? command.paths.map(String) : [],
-      signal
+      signal,
+      undefined,
+      approvedReceiver
     );
     services.state.invalidateInteraction(guest);
     return actionSnapshot();

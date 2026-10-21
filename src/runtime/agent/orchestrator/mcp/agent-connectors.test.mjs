@@ -20,6 +20,7 @@ const { _registerMcpServerForTest, disconnectAll } = await import('./client.mjs'
 const { resolveSessionTools } = await import('../session/manager/tool-resolution.mjs');
 const { preDispatchDenyForSession } = await import('../session/loop/pre-dispatch-deny.mjs');
 const { executeTool } = await import('../session/loop/tool-exec.mjs');
+const { createHumanGateStore, setHumanGateStore } = await import('../session/human-gate/store.mjs');
 
 const saveConnectors = (agentId, connectors) => {
   const dir = join(process.env.MIXDOG_DATA_DIR, 'agents', agentId);
@@ -228,6 +229,68 @@ test('a NUL agent.json restores its .bak deny list; an invalid .bak keeps every 
   assert.ok(refused('nul-badbak', scopeId, 'mcp__beta__ping'));
 });
 
+test("Mixy's policy is read where her profile saves it, and a coding Lead never inherits it", async (t) => {
+  const { scopeId, calls } = fixture(t);
+  const dataDir = process.env.MIXDOG_DATA_DIR;
+  const botsDir = join(dataDir, 'bots');
+  const mixyFile = join(botsDir, 'mixy', 'agent.json');
+  // The bot store is active: Mixy's identity (and her policy) lives in bots/mixy.
+  mkdirSync(join(botsDir, 'mixy'), { recursive: true });
+  writeFileSync(join(botsDir, 'migration.json'), JSON.stringify({ version: 1, bots: [] }));
+  // What the pre-split Mixy left in agents/lead: stale, and nothing writes it any more.
+  saveConnectors('lead', { off: ['beta'] });
+  t.after(() => {
+    rmSync(botsDir, { recursive: true, force: true });
+    rmSync(join(dataDir, 'agents', 'lead'), { recursive: true, force: true });
+  });
+  const mixy = { id: 'sess_home_lead', agent: 'lead', sessionMode: 'agent', mcpScopeId: scopeId };
+  const coding = { id: 'sess_task_1', agent: 'lead', sessionMode: 'coding', mcpScopeId: scopeId };
+  const denies = (session, name) =>
+    /not available to this agent/.test(String(preDispatchDenyForSession(session, { name, arguments: {} }) || ''));
+
+  // A connector Mixy's profile switched off.
+  writeFileSync(mixyFile, JSON.stringify({ name: 'Mixy', connectors: { off: ['alpha'] } }));
+  assert.ok(denies(mixy, 'mcp__alpha__read_it'), 'Mixy: the connector she switched off is refused');
+  assert.ok(!denies(mixy, 'mcp__beta__ping'), 'Mixy: the stale agents/lead copy is not her policy');
+  assert.ok(!denies(coding, 'mcp__alpha__read_it'), 'a coding Lead does not run under her policy');
+  assert.ok(!denies(coding, 'mcp__beta__ping'), 'nor under the stale agents/lead copy');
+  const approveAll = { toolApprovalHook: async () => true };
+  assert.match(
+    String(await executeTool('mcp__alpha__read_it', {}, process.cwd(), mixy.id, mixy, approveAll)),
+    /not available to this agent/
+  );
+  assert.deepEqual(calls, [], 'a refused connector never reaches its server');
+
+  // A tool set to disabled, and one set to ask.
+  writeFileSync(
+    mixyFile,
+    JSON.stringify({
+      name: 'Mixy',
+      connectors: { tools: { alpha: { drop_it: 'disabled', write_it: 'needs_approval' } } },
+    })
+  );
+  assert.equal(agentMcpToolPermission('lead', 'mcp__alpha__drop_it'), 'disabled');
+  assert.ok(denies(mixy, 'mcp__alpha__drop_it'));
+  assert.ok(!denies(coding, 'mcp__alpha__drop_it'));
+  const asked = [];
+  const run = (session, name) =>
+    executeTool(name, {}, process.cwd(), session.id, session, {
+      toolApprovalHook: async (request) => {
+        asked.push([session.id, request.name]);
+        return { approved: true, response: 'approve' };
+      },
+    });
+  await run(mixy, 'mcp__alpha__write_it');
+  await run(coding, 'mcp__alpha__write_it');
+  assert.deepEqual(asked, [['sess_home_lead', 'mcp__alpha__write_it']], 'only Mixy is asked');
+  assert.deepEqual(calls, ['write_it', 'write_it']);
+
+  // Before the bot store exists Mixy's identity folder is agents/lead.
+  rmSync(join(botsDir, 'migration.json'));
+  assert.ok(denies(mixy, 'mcp__beta__ping'), 'no store: agents/lead is her policy');
+  assert.ok(!denies(coding, 'mcp__beta__ping'));
+});
+
 test('a tool without its own entry runs without asking, a newly added one too', (t) => {
   const { scopeId } = fixture(t);
   saveConnectors('lister', { tools: { alpha: { read_it: 'auto' } } });
@@ -257,7 +320,7 @@ test('needs_approval asks through the approval hook; disabled never reaches the 
   assert.deepEqual(asked, []);
   assert.deepEqual(calls, ['read_it']);
 
-  assert.match(await run('mcp__alpha__write_it', false), /denied by hook/);
+  assert.match(await run('mcp__alpha__write_it', false), /was not approved/);
   assert.deepEqual(asked, ['mcp__alpha__write_it']);
   assert.deepEqual(calls, ['read_it']);
 
@@ -299,6 +362,47 @@ test('a needs_approval tool the outbound gate already approved asks once; others
 
   asked.length = 0;
   await run('mcp__alpha__write_it', {});
-  assert.deepEqual(asked, [{ name: 'mcp__alpha__write_it', kind: undefined }], 'not outbound: connector ask stays');
+  // A bot's connector ask is an ordinary approval that may be remembered for that bot.
+  assert.deepEqual(asked, [{ name: 'mcp__alpha__write_it', kind: 'approval' }], 'not outbound: connector ask stays');
   assert.deepEqual(calls, ['send_email', 'write_it']);
+});
+
+test('an outbound always-allow answers the connector ask for later calls; other tools still ask', async (t) => {
+  const { scopeId, calls } = fixture(t);
+  _registerMcpServerForTest(scopeId, 'gmail', [{ name: 'send_email' }], {
+    callTool: async (request) => {
+      calls.push(request.name);
+      return { content: [{ type: 'text', text: 'ok' }] };
+    },
+  });
+  saveConnectors('mailer2', {
+    tools: { gmail: { send_email: 'needs_approval' }, alpha: { write_it: 'needs_approval' } },
+  });
+  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'agents', 'mailer2', 'AGENT.md'), '---\nkind: bot\n---\nMailer.\n');
+  const storeDir = mkdtempSync(join(root, 'gate-store-'));
+  setHumanGateStore(createHumanGateStore(storeDir));
+  t.after(() => setHumanGateStore(null));
+  const sessionId = 'sess_home_mailer2';
+  const session = { id: sessionId, agent: 'mailer2', mcpScopeId: scopeId };
+  const asked = [];
+  const run = (name, args, answer) =>
+    executeTool(name, args, process.cwd(), sessionId, session, {
+      toolApprovalHook: async (request) => {
+        asked.push({ name: request.name, kind: request.kind });
+        return answer;
+      },
+    });
+  const mail = { to: 'a@b.c', subject: 's', body: 'hi' };
+
+  await run('mcp__gmail__send_email', mail, { approved: true, response: 'approve', remember: 'agent' });
+  assert.deepEqual(asked, [{ name: 'mcp__gmail__send_email', kind: 'outbound' }], 'first call: one outbound card');
+
+  asked.length = 0;
+  await run('mcp__gmail__send_email', mail, { approved: false });
+  assert.deepEqual(asked, [], 'remembered outbound grant answers the connector ask too');
+  assert.deepEqual(calls, ['send_email', 'send_email']);
+
+  asked.length = 0;
+  await run('mcp__alpha__write_it', {}, { approved: true, response: 'approve' });
+  assert.deepEqual(asked, [{ name: 'mcp__alpha__write_it', kind: 'approval' }], 'unclassified tool still asks');
 });

@@ -101,16 +101,6 @@
   .composer-footer {
     height: 48px;
   }
-  .studio-composer {
-    min-height: 108px;
-  }
-  .studio-composer textarea {
-    min-height: 72px;
-    padding: 14px 16px 10px;
-  }
-  .studio-composer-bar {
-    height: 48px;
-  }
   /* The closed trigger follows its label instead of painting the footer's
      entire remaining lane. Opening still supplies the sheet width inline. */
   .route-editor {

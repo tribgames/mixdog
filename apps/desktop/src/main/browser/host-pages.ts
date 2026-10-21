@@ -5,7 +5,7 @@
  */
 import type { BrowserWindow, WebContents } from 'electron';
 
-import type { DesktopBrowserOpenRequest } from '../../shared/contract';
+import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
 import type { BrowserCommand } from './command';
 import type { createBrowserDisplayTextures } from './display-textures';
 import type { createBrowserDisplayTracking } from './display-tracking';
@@ -15,11 +15,13 @@ import type { BrowserHostFoundation } from './host-foundation';
 import type { createBrowserHostPageIdentity } from './host-page-identity';
 import type { createBrowserLeaveConfirmation } from './leave-confirmation';
 import { createBrowserNativeViews } from './native-view';
+import { createPageFullscreen } from './page-fullscreen';
 import { trackBrowserPageIdentity } from './page-identity';
 import { captureBrowserPageThumbnail, readBrowserFavicon } from './page-identity-capture';
 import { browserPageWindow } from './page-window';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserTaskLifecycle } from './task-lifecycle';
+import { createUserTakesPage } from './user-takes-page';
 
 /** What every new guest is wired to as it appears. */
 function watchBrowserGuest(
@@ -28,6 +30,7 @@ function watchBrowserGuest(
     display: ReturnType<typeof createBrowserDisplayTracking>;
     displayTextures: ReturnType<typeof createBrowserDisplayTextures>;
     nativeViews: ReturnType<typeof createBrowserNativeViews> | null;
+    fullscreen: ReturnType<typeof createPageFullscreen> | null;
     leave: ReturnType<typeof createBrowserLeaveConfirmation>;
     pageIdentity: ReturnType<typeof createBrowserHostPageIdentity>['store'];
   }
@@ -36,6 +39,7 @@ function watchBrowserGuest(
   watchers.display.track(guest);
   watchers.displayTextures.attach(guest);
   watchers.nativeViews?.watch(guest);
+  watchers.fullscreen?.watch(guest);
   // Without a listener Electron keeps the page silently; a person's
   // request is asked about instead (see leave-confirmation).
   guest.on('will-prevent-unload', (event) => leave.vetoed(guest, () => event.preventDefault()));
@@ -71,12 +75,14 @@ export function createBrowserHostPages(options: {
     | 'cdp'
     | 'urlPolicy'
     | 'isBackgroundBusy'
+    | 'isForegroundBusy'
     | 'settle'
     | 'display'
     | 'displayTextures'
     | 'leave'
     | 'pageIdentity'
     | 'nativeView'
+    | 'sendToRenderer'
   >;
   onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
   /** Cancel the agent on a page a person took over natively. */
@@ -92,13 +98,23 @@ export function createBrowserHostPages(options: {
     cdp: base.cdp,
     urlPolicy: base.urlPolicy,
     isBackgroundBusy: base.isBackgroundBusy,
+    // A page with a queued or running command, or a download of its session,
+    // is still in use: a stand-in is not tidied away under it.
+    isPageBusy: (sessionId) =>
+      base.isForegroundBusy(sessionId) ||
+      base.partition.downloadLedger.downloadsForSession(sessionId).some((download) => download.state === 'in_progress'),
     waitForLoadSettle: base.settle.waitForLoadSettle,
-    onPopup: (opener, popup) => taskLifecycle.inherit(opener, popup),
+    // A popup the person brought up is theirs: no agent turn closes it.
+    onPopup: (opener, popup, selected) => {
+      taskLifecycle.inherit(opener, popup);
+      if (selected) retainGuest(popup);
+    },
     onGuest: (guest) =>
       watchBrowserGuest(guest, {
         display: base.display,
         displayTextures: base.displayTextures,
         nativeViews,
+        fullscreen,
         leave: base.leave,
         pageIdentity: base.pageIdentity.store,
       }),
@@ -117,12 +133,29 @@ export function createBrowserHostPages(options: {
           if (guest.isDestroyed()) return;
           const owner = sessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
           state.for(guest).userInput = true;
-          retainGuest(guest);
+          state.for(guest).actor = 'person';
+          state.for(guest).personDialogAnswerAt = undefined;
+          userTakesPage(guest);
           options.interruptForLocal({ action: 'remote_control', session_id: owner, tab: state.pageId(guest) });
         },
       })
     : null;
+  // A natively presented page is the shell's own view; Electron fullscreens it.
+  const fullscreen = base.nativeView
+    ? null
+    : createPageFullscreen({
+        shell: window,
+        sessionIdForGuest: (guest) => sessions.sessionIdForGuest(guest),
+        currentGuest: (sessionId) => sessions.currentGuest(sessionId),
+        changed: (sessionId, active) =>
+          base.sendToRenderer(DESKTOP_IPC.browserFullscreenChanged, { sessionId, active }),
+      });
   const taskLifecycle = createBrowserHostTaskLifecycle(sessions, state);
   const retainGuest = taskLifecycle.retain;
-  return { lifecycle, nativeViews, taskLifecycle, retainGuest };
+  const userTakesPage = createUserTakesPage({
+    sessionIdForGuest: (guest) => sessions.sessionIdForGuest(guest),
+    claimPage: lifecycle.claimPage,
+    retain: retainGuest,
+  });
+  return { lifecycle, nativeViews, fullscreen, taskLifecycle, retainGuest };
 }

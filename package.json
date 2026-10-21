@@ -98,7 +98,7 @@
     "test:office:live:all": "node scripts/run-office-live-tests.mjs all",
     "test:office:render": "node scripts/test-direct.mjs src/runtime/office/pptx-skill-kit.slow.test.mjs",
     "office:icons": "node scripts/office/build-pptx-icons.mjs",
-    "test:media": "node scripts/test-direct.mjs src/runtime/media/catalog.test.mjs src/runtime/media/lanes.test.mjs src/runtime/media/tool.test.mjs src/runtime/media/defaults.test.mjs src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs src/runtime/media/adapters/codex-image.test.mjs src/runtime/media/adapters/gemini-image.test.mjs",
+    "test:media": "node scripts/test-direct.mjs src/runtime/media/catalog.test.mjs src/runtime/media/lanes.test.mjs src/runtime/media/tool.test.mjs src/runtime/media/defaults.test.mjs src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs src/runtime/media/adapters/codex-image.test.mjs src/runtime/media/adapters/gemini-image.test.mjs src/runtime/media/adapters/image-api.test.mjs src/tui/session/session-api/media-lanes.test.mjs",
     "failures": "node scripts/tool-failures.mjs",
     "trace:llm": "node scripts/llm-trace-summary.mjs",
     "bench:office": "node src/runtime/office/bench/benchmark.mjs",

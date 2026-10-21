@@ -584,8 +584,14 @@ test('the supervisor reads the room as bounded, escaped data and never its tools
   assert.match(system, /exactly one JSON object on one line: no code fence, no text before or after it/);
   assert.match(system, /"scene" \("casual" or "work"\)/);
   assert.match(system, /When unsure, "work"/);
-  assert.match(system, /let two or three members react, not just one/);
-  assert.match(system, /Finish when the banter has run its course/);
+  assert.match(system, /let every member answer the user briefly, each in their own voice/);
+  assert.match(system, /Do not push members to agree with or echo each other\./);
+  assert.doesNotMatch(system, /react to it, tease, build on it/);
+  assert.doesNotMatch(system, /two or three members|three or four member messages/);
+  assert.match(system, /For other small talk to everyone, one member answers/);
+  assert.match(system, /Finish after one or two member messages; never stretch it\./);
+  assert.match(system, /names members, it is for them only: once every named member has answered, finish\./);
+  assert.match(system, /"비서야"/);
   assert.match(user, /"action", "scene", and with "speak" a "member" id/);
   const lines = user.split('\n');
   assert.equal(lines.filter((line) => line === '<room-data>').length, 1);
@@ -636,7 +642,72 @@ test('a supervisor step runs once on the Maintainer route with no prompt cache',
     ['system', 'user']
   );
   const unrouted = createRoomSupervisorCompletion({ loadConfig: () => ({}), resolveMaintenanceRoute: () => null });
-  await assert.rejects(unrouted({ members }), /no Maintainer route/);
+  assert.deepEqual(await unrouted({ members }), { action: 'unmanaged' }, 'no Maintainer model: unmoderated');
+});
+
+test('with no Maintainer model, a call to the whole room gives every member one turn, in order, and no more', async () => {
+  const run = scripted(
+    () => 'speech',
+    () => ({ action: 'unmanaged' })
+  );
+  // Even a speech that @mentions a peer starts no follow-up.
+  const plan = run.speak;
+  run.speak = async (id, turn) => {
+    await plan(id, turn);
+    return { result: 'speech', mention: id === 'a' ? 'c' : 'a' };
+  };
+  const result = await runRoomExchange({ members: ['a', 'b', 'c'], maxRounds: 3, maxMessages: 8, ...run });
+  assert.deepEqual(run.spoken, ['a', 'b', 'c']);
+  assert.deepEqual(result, { outcome: 'done', rounds: 1, steps: 1, messages: 3 });
+});
+
+test('with no Maintainer model, called members answer exactly once, in the order named', async () => {
+  const run = scripted(
+    () => 'speech',
+    () => ({ action: 'unmanaged' })
+  );
+  const plan = run.speak;
+  run.speak = async (id, turn) => {
+    await plan(id, turn);
+    return { result: 'speech', mention: 'c' };
+  };
+  const result = await runRoomExchange({
+    members: ['a', 'b', 'c'],
+    to: ['b', 'a'],
+    maxRounds: 3,
+    maxMessages: 8,
+    ...run,
+  });
+  assert.deepEqual(run.spoken, ['b', 'a']);
+  assert.equal(result.outcome, 'done');
+  assert.equal(result.messages, 2);
+});
+
+test('with no Maintainer model, a "Continue" with nobody called starts no turns; the message cap still bounds a whole-room call', async () => {
+  const quiet = scripted(
+    () => 'speech',
+    () => ({ action: 'unmanaged' })
+  );
+  const idle = await runRoomExchange({ members: ['a', 'b'], maxRounds: 3, maxMessages: 8, waiting: false, ...quiet });
+  assert.deepEqual(quiet.spoken, []);
+  assert.equal(idle.outcome, 'done');
+  const cap = scripted(
+    () => 'speech',
+    () => ({ action: 'unmanaged' })
+  );
+  const capped = await runRoomExchange({ members: ['a', 'b', 'c'], maxRounds: 3, maxMessages: 2, ...cap });
+  assert.deepEqual(cap.spoken, ['a', 'b']);
+  assert.deepEqual([capped.outcome, capped.limit, capped.remaining], ['capped', 'messages', ['c']]);
+});
+
+test('with a Maintainer model, the moderator still runs the talk: follow-ups, rounds and when to stop', async () => {
+  const run = scripted(
+    () => 'speech',
+    (_step, n) => [SPEAK('b'), SPEAK('a'), FINISH][n - 1]
+  );
+  const result = await runRoomExchange({ members: ['a', 'b', 'c'], to: ['c'], maxRounds: 3, maxMessages: 8, ...run });
+  assert.deepEqual(run.spoken, ['c', 'b', 'a']);
+  assert.deepEqual([result.outcome, result.steps, result.messages], ['done', 3, 3]);
 });
 
 test('pass markers never leak; the room knows when the user waits', () => {
@@ -727,7 +798,17 @@ test('a casual turn asks for short in-character banter; peers stay data; work ke
   ];
   const casual = roomTurnPrompt({ ...base, rows, scene: 'casual' });
   assert.match(casual, /casual small talk, not a task\. Talk like a person in a group chat: short/);
-  assert.match(casual, /React to what was just said, to the previous speaker by name/);
+  assert.match(casual, /Reply with your own take, in your own voice, as plain text/);
+  assert.doesNotMatch(casual, /React to what was just said|pull one other member in/);
+  assert.match(casual, /that is the exception, not how every message starts/);
+  assert.match(
+    casual,
+    /You may agree with, build on or mention another member when it fits naturally, but not by default and not every turn/
+  );
+  assert.match(
+    casual,
+    /short call to the room \(such as "주목" or "얘들아"\), reply briefly in your own voice; at most an occasional natural nod/
+  );
   assert.match(casual, /Do not offer help or ask what the user needs unless they asked for help/);
   assert.match(casual, /Never say you have nothing to add or nothing to report; .*reply exactly "\(pass\)"/);
   assert.doesNotMatch(casual, /Do not repeat another member just to agree|Speak only to answer an open question/);

@@ -17,6 +17,7 @@ import {
   resolveAutoClearIdleMs,
   autoClearIdleMsForProvider,
   autoClearProviderDefaults,
+  parseDurationMs,
 } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
 import {
@@ -875,9 +876,61 @@ test('getAutoClear: provider override beats global idleMs and is flagged', () =>
       resolveAutoClearIdleMs,
       autoClearIdleMsForProvider,
       autoClearProviderDefaults,
+      formatDurationMs: String,
     });
     const result = api.getAutoClear();
     assert.equal(result.idleMs, idleMs);
     assert.equal(result.providerCustom, providerCustom);
   }
+});
+
+test('Desktop schema accepts font, skin transparency and color theme options', () => {
+  const { appearance } = SETUP_TOOL_DEFS[0].inputSchema.properties;
+  const valid = { uiFont: 'Inter', codeFont: '', skinTransparency: 0, colorTheme: 'builtin' };
+  assert.equal(schemaValueError(valid, appearance, 'appearance'), null);
+  assert.match(schemaValueError({ skinTransparency: 101 }, appearance, 'appearance'), /at most 100/);
+  assert.match(schemaValueError({ skinTransparency: -1 }, appearance, 'appearance'), /at least 0/);
+  assert.match(schemaValueError({ skinTransparency: 50.5 }, appearance, 'appearance'), /integer/);
+  assert.equal(
+    schemaValueError({ skinOuterTransparency: 0, skinMainTransparency: 100 }, appearance, 'appearance'),
+    null
+  );
+  assert.match(schemaValueError({ skinOuterTransparency: 101 }, appearance, 'appearance'), /at most 100/);
+  assert.match(schemaValueError({ skinMainTransparency: -1 }, appearance, 'appearance'), /at least 0/);
+  assert.match(schemaValueError({ skinMainTransparency: 1.5 }, appearance, 'appearance'), /integer/);
+  assert.match(schemaValueError({ uiFont: 3 }, appearance, 'appearance'), /string/);
+});
+
+test('auto-clear unlimited reaches the provider window; a bare unlimited means the current route provider', async () => {
+  let config = { autoClear: { enabled: true, idleMs: null, providerIdleMs: {}, minContextPercent: 10 } };
+  const api = createSettingsApi({
+    getConfig: () => config,
+    getRoute: () => ({ provider: 'openai' }),
+    getSession: () => null,
+    getSessionGeneration: () => 0,
+    hasOwn: (value, key) => Object.hasOwn(value, key),
+    normalizeAutoClearConfig,
+    normalizeCompactionConfig,
+    resolveAutoClearIdleMs,
+    autoClearIdleMsForProvider,
+    autoClearProviderDefaults,
+    parseDurationMs,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+    formatDurationMs: String,
+    invalidateContextStatusCache: () => {},
+  });
+  const status = await run(api, { action: 'set_autoclear', autoclear: { duration: 'unlimited' } });
+  assert.deepEqual(config.autoClear.providerIdleMs, { openai: 0 });
+  assert.equal(status.unlimited, true);
+  assert.equal(status.label, 'unlimited');
+  await run(api, { action: 'set_autoclear', autoclear: { provider: 'gemini', duration: 'never' } });
+  assert.deepEqual(config.autoClear.providerIdleMs, { openai: 0, gemini: 0 });
+  await run(api, { action: 'set_autoclear', autoclear: { provider: 'openai', duration: '30m' } });
+  assert.equal(config.autoClear.providerIdleMs.openai, 1800000);
+  assert.equal(api.getAutoClear().unlimited, false);
+  const codex = api.getAutoClear.call(api);
+  assert.equal(codex.provider, 'openai');
+  assert.equal(autoClearProviderDefaults(null).find((row) => row.provider === 'openai-oauth').unlimited, true);
 });

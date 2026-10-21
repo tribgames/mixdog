@@ -278,8 +278,9 @@ test('finished agents stay counted and listed after the active ones; the Lead ro
     poolAgent('parent-d', { sessionId: 's-parent', stage: 'idle', status: 'idle' }),
     poolAgent('child-e', { sessionId: 's-child', parentSessionId: 's-parent' }),
   ]);
-  // The total, finished included; the mark alone says something runs.
-  assert.match(segment().textContent, /^5 agents/);
+  // The total, finished included; the parent waiting on its child is still at
+  // work, so both count as running.
+  assert.equal(segment().textContent, '5 agentsRunning 2');
   assert.ok(segment().querySelector('svg.composer-island-seg-icon'));
   assert.ok(segment().querySelector('.composer-island-pulse'));
   await act(async () => segment().click());
@@ -806,11 +807,24 @@ test('an unpriced turn drops only the cost from the agents summary', async (t) =
     agents: ledgerUsage(300, { unpriced: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unpriced: 1 }), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
   });
+  // Unpriced stays "-" (never a $0.00); the exact figures are still shown.
   assert.deepEqual(
-    [...summary.children].map((part) => part.firstChild.textContent.trim()),
-    [translate('Island: Total tokens'), translate('Island: Cache hit rate')]
+    [...summary.children].map((part) => part.textContent),
+    [
+      `${translate('Island: Total tokens')} 1.3K (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1K', agents: '300' })})`,
+      `${translate('Island: Cache hit rate')} 38.5%`,
+      `${translate('Island: Approx. cost')} -`,
+    ]
   );
 });
+
+// Every figure the footer cannot show reads "-" in its reserved slot (the Lead
+// and Agents split included), so the three stats exist from the first render.
+const unknownSummary = () => [
+  `${translate('Island: Total tokens')} - (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '-', agents: '-' })})`,
+  `${translate('Island: Cache hit rate')} -`,
+  `${translate('Island: Approx. cost')} -`,
+];
 
 test('an unmeasured agent turn drops every combined figure; an unmeasured or missing row drops its own', async (t) => {
   const { summary, meta, rowTokens } = await usagePanel(t, {
@@ -821,16 +835,60 @@ test('an unmeasured agent turn drops every combined figure; an unmeasured or mis
   // The agents' share is unknown: no total, cache rate or cost: the footer
   // keeps its line empty (so the rows never move when figures arrive); the
   // header counts stay.
-  assert.equal(summary.querySelector('b'), null);
+  assert.deepEqual(
+    [...summary.children].map((part) => part.textContent),
+    unknownSummary()
+  );
   assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': '100' });
 });
 
-test('without a usage read only the header counts remain', async (t) => {
+test('without a usage read the footer holds "-" placeholders and the header counts remain', async (t) => {
   const { summary, meta, rowTokens } = await usagePanel(t, null);
-  assert.equal(summary.querySelector('b'), null);
+  assert.deepEqual(
+    [...summary.children].map((part) => part.textContent),
+    unknownSummary()
+  );
   assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': null });
+});
+
+test('the footer is laid out with "-" while getSessionUsage is pending, then filled in place', async (t) => {
+  const { root, document, window, publishPool } = mount(t);
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability !== 'getSessionUsage') return { value: null };
+    await gate;
+    return {
+      value: {
+        ...ledgerUsage(1_000, { cacheRead: 500, costUsd: 1 }),
+        agents: ledgerUsage(300, { costUsd: 0.5 }),
+        sessions: {},
+      },
+    };
+  };
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await publishPool([poolAgent('run-a', { sessionId: 's-a' })]);
+  await act(async () => document.querySelector('.composer-island-seg-agents').click());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  const parts = () => [...document.querySelector('.composer-island-summary').children];
+  const shapes = () => parts().map((part) => [part.className, part.dataset.reserve, part.querySelector('b') !== null]);
+  const before = shapes();
+  assert.deepEqual(
+    parts().map((part) => part.textContent),
+    unknownSummary()
+  );
+  assert.equal(before.length, 3);
+  release();
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  assert.deepEqual(shapes(), before, 'same elements and reserved boxes before and after the answer');
+  assert.deepEqual(
+    parts().map((part) => part.querySelector('b').textContent),
+    ['1.3K', '38.5%', '$1.50']
+  );
 });
 
 test('the usage summary model sums exact sessions only', async () => {
@@ -1234,6 +1292,158 @@ function islandPage(t) {
       `
   );
 }
+
+/** A full island (13 agents / 2 running, a long branch, many changed files
+ *  with big diff numbers, the git action) on a real page with the app's CSS. */
+function crowdedIslandPage(t) {
+  return realPage(
+    t,
+    `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
+        const rows = Array.from({ length: 13 }, (_, index) => ({
+          tag: 'agent-' + index,
+          agent: 'worker',
+          ownerSessionId: 'crowded',
+          stage: index < 2 ? 'running' : 'done',
+          status: index < 2 ? 'running' : 'done',
+          startedAt: Date.now() - 5000,
+        }));
+        window.mixdogDesktop = { listAgentPool: async () => rows, subscribeAgentPool: () => {} };
+        const root = createRoot(document.getElementById('root'));
+        const h = React.createElement;
+        window.__render = () =>
+          flushSync(() =>
+            root.render(
+              h(ComposerIsland, {
+                sessionId: 'crowded',
+                branch: () =>
+                  h('button', { type: 'button', className: 'composer-island-seg composer-island-seg-branch' },
+                    h(IslandSegLabel, { text: '', count: 0, icon: 'git-branch' }),
+                    h('span', { className: 'composer-island-seg-text' },
+                      h('span', { className: 'composer-island-seg-label' },
+                        h('span', { className: 'composer-island-seg-prefix' }, 'feature/'), 'island-fits-narrow-phones'))),
+                files: h('button', { type: 'button', className: 'composer-island-seg turn-review-segment' },
+                  h(IslandSegLabel, { text: '1041 files', count: 1041, icon: 'file-diff' }),
+                  h('span', { className: 'diff-stats' }, h('i', null, '+76424'), ' ', h('em', null, '-13245'))),
+                git: h('span', { className: 'composer-island-seg composer-island-git' },
+                  h('button', { type: 'button', className: 'composer-island-git-main' }, h('span', null, 'Git'))),
+              })
+            )
+          );
+      `
+  );
+}
+
+for (const width of [900, 412, 360, 300]) {
+  test(`a crowded island fits its room and never clips at ${width}px`, async (t) => {
+    const page = await crowdedIslandPage(t);
+    await page.setViewport({ width, height: 800 });
+    if (width < 500) await page.evaluate(() => document.documentElement.setAttribute('data-mixdog-mobile-tabs', ''));
+    // The island is measured at small type first (a web font still loading, a
+    // fallback face), then the real type lands with no content or room change.
+    await page.addStyleTag({ content: '.composer-island, .composer-island * { font-size: 3px !important; }' });
+    await page.evaluate(() => window.__render());
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+    await page.evaluate(() => document.head.lastElementChild.remove());
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+    const fit = await page.evaluate(() => {
+      const island = document.querySelector('.composer-island');
+      const pill = island.querySelector('.composer-island-pill');
+      const edge = island.getBoundingClientRect().right;
+      return {
+        agents: document.querySelectorAll('.composer-island-seg-agents').length,
+        island: [island.scrollWidth, island.clientWidth],
+        pill: [pill.scrollWidth, pill.clientWidth],
+        pastEdge: [...pill.querySelectorAll('.composer-island-seg')]
+          .filter((seg) => seg.getClientRects().length && seg.getBoundingClientRect().right > edge + 0.5)
+          .map((seg) => seg.className),
+        attrs: [...island.attributes].map((a) => a.name).filter((n) => n.startsWith('data-')),
+      };
+    });
+    if (process.env.ISLAND_SHOT_DIR)
+      await page.screenshot({ path: `${process.env.ISLAND_SHOT_DIR}/island-${width}.png` });
+    console.log(width, JSON.stringify(fit));
+    assert.equal(fit.agents, 1);
+    assert.ok(fit.island[0] <= fit.island[1], `island clipped: ${JSON.stringify(fit)}`);
+    assert.ok(fit.pill[0] <= fit.pill[1], `pill clipped: ${JSON.stringify(fit)}`);
+    assert.deepEqual(fit.pastEdge, [], JSON.stringify(fit));
+  });
+}
+
+test("the overlay bot pinned above the message box takes its width from the island's room: compact where it was full", async (t) => {
+  const page = await realPage(
+    t,
+    `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
+        import { setPetIslandReserve } from './composer-island-state.ts';
+        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        const region = document.getElementById('root');
+        const elsewhere = document.body.appendChild(document.createElement('div'));
+        window.__reserve = (width, here = true) => setPetIslandReserve(here ? region : elsewhere, width);
+        const h = React.createElement;
+        flushSync(() =>
+          createRoot(region).render(
+            h(ComposerIsland, {
+              sessionId: 'reserve',
+              files: h('button', { type: 'button', className: 'composer-island-seg turn-review-segment' },
+                h(IslandSegLabel, { text: '12 files changed', count: 12, icon: 'file-diff' }),
+                h('span', { className: 'diff-stats' }, h('i', null, '+764'), ' ', h('em', null, '-132'))),
+              git: h('span', { className: 'composer-island-seg composer-island-git' },
+                h('button', { type: 'button', className: 'composer-island-git-main' }, h('span', null, 'Git'))),
+            })
+          )
+        );
+      `
+  );
+  await page.setViewport({ width: 900, height: 800 });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+  const state = (reserve, here) =>
+    page.evaluate(
+      (width, inRegion) => {
+        if (width !== undefined) window.__reserve(width, inRegion);
+        const island = document.querySelector('.composer-island');
+        return {
+          compact: island.hasAttribute('data-compact'),
+          room: island.parentElement.clientWidth,
+          pill: island.querySelector('.composer-island-pill').offsetWidth,
+        };
+      },
+      reserve,
+      here
+    );
+  const full = await state();
+  assert.equal(full.compact, false, `full labels in the room: ${JSON.stringify(full)}`);
+  // The pill is centred: it clears the bot while room - 2 x reserve still holds it.
+  const slack = full.room - full.pill;
+  assert.ok(slack > 2, JSON.stringify(full));
+  assert.equal((await state(Math.floor(slack / 2))).compact, false, 'clears the bot: full');
+  const pinned = await state(Math.floor(slack / 2) + 1);
+  assert.equal(pinned.compact, true, 'would run under the bot: compact');
+  assert.ok(pinned.pill < full.pill);
+  assert.equal(pinned.room, full.room, 'the room itself is unchanged');
+  assert.equal((await state(Math.floor(slack / 2) + 1, false)).compact, false, "another pane's bot: full");
+  assert.equal((await state(Math.floor(slack / 2) + 1)).compact, true);
+  assert.equal((await state(0)).compact, false, 'unpinned (0): full again');
+  // Room for the full pill beside Mixy at 100% (main's reserve: its art from
+  // column 1, 52.5px, + the 2px inset + 4px = 59 a side): a room 2 x 59 wider
+  // than the pill keeps it full, where the whole sprite box (66) went compact.
+  await page.setViewport({ width: full.pill + 2 * 59, height: 800 });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  const beside = await state(59);
+  assert.equal(beside.room, full.pill + 2 * 59, JSON.stringify(beside));
+  assert.equal(beside.compact, false, `full beside the bot's art: ${JSON.stringify(beside)}`);
+  assert.equal((await state(66)).compact, true, 'the whole sprite box would not fit');
+  // A pill one px wider each side would reach the art's clearance: compact.
+  await page.setViewport({ width: full.pill + 2 * 59 - 2, height: 800 });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  assert.equal((await state(59)).compact, true, 'would reach the visible art');
+});
 
 /** ComposerDock on a real page: a New Task draft (context bar) or a session. */
 function dockPage(t) {
@@ -2669,15 +2879,15 @@ test('the git action shows with files or commits ahead, and never outside a repo
   await t.test('files', async (t) => {
     const { document } = await gitDock(t, { cwd: 'C:/git-vis-files', files: ['a.ts'] });
     assert.ok(gitMain(document));
-    assert.equal(gitMain(document).textContent, translate('Create PR'), 'Create PR by default');
-    // A plain island segment: the action and the chevron in one segment.
+    assert.equal(gitMain(document).textContent, translate('Git'));
+    // One island segment: a single button, no separate menu chevron.
     const segment = document.querySelector('.composer-island-git');
     assert.ok(segment.classList.contains('composer-island-seg'));
     assert.deepEqual(
       [...segment.children].map((node) => node.className),
-      ['composer-island-git-main', 'composer-island-git-caret']
+      ['composer-island-git-main']
     );
-    assert.ok(segment.querySelector('.composer-island-git-caret svg.lucide-chevron-down'));
+    assert.equal(segment.querySelector('svg.lucide-chevron-down'), null);
   });
   await t.test('ahead only', async (t) => {
     const { document } = await gitDock(t, { cwd: 'C:/git-vis-ahead', ahead: 2 });
@@ -2694,20 +2904,18 @@ test('the git action shows with files or commits ahead, and never outside a repo
   });
 });
 
-test('the ▾ tab picks the action; only the island button sends it, and the choice is kept per repository', async (t) => {
+test('the git button opens the Git tab; each row runs its own action and nothing is pre-selected', async (t) => {
   const cwd = 'C:/git-pick';
-  const { document, window, sent, render } = await gitDock(t, { cwd, files: ['a.ts', 'b.ts'] });
-  window.localStorage.removeItem(`mixdog:island-git-action:${cwd}`);
+  const { document, sent, render } = await gitDock(t, { cwd, files: ['a.ts', 'b.ts'] });
   await render();
   const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  // The main part sends the chosen action (Create PR by default) at once.
+  // The button sends nothing itself: it opens the Git tab (chip, branch ·
+  // files, three actions each with its own Run, Source Control).
+  const panel = () => document.querySelector('.composer-island-git-panel');
   await act(async () => gitMain(document).click());
   await flush();
-  assert.deepEqual(sent, [{ sessionId: 'island-session', action: 'pr' }]);
-  // ▾ opens the Git tab: chip, branch · files, the three choices with ✓, Source Control.
-  const caret = () => document.querySelector('.composer-island-git-caret');
-  const panel = () => document.querySelector('.composer-island-git-panel');
-  await act(async () => caret().click());
+  assert.deepEqual(sent, [], 'the button only opens the tab');
+  assert.equal(gitMain(document).getAttribute('aria-expanded'), 'true');
   assert.equal(document.querySelector('.composer-island').dataset.expanded, 'git');
   assert.ok(document.querySelector('.composer-island').contains(panel()));
   assert.equal(panel().querySelector('.composer-island-tab').textContent, translate('Git'));
@@ -2715,23 +2923,19 @@ test('the ▾ tab picks the action; only the island button sends it, and the cho
     panel().querySelector('.composer-island-phead-meta').textContent,
     `main · ${translate('Files {{count}}', { count: 2 })}`
   );
-  const picks = () => [...panel().querySelectorAll('.composer-island-git-pick')];
+  const labels = () => [...panel().querySelectorAll('.composer-island-git-label')];
   const runs = () => [...panel().querySelectorAll('.composer-island-git-run')];
   assert.deepEqual(
-    picks().map((pick) => [pick.textContent, pick.getAttribute('aria-pressed')]),
-    [
-      [translate('Create PR'), 'true'],
-      [translate('Commit · push'), 'false'],
-      [translate('Commit'), 'false'],
-    ]
+    labels().map((label) => label.textContent),
+    [translate('Create PR'), translate('Commit · push'), translate('Commit')]
   );
-  // ✓ on the chosen row, left of its Run; every row has its own Run.
+  // A row is the action's label and its own Run; no ✓, no pressed state.
   const firstRow = panel().querySelector('.composer-island-git-row');
   assert.deepEqual(
     [...firstRow.children].map((node) => node.className),
-    ['composer-island-git-pick', 'composer-island-button composer-island-git-run']
+    ['composer-island-git-label', 'composer-island-button composer-island-git-run']
   );
-  assert.ok(picks()[0].lastElementChild.classList.contains('composer-island-git-check'));
+  assert.equal(panel().querySelector('[aria-pressed], [data-selected], .composer-island-git-check'), null);
   assert.deepEqual(
     runs().map((run) => [run.textContent, run.getAttribute('aria-label')]),
     [
@@ -2744,57 +2948,23 @@ test('the ▾ tab picks the action; only the island button sends it, and the cho
     panel().querySelector('.composer-island-git-foot button').textContent,
     translate('Island: Source Control')
   );
-  // Choosing a row's body sends nothing: it sets the button and collapses the tab.
-  await act(async () => picks()[2].click());
-  await flush();
-  assert.equal(panel(), null);
-  assert.equal(sent.length, 1, 'choosing sends nothing');
-  assert.equal(gitMain(document).textContent, translate('Commit'));
-  assert.equal(window.localStorage.getItem(`mixdog:island-git-action:${cwd}`), 'commit');
-  await act(async () => caret().click());
-  assert.equal(picks()[2].getAttribute('aria-pressed'), 'true');
-  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
-  assert.equal(panel(), null);
+  // Clicking the button again closes the tab without sending.
   await act(async () => gitMain(document).click());
-  await flush();
-  assert.deepEqual(
-    sent.map((entry) => entry.action),
-    ['pr', 'commit']
-  );
-  // A row's Run sends that action at once, selects it and collapses the tab.
-  await act(async () => caret().click());
-  await act(async () => runs()[1].click());
+  assert.equal(panel(), null);
+  assert.deepEqual(sent, []);
+  // A row's Run sends that action at once and collapses the tab; the
+  // button stays "Git" — nothing is remembered as a choice.
+  await act(async () => gitMain(document).click());
+  await act(async () => runs()[2].click());
   await flush();
   assert.equal(panel(), null);
+  assert.deepEqual(sent, [{ sessionId: 'island-session', action: 'commit' }]);
+  assert.equal(gitMain(document).textContent, translate('Git'));
+  await act(async () => gitMain(document).click());
+  await act(async () => runs()[0].click());
+  await flush();
   assert.deepEqual(
     sent.map((entry) => entry.action),
-    ['pr', 'commit', 'commit-push']
+    ['commit', 'pr']
   );
-  assert.equal(gitMain(document).textContent, translate('Commit · push'));
-  assert.equal(window.localStorage.getItem(`mixdog:island-git-action:${cwd}`), 'commit-push');
-});
-
-test('the git action choice survives a remount and is read per repository root', async (t) => {
-  const cwd = 'C:/git-kept';
-  const first = await gitDock(t, { cwd, files: ['a.ts'] });
-  first.window.localStorage.setItem(`mixdog:island-git-action:${cwd}`, 'commit-push');
-  // A fresh island (another session's route, then back) reads the stored choice.
-  await act(async () =>
-    first.root.render(React.createElement(ComposerDock, dockProps({ reviewSessionId: 'elsewhere' })))
-  );
-  await first.render();
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  assert.equal(gitMain(first.document).textContent, translate('Commit · push'));
-  await act(async () => gitMain(first.document).click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  assert.deepEqual(
-    first.sent.map((entry) => entry.action),
-    ['commit-push']
-  );
-});
-
-test('another repository root starts at Create PR', async (t) => {
-  const { document, window } = await gitDock(t, { cwd: 'C:/git-kept-other', files: ['a.ts'] });
-  assert.equal(window.localStorage.getItem('mixdog:island-git-action:C:/git-kept-other'), null);
-  assert.equal(gitMain(document).textContent, translate('Create PR'));
 });

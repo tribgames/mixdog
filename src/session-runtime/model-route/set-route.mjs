@@ -24,6 +24,11 @@ import {
 } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
 import { rebuildToolSurfaceForProviderWithMigration } from '../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
 import { UNOWNED_LEASE, openRouteLease } from './route-ownership.mjs';
+import { resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { ownerRouteFallbacks } from '../../runtime/agent/orchestrator/session/manager/owner-route-fallbacks.mjs';
+import { normalizeWorkflowRoute } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import { routeChain, validateRouteChainProviders } from '../../runtime/shared/model-route-chain.mjs';
+import { resolveChainEntry } from '../workflow-agents-api/agent-route.mjs';
 
 /** The request, completed from the live route where the caller left gaps. */
 function completeRequest(deps, next) {
@@ -105,6 +110,32 @@ async function recreateEmptySession(deps, lease) {
   if (closed) await createCurrentSession('model-switch-empty');
 }
 
+/** The fallback chain a Lead-class session follows on `route`: its owner's chain
+ *  while the route is the owner's primary model, none otherwise (see
+ *  owner-route-fallbacks.mjs). Nothing for an agent's session, which keeps its own. */
+export function sessionRouteFallbackFields(deps, session, route) {
+  const { mode, agentId } = resolveSessionMode({ session });
+  if (!agentId) return {};
+  return {
+    routeFallbacks: ownerRouteFallbacks({
+      sessionMode: mode,
+      agentId,
+      provider: route.provider,
+      model: route.model,
+      config: deps.getConfig(),
+    }),
+  };
+}
+
+/** A same-model selection (a bot profile saved with new fallbacks) restarts the
+ *  addressed session's chain when the owner's chain no longer matches it. */
+function refreshSessionFallbacks(deps, session) {
+  const fields = sessionRouteFallbackFields(deps, session, deps.getRoute());
+  if (!fields.routeFallbacks) return;
+  if (JSON.stringify(fields.routeFallbacks) === JSON.stringify(session.routeFallbacks || [])) return;
+  deps.mgr.updateSessionRoute?.(session.id, fields, { session });
+}
+
 /** Rewrite the addressed empty session to the route it was asked to run on. */
 function updateSessionInPlace(deps, session, updateOptions) {
   const { getRoute, getSession, setSession, mgr, statusRoutes } = deps;
@@ -119,6 +150,7 @@ function updateSessionInPlace(deps, session, updateOptions) {
     contextPercent: route.contextPercent,
     contextTokens: route.contextTokens || null,
     selectedContextWindow: route.selectedContextWindow || null,
+    ...sessionRouteFallbackFields(deps, session, route),
   };
   const updated = mgr.updateSessionRoute?.(session.id, fields, updateOptions);
   if (updated) setSession(updated);
@@ -183,6 +215,27 @@ function switchSessionInPlace(deps, session) {
   return recorded ? boundary : null;
 }
 
+/** The Lead's fallback models after this selection, checked like an agent's
+ *  chain (leaf routes, distinct providers): an explicit list replaces the
+ *  stored one ([] clears it), a selection without one keeps it. */
+async function leadFallbackChain(deps, next, primary) {
+  const storedPreset = findPreset(deps.getConfig(), workflowPresetId('lead'));
+  const requested = hasOwn(next || {}, 'fallbacks') ? next.fallbacks : storedPreset?.fallbacks;
+  if (!Array.isArray(requested) || !requested.length) return [];
+  const chain = routeChain({ provider: primary.provider, model: primary.model, fallbacks: requested });
+  validateRouteChainProviders(chain);
+  const storedChain = routeChain(storedPreset || {});
+  // Each entry goes through the agents' normalizer (fast clamp, context window).
+  const resolved = [];
+  for (const entry of chain.slice(1)) {
+    const previous = storedChain.find((c) => c.provider === entry.provider && c.model === entry.model);
+    resolved.push(await resolveChainEntry(deps, entry, previous || {}));
+  }
+  return (
+    normalizeWorkflowRoute({ provider: primary.provider, model: primary.model, fallbacks: resolved })?.fallbacks || []
+  );
+}
+
 /** Validate, persist and adopt the requested route as the runtime's route. */
 async function adoptRoute(deps, persist, next, options, lease) {
   const {
@@ -195,6 +248,12 @@ async function adoptRoute(deps, persist, next, options, lease) {
     scheduleStatuslineUsageRefresh,
   } = deps;
   const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
+  // The Lead's fallback chain travels with an explicit main-model choice only
+  // (the Lead editor, the setup tool); a session's own pick never touches it.
+  const persistedRoute =
+    options?.keepMainModel === false && options?.sessionOnly !== true
+      ? { ...selectedRoute, fallbacks: await leadFallbackChain(deps, next, selectedRoute) }
+      : selectedRoute;
   // The Lead route a conditional fill wrote, until the file confirms it.
   let filled = null;
   // Provider readiness may outlast the session the selection was made for.
@@ -222,7 +281,7 @@ async function adoptRoute(deps, persist, next, options, lease) {
         // The main model changes only on an explicit main-model choice
         // (keepMainModel: false, e.g. the setup tool); every other selection
         // — the session surface's model pick, an heir — keeps it.
-        const leadRoute = persist.persistAdoptedModelSettings(selectedRoute, {
+        const leadRoute = persist.persistAdoptedModelSettings(persistedRoute, {
           keepMainModel: options?.keepMainModel !== false,
           onlyIfAbsent: options?.onlyIfEmpty === true,
         });
@@ -340,6 +399,7 @@ export function createSetRoute(deps, persist) {
         return modelSwitch ? { ...getRoute(), modelSwitch } : getRoute();
       }
       persist.applySessionTuning();
+      refreshSessionFallbacks(deps, session);
       return getRoute();
     }
     // An addressed runtime keeps its durable id: the empty session is updated

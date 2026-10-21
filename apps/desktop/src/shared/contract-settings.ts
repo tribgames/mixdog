@@ -24,6 +24,11 @@ export interface DesktopTidyEngine {
   bytes?: number;
   /** How the user can provide a missing engine themselves. */
   installHint?: string;
+  /** Missing core engine that the Install/Retry control can download now. */
+  installable?: boolean;
+  /** Host-module engine whose probe has not answered yet: neither installed
+   *  nor known to be missing. */
+  probing?: boolean;
 }
 
 export type DesktopTidyInstallEngineStatus = 'pending' | 'downloading' | 'installed' | 'present' | 'skipped' | 'failed';
@@ -58,6 +63,8 @@ export interface DesktopTidyEngineStatus {
   /** Engine ids the built-in Install provisions. */
   core: string[];
   engines: DesktopTidyEngine[];
+  /** Some engine's host probe is still pending; ask again shortly. */
+  probing?: boolean;
   /** Null until this runtime has run an install. */
   installing: DesktopTidyInstallStatus | null;
 }

@@ -8,6 +8,7 @@ import test from 'node:test';
 import { runProcessOffThread } from '../../../../src/runtime/shared/process-runner.mjs';
 import {
   GIT_READ_TIMEOUT_MS,
+  isGitTimeout,
   run,
   runRead,
   runWithInput,
@@ -119,6 +120,23 @@ test('a timed-out read fails status and review instead of answering "no changes"
   // The reads started beside the scan still run in the repository; let them
   // finish before it is removed.
   await Promise.allSettled(children);
+});
+
+test('a git deadline carries EGITTIMEOUT, never the ETIMEDOUT the session transport reads as a dead daemon', async (t) => {
+  setGitProcessRunner(() =>
+    Promise.reject(
+      Object.assign(new Error('git rev-parse --verify HEAD timed out after 60000ms'), { code: 'ETIMEDOUT' })
+    )
+  );
+  t.after(() => setGitProcessRunner(null));
+  const root = tmpdir();
+  await assert.rejects(runRead(root, ['rev-parse', '--verify', 'HEAD']), { code: 'EGITTIMEOUT' });
+  await assert.rejects(
+    streamNulRecords(root, ['ls-files', '-z'], () => {}, { timeoutMs: 1 }),
+    { code: 'EGITTIMEOUT' }
+  );
+  assert.equal(isGitTimeout(Object.assign(new Error('x'), { code: 'EGITTIMEOUT' })), true);
+  assert.equal(isGitTimeout(Object.assign(new Error('x'), { code: 'ETIMEDOUT' })), false);
 });
 
 test('a burst of off-thread git children never holds the event loop for a spawn', async (t) => {

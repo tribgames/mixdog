@@ -19,6 +19,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopBranchMenu } from '../shared/contract';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 import { BranchRowActions } from './branch-row-actions';
 import { useMobileBack } from './mobile-back';
 import { MxIcon } from './MxIcon';
@@ -607,9 +608,7 @@ export function WorktreeCarryDialog({
     // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; Escape is handled on the layer.
     <div
       className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onChoose(null);
-      }}
+      {...scrimDismiss(() => onChoose(null))}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return;
         event.preventDefault();

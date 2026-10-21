@@ -95,7 +95,7 @@ export function createPanelCommands(
      *  compare and restore. The user's own commands apply at once even while
      *  an agent turn holds the panel (turn-hold.ts); a frame's automatic
      *  reports (`render`, `blocked`) do not lift it. */
-    async command(command: DesktopVisualizeTabCommand): Promise<VisualizeCommandResult | void> {
+    async command(command: DesktopVisualizeTabCommand): Promise<VisualizeCommandResult | undefined> {
       // A card's picture is a read: it changes nothing and never lifts a hold.
       if (command.action === 'thumbnail') {
         const tab = sessions.get(command.sessionId)?.tabs.find((candidate) => candidate.id === command.tabId);

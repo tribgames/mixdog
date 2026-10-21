@@ -35,9 +35,22 @@ export function createStyleAndModeApi(deps) {
     return { ...freshStatus, appliedToCurrentSession };
   }
 
-  async function setOrchestrationMode(mode) {
+  // `{ scope: 'session' }` (the composer's selector in a session), like
+  // setWorkflow: a session with a conversation switches alone
+  // (switchSessionOrchestrationMode; deferred to its next turn while one
+  // runs) and the configured mode — the default for new sessions — stays.
+  // Otherwise the choice becomes the configured mode and an empty session
+  // picks it up in place.
+  async function setOrchestrationMode(mode, options = {}) {
     if (!ORCHESTRATION_MODES.includes(mode)) {
       throw new Error(`orchestration mode must be one of ${ORCHESTRATION_MODES.join(', ')}`);
+    }
+    if (options?.scope === 'session') {
+      const switched = await deps.switchSessionOrchestrationMode?.(mode);
+      if (switched) {
+        invalidateContextStatusCache();
+        return switched;
+      }
     }
     saveConfigAndAdopt({ ...getConfig(), orchestrationMode: mode });
     const applied = await deps.refreshEmptySessionToolPolicy?.();

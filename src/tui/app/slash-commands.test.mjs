@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeSlashCommandName, overlayBlocksGlobalTranscriptScroll, slashArgumentHint } from './slash-commands.mjs';
 import {
-  BTW_CHROME_ROWS,
-  btwContentRows,
-  btwPanelRows,
-  btwScrollMax,
-  btwScrollOffset,
-} from './btw-controller.mjs';
+  normalizeSlashCommandName,
+  overlayBlocksGlobalTranscriptScroll,
+  slashArgumentHint,
+} from './slash-commands.mjs';
+import { BTW_CHROME_ROWS, btwContentRows, btwPanelRows, btwScrollMax, btwScrollOffset } from './btw-controller.mjs';
 
 test('a command name resolves through its aliases, and an unknown one stays as typed', () => {
   assert.equal(normalizeSlashCommandName('clear'), 'clear');
@@ -38,7 +36,7 @@ test('btw scroll offsets page by one row less than the body, clamped to the cont
 
 test('the argument hint comes from the resolved command, only after a trailing space', () => {
   assert.equal(slashArgumentHint('/model '), '/model [name|refresh]');
-  assert.equal(slashArgumentHint('/autoclear '), '/autoclear [on|off|duration]');
+  assert.equal(slashArgumentHint('/autoclear '), '/autoclear [on|off|duration|unlimited]');
   assert.equal(slashArgumentHint('/projects '), '/project [path]', 'an alias hints the canonical command');
   assert.equal(slashArgumentHint('/clear '), '', 'a command without params has no hint');
   assert.equal(slashArgumentHint('/nope '), '');

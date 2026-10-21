@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { DesktopModelOption } from '../../shared/contract';
 import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { ErrorNotice, errorSummary } from '../ErrorNotice';
 import {
   connectedProviderEntries,
@@ -287,12 +288,12 @@ export function ModelManagementCard({
     }
   };
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; keyboard dismissal is the close button and Escape.
+    // Scrim click-to-dismiss; keyboard dismissal is the close button and Escape.
     <div
       className="settings-oauth-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
+      {...scrimDismiss(() => {
+        if (!saving) onClose();
+      })}
     >
       <section
         className="settings-oauth-dialog model-mgmt-dialog"

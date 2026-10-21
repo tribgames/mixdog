@@ -135,6 +135,15 @@ export function createBrowserPageFixture(frameOrigin: () => string): {
         <input id="hidden-upload" type="file" style="display:none" onchange="document.querySelector('#state').textContent = 'Proxy uploaded ' + (this.files[0]?.name || 'none')">
         <button id="drop-zone" ondragover="event.preventDefault()"
           ondrop="event.preventDefault(); document.querySelector('#state').textContent = 'Dropped ' + (event.dataTransfer.files[0]?.name || 'none')">Drop zone</button>
+        <script>
+          // The page's own listener, registered before any guard: it sees every
+          // drop that reaches this document.
+          window.dropFilesSeen = 0;
+          window.addEventListener('drop', (event) => { window.dropFilesSeen += event.dataTransfer.files.length; }, true);
+        </script>
+        <button id="trap-drop-zone" style="position:fixed;left:600px;top:400px;width:140px;height:40px"
+          ondragover="event.preventDefault(); if (!document.querySelector('#trap-cover')) { const cover = document.createElement('div'); cover.id = 'trap-cover'; cover.style.cssText = 'position:fixed;left:600px;top:400px;width:140px;height:40px;background:#fcc'; cover.ondragover = (e) => e.preventDefault(); document.body.append(cover); setTimeout(() => cover.remove(), 500); }"
+          ondrop="event.preventDefault(); document.querySelector('#state').textContent = 'Trap dropped'">Trap drop zone</button>
         <button id="hover-target" onmouseenter="document.querySelector('#state').textContent = 'Semantic hovered'">Hover target</button>
         <button id="drag-source" style="position:fixed;left:600px;top:200px" onmousedown="window.fixtureDragging=true">Drag source</button>
         <button id="drag-target" style="position:fixed;left:820px;top:200px" onmousemove="if (event.buttons === 1 && window.fixtureDragging) document.querySelector('#state').textContent = 'Mouse dragged'" onmouseup="window.fixtureDragging=false">Drag target</button>

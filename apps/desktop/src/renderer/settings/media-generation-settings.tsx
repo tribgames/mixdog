@@ -5,8 +5,23 @@ import { t } from '../i18n';
 import { providerDisplayName } from '../provider-display';
 import { record } from '../record-utils';
 import { StudioRouteMenu, type StudioModelEntry, type StudioOptionRow } from '../StudioRouteMenu';
-import { callCapability, MEDIA_KINDS, type MediaKind, type MediaLane, type StudioApi } from '../studio-support';
-import { ExtensionItemList, ExtensionItemRow, ExtensionNote, ExtensionSection } from './extension-detail';
+import {
+  callCapability,
+  laneCatalogStatus,
+  listMediaLanes,
+  MEDIA_CATALOG_POLL_MS,
+  MEDIA_KINDS,
+  type MediaKind,
+  type MediaLane,
+  type StudioApi,
+} from '../studio-support';
+import {
+  ExtensionAction,
+  ExtensionItemList,
+  ExtensionItemRow,
+  ExtensionNote,
+  ExtensionSection,
+} from './extension-detail';
 
 /** The user's default generator for one kind. An empty `model` is the lane's
  *  own default; an empty `account` follows the provider's selected account. */
@@ -26,6 +41,8 @@ export interface MediaGenerationData {
   accounts: Record<string, AccountRow[]>;
   error: string;
   save(kind: MediaKind, pin: MediaPin | null): Promise<void>;
+  /** Lists the provider catalogs again. */
+  retry(): Promise<void>;
 }
 
 const NO_PINS: MediaPins = { image: null, video: null };
@@ -79,12 +96,8 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
     let live = true;
     void (async () => {
       try {
-        const [laneRows, pinRows] = await Promise.all([
-          callCapability(api, 'listMediaLanes'),
-          callCapability(api, 'getMediaPins'),
-        ]);
+        const [rows, pinRows] = await Promise.all([listMediaLanes(api), callCapability(api, 'getMediaPins')]);
         if (!live) return;
-        const rows = (Array.isArray(laneRows) ? laneRows : []) as MediaLane[];
         setLanes(rows);
         confirmed.current = pinsOf(pinRows);
         setPins(confirmed.current);
@@ -111,6 +124,25 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
       live = false;
     };
   }, [api, active]);
+
+  /** Lists the catalogs again (Retry, or a still-loading catalog's re-poll). */
+  const reload = useCallback(async () => {
+    try {
+      setLanes(await listMediaLanes(api));
+      setError('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }, [api]);
+
+  // A catalog slower than the listing budget is asked again until it lands or
+  // fails; each ask joins the runtime's in-flight request.
+  const pending = Boolean(lanes?.some((lane) => lane.catalogPending));
+  useEffect(() => {
+    if (!active || !pending) return undefined;
+    const timer = window.setTimeout(() => void reload(), MEDIA_CATALOG_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [active, pending, lanes, reload]);
 
   const save = useCallback(
     async (kind: MediaKind, pin: MediaPin | null) => {
@@ -145,7 +177,7 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
     [api]
   );
 
-  return { lanes, pins, accounts, error, save };
+  return { lanes, pins, accounts, error, save, retry: reload };
 }
 
 /** Every generator for the kind, ChatGPT first (the auto order); a provider
@@ -159,6 +191,9 @@ function modelEntries(lanes: MediaLane[], kind: MediaKind): StudioModelEntry[] {
         ? [{ ...base, model: '', label: lane.label, unavailable: t('Sign-in required') }]
         : [];
     }
+    // Still loading or failed: listed with that state, never silently dropped.
+    const status = laneCatalogStatus(lane, kind);
+    if (status) return [{ ...base, model: '', label: lane.label, unavailable: status }];
     return (lane[kind]?.models ?? []).map((model) => ({
       ...base,
       model: model.id,
@@ -226,13 +261,28 @@ function GeneratorRow({ kind, data }: { kind: MediaKind; data: MediaGenerationDa
 }
 
 export function MediaGenerationSettings({ data }: { data: MediaGenerationData }) {
+  // A signed-in provider whose catalog failed: its reason, and one Retry.
+  const catalogErrors = (data.lanes ?? [])
+    .filter((lane) => lane.authenticated && lane.catalogError)
+    .map((lane) => lane.catalogError as string);
   return (
-    <ExtensionSection title={t('Default generator')}>
+    <ExtensionSection
+      title={t('Default generator')}
+      dataAttributes={{ 'data-media-generation': '' }}
+      action={
+        catalogErrors.length ? <ExtensionAction onClick={() => void data.retry()}>{t('Retry')}</ExtensionAction> : null
+      }
+    >
       <ExtensionItemList>
         {MEDIA_KINDS.map((kind) => (
           <GeneratorRow key={kind} kind={kind} data={data} />
         ))}
       </ExtensionItemList>
+      {catalogErrors.map((message) => (
+        <ExtensionNote key={message} tone="danger">
+          {message}
+        </ExtensionNote>
+      ))}
       {data.error ? <ExtensionNote tone="danger">{data.error}</ExtensionNote> : null}
     </ExtensionSection>
   );

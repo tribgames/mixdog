@@ -1,0 +1,736 @@
+/* The desktop pet window (desktop-pet.html): a transparent, frameless,
+   always-on-top window. The pet stands at the window's bottom-right with its
+   bubble above it; a click unfolds the quick message at the bottom, where the
+   pet stood, while the pet (with its bubble) hops 40px up onto it. Empty
+   pixels pass clicks through to whatever is behind the window.
+   `html:root`, not `html`: the tokens' `:root` paints the app's deep ground
+   (01-tokens.css) and would outrank a plain `html`, filling the whole
+   transparent window with an opaque plate. */
+html:root,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--mx-font-sans, system-ui, sans-serif);
+  font-size: var(--mx-font-ui, 14px);
+  color: var(--mx-text);
+  user-select: none;
+}
+/* The app's menus, popovers and tooltips over the pet are cut out of all it
+   draws (--pet-clip, desktop-pet-main.tsx): the pet looks to stand behind
+   them, and the pointer there passes through to them. */
+#root {
+  position: fixed;
+  inset: 0;
+  clip-path: var(--pet-clip, none);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.skin-companion {
+  position: absolute;
+  inset: 0;
+}
+/* The pet sprite box: DESKTOP_PET_SPRITE (shared/desktop-pet.ts) — main
+   pins the window from these numbers, so keep them in step. Its size is the
+   bot's scale (desktopPetGeometry), set as --pet-size by desktop-pet-main.tsx;
+   everything else keeps its size and stands relative to the box. */
+.skin-companion-stack {
+  position: absolute;
+  left: 228px;
+  bottom: 8px;
+  width: var(--pet-size, 56px);
+  height: var(--pet-size, 56px);
+  /* Closing: a soft drop back to the ground. */
+  transition: transform 200ms cubic-bezier(0.45, 0, 0.7, 1);
+}
+/* Opening: a quick up-arc a little past the input, then it settles. */
+.skin-companion[data-quick] .skin-companion-stack {
+  transform: translateY(-40px);
+  transition: transform 280ms cubic-bezier(0.3, 1.6, 0.55, 1);
+}
+.skin-companion[data-dragging] .skin-companion-stack {
+  transition: none;
+}
+/* The sprite stands on the box's bottom edge (its feet are the pinned line);
+   out-ranks agent-rooms.css `.agent-room-face` (centred). */
+.skin-companion .skin-companion-face {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: var(--pet-size, 56px);
+  height: var(--pet-size, 56px);
+  pointer-events: none;
+}
+/* Out-ranks agent-rooms.css `.agent-room-face > svg` (100% high), which
+   would centre the 16×12 mascot in the square and lift its feet off the line. */
+.skin-companion .skin-companion-face > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Lowered by the look's empty rows under its feet (--pet-feet-gap, one
+     sixteenth of the box each): the visible feet are the box's bottom. */
+  margin-bottom: calc(var(--pet-size, 56px) / -16 * var(--pet-feet-gap, 0));
+}
+/* Pixel art at every scale: hard pixel edges, never smoothed. */
+.skin-companion .skin-companion-face > :is(img, svg) {
+  image-rendering: pixelated;
+  shape-rendering: crispEdges;
+}
+.skin-companion-pet {
+  display: block;
+  width: var(--pet-size, 56px);
+  height: var(--pet-size, 56px);
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.35));
+}
+.skin-companion[data-dragging] .skin-companion-pet {
+  cursor: grabbing;
+}
+/* Pinned above the message box: it does not move. */
+.skin-companion[data-pinned] .skin-companion-pet {
+  cursor: pointer;
+}
+/* Idle (no bubble): the pet lives a little. Transforms and opacity only, on
+   cycles of different lengths so it never looks mechanical: breathing (the
+   body, not the feet, ~1px), a blink (the mascot's own closed-eye pixels;
+   other faces squash) and an ear twitch now and then. The eyes never move:
+   the pet always looks straight ahead. */
+.skin-companion[data-idle] .mx-av .bob {
+  animation: pet-breathe 4.6s ease-in-out infinite;
+}
+.skin-companion[data-idle] .mx-av .eyes-open {
+  animation: pet-blink-open 7.3s step-end infinite;
+}
+.skin-companion[data-idle] .mx-av .eyes-shut {
+  animation: pet-blink-shut 7.3s step-end infinite;
+}
+.skin-companion[data-idle] .mx-av .ear {
+  animation: pet-twitch 17.9s step-end infinite;
+}
+.skin-companion[data-idle] .skin-companion-face > img,
+.skin-companion[data-idle] .skin-companion-face > svg:not(:has(.eyes-open)) {
+  transform-origin: bottom;
+  animation: pet-squash 7.3s step-end infinite;
+}
+/* Off screen: nothing runs (out-ranks the idle rules above). */
+.skin-companion[data-paused][data-idle] .skin-companion-face .mx-av *,
+.skin-companion[data-paused][data-idle] .skin-companion-face > :is(img, svg) {
+  animation-play-state: paused;
+}
+@keyframes pet-breathe {
+  0%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: translateY(0.3px);
+  }
+}
+/* Two blinks of ~120ms at uneven points of the cycle. */
+@keyframes pet-blink-open {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  41% {
+    opacity: 0;
+  }
+  42.6% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 0;
+  }
+  89.6% {
+    opacity: 1;
+  }
+}
+@keyframes pet-blink-shut {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  41% {
+    opacity: 1;
+  }
+  42.6% {
+    opacity: 0;
+  }
+  88% {
+    opacity: 1;
+  }
+  89.6% {
+    opacity: 0;
+  }
+}
+@keyframes pet-squash {
+  0%,
+  100% {
+    transform: none;
+  }
+  41% {
+    transform: scaleY(0.92);
+  }
+  42.6% {
+    transform: none;
+  }
+}
+@keyframes pet-twitch {
+  0%,
+  100% {
+    transform: none;
+  }
+  23% {
+    transform: translateY(-1px);
+  }
+  24.5% {
+    transform: none;
+  }
+}
+/* The ring only while the user is on the keyboard in this window (a real
+   keydown since the last press: html[data-pet-keys], skin-companion-pet.tsx).
+   Chromium's :focus-visible also matches a script focus with no pointer
+   before it (the window gaining focus), which drew a box around the bot. */
+.skin-companion-pet:focus,
+.skin-companion-bubble:focus {
+  outline: none;
+}
+html[data-pet-keys] .skin-companion-pet:focus {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+/* Just above-right of the head: anchored at its bottom-left over the pet's
+   head, growing up and right. A bubble that would come within 16px of
+   either edge of its span (the app window's content or the work area) is
+   moved by that much (--bubble-shift, skin-companion-pet.tsx) while its
+   tail stays on the pet, and is never wider than that span less both
+   margins (--bubble-max). */
+.skin-companion-balloon {
+  position: absolute;
+  /* 18px at the 56px box: over the head at every scale. */
+  left: calc(var(--pet-size, 56px) * 9 / 28);
+  bottom: calc(100% + 6px);
+  display: flex;
+  justify-content: flex-start;
+  width: max-content;
+  max-width: var(--bubble-max, calc(100vw - 32px));
+}
+.skin-companion-bubble {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: min(320px, var(--bubble-max, 320px));
+  translate: var(--bubble-shift, 0px) 0;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--mx-border);
+  border-radius: 14px;
+  background: var(--mx-composer-surface);
+  color: var(--mx-text);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.22);
+  font: inherit;
+  /* The app's reply text, scaled for a bubble. */
+  font-family: var(--mx-font-sans, inherit);
+  font-size: 13.5px;
+  line-height: 1.6;
+  letter-spacing: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+/* The tail points at the pet. */
+.skin-companion-bubble::after {
+  content: "";
+  position: absolute;
+  left: calc(12px - var(--bubble-shift, 0px));
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--mx-border);
+  border-bottom: 1px solid var(--mx-border);
+  background: inherit;
+  transform: rotate(45deg);
+}
+.skin-companion-bubble[role="button"] {
+  cursor: pointer;
+}
+html[data-pet-keys] .skin-companion-bubble:focus {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+/* The bubble is anchored at its bottom-left (the tail over the pet's head),
+   so a reply grows up and right out of the same bubble the dots were in. */
+.skin-companion-bubble {
+  transform-origin: calc(16px - var(--bubble-shift, 0px)) 100%;
+}
+/* A reply that timed out fades before it is dismissed (instant under
+   reduced motion: skin-companion-pet.tsx dismisses at once). */
+.skin-companion-bubble[data-fading] {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.skin-companion-bubble[data-state="approval"] {
+  border-color: var(--mx-warning);
+  color: var(--mx-warning);
+}
+.skin-companion-mark {
+  min-width: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+/* Mixy's reply, its markdown drawn compact (skin-companion-paging.ts). A
+   short one: up to 320px wide and 140.4px tall (the height budget, what
+   eight 13px lines took), never past the window's top even with the bot
+   hopped onto the quick message (the window less its 8px foot margin, the
+   sprite, the 40px hop, the bubble's 6px gap, 14px of padding and border
+   and 4px to spare); a click opens the chat. One that would overflow that
+   is paged (data-paged, skin-companion-pet.tsx). */
+.skin-companion-reply {
+  display: block;
+  max-height: min(140.4px, calc(100vh - 72px - var(--pet-size, 56px)));
+  overflow: hidden;
+  animation: skin-companion-reply-in 240ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+/* Paragraphs 8px apart, list items 4px (16px indent a level); headings are
+   bold paragraphs; inline code a small chip; code blocks and tables plain
+   text blocks, cut with the page (never scrolled). */
+.skin-companion-md > * {
+  margin: 0;
+}
+.skin-companion-md > * + * {
+  margin-top: 8px;
+}
+.skin-companion-md > .skin-companion-md-li + .skin-companion-md-li {
+  margin-top: 4px;
+}
+.skin-companion-md-p,
+.skin-companion-md-li {
+  white-space: pre-line;
+}
+.skin-companion-md-li {
+  position: relative;
+  padding-left: calc(16px * (var(--depth, 0) + 1));
+}
+.skin-companion-md-mark {
+  position: absolute;
+  left: calc(16px * var(--depth, 0));
+  color: var(--mx-text-muted);
+}
+.skin-companion-md[data-quote],
+.skin-companion-md [data-quote] {
+  border-left: 2px solid var(--mx-border-strong);
+  padding-left: 8px;
+  color: var(--mx-text-muted);
+}
+.skin-companion-md code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--mx-bg-layer-2);
+  font-family: var(--mx-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.skin-companion-md-pre {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--mx-bg-layer-2);
+  font-family: var(--mx-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+/* A long reply, page by page: the window's width less 16px each side (the
+   shift keeps it inside), in the same font as any reply: a top bar (the
+   bot's name, Copy and ✕), the page and its dots. A page holds at most the
+   height budget and never passes the window's top with the bot hopped up: on top of
+   a short reply's headroom (less its 4px spare), the bar's 28px (24px row,
+   4px gap) and the dots' 12px (8px row, 4px gap). The pages are measured
+   in a hidden copy (.skin-companion-measure) of this box. */
+.skin-companion-bubble[data-paged] {
+  width: var(--bubble-max, calc(100vw - 32px));
+  max-width: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  cursor: pointer;
+}
+/* A turned page shows at once; only the clip's height eases. */
+.skin-companion-page {
+  display: block;
+  max-height: min(140.4px, calc(100vh - 108px - var(--pet-size, 56px)));
+  overflow: hidden;
+}
+.skin-companion-page-clip {
+  overflow: hidden;
+}
+.skin-companion-measure {
+  position: fixed;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  animation: none;
+}
+.skin-companion-reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  margin-right: -6px;
+  cursor: default;
+}
+.skin-companion-reply-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.skin-companion-reply-tool {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mx-text-muted);
+  cursor: pointer;
+}
+.skin-companion-reply-tool:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.skin-companion-reply-tool:focus {
+  outline: none;
+}
+html[data-pet-keys] .skin-companion-reply-tool:focus {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: -2px;
+}
+/* One dot a page: the current one long, filling left to right as its time
+   runs (paused while held); past ones dimmer than the current. */
+.skin-companion-pages {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  height: 8px;
+}
+.skin-companion-pages i {
+  width: 6px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--mx-border-strong);
+  transition: width 200ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.skin-companion-pages i[data-page="done"] {
+  background: var(--mx-text-faint);
+}
+.skin-companion-pages i[data-page="on"] {
+  width: 18px;
+  background: var(--mx-text-faint);
+}
+.skin-companion-pages i[data-page="on"]::before {
+  content: "";
+  display: block;
+  height: 100%;
+  background: var(--mx-text);
+  transform-origin: left;
+}
+.skin-companion-pages[data-timed] i[data-page="on"]::before {
+  animation: skin-companion-page-fill var(--page-ms, 3500ms) linear both;
+}
+.skin-companion-bubble[data-held] .skin-companion-pages i::before {
+  animation-play-state: paused;
+}
+@keyframes skin-companion-page-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.skin-companion-bubble[data-state="reply"] {
+  animation: skin-companion-grow 240ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes skin-companion-grow {
+  from {
+    transform: scale(0.6);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes skin-companion-reply-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.skin-companion-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+.skin-companion-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: skin-companion-dot 1.2s ease-in-out infinite;
+}
+.skin-companion-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.skin-companion-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+/* The quick message unfolds from the pet's feet in the same beat as the hop. */
+/* Centred under the pet (its centre is 228px + half the box from the
+   window's left; 256px at 100%). */
+.skin-companion-quick {
+  position: absolute;
+  left: calc(108px + var(--pet-size, 56px) / 2);
+  bottom: 8px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 240px;
+  height: 34px;
+  padding: 3px 3px 3px 10px;
+  border: 1px solid var(--mx-border);
+  border-radius: 999px;
+  background: var(--mx-composer-surface);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.22);
+  transform-origin: top center;
+  animation: skin-companion-unfold 280ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.skin-companion-quick[data-folding] {
+  animation: skin-companion-fold 200ms ease-in both;
+  pointer-events: none;
+}
+.skin-companion-quick:focus-within {
+  border-color: var(--mx-border-strong);
+}
+.skin-companion-quick input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+  font-size: var(--mx-font-meta, 13px);
+  user-select: text;
+}
+.skin-companion-send {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--mx-text);
+  color: var(--mx-composer-surface);
+  cursor: pointer;
+}
+.skin-companion-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* The pet's own menu (desktop-pet-menu.tsx): the app's .mx-menu card, set
+   beside the pet (its box is 228px to 228px + --pet-size; 284px at 100%)
+   inside the window, so the window never resizes for it (a resize flashes a
+   transparent window): on its right, or on its left when the right runs off
+   screen (data-side). */
+.desktop-pet-menu {
+  position: absolute;
+  left: calc(236px + var(--pet-size, 56px));
+  bottom: 4px;
+  box-sizing: border-box;
+  min-width: 200px;
+  max-width: calc(100vw - 240px - var(--pet-size, 56px));
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+  /* The window loads no scrollbar grammar (02-base.css): never the OS bar. */
+  scrollbar-width: none;
+  z-index: 2;
+  /* Compact fixed rows: nine of them, three dividers, the inset and border
+     come to 281px, inside the 300px of room (DESKTOP_PET_MENU) whatever the
+     label's line height; the Size row's 34px (24px steps in 5px padding)
+     no longer overflows into a scrollbar. */
+  --mx-menu-row-height: 28px;
+}
+.desktop-pet-menu .mx-menu-item {
+  height: var(--mx-menu-row-height);
+  padding-block: 0;
+}
+/* The ring only after a real key in the overlay (html[data-pet-keys], as the
+   bot's): the menu's script focus on its first item draws nothing for a
+   mouse user, whatever :focus-visible says. Hover keeps its plate. */
+.desktop-pet-menu .mx-menu-item:focus,
+.desktop-pet-menu .mx-menu-item:focus-visible {
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+}
+.desktop-pet-menu button.mx-menu-item:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+html[data-pet-keys] .desktop-pet-menu button.mx-menu-item:focus {
+  background: var(--mx-hover);
+  box-shadow: var(--mx-list-focus-ring);
+}
+.desktop-pet-menu[data-side="left"] {
+  left: auto;
+  right: calc(100vw - 220px);
+  max-width: 216px;
+}
+.desktop-pet-menu-separated {
+  margin-top: 5px;
+  position: relative;
+}
+.desktop-pet-menu-separated::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 4px;
+  right: 4px;
+  height: 1px;
+  background: var(--mx-border-muted);
+  pointer-events: none;
+}
+/* The app menus' check grammar (row-overflow-check): a 20px gutter, a 16px
+   check, and an unchecked option in the muted ink. */
+.desktop-pet-menu button[role="menuitemcheckbox"][aria-checked="false"] {
+  color: var(--mx-text-muted);
+}
+.desktop-pet-menu button[role="menuitemcheckbox"][aria-checked="false"]:hover {
+  color: var(--mx-text);
+}
+/* The Size row: a plain row (no hover plate) holding − 100% +. */
+.desktop-pet-menu .desktop-pet-menu-size,
+.desktop-pet-menu .desktop-pet-menu-size:hover {
+  cursor: default;
+  background: none;
+}
+.desktop-pet-menu-step {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm, 4px);
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+.desktop-pet-menu-step:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+.desktop-pet-menu-step:focus {
+  outline: none;
+}
+html[data-pet-keys] .desktop-pet-menu-step:focus {
+  box-shadow: var(--mx-list-focus-ring);
+}
+.desktop-pet-menu-step:disabled {
+  color: var(--mx-text-faint);
+  cursor: default;
+}
+.desktop-pet-menu-size-value {
+  min-width: 40px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+/* Out-ranks 16-overlays.css `.mx-menu-item > span:not(...)` (the label's flex: 1). */
+.desktop-pet-menu .mx-menu-item > .desktop-pet-menu-check {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+}
+.desktop-pet-menu-check svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75px;
+}
+@keyframes skin-companion-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+@keyframes skin-companion-unfold {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+@keyframes skin-companion-fold {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+}
+/* Reduced motion: no idle life at all (the eyes stay open), static symbols. */
+@media (prefers-reduced-motion: reduce) {
+  .skin-companion-reply,
+  .skin-companion-page,
+  .skin-companion-bubble[data-state="reply"],
+  .skin-companion-dots i,
+  .skin-companion-quick,
+  .skin-companion[data-idle][data-idle] .skin-companion-face .mx-av *,
+  .skin-companion[data-idle][data-idle] .skin-companion-face > :is(img, svg) {
+    animation: none;
+  }
+  .skin-companion-dots i {
+    opacity: 1;
+  }
+  .skin-companion-stack,
+  .skin-companion[data-quick] .skin-companion-stack,
+  .skin-companion-bubble[data-fading],
+  .skin-companion-pages i {
+    transition: none;
+  }
+}

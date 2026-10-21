@@ -6,7 +6,7 @@ import { createBrowserSettle } from './settle.ts';
 import { BrowserNetworkLedger } from './network.ts';
 import { browserRenderCheckpoint } from './render-checkpoint.ts';
 
-function fixture(t) {
+function fixture(t, { confirmed } = {}) {
   const dom = new JSDOM('<main>Initial</main>', { runScripts: 'outside-only' });
   t.after(() => dom.window.close());
   let loading = false;
@@ -19,15 +19,18 @@ function fixture(t) {
   });
   const network = new BrowserNetworkLedger();
   const diagnostics = { network, pendingDialog: null };
+  let evaluations = 0;
   const settle = createBrowserSettle({
     diagnostics: () => diagnostics,
     evaluate: async (_guest, expression, signal) => {
       signal?.throwIfAborted();
+      evaluations++;
       return dom.window.eval(expression);
     },
     renderCheckpoint: async (_guest, background, signal) => {
       signal?.throwIfAborted();
       await dom.window.eval(browserRenderCheckpoint(background));
+      return confirmed;
     },
     pageText: async () => dom.window.document.body.textContent,
     quietMs: 20,
@@ -40,6 +43,9 @@ function fixture(t) {
     network,
     diagnostics,
     settle,
+    get evaluations() {
+      return evaluations;
+    },
     setLoading(value) {
       loading = value;
       if (!value) guest.emit('did-stop-loading');
@@ -49,6 +55,48 @@ function fixture(t) {
     },
   };
 }
+
+test('an unconfirmed render checkpoint is not settled on an idle network alone, and never fails the input', async (t) => {
+  // A confirmed checkpoint with nothing loading returns without observing the DOM.
+  const confirmed = fixture(t, { confirmed: true });
+  await confirmed.settle.settleAfterAction(confirmed.guest, undefined, undefined, { background: true });
+  assert.equal(confirmed.evaluations, 0);
+
+  // An unconfirmed frame may still be rendering: the DOM is watched until quiet.
+  const unconfirmed = fixture(t, { confirmed: false });
+  unconfirmed.dom.window.setTimeout(() => {
+    unconfirmed.dom.window.document.querySelector('main').textContent = 'Rendered late';
+  }, 5);
+  await unconfirmed.settle.settleAfterAction(unconfirmed.guest, undefined, undefined, { background: true });
+  assert.ok(unconfirmed.evaluations > 0);
+  assert.equal(unconfirmed.dom.window.document.body.textContent, 'Rendered late');
+});
+
+test('a sequence step with an unconfirmed checkpoint runs the quiet observation, without failing or replaying', async (t) => {
+  const confirmed = fixture(t, { confirmed: true });
+  assert.deepEqual(await confirmed.settle.stepSettleResult(confirmed.guest, undefined, true), {
+    outcome: 'completed',
+    text: '',
+  });
+  assert.equal(confirmed.evaluations, 0);
+
+  const unconfirmed = fixture(t, { confirmed: false });
+  unconfirmed.dom.window.setTimeout(() => {
+    unconfirmed.dom.window.document.querySelector('main').textContent = 'Rendered late';
+  }, 5);
+  assert.deepEqual(await unconfirmed.settle.stepSettleResult(unconfirmed.guest, undefined, true), {
+    outcome: 'completed',
+    text: '',
+  });
+  assert.ok(unconfirmed.evaluations > 0, 'the DOM was watched until quiet');
+  assert.equal(unconfirmed.dom.window.document.body.textContent, 'Rendered late');
+
+  const cancelled = fixture(t, { confirmed: false });
+  const controller = new AbortController();
+  const pending = cancelled.settle.stepSettleResult(cancelled.guest, controller.signal, true);
+  controller.abort(new Error('step cancelled'));
+  await assert.rejects(pending, /step cancelled/);
+});
 
 test('a route swapped without a load waits for the new view, and a url condition cannot cut it short', async (t) => {
   const f = fixture(t);

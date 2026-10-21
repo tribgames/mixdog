@@ -133,7 +133,11 @@ for (const [label, content] of [
     assert.equal(sessionId, `sess_desktop_${createHash('sha256').update('damaged-task').digest('hex')}`);
     assert.equal(JSON.parse(await fsp.readFile(path, 'utf8')).phase, 'accepted');
     // The replay now answers from the receipt that replaced it.
-    const replay = await new NewTaskRequests(root).run('damaged-task', { prompt: 'p' }, async (request) => request.phase);
+    const replay = await new NewTaskRequests(root).run(
+      'damaged-task',
+      { prompt: 'p' },
+      async (request) => request.phase
+    );
     assert.equal(replay, 'accepted');
   });
 }
@@ -157,26 +161,24 @@ function grantsOf(path) {
     .filter((line) => /:\(/.test(line));
 }
 
-test(
-  'a pre-existing receipts folder and its files lose every other grant before any receipt is used',
-  { skip: process.platform !== 'win32' },
-  async (t) => {
-    const root = await fsp.realpath(await fsp.mkdtemp(join(tmpdir(), 'mixdog-receipts-')));
-    t.after(() => fsp.rm(root, { recursive: true, force: true }));
-    const folder = join(root, 'new-task-receipts');
-    await fsp.mkdir(folder);
-    const old = join(folder, 'old.json');
-    await fsp.writeFile(old, '{}');
-    // Everyone (S-1-1-0): inheritable read on the folder, explicit read on the file.
-    execFileSync('icacls', [folder, '/grant', '*S-1-1-0:(OI)(CI)(RX)']);
-    execFileSync('icacls', [old, '/grant', '*S-1-1-0:(R)']);
-    assert.ok(grantsOf(old).some((line) => line.startsWith('everyone:')));
+test('a pre-existing receipts folder and its files lose every other grant before any receipt is used', {
+  skip: process.platform !== 'win32',
+}, async (t) => {
+  const root = await fsp.realpath(await fsp.mkdtemp(join(tmpdir(), 'mixdog-receipts-')));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const folder = join(root, 'new-task-receipts');
+  await fsp.mkdir(folder);
+  const old = join(folder, 'old.json');
+  await fsp.writeFile(old, '{}');
+  // Everyone (S-1-1-0): inheritable read on the folder, explicit read on the file.
+  execFileSync('icacls', [folder, '/grant', '*S-1-1-0:(OI)(CI)(RX)']);
+  execFileSync('icacls', [old, '/grant', '*S-1-1-0:(R)']);
+  assert.ok(grantsOf(old).some((line) => line.startsWith('everyone:')));
 
-    const sessionId = await accept(new NewTaskRequests(root), 'first-task');
-    const user = execFileSync('whoami', { encoding: 'utf8' }).trim().toLowerCase();
-    assert.deepEqual(grantsOf(folder), [`${user}:(oi)(ci)(f)`]);
-    assert.deepEqual(grantsOf(old), [`${user}:(i)(f)`]);
-    const created = join(folder, `${sessionId.replace('sess_desktop_', '')}.json`);
-    assert.deepEqual(grantsOf(created), [`${user}:(i)(f)`]);
-  }
-);
+  const sessionId = await accept(new NewTaskRequests(root), 'first-task');
+  const user = execFileSync('whoami', { encoding: 'utf8' }).trim().toLowerCase();
+  assert.deepEqual(grantsOf(folder), [`${user}:(oi)(ci)(f)`]);
+  assert.deepEqual(grantsOf(old), [`${user}:(i)(f)`]);
+  const created = join(folder, `${sessionId.replace('sess_desktop_', '')}.json`);
+  assert.deepEqual(grantsOf(created), [`${user}:(i)(f)`]);
+});

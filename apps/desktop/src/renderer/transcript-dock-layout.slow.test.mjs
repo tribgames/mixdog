@@ -123,8 +123,9 @@ async function settle(page) {
 }
 
 // In-page probes: one geometry read, a watcher that reads it inside every
-// resize delivery (after the timeline's own observer and its pin microtask,
-// so exactly what that frame paints) and a sampler of the next painted frames.
+// resize delivery (after the timeline's own observer and its pin microtask)
+// and a sampler of every frame from before a change until the dock rests,
+// which reads at that same point of every frame.
 const PAGE_PROBES = `
   window.geometry = (key) => {
     const viewport = document.querySelector('.transcript');
@@ -168,39 +169,92 @@ const PAGE_PROBES = `
       return frames;
     };
   };
-  window.paintedFrames = (count, key) => new Promise((resolve) => {
+  // A task posted from a frame callback is no point of a painted frame: on a
+  // busy main thread Chromium can run it between the frame's animation
+  // callbacks and its layout, or skip that frame's lifecycle update, so its
+  // read forces a layout of an eased slot height the timeline has not
+  // observed yet (and pins only in the frame's own delivery, before paint).
+  // A probe resized from each frame callback makes every frame deliver, and
+  // the sampler reads in that delivery: after the timeline's first-round
+  // observers and their pin microtask. A later delivery round of the same
+  // frame (a deeper element the pin resized) could still change the painted
+  // state; this read does not see it.
+  const tick = document.createElement('div');
+  tick.style.cssText = 'position: fixed; top: 0; left: 0; width: 1px; height: 1px; visibility: hidden; pointer-events: none;';
+  document.body.append(tick);
+  let tickWidth = 1;
+  let sampler = null;
+  // A throw inside the sampler's delivery, kept for the settle that follows.
+  let failure = null;
+  // Samples every frame from now on; arm it before triggering a change, so a
+  // change that eases while the caller still waits on it is not missed.
+  window.armPainted = (key) => {
+    if (sampler) throw new Error('the painted-frame sampler is already armed');
+    failure = null;
     const frames = [];
-    const next = () => requestAnimationFrame(() => {
-      const channel = new MessageChannel();
-      channel.port1.onmessage = () => {
-        frames.push(window.geometry(key));
-        if (frames.length < count) next();
-        else resolve(frames);
-      };
-      channel.port2.postMessage(0);
-    });
-    next();
-  });
-  // Every painted frame until the dock rests: no slot motion or grace hold
-  // and six frames at one dock height (bounded).
-  window.paintedUntilSettled = (key) => new Promise((resolve) => {
-    const frames = [];
-    const settled = () => {
-      const last = frames.slice(-6);
-      return last.length === 6 && !last[5].motion && last[5].presence !== 'grace' &&
-        last.every((frame) => frame.dockHeight === last[5].dockHeight);
+    let raf = 0;
+    let finish = null;
+    const stop = () => {
+      observer.disconnect();
+      cancelAnimationFrame(raf);
+      sampler = null;
     };
-    const next = () => requestAnimationFrame(() => {
-      const channel = new MessageChannel();
-      channel.port1.onmessage = () => {
+    // Created after the timeline's observers, so it runs after them (and
+    // their microtasks) in each delivery; a new observation delivers once.
+    const observer = new ResizeObserver(() => {
+      try {
         frames.push(window.geometry(key));
-        if (settled() || frames.length >= 240) resolve(frames);
-        else next();
-      };
-      channel.port2.postMessage(0);
+        finish?.check();
+        if (!sampler) return;
+        raf = requestAnimationFrame(() => {
+          tickWidth = 3 - tickWidth;
+          tick.style.width = tickWidth + 'px';
+        });
+      } catch (error) {
+        stop();
+        failure = error;
+        finish?.reject(error);
+      }
     });
-    next();
-  });
+    observer.observe(tick);
+    sampler = {
+      // Every frame since arming once the dock and the transcript rest after
+      // the change began: six frames since then at one dock height, scroll
+      // offset and tail gap, with no slot motion or grace hold (a fresh mount
+      // still measures rows and re-pins the tail after its dock is still).
+      // Rejects when it does not rest within the bound.
+      settle: (boundMs) => new Promise((resolve, reject) => {
+        const from = frames.length;
+        const timer = setTimeout(() => {
+          stop();
+          const last = frames.at(-1);
+          reject(new Error('the dock did not rest within ' + boundMs + 'ms: ' + (frames.length - from) +
+            ' frames sampled, last ' + JSON.stringify(last && { dockHeight: last.dockHeight, top: last.top, gap: last.gap, motion: last.motion, presence: last.presence })));
+        }, boundMs);
+        finish = {
+          check() {
+            const last = frames.slice(Math.max(from, frames.length - 6));
+            if (last.length < 6 || last[5].motion || last[5].presence === 'grace') return;
+            if (!last.every((frame) => frame.dockHeight === last[5].dockHeight &&
+              frame.top === last[5].top && frame.gap === last[5].gap)) return;
+            clearTimeout(timer);
+            stop();
+            resolve(frames);
+          },
+          reject(error) {
+            clearTimeout(timer);
+            reject(error);
+          },
+        };
+        finish.check();
+      }),
+    };
+  };
+  window.paintedUntilSettled = (boundMs = 10000) => {
+    if (failure) return Promise.reject(failure);
+    if (!sampler) return Promise.reject(new Error('arm the painted-frame sampler before the change'));
+    return sampler.settle(boundMs);
+  };
 `;
 
 async function geometry(page, key) {
@@ -263,13 +317,16 @@ function dockChanges(page) {
 }
 
 /** Runs one dock change and returns every frame it resized plus every painted
- *  frame until the dock rests. */
+ *  frame from before it until the dock rests. */
 async function framesOf(page, change, key) {
   await settle(page);
   const before = await geometry(page, key);
-  await page.evaluate((key) => window.watchGeometry(key), key);
+  await page.evaluate((key) => {
+    window.watchGeometry(key);
+    window.armPainted(key);
+  }, key);
   await change();
-  const painted = await page.evaluate((key) => window.paintedUntilSettled(key), key);
+  const painted = await page.evaluate(() => window.paintedUntilSettled());
   const resized = await page.evaluate(() => window.stopWatch());
   return { before, after: painted.at(-1), frames: [...resized, ...painted], painted };
 }
@@ -479,12 +536,16 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
       },
       { width, height }
     );
-    await settle(page);
-    let before = await geometry(page);
+    // Read where the timeline pins (the sampler's delivery) once the mount
+    // rests: a read from a task can force a layout the pin has not seen yet.
+    let before = await page.evaluate(async () => {
+      window.armPainted();
+      return (await window.paintedUntilSettled()).at(-1);
+    });
     assert.ok(Math.abs(before.viewportHeight + before.dockHeight - height) < 0.5, 'the dock sits below the viewport');
     assert.ok(Math.abs(before.viewportBottom - before.dockTop) < 0.5, 'the viewport ends where the dock starts');
     assert.equal(before.slotHeight, 0, 'an empty island slot takes no room');
-    assert.ok(Math.abs(before.gap - 24) < 0.5, 'the tail sits 24px above the dock');
+    assert.ok(Math.abs(before.gap - 24) < 0.5, `the tail sits 24px above the dock (was ${before.gap?.toFixed(2)})`);
     const emptyDock = before.dockHeight;
     const restingFade = await checkScrollFade(page);
 
@@ -598,6 +659,7 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     }, width);
     await settle(page);
     await page.evaluate(() => {
+      window.armPainted();
       window.fixture.change({ approval: 640 });
       window.fixture.type(Array.from({ length: 10 }, (_, line) => `line ${line + 1}`).join('\n'));
     });

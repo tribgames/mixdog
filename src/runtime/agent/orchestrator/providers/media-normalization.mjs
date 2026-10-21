@@ -652,9 +652,17 @@ export function contentImageDescriptors(content) {
 // one-line description.
 // The page count (recorded by intake and by the read tool) rides on the part
 // itself, so an inline part and its stored reference carry the same one.
+// The text-layer character count (recorded with it) prices the text a native
+// reader extracts on top of each page image.
 function pdfDescriptor(sizeBytes, part) {
   const pageCount = Math.floor(Number(part?.pageCount));
-  return { mimeType: 'application/pdf', sizeBytes, ...(pageCount > 0 ? { pageCount } : {}) };
+  const textChars = Number(part?.textChars);
+  return {
+    mimeType: 'application/pdf',
+    sizeBytes,
+    ...(pageCount > 0 ? { pageCount } : {}),
+    ...(pageCount > 0 && Number.isFinite(textChars) && textChars >= 0 ? { textChars: Math.floor(textChars) } : {}),
+  };
 }
 
 export function contentFileDescriptors(content) {
@@ -973,6 +981,13 @@ function normalizeAnthropicPart(part) {
   }
   if (part?.type === 'text' && isAttachmentReference(part)) {
     return { type: 'text', text: attachmentTextForPart(part) };
+  }
+  // A media reference (attachment-reference.mjs) is a text part whose
+  // `attachmentReference` metadata stays in saved history. It is not a
+  // Messages API text-block field, and the API rejects the whole request for it.
+  if (part?.type === 'text' && part.attachmentReference !== undefined) {
+    const { attachmentReference: _internal, ...wirePart } = part;
+    return wirePart;
   }
   return part;
 }

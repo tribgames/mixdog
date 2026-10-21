@@ -36,8 +36,10 @@ import {
 } from './composer-support';
 import { ComposerPastedTextDialog } from './ComposerPastedTextDialog';
 import type { PendingPromptItem } from './conversation-prompt-items';
+import type { RouteSessionChoice } from './route-editor-panes';
 import { SteerContext } from './steer-actions';
 import {
+  composerAttachmentsCarryOver,
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
   noteComposerContent,
@@ -46,6 +48,7 @@ import {
   stashComposerDraft,
   stashComposerTags,
   stashedComposerDraft,
+  takeDraftPromotion,
   takeStashedComposerAttachments,
   takeStashedComposerTags,
 } from './composer-draft';
@@ -63,6 +66,7 @@ import { useComposerMessageSelector } from './use-composer-message-selector';
 import { useComposerNotice } from './use-composer-notice';
 import { useComposerPalettes } from './use-composer-palettes';
 import { createSlashExecutor } from './composer-slash-executor';
+import { attachmentContextNotice } from './composer-attachments';
 import { backfillAgentChatRoute } from './agent-chat-route';
 import { BtwCard, useBtwCard } from './BtwCard';
 import { readCachedModelCatalog } from './model-catalog-cache';
@@ -78,7 +82,12 @@ import {
 } from './composer-surfaces';
 import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
 import { ComposerBanners } from './ComposerBanners';
-import { type ComposerModelControlProps, ComposerFooter, ComposerModelControls, ComposerModelLine } from './ComposerFooter';
+import {
+  type ComposerModelControlProps,
+  ComposerFooter,
+  ComposerModelControls,
+  ComposerModelLine,
+} from './ComposerFooter';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
@@ -122,7 +131,10 @@ function pastedFiles(clipboard: DataTransfer): File[] {
 type ComposerAttachmentsApi = ReturnType<typeof useComposerAttachments>;
 
 /** Clipboard intake: pasted files attach, and a long text paste folds into a
- *  single chip instead of flooding the draft. */
+ *  single chip instead of flooding the draft. Rich copies (Word, Excel,
+ *  browsers) carry a rendered image beside their text: any plain text means
+ *  the user copied text, so the files are attached only when there is none
+ *  (screenshots, files copied in Explorer). */
 function handleComposerPaste(
   event: React.ClipboardEvent<HTMLTextAreaElement>,
   {
@@ -135,13 +147,13 @@ function handleComposerPaste(
     insertAttachment: ComposerAttachmentsApi['insertAttachment'];
   }
 ) {
-  const files = pastedFiles(event.clipboardData);
+  const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+  const files = text.trim() ? [] : pastedFiles(event.clipboardData);
   if (files.length) {
     event.preventDefault();
     void attachFiles(files);
     return;
   }
-  const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
   if (!shouldFoldPastedText(text)) return;
   const id = attachmentSequence.current++;
   const inserted = insertAttachment({
@@ -200,14 +212,6 @@ function switchComposerIdentity({
     previousScope,
     document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
   );
-  // Chips attached there but not yet sent are parked with it, and the
-  // incoming tab gets back the chips it parked.
-  stashComposerAttachments(previousScope, attachmentsRef.current);
-  resetAttachments();
-  replaceAttachments(takeStashedComposerAttachments(identityScope));
-  composingRef.current = false;
-  suppressImeLineBreakRef.current = false;
-  palettes.invalidateSearch();
   // Scope settles ASYNC after a session switch/promotion; when the user is
   // ALREADY typing in the composer, the in-flight text carries over instead
   // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
@@ -216,6 +220,23 @@ function switchComposerIdentity({
   // A fresh New Task pane is the exception: it ALWAYS opens clean (user:
   // 새작업 pulled the previous pane's text and attachments along).
   const freshDraft = composerScopeOpensFreshDraft(identityScope);
+  // Chips attached there but not yet sent are parked with it, and the
+  // incoming tab gets back the chips it parked. A New Task promoted to the
+  // session ITS submission minted keeps them instead: the draft scope is never
+  // revisited, so a file attached while its first send was in flight vanished
+  // with it.
+  const parkedAttachments = takeStashedComposerAttachments(identityScope);
+  const promotingDraft = takeDraftPromotion(previousScope, identityScope);
+  if (composerAttachmentsCarryOver({ freshDraft, promotingDraft, parkedCount: parkedAttachments.length })) {
+    stashComposerAttachments(previousScope, []);
+  } else {
+    stashComposerAttachments(previousScope, attachmentsRef.current);
+    resetAttachments();
+    replaceAttachments(parkedAttachments);
+  }
+  composingRef.current = false;
+  suppressImeLineBreakRef.current = false;
+  palettes.invalidateSearch();
   setDraft((current) => {
     // A remote snapshot can change scope in the same turn as a native input
     // event. The DOM already owns the newest character while React state may
@@ -272,6 +293,8 @@ export type ComposerProps = {
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
+  /** A conversation's workflow / delegation rows in the model menu. */
+  sessionChoices?: RouteSessionChoice[];
   /** Session readout seated right after the model trigger — the context
    *  gauge (user: 컨텍스트는 모델 선택기 옆). */
   modelAside?: ReactNode;
@@ -344,6 +367,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     draftMode,
     onDraftModelSelection,
     onRoutePreferenceApplied,
+    sessionChoices,
     modelAside,
     usageReadout,
     contextBar,
@@ -449,6 +473,15 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     showComposerNotice(attachmentError, 'error');
     setAttachmentError('');
   }, [attachmentError, setAttachmentError, showComposerNotice]);
+  // Large PDF sets get one size notice before sending, again only when the
+  // estimate changes.
+  const attachmentNotice = attachmentContextNotice(attachments);
+  const shownAttachmentNotice = useRef('');
+  useEffect(() => {
+    if (attachmentNotice === shownAttachmentNotice.current) return;
+    shownAttachmentNotice.current = attachmentNotice;
+    if (attachmentNotice) showComposerNotice(attachmentNotice, 'info');
+  }, [attachmentNotice, showComposerNotice]);
   useComposerExternalDraft({
     draftRef,
     setDraft,
@@ -554,6 +587,20 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     taggedScope.current = identityScope;
     setTagged(takeStashedComposerTags(identityScope));
   }, [identityScope]);
+  // A composer that goes away inside the app run (pane closed or rebuilt)
+  // parks what it holds exactly as a tab switch does, and a fresh one opens
+  // with what its identity parked.
+  useLayoutEffect(() => {
+    const restored = takeStashedComposerAttachments(activeIdentityScope.current);
+    if (restored.length) replaceAttachments(restored);
+    return () => {
+      const scope = activeIdentityScope.current;
+      const element = textarea.current;
+      stashComposerDraft(scope, document.activeElement === element && element ? element.value : draftRef.current);
+      stashComposerAttachments(scope, attachmentsRef.current);
+      stashComposerTags(scope, taggedRef.current);
+    };
+  }, [attachmentsRef, replaceAttachments]);
   const taggedMembers = tagged.flatMap((id) => roomMembers?.filter((member) => member.id === id) ?? []);
   const tagMatch = agentMode && roomMembers ? mention.match : null;
   const tagCandidates =
@@ -650,7 +697,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     const save = (event: Event): void => {
       if (event.type === 'visibilitychange' && document.visibilityState !== 'hidden') return;
       const element = textarea.current;
-      stashComposerDraft(identityScope, document.activeElement === element && element ? element.value : draftRef.current);
+      stashComposerDraft(
+        identityScope,
+        document.activeElement === element && element ? element.value : draftRef.current
+      );
       persistComposerDrafts();
     };
     document.addEventListener('visibilitychange', save);
@@ -914,6 +964,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onOpenSettings,
     onDraftModelSelection,
     onRoutePreferenceApplied,
+    sessionChoices,
   };
   return (
     <>

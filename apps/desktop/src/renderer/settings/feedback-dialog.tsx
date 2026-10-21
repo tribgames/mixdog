@@ -11,6 +11,7 @@ import {
   type DesktopFeedbackInput,
 } from '../../shared/contract-feedback';
 import { t } from '../i18n';
+import { scrimDismiss } from '../scrim-dismiss';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import './feedback-dialog.css';
@@ -220,13 +221,8 @@ export function FeedbackDialog({
   const emailId = `${uid}-email`;
   const sent = phase === 'sent';
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: a backdrop press closes the dialog; Escape and the close button are the keyboard routes.
-    <div
-      className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) close();
-      }}
-    >
+    // A backdrop press closes the dialog; Escape and the close button are the keyboard routes.
+    <div className="settings-confirm-layer" {...scrimDismiss(close)}>
       <section
         className="settings-confirm-dialog settings-feedback-dialog"
         role="dialog"

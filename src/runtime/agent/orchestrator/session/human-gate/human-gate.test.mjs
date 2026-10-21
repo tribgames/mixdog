@@ -341,6 +341,30 @@ test('payments and deletes never offer or keep "don\'t ask again"', async (t) =>
   assert.equal(await store.modeFor({ agentId: 'buyer', action: 'payment' }), 'ask');
 });
 
+test('a phone answer of remember=always on a delete or payment card counts as once and stores nothing', async (t) => {
+  const { store } = tempStore(t);
+  for (const name of ['mcp__chat__delete_message', 'mcp__stripe__create_payment']) {
+    const out = await humanGateDecision({ name, args: { id: '1', amount: 5 } }, null, {
+      sessionId: 'sess_home_buyer',
+      store,
+      annotations: {},
+    });
+    assert.deepEqual(out.request.remember, ['once'], name);
+    for (const remember of ['always', 'agent']) {
+      const { api } = queue((presented, inner) =>
+        inner.finishToolApproval(presented.id, true, '', 'Pixel', undefined, undefined, { remember })
+      );
+      const answer = await api.requestToolApproval({ name, args: {}, ...out.request });
+      assert.equal(answer.approved, true);
+      assert.equal(answer.remember, 'once', `${name} ${remember}`);
+      await recordHumanDecision(out.gate, answer, { store });
+      // Even an unnormalised answer cannot store a grant for a scope the card never offered.
+      await recordHumanDecision(out.gate, { approved: true, remember }, { store });
+    }
+  }
+  assert.deepEqual(await store.listGrants({ agentId: 'buyer' }), []);
+});
+
 test('막기 (block) denies the action kind without a card', async (t) => {
   const { store } = tempStore(t);
   await store.setMode({ agentId: 'mailer', action: 'email', mode: 'block' });

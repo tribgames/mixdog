@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useComposerIslandTab } from './composer-island-state';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 import { trappedTabIndex } from './list-navigation';
 import { MxIcon } from './MxIcon';
 import { useMobileBack } from './mobile-back';
@@ -364,14 +365,8 @@ function DeleteHistoryDialog({
     };
   }, [returnFocus]);
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss; keyboard dismissal is handled by the Escape listener above.
-    <div
-      ref={surfaceRef}
-      className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-    >
+    // Backdrop click-to-dismiss; keyboard dismissal is handled by the Escape listener above.
+    <div ref={surfaceRef} className="settings-confirm-layer" {...scrimDismiss(onCancel)}>
       <section
         ref={dialogRef}
         className="settings-confirm-dialog"

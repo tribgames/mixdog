@@ -1,22 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import {
-  desktopThemeOptions,
-  desktopThemePreferenceForTheme,
-  getDesktopThemePreference,
-  setDesktopThemePreference,
-  type DesktopThemePreference,
-} from '../desktop-theme';
-import {
-  BUILTIN_SKINS,
-  getSkinDim,
-  getSkinId,
-  hasCustomSkin,
-  setCustomSkin,
-  setSkin,
-  setSkinDim,
-  subscribeSkin,
-  type SkinDim,
-} from '../desktop-skin';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   getUiLanguagePreference,
   resolveUiLanguage,
@@ -28,21 +10,19 @@ import {
 import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
-import {
-  getChatTextSize,
-  setChatTextSize,
-  subscribeChatTextSize,
-  type ChatTextSize,
-} from '../chat-text-size-preference';
 import { record } from '../record-utils';
 import { isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
 import {
   getSidePanelMode,
+  getSidePanelPosition,
   setSidePanelMode,
+  setSidePanelPosition,
   subscribeSidePanelMode,
+  subscribeSidePanelPosition,
   type SidePanelMode,
+  type SidePanelPosition,
 } from '../side-panel-preferences';
-import { followHostDisplay, HOST_DISPLAY_ADOPTED_EVENT } from '../host-display-sync';
+import { followHostDisplay } from '../host-display-sync';
 import { ActionButton, AutoSaveRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import { label, rows, type PanelContext } from './capability-data';
 import { ImportConversationsDialog } from './import-conversations-dialog';
@@ -50,128 +30,6 @@ import { DesktopNotificationToggle } from './desktop-notification-toggle';
 import { PushNotificationToggle } from './push-notification-toggle';
 import { WorktreeSettings } from './worktree-settings';
 import { NARROW_SHELL_QUERY } from '../use-responsive-shell-bands';
-
-function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
-  const loadedTheme = String(data.theme || 'basic');
-  const [preference, setPreference] = useState<DesktopThemePreference>(
-    () => getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme)
-  );
-  useEffect(() => {
-    const refresh = () => setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme));
-    refresh();
-    // The host PC's theme replaced this device's while the page was open.
-    window.addEventListener(HOST_DISPLAY_ADOPTED_EVENT, refresh);
-    return () => window.removeEventListener(HOST_DISPLAY_ADOPTED_EVENT, refresh);
-  }, [loadedTheme]);
-  const choose = (next: string) => {
-    const selected = next as DesktopThemePreference;
-    setPreference(selected);
-    setDesktopThemePreference(selected);
-  };
-  return (
-    <Group title={t('Theme')}>
-      <SelectRow
-        title={t('Theme')}
-        value={preference}
-        disabled={Boolean(pending)}
-        options={desktopThemeOptions().map((option) => ({ ...option, label: t(option.label) }))}
-        onChange={choose}
-      />
-      <SkinRow pending={pending} />
-      <ChatTextSizeRow pending={pending} />
-    </Group>
-  );
-}
-
-/** Background picture + accent taken from it; device-local, applies live. */
-function SkinRow({ pending }: Pick<PanelContext, 'pending'>) {
-  const skin = useSyncExternalStore(subscribeSkin, getSkinId, () => 'none');
-  const custom = useSyncExternalStore(subscribeSkin, hasCustomSkin, () => false);
-  const dim = useSyncExternalStore(subscribeSkin, getSkinDim, () => 'normal');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const fileInput = useRef<HTMLInputElement>(null);
-  const run = (work: Promise<void>) => {
-    setBusy(true);
-    setError('');
-    void work
-      .catch(() => setError(t('The skin could not be applied. Try a smaller image.')))
-      .finally(() => setBusy(false));
-  };
-  const disabled = Boolean(pending) || busy;
-  return (
-    <>
-      <SelectRow
-        title={t('Skin')}
-        description={t('Shows a background picture behind the app and colors buttons to match it.')}
-        value={skin}
-        disabled={disabled}
-        options={[
-          { value: 'none', label: t('None') },
-          ...BUILTIN_SKINS.map((entry) => ({ value: entry.id, label: t(entry.label) })),
-          ...(custom ? [{ value: 'custom', label: t('My image') }] : []),
-        ]}
-        onChange={(next) => run(setSkin(next))}
-      />
-      {skin !== 'none' && (
-        <SelectRow
-          title={t('Skin strength')}
-          value={dim}
-          disabled={disabled}
-          options={[
-            { value: 'soft', label: t('Soft') },
-            { value: 'normal', label: t('Normal') },
-            { value: 'strong', label: t('Strong') },
-          ]}
-          onChange={(next) => setSkinDim(next as SkinDim)}
-        />
-      )}
-      <ResourceRow
-        title={t('Custom skin image')}
-        meta={t('Use a picture from this computer as the skin.')}
-        actions={
-          <>
-            <ActionButton disabled={disabled} onClick={() => fileInput.current?.click()}>
-              {t('Choose image…')}
-            </ActionButton>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = '';
-                if (file) run(setCustomSkin(file));
-              }}
-            />
-          </>
-        }
-      />
-      {error && <p role="alert">{error}</p>}
-    </>
-  );
-}
-
-/** Per-device scale of the conversation and the message box; applies live. */
-function ChatTextSizeRow({ pending }: Pick<PanelContext, 'pending'>) {
-  const size = useSyncExternalStore(subscribeChatTextSize, getChatTextSize, () => 'default');
-  return (
-    <SelectRow
-      title={t('Chat text size')}
-      description={t('Changes the size of chat messages and the message box on this device.')}
-      value={size}
-      disabled={Boolean(pending)}
-      options={[
-        { value: 'small', label: t('Small') },
-        { value: 'default', label: t('Default') },
-        { value: 'large', label: t('Large') },
-        { value: 'extra-large', label: t('Extra large') },
-      ]}
-      onChange={(next) => setChatTextSize(next as ChatTextSize)}
-    />
-  );
-}
 
 function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const [preference, setPreference] = useState<UiLanguagePreference>(() => getUiLanguagePreference());
@@ -263,6 +121,7 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const configuredMode = useSyncExternalStore(subscribeSidePanelMode, getSidePanelMode, () => 'close-both');
   const narrow = window.matchMedia?.(NARROW_SHELL_QUERY).matches === true;
   const mode = narrow ? 'close-both' : configuredMode;
+  const position = useSyncExternalStore(subscribeSidePanelPosition, getSidePanelPosition, () => 'right');
   return (
     <Group title={t('Side panels')}>
       <SelectRow
@@ -277,13 +136,24 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
         ]}
         onChange={(next) => setSidePanelMode(next as SidePanelMode)}
       />
+      <SelectRow
+        title={t('Side panel position')}
+        value={position}
+        disabled={Boolean(pending)}
+        options={[
+          { value: 'right', label: t('Right') },
+          { value: 'bottom', label: t('Bottom') },
+          { value: 'auto', label: t('Auto') },
+        ]}
+        onChange={(next) => setSidePanelPosition(next as SidePanelPosition)}
+      />
     </Group>
   );
 }
 
 /** Remote surfaces: the settings this device stores for itself (localStorage),
  *  split out of General so the page says where they apply. */
-export function DisplayPanel({ data, pending }: PanelContext) {
+export function DisplayPanel({ pending }: PanelContext) {
   const hostApi = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
   const followable = isRemoteBrowserRenderer() && Boolean(hostApi?.readHostDisplayPreferences);
   return (
@@ -302,7 +172,6 @@ export function DisplayPanel({ data, pending }: PanelContext) {
         </Group>
       )}
       <UiLanguageChoices pending={pending} />
-      <ThemeChoices data={data} pending={pending} />
       <Group title={t('Link preview')}>
         <LinkPreviewToggle pending={pending} />
       </Group>
@@ -335,6 +204,9 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const profile = record(data.profile);
   const webSearchModule = record(record(data.toolModules).webSearch);
   const rawInstructionFiles = record(data.toolModules).instructionFiles;
+  const autoEffortBase = ['low', 'medium', 'high'].includes(String(record(data.toolModules).autoEffortBase))
+    ? String(record(data.toolModules).autoEffortBase)
+    : 'medium';
   const instructionFilesMode = ['all', 'agents', 'claude', 'off'].includes(String(rawInstructionFiles))
     ? String(rawInstructionFiles)
     : 'off';
@@ -397,6 +269,20 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           ]}
           onChange={(mode) => void run('setInstructionFiles', [mode])}
         />
+        <SelectRow
+          title={t('Auto reasoning base')}
+          description={t(
+            'The reasoning effort Auto works around: it goes lower for easy requests and higher for hard ones.'
+          )}
+          value={autoEffortBase}
+          disabled={busy}
+          options={[
+            { value: 'low', label: t('Low') },
+            { value: 'medium', label: t('Medium') },
+            { value: 'high', label: t('High') },
+          ]}
+          onChange={(level) => void run('setAutoEffortBase', [level])}
+        />
         {!remoteSurface && <LinkPreviewToggle pending={pending} />}
       </Group>
       <PushNotificationToggle api={api} />
@@ -405,7 +291,6 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
       {!remoteSurface && (
         <>
           <UiLanguageChoices pending={pending} />
-          <ThemeChoices data={data} pending={pending} />
           <SidePanelChoices pending={pending} />
         </>
       )}

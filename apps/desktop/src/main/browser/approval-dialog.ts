@@ -1,31 +1,260 @@
-import { dialog, type BrowserWindow } from 'electron';
+import { randomUUID } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
+import { basename, isAbsolute, relative } from 'node:path';
+import type { BrowserWindow, WebContents } from 'electron';
+import { DESKTOP_IPC } from '../../shared/contract-ipc';
 import { withHumanOnlyApproval } from '../human-only-approval';
-import type { BrowserApprovalRequest } from './action-approval';
+import {
+  browserNotApproved,
+  originOfUrl,
+  type BrowserApprovalKind,
+  type BrowserApprovalRequest,
+} from './action-approval';
+import type { ApprovalRequester } from './approval-requester';
 import { redactBrowserUrl } from './redaction';
-import { nativeT } from '../native-i18n';
 
-export function requestBrowserApproval(window: BrowserWindow, request: BrowserApprovalRequest, signal?: AbortSignal) {
-  return withHumanOnlyApproval(async () => {
-    const remaining = request.expiresAt - Date.now();
-    if (remaining <= 0 || signal?.aborted || window.isDestroyed()) return false;
-    const timeout = AbortSignal.timeout(remaining);
-    const result = await dialog.showMessageBox(window, {
-      type: 'warning',
-      title: nativeT('Browser Use approval'),
-      message: nativeT('Allow this action once?'),
-      detail: [
-        `${nativeT('Session')}: ${request.sessionId}`,
-        `${nativeT('Action')}: ${request.action}`,
-        `${nativeT('Page')}: ${redactBrowserUrl(request.url)}`,
-        `${nativeT('Target')}: ${request.target}`,
-        ...request.paths,
-      ].join('\n'),
-      buttons: [nativeT('Cancel'), nativeT('Allow once')],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+/** Approvals wait here for the in-app card's answer (never an OS dialog),
+ *  keyed to the one renderer the card was sent to. */
+type Decision = 'once' | 'always' | 'deny';
+const pending = new Map<
+  string,
+  { owner: WebContents; rememberable: boolean; finish: (decision: Decision, reason?: string) => void }
+>();
+
+/** The store action (human-gate ACTION_KINDS) a standing allow is kept under,
+ *  per kind of gated step. `confirm` has none: it always asks. */
+const GRANT_ACTION: Partial<Record<BrowserApprovalKind, string>> = {
+  submit: 'browser_submit',
+  post: 'browser_post',
+  upload: 'browser_upload',
+};
+
+const inside = (root: string, path: string) => {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+};
+
+/** An upload's files for the card: name, full path, size, and whether the file
+ *  lies outside the session's working directory and Downloads. Unknown (no
+ *  working directory) is not marked. */
+async function cardFiles(files: Array<{ path: string; size: number }>, cwd: string, downloads: string) {
+  const roots = await Promise.all([cwd, downloads].filter(Boolean).map((root) => realpath(root).catch(() => root)));
+  return files.map(({ path, size }) => ({
+    name: basename(path),
+    path,
+    size,
+    outside: cwd ? !roots.some((root) => inside(root, path)) : false,
+  }));
+}
+
+/** The actions a standing allow would cover, or null when any of the request's
+ *  kinds can never have one (then the card offers only once / deny). */
+function grantActions(kinds: readonly BrowserApprovalKind[]): string[] | null {
+  const actions = kinds.map((kind) => GRANT_ACTION[kind]);
+  return actions.length > 0 && actions.every((action): action is string => Boolean(action)) ? actions : null;
+}
+
+export interface BrowserApprovalHooks {
+  /** The asking bot's (or session's) display name and, for a bot's own chat,
+   *  its agent id; empty when unknown. */
+  resolveRequester?(sessionId: string): Promise<ApprovalRequester>;
+  /** Whether `agentId` has a standing allow for every one of `actions`. */
+  isAllowed?(agentId: string, actions: string[]): Promise<boolean>;
+  /** Whether `agentId`'s mode is `block` for any of `actions`. */
+  isBlocked?(agentId: string, actions: string[]): Promise<boolean>;
+  /** Record a standing allow for `agentId` for each of `actions`. */
+  remember?(agentId: string, actions: string[]): Promise<void>;
+  /** Audit line: `approve` / `deny` (the card), `granted` (always allow saved),
+   *  `remembered` (a saved allow let it run unasked), `run-allowed` (a
+   *  schedule/webhook run did it unasked), `blocked` (the bot's block stopped a run). */
+  audit?(agentId: string, actions: string[], decision: string): Promise<void>;
+  /** The user's Downloads folder: an upload from it is not marked "outside the project". */
+  downloadsDir?(): string;
+  /** An approval opened while the window is not focused: show an app
+   *  notification whose click opens that session. Never takes focus itself. */
+  notify?(window: BrowserWindow, requester: { sessionId: string; name: string }): void;
+  /** The top-level chat a session's card docks in (a sub-agent's root chat). */
+  surfaceSessionId?(sessionId: string): string;
+}
+let hooks: BrowserApprovalHooks = {};
+
+export function setBrowserApprovalHooks(next: BrowserApprovalHooks): void {
+  hooks = next;
+}
+
+const REQUESTER_TIMEOUT_MS = 1_500;
+const UNKNOWN_REQUESTER: ApprovalRequester = { name: '', agentId: '' };
+
+async function requesterOf(sessionId: string): Promise<ApprovalRequester> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    if (!hooks.resolveRequester) return UNKNOWN_REQUESTER;
+    return await Promise.race([
+      hooks.resolveRequester(sessionId),
+      new Promise<ApprovalRequester>((resolve) => {
+        timer = setTimeout(() => resolve(UNKNOWN_REQUESTER), REQUESTER_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return UNKNOWN_REQUESTER;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The renderer card's answer (`once`, `always`, `deny`; anything else denies).
+ *  Only the renderer the card was sent to can answer it; an unknown, settled
+ *  or foreign id is ignored, and `always` where none was offered is `once`.
+ *  A denial may carry the person's note for the asking agent. */
+export function decideBrowserApproval(sender: WebContents, id: unknown, decision: unknown, reason?: unknown): void {
+  if (typeof id !== 'string') return;
+  const entry = pending.get(id);
+  if (entry?.owner !== sender) return;
+  if (decision === 'always') entry.finish(entry.rememberable ? 'always' : 'once');
+  else if (decision === 'once') entry.finish('once');
+  else entry.finish('deny', typeof reason === 'string' ? reason.trim().slice(0, 4_000) : '');
+}
+
+/** Whether `agentId` already holds a standing allow for all of `actions`; a
+ *  store that cannot answer means "ask". */
+async function standingAllow(agentId: string, actions: string[]): Promise<boolean> {
+  try {
+    return (await hooks.isAllowed?.(agentId, actions)) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `agentId` has blocked any of `actions`; a store that cannot answer
+ *  means blocked (a run must not act on a permission it could not read). */
+async function blockedBy(agentId: string, actions: string[]): Promise<boolean> {
+  try {
+    return hooks.isBlocked ? (await hooks.isBlocked(agentId, actions)) === true : false;
+  } catch {
+    return true;
+  }
+}
+
+export async function requestBrowserApproval(
+  window: BrowserWindow,
+  request: BrowserApprovalRequest,
+  signal?: AbortSignal
+): Promise<boolean> {
+  // A standing allow is per bot (the bot's own chat) and per kind of step: a
+  // command is let through unasked only when this bot holds one for EVERY kind
+  // it contains, and never for a kind that always asks.
+  const requester = await requesterOf(request.sessionId);
+  const actions = grantActions(request.kinds);
+  const bot = actions && requester.agentId ? requester.agentId : '';
+  // "Always allow" only for the bot's own chat, never delegated work (approval-requester.ts).
+  const rememberable = Boolean(bot) && requester.rememberable !== false;
+  const audit = (decision: string) => {
+    if (bot && actions) void (async () => hooks.audit?.(bot, actions, decision))().catch(() => undefined);
+  };
+  // A schedule or webhook run (and the work it started) never asks: saving the
+  // routine was the user's grant. The bot's own `block` still applies, and an
+  // operator-confirmed action (`confirm`) always asks.
+  if (request.unattended === true && !request.kinds.includes('confirm')) {
+    // The run's owning bot is the one recorded for the run (never the
+    // requester, whose lookup can time out or name no bot for a task session).
+    // Without it, or without a readable permission, the step is refused.
+    const owner = (request.unattendedAgent || '').trim();
+    const runAudit = (decision: string) => {
+      if (owner && actions) void (async () => hooks.audit?.(owner, actions, decision))().catch(() => undefined);
+    };
+    if (!owner) {
+      throw new Error(
+        "Browser Use step refused: the run's owning bot could not be established; nothing was dispatched"
+      );
+    }
+    if (actions && (!hooks.isBlocked || (await blockedBy(owner, actions)))) {
+      runAudit('blocked');
+      throw new Error("Browser Use step blocked by this bot's permission; nothing was dispatched");
+    }
+    runAudit('run-allowed');
+    return !signal?.aborted;
+  }
+  if (bot && actions && (await standingAllow(bot, actions))) {
+    audit('remembered');
+    return !signal?.aborted;
+  }
+  // The card waits until the person answers: no timer ends it. Deny, the
+  // command being stopped (`signal`, also while the approval is still queued
+  // behind another card) and the card's document going away settle it.
+  const asked = withHumanOnlyApproval(async () => {
+    if (signal?.aborted || window.isDestroyed() || window.webContents.isDestroyed()) return false;
+    const contents = window.webContents;
+    const id = randomUUID();
+    const files = request.files
+      ? await cardFiles(request.files, requester.cwd || '', hooks.downloadsDir?.() || '')
+      : [];
+    const send = (payload: unknown) => {
+      if (!window.isDestroyed() && !contents.isDestroyed()) contents.send(DESKTOP_IPC.browserApproval, payload);
+    };
+    return await new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      // The card lives in this renderer document: leaving it (reload,
+      // navigation, crash, teardown) denies, so the human-only lock is freed.
+      const onDocumentGone = () => finish('deny');
+      const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
+        if (details.isMainFrame && !details.isSameDocument) finish('deny');
+      };
+      const finish = (decision: Decision, reason = '') => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onDocumentGone);
+        contents.removeListener('did-start-navigation', onNavigation as never);
+        contents.removeListener('render-process-gone', onDocumentGone);
+        contents.removeListener('destroyed', onDocumentGone);
+        window.removeListener('closed', onDocumentGone);
+        pending.delete(id);
+        send({ id, closed: true });
+        // The person's note reaches the agent as the command's error.
+        if (decision === 'deny' && reason) reject(new Error(browserNotApproved(reason)));
+        else resolve(decision !== 'deny');
+        audit(decision === 'deny' ? 'deny' : 'approve');
+        if (decision === 'always' && bot && actions) {
+          // Not saved (store unreachable): this action ran once, the next asks
+          // again, and the person is told so.
+          void (async () => hooks.remember?.(bot, actions))().then(
+            () => audit('granted'),
+            () => send({ id, saveFailed: true })
+          );
+        }
+      };
+      pending.set(id, { owner: contents, rememberable, finish });
+      signal?.addEventListener('abort', onDocumentGone, { once: true });
+      contents.on('did-start-navigation', onNavigation as never);
+      contents.on('render-process-gone', onDocumentGone);
+      contents.once('destroyed', onDocumentGone);
+      window.once('closed', onDocumentGone);
+      let onceReason = '';
+      if (!rememberable) onceReason = request.kinds.includes('confirm') ? 'confirm' : 'bot';
+      send({
+        id,
+        action: request.action,
+        url: redactBrowserUrl(request.url),
+        sessionId: request.sessionId,
+        surfaceSessionId: hooks.surfaceSessionId?.(request.sessionId) || request.sessionId,
+        agentId: requester.agentId,
+        requester: requester.name,
+        target: request.target,
+        paths: request.paths,
+        ...(files.length
+          ? { origin: originOfUrl(request.url), receiverOrigin: request.receiverOrigin || '', files }
+          : {}),
+        // What "always allow" would change, or why this one only asks once.
+        remember: rememberable ? { kinds: request.kinds } : null,
+        onceReason,
+      });
+      if (!window.isDestroyed() && !window.isFocused()) {
+        hooks.notify?.(window, { sessionId: request.sessionId, name: requester.name });
+      }
     });
-    return result.response === 1 && !timeout.aborted;
+  }, signal);
+  // A command stopped while queued behind another card is a denial, not an error.
+  return asked.catch((error) => {
+    if (signal?.aborted) return false;
+    throw error;
   });
 }

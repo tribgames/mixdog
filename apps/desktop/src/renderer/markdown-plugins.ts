@@ -4,7 +4,7 @@
 // pulled into the renderer bundle and the markdown worker alike.
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import { isOsDocumentExtension, parseLocalFileLocation } from '../shared/local-files';
-import { isLocalMarkdownLink } from './markdown-url';
+import { isLocalMarkdownLink, localMarkdownPath } from './markdown-url';
 
 interface HastLikeNode {
   type?: string;
@@ -592,6 +592,35 @@ function localImageLink(node: HastLikeNode): HastLikeNode | null {
     properties: { dataSrc: src, alt: String(node.properties?.alt || '') },
     children: [link],
   };
+}
+
+/** The local file paths a reply's markdown renders as links (what the
+ *  transcript makes clickable): explicit `[text](path)` links and images,
+ *  inline-code paths and prose paths, by the grammar `linkifyLocalPaths`
+ *  applies. Fenced code stays plain text. Paths are decoded, `/`-separated,
+ *  without a line suffix, as written (relative or absolute). */
+export function linkedLocalPaths(markdown: string): string[] {
+  const found = new Set<string>();
+  const add = (href: string) => {
+    const path = localMarkdownPath(parseLocalFileLocation(href).path);
+    if (path) found.add(path);
+  };
+  const text = String(markdown || '')
+    .replace(/(^|\n)[ \t]*(`{3,}|~{3,})[\s\S]*?(?:\n[ \t]*\2[`~]*[ \t]*(?=\n|$)|$)/g, ' ')
+    .replace(/!?\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g, (_all, href: string) => {
+      if (isLocalMarkdownLink(href)) add(href);
+      return ' ';
+    })
+    .replace(/`([^`\n]+)`/g, (_all, code: string) => {
+      const mention = codeMention(code);
+      if (mention) add(mention.path);
+      return ' ';
+    });
+  PROSE_PATH.lastIndex = 0;
+  for (let match = PROSE_PATH.exec(text); match; match = PROSE_PATH.exec(text)) {
+    if (match.groups?.file) add(match.groups.file);
+  }
+  return [...found];
 }
 
 export function linkifyLocalPaths() {

@@ -2,7 +2,7 @@ import type { TranscriptItem } from './desktop-types';
 import type { TurnChangesRef } from './turn-changes-model';
 import { completionTone } from './transcript-primitives';
 import { isVisibleTranscriptItem } from './transcript-row';
-import { streamingTextPaints } from './use-paced-transcript-text';
+import { streamingTextPaints } from './use-transcript-text-reveal';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isTranscriptCancelledStatusText } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 
@@ -35,10 +35,6 @@ export type TranscriptRowModel =
       completion?: TranscriptItem;
       active?: boolean;
       live?: boolean;
-      /** Nothing but the live activity band follows this part: its streamed
-       *  text may still be revealing. Any later row (a tool card, the next
-       *  part) clears it, which reveals the text whole in that same commit. */
-      newest?: boolean;
       /** This row holds the last turndone of a checkpoint: its changed-files card follows. */
       turnChanges?: TurnChangesRef;
     }
@@ -571,14 +567,6 @@ export function appendLiveTranscriptRows({
       live: true,
     });
     builder.previousRowWasUser = false;
-  }
-
-  // The live output stays the newest part while messages wait below it: they
-  // are not output, so its streamed text keeps revealing at its own pace.
-  const newest = builder.rows.length - 1;
-  const newestRow = builder.rows[newest];
-  if (newestRow?._tag === 'AssistantPart' && newestRow.item.kind === 'assistant') {
-    builder.rows[newest] = { ...newestRow, newest: true };
   }
 
   steerItems.forEach((item, index) => {

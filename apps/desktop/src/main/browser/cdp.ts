@@ -16,6 +16,7 @@ import { createBrowserCdpExecution } from './cdp-execution';
 import { createBrowserCdpSessionInit } from './cdp-session-init';
 import type { BrowserGuestStateStore } from './guest-state';
 import type { BrowserFetchPattern, BrowserInterceptRule } from './intercept';
+import type { UserWaitClock } from './user-wait';
 
 export type { BrowserCdpCallOptions } from './cdp-calls';
 
@@ -39,13 +40,15 @@ export type BrowserCdpPort = Pick<BrowserGuestCdp, 'call' | 'sendCdp' | 'sendCdp
 export interface BrowserGuestCdp {
   /** Do not reuse a page while a cancelled dispatch is still executing. */
   waitForIdle(guest: WebContents, signal?: AbortSignal): Promise<void>;
-  /** Race a promise against a timeout and the caller's cancellation. */
+  /** Race a promise against a timeout and the caller's cancellation; the
+   *  timeout stands still while `userWait` has a wait open (cdp-bounded.ts). */
   bounded<T>(
     promise: Promise<T>,
     timeoutMs: number,
     label: string,
     signal?: AbortSignal,
-    onTimeout?: () => void
+    onTimeout?: () => void,
+    userWait?: UserWaitClock
   ): Promise<T>;
   sendCdp<T>(
     guest: WebContents,
@@ -81,6 +84,9 @@ export interface BrowserGuestCdp {
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal, timeoutMs?: number): Promise<T>;
   /** The attached debugger for a guest, initialised once per document. */
   guestDebugger(guest: WebContents, answeringDialog?: boolean): Promise<Electron.Debugger>;
+  /** Attach a page window.open created without blanking the navigation its
+   *  opener started, so its first document already has the dialog bridge. */
+  attachOpenedPage(guest: WebContents): Promise<Electron.Debugger>;
   waitForInitialDocument(guest: WebContents): Promise<void>;
   /** Push the current Fetch patterns to the root and every child session. */
   applyFetchPatterns(guest: WebContents, signal?: AbortSignal): Promise<void>;
@@ -132,6 +138,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     sendCdpInput: calls.sendCdpInput,
     evaluate: calls.evaluate,
     guestDebugger: attachment.guestDebugger,
+    attachOpenedPage: attachment.attachOpenedPage,
     waitForInitialDocument: attachment.waitForInitialDocument,
     applyFetchPatterns,
     drive: sessions.drive,

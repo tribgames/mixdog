@@ -238,6 +238,55 @@ test('check, inspect and capture answer mid-turn off screen, without showing the
   }
 });
 
+test('off-screen inspect / check lay out at the remembered side panel size, else 1280×900; explicit viewport wins', async () => {
+  const exported = [];
+  const t = setup({
+    async renderExport(_pane, format, _allowNetwork, options) {
+      exported.push({ format, options });
+      return { data: Buffer.from('PAGE'), problems: [] };
+    },
+  });
+  try {
+    await t.service.setTurnActive(SESSION, true);
+    await t.run('open', { targets: ['site/a.html'] });
+
+    // (b) no panel size known yet: the default.
+    const fallback = await t.run('inspect', { tab: 'v1' });
+    assert.match(fallback.text, /laid out off screen at 1280×900/);
+    assert.doesNotMatch(fallback.text, /side panel's width/);
+    assert.deepEqual(t.calls.offscreen.at(-1).options.viewport, { width: 1280, height: 900 });
+    const fallbackCheck = await t.run('check', { tab: 'v1' });
+    assert.doesNotMatch(fallbackCheck.text, /side panel's width/);
+    assert.deepEqual(t.calls.offscreen.at(-1).options.viewport, { width: 1280, height: 900 });
+
+    // (a) the remembered panel size (the last one reported wins).
+    t.service.setPanelSize({ width: 600, height: 700 });
+    t.service.setPanelSize({ width: 440, height: 820 });
+    const inspected = await t.run('inspect', { tab: 'v1' });
+    assert.match(inspected.text, /laid out off screen at the side panel's width 440×820/);
+    assert.deepEqual(t.calls.offscreen.at(-1).options.viewport, { width: 440, height: 820 });
+    const checked = await t.run('check', { tab: 'v1' });
+    assert.match(checked.text, /checked off screen at the side panel's width 440×820/);
+    assert.deepEqual(t.calls.offscreen.at(-1).options.viewport, { width: 440, height: 820 });
+
+    // (c) an explicit viewport wins over the panel.
+    const explicit = await t.run('inspect', { tab: 'v1', viewport: { width: 390, height: 844 } });
+    assert.match(explicit.text, /laid out off screen at 390×844/);
+    assert.doesNotMatch(explicit.text, /side panel's width/);
+    assert.deepEqual(t.calls.offscreen.at(-1).options.viewport, { width: 390, height: 844 });
+
+    // (d) exports keep their own width: no viewport is passed, the render default is 1280.
+    await t.run('export', { tab: 'v1', format: 'png', output: 'shot.png' });
+    assert.equal(exported.length, 1);
+    assert.equal('viewport' in exported[0].options, false);
+    const { OFFSCREEN_VIEWPORT, THUMBNAIL_VIEWPORT } = await import('./export-render.ts');
+    assert.equal(OFFSCREEN_VIEWPORT.width, 1280);
+    assert.equal(THUMBNAIL_VIEWPORT.width, 1280);
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("the user's own panel commands apply at once during a turn", async () => {
   const t = setup();
   try {

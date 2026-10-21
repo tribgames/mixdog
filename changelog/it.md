@@ -4,6 +4,82 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Aggiunti temi e skin con foto, l’overlay del bot principale e il cambio di workflow e modalità di delega a metà conversazione, con firma del codice per Windows e ampie correzioni per compattazione, approvazioni e allegati.
+
+### Nuove funzionalità
+
+- **Temi** — Aggiunta Impostazioni → Tema per scegliere Sistema, Buio o Bianco, una delle quattro skin con foto animate, una propria foto o un breve video, oltre al carattere e alla dimensione del testo in una sola schermata.
+- **Overlay del bot principale** — Aggiunto il bot principale posizionato sopra il campo di input dell’app per PC, che mostra le risposte in un fumetto che sfoglia autonomamente le risposte lunghe; fai clic per inviare un messaggio, oppure fai clic con il tasto destro per dimensioni, fissaggio della posizione e impostazioni. Sceglilo in Impostazioni → Bot.
+- **Modelli di fallback** — Aggiunti modelli di fallback a Lead, al bot principale e ai profili dei bot, passando al modello successivo quando uno raggiunge il limite di utilizzo.
+- **Cambio di workflow e delega** — Aggiunto il passaggio di workflow e modalità di delega dal menu dei modelli durante una conversazione; si applica dal turno successivo solo a quella conversazione.
+- **Compattazione intelligente** — Aggiunto Impostazioni → Contesto → "Modello di riepilogo della compattazione" con Intelligente, Maintainer o Modello della conversazione. Intelligente è l’opzione predefinita.
+- **Base di ragionamento automatico** — Aggiunto Impostazioni → Generale → "Base di ragionamento automatico" per scegliere il livello di riferimento su cui opera Auto.
+- **Generazione di immagini** — Aggiunta la generazione di immagini in Studio con i modelli grafici di OpenRouter e NanoGPT.
+- **Posizione del pannello laterale** — Aggiunta l’opzione in Impostazioni → Generale per posizionare il pannello laterale a destra, in basso o automaticamente.
+- **Layout della pagina dei bot** — Aggiunta la possibilità di trascinare i bot per riordinarli, mostrare o nascondere il bot principale, i bot, le stanze e gli agenti dal menu `…`, oltre a un unico posto per le attività in corso.
+
+### Modifiche
+
+- L’installer e l’applicazione Windows ora dispongono di firma del codice, riducendo gli avvisi di sicurezza di Windows e i falsi positivi degli antivirus.
+- Le approvazioni di browser-use sono passate dalle finestre del sistema operativo a schede di approvazione nella chat, e anche i caricamenti di file richiedono ora conferma.
+- Le schede di approvazione mostrano ora il bot richiedente e una domanda su una riga, si rifiutano con un clic e non si rifiutano mai da sole durante l’attesa.
+- Le richieste di approvazione dei sotto-agenti compaiono ora anche nella chat principale, con "Apri sessione" per passare direttamente lì.
+- I profili dei bot elencano ora gli elementi impostati su "Consenti sempre" e permettono di ripristinare ciascuno su "Chiedi di nuovo".
+- Pianificazioni e webhook chiedono ora conferma una sola volta al salvataggio e non più durante l’esecuzione; pagamenti ed eliminazione permanente non vengono mai eseguiti senza presidio.
+- Un telefono collegato può ora solo restringere, mai ampliare, le autorizzazioni e i connettori dei bot.
+- Un bot disattivato rimane nella pagina dei bot come "Disattivo" per poter essere riattivato ed è possibile nasconderlo separatamente dalla barra laterale (#153).
+- I sotto-agenti si espandono ora facendo clic sul volto o con clic destro su "Mostra sotto-agenti" anziché tramite una freccia.
+- Nel selettore dei modelli è stato rimosso l’interruttore "Ragionamento automatico" e posto Auto in cima all’elenco dello sforzo.
+- Il selettore dei modelli si apre ora subito sotto la sua riga, e i provider personalizzati mostrano il nome assegnato.
+- Regolate le stanze dei bot in modo che conversino naturalmente anziché concordare tra loro ogni volta; in assenza di un modello Maintainer, ogni bot menzionato risponde una sola volta.
+- I messaggi tra bot mostrano ora il bot mittente e quello destinatario, limitando lo scambio continuo tra bot a tre passaggi.
+- Le notifiche di risposta dei bot su PC e telefono utilizzano ora il nome del bot o della stanza come titolo.
+- Il pulsante Git del compositore apre ora la scheda Git, dove "Crea PR", "commit · push" e "Crea commit" hanno ciascuno il proprio pulsante "Eseguire".
+- La scheda di fine attività mostra ora solo le miniature dei file collegati nella risposta o aperti nel pannello laterale.
+- Modificato lo scorrimento in modo che la vista si muova solo quando si scorre e torni a seguire le nuove risposte una volta raggiunto il fondo; le risposte lunghe che arrivano tutte insieme iniziano dalla loro prima riga.
+- Un server MCP lento ritarda la prima risposta al massimo di 3 secondi; gli strumenti che si collegano successivamente sono disponibili dal turno seguente.
+- Modificate le risposte in streaming per apparire a piccoli passi con una breve dissolvenza sulle nuove parole, in modo che il testo non compaia più a blocchi.
+- Aggiunto il fissaggio degli agenti nella pagina dei bot dal menu del clic destro, e "Mantieni agenti terminati" nel menu `…` per 1 ora, 1 giorno, 7 giorni o Per sempre.
+- Aggiunto "Illimitato" alla cancellazione automatica delle sessioni inattive.
+- Regolata la riga di token e costo nella finestra dell’agente per mantenere la propria posizione fin dall’inizio, evitando salti visivi.
+- Regolate le indicazioni dello strumento setup in modo che l’IA possa impostare la riga di attivazione (`when_to_use`) quando crea o modifica una skill.
+
+### Correzioni di bug
+
+- Corrette le chat di Anthropic con immagini grandi o PDF che fallivano ripetutamente con "attachmentReference: Extra inputs are not permitted".
+- Corretto l’allegato di più PDF che bloccava la chat per superamento del contesto; gli allegati grandi restano su questo PC e vengono lette solo le parti necessarie (#150).
+- Corretto il testo RTF copiato da Word, Excel o da un browser che veniva allegato come immagine (#135).
+- Corretti gli allegati non inviati che scomparivano dopo aver visitato un’altra sessione (#139).
+- Corretto il modello e lo sforzo di ragionamento di Lead che cambiavano a ogni apertura di una nuova attività (#149).
+- Corretto Claude Opus 5.5 che rispondeva in inglese anziché in coreano al termine di attività lunghe; le risposte finali di Lead e dei bot vengono ora fornite in coreano.
+- Corretti i file di impostazioni e account che si corrompevano dopo un arresto forzato con perdita di accessi e preferenze; vengono ora ripristinati dall’ultima copia valida (#151).
+- Corretta la creazione o modifica di file in cartelle sincronizzate come NAVER MYBOX che falliva con EPERM (#138).
+- Corretto l’elenco dei modelli che rimaneva vuoto dopo l’accesso a OpenCode Go (#141).
+- Corretta l’installazione interrotta del motore code-tidy che rimaneva bloccata senza reinstallarsi; ora segnala l’errore e reinstalla per singolo motore (#152).
+- Corretto il salvataggio di un provider personalizzato con un elenco modelli lento che falliva per timeout.
+- Corretto l’avvio di una nuova attività che riportava a una schermata vuota.
+- Corretto l’elenco dei sotto-agenti completati che scompariva dopo il riavvio dell’app o del servizio in background.
+- Corretti i sotto-agenti nelle attività delegate dal bot principale che riportavano una risposta interlocutoria come risultato prima di finire.
+- Corrette le attività in attesa di approvazione visualizzate come bloccate o interrotte da un timeout.
+- Corretti i sotto-agenti che seguivano le impostazioni di contesto, sforzo di ragionamento e velocità della chat principale ignorando l’impostazione di Maintainer.
+- Corretta una risposta lunga arrivata tutta insieme che appariva vuota e sbiadita per un istante.
+- Corretto un input in coda arrestato che veniva rieseguito dopo il ripristino (#142, thanks @22nsuk).
+- Corretti i processi shell la cui uscita non era mai stata confermata che venivano trattati come terminati (#133, thanks @22nsuk).
+- Corrette le attività in esecuzione che perdevano la loro protezione quando il record dello spazio di lavoro era danneggiato (#117, thanks @22nsuk).
+- Corretti i modelli Cursor che perdevano gli ID di chiamata dello strumento e i passaggi di strumenti bloccati che non terminavano mai (#156, thanks @22nsuk).
+- Corretto l’indicatore di digitazione che non scompariva mai nelle stanze dei bot e i messaggi inviati a metà risposta che andavano persi.
+- Corretto l’avviso "results omitted" che non appariva nella chat di un bot quando si accumulavano molti risultati di routine.
+- Corretto il conteggio dei non letti nell’elenco dei bot che conteggiava anche le chiamate degli strumenti.
+- Corrette le notifiche di completamento per altre sessioni che non apparivano mentre l’app era visibile.
+- Corretto l’elenco delle sessioni che saltava sui telefoni al variare dell’ordine durante lo scorrimento e le schede delle impostazioni su iPhone che non si chiudevano toccando all’esterno.
+- Corretti i collegamenti email nelle risposte che non producevano alcuna azione al clic.
+- Corretti gli hook PreToolUse che venivano saltati nelle sessioni riaperte in seguito, come nel turno di completamento di un agente (#161).
+- Corretto l'accesso a GitHub che rimaneva bloccato su "Avvio dell'accesso a GitHub…" (#162).
+- Corretto il livello di ragionamento che continuava a mostrare Auto dopo averne selezionato un altro (#131).
+- Corretto il pulsante a schermo intero dei video nel pannello laterale che non produceva alcuna azione (#160, thanks @Deno2026).
+- Corretta l’app che mostrava "Object has been destroyed" alla chiusura della finestra con l’overlay del bot principale attivo.
+- Corretto un comando Git lento che causava la riconnessione dell'app al servizio in background e la perdita temporanea degli aggiornamenti della sessione in tempo reale.
+
 ## v1.3.1 - 2026-10-20
 
 Una patch di stabilizzazione per i problemi riscontrati dalla 1.3.0, con un valutatore dello sforzo di ragionamento aggiornato.

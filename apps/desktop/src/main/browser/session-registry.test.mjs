@@ -92,6 +92,46 @@ test('background tab names may repeat across browser sessions', () => {
   assert.equal(registry.backgroundPageForGuest('alpha', alphaGuest), undefined);
 });
 
+test('closing the selected popup selects the page that opened it; an unselected one changes nothing', () => {
+  const registry = new BrowserSessionRegistry();
+  const primary = guest(1);
+  registry.registerVisibleGuest(primary);
+  registry.bindVisibleGuest('s', primary.id, true);
+  const page = (id, opener) => {
+    const contents = guest(id);
+    return { window: { isDestroyed: () => false }, guest: contents, lastUsedAt: 1, kind: 'popup', opener };
+  };
+  const support = page(2);
+  support.kind = 'user';
+  registry.setBackgroundPage('s', 'user-tab-1', support);
+  const popup = page(3, support.guest);
+  registry.setBackgroundPage('s', 'popup-1', popup);
+
+  registry.selectGuest('s', popup.guest);
+  registry.deleteBackgroundPage('s', 'popup-1', popup);
+  assert.equal(registry.currentGuest('s'), support.guest, 'its opener, not the first visible page');
+
+  // window.close() destroys the page before its window reports closing.
+  const again = page(4, support.guest);
+  registry.setBackgroundPage('s', 'popup-2', again);
+  registry.selectGuest('s', again.guest);
+  again.guest.destroyed = true;
+  assert.equal(registry.currentGuest('s'), support.guest);
+
+  const unselected = page(5, support.guest);
+  registry.setBackgroundPage('s', 'popup-3', unselected);
+  registry.selectGuest('s', primary);
+  registry.deleteBackgroundPage('s', 'popup-3', unselected);
+  assert.equal(registry.currentGuest('s'), primary);
+
+  const orphan = page(6, support.guest);
+  registry.setBackgroundPage('s', 'popup-4', orphan);
+  registry.selectGuest('s', orphan.guest);
+  support.guest.destroyed = true;
+  registry.deleteBackgroundPage('s', 'popup-4', orphan);
+  assert.equal(registry.currentGuest('s'), primary, 'a closed opener leaves the usual fallback');
+});
+
 test('Browser Use command queues serialize per session instead of globally', () => {
   const queue = createBrowserCommandQueue({
     chains: new Map(),

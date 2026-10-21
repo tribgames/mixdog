@@ -48,7 +48,7 @@ test('nothing is attributed until the viewing device is known; an unnamed viewer
   assert.equal(isOtherDevice('Main PC', 'Pixel 9'), true);
 });
 
-test('an approval answered elsewhere leaves a settled card only in a multi-device conversation', () => {
+test('an approval answered elsewhere leaves a settled card unless this device answered it', () => {
   const previous = { id: 'a1' };
   const snapshot = {
     toolApproval: null,
@@ -57,11 +57,15 @@ test('an approval answered elsewhere leaves a settled card only in a multi-devic
   };
   assert.deepEqual(retiredApprovalFor(previous, snapshot, new Set())?.outcome, { approved: true, device: 'Pixel' });
   assert.equal(retiredApprovalFor(previous, snapshot, new Set(['a1'])), null, 'this device answered it');
-  assert.equal(
-    retiredApprovalFor(previous, { ...snapshot, items: [user('1', 'Pixel')] }, new Set()),
-    null,
-    'one device only'
-  );
+  // An answer from a device that is not the viewer is always "elsewhere", even
+  // when the transcript has no user rows from the viewer (or none at all).
+  for (const items of [[user('1', 'Pixel')], []]) {
+    assert.deepEqual(
+      retiredApprovalFor(previous, { ...snapshot, items }, new Set())?.outcome,
+      { approved: true, device: 'Pixel' },
+      'the transcript names no second device'
+    );
+  }
   assert.equal(retiredApprovalFor({ id: 'a2' }, snapshot, new Set()), null, "another approval's result");
 });
 

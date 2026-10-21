@@ -19,6 +19,7 @@ import {
 import { previewFreshContextCompaction, runFreshContextCompact } from './loop/fresh-context.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { textPdfAllowanceDiscount } from './context-utils.mjs';
+import { referenceOversizedAttachments } from './attachment-preflight.mjs';
 import { providerNativePdf } from '../providers/registry.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
@@ -274,6 +275,9 @@ async function compactTranscript(ctx, run) {
     goalReminderText: run.inlineGoalReminder?.content || '',
     activeTurn: true,
     requireReduction: decision.requireReduction,
+    // The provider refused this request as too long: whatever the estimate
+    // said, the latest request's attachments now travel by reference.
+    referenceLatestAttachments: decision.compactTrigger === 'reactive',
   });
   const freshMessages = Array.isArray(run.freshContextResult?.messages) ? run.freshContextResult.messages : null;
   if (!freshMessages) throw new Error('fresh-context compact produced no messages');
@@ -290,6 +294,9 @@ function acknowledgeGoalReminder(sessionRef, run) {
   }
 }
 
+// Detection is narrow on purpose — signal.aborted or a true AbortError — so
+// the recall pipeline's SYNTHETIC "…aborted: memory … ; head preserved"
+// failure (a real compact failure, message text aside) still escalates.
 function isCompactAbort(signal, err) {
   return signal?.aborted === true || err?.name === 'AbortError' || err?.code === 'ABORT_ERR' || err?.code === 'ABORT';
 }
@@ -326,16 +333,6 @@ function reportCompactFailure(ctx, run, compactErr) {
   });
 }
 
-// A failed compact pass ends the send. A genuine cancellation/abort surfaced
-// from the compact pipeline is NOT a context overflow: the fresh-context
-// pipeline deliberately rethrows the original abort error unchanged so the
-// session records a clean cancellation — and the manual/auto-clear runner
-// (manager/compaction-runner.mjs) likewise never fabricates an
-// AGENT_CONTEXT_OVERFLOW for an aborted compact. Mirror that here: preserve
-// the real error (code/name/cause intact) instead of masking it as overflow.
-// Detection is narrow on purpose — signal.aborted or a true AbortError — so
-// the recall pipeline's SYNTHETIC "…aborted: memory … ; head preserved"
-// failure (a real compact failure, message text aside) still escalates.
 function isGenuineCompactOverflow(compactErr) {
   return (
     compactErr?.code === 'AGENT_CONTEXT_OVERFLOW' ||
@@ -362,6 +359,13 @@ function retryCompactQuietly(ctx, run, compactErr) {
   return true;
 }
 
+// A failed compact pass ends the send. A genuine cancellation/abort surfaced
+// from the compact pipeline is NOT a context overflow: the fresh-context
+// pipeline deliberately rethrows the original abort error unchanged so the
+// session records a clean cancellation — and the manual/auto-clear runner
+// (manager/compaction-runner.mjs) likewise never fabricates an
+// AGENT_CONTEXT_OVERFLOW for an aborted compact. Mirror that here: preserve
+// the real error (code/name/cause intact) instead of masking it as overflow.
 function throwCompactFailure(ctx, run, compactErr) {
   const { state, compactPolicy, decision } = ctx;
   const { sessionRef, sessionId, signal, model } = state;
@@ -555,6 +559,33 @@ async function compactBeforeSend(ctx) {
   await runCompactHook(ctx, 'postCompactHook');
 }
 
+// Attachments that would crowd the window travel by reference from this send
+// on (session/attachment-preflight.mjs). Runs whether or not auto-compaction
+// is on: it is what keeps an oversized attachment message from ever reaching
+// the provider. A rewrite changes the transcript the provider chain was built
+// on, so the continuation is dropped and the send is tagged exactly like an
+// automatic compaction: the prefix guard accepts that boundary, whereas a
+// transcript-repair tag would refuse the rewritten earlier message.
+function preflightAttachments(ctx, compactPolicy) {
+  const { state } = ctx;
+  const contextWindow = compactPolicy?.contextWindow || state.sessionRef?.contextWindow;
+  const outcome = referenceOversizedAttachments(state.messages, {
+    contextWindow,
+    nativePdf: providerNativePdf(state.sessionRef?.provider),
+  });
+  if (!outcome.changed) return;
+  ctx.providerState = undefined;
+  ctx.providerStateCleared = true;
+  ctx.compactChanged = true;
+  if (state.opts && !String(state.opts.cacheBreakIntent || '').endsWith('_compaction')) {
+    state.opts.cacheBreakIntent = 'automatic_compaction';
+  }
+  writeStderrBestEffort(
+    `[loop] attachments sent by reference (sess=${state.sessionId || 'unknown'}): ` +
+      `${outcome.referencedMessages} message(s), inline estimate ${outcome.inlineTokensBefore} > budget ${outcome.budgetTokens}\n`
+  );
+}
+
 export async function runPreSendCompactPass(state) {
   const ctx = {
     state,
@@ -567,6 +598,7 @@ export async function runPreSendCompactPass(state) {
     compactChanged: false,
   };
   const compactPolicy = resolveWorkerCompactPolicy(state.sessionRef, state.requestTools);
+  preflightAttachments(ctx, compactPolicy);
   if (compactPolicy?.auto) {
     ctx.compactPolicy = compactPolicy;
     ctx.decision = preSendCompactDecision(state, compactPolicy);

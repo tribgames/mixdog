@@ -16,5 +16,9 @@ const PDF_MAGIC = Buffer.from('%PDF-', 'latin1');
 
 /** True when the bytes start with the %PDF- header. */
 export function isPdfBuffer(buffer) {
-  return Buffer.isBuffer(buffer) && buffer.length >= PDF_MAGIC.length && buffer.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC);
+  return (
+    Buffer.isBuffer(buffer) &&
+    buffer.length >= PDF_MAGIC.length &&
+    buffer.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)
+  );
 }

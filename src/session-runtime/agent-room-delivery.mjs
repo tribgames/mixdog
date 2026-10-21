@@ -146,52 +146,63 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
     return run;
   }
 
-  /** Append the normalized rows `build(session)` gives to the stored log `sessionId`. */
-  function commit(sessionId, build) {
-    return serialized(sessionId, async () => {
-      const session = loadSession(sessionId);
-      if (!session || session.closed === true) throw new Error(`session ${sessionId} is not available`);
-      if (!Array.isArray(session.messages)) session.messages = [];
-      const kept = build(session);
-      const messages = kept.map((row) => roomRowMessage(row));
-      const posted = new Set(session.messages.map((message) => message?.meta?.transcript?.messageId).filter(Boolean));
-      const fresh = messages.filter((message) => !posted.has(message.meta.transcript.messageId));
-      if (!fresh.length) return { added: 0, rows: kept };
-      session.messages.push(...fresh);
-      session.updatedAt = Date.now();
-      await saveSession(session);
-      for (const message of fresh) {
-        const { text, tone, room, messageId, attachments, images } = roomRowItem(message);
-        try {
-          live()?.notice?.(sessionId, { text, tone, room, messageId, attachments, images });
-        } catch (error) {
-          log(`live room row in ${sessionId} failed: ${error?.message || error}`);
-        }
-      }
-      return { added: fresh.length, rows: kept };
+  /** Append the normalized rows `build(session)` gives to the stored log
+   *  `sessionId`; runs inside `serialized`, so no other post overlaps it. */
+  async function commit(sessionId, build) {
+    const session = loadSession(sessionId);
+    if (!session || session.closed === true) throw new Error(`session ${sessionId} is not available`);
+    if (!Array.isArray(session.messages)) session.messages = [];
+    const kept = build(session);
+    const messages = kept.map((row) => roomRowMessage(row));
+    const posted = new Set(session.messages.map((message) => message?.meta?.transcript?.messageId).filter(Boolean));
+    // An id seen earlier in this batch counts as posted too: one row, once.
+    const fresh = messages.filter((message) => {
+      const { messageId } = message.meta.transcript;
+      if (posted.has(messageId)) return false;
+      posted.add(messageId);
+      return true;
     });
+    if (!fresh.length) return { added: 0, rows: kept };
+    session.messages.push(...fresh);
+    session.updatedAt = Date.now();
+    await saveSession(session);
+    for (const message of fresh) {
+      const { text, tone, room, messageId, attachments, images } = roomRowItem(message);
+      try {
+        live()?.notice?.(sessionId, { text, tone, room, messageId, attachments, images });
+      } catch (error) {
+        log(`live room row in ${sessionId} failed: ${error?.message || error}`);
+      }
+    }
+    return { added: fresh.length, rows: kept };
   }
 
   /** Append `rows` to the log of `sessionId`; resolves `{ added, rows }`: how
-   *  many were new, and every row as stored (files as references, no bytes). */
+   *  many were new, and every row as stored (files as references, no bytes).
+   *  The post takes its place in the queue before the files are taken in, so
+   *  a later post cannot overtake it while they are. */
   async function append(sessionId, rows) {
     const roomId = roomIdOfSession(sessionId);
     if (!roomId) throw new TypeError('not a group-room session');
-    const prepared = (
-      await Promise.all(
-        (Array.isArray(rows) ? rows : []).map((row) => storedRow(speechWithArtifacts(row, roomId, loadSession, log)))
-      )
-    ).map((row) => normalizeRoomRow(row));
-    return commit(sessionId, () => prepared);
+    return serialized(sessionId, async () => {
+      const prepared = (
+        await Promise.all(
+          (Array.isArray(rows) ? rows : []).map((row) => storedRow(speechWithArtifacts(row, roomId, loadSession, log)))
+        )
+      ).map((row) => normalizeRoomRow(row));
+      return commit(sessionId, () => prepared);
+    });
   }
 
   /** Post task reports (agent-home-delivery.mjs room items) into the log of
    *  `sessionId`, each as its member's speech row. */
   async function appendTaskReports(sessionId, items) {
     if (!roomIdOfSession(sessionId)) throw new TypeError('not a group-room session');
-    return commit(sessionId, (session) =>
-      (Array.isArray(items) ? items : []).map((item) =>
-        normalizeRoomRow(taskReportRow(item, speakerName(session, item.speaker)))
+    return serialized(sessionId, () =>
+      commit(sessionId, (session) =>
+        (Array.isArray(items) ? items : []).map((item) =>
+          normalizeRoomRow(taskReportRow(item, speakerName(session, item.speaker)))
+        )
       )
     );
   }
@@ -199,15 +210,22 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
 }
 
 let processDelivery = null;
-async function roomDelivery() {
-  if (!processDelivery) {
-    const { loadSession, saveSessionAsync } = await import('../runtime/agent/orchestrator/session/store.mjs');
-    processDelivery = createAgentRoomDelivery({
-      loadSession,
-      saveSession: (session) => saveSessionAsync(session, { expectedGeneration: session.generation }),
-      log: (line) => process.stderr.write(`mixdog rooms: ${line}\n`),
+/** The process's one delivery. The initialization promise is cached before it
+ *  is awaited, so concurrent first callers share one instance (one `tails`
+ *  queue per log); a failed import is not cached. */
+function roomDelivery() {
+  processDelivery ??= import('../runtime/agent/orchestrator/session/store.mjs')
+    .then(({ loadSession, saveSessionAsync }) =>
+      createAgentRoomDelivery({
+        loadSession,
+        saveSession: (session) => saveSessionAsync(session, { expectedGeneration: session.generation }),
+        log: (line) => process.stderr.write(`mixdog rooms: ${line}\n`),
+      })
+    )
+    .catch((error) => {
+      processDelivery = null;
+      throw error;
     });
-  }
   return processDelivery;
 }
 

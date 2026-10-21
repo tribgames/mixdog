@@ -11,6 +11,7 @@
  */
 import type { VisualizeServiceContext } from './context';
 import { displayedPanes, shownLayout, type TabState, view } from './tab-state';
+import { keepVersionTurn } from './version-thumbnails';
 
 export interface TurnHold {
   /** Tabs the turn opened or showed, each once, the latest last. */
@@ -25,8 +26,14 @@ export interface TurnHold {
   again: boolean;
   /** The user's panel commands in progress: they apply at once. */
   bypass: number;
-  /** When the turn started (ms): its opens get their chat cards at its end. */
+  /** When the turn started (ms): its opens get their chat cards at its end.
+   *  A hold carried over another turn keeps the first turn's start. */
   since: number;
+  /** When this hold's own turn started (ms): the span recorded with the
+   *  versions it ends on, never merged with a turn carried into it. */
+  spanSince: number;
+  /** When the turn that interrupted this one's flush started (ms). */
+  nextSince?: number;
 }
 
 /** The session's turn hold when agent actions are held right now. */
@@ -60,7 +67,7 @@ export async function offscreenTabPng(
 }
 
 export function createTurnHolds(
-  ctx: Pick<VisualizeServiceContext, 'holds' | 'sessions' | 'publish' | 'reloads' | 'thumbnails'>
+  ctx: Pick<VisualizeServiceContext, 'holds' | 'sessions' | 'publish' | 'reloads' | 'thumbnails' | 'versions'>
 ) {
   const { holds } = ctx;
   const start = (sessionId: string, carried?: TurnHold): void => {
@@ -72,19 +79,38 @@ export function createTurnHolds(
       again: false,
       bypass: 0,
       since: carried?.since ?? Date.now(),
+      spanSince: carried?.nextSince ?? Date.now(),
     });
   };
 
   const flush = async (sessionId: string, hold: TurnHold): Promise<void> => {
     hold.flushing = true;
+    // This turn's own span, fixed now: a turn starting while the flush runs
+    // is another turn, and its versions get its own span.
+    const turn = { since: hold.spanSince, end: Date.now() };
+    const keep = (tab: TabState): void => {
+      if (!tab.url && ctx.sessions.get(sessionId)?.tabs.includes(tab)) keepVersionTurn(ctx, sessionId, tab, turn);
+    };
     try {
+      // The version each tab the turn opened ends it on is the turn's own: its
+      // card reads it from the state, on any device, after any reload. (A tab
+      // with a held reload gets it once that reload made its version.)
+      for (const id of hold.reveal) {
+        const tab = ctx.sessions.get(sessionId)?.tabs.find((candidate) => candidate.id === id);
+        if (tab && !hold.reloads.has(tab)) keep(tab);
+      }
       // Each publish of these reloads is kept back for the one below.
-      for (const tab of hold.reloads) await ctx.reloads.reload(sessionId, tab);
+      for (const tab of hold.reloads) {
+        await ctx.reloads.reload(sessionId, tab);
+        keep(tab);
+      }
       // Then each opened tab's card picture of its final version, so its
       // card appears with it (or with its placeholder once that takes too long).
       if (!hold.again) {
         const tabs = ctx.sessions.get(sessionId)?.tabs ?? [];
         const opened = hold.reveal.flatMap((id) => tabs.filter((tab) => tab.id === id && !tab.url));
+        // A tab the turn only changed (a new kept version) gets its picture too.
+        for (const tab of hold.reloads) if (!tab.url && tabs.includes(tab) && !opened.includes(tab)) opened.push(tab);
         await ctx.thumbnails.takeAtTurnEnd(sessionId, opened);
       }
     } finally {
@@ -110,7 +136,10 @@ export function createTurnHolds(
     const hold = holds.get(sessionId);
     if (active) {
       if (!hold) start(sessionId);
-      else if (hold.flushing) hold.again = true;
+      else if (hold.flushing) {
+        hold.again = true;
+        hold.nextSince = Date.now();
+      }
       return;
     }
     if (!hold) return;

@@ -1,9 +1,7 @@
 import { X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 
-import { agentAvatar, defaultAgentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
 import type { DesktopCapability, DesktopModelOption } from '../shared/contract';
-import { AgentAvatarPicker, NEW_AGENT_AVATAR } from './agent-avatar';
 import { AgentInstructionEditors } from './agent-instruction-editors';
 import { t } from './i18n';
 import { RouteChainEditor, routeChainComplete } from './RouteChainEditor';
@@ -223,15 +221,6 @@ export function AgentEditorDialog({
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
   const [enabled, setEnabled] = useState(() => record(agent).disabled !== true);
   const [formError, setFormError] = useState('');
-  // The face it shows today; saved only once changed here (or on create), so
-  // an untouched agent keeps whatever its agent.json holds. An agent with an
-  // uploaded image shows its id mascot here, saved only if picked.
-  const [avatar, setAvatar] = useState(() => {
-    const id = String(agent?.id || '');
-    const current = editing ? agentAvatar(id, agent?.avatar) : NEW_AGENT_AVATAR;
-    return current.kind === 'mascot' ? current : defaultAgentAvatar(id);
-  });
-  const [avatarChanged, setAvatarChanged] = useState(!editing);
   const [body, setBody] = useState(() => String(agent?.body || ''));
   const [persona, setPersona] = useState(() => String(agent?.persona || ''));
   // An agent is either off or pinned to a model: switching it on waits for
@@ -276,7 +265,6 @@ export function AgentEditorDialog({
               ...(editing ? { id: String(agent?.id || '') } : {}),
               name: text('agent-name'),
               description: text('agent-description'),
-              ...(avatarChanged ? { avatar } : {}),
               ...routeField,
               persona: persona.trim(),
               body: body.trim() || agentBodyFromBrief(text('agent-name'), text('agent-description')),
@@ -307,18 +295,6 @@ export function AgentEditorDialog({
               disabled={busy}
             />
           </label>
-          <div className="schedules-field">
-            <span>{t('Avatar')}</span>
-            <AgentAvatarPicker
-              value={avatar}
-              disabled={busy}
-              compact
-              onChange={(next) => {
-                setAvatar(next);
-                setAvatarChanged(true);
-              }}
-            />
-          </div>
           <div className="schedules-field">
             <div className="workflows-dialog-route">
               <RouteControls
@@ -430,7 +406,6 @@ export function RouteEditorDialog({
                 models={models}
                 disabled={busy}
                 composerParity={target.modelKind !== 'webSearch'}
-                fallbacks={target.modelKind !== 'main'}
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
               />
             </div>

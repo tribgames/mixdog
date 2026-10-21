@@ -36,7 +36,13 @@ test('composer focus waits for touch typing and pre-focuses keyboard surfaces', 
             <button id="tool" type="button">Tool</button>
             <div id="modal" role="dialog" aria-modal="true" aria-hidden="true"
               inert hidden><button id="dialog-button">Dialog</button></div>
-            <section data-pane-id="one"><Composer {...props} /></section>
+            <section data-pane-id="one">
+              <section className="approval-prompt" role="alertdialog" aria-label="Send this email?">
+                <button id="deny" type="button"
+                  onClick={() => (window.denied = (window.denied || 0) + 1)}>Deny</button>
+              </section>
+              <Composer {...props} />
+            </section>
             <section data-pane-id="two">
               <form className="composer"><textarea id="other" /></form>
             </section>
@@ -173,6 +179,18 @@ test('composer focus waits for touch typing and pre-focuses keyboard surfaces', 
     await page.keyboard.type('m');
     assert.equal(await activeId(page), 'tool');
     assert.equal(await page.$eval('#composer', (node) => node.value), '');
+  });
+
+  await t.test('keys on a focused approval card stay with the card: Space activates its button', async () => {
+    const page = await newPage();
+    await render(page);
+    await page.focus('#deny');
+    await page.keyboard.press('Space');
+    assert.equal(await activeId(page), 'deny', 'focus stays on the card button');
+    assert.equal(await page.evaluate(() => window.denied || 0), 1, 'Space pressed the focused button');
+    await page.keyboard.type('x');
+    assert.equal(await activeId(page), 'deny');
+    assert.equal(await page.$eval('#composer', (node) => node.value), '', 'nothing typed into the composer');
   });
 
   await t.test('typing follows only the active pane and leaves inactive surfaces alone', async () => {

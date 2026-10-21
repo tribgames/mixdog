@@ -19,6 +19,7 @@ import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { createBrowserTextureBridge } from './browser-texture';
 import { withApiFileGrantRefresh } from '../renderer/remote-file-grant-refresh';
 import { ipcErrorFromEnvelope } from '../shared/file-error-codes';
+import { DESKTOP_PET_IPC, desktopPetAppLayout } from '../shared/desktop-pet';
 
 /** `ipcRenderer.invoke` that rebuilds a refusal main returned as an error
  *  envelope (Electron drops an Error's custom `code` in transit). */
@@ -431,6 +432,58 @@ const api: DesktopApi = {
         },
       }
     : {}),
+  reportScreenSessions: (sessionIds) => {
+    try {
+      ipcRenderer.send(DESKTOP_IPC.reportScreenSessions, sessionIds);
+    } catch {
+      /* worst case a completion on screen is still announced */
+    }
+  },
+  // The desktop pet (main/desktop-pet-window.ts), on this window's own channels.
+  getDesktopPetConfig: () => invokeIpc(DESKTOP_PET_IPC.getConfig),
+  setDesktopPetEnabled: (enabled) => invokeIpc(DESKTOP_PET_IPC.setEnabled, enabled === true),
+  setDesktopPetOption: (name, value) => invokeIpc(DESKTOP_PET_IPC.setOption, String(name), value === true),
+  setDesktopPetScale: (scale) => invokeIpc(DESKTOP_PET_IPC.setScale, Number(scale)),
+  resetDesktopPetPosition: () => invokeIpc(DESKTOP_PET_IPC.resetPosition),
+  subscribeDesktopPetConfig: (listener) => subscribeIpc(DESKTOP_PET_IPC.config, listener),
+  subscribeDesktopPetOpenSettings: (listener) => subscribeIpc(DESKTOP_PET_IPC.openSettings, () => listener()),
+  subscribeDesktopPetAppLayout: (listener) =>
+    subscribeIpc(DESKTOP_PET_IPC.appLayout, (layout: unknown) => listener(desktopPetAppLayout(layout))),
+  publishDesktopPet: (state) => {
+    try {
+      ipcRenderer.send(DESKTOP_PET_IPC.publish, state);
+    } catch {
+      /* the pet keeps its last state */
+    }
+  },
+  publishDesktopPetComposer: (rect) => {
+    try {
+      ipcRenderer.send(DESKTOP_PET_IPC.composer, rect);
+    } catch {
+      /* the pinned pet keeps its last place */
+    }
+  },
+  publishDesktopPetTheme: (theme) => {
+    try {
+      ipcRenderer.send(DESKTOP_PET_IPC.theme, theme);
+    } catch {
+      /* the overlay keeps its last look */
+    }
+  },
+  publishDesktopPetLayers: (layers) => {
+    try {
+      ipcRenderer.send(DESKTOP_PET_IPC.layers, layers);
+    } catch {
+      /* the overlay keeps its last state */
+    }
+  },
+  publishDesktopPetAvailable: (available) => {
+    try {
+      ipcRenderer.send(DESKTOP_PET_IPC.available, available === true);
+    } catch {
+      /* the overlay keeps its last state */
+    }
+  },
   rendererDiagnostic: (diagnostic) => {
     try {
       ipcRenderer.send(DESKTOP_IPC.rendererDiagnostic, diagnostic);
@@ -624,6 +677,7 @@ const api: DesktopApi = {
   applyTitleBarTheme: (theme, systemPreference) =>
     invokeIpc(DESKTOP_IPC.applyTitleBarTheme, theme, systemPreference === true),
   setTitleBarDim: (dim) => invokeIpc(DESKTOP_IPC.setTitleBarDim, dim),
+  listSystemFonts: () => invokeIpc(DESKTOP_IPC.listSystemFonts),
   onZoomFactorChanged: (listener) => subscribeIpc(DESKTOP_IPC.zoomFactorChanged, listener),
   onNotificationOpenSession: (listener) => subscribeIpc(DESKTOP_IPC.notificationOpenSession, listener),
   onBrowserOpenRequested: (listener) => subscribeIpc(DESKTOP_IPC.browserOpenRequested, listener),
@@ -636,6 +690,7 @@ const api: DesktopApi = {
   visualizeFeedbackAttach: (sessionId, tabId) => invokeIpc(DESKTOP_IPC.visualizeFeedbackAttach, sessionId, tabId),
   visualizeCaptureRect: (rect) => invokeIpc(DESKTOP_IPC.visualizeCaptureRect, rect),
   visualizeConsumeGesture: (target) => invokeIpc(DESKTOP_IPC.visualizeConsumeGesture, target),
+  visualizePanelSize: (size) => invokeIpc(DESKTOP_IPC.visualizePanelSize, size),
   onBrowserSessionReleased: (listener) => subscribeIpc(DESKTOP_IPC.browserSessionReleased, listener),
   browserSetActiveGuest: (sessionId, webContentsId, active) =>
     invokeIpc(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),
@@ -648,6 +703,9 @@ const api: DesktopApi = {
     invokeIpc(DESKTOP_IPC.browserConfigureGuestViewport, sessionId, webContentsId, config),
   onBrowserGuestViewportChanged: (listener) => subscribeIpc(DESKTOP_IPC.browserGuestViewportChanged, listener),
   onBrowserRemoteViewerChanged: (listener) => subscribeIpc(DESKTOP_IPC.browserRemoteViewerChanged, listener),
+  onBrowserFullscreenChanged: (listener) => subscribeIpc(DESKTOP_IPC.browserFullscreenChanged, listener),
+  onBrowserApproval: (listener) => subscribeIpc(DESKTOP_IPC.browserApproval, listener),
+  browserApprovalDecide: (id, decision, reason) => invokeIpc(DESKTOP_IPC.browserApprovalDecide, id, decision, reason),
   browserProfileImportSources: () => invokeIpc(DESKTOP_IPC.browserProfileImportSources),
   browserProfileImportStart: (request) => invokeIpc(DESKTOP_IPC.browserProfileImportStart, request),
   onBrowserProfileImportProgress: (listener) => subscribeIpc(DESKTOP_IPC.browserProfileImportProgress, listener),

@@ -289,8 +289,9 @@ export async function spawnShellChild(input) {
         if (!detail || !['completed', 'failed', 'cancelled'].includes(detail.nativeStatus)) {
           throw new Error('The child termination could not be confirmed; workspace admission is retained.');
         }
-        input.run.workspaceAdmission?.();
-        input.run.workspaceAdmission = null;
+        // The root is gone, but not necessarily what it started: the
+        // reservation follows the captured tree, swept like any killed one.
+        releaseAdmissionOnConfirmedTermination(input.run, { markNow: false, sweep: true });
       } catch (cleanupError) {
         input.run.killUnconfirmed = true;
         // No settle will ever run for this run; the reservation is released

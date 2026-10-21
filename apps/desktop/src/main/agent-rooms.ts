@@ -12,31 +12,18 @@ import { randomBytes } from 'node:crypto';
 import {
   type RoomConfig,
   type RoomRow,
-  type RoomTurn,
-  type RoomTurnAnswer,
-  isPassReply,
   normalizeRoomConfig,
   parseRoomAsk,
   roomIdOfSession,
-  roomMemberOfSession,
   roomMemberSessionId,
-  roomMentionOf,
-  roomRowsOfItems,
-  roomMessageBudget,
   roomSessionId,
-  roomTurnPrompt,
-  roomUserWaiting,
-  rowsSinceCursor,
-  runRoomExchange,
-  withoutPassMarker,
+  type roomTurnPrompt,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import {
-  type RoomDecision,
-  type RoomSupervisorInput,
-  roomSupervisorRows,
+import type {
+  RoomDecision,
+  RoomSupervisorInput,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
 import { readJsonState, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
-import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
 import { type AgentCatalogRow, MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 import type {
   DesktopAgentRoomSummary,
@@ -47,7 +34,11 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import { routeParams } from './agent-home-sessions';
-import { sessionFinalAnswer } from './session-final-answer';
+import { type RoomExchangeHost, runRoomExchangeIn } from './agent-room-exchange';
+import { createRoomLog } from './agent-room-log';
+import { createRoomRecords } from './agent-room-records';
+import type { RoomTurnHost, RunState } from './agent-room-turn';
+import { catalogWithRooms, decorateRoomSnapshot, roomSummary } from './agent-room-views';
 
 export interface AgentRoomRecord extends RoomConfig {
   id: string;
@@ -103,8 +94,9 @@ export interface AgentRoomDeps {
    *  (submitted like a chat prompt). */
   submit(sessionId: string, prompt: ReturnType<typeof roomTurnPrompt>): Promise<boolean>;
   /** One supervisor step on the Maintainer model (the daemon's
-   *  `decideRoomTurn`): the next speaker, finish, or null for no usable answer. */
-  decideTurn(input: RoomSupervisorInput): Promise<RoomDecision | null>;
+   *  `decideRoomTurn`): the next speaker, finish, null for no usable answer, or
+   *  `unmanaged` when no Maintainer model is configured. */
+  decideTurn(input: RoomSupervisorInput): Promise<RoomDecision | { action: 'unmanaged' } | null>;
   readSnapshot(sessionId: string): Promise<SessionSnapshot>;
   abort(sessionId: string): Promise<void>;
   approve(sessionId: string, approvalId: string, decision: ToolApprovalDecision): Promise<boolean>;
@@ -129,53 +121,7 @@ export interface AgentRoomDeps {
   log?(line: string): void;
 }
 
-/** The exchange of one room in flight. */
-interface RunState {
-  stop: boolean;
-  speaking: string;
-  speakingName: string;
-  /** The typing row's id for the turn in flight, unique for the room's life.
-   *  The views carry a typing row's id over to the message that replaces it
-   *  (transcript-identity.ts), so an id built from speaker and round came back
-   *  in the next exchange: two rows shared one key, and the transcript's rows
-   *  fought over one measured size and shook up and down. */
-  typingId: string;
-  memberSession: string;
-  approval: Record<string, unknown> | null;
-  /** A message sent while members were speaking: the turns still queued are
-   *  dropped at the next turn boundary and its exchange runs next. */
-  pending: { to: string[]; waiting: true } | null;
-  /** The user's newest message has no answer from this exchange yet: set when
-   *  a user message starts it, cleared by its first speech. A reply the member
-   *  in flight finishes after a newer message is not an answer to it. */
-  waiting: boolean;
-}
-
-const TOOL_SUMMARY = 400;
-const RECENT_ROWS = 200;
 const SUBMISSION_IDS = 64;
-
-const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-
-/** A catalog row's display name, as its contact row shows it. */
-function agentName(row: { id: string; label?: unknown; definition?: unknown }): string {
-  const definition = row.definition && typeof row.definition === 'object' ? row.definition : {};
-  return text((definition as { name?: unknown }).name) || text(row.label) || row.id;
-}
-
-/** A catalog row's description, '' when it has none (the supervisor prompt
- *  keeps its first line, bounded). */
-function agentDescription(row: { description?: unknown; definition?: unknown }): string {
-  const definition = row.definition && typeof row.definition === 'object' ? row.definition : {};
-  return text(row.description) || text((definition as { description?: unknown }).description);
-}
-
-interface MemberLabel {
-  id: string;
-  name: string;
-  route: unknown;
-  description: string;
-}
 
 function promptText(prompt: DesktopPromptContent): string {
   if (typeof prompt === 'string') return prompt.trim();
@@ -186,71 +132,35 @@ function promptText(prompt: DesktopPromptContent): string {
     .trim();
 }
 
-/** A finished member turn's tool calls, one bounded line each. */
-function toolSummaries(snapshot: SessionSnapshot, startedAt: number): Array<{ name: string; summary: string }> {
-  const items = (snapshot?.items ?? []) as Array<Record<string, unknown>>;
-  let start = items.length;
-  while (start > 0 && items[start - 1]?.kind !== 'user') start -= 1;
-  return items
-    .slice(start)
-    .filter((item) => item.kind === 'tool' && (Number(item.at) || startedAt) >= startedAt)
-    .map((item) => {
-      const result = typeof item.result === 'string' ? item.result : JSON.stringify(item.result ?? '');
-      return { name: String(item.name || 'tool'), summary: result.slice(0, TOOL_SUMMARY) };
-    });
+/** The files a user message carries up with its row: image and file parts,
+ *  and the pasted / attached texts its tokens name; null when it has none. */
+function roomUpload(
+  prompt: DesktopPromptContent,
+  pasted: Pick<DesktopSubmitOptions, 'pastedImages' | 'pastedTexts'>
+): NonNullable<RoomRow['upload']> | null {
+  const parts = typeof prompt === 'string' ? [] : prompt.filter((part) => part.type !== 'text');
+  const pastedImages = Object.keys(pasted.pastedImages ?? {}).length ? pasted.pastedImages : undefined;
+  const pastedTexts = Object.keys(pasted.pastedTexts ?? {}).length ? pasted.pastedTexts : undefined;
+  const hasUpload = parts.length || pastedImages || pastedTexts;
+  return hasUpload ? { parts, ...(pastedImages && { pastedImages }), ...(pastedTexts && { pastedTexts }) } : null;
 }
 
-/** A turn that finished without any reply text: a member saying nothing
- *  passes (sessionFinalAnswer waits for text, which never comes). */
-function emptyFinishedTurn(snapshot: SessionSnapshot, startedAt: number): ReturnType<typeof sessionFinalAnswer> {
-  if (!snapshot || snapshot.busy || snapshot.streamingTail) return null;
-  const items = (snapshot.items ?? []) as Array<Record<string, unknown>>;
-  const done = [...items].reverse().find((item) => item.kind === 'turndone');
-  if (done?.status !== 'done' || typeof done.at !== 'number' || done.at < startedAt) return null;
-  const last = items.at(-1);
-  if (last !== done) return null;
-  const answer = items.find((item) => item.id === done.finalAssistantId && item.kind === 'assistant');
-  if (answer && String(answer.text ?? '').trim()) return null;
-  return { id: done.id as string, at: done.at, status: 'done', text: '' };
+/** The route a room's log session is stored with: the model of the first
+ *  member that has one ({} when none does). */
+async function roomLogRoute(
+  members: string[],
+  rows: AgentCatalogRow[],
+  mixyRoute: () => Promise<unknown> | undefined
+): Promise<Record<string, unknown>> {
+  let logRoute: Record<string, unknown> = {};
+  for (const id of members) {
+    logRoute = routeParams(id === MIXY_AGENT_ID ? await mixyRoute() : rows.find((row) => row.id === id)?.route);
+    if (logRoute.model) break;
+  }
+  return logRoute;
 }
 
-/**
- * One list in log order from `read`, a snapshot of the log's tail window (in
- * log order, the authority), and `posted`, the rows this host posted since it
- * started (in log order, a subsequence of the log). The log also holds rows
- * the host never posted (the daemon's task reports), so a row's place comes
- * from the read, never from who posted it or from its `at` (a report carries
- * the time it was queued, not posted). A posted row the read lacks sits
- * before the window when a later posted row is in it (it fell out of the
- * tail), and after it otherwise (the read has not caught up with it). With no
- * posted row in the window, time decides which side the posted rows go.
- */
-export function inLogOrder(read: RoomRow[], posted: RoomRow[]): RoomRow[] {
-  const at = new Map(read.map((row, index) => [row.id, index]));
-  const older: RoomRow[] = [];
-  const before = new Map<number, RoomRow[]>();
-  let pending: RoomRow[] = [];
-  let shared = false;
-  for (const row of posted) {
-    const index = at.get(row.id);
-    if (index === undefined) {
-      pending.push(row);
-      continue;
-    }
-    // Rows ahead of the first shared one fell out of the window; any between
-    // two shared ones go right before the later one.
-    if (shared) before.set(index, pending);
-    else older.push(...pending);
-    shared = true;
-    pending = [];
-  }
-  if (!shared) {
-    const opens = read.at(-1)?.at;
-    const newer = !read.length || !(typeof opens === 'number' && Number(posted[0]?.at) <= opens);
-    return newer ? [...read, ...posted] : [...posted, ...read];
-  }
-  return [...older, ...read.flatMap((row, index) => [...(before.get(index) ?? []), row]), ...pending];
-}
+export { inLogOrder } from './agent-room-log';
 
 function roomDocOf(value: unknown): AgentRoomStoreDoc {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -289,99 +199,12 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   const newId = deps.newId ?? (() => `${now().toString(36)}${randomBytes(4).toString('hex')}`);
   const pollMs = deps.pollMs ?? 500;
   const log = deps.log ?? ((line: string) => console.warn(`[mixdog-rooms] ${line}`));
-  let doc: AgentRoomStoreDoc = { rooms: {} };
-  let loaded: Promise<void> | null = null;
+  const records = createRoomRecords(deps);
+  const { loadRecords, ready, refreshNames, memberLabels, persist, roomOf, names } = records;
   const running = new Map<string, RunState>();
-  /** Rows this host posted, per room: read back with the log, so a row the
-   *  log's projection has not caught up with is never missed. */
-  const recent = new Map<string, RoomRow[]>();
-  /** Agent display names by id, refreshed whenever the agents are listed. */
-  const names = new Map<string, string>();
-
-  let stored: Promise<void> | null = null;
-  /** The room records alone: no daemon call. */
-  function loadRecords(): Promise<void> {
-    // A failed read is not kept: the next room action reads again.
-    stored ??= deps.store.load().then(
-      (value) => {
-        doc = value;
-      },
-      (error) => {
-        stored = null;
-        throw error;
-      }
-    );
-    return stored;
-  }
-
-  function ready(): Promise<void> {
-    loaded ??= loadRecords()
-      .then(refreshNames)
-      .catch((error) => {
-        loaded = null;
-        throw error;
-      });
-    return loaded;
-  }
-
-  async function refreshNames(): Promise<void> {
-    // Every user-made definition names its member, a bot or not: a member of
-    // a 1.3.0 room that is a workflow agent now keeps its name.
-    const listed = await deps.listAgents().catch(() => []);
-    const rows = Array.isArray(listed)
-      ? listed.filter((row): row is AgentCatalogRow & { id: string } => {
-          const entry = row as AgentCatalogRow | null;
-          return entry?.custom === true && typeof entry.id === 'string' && Boolean(entry.id);
-        })
-      : [];
-    for (const row of rows) names.set(row.id, agentName(row));
-    names.set(MIXY_AGENT_ID, await mixyName());
-  }
-  const mixyName = async () => (await deps.leadName?.().catch(() => '')) || 'Mixy';
-  const persist = () => deps.store.save(doc);
-  const roomOf = (roomId: string): AgentRoomRecord => {
-    const room = doc.rooms[roomId];
-    if (!room) throw new Error('This room no longer exists.');
-    return room;
-  };
-
-  async function memberLabels(room: AgentRoomRecord): Promise<Map<string, MemberLabel>> {
-    const rows = contactAgentRows(await deps.listAgents().catch(() => []));
-    const labels = new Map<string, MemberLabel>();
-    const lead = room.members.includes(MIXY_AGENT_ID) ? await mixyName() : '';
-    for (const id of room.members) {
-      const row = rows.find((entry) => entry.id === id);
-      const isLead = id === MIXY_AGENT_ID;
-      const rowName = row ? agentName(row) : (names.get(id) ?? id);
-      const name = isLead ? lead : rowName;
-      if (row) names.set(id, name);
-      const rowDescription = row ? agentDescription(row) : '';
-      const description = isLead ? "The user's main assistant." : rowDescription;
-      labels.set(id, { id, name, route: row?.route, description });
-    }
-    return labels;
-  }
-
-  async function post(roomId: string, rows: RoomRow[]): Promise<void> {
-    const stored = (await deps.appendRows(roomSessionId(roomId), rows)) as { rows?: unknown } | undefined;
-    // The log's copies: a user row's files as stored references, never bytes.
-    const kept = Array.isArray(stored?.rows) ? (stored.rows as RoomRow[]) : rows;
-    const list = [...(recent.get(roomId) ?? []), ...kept].slice(-RECENT_ROWS);
-    recent.set(roomId, list);
-    // The list row's preview follows every spoken line, as a home thread's does.
-    const said = [...rows].reverse().find((row) => row.kind === 'user' || row.kind === 'speech');
-    const room = doc.rooms[roomId];
-    if (said && room) {
-      room.lastPreview = plainPreviewText(said.text).slice(0, 200);
-      deps.republishCatalog();
-    }
-  }
-
-  /** The room's rows in log order. */
-  async function roomRows(roomId: string): Promise<RoomRow[]> {
-    const read = roomRowsOfItems(await deps.readItems(roomSessionId(roomId)).catch(() => []));
-    return inLogOrder(read, recent.get(roomId) ?? []);
-  }
+  const roomLog = createRoomLog(deps, records.rooms);
+  const post = roomLog.post;
+  const roomRows = roomLog.rows;
 
   async function ensureMemberSession(roomId: string, member: { id: string; route: unknown }): Promise<string> {
     const sessionId = roomMemberSessionId(roomId, member.id);
@@ -396,239 +219,47 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     return sessionId;
   }
 
-  /** One member's turn: hand it the new rows, wait for its answer (relaying
-   *  any approval it asks for into the room), then post its words or a pass. */
-  async function speak(
-    roomId: string,
-    state: RunState,
-    labels: Map<string, MemberLabel>,
-    agentId: string,
-    { addressed, instruction, mentionedBy, scene }: RoomTurn
-  ): Promise<RoomTurnAnswer> {
-    const room = roomOf(roomId);
-    const member = labels.get(agentId) ?? { id: agentId, name: agentId, route: undefined, description: '' };
-    // Whether the user's newest message still has no answer in the room.
-    const waiting = state.waiting;
-    const rows = await roomRows(roomId);
-    let shown = rowsSinceCursor(rows, room.cursors[agentId], agentId, room.seen?.[agentId]);
-    // A user still waiting keeps their newest message in view, as context
-    // when this member was already handed it.
-    const asked = waiting ? [...rows].reverse().find((row) => row.kind === 'user') : undefined;
-    if (asked && !shown.some((row) => row.id === asked.id)) shown = [{ ...asked, seen: true }, ...shown];
-    // Nothing new, nobody asking for it (the user, a peer's @mention or the
-    // supervisor's note) and no user waiting: there is no turn to hand, so
-    // none is; the member counts as passing and nothing is posted.
-    const called = addressed.length > 0 || Boolean(mentionedBy) || Boolean(instruction.trim());
-    if (!waiting && !called && !shown.some((row) => !row.seen)) return 'pass';
-    Object.assign(state, {
-      speaking: agentId,
-      speakingName: member.name,
-      typingId: `room-typing-${newId()}`,
-      memberSession: '',
-      approval: null,
-    });
-    deps.republish(roomSessionId(roomId));
-    // A newer user message cuts this turn short: its answer would only
-    // respond to rows older than that message, so nothing is posted for it
-    // (no speech, no pass), the member's session is aborted, and the rows it
-    // was handed come again on its next turn, marked as already shown
-    // (`seen` stays), with the message that cut it off as the new request.
-    const cursorBefore = room.cursors[agentId];
-    const interrupted = () => Boolean(state.pending) && !state.stop;
-    const cutShort = async (): Promise<'superseded'> => {
-      if (cursorBefore === undefined) delete room.cursors[agentId];
-      else room.cursors[agentId] = cursorBefore;
-      if (state.memberSession) await deps.abort(state.memberSession).catch(() => undefined);
-      return 'superseded';
-    };
-    const passRow = (failed = false): RoomRow => ({
-      id: `row_${newId()}`,
-      kind: 'pass',
-      speaker: agentId,
-      name: member.name,
-      at: now(),
-      text: '',
-      ...(failed ? { failed: true } : {}),
-    });
-    let answer: ReturnType<typeof sessionFinalAnswer> = null;
-    let snapshot: SessionSnapshot = null;
-    let startedAt = 0;
-    try {
-      const sessionId = await ensureMemberSession(roomId, member);
-      state.memberSession = sessionId;
-      const prompt = roomTurnPrompt({
-        roomName: room.name,
-        self: member,
-        members: room.members.map((id) => labels.get(id) ?? { id, name: id }),
-        rows: shown,
-        shareTools: room.shareTools,
-        addressed,
-        mentionedBy: mentionedBy ? (labels.get(mentionedBy)?.name ?? mentionedBy) : '',
-        instruction,
-        scene,
-        waiting,
-      });
-      const last = rows.at(-1);
-      if (last) room.cursors[agentId] = last.id;
-      if (state.stop) return 'stopped';
-      if (interrupted()) return await cutShort();
-      startedAt = now();
-      if (!(await deps.submit(sessionId, prompt))) throw new Error('the turn was not accepted');
-      // The member's session now holds every row up to the newest: a cut
-      // short restores the cursor, never this.
-      const handed = rows.at(-1)?.id;
-      if (handed) room.seen = { ...room.seen, [agentId]: handed };
-      let misses = 0;
-      while (!answer) {
-        if (state.stop) return 'stopped';
-        if (interrupted()) return await cutShort();
-        await sleep(pollMs);
-        try {
-          snapshot = await deps.readSnapshot(sessionId);
-          misses = 0;
-        } catch (error) {
-          misses += 1;
-          if (misses >= 6) throw error;
-          continue;
-        }
-        const approval = (snapshot?.toolApproval as Record<string, unknown> | null | undefined) ?? null;
-        if (String(approval?.id ?? '') !== String(state.approval?.id ?? '')) {
-          state.approval = approval;
-          deps.republish(roomSessionId(roomId));
-        }
-        answer = sessionFinalAnswer(snapshot, startedAt) ?? emptyFinishedTurn(snapshot, startedAt);
-      }
-    } catch (error) {
-      log(`${agentId} could not speak in room ${roomId}: ${error instanceof Error ? error.message : String(error)}`);
-      if (state.stop) return 'stopped';
-      if (interrupted()) return await cutShort();
-      await post(roomId, [passRow(true)]);
-      return 'pass';
-    } finally {
-      state.approval = null;
-      void persist();
-    }
-    if (!answer || (answer.status === 'cancelled' && state.stop)) return 'stopped';
-    if (interrupted()) {
-      const cut = await cutShort();
-      void persist();
-      return cut;
-    }
-    // A pass never shows its marker: while the user waits, what the member
-    // wrote before "(pass)" is its answer; otherwise the turn is a pass.
-    const passed = answer.status !== 'done' || isPassReply(answer.text);
-    const text = answer.status === 'done' && (!passed || waiting) ? withoutPassMarker(answer.text) : '';
-    if (!text) {
-      await post(roomId, [passRow(answer.status !== 'done')]);
-      return 'pass';
-    }
-    const row: RoomRow = {
-      id: `row_${newId()}`,
-      kind: 'speech',
-      speaker: agentId,
-      name: member.name,
-      at: now(),
-      text,
-      // The log takes in the files this turn produced (agent-room-delivery.mjs).
-      ...(state.memberSession ? { artifactsFrom: { sessionId: state.memberSession, since: startedAt } } : {}),
-    };
-    // The one peer the speech addresses: shown on its bubble, and a turn for
-    // that peer, never authority.
-    const mention = roomMentionOf(
-      row.text,
-      room.members.map((id) => labels.get(id) ?? { id, name: id }),
-      agentId
-    );
-    if (mention) Object.assign(row, { to: [mention], toName: [labels.get(mention)?.name ?? mention] });
-    const tools = toolSummaries(snapshot, startedAt);
-    if (tools.length) row.tools = tools;
-    await post(roomId, [row]);
-    state.waiting = false;
-    // The cursor stays on the last row this turn was handed: a message that
-    // landed while the member spoke sits after it and reaches the next turn
-    // (the member's own speech is left out of what it is shown).
-    Object.assign(room, { lastSpeaker: agentId, lastAt: row.at });
-    return { result: 'speech', mention };
-  }
+  /** What a member's turn in this room needs from the host. */
+  const turnHost = (roomId: string): RoomTurnHost => ({
+    roomId,
+    room: () => roomOf(roomId),
+    rows: () => roomRows(roomId),
+    post: (rows) => post(roomId, rows),
+    republish: () => deps.republish(roomSessionId(roomId)),
+    memberSession: (member) => ensureMemberSession(roomId, member),
+    submit: (sessionId, prompt) => deps.submit(sessionId, prompt),
+    readSnapshot: (sessionId) => deps.readSnapshot(sessionId),
+    abort: (sessionId) => deps.abort(sessionId),
+    persist,
+    now: () => now(),
+    newId: () => newId(),
+    sleep: (ms) => sleep(ms),
+    pollMs,
+    log,
+  });
 
-  /** One bounded exchange; a message sent meanwhile runs the next one.
-   *  `waiting`: a user message starts it (unset: read from the log). */
-  async function exchange(roomId: string, { to = [], waiting }: { to?: string[]; waiting?: boolean }) {
-    const room = roomOf(roomId);
-    const state: RunState = {
-      stop: false,
-      speaking: '',
-      speakingName: '',
-      typingId: '',
-      memberSession: '',
-      approval: null,
-      pending: null,
-      waiting: waiting === true,
-    };
-    running.set(roomId, state);
-    room.running = { startedAt: now() };
-    // Any new exchange settles what an earlier capped one still owed.
-    room.owed = null;
-    await persist();
-    deps.republishCatalog();
-    deps.republish(roomSessionId(roomId));
-    try {
-      if (waiting === undefined) state.waiting = roomUserWaiting(await roomRows(roomId));
-      const labels = await memberLabels(room);
-      const members = room.members.map((id) => labels.get(id) ?? { id, name: id, route: undefined, description: '' });
-      const result = await runRoomExchange({
-        members: room.members,
-        to,
-        maxRounds: room.maxRounds,
-        // A user-addressed set keeps the full cap; a free exchange stops at a
-        // budget drawn each time, so it does not always end at the same count.
-        maxMessages: to.length ? room.maxMessages : roomMessageBudget(room.members.length, room.maxMessages, random),
-        speak: (agentId, turn) => speak(roomId, state, labels, agentId, turn),
-        decide: async (step) => {
-          // Nobody is typing while the supervisor decides.
-          Object.assign(state, { speaking: '', speakingName: '', memberSession: '' });
-          deps.republish(roomSessionId(roomId));
-          const decision = await deps
-            .decideTurn({
-              roomName: room.name,
-              members: members.map(({ id, name, description }) => ({ id, name, description })),
-              rows: roomSupervisorRows(await roomRows(roomId)),
-              turns: step.turns,
-              mustPick: step.mustPick,
-              last: step.last,
-              remaining: step.remaining,
-            })
-            .catch((error) => {
-              log(`room ${roomId} supervisor failed: ${error instanceof Error ? error.message : String(error)}`);
-              return undefined;
-            });
-          if (decision === null) log(`room ${roomId} supervisor gave no usable decision; falling back`);
-          return decision ?? null;
-        },
-        stopped: () => state.stop,
-        superseded: () => Boolean(state.pending),
-        // Only a user still waiting forces a pick: a "Continue" after the
-        // talk was answered may end at once when nothing is open.
-        waiting: state.waiting,
-      });
-      if (result.outcome === 'capped') {
-        const { limit, rounds, messages, remaining } = result;
-        if (remaining?.length) room.owed = remaining;
-        await post(roomId, [{ id: `row_${newId()}`, kind: 'cap', at: now(), text: '', limit, rounds, messages }]);
-      } else if (result.outcome === 'stopped') {
-        await post(roomId, [{ id: `row_${newId()}`, kind: 'stopped', at: now(), text: '' }]);
-      }
-    } catch (error) {
-      log(`room ${roomId} exchange failed: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      running.delete(roomId);
-      if (doc.rooms[roomId]) doc.rooms[roomId].running = null;
-      await persist();
-      deps.republishCatalog();
-      deps.republish(roomSessionId(roomId));
-    }
-    if (state.pending && !state.stop && doc.rooms[roomId]) await exchange(roomId, state.pending);
-  }
+  /** What an exchange in this room needs from the host. */
+  const exchangeHost = (roomId: string): RoomExchangeHost => ({
+    roomId,
+    room: () => roomOf(roomId),
+    exists: () => Boolean(records.rooms()[roomId]),
+    track: (state) => running.set(roomId, state),
+    untrack: () => running.delete(roomId),
+    rows: () => roomRows(roomId),
+    post: (rows) => post(roomId, rows),
+    labels: memberLabels,
+    turn: turnHost(roomId),
+    decideTurn: (input) => deps.decideTurn(input),
+    persist,
+    republish: () => deps.republish(roomSessionId(roomId)),
+    republishCatalog: () => deps.republishCatalog(),
+    now: () => now(),
+    newId: () => newId(),
+    random,
+    log,
+  });
+  const exchange = (roomId: string, options: { to?: string[]; waiting?: boolean }) =>
+    runRoomExchangeIn(exchangeHost(roomId), options);
 
   const start = (roomId: string, options: { to?: string[]; waiting?: boolean }) => {
     // A save that fails outside the exchange's own try (before it, or in its
@@ -648,13 +279,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // The room's log is a stored session, and a session without a model is
     // never stored (nothing is auto-picked): it takes the model of the first
     // member that has one, and a room of members without any cannot start.
-    let logRoute: Record<string, unknown> = {};
-    for (const id of config.members) {
-      logRoute = routeParams(
-        id === MIXY_AGENT_ID ? await deps.mixyRoute?.() : rows.find((row) => row.id === id)?.route
-      );
-      if (logRoute.model) break;
-    }
+    const logRoute = await roomLogRoute(config.members, rows, () => deps.mixyRoute?.());
     if (!logRoute.model) throw new Error('No model selected. Choose a model for one of the room members first.');
     await refreshNames();
     const roomId = newId();
@@ -664,7 +289,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
       cwd: await deps.taskWorkspace(),
       desktopSession: { classification: 'task', projectPath: null },
     });
-    doc.rooms[roomId] = { ...config, id: roomId, createdAt: now(), cursors: {}, running: null };
+    records.rooms()[roomId] = { ...config, id: roomId, createdAt: now(), cursors: {}, running: null };
     await persist();
     await deps.renameSession(sessionId, config.name).catch((error) => log(`room title: ${String(error)}`));
     deps.republishCatalog();
@@ -693,8 +318,8 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     await ready();
     const room = roomOf(roomId);
     stop(roomSessionId(roomId));
-    delete doc.rooms[roomId];
-    recent.delete(roomId);
+    delete records.rooms()[roomId];
+    roomLog.forget(roomId);
     await persist();
     const failed: string[] = [];
     for (const id of room.members) {
@@ -723,7 +348,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const room = roomOf(roomId);
     if (running.has(roomId)) throw new Error('The room is still talking; stop it or wait before resetting.');
     const archivedSessionId = await deps.startOver(roomSessionId(roomId));
-    recent.delete(roomId);
+    roomLog.forget(roomId);
     room.cursors = {};
     delete room.seen;
     room.owed = null;
@@ -768,13 +393,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // The files go up with the row: the log's intake stores them as a chat
     // prompt's are (agent-room-delivery.mjs), and the members the message
     // reaches get them on their next turn.
-    const parts = typeof prompt === 'string' ? [] : prompt.filter((part) => part.type !== 'text');
-    const pastedImages = Object.keys(pasted.pastedImages ?? {}).length ? pasted.pastedImages : undefined;
-    const pastedTexts = Object.keys(pasted.pastedTexts ?? {}).length ? pasted.pastedTexts : undefined;
-    const hasUpload = parts.length || pastedImages || pastedTexts;
-    const upload = hasUpload
-      ? { parts, ...(pastedImages ? { pastedImages } : {}), ...(pastedTexts ? { pastedTexts } : {}) }
-      : null;
+    const upload = roomUpload(prompt, pasted);
     if (!parsed.text && !upload) throw new Error('Write a message to send.');
     const row: RoomRow = {
       // The submission id is the row's id, so the sender's pending bubble
@@ -842,89 +461,22 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     return accepted;
   }
 
-  /** The room log as its views see it: busy while members speak (so the
-   *  composer offers stop), the speaking member's pending approval, and a
-   *  typing row naming who is speaking. */
-  function decorate(sessionId: string, snapshot: SessionSnapshot): SessionSnapshot {
-    const state = running.get(roomIdOfSession(sessionId));
-    if (!state || !snapshot || typeof snapshot !== 'object') return snapshot;
-    const typing = state.speaking
-      ? [
-          {
-            kind: 'notice',
-            id: state.typingId,
-            tone: 'info',
-            text: `${state.speakingName}…`,
-            room: {
-              kind: 'typing',
-              speaker: state.speaking,
-              name: state.speakingName,
-            },
-          },
-        ]
-      : [];
-    return {
-      ...snapshot,
-      busy: true,
-      ...(state.approval ? { toolApproval: state.approval } : {}),
-      items: [...(snapshot.items ?? []), ...typing],
-    } as SessionSnapshot;
-  }
+  const decorate = (sessionId: string, snapshot: SessionSnapshot): SessionSnapshot =>
+    decorateRoomSnapshot(running.get(roomIdOfSession(sessionId)), snapshot);
 
-  function summaryOf(room: AgentRoomRecord): DesktopAgentRoomSummary {
-    return {
-      id: room.id,
-      name: room.name,
-      members: [...room.members],
-      maxRounds: room.maxRounds,
-      maxMessages: room.maxMessages,
-      shareTools: room.shareTools,
-      ...(room.lastSpeaker ? { lastSpeaker: room.lastSpeaker } : {}),
-      ...(room.lastPreview ? { lastPreview: room.lastPreview } : {}),
-      memberNames: Object.fromEntries(room.members.map((id) => [id, names.get(id) ?? id])),
-      ...(running.has(room.id) ? { running: true } : {}),
-    };
-  }
+  const summaryOf = (room: AgentRoomRecord): DesktopAgentRoomSummary => roomSummary(room, names, running.has(room.id));
 
-  /** The session catalog with every room's log stamped (a room whose log has
-   *  no catalog row yet gets one) and member sessions left out. */
-  function withRooms(rows: DesktopSessionSummary[]): DesktopSessionSummary[] {
-    const listed = new Set<string>();
-    const stamped = rows.flatMap((row) => {
-      if (roomMemberOfSession(row.id)) return [];
-      const roomId = roomIdOfSession(row.id);
-      const room = roomId ? doc.rooms[roomId] : undefined;
-      if (!room) return roomId ? [] : [row];
-      listed.add(roomId);
-      return [{ ...row, title: room.name, agentRoom: summaryOf(room) }];
-    });
-    const unlisted = Object.values(doc.rooms)
-      .filter((room) => !listed.has(room.id))
-      .map(
-        (room): DesktopSessionSummary => ({
-          id: roomSessionId(room.id),
-          preview: '',
-          title: room.name,
-          updatedAt: room.lastAt ?? room.createdAt,
-          activityAt: room.lastAt ?? room.createdAt,
-          messageCount: 0,
-          cwd: '',
-          classification: 'task',
-          projectPath: null,
-          agentRoom: summaryOf(room),
-        })
-      );
-    return [...unlisted, ...stamped];
-  }
+  const withRooms = (rows: DesktopSessionSummary[]): DesktopSessionSummary[] =>
+    catalogWithRooms(rows, records.rooms(), summaryOf);
 
   /** Start-up: an exchange a restart cut off is marked interrupted, its
    *  speaking member is stopped, and nothing resumes on its own. */
   async function recover(): Promise<string[]> {
     await loadRecords();
     // No rooms: nothing to recover or list, so start-up asks the daemon nothing.
-    if (!Object.keys(doc.rooms).length) return [];
+    if (!Object.keys(records.rooms()).length) return [];
     await ready();
-    const cut = Object.values(doc.rooms).filter((room) => room.running);
+    const cut = Object.values(records.rooms()).filter((room) => room.running);
     for (const room of cut) {
       room.running = null;
       for (const id of room.members) void deps.abort(roomMemberSessionId(room.id, id)).catch(() => undefined);

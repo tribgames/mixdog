@@ -31,7 +31,7 @@ const HELP_LINES = [
   '  /clear                        start a fresh chat (alias: /new)',
   '  /project [path]               switch working directory (project)',
   '  /compact                      compact older conversation context',
-  '  /autoclear [on|off|duration]  reduce cache-miss cost after long idle gaps',
+  '  /autoclear [on|off|duration|unlimited]  reduce cache-miss cost after long idle gaps',
   '  /resume [id]                  resume a saved chat',
   '  /context                      show current context surface',
   '  /usage [refresh]              show total provider quota / balance',

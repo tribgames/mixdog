@@ -1,8 +1,6 @@
 // An approval answered on ANOTHER device leaves this one with a card that
-// simply vanishes. When the conversation involves more than one device, keep a
-// settled card on screen briefly that says who answered.
+// simply vanishes. Keep a settled card on screen briefly that says who answered.
 import { useEffect, useRef, useState } from 'react';
-import { sessionUsesMultipleDevices } from '../shared/session-devices';
 import type { Approval, Snapshot } from './desktop-types';
 
 const RETIRED_APPROVAL_MS = 6_000;
@@ -13,7 +11,9 @@ export interface RetiredApproval {
 }
 
 /** The settled card to show for `previous` once it left the snapshot, or null
- *  when this device answered it itself or only one device is involved. */
+ *  when this device answered it itself. Whether the answerer is another device
+ *  than the viewer is decided against the viewer's name (isOtherDevice); the
+ *  transcript's user rows say nothing about who answered an approval. */
 export function retiredApprovalFor(
   previous: Approval,
   snapshot: Pick<Snapshot, 'toolApproval' | 'toolApprovalResult' | 'items'>,
@@ -23,7 +23,6 @@ export function retiredApprovalFor(
   const id = String(previous.id ?? '');
   if (snapshot.toolApproval || !result || !result.device || String(result.id) !== id) return null;
   if (decidedLocally.has(id)) return null;
-  if (!sessionUsesMultipleDevices(snapshot.items, [result.device])) return null;
   return { approval: previous, outcome: { approved: result.approved === true, device: result.device } };
 }
 

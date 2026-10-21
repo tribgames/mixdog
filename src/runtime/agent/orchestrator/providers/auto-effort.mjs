@@ -3,24 +3,43 @@
 // Every turn starts again from the base, so a run of hard turns never
 // ratchets the effort upward.
 //
-// The base is `medium` on every model: raised only when the request needs it,
-// lowered when it is easy. The ladder is the model's supported efforts from
+// The base is the global "Auto reasoning base" setting (`autoEffortBase` in the
+// agent config; low / medium / high, default `medium`), the same on every model
+// and independent of the effort last chosen: raised only when the request needs
+// it, lowered when it is easy. The ladder is the model's supported efforts from
 // `low` up to the tier below the top: `none`/`minimal` switch thinking off and
-// `max`/`ultra` are reserved for an explicit user choice, so auto never picks
-// them. A chosen `max`/`ultra` is left untouched.
+// `max`/`ultra` are reserved for an explicit (fixed, Auto off) user choice, so
+// auto never picks them. A base the model does not offer is clamped to the
+// nearest ladder level.
 
 const EFFORT_ORDER = Object.freeze(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 const FLOOR_INDEX = EFFORT_ORDER.indexOf('low');
 const RESERVED_TOP = new Set(['max', 'ultra']);
 
 export const AUTO_EFFORT_BASE = 'medium';
+/** The "Auto reasoning base" choices: the levels Auto can work around. */
+export const AUTO_EFFORT_BASES = Object.freeze(['low', 'medium', 'high']);
 
-/** The effort auto moves from: `medium`, unless the user chose `max`/`ultra`. */
-export function autoEffortBase(chosen) {
-  const effort = String(chosen ?? '')
+/** The effort auto moves from: the global "Auto reasoning base" setting
+ *  (`autoEffortBase` in the agent config); absent or invalid is `medium`. */
+export function autoEffortBase(setting) {
+  const effort = String(setting ?? '')
     .trim()
     .toLowerCase();
-  return RESERVED_TOP.has(effort) ? effort : AUTO_EFFORT_BASE;
+  return AUTO_EFFORT_BASES.includes(effort) ? effort : AUTO_EFFORT_BASE;
+}
+
+/** The base on the model's ladder: the setting itself, else the nearest
+ *  ladder level (the lower one on a tie); null when the ladder is empty. */
+export function clampAutoEffortBase({ base, options }) {
+  const ladder = autoEffortLadder(options);
+  if (!ladder.length) return null;
+  const want = EFFORT_ORDER.indexOf(autoEffortBase(base));
+  let best = ladder[0];
+  for (const level of ladder) {
+    if (Math.abs(EFFORT_ORDER.indexOf(level) - want) < Math.abs(EFFORT_ORDER.indexOf(best) - want)) best = level;
+  }
+  return best;
 }
 
 export const AUTO_EFFORT_MODES = Object.freeze(['off', 'observe', 'on']);

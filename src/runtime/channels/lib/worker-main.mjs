@@ -226,7 +226,7 @@ function wireWebhookHandlers() {
       cwd: cwd || null,
       attachments: attachments || null,
       event: context?.event || '',
-      // Dispatch-timeout cancellation only works if the signal reaches the run.
+      // The dispatch has no deadline; a caller-supplied signal still reaches the run.
       signal: signal || null,
       prompt,
       skillSelection,

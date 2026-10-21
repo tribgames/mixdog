@@ -128,6 +128,14 @@ async function inspectDirectory(root: string, directory: string, leased = false)
   };
 }
 
+function requireApprovedRevision(approved: ProjectRecoveryDetail, revision: string): void {
+  if (approved.revision !== revision)
+    throw new ProjectRecoveryError(
+      'RECOVERY_CHANGED',
+      'Files or recovery data changed since inspection. Inspect and confirm again.'
+    );
+}
+
 async function recoveryOverview(userDataPath: string, root: string): Promise<ProjectRecoveryResponse> {
   const records = await listRecoveryRecords(userDataPath, root);
   let rootAvailable = false;
@@ -173,11 +181,7 @@ async function executeProjectRecovery(
   try {
     if (request.action === 'discard') {
       const approved = await inspectDirectory(root, owned, true);
-      if (approved.revision !== request.revision)
-        throw new ProjectRecoveryError(
-          'RECOVERY_CHANGED',
-          'Files or recovery data changed since inspection. Inspect and confirm again.'
-        );
+      requireApprovedRevision(approved, request.revision);
       if (!recoveryIsRetired(owned)) {
         const manifest = await readRecoveryRecord(owned).then(
           (record) => record.manifest,
@@ -227,11 +231,7 @@ async function executeProjectRecovery(
       });
       await withProjectMutationPaths(paths, async () => {
         const approved = await inspectDirectory(root, owned, true);
-        if (approved.revision !== request.revision)
-          throw new ProjectRecoveryError(
-            'RECOVERY_CHANGED',
-            'Files or recovery data changed since inspection. Inspect and confirm again.'
-          );
+        requireApprovedRevision(approved, request.revision);
         if (['invalid', 'retired', 'completed'].includes(approved.phase))
           throw new ProjectRecoveryError('RECOVERY_NOT_RESTORABLE', 'Recovery record is no longer restorable.');
         const restored = new Set(
@@ -252,7 +252,6 @@ async function executeProjectRecovery(
               file,
               before,
               after,
-              info.mode,
               () => restored.add(entry.relPath),
               () => {
                 if (validateTarget(root, manifest, entry) !== file) throw new Error('Recovery destination changed.');

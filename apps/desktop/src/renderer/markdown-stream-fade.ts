@@ -1,16 +1,16 @@
 /**
  * Word-by-word fade-in of a streamed reply.
  *
- * Every word of a reply that streams on screen gets its own reveal: it starts
- * fading the moment it first shows (the pacer, use-paced-transcript-text,
- * reveals it), with no stagger of its own, so one scheduler paces the text.
- * How long it fades is set by the pacer (use-paced-transcript-text): for a
- * final answer it follows the reveal rate (adaptiveFadeMs), at most
- * STREAM_FADE_DURATION_MS; commentary fades for STREAM_FADE_COMMENTARY_MS; a
- * word revealed with a duration of 0 (no animation) is not wrapped at all.
- * Once the reply stops streaming (and its backlog drained) the fade is off:
- * everything shows at full ink.
- * Opacity animations live in 22-markdown.css (`[data-stream-fade]`,
+ * Text is revealed in steps (use-transcript-text-reveal); each step's new words
+ * fade in over STREAM_FADE_DURATION_MS. Within one step the words start
+ * fading top to bottom: each one STREAM_FADE_STAGGER_MS_PER_CHAR per
+ * character of the arrival before it, at most STREAM_FADE_STAGGER_MAX_MS
+ * after the first, so a large chunk reads from its first line. A step shown
+ * with a duration of 0 (a row this pane did not watch arrive) is not wrapped
+ * at all.
+ * A word keeps its wrapper for as long as the reply's timeline lives, also
+ * after its fade and after the reply settles: a fade ending never changes
+ * the DOM. Opacity animations live in 22-markdown.css (`[data-stream-fade]`,
  * `[data-stream-fade-box]`).
  *
  * - Structure fades with its words: a list item's marker, a table row, a
@@ -24,11 +24,10 @@
  *   word that grew in place ("hel" → "hello") keeps its reveal. When a chunk
  *   freezes and the next block starts a new chunk, the words cut off its end
  *   hand their reveals to the new chunk's first words.
- * - No replays: the timeline lives per streaming reply (keyed by row), so
- *   re-renders, re-parses and remounts find a word's reveal again. A word
- *   whose animation ended renders as plain text; one still animating keeps its
- *   start time, and a freshly created element for it resumes mid-fade
- *   (negative delay).
+ * - No replays: the timeline lives per reply (keyed by row), so re-renders,
+ *   re-parses and remounts find a word's reveal again. A word keeps its start
+ *   time, and a freshly created element for it resumes mid-fade, or shows
+ *   inked once its fade is over (negative delay).
  * - Stable elements: each wrapper's tag carries its word's id, so the
  *   renderer's tag-and-count keys never hand one word's element to another.
  * - No layout: wrappers are unstyled inline elements; only opacity (and a
@@ -37,14 +36,16 @@
  */
 import type { MarkdownAstRoot } from './markdown-ast';
 
-/** Longest fade of a final answer's word (the default duration in
- *  22-markdown.css). */
-export const STREAM_FADE_DURATION_MS = 500;
-/** Longest fade of a commentary word: commentary shows as it arrives. */
-export const STREAM_FADE_COMMENTARY_MS = 150;
+/** How long a new word fades in (the default duration in 22-markdown.css). */
+export const STREAM_FADE_DURATION_MS = 100;
+/** A word of an arrival starts fading this long per character of the arrival
+ *  before it... */
+export const STREAM_FADE_STAGGER_MS_PER_CHAR = 2.5;
+/** ...at most this long after the arrival's first word. */
+export const STREAM_FADE_STAGGER_MAX_MS = 150;
 /** Wrapper tags are `${STREAM_FADE_TAG}${id}`. */
 const STREAM_FADE_TAG = 'mx-fade-';
-const TIMELINE_LIMIT = 32;
+const TIMELINE_LIMIT = 64;
 const SEGMENT_CACHE_LIMIT = 512;
 /** Rendered as-is: wrapping inside typeset math or SVG would break it. */
 const OPAQUE_CLASS = /\bkatex\b/;
@@ -67,30 +68,49 @@ interface StreamFadeStart {
   ms: number;
 }
 
+/** One arrival of text: a new object for every arrival. Its new words start
+ *  fading top to bottom from the first render that shows them. */
+export interface FadeArrival {
+  readonly at: number;
+}
+
 export class StreamFadeTimeline {
-  /** Reveal of each word still animating; finished words are dropped. */
+  /** Reveal of each faded word; kept after its fade, so its wrapper stays. */
   private readonly starts = new Map<string, StreamFadeStart>();
   /** Words of each chunk, in document order, from its latest render. */
   private readonly chunks = new Map<string, FadeWord[]>();
   /** Words cut off the end of a chunk by its latest render. */
   private orphans: FadeWord[] = [];
   private nextId = 0;
-  /** How long a word revealed from now on fades. */
+  /** How long a word revealed from now on fades (0: not at all). */
   durationMs = STREAM_FADE_DURATION_MS;
 
-  /** A new word revealed at `now`: it starts fading at once. */
-  schedule(now: number): string {
+  /** The arrival whose words are being scheduled, and how many of its
+   *  characters were placed. */
+  private arrival: FadeArrival | null = null;
+  private cursor = 0;
+
+  /** The arrival the next new words belong to. */
+  setArrival(arrival: FadeArrival | null): void {
+    if (arrival === this.arrival) return;
+    this.arrival = arrival;
+    this.cursor = 0;
+  }
+
+  /** A new word of `size` characters revealed at `now`: it starts fading
+   *  after the characters of its arrival before it (staggered, capped). */
+  schedule(now: number, size = 0): string {
     const id = (this.nextId++).toString(36);
-    this.starts.set(id, { at: now, ms: this.durationMs });
+    if (this.durationMs <= 0) return id;
+    const delay = Math.min(STREAM_FADE_STAGGER_MAX_MS, this.cursor * STREAM_FADE_STAGGER_MS_PER_CHAR);
+    this.cursor += size;
+    this.starts.set(id, { at: now + delay, ms: this.durationMs });
     return id;
   }
 
-  /** How `id` fades; undefined once its animation has ended. */
-  startOf(id: string, now: number): StreamFadeStart | undefined {
-    const start = this.starts.get(id);
-    if (start === undefined || start.at + start.ms > now) return start;
-    this.starts.delete(id);
-    return undefined;
+  /** How `id` fades; undefined for a word shown unfaded. */
+  startOf(id: string): StreamFadeStart | undefined {
+    return this.starts.get(id);
   }
 
   /** Match `contents` (one chunk's words, in order) to known words. */
@@ -109,7 +129,7 @@ export class StreamFadeTimeline {
       const is = content.trimEnd();
       if (known?.id && (is.startsWith(was) || was.startsWith(is))) return { content, id: known.id };
       aligned = false;
-      return { content, id: this.schedule(now) };
+      return { content, id: this.schedule(now, content.length) };
     });
     if (previous && words.length < previous.length) this.orphans = previous.slice(words.length);
     this.chunks.set(chunk, words);
@@ -119,27 +139,28 @@ export class StreamFadeTimeline {
 
 const timelines = new Map<string, StreamFadeTimeline>();
 
-/** The fade timeline of the reply row `key` while it streams (and motion is
- *  allowed), its words fading over `durationMs`; found again on later renders
- *  and remounts. Null once the reply stopped streaming: the fade is off and
- *  words still mid-fade show at full ink. */
+/** The fade timeline of the reply row `key`, found again on later renders and
+ *  remounts. A streaming reply (with motion allowed) gets one; its new words
+ *  fade over `durationMs` as part of `arrival`. A settled reply keeps the
+ *  timeline it streamed with, so its words keep their wrappers and fades
+ *  already running finish; anything it shows new is not faded. A reply that
+ *  never streamed here has none. */
 export function streamFadeTimeline(
   key: string,
   streaming: boolean,
-  durationMs = STREAM_FADE_DURATION_MS
+  durationMs = STREAM_FADE_DURATION_MS,
+  arrival: FadeArrival | null = null
 ): StreamFadeTimeline | null {
-  if (!streaming) {
-    timelines.delete(key);
-    return null;
-  }
   const known = timelines.get(key);
   if (known) {
-    known.durationMs = durationMs;
+    known.durationMs = streaming ? durationMs : 0;
+    known.setArrival(arrival);
     return known;
   }
-  if (reducedMotion()) return null;
+  if (!streaming || reducedMotion()) return null;
   const created = new StreamFadeTimeline();
   created.durationMs = durationMs;
+  created.setArrival(arrival);
   timelines.set(key, created);
   while (timelines.size > TIMELINE_LIMIT) timelines.delete(timelines.keys().next().value as string);
   return created;
@@ -243,12 +264,12 @@ export function applyStreamFade(
   const contents: string[] = [];
   collectUnits(root as FadeNode, units, contents);
   const ids = timeline.identify(chunk, contents, now);
-  const starts = ids.map((id) => (id ? timeline.startOf(id, now) : undefined));
+  const starts = ids.map((id) => (id ? timeline.startOf(id) : undefined));
   if (!starts.some(Boolean)) return { root, tags: [] };
   const tags: string[] = [];
 
-  /** The reveal of the first word inside `node` (undefined when it has
-   *  finished fading, or there is none). */
+  /** The reveal of the first word inside `node` (undefined when it showed
+   *  unfaded, or there is none). */
   const firstStart = (node: FadeNode): { found: boolean; start?: StreamFadeStart } => {
     const unit = units.get(node);
     if (unit) {

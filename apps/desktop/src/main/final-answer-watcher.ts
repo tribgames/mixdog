@@ -20,6 +20,8 @@ interface FinalAnswerWatcherOptions {
   /** `signal` aborts when the read overruns its deadline; the read must stop. */
   readFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
   onFinalAnswer(completion: TurnCompletion): void;
+  /** A bot's display name (rename included) for its home chat; '' when unknown. */
+  agentName?(agentId: string): Promise<string>;
   onError?(detail: string): void;
   onDiagnostic?(event: string, details: Record<string, unknown>): void;
 }
@@ -169,8 +171,10 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
       options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: answer.status });
       return;
     }
+    const botName = completion.agentHome ? await options.agentName?.(completion.agentHome).catch(() => '') : '';
     options.onFinalAnswer({
       ...completion,
+      ...(botName ? { title: botName } : {}),
       preview: notificationPreview(answer.text),
     });
   };

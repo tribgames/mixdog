@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { receiveMessageOnPort } from 'node:worker_threads';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
-import { holdsNoData, renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
+import { holdsNoData, quarantinePath, renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 
 export const CANONICAL_RECORD_UNREADABLE = Symbol('lifecycle-ambiguous');
 
@@ -419,7 +419,7 @@ export function setAsideDamagedSessionRecord(target) {
       /* not JSON: damaged */
     }
   }
-  renameWithRetrySync(target, `${target}.corrupt-${Date.now()}`);
+  renameWithRetrySync(target, quarantinePath(target));
   readCanonicalSessionRecord.forget(target);
   return true;
 }

@@ -165,7 +165,7 @@ export function reconcileLostDaemonCaptures({
   for (const name of names) {
     const file = path.join(dir, name);
     const record = readRecord(file);
-    if (!record || record.kind !== 'mixdog-daemon-crash-capture') continue;
+    if (record?.kind !== 'mixdog-daemon-crash-capture') continue;
     if (!record.pid || record.pid === selfPid || record.exitedAt || record.daemonExit || record.exitReason) continue;
     if (pidAlive(record.pid)) continue;
     try {

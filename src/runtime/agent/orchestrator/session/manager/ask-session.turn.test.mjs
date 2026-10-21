@@ -22,6 +22,7 @@ const { askSession } = await import('./ask-session.mjs');
 const { deleteSession, loadSession } = await import('../store.mjs');
 const { enqueuePendingMessage } = await import('./pending-messages.mjs');
 const { renderShellCompletionEnvelope } = await import('../../../../shared/task-notification-envelope.mjs');
+const { USER_CANCEL_KEEP_PROMPT_REASON } = await import('./turn-interruption.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
 const { SessionClosedError } = await import('./session-errors.mjs');
 const { modelToolSchemaAllowlist } = await import('../../runtime-core/tool-profile.mjs');
@@ -236,6 +237,36 @@ for (const abortReason of ['user-cancel', 'interrupt']) {
       const next = turn.findIndex((m) => m.role === 'user' && /foreground shell/.test(String(m.content)));
       assert.ok(next > turn.indexOf(result), 'the user message follows the interrupted turn');
       assert.equal(turn.at(-1).content, 'Looking into the shell.');
+    });
+  });
+}
+
+// A first message stopped while the model is only thinking: a Stop whose host
+// hands the prompt back rewinds it, one that does not (the desktop Stop button)
+// keeps it, so the stored session still holds the text instead of none.
+for (const [abortReason, kept] of [
+  [USER_CANCEL_KEEP_PROMPT_REASON, true],
+  ['user-cancel', false],
+]) {
+  test(`a first message stopped before any output (${abortReason}) ${kept ? 'stays in' : 'leaves'} the stored transcript`, async (t) => {
+    const { abortSessionTurn } = await import('./session-close.mjs');
+    await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, setReply }) => {
+      setReply(
+        (_messages, sendOpts) =>
+          new Promise((_, reject) => {
+            sendOpts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+            setImmediate(() => abortSessionTurn(session.id, abortReason));
+          })
+      );
+      await assert.rejects(
+        askSession(session.id, 'RUN:slowt first message', null, null, null, null, {}),
+        (err) => err instanceof SessionClosedError
+      );
+      const users = loadSession(session.id).messages.filter((m) => m.role === 'user');
+      assert.deepEqual(
+        users.map((m) => String(m.content)),
+        kept ? ['RUN:slowt first message', '[Request interrupted]'] : []
+      );
     });
   });
 }

@@ -298,7 +298,7 @@ test('discovery returns normalized models and errors truthfully', async () => {
 
 test('discovery failure categories use HTTP status, not error text', async () => {
   const cfg = makeCfg();
-  for (const [status, kind] of [
+  for (const [status, kind, code] of [
     [404, 'unavailable'],
     [405, 'unavailable'],
     [401, 'authentication'],
@@ -306,10 +306,11 @@ test('discovery failure categories use HTTP status, not error text', async () =>
     [429, 'request'],
     [500, 'request'],
     [undefined, 'request'],
+    [undefined, 'timeout', 'EPROVIDERTIMEOUT'],
   ]) {
     behavior = {
       listModels: async () => {
-        throw Object.assign(new Error('404 may appear in a URL or network error'), { status });
+        throw Object.assign(new Error('404 may appear in a URL or network error'), { status, code });
       },
       send: async () => {
         assert.fail('Discovery failure must not be reported as a successful model call');

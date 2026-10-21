@@ -6,6 +6,7 @@ import type { DesktopRemoteAccessInfo } from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
 import { t, uiFormatLocale } from '../i18n';
 import { useMobileBack } from '../mobile-back';
+import { scrimDismiss } from '../scrim-dismiss';
 import { setRemoteClaimPromptActive } from '../remote-claim-prompt-state';
 import { claimDisplay, resolveClaim, useClaimQueue } from '../remote-claim-store';
 import { acquireTitleBarDim } from '../titlebar-dim';
@@ -95,9 +96,9 @@ export function ConnDialog({
   return (
     <div
       className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (scrimCloses && event.target === event.currentTarget) scrimRef.current();
-      }}
+      {...scrimDismiss(() => {
+        if (scrimCloses) scrimRef.current();
+      })}
     >
       <section ref={ref} className="conn-dialog" role={role} aria-modal="true" aria-labelledby={`${id}-title`}>
         <header>

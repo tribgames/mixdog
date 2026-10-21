@@ -65,6 +65,9 @@ export async function summarizeOnSharedPrefix({ sessionId, route, conversationIn
   try {
     response = await route.provider.send(messages, request.model, request.tools.length ? request.tools : undefined, {
       ...opts,
+      // Usage-ledger source, as on the isolated request (a background
+      // session's own sourceType in `opts.session` still wins there).
+      requestKind: 'compaction',
       transportScope,
       admissionOwner: sessionId,
       signal: requestSignal,

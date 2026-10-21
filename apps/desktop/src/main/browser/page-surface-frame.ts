@@ -59,7 +59,11 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     texture?: BrowserDisplayTexture
   ) {
     const pane = paneSurface(guest, surface);
+    const agent = host.agentPage?.(sessionId);
     return {
+      ...(agent
+        ? { agentPage: { tabId: host.state.pageId(agent.guest), turn: agent.turn, paused: agent.paused } }
+        : {}),
       documentId: token,
       webContentsId: guest.id,
       url: guest.getURL(),
@@ -284,9 +288,15 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
       if (size) resizeGuest(guest, size);
       presentedGuests.set(sessionId, guest);
     }
-    if (host.state.for(guest).pendingDialog || host.dialogOwner?.(guest)) {
-      return blockedDialogFrame(sessionId, guest, previousId, previousFrames, useTexture, signal);
+    const blocked = () => Boolean(host.state.for(guest).pendingDialog || host.dialogOwner?.(guest));
+    if (blocked()) return blockedDialogFrame(sessionId, guest, previousId, previousFrames, useTexture, signal);
+    try {
+      return await liveFrame(sessionId, guest, previousId, previousFrames, useTexture, signal);
+    } catch (error) {
+      // A dialog that opened meanwhile holds the renderer this read waited on
+      // (a popup selected as it opens, alerting while parsing): show it.
+      if (blocked()) return blockedDialogFrame(sessionId, guest, previousId, previousFrames, useTexture, signal);
+      throw error;
     }
-    return liveFrame(sessionId, guest, previousId, previousFrames, useTexture, signal);
   }
 }

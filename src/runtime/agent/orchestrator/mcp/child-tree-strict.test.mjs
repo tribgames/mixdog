@@ -114,7 +114,10 @@ test('captures and observers share a fresh read, preserving children born after 
     assert.equal(spawned.length, 3);
     spawned[2].answer([{ pid: child }]);
     assert.equal(await survivor, 'running', 'the pre-kill capture must include the new child');
-    assert.deepEqual(tracker.live.map((entry) => entry.pid), [child]);
+    assert.deepEqual(
+      tracker.live.map((entry) => entry.pid),
+      [child]
+    );
     const finished = tracker.observe({ rootExited: true });
     spawned[3].answer();
     assert.equal(await finished, 'gone');

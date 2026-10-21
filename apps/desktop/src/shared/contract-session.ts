@@ -258,6 +258,10 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   hostShellJobs?: DesktopShellJobsState;
   workflow?: DesktopWorkflowState | null;
   orchestrationMode?: DesktopOrchestrationMode;
+  /** A workflow / orchestration mode chosen while a turn ran: `workflow` and
+   *  `orchestrationMode` above already show it; it applies from the next turn. */
+  pendingWorkflowSwitch?: boolean;
+  pendingOrchestrationModeSwitch?: boolean;
   remoteEnabled?: boolean;
   /** How the last tool approval ended and from which device. */
   toolApprovalResult?: { id: string; approved: boolean; device: string; at: number } | null;
@@ -438,6 +442,8 @@ export interface DesktopModelSelection {
   contextPercent?: number;
   /** Exact window (positive integer); overrides contextPercent. */
   contextTokens?: number;
+  /** The Lead's ordered fallback models (leaf selections); [] clears, absent keeps the stored list. */
+  fallbacks?: DesktopModelSelection[];
   /** Compare-and-set: the runtime applies the selection only while the route
    *  it targets still has no model, so a model picked meanwhile is kept. */
   onlyIfEmpty?: boolean;

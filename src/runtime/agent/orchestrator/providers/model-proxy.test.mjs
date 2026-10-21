@@ -24,7 +24,14 @@ import { replaceProviderAuthBindings } from '../../../shared/provider-auth-bindi
 import { oauthCredentialProbeState } from './oauth-credential-probes.mjs';
 import { loadCredentials, refreshOAuthCredentials } from './anthropic-oauth-credentials.mjs';
 import { loadTokens as loadOpenAIOAuthTokens } from './openai-oauth-tokens.mjs';
-import { getProvider, initProviders, providerInputExcludesCache, providerNativePdf } from './registry.mjs';
+import {
+  getProvider,
+  initProviders,
+  providerInputExcludesCache,
+  providerNativePdf,
+  providerReadsImages,
+} from './registry.mjs';
+import { pdfReadModes } from '../session/loop/tool-exec/dispatch.mjs';
 
 const dirs = [];
 after(() => {
@@ -360,6 +367,7 @@ test('proxy mode never looks up a server-side model credential', async (t) => {
                   headers: { Authorization: 'Bearer x' },
                   modelProxy: { inputExcludesCache: true, nativePdf: false },
                 },
+                'mixdog-local': { enabled: true, modelProxy: { nativePdf: false, takesImages: false } },
                 gemini: { enabled: false },
               },
             }
@@ -375,6 +383,14 @@ test('proxy mode never looks up a server-side model credential', async (t) => {
   assert.equal(proxied.config.headers, undefined);
   assert.equal(providerInputExcludesCache('anthropic-oauth'), true);
   assert.equal(providerNativePdf('anthropic-oauth'), false);
+  // A text-only PC adapter stays text-only over the proxy: scanned PDF pages
+  // reach its model as OCR text, not page images it would never see.
+  assert.equal(providerReadsImages('anthropic-oauth'), true);
+  assert.equal(providerReadsImages('mixdog-local'), false);
+  assert.deepEqual(pdfReadModes({ provider: 'mixdog-local', model: 'local-model' }), {
+    pdfPageMode: 'ocr',
+    pdfNativeDocument: false,
+  });
   assert.equal(getProvider('openai'), undefined);
   assert.equal(getProvider('gemini'), undefined);
   assert.equal(getProvider('openai-oauth'), undefined);
@@ -406,7 +422,7 @@ test('a PC-side wire reroute is adopted by the daemon session and not repeated',
   };
   const calls = [];
   const channel = {
-    request: async (call, options) => {
+    request: async (call) => {
       calls.push(call);
       return { content: 'ok', wireReroute: calls.length === 1 ? rerouted : undefined };
     },

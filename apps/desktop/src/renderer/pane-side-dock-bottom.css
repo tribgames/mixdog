@@ -1,0 +1,110 @@
+/* ── Pane side dock docked BELOW the chat (Settings → Side panel position) ──
+   PaneSideDock flags its pane cell with data-dock-placement="bottom" (desktop
+   only; the phone sheet keeps its overlay in 07-mobile-chrome.css). The cell
+   becomes one column and the dock takes a fifth row under everything else:
+     strip | surface stack (chat) | Problems bottom panel | footer | side dock
+   so the file editor's Problems panel (BottomPanel.tsx) stays inside the chat
+   column right above the dock and the two never overlap. The dock spans the
+   cell's full width at its own height (inline style, pane-side-dock-hooks). */
+.pane-cell[data-dock-placement="bottom"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+}
+.pane-cell[data-dock-placement="bottom"] > .pane-side-dock,
+.pane-cell[data-dock-placement="bottom"] > .pane-side-dock-spacer {
+  grid-column: 1;
+  grid-row: 5;
+}
+/* The panel fills the width; with a diff pair the diff fills instead and the
+   panel keeps its own (resizable) width on the right. */
+.pane-side-dock[data-placement="bottom"] .pane-side-dock-main > .workbench-side-panel[data-embedded="true"] {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+.pane-side-dock[data-placement="bottom"]
+  .pane-dock-diff-column:not([hidden])
+  ~ .workbench-side-panel[data-embedded="true"] {
+  flex: 0 0 var(--workbench-side-panel-width);
+  width: var(--workbench-side-panel-width);
+}
+.pane-side-dock[data-placement="bottom"] .pane-dock-diff-column:not([hidden]) {
+  flex: 1 1 0;
+  width: auto;
+}
+.pane-side-dock[data-placement="bottom"] .pane-dock-diff-resize {
+  display: none;
+}
+.pane-side-dock[data-placement="bottom"] .pane-side-dock-header {
+  border-left: 0;
+}
+/* The height edge: a 12px hit area over the gap above the dock, accent line
+   while hovered or dragged (same grammar as the dock's width edge). */
+.pane-side-dock-height-resize {
+  position: absolute;
+  z-index: 6;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+.pane-side-dock-height-resize::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: transparent;
+  pointer-events: none;
+  transition: background var(--mx-motion-chrome);
+}
+.pane-side-dock-height-resize:is(:hover, :active)::after {
+  background: var(--mx-focus);
+}
+
+@media (min-width: 761px) {
+  /* The joined desktop sheets: the chat's own frame stops above the dock row,
+     and the dock floats one sheet gap below it instead of beside it. */
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell[data-dock-placement="bottom"]::before,
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-cell[data-dock-placement="bottom"]::after {
+    grid-row: 1 / 5;
+  }
+  :root:not([data-mixdog-mobile-tabs])
+    .pane-cell[data-dock-placement="bottom"]
+    > .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]),
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell[data-dock-placement="bottom"] > .pane-side-dock-spacer {
+    margin: var(--mx-sheet-gap) 0 0 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]):not(
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
+    )
+    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .pane-split-row
+    > .pane-split-cell:first-child
+    .pane-cell[data-dock-placement="bottom"]
+    > .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]) {
+    margin-right: 0;
+  }
+}

@@ -378,6 +378,7 @@ export function sessionsSurface({
             onOpenAgent: sectionContext.onOpenAgent,
             onOpenMenu: sectionContext.onOpenAgentMenu,
             onOpenRoomMenu: sectionContext.onOpenRoomMenu,
+            attentionOf: sectionContext.attentionOf,
           })}
         {sectionIds.map((section) => (
           <Fragment key={section}>{renderSidebarSection(section, sectionContext)}</Fragment>

@@ -46,6 +46,9 @@ export interface VisualizeServiceContext {
   /** Sessions whose agent turn is running (turn-hold.ts): what the turn
    *  opens and changes is kept from the panel until the turn ends. */
   holds: Map<string, TurnHold>;
+  /** The side panel's content size (CSS px) the renderer last measured; null
+   *  until it reports one. Off-screen `inspect` / `check` lay pages out at it. */
+  panelSize: { current: { width: number; height: number } | null };
   /** Push the session's state to the renderer and the remote mirror;
    *  `revealTab`: an agent open or a content update of that tab, which the
    *  renderer brings up by the panel's open policy (visualize-store).

@@ -92,7 +92,7 @@ function refreshScope(options) {
  *  then resolve whatever usage the provider — or a local budget fallback — can
  *  supply. The row is appended to `rows` before the first emit so every paint
  *  from here on includes it. */
-async function apiProviderRow(item, { config, providers, preview, refreshFor, snapshotOptions, rows, emit }) {
+async function apiProviderRow(item, { providers, preview, snapshotOptions, rows, emit }) {
   const providerCfg = providers[item.id] || {};
   const row = baseRow(item, 'api', providerCfg);
   row.status = row.authenticated ? 'checking' : 'missing';

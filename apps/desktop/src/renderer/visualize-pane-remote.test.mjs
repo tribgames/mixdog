@@ -95,6 +95,7 @@ test('a remote agent page runs scripts at once, with no Run gate or run-pages me
   try {
     const { frame, html } = await framedDocument();
     assert.equal(frame.getAttribute('sandbox'), 'allow-scripts allow-forms allow-modals');
+    assert.equal(frame.getAttribute('allow'), 'fullscreen');
     assert.equal(document.querySelector('.visualize-script-gate'), null);
     assert.match(html, /<script>go\(\)<\/script>/);
     const labels = (await openMenu()).map((button) => button.textContent);

@@ -86,6 +86,7 @@ function restoredTranscriptMetadata(message) {
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
+    ...(typeof value.fromAgent === 'string' && value.fromAgent ? { fromAgent: value.fromAgent } : {}),
     ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
     // The attachments this prompt carried, by content hash: a restored row
     // opens/downloads them by id from the attachment store.
@@ -112,8 +113,13 @@ function restoredTurnDoneItem(completion, metadata, nextId, finalAssistantId = '
   };
 }
 
+// A stored message's plain text: string content as is, block content flattened.
+function restoredContentText(message) {
+  return typeof message?.content === 'string' ? message.content : toolResultText(message?.content);
+}
+
 function restoredAssistantTranscriptItems(message, nextId) {
-  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
+  const text = restoredContentText(message).trim();
   if (!text) return [];
   const { completion, ...metadata } = restoredTranscriptMetadata(message);
   const items = [{ kind: 'assistant', id: nextId(), text, ...metadata }];
@@ -198,7 +204,7 @@ function attachRestoredToolResult(message, pendingByCallId) {
   const target = callId ? pendingByCallId.get(callId) : null;
   if (!target) return;
   pendingByCallId.delete(callId);
-  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)) || '';
+  const text = restoredContentText(message) || '';
   target.result = text;
   assignUiDiffFromMessage(target, message);
   assignToolMetaFromMessage(target, message);
@@ -339,7 +345,8 @@ function restoredMessageItemUpperBound(message) {
   const boundaries =
     (Array.isArray(message?.meta?.sessionInheritances) ? message.meta.sessionInheritances.length : 0) +
     (Array.isArray(message?.meta?.modelSwitches) ? message.meta.modelSwitches.length : 0) +
-    (Array.isArray(message?.meta?.workflowSwitches) ? message.meta.workflowSwitches.length : 0);
+    (Array.isArray(message?.meta?.workflowSwitches) ? message.meta.workflowSwitches.length : 0) +
+    (Array.isArray(message?.meta?.orchestrationModeSwitches) ? message.meta.orchestrationModeSwitches.length : 0);
   const completionCount =
     Number(Boolean(message?.meta?.transcript?.completion)) +
     (Array.isArray(message?.meta?.transcript?.previousCompletions)
@@ -400,7 +407,7 @@ function restoredUserTranscriptItems(message, nextId, userText) {
   }
   // Imported prose renders verbatim: never a control row, card or display rewrite.
   if (isImportedMessage(message)) {
-    const text = (typeof message.content === 'string' ? message.content : toolResultText(message.content)).trim();
+    const text = restoredContentText(message).trim();
     return text ? [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }] : [];
   }
   const text = userText.text(message?.content).trim();
@@ -463,13 +470,30 @@ export function modelSwitchItem(id, boundary) {
   };
 }
 
-/** The transcript row of a mid-conversation workflow switch (live and restored). */
+/** The transcript row of a mid-conversation workflow switch (live and
+ *  restored); `unavailable`: the chosen workflow was gone when it was due and
+ *  the conversation kept `from`. */
 export function workflowSwitchItem(id, boundary) {
   return {
     kind: 'statusdone',
     id,
     status: 'workflow-switched',
     label: 'Workflow switched',
+    from: boundary.from,
+    to: boundary.to,
+    ...(boundary.unavailable === true ? { unavailable: true } : {}),
+    at: boundary.at,
+  };
+}
+
+/** The transcript row of a mid-conversation orchestration (delegation) mode
+ *  switch (live and restored); `from`/`to` are mode ids. */
+export function orchestrationModeSwitchItem(id, boundary) {
+  return {
+    kind: 'statusdone',
+    id,
+    status: 'orchestration-mode-switched',
+    label: 'Delegation mode switched',
     from: boundary.from,
     to: boundary.to,
     at: boundary.at,
@@ -521,6 +545,12 @@ function restoreTranscriptRange(messages, start, sessionId, userText) {
     for (const boundary of Array.isArray(message?.meta?.workflowSwitches) ? message.meta.workflowSwitches : []) {
       if (!boundary?.to) continue;
       items.push(workflowSwitchItem(restoredId(), boundary));
+    }
+    for (const boundary of Array.isArray(message?.meta?.orchestrationModeSwitches)
+      ? message.meta.orchestrationModeSwitches
+      : []) {
+      if (!boundary?.to) continue;
+      items.push(orchestrationModeSwitchItem(restoredId(), boundary));
     }
     if (message?.meta?.transcript?.previousCompletions?.length) {
       const events = items.slice(eventStart);

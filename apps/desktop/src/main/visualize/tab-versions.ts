@@ -23,9 +23,12 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
     if (!versions) return;
     for (const tab of sessions.get(sessionId)?.tabs ?? []) {
       if (tab.url || tab.inline) continue;
-      tab.versions = versions
-        .list(sessionId, tab.id)
-        .map(({ n, at, label }) => ({ n, at, ...(label ? { label } : {}) }));
+      tab.versions = versions.list(sessionId, tab.id).map(({ n, at, label, turns }) => ({
+        n,
+        at,
+        ...(label ? { label } : {}),
+        ...(turns?.length ? { turns } : {}),
+      }));
     }
   };
 

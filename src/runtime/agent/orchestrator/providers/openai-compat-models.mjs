@@ -94,10 +94,14 @@ async function compatModelsError(name, res, apiKey = '') {
 }
 
 // `keyless` omits the Authorization header entirely (keyless endpoints);
-// `signal` aborts the request together with the list timeout.
-export async function fetchCompatModelItems(provider, { signal = null, keyless = false } = {}) {
+// `signal` aborts the request together with the list timeout; `timeoutMs`
+// replaces the default list timeout for callers that wait on a slow catalog.
+export async function fetchCompatModelItems(
+  provider,
+  { signal = null, keyless = false, timeoutMs = MODEL_LIST_TIMEOUT_MS } = {}
+) {
   const name = provider.name;
-  const timeout = createTimeoutSignal(signal, MODEL_LIST_TIMEOUT_MS, `${name} model list`);
+  const timeout = createTimeoutSignal(signal, timeoutMs, `${name} model list`);
   try {
     const apiKey = keyless ? '' : resolveProviderApiKey(name, provider.config || provider);
     const res = await fetch(`${String(provider.baseURL || '').replace(/\/+$/, '')}/models`, {
@@ -137,9 +141,9 @@ function nativeMode(m) {
   return null;
 }
 
-export async function listCompatModels(provider, { throwOnError = false, signal = null } = {}) {
+export async function listCompatModels(provider, { throwOnError = false, signal = null, timeoutMs } = {}) {
   try {
-    const list = await provider._fetchModelItems({ signal });
+    const list = await provider._fetchModelItems({ signal, timeoutMs });
     const models = [];
     for (const m of list) {
       const contextWindow = Number(

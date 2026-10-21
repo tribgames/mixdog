@@ -74,7 +74,10 @@ test('a connect that needs an OAuth sign-in is reported as sign-in required, not
   assert.equal(remote.connected, false);
   assert.equal(remote.enabled, true);
   assert.equal(remote.error, null);
-  assert.deepEqual(remote.oauth, { signedIn: false, lastError: 'MCP OAuth reauthenticationRequired: sign in to connect' });
+  assert.deepEqual(remote.oauth, {
+    signedIn: false,
+    lastError: 'MCP OAuth reauthenticationRequired: sign in to connect',
+  });
   assert.equal(status.failedCount, 0);
   const broken = status.servers.find((row) => row.name === 'broken');
   assert.equal(broken.oauth, undefined);
@@ -166,6 +169,24 @@ test('a disable cancels the pending login of the connect it queues behind before
     ['cancel', 'remote', 'test'],
     ['disconnect', 'remote'],
   ]);
+});
+
+test('awaitInitialMcpConnect returns at the caller cap while a slow server is still handshaking', async () => {
+  const state = { mcpFailures: [], mcpConnectGeneration: 0, mcpConnectInFlight: new Promise(() => {}) };
+  const glue = createMcpGlue({
+    mcpClient: {
+      resolveMcpTransportKind: () => 'http',
+      getMcpServerStatus: () => [],
+      resolveMcpStartupTimeoutMs: () => 30000,
+    },
+    getConfig: () => ({ mcpServers: { slow: { type: 'http', url: 'http://127.0.0.1:1/mcp' } } }),
+    getCurrentCwd: () => process.cwd(),
+    state,
+  });
+  const started = Date.now();
+  await glue.awaitInitialMcpConnect(40);
+  const waited = Date.now() - started;
+  assert.ok(waited >= 30 && waited < 1000, `capped wait, got ${waited}ms`);
 });
 
 test('awaitInitialMcpConnect waits for the largest per-server startup budget', async () => {

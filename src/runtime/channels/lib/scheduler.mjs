@@ -26,6 +26,19 @@ const SCHEDULE_LOG = join(DATA_DIR, 'schedule.log');
 // here. The channels worker owns shutdown sequencing (drain queues, persist
 // baselines, release the scheduler lock, etc.) and a library-level exit(0)
 // preempts that drain. The buffered appender drains pending log lines on exit.
+function skipReasonText(outcome) {
+  switch (outcome.reason) {
+    case 'backoff':
+      return 'backing off after failures';
+    case 'paused':
+      return 'switched off';
+    case 'owner':
+      return `paused: ${outcome.message}`;
+    default:
+      return 'previous run still in progress';
+  }
+}
+
 function logSchedule(msg) {
   msg = msg.replace(/\n$/, '');
   process.stderr.write(`mixdog scheduler: ${msg}\n`);
@@ -686,13 +699,7 @@ ${prompt}`;
         // already persisted the skip.
         if (outcome?.skipped) {
           schedule.lastSkippedAt = new Date().toISOString();
-          const why =
-            outcome.reason === 'backoff'
-              ? 'backing off after failures'
-              : outcome.reason === 'owner'
-                ? `paused: ${outcome.message}`
-                : 'previous run still in progress';
-          logSchedule(`${schedule.name}: skipped — ${why}\n`);
+          logSchedule(`${schedule.name}: skipped — ${skipReasonText(outcome)}\n`);
           return false;
         }
         logSchedule(`${schedule.name} done\n`);

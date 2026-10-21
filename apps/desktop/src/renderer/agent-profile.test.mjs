@@ -57,7 +57,7 @@ async function pickModel(display) {
   await act(async () => document.querySelector('.agent-profile .model-trigger').click());
   await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
   await act(async () => document.querySelector('.route-sheet .route-sheet-row').click());
-  const option = [...document.querySelectorAll('.route-sheet-flyout--model button')].find((button) =>
+  const option = [...document.querySelectorAll('.route-sheet[data-drilled] button')].find((button) =>
     button.textContent.includes(display)
   );
   assert.ok(option, `the catalog lists ${display}`);
@@ -639,4 +639,113 @@ test('the dock panel switches 프로필 · 루틴, remembers the tab, and "프�
   assert.deepEqual(requests, ['sess_home_github-watcher'], 'the pane surfaces open that thread’s panel');
   assert.equal(view('.agent-profile').hidden, false, 'on 프로필');
   assert.ok(view('.routines-pane').hidden);
+});
+
+test('the bot profile model picker names a custom provider by its setup name, like the composer picker', async (t) => {
+  const render = harness(t);
+  const providerId = 'custom-a367f0c2-1111-4222-8333-944455556666';
+  const custom = { provider: providerId, model: 'fake-1', display: 'fake-1', effortOptions: [] };
+  const { api: base } = fakeApi({ ...WATCHER, route: { provider: providerId, model: 'fake-1' } });
+  const api = {
+    ...base,
+    listProviderModels: async () => [custom],
+    invokeCapability: async (request) =>
+      request.capability === 'getProviderSetup'
+        ? { value: { api: [{ id: providerId, name: 'Fake', custom: true, auth: 'none', enabled: true }] } }
+        : base.invokeCapability(request),
+  };
+  await render(React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api }));
+  await settle();
+  await settle();
+  await act(async () => document.querySelector('.agent-profile .model-trigger').click());
+  await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
+  await act(async () => document.querySelector('.route-sheet .route-sheet-row').click());
+  const catalog = document.querySelector('.route-sheet[data-drilled]').textContent;
+  assert.match(catalog, /fake-1/, 'the catalog lists the custom model');
+  assert.match(catalog, /Fake/);
+  assert.doesNotMatch(catalog, /custom-a367/, 'never the generated provider id');
+});
+
+test('the profile model row opens the shared picker as a dropdown under its chip; the pick lands in that entry', async (t) => {
+  const render = harness(t);
+  const tuned = models.map((entry) => ({
+    ...entry,
+    effortOptions: ['low', 'high'].map((value) => ({ value, label: value })),
+  }));
+  const { api, calls } = fakeApi(WATCHER);
+  await render(
+    React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api, models: tuned })
+  );
+  await settle();
+  const chip = document.querySelector('.agent-profile .route-chain-row .model-trigger');
+  const rect = { left: 600, right: 860, top: 300, bottom: 332, width: 260, height: 32, x: 600, y: 300 };
+  chip.getBoundingClientRect = () => rect;
+  const open = async () => {
+    if (chip.getAttribute('aria-expanded') !== 'true') await act(async () => chip.click());
+    await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
+    return document.querySelector('.route-sheet');
+  };
+  const sheetRow = (label) =>
+    [...document.querySelectorAll('.route-sheet .route-sheet-row')].find((node) => node.textContent.startsWith(label));
+  const assertUnderChip = (sheet) => {
+    assert.ok(sheet.hasAttribute('data-dropdown'), 'the composer picker in its dropdown layout');
+    assert.equal(sheet.dataset.placement, 'below');
+    assert.equal(parseFloat(sheet.style.left), rect.left, 'left edge on the chip');
+    assert.equal(parseFloat(sheet.style.width), rect.width, 'the chip row width');
+    assert.ok(parseFloat(sheet.style.top) >= rect.bottom, 'directly under the chip');
+  };
+
+  let sheet = await open();
+  assertUnderChip(sheet);
+  assert.equal(chip.style.width, '', 'the chip keeps its width (no pill morph)');
+  await act(async () => sheetRow('Model').click());
+  sheet = document.querySelector('.route-sheet');
+  assert.ok(sheet.hasAttribute('data-drilled'), 'the catalog opens inside the same box');
+  assertUnderChip(sheet);
+  assert.equal(document.querySelector('.route-sheet-flyout'), null, 'no flyout beside it');
+  assert.ok(sheet.querySelector('input'), 'the shared catalog with its search field');
+  const second = [...sheet.querySelectorAll('button')].find((node) => node.textContent.includes('Second model'));
+  await act(async () => second.click());
+
+  sheet = await open();
+  await act(async () => sheetRow('Reasoning effort').click());
+  sheet = document.querySelector('.route-sheet');
+  assertUnderChip(sheet);
+  const high = [...sheet.querySelectorAll('[role="menuitemradio"]')].find((node) => node.textContent === 'high');
+  await act(async () => high.click());
+
+  await act(async () =>
+    document
+      .querySelector('.agent-profile-form')
+      .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  );
+  await settle();
+  const save = calls.find(([capability]) => capability === 'saveAgentDefinition');
+  assert.equal(save[1].route.provider, 'anthropic');
+  assert.equal(save[1].route.model, 'second-model');
+  assert.equal(save[1].route.effort, 'high');
+});
+
+test('a bot profile shows and saves its fallback models; a route without any stays untouched', async (t) => {
+  const render = harness(t);
+  const second = { provider: 'anthropic', model: 'second-model' };
+  const { api, calls } = fakeApi({ ...WATCHER, route: { ...WATCHER.route, fallbacks: [second] } });
+  await render(
+    React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api, models })
+  );
+  await settle();
+  assert.equal(document.querySelectorAll('.agent-profile .route-chain-row').length, 2);
+  assert.ok(document.querySelector('.agent-profile [aria-label="Add fallback model"]'));
+  assert.equal(document.querySelector('.agent-profile-footer'), null, 'loading the chain is not a change');
+  await act(async () => document.querySelector('.agent-profile [aria-label="Remove model 2"]').click());
+  await act(async () =>
+    document
+      .querySelector('.agent-profile-form')
+      .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  );
+  await settle();
+  const save = calls.find(([capability]) => capability === 'saveAgentDefinition');
+  assert.deepEqual(save[1].route.fallbacks, [], 'an emptied chain is saved explicitly');
+  const thread = calls.find(([name]) => name === 'setModelRoute');
+  assert.equal(thread[2], 'sess_home_github-watcher', 'the open thread follows from its next turn');
 });

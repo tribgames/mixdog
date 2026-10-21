@@ -82,6 +82,22 @@ function appendAnthropicCacheControl(content, ttl = ANTHROPIC_CACHE_TTL_VOLATILE
   return next;
 }
 
+// The builders lift the tail reminder off (splitTailReminder) before lowering and
+// cache marking, then append it here as the final text block, so the message
+// breakpoint stays on the block before it and the cached prefix is unchanged.
+export function appendAnthropicTailReminder(anthropicMessages, reminder) {
+  if (!reminder) return anthropicMessages;
+  const block = { type: 'text', text: reminder };
+  const last = anthropicMessages[anthropicMessages.length - 1];
+  if (last?.role === 'user') {
+    const content = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content || [];
+    last.content = [...content, block];
+  } else {
+    anthropicMessages.push({ role: 'user', content: [block] });
+  }
+  return anthropicMessages;
+}
+
 export function resolveAnthropicCacheTtls(opts) {
   const strategy = opts?.cacheStrategy || {};
   const pick = (layer, fallback) => {

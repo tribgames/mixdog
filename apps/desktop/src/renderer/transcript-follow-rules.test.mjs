@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { scrollShouldReattachFollow } from './transcript-follow-rules';
+import { transcriptEndReached } from './transcript-follow-rules';
 
 const at = (top) => ({ top, maxScrollTop: 570, viewportHeight: 600 });
 
-test('an upward frame inside the bottom band does not re-attach follow', () => {
-  // The first smooth-scroll frame of the wheel notch that released follow.
-  assert.equal(scrollShouldReattachFollow(at(564), 570), false);
+test('only the very end of the content counts as reaching the bottom', () => {
+  assert.equal(transcriptEndReached(at(570)), true);
+  assert.equal(transcriptEndReached(at(568.5)), true);
+  // The old 32px (12% of the pane) re-attach band is not the bottom.
+  assert.equal(transcriptEndReached(at(560)), false);
+  assert.equal(transcriptEndReached(at(540)), false);
+  assert.equal(transcriptEndReached(at(300)), false);
 });
 
-test('arriving at or settling on the bottom re-attaches follow', () => {
-  assert.equal(scrollShouldReattachFollow(at(566), 500), true);
-  assert.equal(scrollShouldReattachFollow(at(565), 565), true);
-  assert.equal(scrollShouldReattachFollow(at(540), 400), true);
-  assert.equal(scrollShouldReattachFollow(at(300), 200), false);
+test('a transcript that does not overflow is always at its end', () => {
+  assert.equal(transcriptEndReached({ top: 0, maxScrollTop: 0, viewportHeight: 600 }), true);
 });

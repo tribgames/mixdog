@@ -195,7 +195,7 @@ function assertUpdateSessionRouteRefreshesCacheFields() {
   if (
     !/if \(routeChanged\) resetSessionForRouteChange\(/.test(updateSessionRouteBlock) ||
     !/session\.promptCacheKey = providerCacheKey\(session\.provider\)/.test(updateSessionRouteBlock) ||
-    !/session\.providerCacheOpts = buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent\) \|\| null/.test(
+    !/session\.providerCacheOpts =\s*buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent(?:, null, session)?\) \|\| null/.test(
       updateSessionRouteBlock
     )
   ) {

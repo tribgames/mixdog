@@ -10,6 +10,10 @@ import {
   beginSessionApprovalWait,
   getSessionRuntime,
 } from '../../../runtime/agent/orchestrator/session/manager/runtime-liveness.mjs';
+import {
+  inFlightSessionActivity,
+  whileTurnDispatched,
+} from '../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { flushAllIndexWritesSync } from './index-write-queue.mjs';
 import { createWorkerIndex } from './worker-index.mjs';
 import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
@@ -393,6 +397,46 @@ test('the pool never trusts a running worker row the daemon does not report in f
     assert.equal(row?.status, 'unknown');
     assert.equal(row?.stage, 'unknown');
     assert.equal(row?.turnStartedAt, null);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a just-spawned worker whose turn is dispatched but not yet claimed reads running, not unknown', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-dispatched-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    mkdirSync(join(root, 'sessions'));
+    const startedAt = new Date().toISOString();
+    writeWorkers(root, {
+      fresh: {
+        tag: 'fresh',
+        sessionId: 'fresh',
+        ownerSessionId: 'lead-a',
+        agent: 'worker',
+        status: 'running',
+        stage: 'running',
+        turnStartedAt: startedAt,
+        updatedAt: startedAt,
+      },
+    });
+    const poolRow = () =>
+      listStoredAgentWorkers({ runningSessionIds: inFlightSessionActivity().working }).find(
+        (entry) => entry.sessionId === 'fresh'
+      );
+
+    let finish;
+    const dispatched = whileTurnDispatched('fresh', () => new Promise((resolve) => (finish = resolve)));
+    assert.equal(poolRow()?.status, 'running');
+    assert.equal(poolRow()?.turnStartedAt, startedAt);
+
+    // Once the dispatch settles with no turn in flight, the row is unprovable again.
+    finish();
+    await dispatched;
+    assert.equal(poolRow()?.status, 'unknown');
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;

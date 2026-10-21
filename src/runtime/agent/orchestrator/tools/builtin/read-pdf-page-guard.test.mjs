@@ -7,23 +7,23 @@ import { inspectPdfBuffer } from '../../../../attachments/pdf-extract.mjs';
 import { makeEncryptedPdf, makePdf } from './pdf-test-fixtures.mjs';
 import { extractPdfText } from './read-special-files.mjs';
 
-test('read PDF: <=100 pages stays a native document block, >100 pages falls back to text with a pages note', async (t) => {
+test('read PDF: <=10 pages stays a native document block, a longer PDF returns its first pages and a pages note', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-pdf-guard-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const small = join(dir, 'small.pdf');
   const big = join(dir, 'big.pdf');
   writeFileSync(small, makePdf(3));
-  writeFileSync(big, makePdf(101));
+  writeFileSync(big, makePdf(101, { pageText: (i) => `Page ${i + 1} carries a full text layer here` }));
 
   const native = await extractPdfText(small);
   assert.equal(native.content[0].type, 'document');
 
   const text = await extractPdfText(big);
   assert.equal(typeof text, 'string');
-  assert.match(text, /101 pages/);
-  assert.match(text, /`pages`/);
-  assert.match(text, /Page 1\b/);
-  assert.doesNotMatch(text, /Page 21\b/);
+  assert.match(text, /pages 1-5 of 101/);
+  assert.match(text, /pass pages/);
+  assert.match(text, /Page 1 carries/);
+  assert.doesNotMatch(text, /Page 6 carries/);
   assert.equal(await extractPdfText(big), text);
 });
 
@@ -42,7 +42,10 @@ test('read PDF: a password-protected PDF returns a clear error instead of a nati
   const file = join(dir, 'locked.pdf');
   const bytes = makeEncryptedPdf();
   writeFileSync(file, bytes);
-  await assert.rejects(() => inspectPdfBuffer(bytes, { maxPages: Infinity }), (err) => err.name === 'PasswordException');
+  await assert.rejects(
+    () => inspectPdfBuffer(bytes, { maxPages: Infinity }),
+    (err) => err.name === 'PasswordException'
+  );
   const result = await extractPdfText(file);
   assert.equal(typeof result, 'string');
   assert.match(result, /^Error: this PDF is password-protected/);

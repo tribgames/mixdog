@@ -74,6 +74,27 @@ test('set_instruction_files validates the mode and features status reports it', 
   assert.equal(features.instructionFiles, 'claude');
 });
 
+test('set_auto_effort_base validates the level', async () => {
+  const calls = [];
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      setAutoEffortBase: async (level) => {
+        calls.push(level);
+        return { autoEffortBase: level };
+      },
+    }),
+  });
+  assert.equal(
+    (await run(executor, { action: 'set_auto_effort_base', autoEffortBase: 'high' })).autoEffortBase,
+    'high'
+  );
+  assert.deepEqual(calls, ['high']);
+  await assert.rejects(
+    run(executor, { action: 'set_auto_effort_base', autoEffortBase: 'max' }),
+    /autoEffortBase must be one of/
+  );
+});
+
 test('tool definition: schema enums mirror the exported action/domain/target lists', () => {
   assert.equal(SETUP_TOOL_DEFS.length, 1);
   const [def] = SETUP_TOOL_DEFS;

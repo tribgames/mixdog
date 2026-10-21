@@ -388,6 +388,127 @@ test('Studio becomes ready while its first thumbnail is still loading', async ()
   }
 });
 
+test('a catalog outage notice names the catalog, not an unavailable model', async () => {
+  const outage = {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    authType: 'api-key',
+    authProvider: 'openrouter',
+    authenticated: true,
+    supportedKinds: ['image'],
+    kinds: [],
+    image: null,
+    video: null,
+    catalogErrorCode: 'MEDIA_CATALOG_UNAVAILABLE',
+    catalogError: 'OpenRouter (API key): Model catalog unavailable. Retry after checking the provider connection.',
+  };
+  const api = detailApi();
+  const base = api.invokeCapability;
+  api.invokeCapability = async (request) =>
+    request.capability === 'listMediaLanes' ? { value: [lane, outage], snapshot: null } : base(request);
+  const studio = await renderStudio(api, memoryReferenceStore());
+  try {
+    const notice = studio.host.querySelector('.studio-dock .error-notice');
+    assert.ok(notice, 'the outage is reported');
+    assert.match(notice.textContent, /OpenRouter \(API key\): Model catalog unavailable/);
+    assert.doesNotMatch(notice.textContent, /isn't available for this account|Choose another model/);
+  } finally {
+    await studio.unmount();
+  }
+});
+
+test('a slow gateway catalog shows loading in the model list, re-polls, and a failure says so with Retry', async () => {
+  const nano = {
+    id: 'nano-gpt',
+    label: 'NanoGPT',
+    authType: 'api-key',
+    authProvider: 'nano-gpt',
+    authenticated: true,
+    supportedKinds: ['image'],
+    kinds: [],
+    image: null,
+    video: null,
+  };
+  let nanoState = { ...nano, catalogPending: true };
+  const laneCalls = [];
+  const api = detailApi();
+  const base = api.invokeCapability;
+  api.invokeCapability = async (request) => {
+    if (request.capability !== 'listMediaLanes') return base(request);
+    laneCalls.push(request.args);
+    return { value: [lane, nanoState], snapshot: null };
+  };
+  const studio = await renderStudio(api, memoryReferenceStore());
+  const openModels = async () => {
+    await act(async () => document.querySelector('.studio-model-trigger').click());
+    const modelRow = [...document.querySelectorAll('.route-sheet-row')].find((row) =>
+      row.textContent.startsWith('Model')
+    );
+    await act(async () => modelRow.click());
+    return [...document.querySelectorAll('.model-option-row')].map((row) => ({
+      text: row.textContent,
+      disabled: row.disabled,
+    }));
+  };
+  const closeModels = () =>
+    act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  try {
+    assert.ok(laneCalls[0]?.[0]?.budgetMs > 0, 'Studio bounds the listing so one slow catalog cannot hold the pane');
+    let rows = await openModels();
+    assert.ok(
+      rows.some((row) => row.text.startsWith('Image model')),
+      'the ready lane stays usable'
+    );
+    const loading = rows.find((row) => row.text.includes('NanoGPT'));
+    assert.ok(loading, 'the slow lane is listed instead of vanishing');
+    assert.match(loading.text, /Loading models…/);
+    assert.equal(loading.disabled, true);
+    await closeModels();
+    await closeModels();
+
+    nanoState = {
+      ...nano,
+      kinds: ['image'],
+      image: { defaultModel: 'hidream', controls: {}, models: [{ id: 'hidream', label: 'HiDream', controls: {} }] },
+    };
+    await settle(1_200);
+    assert.ok(laneCalls.length >= 2, 'a pending catalog is polled again');
+    rows = await openModels();
+    assert.ok(
+      rows.some((row) => row.text.startsWith('HiDream') && !row.disabled),
+      'the late models become choosable'
+    );
+    await closeModels();
+    await closeModels();
+
+    nanoState = {
+      ...nano,
+      catalogErrorCode: 'MEDIA_CATALOG_TIMEOUT',
+      catalogError: 'NanoGPT (API key): Model catalog request timed out. Retry after checking the connection.',
+    };
+    // A fresh listing (Studio entry or Retry) picks up the failure.
+    await studio.unmount();
+    const failed = await renderStudio(api, memoryReferenceStore());
+    try {
+      rows = await openModels();
+      const row = rows.find((entry) => entry.text.includes('NanoGPT'));
+      assert.match(row.text, /Couldn't load models/);
+      assert.ok(
+        [...failed.host.querySelectorAll('.studio-dock button')].some((button) => button.textContent === 'Retry'),
+        'a failed catalog offers Retry'
+      );
+      assert.match(failed.host.textContent, /Model catalog request timed out/);
+    } finally {
+      await closeModels();
+      await closeModels();
+      await failed.unmount();
+    }
+  } catch (error) {
+    await studio.unmount().catch(() => {});
+    throw error;
+  }
+});
+
 /** Studio host for the detail tests: the two images, an optional larger
  *  total, and every capability call recorded. */
 function detailApi({ total = assets.length, calls = [] } = {}) {

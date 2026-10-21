@@ -697,7 +697,9 @@ export class DesktopServiceClient implements DesktopService {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         settled();
-        reject(new Error(`Mixdog session request timed out: ${method}.`));
+        // A desktop operation names itself: "invokeDesktopOperation" alone says nothing.
+        const operation = method === 'invokeDesktopOperation' && typeof args[0] === 'string' ? ` (${args[0]})` : '';
+        reject(new Error(`Mixdog session request timed out: ${method}${operation}.`));
       }, timeoutMs);
       signal?.addEventListener('abort', onAbort, { once: true });
       this.pending.set(id, {
@@ -938,7 +940,11 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('abortSession', [sessionId, options]);
   }
   resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
-    return this.invoke('resolveToolApprovalForSession', [sessionId, id, decision]);
+    // A decision is keyed by its approval id, so sending it again is safe (an
+    // already-settled id answers false). The service restarts itself when a
+    // stalled daemon times its call out; the answer the user gave must wait
+    // for that restart instead of surfacing as a failed, then cancelled, ask.
+    return this.invokeRead('resolveToolApprovalForSession', [sessionId, id, decision]);
   }
   getAgentNotificationMute(agentId: string): Promise<boolean> {
     return this.invoke('getAgentNotificationMute', [agentId]);

@@ -9,7 +9,8 @@
 import type React from 'react';
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useVisibleSessions } from './use-visible-sessions';
+import { useScreenSessions, useVisibleSessions } from './use-visible-sessions';
+import { DESKTOP_PET_SESSION_ID, DesktopPetPublisher, useDesktopPetSessionIds } from './desktop-pet-publisher';
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { DownloadSessionContext } from './project-file-download';
@@ -168,7 +169,10 @@ export function PaneWorkspace({
     focused: boolean,
     focusPane: () => void,
     leafId: string,
-    warm: boolean
+    warm: boolean,
+    /** On screen in its pane (not parked behind a file or utility tab, not a
+     *  retained phone surface), focused or not. */
+    visible: boolean
   ) => React.ReactNode;
   /** File editors stay mounted in their owning group while dirty. The active
    *  file renders in-place even when another pane has focus. */
@@ -203,8 +207,12 @@ export function PaneWorkspace({
   // them owns an editor tab, so include those ids with every pane session.
   // Not on a phone: its Agents rows read the agent pool and roster, while
   // every observed lane mirrored a whole working transcript over the relay.
-  const visibleSessionIds = mobileSurface ? paneSessionIds : [...new Set([...paneSessionIds, ...observedSessionIds])];
+  const petSessionIds = useDesktopPetSessionIds();
+  const visibleSessionIds = mobileSurface
+    ? paneSessionIds
+    : [...new Set([...paneSessionIds, ...observedSessionIds, ...petSessionIds])];
   useVisibleSessions(visibleSessionIds);
+  useScreenSessions(paneSessionIds);
   usePaneSelectionFence();
   const fileDropPropsFor = usePaneFileDrop(onOpenDroppedPaths);
   const dropPreview = usePaneDropPreview(workspace, onFocusSelection);
@@ -261,11 +269,30 @@ export function PaneWorkspace({
               selectionKey={selectionKey}
               deferMount={mobileSurface && active.kind === 'session' && defaultSessionLaneStore.get(active.id) === null}
             >
-              {renderConversation(active, focused && !handoff && !parked && !retained, focusPane, leaf.id, warm)}
+              {renderConversation(
+                active,
+                focused && !handoff && !parked && !retained,
+                focusPane,
+                leaf.id,
+                warm,
+                !parked && !retained
+              )}
             </RetainedConversation>
           </PersistentPanePortal>
         );
       }
+    );
+  }
+  // The desktop pet: a side chat with Mixy.
+  if (!mobileSurface) {
+    const focusedLeaf = workspace.leaves.find((leaf) => leaf.id === focusedLeafId);
+    const focusedSelection = focusedLeaf ? paneActiveSelection(focusedLeaf) : null;
+    conversationPortals.push(
+      <DesktopPetPublisher
+        key="desktop-pet"
+        focusKey={focusedLeafId}
+        mixyFocused={focusedSelection?.kind === 'session' && focusedSelection.id === DESKTOP_PET_SESSION_ID}
+      />
     );
   }
   const conversationEntryByLeaf = new Map(

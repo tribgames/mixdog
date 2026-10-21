@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createSessionIntakeApi } from './intake.mjs';
+import { USER_CANCEL_KEEP_PROMPT_REASON } from '../../../runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 
 // Pins the prompt intake surface: how a submission is queued or deferred, how
 // Esc reclaims an idle or in-flight prompt back into the draft, and the
@@ -307,6 +308,56 @@ test('aborting a live turn restores the in-flight prompt, its history slot and i
   assert.equal(restoreState.restorable, false);
   assert.equal(restoreState.reclaimed, true);
   assert.deepEqual(restoreState.requeueEntries, []);
+});
+
+test('a Stop that does not hand the prompt back keeps it in the stored transcript and in view', () => {
+  const restoreState = {
+    restorable: true,
+    committed: false,
+    text: 'first message',
+    submittedIds: ['u1'],
+    requeueEntries: [],
+    pastedImages: null,
+    pastedTexts: null,
+  };
+  const h = createHarness({
+    state: {
+      busy: true,
+      items: [{ id: 'u1', kind: 'user', text: 'first message' }],
+      promptHistoryList: ['first message'],
+    },
+    flags: { activePromptRestore: restoreState },
+  });
+  const result = h.api.abort({ restorePrompt: false });
+  // The runtime is told nobody will return the prompt to an input box, so it
+  // must not rewind it out of the stored transcript.
+  assert.deepEqual(
+    h.calls.filter((call) => call[0] === 'runtime.abort'),
+    [['runtime.abort', USER_CANCEL_KEEP_PROMPT_REASON]]
+  );
+  assert.equal(result.aborted, true);
+  assert.equal(result.restoreText, '');
+  assert.equal(h.state.items.length, 1);
+  assert.deepEqual(h.state.promptHistoryList, ['first message']);
+});
+
+test('a Stop that does hand the prompt back, or one for a hidden turn, still lets the runtime rewind it', () => {
+  const live = (restorable) => ({
+    restorable,
+    committed: false,
+    text: 'draft me',
+    submittedIds: ['u1'],
+    requeueEntries: [],
+    pastedImages: null,
+    pastedTexts: null,
+  });
+  const reasonOf = (options, restorable) => {
+    const h = createHarness({ state: { busy: true }, flags: { activePromptRestore: live(restorable) } });
+    h.api.abort(options);
+    return h.calls.find((call) => call[0] === 'runtime.abort')[1];
+  };
+  assert.equal(reasonOf(undefined, true), 'user-cancel');
+  assert.equal(reasonOf({ restorePrompt: false }, false), 'user-cancel');
 });
 
 test('a queued steering prompt suppresses the restore and hands pasted attachments back for cleanup', () => {

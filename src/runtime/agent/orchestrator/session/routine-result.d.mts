@@ -8,7 +8,9 @@ export interface RoutineProvenance {
 
 export interface RoutineMessageMeta {
   source: string;
-  routine: Record<string, unknown>;
+  /** A task report into a bot's home chat of a bot-to-bot send names the
+   *  answering bot in `agentId` (the target's home session owner). */
+  routine: Record<string, unknown> & { agentId?: string };
   transcript: { at: number; messageId?: string; attachments?: unknown[] };
 }
 export interface RoutineMessage {
@@ -19,7 +21,7 @@ export interface RoutineMessage {
 export interface RoutineNotice {
   text: string;
   tone: 'info' | 'warn';
-  routine: Record<string, unknown>;
+  routine: Record<string, unknown> & { agentId?: string };
   /** Live run notices only (routineRunNotice). */
   messageId?: string;
   /** A task report's stored files (handoff-artifacts.mjs). */
@@ -36,6 +38,9 @@ export interface RoutineNotice {
 export const ROUTINE_RESULT_SOURCE: 'schedule-result';
 export const TASK_LOOP_CAP: number;
 export function routineSummary(text: unknown): string;
+export const REPLY_LIMIT: number;
+export function boundedReply(text: unknown): { text: string; chars: number };
+export const WAKE_TEXT_BUDGET: number;
 export function routineResultMessage(options: {
   kind?: 'schedule' | 'webhook';
   name: string;
@@ -49,10 +54,20 @@ export function routineResultMessage(options: {
   messageId?: string;
 }): RoutineMessage;
 export function routineOmittedMessage(options: { count: number; at?: number; messageId?: string }): RoutineMessage;
+export function agentTaskRelayFailedMessage(options: {
+  count: number;
+  tries: number;
+  at?: number;
+  messageId?: string;
+}): RoutineMessage;
 export function agentTaskMessage(options: {
   title: string;
   status: string;
   text?: unknown;
+  /** Length of the whole reply when `text` is already a bounded part of it. */
+  textChars?: number;
+  /** The row's one-line summary, when made from the whole reply before `text` was bounded. */
+  summary?: string;
   taskSessionId: string;
   /** 'session': any session other than a task session the agent created. */
   target?: 'task' | 'session';
@@ -65,7 +80,7 @@ export function agentTaskMessage(options: {
   at?: number;
   messageId?: string;
 }): RoutineMessage;
-export function agentTaskWakePrompt(messages: ReadonlyArray<{ content: string }>): string;
+export function agentTaskWakePrompt(messages: ReadonlyArray<{ content: string }>, options?: { more?: number }): string;
 export function isRoutineResultMessage(message: unknown): boolean;
 export function normalizeRoutineProvenance(value: unknown): RoutineProvenance | null;
 export function routineProvenance(message: unknown): RoutineProvenance | null;

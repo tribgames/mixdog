@@ -13,8 +13,10 @@ import { beginLocalInference, localModelState } from '../../../local-provider/mo
 
 export class MixdogLocalProvider {
   static inputExcludesCache = false;
-  // The managed local runtime is text-only: PDFs lower to text.
+  // The managed local runtime is text-only: PDFs lower to text and images to
+  // a placeholder (input-capabilities.mjs).
   nativePdf = false;
+  takesImages = false;
 
   constructor(config = {}, { ensureServer = ensureLocalProviderServer, runRequest = runLocalProviderRequest } = {}) {
     this.name = 'mixdog-local';

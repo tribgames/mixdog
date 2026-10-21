@@ -4,6 +4,8 @@ import { t } from './i18n';
 import { asRecord } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { recognisedSlashToken } from '../../../../src/tui/app/slash-commands.mjs';
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { transcriptSourceFields } from '../../../../src/runtime/shared/transcript-metadata.mjs';
 
 export type PendingPromptItem = TranscriptItem & {
   id: string | number;
@@ -165,6 +167,9 @@ export function steerPromptItems(sessionQueue: readonly unknown[], pending: read
       queuedBehindTurn: true,
       steer: heldForTurnEnd(text, record) ? 'held' : 'pending',
       queueEntry: entry,
+      // The projection already carries the entry's sender/device/sending bot
+      // as row fields; a queued bot message wears its tag like a delivered one.
+      ...transcriptSourceFields(record),
       ...(images?.length ? { images: images as NonNullable<TranscriptItem['images']> } : {}),
     });
   }

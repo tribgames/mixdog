@@ -17,9 +17,14 @@ test('a provider-models notification reaches every window and relay client from 
   const operations = createDesktopOperations({
     userDataPath: directory,
     loadConfig: async () => configModule,
-    emit: (event) => { for (const listener of listeners) listener(event); },
+    emit: (event) => {
+      for (const listener of listeners) listener(event);
+    },
   });
-  t.after(async () => { await operations.dispose(); await rm(directory, { recursive: true, force: true }); });
+  t.after(async () => {
+    await operations.dispose();
+    await rm(directory, { recursive: true, force: true });
+  });
   const host = {
     subscribe: () => () => {},
     subscribeSessionStates: () => () => {},
@@ -33,12 +38,19 @@ test('a provider-models notification reaches every window and relay client from 
   const handlers = new Map();
   const deliveries = [];
   const mainFrame = {};
-  const webContents = { mainFrame, isDestroyed: () => false, send: (channel, value) => deliveries.push([channel, value]) };
+  const webContents = {
+    mainFrame,
+    isDestroyed: () => false,
+    send: (channel, value) => deliveries.push([channel, value]),
+    on() {},
+    removeListener() {},
+  };
   const ipcMain = new EventEmitter();
   ipcMain.handle = (channel, handler) => handlers.set(channel, handler);
   ipcMain.removeHandler = (channel) => handlers.delete(channel);
   const remove = registerDesktopIpc({ webContents, isDestroyed: () => false }, host, {
-    app: { quit() {} }, ipcMain,
+    app: { quit() {} },
+    ipcMain,
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
     shell: { openPath: async () => '', openExternal: async () => {} },
   });
@@ -55,12 +67,16 @@ test('a provider-models notification reaches every window and relay client from 
   const handler = handlers.get(DESKTOP_IPC.notifyProviderModelsChanged);
 
   await handler(event, 'window-a');
-  assert.deepEqual(deliveries.filter(([channel]) => channel === DESKTOP_IPC.providerModelsChanged), [
-    [DESKTOP_IPC.providerModelsChanged, { origin: 'window-a' }],
-  ]);
+  assert.deepEqual(
+    deliveries.filter(([channel]) => channel === DESKTOP_IPC.providerModelsChanged),
+    [[DESKTOP_IPC.providerModelsChanged, { origin: 'window-a' }]]
+  );
   assert.deepEqual(frames.at(-1), [{ event: PROVIDER_MODELS_EVENT, payload: { origin: 'window-a' } }, false]);
 
-  const reply = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: 'notifyProviderModelsChanged', params: ['phone-1'] }));
+  const reply = await executeRemoteFrame(
+    methods,
+    JSON.stringify({ id: 1, method: 'notifyProviderModelsChanged', params: ['phone-1'] })
+  );
   assert.ok(reply, 'the remote method path answers');
   assert.deepEqual(frames.at(-1), [{ event: PROVIDER_MODELS_EVENT, payload: { origin: 'phone-1' } }, false]);
   assert.equal(deliveries.filter(([channel]) => channel === DESKTOP_IPC.providerModelsChanged).length, 2);

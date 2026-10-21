@@ -9,6 +9,7 @@ import {
   type VisualizeInlineKind,
   type VisualizeSessionState,
   type VisualizeTabView,
+  versionProducedAt,
   visualizeThumbnail,
 } from '../shared/visualize';
 import type { TranscriptItem } from './desktop-types';
@@ -86,6 +87,20 @@ export interface VisualizeCardCall {
   version?: number;
   /** When the call ran (ms), to tell which card of a tab is the newest. */
   at: number;
+  /** A turn preview: a file the turn changed that the agent did not open
+   *  (turn-preview-model.ts); without a live tab it reads "Not opened". */
+  preview?: true;
+  /** The thumbnail's top-left mark (turn-preview-model.ts). */
+  badge?: 'mockup' | 'new';
+}
+
+/** When a turn's tool rounds last ran (ms): the time of its preview tiles. */
+export function visualizeTurnEndAt(items: readonly TranscriptItem[]): number {
+  let at = 0;
+  for (const item of flattenedToolActivityItems(items)) {
+    at = Math.max(at, Number(item.completedAt ?? item.at ?? item.startedAt) || 0);
+  }
+  return at;
 }
 
 const URL_TARGET = /^[a-z][a-z0-9+.-]*:\/\//i;
@@ -342,8 +357,26 @@ export function visualizeCardTab(state: VisualizeSessionState, call: VisualizeCa
     const shown = live[0]?.inline;
     return live.length === 1 && shown?.kind === call.content.kind && shown.title === call.content.title ? tab : null;
   }
-  if (live.length !== call.targets.length) return null;
-  return live.every((pane, index) => sameTarget(pane.target, call.targets[index])) ? tab : null;
+  return showsTargets(live, call.targets) ? tab : null;
+}
+
+function showsTargets(live: VisualizeTabView['panes'], targets: readonly string[]): boolean {
+  return live.length === targets.length && live.every((pane, index) => sameTarget(pane.target, targets[index]));
+}
+
+/** The live panel tab showing exactly the files `targets` (a preview tile's
+ *  tab, whoever opened it); null when none does. */
+export function visualizeTabForTargets(
+  state: VisualizeSessionState,
+  targets: readonly string[]
+): VisualizeTabView | null {
+  if (!targets.length) return null;
+  return (
+    state.tabs.find((tab) => {
+      const current = tab.panes.filter((pane) => pane.version === undefined);
+      return showsTargets(current.length ? current : tab.panes, targets);
+    }) ?? null
+  );
 }
 
 /** The version the tab shows (the newest when live); 0 without versions. */
@@ -356,14 +389,24 @@ export function visualizeCardVersion(tab: VisualizeTabView | null): number {
 // card keeps naming its own version.
 const cardVersions = new Map<string, number>();
 
+/** Test seam: a renderer reload forgets the in-memory registries (the host's
+ *  per-version turn record, carried in the state, is what survives). */
+export function resetVisualizeCardMemory(): void {
+  cardVersions.clear();
+  newestCards.clear();
+}
+
 /** `live` while `call` is its tab's newest card (recorded as its own); an
- *  earlier card's recorded version, else the one its open reported (after a
- *  renderer reload), else 0 (none named). */
+ *  earlier card: the version the host recorded for its turn (the tab's
+ *  `versions[].turns`, so a card never drawn live, a reloaded renderer and a
+ *  paired device agree), else the one recorded when it was drawn, else the one
+ *  its open reported, else 0 (none named). */
 export function visualizeCardOwnVersion(
   sessionId: string,
   call: VisualizeCardCall,
   live: number,
-  newest: boolean
+  newest: boolean,
+  tab: VisualizeTabView | null = null
 ): number {
   if (newest) {
     // Only once the card is known as its tab's newest (not merely unseen, as
@@ -375,9 +418,8 @@ export function visualizeCardOwnVersion(
     // A closed tab has no live version: the card keeps the one it showed.
     return live || (cardVersions.get(call.id) ?? call.version ?? 0);
   }
-  return cardVersions.get(call.id) ?? call.version ?? 0;
+  return versionProducedAt(tab?.versions, call.at) || (cardVersions.get(call.id) ?? call.version ?? 0);
 }
-
 // Tab titles as the agent gave them at open ("v1" → "요금제 배치 시안"), per
 // session, so later rows (check, capture, close…) name the page, not the id.
 const tabTitles = new Map<string, Map<string, string>>();

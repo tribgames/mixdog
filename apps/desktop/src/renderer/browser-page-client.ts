@@ -31,8 +31,9 @@ export interface BrowserPageElement extends HTMLDivElement {
   stop(): void;
   setZoomFactor(factor: number): void;
   getTabs(): DesktopBrowserTab[];
+  getAgentPage(): { tabId: string; turn: number; paused: boolean } | undefined;
   createTab(): Promise<DesktopBrowserTabControlResult | void>;
-  selectTab(tabId: string): Promise<DesktopBrowserTabControlResult | void>;
+  selectTab(tabId: string, follow?: 'agent' | 'resume'): Promise<DesktopBrowserTabControlResult | void>;
   closeTab(tabId: string): Promise<DesktopBrowserTabControlResult | void>;
 }
 
@@ -147,6 +148,7 @@ export function createBrowserPageClient(options: {
       emit('did-navigate', { url: frame.url, isMainFrame: true });
     }
     if (JSON.stringify(previous?.tabs) !== JSON.stringify(frame.tabs)) emit('tabs-changed');
+    if (JSON.stringify(previous?.agentPage) !== JSON.stringify(frame.agentPage)) emit('agent-page');
     if (previous?.loading !== frame.loading) emit(frame.loading ? 'did-start-loading' : 'did-stop-loading');
     if (previous?.loading && !frame.loading) emit('did-finish-load');
     if (frame.fault && frame.fault !== previous?.fault)
@@ -458,8 +460,9 @@ export function createBrowserPageClient(options: {
     node.stop = () => fire({ type: 'stop' });
     node.setZoomFactor = (factor) => fire({ type: 'zoom', factor });
     node.getTabs = () => metadata?.tabs ?? [];
+    node.getAgentPage = () => metadata?.agentPage;
     node.createTab = () => control({ type: 'new-tab' });
-    node.selectTab = (tabId) => control({ type: 'select-tab', tabId });
+    node.selectTab = (tabId, follow) => control({ type: 'select-tab', tabId, ...(follow ? { follow } : {}) });
     node.closeTab = (tabId) => control({ type: 'close-tab', tabId });
     node.focus = focusInput;
     Object.defineProperty(node, 'src', {

@@ -183,8 +183,19 @@
   border-radius: var(--mx-radius-lg);
   box-shadow: var(--mx-card-outline);
 }
+/* Chips open on the same box line as the search field above them (no 2px
+   desktop offset) and stay a compact 32px pill; the tap area grows to 44. */
+html[data-mixdog-mobile-tabs] .routine-sort-chips {
+  margin-inline: 0;
+}
 html[data-mixdog-mobile-tabs] .routine-sort-chips > button {
-  height: var(--mx-touch);
+  position: relative;
+  height: 32px;
+}
+html[data-mixdog-mobile-tabs] .routine-sort-chips > button::after {
+  content: "";
+  position: absolute;
+  inset: -6px -3px;
 }
 /* Phone: the ⋯ reaches the 44dp touch minimum. */
 html[data-mixdog-mobile-tabs] .routines-row .row-overflow-trigger {

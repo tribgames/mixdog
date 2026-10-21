@@ -12,6 +12,7 @@ import { useTranscriptRowEstimates } from './transcript-list-estimates';
 import { coreScrollState, SCROLL_END_THRESHOLD_PX, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { useProvisionalRowResize } from './transcript-list-provisional-resize';
 import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
+import type { TranscriptRowSurface } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_VIRTUAL_OVERSCAN } from './transcript-virtual-cache';
@@ -56,7 +57,9 @@ export function useTranscriptVirtualizer({
   domTop,
   markProgrammaticScrollRef,
   deviation,
+  surfaceRef,
 }: {
+  surfaceRef: MutableRefObject<TranscriptRowSurface>;
   count: number;
   viewport: RefObject<HTMLDivElement | null>;
   spacer: RefObject<HTMLDivElement | null>;
@@ -82,7 +85,7 @@ export function useTranscriptVirtualizer({
     relearnFrame,
     estimateRow,
     measureRowSize,
-  } = useTranscriptRowEstimates({ rowsRef, viewport, hasScrollGestureRef });
+  } = useTranscriptRowEstimates({ rowsRef, viewport, hasScrollGestureRef, surfaceRef });
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count,
     getScrollElement: () => viewport.current,
@@ -154,6 +157,7 @@ export function useTranscriptVirtualizer({
     observeElementOffset: observeTranscriptOffset(noteScrollOffset, domTop, deviation),
     scrollToFn: transcriptScrollTo({ viewport, spacer, domTop, markProgrammaticScrollRef, requestEndPin, deviation }),
   });
+  if (!handedOver.has(virtualizer)) handOverIOSDeferral(virtualizer);
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
   virtualizerRefForEstimates.current = virtualizer;
@@ -161,6 +165,52 @@ export function useTranscriptVirtualizer({
   const provisionalFrame = useProvisionalRowResize({ virtualizer, virtualizerRef, heldEstimates, fallbackEstimates });
   endPinForEstimates.current = requestEndPin;
   return { virtualizer, virtualizerRef, relearnFrame, provisionalFrame };
+}
+
+const handedOver = new WeakSet<TranscriptVirtualizer>();
+
+/** On iOS WebKit virtual-core keeps every correction it makes while scrolling
+ *  (a measured size above the reader, a prepend's anchor sync) in its own
+ *  deferral account and writes the sum once the scroll settles. The rows
+ *  above move meanwhile, so the reader's content shifts by the correction and
+ *  back again at the write, and nothing lands at the top edge: a fling toward
+ *  older history could stop at native 0 short of the corrected rows. This
+ *  list owns that hold (scrollToFn → transcript-list-touch-deviation, landed
+ *  early at the top edge), so every correction reaches the list's scroll
+ *  writer at once, as the core writes it off iOS:
+ *  - a measured size takes the core's off-iOS adjustment (its target and the
+ *    core offset both move by the delta);
+ *  - a prepend already moved the core offset by its anchor delta when the
+ *    page rendered, so its sync writes that offset, never the delta again.
+ *    The delta goes as the write's adjustment, so a touch fling holds it like
+ *    any other correction.
+ *  Both names are virtual-core 3.17.4 internals (pinned in package.json;
+ *  transcript-ios-touch-hold.test.mjs fails if the core stops using them). */
+export function handOverIOSDeferral(instance: TranscriptVirtualizer): void {
+  handedOver.add(instance);
+  const core = coreScrollState(instance) as ReturnType<typeof coreScrollState> & {
+    getScrollOffset(): number;
+    _scrollToOffset(offset: number, options: { adjustments?: number; behavior?: ScrollBehavior }): void;
+    applyScrollAdjustment(delta: number, behavior?: ScrollBehavior): void;
+  };
+  core.applyScrollAdjustment = (delta, behavior) => {
+    if (delta === 0) return;
+    core.scrollAdjustments += delta;
+    core._scrollToOffset(core.getScrollOffset(), { adjustments: core.scrollAdjustments, behavior });
+    if (core.scrollOffset !== null) {
+      core.scrollOffset += core.scrollAdjustments;
+      core.scrollAdjustments = 0;
+    }
+  };
+  // Only the prepend's anchor sync still reaches the account.
+  Object.defineProperty(instance, '_iosDeferredAdjustment', {
+    configurable: true,
+    get: () => 0,
+    set: (anchorDelta: number) => {
+      if (!anchorDelta) return;
+      core._scrollToOffset(core.getScrollOffset() - anchorDelta, { adjustments: anchorDelta });
+    },
+  });
 }
 
 /** virtual-core's own offset observer reports, once scrolling idles, the
@@ -181,8 +231,12 @@ function observeTranscriptOffset(
     if (!element) return undefined;
     let idle = 0;
     const onScroll = () => {
+      // A touch hold reaching the top edge lands first (see
+      // transcript-list-touch-deviation), so this read sees the landed offset.
+      deviation.landAtEdge();
       // The one offset read per scroll event. A correction held during a
-      // touch scroll shifts the rows, so the logical offset carries it.
+      // wheel ramp or a touch fling shifts the rows, so the logical offset
+      // carries it.
       const top = element.scrollTop + deviation.amount();
       noteScrollOffset.current(top);
       cb(top, true);
@@ -225,9 +279,9 @@ function transcriptScrollTo({
     }
     if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
     const intended = offset + (options?.adjustments ?? 0);
-    // A measured-size correction during a touch scroll moves the rows, never
-    // the native offset (see transcript-list-touch-deviation). Navigation
-    // writes carry no adjustment and always land natively.
+    // A measured-size correction during a wheel ramp or a touch scroll moves
+    // the rows, never the native offset (see transcript-list-touch-deviation).
+    // Navigation writes carry no adjustment and always land natively.
     if (options?.adjustments && options.behavior !== 'smooth' && deviation.hold(intended)) {
       coreScrollState(instance)._intendedScrollOffset = null;
       domTop.current = intended;

@@ -195,7 +195,7 @@
 }
 .mixdog-settings-v2 .mixdog-settings__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 220px);
   align-items: center;
   min-height: 56px;
   padding: 12px 0;
@@ -227,7 +227,7 @@
 .mixdog-settings-v2 .settings-form-row,
 .mixdog-settings-v2 .settings-resource {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 220px);
   align-items: center;
   min-height: 56px;
   padding: 12px 0;
@@ -386,9 +386,9 @@
   outline-offset: 2px;
 }
 .settings-select.mx-select-root {
-  width: min(280px, 100%);
-  min-width: 150px;
-  max-width: min(340px, 42vw);
+  width: min(220px, 100%);
+  min-width: 140px;
+  max-width: min(260px, 42vw);
   height: auto;
   padding: 0;
   border: 0;
@@ -662,6 +662,31 @@
   box-shadow: none;
   background: color-mix(in srgb, var(--mx-scrim) 72%, transparent);
   backdrop-filter: blur(2px);
+}
+/* The way out of a full-screen cover: inside the safe area, below the status
+   bar a phone's system claims taps in, and a finger-sized box on a phone. */
+.desktop-loading-cancel {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.desktop-loading-cancel:hover {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+html[data-mixdog-mobile-tabs] .desktop-loading-cancel {
+  width: 44px;
+  height: 44px;
 }
 /* Sidebar rail panels use the same centered spinner-only grammar without a
    raised card frame. */

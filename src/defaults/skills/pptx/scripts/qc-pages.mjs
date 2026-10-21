@@ -28,7 +28,8 @@ const number = (value) => (Number.isFinite(value) ? Number(value.toFixed(2)) : n
 // pointed at a per-page working copy beside the deck.
 export function workingCopyPath(deck, page) {
   const extension = extname(deck);
-  return join(dirname(deck), `.${basename(deck, extension)}.qc-page-${page}${extension}`);
+  // Not dot-prefixed: Windows cloud-sync drives refuse to create such names.
+  return join(dirname(deck), `${basename(deck, extension)}.qc-page-${page}${extension}`);
 }
 
 async function fileExists(path) {
@@ -202,7 +203,7 @@ async function defaultMeasure() {
 // missing renderer leaves the page to the geometry read.
 async function renderPage(office, deck, page) {
   const cwd = dirname(deck);
-  const scratch = join(dirname(deck), `.${basename(deck, extname(deck))}.qc-render${extname(deck)}`);
+  const scratch = join(dirname(deck), `${basename(deck, extname(deck))}.qc-render${extname(deck)}`);
   const opened = await office(
     { action: 'open', path: deck, mode: 'portable', output: scratch, snapshotAfter: false },
     cwd

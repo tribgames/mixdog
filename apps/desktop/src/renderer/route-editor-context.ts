@@ -88,6 +88,20 @@ export function useContextDraft({
     if (contextDraft === null || (contextDraft === contextPercent && !contextExactTokens)) return;
     onChangeContext(contextDraft);
   };
+  const applyContextTokens = (tokens: number) => {
+    const change = contextTokensChange(tokens, {
+      defaultPercent: contextDefaultPercent,
+      defaultTokens: defaultContextTokens,
+      maxTokens: contextMaxTokens,
+    });
+    setContextDraft(null);
+    if (change.tokens === (contextExactTokens || undefined) && change.percent === contextPercent) return;
+    onChangeContext(change.percent, change.tokens);
+  };
+  const resetContextDefault = () => {
+    setContextDraft(null);
+    onChangeContext(contextDefaultPercent);
+  };
   useEffect(() => {
     // A closed/left pane or a snapshot that caught up releases the preview.
     if (contextDraft !== null && (pane !== 'context' || (contextDraft === contextPercent && !contextExactTokens))) {
@@ -100,6 +114,8 @@ export function useContextDraft({
     shownContextTokens,
     defaultContextTokens,
     commitContextDraft,
+    applyContextTokens,
+    resetContextDefault,
     contextCustom: exactActive,
   };
 }

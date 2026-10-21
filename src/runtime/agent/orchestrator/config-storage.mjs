@@ -127,9 +127,16 @@ function canonicalizeAutoClearStorage(value) {
     const provider = String(key || '')
       .trim()
       .toLowerCase();
-    const duration = Number(candidate);
-    if (!provider || !Number.isFinite(duration) || duration <= 0) continue;
-    providerIdleMs[provider] = Math.max(60_000, Math.round(duration));
+    // 0 (also 'unlimited' / 'never') is the stored "never auto-clear" value
+    // (runtime-core/config-helpers.mjs AUTO_CLEAR_UNLIMITED).
+    const text = typeof candidate === 'string' ? candidate.trim().toLowerCase() : null;
+    let duration;
+    if (text === 'unlimited' || text === 'never') duration = 0;
+    else if (text === '') duration = Number.NaN;
+    else duration = Number(candidate);
+    if (!provider || candidate === null || typeof candidate === 'boolean' || !Number.isFinite(duration) || duration < 0)
+      continue;
+    providerIdleMs[provider] = duration === 0 ? 0 : Math.max(60_000, Math.round(duration));
   }
   delete next.thresholdMs;
   delete next.idleMillis;

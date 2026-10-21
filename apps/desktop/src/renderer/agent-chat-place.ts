@@ -2,7 +2,11 @@
 // sits on, and whether it opens a run of one sender (face, name, tail) or
 // closes it (time). Tool rounds and the live band neither group nor break a
 // run; a date divider goes where the day changes.
+import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { splitAskUser } from './ask-user-record';
+import { asRecord } from './text-format';
+import { desktopToolDisplayIdentity } from './transcript-tool-core';
+import { toolActivityResultValue } from './transcript-tool-result';
 import type { TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
 import { type RoutineTrigger, normalizeRoutineTrigger } from '../../../../src/runtime/shared/routine-trigger.mjs';
@@ -14,6 +18,8 @@ export interface AgentChatPlace {
   speaker: string;
   /** `kind:name` of the routine whose result this bubble is. */
   source?: string;
+  /** Another bot's message into this chat: its name carries the "봇 메시지" tag. */
+  bot?: boolean;
   first: boolean;
   last: boolean;
   /** The row's own time (0 when it has none). */
@@ -79,7 +85,107 @@ export function isRoomTypingItem(item: TranscriptItem | undefined): boolean {
   return item?.kind === 'notice' && item.room?.kind === 'typing';
 }
 
-type Sender = { side: AgentChatSide; speaker: string; source?: string };
+/** The bot that sent a user-kind row (`fromAgent`, a bot's `session send`
+ *  into this chat); '' for the user's own and a lead's message. */
+export function chatBotSenderOf(item: TranscriptItem | undefined): string {
+  return item?.kind === 'user' && typeof item.fromAgent === 'string' ? item.fromAgent : '';
+}
+
+/** A bot's answer to this chat's own send (routine-result.mjs agentTaskMessage
+ *  with `routine.agentId`): who answered and what. null for any other row,
+ *  and for a start or a wait, which stay faint lines. */
+export function chatBotReplyOf(
+  item: TranscriptItem | undefined
+): { agentId: string; text: string; sessionId: string } | null {
+  if (item?.kind !== 'notice' || !item.routine || typeof item.routine !== 'object') return null;
+  const { kind, agentId, status, summary, sessionId } = item.routine as Record<string, unknown>;
+  if (kind !== 'task' || typeof agentId !== 'string' || !agentId) return null;
+  // Failed and cancelled results keep their status line.
+  if (status !== 'completed' || typeof summary !== 'string' || !summary.trim()) return null;
+  return { agentId, text: summary, sessionId: typeof sessionId === 'string' ? sessionId : '' };
+}
+
+/** Whether a `session send` call finished with `accepted: true`: a running
+ *  call, an error and a refused send were not sent. */
+function sendAccepted(item: TranscriptItem): boolean {
+  if (item.isError) return false;
+  return asRecord(toolActivityResultValue(item))?.accepted === true;
+}
+
+/** The sends to another bot's home chat among a tool round's calls
+ *  (`session` action `send`), from the stored calls: the recipient, its home
+ *  session, the message and when. */
+export function chatBotSendsOf(
+  items: readonly TranscriptItem[]
+): { id: string; agentId: string; sessionId: string; prompt: string; at: number }[] {
+  const sends: { id: string; agentId: string; sessionId: string; prompt: string; at: number }[] = [];
+  for (const item of items) {
+    const members =
+      item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
+    for (const member of members) {
+      if (member.kind !== 'tool') continue;
+      const identity = desktopToolDisplayIdentity(member.name, member.args);
+      const args = asRecord(identity.args);
+      const sessionId = typeof args?.session_id === 'string' ? args.session_id.trim() : '';
+      const agentId = agentIdOfHomeSession(sessionId);
+      if (identity.name !== 'session' || args?.action !== 'send' || !agentId) continue;
+      if (!sendAccepted(member)) continue;
+      const at = Number(member.startedAt ?? member.at);
+      sends.push({
+        id: String(member.id ?? sends.length),
+        agentId,
+        sessionId,
+        prompt: typeof args.prompt === 'string' ? args.prompt : '',
+        at: Number.isFinite(at) && at > 0 ? at : 0,
+      });
+    }
+  }
+  return sends;
+}
+
+type BotSend = ReturnType<typeof chatBotSendsOf>[number];
+
+/** The row index of the bubble that carries its turn's "sent to" lines: the
+ *  turn's last finished reply of the agent itself. -1: the turn has none. */
+function sendCarrierIndex(rows: readonly TranscriptRowModel[], turnKey: string | undefined): number {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at];
+    if (
+      row.turnKey === turnKey &&
+      row._tag === 'AssistantPart' &&
+      row.item.kind === 'assistant' &&
+      !agentReplyUnfinished(row.live, row.item)
+    ) {
+      return at;
+    }
+  }
+  return -1;
+}
+
+/** The sends of the turn that sit under the bubble at `rows[index]` (the
+ *  turn's last agent reply), inside its group. */
+export function carriedBotSends(rows: readonly TranscriptRowModel[], index: number): BotSend[] {
+  const row = rows[index];
+  if (row?._tag !== 'AssistantPart' || sendCarrierIndex(rows, row.turnKey) !== index) return [];
+  return rows.flatMap((other) =>
+    other._tag === 'ToolActivity' && other.turnKey === row.turnKey ? chatBotSendsOf(other.items) : []
+  );
+}
+
+/** Where a tool round's sends are drawn: `carried` under the turn's reply
+ *  bubble, `pending` nowhere yet (the reply is still coming), `aside` as a
+ *  line of their own (the turn has no text reply). */
+export function botSendsPlacement(rows: readonly TranscriptRowModel[], index: number): 'carried' | 'pending' | 'aside' {
+  const { turnKey } = rows[index];
+  if (sendCarrierIndex(rows, turnKey) >= 0) return 'carried';
+  const coming = rows.some(
+    (other) =>
+      other.turnKey === turnKey && (other._tag === 'Thinking' || (other._tag === 'AssistantPart' && other.live))
+  );
+  return coming ? 'pending' : 'aside';
+}
+
+type Sender = { side: AgentChatSide; speaker: string; source?: string; bot?: boolean };
 
 /** null: a row that neither groups nor breaks a group (tool rounds, the live
  *  band, turn gaps). */
@@ -91,9 +197,12 @@ function rowSender(row: TranscriptRowModel | undefined): Sender | null {
     const { asked, waiting } = splitAskUser(row.items, true);
     return asked.length || waiting ? { side: 'aside', speaker: '' } : null;
   }
-  // A routine fire's turn opens with its marker row, not a user bubble.
+  // A routine fire's turn opens with its marker row, not a user bubble; a
+  // bot's message into this chat is that bot's bubble, not the user's.
   if (row._tag === 'UserMessage') {
-    return chatRoutineTriggerOf(row.item) ? { side: 'aside', speaker: '' } : { side: 'user', speaker: '' };
+    if (chatRoutineTriggerOf(row.item)) return { side: 'aside', speaker: '' };
+    const bot = chatBotSenderOf(row.item);
+    return bot ? { side: 'agent', speaker: bot, bot: true } : { side: 'user', speaker: '' };
   }
   const item = rowItem(row);
   if (row._tag === 'AssistantPart' && item) {
@@ -105,6 +214,8 @@ function rowSender(row: TranscriptRowModel | undefined): Sender | null {
     // an old result row without the marker stays a bubble.
     const routine = chatRoutineOf(item);
     if (routine) return { side: 'agent', speaker: '', source: `${routine.kind}:${routine.name}` };
+    const botReply = chatBotReplyOf(item);
+    if (botReply) return { side: 'agent', speaker: botReply.agentId, bot: true };
     if (item.kind === 'notice' && !item.room && !item.routine && /^(?:⏱|🔗)\s/u.test(String(item.text || ''))) {
       return { side: 'agent', speaker: '' };
     }
@@ -179,13 +290,11 @@ export function routineGroupOf(rows: readonly TranscriptRowModel[], index: numbe
   return members.sort((a, b) => a - b);
 }
 
-/** At a turn's last row (the live band aside), the items of every tool round
- *  of that turn, oldest first: its artifacts' cards close the turn, under its
- *  reply. null at any other row, for a turn with no tool round, and while the
- *  turn runs (its live band or a streaming reply part is still in the rows). */
-export function turnEndToolItems(rows: readonly TranscriptRowModel[], index: number): TranscriptItem[] | null {
+/** Whether `rows[index]` is the last row of its turn (the live band aside)
+ *  and that turn no longer runs (no live band or streaming reply part). */
+export function isEndedTurnLastRow(rows: readonly TranscriptRowModel[], index: number): boolean {
   const row = rows[index];
-  if (!row || row._tag === 'Thinking') return null;
+  if (!row || row._tag === 'Thinking') return false;
   const { turnKey } = row;
   if (
     rows.some(
@@ -193,9 +302,18 @@ export function turnEndToolItems(rows: readonly TranscriptRowModel[], index: num
         other.turnKey === turnKey && (other._tag === 'Thinking' || (other._tag === 'AssistantPart' && other.live))
     )
   ) {
-    return null;
+    return false;
   }
-  if (rows.slice(index + 1).some((next) => next.turnKey === turnKey && next._tag !== 'Thinking')) return null;
+  return !rows.slice(index + 1).some((next) => next.turnKey === turnKey && next._tag !== 'Thinking');
+}
+
+/** At a turn's last row (the live band aside), the items of every tool round
+ *  of that turn, oldest first: its artifacts' cards close the turn, under its
+ *  reply. null at any other row, for a turn with no tool round, and while the
+ *  turn runs (its live band or a streaming reply part is still in the rows). */
+export function turnEndToolItems(rows: readonly TranscriptRowModel[], index: number): TranscriptItem[] | null {
+  if (!isEndedTurnLastRow(rows, index)) return null;
+  const { turnKey } = rows[index];
   const items = rows
     .slice(0, index + 1)
     .flatMap((earlier) => (earlier._tag === 'ToolActivity' && earlier.turnKey === turnKey ? earlier.items : []));
@@ -218,6 +336,7 @@ export function agentChatPlace(rows: readonly TranscriptRowModel[], index: numbe
     (own.side === 'agent' || own.side === 'user') &&
     other?.side === own.side &&
     other.speaker === own.speaker &&
+    Boolean(other.bot) === Boolean(own.bot) &&
     (other.source ?? '') === (own.source ?? '');
   let newDay = false;
   if (at) {

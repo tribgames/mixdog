@@ -16,7 +16,8 @@ import { isOffReadonlySurface } from './deferred-call-through.mjs';
 import { BRIDGE_CALL_TOOL_NAME, bridgeErrorText, isToolBridgeEnabled } from '../../runtime-core/tool-bridge.mjs';
 import { sessionAllowlistExcludes, sessionDisallows } from '../../runtime-core/deferred-tool-availability.mjs';
 import { providerToolExclusionReason } from './provider-tool-exclusions.mjs';
-import { agentMcpToolPermission, projectMcpToolDisabled } from '../../mcp/agent-connectors.mjs';
+import { workflowOverlayDenial } from '../manager/workflow-switch-notice.mjs';
+import { agentMcpToolPermission, connectorPolicyAgentOf, projectMcpToolDisabled } from '../../mcp/agent-connectors.mjs';
 
 const WORKER_DENIED_TOOLS = new Set(['agent', 'ask_user', 'session']);
 const BRIDGE_DISCOVERY_TOOL_NAMES = new Set(['load_tool']);
@@ -120,12 +121,15 @@ export function preDispatchDenyForSession(sessionRef, call) {
   if (!bridgeDiscovery && sessionAllowlistExcludes(sessionRef, schemaName)) {
     return `Error: tool "${name}" is not available on this session's schema allowlist.`;
   }
+  // A workflow switched mid-conversation keeps the schema; its denials apply here.
+  const workflowDenial = workflowOverlayDenial(sessionRef, schemaName);
+  if (workflowDenial) return workflowDenial;
   if (sessionDisallows(sessionRef, schemaName)) {
     return `Error: tool "${name}" is not available in this session.`;
   }
   // An agent's connectors: a tool of a server it does not mount, or one set
   // to `disabled`, stays refused though the process-wide registry knows it.
-  if (agentMcpToolPermission(sessionRef?.agent, schemaName) === 'disabled') {
+  if (agentMcpToolPermission(connectorPolicyAgentOf(sessionRef), schemaName) === 'disabled') {
     return `Error: tool "${name}" is not available to this agent.`;
   }
   // The project the session runs in may switch a connector off as well.

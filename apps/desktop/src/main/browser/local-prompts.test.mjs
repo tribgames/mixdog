@@ -165,7 +165,10 @@ function sharedRenderer(popupSession, openerSession) {
     dialogs: {
       handleDialog: async (guest, accept, text, _signal, check) => {
         check();
-        answered.push([guest.name, accept, text]);
+        answered.push([guest.name, accept, text, state.for(guest).actor]);
+        // Stamped before the page resumes, so the window it opens next finds it.
+        assert.equal(typeof state.for(guest).personDialogAnswerAt, 'number');
+        assert.ok(Date.now() - state.for(guest).personDialogAnswerAt < 1000);
         state.for(guest).pendingDialog = null;
       },
     },
@@ -190,7 +193,8 @@ test("a renderer peer's dialog is shown and answered from a page of the session 
     { type: 'answer-dialog', requestId: shown.dialog.id, accept: true, promptText: 'Bo' },
     () => {}
   );
-  assert.deepEqual(same.answered, [['opener', true, 'Bo']], 'the answer reaches the dialog page');
+  // The page resumes as the person's: a window it opens next is theirs to see.
+  assert.deepEqual(same.answered, [['opener', true, 'Bo', 'person']], 'the answer reaches the dialog page');
   assert.equal(same.service.describe(same.popup).dialog, undefined, 'answered');
 });
 

@@ -66,7 +66,8 @@ function daemonFixture(t, { staleMs = STALE_MS } = {}) {
     owner: () => JSON.parse(readFileSync(ownerPath, 'utf8')),
     track: (pid) => pids.add(Number(pid)),
     // This test process stands in for the record's pid: alive, not a daemon.
-    writeOwner: (fields) => writeFileSync(ownerPath, JSON.stringify({ kind: 'mixdog-daemon', pid: process.pid, ...fields })),
+    writeOwner: (fields) =>
+      writeFileSync(ownerPath, JSON.stringify({ kind: 'mixdog-daemon', pid: process.pid, ...fields })),
     // ...and, for a still-booting owner, keeps its heartbeat fresh (atomically:
     // the daemon reads this record concurrently).
     keepBeating: (fields) => {
@@ -111,7 +112,9 @@ async function waitFor(predicate, timeoutMs = 10_000) {
 function clockShiftedContender(fx, offsetMs, livenessPort) {
   const entry = join(fx.root, 'clock-shifted-contender.mjs');
   const probePath = join(fx.root, 'contender-probe.json');
-  writeFileSync(entry, `
+  writeFileSync(
+    entry,
+    `
 import http from 'node:http';
 import { readFileSync, writeFileSync } from 'node:fs';
 const realNow = Date.now;
@@ -125,7 +128,8 @@ http.get = function (options, ...args) {
   return get.call(this, options, ...args);
 };
 await import(${JSON.stringify(new URL('./daemon.mjs', import.meta.url).href)});
-`);
+`
+  );
   return { entry, probePath };
 }
 
@@ -248,7 +252,12 @@ test('a running daemon re-publishes a deleted daemon.json and no second daemon s
   rmSync(fx.discoveryPath);
 
   const logs = [];
-  const again = await ensureDaemon({ cwd: fx.root, attempts: 2, readyTimeoutMs: 10_000, log: (line) => logs.push(line) });
+  const again = await ensureDaemon({
+    cwd: fx.root,
+    attempts: 2,
+    readyTimeoutMs: 10_000,
+    log: (line) => logs.push(line),
+  });
   assert.equal(Number(again.pid), Number(first.pid));
   assert.equal(again.port, first.port);
   assert.ok(!logs.some((line) => line.startsWith('spawning daemon candidate')), logs.join('\n'));
@@ -287,11 +296,19 @@ for (const [direction, shiftMs] of [
       timedOut: false,
     });
     assert.notEqual(Number(record.livenessPort), Number(holder.port), 'its own listener, not the session port');
-    assert.ok(await waitFor(() => fx.owner().heartbeatAt !== record.heartbeatAt), 'the real holder refreshed its heartbeat');
+    assert.ok(
+      await waitFor(() => fx.owner().heartbeatAt !== record.heartbeatAt),
+      'the real holder refreshed its heartbeat'
+    );
     const { entry, probePath } = clockShiftedContender(fx, -shiftMs, Number(record.livenessPort));
 
     const logs = [];
-    const candidate = await spawnDaemonCandidate({ cwd: fx.root, entry, log: (line) => logs.push(line), timeoutMs: 30_000 });
+    const candidate = await spawnDaemonCandidate({
+      cwd: fx.root,
+      entry,
+      log: (line) => logs.push(line),
+      timeoutMs: 30_000,
+    });
     const summary = candidate.summary();
     fx.track(summary.pid);
     assert.equal(summary.exitCode, 0, logs.join('\n'));
@@ -366,9 +383,8 @@ test('ensureDaemon bounds every probe by its deadline, even against a trickling 
   fx.writeOwner({ claimedAt: fx.iso(-3_600_000), heartbeatAt: fx.iso(-3_600_000), livenessPort: port });
 
   const startedAt = Date.now();
-  await assert.rejects(
-    ensureDaemon({ cwd: fx.root, attempts: 0, readyTimeoutMs: 400 }),
-    (error) => error.message.startsWith('daemon session endpoint is unavailable')
+  await assert.rejects(ensureDaemon({ cwd: fx.root, attempts: 0, readyTimeoutMs: 400 }), (error) =>
+    error.message.startsWith('daemon session endpoint is unavailable')
   );
   const elapsed = Date.now() - startedAt;
   assert.ok(elapsed < 1500, `gave up after ${elapsed}ms against a 400ms deadline`);

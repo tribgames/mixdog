@@ -838,10 +838,13 @@ function compactionTelemetryRecord(sessionRef, policy, meta, prev) {
       meta.compactError ?? meta.lastError,
       prev.lastError
     ),
+    // The last compaction's wall time: replaced only by a stage that reports
+    // a finished compaction's duration; a plain pre-send check keeps it (the
+    // other timing fields stay with `...prev`).
     lastDurationMs:
       meta.durationMs != null && Number.isFinite(Number(meta.durationMs))
         ? Math.max(0, Math.round(Number(meta.durationMs)))
-        : null,
+        : (prev.lastDurationMs ?? null),
     compactCount: (prev.compactCount || 0) + (changed ? 1 : 0),
     singleShotConsumed:
       policy.singleShot === true && meta.stage === 'compacting' ? true : prev.singleShotConsumed === true,

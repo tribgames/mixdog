@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { ApprovalOpenSessionContext } from './approval-prompt';
 import { IslandSegmentPending } from './composer-island-state';
 import {
   ComposerIsland,
@@ -185,6 +186,20 @@ export function ComposerDock({
     onOpenAgentSession?.(agentSessionId, title, ownerSessionId)
   );
   const openAgentSession = onOpenAgentSession ? openAgentSessionEvent : undefined;
+  // The approval card's "세션 열기": the asking sub-agent's session, owned by this chat.
+  const openApprovalSession = useMemo(
+    () => (openAgentSession ? (agentSessionId: string) => openAgentSession(agentSessionId, '', reviewSessionId) : null),
+    [openAgentSession, reviewSessionId]
+  );
+  const dockedApproval = useMemo(
+    () =>
+      approval ? (
+        <ApprovalOpenSessionContext.Provider value={openApprovalSession}>
+          {approval}
+        </ApprovalOpenSessionContext.Provider>
+      ) : null,
+    [approval, openApprovalSession]
+  );
   // Keep the entry gate until the module and its authoritative read
   // are ready, but do not let Suspense's reveal throttle hold an
   // already loaded segment (and the entire transcript) for 300ms.
@@ -275,7 +290,7 @@ export function ComposerDock({
           workBusy={reviewBusy || pendingInput}
           branch={agentMode ? undefined : branch}
           git={agentMode ? undefined : git}
-          approval={approval}
+          approval={dockedApproval}
           flash={islandFlash ?? (sessionId && worktreeFlash?.sessionId === sessionId ? worktreeFlash.flash : null)}
           quotaResume={quotaResume}
           heldHeight={contextBarHeight.current}

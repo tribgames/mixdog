@@ -49,7 +49,9 @@ function readJson(file) {
 /** The agent ids a Lead delegated work to (agent-workers.json), lower-cased. */
 export function delegatedAgentIds(dataDir) {
   const workers = readJson(join(dataDir, 'agent-workers.json'))?.workers;
-  const rows = Array.isArray(workers) ? workers : workers && typeof workers === 'object' ? Object.values(workers) : [];
+  let rows = [];
+  if (Array.isArray(workers)) rows = workers;
+  else if (workers && typeof workers === 'object') rows = Object.values(workers);
   const ids = new Set();
   for (const row of rows) {
     const agent = String(row?.agent ?? '')

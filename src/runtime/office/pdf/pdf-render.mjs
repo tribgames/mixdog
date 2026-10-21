@@ -51,8 +51,8 @@ function requestedPages(pageCount, pages) {
   const selected =
     Array.isArray(pages) && pages.length ? pages : Array.from({ length: pageCount }, (_, index) => index + 1);
   const unique = [...new Set(selected.map(Number))];
-  if (Array.isArray(pages) && pages.length && unique.length > 12) {
-    throw new Error('render accepts at most 12 explicit pages per call');
+  if (Array.isArray(pages) && pages.length && unique.length > PDF_RENDER_MAX_EXPLICIT_PAGES) {
+    throw new Error(`render accepts at most ${PDF_RENDER_MAX_EXPLICIT_PAGES} explicit pages per call`);
   }
   for (const page of unique) {
     if (!Number.isInteger(page) || page < 1 || page > pageCount) {
@@ -62,6 +62,8 @@ function requestedPages(pageCount, pages) {
   return unique;
 }
 
+/** The most explicit pages one render call accepts. */
+export const PDF_RENDER_MAX_EXPLICIT_PAGES = 12;
 const PDF_RENDER_WORKER_KIND = 'mixdog-office-pdf-render';
 const PDF_RENDER_PAGE_WORKER_KIND = 'mixdog-office-pdf-render-page';
 
@@ -104,9 +106,21 @@ async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale =
       data: canvas.toBuffer('image/png').toString('base64'),
     };
   } finally {
-    try {
-      await loadingTask.destroy?.();
-    } catch {}
+    await destroyQuietly(loadingTask);
+  }
+}
+
+const cancelledError = () => new Error('PDF rendering was cancelled');
+
+function throwIfCancelled(signal) {
+  if (signal?.aborted) throw cancelledError();
+}
+
+async function destroyQuietly(loadingTask) {
+  try {
+    await loadingTask.destroy?.();
+  } catch {
+    /* a document that will not close cleanly must not mask the render's own outcome */
   }
 }
 
@@ -125,7 +139,7 @@ async function runPdfRenderWorker(data, signal = null) {
     };
     const onAbort = () => {
       void worker.terminate();
-      finish(reject, new Error('PDF rendering was cancelled'));
+      finish(reject, cancelledError());
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     worker.once('message', (message) => {
@@ -216,7 +230,7 @@ async function renderPdfPagesDirect(
   path,
   { pages = null, maxWidth = 1400, maximumScale = 2, signal = null, writeImages = true } = {}
 ) {
-  if (signal?.aborted) throw new Error('PDF rendering was cancelled');
+  throwIfCancelled(signal);
   installPdfGlobals();
   const { getDocument, VerbosityLevel } = await resolvedPdfJs();
   const pdfData = await readFile(path);
@@ -225,9 +239,7 @@ async function renderPdfPagesDirect(
     try {
       return { loadingTask, document: await loadingTask.promise };
     } catch (error) {
-      try {
-        await loadingTask.destroy?.();
-      } catch {}
+      await destroyQuietly(loadingTask);
       throw error;
     }
   };
@@ -237,7 +249,7 @@ async function renderPdfPagesDirect(
     const stem = basename(path, extname(path));
     const output = [];
     const renderPage = async (pageNumber, targetWidth, minimumScale = 0.25) => {
-      if (signal?.aborted) throw new Error('PDF rendering was cancelled');
+      throwIfCancelled(signal);
       const rendered = await runPdfRenderWorker(
         {
           kind: PDF_RENDER_PAGE_WORKER_KIND,
@@ -249,7 +261,7 @@ async function renderPdfPagesDirect(
         },
         signal
       );
-      if (signal?.aborted) throw new Error('PDF rendering was cancelled');
+      throwIfCancelled(signal);
       return {
         canvas: { width: rendered.width, height: rendered.height },
         data: Buffer.from(rendered.data, 'base64'),
@@ -294,18 +306,18 @@ async function renderPdfPagesDirect(
       },
     };
   } finally {
-    try {
-      await loadingTask.destroy?.();
-    } catch {}
+    await destroyQuietly(loadingTask);
   }
 }
 
 export async function renderPdfPages(path, options = {}) {
   const signal = options.signal || null;
-  if (signal?.aborted) throw new Error('PDF rendering was cancelled');
+  throwIfCancelled(signal);
   if (!isMainThread) return await renderPdfPagesDirect(path, options);
   // The worker rasterizes; this thread writes the images, where the call's
-  // write ledger can see each one before it lands.
+  // write ledger can see each one before it lands. `writeImages: false`
+  // returns the images in memory only (a reader that must not write next to
+  // the user's file).
   const rendered = await runPdfRenderWorker(
     {
       kind: PDF_RENDER_WORKER_KIND,
@@ -319,7 +331,7 @@ export async function renderPdfPages(path, options = {}) {
     },
     signal
   );
-  await writePageImages(rendered.images);
+  if (options.writeImages !== false) await writePageImages(rendered.images);
   return rendered;
 }
 

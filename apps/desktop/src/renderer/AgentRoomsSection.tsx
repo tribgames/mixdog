@@ -7,7 +7,7 @@ import { ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from '../../../../src/runtime/agen
 import type { DesktopSessionSummary } from '../shared/contract';
 import { agentChatTimeLabel } from './agent-chat-summary';
 import { RoomAvatar, RoomMemberFace, type RoomMemberLabel, useRoomContacts } from './agent-room-parts';
-import { type AgentRoomRowModel, agentRoomRows } from './agent-rooms-model';
+import { type AgentRoomRowModel, agentRoomRows, roomRowLabel } from './agent-rooms-model';
 import { showDesktopToast } from './desktop-toasts';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
@@ -51,7 +51,7 @@ function RoomRow({
         className="agent-chat-row-main"
         aria-current={selected ? 'page' : undefined}
         aria-haspopup="menu"
-        aria-label={row.name}
+        aria-label={roomRowLabel(row.name, row.room.members.length)}
         aria-describedby={`${describedBy}-preview`}
         onClick={onOpen}
       >
@@ -63,7 +63,6 @@ function RoomRow({
             {row.name}
             {/* The member count beside the name, as a messenger's group row. */}
             <span className="agent-room-member-count">
-              <span className="sr-only">, {t('{{count}} members', { count: row.room.members.length })}</span>
               <span aria-hidden="true">{row.room.members.length}</span>
             </span>
           </b>
@@ -94,21 +93,13 @@ function RoomRow({
   );
 }
 
-/** The room rows, after a hairline below the contacts; nothing without rooms. */
-export function AgentRoomsSection({
-  sessions,
+/** The room rows the pane shows (its search applied), and the member labeller.
+ *  The pane reads them to know whether the section is empty. */
+export function useAgentRoomRows(
+  sessions: readonly DesktopSessionSummary[],
   needle = '',
-  selectedSessionId = '',
-  unreadSessionIds,
-  onOpenSession,
-}: {
-  sessions: readonly DesktopSessionSummary[];
-  /** The pane's search text, lower-cased. */
-  needle?: string;
-  selectedSessionId?: string;
-  unreadSessionIds?: ReadonlySet<string>;
-  onOpenSession?: OpenSession;
-}) {
+  unreadSessionIds?: ReadonlySet<string>
+) {
   const { label } = useRoomContacts();
   const rows = useMemo(
     () =>
@@ -117,11 +108,30 @@ export function AgentRoomsSection({
       ),
     [label, needle, sessions, unreadSessionIds]
   );
+  return { rows, label };
+}
+
+/** The room rows, with a hairline above when the pane says something precedes
+ *  them; nothing without rooms. */
+export function AgentRoomsSection({
+  rows,
+  label,
+  divider = true,
+  selectedSessionId = '',
+  onOpenSession,
+}: {
+  rows: ReturnType<typeof useAgentRoomRows>['rows'];
+  label: ReturnType<typeof useAgentRoomRows>['label'];
+  /** A hairline above (the pane decides: something visible precedes). */
+  divider?: boolean;
+  selectedSessionId?: string;
+  onOpenSession?: OpenSession;
+}) {
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   if (!rows.length) return null;
   return (
     <>
-      <hr className="agent-chat-divider agent-room-section-divider" aria-label={t('Group rooms')} />
+      {divider && <hr className="agent-chat-divider agent-room-section-divider" aria-label={t('Group rooms')} />}
       <ul className="agent-contact-list" aria-label={t('Group rooms')}>
         {rows.map((row) => (
           <RoomRow

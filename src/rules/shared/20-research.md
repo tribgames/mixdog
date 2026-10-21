@@ -3,6 +3,8 @@
 
 <!-- tools: web_search -->
 - Current or external information discovery→`web_search`.
+<!-- tools: web_search -->
+- Memory may be stale: web search non-Project facts before answering; when unsure, web search.
 <!-- tools: web_fetch -->
 - Page or documentation body retrieval from a known URL→`web_fetch`.
 

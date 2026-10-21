@@ -30,31 +30,36 @@ export function AgentProviderMark({
  *  dropping it inside a pane opens the session as a tab and dropping it on a
  *  pane edge splits a new pane there. A settled drag must not also fire the
  *  row's open click, which `clickSuppressed` reports. */
-export function useSessionDragSource(sessionId: string, title: string) {
+export function useSessionDragSource(sessionId: string, title: string, botId?: string) {
   const [dragging, setDragging] = useState(false);
   const suppressClick = useRef(false);
   return {
     clickSuppressed: () => suppressClick.current,
     dragProps: {
-      draggable: Boolean(sessionId),
+      draggable: Boolean(sessionId || botId),
       'data-dragging': dragging ? 'true' : undefined,
       onDragStart(event: React.DragEvent<HTMLElement>) {
-        if (!sessionId) {
+        if (!sessionId && !botId) {
           event.preventDefault();
           return;
         }
+        // A bot row with no session yet is the same drag, reorder-only: its
+        // bot list takes it, the pane workspace ignores it.
         const drag: PaneDragSession = {
           kind: 'session',
-          key: `session:${sessionId}`,
+          key: sessionId ? `session:${sessionId}` : `bot:${botId}`,
           title,
           selection: { kind: 'session', id: sessionId, title },
+          ...(botId ? { botId } : {}),
+          ...(sessionId ? {} : { reorderOnly: true }),
         };
         // The gesture settles in the global drag session, so this cleanup still
         // runs when the pool retires this row mid-drag.
         beginPaneDrag(
           event.nativeEvent,
           drag,
-          event.currentTarget,
+          // A control inside the row (the face toggle) drags the whole row.
+          event.currentTarget.closest<HTMLElement>('[data-drag-frame="row"]') ?? event.currentTarget,
           () => {
             setDragging(false);
             suppressClick.current = true;
@@ -62,9 +67,7 @@ export function useSessionDragSource(sessionId: string, title: string) {
               suppressClick.current = false;
             }, 0);
             delete document.body.dataset.tabDragging;
-          },
-          // The row's own frame follows the pointer, not a tab ghost.
-          'frame'
+          }
         );
         setDragging(true);
         document.body.dataset.tabDragging = '1';

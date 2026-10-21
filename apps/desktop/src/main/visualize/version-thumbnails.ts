@@ -4,6 +4,7 @@
  * store (memory and the versions folder), inline tabs on their in-memory
  * history entry.
  */
+import { MAX_VERSION_TURNS, type VisualizeVersionTurn } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 
@@ -27,6 +28,25 @@ export function keepVersionThumbnail(
   const entry = tab.inlineHistory?.find((candidate) => candidate.n === n);
   if (entry) entry.thumbnail = thumbnail;
   else if (!tab.inline) ctx.versions?.keepThumbnail(sessionId, tab.id, n, thumbnail);
+}
+
+/** Record that `turn` ended on the tab's newest version, kept with the version
+ *  (the version store; an inline tab's history entry) and in the tab's list,
+ *  which the state carries to the cards of every window and device. */
+export function keepVersionTurn(
+  ctx: Pick<VisualizeServiceContext, 'versions'>,
+  sessionId: string,
+  tab: TabState,
+  turn: VisualizeVersionTurn
+): void {
+  const n = tab.versions?.at(-1)?.n ?? 0;
+  const listed = tab.versions?.find((candidate) => candidate.n === n);
+  if (!n || !listed) return;
+  const entry = tab.inlineHistory?.find((candidate) => candidate.n === n);
+  if (entry)
+    entry.turns = [...(entry.turns ?? []).filter((one) => one.since !== turn.since), turn].slice(-MAX_VERSION_TURNS);
+  else if (tab.inline || !ctx.versions?.keepTurn(sessionId, tab.id, n, turn)) return;
+  listed.turns = [...(listed.turns ?? []).filter((one) => one.since !== turn.since), turn].slice(-MAX_VERSION_TURNS);
 }
 
 /** The kept card picture of the tab's version `n`; '' when none was taken. */

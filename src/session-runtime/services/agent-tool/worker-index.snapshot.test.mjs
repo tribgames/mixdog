@@ -9,8 +9,12 @@ import { createWorkerRowStore } from './worker-index/row-store.mjs';
 
 const row = (id) => ({ tag: id, sessionId: id, agent: 'worker', status: 'idle', clientHostPid: 4242 });
 const tombstone = (tag) => ({
-  tag, agent: 'worker', parentSessionId: 'lead', ownerSessionId: 'lead',
-  clientHostPid: 4242, reapedAt: new Date().toISOString(),
+  tag,
+  agent: 'worker',
+  parentSessionId: 'lead',
+  ownerSessionId: 'lead',
+  clientHostPid: 4242,
+  reapedAt: new Date().toISOString(),
 });
 const doc = (id, tag) => ({ version: 2, workers: { [id]: row(id) }, tombstones: [tombstone(tag)] });
 
@@ -47,13 +51,21 @@ test('worker listing checks the index once, and every subsequent call still chec
     dataDir: root,
     cfgMod: { loadConfig: () => ({}) },
     mgr: { getSessionRuntime: () => null },
-    tags: new Map(), tagAgents: new Map(), tagCwds: new Map(),
+    tags: new Map(),
+    tagAgents: new Map(),
+    tagCwds: new Map(),
   });
   const calls = observeStats(t, file);
-  assert.deepEqual(index.readWorkerRows().map((entry) => entry.sessionId), ['first']);
+  assert.deepEqual(
+    index.readWorkerRows().map((entry) => entry.sessionId),
+    ['first']
+  );
   assert.equal(calls(), 1);
   fs.writeFileSync(file, JSON.stringify(doc('new-longer-session-id', 'new-longer-tag')));
-  assert.deepEqual(index.readWorkerRows().map((entry) => entry.sessionId), ['new-longer-session-id']);
+  assert.deepEqual(
+    index.readWorkerRows().map((entry) => entry.sessionId),
+    ['new-longer-session-id']
+  );
   assert.equal(calls(), 2);
 });
 
@@ -66,12 +78,24 @@ test('one snapshot never mixes old rows with tombstones from a newer on-disk doc
   });
   const first = store.readSnapshot();
   assert.equal(calls(), 1);
-  assert.deepEqual(first.rows.map((entry) => entry.sessionId), ['first']);
-  assert.deepEqual(first.tombstones.map((entry) => entry.tag), ['old-tag']);
+  assert.deepEqual(
+    first.rows.map((entry) => entry.sessionId),
+    ['first']
+  );
+  assert.deepEqual(
+    first.tombstones.map((entry) => entry.tag),
+    ['old-tag']
+  );
   const second = store.readSnapshot();
   assert.equal(calls(), 2);
-  assert.deepEqual(second.rows.map((entry) => entry.sessionId), ['second-longer-id']);
-  assert.deepEqual(second.tombstones.map((entry) => entry.tag), ['new-tag']);
+  assert.deepEqual(
+    second.rows.map((entry) => entry.sessionId),
+    ['second-longer-id']
+  );
+  assert.deepEqual(
+    second.tombstones.map((entry) => entry.tag),
+    ['new-tag']
+  );
 });
 
 test('unpersisted rows and tombstones share a projection without checking the file', async (t) => {
@@ -87,7 +111,13 @@ test('unpersisted rows and tombstones share a projection without checking the fi
   assert.deepEqual(snapshot.tombstones.map((entry) => entry.tag).sort(), ['old-tag', 'pending-tag']);
   assert.equal(calls(), 0);
   await store.flush();
-  assert.deepEqual(store.readSnapshot().rows.map((entry) => entry.sessionId).sort(), ['first', 'pending']);
+  assert.deepEqual(
+    store
+      .readSnapshot()
+      .rows.map((entry) => entry.sessionId)
+      .sort(),
+    ['first', 'pending']
+  );
 });
 
 test('missing, malformed and unconfigured indexes expose empty collections together', (t) => {

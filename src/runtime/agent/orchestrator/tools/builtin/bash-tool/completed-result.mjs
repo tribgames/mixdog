@@ -1,9 +1,9 @@
 import { renderBackgroundTask, startBackgroundTask } from '../../../../../shared/background-tasks.mjs';
 import { killShellDescendants, waitForShellDescendants } from '../../lib/shell-descendants.mjs';
 import { releaseShellJobWorkspace } from '../lib/shell-job-records.mjs';
-import { consumeFilterTeeCapture } from '../shell-analysis.mjs';
+import { readFilterTeeCapture } from '../shell-analysis.mjs';
 import { compactShellOutputLosslessly, renderShellOutputBody } from '../shell-lossless-compact.mjs';
-import { removeTransportFileNow } from './transport-artifacts.mjs';
+import { cleanupArtifactAfter, removeTransportFileNow } from './transport-artifacts.mjs';
 import { DELIVERY_FULL_CHARS, EMPTY_PIECE, fitPieces, shellTextPiece } from '../lib/shell-delivery.mjs';
 import { shellLogPiece } from '../lib/shell-task-output.mjs';
 import { shellTaskIdentity } from './backgrounded-result.mjs';
@@ -74,17 +74,16 @@ function survivingDescendantsWarning(result, taskContext) {
   return [heading, renderBackgroundTask(task, { ownerTool: true })].join('\n');
 }
 
-// Filter-swallow rescue: the tee file is ALWAYS consumed (deleted) here; its
-// tail is attached only when the run failed with an empty visible capture —
-// the exact `(no output)` shape that previously cost the model extra
-// diagnostic turns.
-function filterRescueNote(teePlan, { failed, stdout, stderr }) {
-  const rescueTail = consumeFilterTeeCapture(teePlan.teePath);
-  // consumeFilterTeeCapture unlinks best-effort and swallows the failure; on
-  // Windows a process that survived an unconfirmed kill still holds the file.
-  // Route it through the same retry + exit-hook path the settlement branch
-  // uses instead of abandoning it.
-  removeTransportFileNow(teePlan.teePath);
+// Filter-swallow rescue: the tee file is ALWAYS consumed (deleted) — once the
+// run's tree has settled when its result says it may still run; its tail is
+// attached only when the run failed with an empty visible capture — the exact
+// `(no output)` shape that previously cost the model extra diagnostic turns.
+function filterRescueNote(teePlan, { failed, stdout, stderr }, settled) {
+  const rescueTail = readFilterTeeCapture(teePlan.teePath);
+  // Removal goes through the retry + exit-hook path: on Windows a process
+  // that survived an unconfirmed kill still holds the file.
+  if (settled) cleanupArtifactAfter(teePlan.teePath, settled);
+  else removeTransportFileNow(teePlan.teePath);
   if (!failed || !rescueTail || stdout.trim() || stderr.trim()) return '';
   return `\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\n${rescueTail}`;
 }
@@ -148,7 +147,7 @@ export function renderCompletedResult({
   const { signal, exitCode, completedExit, benignExit, isReallyErrored } = outcome;
   const commandExitedNonzero = completedExit && exitCode !== 0 && !benignExit;
   const rescueNote = teePlan
-    ? filterRescueNote(teePlan, { failed: isReallyErrored || commandExitedNonzero, stdout, stderr })
+    ? filterRescueNote(teePlan, { failed: isReallyErrored || commandExitedNonzero, stdout, stderr }, result.settled)
     : '';
   const descendantWarning = survivingDescendantsWarning(result, { command, cwd, options, startedAtMs });
   // rewriteNote states that the text which RAN is not the text the caller

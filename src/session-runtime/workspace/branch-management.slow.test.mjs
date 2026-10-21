@@ -202,8 +202,10 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
   });
 }
 
+// Five merges (three refused, one clean) plus setup: each costs a dozen git
+// processes, so a slow Windows host needs far more than a Linux runner.
 test('mergeProjectBranch preserves a live foreign turn when its shared ledger is damaged', {
-  timeout: 20000,
+  timeout: 90000,
 }, async (t) => {
   const repo = makeRepo();
   const { source, merge } = await ENTRY_POINTS.mergeProjectBranch(repo);

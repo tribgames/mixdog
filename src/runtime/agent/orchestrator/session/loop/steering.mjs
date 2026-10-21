@@ -1,6 +1,7 @@
 // Steering-message normalization/merge helpers.
 // Merges queued steering entries into a single content payload + display text.
 import { stableMessageId } from '../../../../shared/transcript-metadata.mjs';
+import { raiseTurnHop } from '../../../../shared/bot-hops.mjs';
 
 function steeringContentText(content) {
   if (typeof content === 'string') return content;
@@ -140,6 +141,8 @@ function injectSteeringEntry(merged, { messages, opts, stage, onSkillPrompt }) {
   // gets it back (onSteerMessage) for the row it draws. A steered prompt
   // keeps the id the surface gave it, else gets one.
   const messageId = stableMessageId(merged.transcriptMeta?.messageId);
+  // A bot's message at a higher hop makes the running turn bot-descended at that hop.
+  raiseTurnHop(opts.session, merged.transcriptMeta);
   const steeringTranscriptMeta =
     merged.transcriptMeta && typeof merged.transcriptMeta === 'object'
       ? { at: submittedAt ?? injectedAt, ...merged.transcriptMeta, messageId }

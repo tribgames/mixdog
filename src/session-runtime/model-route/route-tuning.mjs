@@ -67,7 +67,10 @@ export function createRouteTuning(deps, persist) {
     },
     async setEffort(value) {
       const normalized = normalizeEffortInput(value);
-      setRouteState({ ...getRoute(), effort: normalized });
+      // An explicit level is the user's choice for this route: Auto effort
+      // would replace it on the next turn (its base is fixed), so the pick
+      // turns the route's Auto off until it is switched back on.
+      setRouteState({ ...getRoute(), effort: normalized, ...(normalized ? { autoEffort: false } : {}) });
       const modelMeta = await lookupModelMeta(getRoute().provider, getRoute().model);
       const fastCapable = selectionFastCapable(getRoute().provider, modelMeta, normalized, getRoute().modelParameters);
       await commitRouteTuning(fastCapable, modelMeta);

@@ -37,8 +37,10 @@ export function imageMimeForPath(p) {
 // behaviour (refuse over-cap originals with an isError text result, else emit
 // the raw base64 image block). Decoder rejection is an explicit tool error;
 // corrupt bytes must never enter model history.
-export async function readImageAsContent(fullPath, displayPath, preflightStat = null) {
-  const mimeType = imageMimeForPath(fullPath);
+// `knownMimeType` names the image type of a path whose extension does not
+// (a stored attachment, recognized by its signature).
+export async function readImageAsContent(fullPath, displayPath, preflightStat = null, knownMimeType = null) {
+  const mimeType = knownMimeType || imageMimeForPath(fullPath);
   if (!mimeType) return null;
   let st;
   try {

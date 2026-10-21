@@ -4,6 +4,7 @@ import type {
   DesktopSessionWorkspace,
   DesktopWorkspaceTransitionState,
 } from '../shared/contract';
+import { cleanIncomingTail } from '../shared/incoming-tail';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { normalizeRoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
@@ -135,6 +136,7 @@ export function desktopSessionSummaries(
       const preview = String(row.preview || '').trim();
       const lastMessagePreview = String(row.lastMessagePreview || '').trim();
       const lastMessageRoutine = normalizeRoutineProvenance(row.lastMessageRoutine);
+      const incomingTail = cleanIncomingTail(row.incomingTail);
       const id = String(row.id || '');
       const manualTitle = normalizeSessionTitle(names[id] || '', '');
       const sharedTitle = generatedSessionTitle(row.title || '', '');
@@ -163,6 +165,12 @@ export function desktopSessionSummaries(
       const inheritedFrom = String(row.inheritedFromSessionId || '').trim();
       const messageCount = Math.max(0, Math.floor(Number(row.messageCount) || 0));
       const agentHome = agentIdOfHomeSession(String(row.id || ''));
+      // A coding task session an agent created (session create): `agent:<id>`,
+      // then where it was created (`@home`, `@room`, `@run`) when recorded.
+      // Only a host-made task session (a Lead, never an agent-owned session) carries it.
+      const taskRow = sourceType === 'lead' && row.owner !== 'agent' && row.visibility !== 'agent-only';
+      const [taskAgent = '', taskFrom = ''] =
+        taskRow && sourceName.startsWith('agent:') ? sourceName.slice(6).split('@') : [];
       // Empty and synthetic runtime previews both normalize to no usable title.
       // Keep compacted handoffs when their earliest real user prompt can be
       // recovered, but hide abandoned/interrupted/internal rows instead of
@@ -217,11 +225,12 @@ export function desktopSessionSummaries(
           ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
           ...(workspace ? { workspace } : {}),
           ...(agentHome ? { agentHome } : {}),
-          // A coding task session an agent created (session create).
-          ...(sourceType === 'lead' && sourceName.startsWith('agent:') ? { taskAgent: sourceName.slice(6) } : {}),
+          ...(taskAgent ? { taskAgent } : {}),
+          ...(taskAgent && (taskFrom === 'home' || taskFrom === 'room' || taskFrom === 'run') ? { taskFrom } : {}),
           ...(row.sessionMode === 'agent' ? { sessionMode: 'agent' as const } : {}),
           ...(lastMessagePreview ? { lastMessagePreview } : {}),
           ...(lastMessagePreview && lastMessageRoutine ? { lastMessageRoutine } : {}),
+          ...(incomingTail ? { incomingTail } : {}),
         },
       ];
     })

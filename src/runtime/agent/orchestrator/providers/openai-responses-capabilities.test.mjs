@@ -22,7 +22,12 @@ const tools = [
   { name: 'load_tool', description: 'l', inputSchema: schema },
 ];
 const build = (provider, model, extra = {}) =>
-  buildRequestBody(messages, model, tools, { promptCacheProvider: provider, sessionId: 'parity', effort: 'high', ...extra });
+  buildRequestBody(messages, model, tools, {
+    promptCacheProvider: provider,
+    sessionId: 'parity',
+    effort: 'high',
+    ...extra,
+  });
 
 test('conforming models keep byte-identical bodies on openai and openai-oauth', () => {
   const expected = JSON.parse(
@@ -99,7 +104,10 @@ test('a model without native tool_search replays load_tool history as a function
       .input.map((item) => item.type)
       .filter(Boolean);
   assert.deepEqual(types('gpt-5.4'), ['tool_search_call', 'tool_search_output']);
-  const older = buildRequestBody(history, 'gpt-5.2', tools, { promptCacheProvider: 'openai', sessionId: 'parity' }).input;
+  const older = buildRequestBody(history, 'gpt-5.2', tools, {
+    promptCacheProvider: 'openai',
+    sessionId: 'parity',
+  }).input;
   assert.deepEqual(
     older.filter((item) => item.type).map((item) => item.type),
     ['function_call', 'function_call_output']
@@ -116,7 +124,12 @@ test('a model without native tool_search replays load_tool history as a function
       { type: 'tool_search_output', call_id: null, execution: 'server', tools: [] },
     ],
   };
-  const replayHistory = [history[0], history[1], { role: 'assistant', content: '', providerReplay: replay }, history[3]];
+  const replayHistory = [
+    history[0],
+    history[1],
+    { role: 'assistant', content: '', providerReplay: replay },
+    history[3],
+  ];
   const lowered = buildRequestBody(replayHistory, 'gpt-5.2', tools, {
     promptCacheProvider: 'openai',
     sessionId: 'parity',
@@ -153,7 +166,16 @@ test('an explicit caller limit is sent on the public API but not on OAuth unless
 });
 
 test('cache lifetime: 24h only on the documented list, ttl for GPT-5.6+, else omitted', () => {
-  for (const model of ['gpt-5.5', 'gpt-5.4', 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-codex', 'gpt-4.1', 'gpt-5.4-2026-03-05']) {
+  for (const model of [
+    'gpt-5.5',
+    'gpt-5.4',
+    'gpt-5.2',
+    'gpt-5.1',
+    'gpt-5',
+    'gpt-5-codex',
+    'gpt-4.1',
+    'gpt-5.4-2026-03-05',
+  ]) {
     const body = applyOpenAIDirectCachePolicy({}, model, true);
     assert.equal(body.prompt_cache_retention, '24h', model);
     assert.equal(body.prompt_cache_options, undefined, model);
@@ -168,4 +190,52 @@ test('cache lifetime: 24h only on the documented list, ttl for GPT-5.6+, else om
     assert.equal(body.prompt_cache_retention, undefined, model);
     assert.equal(body.prompt_cache_options, undefined, model);
   }
+});
+
+test('Lead-class 12h prefix: one explicit breakpoint on the environment item, 30m request ttl', () => {
+  const envMessages = [
+    { role: 'system', content: 'Sys' },
+    { role: 'system', content: 'cwd: /repo', cacheTier: 'env' },
+    { role: 'user', content: 'hi' },
+  ];
+  const direct = (model, prefixTtl, store = true) =>
+    applyOpenAIDirectCachePolicy(
+      buildRequestBody(envMessages, model, tools, { promptCacheProvider: 'openai', sessionId: 's', effort: 'high' }),
+      model,
+      store,
+      { prefixTtl }
+    );
+  const lead = direct('gpt-6.1-sol', '12h');
+  assert.deepEqual(lead.prompt_cache_options, { ttl: '30m' }, 'the moving tail stays 30m');
+  assert.deepEqual(lead.input[0].content, [
+    {
+      type: 'input_text',
+      text: '<environment_context>\ncwd: /repo\n</environment_context>',
+      prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' },
+    },
+  ]);
+  assert.equal(JSON.stringify(lead.input.slice(1)).includes('prompt_cache_breakpoint'), false);
+
+  const agent = direct('gpt-6.1-sol', null);
+  assert.deepEqual(agent.prompt_cache_options, { ttl: '30m' });
+  assert.equal(JSON.stringify(agent).includes('prompt_cache_breakpoint'), false, 'sub-agents: 30m only');
+  for (const model of ['gpt-5.5', 'gpt-4.1', 'gpt-4o']) {
+    const older = direct(model, '12h');
+    assert.equal(older.prompt_cache_options, undefined, model);
+    assert.equal(JSON.stringify(older).includes('prompt_cache_breakpoint'), false, model);
+  }
+  assert.equal(JSON.stringify(direct('gpt-6.1-sol', '12h', false)).includes('prompt_cache'), true, 'key only');
+  assert.equal(direct('gpt-6.1-sol', '12h', false).prompt_cache_options, undefined);
+  assert.equal(JSON.stringify(direct('gpt-6.1-sol', '12h', false)).includes('prompt_cache_breakpoint'), false);
+  // Without an environment item there is no stable-prefix block to mark.
+  const bare = applyOpenAIDirectCachePolicy(build('openai', 'gpt-6.1-sol'), 'gpt-6.1-sol', true, { prefixTtl: '12h' });
+  assert.equal(JSON.stringify(bare).includes('prompt_cache_breakpoint'), false);
+  // The Codex OAuth body never carries public-API lifetime fields.
+  const oauth = buildRequestBody(envMessages, 'gpt-6.1-sol', tools, {
+    promptCacheProvider: 'openai-oauth',
+    sessionId: 's',
+    promptCachePrefixTtl: '12h',
+  });
+  assert.equal(JSON.stringify(oauth).includes('prompt_cache_options'), false);
+  assert.equal(JSON.stringify(oauth).includes('prompt_cache_breakpoint'), false);
 });

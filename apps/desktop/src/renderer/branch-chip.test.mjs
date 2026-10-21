@@ -226,7 +226,10 @@ for (const dismissal of ['Escape', 'Cancel', 'backdrop']) {
     if (dismissal === 'Escape') await pressBranchKey(input, 'Escape');
     else if (dismissal === 'Cancel') await act(async () => dialog.querySelector('[type="button"]').click());
     else {
-      await act(async () => dialog.parentElement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })));
+      await act(async () => {
+        dialog.parentElement.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+        dialog.parentElement.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      });
     }
     assert.equal(document.querySelector('.branch-menu'), null);
     assert.equal(document.querySelector('.branch-name-dialog'), null);
@@ -261,7 +264,7 @@ test('branch name dialog blocks duplicate requests and preserves failed names fo
   await pressBranchKey(input, 'Escape');
   await act(async () => {
     dialog.parentElement.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
-    dialog.parentElement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    dialog.parentElement.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   });
   assert.equal(document.querySelector('.branch-name-dialog'), dialog, 'busy creation cannot be dismissed');
   assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 1);

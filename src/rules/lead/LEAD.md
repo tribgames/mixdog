@@ -27,8 +27,8 @@
   full suites, gates and the final verification stay with the Reviewer or
   the Lead.
 <!-- tools: agent -->
-- Receiving an agent's report: it arrives as a `<task-notification>` block, a
-  runtime message rather than the user speaking. Do not wait for it in-turn —
+- Receiving an agent's report: it arrives as a `<task-notification>` block.
+  Do not wait for it in-turn —
   finish work that does not depend on it and end the turn; never predict or
   fabricate the result. On an agent report, review its diff against the brief;
   verify the integrated result once before the final review; the final

@@ -17,8 +17,10 @@ test.after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const { createSession, updateSessionRoute } = await import('./session-lifecycle.mjs');
-const { deleteSession } = await import('../store.mjs');
+const { createSession, updateSessionRoute, resumeSession } = await import('./session-lifecycle.mjs');
+const { deleteSession, saveSession } = await import('../store.mjs');
+const { applyDeferredToolSurface } = await import('../../runtime-core/tool-catalog.mjs');
+const { applyInitialDeferredToolManifestToBp2 } = await import('../../context/collect.mjs');
 const { _withRegisteredProviderForTest, _withRegisteredProviderForTestAsync } = await import(
   '../../providers/registry.mjs'
 );
@@ -195,6 +197,33 @@ test('review: native → bridge follows MCP connect and disconnect for a worker'
   assert.deepEqual(server.calls, ['two']);
   assert.match(gone.result, /^Error/);
   assert.equal(bridged.deferredMcpToolNames.includes('mcp__alpha__two'), false);
+});
+
+// A reviewer hosted by a session runtime carries the runtime's native deferred
+// surface (eager core + load_tool + BP2 roster). Resuming it must not strip
+// that surface and tag a migration: native → native is no exposure change.
+test('a native deferred agent surface survives resume with no migration and the same prefix', async (t) => {
+  const mcpScopeId = scope(t);
+  const provider = 'openai-oauth';
+  const session = create(provider, { mcpScopeId, agent: 'reviewer' });
+  t.after(() => deleteSession(session.id));
+  applyDeferredToolSurface(session, 'lead', [], { provider });
+  const active = new Set(names(session.tools));
+  applyInitialDeferredToolManifestToBp2(
+    session,
+    session.deferredToolCatalog.map((tool) => tool.name).filter((name) => !active.has(name))
+  );
+  const prefix = (value) =>
+    JSON.stringify([value.messages.filter((m) => m.role === 'system').map((m) => m.content), names(value.tools)]);
+  const before = prefix(session);
+  assert.match(session.messages.find((m) => /<available-deferred-tools>/.test(m.content))?.content || '', /big_probe/);
+  saveSession(session);
+  const resumed = await _withRegisteredProviderForTestAsync(provider, { name: provider, contextWindow: 128000 }, () =>
+    resumeSession(session.id, 'full')
+  );
+  assert.equal(resumed.pendingCacheBreakIntent, undefined, 'no tool_surface_bridge_migration');
+  assert.equal(resumed.deferredProviderMode, 'native');
+  assert.equal(prefix(resumed), before, 'tools and the BP2 roster are unchanged');
 });
 
 test('native workers keep their full array; a route change migrates both ways', (t) => {

@@ -2,7 +2,16 @@
 // field round-trips through the agent editor without touching other keys, the
 // global listing reports sign-in state, and tool permissions are set per agent.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import test from 'node:test';
@@ -137,6 +146,51 @@ test('Mixy keeps every connector until its own agent.json switches one off, and 
   assert.equal(existsSync(join(dir, 'AGENT.md')), false);
   assert.deepEqual(await api.setAgentConnectorEnabled('lead', 'notion', true), ALL_ON);
   assert.deepEqual(manifestOf(dataDir, 'lead'), { avatar: { kind: 'mascot' } }, 'nothing off: no field');
+});
+
+test("with the bot store active, the policy Mixy's profile saves is the one her runtime reads", async (t) => {
+  const { dataDir, api } = fixture(t);
+  mkdirSync(join(dataDir, 'bots', 'mixy'), { recursive: true });
+  writeFileSync(join(dataDir, 'bots', 'migration.json'), JSON.stringify({ version: 1, bots: [] }));
+  assert.deepEqual(await api.setAgentConnectorEnabled('lead', 'notion', false), [
+    { id: 'github', enabled: true },
+    { id: 'notion', enabled: false },
+  ]);
+  assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'bots', 'mixy', 'agent.json'), 'utf8')).connectors, {
+    off: ['notion'],
+  });
+  assert.equal(existsSync(join(dataDir, 'agents', 'lead', 'agent.json')), false, 'nothing lands in agents/lead');
+  assert.deepEqual(agentConnectors('lead', dataDir)?.off, ['notion'], 'the runtime reads what the profile wrote');
+  assert.equal(agentMcpToolPermission('lead', 'mcp__notion__search', dataDir), 'disabled');
+  await api.setAgentConnectorToolPermission('lead', 'github', 'create_issue', 'needs_approval');
+  assert.equal(agentMcpToolPermission('lead', 'mcp__github__create_issue', dataDir), 'needs_approval');
+});
+
+test('a policy save into a read-only agent.json fails at once, off the event loop, and changes nothing', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const { id } = await api.saveAgentDefinition({ name: 'Mailer', body: 'Mail.', kind: 'bot' });
+  const dir = join(dataDir, 'agents', id);
+  const file = join(dir, 'agent.json');
+  const before = readFileSync(file, 'utf8');
+  chmodSync(file, 0o444);
+  const started = Date.now();
+  try {
+    // The atomic write's rename onto a read-only file used to be retried for ~5 s, blocking the loop.
+    await assert.rejects(api.setAgentConnectorToolPermission(id, 'github', 'create_issue', 'auto'), /not writable/);
+    await assert.rejects(api.setAgentConnectorEnabled(id, 'notion', false), /not writable/);
+  } finally {
+    chmodSync(file, 0o666);
+  }
+  assert.ok(Date.now() - started < 1500, `the failed save took ${Date.now() - started} ms`);
+  assert.equal(readFileSync(file, 'utf8'), before);
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.includes('mixdog-tmp')),
+    [],
+    'no temp file is left behind'
+  );
+  // Writable again: the same save lands.
+  await api.setAgentConnectorToolPermission(id, 'github', 'create_issue', 'auto');
+  assert.equal(manifestOf(dataDir, id).connectors.tools.github.create_issue, 'auto');
 });
 
 test('switches show what the runtime enforces: a broken policy is all off, and an edit never widens it', async (t) => {

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
 import { createServer } from 'node:http';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -53,6 +55,52 @@ test('successful download replaces the destination and leaves no temp file', asy
       assert.deepEqual(await readdir(dir), ['out.txt']);
     }
   );
+});
+
+test('the in-flight download file is never dot-prefixed (cloud-sync folders refuse such names)', async () => {
+  let release;
+  const held = new Promise((resolve) => (release = resolve));
+  await withServer(
+    async (_req, res) => {
+      res.write('first');
+      await held;
+      res.end('second');
+    },
+    async (url, dir) => {
+      const file = join(dir, 'out.txt');
+      const download = downloadToFile(url, file);
+      let inFlight = [];
+      for (let attempt = 0; attempt < 100 && inFlight.length === 0; attempt += 1) {
+        inFlight = await readdir(dir);
+        if (inFlight.length === 0) await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      release();
+      await download;
+      assert.equal(inFlight.length, 1, `one in-flight file: ${inFlight}`);
+      assert.match(inFlight[0], /^mixdog-tmp-[0-9a-f]{16}$/);
+      assert.deepEqual(await readdir(dir), ['out.txt']);
+    }
+  );
+});
+
+test('a pre-existing file at the temp name is never written to or removed', async (t) => {
+  const realRandomBytes = crypto.randomBytes;
+  t.mock.method(crypto, 'randomBytes', (size, ...rest) =>
+    size === 8 ? Buffer.alloc(8, 0xab) : realRandomBytes(size, ...rest)
+  );
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  const tempName = `mixdog-tmp-${'ab'.repeat(8)}`;
+  for (const respond of [(_req, res) => res.end('new'), (_req, res) => ((res.statusCode = 404), res.end('nope'))]) {
+    await withServer(respond, async (url, dir) => {
+      const file = join(dir, 'out.txt');
+      await writeFile(file, 'old');
+      await writeFile(join(dir, tempName), 'someone else');
+      await assert.rejects(downloadToFile(url, file), /EEXIST|HTTP 404/);
+      assert.equal(await readFile(file, 'utf8'), 'old');
+      assert.equal(await readFile(join(dir, tempName), 'utf8'), 'someone else');
+    });
+  }
 });
 
 test('a destination name near the filesystem limit still downloads', async () => {

@@ -265,13 +265,30 @@ export function createDragInput(send: SendBrowserInput, options: { drags?: Brows
   }
 
   /** Files delivered the way a person drops them: the payload is announced
-   *  first, so a zone that only listens for a drag sees it coming. */
-  async function dropFilesAt(guest: WebContents, point: Point, paths: string[], signal?: AbortSignal): Promise<void> {
+   *  first, so a zone that only listens for a drag sees it coming. `check`
+   *  runs before the payload is announced and again right before the drop
+   *  (the page's drag handlers run in between); a refusal there cancels the
+   *  drag, so the files never reach any document. */
+  async function dropFilesAt(
+    guest: WebContents,
+    point: Point,
+    paths: string[],
+    signal?: AbortSignal,
+    check?: () => Promise<void>
+  ): Promise<void> {
     const data = { items: [], files: [...paths], dragOperationsMask: DRAG_OPERATION_COPY };
     const at = cssPoint(point);
-    for (const type of ['dragEnter', 'dragOver', 'drop']) {
+    await check?.();
+    for (const type of ['dragEnter', 'dragOver']) {
       if ((await send(guest, 'Input.dispatchDragEvent', { ...at, type, data }, signal)) === 'dialog') return;
     }
+    try {
+      await check?.();
+    } catch (error) {
+      await send(guest, 'Input.dispatchDragEvent', { ...at, type: 'dragCancel', data }, signal).catch(() => undefined);
+      throw error;
+    }
+    await send(guest, 'Input.dispatchDragEvent', { ...at, type: 'drop', data }, signal);
   }
 
   return { dragAt, dropFilesAt };

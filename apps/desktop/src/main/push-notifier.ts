@@ -115,6 +115,8 @@ interface PushNotifierOptions {
   };
   /** Whether the agent `sessionId` belongs to is muted; muted sessions push nothing. */
   isSessionMuted?(sessionId: string): boolean;
+  /** A bot's display name for its home chat's push title. */
+  agentName?(agentId: string): Promise<string>;
   fetchImpl?: typeof fetch;
   onError?(detail: string): void;
   /** Every decision on the way to a phone, so a missing notification can be
@@ -298,6 +300,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   const watcher = createFinalAnswerWatcher({
     isEnabled: options.isEnabled,
     readFinalAnswer: options.readFinalAnswer,
+    ...(options.agentName ? { agentName: options.agentName } : {}),
     onError: options.onError,
     onDiagnostic: options.onDiagnostic,
     onFinalAnswer: (completion) => {

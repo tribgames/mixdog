@@ -297,7 +297,10 @@ export class SessionHost implements DesktopService {
       submit: (sessionId, prompt) => this.lifecycle.submitToSession(sessionId, prompt as DesktopPromptContent, {}),
       readSnapshot: (sessionId) => this.readSession(sessionId, false, false),
       decideTurn: async (input) =>
-        ((await this.transport.invokeControl('decideRoomTurn', [input])) as RoomDecision | null) ?? null,
+        ((await this.transport.invokeControl('decideRoomTurn', [input])) as
+          | RoomDecision
+          | { action: 'unmanaged' }
+          | null) ?? null,
       abort: async (sessionId) => {
         await this.lifecycle.abortSession(sessionId, {});
       },

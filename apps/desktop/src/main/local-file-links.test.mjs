@@ -16,7 +16,7 @@ async function fixture(t) {
   await mkdir(join(project, 'output'), { recursive: true });
   const handlers = new Map();
   const mainFrame = {};
-  const webContents = { mainFrame, isDestroyed: () => false, send() {} };
+  const webContents = { mainFrame, isDestroyed: () => false, send() {}, on() {}, removeListener() {} };
   const opened = [];
   const revealed = [];
   let failure = '';

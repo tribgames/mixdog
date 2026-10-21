@@ -101,6 +101,10 @@ export function createBrowserLocalPrompts(host: {
       }
       const guard = guardFor(() => host.state.for(owner).pendingDialog, dialog, input.requestId, assertCurrent, signal);
       guard();
+      // Set before the page resumes: a window it opens next (an alert, then
+      // window.open) is the person's to see.
+      host.state.for(owner).actor = 'person';
+      host.state.for(owner).personDialogAnswerAt = Date.now();
       await host.dialogs.handleDialog(
         owner,
         input.accept,

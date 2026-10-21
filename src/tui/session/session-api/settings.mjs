@@ -112,6 +112,18 @@ export function createSessionSettingsApi(bag) {
     setAiSessionTitles: withCommandLock(async (enabled) => {
       return await runtime.setAiSessionTitles?.(enabled);
     }),
+    getLeadAppearance: () => {
+      return runtime.getLeadAppearance?.() || { avatar: null };
+    },
+    setLeadAppearance: withCommandLock(async (avatar) => {
+      return await runtime.setLeadAppearance?.(avatar);
+    }),
+    getBotOrder: () => {
+      return runtime.getBotOrder?.() || { order: [] };
+    },
+    setBotOrder: withCommandLock(async (order) => {
+      return await runtime.setBotOrder?.(order);
+    }),
     getToolModuleSettings: () => {
       return (
         runtime.getToolModuleSettings?.() || {
@@ -130,9 +142,10 @@ export function createSessionSettingsApi(bag) {
     setWorktreeSettings: lockedRuntimeCall((patch) => runtime.setWorktreeSettings(patch)),
     setWebSearchEnabled: lockedRuntimeCall((enabled) => runtime.setWebSearchEnabled?.(enabled)),
     setInstructionFiles: lockedRuntimeCall((mode) => runtime.setInstructionFiles?.(mode)),
+    setAutoEffortBase: lockedRuntimeCall((level) => runtime.setAutoEffortBase?.(level)),
     setMemoryToolsEnabled: lockedRuntimeCall((enabled) => runtime.setMemoryToolsEnabled?.(enabled)),
     setBuiltinToolEnabled: lockedRuntimeCall((name, enabled) => runtime.setBuiltinToolEnabled?.(name, enabled)),
-    installBuiltinFeature: lockedRuntimeCall((name) => runtime.installBuiltinFeature?.(name)),
+    installBuiltinFeature: lockedRuntimeCall((name, options) => runtime.installBuiltinFeature?.(name, options)),
     installLocalProviderModel: lockedRuntimeCall((modelId) => runtime.installLocalProviderModel?.(modelId)),
     // Background installs return promptly; cancellation must remain usable
     // even while a legacy blocking install owns commandBusy.

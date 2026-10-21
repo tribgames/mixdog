@@ -134,6 +134,50 @@ test('agent mode: the same card, seated by its frame only when it shows', async 
   });
 });
 
+// Entering a bot chat painted every bubble without its card, then each card
+// landed when its read answered and the chat jumped. Until the first read
+// answers the row is pending (the transcript's entry reveal waits for it).
+test('an unread card marks its row pending until the first read answers', async (t) => {
+  const pending = '[data-transcript-pending]';
+  await t.test('a read in flight: pending, then the card in its place', async (t) => {
+    let answer;
+    const view = await mountCard(t, { reply: () => new Promise((resolve) => (answer = resolve)) });
+    assert.ok(view.q(pending), 'pending while the read is in flight');
+    assert.equal(view.q('.turn-changes-card'), null);
+    await act(async () => answer(ready([file('mixdog-community-state.json', { additions: 1, deletions: 1 })])));
+    await settle();
+    assert.equal(view.q(pending), null);
+    assert.ok(view.q('.turn-changes-card'));
+  });
+  await t.test('a cached reply paints the card in the first render', async (t) => {
+    const first = await mountCard(t, { reply: () => ready([file('a.ts')]) });
+    assert.ok(first.q('.turn-changes-card'));
+    await first.render(first.value, { ...first.ref, checkpointId: 'other' });
+    await first.render();
+    assert.equal(first.q(pending), null, 'a remount on a cached reply is never pending');
+    assert.ok(first.q('.turn-changes-card'));
+  });
+  for (const [name, reply] of [
+    ['no change', () => ready([])],
+    ['a failed read', () => new Error('offline')],
+    ['a turn still recording', () => ({ ...ready([]), status: 'pending' })],
+  ]) {
+    await t.test(`${name}: the row is not left pending`, async (t) => {
+      const view = await mountCard(t, { reply });
+      assert.equal(view.q(pending), null);
+      assert.equal(view.q('.turn-changes-card'), null);
+    });
+  }
+  await t.test('a running turn is not read, so not pending', async (t) => {
+    const view = await mountCard(t, {
+      reply: () => new Promise(() => {}),
+      surface: { turnRunning: true },
+      turnChanges: { trailing: true },
+    });
+    assert.equal(view.q(pending), null);
+  });
+});
+
 test('a visualized file is its visualize card, not a diff row', async (t) => {
   const absolute = `${ROOT}/design/mockups/app-skins/index.html`;
   await t.test('every file visualized: no changes card', async (t) => {

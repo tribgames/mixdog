@@ -2,6 +2,7 @@ import type { DesktopTidyEngine, DesktopTidyEngineStatus, DesktopTidyInstallStat
 import { CapabilityIcon } from '../CapabilityIcon';
 import { t } from '../i18n';
 import {
+  ExtensionAction,
   ExtensionItemBadge,
   ExtensionItemList,
   ExtensionItemRow,
@@ -12,17 +13,40 @@ import { engineRowState } from './tidy-status';
 
 type EngineRow = { engine: DesktopTidyEngine } & ReturnType<typeof engineRowState>;
 
-function EngineRows({ rows }: { rows: EngineRow[] }) {
+function EngineRows({
+  rows,
+  retryable,
+  busy,
+  onInstallEngine,
+}: {
+  rows: EngineRow[];
+  retryable: boolean;
+  busy: boolean;
+  onInstallEngine(id: string): void;
+}) {
   return (
     <ExtensionItemList>
-      {rows.map(({ engine, tag, description, tone }) => (
+      {rows.map(({ engine, tag, description, tone, state }) => (
         <ExtensionItemRow
           key={engine.id}
           icon={<CapabilityIcon name="code-tidy" size={16} />}
           title={engine.title}
           description={description}
           tone={tone}
-          control={<ExtensionItemBadge tag={tag} />}
+          control={
+            <>
+              <ExtensionItemBadge tag={tag} />
+              {retryable && engine.installable && (state === 'pending' || state === 'failed') ? (
+                <ExtensionAction
+                  disabled={busy}
+                  ariaLabel={t('Install {{name}}', { name: engine.title })}
+                  onClick={() => onInstallEngine(engine.id)}
+                >
+                  {t(state === 'failed' ? 'Retry' : 'Install')}
+                </ExtensionAction>
+              ) : null}
+            </>
+          }
           dataAttributes={{ 'data-tidy-engine': engine.id }}
         />
       ))}
@@ -33,9 +57,16 @@ function EngineRows({ rows }: { rows: EngineRow[] }) {
 export function TidyEngines({
   status,
   installStatus,
+  installed,
+  busy,
+  onInstallEngine,
 }: {
   status: DesktopTidyEngineStatus | null;
   installStatus: DesktopTidyInstallStatus | null;
+  /** Feature installed: only then can a single engine be fetched on its own. */
+  installed: boolean;
+  busy: boolean;
+  onInstallEngine(id: string): void;
 }) {
   const isInstallingActive = installStatus?.active === true || status?.installing?.active === true;
   const rows: EngineRow[] = (status?.engines ?? [])
@@ -56,7 +87,12 @@ export function TidyEngines({
   return (
     <>
       <ExtensionSection title={t('Engines')} count={installedCount}>
-        <EngineRows rows={active} />
+        <EngineRows
+          rows={active}
+          retryable={installed && !isInstallingActive}
+          busy={busy}
+          onInstallEngine={onInstallEngine}
+        />
         <ExtensionNote>
           {t('Structural rules ship with Mixdog; engines download to {{toolsDir}}.', {
             toolsDir: status?.toolsDir || '',
@@ -65,7 +101,7 @@ export function TidyEngines({
       </ExtensionSection>
       {optional.length > 0 ? (
         <ExtensionSection title={t('Not installed')} count={optional.length} collapsible>
-          <EngineRows rows={optional} />
+          <EngineRows rows={optional} retryable={false} busy={busy} onInstallEngine={onInstallEngine} />
         </ExtensionSection>
       ) : null}
     </>

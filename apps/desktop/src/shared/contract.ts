@@ -31,6 +31,15 @@ import type {
   DesktopCapabilityResult,
 } from './contract-capabilities';
 import type { DesktopSettingKey, DesktopSettings } from './contract-settings';
+import type {
+  DesktopPetAppLayout,
+  DesktopPetComposer,
+  DesktopPetConfig,
+  DesktopPetLayers,
+  DesktopPetOption,
+  DesktopPetState,
+  DesktopPetTheme,
+} from './desktop-pet';
 import type { ConversationImportJob } from './contract-import';
 import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
@@ -80,6 +89,7 @@ import type {
   DesktopBrowserPageIdentity,
   DesktopBrowserPageResample,
   DesktopBrowserRemoteViewerChange,
+  DesktopBrowserFullscreenChange,
   DesktopBrowserTabControlResult,
   DesktopBrowserViewportConfig,
   DesktopRemoteBrowserControl,
@@ -632,6 +642,34 @@ export interface DesktopApi {
   ): Promise<DesktopWorkspaceTextReplaceResult>;
   getSnapshot(): Promise<SessionSnapshot>;
   subscribeState(listener: (snapshot: SessionSnapshot) => void): () => void;
+  /** Fire-and-forget: the sessions this window paints right now (one active
+   *  tab per pane). A completion in one of them is not notified while the
+   *  window is focused; every other session still notifies. */
+  reportScreenSessions?(sessionIds: string[]): void;
+  /** Desktop pet (this PC's app window only): the setting, its changes from
+   *  the pet's own menu, and the followed session's state for the pet. */
+  getDesktopPetConfig?(): Promise<DesktopPetConfig>;
+  setDesktopPetEnabled?(enabled: boolean): Promise<DesktopPetConfig>;
+  setDesktopPetOption?(name: DesktopPetOption, value: boolean): Promise<DesktopPetConfig>;
+  /** The bot's size in percent (DESKTOP_PET_SCALES). */
+  setDesktopPetScale?(scale: number): Promise<DesktopPetConfig>;
+  resetDesktopPetPosition?(): Promise<DesktopPetConfig>;
+  subscribeDesktopPetConfig?(listener: (config: DesktopPetConfig) => void): () => void;
+  /** The pet menu's Settings item asks this window for Settings → Bots. */
+  subscribeDesktopPetOpenSettings?(listener: () => void): () => void;
+  /** Where the composer-pinned bot stands: over the transcript's column,
+   *  and the width it takes at the composer's right end. */
+  subscribeDesktopPetAppLayout?(listener: (layout: DesktopPetAppLayout) => void): () => void;
+  publishDesktopPet?(state: DesktopPetState): void;
+  /** The focused pane's composer card and its island pill's centre line
+   *  (CSS px), or null when no card shows. */
+  publishDesktopPetComposer?(composer: DesktopPetComposer | null): void;
+  /** The app's chat look for the overlay. */
+  publishDesktopPetTheme?(theme: DesktopPetTheme): void;
+  /** The app's open floating layers: a backdrop modal hides the overlay, the rest cut it. */
+  publishDesktopPetLayers?(layers: DesktopPetLayers): void;
+  /** Whether the representative bot exists (the overlay needs it). */
+  publishDesktopPetAvailable?(available: boolean): void;
   /** Fire-and-forget renderer perf timing line (MIXDOG_DESKTOP_PERF=1 only). */
   perfLog?(line: string): void;
   /** Privacy-bounded renderer failure/performance evidence; user content is never sent. */
@@ -884,6 +922,9 @@ export interface DesktopApi {
   /** Desktop only: spend one real user gesture main saw inside this pane on
    *  a `data-choice` pick; false when there is none. */
   visualizeConsumeGesture?(target: { sessionId: string; tabId: string; pane: number }): Promise<boolean>;
+  /** Desktop only: the visualize side panel's content size (CSS px), so the
+   *  agent's off-screen `inspect` / `check` lay pages out at it. */
+  visualizePanelSize?(size: { width: number; height: number }): Promise<void>;
   /** Runtime unload frees pixels but retains the session's dock selection. */
   onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */
@@ -923,8 +964,52 @@ export interface DesktopApi {
    *  A guest parked off-window produces no frames, so its capture hangs; the
    *  renderer keeps a remotely viewed guest inside the window while active. */
   onBrowserRemoteViewerChanged?(listener: (change: DesktopBrowserRemoteViewerChange) => void): () => void;
+  /** A session's shown page entered or left element fullscreen; the window is
+   *  fullscreen meanwhile and the pane fills it. */
+  onBrowserFullscreenChanged?(listener: (change: DesktopBrowserFullscreenChange) => void): () => void;
   /** Local Chrome profile import into the isolated Browser Use partition.
    *  Secrets stay in main/native processes; renderer receives metadata/counts. */
+  /** A Browser Use submit/post/upload awaiting this person's one-time answer
+   *  (shown as an in-app card), or `closed` once it is answered or expired. */
+  onBrowserApproval?(
+    listener: (
+      prompt:
+        | { id: string; closed: true }
+        /** The person chose "always allow" but it could not be saved: it ran once. */
+        | { id: string; saveFailed: true }
+        | {
+            id: string;
+            closed?: false;
+            action: string;
+            url: string;
+            sessionId: string;
+            /** The top-level chat the card docks in (a sub-agent's root chat). */
+            surfaceSessionId?: string;
+            /** The bot whose own chat asks (its face on the card); '' otherwise. */
+            agentId?: string;
+            /** The asking bot's or session's name; '' when it could not be resolved. */
+            requester: string;
+            target: string;
+            paths: string[];
+            /** Upload only: the page's origin, the origin of the frame document
+             *  that receives the files ('' = not confirmed), and each file
+             *  (`outside`: beyond the session's working directory and Downloads). */
+            origin?: string;
+            receiverOrigin?: string;
+            files?: Array<{ name: string; path: string; size: number; outside: boolean }>;
+            /** Absent: the card waits until the person answers (no countdown). */
+            expiresAt?: number;
+            /** Set when a standing "always allow" may be recorded for this bot
+             *  and these kinds of step (`submit`, `post`, `upload`); null = it only asks once. */
+            remember: { kinds: Array<'submit' | 'post' | 'upload' | 'confirm'> } | null;
+            /** Why it only asks once: `confirm` (an action the operator set to
+             *  always ask) or `bot` (not a bot's own chat). */
+            onceReason: '' | 'confirm' | 'bot';
+          }
+    ) => void
+  ): () => void;
+  /** `reason`: a denial's note for the asking agent (what to do instead). */
+  browserApprovalDecide?(id: string, decision: 'once' | 'always' | 'deny', reason?: string): Promise<void>;
   browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;
   browserProfileImportStart?(request: DesktopBrowserImportRequest): Promise<DesktopBrowserImportResult>;
   onBrowserProfileImportProgress?(listener: (progress: DesktopBrowserImportProgress) => void): () => void;
@@ -985,6 +1070,9 @@ export interface DesktopApi {
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;
    *  null restores the theme band. */
   setTitleBarDim(dim: { color: string; symbolColor: string } | null): Promise<void>;
+  /** Installed font families of THIS computer (Settings → Appearance); empty
+   *  when the OS listing fails. Desktop app only. */
+  listSystemFonts?(): Promise<string[]>;
   invokeCapability<T = unknown>(request: DesktopCapabilityRequest): Promise<DesktopCapabilityResult<T>>;
   readCapabilities(requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]>;
   /** Direct URL for one media asset/rendition, or '' when this host has no

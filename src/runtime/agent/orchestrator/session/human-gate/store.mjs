@@ -22,7 +22,17 @@ export const PERMISSION_MODES = Object.freeze(['ask', 'allow', 'block']);
 const field = (value) => String(value ?? '').slice(0, FIELD_LIMIT);
 const grantId = (agentId, action) =>
   `grant_${createHash('sha256').update(`${agentId}\n${action}`).digest('hex').slice(0, 24)}`;
+const MODE_RANK = Object.freeze({ block: 0, ask: 1, allow: 2 });
+export const NO_WIDEN_MESSAGE = 'This change would widen what the bot may do without asking; make it on the desktop.';
 const isGrant = (row) => ACTION_KINDS.includes(row?.action) && (row.mode === 'allow' || row.mode === 'block');
+
+/** The effective mode among `grants`: the agent's own grant, else an every-agent one. */
+function effectiveMode(grants, agentId, action) {
+  const rows = grants.filter((grant) => grant.action === action);
+  const own = rows.find((grant) => grant.agentId === agentId) || rows.find((grant) => grant.agentId === ANY_AGENT);
+  if (own?.mode === 'allow' && !isRememberableAction(action)) return 'ask';
+  return own?.mode || 'ask';
+}
 
 export function createHumanGateStore(directory) {
   const grantsFile = join(directory, 'grants.json');
@@ -50,25 +60,26 @@ export function createHumanGateStore(directory) {
   }
   /** Set `agentId`'s mode for `action`; `ask` removes its grant. Returns the
    *  grant, or null for `ask` and for an `allow` that may not exist. */
-  async function setMode({ agentId, action, mode, device = '' }) {
+  async function setMode({ agentId, action, mode, device = '', noWiden = false }) {
     if (!ACTION_KINDS.includes(action) || !PERMISSION_MODES.includes(mode)) return null;
     if (mode === 'allow' && !isRememberableAction(action)) return null;
     const owner = field(agentId);
     const id = grantId(owner, action);
     const grant = mode === 'ask' ? null : { id, agentId: owner, action, mode, device: field(device), at: Date.now() };
-    await updateGrants((grants) => ({
-      grants: [...grants.filter((row) => row.id !== id), ...(grant ? [grant] : [])],
-      result: grant,
-    }));
+    await updateGrants((grants) => {
+      const next = [...grants.filter((row) => row.id !== id), ...(grant ? [grant] : [])];
+      // `noWiden` (a remote client's call): judged on the effective mode inside the
+      // same locked read-modify-write, so a block landing meanwhile is never lifted.
+      if (noWiden && MODE_RANK[effectiveMode(next, owner, action)] > MODE_RANK[effectiveMode(grants, owner, action)]) {
+        throw new Error(NO_WIDEN_MESSAGE);
+      }
+      return { grants: next, result: grant };
+    });
     return grant;
   }
   /** `allow`, `block` or `ask` for `agentId` + `action`; the agent's own grant wins. */
   async function modeFor({ agentId, action }) {
-    const grants = (await readGrants()).filter((grant) => grant.action === action);
-    const own =
-      grants.find((grant) => grant.agentId === agentId) || grants.find((grant) => grant.agentId === ANY_AGENT);
-    if (own?.mode === 'allow' && !isRememberableAction(action)) return 'ask';
-    return own?.mode || 'ask';
+    return effectiveMode(await readGrants(), agentId, action);
   }
   return {
     setMode,
@@ -152,14 +163,30 @@ export async function agentPermissions(agentId) {
 }
 
 /** Set one row of that table (capability setAgentPermission); returns the table. */
-export async function setAgentPermission(agentId, action, mode) {
+export async function setAgentPermission(agentId, action, mode, options) {
   const agent = requiredAgentId(agentId);
   if (!ACTION_KINDS.includes(action)) throw new Error(`action must be one of ${ACTION_KINDS.join(', ')}`);
   if (!PERMISSION_MODES.includes(mode)) throw new Error(`mode must be one of ${PERMISSION_MODES.join(', ')}`);
   if (mode === 'allow' && !isRememberableAction(action)) throw new Error(`${action} always asks; it cannot be allowed`);
   const store = await humanGateStore();
-  await store.setMode({ agentId: agent, action, mode });
+  await store.setMode({ agentId: agent, action, mode, noWiden: options?.noWiden === true });
   return store.permissions(agent);
+}
+
+const BROWSER_AUDIT_DECISIONS = Object.freeze(['approve', 'deny', 'granted', 'remembered', 'run-allowed', 'blocked']);
+
+/** Audit one Browser Use approval of a bot (capability recordAgentApprovalAudit):
+ *  the bot, the action kind and what happened — `approve` / `deny` for the card,
+ *  `granted` when "always allow" was saved, `remembered` when a saved allow let
+ *  a step run unasked. Never a page address, target or value. */
+export async function recordAgentApprovalAudit(agentId, action, decision) {
+  const agent = requiredAgentId(agentId);
+  if (!ACTION_KINDS.includes(action)) throw new Error(`action must be one of ${ACTION_KINDS.join(', ')}`);
+  if (!BROWSER_AUDIT_DECISIONS.includes(decision)) {
+    throw new Error(`decision must be one of ${BROWSER_AUDIT_DECISIONS.join(', ')}`);
+  }
+  await (await humanGateStore()).recordAudit({ agentId: agent, kind: 'browser', action, tool: 'browser', decision });
+  return null;
 }
 
 /** Replace the process store (tests); null restores the default. */

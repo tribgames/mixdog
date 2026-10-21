@@ -20,6 +20,8 @@ import { ConnectionPanel } from './connection-panel';
 import { DeveloperPanel } from './developer-panel';
 import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
 import { DisplayPanel, GeneralPanel } from './general-panel';
+import { SkinPanel } from './skin-panel';
+import { BotsPanel } from './desktop-pet-toggle';
 
 import { ActionButton, AutoSaveRow, Group, ListEmpty, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import {
@@ -59,6 +61,8 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'developer') return <DeveloperPanel {...context} />;
   if (category === 'about') return <AboutPanel />;
   if (category === 'display') return <DisplayPanel {...context} />;
+  if (category === 'skin') return <SkinPanel {...context} />;
+  if (category === 'bots') return <BotsPanel />;
   return <GeneralPanel {...context} />;
 }
 
@@ -316,6 +320,9 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
   );
 }
 
+// Typed/shown for a provider that never auto-clears; the runtime stores 0.
+const AUTO_CLEAR_UNLIMITED_INPUT = 'unlimited';
+
 function autoClearSource(autoClear: ReturnType<typeof record>): string {
   if (autoClear.providerCustom) return t('{{value0}} override', { value0: String(autoClear.provider) });
   if (autoClear.custom) return t('global duration');
@@ -355,15 +362,35 @@ function ContextPanel({ data, pending, run }: PanelContext) {
         disabled={busy}
         onChange={(enabled) => void run('setCompactionSettings', [{ onModelChange: enabled }])}
       />
+      <SelectRow
+        title={t('Compaction summary model')}
+        description={t(
+          'Smart reuses the conversation’s cache while it is warm, otherwise the Maintainer or a lighter model.'
+        )}
+        value={String(compaction.summaryMode || 'smart')}
+        disabled={busy}
+        options={[
+          { value: 'smart', label: t('Smart') },
+          { value: 'maintainer', label: t('Maintainer') },
+          { value: 'self', label: t('Conversation model') },
+        ]}
+        onChange={(summaryMode) => void run('setCompactionSettings', [{ summaryMode }])}
+      />
       <ToggleRow
         title={t('Auto-clear')}
-        description={t(
-          'Clear idle sessions after {{value0}} ({{value1}}). A provider idle window below overrides the global duration.',
-          {
-            value0: formatDuration(autoClear.idleMs) || t('the provider default'),
-            value1: autoClearSource(autoClear),
-          }
-        )}
+        description={
+          autoClear.unlimited === true
+            ? t('Never clear idle sessions ({{value0}}). A provider idle window below overrides the global duration.', {
+                value0: autoClearSource(autoClear),
+              })
+            : t(
+                'Clear idle sessions after {{value0}} ({{value1}}). A provider idle window below overrides the global duration.',
+                {
+                  value0: formatDuration(autoClear.idleMs) || t('the provider default'),
+                  value1: autoClearSource(autoClear),
+                }
+              )
+        }
         checked={autoClear.enabled !== false}
         disabled={busy}
         onChange={(enabled) => void run('setAutoClear', [{ enabled }])}
@@ -373,28 +400,47 @@ function ContextPanel({ data, pending, run }: PanelContext) {
           key={String(entry.provider)}
           title={t('{{value0}} idle window', { value0: providerDisplayName(String(entry.provider || 'default')) })}
           name="duration"
-          value={durationTextInput(entry.idleMs)}
-          placeholder={durationTextInput(entry.builtInMs)}
+          // 'unlimited' is the typed token the runtime parses (never auto-clear).
+          value={entry.unlimited === true ? AUTO_CLEAR_UNLIMITED_INPUT : durationTextInput(entry.idleMs)}
+          placeholder={
+            entry.builtInUnlimited === true ? AUTO_CLEAR_UNLIMITED_INPUT : durationTextInput(entry.builtInMs)
+          }
           required
           disabled={busy}
           onSave={(duration) =>
             void run('setAutoClear', [{ provider: entry.provider, duration }], `autoclear-${entry.provider}`)
           }
           actions={
-            Boolean(entry.custom) && (
-              <ActionButton
-                disabled={busy}
-                onClick={() =>
-                  void run(
-                    'setAutoClear',
-                    [{ provider: entry.provider, resetProvider: true }],
-                    `autoclear-reset-${entry.provider}`
-                  )
-                }
-              >
-                {t('Reset')}
-              </ActionButton>
-            )
+            <>
+              {entry.unlimited !== true && (
+                <ActionButton
+                  disabled={busy}
+                  onClick={() =>
+                    void run(
+                      'setAutoClear',
+                      [{ provider: entry.provider, unlimited: true }],
+                      `autoclear-unlimited-${entry.provider}`
+                    )
+                  }
+                >
+                  {t('Unlimited')}
+                </ActionButton>
+              )}
+              {Boolean(entry.custom) && (
+                <ActionButton
+                  disabled={busy}
+                  onClick={() =>
+                    void run(
+                      'setAutoClear',
+                      [{ provider: entry.provider, resetProvider: true }],
+                      `autoclear-reset-${entry.provider}`
+                    )
+                  }
+                >
+                  {t('Reset')}
+                </ActionButton>
+              )}
+            </>
           }
         />
       ))}

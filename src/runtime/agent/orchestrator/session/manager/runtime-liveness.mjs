@@ -298,6 +298,16 @@ export function markSessionToolOutputTail(id, tail) {
   entry.toolOutputTail = text ? text.slice(-4000) : null;
   entry.toolOutputTailAt = Date.now();
 }
+// An approval has no wait limit, and the progress watchdog treats a turn with
+// `awaitingUser` as waiting on the user, not stalled. The user's answer is
+// progress: a wait begins and ends with a fresh progress stamp, so the hours
+// spent waiting are never counted as silence once the turn runs again.
+function _stampApprovalProgress(entry) {
+  if (entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
+  const now = Date.now();
+  entry.lastProgressAt = now;
+  entry.updatedAt = now;
+}
 // A turn blocked on the user: a PreToolUse `ask` waiting for the tool
 // approval only the user can give. Published as `awaitingUser: 'approval'` so
 // status surfaces stop presenting the session as working. Counted, because one
@@ -309,6 +319,7 @@ export function beginSessionApprovalWait(id) {
   if (!entry) return () => {};
   entry.approvalWaits = (entry.approvalWaits || 0) + 1;
   entry.awaitingUser = 'approval';
+  _stampApprovalProgress(entry);
   // The waiting turn: the end transition carries the begin's turn even when
   // the turn has settled (askStartedAt cleared) by the time it releases.
   const meta = { turnAt: entry.askStartedAt || 0 };
@@ -321,6 +332,7 @@ export function beginSessionApprovalWait(id) {
     entry.approvalWaits = Math.max(0, (entry.approvalWaits || 0) - 1);
     if (entry.approvalWaits > 0) return;
     entry.awaitingUser = null;
+    _stampApprovalProgress(entry);
     emitSessionApprovalWaitChange(id, null, meta);
   };
 }

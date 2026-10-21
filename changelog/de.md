@@ -4,6 +4,82 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Designs und Foto-Skins, das Hauptbot-Overlay sowie den Wechsel des Workflows und des Delegationsmodus mitten in der Konversation hinzugefügt, zusammen mit Windows-Codesignierung und umfassenden Fehlerbehebungen für Kompaktierung, Genehmigungen und Anhänge.
+
+### Neue Funktionen
+
+- **Designs** — Einstellungen → Design hinzugefügt, um System, Dunkel oder Weiß, einen von vier bewegten Foto-Skins oder ein eigenes Foto oder kurzes Video sowie Schriftart und Textgröße auf einem Bildschirm auszuwählen.
+- **Hauptbot-Overlay** — Hauptbot hinzugefügt, der über dem Composer der PC-App sitzt und Antworten in einer Sprechblase anzeigt, die bei langen Antworten selbstständig durch die Seiten blättert; klicken Sie darauf, um eine Nachricht zu senden, oder per Rechtsklick für Größe, Positionsanheftung und Einstellungen. Wählbar unter Einstellungen → Bots.
+- **Fallback-Modelle** — Fallback-Modelle für Lead, den Hauptbot und Bot-Profile hinzugefügt, die zum nächsten Modell wechseln, wenn eines sein Nutzungslimit erreicht.
+- **Workflow- und Delegationswechsel** — Wechsel des Workflows und des Delegationsmodus über das Modellmenü während einer Konversation hinzugefügt; gilt ab dem nächsten Zug nur für diese Konversation.
+- **Intelligente Kompaktierung** — Einstellungen → Kontext → "Kompaktierungs-Zusammenfassungsmodell" mit Intelligent, Maintainer oder Unterhaltungsmodell hinzugefügt. Intelligent ist der Standard.
+- **Basis für automatisches Reasoning** — Einstellungen → Allgemein → "Basis für automatisches Reasoning" hinzugefügt, um den Aufwand auszuwählen, an dem sich Auto orientiert.
+- **Bilderzeugung** — Bilderzeugung in Studio mit OpenRouter- und NanoGPT-Bildmodellen hinzugefügt.
+- **Position des Seitenpanels** — Option unter Einstellungen → Allgemein hinzugefügt, um das Seitenpanel rechts, unten oder automatisch zu platzieren.
+- **Layout der Bots-Seite** — Ziehen von Bots zum Neuanordnen, Anzeigen oder Ausblenden des Hauptbots, der Bots, Räume und Agenten über das Menü `…` hinzugefügt, und ein zentraler Ort für laufende Aufgaben.
+
+### Änderungen
+
+- Windows-Installer und App werden nun mit Codesignatur versehen, wodurch Windows-Sicherheitswarnungen und Fehlalarme von Antivirenprogrammen reduziert werden.
+- Genehmigungen für browser-use von OS-Fenstern auf Genehmigungskarten im Chat umgestellt, und Datei-Uploads fragen jetzt ebenfalls nach.
+- Genehmigungskarten zeigen nun den anfragenden Bot und eine einzeilige Frage, lassen sich mit einem Klick ablehnen und werden beim Warten niemals von selbst abgelehnt.
+- Genehmigungsanfragen von Sub-Agenten erscheinen jetzt auch im Haupt-Chat, mit "Sitzung öffnen", um direkt dorthin zu springen.
+- Bot-Profile listen nun auf "Immer erlauben" gesetzte Elemente auf und erlauben es, diese einzeln auf "Nochmals fragen" zurückzusetzen.
+- Zeitpläne und Webhooks fragen nun beim Speichern einmal nach und nicht erneut während der Ausführung; Zahlungen und endgültiges Löschen laufen niemals unbeaufsichtigt.
+- Ein verknüpftes Telefon kann Bot-Berechtigungen und Connectors nur noch einschränken, niemals erweitern.
+- Ein deaktivierter Bot bleibt auf der Bots-Seite als "Aus" erhalten, damit er wieder eingeschaltet werden kann, und lässt sich separat in der Seitenleiste ausblenden (#153).
+- Sub-Agenten werden nun durch Klick auf das Gesicht oder Rechtsklick auf "Sub-Agenten anzeigen" statt über einen Pfeil ausgeklappt.
+- Im Modellwähler wurde der Schalter für "Automatisches Reasoning" entfernt und Auto an den Anfang der Aufwandsliste gesetzt.
+- Der Modellwähler öffnet sich nun direkt unter seiner Zeile, und benutzerdefinierte Provider zeigen den ihnen zugewiesenen Namen.
+- Bot-Räume angepasst, damit Bots natürlich sprechen, statt sich jedes Mal gegenseitig zuzustimmen; ohne Maintainer-Modell antwortet jeder erwähnte Bot einmal.
+- Nachrichten zwischen Bots zeigen nun den sendenden und empfangenden Bot, und das Hin und Her zwischen Bots wurde auf drei Wechsel beschränkt.
+- Benachrichtigungen über Bot-Antworten auf PC und Telefon verwenden nun den Namen des Bots oder Raums als Titel.
+- Die Git-Schaltfläche des Composers öffnet nun den Git-Tab, in dem "PR erstellen", "Commit · Push" und "Committen" jeweils über eine eigene "Ausführen"-Schaltfläche verfügen.
+- Die Karte am Aufgabenende zeigt nur noch Vorschaubilder von Dateien an, die in der Antwort verlinkt oder im Seitenpanel geöffnet wurden.
+- Das Scrollen so geändert, dass sich die Ansicht nur beim Scrollen bewegt und neuen Antworten erst wieder folgt, wenn das Ende erreicht ist; auf einmal eintreffende lange Antworten beginnen bei ihrer ersten Zeile.
+- Ein langsamer MCP-Server verzögert die erste Antwort um höchstens 3 Sekunden; später verbundene Tools stehen ab dem nächsten Zug bereit.
+- Streaming-Antworten so geändert, dass sie in kleinen Schritten mit einem kurzen Einblenden neuer Wörter erscheinen, sodass Text nicht mehr in Blöcken aufspringt.
+- Anheften von Agenten auf der Bots-Seite über das Rechtsklickmenü hinzugefügt sowie "Beendete Agenten behalten" im Menü `…` für 1 Stunde, 1 Tag, 7 Tage oder Dauerhaft.
+- "Unbegrenzt" zum automatischen Leeren inaktiver Sitzungen hinzugefügt.
+- Die Token- und Kostenzeile im Agentenfenster hält ihren Platz nun von Beginn an frei, sodass sich die Ansicht nicht mehr verschiebt.
+- Anleitung des Setup-Tools angepasst, damit die KI beim Erstellen oder Bearbeiten eines Skills dessen Trigger-Zeile (`when_to_use`) festlegen kann.
+
+### Fehlerbehebungen
+
+- Behoben: Anthropic-Chats mit einem großen Bild oder PDF schlugen wiederholt mit "attachmentReference: Extra inputs are not permitted" fehl.
+- Behoben: Das Anhängen mehrerer PDFs blockierte den Chat durch Überschreiten des Kontextfensters; große Anhänge verbleiben auf diesem PC und nur benötigte Teile werden gelesen (#150).
+- Behoben: Aus Word, Excel oder dem Browser kopierter Rich Text wurde als Bild angehängt (#135).
+- Behoben: Ungesendete Anhänge verschwanden nach dem Besuch einer anderen Sitzung (#139).
+- Behoben: Leads Modell und Reasoning-Aufwand änderten sich jedes Mal, wenn eine neue Aufgabe geöffnet wurde (#149).
+- Behoben: Claude Opus 5.5 antwortete am Ende langer Aufgaben auf Englisch statt auf Koreanisch; Lead und Bot-Abschlussantworten erfolgen nun auf Koreanisch.
+- Behoben: Einstellungs- und Kontodateien wurden nach einem erzwungenen Herunterfahren beschädigt, wodurch Anmeldungen und Einstellungen verloren gingen; sie werden nun aus der letzten intakten Kopie wiederhergestellt (#151).
+- Behoben: Das Erstellen oder Bearbeiten von Dateien in Synchronisationsordnern wie NAVER MYBOX schlug mit EPERM fehl (#138).
+- Behoben: Die Modellliste blieb nach der Anmeldung bei OpenCode Go leer (#141).
+- Behoben: Eine unterbrochene Installation der code-tidy-Engine blieb hängen und installierte nie erneut; der Fehler wird nun gemeldet und die Installation pro Engine wiederholt (#152).
+- Behoben: Das Speichern eines benutzerdefinierten Providers mit einer langsamen Modellliste schlug mit einem Timeout fehl.
+- Behoben: Das Starten einer neuen Aufgabe kehrte zu einem leeren Bildschirm zurück.
+- Behoben: Die Liste abgeschlossener Sub-Agenten verschwand nach dem Neustart der App oder des Hintergrunddienstes.
+- Behoben: Sub-Agenten bei vom Hauptbot übergebenen Aufgaben meldeten vor dem Abschluss eine Zwischenantwort als Ergebnis.
+- Behoben: Aufgaben, die auf Genehmigung warteten, wurden als festgefahren angezeigt oder durch einen Timeout abgebrochen.
+- Behoben: Sub-Agenten übernahmen Kontext-, Reasoning-Aufwands- und Geschwindigkeitseinstellungen des Haupt-Chats und ignorierten die Maintainer-Einstellung.
+- Behoben: Eine auf einmal eintreffende lange Antwort sah für einen Moment leer und blass aus.
+- Behoben: Eine angehaltene Eingabe in der Warteschlange wurde nach der Wiederherstellung erneut ausgeführt (#142, thanks @22nsuk).
+- Behoben: Shell-Jobs, deren Beendigung nie bestätigt wurde, wurden als abgeschlossen behandelt (#133, thanks @22nsuk).
+- Behoben: Laufende Aufgaben verloren ihren Schutz, wenn der Datensatz des Arbeitsbereichs beschädigt war (#117, thanks @22nsuk).
+- Behoben: Cursor-Modelle verloren Toolaufruf-IDs und festgefahrene Tool-Übergaben endeten nie (#156, thanks @22nsuk).
+- Behoben: Die Tippanzeige in Bot-Räumen endete nie und mitten während der Antwort gesendete Nachrichten gingen verloren.
+- Behoben: Der Hinweis "results omitted" erschien im Chat eines Bots nicht, wenn sich viele Routine-Ergebnisse ansammelten.
+- Behoben: Der Zähler ungelesener Nachrichten in der Bots-Liste zählte auch Toolaufrufe mit.
+- Behoben: Abschlussbenachrichtigungen für andere Sitzungen erschienen nicht, während die App im Vordergrund sichtbar war.
+- Behoben: Die Sitzungsliste sprang auf Telefonen, wenn sich ihre Reihenfolge beim Scrollen änderte, und iPhone-Einstellungsblätter schlossen sich nicht beim Tippen außerhalb.
+- Behoben: E-Mail-Links in Antworten reagierten beim Anklicken nicht.
+- Behoben: PreToolUse-Hooks wurden bei später wieder geöffneten Sitzungen übersprungen, etwa beim Folgezug eines Agenten (#161).
+- Behoben: Die GitHub-Anmeldung blieb bei "GitHub-Anmeldung wird gestartet…" hängen (#162).
+- Behoben: Das Reasoning-Niveau zeigte nach der Auswahl eines anderen Werts weiterhin Auto an (#131).
+- Behoben: Die Vollbild-Schaltfläche von Videos im Seitenpanel reagierte nicht (#160, thanks @Deno2026).
+- Behoben: Die App zeigte "Object has been destroyed" an, wenn ihr Fenster bei aktivem Hauptbot-Overlay geschlossen wurde.
+- Behoben: Ein langsamer Git-Befehl führte dazu, dass sich die App erneut mit ihrem Hintergrunddienst verband und Live-Sitzungsaktualisierungen kurzzeitig verlor.
+
 ## v1.3.1 - 2026-10-20
 
 Ein Stabilisierungs-Patch für Probleme, die seit 1.3.0 aufgetreten sind, mit einem verbesserten Beurteiler für den Reasoning-Aufwand.

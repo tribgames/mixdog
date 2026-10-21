@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -26,6 +26,22 @@ test('a roster from a request another process started later is never overwritten
   rmSync(cache.path());
   assert.equal(fresh([{ id: 'latest' }]), true);
   assert.deepEqual(cache.loadSync(), [{ id: 'latest' }]);
+});
+
+test('a NUL-filled roster cache is a miss, is refetched silently, and never stops a save', () => {
+  for (const [name, publishWith] of [
+    ['save', (cache) => cache.save([{ id: 'saved' }])],
+    ['beginSave', (cache) => cache.beginSave(() => true)([{ id: 'saved' }])],
+  ]) {
+    const cache = makeModelCache({ fileName: `nul-${name}-oauth-models.json`, ttlMs: 60_000, version: 1 });
+    writeFileSync(cache.path(), Buffer.alloc(4583));
+    assert.equal(cache.loadSync(), null);
+    assert.equal(cache.loadEntrySync({ allowStale: true }), null);
+    publishWith(cache);
+    assert.deepEqual(cache.loadSync(), [{ id: 'saved' }]);
+    assert.equal(existsSync(`${cache.path()}.bak`), false, 'a cache keeps no backup of NUL bytes');
+  }
+  assert.ok(readdirSync(dir).some((entry) => entry.startsWith('nul-beginSave-oauth-models.json.corrupt-')));
 });
 
 test('an effort entry without values declares no ladder', () => {

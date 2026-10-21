@@ -123,6 +123,8 @@ export function createTranscriptIntake({ getState, flags, pushItem, patchItem, t
       ...routineTriggerField(extra),
       ...(extra && typeof extra.sender === 'string' && extra.sender ? { sender: extra.sender } : {}),
       ...(extra && typeof extra.device === 'string' && extra.device ? { device: extra.device } : {}),
+      // The bot that sent this message (a bot's `session send`).
+      ...(extra && typeof extra.fromAgent === 'string' && extra.fromAgent ? { fromAgent: extra.fromAgent } : {}),
       // Delivered into the running turn (steering): the desktop row's read mark.
       ...(extra?.steered === true ? { steered: true } : {}),
       // Byte-free attachment metadata (name/mime/size) from the queue entry —

@@ -3,11 +3,7 @@
  * page server's virtual lease: the page itself and, for a chart, the locally
  * bundled ECharts it loads. Nothing is read from or written to the project.
  */
-import {
-  INLINE_ECHARTS_FILE,
-  INLINE_PAGE_FILE,
-  inlinePageDocument,
-} from '../../shared/visualize-inline-page';
+import { INLINE_ECHARTS_FILE, INLINE_PAGE_FILE, inlinePageDocument } from '../../shared/visualize-inline-page';
 import type { VisualizeInlineContent } from '../../shared/visualize';
 import type { VirtualPageFile } from '../local-page-server';
 

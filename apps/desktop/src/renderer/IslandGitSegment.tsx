@@ -1,11 +1,10 @@
-// The composer island's git action, last in the pill: a split pill whose
-// main part sends the chosen request (Create PR by default) at once, and
-// whose ▾ expands the island into its Git tab, a selector: a Create PR ·
-// Commit · push · Commit row picks what the main part does (remembered per
-// repository root) and its Run sends that action at once; plus Source
-// Control. Shown in a git checkout while the files segment has files or the
+// The composer island's git segment, last in the pill: one button that
+// expands the island into its Git tab, which lists Create PR · Commit · push
+// · Commit, each with its own Run that sends that request at once, plus
+// Source Control. Nothing is pre-selected: the tab is three actions, not a
+// setting. Shown in a git checkout while the files segment has files or the
 // branch has commits ahead of its upstream; never shown outside a repository.
-import { ArrowUp, Check, ChevronDown, GitCommitHorizontal, GitPullRequest, List, Play } from 'lucide-react';
+import { ArrowUp, GitCommitHorizontal, GitPullRequest, List, Play } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import type { DesktopGitStatus } from '../shared/contract';
@@ -49,48 +48,18 @@ const GIT_ROWS: { action: IslandGitAction; label: () => string; icon: typeof Git
   { action: 'commit', label: () => t('Commit'), icon: GitCommitHorizontal },
 ];
 
-const ACTION_KEY = 'mixdog:island-git-action:';
-const DEFAULT_ACTION: IslandGitAction = 'pr';
-
-function readGitAction(root: string): IslandGitAction {
-  try {
-    const stored = root ? window.localStorage?.getItem(ACTION_KEY + root) : null;
-    return GIT_ROWS.some((row) => row.action === stored) ? (stored as IslandGitAction) : DEFAULT_ACTION;
-  } catch {
-    return DEFAULT_ACTION;
-  }
-}
-
-/** The action the island button performs, remembered per repository root. */
-function useIslandGitAction(root: string): [IslandGitAction, (action: IslandGitAction) => void] {
-  const [chosen, setChosen] = useState(() => ({ root, action: readGitAction(root) }));
-  const action = chosen.root === root ? chosen.action : readGitAction(root);
-  const choose = (next: IslandGitAction) => {
-    setChosen({ root, action: next });
-    try {
-      if (root) window.localStorage?.setItem(ACTION_KEY + root, next);
-    } catch {
-      // Storage is best-effort; the choice still holds for this view.
-    }
-  };
-  return [action, choose];
-}
-
 export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: string }) {
   const git = useIslandGitRequest({ sessionId, cwd });
   // The files segment's own count (its Changes source, the same shared read).
   const changes = useSessionChanges({ cwd, sessionId, active: true });
   const files = changes.summary.files.size;
   const status = useIslandGitStatus(git.ready ? cwd : '');
-  const [action, setAction] = useIslandGitAction((status?.repository ? status.root : '') || changes.root);
-  const current = GIT_ROWS.find((row) => row.action === action) ?? GIT_ROWS[0];
-  const CurrentIcon = current.icon;
   const [open, setOpen] = useComposerIslandTab('git');
-  const caret = useRef<HTMLButtonElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
   const panelId = useId();
-  // Set when a close should hand focus back to the ▾; it is hidden while
-  // the tab is open, so focus moves once the tab has closed.
+  // Set when a close should hand focus back to the segment button; it is
+  // hidden while the tab is open, so focus moves once the tab has closed.
   const refocus = useRef(false);
   const ahead = status?.repository ? status.ahead : 0;
   const shown = git.ready && (files > 0 || ahead > 0);
@@ -106,12 +75,10 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
   }, [shown]);
   useEffect(() => {
     if (open) {
-      queueMicrotask(() =>
-        panel.current?.querySelector<HTMLElement>('.composer-island-git-pick[aria-pressed="true"]')?.focus()
-      );
+      queueMicrotask(() => panel.current?.querySelector<HTMLElement>('.composer-island-git-run')?.focus());
       return;
     }
-    if (refocus.current) caret.current?.focus();
+    if (refocus.current) trigger.current?.focus();
     refocus.current = false;
   }, [open]);
   if (!shown) {
@@ -121,14 +88,9 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
     return decided ? null : <IslandSegmentPending kind="git" />;
   }
 
-  // A row only picks what the button does; the button alone sends.
-  const choose = (next: IslandGitAction) => {
-    setAction(next);
-    close();
-  };
-  // A row's Run sends that action at once and makes it the button's.
+  // A row's Run sends that action at once and collapses the tab.
   const runNow = (next: IslandGitAction) => {
-    choose(next);
+    close();
     git.request(next);
   };
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -139,9 +101,8 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
     }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     const items = [
-      ...(panel.current?.querySelectorAll<HTMLElement>(
-        '.composer-island-git-rows button, .composer-island-git-foot button'
-      ) ?? []),
+      ...(panel.current?.querySelectorAll<HTMLElement>('.composer-island-git-run, .composer-island-git-foot button') ??
+        []),
     ];
     const index = items.indexOf(document.activeElement as HTMLElement);
     const step = event.key === 'ArrowDown' ? 1 : -1;
@@ -152,24 +113,15 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
 
   return (
     <>
-      {/* A plain island segment: the chevron alone toggles the tab, the rest runs. */}
+      {/* One island segment: the whole button toggles the Git tab. */}
       <span className="composer-island-seg composer-island-git" data-open={open || undefined}>
         <button
+          ref={trigger}
           type="button"
           className="composer-island-git-main"
-          data-action={action}
-          onClick={() => git.request(action)}
-        >
-          <CurrentIcon size={14} aria-hidden="true" />
-          <span>{current.label()}</span>
-        </button>
-        <button
-          ref={caret}
-          type="button"
-          className="composer-island-git-caret"
           aria-label={t('Island: Git actions')}
           title={t('Island: Git actions')}
-          aria-haspopup="menu"
+          aria-haspopup="true"
           aria-expanded={open}
           aria-controls={open ? panelId : undefined}
           onClick={() => {
@@ -177,7 +129,8 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
             setOpen(!open);
           }}
         >
-          <ChevronDown size={13} aria-hidden="true" />
+          <GitPullRequest size={14} aria-hidden="true" />
+          <span>{t('Git')}</span>
         </button>
       </span>
       {open && (
@@ -207,24 +160,11 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
           <div className="composer-island-pbody">
             <div className="composer-island-git-rows">
               {GIT_ROWS.map(({ action: rowAction, label, icon: Icon }) => (
-                <div
-                  key={rowAction}
-                  className="composer-island-git-row"
-                  data-action={rowAction}
-                  data-selected={rowAction === action || undefined}
-                >
-                  <button
-                    type="button"
-                    aria-pressed={rowAction === action}
-                    className="composer-island-git-pick"
-                    onClick={() => choose(rowAction)}
-                  >
+                <div key={rowAction} className="composer-island-git-row" data-action={rowAction}>
+                  <span className="composer-island-git-label">
                     <Icon size={16} aria-hidden="true" />
                     <span>{label()}</span>
-                    {rowAction === action && (
-                      <Check size={16} className="composer-island-git-check" aria-hidden="true" />
-                    )}
-                  </button>
+                  </span>
                   <button
                     type="button"
                     className="composer-island-button composer-island-git-run"

@@ -1,6 +1,6 @@
 // Optional feature tools gated by settings for model-initiated calls: office,
 // media and tidy (each loaded on first use), and the setup tool.
-import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
+import { standaloneDataDir } from '../runtime-paths.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
 
 export function createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, mediaToolEnabled, tidyToolEnabled }) {
@@ -17,7 +17,7 @@ export function createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, m
       const { executeOfficeTool } = await import('../../runtime/office/index.mjs');
       return await executeOfficeTool(args, {
         cwd: callerCwd,
-        dataDir: STANDALONE_DATA_DIR,
+        dataDir: standaloneDataDir(),
         requestApproval: callerCtx?.toolApprovalHook,
         sessionId: callerCtx?.sessionId,
         toolCallId: callerCtx?.toolCallId,

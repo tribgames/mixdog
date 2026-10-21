@@ -36,10 +36,8 @@
   overflow: hidden;
   position: relative;
   isolation: isolate;
-  /* Every leaf follows the same inset/column ladder from ITS width, not
-     the outer workbench. */
-  container-name: mixdog-pane;
-  container-type: inline-size;
+  /* The pane container (mixdog-pane) is the .pane-cell inside: a single
+     pane has a cell but no leaf. */
 }
 /* Monaco's fixed context view remains inside its leaf stacking context.
    Lift the focused leaf above sibling panes so their tab close buttons and
@@ -614,9 +612,15 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* No container-type here: layout containment would re-anchor fixed
-     descendants (Monaco context menus) to the cell. The dock host MEASURES
-     this cell directly (ResizeObserver), so no container query is needed. */
+  /* Every pane follows the same inset/column ladder from ITS width, not the
+     outer workbench. Declared on the cell, which every pane has (a single
+     pane renders it straight into .main-panel, a split wraps it in a
+     .pane-leaf, the phone carousel in an item), so `@container mixdog-pane`
+     matches in all three. A size container (container-type) only applies
+     inline-size and style containment: fixed descendants (Monaco context
+     menus) stay anchored to the viewport (checked in Electron's Chromium). */
+  container-name: mixdog-pane;
+  container-type: inline-size;
 }
 .pane-cell > .workspace-tabs-shell {
   grid-column: 1;

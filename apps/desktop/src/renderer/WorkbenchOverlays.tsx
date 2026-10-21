@@ -8,6 +8,7 @@ import {
   type EditorOutlineItem,
 } from './editor-language-store';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 import { ErrorNotice } from './ErrorNotice';
 import { isPhoneSurfaceMarked } from './mobile-surface';
 import { acquireModalLayer } from './modal-layer';
@@ -366,14 +367,8 @@ export function WorkbenchQuickAccess({
   const listMessage = loading ? t('Searching…') : error || emptyListMessage();
 
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-away layer; the dialog inside carries the semantics
-    <div
-      ref={surfaceRef}
-      className="workbench-quick-access-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
+    // Backdrop click-away layer; the dialog inside carries the semantics.
+    <div ref={surfaceRef} className="workbench-quick-access-layer" {...scrimDismiss(onClose)}>
       <section
         className="workbench-quick-access"
         role="dialog"
@@ -549,13 +544,13 @@ export function UnsavedChangesDialog({
   }, []);
 
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-away layer; the dialog inside carries the semantics
+    // Backdrop click-away layer; the dialog inside carries the semantics.
     <div
       ref={surfaceRef}
       className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
-      }}
+      {...scrimDismiss(() => {
+        if (!busy) onCancel();
+      })}
     >
       <section
         ref={dialogRef}

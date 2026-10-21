@@ -73,9 +73,9 @@ export const SESSION_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  trigger: 'Session lookup/control, agent task sessions, title, compact, fork, Project and worktrees.',
+  trigger: 'Session lookup/control, bot status, agent task sessions, title, compact, fork, Project and worktrees.',
   description:
-    'Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion; promise a report of it only when its result has reportsBack: true. Cancel/delete and worktree actions require the user’s request. Other actions affect only the current session. Pass files on with attachments; a reported turn returns the files it produced as attachments.',
+    'Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion: promise a report of it only when its result has reportsBack: true. create returns status: started — started, not done yet; it reports its final answer, after the agents it started finish, unless its result says reportsBack: false. reportsBack: false carries reportsBackReason, the reason to tell the user. Cancel/delete and worktree actions require the user’s request. Other actions affect only the current session. Pass files on with attachments; a reported turn returns the files it produced as attachments.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -84,6 +84,7 @@ export const SESSION_TOOL = {
         enum: [
           'status',
           'list',
+          'bots',
           'read',
           'send',
           'cancel',
@@ -102,13 +103,13 @@ export const SESSION_TOOL = {
           'prune-worktrees',
         ],
         description:
-          'status defaults to current; list pages sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations) starts a visible agent task session from brief and reports its turns back; unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
+          'status defaults to current; list pages sessions; bots shows each bot’s activity, work, approvals, routines and attention flags, or with session_id (a bot id or its chat) its routines and recent sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations) starts a visible agent task session from brief (started, not done yet); unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
       },
       title: { type: 'string', description: 'rename: new current-session title; create: task title.' },
       session_id: {
         type: 'string',
         description:
-          'ID from list; required for read/send/cancel/delete, optional for status. send/cancel/delete cannot target the caller.',
+          'ID from list; required for read/send/cancel/delete, optional for status/bots. send/cancel/delete cannot target the caller.',
       },
       prompt: { type: 'string', description: 'send: message to enqueue; loads a cold session.' },
       limit: {
@@ -116,7 +117,7 @@ export const SESSION_TOOL = {
         minimum: 1,
         maximum: 100,
         description:
-          'list/read: maximum rows, default 25. Output: 8KiB per page, 12KiB for initial read tail; follow nextOffset/nextTextOffset for more.',
+          'list/read: maximum rows, default 25; bots: sessions, default 10. Output: 8KiB per page, 12KiB for initial read tail; follow nextOffset/nextTextOffset for more.',
       },
       cursor: { type: 'string', description: 'list: returned nextCursor.' },
       offset: {

@@ -220,7 +220,7 @@ test('a coding Lead prompt: the same with or without a mode, in the prefix-shari
   );
   assert.doesNotMatch(_buildLeadRules(), /You are Mixdog|Before your first tool call|review its diff/);
   assert.match(instructionFiles, /INSTRUCTION_FILE_SENTINEL/);
-  assert.doesNotMatch(core, /# Bot Mode|# Delegation\n|# Your Role|# Contact Agents/);
+  assert.doesNotMatch(core, /# Bot Mode|# Delegation\n|# Your Role|# Bots\n/);
 });
 
 // The longest common prefix of two strings.
@@ -291,7 +291,7 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
   assert.match(parts.agentCatalogContext, /\(worker\)/);
   assert.doesNotMatch(parts.agentCatalogContext, /\(sample\)|\(other\)/);
   assert.doesNotMatch(core, /You are Mixdog|# Orchestration Mode|INSTRUCTION_FILE_SENTINEL|# Instruction Files/);
-  assert.doesNotMatch(core, /# Your Role|# Contact Agents|setup APIs|# Routine Run/);
+  assert.doesNotMatch(core, /# Your Role|# Bots\n|setup APIs|# Routine Run/);
 
   const mixy = compose({ agent: 'lead', sessionMode: 'agent' }).sessionMarkerCore;
   const mixyParts = workflow.leadPromptParts({ agentMode: true, mixy: true });
@@ -301,7 +301,7 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
     '# Available Agents',
     "# Your Role\n\n- You are the user's personal assistant,",
     "You coordinate the user's bots and agents",
-    '# Contact Agents\n\nYou also coordinate',
+    "# Bots\n\nThe user's other bots. Hand one a request with `session send`",
     '- Other (other): plans trips.\n- Sample (sample): reads the news for the user.',
     "# Identity\n\nYou are Mixy, the user's assistant in Mixdog.",
     '# Core Memory',
@@ -381,10 +381,10 @@ test('a renamed Mixy speaks under its display name; its id stays lead', (t) => {
   );
 });
 
-test('a routine adds its unattended-run line ahead of the identity', () => {
+test("a routine source leaves the bot's prompt as it is: its conduct rides the turn header", () => {
   const run = compose({ agent: 'sample', sessionMode: 'agent', sourceType: 'schedule' }).sessionMarkerCore;
-  assertInOrder(run, ['# Available Agents', '# Routine Run\n\n- No user is present in this run.', '# Identity']);
-  assert.doesNotMatch(compose({ agent: 'sample', sessionMode: 'agent' }).sessionMarkerCore, /# Routine Run/);
+  assert.equal(run, compose({ agent: 'sample', sessionMode: 'agent' }).sessionMarkerCore);
+  assert.doesNotMatch(run, /# Routine Run/);
 });
 
 test('a schedule run acts as its owner: persona, connectors and memory', (t) => {
@@ -414,7 +414,6 @@ test('a schedule run acts as its owner: persona, connectors and memory', (t) => 
   assert.equal(session.agent, 'sample');
   assertInOrder(session.bp3CoreContext, [
     '# Bot Mode',
-    '# Routine Run',
     'You are Sample. Your role: reads the news for the user.',
     'SAMPLE_ROLE_BODY',
     'SAMPLE_PERSONA_TEXT',

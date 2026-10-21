@@ -2,6 +2,8 @@
 import '../lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test, { after, mock } from 'node:test';
 import { holdWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
@@ -56,7 +58,8 @@ mock.module('../lib/native-spawn-client.mjs', {
 const tree = scriptedChildTree();
 mock.module('../../mcp/child-tree.mjs', { namedExports: tree.namedExports });
 
-const { killShellJob, promoteForegroundShellJob } = await import('./shell-jobs.mjs');
+const { isShellJobRunning, killShellJob, promoteForegroundShellJob } = await import('./shell-jobs.mjs');
+const { cleanupArtifactOnTaskSettled } = await import('./bash-tool/transport-artifacts.mjs');
 const {
   _shellJobRecordWritesSettledForTest,
   forceReleaseTerminationHold,
@@ -98,6 +101,13 @@ const promote = (repo, pid) =>
     jobId: `job_bg_${pid}`,
     ownerSessionId: 'sess_bg',
   });
+// A hoisted script the job still runs from, removed when the job settles.
+function transportArtifact(repo, jobId) {
+  const file = join(repo, `${jobId}-script.cjs`);
+  writeFileSync(file, 'setInterval(() => {}, 1000);');
+  cleanupArtifactOnTaskSettled(file, jobId);
+  return file;
+}
 
 test('a background job that exits on its own keeps the folder until its survivors are gone', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -205,14 +215,56 @@ test('closing a job owner without a snapshot keeps its hold visible until explic
   t.mock.timers.tick(5_000);
   await flush();
   assert.equal(isHeld(repo), true, 'an empty later table cannot reconstruct the missing snapshot');
-  assert.deepEqual(
-    await forceReleaseTerminationHold('job_bg_6400', { callerSessionId: 'viewer', callerCwd: repo }),
-    { released: true }
-  );
+  assert.deepEqual(await forceReleaseTerminationHold('job_bg_6400', { callerSessionId: 'viewer', callerCwd: repo }), {
+    released: true,
+  });
   assert.equal(isHeld(repo), false);
   const done = await readShellJobRecord('job_bg_6400');
   assert.equal(done.terminal, true);
   assert.equal(done.status, 'cancelled');
   const released = await shellJobsStatusFresh({ clientHostPid: process.pid });
-  assert.equal((released.orphaned || []).some((job) => job.taskId === 'job_bg_6400'), false);
+  assert.equal(
+    (released.orphaned || []).some((job) => job.taskId === 'job_bg_6400'),
+    false
+  );
 });
+
+// The root ends on its own or by a cancel; a worker it started keeps running.
+function endRoot(jobId, pid, ending) {
+  const survivor = () => processTable([{ pid: pid + 1, ppid: pid, token: 'worker' }]);
+  if (ending === 'cancelled') {
+    onCancel.set(jobId, () => {
+      tree.state.next = survivor;
+    });
+    killShellJob(jobId);
+    return;
+  }
+  tree.state.next = survivor;
+  setTask(jobId, 'completed');
+}
+
+for (const [ending, pid] of [
+  ['completed', 6510],
+  ['cancelled', 6520],
+]) {
+  test(`a transport artifact of a ${ending} background root stays until its tree is gone`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const repo = makeRepo();
+    const jobId = `job_bg_${pid}`;
+    tree.state.next = () => processTable([{ pid }, { pid: pid + 1, ppid: pid, token: 'worker' }]);
+    await promote(repo, pid);
+    await flush();
+    const artifact = transportArtifact(repo, jobId);
+    endRoot(jobId, pid, ending);
+    await flush();
+    assert.equal(tasks.get(jobId).status, ending, 'the native root is terminal');
+    t.mock.timers.tick(5_000);
+    await flush();
+    assert.equal(existsSync(artifact), true, 'the surviving worker may still use it');
+    assert.equal(isShellJobRunning(jobId), true, 'a process of the job still runs');
+    tree.state.next = () => processTable([]);
+    t.mock.timers.tick(5_000);
+    await until(() => !existsSync(artifact));
+    assert.equal(isShellJobRunning(jobId), false);
+  });
+}

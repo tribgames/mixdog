@@ -90,6 +90,14 @@ function reserveSessionId(boot, id) {
 // the configured one is the default for new sessions.
 function currentWorkflow(boot) {
   const { rt, cfgMod } = boot;
+  // A switch chosen while a turn runs shows at once; it applies next turn.
+  const pending = rt.session?.pendingWorkflowId;
+  if (pending) {
+    return workflowHelpers.activeWorkflowSummary(
+      { ...rt.config, workflow: { ...(rt.config?.workflow || {}), active: pending } },
+      dataDirOf(cfgMod)
+    );
+  }
   const active = workflowHelpers.activeWorkflowSummary(rt.config, dataDirOf(cfgMod));
   const current = rt.session?.workflow;
   return current?.id && active?.id && current.id !== active.id ? current : active;
@@ -106,7 +114,9 @@ function facadeGetters(boot) {
     },
     getWorkflow: () => currentWorkflow(boot),
     getOrchestrationMode: () =>
-      rt.session?.id ? sessionOrchestrationMode(rt.session) : configuredOrchestrationMode(rt.config),
+      rt.session?.id
+        ? (rt.session.pendingOrchestrationMode ?? sessionOrchestrationMode(rt.session))
+        : configuredOrchestrationMode(rt.config),
     getOutputStyle: () => boot.getOutputStyleStatusCached().current,
     getContextStatus: boot.computeContextStatus,
     getContextStatusForSession: boot.computeContextStatusForSession,

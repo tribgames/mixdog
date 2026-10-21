@@ -1,0 +1,165 @@
+// Staging and applying the tool/prompt policy a config gives a Lead session:
+// the tools it is denied, its BP1 rules and its BP3 core.
+import { toSessionWorkflowMeta } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import {
+  applyDeferredToolSurface,
+  filterDisallowedTools,
+} from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import { deferredSurfaceModeForLead } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
+import {
+  applyInitialDeferredToolManifestToBp2,
+  composeSystemPrompt,
+} from '../../runtime/agent/orchestrator/context/collect.mjs';
+import { _buildBaseRules } from '../../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+import { sessionRolePromptFields } from '../../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
+import {
+  delegationDisabled,
+  honoredSchemaAllowlist,
+} from '../../runtime/agent/orchestrator/session/manager/session-tool-surface.mjs';
+import { finalizeSessionToolList } from '../../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
+import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
+import { AGENT_MODE, sessionModeOf } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { unusedModelEditToolName } from '../../runtime/shared/edit-tool-dialect.mjs';
+import { withPresentedWorkspaceSlices } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+import { leadPartsFor, rewriteSystemHeading, toolNames } from './surface-helpers.mjs';
+
+export function createPolicyStage({
+  getRoute,
+  getMode,
+  getDataDir,
+  modelStandaloneTools,
+  featureDisallowedTools,
+  loadCoreMemoryContext,
+  loadInstructionFilesContext,
+  activeWorkflowContext,
+}) {
+  // The tools `session` is denied now: its caller's denials, the feature gates
+  // as they stand, and the agent tool when its workflow delegates to no one.
+  function liveDeniedTools(session, workflow) {
+    return [
+      ...session.callerDisallowedTools,
+      ...featureDisallowedTools(),
+      ...(workflow?.delegatesAgents === false ? ['agent'] : []),
+    ]
+      .map((name) => String(name || ''))
+      .filter(Boolean);
+  }
+
+  // Denied tools leave every surface, then the deferred surface is rebuilt
+  // for the lead's current mode.
+  function applyToolDenials(session, denied, schemaAllowedTools, ownerIsAgent) {
+    session.disallowedTools = denied;
+    session.tools = filterDisallowedTools(session.tools, denied);
+    if (Array.isArray(session.deferredToolCatalog)) {
+      session.deferredToolCatalog = filterDisallowedTools(session.deferredToolCatalog, denied);
+    }
+    const catalogTools = finalizeSessionToolList(modelStandaloneTools(), {
+      schemaAllowedTools,
+      disallowedTools: denied,
+      ownerIsAgent,
+    });
+    session.tools = finalizeSessionToolList(session.tools, {
+      schemaAllowedTools,
+      disallowedTools: denied,
+      ownerIsAgent,
+    });
+    applyDeferredToolSurface(session, deferredSurfaceModeForLead(getMode()), catalogTools, {
+      provider: getRoute()?.provider,
+    });
+    const catalog = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
+    const active = new Set(toolNames(session.tools).concat(toolNames(session.deferredCallableTools)));
+    const pool = catalog.map((tool) => String(tool?.name || '')).filter((name) => name && !active.has(name));
+    applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true });
+  }
+
+  async function leadCoreMemoryContext() {
+    try {
+      return await loadCoreMemoryContext();
+    } catch {
+      return '';
+    }
+  }
+
+  // The policy `config` gives `session`, computed without touching the
+  // session, so a turn that starts during the async rebuild cannot lose tools
+  // to it. `conversation`: the rebuilt BP3 core keeps the instruction files
+  // and core memory the prompt presents now (withPresentedWorkspaceSlices).
+  async function stagePolicy(session, identity, config, { conversation = false } = {}) {
+    const ownerIsAgent = isAgentOwner(session);
+    const schemaAllowedTools = honoredSchemaAllowlist(session.schemaAllowedTools, {
+      ownerIsAgent,
+      agent: identity.agent,
+    });
+    const toolFreeRole = ownerIsAgent && schemaAllowedTools?.length === 0;
+
+    const {
+      summary: workflow,
+      leadPromptParts,
+      packContext: workflowContext,
+      orchestrationMode,
+    } = activeWorkflowContext(config, getDataDir());
+    const sessionMode = sessionModeOf(session);
+    const agentMode = sessionMode === AGENT_MODE;
+    const leadWorkflowParts = ownerIsAgent ? {} : leadPartsFor(session, leadPromptParts);
+    const denied = liveDeniedTools(session, workflow);
+
+    const baseRules =
+      identity.skipAgentRules || toolFreeRole
+        ? ''
+        : _buildBaseRules({
+            omitTools: [...denied, unusedModelEditToolName(getRoute()?.model)],
+            allowTools: schemaAllowedTools,
+            provider: getRoute()?.provider,
+            model: getRoute()?.model,
+          });
+    const coreMemoryContext = conversation ? '' : await leadCoreMemoryContext();
+    const { sessionMarkerCore } = composeSystemPrompt({
+      ...sessionRolePromptFields(identity, {
+        ownerIsAgent,
+        toolFreeRole,
+        delegationFree: delegationDisabled(session, ownerIsAgent),
+        sessionMode,
+      }),
+      provider: getRoute()?.provider,
+      workflowContext,
+      ...leadWorkflowParts,
+      coreMemoryContext,
+      // The rebuilt core keeps (or newly applies) the instruction-files
+      // setting; agent mode carries none.
+      instructionFilesContext:
+        conversation || toolFreeRole || agentMode ? null : loadInstructionFilesContext?.(session) || null,
+    });
+    return {
+      workflow,
+      orchestrationMode,
+      sessionMode,
+      denied,
+      schemaAllowedTools,
+      ownerIsAgent,
+      baseRules,
+      core: conversation ? withPresentedWorkspaceSlices(session, sessionMarkerCore) : sessionMarkerCore,
+    };
+  }
+
+  // Apply a staged policy synchronously; the BP3 core is the caller's. The
+  // prompt then carries the session's workflow and tools as they stand.
+  function applyPolicy(session, staged) {
+    delete session.workflowOverlay;
+    delete session.orchestrationModeOverlay;
+    delete session.workflowOpenedTools;
+    delete session.promptFoldPending;
+    session.workflow = toSessionWorkflowMeta(staged.workflow);
+    session.orchestrationMode = staged.orchestrationMode;
+    session.sessionMode = staged.sessionMode;
+    applyToolDenials(session, staged.denied, staged.schemaAllowedTools, staged.ownerIsAgent);
+    // BP1 opens with its first rule file's heading (`# Tool Calls`); older
+    // prompts opened with `# Tool Use`.
+    const heading = String(staged.baseRules || '').split('\n', 1)[0];
+    for (const candidate of new Set(['# Tool Use', heading].filter(Boolean))) {
+      rewriteSystemHeading(session, candidate, staged.baseRules);
+    }
+    session.updatedAt = Date.now();
+  }
+
+  return { liveDeniedTools, stagePolicy, applyPolicy };
+}

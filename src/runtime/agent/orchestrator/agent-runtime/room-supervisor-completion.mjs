@@ -20,7 +20,8 @@ export function createRoomSupervisorCompletion(deps = {}) {
   const log = deps.log || ((line) => process.stderr.write(line));
 
   /** The decision for one step (parseRoomDecision), null for an unusable
-   *  reply; throws when the route or provider is unavailable. */
+   *  reply, `{ action: 'unmanaged' }` when no Maintainer model is configured;
+   *  throws when the configured provider is unavailable. */
   return async function decideRoomTurn(input = {}) {
     const members = (Array.isArray(input?.members) ? input.members : [])
       .filter((member) => member && typeof member.id === 'string' && member.id)
@@ -32,12 +33,12 @@ export function createRoomSupervisorCompletion(deps = {}) {
     if (!members.length) return null;
     const config = load();
     // The Maintainer's own route only: a step runs after every turn, so it
-    // never falls back to the default (Lead) model the user pays most for;
-    // without one the room keeps its rule-based picks.
+    // never falls back to the default (Lead) model the user pays most for.
+    // Without one the room is unmoderated: the members called answer once.
     const route = resolveRoute({ agent: 'cycle1-agent', config, includeDefault: false });
     const providerName = String(route?.provider || '').trim();
     const model = String(route?.model || '').trim();
-    if (!providerName || !model) throw new Error('The room supervisor has no Maintainer route.');
+    if (!providerName || !model) return { action: 'unmanaged' };
     const signal = AbortSignal.timeout(TIMEOUT_MS);
     await initialize(config.providers || {}, { signal });
     const provider = providerFor(providerName);

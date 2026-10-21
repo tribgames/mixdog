@@ -167,6 +167,107 @@ export interface VisualizeServiceDeps {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+type LateGroups = Pick<
+  VisualizeServiceContext,
+  'publish' | 'thumbnails' | 'problems' | 'leases' | 'panes' | 'tabVersions' | 'reloads' | 'tabs' | 'opens' | 'exports'
+>;
+
+/** The shared context of the service's groups; `late` yields the groups
+ *  created after it, read only when a handler runs. */
+function createServiceContext(
+  deps: VisualizeServiceDeps,
+  sessions: Map<string, SessionState>,
+  sessionOf: (sessionId: string) => SessionState,
+  versions: VisualizeServiceContext['versions'],
+  late: () => LateGroups
+): VisualizeServiceContext {
+  /** Start order of opens and file reloads (`TabState.loadedStamp`). */
+  let loadStamp = 0;
+  return {
+    deps,
+    sessions,
+    sessionOf,
+    delay: deps.delay ?? sleep,
+    versions,
+    sessionCwds: new Map(),
+    pendingReloads: new Set(),
+    holds: new Map(),
+    panelSize: { current: null },
+    nextLoadStamp: () => {
+      loadStamp += 1;
+      return loadStamp;
+    },
+    views: createSessionViews(sessions, sessionOf),
+    get publish() {
+      return late().publish;
+    },
+    get thumbnails() {
+      return late().thumbnails;
+    },
+    get problems() {
+      return late().problems;
+    },
+    get leases() {
+      return late().leases;
+    },
+    get panes() {
+      return late().panes;
+    },
+    get tabVersions() {
+      return late().tabVersions;
+    },
+    get reloads() {
+      return late().reloads;
+    },
+    get tabs() {
+      return late().tabs;
+    },
+    get opens() {
+      return late().opens;
+    },
+    get exports() {
+      return late().exports;
+    },
+  };
+}
+
+/** A failed export removes its temp folder here; a finished one is the download's to remove. */
+async function exportTabForDevice(
+  sessions: ReadonlyMap<string, SessionState>,
+  exports: ReturnType<typeof createExportActions>,
+  command: DesktopVisualizeTabCommand
+): Promise<{ path: string; pages?: { included: number; total: number } }> {
+  if (command.action !== 'export' || command.format === 'project') throw new TypeError('export format is invalid.');
+  const tab = sessions
+    .get(command.sessionId)
+    ?.tabs.find((candidate) => candidate.id === command.tabId && !candidate.url);
+  if (!tab) throw new Error('This visualize tab is closed.');
+  let folder: string | undefined;
+  let pages: { included: number; total: number } | undefined;
+  try {
+    const result = await exports.exportTab(
+      command.sessionId,
+      tab,
+      command.format,
+      command.pane ?? 0,
+      async ({ name }) => {
+        folder = await mkdtemp(join(tmpdir(), 'mixdog-visualize-export-'));
+        return join(folder, name);
+      },
+      {
+        onPagesCut: (included, total) => {
+          pages = { included, total };
+        },
+      }
+    );
+    if (!result.path) throw new Error('The export did not produce a file.');
+    return { path: result.path, ...(pages ? { pages } : {}) };
+  } catch (error) {
+    if (folder) await rm(folder, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 export function createVisualizeService(deps: VisualizeServiceDeps) {
   const sessions = new Map<string, SessionState>();
   const versions = deps.versions
@@ -186,56 +287,20 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     return state;
   };
 
-  /** Start order of opens and file reloads (`TabState.loadedStamp`). */
-  let loadStamp = 0;
-
   // The groups below are created in dependency order; one that is created
-  // later is reached through these getters only when a handler runs.
-  const ctx: VisualizeServiceContext = {
-    deps,
-    sessions,
-    sessionOf,
-    delay: deps.delay ?? sleep,
-    versions,
-    sessionCwds: new Map(),
-    pendingReloads: new Set(),
-    holds: new Map(),
-    nextLoadStamp: () => {
-      loadStamp += 1;
-      return loadStamp;
-    },
-    views: createSessionViews(sessions, sessionOf),
-    get publish() {
-      return publish;
-    },
-    get thumbnails() {
-      return thumbnails;
-    },
-    get problems() {
-      return problems;
-    },
-    get leases() {
-      return leases;
-    },
-    get panes() {
-      return panes;
-    },
-    get tabVersions() {
-      return tabVersions;
-    },
-    get reloads() {
-      return reloads;
-    },
-    get tabs() {
-      return tabs;
-    },
-    get opens() {
-      return opens;
-    },
-    get exports() {
-      return exports;
-    },
-  };
+  // later is reached through the context's getters only when a handler runs.
+  const ctx = createServiceContext(deps, sessions, sessionOf, versions, () => ({
+    publish,
+    thumbnails,
+    problems,
+    leases,
+    panes,
+    tabVersions,
+    reloads,
+    tabs,
+    opens,
+    exports,
+  }));
 
   const thumbnails = createThumbnails(ctx);
   const publish = createPublish(ctx);
@@ -260,6 +325,10 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     setTurnActive: turns.setTurnActive,
     /** The source text of a displayed pane (the source view). */
     paneText: reads.paneText,
+    /** The side panel's content size the renderer last measured (CSS px). */
+    setPanelSize(size: { width: number; height: number }): void {
+      ctx.panelSize.current = { width: size.width, height: size.height };
+    },
     /** Bridge entry point: one validated request → result or thrown error. */
     async execute(raw: unknown): Promise<VisualizeResult> {
       const request = parseVisualizeRequest(raw);
@@ -294,8 +363,11 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
       const found = problems.paneOfUrl([url]);
       return found ? visualizePaneMarks(currentAnnotations(found.tab), found.index) : [];
     },
-    /** See `createReloads`. */
-    settled: reloads.settled,
+    /** See `createReloads`; also waits for the version files still being written. */
+    async settled(): Promise<void> {
+      await reloads.settled();
+      await versions?.settled();
+    },
     /** Every session's tabs, for a renderer that (re)loads. */
     snapshot(): VisualizeSessionState[] {
       return [...sessions.keys()]
@@ -321,39 +393,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
      *  Drawn without the desktop panel wherever a pane can be, so the panel
      *  may be hidden. A failed export removes its temp folder here; a
      *  finished one is the download's to remove. */
-    async exportForDevice(
-      command: DesktopVisualizeTabCommand
-    ): Promise<{ path: string; pages?: { included: number; total: number } }> {
-      if (command.action !== 'export' || command.format === 'project') throw new TypeError('export format is invalid.');
-      const tab = sessions
-        .get(command.sessionId)
-        ?.tabs.find((candidate) => candidate.id === command.tabId && !candidate.url);
-      if (!tab) throw new Error('This visualize tab is closed.');
-      let folder: string | undefined;
-      let pages: { included: number; total: number } | undefined;
-      try {
-        const result = await exports.exportTab(
-          command.sessionId,
-          tab,
-          command.format,
-          command.pane ?? 0,
-          async ({ name }) => {
-            folder = await mkdtemp(join(tmpdir(), 'mixdog-visualize-export-'));
-            return join(folder, name);
-          },
-          {
-            onPagesCut: (included, total) => {
-              pages = { included, total };
-            },
-          }
-        );
-        if (!result.path) throw new Error('The export did not produce a file.');
-        return { path: result.path, ...(pages ? { pages } : {}) };
-      } catch (error) {
-        if (folder) await rm(folder, { recursive: true, force: true }).catch(() => undefined);
-        throw error;
-      }
-    },
+    exportForDevice: (command: DesktopVisualizeTabCommand) => exportTabForDevice(sessions, exports, command),
     dispose(): void {
       for (const state of sessions.values()) for (const tab of state.tabs) tabs.dispose(tab);
       sessions.clear();

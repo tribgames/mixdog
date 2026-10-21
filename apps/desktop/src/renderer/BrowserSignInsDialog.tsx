@@ -8,6 +8,7 @@ import { Cookie, Download, Globe, X } from 'lucide-react';
 import type { DesktopBrowserSignedInSite } from '../shared/contract';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 import { ProgressSpinner } from './ProgressSpinner';
 import { watchBrowserDialogFocus } from './browser-dialog-focus';
 import { useMobileBack } from './mobile-back';
@@ -78,13 +79,8 @@ export function BrowserSignInsDialog({
 
   if (!open) return null;
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss is a pointer convenience; keyboard dismissal is handled by the dialog focus watcher
-    <div
-      className="browser-import-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) requestClose();
-      }}
-    >
+    // Backdrop click-to-dismiss is a pointer convenience; keyboard dismissal is handled by the dialog focus watcher.
+    <div className="browser-import-backdrop" {...scrimDismiss(requestClose)}>
       <section
         ref={dialogRef}
         className="browser-import-dialog browser-sign-ins-dialog"

@@ -11,6 +11,7 @@ import { t, uiFormatLocale } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { watchBrowserDialogFocus } from './browser-dialog-focus';
 import { useMobileBack } from './mobile-back';
+import { scrimDismiss } from './scrim-dismiss';
 
 interface BrowserImportDialogProps {
   open: boolean;
@@ -256,13 +257,8 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
   else if (finished) description = error ? t('Some data could not be imported') : t('Browser data imported');
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss is a pointer convenience; keyboard dismissal is handled by the dialog focus watcher
-    <div
-      className="browser-import-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) requestClose();
-      }}
-    >
+    // Backdrop click-to-dismiss is a pointer convenience; keyboard dismissal is handled by the dialog focus watcher.
+    <div className="browser-import-backdrop" {...scrimDismiss(requestClose)}>
       <section
         ref={dialogRef}
         className="browser-import-dialog"

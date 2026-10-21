@@ -3,7 +3,7 @@
 import { basename, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { clean } from '../session-text.mjs';
-import { readDirEntriesSafe, readTextSafe } from '../fs-utils.mjs';
+import { defaultDirResolver, readDirEntriesSafe, readTextSafe } from '../fs-utils.mjs';
 import { DEFAULT_WORKFLOW_ID, normalizeWorkflowId } from '../workflow-ids.mjs';
 import { createSharedScanCache } from './shared-scan-cache.mjs';
 
@@ -15,9 +15,10 @@ const packCaches = new Map();
 export function createWorkflowPacks({ rootDir, dataDir, readMarkdownDocument }) {
   if (!packCaches.has(readMarkdownDocument)) packCaches.set(readMarkdownDocument, createSharedScanCache());
   const packCache = packCaches.get(readMarkdownDocument);
+  const defaultDir = defaultDirResolver(dataDir);
   const workflowSourceDirs = (dir) => [
     { root: join(rootDir, 'workflows'), source: 'built-in' },
-    { root: join(dir || dataDir, 'workflows'), source: 'user' },
+    { root: join(dir || defaultDir(), 'workflows'), source: 'user' },
   ];
 
   function parseWorkflowPack(text, source, dirName) {
@@ -62,7 +63,7 @@ export function createWorkflowPacks({ rootDir, dataDir, readMarkdownDocument }) 
     return normalized === 'solo' ? DEFAULT_WORKFLOW_ID : normalized;
   }
 
-  const packKey = (dir, wanted) => `${rootDir}\n${dir || dataDir}\n${wanted}`;
+  const packKey = (dir, wanted) => `${rootDir}\n${dir || defaultDir()}\n${wanted}`;
 
   function listWorkflowPacks(dir) {
     const byId = new Map();
@@ -72,7 +73,10 @@ export function createWorkflowPacks({ rootDir, dataDir, readMarkdownDocument }) 
         const d = join(root, entry.name);
         if (!existsSync(join(d, WORKFLOW_ENTRY))) continue;
         const pack = readWorkflowPackFromDir(d, source, entry.name);
-        if (pack && !pack.hidden) byId.set(pack.id, pack);
+        if (!pack || pack.hidden) continue;
+        // A user copy of a shipped pack shadows every later shipped version.
+        if (source === 'user' && byId.get(pack.id)?.source === 'built-in') pack.overridesBuiltIn = true;
+        byId.set(pack.id, pack);
       }
     }
     const weight = (pack) => (pack.id === DEFAULT_WORKFLOW_ID ? 0 : 1);

@@ -26,6 +26,7 @@ const { createRoot } = await import('react-dom/client');
 const { routineOwners, routineRows, webhookRoutineRows } = await import('./routines-model.ts');
 const {
   agentChatStripGroups,
+  codingStripGroups,
   paneRightGroupsFor,
   readRoutinesTilePreference,
   routinesTileOpenAfter,
@@ -87,10 +88,18 @@ test('the Routines view exists only on an agent home thread', () => {
   assert.deepEqual(paneRightGroupsFor(groups, ''), [['session-diff'], ['browser']]);
 });
 
-test('agent chat header: Visualize takes the Changes slot; coding keeps Changes and no Visualize toggle', async () => {
+test('pane headers: Visualize takes the Changes slot in agent chats and coding panes', async () => {
   const layout = [['routines'], ['room'], ['session-diff'], ['visualize'], ['browser'], ['terminal']];
-  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(layout, 'sess_home_lead')), [['routines'], ['visualize']]);
-  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(layout, 'sess_room_abc123')), [['room'], ['visualize']]);
+  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(layout, 'sess_home_lead')), [
+    ['routines'],
+    ['visualize'],
+    ['browser'],
+  ]);
+  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(layout, 'sess_room_abc123')), [
+    ['room'],
+    ['visualize'],
+    ['browser'],
+  ]);
 
   const { PaneDockToggles } = await import('./pane-dock-toggles.tsx');
   const Icon = () => React.createElement('svg');
@@ -106,7 +115,7 @@ test('agent chat header: Visualize takes the Changes slot; coding keeps Changes 
   const host = document.getElementById('root');
   const root = createRoot(host);
   const calls = [];
-  const render = (groups, visualizeToggle, activeRoot = null) =>
+  const render = (groups, activeRoot = null) =>
     act(async () =>
       root.render(
         React.createElement(PaneDockToggles, {
@@ -114,7 +123,6 @@ test('agent chat header: Visualize takes the Changes slot; coding keeps Changes 
           descriptors,
           activeRoot,
           sessionBound: true,
-          visualizeToggle,
           onSelect: (id) => calls.push(['select', id]),
           onClose: () => calls.push(['close']),
         })
@@ -122,19 +130,21 @@ test('agent chat header: Visualize takes the Changes slot; coding keeps Changes 
     );
   const shown = () => [...host.querySelectorAll('.pane-dock-toggle')].map((button) => button.dataset.view);
   const agentGroups = agentChatStripGroups(paneRightGroupsFor(layout, 'sess_home_lead'));
-  await render(agentGroups, true);
-  assert.deepEqual(shown(), ['routines', 'visualize']);
+  await render(agentGroups);
+  assert.deepEqual(shown(), ['routines', 'visualize', 'browser']);
   const visualize = () => host.querySelector('.pane-dock-toggle[data-view="visualize"]');
   assert.equal(visualize().getAttribute('aria-label'), 'Visualize');
   await act(async () => visualize().click());
   assert.deepEqual(calls, [['select', 'visualize']], 'opens the session’s visualize panel');
-  await render(agentGroups, true, 'visualize');
+  await render(agentGroups, 'visualize');
   assert.equal(visualize().getAttribute('aria-pressed'), 'true');
   await act(async () => visualize().click());
   assert.deepEqual(calls.at(-1), ['close'], 'pressed again, it folds the panel');
-  // Coding: unchanged — Changes, browser, terminal; Visualize has no toggle.
-  await render(paneRightGroupsFor(layout, 'sess_0193abc'), false);
-  assert.deepEqual(shown(), ['session-diff', 'browser', 'terminal']);
+  // Coding: Visualize in the Changes slot, then browser and terminal.
+  await render(codingStripGroups(paneRightGroupsFor(layout, 'sess_0193abc')));
+  assert.deepEqual(shown(), ['visualize', 'browser', 'terminal']);
+  await act(async () => visualize().click());
+  assert.deepEqual(calls.at(-1), ['select', 'visualize'], 'a coding pane opens its visualize panel too');
   await act(async () => root.unmount());
 });
 

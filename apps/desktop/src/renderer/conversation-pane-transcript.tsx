@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo } from 'react';
+import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { useAgentRoom } from './agent-room-store';
 import { MarkdownMentionNamesContext } from './markdown-mentions';
 import { collapseSelectionOnPress, JumpToLatestButton } from './conversation-support';
@@ -131,7 +132,10 @@ export function ConversationTranscript({
   itemCount,
   cover,
   intro,
+  agentMode = false,
 }: {
+  /** An agent chat: its rows learn their estimated heights apart from coding's. */
+  agentMode?: boolean;
   /** Agent mode: the contact's profile a chat with no messages yet shows. */
   intro?: ReactNode;
   view: Pick<
@@ -166,6 +170,7 @@ export function ConversationTranscript({
   const { viewport, content, follow } = view;
   const { requestEarlierTranscript } = source;
   const revealed = timeline.transcriptRevealed;
+  const agentSurface = roomIdOfSession(routeSessionId) ? 'room' : 'agent';
   const showWelcome = conversationShowsWelcome({
     draftMode,
     routeSessionId,
@@ -258,10 +263,13 @@ export function ConversationTranscript({
                 markProgrammaticScroll={follow.markProgrammaticScroll}
                 hasScrollGesture={follow.hasScrollGesture}
                 hasTouchScroll={follow.holdsScrollCorrections}
+                touchHoldsCorrections={follow.touchHoldsCorrections}
                 onSelectionAutoScroll={follow.handleSelectionAutoScroll}
                 setAnchorBottomRef={view.setTranscriptAnchorBottomRef}
                 scrollToEndRef={view.scrollToEndRef}
                 renderRow={renderRow}
+                surface={agentMode ? agentSurface : 'coding'}
+                pauseFollow={follow.pause}
               />
             )}
           </TranscriptRowContexts>

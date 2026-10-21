@@ -75,7 +75,7 @@
   cursor: default;
 }
 .mx-button.is-primary {
-  color: var(--mx-grey-50);
+  color: var(--mx-accent-fg, var(--mx-grey-50));
   border-color: transparent;
   background: var(--mx-accent-bg);
 }

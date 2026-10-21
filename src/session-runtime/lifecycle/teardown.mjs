@@ -8,6 +8,7 @@
 import { SessionClosedError } from '../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { forgetSessionSaveBaseline } from '../../runtime/agent/orchestrator/session/store/save-worker.mjs';
 import { flushAllIndexWrites } from '../services/agent-tool/index-write-queue.mjs';
+import { PROCESS_RESTART_FAILURE } from '../services/agent-tool/worker-index/row-liveness.mjs';
 import { unregisterLiveSession } from '../../runtime/shared/staged-update.mjs';
 import { abortRuntime, closeCanonicalSession, closeOwnSession, dispatchSessionEnd } from './teardown/session-close.mjs';
 import { settleAll, settleDetached, startRuntimeStops, startWorkStops } from './teardown/runtime-stops.mjs';
@@ -111,11 +112,14 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
   function reapWork(reason, scope) {
     if (!scope.teardownReapsWork) return;
     try {
-      // A task that dies for a reason its owner never asked for must still be reported.
+      // A task that dies for a reason its owner never asked for must still be
+      // reported: now for a scoped close; for a process exit (its owner is
+      // closing too) by the next process, which tells the owner of each agent
+      // turn the exit cut off (agent-tool restart-notify).
       cancelBackgroundTasks(
         scope.scopedTeardown
           ? { reason, notify: true, executionSessionId: scope.closingSessionId }
-          : { reason, notify: false }
+          : { reason, notify: false, terminalReason: PROCESS_RESTART_FAILURE }
       );
     } catch {}
   }
@@ -204,7 +208,11 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
       const settled = () => {
         outstandingCloses.delete(closing);
       };
-      closing = new Promise((resolve) => resolve(agentTool.closeAll(reason, {}))).then(settled, settled);
+      // processExit: the workers close, their rows stay for the next process.
+      closing = new Promise((resolve) => resolve(agentTool.closeAll(reason, { processExit: true }))).then(
+        settled,
+        settled
+      );
       outstandingCloses.add(closing);
       try {
         await withTeardownDeadline(closing, CLOSE_ALL_DEADLINE_MS, false);

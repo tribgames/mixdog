@@ -9,6 +9,15 @@ import {
 } from './i18n';
 import { getSidePanelMode, setSidePanelMode, type SidePanelMode } from './side-panel-preferences';
 import { getLinkPreview, setLinkPreview } from './link-preview-preference';
+import { getFontSettings, sanitizeFontFamily, setFontSettings } from './appearance/font-settings';
+import { getActiveUserThemeId, listUserThemes, setActiveUserTheme } from './appearance/user-theme';
+import {
+  getSkinMainTransparency,
+  getSkinOuterTransparency,
+  setSkinMainTransparency,
+  setSkinOuterTransparency,
+  setSkinTransparency,
+} from './desktop-skin';
 import {
   setToolActivityExpansion,
   storedToolActivityExpansion,
@@ -19,6 +28,7 @@ import type { SetupLaneSource } from './app-shell-ui-open-request';
 
 const MARKDOWN_DEFAULT_VIEWS = ['preview', 'rich', 'source'];
 const TOOL_ACTIVITY_EXPANSIONS = ['collapsed', 'commands', 'all'];
+const BUILTIN_COLOR_THEME = 'builtin';
 
 async function readDesktopAppearance(api: DesktopApi) {
   return {
@@ -30,8 +40,20 @@ async function readDesktopAppearance(api: DesktopApi) {
     displayLanguage: getUiLanguagePreference(),
     languages: [{ value: 'system', label: 'System' }, ...SUPPORTED_UI_LANGUAGES],
     sidePanels: getSidePanelMode(),
+    uiFont: getFontSettings().ui,
+    codeFont: getFontSettings().mono,
+    skinOuterTransparency: getSkinOuterTransparency(),
+    skinMainTransparency: getSkinMainTransparency(),
+    colorTheme: getActiveUserThemeId() ?? BUILTIN_COLOR_THEME,
+    colorThemes: [
+      { value: BUILTIN_COLOR_THEME, label: 'Built-in' },
+      ...listUserThemes().map((entry) => ({ value: entry.id, label: entry.name })),
+    ],
   };
 }
+
+const FONT_FIELDS = { uiFont: 'ui', codeFont: 'mono' } as const;
+const SKIN_TRANSPARENCY_FIELDS = ['skinTransparency', 'skinOuterTransparency', 'skinMainTransparency'] as const;
 
 function assertAppearanceInput(
   input: Record<string, unknown>,
@@ -52,6 +74,20 @@ function assertAppearanceInput(
     throw new Error('toolActivityExpansion must be collapsed, commands or all');
   if (input.theme !== undefined && !before.themes.some((entry) => entry.value === input.theme))
     throw new Error('Unknown Desktop theme');
+  for (const field of Object.keys(FONT_FIELDS) as (keyof typeof FONT_FIELDS)[]) {
+    const value = input[field];
+    if (value !== undefined && (typeof value !== 'string' || (value.trim() && !sanitizeFontFamily(value))))
+      throw new Error(
+        `${field} must be an installed font family name (letters, numbers, spaces and - _ . & + only, not a generic family) or "" for the built-in font`
+      );
+  }
+  for (const field of SKIN_TRANSPARENCY_FIELDS) {
+    const value = input[field];
+    if (value !== undefined && !(Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 100))
+      throw new Error(`${field} must be a whole number from 0 to 100`);
+  }
+  if (input.colorTheme !== undefined && !before.colorThemes.some((entry) => entry.value === input.colorTheme))
+    throw new Error('Unknown color theme; read status appearance colorThemes');
   if (input.displayLanguage !== undefined && !before.languages.some((entry) => entry.value === input.displayLanguage))
     throw new Error('Unknown Desktop display language');
   if (
@@ -91,6 +127,28 @@ export function desktopSetupPreferences(
       if (input.theme !== undefined) {
         setDesktopThemePreference(String(input.theme));
         if (getDesktopThemePreference() !== input.theme) throw new Error('Desktop theme was not persisted');
+      }
+      for (const [field, key] of Object.entries(FONT_FIELDS)) {
+        if (input[field] === undefined) continue;
+        const family = sanitizeFontFamily(input[field]);
+        setFontSettings({ [key]: family });
+        if (getFontSettings()[key] !== family) throw new Error('Desktop font was not persisted');
+      }
+      // skinTransparency sets both sliders; a per-slider field then overrides its own.
+      if (input.skinTransparency !== undefined) setSkinTransparency(input.skinTransparency as number);
+      if (input.skinOuterTransparency !== undefined) setSkinOuterTransparency(input.skinOuterTransparency as number);
+      if (input.skinMainTransparency !== undefined) setSkinMainTransparency(input.skinMainTransparency as number);
+      const outer = input.skinOuterTransparency ?? input.skinTransparency;
+      const main = input.skinMainTransparency ?? input.skinTransparency;
+      if (
+        (outer !== undefined && getSkinOuterTransparency() !== outer) ||
+        (main !== undefined && getSkinMainTransparency() !== main)
+      )
+        throw new Error('Skin transparency was not persisted');
+      if (input.colorTheme !== undefined) {
+        const id = input.colorTheme === BUILTIN_COLOR_THEME ? null : String(input.colorTheme);
+        setActiveUserTheme(id);
+        if (getActiveUserThemeId() !== id) throw new Error('Color theme was not persisted');
       }
       if (
         input.displayLanguage !== undefined &&

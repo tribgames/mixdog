@@ -7,6 +7,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -81,10 +82,23 @@ function renameBackoffs(opts) {
   return Array.isArray(opts.backoffs) && opts.backoffs.length > 0 ? opts.backoffs : DEFAULT_BACKOFFS_MS;
 }
 
+// Windows answers EPERM/EACCES both for a sharing violation (AV/indexer holds
+// the destination: clears in moments) and for renaming over a read-only file
+// (never clears). Only the first is worth waiting for.
+function isReadOnlyFile(path) {
+  try {
+    const stat = statSync(path);
+    return stat.isFile() && (stat.mode & 0o200) === 0;
+  } catch {
+    return false;
+  }
+}
+
 // Jittered delay before the next rename attempt, or null when this error or
 // attempt count ends the loop. Shared so the sync and async paths cannot drift.
-function nextRenameDelayMs(err, attempt, backoffs) {
+function nextRenameDelayMs(err, attempt, backoffs, dst) {
   if (!RETRY_CODES.has(err?.code) || attempt >= backoffs.length) return null;
+  if ((err.code === 'EPERM' || err.code === 'EACCES') && isReadOnlyFile(dst)) return null;
   return backoffs[attempt] + Math.floor(Math.random() * Math.min(50, Math.max(1, backoffs[attempt])));
 }
 
@@ -100,7 +114,7 @@ export function renameAttempt(src, dst, attempt, opts = {}) {
     renameSync(src, dst);
     return null;
   } catch (err) {
-    const delayMs = nextRenameDelayMs(err, attempt, renameBackoffs(opts));
+    const delayMs = nextRenameDelayMs(err, attempt, renameBackoffs(opts), dst);
     if (delayMs === null) throw err;
     return delayMs;
   }
@@ -123,7 +137,7 @@ async function renameWithRetry(src, dst, opts = {}) {
       return true;
     } catch (err) {
       lastErr = err;
-      const delayMs = nextRenameDelayMs(err, attempt, backoffs);
+      const delayMs = nextRenameDelayMs(err, attempt, backoffs, dst);
       if (delayMs === null) break;
       await sleep(Math.max(1, Number(delayMs) || 1));
     }
@@ -135,6 +149,12 @@ async function renameWithRetry(src, dst, opts = {}) {
 // these codes; durability is best-effort there, so they do not fail the write.
 const FILE_FSYNC_TOLERATED = ['EPERM', 'ENOTSUP', 'EINVAL'];
 const DIR_FSYNC_TOLERATED = ['EPERM', 'ENOTSUP', 'EINVAL', 'EACCES'];
+
+/** True when `err` is a filesystem refusing fsync on a file (network and
+ *  cloud-sync drives), not a real I/O error: durability is best-effort there. */
+export function isFileFsyncUnsupported(err) {
+  return FILE_FSYNC_TOLERATED.includes(err?.code);
+}
 
 // Directory fsync (POSIX durability of the rename). Windows refuses it with
 // EPERM, which is tolerated.
@@ -179,7 +199,7 @@ function writeFileDurableSync(path, data, opts) {
       try {
         fsyncSync(fd);
       } catch (err) {
-        if (!FILE_FSYNC_TOLERATED.includes(err?.code)) throw err;
+        if (!isFileFsyncUnsupported(err)) throw err;
       }
     }
   } finally {
@@ -195,7 +215,7 @@ async function writeFileDurableAsync(path, data, opts) {
       try {
         await handle.sync();
       } catch (err) {
-        if (!FILE_FSYNC_TOLERATED.includes(err?.code)) throw err;
+        if (!isFileFsyncUnsupported(err)) throw err;
       }
     }
   } finally {
@@ -260,10 +280,17 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
   return run();
 }
 
+// Windows cloud-sync drives (Naver MYBOX, #138) refuse to create a file whose
+// name starts with '.', so neither a temp file nor a quarantined copy may
+// carry one. The temp shape is the edit tool's `<name>.mixdog-tmp-<hex>`.
+function publishTempPath(filePath) {
+  return join(dirname(filePath), `${basename(filePath)}.mixdog-tmp-${randomBytes(8).toString('hex')}`);
+}
+
 function publishFileSync(filePath, data, opts) {
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
-  const tmp = join(dir, `.${basename(filePath)}.${randomBytes(12).toString('hex')}.tmp`);
+  const tmp = publishTempPath(filePath);
   try {
     writeFileDurableSync(tmp, data, { ...opts, flag: 'wx' });
     // Secure the file before publication. Rename and hard links retain this
@@ -361,6 +388,17 @@ function isJsonContent(content) {
 // that cannot be READ (EACCES, EBUSY…) is not damaged and still throws.
 // `decode` turns the file's bytes into JSON text (e.g. unsealing an encrypted
 // file); throwing there marks the file damaged too.
+// The rename that moves a damaged file aside replaces an existing destination,
+// so the name is the first `<file>.corrupt-<ms>` that does not exist yet: two
+// recoveries in one millisecond (or after a clock rollback) never overwrite a
+// kept copy, and the name is no longer than the original shape. Recovery runs
+// under the file's lock, so nothing else creates a quarantine name between
+// this check and the rename.
+export const quarantinePath = (filePath) => {
+  let stamp = Date.now();
+  while (existsSync(`${filePath}.corrupt-${stamp}`)) stamp += 1;
+  return `${filePath}.corrupt-${stamp}`;
+};
 const LOCK_BUSY_CODES = new Set(['ELOCKCONTENDED', 'ELOCKTIMEOUT']);
 const STATE_UNSUPPORTED = 'ESTATEUNSUPPORTED';
 const acceptAny = (value) => value;
@@ -403,6 +441,7 @@ async function readContentOrNullAsync(filePath) {
 }
 
 function reportDamaged(filePath, error, outcome) {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: escapes C0 control characters (U+0000-U+001F) so a damaged-file message stays on one log line.
   const reason = String(error?.message || error).replace(/[\0-\x1f]/g, (c) => `\\x${c.charCodeAt(0).toString(16)}`);
   process.stderr.write(`[state] ${filePath} is damaged (${reason}); ${outcome}\n`);
 }
@@ -426,7 +465,7 @@ function recoverDamagedSync(filePath, parse, opts) {
     reportDamaged(filePath, current.error, KEPT_IN_PLACE);
     return { state: 'absent' };
   }
-  const aside = `${filePath}.corrupt-${Date.now()}`;
+  const aside = quarantinePath(filePath);
   renameWithRetrySync(filePath, aside, opts);
   if (backup.state === 'ok') publishFileSync(filePath, backup.content, restoreOpts(opts));
   reportDamaged(filePath, current.error, recoveredOutcome(aside, backup));
@@ -441,7 +480,7 @@ async function recoverDamagedAsync(filePath, parse, opts) {
     reportDamaged(filePath, current.error, KEPT_IN_PLACE);
     return { state: 'absent' };
   }
-  const aside = `${filePath}.corrupt-${Date.now()}`;
+  const aside = quarantinePath(filePath);
   await renameWithRetry(filePath, aside, opts);
   if (backup.state === 'ok') await publishFileAsync(filePath, backup.content, restoreOpts(opts));
   reportDamaged(filePath, current.error, recoveredOutcome(aside, backup));
@@ -565,7 +604,7 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
 async function publishFileAsync(filePath, data, opts) {
   const dir = dirname(filePath);
   await mkdirAsync(dir, { recursive: true });
-  const tmp = join(dir, `.${basename(filePath)}.${randomBytes(12).toString('hex')}.tmp`);
+  const tmp = publishTempPath(filePath);
   try {
     await writeFileDurableAsync(tmp, data, { ...opts, flag: 'wx' });
     // Both publication paths retain the secured file's existing ACL.

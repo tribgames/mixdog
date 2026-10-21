@@ -11,17 +11,31 @@
 // - a group-room member session is no background run, but it speaks for the
 //   room, not for the user: it creates or changes no agent, automation or
 //   other setting either.
+// - an unattended run — a routine turn in a bot's home chat (Mixy's too), or
+//   work it or a room started (held-requests.mjs unattendedRunOf) — is checked
+//   first and only ever narrows: at most its own bot's agent scope
+//   (`unattended: true`), which manages that bot's own automations and route
+//   and changes no other setting.
 // The app's own panels call channel-admin directly and act for the human.
 import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomMemberOfSession } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
 import { mixyDisplayName } from '../../runtime/agent/orchestrator/session/mixy-name.mjs';
 import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
+import { unattendedRunOf } from '../held-requests.mjs';
 
 const INTERACTIVE_SOURCE_TYPES = new Set(['', 'lead', 'cli']);
+// What an unattended run may still change: its own bot's automations (each
+// checked by assertAutomationAccess) and its own route (assertOwnAgentSettings).
+const UNATTENDED_OWN_ACTIONS = new Set([
+  'save_automation',
+  'set_automation_enabled',
+  'delete_automation',
+  'run_automation',
+  'set_agent_route',
+]);
 
-/** `{ kind: 'human' | 'agent' | 'room-member' | 'headless', agentId? }` of a session record. */
-export function scheduleCallerScope(session) {
-  const id = String(session?.id || '');
+/** The scope by the session's id and record alone. */
+function provenanceScope(session, id) {
   const member = roomMemberOfSession(id);
   if (member) return { kind: 'room-member', agentId: member.agentId };
   const homeAgent = agentIdOfHomeSession(id);
@@ -33,6 +47,17 @@ export function scheduleCallerScope(session) {
     Boolean(session.ownerSessionId && session.ownerSessionId !== id) ||
     !INTERACTIVE_SOURCE_TYPES.has(String(session.sourceType || '').toLowerCase());
   return headless ? { kind: 'headless' } : { kind: 'human' };
+}
+
+/** `{ kind: 'human' | 'agent' | 'room-member' | 'headless', agentId?, unattended? }` of a session record. */
+export function scheduleCallerScope(session) {
+  const id = String(session?.id || '');
+  const scope = provenanceScope(session, id);
+  const run = id ? unattendedRunOf(id) : null;
+  if (!run || scope.kind === 'headless' || scope.kind === 'room-member') return scope;
+  if (run.kind === 'room') return { kind: 'room-member', agentId: run.agentId };
+  if (!run.agentId || (scope.kind === 'agent' && scope.agentId !== run.agentId)) return { kind: 'headless' };
+  return { kind: 'agent', agentId: run.agentId, unattended: true };
 }
 
 /** Throws unless `scope` may `action` the `kind` ('schedule' | 'webhook')
@@ -83,8 +108,12 @@ export function assertOwnAgentSettings(scope, agentId, action) {
   }
 }
 
-/** Throws when `scope` is a headless run: it reads settings, never changes them. */
+/** Throws when `scope` is a headless run: it reads settings, never changes
+ *  them; an unattended run changes only its own bot's automations and route. */
 export function assertInteractiveCaller(scope, action) {
+  if (scope?.unattended && !UNATTENDED_OWN_ACTIONS.has(action)) {
+    throw new Error(`An unattended run cannot change settings (setup ${action})`);
+  }
   if (scope?.kind === 'human' || scope?.kind === 'agent') return;
   if (scope?.kind === 'room-member') throw new Error(`A group-room member cannot change settings (setup ${action})`);
   throw new Error(`A background run cannot change settings (setup ${action})`);

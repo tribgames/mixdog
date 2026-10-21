@@ -8,9 +8,16 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { flushSync } from 'react-dom';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
+import {
+  getSidePanelPosition,
+  resolveSidePanelPlacement,
+  subscribeSidePanelPosition,
+  type SidePanelPlacement,
+} from './side-panel-preferences';
 import { expandedDockRect } from './surface-slots';
 import { useResizeGesture } from './resize-gesture';
 import { SIDE_FILE_PROBLEMS_DEFAULT_HEIGHT } from './side-file-problems';
@@ -211,6 +218,164 @@ export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, open
   return cellWidth;
 }
 
+/** Bottom placement: the dock's own height preference, shared by every pane. */
+export const PANE_SIDE_DOCK_HEIGHT_KEY = 'mixdog.desktop.pane-side-dock-height.v1';
+export const PANE_SIDE_DOCK_MIN_HEIGHT = 160;
+export const PANE_SIDE_DOCK_DEFAULT_HEIGHT = 320;
+/** The chat keeps at least this much of the cell above a bottom dock. */
+export const PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR = 200;
+
+/** A bottom dock's rendered height: the preference, held between the dock
+ *  floor and what leaves the chat its floor. `room` is the height the chat
+ *  and the dock share (see paneDockRoom); null = not measured yet. A measured
+ *  0 (fixed rows fill a short pane) holds the dock at its floor. */
+export function clampPaneDockHeight(pref: number, room: number | null): number {
+  const max =
+    room === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(PANE_SIDE_DOCK_MIN_HEIGHT, room - PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
+  const value = Number.isFinite(pref) ? pref : PANE_SIDE_DOCK_DEFAULT_HEIGHT;
+  return Math.round(Math.min(max, Math.max(PANE_SIDE_DOCK_MIN_HEIGHT, value)));
+}
+
+/** The axis the dock's resize edge drags along: width beside the chat,
+ *  height below it. */
+export function paneDockResizeAxis(placement: SidePanelPlacement): 'width' | 'height' {
+  return placement === 'bottom' ? 'height' : 'width';
+}
+
+function subscribeSidePanelPlacement(listener: () => void): () => void {
+  const unsubscribe = subscribeSidePanelPosition(listener);
+  window.addEventListener('resize', listener);
+  return () => {
+    unsubscribe();
+    window.removeEventListener('resize', listener);
+  };
+}
+
+function sidePanelPlacementSnapshot(): SidePanelPlacement {
+  return resolveSidePanelPlacement(getSidePanelPosition(), window.innerWidth, window.innerHeight);
+}
+
+/** The desktop placement of the pane docks: the stored position, with Auto
+ *  following the window shape (re-renders only when the answer flips). */
+export function useSidePanelPlacement(): SidePanelPlacement {
+  return useSyncExternalStore(subscribeSidePanelPlacement, sidePanelPlacementSnapshot, () => 'right');
+}
+
+/** The cell rows that share the chat's column and never yield to the dock:
+ *  everything in flow except the chat stack itself and the dock (or its
+ *  expanded spacer) — the tab strip, the Problems panel, the footer slot. */
+function isFixedPaneRow(child: Element, host: Element): child is HTMLElement {
+  if (child === host || !(child instanceof HTMLElement)) return false;
+  if (child.classList.contains('pane-surface-stack') || child.classList.contains('pane-side-dock-spacer')) return false;
+  const position = window.getComputedStyle(child).position;
+  return position !== 'absolute' && position !== 'fixed';
+}
+
+/** The height the chat and a bottom dock share inside the pane cell: the
+ *  cell minus its fixed rows (border boxes — the Problems panel's negative
+ *  overlay margin is not space it gives back) and the dock's own margins.
+ *  Computed from the siblings only, so the dock's height never feeds it. */
+export function paneDockRoom(host: HTMLElement): number {
+  const cell = host.parentElement;
+  if (!cell) return 0;
+  let fixed = 0;
+  for (const child of Array.from(cell.children)) {
+    if (isFixedPaneRow(child, host)) fixed += child.offsetHeight;
+  }
+  const style = window.getComputedStyle(host);
+  const margins = (Number.parseFloat(style.marginTop) || 0) + (Number.parseFloat(style.marginBottom) || 0);
+  return Math.max(0, cell.clientHeight - fixed - margins);
+}
+
+/** Measures paneDockRoom while docked below the chat: again whenever the cell
+ *  resizes (window shrink), a fixed row resizes (Problems drag) or a row
+ *  mounts or unmounts (Problems opens or closes). */
+export function useDockRoomHeight(hostRef: RefObject<HTMLDivElement | null>, active: boolean): number | null {
+  const [room, setRoom] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!active) return undefined;
+    const host = hostRef.current;
+    const cell = host?.parentElement;
+    if (!host || !cell) return undefined;
+    const measure = () => {
+      const next = paneDockRoom(host);
+      setRoom((current) => (current === next ? current : next));
+    };
+    const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => flushSync(measure));
+    const observeRows = () => {
+      if (!resizes) return;
+      resizes.disconnect();
+      resizes.observe(cell);
+      for (const child of Array.from(cell.children)) if (isFixedPaneRow(child, host)) resizes.observe(child);
+    };
+    const rows =
+      typeof MutationObserver === 'undefined'
+        ? null
+        : new MutationObserver(() => {
+            observeRows();
+            measure();
+          });
+    rows?.observe(cell, { childList: true });
+    observeRows();
+    measure();
+    return () => {
+      rows?.disconnect();
+      resizes?.disconnect();
+    };
+  }, [hostRef, active]);
+  return room;
+}
+
+/**
+ * Drag-resize of a bottom dock's top edge. Dragging up grows the dock; a
+ * cancel restores the preference as it stood when the gesture began, a
+ * commit persists the dragged height.
+ */
+export function useDockHeightDrag({
+  heightPref,
+  setHeightPref,
+  renderedHeight,
+  room,
+  storageKey,
+}: {
+  heightPref: number;
+  setHeightPref: (height: number) => void;
+  renderedHeight: number;
+  /** See paneDockRoom. */
+  room: number | null;
+  storageKey: string;
+}) {
+  const start = useRef<{ y: number; height: number; pref: number } | null>(null);
+  const pending = useRef<number | null>(null);
+  const gesture = useResizeGesture((commit) => {
+    const current = start.current;
+    if (!current) return;
+    start.current = null;
+    if (commit) {
+      if (pending.current !== null) commitWidthPref(storageKey, pending.current);
+    } else if (pending.current !== null) setHeightPref(current.pref);
+    pending.current = null;
+  });
+  return {
+    onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      gesture.begin(event);
+      start.current = { y: event.clientY, height: renderedHeight, pref: heightPref };
+      pending.current = null;
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => {
+      const current = start.current;
+      if (!current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+      const next = clampPaneDockHeight(current.height + (current.y - event.clientY), room);
+      pending.current = next;
+      setHeightPref(next);
+    },
+    ...gesture.handlers,
+  };
+}
+
 /**
  * Expanded in-flow surfaces (file, diff, Changes): transient dock state, like
  * the browser/terminal roots. The dock sheet then covers the main panel
@@ -226,10 +391,15 @@ export function useDockExpansion(
   const [expanded, setExpanded] = useState(false);
   const [expandedRect, setExpandedRect] = useState<ReturnType<typeof expandedDockRect>>(undefined);
   const restWidth = useRef(0);
+  const restHeight = useRef(0);
   const toggleExpanded = useCallback(
     () =>
       setExpanded((value) => {
-        if (!value) restWidth.current = Math.round(hostRef.current?.getBoundingClientRect().width ?? 0);
+        if (!value) {
+          const rect = hostRef.current?.getBoundingClientRect();
+          restWidth.current = Math.round(rect?.width ?? 0);
+          restHeight.current = Math.round(rect?.height ?? 0);
+        }
         return !value;
       }),
     [hostRef]
@@ -256,7 +426,7 @@ export function useDockExpansion(
       observer?.disconnect();
     };
   }, [hostRef, expanded, openNow]);
-  return { expanded, expandedRect, restWidth, toggleExpanded };
+  return { expanded, expandedRect, restWidth, restHeight, toggleExpanded };
 }
 
 /**

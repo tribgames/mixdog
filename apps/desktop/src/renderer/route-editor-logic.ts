@@ -1,6 +1,6 @@
 import { ANCHORED_PANEL_EDGE, ANCHORED_PANEL_GAP, anchoredPanelGeometry } from './anchored-panel';
 
-export type RouteSheetPane = 'model' | 'effort' | 'context' | 'speed' | `parameter:${string}`;
+export type RouteSheetPane = 'model' | 'effort' | 'context' | 'speed' | `parameter:${string}` | `session:${string}`;
 
 export const ROUTE_PANEL_PADDING = 4;
 export const ROUTE_SHEET_ROW_HEIGHT = 36;
@@ -75,8 +75,37 @@ export function routeSheetBox(
   placement: 'above' | 'below' = 'above',
   align: 'start' | 'end' = 'end'
 ): RoutePanelBox {
+  return anchoredRouteBox(
+    trigger,
+    preferredHeight,
+    viewport,
+    routeSheetWidth(viewport, preferredWidth),
+    placement,
+    align
+  );
+}
+
+/** A side-panel field's dropdown (RouteEditor `dropdown`): exactly the
+ *  trigger's width and edges, below it unless only above has the room. Every
+ *  pane opens in this same footprint, sized to that pane. */
+export function routeDropdownBox(
+  trigger: RouteAnchorRect,
+  preferredHeight: number,
+  viewport: RouteViewport
+): RoutePanelBox {
+  const width = Math.min(Math.max(1, trigger.right - trigger.left), Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2));
+  return anchoredRouteBox(trigger, preferredHeight, viewport, width, 'below', 'start');
+}
+
+function anchoredRouteBox(
+  trigger: RouteAnchorRect,
+  preferredHeight: number,
+  viewport: RouteViewport,
+  width: number,
+  placement: 'above' | 'below',
+  align: 'start' | 'end'
+): RoutePanelBox {
   const bounds = viewportBounds(viewport);
-  const width = routeSheetWidth(viewport, preferredWidth);
   const geometry = anchoredPanelGeometry({
     // Copied field by field: a DOMRect's edges are prototype getters.
     trigger: {

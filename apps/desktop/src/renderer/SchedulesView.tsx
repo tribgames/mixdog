@@ -400,6 +400,13 @@ function ScheduleEditor({
               )}
             </div>
           </div>
+          <div className="schedules-field">
+            <small>
+              {t(
+                "Saving lets this schedule's runs act without asking, within the bot's permissions. Payments and permanent deletes are never done in runs."
+              )}
+            </small>
+          </div>
           <EditorDialogFooter
             error={formError || error}
             busy={busy}

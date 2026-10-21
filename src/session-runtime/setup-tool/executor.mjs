@@ -5,6 +5,7 @@
  *  registers the tool executor before it finishes assembling the API object. */
 import { builtinFeatureActive } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
+import { AUTO_EFFORT_BASES } from '../../runtime/agent/orchestrator/providers/auto-effort.mjs';
 import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
@@ -403,8 +404,11 @@ function validateSetupInput(args) {
     if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
       throw new Error('route.disabled is only accepted by set_agent_route');
     }
-    if (Object.hasOwn(args.route, 'fallbacks') && !['set_agent_route', 'set_web_search_route'].includes(action)) {
-      throw new Error('route.fallbacks is only accepted by set_agent_route and set_web_search_route');
+    if (
+      Object.hasOwn(args.route, 'fallbacks') &&
+      !['set_route', 'set_agent_route', 'set_web_search_route'].includes(action)
+    ) {
+      throw new Error('route.fallbacks is only accepted by set_route, set_agent_route and set_web_search_route');
     }
     for (const field of ['contextPercent', 'contextTokens', 'autoEffort']) {
       if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, field)) {
@@ -533,6 +537,8 @@ const SETUP_ACTION_HANDLERS = {
   set_web_search_enabled: (rt, args) => rt.setWebSearchEnabled(requireBoolean(args.enabled)),
   set_instruction_files: (rt, args) =>
     rt.setInstructionFiles(requireEnum(args.instructionFiles, INSTRUCTION_FILES_MODES, 'instructionFiles')),
+  set_auto_effort_base: (rt, args) =>
+    rt.setAutoEffortBase(requireEnum(args.autoEffortBase, AUTO_EFFORT_BASES, 'autoEffortBase')),
   set_builtin_enabled: (rt, args, { requestDesktop }) => {
     const name = requireEnum(args.name, SETUP_BUILTIN_TOGGLE_FEATURES, 'name');
     if (DESKTOP_HOSTED_FEATURES.includes(name)) return requestDesktop(args);

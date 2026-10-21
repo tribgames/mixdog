@@ -25,24 +25,16 @@ export const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = [
   'terminal',
 ];
 
-/** Surfaces with no toggle of their own: Visualize opens when the agent shows
- *  something and from its card in the transcript, so the strip keeps three
- *  icons (changes, browser, terminal). */
-const UNTOGGLED_VIEWS: ReadonlySet<WorkbenchSideViewId> = new Set(['visualize']);
-
 export function PaneDockToggles({
   groups,
   descriptors,
   activeRoot,
   sessionBound,
   files,
-  visualizeToggle = false,
   onSelect,
   onClose,
 }: {
   groups: readonly WorkbenchSideViewGroup[];
-  /** Agent mode: Visualize gets its toggle (in the Changes slot it drops). */
-  visualizeToggle?: boolean;
   descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
   /** The child the pane's dock is showing, or null while it is folded. */
   activeRoot: WorkbenchSideViewId | null;
@@ -55,8 +47,7 @@ export function PaneDockToggles({
   const toggles = groups.flatMap((group) => {
     const root = group[0];
     const descriptor = root === undefined ? undefined : descriptors.get(root);
-    const untoggled = root !== undefined && UNTOGGLED_VIEWS.has(root) && !(visualizeToggle && root === 'visualize');
-    return root !== undefined && descriptor && !untoggled ? [{ root, descriptor }] : [];
+    return root !== undefined && descriptor ? [{ root, descriptor }] : [];
   });
   // Phone tap feedback: the pressed state is this component's own, set on the
   // tap, while the dock itself opens in a transition behind it — the heavy

@@ -195,9 +195,9 @@
   }
 }
 @container (max-width: 48px) {
-  /* Only the TITLE span drops: the spinner (and the waiting mark around it)
-     is a span too, and hiding every span left a working tab a blank cell. */
-  .workspace-tab-main > span:not(.progress-spinner-turn, .session-attention-glyph),
+  /* Only the TITLE drops. The icon can be a span (spinner, attention mark,
+     bot face), so the title is selected by its own class, never by tag. */
+  .workspace-tab-main > .workspace-tab-title,
   /* Doubled class beats the later base `display: block`: the dot would ride
      the sliver edge half-clipped. */
   .workspace-tab .workspace-tab-unread-dot {
@@ -205,11 +205,13 @@
   }
   /* Every icon-only cell, the active one included, centres its lone glyph;
      the active tab's hover padding still steps it aside for the floating X. */
+  /* The button covers the whole cell, so the glyph centres in it at any
+     width — the cell's 12px insets would otherwise squeeze a 20px sliver's
+     content box to nothing and push the glyph off-centre. */
   .workspace-tab .workspace-tab-main {
-    flex: 1;
+    position: absolute;
+    inset: 0;
     justify-content: center;
-    margin-left: -10px;
-    margin-right: -6px;
     padding: 0;
   }
 }

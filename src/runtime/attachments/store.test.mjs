@@ -165,7 +165,9 @@ test('OpenAI image profile respects the 2048px and 1536-patch budget', async () 
 
 function pagedPdf(pageCount) {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>'];
-  objects.push(`<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, i) => `${3 + i} 0 R`).join(' ')}] /Count ${pageCount} >>`);
+  objects.push(
+    `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, i) => `${3 + i} 0 R`).join(' ')}] /Count ${pageCount} >>`
+  );
   for (let i = 0; i < pageCount; i += 1) objects.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>');
   let body = '%PDF-1.4\n';
   const offsets = [];
@@ -195,7 +197,8 @@ test('PDF intake only validates: every provider keeps the PDF reference', async 
 
 test('a PDF over the page cap is refused for a native provider and accepted for one that reads text', async () => {
   const data = pagedPdf(101).toString('base64');
-  const intake = () => materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'long.pdf' }]);
+  const intake = () =>
+    materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'long.pdf' }]);
   await assert.rejects(preparePromptSubmissionForProvider(intake(), { nativePdf: true }), /101 pages/);
   const accepted = await preparePromptSubmissionForProvider(intake(), { nativePdf: false });
   assert.equal(accepted.prompt[0].pageCount, 101);
@@ -203,7 +206,9 @@ test('a PDF over the page cap is refused for a native provider and accepted for 
 
 test('an unreadable PDF is refused at intake for every provider', async () => {
   const data = Buffer.from('%PDF-1.4 nonsense').toString('base64');
-  const intake = materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'bad.pdf' }]);
+  const intake = materializePromptSubmission([
+    { type: 'file', data, mimeType: 'application/pdf', filename: 'bad.pdf' },
+  ]);
   await assert.rejects(preparePromptSubmissionForProvider(intake, { nativePdf: false }));
 });
 
@@ -224,9 +229,17 @@ test('stored history keeps tool-result images as refs that lower to the same pro
   assert.doesNotMatch(JSON.stringify(stored), new RegExp(`${screenshot}|${downloaded}`));
   assert.deepEqual(normalizeContentForAnthropic(reloaded), normalizeContentForAnthropic(live));
   assert.deepEqual(normalizeContentForOpenAIResponses(reloaded), normalizeContentForOpenAIResponses(live));
-  assert.equal(sanitizeContentForStoredHistory(live).content[1], stored.content[1], 'repeat projections reuse the part');
+  assert.equal(
+    sanitizeContentForStoredHistory(live).content[1],
+    stored.content[1],
+    'repeat projections reuse the part'
+  );
 
-  const nonCanonical = { type: 'image', data: `${screenshot.slice(0, 8)}\n${screenshot.slice(8)}`, mimeType: 'image/png' };
+  const nonCanonical = {
+    type: 'image',
+    data: `${screenshot.slice(0, 8)}\n${screenshot.slice(8)}`,
+    mimeType: 'image/png',
+  };
   assert.deepEqual(sanitizeContentForStoredHistory([nonCanonical]), [
     { type: 'text', text: '[Image omitted from stored history: image/png]' },
   ]);
@@ -256,7 +269,9 @@ test('stored history keeps inline PDFs as refs that lower to the same provider b
   assert.deepEqual(normalizeContentForOpenAIResponses(reloaded), normalizeContentForOpenAIResponses(live));
   assert.deepEqual(normalizeContentForOpenAIChat(reloaded), normalizeContentForOpenAIChat(live));
   const again = sanitizeContentForStoredHistory(live);
-  stored.content.forEach((part, i) => assert.equal(again.content[i], part));
+  stored.content.forEach((part, i) => {
+    assert.equal(again.content[i], part);
+  });
 });
 
 test('attachment GC preserves durable refs and the safety window while deleting stale orphans', async () => {
@@ -297,7 +312,11 @@ const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
 
 test('GC keeps blobs referenced only by a turn-checkpoint journal and sweeps stale temp files', async () => {
   const journaled = materializePromptSubmission([
-    { type: 'file', data: Buffer.from('journal only attachment').toString('base64'), mimeType: 'application/octet-stream' },
+    {
+      type: 'file',
+      data: Buffer.from('journal only attachment').toString('base64'),
+      mimeType: 'application/octet-stream',
+    },
   ]).prompt[0];
   mkdirSync(join(dataDir, 'turn-checkpoints'), { recursive: true });
   writeFileSync(
@@ -308,14 +327,21 @@ test('GC keeps blobs referenced only by a turn-checkpoint journal and sweeps sta
   utimesSync(blobFile(journaled.attachmentRef), old, old);
   const staleTemp = `${blobFile(journaled.attachmentRef)}.123.abcdef.tmp`;
   const freshTemp = `${blobFile(journaled.attachmentRef)}.456.fedcba.tmp`;
+  const staleWriterTemp = `${blobFile(journaled.attachmentRef)}.mixdog-tmp-${'a'.repeat(24)}`;
+  const freshWriterTemp = `${blobFile(journaled.attachmentRef)}.mixdog-tmp-${'b'.repeat(24)}`;
   writeFileSync(staleTemp, 'partial');
   writeFileSync(freshTemp, 'partial');
+  writeFileSync(staleWriterTemp, 'partial');
+  writeFileSync(freshWriterTemp, 'partial');
   utimesSync(staleTemp, old, old);
+  utimesSync(staleWriterTemp, old, old);
 
   await collectPromptAttachments({ now: Date.now(), minAgeMs: 60_000 });
   assert.equal(existsSync(blobFile(journaled.attachmentRef)), true, 'journal reference protects the blob');
   assert.equal(existsSync(staleTemp), false, 'stale temp file is swept');
+  assert.equal(existsSync(staleWriterTemp), false, 'stale atomic-writer temp file is swept');
   assert.equal(existsSync(freshTemp), true, 'a temp file inside the safety window may still be in flight');
+  assert.equal(existsSync(freshWriterTemp), true, 'a young atomic-writer temp may still be in flight');
 });
 
 test('a failed publish leaves no temp file behind', () => {
@@ -324,10 +350,12 @@ test('a failed publish leaves no temp file behind', () => {
   // A directory at the content address makes the final rename fail.
   mkdirSync(blobFile(ref), { recursive: true });
   assert.throws(() =>
-    materializePromptSubmission([{ type: 'file', data: bytes.toString('base64'), mimeType: 'application/octet-stream' }])
+    materializePromptSubmission([
+      { type: 'file', data: bytes.toString('base64'), mimeType: 'application/octet-stream' },
+    ])
   );
   assert.deepEqual(
-    readdirSync(blobDir(ref)).filter((name) => name.endsWith('.tmp')),
+    readdirSync(blobDir(ref)).filter((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
     []
   );
 });

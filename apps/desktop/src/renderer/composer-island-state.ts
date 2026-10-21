@@ -50,6 +50,33 @@ export function IslandSegmentPending({
   });
 }
 
+// ---- The width the composer-pinned overlay bot takes -----------------------------
+
+/** The composer region the overlay bot stands in (the focused pane's) and the
+ *  width (CSS px) it takes at the card's right end; 0 when none. */
+let petReserve: { region: Element | null; width: number } = { region: null, width: 0 };
+const petReserveListeners = new Set<() => void>();
+
+/** Set by the overlay's publisher (desktop-pet-publisher.tsx) from main's
+ *  app layout; listeners hear only a change. */
+export function setPetIslandReserve(region: Element | null, width: number): void {
+  const next = width > 0 && region ? { region, width } : { region: null, width: 0 };
+  if (next.region === petReserve.region && next.width === petReserve.width) return;
+  petReserve = next;
+  for (const listener of [...petReserveListeners]) listener();
+}
+
+/** The width the bot takes beside `island`: only the island in the bot's
+ *  composer region gives way to it. */
+export function petIslandReserveFor(island: Element): number {
+  return petReserve.region?.contains(island) ? petReserve.width : 0;
+}
+
+export function subscribePetIslandReserve(listener: () => void): () => void {
+  petReserveListeners.add(listener);
+  return () => petReserveListeners.delete(listener);
+}
+
 /** Open state of one island tab. Inside the composer island the island owns
  *  it (one open tab at a time); a segment rendered on its own keeps it local. */
 export function useComposerIslandTab(tab: Exclude<ComposerIslandTab, ''>): [boolean, (open: boolean) => void] {

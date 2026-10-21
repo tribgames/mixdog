@@ -71,6 +71,7 @@ export function InlinePaneContent({
       title={pane.label}
       sandbox={INLINE_FRAME_SANDBOX}
       referrerPolicy="no-referrer"
+      allow="fullscreen"
       srcDoc={state.doc}
       data-visualize-inline={content.kind}
       onLoad={(event) => watchInlinePinch(event.currentTarget)}

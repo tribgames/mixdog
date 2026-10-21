@@ -204,6 +204,17 @@ for (const prepend of [false, true]) {
   });
 }
 
+test('rules saved or removed by another bus reach an open one on its next call', async (t) => {
+  const f = await fixture(t);
+  const open = f.bus();
+  assert.equal(await f.run(open), null);
+  const settings = f.bus();
+  settings.addRule({ tool: 'read', action: 'ask' });
+  assert.equal((await f.run(open)).action, 'ask');
+  settings.deleteRule(0);
+  assert.equal(await f.run(open), null);
+});
+
 test('a disabled rule stops applying immediately, before its debounced save', async (t) => {
   const f = await fixture(t);
   await f.write({ toolBefore: [rule] });

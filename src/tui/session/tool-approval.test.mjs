@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createToolApproval } from './tool-approval.mjs';
+import { createToolApproval, resolveToolApprovalTimeoutMs } from './tool-approval.mjs';
 
 // The observable contract of the approval FIFO: what lands in state.toolApproval,
 // what each waiter resolves with, and which id settles which entry.
@@ -120,7 +120,12 @@ test('an answer from a known device is recorded on the state; a timeout names no
 
 test('answers pass through to the waiter and kind/timeoutMs are honored per request', async () => {
   const h = harness();
-  const answer = h.api.requestToolApproval({ name: 'ask_user', kind: 'question', timeoutMs: 1234, args: { questions: [] } });
+  const answer = h.api.requestToolApproval({
+    name: 'ask_user',
+    kind: 'question',
+    timeoutMs: 1234,
+    args: { questions: [] },
+  });
   const presented = h.current();
   assert.equal(presented.kind, 'question');
   assert.equal(presented.timeoutMs, 1234);
@@ -144,7 +149,12 @@ test('timeoutMs: null waits without a limit and stays pending until settled', as
   assert.equal(settled, false, 'the 5ms default never applies to an unlimited request');
   assert.equal(h.current().id, presented.id);
   h.api.finishToolApproval(presented.id, true, 'ok', 'desktop', [{ selected: ['A'] }], 'typed in chat');
-  assert.deepEqual(await answer, { approved: true, reason: 'ok', answers: [{ selected: ['A'] }], reply: 'typed in chat' });
+  assert.deepEqual(await answer, {
+    approved: true,
+    reason: 'ok',
+    answers: [{ selected: ['A'] }],
+    reply: 'typed in chat',
+  });
 });
 
 test('an unlimited request is settled by denyAll (turn stop)', async () => {
@@ -153,6 +163,117 @@ test('an unlimited request is settled by denyAll (turn stop)', async () => {
   h.api.denyAllToolApprovals('turn cancelled');
   assert.deepEqual(await answer, { approved: false, reason: 'turn cancelled' });
   assert.equal(h.current(), null);
+});
+
+/** A queue as the runtime builds it: the default limit comes from the environment. */
+function runtimeQueue(env) {
+  let state = { toolApproval: null };
+  let seq = 0;
+  const api = createToolApproval({
+    getState: () => state,
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
+    nextId: () => `req-${++seq}`,
+    getDisposed: () => false,
+    timeoutMs: resolveToolApprovalTimeoutMs(env),
+  });
+  return { api, current: () => state.toolApproval };
+}
+
+for (const kind of ['', 'approval', 'outbound', 'permission']) {
+  test(`a ${kind || 'tool'} approval has no default wait limit: pending past 120 s, answered whenever the user decides`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+    const queue = runtimeQueue({});
+    let settled = null;
+    const answer = queue.api
+      .requestToolApproval({ name: 'mcp__gmail__send_email', kind, args: { to: 'boss@example.com' } })
+      .then((result) => {
+        settled = result;
+        return result;
+      });
+    const presented = queue.current();
+    assert.equal(presented.timeoutMs, null, 'no limit travels with the request');
+    assert.equal(presented.expiresAt, null, 'no expiry for a card to count down to');
+
+    t.mock.timers.tick(121_000);
+    await Promise.resolve();
+    assert.equal(settled, null, 'still waiting after the old 120 s limit');
+    assert.equal(queue.current()?.id, presented.id, 'the card stays up');
+
+    t.mock.timers.tick(3 * 60 * 60_000);
+    await Promise.resolve();
+    assert.equal(settled, null, 'still waiting hours later');
+
+    assert.equal(queue.api.finishToolApproval(presented.id, true, 'approved by user', 'Pixel'), true);
+    const result = await answer;
+    assert.equal(result.approved, true);
+    assert.equal(result.reason, 'approved by user');
+    assert.equal(result.timedOut, undefined);
+    assert.equal(queue.current(), null);
+  });
+}
+
+test('a queued approval behind a pending one also waits without limit, and Stop still settles every waiter', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const queue = runtimeQueue({});
+  let settled = 0;
+  const first = queue.api.requestToolApproval({ name: 'a' }).then((r) => {
+    settled += 1;
+    return r;
+  });
+  const second = queue.api.requestToolApproval({ name: 'b' }).then((r) => {
+    settled += 1;
+    return r;
+  });
+  t.mock.timers.tick(10 * 60_000);
+  await Promise.resolve();
+  assert.equal(settled, 0);
+  assert.equal(queue.current().id, 'req-1');
+  queue.api.denyAllToolApprovals('turn cancelled');
+  assert.deepEqual(await first, { approved: false, reason: 'turn cancelled' });
+  assert.deepEqual(await second, { approved: false, reason: 'turn cancelled' });
+  assert.equal(queue.current(), null);
+});
+
+test('MIXDOG_TOOL_APPROVAL_TIMEOUT_MS stays an opt-in limit for tests and ops', async (t) => {
+  assert.equal(resolveToolApprovalTimeoutMs({}), null);
+  for (const value of ['', '0', '-5', 'soon']) {
+    assert.equal(resolveToolApprovalTimeoutMs({ MIXDOG_TOOL_APPROVAL_TIMEOUT_MS: value }), null, value);
+  }
+  assert.equal(resolveToolApprovalTimeoutMs({ MIXDOG_TOOL_APPROVAL_TIMEOUT_MS: '5000' }), 5000);
+  assert.equal(resolveToolApprovalTimeoutMs({ MIXDOG_TOOL_APPROVAL_TIMEOUT_MS: '100' }), 1000, 'one second at least');
+
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const queue = runtimeQueue({ MIXDOG_TOOL_APPROVAL_TIMEOUT_MS: '5000' });
+  const answer = queue.api.requestToolApproval({ name: 'shell' });
+  assert.equal(queue.current().timeoutMs, 5000);
+  t.mock.timers.tick(5001);
+  assert.deepEqual(await answer, { approved: false, reason: 'approval timed out', timedOut: true });
+});
+
+test('a queue given no timeoutMs at all waits without limit (never an immediate NaN expiry)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  let state = { toolApproval: null };
+  const api = createToolApproval({
+    getState: () => state,
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
+    nextId: () => 'req-1',
+    getDisposed: () => false,
+  });
+  let settled = false;
+  const answer = api.requestToolApproval({ name: 'shell' }).then((r) => {
+    settled = true;
+    return r;
+  });
+  assert.equal(state.toolApproval.expiresAt, null);
+  t.mock.timers.tick(60_000);
+  await Promise.resolve();
+  assert.equal(settled, false);
+  api.finishToolApproval('req-1', true);
+  assert.equal((await answer).approved, true);
 });
 
 test('a request timeout resolves with the approval-timed-out reason', async () => {

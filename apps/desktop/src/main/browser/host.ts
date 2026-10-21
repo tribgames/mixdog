@@ -151,7 +151,7 @@ export function createBrowserHost(
     requestApproval: options.requestApproval,
   });
   const { state, sessions, cdp, display, sendToRenderer } = base;
-  const { lifecycle, nativeViews, taskLifecycle, retainGuest } = createBrowserHostPages({
+  const { lifecycle, nativeViews, fullscreen, taskLifecycle, retainGuest } = createBrowserHostPages({
     window,
     base,
     onSurfaceRequest: options.onSurfaceRequest,
@@ -214,6 +214,7 @@ export function createBrowserHost(
       pageSurface: shown.pageSurface,
       remoteDrive: shown.remoteDrive,
       nativeViews,
+      fullscreen,
       display,
       pageIdentity: base.pageIdentity.store,
       pagePreviews: base.pageIdentity.previews,

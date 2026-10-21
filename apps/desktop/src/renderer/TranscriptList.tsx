@@ -14,8 +14,8 @@ import { useTranscriptScrollGeometry } from './transcript-list-scroll-geometry';
 import { useSelectionPin } from './transcript-list-selection-pin';
 import { useTouchScrollDeviation } from './transcript-list-touch-deviation';
 import { useActiveRowIndexes, useTranscriptVirtualizer } from './transcript-list-virtualizer';
+import type { TranscriptRowSurface } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
-import { TranscriptRowOffscreenContext } from './use-paced-transcript-text';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
 
 export { shouldDeferTranscriptScrollAdjustment } from './transcript-list-geometry';
@@ -37,11 +37,20 @@ type TranscriptListProps = {
   markProgrammaticScroll?: (top: number, intended?: number) => void;
   /** True from the first wheel/touch/drag intent through its inertial tail. */
   hasScrollGesture: () => boolean;
-  /** True while a touch scroll (finger down, then its fling) or a wheel ramp
-   *  owns the viewport: corrections are held off the native offset until it ends. */
+  /** True while a wheel ramp or a touch scroll owns the viewport:
+   *  corrections are held off the native offset until it ends
+   *  (transcript-list-touch-deviation). */
   hasTouchScroll?: () => boolean;
+  /** True while that hold belongs to a touch scroll: it lands early at the
+   *  top edge, so a fling never sticks short of rows landed above it. */
+  touchHoldsCorrections?: () => boolean;
   /** Claims reader ownership before this list writes selection auto-scroll. */
   onSelectionAutoScroll(delta: number): void;
+  /** Who paints the rows: an agent chat's rows learn their heights apart. */
+  surface?: TranscriptRowSurface;
+  /** The follow hook's pause: an agent reply taller than the viewport that
+   *  arrived whole opens at its first line, and follow lets go there. */
+  pauseFollow?: () => void;
 };
 
 /**
@@ -65,8 +74,15 @@ export function TranscriptList({
   markProgrammaticScroll,
   hasScrollGesture,
   hasTouchScroll = noTouchScroll,
+  touchHoldsCorrections = noTouchScroll,
   onSelectionAutoScroll,
+  surface = 'coding',
+  pauseFollow,
 }: TranscriptListProps) {
+  const surfaceRef = useRef(surface);
+  surfaceRef.current = surface;
+  const pauseFollowRef = useRef(pauseFollow);
+  pauseFollowRef.current = pauseFollow;
   const spacer = useRef<HTMLDivElement>(null);
   // The viewport's scrollTop as last observed in a scroll event or written by
   // this list: every other consumer reads this instead of the DOM.
@@ -83,7 +99,16 @@ export function TranscriptList({
   hasScrollGestureRef.current = hasScrollGesture;
   const hasTouchScrollRef = useRef(hasTouchScroll);
   hasTouchScrollRef.current = hasTouchScroll;
-  const deviation = useTouchScrollDeviation({ viewport, spacer, hasTouchScrollRef, domTop, markProgrammaticScrollRef });
+  const touchHoldsRef = useRef(touchHoldsCorrections);
+  touchHoldsRef.current = touchHoldsCorrections;
+  const deviation = useTouchScrollDeviation({
+    viewport,
+    spacer,
+    hasTouchScrollRef,
+    touchHoldsRef,
+    domTop,
+    markProgrammaticScrollRef,
+  });
   // Rows that changed size by more than a viewport stay in the range for two
   // frames: a rewrap must never unmount the rows the reader is looking at.
   const resizePinned = useRef<number[]>([]);
@@ -111,6 +136,7 @@ export function TranscriptList({
     domTop,
     markProgrammaticScrollRef,
     deviation,
+    surfaceRef,
   });
   // Where the timeline starts inside the scroll content (the thread's top
   // padding). Static CSS, read once on the first frame the pane has a box.
@@ -129,7 +155,9 @@ export function TranscriptList({
     flushDeferredResizes,
     scheduleResizeFlush,
   } = useDeferredResizes({ rowsRef, hasScrollGestureRef, virtualizerRef, visibleTop });
-  const { contentHeight, maxScrollTop, endPin } = useTranscriptEndPin({
+  const { contentHeight, maxScrollTop, endPin, wholeReply } = useTranscriptEndPin({
+    rowsRef,
+    pauseFollowRef,
     viewport,
     spacer,
     scrollInset,
@@ -201,6 +229,7 @@ export function TranscriptList({
     virtualizerRef,
     anchorOverride,
     settleHeldShrinks,
+    onFollowReleased: wholeReply.release,
   });
   useSelectionDrag({ viewport, sessionKey, rowsRef, setSelectionPin, onSelectionAutoScroll });
 
@@ -247,25 +276,24 @@ const noTouchScroll = () => false;
 
 const paintsNothing = (node: ReactNode) => node === null || node === undefined || node === false;
 
-function renderVirtualRow(
-  virtualRow: VirtualItem,
+/** How a row sits against its neighbours: whether it paints, and the gaps and
+ *  bands the stylesheet keys off (12-transcript.css). */
+function rowSteps(
+  row: TranscriptRowModel,
+  index: number,
   rows: readonly TranscriptRowModel[],
-  measureRow: ReturnType<typeof useTranscriptRowRegistration>['measureRow'],
-  nodeAt: (index: number) => ReactNode,
-  offscreen: boolean
+  node: ReactNode,
+  nodeAt: (index: number) => ReactNode
 ) {
-  const row = rows[virtualRow.index];
-  if (!row) return null;
-  const node = nodeAt(virtualRow.index);
   // A row that renders nothing (an agent chat's tool round or unfinished
   // reply) takes no room and no step, and the row below it steps from the
   // nearest row above that paints: stepping from the empty rows, every hidden
   // tool round moved the agent's typing bubble 8px and the reply then landed
   // 16px above it, so the thread shook while the reply was generated.
   const blank = paintsNothing(node);
-  let above = virtualRow.index - 1;
+  let above = index - 1;
   while (above >= 0 && paintsNothing(nodeAt(above))) above -= 1;
-  const next = rows[virtualRow.index + 1];
+  const next = rows[index + 1];
   const before = rows[above];
   const previous = blank ? undefined : before?._tag;
   // The live band under a reply part or tool card is the same 40px status
@@ -285,6 +313,20 @@ function renderVirtualRow(
   // turn takes the turn gap, never the 8px part step (12-transcript.css).
   const afterChanges =
     stepBefore && (before?._tag === 'AssistantPart' || before?._tag === 'Error') && Boolean(before.turnChanges);
+  return { blank, bandLead, stepBefore, turnEnd, afterChanges };
+}
+
+function renderVirtualRow(
+  virtualRow: VirtualItem,
+  rows: readonly TranscriptRowModel[],
+  measureRow: ReturnType<typeof useTranscriptRowRegistration>['measureRow'],
+  nodeAt: (index: number) => ReactNode,
+  offscreen: boolean
+) {
+  const row = rows[virtualRow.index];
+  if (!row) return null;
+  const node = nodeAt(virtualRow.index);
+  const { blank, bandLead, stepBefore, turnEnd, afterChanges } = rowSteps(row, virtualRow.index, rows, node, nodeAt);
   return (
     // A row binds position AND measurement to one element.
     // Position and measurement therefore share the
@@ -317,8 +359,7 @@ function renderVirtualRow(
         data-after-changes={afterChanges ? 'true' : undefined}
         data-blank={blank ? 'true' : undefined}
       >
-        {/* The live reply's pacer reads the same mark (use-paced-transcript-text). */}
-        <TranscriptRowOffscreenContext.Provider value={offscreen}>{node}</TranscriptRowOffscreenContext.Provider>
+        {node}
       </div>
     </div>
   );

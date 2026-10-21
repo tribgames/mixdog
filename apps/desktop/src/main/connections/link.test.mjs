@@ -512,6 +512,7 @@ test('a server window notifies on this PC: labeled final answers, approvals, lin
     isEnabled: () => true,
     isSupported: () => true,
     isForeground: () => foreground,
+    isSessionOnScreen: () => foreground,
     createNotification: (content) => {
       const handlers = {};
       const notification = {
@@ -591,6 +592,7 @@ test('a server approval for a session titled by attachments alone names its kind
     isEnabled: () => true,
     isSupported: () => true,
     isForeground: () => false,
+    isSessionOnScreen: () => false,
     createNotification: (content) => {
       const notification = { content, on: () => notification, show: () => shown.push(content), close: () => {} };
       return notification;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { after, mock, test } from 'node:test';
 
 // The recovery lock is the only seam where another process can act between
@@ -29,6 +29,7 @@ mock.module(fileLockUrl, {
 });
 const {
   readJsonState,
+  quarantinePath,
   readJsonStateSync,
   unsupportedState,
   updateJsonAtomic,
@@ -155,6 +156,45 @@ test('a read-modify-write keeps damaged bytes aside before replacing them', asyn
   const next = await updateJsonAtomic(path, (current) => ({ ...(current || {}), written: true }));
   assert.deepEqual(next, { written: true });
   assert.equal(fs.readFileSync(join(path, '..', asideFiles(path)[0]), 'utf8'), '{"hand":"edited",');
+});
+
+test('two quarantines of one file in the same millisecond keep both damaged copies', async (t) => {
+  const frozen = Date.now();
+  const clock = t.mock.method(Date, 'now', () => frozen);
+  const syncRead = freshFile();
+  fs.writeFileSync(syncRead, 'first damage');
+  readJsonStateSync(syncRead, { fallback });
+  fs.writeFileSync(syncRead, 'second damage');
+  readJsonStateSync(syncRead, { fallback });
+
+  const asyncRead = freshFile();
+  fs.writeFileSync(asyncRead, 'first damage');
+  await readJsonState(asyncRead, { fallback });
+  fs.writeFileSync(asyncRead, 'second damage');
+  await readJsonState(asyncRead, { fallback });
+  clock.mock.restore();
+
+  for (const path of [syncRead, asyncRead]) {
+    const kept = asideFiles(path).map((name) => fs.readFileSync(join(path, '..', name), 'utf8'));
+    assert.deepEqual(kept.sort(), ['first damage', 'second damage']);
+  }
+});
+
+test('a quarantine name is no longer than the original `.corrupt-<ms>` shape', (t) => {
+  // The lock's staging file (`<name>.lock.<pid>.<hex>.tmp`) caps how long a
+  // recovered basename can be, so the name is checked where it is built: 225
+  // characters + `.corrupt-<13 digits>` stays within 255 even on a collision.
+  const dir = join(root, `long-${seq++}`);
+  fs.mkdirSync(dir);
+  const path = join(dir, `${'n'.repeat(220)}.json`);
+  const frozen = Date.now();
+  t.mock.method(Date, 'now', () => frozen);
+  const first = quarantinePath(path);
+  assert.equal(first, `${path}.corrupt-${frozen}`);
+  fs.writeFileSync(first, 'kept');
+  const second = quarantinePath(path);
+  assert.equal(second, `${path}.corrupt-${frozen + 1}`);
+  assert.ok(basename(second).length <= 255, `${basename(second).length} characters`);
 });
 
 test('a read-only file mode is written and flushed through its creating handle', (t) => {

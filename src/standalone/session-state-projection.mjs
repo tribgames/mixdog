@@ -1,4 +1,6 @@
 import { sanitizeForWire } from './session-wire-values.mjs';
+import { stripAgentMessageEnvelope } from '../runtime/shared/agent-message-envelope.mjs';
+import { transcriptSourceFields } from '../runtime/shared/transcript-metadata.mjs';
 
 /** Immutable source fields keep their wire identity until they actually change.
  * In particular, a live tail must not rebuild the settled transcript or resend
@@ -29,15 +31,23 @@ export function projectSessionState(entry, raw) {
     }
     let cloned;
     if (key === 'queued' && Array.isArray(value)) {
-      cloned = value.map((item) => ({
-        id: item?.id,
-        submittedAt: item?.submittedAt,
-        text: String(item?.displayText ?? item?.text ?? '').slice(0, 2_000),
-        displayText: String(item?.displayText ?? item?.text ?? '').slice(0, 2_000),
-        mode: item?.mode || 'prompt',
-        priority: item?.priority || 'next',
-        ...(Array.isArray(item?.images) && item.images.length ? { images: item.images } : {}),
-      }));
+      cloned = value.map((item) => {
+        // A queued bot message reads like its delivered row: the sender tag
+        // and the message without its envelope.
+        const source = transcriptSourceFields(item?.transcriptMeta);
+        const queuedText = String(item?.displayText ?? item?.text ?? '');
+        const text = (source.fromAgent ? stripAgentMessageEnvelope(queuedText) : queuedText).slice(0, 2_000);
+        return {
+          id: item?.id,
+          submittedAt: item?.submittedAt,
+          text,
+          displayText: text,
+          mode: item?.mode || 'prompt',
+          priority: item?.priority || 'next',
+          ...source,
+          ...(Array.isArray(item?.images) && item.images.length ? { images: item.images } : {}),
+        };
+      });
     } else if (key === 'items' && Array.isArray(value)) {
       const items = entry.itemCache;
       const nextItems = new Map();

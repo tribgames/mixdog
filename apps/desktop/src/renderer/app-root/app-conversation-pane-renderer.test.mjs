@@ -87,6 +87,10 @@ test('a close handoff presents the closed session only in the cold surface, neve
     const warm = renderer({ kind: 'session', id: 'fallback' }, true, () => {}, 'leaf-1', true);
     assert.equal(warm.props.handoffActive, false);
     assert.equal(warm.props.conversationProps.sessionId, 'fallback');
+    // The pane tells the surface whether it is on screen (not parked behind a file or utility tab).
+    assert.equal(cold.props.conversationProps.surfaceVisible, true);
+    const parked = renderer({ kind: 'session', id: 'fallback' }, false, () => {}, 'leaf-1', true, false);
+    assert.equal(parked.props.conversationProps.surfaceVisible, false);
   } finally {
     globalThis.window = previousWindow;
   }

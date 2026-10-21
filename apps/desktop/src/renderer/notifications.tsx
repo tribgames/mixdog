@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 import { trappedTabIndex } from './list-navigation';
 import { acquireModalLayer } from './modal-layer';
 import { acquireTitleBarDim } from './titlebar-dim';
@@ -63,14 +64,8 @@ export function DesktopUpdateDialog({
   }, [onCancel]);
 
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss; keyboard dismissal is handled by the Escape listener above.
-    <div
-      ref={surfaceRef}
-      className="settings-confirm-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-    >
+    // Backdrop click-to-dismiss; keyboard dismissal is handled by the Escape listener above.
+    <div ref={surfaceRef} className="settings-confirm-layer" {...scrimDismiss(onCancel)}>
       <section
         ref={dialogRef}
         className="settings-confirm-dialog desktop-update-dialog"

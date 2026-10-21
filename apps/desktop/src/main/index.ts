@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import {
   app,
   BrowserWindow,
+  clipboard,
   crashReporter,
   dialog,
   ipcMain,
@@ -61,9 +62,15 @@ import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './qui
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
+import { isSessionOnScreen } from './screen-sessions';
 import { desktopIdentity } from './desktop-identity';
 import { notificationSoundPath, playWindowsNotificationSound, scaledNotificationSound } from './notification-sound';
 import { activateDesktopWindow, openDesktopNotificationSession } from './notification-window';
+import { createDesktopPet, type DesktopPet, type PetWindow } from './desktop-pet-window';
+import { setBrowserApprovalHooks } from './browser/approval-dialog';
+import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './browser/approval-requester';
+import { createBrowserApprovalGrants } from './browser/approval-grants';
+import { boundedNotification } from './connections/server-notifier';
 import type { RemoteHostWindows } from './remote-host-windows';
 import { createIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
 import { watchCrashHandler } from './crash-handler-watch';
@@ -118,7 +125,9 @@ import {
 import {
   DESKTOP_IPC,
   NOTIFICATION_VOLUME_DEFAULT,
+  type DesktopAgentPoolRow,
   type DesktopRemoteAccessInfo,
+  type DesktopSessionSummary,
   type DesktopSettings,
 } from '../shared/contract';
 import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMethod } from './remote-browser-methods';
@@ -661,6 +670,8 @@ const settingsStore = new DesktopSettingsStore({
 });
 let mainWindow: BrowserWindow | null = null;
 let browserHost: BrowserHost | null = null;
+/** The always-on-top desktop pet (Settings → General → Desktop pet). */
+let desktopPet: DesktopPet | null = null;
 let browserHostDisposal: Promise<void> = Promise.resolve();
 // Last-known Browser Use opt-in: the host is created with the window, which
 // may happen before or after the initial settings read, so both sides apply.
@@ -776,8 +787,9 @@ const nativeSessionTitleLabels = () => ({ image: nativeT('Image'), video: native
 const turnNotifier = createDesktopTurnNotifier({
   isEnabled: () => turnNotificationsEnabled,
   isSupported: () => Notification.isSupported(),
-  isForeground: () =>
-    Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()),
+  // The representative bot overlay showing that session's reply counts too.
+  isSessionOnScreen: (sessionId) =>
+    isSessionOnScreen(mainWindow, sessionId) || desktopPet?.showsSession(sessionId) === true,
   createNotification: (content) =>
     new Notification({
       ...content,
@@ -798,6 +810,50 @@ const turnNotifier = createDesktopTurnNotifier({
   // The host's per-agent mute (written by the desktop service, same profile).
   isSessionMuted: (sessionId) => isSessionMutedOnDisk(agentNotificationMutePath(app.getPath('userData')), sessionId),
   titleLabels: nativeSessionTitleLabels,
+  agentName: (agentId) => browserApprovalGrants.agentName(agentId),
+});
+// A Browser Use approval raised while Mixdog is in the background: the card is
+// in the app; this notification (same toggle and look as turn notifications)
+// only points to it and opens the asking bot's chat when clicked.
+let latestSessions: readonly DesktopSessionSummary[] = [];
+// A sub-agent asks as its root bot and its notification opens the top-level chat.
+let latestAgentPool: readonly DesktopAgentPoolRow[] = [];
+const approvalSources = { sessions: () => latestSessions, agentPool: () => latestAgentPool };
+const browserApprovalGrants = createBrowserApprovalGrants(localService);
+setBrowserApprovalHooks({
+  resolveRequester: createApprovalRequesterResolver({
+    ...approvalSources,
+    listAgents: browserApprovalGrants.listAgents,
+    titleLabels: nativeSessionTitleLabels,
+    leadName: () => nativeT('Lead'),
+    taskName: () => nativeT('Task session'),
+  }),
+  isAllowed: browserApprovalGrants.isAllowed,
+  isBlocked: browserApprovalGrants.isBlocked,
+  remember: async (agentId, actions) => {
+    await browserApprovalGrants.remember(agentId, actions);
+    void localService.invokeDesktopOperation('notifySettingsChanged', ['permissions']).catch(() => {});
+  },
+  audit: browserApprovalGrants.audit,
+  downloadsDir: () => app.getPath('downloads'),
+  surfaceSessionId: (sessionId) => approvalSurfaceSessionId(sessionId, approvalSources),
+  notify: (window, { sessionId, name }) => {
+    if (!turnNotificationsEnabled || !Notification.isSupported()) return;
+    const notification = new Notification({
+      ...boundedNotification({
+        title: name ? `${name} · ${nativeT('Browser Use approval')}` : nativeT('Browser Use approval'),
+        body: nativeT('A tool is waiting for your approval.'),
+      }),
+      ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
+      silent: process.platform === 'win32',
+    });
+    const target = sessionId ? approvalSurfaceSessionId(sessionId, approvalSources) : '';
+    notification.on('click', () => {
+      if (!target || !openDesktopNotificationSession(window, target)) activateDesktopWindow(window);
+    });
+    notification.show();
+    if (process.platform === 'win32') void playNotificationSound().catch(() => undefined);
+  },
 });
 let unsubscribeTurnNotifier: (() => void) | null = null;
 /** A server window's notifications fire on this PC, labeled with the server
@@ -818,6 +874,7 @@ function createServerWindowNotifier(window: BrowserWindow, connection: DesktopCo
     isEnabled: () => turnNotificationsEnabled,
     isSupported: () => Notification.isSupported(),
     isForeground: () => !window.isDestroyed() && window.isVisible() && window.isFocused(),
+    isSessionOnScreen: (sessionId) => isSessionOnScreen(window, sessionId),
     createNotification: (content) =>
       new Notification({
         ...content,
@@ -1291,6 +1348,8 @@ function disposeDesktopResources(): Promise<void> {
   awakeService.dispose();
   computerUseOverlay?.dispose();
   computerUseOverlay = null;
+  desktopPet?.dispose();
+  desktopPet = null;
   if (!disposalPromise) {
     diagnostics?.write('desktop-stop');
     const browserAndComputerCleanup = (async () => {
@@ -1822,11 +1881,84 @@ function createWindowPresentation(window: BrowserWindow, startupStartedAt: numbe
   };
 }
 
+/** The desktop pet window: frameless, transparent, always on top, off the
+ *  taskbar, shown without taking focus; it loads
+ *  desktop-pet.html with its own narrow preload. */
+function createDesktopPetController(): DesktopPet {
+  const { developmentUrl, rendererUrl } = resolveRendererTarget();
+  return createDesktopPet({
+    prefsPath: join(app.getPath('userData'), 'desktop-pet.json'),
+    screen,
+    createWindow: (bounds, layer) => {
+      const window = new BrowserWindow({
+        ...bounds,
+        // Its layer is fixed here (desktop-pet-window.ts createWindow).
+        ...(layer.parent ? { parent: layer.parent as unknown as BrowserWindow } : {}),
+        alwaysOnTop: layer.alwaysOnTop,
+        show: false,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        hasShadow: false,
+        // No native resize border to flash around the transparent window.
+        thickFrame: false,
+        // Windows 11 rounds a frameless window and draws its 1px system
+        // border: a light rounded box around the transparent pet window.
+        roundedCorners: false,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        // Activatable from the start (shown inactive, focused only on a
+        // click): a window made unfocusable and switched with setFocusable
+        // left the IME composing outside its quick message.
+        title: 'Mixdog bot overlay',
+        webPreferences: {
+          preload: join(import.meta.dirname, '../preload/desktop-pet.js'),
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+          backgroundThrottling: false,
+        },
+      });
+      window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      window.webContents.on('will-navigate', (event) => event.preventDefault());
+      return window as unknown as PetWindow;
+    },
+    load: async (window) => {
+      const target = window as unknown as BrowserWindow;
+      if (developmentUrl) await target.loadURL(new URL('desktop-pet.html', rendererUrl).href);
+      else await target.loadFile(join(import.meta.dirname, '../renderer/desktop-pet.html'));
+    },
+    // The composer's own route: the followed session's submitToSession.
+    submit: async (sessionId, text) =>
+      (await localService.submitToSession(sessionId, text, { submittedAt: Date.now() })) === true,
+    openApp: (sessionId) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        void showConnectionWindow(localConnection).catch(() => {});
+        return;
+      }
+      if (!sessionId || !openDesktopNotificationSession(mainWindow, sessionId)) activateDesktopWindow(mainWindow);
+    },
+    // The shared read cursor the app advances when the chat is viewed: the
+    // catalog push that follows clears the session's unread mark there.
+    markRead: (sessionId) => {
+      void (async () => {
+        const row = (await localService.listSessions()).find((session) => session.id === sessionId);
+        if (row) await localService.markSessionRead(sessionId, Math.max(0, Number(row.messageCount) || 0), true);
+      })().catch(() => {});
+    },
+    copyText: (text) => clipboard.writeText(text),
+  });
+}
+
 /** This PC's window carries the machine's single instances: Computer Use and
  *  its overlay, the Browser Use pane host, taskbar attention, idle reclaim and
  *  the close-to-background behavior. Returns its Browser Use host. */
 function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
   mainWindow = window;
+  desktopPet?.attachAppWindow(window);
   if (!computerHost) {
     computerHost = createComputerHost({
       bridgeEnabled: false,
@@ -2089,6 +2221,16 @@ function installWindowIpc(
     shell,
     powerMonitor,
     connectionKind: connection.kind,
+    // A server window's model calls run on this PC's sign-ins (model proxy,
+    // filtered by the host's provider list): their quota is this PC's.
+    pcHost: {
+      invokeCapability: (capability, args, sessionId) => localService.invokeCapability(capability, args, sessionId),
+      readCapabilities: (requests) => localService.readCapabilities(requests),
+      isProviderAllowed: (provider) => {
+        const allowed = allowedProvidersForHost(connection.id);
+        return allowed === null || allowed.includes(provider);
+      },
+    },
     serviceUserDataPath: () => connection.serviceUserDataPath(),
     // The updater and the notification sound are this PC's: a server window
     // gets neither (its channels are refused by the feature gates).
@@ -2270,6 +2412,10 @@ if (!app.requestSingleInstanceLock()) {
       });
       startCrashHandlerWatch();
       startDiagnosticsEventLoopMonitor();
+      // The desktop pet window, when its setting is on (desktop-pet-window.ts).
+      desktopPet = createDesktopPetController();
+      if (mainWindow) desktopPet.attachAppWindow(mainWindow);
+      desktopPet.start();
       // Keep-awake + taskbar attention feed on the same session state lane.
       unsubscribeAwake = localService.subscribe((snapshot) => {
         awakeService.onSnapshot(snapshot);
@@ -2279,11 +2425,15 @@ if (!app.requestSingleInstanceLock()) {
       // Every session's roster and the agent pool, not just the active pane:
       // the final-answer rule needs background work as well as turn state.
       const unsubscribeTurnSessions = localService.subscribeSessions((sessions) => {
+        latestSessions = sessions;
         turnNotifier.onSessions(sessions);
         // Visualize holds the panel while a session's agent turn runs.
         void visualize.observeTurns(sessions);
       });
-      const unsubscribeTurnAgents = localService.subscribeAgentPool(turnNotifier.onAgentPool);
+      const unsubscribeTurnAgents = localService.subscribeAgentPool((agents) => {
+        latestAgentPool = agents;
+        turnNotifier.onAgentPool(agents);
+      });
       unsubscribeTurnNotifier = () => {
         unsubscribeTurnSessions();
         unsubscribeTurnAgents();

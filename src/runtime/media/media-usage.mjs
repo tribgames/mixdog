@@ -73,6 +73,23 @@ export function xaiUsage(usage) {
   return typeof ticks === 'number' && Number.isFinite(ticks) && ticks >= 0 ? { costUsd: ticks / TICKS_PER_USD } : null;
 }
 
+/**
+ * Image API response usage (OpenRouter / NanoGPT `POST /images`). `usage.cost`
+ * is USD; NanoGPT's top-level `cost` counts only when `paymentSource` says USD
+ * (it may be billed in XNO).
+ */
+export function imageApiUsage(body) {
+  const usage = body?.usage && typeof body.usage === 'object' ? body.usage : {};
+  const tokens = tokenUsage({
+    inputTokens: count(usage.prompt_tokens),
+    outputTokens: count(usage.completion_tokens),
+    outputImageTokens: count(usage.completion_tokens_details?.image_tokens),
+  });
+  const usd = String(body?.paymentSource || '').toUpperCase() === 'USD' ? body?.cost : undefined;
+  const cost = [usage.cost, usd].find((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+  return cost === undefined ? tokens : { ...tokens, costUsd: cost };
+}
+
 /** True when the provider reported something billable for the request. */
 export function hasReportedUsage(usage) {
   if (!usage) return false;

@@ -28,6 +28,7 @@ const IMAGE_MIME = Object.freeze({
   '.gif': 'image/gif',
 });
 const MAX_REFERENCE_BYTES = 12 * 1024 * 1024;
+const GATEWAY_IMAGE_LANES = new Set(['openrouter', 'nano-gpt']);
 
 let graph = null;
 async function mediaGraph(deps) {
@@ -228,7 +229,13 @@ export function buildOptions(
     if (resolution) {
       validateChoice(controls, 'resolution', resolution, 'resolution');
       options.resolution = resolution;
-    } else if (kind === 'image' && allowed(controls, 'resolution')?.includes('2k')) {
+    } else if (
+      kind === 'image' &&
+      !GATEWAY_IMAGE_LANES.has(lane.id) &&
+      allowed(controls, 'resolution')?.includes('2k')
+    ) {
+      // Gateway models bill per resolution tier: an omitted resolution keeps
+      // the provider's default there instead of silently upscaling.
       options.resolution = '2k';
     }
     if (quality) {

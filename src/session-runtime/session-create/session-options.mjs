@@ -9,7 +9,20 @@ import { readAgentFrontmatterPermission } from '../services/agent-tool/helpers.m
 import { LEAD_DISALLOWED_TOOLS } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { HEADLESS_TOOL_PROFILE } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
-import { MIXY_AGENT_ID } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomMemberOfSession } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
+import { unattendedApprovalPort } from '../../runtime/agent/orchestrator/session/human-gate/gate.mjs';
+
+/** Where a bot created its task session, recorded after its id in the
+ *  session's `sourceName` (`agent:<id>@home|room|run`): the desktop lets the
+ *  task act as the bot (its standing allows, "always allow") only when it came
+ *  from the bot's own attended chat. None when the origin is anything else. */
+function taskOriginSuffix(taskOrigin) {
+  const from = clean(taskOrigin?.sessionId);
+  if (roomMemberOfSession(from)) return '@room';
+  if (unattendedApprovalPort()?.runOf?.(from)) return '@run';
+  return agentIdOfHomeSession(from) === clean(taskOrigin?.agentId) ? '@home' : '';
+}
 
 // Ownership and permission fields an agent-owned session inherits from its profile.
 function agentOwnedSessionFields(sessionProfile) {
@@ -83,7 +96,7 @@ export function sessionOptions(deps, coreMemoryContext) {
     sourceName: agentOwned
       ? sessionProfile?.sourceName || sessionProfile?.agent || 'agent'
       : taskOrigin
-        ? `agent:${taskOrigin.agentId}`
+        ? `agent:${taskOrigin.agentId}${taskOriginSuffix(taskOrigin)}`
         : 'main',
     ...(taskOrigin ? { taskOrigin } : {}),
     ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),

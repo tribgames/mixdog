@@ -80,6 +80,9 @@ test('opening Settings → Connection does not shift the page when its data arri
         'process.env.NODE_ENV': '"production"',
         'import.meta.url': '"http://mixdog.test/assets/index.js"',
       },
+      // Settings → Display imports the skin pictures; like Vite, each becomes
+      // an asset URL string.
+      loader: { '.jpg': 'file', '.webm': 'file' },
       plugins: [lazyChunkBoundary],
     }),
     build({

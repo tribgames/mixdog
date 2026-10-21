@@ -54,12 +54,10 @@ export function useReadingAnchor({
   // One pre-paint write of a corrected reading offset. The spacer grows FIRST:
   // virtualizer.scrollToOffset clamped the target against the previous
   // scrollHeight, and older pages then dropped the reader a whole page.
-  // While the reader is touch/momentum scrolling, no scrollTop is written, at
-  // any native offset (also near the top): a native write cut the phone's
-  // fling short and the held position then jumped (Android: 처음 들어가 위로
-  // 넘기면 올라가다 멈추고 점프). A page landing and the late sizes of landed
-  // rows are held as a row offset instead, and one settle write lands after
-  // the scroll stops (see transcript-list-touch-deviation).
+  // During a wheel ramp or a touch fling a page landing and the late sizes of
+  // landed rows are held as a row offset, and one settle write lands after
+  // the scroll stops (see transcript-list-touch-deviation). A touch fling's
+  // hold lands early at the top edge, so the fling reaches the landed page.
   const writeReadingOffset = useCallback(
     (instance: TranscriptVirtualizer, target: number) => {
       const element = viewport.current;

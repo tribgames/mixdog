@@ -126,10 +126,14 @@ done. Take the first open step, explain it in a sentence or two, ask, then act.
    different model family at key decision points, not on every task. Say in
    one line that more agents can be turned on later on the Workflows page.
    Right after the models are picked, explain Auto reasoning: it adjusts
-   reasoning depth per message, so hard work may come out slightly lower in
-   quality but cost is much lower. Ask whether to turn it on
+   reasoning depth per message around a medium baseline, so hard work may
+   come out slightly lower in quality but cost is much lower. The Lead runs
+   the main coding work, where stability matters most, so also recommend
+   fixing the Lead's effort at High or above in the model picker (choosing an
+   effort there turns Auto off for that model). Ask whether to turn Auto on
    (`install_builtin` `autoEffort`). If declined, say in one line that it can
-   be turned on later from the model picker.
+   be turned on later by choosing Auto at the top of the model picker's
+   reasoning effort list.
 4. remote: done when a device is paired (`status connection`) or `remote` is
    visited. Pairing is user-operated: `open connection`.
 5. extensions: done when `extensions` is visited. Explain plugins and skills;

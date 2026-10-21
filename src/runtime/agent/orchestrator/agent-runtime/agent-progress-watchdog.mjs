@@ -4,7 +4,8 @@
  * lastProgressAt during long tool work; this module decides when to abort.
  * How long one tool runs is never a stall by itself: every tool owns its own
  * deadline (shell timeout_ms, task wait timeout), so a legitimate 10-minute
- * wait is not cut off at a role budget. Only model-response progress is judged.
+ * wait is not cut off at a role budget. Only model-response progress is judged,
+ * and never while the turn waits on the user's approval (`awaitingUser`).
  */
 
 import { appendAgentTrace } from '../agent-trace-io.mjs';
@@ -271,6 +272,10 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
 
 export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
   if (!snapshot || !policy) return null;
+  // A turn blocked on the user's tool approval (its own, or a sub-agent's that
+  // the bot chat answers) is waiting on a person, not stalled: an approval has
+  // no wait limit, so no deadline below applies until it settles.
+  if (snapshot.awaitingUser) return null;
 
   const startedAt = snapshot.modelRequestStartedAt || 0;
   // stage=connecting with no request timestamp means the provider request is

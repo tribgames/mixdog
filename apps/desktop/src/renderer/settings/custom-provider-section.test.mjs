@@ -228,6 +228,51 @@ test('discovery failure on save blocks save, opens manual entry and categorizes 
   }
 });
 
+test('timeout and server failures on save point to manual entry', async (t) => {
+  let error;
+  const calls = [];
+  const { render } = mount(t, { calls, handlers: { discoverCustomProviderModels: () => ({ models: [], error }) } });
+  await render();
+  await fillNew();
+  for (const [next, pattern] of [
+    [{ kind: 'timeout', message: 'x timed out' }, /did not return its model list in time.*add model IDs manually/],
+    [{ kind: 'request', status: 503, message: 'x' }, /HTTP 503.*add model IDs manually/],
+  ]) {
+    error = next;
+    await submit();
+    assert.match(alerts(), pattern);
+    assert.equal(document.querySelector('details').open, true);
+  }
+});
+
+test('a slow discovery shows progress and can be stopped, opening manual entry', async (t) => {
+  let release;
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      discoverCustomProviderModels: () =>
+        new Promise((resolve) => {
+          release = () => resolve({ models: [{ id: 'late' }] });
+        }),
+    },
+  });
+  await render();
+  await fillNew();
+  await submit();
+  assert.match(document.querySelector('[role=status]').textContent, /Waiting for the service/);
+  await click(button('Stop waiting'));
+  assert.equal(button('Stop waiting'), undefined);
+  assert.equal(document.querySelector('details').open, true);
+  await act(async () => release());
+  assert.equal(
+    calls.some((c) => c.capability === 'saveCustomProvider'),
+    false
+  );
+  assert.equal(alerts(), '');
+  assert.equal(button('Save').disabled, false);
+});
+
 test('empty discovery on save asks for manual models; manual models are saved without discovery', async (t) => {
   const calls = [];
   const { render } = mount(t, {
@@ -464,8 +509,6 @@ const ROWS = [
 const withRows = (extra = {}) => ({ ...CUSTOM, models: ROWS, ...extra });
 // Consistent with ROWS, as the runtime's effective rows always are.
 const OVERRIDDEN = { 'acme-1': { maxOutputTokens: 9, reasoning: { levels: ['low', 'high'] } } };
-const modelCheckbox = (text) =>
-  [...document.querySelectorAll('label')].find((l) => l.textContent === text).querySelector('input');
 
 test('keyless provider disables the key field and saves auth none without a key', async (t) => {
   const calls = [];

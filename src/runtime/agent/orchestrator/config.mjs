@@ -4,6 +4,7 @@ import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
+import { AUTO_EFFORT_BASE, autoEffortBase } from './providers/auto-effort.mjs';
 import { DEFAULT_INSTRUCTION_FILES_MODE, normalizeInstructionFilesMode } from '../../shared/instruction-files-mode.mjs';
 import {
   DEFAULT_DISABLED_AGENT_ROSTER,
@@ -205,6 +206,13 @@ function storedInstructionFiles(agent) {
   return mode === DEFAULT_INSTRUCTION_FILES_MODE ? {} : { instructionFiles: mode };
 }
 
+// `autoEffortBase` (providers/auto-effort.mjs): only a valid non-default level
+// is kept; absent means medium.
+function storedAutoEffortBase(agent) {
+  const base = autoEffortBase(agent?.autoEffortBase);
+  return base === AUTO_EFFORT_BASE ? {} : { autoEffortBase: base };
+}
+
 export function loadConfig(options = {}) {
   const includeSecrets = options.secrets !== false;
   // `secrets: 'presence'`: credentials are detected (env, OAuth files, which
@@ -269,6 +277,7 @@ export function loadConfig(options = {}) {
         disabledAgents: legacyDisabledAgents ? disabledAgentIds(raw) : effectiveDisabledAgents(raw),
         ...(raw.memoryTools && typeof raw.memoryTools === 'object' ? { memoryTools: { ...raw.memoryTools } } : {}),
         ...storedInstructionFiles(raw),
+        ...storedAutoEffortBase(raw),
         ...normalizeWorkflowSelection(raw),
         profile: normalizeProfileConfig(raw.profile),
         skills: normalizeSkillsConfig(raw.skills),
@@ -463,6 +472,8 @@ function buildAgentSaveBuilder(config) {
     else delete next.aiSessionTitles;
     delete next.instructionFiles;
     Object.assign(next, storedInstructionFiles(config));
+    delete next.autoEffortBase;
+    Object.assign(next, storedAutoEffortBase(config));
     delete next.workflowRoutes;
     // Defaults live in code: values equal to the current default are not stored.
     return storedAgentForm(removeRetiredAgentFields(next));

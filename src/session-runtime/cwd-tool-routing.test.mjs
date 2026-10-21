@@ -51,6 +51,7 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
       getAllProviders: () => new Map([['openai', provider]]),
       providerInputExcludesCache: () => false,
       providerNativePdf: () => true,
+      providerReadsImages: () => true,
       providerCatalogRevision: () => 0,
       refreshProviderCatalogsOnStartup: async () => {},
       refreshCatalogs: async () => {},

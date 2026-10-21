@@ -8,11 +8,14 @@ import { parseToolArgs } from '../runtime/shared/tool-surface.mjs';
 // Anchor to the orchestrator's actual denial envelope:
 //   `Error: tool "<name>" denied by hook[: ...]`
 //   `Error: tool "<name>" denied by hook: approval required but no approval UI is available`
+//   `Error: tool "<name>" was not approved: <reason>. Do not retry it …` (a person said no)
 // Matching the bare phrase anywhere in the body produced FALSE POSITIVES when a
 // normal (successful) tool result merely CONTAINED the text — e.g. a read/grep
 // over this very file or the hook source. The denial is always an Error
 // envelope emitted at the START of the result, so anchor on that prefix.
-const HOOK_DENIAL_RE = /^Error:\s*tool\s*"[^"]*"\s*denied by hook\b/im;
+const HOOK_DENIAL_RE = /^Error:\s*tool\s*"[^"]*"\s*(?:denied by hook|was not approved)\b/im;
+// The not-approved denial's instruction to the model, not shown to the user.
+const NOT_APPROVED_INSTRUCTION_RE = /\s*Do not retry it or reach the same result another way; report it\.\s*$/;
 const APPROVAL_UNAVAILABLE_RE = /denied by hook:\s*approval required but no approval UI is available/i;
 
 export function toolItemResultText(item) {
@@ -44,7 +47,10 @@ export function isHookApprovalDenialToolItem(item) {
 export function formatHookDenialDetail(text) {
   const raw = String(text ?? '').trim();
   if (!raw) return '';
-  const stripped = raw.replace(/^Error:\s*tool\s*"[^"]*"\s*/i, '').trim();
+  const stripped = raw
+    .replace(/^Error:\s*tool\s*"[^"]*"\s*/i, '')
+    .replace(NOT_APPROVED_INSTRUCTION_RE, '')
+    .trim();
   return stripped || raw;
 }
 

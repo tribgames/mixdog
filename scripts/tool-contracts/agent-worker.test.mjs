@@ -208,6 +208,10 @@ function createNotifySmokeAgent({ dataDir, ownerNotifications, workerQueued }) {
   });
 }
 
+// The first routed event waits on a real worker process start (1.2-4 s measured, on HEAD too, under
+// the full suite's load); a miss shows as the whole bound, so it is wide, not tight.
+const AGENT_SPAWN_ROUTING_TIMEOUT_MS = 30_000;
+
 test('agent completion notifications route to the owner exactly once', async () => {
   const agentNotifyTmp = mkdtempSync(join(tmpdir(), 'mixdog-agent-notify-'));
   let agentNotifySmoke = null;
@@ -237,7 +241,8 @@ test('agent completion notifications route to the owner exactly once', async () 
         workerQueued.some((event) =>
           /task_shell_notify_smoke/.test(String(event.message?.text || event.message?.content || event.message))
         ),
-      'agent child background completion routing'
+      'agent child background completion routing',
+      AGENT_SPAWN_ROUTING_TIMEOUT_MS
     );
     if (ownerNotifications.some((event) => /task_shell_notify_smoke/.test(event.text))) {
       throw new Error(
@@ -246,7 +251,8 @@ test('agent completion notifications route to the owner exactly once', async () 
     }
     await waitFor(
       () => ownerNotifications.some((event) => /worker completed/.test(event.text)),
-      'agent early completion routing'
+      'agent early completion routing',
+      AGENT_SPAWN_ROUTING_TIMEOUT_MS
     );
     const agentCompletionCount = ownerNotifications.filter((event) => /worker completed/.test(event.text)).length;
     if (agentCompletionCount !== 1) {

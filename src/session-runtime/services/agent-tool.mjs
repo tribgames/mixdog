@@ -169,6 +169,12 @@ export function createStandaloneAgent({
     },
     getStatus,
     recoverWorkers,
+    // Daemon start: settle the rows the previous process left running and
+    // queue each owner's failure result; resolves once they are queued.
+    settleRestartFailures: () => {
+      registry.recoverStaleWorkerRows({ deadOnly: true });
+      return notifyRestartFailures();
+    },
     upsertLeadSession: registry.upsertLeadSession,
     updateLeadWorkerCwd: registry.updateLeadWorkerCwd,
     forgetLeadSession: registry.forgetLeadSession,

@@ -48,6 +48,9 @@ export type ComposerAttachment = {
    *  (`withContentDigest`); `of` is the data it was computed for, so a chip
    *  whose data changed is hashed again. In memory only, never persisted. */
   contentDigest?: { of: string; sha256: Promise<string> };
+  /** A PDF's page count as its page tree states it (0 when it could not be
+   *  read there); only drives the pre-send size notice. */
+  pageCount?: number;
 };
 
 export type ComposerHistoryEntry = {

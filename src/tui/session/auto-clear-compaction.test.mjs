@@ -305,6 +305,32 @@ test('completion wake still runs when auto-clear compaction fails or times out',
   assert.match(timed.state.items.find((i) => i.label === 'Auto-clear skipped').detail, /timed out after 5ms/);
 });
 
+for (const id of ['sess_home_reviewer', 'sess_home_lead', 'sess_task_1']) {
+  test(`auto-clear treats ${id} like any Lead session: same idle window and context floor for every turn kind`, async () => {
+    const small = wakeHarness(() => ({ changed: true }), {
+      contextStatus: () => ({ usedTokens: 10, compaction: { triggerTokens: 1_000 } }),
+    });
+    small.session.id = id;
+    small.flow.enqueue('routine', { mode: 'routine', priority: 'later', id: 'r1', skillSelection: 'x' });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(small.compactCalls, 0, 'below minContextPercent: not compacted');
+
+    const idle = wakeHarness(() => ({ changed: true }));
+    idle.session.id = id;
+    assert.equal(await idle.flow.autoClearBeforeSubmit(), true, 'a submit after the provider idle window compacts');
+    const wake = wakeHarness(() => ({ changed: true }));
+    wake.session.id = id;
+    await wake.wake();
+    assert.deepEqual(wake.order, ['compact', 'wake-turn'], 'a completion wake compacts first');
+
+    const fresh = wakeHarness(() => ({ changed: true }), {
+      cfg: { enabled: true, idleMs: 600_000, minContextPercent: 10 },
+    });
+    fresh.session.id = id;
+    assert.equal(await fresh.flow.autoClearBeforeSubmit(), false, 'inside the idle window: no compaction');
+  });
+}
+
 test('explicit manual clear still clears the session instead of compacting it', async () => {
   const h = createHarness(() => {
     throw new Error('manual clear must not compact');

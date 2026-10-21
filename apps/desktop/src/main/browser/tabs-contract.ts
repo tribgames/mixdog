@@ -9,6 +9,8 @@ export interface BackgroundPage {
   kind: 'agent' | 'popup' | 'user';
   keepAlive?: boolean;
   openerPageId?: string;
+  /** The page that opened a popup; closing the selected popup selects it. */
+  opener?: WebContents;
 }
 
 export interface BrowserTabsHost {

@@ -19,9 +19,27 @@ export interface BrowserFrameHost {
   sessions(guest: WebContents): Map<string, { type?: string; frameId?: string; ready?: Promise<unknown> }>;
 }
 
+/** Waits for a shared promise without being held by it: cancellation ends this
+ *  wait only, the initialization other observations share keeps running. */
+function untilReady(ready: Promise<unknown> | undefined, signal?: AbortSignal): Promise<unknown> | undefined {
+  if (!ready || !signal) return ready;
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    ready.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
 export function createBrowserFrameCollector(host: BrowserFrameHost) {
   const cacheFor = createBrowserFrameCacheStore();
-  async function collect<T>(guest: WebContents, expression: string, signal?: AbortSignal, attempt = 0): Promise<T[]> {
+  async function collect<T>(
+    guest: WebContents,
+    expression: string,
+    signal?: AbortSignal,
+    skip?: ReadonlyMap<string, number>,
+    attempt = 0
+  ): Promise<Array<[string, T, number]>> {
     const debuggerPort = await host.cdp.guestDebugger(guest);
     signal?.throwIfAborted();
     const cache = cacheFor(guest, debuggerPort);
@@ -52,7 +70,7 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
       if (!frames) {
         const trees = await settleBrowserReads(
           targets.map(async (target) => {
-            await target.ready;
+            await untilReady(target.ready, signal);
             signal?.throwIfAborted();
             return read(() =>
               host.cdp.call<{ frameTree: FrameTree }>(guest, 'Page.getFrameTree', {}, signal, {
@@ -94,6 +112,9 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
               executionContextId = created.executionContextId;
               cache.contexts.set(key, executionContextId);
             }
+            // Skipped only while the frame is still in the very context it was
+            // read in: a navigation keeps the frame id but replaces the context.
+            if (skip?.get(frameId) === executionContextId) return undefined;
             const result = await host.cdp.call<{
               result?: { value?: T };
               exceptionDetails?: { text?: string; exception?: { description?: string } };
@@ -114,12 +135,12 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
                 `frame observation failed: ${result.exceptionDetails?.exception?.description || result.exceptionDetails?.text || 'missing result'}`
               );
             }
-            return result.result.value;
+            return [frameId, result.result.value, executionContextId] as [string, T, number];
           })
         )
       );
       assertCurrent();
-      return values;
+      return values.filter((value) => value !== undefined);
     } catch (error) {
       const changed = cache.epoch !== epoch;
       cache.invalidate();
@@ -128,10 +149,20 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
       const settleDelay = TOPOLOGY_SETTLE_DELAYS_MS[attempt];
       if (changed && settleDelay !== undefined && !signal?.aborted) {
         await pause(settleDelay, signal);
-        return collect<T>(guest, expression, signal, attempt + 1);
+        return collect<T>(guest, expression, signal, skip, attempt + 1);
       }
       throw error;
     }
   }
-  return <T>(guest: WebContents, expression: string, signal?: AbortSignal) => collect<T>(guest, expression, signal);
+  const collectValues = async <T>(guest: WebContents, expression: string, signal?: AbortSignal) =>
+    (await collect<T>(guest, expression, signal)).map(([, value]) => value);
+  /** Each value with the frame and execution context that produced it. A frame
+   *  whose current context is the one recorded in `skip` is not read. */
+  const collectByFrame = <T>(
+    guest: WebContents,
+    expression: string,
+    signal?: AbortSignal,
+    skip?: ReadonlyMap<string, number>
+  ) => collect<T>(guest, expression, signal, skip);
+  return Object.assign(collectValues, { byFrame: collectByFrame });
 }

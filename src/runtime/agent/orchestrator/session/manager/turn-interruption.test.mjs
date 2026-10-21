@@ -6,7 +6,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createTurnInterruptionTracker, finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
+import {
+  createTurnInterruptionTracker,
+  finalizeTurnInterruptionSnapshot,
+  USER_CANCEL_KEEP_PROMPT_REASON,
+} from './turn-interruption.mjs';
 import { renderShellCompletionEnvelope } from '../../../../shared/task-notification-envelope.mjs';
 
 const OPENING = 'Let me check that for you.';
@@ -147,4 +151,46 @@ test('a committed assistant message clears both the partial and the retracted dr
 
   assert.equal(tracker.snapshot().partialAssistantContent, '');
   assert.equal(tracker.restoreTombstonedText(), false);
+});
+
+// A user Stop the host will not answer with the prompt back in the input box
+// (the desktop Stop button) must leave the prompt in the stored transcript: a
+// first message cancelled while the model was only thinking otherwise leaves a
+// zero-message session that every catalog hides, and the text is nowhere.
+test('a user cancel that keeps the prompt retains the unanswered user turn and the plain cancel still rewinds it', () => {
+  const turnOutgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'RUN:slowt first message' },
+  ];
+  const finalize = (abortReason) =>
+    finalizeTurnInterruptionSnapshot({
+      turnOutgoing,
+      currentUserContent: 'RUN:slowt first message',
+      snapshot: { responseStarted: false },
+      abortReason,
+    });
+  const kept = finalize(USER_CANCEL_KEEP_PROMPT_REASON);
+  assert.equal(kept.userTurnPreserved, true);
+  assert.equal(kept.responsePreserved, false);
+  assert.deepEqual(
+    kept.messages.map((message) => message.content),
+    ['sys', 'RUN:slowt first message', '[Request interrupted]']
+  );
+  assert.equal(finalize('user-cancel').userTurnPreserved, false);
+  assert.deepEqual(
+    finalize('user-cancel').messages.map((message) => message.content),
+    ['sys']
+  );
+});
+
+test('a prompt-keeping user cancel after output still closes the turn with the user interrupt marker', () => {
+  const { messages, responsePreserved } = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: [{ role: 'user', content: 'prompt' }],
+    currentUserContent: 'prompt',
+    snapshot: { responseStarted: true, partialAssistantContent: 'Working on it', phase: 'text' },
+    abortReason: USER_CANCEL_KEEP_PROMPT_REASON,
+  });
+  assert.equal(responsePreserved, true);
+  assert.equal(messages.at(-1).content, '[Request interrupted by user]');
+  assert.equal(messages.at(-2).content, 'Working on it');
 });

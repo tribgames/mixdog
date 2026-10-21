@@ -55,7 +55,7 @@ export function isHookApprovalDenialToolItem(item: TranscriptItem) {
   if (!item.isError) return false;
   const text = toolResultText(item);
   return (
-    /^Error:\s*tool\s*"[^"]*"\s*denied by hook\b/im.test(text) ||
+    /^Error:\s*tool\s*"[^"]*"\s*(?:denied by hook|was not approved)\b/im.test(text) ||
     /denied by hook:\s*approval required but no approval UI is available/i.test(text)
   );
 }

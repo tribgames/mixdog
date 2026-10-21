@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import { projectSessionState } from './session-state-projection.mjs';
+import { wrapAgentMessage } from '../runtime/shared/agent-message-envelope.mjs';
 import { applySessionStatePatch, diffSessionState } from './session-state-patch.mjs';
 
 test('a long unfinished line crosses the daemon hop in bytes linear in its length', () => {
@@ -65,6 +66,28 @@ test('tail-only updates do not resend the settled history or queued prompts', ()
     itemsAppend: null,
   });
   assert.deepEqual(applySessionStatePatch(previous, patch), next);
+});
+
+test('a queued bot message projects its sending bot and the message without its envelope', () => {
+  const body = 'check the build';
+  const projected = projectSessionState(
+    {},
+    {
+      queued: [
+        {
+          id: 'q1',
+          text: wrapAgentMessage(body, { name: 'alpha', agentId: 'alpha' }),
+          transcriptMeta: { sender: 'lead', fromAgent: 'alpha' },
+        },
+        { id: 'q2', text: 'plain follow-up', transcriptMeta: { sender: 'user' } },
+      ],
+    }
+  );
+  assert.equal(projected.queued[0].displayText, body);
+  assert.equal(projected.queued[0].text, body);
+  assert.equal(projected.queued[0].fromAgent, 'alpha');
+  assert.equal(projected.queued[1].displayText, 'plain follow-up');
+  assert.equal(projected.queued[1].fromAgent, undefined);
 });
 
 test('history edits, queue edits and removed fields still reconstruct the complete state', () => {

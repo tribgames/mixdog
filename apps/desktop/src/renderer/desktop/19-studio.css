@@ -615,21 +615,15 @@
 /* Composer parity with the session chat lives in the single canonical
    .studio-composer textarea / -bar rules further down (one owner — two
    parallel parity blocks had drifted on max-height). */
+/* The + is the chat composer's .composer-tool (size, ink, hover); only the
+   placement the chat card gives it lives here. */
 .studio-attach {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  /* Chat parity: the + tool carries text ink like .composer-tool. */
-  color: var(--mx-text);
-  background: transparent;
+  margin: var(--mx-chat-bar-inset);
+  margin-right: 0;
+  border-radius: var(--mx-radius-pill);
   cursor: pointer;
-}
-.studio-attach:hover:not(:disabled) {
-  color: var(--mx-text);
-  background: var(--mx-hover);
 }
 .studio-attach:disabled {
   opacity: var(--mx-op-disabled);
@@ -745,25 +739,33 @@
   white-space: normal;
 }
 .studio-composer {
-  /* Match the session form's block flow. Its inline textarea line box plus
-     footer is the rendered chat-card height; grid tracks made Studio shorter. */
-  display: block;
-  /* Chat-composer parity: same radius, surface, lift, type scale, and
-     row metrics. */
+  /* Chat-composer parity (agent-chat.css): one bar — + · text · send — with
+     the same radius, surface, lift and 7px inset from the card edge. */
+  --mx-chat-bar-inset: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   border-radius: var(--mx-radius-sheet);
-  min-height: 84px;
+  min-height: 42px;
   background: var(--mx-composer-surface);
   box-shadow: var(--mx-composer-edge), var(--mx-composer-lift);
   overflow: hidden;
 }
+.studio-composer > .studio-refs {
+  flex: 0 0 100%;
+}
 .studio-composer textarea {
   box-sizing: border-box;
-  width: 100%;
-  min-height: 52px;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 42px;
   field-sizing: content;
-  max-height: 180px;
+  --mx-composer-pad-y: clamp(0px, calc((42px - var(--mx-line-body, 24px)) / 2), 9px);
+  max-height: calc(5 * var(--mx-line-body, 24px) + 2 * var(--mx-composer-pad-y));
   overflow-y: auto;
-  padding: 16px var(--composer-text-inset) 8px;
+  scrollbar-width: none;
+  padding: var(--mx-composer-pad-y) 6px;
   border: 0;
   color: var(--mx-text);
   background: transparent;
@@ -787,7 +789,7 @@
   /* One full-strength ink for every selected run (body, link, muted, code):
      their own colors fell under 4.5:1 on the accent tint. */
   color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-accent) 32%, transparent);
+  background: var(--mx-selection, color-mix(in srgb, var(--mx-accent) 32%, transparent));
 }
 /* Android Chromium paints the IME's composing syllable with the ::selection
    COLOR but not its background, so the inverted ink above rendered each
@@ -811,26 +813,19 @@
   outline-offset: -1.5px;
   border-radius: var(--mx-radius-md);
 }
+/* The bar wraps the + · text · send row, like the chat form's input row. */
 .studio-composer-bar {
   display: flex;
-  align-items: center;
-  /* Chat footer parity: tools sit nearly flush like + · model · effort. */
-  gap: 2px;
-  height: 44px;
-  min-height: 0;
-  box-sizing: border-box;
-  padding: 0 8px;
-  /* Mode switch must not reflow the dock: one line, fixed height, whether the
-     model exposes two controls or four. */
-  flex-wrap: nowrap;
-  overflow: visible;
-  /* The bar is a GRID item: without this its automatic minimum is its content
-     width, and with the side panel open the whole composer card overflowed the
-     pane and clipped the send button. */
+  flex: 1 1 100%;
+  align-items: flex-end;
+  /* Without this the bar's automatic minimum is its content width, and with
+     the side panel open the card overflowed the pane and clipped send. */
   min-width: 0;
 }
-.studio-composer-spacer {
-  flex: 1;
+.studio-composer-bar > .send-button {
+  flex: 0 0 28px;
+  margin: var(--mx-chat-bar-inset);
+  margin-left: 0;
 }
 .studio-kind {
   display: inline-flex;
@@ -907,17 +902,18 @@
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
   transition: width var(--mx-motion-base) var(--mx-ease-emphasized);
 }
-/* The generation controls ride one strip; the send action sits outside it,
-   exactly like the chat composer's route strip and send button. */
-/* The strip SCROLLS instead of clipping the model picker at ANY width — the
-   side panel narrows the desktop shell exactly like a phone viewport, and the
-   generate button keeps its own slot at the end of the row (chat parity). */
+/* The generation controls ride one slim line under the card, right-aligned
+   like .composer-model-line. The strip SCROLLS instead of clipping the model
+   picker at ANY width — the side panel narrows the desktop shell exactly like
+   a phone viewport. */
 .studio-composer-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   min-width: 0;
-  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 0 8px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -935,13 +931,6 @@
     min-width: 0;
     max-width: 132px;
   }
-  .studio-composer-spacer {
-    display: none;
-  }
-  .studio-generate {
-    flex: 0 0 auto;
-    margin-left: 6px;
-  }
 }
 /* Keep Studio controls on the loaded Latin UI face and skip text-affecting
    hover transitions. The mounted control row can then repaint in place when
@@ -954,35 +943,6 @@
 .studio-model-trigger,
 .studio-kind button {
   transition: none;
-}
-.studio-generate {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-pill);
-  /* Same contrast disc as the chat send button. */
-  color: var(--mx-grey-100);
-  background: var(--mx-bg-contrast);
-  cursor: pointer;
-}
-.studio-generate svg.lucide {
-  stroke-width: 1.75px;
-}
-.studio-generate:hover:not(:disabled) {
-  background: linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
-}
-.studio-generate:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 1px var(--mx-border-strong);
-}
-.studio-generate:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
 }
 .desktop-boot-gate {
   position: relative;
@@ -999,8 +959,14 @@
   min-width: 0;
   min-height: 0;
 }
-.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content,
-.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content * {
+/* Under a skin the plated app is already visible while the cover fades (the
+   cover is translucent, below): hidden until the cover was gone, the fade
+   showed the bare picture at full strength and the plates arrived after it. */
+.desktop-boot-gate[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
+> .desktop-boot-gate-content,
+.desktop-boot-gate[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
+  > .desktop-boot-gate-content
+  * {
   visibility: hidden;
 }
 .desktop-boot-cover {
@@ -1015,6 +981,14 @@
 .desktop-boot-cover[data-leaving="true"] {
   opacity: 0;
   pointer-events: none;
+}
+/* Under a skin the cover is the picture's own plates (frame, then the main
+   veil), not the theme's opaque band: the first frame is already skinned. */
+html[data-mixdog-skin] .desktop-boot-cover {
+  background: linear-gradient(var(--mx-skin-veil), var(--mx-skin-veil)), var(--mx-skin-frame);
+}
+html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
+  background: transparent;
 }
 .desktop-boot-cover > .desktop-loading-surface {
   border-radius: 0;

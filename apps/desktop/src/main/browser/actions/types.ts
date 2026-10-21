@@ -81,6 +81,9 @@ export interface BrowserActionContext {
    *  bounded rendering checkpoint while a sequence step runs. */
   actionSnapshot(): Promise<BrowserCommandResult>;
   services: BrowserActionServices;
+  /** An approved upload's receiving frame (see action-approval.ts); the handler
+   *  checks it again right before the files are handed over. */
+  approvedReceiver?: string;
 }
 
 export type BrowserActionHandler = (context: BrowserActionContext) => Promise<BrowserCommandResult>;

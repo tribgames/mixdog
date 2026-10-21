@@ -8,6 +8,7 @@ import { DESKTOP_IPC } from '../shared/contract.ts';
 import { registerProjectFileIpc } from './ipc-project-files.ts';
 import { createRemoteMethods, executeRemoteFrame } from './remote-methods.ts';
 import { createDesktopOperations } from './desktop-operations.ts';
+import { hookProjectSwap } from './project-swap-hook.mjs';
 
 for (const transport of ['ipc', 'remote']) {
   test(`${transport} recovery resolves the registry root and uses only host-owned storage`, async (t) => {
@@ -68,16 +69,17 @@ for (const transport of ['ipc', 'remote']) {
       invoke('projectRecovery', 'registered-project', { action: 'inspect', id: '../escape' }),
       /Invalid recovery ID/
     );
-    const rename = fs.rename;
-    // The desktop saves by replacing each file; a paired device's edit is
-    // rewritten in place through its authorized handle. Fail the second file
-    // on whichever route this transport takes.
+    // Both routes rewrite files in place: the desktop through a handle it
+    // opens itself, a paired device's edit through its authorized handle. Fail
+    // the second file on whichever route this transport takes.
     let mock;
     if (transport === 'ipc') {
-      mock = t.mock.method(fs, 'rename', (from, to) => {
-        if (to === join(root, 'b.txt')) throw new Error('second save denied');
-        return rename(from, to);
+      const restoreSwap = hookProjectSwap(t, {
+        before(path) {
+          if (path === join(root, 'b.txt')) throw new Error('second save denied');
+        },
       });
+      mock = { mock: { restore: restoreSwap } };
     } else {
       const probe = await fs.open(join(root, 'a.txt'));
       const handleProto = Object.getPrototypeOf(probe);
@@ -123,11 +125,15 @@ for (const transport of ['ipc', 'remote']) {
     assert.deepEqual((await invoke('projectRecovery', 'registered-project', { action: 'list' })).records, []);
     assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'A0');
     // The other production batch entry point uses the same host-owned journal.
-    const searchMock = t.mock.method(fs, 'rename', (from, to) => {
-      if (to === join(root, 'b.txt')) throw new Error('search batch denied');
-      return rename(from, to);
-    });
-    syncBuiltinESMExports();
+    const searchMock = {
+      mock: {
+        restore: hookProjectSwap(t, {
+          before(path) {
+            if (path === join(root, 'b.txt')) throw new Error('search batch denied');
+          },
+        }),
+      },
+    };
     try {
       await assert.rejects(
         operations.invoke('replaceWorkspaceTextIn', [

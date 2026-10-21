@@ -88,6 +88,17 @@ test("a schedule fire is a turn in its bot's thread with its marker; the reply i
   assert.equal(unattendedRunOf('sess_home_reviewer'), null, 'attended again once the turn ended');
 });
 
+test("every run has an owning agent: an ownerless or unknown-owner routine runs as Mixy ('lead'), never as nobody", async () => {
+  for (const ownerAgentId of [undefined, null, '', '   ']) {
+    const thread = homeThread({ reply: () => 'ok' });
+    const run = runRoutineTurn({ kind: 'webhook', name: 'hook', ownerAgentId, prompt: 'Go.' }, deps(thread));
+    await tick();
+    assert.deepEqual(unattendedRunOf('sess_home_lead'), { kind: 'webhook', agentId: 'lead', name: 'hook' });
+    thread.settle();
+    await run;
+  }
+});
+
 test("an ownerless routine is Mixy's; a failed or cancelled turn fails the run", async () => {
   const thread = homeThread();
   const failed = runRoutineTurn({ kind: 'schedule', name: 'daily', prompt: 'Go.' }, deps(thread));

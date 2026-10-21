@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopSessionContentMatch, DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
+import { scrimDismiss } from './scrim-dismiss';
 import { acquireModalLayer } from './modal-layer';
 import { useMobileBack } from './mobile-back';
 import { sessionLabel } from './session-sidebar-rows';
@@ -132,14 +133,8 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
   };
 
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss; keyboard dismissal is handled by the dialog's Escape handling
-    <div
-      ref={surfaceRef}
-      className="workbench-quick-access-layer"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
+    // Backdrop click-to-dismiss; keyboard dismissal is handled by the dialog's Escape handling.
+    <div ref={surfaceRef} className="workbench-quick-access-layer" {...scrimDismiss(onClose)}>
       <section
         className="workbench-quick-access session-search"
         role="dialog"

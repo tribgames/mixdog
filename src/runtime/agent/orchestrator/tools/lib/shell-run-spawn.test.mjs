@@ -6,16 +6,20 @@ import { holdWorkspaceActivity } from '../../../../shared/worktrees/activity-gat
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from './process-table-fixture.mjs';
 
-const child = Object.assign(new EventEmitter(), { pid: 4243, exitCode: null, signalCode: null });
-const startup = new AbortController();
+let child = Object.assign(new EventEmitter(), { pid: 4243, exitCode: null, signalCode: null });
+let startup = new AbortController();
 const published = [];
+// The native side of the startup kill: by default it never reports a
+// terminal status.
+let nativeKill = () => {};
+let nativeDetail = { nativeStatus: 'running' };
 
 // Everything below the spawn call is scripted: the child is created, the
-// startup then fails, and the native task never reports a terminal status.
+// startup then fails, and the native task reports `nativeDetail`.
 mock.module('../builtin/shell-jobs.mjs', {
   namedExports: {
-    killShellJob() {},
-    waitForShellJob: async () => ({ nativeStatus: 'running' }),
+    killShellJob: () => nativeKill(),
+    waitForShellJob: async () => nativeDetail,
     publishForegroundShellRecord: (input) => published.push(input),
     trackForegroundShellJob: async () => null,
     retireForegroundShellRecord() {},
@@ -43,7 +47,8 @@ mock.module('./shell-spawn-retry.mjs', {
 });
 // The process table: the child (and so its tree) is alive until it exits.
 const tree = scriptedChildTree();
-tree.state.next = () => processTable(child.exitCode == null ? [{ pid: child.pid }] : []);
+const childOnly = () => processTable(child.exitCode == null ? [{ pid: child.pid }] : []);
+tree.state.next = childOnly;
 mock.module('../../mcp/child-tree.mjs', { namedExports: tree.namedExports });
 const { spawnShellChild } = await import('./shell-run-spawn.mjs');
 const { forceReleaseTerminationHold } = await import('../builtin/lib/shell-job-records.mjs');
@@ -105,4 +110,47 @@ test('a startup whose child termination is unconfirmed keeps the reservation unt
   }
   assert.equal(run.workspaceAdmission, null);
   assert.equal(isHeld(repo), false);
+});
+
+test('a failed startup whose killed root leaves a descendant keeps the reservation until it is gone', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const repo = makeRepo();
+  child = Object.assign(new EventEmitter(), { pid: 4250, exitCode: null, signalCode: null });
+  startup = new AbortController();
+  const worker = { pid: 4251, ppid: 4250, token: 'worker' };
+  tree.state.next = () => processTable([{ pid: 4250 }, worker]);
+  // The native kill ends the root; the worker it started survives.
+  nativeKill = () => {
+    child.exitCode = 1;
+    tree.state.next = () => processTable([{ ...worker, ppid: 1 }]);
+    nativeDetail = { nativeStatus: 'cancelled' };
+  };
+  const run = { foregroundRecordId: 'job_startup_survivor' };
+  t.after(() => {
+    nativeKill = () => {};
+    nativeDetail = { nativeStatus: 'running' };
+    tree.state.next = childOnly;
+  });
+  await assert.rejects(
+    spawnShellChild({
+      run,
+      cwd: repo,
+      shell: process.execPath,
+      directArgv: ['-e', ''],
+      command: 'node',
+      abortSignal: startup.signal,
+      ownerSessionId: 'startup-failure',
+    })
+  );
+  await flush();
+  assert.equal(isHeld(repo), true, 'the root exit is not the end of its tree');
+  assert.ok(tree.state.kills.includes(worker.pid), 'the surviving worker is swept like any killed tree');
+  t.mock.timers.tick(5_000);
+  await flush();
+  assert.equal(isHeld(repo), true);
+  tree.state.next = () => processTable([]);
+  t.mock.timers.tick(5_000);
+  await flush();
+  assert.equal(isHeld(repo), false);
+  assert.equal(run.workspaceAdmission, null);
 });

@@ -23,6 +23,14 @@ export const ACTION_KINDS = Object.freeze([
   'payment',
   'delete',
   'trash',
+  // Browser Use gated actions (main/browser/action-approval.ts): a form
+  // submit / Enter, a click on a send or post control, and a file upload. They
+  // are not classified here (the desktop browser host asks); only their grants
+  // live in this store. Operator-confirmed actions
+  // (MIXDOG_BROWSER_CONFIRM_ACTIONS) have no kind: they always ask.
+  'browser_submit',
+  'browser_post',
+  'browser_upload',
 ]);
 const UNREMEMBERED_ACTIONS = new Set(['payment', 'delete']);
 
@@ -204,6 +212,18 @@ export function classifyOutboundCall({ name, args, annotations } = {}) {
   if (!category && annotations?.readOnlyHint === true) return null;
   if (!category && annotations?.outboundHint === true) category = 'message';
   if (!category) return null;
+  return mcpOutbound(toolName, server, input, category);
+}
+
+/** The classification of connector tool `name` as a permanent delete — for a
+ *  delete the name-based list above does not know (run-policy.mjs decides which). */
+export function classifyAsDelete({ name, args } = {}) {
+  const toolName = String(name || '');
+  const [, server = ''] = toolName.split('__');
+  return mcpOutbound(toolName, server, isRecord(args) ? args : {}, 'delete');
+}
+
+function mcpOutbound(toolName, server, input, category) {
   const details = detailsOf(category, input);
   const spends = category === 'payment' || category === 'delete';
   return {

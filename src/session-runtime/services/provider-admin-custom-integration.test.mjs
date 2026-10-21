@@ -66,7 +66,9 @@ const REPLIES = {
 };
 
 let modelsStatus = 404;
+let modelsDelayMs = 0;
 const requests = [];
+// The 15 s slow-catalog case lives in provider-admin-custom-slow-catalog.slow.test.mjs.
 const server = http.createServer((req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
   let body = '';
@@ -74,8 +76,18 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     requests.push({ method: req.method, path, headers: req.headers, body });
     if (path === '/v1/models') {
-      res.writeHead(modelsStatus, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { message: `models ${modelsStatus}` } }));
+      const respond = () => {
+        res.writeHead(modelsStatus, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify(
+            modelsStatus === 200
+              ? { object: 'list', data: [{ id: 'slow/model-a' }, { id: 'slow/model-b' }] }
+              : { error: { message: `models ${modelsStatus}` } }
+          )
+        );
+      };
+      if (modelsDelayMs > 0) setTimeout(respond, modelsDelayMs);
+      else respond();
       return;
     }
     const reply = REPLIES[path];
@@ -349,6 +361,40 @@ test('setup rows and discovery rows share the maxOutputTokens field name', async
   });
   assert.equal(discovered.models[0].maxOutputTokens, 700);
   assert.equal('outputTokens' in discovered.models[0], false);
+});
+
+test('a slow catalog that exceeds the discovery timeout reports a timeout error', async () => {
+  modelsStatus = 200;
+  modelsDelayMs = 1_500;
+  try {
+    const provider = await createCustomProvider('custom-timeout-probe', {
+      type: 'custom',
+      name: 'Timeout',
+      protocol: 'openai-chat',
+      baseURL,
+      apiKey: KEY,
+      preconnect: false,
+    });
+    await assert.rejects(provider.listModels({ timeoutMs: 200 }), (error) => error.code === 'EPROVIDERTIMEOUT');
+    assert.equal(provider.customDiscoveryError.code, 'EPROVIDERTIMEOUT');
+  } finally {
+    modelsDelayMs = 0;
+  }
+});
+
+test('503 from the catalog leaves manual entry working after save', async () => {
+  modelsStatus = 503;
+  const cfg = makeCfg();
+  const input = { name: 'Gateway 503', protocol: 'openai-chat', baseURL: `${baseURL} `, apiKey: KEY, models: [] };
+  const discovery = await admin.discoverCustomProviderModels(cfg, input);
+  assert.equal(discovery.error.kind, 'request');
+  assert.equal(discovery.error.status, 503);
+  const saved = await admin.saveCustomProvider(cfg, { ...input, models: [{ id: MODEL }] });
+  assert.equal(cfg.peek().providers[saved.id].baseURL, baseURL);
+  assert.deepEqual(
+    rowsFor(cfg.peek()).map((r) => r.id),
+    [MODEL]
+  );
 });
 
 test('discovery failure kinds: 401/403 are authentication, server/network are request', async () => {

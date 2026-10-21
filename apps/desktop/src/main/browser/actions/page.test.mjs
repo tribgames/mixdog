@@ -11,6 +11,7 @@ function fixture({
   record = {},
   value = { width: 640 },
   report = '',
+  checkpoints = [],
 } = {}) {
   const calls = { invalidated: 0, snapshots: 0 };
   const page = { refSet, pendingDialog: null, openedPopups: [], ...record };
@@ -46,7 +47,7 @@ function fixture({
       },
       snapshots: {},
       documents: {
-        renderCheckpoint: async () => {},
+        renderCheckpoint: async () => checkpoints.shift(),
         revision: async () => {
           const next = revisions.shift();
           if (next instanceof Error) throw next;
@@ -78,6 +79,9 @@ test('a changed or unreadable page, or a caller asking for the page, gets a fres
     { revisions: ['doc:1', 'doc:2'] },
     { revisions: ['doc:1', new Error('frame detached')] },
     { revisions: [new Error('frame detached')] },
+    // A frame that never confirmed its render checkpoint is unknown, not unchanged.
+    { checkpoints: [false] },
+    { checkpoints: [true, false] },
     { refSet: null },
     { command: { brief: true } },
     { command: { includeScreenshot: true } },

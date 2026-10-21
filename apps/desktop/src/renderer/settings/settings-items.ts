@@ -72,12 +72,16 @@ export const SETTINGS_ITEMS = [
     description: 'Use this PC from your phone, browser, or another PC.',
     kind: 'open',
   },
+  // Desktop-only: the overlay's own menu deep-links to its options.
+  { value: 'bots', label: 'Bots', description: 'Representative bot overlay', kind: 'open' },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
 type SettingsItemValue = (typeof SETTINGS_ITEMS)[number]['value'];
 
 export type SettingsCategory =
   | 'general'
+  | 'skin'
+  | 'bots'
   | 'context'
   | 'output-style'
   | 'providers'
@@ -105,7 +109,25 @@ export const SETTINGS_CATEGORIES = [
     value: 'general',
     label: 'General',
     group: 'Mixdog',
-    items: ['profile', 'theme', 'web-search-enabled', 'link-preview', 'memory-enabled', 'voice'],
+    items: ['profile', 'web-search-enabled', 'link-preview', 'memory-enabled', 'voice'],
+  },
+  // Theme: light/dark/system or a skin picture, color theme files and fonts, all
+  // device-local, so a remote surface lists it under "This device". The id stays
+  // 'skin' (stored deep links); the retired 'appearance' (fonts) page id is
+  // redirected here by settingsCategoryForSurface.
+  {
+    value: 'skin',
+    label: 'Theme',
+    group: 'Mixdog',
+    items: ['theme'],
+  },
+  // Desktop-only surface: the representative bot overlay (its own window on
+  // this PC), so a remote surface (phone, web, another PC) never lists it.
+  {
+    value: 'bots',
+    label: 'Bots',
+    group: 'Mixdog',
+    items: ['bots'],
   },
   // Context owns session lifecycle. The Memory master itself lives once in
   // General; curated memories are managed with their project.
@@ -189,23 +211,36 @@ export const SETTINGS_CATEGORIES = [
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 
-/** Remote surfaces only: the settings stored on THIS device (theme, display
+/** Remote surfaces only: the settings stored on THIS device (display
  *  language, link preview, side panels) instead of on the connected PC. */
 export const DEVICE_SETTINGS_CATEGORY = {
   value: 'display',
   label: 'Display',
   group: 'Mixdog',
-  items: ['theme'],
+  items: [],
 } as const satisfies SettingsCategoryItem;
+
+/** Device-local pages a remote surface lists under "This device" (Display, Theme). */
+const DEVICE_PAGES = new Set<SettingsCategory>(['skin']);
+export const DEVICE_SETTINGS_CATEGORIES: ReadonlyArray<SettingsCategoryItem> = [
+  DEVICE_SETTINGS_CATEGORY,
+  ...SETTINGS_CATEGORIES.filter((category) => DEVICE_PAGES.has(category.value)),
+];
 
 // Pages whose calls an older host still refuses to remote clients. A host that
 // announces open access (every paired client is trusted) shows them all.
 const LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'models', 'developer']);
 const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>(['git', 'skills', 'mcp', 'plugins']);
+/** Pages of this PC's own desktop window only (the bot overlay window). */
+const DESKTOP_ONLY_CATEGORIES = new Set<SettingsCategory>(['bots']);
 const LOCAL_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
   (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value)
 );
-const LEGACY_REMOTE_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
+// On a remote surface Theme (id 'skin') is a device page (DEVICE_SETTINGS_CATEGORIES), not the PC's.
+const REMOTE_OPEN_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
+  (category) => !DEVICE_PAGES.has(category.value) && !DESKTOP_ONLY_CATEGORIES.has(category.value)
+);
+const REMOTE_LEGACY_SETTINGS_CATEGORIES = REMOTE_OPEN_SETTINGS_CATEGORIES.filter(
   (category) => !LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value)
 );
 
@@ -217,11 +252,14 @@ export function categoryForSettingsItem(value: SettingsItemValue): SettingsCateg
 }
 
 export function settingsCategoryForSurface(
-  category: SettingsCategory,
+  requested: SettingsCategory | 'appearance',
   remote: boolean,
   hostOpenAccess = false
 ): SettingsCategory {
+  // The retired "Themes and fonts" page now lives on the Theme page.
+  const category = requested === 'appearance' ? 'skin' : requested;
   if (MOVED_EXTENSION_CATEGORIES.has(category) || (category === 'display' && !remote)) return 'general';
+  if (remote && DESKTOP_ONLY_CATEGORIES.has(category)) return 'general';
   return remote && !hostOpenAccess && LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
 }
 
@@ -229,5 +267,9 @@ export function settingsCategoriesForSurface(
   remote: boolean,
   hostOpenAccess = false
 ): ReadonlyArray<SettingsCategoryItem> {
-  return remote && !hostOpenAccess ? LEGACY_REMOTE_SETTINGS_CATEGORIES : LOCAL_SETTINGS_CATEGORIES;
+  return remote
+    ? hostOpenAccess
+      ? REMOTE_OPEN_SETTINGS_CATEGORIES
+      : REMOTE_LEGACY_SETTINGS_CATEGORIES
+    : LOCAL_SETTINGS_CATEGORIES;
 }

@@ -1300,3 +1300,195 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
     await rendered.cleanup();
   }
 });
+
+async function renderTidyWithPendingProbe(settledPsEngine) {
+  const engine = (id, title, extra = {}) => ({
+    id,
+    title,
+    languages: [title],
+    kind: ['formatter'],
+    version: '1.0.0',
+    source: 'managed',
+    managed: true,
+    core: true,
+    toolchain: false,
+    ...extra,
+  });
+  const pending = engine('psscriptanalyzer', 'PSScriptAnalyzer', { source: 'missing', version: '', probing: true });
+  let tidyEngineStatus = {
+    toolsDir: 'C:\\tools',
+    core: ['biome', 'psscriptanalyzer'],
+    engines: [engine('biome', 'Biome'), pending],
+    probing: true,
+    installing: null,
+  };
+  const rendered = await renderPanel(
+    'plugins',
+    panelContext({
+      data: {
+        ...panelContext().data,
+        toolModules: { ...panelContext().data.toolModules, tidy: { enabled: true, installed: true } },
+      },
+      api: {
+        ...panelContext().api,
+        async readCapabilities(requests) {
+          return requests.map((req) =>
+            req.capability === 'getTidyEngineStatus' ? { ok: true, value: tidyEngineStatus } : { ok: true, value: null }
+          );
+        },
+      },
+    })
+  );
+  const listTag = () => document.querySelector('[data-built-in-feature="tidy"] .sidebar-resource-tag');
+  const settle = async () => {
+    // The daemon's probe answers; the card must pick that up without user action.
+    tidyEngineStatus = {
+      ...tidyEngineStatus,
+      engines: [engine('biome', 'Biome'), { ...pending, ...settledPsEngine, probing: undefined }],
+      probing: false,
+    };
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    });
+  };
+  return { rendered, listTag, settle };
+}
+
+test('Code Tidy reports a pending host-module probe as pending, then shows the host engine once it answers', async () => {
+  const { rendered, listTag, settle } = await renderTidyWithPendingProbe({ source: 'host', version: '1.25.0' });
+  try {
+    assert.equal(listTag(), null, 'a pending probe is not "Setup needed"');
+    await act(async () => {
+      document.querySelector('[data-built-in-feature="tidy"]').click();
+    });
+    const row = () => document.querySelector('[data-feature-id="tidy"] [data-tidy-engine="psscriptanalyzer"]');
+    assert.equal(row().querySelector('.extensions-item-badge').textContent, 'Checking…');
+    await settle();
+    assert.equal(row().querySelector('.extensions-item-badge')?.textContent ?? '', '');
+    assert.match(row().textContent, /1\.25\.0/);
+    assert.equal(listTag(), null);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test('Code Tidy shows a host-module engine as missing once its probe answers that it is absent', async () => {
+  const { rendered, listTag, settle } = await renderTidyWithPendingProbe({ source: 'missing', installable: true });
+  try {
+    assert.equal(listTag(), null);
+    await act(async () => {
+      document.querySelector('[data-built-in-feature="tidy"]').click();
+    });
+    await settle();
+    const row = document.querySelector('[data-feature-id="tidy"] [data-tidy-engine="psscriptanalyzer"]');
+    assert.equal(row.querySelector('.extensions-item-badge').textContent, 'Not installed');
+    assert.equal(row.querySelector('button.extensions-action').textContent, 'Install');
+    assert.equal(listTag().textContent, 'Setup needed');
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test('an installed Code Tidy with missing core engines flags setup and offers per-engine Install/Retry', async () => {
+  const engine = (id, title, extra = {}) => ({
+    id,
+    title,
+    languages: [title],
+    kind: ['formatter'],
+    version: '',
+    source: 'missing',
+    managed: true,
+    core: true,
+    toolchain: false,
+    ...extra,
+  });
+  let tidyEngineStatus = {
+    toolsDir: 'C:\\tools',
+    core: ['biome', 'ruff', 'shellcheck', 'psscriptanalyzer'],
+    engines: [
+      engine('biome', 'Biome', { source: 'managed', version: '1.9.4' }),
+      engine('ruff', 'ruff', { installable: true }),
+      engine('shellcheck', 'ShellCheck', { installable: true }),
+      engine('psscriptanalyzer', 'PSScriptAnalyzer'),
+    ],
+    installing: null,
+  };
+  const installDeferred = deferred();
+  const runs = [];
+  const context = panelContext({
+    data: {
+      ...panelContext().data,
+      toolModules: { ...panelContext().data.toolModules, tidy: { enabled: true, installed: true } },
+    },
+    api: {
+      ...panelContext().api,
+      async readCapabilities(requests) {
+        return requests.map((req) =>
+          req.capability === 'getTidyEngineStatus' ? { ok: true, value: tidyEngineStatus } : { ok: true, value: null }
+        );
+      },
+    },
+    async run(capability, args) {
+      runs.push([capability, args]);
+      if (capability === 'installBuiltinFeature') {
+        await installDeferred.promise;
+        tidyEngineStatus = {
+          ...tidyEngineStatus,
+          installing: {
+            active: false,
+            percent: 100,
+            startedAt: 1,
+            updatedAt: 2,
+            engines: [
+              {
+                id: 'ruff',
+                status: 'failed',
+                receivedBytes: 0,
+                totalBytes: 0,
+                version: '',
+                bytes: 0,
+                error: 'HTTP 503',
+              },
+            ],
+          },
+        };
+      }
+      return {};
+    },
+  });
+
+  const rendered = await renderPanel('plugins', context);
+  try {
+    // Installed and enabled, yet a core engine is missing: not plain ready.
+    const listTag = document.querySelector('[data-built-in-feature="tidy"] .sidebar-resource-tag');
+    assert.equal(listTag?.textContent, 'Setup needed');
+    assert.equal(listTag.getAttribute('data-tone'), 'warn');
+
+    await act(async () => {
+      document.querySelector('[data-built-in-feature="tidy"]').click();
+    });
+    const dialog = document.querySelector('[data-feature-id="tidy"]');
+    const actionOf = (id) => dialog.querySelector(`[data-tidy-engine="${id}"] button.extensions-action`);
+    assert.equal(actionOf('biome'), null);
+    assert.equal(actionOf('psscriptanalyzer'), null, 'nothing to install into without a PowerShell host');
+    assert.equal(actionOf('ruff').textContent, 'Install');
+    assert.equal(actionOf('shellcheck').textContent, 'Install');
+
+    await act(async () => {
+      actionOf('ruff').click();
+    });
+    assert.deepEqual(runs.at(-1), ['installBuiltinFeature', ['tidy', { engines: ['ruff'] }]]);
+    await act(async () => {
+      installDeferred.resolve();
+    });
+
+    // The failure and its reason stay on the row, and the control becomes Retry.
+    const ruffRow = dialog.querySelector('[data-tidy-engine="ruff"]');
+    assert.equal(ruffRow.querySelector('.extensions-item-badge').textContent, 'Failed');
+    assert.match(ruffRow.textContent, /HTTP 503/);
+    assert.equal(actionOf('ruff').textContent, 'Retry');
+    assert.equal(actionOf('shellcheck').textContent, 'Install');
+  } finally {
+    await rendered.cleanup();
+  }
+});

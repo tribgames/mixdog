@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { access, chmod, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
@@ -202,7 +202,7 @@ export async function ensureOoxmlValidator({ dataDir, download = true, signal = 
 }
 
 async function installValidator(paths, entry, signal) {
-  const temporary = join(paths.root, `.${entry.binary}.${randomUUID()}.tmp`);
+  const temporary = join(paths.root, `${entry.binary}.mixdog-tmp-${randomBytes(8).toString('hex')}`);
   try {
     const archive = await fetchArchive(packageUrl(entry.name), { signal });
     verifyIntegrity(archive, entry.integrity);

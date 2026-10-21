@@ -27,6 +27,8 @@ import { installFocusModality } from './focus-modality';
 import { installMobileSurfaceMarker } from './mobile-surface';
 import { installMotionVisibility } from './motion-visibility';
 import { installChatTextSize } from './chat-text-size-preference';
+import { applyFontSettings } from './appearance/font-settings';
+import { applyStoredUserTheme } from './appearance/user-theme';
 import { installScrollbarMetrics } from './scrollbar-metrics';
 import { markBootStage } from './boot-metrics';
 import { scheduleFontWarmup } from './font-warmup';
@@ -59,6 +61,11 @@ window.addEventListener('beforeunload', removeMotionVisibility, { once: true });
 // reflows from the default scale to the stored one.
 const removeChatTextSize = installChatTextSize();
 window.addEventListener('beforeunload', removeChatTextSize, { once: true });
+// Settings → Theme (fonts, user JSON theme) BEFORE the first paint, like
+// the chat text size: no flash of the default face, size or palette. The
+// theme repaints itself once the light/dark attribute lands.
+applyFontSettings();
+applyStoredUserTheme();
 
 // Listen before React mounts. Persisted pane session ids are not registered
 // here: usePaneWorkspace first authorizes them against the durable catalog.

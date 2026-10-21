@@ -5,6 +5,7 @@ import { onBrowserPageRevealRequested } from './browser-page-request.ts';
 import {
   activateVisualizeTab,
   setVisualizePanelOnScreen,
+  visualizePanelOnScreen,
   visualizeUpdatedTabs,
   visualizeUpdateShows,
   applyVisualizeEvent,
@@ -38,6 +39,26 @@ import {
 } from './visualize-store.ts';
 
 const tab = { id: 'v1', label: 'index.html', revision: 0, panes: [] };
+
+test('the panel on-screen state is observable so a card tile stops saying Showing once the panel closes', () => {
+  let notified = 0;
+  const stop = subscribe(() => {
+    notified += 1;
+  });
+  try {
+    assert.equal(visualizePanelOnScreen('tile-1'), false);
+    setVisualizePanelOnScreen('tile-1', true);
+    assert.equal(visualizePanelOnScreen('tile-1'), true);
+    assert.equal(notified, 1);
+    setVisualizePanelOnScreen('tile-1', true);
+    assert.equal(notified, 1, 'no change, no notification');
+    setVisualizePanelOnScreen('tile-1', false);
+    assert.equal(visualizePanelOnScreen('tile-1'), false);
+    assert.equal(notified, 2);
+  } finally {
+    stop();
+  }
+});
 
 test('a chat card press is the user asking: it lifts the closed rule, selects and reveals', async () => {
   const sent = [];

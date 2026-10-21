@@ -43,7 +43,11 @@ mock.module('./ask-turn-prepare.mjs', {
       events.push('build:start');
       await sleep(BUILD_MS);
       events.push('build:end');
-      const userTurnMessage = { role: 'user', content: 'go', meta: { runtimeUserContext: { prefix: '', suffix: 'x' } } };
+      const userTurnMessage = {
+        role: 'user',
+        content: 'go',
+        meta: { runtimeUserContext: { prefix: '', suffix: 'x' } },
+      };
       const historyMessages = mockHistory.slice();
       return {
         historyMessages,
@@ -167,4 +171,76 @@ test('turn start overlaps the judgment with buildUserTurn and still stamps the f
   const message = prepared.outgoing[0];
   assert.equal(message.meta.effortConfiguration.effort, 'high');
   assert.deepEqual(Object.keys(message.meta), ['effortConfiguration', 'runtimeUserContext']);
+});
+
+test('a turn carries its starting hop, a steered bot message raises it, a hopless notification turn keeps it', async () => {
+  const { createSteeringDrain } = await import('../loop/steering.mjs');
+  const { createSessionControl } = await import('../../../../../standalone/daemon-session-control.mjs');
+  const { createWorkspaceToolHandlers } = await import(
+    '../../../../../session-runtime/internal-tool-executor/workspace-tools.mjs'
+  );
+  const session = {
+    id: 'sess_home_a',
+    provider: 'custom-a',
+    model: 'm',
+    effort: 'medium',
+    messages: [],
+    cwd: process.cwd(),
+    sessionStartMetaInjected: true,
+  };
+  const start = (input, transcriptMeta) =>
+    prepareAskTurn({
+      sessionId: session.id,
+      opened: turnFor(session),
+      input: { prompt: 'go', ...input },
+      transcriptMeta,
+    });
+  await start({}, { sender: 'lead', fromAgent: 'b', hop: 1 });
+  assert.equal(session.turnHop, 1, 'the starting submission sets the turn hop');
+
+  // A bot message at hop 3 is steered into the running turn (the live working array, not session.messages).
+  const live = session.liveTurnMessages;
+  const drain = createSteeringDrain({
+    messages: live,
+    opts: {
+      session,
+      drainSteering: () => [{ content: 'from c', transcriptMeta: { sender: 'lead', fromAgent: 'c', hop: 3 } }],
+      onSteerMessage() {},
+    },
+    sessionId: session.id,
+    onSkillPrompt() {},
+  });
+  assert.equal(drain(), true);
+  assert.equal(session.turnHop, 3);
+  assert.ok(
+    live.some((message) => message.meta?.transcript?.hop === 3),
+    'it landed in the live array'
+  );
+
+  // A `session send` made in that turn goes out at hop 4: refused.
+  const context = [];
+  const tool = createWorkspaceToolHandlers({
+    rt: { session, config: {} },
+    executeSessionControl: async (args, ctx) => {
+      context.push(ctx.callerHop);
+      return createSessionControl({
+        getSessionService: () => ({}),
+        agentTasks: { reportOrigin: async () => ({ agentId: 'a', target: 'session' }), send: async () => ({}) },
+      })(args, { ...ctx, callerAgentId: 'a' });
+    },
+  }).session;
+  await assert.rejects(
+    tool(
+      { action: 'send', session_id: 'sess_home_b', prompt: 'x' },
+      { callerCtx: { callerSessionId: session.id }, callerCwd: process.cwd() }
+    ),
+    /Bot-to-bot chain limit reached/
+  );
+  assert.deepEqual(context, [3]);
+
+  // A hopless notification turn keeps the raised hop; a user turn resets it.
+  await start({ promptSource: 'task-notification' }, null);
+  assert.equal(session.turnHop, 3);
+  await start({}, { device: 'PC' });
+  assert.equal(session.turnHop, 0);
 });

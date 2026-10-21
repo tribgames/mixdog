@@ -24,9 +24,12 @@ await build({
     '@fontsource-variable/jetbrains-mono',
     '*.css',
     // Vite-only module kinds the electron-vite build resolves natively:
-    // `?worker` bundles (monaco workers) and the monaco packages themselves
-    // (heavy, syntax-checked by their own package builds).
+    // `?worker` bundles (monaco workers), `?raw` text imports, image assets
+    // and the monaco packages themselves (heavy, syntax-checked by their own
+    // package builds).
     '*?worker',
+    '*?raw',
+    '*.jpg',
     'monaco-editor',
     'monaco-editor/*',
     '@monaco-editor/react',

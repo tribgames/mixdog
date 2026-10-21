@@ -70,6 +70,7 @@ export function createSendDispatch({ registry, defaultCwd, sendFlow, spawnFlow, 
   async function send(args, { scopedContext, callerCwd, context, notifyContext }) {
     try {
       const prepared = await sendFlow.prepareSend(args, scopedContext);
+      await sendFlow.adoptCaller(prepared, notifyContext);
       return sendFlow.dispatchToExistingSession(prepared, notifyContext);
     } catch (err) {
       return await respawnDeadTagSend(err, args, { callerCwd, context, notifyContext });

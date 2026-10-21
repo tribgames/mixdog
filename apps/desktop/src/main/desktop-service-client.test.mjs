@@ -396,6 +396,31 @@ test('overlapping desktop registrations carry increasing versions before either 
   }
 });
 
+test('a timed-out desktop operation names the operation, not just the transport method', async () => {
+  const transport = new ControlledTransport();
+  const client = new DesktopServiceClient({
+    connect: () => transport,
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    requestTimeoutMs: 20,
+    startupTimeoutMs: 1_000,
+    failureNoticeDelayMs: 1_000,
+  });
+  try {
+    await client.start();
+    await assert.rejects(
+      client.invokeDesktopOperation('gitReview', ['C:/tmp/project', 'uncommitted']),
+      /timed out: invokeDesktopOperation \(gitReview\)\./
+    );
+  } finally {
+    await client.dispose();
+  }
+});
+
 test('Local Provider asset installs outlive the ordinary desktop request deadline', async () => {
   const transport = new ControlledTransport();
   const client = new DesktopServiceClient({
@@ -564,6 +589,39 @@ test('a short outage reconnects silently; only a lasting one shows the localizab
     );
   } finally {
     t.mock.timers.reset();
+    await client.dispose();
+  }
+});
+
+test('a decision in flight when the service transport restarts is sent again, not lost as an error', async () => {
+  const transports = [];
+  const client = new DesktopServiceClient({
+    connect() {
+      const transport = new ControlledTransport();
+      transports.push(transport);
+      return transport;
+    },
+    sessionOptions: () => ({ userDataPath: 'C:/tmp/mixdog', packaged: true, resourcesPath: 'C:/tmp/resources' }),
+    restartBaseDelayMs: 1,
+    restartMaxDelayMs: 1,
+    startupTimeoutMs: 1_000,
+    failureNoticeDelayMs: 60_000,
+  });
+  const waitFor = async (ready) => {
+    while (!ready()) await new Promise((resolve) => setImmediate(resolve));
+  };
+  try {
+    const decision = { approved: true, answers: [{ question: 'q', answer: 'a' }] };
+    const answer = client.resolveToolApprovalForSession('session_a', 'approval_1', decision);
+    await waitFor(() => transports[0]?.requests.length === 1);
+    // The daemon stalled: the service process gave up on its own call and exited.
+    transports[0].emit('exit', 1, new Error('session timeout: POST /client/register'));
+    await waitFor(() => transports[1]?.requests.length === 1);
+    assert.equal(transports[1].requests[0].method, 'resolveToolApprovalForSession');
+    assert.deepEqual(transports[1].requests[0].args, ['session_a', 'approval_1', decision]);
+    transports[1].respond(transports[1].requests[0], true);
+    assert.equal(await answer, true, 'the answer the user gave is recorded once the service is back');
+  } finally {
     await client.dispose();
   }
 });

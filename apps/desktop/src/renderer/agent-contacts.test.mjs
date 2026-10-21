@@ -88,6 +88,53 @@ test('a live home thread of an agent that is no contact (a former 1.3.0 bot, a s
   assert.equal(listsAsSession(work, ids), true);
 });
 
+test('the bot page lists a switched-off bot too, marked disabled; every other consumer keeps leaving it out', () => {
+  const all = agentContacts(AGENTS, [], new Map(), undefined, { includeDisabled: true });
+  assert.deepEqual(
+    all.map(({ agentId, disabled }) => [agentId, disabled]),
+    [
+      ['lead', false],
+      ['github-watcher', false],
+      ['translator', false],
+      ['off', true],
+    ]
+  );
+  assert.equal(all[3].preview, 'Off');
+  // The sidebar, room pickers and labels read the default: no switched-off bot.
+  assert.ok(!agentContacts(AGENTS, [], new Map()).some((contact) => contact.agentId === 'off'));
+  assert.deepEqual(
+    contactAgentRows(AGENTS, { includeDisabled: true }).map((row) => row.id),
+    ['github-watcher', 'translator', 'off']
+  );
+});
+
+test('a switched-off bot stays on the bot page while hidden from the sidebar, dimmed, with 켜기 in its menu', async (t) => {
+  const { setBotHiddenInSidebar, resetSidebarHiddenBotsCache } = await import('./sidebar-hidden-bots-store.ts');
+  const { document, render } = mount(t);
+  resetSidebarHiddenBotsCache();
+  setBotHiddenInSidebar('off', true);
+  t.after(() => {
+    setBotHiddenInSidebar('off', false);
+    resetSidebarHiddenBotsCache();
+  });
+  const { sidebarHiddenBots } = await import('./sidebar-hidden-bots-store.ts');
+  assert.ok(sidebarHiddenBots().has('off'), 'hidden from the sidebar');
+  await render();
+  await render();
+  const row = document.querySelector('[data-agent-contact="off"]');
+  assert.ok(row, 'listed although off and hidden');
+  assert.equal(row.dataset.agentDisabled, 'true');
+  assert.equal(document.querySelector('[data-agent-contact="translator"]').dataset.agentDisabled, undefined);
+  const { agentContactMenuItems } = await import('./agent-profile-actions.ts');
+  const handlers = { onOpen() {}, onProfile() {} };
+  assert.deepEqual(
+    agentContactMenuItems({ agentId: 'off', name: 'Off', mixy: false, disabled: true }, handlers).map(
+      (item) => item.id
+    ),
+    ['agent-profile', 'agent-show-in-sidebar', 'agent-turn-on', 'agent-delete']
+  );
+});
+
 test('contacts list Mixy first, then the user-facing agents in catalog order', () => {
   const contacts = agentContacts(AGENTS, [], new Map());
   assert.deepEqual(
@@ -126,7 +173,12 @@ test('contacts list Mixy first, then the user-facing agents in catalog order', (
 
 test("a contact shows its thread's preview, activity time and unread count", () => {
   const sessions = [
-    home('github-watcher', { preview: 'Any new issues?', messageCount: 6, readMessageCount: 2 }),
+    home('github-watcher', {
+      preview: 'Any new issues?',
+      messageCount: 6,
+      readMessageCount: 2,
+      incomingTail: [2, 4, 6],
+    }),
     home('translator', { preview: 'Review PR 12', working: true }),
     home('lead', { preview: 'Hello', archived: true }),
   ];
@@ -134,7 +186,7 @@ test("a contact shows its thread's preview, activity time and unread count", () 
   const [mixy, watcher, translator] = contacts;
   assert.equal(watcher.preview, 'Any new issues?');
   assert.equal(watcher.at, NOW - 30_000);
-  assert.deepEqual(watcher.indicator, { kind: 'unread', count: 4 });
+  assert.deepEqual(watcher.indicator, { kind: 'unread', count: 2 });
   // Running outranks unread, and the preview names it.
   assert.deepEqual(translator.indicator, { kind: 'running' });
   assert.equal(translator.preview, 'Working');
@@ -161,14 +213,77 @@ test("a contact row shows the thread's latest message over its first prompt", ()
   assert.equal(translator.preview, 'Working');
 });
 
-test('the unread count is the raw whole number for the row to cap, at least 1', () => {
+test('the unread count is the chat messages that arrived past the read cursor, at least 1', () => {
   const unread = (overrides) =>
     agentContacts(AGENTS, [home('github-watcher', overrides)], new Map(), new Set(['sess_home_github-watcher']))[1]
       .indicator;
-  assert.deepEqual(unread({ messageCount: 250, readMessageCount: 0 }), { kind: 'unread', count: 250 });
-  assert.deepEqual(unread({ messageCount: 3, readMessageCount: 3 }), { kind: 'unread', count: 1 });
+  // One reply that used three tools: 8 counted messages, one incoming message.
+  assert.deepEqual(unread({ messageCount: 8, readMessageCount: 2, incomingTail: [2, 8] }), {
+    kind: 'unread',
+    count: 1,
+  });
+  assert.deepEqual(unread({ messageCount: 20, readMessageCount: 1, incomingTail: [2, 8, 15, 20] }), {
+    kind: 'unread',
+    count: 4,
+  });
+  // The user's own messages are not in the tail, so they never add to it.
+  assert.deepEqual(unread({ messageCount: 10, readMessageCount: 8, incomingTail: [2, 8] }), {
+    kind: 'unread',
+    count: 1,
+  });
+  assert.deepEqual(unread({ messageCount: 3, readMessageCount: 3, incomingTail: [2] }), { kind: 'unread', count: 1 });
+  // A row without a tail (an older catalog, or read off a session file) shows one.
+  assert.deepEqual(unread({ messageCount: 250, readMessageCount: 0 }), { kind: 'unread', count: 1 });
   assert.deepEqual(unread({ messageCount: undefined, readMessageCount: undefined }), { kind: 'unread', count: 1 });
-  assert.equal(Number.isInteger(unread({ messageCount: 7.5, readMessageCount: 2 }).count), true);
+  // An old cursor that never moved counts every incoming message in the tail.
+  assert.deepEqual(unread({ messageCount: 8, readMessageCount: undefined, incomingTail: [2, 8] }), {
+    kind: 'unread',
+    count: 2,
+  });
+});
+
+test('a group room row counts the same way', async () => {
+  const { agentRoomRows } = await import('./agent-rooms-model.ts');
+  const room = {
+    id: 'abc123',
+    name: 'Standup',
+    members: ['a', 'b'],
+    maxRounds: 3,
+    maxMessages: 8,
+    shareTools: false,
+  };
+  const row = {
+    id: 'sess_room_abc123',
+    title: 'Standup',
+    preview: '',
+    updatedAt: 1,
+    messageCount: 12,
+    agentRoom: room,
+  };
+  const rows = agentRoomRows(
+    [{ ...row, readMessageCount: 4, incomingTail: [3, 9, 12] }],
+    (id) => ({ id, name: id }),
+    new Set(['sess_room_abc123'])
+  );
+  assert.deepEqual(rows[0].indicator, { kind: 'unread', count: 2 });
+});
+
+test('a group room row label joins only the parts that exist', async () => {
+  const { roomRowLabel } = await import('./agent-rooms-model.ts');
+  assert.equal(roomRowLabel('Standup', 2), 'Standup, 2 members');
+  assert.equal(roomRowLabel('', 2), '2 members');
+  assert.equal(roomRowLabel('  ', 2), '2 members');
+  assert.equal(roomRowLabel('Standup', 0), 'Standup');
+});
+
+test('the catalog cache and the session summary keep the incoming tail', async () => {
+  const { desktopSessionSummaries } = await import('../main/desktop-state.ts');
+  const [summary] = desktopSessionSummaries([
+    { id: 'sess_home_lead', preview: 'Hi', messageCount: 8, incomingTail: [2, 8, 'x', -1, 1.5] },
+  ]);
+  assert.deepEqual(summary.incomingTail, [2, 8]);
+  const [plain] = desktopSessionSummaries([{ id: 'sess_home_lead', preview: 'Hi', messageCount: 8 }]);
+  assert.equal(Object.hasOwn(plain, 'incomingTail'), false);
 });
 
 test('a routine result preview reads in the user language, like its transcript notice', async (t) => {
@@ -345,8 +460,9 @@ test('the pane paints the contacts, no ordinary session work, and a contact open
   const order = [...document.querySelectorAll('[data-agent-contact], .agent-chat-divider, .agent-activity-group')].map(
     (node) => node.dataset.agentContact || node.dataset.agentOwnerSessionId || node.getAttribute('aria-label')
   );
-  // An ordinary coding session's work stays with that session.
-  assert.deepEqual(order, ['lead', 'github-watcher', 'translator']);
+  // An ordinary coding session's work stays with that session: no work group, only its
+  // finished Lead resting in the Leads block (inside the pane window).
+  assert.deepEqual(order, ['lead', 'github-watcher', 'translator', 'off', 'Leads']);
   const mixy = document.querySelector('[data-agent-contact="lead"]');
   assert.equal(mixy.querySelector('.agent-chat-title').textContent, 'Mixy');
   assert.doesNotMatch(mixy.textContent, /@/, 'no handle is shown');

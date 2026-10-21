@@ -44,9 +44,13 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 - Use the **Claude, ChatGPT, Grok, or Muse Code** subscription you already have, API
   keys, or local models on your own GPU.
 - Mix models by role and scale from **Solo to Swarm** — a strong model leads
-  while cheaper ones search, edit, and review in parallel.
+  while cheaper ones search, edit, and review in parallel. Switch the workflow
+  or mode mid-conversation, and set fallback models for usage limits.
+- **Bots and rooms** — your own bots with their own models, tools, and
+  permissions, group rooms where they talk together, and a representative bot
+  that sits above the composer on your desktop.
 - A full workspace: editor, terminals, Git and GitHub, code graph, and
-  language servers.
+  language servers, with themes and photo skins.
 - Keeps working on its own with **Goals, schedules, and webhooks** — and
   continues from your phone, end-to-end encrypted.
 - Goes beyond code with **browser and desktop control**, Office and PDF
@@ -71,8 +75,8 @@ Then sign in with a ChatGPT, Claude, Grok, or Muse Code account, or paste an API
 five-step tutorial walks you through the rest.
 
 > [!NOTE]
-> The Windows installer is not code-signed yet. If SmartScreen appears,
-> choose **More info → Run anyway**. The Mac app is signed and notarized.
+> The Windows installer and app are code-signed, and the Mac app is signed and
+> notarized. If SmartScreen still appears, choose **More info → Run anyway**.
 
 Or run it in the terminal (Node.js 22.19+ or 24+):
 

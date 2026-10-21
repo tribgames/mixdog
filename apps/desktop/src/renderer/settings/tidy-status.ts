@@ -152,6 +152,14 @@ export function engineRowState({
       state: 'installed',
     };
   }
+  if (engine.probing) {
+    return {
+      tag: { label: t('Checking…'), tone: 'muted' },
+      description: engineLanguages(engine),
+      tone: 'muted',
+      state: 'pending',
+    };
+  }
   if (isInstallingActive && installEngine && engineDownloading(installEngine)) {
     return {
       tag: { label: t('Not installed'), tone: 'muted' },
@@ -167,7 +175,14 @@ export function engineRowState({
   return missingEngineRow(engine, installEngine);
 }
 
-export function useTidyEngineStatus(api: PanelContext['api'], active: boolean, installing: boolean) {
+const TIDY_PROBING_RECHECK_MS = 700;
+
+export function useTidyEngineStatus(
+  api: PanelContext['api'],
+  active: boolean,
+  installing: boolean,
+  opened: boolean = false
+) {
   const [status, setStatus] = useState<DesktopTidyEngineStatus | null>(null);
   const [installStatus, setInstallStatus] = useState<DesktopTidyInstallStatus | null>(null);
 
@@ -183,10 +198,21 @@ export function useTidyEngineStatus(api: PanelContext['api'], active: boolean, i
     }
   }, [api]);
 
+  // Re-read when the card opens, not only when the feature first turns active:
+  // the first answer may predate what the daemon has learned since.
   useEffect(() => {
     if (!active) return;
     void refresh();
-  }, [active, refresh]);
+  }, [active, opened, refresh]);
+
+  // A host-module probe still pending settles on its own: keep asking until
+  // the daemon reports it answered.
+  const probing = status?.probing === true;
+  useEffect(() => {
+    if (!active || !probing) return;
+    const timer = setTimeout(() => void refresh(), TIDY_PROBING_RECHECK_MS);
+    return () => clearTimeout(timer);
+  }, [active, probing, status, refresh]);
 
   useEffect(() => {
     if (!installing) {

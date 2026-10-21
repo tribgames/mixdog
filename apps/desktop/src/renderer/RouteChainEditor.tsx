@@ -18,14 +18,17 @@ export function RouteChainEditor({
   composerParity,
   label,
   fallbacks: allowFallbacks = true,
+  providerNames,
   onChange,
 }: {
   route: RecordValue;
   models: DesktopModelOption[];
+  /** Setup-derived custom provider names (customProviderDisplayNames), keyed by provider id. */
+  providerNames?: Record<string, string>;
   disabled: boolean;
   composerParity: boolean;
   label: string;
-  /** false for single-model routes (Lead): no fallback UI, and the saved value is a plain selection. */
+  /** false for single-model routes: no fallback UI, and the saved value is a plain selection. */
   fallbacks?: boolean;
   onChange(route: RecordValue): void;
 }) {
@@ -123,6 +126,10 @@ export function RouteChainEditor({
               ariaLabel={`${label} ${index + 1}`}
               disabled={disabled}
               composerParity={composerParity}
+              providerNames={providerNames}
+              // A chain row sits in a narrow panel or dialog column: the picker
+              // drops down under its chip instead of flying out beside it.
+              dropdown
               value={entry as unknown as DesktopModelSelection}
               models={models.filter((model) => {
                 const provider = canonicalRouteProvider(model.provider);

@@ -203,7 +203,7 @@ for (const [label, content] of [
       assert.equal(await discovery.writeDiscovery(own), 'owned');
       assert.deepEqual(await readDiscovery(directory), own);
       assert.deepEqual(
-        (await readdir(directory)).filter((name) => name.endsWith('.tmp')),
+        (await readdir(directory)).filter((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
         [],
         'the atomic write leaves no temporary file'
       );

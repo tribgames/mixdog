@@ -43,16 +43,10 @@ function routineStatus(item: TranscriptItem): { status: RoutineStatus; site: str
   const routine = chatRoutineOf(item);
   // An expired sign-in: the way back instead of a plain retry.
   const site = routine?.failed ? routineLoginRequiredSite(routine.summary) : null;
-  const status: RoutineStatus = routine?.running
-    ? 'running'
-    : routine?.deliveryFailed
-      ? 'delivery'
-      : site
-        ? 'login'
-        : routine?.failed
-          ? 'failed'
-          : 'ok';
-  return { status, site };
+  if (routine?.running) return { status: 'running', site };
+  if (routine?.deliveryFailed) return { status: 'delivery', site };
+  if (site) return { status: 'login', site };
+  return { status: routine?.failed ? 'failed' : 'ok', site };
 }
 
 const STATUS_LABEL: Record<RoutineStatus, () => string> = {
@@ -297,6 +291,63 @@ export function AgentRoutineTrigger({ item, sessionId }: { item: TranscriptItem;
   );
 }
 
+/** A message this chat's bot sent to another bot's home chat (a `session`
+ *  send in the stored tool call): one compact line in the routine trigger's
+ *  grammar — the recipient's face and name (opens its chat), the time, and
+ *  the message as plain text behind a disclosure, folded by default. */
+export function AgentBotSent({
+  send,
+  member,
+}: {
+  send: { agentId: string; sessionId: string; prompt: string; at: number };
+  member: RoomMemberLabel;
+}) {
+  const [open, setOpen] = useState(false);
+  const prompt = send.prompt.trim();
+  return (
+    <div className="mx-routine-trigger mx-bot-sent">
+      <div className="mx-routine-trigger-head mx-bot-sent-pill">
+        <button
+          type="button"
+          className="mx-routine-trigger-name"
+          aria-label={t('Sent to {{name}}', { name: member.name })}
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent(OPEN_TASK_SESSION_EVENT, { detail: { sessionId: send.sessionId } }))
+          }
+        >
+          <RoomMemberFace member={member} className="mx-bot-sent-face" />
+          <span>{t('Sent to {{name}}', { name: member.name })}</span>
+        </button>
+        {prompt && (
+          <button type="button" className="mx-routine-more" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? t('Show less') : t('View message')}
+          </button>
+        )}
+      </div>
+      {open && <div className="mx-routine-trigger-body">{prompt}</div>}
+    </div>
+  );
+}
+
+/** A bot's answer to this chat's send: its bubble, with a link to the whole
+ *  reply in the answering session (the summary is cut). */
+export function AgentBotReplyBody({ item, sessionId }: { item: TranscriptItem; sessionId: string }) {
+  return (
+    <>
+      <AgentRoutineBody item={item} />
+      {sessionId && (
+        <button
+          type="button"
+          className="mx-routine-more"
+          onClick={() => window.dispatchEvent(new CustomEvent(OPEN_TASK_SESSION_EVENT, { detail: { sessionId } }))}
+        >
+          {t('View full reply')}
+        </button>
+      )}
+    </>
+  );
+}
+
 /** An old routine result row without its marker: the agent's own bubble. */
 export function AgentRoutineBody({ item }: { item: TranscriptItem }) {
   const text = String(item.text || '').trim();
@@ -309,31 +360,25 @@ export function AgentRoutineBody({ item }: { item: TranscriptItem }) {
   );
 }
 
-/** The live band in agent mode: the approval card the turn waits on, then
- *  `member`'s typing bubble (none when null: its reply is streaming). */
+/** The live band in agent mode: `member`'s typing bubble. */
 export function AgentTypingRow({
   member,
   lead,
-  approvalCard,
-  idle = false,
 }: {
-  member: RoomMemberLabel | null;
+  member: RoomMemberLabel;
   /** The bubble opens a run: face, name and tail. */
   lead: boolean;
-  approvalCard: ReactNode;
-  /** A room between turns: the bubble keeps its box but shows nothing. */
-  idle?: boolean;
 }) {
-  const bubble = member && (
+  return (
     <AgentChatRow
       place={{ side: 'agent', speaker: member.id, first: lead, last: false, at: 0, newDay: false }}
       member={member}
-      faceState={idle ? 'still' : 'typing'}
+      faceState="typing"
     >
       <div
         className="message assistant mx-chat-typing"
-        role={idle ? undefined : 'status'}
-        aria-label={idle ? undefined : t('{{name}} is typing…', { name: member.name })}
+        role="status"
+        aria-label={t('{{name}} is typing…', { name: member.name })}
       >
         <div className="message-body">
           <span className="mx-chat-dots" aria-hidden="true">
@@ -345,22 +390,6 @@ export function AgentTypingRow({
       </div>
     </AgentChatRow>
   );
-  return (
-    <>
-      {approvalCard ? (
-        <AgentChatRow place={null} member={null}>
-          {approvalCard}
-        </AgentChatRow>
-      ) : null}
-      {idle ? (
-        <div className="mx-chat-typing-idle" aria-hidden="true">
-          {bubble}
-        </div>
-      ) : (
-        bubble
-      )}
-    </>
-  );
 }
 
 export function AgentChatRow({
@@ -368,8 +397,11 @@ export function AgentChatRow({
   member,
   card = false,
   faceState,
+  after,
   children,
 }: {
+  /** Under the bubble, in its column (the turn's "sent to" lines). */
+  after?: ReactNode;
   /** null: a tool round or the live band, outside any run. */
   place: AgentChatPlace | null;
   /** The speaking agent (agent bubbles only). */
@@ -400,11 +432,17 @@ export function AgentChatRow({
       >
         {lead && <RoomMemberFace member={member} className="mx-chat-face" state={faceState} />}
         <div className="mx-chat-column">
-          {lead && <div className="mx-chat-name">{member.name}</div>}
+          {lead && (
+            <div className="mx-chat-name">
+              {member.name}
+              {place?.bot && <span className="mx-chat-bot-tag">{t('Bot message')}</span>}
+            </div>
+          )}
           <div className="mx-chat-line">
             {children}
             {time && <time className="mx-chat-time">{time}</time>}
           </div>
+          {after}
         </div>
       </div>
     </>

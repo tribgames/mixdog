@@ -103,7 +103,7 @@ function compact({ sessionId, provider, messages, config = {}, getProviderFn }) 
 test('the summary forks the cached main request: same prefix, tools, model and cache options', async (t) => {
   const sessionId = 'fork-summary-shared';
   t.after(() => forgetSideQuestion(sessionId));
-  const provider = mainProvider('fixture-main');
+  const provider = mainProvider('anthropic');
   const messages = conversation();
   const request = captureMain(sessionId, provider, messages.slice());
   const result = await compact({ sessionId, provider, messages });
@@ -129,6 +129,8 @@ test('the summary forks the cached main request: same prefix, tools, model and c
   assert.equal(call.opts.maxOutputTokens, undefined);
   assert.equal(call.opts.admissionOwner, sessionId);
   assert.ok(call.opts.transportScope);
+  // Usage attribution only; the prompt is the main request's.
+  assert.equal(call.opts.requestKind, 'compaction');
   assert.equal(result.diagnostics.pipeline.generated.mode, 'shared-prefix');
   assert.deepEqual(result.usage, { inputTokens: 900, outputTokens: 400, cachedTokens: 30_000, cacheWriteTokens: 0 });
   assert.ok(result.messages.some((m) => String(m.content).includes('continue the parser refactor')));
@@ -140,7 +142,7 @@ test('the summary forks the cached main request: same prefix, tools, model and c
 test('a different summary route cannot share the cache and runs the isolated request', async (t) => {
   const sessionId = 'fork-summary-maintenance';
   t.after(() => forgetSideQuestion(sessionId));
-  const provider = mainProvider('fixture-main');
+  const provider = mainProvider('anthropic');
   const maintenance = mainProvider('fixture-maintenance', { content: SUMMARY });
   maintenance.getCachedModelInfo = () => ({ contextWindow: 200_000 });
   const messages = conversation();
@@ -150,7 +152,7 @@ test('a different summary route cannot share the cache and runs the isolated req
     provider,
     messages,
     config: {
-      builtins: { memory: { installed: true } },
+      compaction: { summaryMode: 'maintainer' },
       agents: { maintainer: { provider: maintenance.name, model: 'maintenance-model' } },
     },
     getProviderFn: (name) => (name === maintenance.name ? maintenance : provider),
@@ -166,12 +168,14 @@ test('a different summary route cannot share the cache and runs the isolated req
 test('without a settled request, or after the fork answers with a tool call, the isolated request runs', async (t) => {
   const sessionId = 'fork-summary-fallback';
   t.after(() => forgetSideQuestion(sessionId));
-  const plain = mainProvider('fixture-main', { content: SUMMARY });
+  const plain = mainProvider('anthropic', { content: SUMMARY });
   const first = await compact({ sessionId, provider: plain, messages: conversation() });
-  assert.equal(first.diagnostics.pipeline.generated.sharedPrefixFallback, 'no_settled_request');
+  // No settled request: nothing is cached for this session.
+  assert.equal(first.diagnostics.pipeline.generated.sharedPrefixFallback, 'cold_cache');
+  assert.equal(first.diagnostics.pipeline.cacheWarm, false);
   assert.equal(plain.calls[0].opts.sessionId, `${sessionId}:compact`);
 
-  const provider = mainProvider('fixture-main', (n) =>
+  const provider = mainProvider('anthropic', (n) =>
     n === 1
       ? {
           content: '',
@@ -194,7 +198,7 @@ test('a cancelled fork stays cancelled instead of falling back', async (t) => {
   const sessionId = 'fork-summary-abort';
   t.after(() => forgetSideQuestion(sessionId));
   const controller = new AbortController();
-  const provider = mainProvider('fixture-main', () => {
+  const provider = mainProvider('anthropic', () => {
     controller.abort(new Error('turn cancelled'));
     throw new Error('aborted by caller');
   });

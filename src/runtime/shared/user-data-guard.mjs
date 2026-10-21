@@ -147,15 +147,27 @@ function safeReason(reason) {
   );
 }
 
-/** instanceId of this data dir's init marker; null when absent or unreadable. */
+/** instanceId of this data dir's init marker; null only when absent. */
 function readInitInstanceId(dataDir) {
   if (!dataDir) return null;
+  const path = join(dataDir, INIT_MARKER);
+  let raw;
   try {
-    const marker = JSON.parse(readFileSync(join(dataDir, INIT_MARKER), 'utf8'));
-    return typeof marker?.instanceId === 'string' && marker.instanceId ? marker.instanceId : null;
-  } catch {
-    return null;
+    raw = readFileSync(path, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
   }
+  let marker;
+  try {
+    marker = JSON.parse(raw);
+  } catch (error) {
+    throw new SyntaxError(`[user-data] invalid initialization marker at ${path}`, { cause: error });
+  }
+  if (typeof marker?.instanceId !== 'string' || !marker.instanceId) {
+    throw new SyntaxError(`[user-data] initialization marker at ${path} must have a non-empty instanceId`);
+  }
+  return marker.instanceId;
 }
 
 export function hasUserDataInitMarker(dataDir) {
@@ -387,8 +399,9 @@ function pruneBackups(scopeDir, names, own) {
 }
 
 /**
- * Create the data dir's init marker unless one exists; returns its instanceId
- * (null when the data dir is gone or unwritable). Never creates the data dir.
+ * Create a missing init marker; return its instanceId, or null if the data dir
+ * is gone or the missing marker cannot be created. Never creates the data dir.
+ * Read/validation failures throw; an existing marker is never replaced.
  */
 export function markUserDataInitialized(dataDir) {
   const existing = readInitInstanceId(dataDir);
@@ -398,8 +411,8 @@ export function markUserDataInitialized(dataDir) {
     writeJsonAtomicSync(
       marker,
       { instanceId: randomUUID(), dataDir: resolve(dataDir), createdAt: new Date().toISOString() },
-      // An unreadable marker is replaced; a concurrent creator's valid one wins.
-      { createOnly: !existsSync(marker) }
+      // Another creator may have published since the absent read; it wins.
+      { createOnly: true }
     );
   } catch {}
   return readInitInstanceId(dataDir);
@@ -417,8 +430,8 @@ export function ensureUserDataInitialized(dataDir) {
   if (!dataDir) return;
   const key = normalizeDataDir(dataDir);
   if (ensuredDataDirs.has(key)) return;
-  ensuredDataDirs.add(key);
   if (!hasUserDataInitMarker(dataDir)) backupUserData(dataDir, 'initial-snapshot');
+  ensuredDataDirs.add(key);
 }
 
 function skipBackups() {

@@ -139,9 +139,9 @@ export function buildSettingsItems({
     {
       value: 'autoclear',
       label: 'Auto-clear',
-      meta: autoClearEnabled ? `On (${formatDuration(autoClear.idleMs)})` : 'Off',
+      meta: autoClearEnabled ? `On (${autoClear.unlimited ? 'Unlimited' : formatDuration(autoClear.idleMs)})` : 'Off',
       description: autoClearEnabled
-        ? `Clear idle sessions after ${formatDuration(autoClear.idleMs)}${autoClearSource}. Enter for options.`
+        ? `${autoClear.unlimited ? 'Never clear idle sessions' : `Clear idle sessions after ${formatDuration(autoClear.idleMs)}`}${autoClearSource}. Enter for options.`
         : 'Idle auto-clear disabled. Enter for options.',
       _action: 'autoclear',
     },

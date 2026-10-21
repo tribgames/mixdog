@@ -8,7 +8,7 @@ import { SUPPORTED_UI_LANGUAGES } from '../shared/ui-language';
 test('file dialogs use the selected UI language without translating filesystem contracts', async (context) => {
   const handlers = new Map();
   const mainFrame = {};
-  const webContents = { mainFrame, isDestroyed: () => false, send() {} };
+  const webContents = { mainFrame, isDestroyed: () => false, send() {}, on() {}, removeListener() {} };
   const dialogs = [];
   let language = 'en';
   const remove = registerDesktopIpc(

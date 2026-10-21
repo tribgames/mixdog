@@ -21,12 +21,15 @@ type RowOverflowMenuItem = {
   danger?: boolean;
   closeOnSelect?: boolean;
   checked?: boolean;
+  /** A `checked` item that is one choice of a set: exposed as a radio. */
+  radio?: boolean;
   separatorBefore?: boolean;
   children?: RowOverflowMenuItem[];
 };
 
 /** Focusable entries: actions and check items alike. */
-const MENU_ENTRY = "[role='menuitem']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)";
+const MENU_ENTRY =
+  "[role='menuitem']:not(:disabled), [role='menuitemcheckbox']:not(:disabled), [role='menuitemradio']:not(:disabled)";
 
 type RowOverflowOpener = (point?: { x: number; y: number }) => void;
 /** Each mounted menu registers its opener under its trigger button. */
@@ -150,7 +153,7 @@ function renderRowOverflowItem({
       key={item.id}
       type="button"
       data-action-id={item.id}
-      role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+      role={item.checked === undefined ? 'menuitem' : item.radio ? 'menuitemradio' : 'menuitemcheckbox'}
       aria-checked={item.checked === undefined ? undefined : item.checked}
       aria-haspopup={submenu ? 'menu' : undefined}
       data-submenu={submenu ? 'true' : undefined}

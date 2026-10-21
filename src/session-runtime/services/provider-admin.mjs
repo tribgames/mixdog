@@ -394,7 +394,10 @@ function oauthProviderSetup(p, providers, checkSecrets) {
 
 const CUSTOM_ID_RE = /^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CUSTOM_TEST_TIMEOUT_MS = 20_000;
-const CUSTOM_DISCOVERY_TIMEOUT_MS = 15_000;
+// A catalog host can sit behind a slow gateway: api.nano-gpt.com's /models
+// answered 503 only after ~44 s, so the wait must outlast that to surface the
+// service's own answer instead of a local timeout.
+const CUSTOM_DISCOVERY_TIMEOUT_MS = 60_000;
 
 export function isCustomProviderConfig(entry) {
   return Boolean(entry) && typeof entry === 'object' && entry.type === 'custom';
@@ -949,7 +952,9 @@ async function withTimeout(run, ms, label) {
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
+      reject(
+        Object.assign(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`), { code: 'EPROVIDERTIMEOUT' })
+      );
     }, ms);
   });
   try {
@@ -1330,7 +1335,11 @@ export async function discoverCustomProviderModels(cfgMod, rawInput) {
   try {
     const { createCustomProvider } = await loadCustomProviderModule();
     const provider = await createCustomProvider(id || 'custom-discovery', { ...config, apiKey });
-    const listed = await withTimeout(() => provider.listModels(), CUSTOM_DISCOVERY_TIMEOUT_MS, 'model discovery');
+    const listed = await withTimeout(
+      (signal) => provider.listModels({ signal, timeoutMs: CUSTOM_DISCOVERY_TIMEOUT_MS }),
+      CUSTOM_DISCOVERY_TIMEOUT_MS,
+      'model discovery'
+    );
     const models = publicCustomModelRows(listed);
     // A failed discovery that still left manual rows reports its error too.
     const failure = provider.customDiscoveryError;
@@ -1343,8 +1352,9 @@ export async function discoverCustomProviderModels(cfgMod, rawInput) {
 function discoveryErrorView(error, secrets) {
   const status = Number.isInteger(error?.status) ? error.status : undefined;
   const authKind = status === 401 || status === 403 ? 'authentication' : 'request';
+  const kind = status === 404 || status === 405 ? 'unavailable' : authKind;
   return {
-    kind: status === 404 || status === 405 ? 'unavailable' : authKind,
+    kind: error?.code === 'EPROVIDERTIMEOUT' ? 'timeout' : kind,
     ...(status === undefined ? {} : { status }),
     message: sanitizeCustomError(error, secrets).message,
   };

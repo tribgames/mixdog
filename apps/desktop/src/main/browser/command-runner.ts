@@ -6,6 +6,7 @@
 import type { createBrowserActionApproval } from './action-approval';
 import type { createBrowserAutoSignIn } from './auto-sign-in';
 import { browserActionHandler, type BrowserActionServices } from './actions';
+import { adoptResolvedTargets } from './actions/target';
 import {
   type BrowserCommand,
   type BrowserCommandResult,
@@ -22,6 +23,7 @@ import { browserSessionId, type BrowserSessionRegistry } from './session-registr
 import { throwIfBrowserCancelled } from './settle';
 import type { createBrowserTabs } from './tabs';
 import type { createBrowserTaskLifecycle } from './task-lifecycle';
+import type { UserWait } from './user-wait';
 import type { WebContents } from 'electron';
 import { takeoverGate } from '../takeover-gate';
 
@@ -76,8 +78,14 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
   const { state, approvals, browserSessions, lifecycle, tabs, downloads, taskLifecycle, retainGuest, services } = host;
   const { cdp, reply, settle } = services;
 
-  /** The page a command targets runs unthrottled for the command's duration. */
-  async function runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult> {
+  /** The page a command targets runs unthrottled for the command's duration.
+   *  `userWait`: the command's clock, which stands still while the person is
+   *  asked to approve a step (the queue's ceiling does not count that time). */
+  async function runCommand(
+    command: BrowserCommand,
+    signal?: AbortSignal,
+    userWait?: UserWait
+  ): Promise<BrowserCommandResult> {
     // A pending takeover hands the pages to the user (takeover-gate.ts).
     // A takeover that starts meanwhile aborts this command and waits for it.
     host.assertNoTakeover?.();
@@ -85,7 +93,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     const releases: Array<() => void> = [operation.release];
     try {
       const runSignal = signal ? AbortSignal.any([signal, operation.signal]) : operation.signal;
-      return await runResolvedCommand(command, runSignal, (guest) => releases.push(host.drivePage(guest)));
+      return await runResolvedCommand(command, runSignal, (guest) => releases.push(host.drivePage(guest)), userWait);
     } finally {
       for (const release of releases.reverse()) release();
     }
@@ -94,12 +102,13 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
   async function runResolvedCommand(
     command: BrowserCommand,
     signal: AbortSignal | undefined,
-    drive: (guest: WebContents) => void
+    drive: (guest: WebContents) => void,
+    userWait?: UserWait
   ): Promise<BrowserCommandResult> {
     const { action, ownerSessionId, hasScreenshotOptions, expected, background, tab } = prepareBrowserCommand(command);
     // Tab-less bookkeeping actions never open or create a page.
     if (TABLESS_ACTIONS.has(action)) {
-      await approvals.approve(command, () => ({ url: '', identity: ownerSessionId }), signal);
+      await approvals.approve(command, () => ({ url: '', identity: ownerSessionId }), signal, undefined, userWait);
     }
     if (!['hide', 'downloads'].includes(action)) await lifecycle.restoreSession(ownerSessionId);
     if (action === 'list_tabs') return tabs.listTabs(ownerSessionId);
@@ -122,6 +131,12 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     const guest = target?.guest ?? (await lifecycle.ensureGuest(ownerSessionId, { reveal: false }));
     drive(guest);
     const backgroundPage = browserSessions.backgroundPageForGuest(ownerSessionId, guest);
+    // The pane follows the page the agent works in; a hidden helper page it
+    // created with background:true is not one the user is meant to watch.
+    if (backgroundPage?.kind !== 'agent') {
+      browserSessions.setAgentPage(ownerSessionId, guest, turnId);
+      lifecycle.discardUntouchedBlank(ownerSessionId, guest);
+    }
     taskLifecycle.use(
       ownerSessionId,
       turnId,
@@ -168,15 +183,30 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
             reportBaseline,
           });
     try {
+      let approvedReceiver: string | undefined;
       if (!command.internalStep) {
-        await approvals.approve(
+        // An upload resolves its real target before the person is asked: a
+        // `target` spec becomes the ref the handler will then use, and the
+        // frame document that ref (or the open chooser) belongs to is bound.
+        const uploadReceiver = async () => {
+          if (!command.ref && command.target !== undefined && command.target !== null) {
+            const resolved = await services.targets.resolveTargetRefs(guest, [command.target], signal);
+            adoptResolvedTargets({ guest, services, refRecovery, effectBaseline }, resolved);
+            command.ref = resolved[0].ref;
+          }
+          return services.refActions.uploadReceiver(guest, command.ref ? String(command.ref) : undefined, signal);
+        };
+        const approved = await approvals.approve(
           command,
           () => ({
             url: guest.getURL(),
             identity: browserDocumentId(state, guest),
           }),
-          signal
+          signal,
+          action === 'upload' ? uploadReceiver : undefined,
+          userWait
         );
+        approvedReceiver = approved?.receiver;
       }
       const result = await handler({
         guest,
@@ -192,6 +222,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
         effectBaseline,
         actionSnapshot,
         services,
+        approvedReceiver,
       });
       // A page that asks for a sign-in the profile has a saved login for.
       const signedIn =

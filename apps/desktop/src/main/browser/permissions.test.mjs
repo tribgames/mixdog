@@ -62,7 +62,7 @@ test('nothing is granted until a person answers, and devices are never offered',
   const shown = permissions.pending(guest);
   assert.deepEqual(shown, { id: shown.id, origin: 'https://site.test', keys: ['media:video', 'media:audio'] });
   assert.equal(handlers.device({ deviceType: 'usb' }), false);
-  for (const refused of ['openExternal', 'display-capture', 'fullscreen', 'pointerLock', 'unknown']) {
+  for (const refused of ['openExternal', 'display-capture', 'pointerLock', 'unknown']) {
     assert.equal(ask(guest, refused).granted, false, refused);
   }
   assert.equal(permissions.answer(guest, 'permission_0', true), false, 'only the prompt shown is answered');
@@ -209,11 +209,13 @@ test('an iframe needs its own activation, asked of the frame itself', async () =
   assert.deepEqual(activation.asked.at(-1), ['https://evil.test/ad']);
 });
 
-test('Chrome defaults hold without a prompt: protected media', () => {
+test('Chrome defaults hold without a prompt: protected media and element fullscreen', () => {
   const { handlers, page, ask } = fixture();
   const guest = page('https://site.test/');
-  assert.equal(handlers.check(guest, 'mediaKeySystem', 'https://site.test', {}), true);
-  assert.equal(ask(guest, 'mediaKeySystem').granted, true);
+  for (const permission of ['mediaKeySystem', 'fullscreen']) {
+    assert.equal(handlers.check(guest, permission, 'https://site.test', {}), true, permission);
+    assert.equal(ask(guest, permission).granted, true, permission);
+  }
 });
 
 test('only a person refusal reads as refused to a page', () => {

@@ -18,10 +18,18 @@ import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
  *   features) at this width. Transcripts repeat their shapes, so a session's
  *   own first rows teach the estimate for the rest of its history.
  *
- * Heights depend on width, so both are keyed by the timeline's width.
+ * Heights depend on width, so both are keyed by the timeline's width — and on
+ * the surface painting the row: an agent chat frames replies as bubbles and
+ * paints nothing for most tool rounds (0px), so the two learn apart.
  */
 
-const STORAGE_KEY = 'mixdog.transcript-row-heights.v1';
+/** What paints the rows: a coding transcript, a bot's chat, or a group room
+ *  (member speeches, a band that is empty between member turns). */
+export type TranscriptRowSurface = 'coding' | 'agent' | 'room';
+
+// Bumped when the transcript's typography changes: heights measured under
+// the old type no longer match (v2: 16px reading body, new markdown spacing).
+const STORAGE_KEY = 'mixdog.transcript-row-heights.v2';
 const KEY_LIMIT = 2_000;
 const SHAPE_SAMPLES = 24;
 const SHAPE_LIMIT = 400;
@@ -66,7 +74,9 @@ export function transcriptRowShape(row: TranscriptRowModel): string {
     case 'UserMessage': {
       const text = textOf(row.item);
       const lines = Math.min(8, text.split('\n').length);
-      return `user:${lengthBucket(text)}:${lines}:${row.attachedUser ? 1 : 0}`;
+      // A steer line (waiting, sending or read) adds one fixed-height line.
+      const steerLine = row.item?.steer || row.item?.steered === true ? 1 : 0;
+      return `user:${lengthBucket(text)}:${lines}:${row.attachedUser ? 1 : 0}:${steerLine}`;
     }
     case 'AssistantPart': {
       const text = textOf(row.item);
@@ -99,12 +109,13 @@ function median(samples: readonly number[]): number {
 
 export interface TranscriptRowHeightStore {
   /** Best known height for an unmeasured row at this width. */
-  estimate(row: TranscriptRowModel | undefined, width: number): number;
-  /** Whether `estimate` would return more than the flat fallback. */
-  knows(row: TranscriptRowModel | undefined, width: number): boolean;
-  /** A settled measured height of `row` at this width. True when it taught a
-   *  shape something new (a first sample or a moved median). */
-  record(row: TranscriptRowModel, width: number, size: number): boolean;
+  estimate(row: TranscriptRowModel | undefined, width: number, surface?: TranscriptRowSurface): number;
+  /** Whether `estimate` would return a learned height, not the flat fallback. */
+  knows(row: TranscriptRowModel | undefined, width: number, surface?: TranscriptRowSurface): boolean;
+  /** A settled measured height of `row` at this width (0 for a row that paints
+   *  nothing). True when it taught a shape something new (a first sample or a
+   *  moved median). */
+  record(row: TranscriptRowModel, width: number, size: number, surface?: TranscriptRowSurface): boolean;
 }
 
 export function createTranscriptRowHeightStore(
@@ -118,7 +129,7 @@ export function createTranscriptRowHeightStore(
   try {
     const raw = storage?.getItem(STORAGE_KEY);
     const stored = raw ? (JSON.parse(raw) as Partial<StoredHeights>) : null;
-    for (const [key, size] of stored?.keys ?? []) if (typeof key === 'string' && size > 0) keys.set(key, size);
+    for (const [key, size] of stored?.keys ?? []) if (typeof key === 'string' && size >= 0) keys.set(key, size);
     for (const [shape, samples] of stored?.shapes ?? []) {
       if (typeof shape !== 'string' || !Array.isArray(samples) || samples.length === 0) continue;
       shapes.set(shape, samples.slice(-SHAPE_SAMPLES));
@@ -139,25 +150,29 @@ export function createTranscriptRowHeightStore(
     if (!storage || saveTimer) return;
     saveTimer = setTimeout(save, SAVE_DELAY_MS);
   };
-  const keyAt = (row: TranscriptRowModel, width: number) => `${Math.round(width)}|${row.key}`;
-  const shapeAt = (row: TranscriptRowModel, width: number) =>
-    `${Math.round(width / SHAPE_WIDTH_STEP) * SHAPE_WIDTH_STEP}|${transcriptRowShape(row)}`;
+  // Coding keys carry no surface: the heights stored before surfaces existed
+  // were all learned there.
+  const surfaceOf = (surface: TranscriptRowSurface) => (surface === 'coding' ? '' : `${surface}|`);
+  const keyAt = (row: TranscriptRowModel, width: number, surface: TranscriptRowSurface = 'coding') =>
+    `${surfaceOf(surface)}${Math.round(width)}|${row.key}`;
+  const shapeAt = (row: TranscriptRowModel, width: number, surface: TranscriptRowSurface = 'coding') =>
+    `${surfaceOf(surface)}${Math.round(width / SHAPE_WIDTH_STEP) * SHAPE_WIDTH_STEP}|${transcriptRowShape(row)}`;
   return {
-    estimate(row, width) {
+    estimate(row, width, surface) {
       if (!row || !(width > 0)) return TRANSCRIPT_ROW_ESTIMATE;
-      const known = keys.get(keyAt(row, width));
+      const known = keys.get(keyAt(row, width, surface));
       if (known !== undefined) return known;
-      return medians.get(shapeAt(row, width)) ?? TRANSCRIPT_ROW_ESTIMATE;
+      return medians.get(shapeAt(row, width, surface)) ?? TRANSCRIPT_ROW_ESTIMATE;
     },
-    knows(row, width) {
+    knows(row, width, surface) {
       if (!row || !(width > 0)) return false;
-      return keys.has(keyAt(row, width)) || medians.has(shapeAt(row, width));
+      return keys.has(keyAt(row, width, surface)) || medians.has(shapeAt(row, width, surface));
     },
-    record(row, width, size) {
-      if (!(width > 0) || !(size > 0)) return false;
+    record(row, width, size, surface) {
+      if (!(width > 0) || !(size >= 0)) return false;
       const rounded = Math.round(size);
+      const key = keyAt(row, width, surface);
       if (persistentKey(row)) {
-        const key = keyAt(row, width);
         if (keys.get(key) !== rounded) {
           keys.delete(key);
           keys.set(key, rounded);
@@ -171,11 +186,10 @@ export function createTranscriptRowHeightStore(
       }
       // One sample per row: a row re-measured on every streamed chunk or
       // toggle must not outvote the rest of its shape.
-      const sampleKey = keyAt(row, width);
-      if (sampled.has(sampleKey)) return false;
+      if (sampled.has(key)) return false;
       if (sampled.size >= KEY_LIMIT * 4) sampled.clear();
-      sampled.add(sampleKey);
-      const shape = shapeAt(row, width);
+      sampled.add(key);
+      const shape = shapeAt(row, width, surface);
       const before = medians.get(shape);
       const samples = shapes.get(shape) ?? [];
       samples.push(rounded);

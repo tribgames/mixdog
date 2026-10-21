@@ -11,6 +11,7 @@ import {
 import { isOffloadedToolResultText, maybeOffloadToolResultBatch } from '../tool-result-offload.mjs';
 import { setReadCached, setScopedToolCached } from '../read-dedup.mjs';
 import { _stripMcpPrefix, _isReadTool, _isScopedCacheableTool, _isShellTool } from '../loop/tool-classify.mjs';
+import { takeAgentTaskStarts } from '../../../../shared/agent-task-starts.mjs';
 import { crossTurnSignature, isEditProgressTool } from '../loop/completion-guards.mjs';
 import { isEagerDispatchable, isToolCallDedupEligible, parseNativeToolSearchPayload } from '../loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from '../loop/stored-tool-args.mjs';
@@ -307,6 +308,9 @@ function completedToolResult(completed, result, postprocessStartedAt) {
     ...(completed.readWindow ? { readWindow: completed.readWindow } : {}),
     ...(uiDiff !== null ? { uiDiff } : {}),
     ...toolMetaPatchFromMessage(completed.result),
+    // Every agent call's result names the jobs it started (none: []), so a
+    // task session's report follows exactly its own agents' results.
+    ...(_stripMcpPrefix(call.name) === 'agent' ? { agentTaskIds: takeAgentTaskStarts(call.id) } : {}),
   };
 }
 

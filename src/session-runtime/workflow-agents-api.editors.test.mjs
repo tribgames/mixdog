@@ -1038,7 +1038,10 @@ test('definition saves are atomic and keep the replaced copy as <file>.bak', asy
   assert.match(readFileSync(join(dir, 'AGENT.md'), 'utf8'), /Second body\./);
   assert.match(readFileSync(join(dir, 'AGENT.md.bak'), 'utf8'), /First body\./);
   assert.equal(JSON.parse(readFileSync(join(dir, 'agent.json.bak'), 'utf8')).name, 'Keeper');
-  assert.ok(!readdirSync(dir).some((name) => name.endsWith('.tmp')), 'no temp file is left behind');
+  assert.ok(
+    !readdirSync(dir).some((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),
+    'no temp file is left behind'
+  );
   const pack = await api.saveWorkflowPack({ id: 'keep-me', body: 'One.' });
   await api.saveWorkflowPack({ id: pack.id, body: 'Two.' });
   const packDir = join(dataDir, 'workflows', 'keep-me');

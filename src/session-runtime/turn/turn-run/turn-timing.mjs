@@ -2,7 +2,7 @@ import { traceTurnTiming } from '../../../runtime/agent/orchestrator/agent-trace
 
 // TTFT telemetry for one turn: emitted once (first visible progress or
 // settlement), to the in-process event and the durable trace row.
-export function createTurnTimingFactory({ getSession, awaitInitialMcpConnect, mcpTurnGraceMs }) {
+export function createTurnTimingFactory({ getSession, awaitInitialMcpConnect, mcpTurnGraceMs, mcpAgentGraceMs }) {
   return function createTurnTiming(options) {
     const startedAt = performance.now();
     const startedAtEpoch = Date.now();
@@ -39,11 +39,12 @@ export function createTurnTimingFactory({ getSession, awaitInitialMcpConnect, mc
       }
     };
     // Give an in-flight MCP connect only a short TTFT grace. untilConnected
-    // waits for the initial connect bounded only by the server startup budget.
+    // (a spawned agent's first turn) gets the longer, still bounded, agent
+    // grace; the gate additionally never exceeds the server startup budget.
     timing.awaitMcpGrace = async ({ untilConnected = false } = {}) => {
       const graceStartedAt = performance.now();
       try {
-        await awaitInitialMcpConnect?.(untilConnected ? undefined : mcpTurnGraceMs);
+        await awaitInitialMcpConnect?.(untilConnected ? mcpAgentGraceMs : mcpTurnGraceMs);
       } finally {
         timing.mcpWaitMs += performance.now() - graceStartedAt;
       }

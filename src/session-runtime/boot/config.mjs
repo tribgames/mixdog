@@ -36,6 +36,7 @@ export async function resolveConfig(boot) {
     contextPercent: params.contextPercent,
     contextTokens: params.contextTokens,
     selectedContextWindow: params.selectedContextWindow,
+    agentOwned: params.sessionProfile?.owner === 'agent' || params.sessionProfile?.visibility === 'agent-only',
   }));
   configureLocalProviderIdleTtl(rt.config.providers?.[LOCAL_PROVIDER_ID]?.idleTtlSeconds);
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);

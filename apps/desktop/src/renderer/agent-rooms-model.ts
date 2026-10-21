@@ -2,6 +2,7 @@
 // catalog (the host stamps each room's log with `agentRoom`) and the contacts.
 import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
 import type { DesktopAgentRoomSummary, DesktopSessionSummary } from '../shared/contract';
+import { unseenIncomingCount } from '../shared/incoming-tail';
 import type { AgentChatIndicator } from './agent-chat-summary';
 import { t } from './i18n';
 
@@ -22,7 +23,25 @@ export interface AgentRoomRowModel {
   indicator: AgentChatIndicator;
 }
 
+/** The row's spoken label: its name and member count, only the parts that
+ *  exist (a nameless room reads "2 members", never ", 2 members"). */
+export function roomRowLabel(name: string, memberCount: number): string {
+  return [name.trim(), memberCount > 0 ? t('{{count}} members', { count: memberCount }) : '']
+    .filter(Boolean)
+    .join(', ');
+}
+
 /** Rooms in list order, newest activity first; archived (left) rooms stay out. */
+function roomSpeaker(room: DesktopAgentRoomSummary, preview: string, label: (agentId: string) => RoomLabel): string {
+  if (!preview) return '';
+  if (room.lastSpeaker === 'user') return t('You');
+  if (!room.lastSpeaker) return '';
+  if (label(room.lastSpeaker).name === room.lastSpeaker) {
+    return room.memberNames?.[room.lastSpeaker] || room.lastSpeaker;
+  }
+  return label(room.lastSpeaker).name;
+}
+
 export function agentRoomRows(
   sessions: readonly DesktopSessionSummary[],
   label: (agentId: string) => RoomLabel,
@@ -35,27 +54,17 @@ export function agentRoomRows(
     .map((session) => {
       const room = session.agentRoom;
       const preview = plainPreviewText(String(room.lastPreview || session.lastMessagePreview || ''));
-      const unseen = Math.floor((Number(session.messageCount) || 0) - (Number(session.readMessageCount) || 0));
       const indicator: AgentChatIndicator = room.running
         ? { kind: 'running' }
         : unreadSessionIds?.has(session.id)
-          ? { kind: 'unread', count: Math.max(1, unseen) }
+          ? { kind: 'unread', count: unseenIncomingCount(session) }
           : null;
-      const speaker = !preview
-        ? ''
-        : room.lastSpeaker === 'user'
-          ? t('You')
-          : room.lastSpeaker
-            ? label(room.lastSpeaker).name === room.lastSpeaker
-              ? room.memberNames?.[room.lastSpeaker] || room.lastSpeaker
-              : label(room.lastSpeaker).name
-            : '';
       return {
         sessionId: session.id,
         room,
         session,
         name: room.name,
-        speaker,
+        speaker: roomSpeaker(room, preview, label),
         preview: preview || t('No messages yet'),
         at: Number(session.activityAt) || session.updatedAt || 0,
         indicator,

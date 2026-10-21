@@ -60,6 +60,10 @@ async function runAdapter({ lane, kind, model, requestModel, prompt, options, re
     const adapter = await import('./adapters/codex-image.mjs');
     return await adapter.generateImage({ model: requestModel || model, prompt, options, references, signal });
   }
+  if (lane.id === 'openrouter' || lane.id === 'nano-gpt') {
+    const adapter = await import('./adapters/image-api.mjs');
+    return await adapter.generateImage({ lane: lane.id, model, prompt, options, references, signal });
+  }
   if (lane.id === 'antigravity-oauth') {
     const adapter = await import('./adapters/antigravity-image.mjs');
     return await adapter.generateImage({ model, prompt, options, references, signal });

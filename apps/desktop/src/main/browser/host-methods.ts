@@ -16,6 +16,7 @@ import type { BrowserHost } from './host';
 import type { createBrowserHostPageIdentity } from './host-page-identity';
 import type { createBrowserHostPresentation } from './host-presentation';
 import type { createBrowserNativeViews } from './native-view';
+import type { createPageFullscreen } from './page-fullscreen';
 import type { createBrowserPartition } from './partition';
 import type { createBrowserSessionStore } from './browser-session-store';
 import { type BrowserSessionRegistry, browserSessionId } from './session-registry';
@@ -35,6 +36,7 @@ export function createBrowserHostDisplayMethods(options: {
   pageSurface: Presentation['pageSurface'];
   remoteDrive: Presentation['remoteDrive'];
   nativeViews: NativeViews;
+  fullscreen: Pick<ReturnType<typeof createPageFullscreen>, 'reconcile'> | null;
   display: Display;
   pageIdentity: PageIdentity['store'];
   pagePreviews: PageIdentity['previews'];
@@ -51,9 +53,11 @@ export function createBrowserHostDisplayMethods(options: {
   return {
     browserPageFrame(sessionId, previousFrameId = '', texture = false) {
       const owner = browserSessionId(sessionId);
+      options.fullscreen?.reconcile(owner);
       return options.presentationReads.read(owner, previousFrameId, texture);
     },
     browserPageMetadata(sessionId) {
+      options.fullscreen?.reconcile(browserSessionId(sessionId));
       return options.pageSurface.metadata(browserSessionId(sessionId));
     },
     browserPresentNative(sessionId, rect) {

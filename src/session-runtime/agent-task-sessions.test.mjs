@@ -80,6 +80,9 @@ function tasks(h, overrides = {}) {
     modelRoute: async (ref) => ({ provider: 'test', model: ref }),
     leadRoute: async () => ({ provider: 'lead-provider', model: 'lead-model' }),
     lastUsedRoute: async () => null,
+    // A task turn's end is its final answer at once here (no agent work, no quiet period).
+    pendingWork: async () => false,
+    settleMs: 0,
     log: () => {},
     ...overrides,
   });
@@ -156,7 +159,12 @@ test('create records the origin, follows the worktree default and returns at onc
     { brief: 'Read README.md\nand report its first line', project: 'mixdog', model: 'test/fast' },
     { callerSessionId: 'sess_home_lead', callerAgentId: 'lead', callerCwd: '/home' }
   );
-  assert.deepEqual(result, { session_id: 'sess_task_1', title: 'Read README.md', project: '/repo/mixdog' });
+  assert.deepEqual(result, {
+    session_id: 'sess_task_1',
+    status: 'started',
+    title: 'Read README.md',
+    project: '/repo/mixdog',
+  });
   const [, created] = h.calls[0];
   assert.equal(created.cwd, '/repo/mixdog');
   assert.deepEqual(created.desktopSession, { classification: 'project', projectPath: '/repo/mixdog' });
@@ -209,7 +217,7 @@ test('create records the origin, follows the worktree default and returns at onc
   );
   assert.equal(opts.owner, 'cli');
   assert.equal(opts.sessionMode, 'coding');
-  assert.equal(opts.sourceName, 'agent:lead');
+  assert.equal(opts.sourceName, 'agent:lead@home');
   assert.deepEqual(opts.taskOrigin, origin);
   const record = sessionOriginFields(opts, {
     profile: null,
@@ -265,6 +273,9 @@ function lastUsedApi(h) {
     listProjects: async () => [],
     newTaskDefault: async () => 'branch',
     leadRoute: async () => null,
+    // A task turn's end is its final answer at once here (no agent work, no quiet period).
+    pendingWork: async () => false,
+    settleMs: 0,
     log: () => {},
   });
 }
@@ -386,7 +397,13 @@ test('only turns the origin agent starts report back, ended or waiting for the u
       { action: 'send', session_id: taskId, prompt: 'from a coding session' },
       { callerSessionId: 'sess_c' }
     ),
-    { sessionId: taskId, accepted: true, reportsBack: false }
+    {
+      sessionId: taskId,
+      accepted: true,
+      reportsBack: false,
+      reportsBackReason:
+        'only a bot conversation gets session results reported back; check that session for the result',
+    }
   );
   const [, followUp, foreign, coding] = submitted(h);
   assert.equal(followUp.options.id.startsWith('atask_'), true);
@@ -417,6 +434,7 @@ test('only turns the origin agent starts report back, ended or waiting for the u
       status: 'completed',
       text: 'done',
       target: 'session',
+      hop: 1,
       watchId: foreign.options.id,
     },
   ]);
@@ -489,7 +507,10 @@ test('a task result is persisted before delivery, retried on failure, and wakes 
   assert.equal(h.wakes.length, 1);
   assert.equal(h.wakes[0][0], 'sess_home_lead');
   assert.match(h.wakes[0][1], /<task-output session="sess_task_1" status="completed">\nanswer 1\n<\/task-output>/);
-  assert.match(h.wakes[0][1], /Relay the task result above to the user now/);
+  assert.match(
+    h.wakes[0][1],
+    /Relay the report above to the user now, briefly and in your own words; a report marked \(working\) is still in progress, not done\./
+  );
   // A replayed enqueue posts nothing and wakes nobody.
   await h.delivery.drain(await h.delivery.enqueueTask('lead', report(1)));
   assert.equal(h.wakes.length, 1);
@@ -636,6 +657,9 @@ function restartWorld(t) {
       },
       queuedSubmissionIds: async () => [...persisted],
       loadSession: async (id) => records.get(id) || null,
+      // A task turn's end is its final answer at once here (no agent work, no quiet period).
+      pendingWork: async () => false,
+      settleMs: 0,
       log: () => {},
     });
     const posted = async () => {
@@ -774,6 +798,7 @@ test('a send whose watch cannot be stored claims no report; a refused or failed 
   assert.deepEqual(await first.api.send(TARGET, 'run the simulation', origin), {
     accepted: true,
     reportsBack: false,
+    reportsBackReason: 'its report could not be recorded (disk full); check that session for the result',
   });
   const [plain] = submitted(first.h);
   assert.equal(plain.options.onSettled, undefined, 'no report hook it could not keep');
@@ -832,13 +857,16 @@ test('a refused wake stays owed; a wake taken just before a restart is not taken
   await first.delivery.drain(HOME);
   assert.equal(w.wakes.length, 1, 'the retry takes it');
   assert.deepEqual(await w.owedWakes(), []);
-  // The wake turn of the second result reached the thread, but the process
-  // stopped before it was marked taken.
+  // The wake turn of the second result reached the thread and finished, but
+  // the process stopped before it was marked taken.
   w.wakeOutcome.next = new Error('stopped');
   two.options.onSettled({ status: 'done', result: { content: 'second' } });
   await first.posted();
   const wakeId = w.wakeOutcome.attempts.at(-1);
-  w.home.messages.push({ role: 'user', content: 'wake', meta: { transcript: { checkpointId: wakeId } } });
+  w.home.messages.push(
+    { role: 'user', content: 'wake', meta: { transcript: { checkpointId: wakeId } } },
+    replyRow(wakeId, 'relayed')
+  );
   w.wakeOutcome.next = undefined;
   const second = w.boot();
   for (const homeId of await second.delivery.recover()) await second.delivery.drain(homeId);
@@ -853,13 +881,16 @@ test('a wake taken before a restart is not taken again when a later result is ow
   await first.api.send(TARGET, 'A', origin);
   await first.api.send(TARGET, 'B', origin);
   const [a, b] = submitted(first.h);
-  // A's wake turn reached the thread, then the process stopped before the
-  // obligation was cleared.
+  // A's wake turn reached the thread and finished, then the process stopped
+  // before the obligation was cleared.
   w.wakeOutcome.next = new Error('stopped');
   a.options.onSettled({ status: 'done', result: { content: 'result A' } });
   await first.posted();
   const wakeA = w.wakeOutcome.attempts.at(-1);
-  w.home.messages.push({ role: 'user', content: 'wake', meta: { transcript: { checkpointId: wakeA } } });
+  w.home.messages.push(
+    { role: 'user', content: 'wake', meta: { transcript: { checkpointId: wakeA } } },
+    replyRow(wakeA, 'relayed A')
+  );
   // B's turn ended while the daemon was down.
   w.target().messages.push(promptRow(b.options.id), replyRow(b.options.id, 'result B'));
   w.wakeOutcome.next = undefined;
@@ -1112,7 +1143,10 @@ test('a room member opens a task session and its result lands in the room as its
   await Promise.all(pending);
   await delivery.drain(member);
   assert.equal(sessions.get(member).messages.length, 1);
-  assert.match(sessions.get(member).messages[0].content, /started; its result is reported here/);
+  assert.match(
+    sessions.get(member).messages[0].content,
+    /started, not done yet; its final answer is reported here when it finishes\./
+  );
   assert.equal(sessions.get(roomLog).messages.length, 1);
   // The brief's turn ends: the result is the member's row in the room log.
   const [{ options }] = submitted(h);
@@ -1157,4 +1191,45 @@ test('a room member opens a task session and its result lands in the room as its
   const stored = { taskOrigin: { agentId: 'gh', sessionId: 'sess_home_gh', title: 'T' } };
   const re = tasks(fakeService(), { loadSession: async () => stored });
   assert.equal((await re.api.reportOrigin('sess_task_9', 'gh', member)).sessionId, member);
+});
+
+test('a report that cannot be queued is retried in-process, delivered once, and keeps its watch when every try fails', async () => {
+  const run = async (failures) => {
+    const submits = [];
+    const delivered = [];
+    const removed = [];
+    let calls = 0;
+    const tasks = createAgentTaskSessions({
+      getSessionService: () => ({
+        materializeSession: async () => ({ getState: () => ({}), subscribe: () => () => {} }),
+        submitSession: async (params) => {
+          submits.push(params);
+          return { accepted: true };
+        },
+      }),
+      deliver: async (agentId, report) => {
+        calls += 1;
+        if (calls <= failures) throw new Error('queue busy');
+        delivered.push([agentId, report.runId]);
+      },
+      watches: { add: async () => {}, list: async () => [], remove: async (id) => removed.push(id) },
+      loadSession: async () => null,
+      retryDelaysMs: [0, 0, 0],
+      // A task turn's end is its final answer at once here (no agent work, no quiet period).
+      pendingWork: async () => false,
+      settleMs: 0,
+      log: () => {},
+    });
+    await tasks.send('sess_task_1', 'go', { agentId: 'a', sessionId: 'sess_home_a', title: 'T', notify: true });
+    submits[0].options.onSettled({ status: 'done', result: { content: 'ok' } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return { calls, delivered, removed };
+  };
+  const once = await run(1);
+  assert.equal(once.calls, 2);
+  assert.equal(once.delivered.length, 1, 'exactly one report');
+  const never = await run(99);
+  assert.equal(never.calls, 4, 'one try and three retries');
+  assert.deepEqual(never.delivered, []);
+  assert.deepEqual(never.removed, [], 'the durable watch stays for restart recovery');
 });
