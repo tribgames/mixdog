@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.3.2 - 2026-10-21
+
 Aggiunti temi e skin con foto, l’overlay del bot principale e il cambio di workflow e modalità di delega a metà conversazione, con firma del codice per Windows e ampie correzioni per compattazione, approvazioni e allegati.
 
 ### Nuove funzionalità

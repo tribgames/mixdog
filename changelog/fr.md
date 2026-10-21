@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.3.2 - 2026-10-21
+
 Ajout des thèmes et des skins photo, de la superposition du bot principal et du basculement de workflow et de mode de délégation en pleine conversation, avec signature de code Windows et des correctifs étendus pour le compactage, les approbations et les pièces jointes.
 
 ### Nouvelles fonctionnalités

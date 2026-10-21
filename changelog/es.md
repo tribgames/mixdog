@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.3.2 - 2026-10-21
+
 Se agregaron temas y skins con foto, la superposición del bot principal y el cambio de workflow y modo de delegación a mitad de conversación, con firma de código en Windows y amplias correcciones en compactación, aprobaciones y archivos adjuntos.
 
 ### Nuevas funciones

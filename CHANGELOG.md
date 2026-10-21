@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.3.2 - 2026-10-21
+
 Added themes and photo skins, the representative bot overlay, and switching the workflow and delegation mode mid-conversation, with Windows code signing and broad fixes to compaction, approvals and attachments.
 
 ### New features

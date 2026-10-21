@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.3.2 - 2026-10-21
+
 Adicionados temas e skins com foto, a sobreposição do bot principal e a troca de workflow e modo de delegação no meio da conversa, com assinatura de código no Windows e amplas correções em compactação, aprovações e anexos.
 
 ### Novos recursos

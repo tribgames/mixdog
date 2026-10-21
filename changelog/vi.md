@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.3.2 - 2026-10-21
+
 Đã thêm giao diện và skin hình ảnh, lớp phủ bot chính và chuyển đổi quy trình cùng chế độ ủy quyền ngay trong cuộc trò chuyện, cùng chữ ký mã nguồn Windows và các bản sửa lỗi toàn diện về nén, phê duyệt và tệp đính kèm.
 
 ### Tính năng mới

@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.3.2 - 2026-10-21
+
 Designs und Foto-Skins, das Hauptbot-Overlay sowie den Wechsel des Workflows und des Delegationsmodus mitten in der Konversation hinzugefügt, zusammen mit Windows-Codesignierung und umfassenden Fehlerbehebungen für Kompaktierung, Genehmigungen und Anhänge.
 
 ### Neue Funktionen
