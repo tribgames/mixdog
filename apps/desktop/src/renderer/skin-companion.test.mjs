@@ -817,10 +817,13 @@ test('the overlay window claims the pointer over the bot only; a system focus ha
   });
   const calls = { interactive: [], focusInput: [] };
   const noop = () => {};
+  let readied = false;
   dom.window.mixdogPet = {
     onView: () => noop,
     onBlurred: () => noop,
-    ready: noop,
+    ready: () => {
+      readied = true;
+    },
     painted: noop,
     send: async () => true,
     open: noop,
@@ -834,9 +837,12 @@ test('the overlay window claims the pointer over the bot only; a system focus ha
   };
   await import('./desktop-pet-main');
   const $ = (selector) => dom.document.querySelector(selector);
-  for (let wait = 0; wait < 100 && !$('.skin-companion-pet'); wait += 1) await new Promise((r) => setTimeout(r, 10));
+  // The pointer listeners attach in the same effect pass that calls ready(),
+  // after the first paint: on a slow runner the bot shows before them.
+  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !readied); wait += 1)
+    await new Promise((r) => setTimeout(r, 10));
   const bot = $('.skin-companion-pet');
-  assert.ok(bot, 'the overlay drew the bot');
+  assert.ok(bot && readied, 'the overlay drew the bot and attached its listeners');
   const move = (target) =>
     target.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 256, clientY: 176 }));
   // A forwarded move over the bot claims the pointer; over the empty window it passes through again.
@@ -1600,7 +1606,7 @@ test('the overlay draws the sprite at the size main made its window for', async 
     expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'],
     actEnvironment: false,
   });
-  let showView = () => {};
+  let showView = null;
   const noop = () => {};
   dom.window.mixdogPet = {
     onView: (listener) => {
@@ -1624,10 +1630,12 @@ test('the overlay draws the sprite at the size main made its window for', async 
   // A fresh module instance: this test mounts its own overlay page.
   await import(`./desktop-pet-main.tsx?scale=${Date.now()}`);
   const root = dom.document.documentElement;
-  for (let wait = 0; wait < 100 && !dom.document.querySelector('.skin-companion-pet'); wait += 1) {
+  // The page subscribes to its view in an effect after the first paint.
+  for (let wait = 0; wait < 200 && (!dom.document.querySelector('.skin-companion-pet') || !showView); wait += 1) {
     await new Promise((r) => setTimeout(r, 10));
   }
-  const base = { sessionId: '', bubble: { kind: 'idle' }, face: { room: false, members: [] }, quiet: false };
+  assert.ok(showView, 'the page subscribed to its view');
+  const base ={ sessionId: '', bubble: { kind: 'idle' }, face: { room: false, members: [] }, quiet: false };
   const view = { ...base, collapsed: false, keepAbove: false, pinned: true, theme: null, visible: true };
   for (const [scale, size] of [
     [50, '28px'],
