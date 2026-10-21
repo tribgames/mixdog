@@ -1,30 +1,30 @@
 {
-  "version": "0.7.33",
+  "version": "0.7.34",
   "_comment": "Rewritten by .github/workflows/patch-release.yml on each tagged release. assets maps platformKey (process.platform-process.arch, e.g. win32-x64, linux-x64, darwin-arm64) to { url, sha256 } of the mixdog-patch binary on the GitHub release. A local cargo build under native/mixdog-patch/target/release always takes precedence; otherwise the binary is fetched per this manifest into the data dir (apply is native-only — no JS apply engine).",
   "assets": {
     "darwin-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.33/mixdog-patch-darwin-arm64",
-      "sha256": "c2cb3b4a7e519aa9ddf97537578cf31eae48c371453f46b4501f46b16311c0a5"
+      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-darwin-arm64",
+      "sha256": "b7e2bd6649ae64801d7f2720fea11fdd8e52ca2fcc21fedb717691cc6f8e6341"
     },
     "darwin-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.33/mixdog-patch-darwin-x64",
-      "sha256": "a4a138765dfc76b39fa3ea20638c0526eb857a19f6d8ea59b0e02f3f552bbaf8"
+      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-darwin-x64",
+      "sha256": "d0d11eda8b65ee34a3b510eb9f3a57970e977076cd9c8854bf336ec62e3f6d23"
     },
     "linux-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.33/mixdog-patch-linux-arm64",
-      "sha256": "8ba081125ab7658a3353ced9dd487d393dc8b252ac98636da3b8745724798e68"
+      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-linux-arm64",
+      "sha256": "cb3a530dd68e18edef1cc01025ee89c1b4296f847b76a8f6ea8110710b66912e"
     },
     "linux-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.33/mixdog-patch-linux-x64",
-      "sha256": "bec7bdfc1129d5e99d15c7bc961a2b865868a68e0163a65b506be2aa70ad0bff"
+      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-linux-x64",
+      "sha256": "4743bb6b23db574f282df0a2744ca4b5b2a7e5049533cf00bc26b93ce235231c"
     },
     "win32-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.33/mixdog-patch-win32-arm64.exe",
-      "sha256": "85374d85f5e966f9ba82f52ed58c799339d591a1afa32a4902ae0c8715506cb5"
+      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-win32-arm64.exe",
+      "sha256": "626496b0a2f804f769c20f8d1f6d35d9caab89b8ddb38c5e320ba1d146bf84f6"
     },
     "win32-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.33/mixdog-patch-win32-x64.exe",
-      "sha256": "b0826bb2e7462d072fdc2250fc42662d7da80589d0589a4c4781decc1fd5f008"
+      "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-win32-x64.exe",
+      "sha256": "03c73fe9895dad6684060e7b0155bb41a8dc96ad75c49c9c9b550cbec27afd1d"
     }
   }
 }
