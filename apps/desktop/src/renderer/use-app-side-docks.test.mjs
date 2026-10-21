@@ -123,6 +123,10 @@ function installWatchers() {
 
 const LEAVES = [leaf('L1', 's1')];
 
+// Each test starts from an empty dock store: a pane entry an earlier test left
+// stored open would be restored on mount (a reload brings a terminal back).
+test.beforeEach(() => dom.window.localStorage.clear());
+
 /** Hardware back on the history path, then let React settle the close. */
 async function back() {
   await act(async () => {
@@ -213,7 +217,18 @@ test("reload: a terminal dock stored open comes back open on its pane's session,
   } finally {
     // Folded again like every other test here: the mobile-back hook keeps
     // module-level history bookkeeping that an unmount with an open dock leaves behind.
+    // A UI-side close pops the dock's history sentinel; wait for that popstate
+    // echo, or the next test opens its dock while the echo is still pending
+    // and gets a sentinel instead of a CloseWatcher.
+    // The sentinel is popped by the layer's effect cleanup, which runs when
+    // the closing act settles, so listen before it and wait after it.
+    const echo = new Promise((resolve) =>
+      dom.window.addEventListener('popstate', () => setTimeout(resolve, 0), { once: true })
+    );
     await act(async () => phone.sideDocks.closePaneRightRegion('L1'));
+    await act(async () => {
+      await echo;
+    });
     await phone.unmount();
     dom.window.localStorage.clear();
   }
