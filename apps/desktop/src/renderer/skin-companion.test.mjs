@@ -962,6 +962,9 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
   await show([]);
   assert.deepEqual(calls.interactive, [true, false, true]);
   assert.equal(html.style.getPropertyValue('--pet-clip'), '');
+  // The page's "painted" handshake waits two animation frames; let them run
+  // before the test's DOM (and its frame clock) is torn down.
+  await new Promise((r) => setTimeout(r, 100));
 });
 
 test("the bot's ring is drawn only for keyboard use, never by Chromium's :focus-visible guess", async () => {
