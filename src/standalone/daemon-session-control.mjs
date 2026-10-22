@@ -5,6 +5,8 @@ import { createBotStatus, scanCatalog, scopedBot, sessionBotOf } from '../sessio
 import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
 import { BOT_HOP_LIMIT_ERROR, MAX_BOT_HOPS } from '../runtime/shared/bot-hops.mjs';
 import { rebindDelegation } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
+import { isAgentOnlySession } from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
+import { readSessionSidebarState } from '../runtime/shared/session-sidebar-host.mjs';
 
 const TARGET_ACTIONS = new Set(['status', 'read', 'send', 'cancel', 'delete']);
 const MUTATING_ACTIONS = new Set(['send', 'cancel', 'delete']);
@@ -53,19 +55,26 @@ export function createSessionControl({
     const service = getSessionService();
     if (!service) throw new Error('session: session service is unavailable');
     if (action === 'list') {
+      for (const flag of ['include_agents', 'include_archived']) {
+        if (args[flag] !== undefined && typeof args[flag] !== 'boolean') {
+          throw new Error(`session: ${flag} must be a boolean`);
+        }
+      }
       // Scoped like bots (`callerScope`, bot-status.mjs): the human's sessions
       // list everything, a bot (or its unattended run) only its own sessions,
-      // anything else the plain rows without previews.
+      // anything else the plain rows without previews. Sub-agent sessions (a
+      // parent finds its own through the agent tool) and archived ones (the
+      // desktop's flag) only on request; the scan pages past the rows left
+      // out, so a page is never short while more rows match.
       const own = scopedBot(context.callerScope);
-      if (own) {
-        const scan = await scanCatalog(service, (row) => sessionBotOf(row) === own, {
-          cursor: args.cursor || null,
-          want: limit,
-        });
-        return sessionListOutput({ sessions: scan.rows, nextCursor: scan.nextCursor }, limit);
-      }
-      const page = await service.listSessionCatalog({ page: { limit, cursor: args.cursor || null } });
-      return sessionListOutput(page, limit, { rich: own === '' });
+      const archived = (await readSessionSidebarState())?.archived ?? {};
+      const keep = (row) =>
+        (!own || sessionBotOf(row) === own) &&
+        (args.include_agents === true || !isAgentOnlySession(row)) &&
+        (args.include_archived === true || !Object.hasOwn(archived, row.id));
+      const scan = await scanCatalog(service, keep, { cursor: args.cursor || null, want: limit, maxRows: Infinity });
+      const sessions = scan.rows.map((row) => (Object.hasOwn(archived, row.id) ? { ...row, archived: true } : row));
+      return sessionListOutput({ sessions, nextCursor: scan.nextCursor }, limit, { rich: own !== null });
     }
     if (action === 'send') {
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) {

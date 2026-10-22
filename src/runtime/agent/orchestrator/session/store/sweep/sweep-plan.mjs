@@ -26,6 +26,9 @@ export function resolveSweepPlan(ttlMs, options = {}) {
     retainOpen: sweepIdle && options.retainOpenSessions !== false,
     openMaxAgeMs: Number.isFinite(optAge) && optAge > 0 ? optAge : RESUMABLE_OPEN_MAX_AGE_MS,
     openMaxCount: Number.isFinite(optCount) && optCount >= 0 ? optCount : RESUMABLE_OPEN_MAX_COUNT,
+    // Name every sub-agent session for the tree retention its caller applies
+    // (sweep/sub-agent-retention.mjs). Idle sweep only.
+    retainSubAgents: sweepIdle && options.retainSubAgents === true,
   };
 }
 
@@ -69,5 +72,7 @@ export function createSweepTally() {
     openCandidates: [],
     openPruned: 0,
     openPrunedDetails: [],
+    // Sub-agent sessions with their stored activity (plan.retainSubAgents).
+    subAgents: [],
   };
 }

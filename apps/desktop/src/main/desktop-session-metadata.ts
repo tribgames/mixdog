@@ -36,6 +36,7 @@ export class DesktopSessionMetadata {
   private writeError: unknown;
   private readonly dirty = new Map<string, number>();
   private generation = 0;
+  private lastArchiveStamp = 0;
 
   constructor(userDataRoot: () => string) {
     this.userDataRoot = userDataRoot;
@@ -68,7 +69,6 @@ export class DesktopSessionMetadata {
   get archived(): Record<string, number> | null {
     return this.archivedMap;
   }
-
   /** Cross-surface read cursors keyed by session id. */
   get reads(): Record<string, SessionReadCursor> {
     return this.readMap || {};
@@ -106,8 +106,13 @@ export class DesktopSessionMetadata {
     await this.queueWrite();
   }
 
-  /** True when the archive state actually changed (and was persisted). */
-  async setArchived(sessionId: string, archived: boolean): Promise<boolean> {
+  /** True when the session's own archive state actually changed (and was
+   *  persisted). Its sub-agent `descendants` follow it in the same write: an
+   *  archive stamps the ones not archived yet with the session's own stamp, a
+   *  restore brings back exactly the ones carrying it (those it archived) and
+   *  leaves any archived on their own. Stamps never repeat within this
+   *  instance, so two archives never share one. */
+  async setArchived(sessionId: string, archived: boolean, descendants: readonly string[] = []): Promise<boolean> {
     await this.load();
     this.archivedMap ??= Object.create(null) as Record<string, number>;
     const map = this.archivedMap;
@@ -116,9 +121,14 @@ export class DesktopSessionMetadata {
       await this.flush();
       return false;
     }
-    if (archived) map[sessionId] = Date.now();
-    else delete map[sessionId];
-    this.touch('archived', sessionId);
+    const stamp = archived ? Math.max(Date.now(), this.lastArchiveStamp + 1) : map[sessionId];
+    if (archived) this.lastArchiveStamp = stamp;
+    for (const id of [sessionId, ...descendants]) {
+      if (id !== sessionId && (archived ? Object.hasOwn(map, id) : map[id] !== stamp)) continue;
+      if (archived) map[id] = stamp;
+      else delete map[id];
+      this.touch('archived', id);
+    }
     await this.queueWrite();
     return true;
   }

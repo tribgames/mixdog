@@ -8,6 +8,7 @@ import { AGENT_MESSAGE_NOTE } from '../runtime/shared/agent-message-envelope.mjs
 import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
 import { createAgentHomeDelivery, createRoutineResultQueue } from '../session-runtime/agent-home-delivery.mjs';
 import { createWorkspaceToolHandlers } from '../session-runtime/internal-tool-executor/workspace-tools.mjs';
+import { SCAN_PAGE } from '../session-runtime/bot-status.mjs';
 
 // Told to a caller that is no bot conversation, so it never guesses why.
 const NOT_BOT_REASON = 'only a bot conversation gets session results reported back; check that session for the result';
@@ -30,7 +31,7 @@ function fixture() {
       return result;
     };
   const service = {
-    listSessionCatalog: method('list', { sessions: [{ id: 'target' }], nextCursor: 'next' }),
+    listSessionCatalog: method('list', { sessions: [{ id: 'target' }], nextCursor: null }),
     readSession: method('read', { full, range: { offset: 0, items: full.items, hasOlder: true } }),
     submitSession: method('send', { accepted: true }),
     abortSession: method('cancel', { aborted: true }),
@@ -49,9 +50,9 @@ test('list and bounded reads reuse the common session catalog and projection', a
   const h = fixture();
   assert.deepEqual(await h.run({ action: 'list', limit: 10, cursor: 'previous' }), {
     sessions: [{ id: 'target' }],
-    nextCursor: 'next',
+    nextCursor: null,
   });
-  assert.deepEqual(h.calls[0], ['list', { page: { limit: 10, cursor: 'previous' } }]);
+  assert.deepEqual(h.calls[0], ['list', { page: { limit: SCAN_PAGE, cursor: 'previous' } }]);
   const status = await h.run({ action: 'status', session_id: 'target' });
   assert.equal(status.sessionId, 'target');
   assert.equal(status.title, 'Target');

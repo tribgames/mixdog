@@ -13,6 +13,7 @@ import { _queueSessionSummaryUpsert, _queueSessionSummaryRemoval } from '../summ
 import { deleteSession } from '../session-delete.mjs';
 import { markSessionClosed } from '../lifecycle-barriers.mjs';
 import { BLANK_SCRATCH_MAX_AGE_MS, RUNNING_STALL_MS, SWEEP_RECORD_NO_DATA, readSweepRecord } from './sweep-record.mjs';
+import { subAgentMember } from './sub-agent-retention.mjs';
 import { isAgentHomeSessionId } from '../../agent-home.mjs';
 import { isRoomThreadSessionId } from '../../agent-room.mjs';
 
@@ -152,6 +153,12 @@ function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
   if (isAgentHomeSessionId(row.id) || isRoomThreadSessionId(row.id)) {
     tally.remaining++;
     return;
+  }
+  // Every sub-agent record, fresh or not, for the tree retention its caller
+  // applies (sub-agent-retention.mjs).
+  if (plan.retainSubAgents) {
+    const member = subAgentMember(row.id, record.doc);
+    if (member) tally.subAgents.push(member);
   }
   const eff = effectiveFields(record.doc, row);
   const ownerNamed = typeof eff.owner === 'string' && eff.owner.length > 0;

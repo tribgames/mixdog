@@ -15,11 +15,15 @@ function hosts() {
 
 /**
  * Register a desktop host. `host(sessionId, change)` applies one change:
- * `{ favorite: boolean }` or `{ archived: boolean }`.
+ * `{ favorite: boolean }`, `{ archived: boolean }` (an archive takes the
+ * session's sub-agent sessions with it, a restore brings back the ones it took),
+ * `{ archived: true, cascade: false }` (that session alone)
+ * or `{ forgotten: true }` (a session the store deleted: its records go).
+ * `state()` answers the archive flags: `{ archived }`, session id → stamp.
  * @returns {() => void} Unregister.
  */
-export function registerSessionSidebarHost(host) {
-  const entry = { host };
+export function registerSessionSidebarHost(host, { state = null } = {}) {
+  const entry = { host, state: typeof state === 'function' ? state : null };
   hosts().push(entry);
   return () => {
     const list = hosts();
@@ -35,4 +39,13 @@ export async function applySessionSidebarChange(sessionId, change) {
   const active = hosts().at(-1);
   if (!active) throw new Error('no desktop app is attached to this runtime');
   await active.host(sessionId, change);
+}
+
+/** The active desktop's flags, `{ archived }` (session id → epoch-ms stamp);
+ *  null when no desktop (or one without a state reader) is attached. */
+export async function readSessionSidebarState() {
+  const active = hosts().at(-1);
+  if (!active?.state) return null;
+  const state = await active.state();
+  return { archived: { ...state?.archived } };
 }

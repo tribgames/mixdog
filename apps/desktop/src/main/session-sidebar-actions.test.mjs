@@ -16,9 +16,19 @@ function fakeHost() {
       setSessionFavorite: async (...args) => calls.push(['favorite', ...args]),
       setSessionArchived: async (...args) => calls.push(['archived', ...args]),
       setSessionProject: async (...args) => calls.push(['project', ...args]),
+      forgetSessionMetadata: async (...args) => calls.push(['forgotten', ...args]),
     },
   };
 }
+
+test('a session the store deleted on its own reaches the host as a forgotten change', async () => {
+  const { host, calls } = fakeHost();
+  const apply = sessionSidebarChangeHandler(host);
+  await apply(SESSION, { forgotten: true });
+  await assert.rejects(apply(SESSION, { forgotten: false }), /change is invalid/);
+  await assert.rejects(apply('bad id', { forgotten: true }), /session id is invalid/);
+  assert.deepEqual(calls, [['forgotten', SESSION]]);
+});
 
 test('a runtime sidebar change reaches the desktop host methods through the shared channel', async () => {
   const { host, calls } = fakeHost();

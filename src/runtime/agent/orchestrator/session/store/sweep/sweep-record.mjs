@@ -48,7 +48,7 @@ export const BLANK_SCRATCH_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 // running is still parsed again.
 const sweepRecordCache = new Map();
 const SWEEP_RECORD_CACHE_FILE = 'session-sweep-records.json';
-const SWEEP_RECORD_CACHE_VERSION = 2;
+const SWEEP_RECORD_CACHE_VERSION = 3;
 let sweepRecordCacheDataDir = null;
 let sweepRecordCacheDirty = false;
 let sweepRecordParses = 0;
@@ -82,7 +82,7 @@ function syncSweepRecordCache() {
 }
 
 // The only document fields sweep-row reads (effectiveFields, the closed
-// check). Caching the whole top-level document kept
+// check, the sub-agent retention verdict). Caching the whole top-level document kept
 // every session's tool catalogs, schemas and provider state alive — one
 // entry per session file, measured at ~290MB of a 470MB daemon heap.
 const SWEEP_DOC_FIELDS = [
@@ -97,6 +97,11 @@ const SWEEP_DOC_FIELDS = [
   'createdAt',
   'ownerSessionId',
   'parentSessionId',
+  'lastUsedAt',
+  'agent',
+  'visibility',
+  'sessionVisibility',
+  'taskOrigin',
 ];
 
 function conversationCountOf(doc) {

@@ -24,6 +24,7 @@ export function sessionListOutput(page, limit, { rich = true } = {}) {
         : {}),
       ...(row.status ? { status: row.status } : {}),
       ...(row.cwd ? { cwd: row.cwd } : {}),
+      ...(row.archived === true ? { archived: true } : {}),
     };
     if (!rich) return base;
     // The bot it belongs to: its chat, room seat or the task's creator.

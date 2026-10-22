@@ -21,8 +21,8 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
   // An unreadable store dir is not an empty one: sweeping (deleting,
   // closing, pruning) on a probe we could not make is never allowed.
   if (probePath(dir).state !== PROBE_PRESENT) {
-    const { openCandidates: _candidates, ...empty } = createSweepTally();
-    return empty;
+    const { openCandidates: _candidates, subAgents, ...empty } = createSweepTally();
+    return plan.retainSubAgents ? { ...empty, subAgents } : empty;
   }
   const rows = collectSweepRows(dir);
   pruneSweepRecordCache(new Set(rows.map((row) => row?.id).filter(Boolean)));
@@ -41,8 +41,9 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
   yield* reapOrphanSidecars(ctx);
   queueDeletedSummaryPrune(ctx.tally);
   persistSweepRecordCache();
-  const { openCandidates: _candidates, ...result } = ctx.tally;
-  return result;
+  const { openCandidates: _candidates, subAgents, ...result } = ctx.tally;
+  // `subAgents` only for a caller that applies them (idle-cleanup.mjs).
+  return plan.retainSubAgents ? { ...result, subAgents } : result;
 }
 
 /** Synchronous compatibility surface for explicit maintenance commands/tests. */

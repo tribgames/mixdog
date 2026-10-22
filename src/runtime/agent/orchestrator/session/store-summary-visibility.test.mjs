@@ -15,6 +15,27 @@ import {
 import { listStoredSessions, listStoredSessionSummaries as listInternalSummaries } from './store/listing.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { createTurnCheckpointRecorder, settleTurnCheckpointWrites } from './manager/turn-checkpoint.mjs';
+import { agentDescendantIds } from './store-summary-visibility.mjs';
+
+test('agent descendants follow every owner/parent link to any depth, agent-only rows only', () => {
+  const sub = (id, links) => ({ id, owner: 'agent', agent: 'worker', visibility: 'agent-only', ...links });
+  const rows = [
+    { id: 'sess_lead', owner: 'user', agent: 'lead' },
+    // Catalog rows name the root Lead as owner, nested or not.
+    sub('sess_w1', { ownerSessionId: 'sess_lead' }),
+    sub('sess_w1_child', { ownerSessionId: 'sess_lead' }),
+    // A legacy row names only its parent.
+    sub('sess_w1_grand', { parentSessionId: 'sess_w1_child' }),
+    sub('sess_other', { ownerSessionId: 'sess_lead_other' }),
+    // An ordinary task session linked to the Lead is not a sub-agent.
+    { id: 'sess_task', owner: 'user', agent: 'lead', ownerSessionId: 'sess_lead', taskOrigin: {} },
+    { id: 'sess_lead_self', owner: 'user', agent: 'lead', ownerSessionId: 'sess_lead_self' },
+  ];
+  assert.deepEqual(agentDescendantIds(rows, 'sess_lead').sort(), ['sess_w1', 'sess_w1_child', 'sess_w1_grand']);
+  assert.deepEqual(agentDescendantIds(rows, 'sess_w1_child'), ['sess_w1_grand']);
+  assert.deepEqual(agentDescendantIds(rows, 'sess_lead_self'), []);
+  assert.deepEqual(agentDescendantIds(null, 'sess_lead'), []);
+});
 
 function session(id, extra = {}) {
   return {

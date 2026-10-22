@@ -722,4 +722,5 @@ export { fenceSessionWrites } from './store/live-state.mjs';
 // session-store entry point.
 export { listStoredSessions, listStoredSessionSummaries, getStoredSessionsRaw } from './store/listing.mjs';
 export { sweepStaleSessions, sweepStaleSessionsCooperative } from './store/sweep/stale-sweep.mjs';
+export { applySubAgentRetention } from './store/sweep/sub-agent-retention.mjs';
 export { _savePending } from './store/pending-saves.mjs';

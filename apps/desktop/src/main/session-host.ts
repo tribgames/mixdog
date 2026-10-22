@@ -260,6 +260,7 @@ export class SessionHost implements DesktopService {
       ensureColdViewRefresh: () => this.catalog.ensureColdViewRefresh(),
       listSessions: () => this.listSessions(),
       storedSessionIds: () => this.rawSessionRows.map((row) => String(row.id || '')).filter(Boolean),
+      storedSessionRows: () => this.rawSessionRows,
       sessionCatalogLoaded: () => this.sessionCatalogLoaded,
       sessionCatalog: () => this.sessionCatalog(),
       publishSessionCatalog: (sessions) => this.publishSessionCatalog(sessions),
@@ -823,6 +824,18 @@ export class SessionHost implements DesktopService {
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
     return this.lifecycle.setSessionArchived(sessionId, archived);
+  }
+
+  async archiveSessionAlone(sessionId: string): Promise<void> {
+    return this.lifecycle.setSessionArchived(sessionId, true, false);
+  }
+
+  async forgetSessionMetadata(sessionId: string): Promise<void> {
+    return this.lifecycle.forgetSessionMetadata(sessionId);
+  }
+
+  async sessionSidebarState(): Promise<{ archived: Record<string, number> }> {
+    return this.lifecycle.sessionSidebarState();
   }
 
   async openAgentHome(agentId: string): Promise<{ sessionId: string }> {

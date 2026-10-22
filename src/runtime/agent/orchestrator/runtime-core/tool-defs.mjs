@@ -103,7 +103,7 @@ export const SESSION_TOOL = {
           'prune-worktrees',
         ],
         description:
-          'status defaults to current; list pages sessions; bots shows each bot’s activity, work, approvals, routines and attention flags, or with session_id (a bot id or its chat) its routines and recent sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations) starts a visible agent task session from brief (started, not done yet); unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
+          'status defaults to current; list pages sessions, without sub-agent or archived ones unless include_agents/include_archived; bots shows each bot’s activity, work, approvals, routines and attention flags, or with session_id (a bot id or its chat) its routines and recent sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations) starts a visible agent task session from brief (started, not done yet); unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. merge-worktree merges into the Project’s checked-out branch; remove-worktree returns to the Project (repeat on WORKTREE_REMOVAL_INCOMPLETE); list-worktrees includes retaining sessions; prune-worktrees removes only clean, merged, unretained worktrees.',
       },
       title: { type: 'string', description: 'rename: new current-session title; create: task title.' },
       session_id: {
@@ -120,6 +120,14 @@ export const SESSION_TOOL = {
           'list/read: maximum rows, default 25; bots: sessions, default 10. Output: 8KiB per page, 12KiB for initial read tail; follow nextOffset/nextTextOffset for more.',
       },
       cursor: { type: 'string', description: 'list: returned nextCursor.' },
+      include_agents: {
+        type: 'boolean',
+        description: 'list: also sub-agent sessions, default false; your own agents: agent list/status.',
+      },
+      include_archived: {
+        type: 'boolean',
+        description: 'list: also archived sessions (archived: true), default false.',
+      },
       offset: {
         type: 'integer',
         minimum: 0,

@@ -96,6 +96,8 @@ test('restoring a deleted bot brings its chat back out of 보관됨 before the r
       },
     },
     publishCatalogs: async () => {},
+    sessionCatalogLoaded: () => true,
+    storedSessionRows: () => [],
     invokeControlResult: async (name, args) => {
       marks.push([name, args]);
       return { value: { id: 'probe', name: 'Probe' }, snapshot: null };

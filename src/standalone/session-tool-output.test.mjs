@@ -27,6 +27,14 @@ test('list exposes selection fields only and repairs a budget-cut cursor without
   assert.equal(remainder.sessions[0].id, sessions[result.sessions.length].id);
 });
 
+test('an archived row says so, plain or rich; another carries no archived field', () => {
+  const page = { sessions: [{ id: 'sess_a', archived: true }, { id: 'sess_b', archived: false }], nextCursor: null };
+  for (const rich of [true, false]) {
+    const { sessions } = sessionListOutput(page, 25, { rich });
+    assert.deepEqual(sessions, [{ id: 'sess_a', archived: true }, { id: 'sess_b' }]);
+  }
+});
+
 test('list rows carry the owning bot, last activity, latest line and working state', () => {
   const result = sessionListOutput(
     {

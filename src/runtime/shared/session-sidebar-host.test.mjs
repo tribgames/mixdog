@@ -1,6 +1,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applySessionSidebarChange, registerSessionSidebarHost } from './session-sidebar-host.mjs';
+import {
+  applySessionSidebarChange,
+  readSessionSidebarState,
+  registerSessionSidebarHost,
+} from './session-sidebar-host.mjs';
+
+test('the flags come from the active host, null without one or without a state reader', async () => {
+  assert.equal(await readSessionSidebarState(), null);
+  const unregisterPlain = registerSessionSidebarHost(async () => {});
+  const unregister = registerSessionSidebarHost(async () => {}, {
+    state: async () => ({ archived: { 'sess-1': 5 } }),
+  });
+  try {
+    assert.deepEqual(await readSessionSidebarState(), { archived: { 'sess-1': 5 } });
+    unregister();
+    assert.equal(await readSessionSidebarState(), null, 'an older desktop without a reader answers nothing');
+  } finally {
+    unregister();
+    unregisterPlain();
+  }
+});
 
 test('a sidebar change reaches exactly one host: the most recently registered', async () => {
   const seen = [];

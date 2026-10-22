@@ -658,8 +658,11 @@ export async function createDesktopService({
     (root) => operations.invoke('lspDisposeUnder', [root])
   );
   // The Lead's `session` tool (favorite / archive) runs
-  // in this daemon and applies its change through the same host methods.
-  const unregisterSessionSidebarHost = registerSessionSidebarHost(sessionSidebarChangeHandler(host));
+  // in this daemon and applies its change through the same host methods; its
+  // session list and the sub-agent retention sweep read the flags.
+  const unregisterSessionSidebarHost = registerSessionSidebarHost(sessionSidebarChangeHandler(host), {
+    state: () => host.sessionSidebarState(),
+  });
   const settingsStore = operations.settingsStore;
   // A deleted session takes its server-window upload staging folder with it.
   const deleteSessionWithUploads = async (sessionId: unknown): Promise<unknown> => {

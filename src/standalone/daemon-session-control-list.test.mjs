@@ -1,0 +1,133 @@
+// `session list`: sub-agent (agent-only) and archived sessions are left out
+// unless asked for, and paging stays full and gap-free however many rows a
+// page has to skip.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createSessionControl } from './daemon-session-control.mjs';
+import { SCAN_ROWS } from '../session-runtime/bot-status.mjs';
+import { registerSessionSidebarHost } from '../runtime/shared/session-sidebar-host.mjs';
+import {
+  byActivityThenId,
+  decodeCatalogCursor,
+  encodeCatalogCursor,
+  isAfterCursor,
+} from '../runtime/agent/orchestrator/session/catalog-db/schema.mjs';
+
+const CONTEXT = { callerSessionId: 'caller', callerScope: { kind: 'human' } };
+
+// Newest first: 7 ordinary, 2 archived, more sub-agents than one scan used to
+// read (SCAN_ROWS), 5 ordinary, 1 archived, 1 home chat of bot "mailer".
+function rows() {
+  const list = [];
+  const add = (id, extra = {}) => list.push({ id, lastUsedAt: 1_000_000 - list.length, ...extra });
+  for (let i = 0; i < 7; i++) add(`sess_o${i}`);
+  add('sess_arch0');
+  add('sess_arch1');
+  for (let i = 0; i < SCAN_ROWS + 100; i++) {
+    add(`sess_sub${i}`, { owner: 'agent', agent: 'worker', ownerSessionId: 'sess_o0', visibility: 'agent-only' });
+  }
+  for (let i = 7; i < 12; i++) add(`sess_o${i}`);
+  add('sess_arch2');
+  add('sess_home_mailer');
+  return list;
+}
+const ARCHIVED = { sess_arch0: 1, sess_arch1: 2, sess_arch2: 3 };
+const ORDINARY = [...Array.from({ length: 12 }, (_, i) => `sess_o${i}`), 'sess_home_mailer'];
+
+function catalogService(list = rows()) {
+  const sorted = [...list].sort(byActivityThenId);
+  return {
+    listSessionCatalog: async ({ page }) => {
+      const after = decodeCatalogCursor(page.cursor);
+      const rest = sorted.filter((row) => isAfterCursor(row, after));
+      const sessions = rest.slice(0, page.limit);
+      return { sessions, nextCursor: rest.length > page.limit ? encodeCatalogCursor(sessions.at(-1)) : null };
+    },
+  };
+}
+
+function withDesktop(t, archived = ARCHIVED) {
+  const unregister = registerSessionSidebarHost(async () => {}, { state: () => ({ archived }) });
+  t.after(unregister);
+}
+
+async function pages(execute, args, context = CONTEXT) {
+  const seen = [];
+  let cursor = null;
+  do {
+    const page = await execute({ action: 'list', ...args, ...(cursor ? { cursor } : {}) }, context);
+    seen.push(page.sessions);
+    cursor = page.nextCursor;
+  } while (cursor);
+  return seen;
+}
+
+test('list leaves out sub-agent and archived sessions with full pages across long filtered runs', async (t) => {
+  withDesktop(t);
+  const execute = createSessionControl({ getSessionService: () => catalogService() });
+  const seen = await pages(execute, { limit: 5 });
+  assert.deepEqual(
+    seen.map((page) => page.length),
+    [5, 5, 3],
+    'no short page while more rows match'
+  );
+  assert.deepEqual(
+    seen.flat().map((row) => row.id),
+    ORDINARY
+  );
+  assert.equal(
+    seen.flat().some((row) => row.archived),
+    false
+  );
+});
+
+test('include_agents and include_archived bring the left-out rows back, archived ones marked', async (t) => {
+  withDesktop(t);
+  const execute = createSessionControl({ getSessionService: () => catalogService() });
+  const archived = (await pages(execute, { limit: 100, include_archived: true })).flat();
+  assert.deepEqual(
+    archived.filter((row) => row.archived).map((row) => row.id),
+    ['sess_arch0', 'sess_arch1', 'sess_arch2']
+  );
+  assert.equal(archived.length, ORDINARY.length + 3);
+  assert.equal(
+    archived.some((row) => row.id.startsWith('sess_sub')),
+    false
+  );
+
+  const agents = (await execute({ action: 'list', limit: 20, include_agents: true }, CONTEXT)).sessions;
+  assert.deepEqual(
+    agents.slice(0, 9).map((row) => row.id),
+    ['sess_o0', 'sess_o1', 'sess_o2', 'sess_o3', 'sess_o4', 'sess_o5', 'sess_o6', 'sess_sub0', 'sess_sub1']
+  );
+
+  const everything = (await pages(execute, { limit: 100, include_agents: true, include_archived: true })).flat();
+  assert.equal(everything.length, rows().length);
+  assert.equal(new Set(everything.map((row) => row.id)).size, everything.length, 'no row twice');
+});
+
+test("a bot's list keeps its scope on top of the filters", async (t) => {
+  withDesktop(t);
+  const execute = createSessionControl({ getSessionService: () => catalogService() });
+  const own = await execute(
+    { action: 'list', include_agents: true },
+    { callerSessionId: 'caller', callerScope: { kind: 'agent', agentId: 'mailer' } }
+  );
+  assert.deepEqual(
+    own.sessions.map((row) => row.id),
+    ['sess_home_mailer']
+  );
+  assert.equal(own.nextCursor, null);
+});
+
+test('without a desktop nothing reads as archived; flags must be booleans', async () => {
+  const execute = createSessionControl({ getSessionService: () => catalogService() });
+  const listed = (await pages(execute, { limit: 100 })).flat();
+  assert.equal(listed.length, ORDINARY.length + 3);
+  assert.equal(
+    listed.some((row) => row.archived),
+    false
+  );
+  await assert.rejects(execute({ action: 'list', include_agents: 'yes' }, CONTEXT), /include_agents must be a boolean/);
+  await assert.rejects(execute({ action: 'list', include_archived: 1 }, CONTEXT), /include_archived must be a boolean/);
+});

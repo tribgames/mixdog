@@ -25,13 +25,23 @@ export function sessionSidebarActions(host: Partial<SidebarHost>) {
 }
 
 /** The host the runtime's session-sidebar channel calls: one change object,
- *  `{ favorite }` or `{ archived }`, validated as above. */
-export function sessionSidebarChangeHandler(host: Partial<SidebarHost>) {
+ *  `{ favorite }`, `{ archived }` (validated as above), `{ archived: true,
+ *  cascade: false }` (that session alone: the daemon's sub-agent retention) or
+ *  `{ forgotten: true }` (a session the daemon's store deleted on its own). */
+export function sessionSidebarChangeHandler(
+  host: Partial<SidebarHost> & {
+    archiveSessionAlone?(sessionId: string): unknown;
+    forgetSessionMetadata?(sessionId: string): unknown;
+  }
+) {
   const actions = sessionSidebarActions(host);
   return async (sessionId: unknown, change: unknown): Promise<void> => {
     const value = (change && typeof change === 'object' ? change : {}) as Record<string, unknown>;
     if (Object.hasOwn(value, 'favorite')) await actions.setSessionFavorite(sessionId, value.favorite);
+    else if (value.archived === true && value.cascade === false)
+      await host.archiveSessionAlone!(requiredSessionId(sessionId));
     else if (Object.hasOwn(value, 'archived')) await actions.setSessionArchived(sessionId, value.archived);
+    else if (value.forgotten === true) await host.forgetSessionMetadata!(requiredSessionId(sessionId));
     else throw new TypeError('Session sidebar change is invalid.');
   };
 }

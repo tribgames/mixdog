@@ -2,8 +2,14 @@
 // Periodic idle-session + tombstone sweep.
 // Drives sweepStaleSessions on an unref'd interval; closeSession is imported
 // from session-close.mjs (one-way dependency, no cycle).
-import { sweepStaleSessions, sweepStaleSessionsCooperative, evictIdleLiveSessions } from '../store.mjs';
+import {
+  applySubAgentRetention,
+  sweepStaleSessions,
+  sweepStaleSessionsCooperative,
+  evictIdleLiveSessions,
+} from '../store.mjs';
 import { sweepOrphanedPendingMessages } from './pending-messages.mjs';
+import { applySessionSidebarChange, readSessionSidebarState } from '../../../../shared/session-sidebar-host.mjs';
 import {
   IN_FLIGHT_STAGES,
   _getRuntimeEntry,
@@ -83,6 +89,29 @@ function _logTombstoneSweep(tombstonesCleaned, tombstoneDetails, tombstoneErrors
   }
 }
 
+// Sub-agent trees the sweep found idle: archived after 3 days (through the
+// desktop's archive flag, when one is attached), deleted after 30
+// (store/sweep/sub-agent-retention.mjs).
+async function _retainSubAgents(members) {
+  if (!members?.length) return;
+  try {
+    const flags = await readSessionSidebarState();
+    const applied = await applySubAgentRetention(members, {
+      isSessionLive: _isSessionLive,
+      isArchived: flags && ((id) => Object.hasOwn(flags.archived, id)),
+      setSidebar: applySessionSidebarChange,
+    });
+    for (const id of applied.deleted) if (!_isSessionLive(id)) _clearSessionRuntime(id);
+    if (applied.archived.length || applied.deleted.length) {
+      _sweepLog(
+        `[session-sweep] sub-agent retention: archived ${applied.archived.length}${_previewIds(applied.archived.map((id) => ({ id })))}, deleted ${applied.deleted.length}${_previewIds(applied.deleted.map((id) => ({ id })))}\n`
+      );
+    }
+  } catch (e) {
+    process.stderr.write(`[session-sweep] sub-agent retention error: ${e?.message || e}\n`);
+  }
+}
+
 async function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } = {}) {
   const startedAt = Date.now();
   try {
@@ -90,8 +119,10 @@ async function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } 
       sweepIdle,
       tombstoneMaxAgeMs: includeTombstones ? TOMBSTONE_MAX_AGE_MS : 0,
       isSessionLive: _isSessionLive,
+      retainSubAgents: sweepIdle,
     });
     const { cleaned, remaining, details, tombstonesCleaned = 0, tombstoneDetails = [], tombstoneErrors = [] } = result;
+    await _retainSubAgents(result.subAgents);
     if (cleaned > 0) {
       for (const d of details) {
         if (!_finalizeSweptSessionRuntime(d)) continue;
