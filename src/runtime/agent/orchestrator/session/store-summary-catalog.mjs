@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 // Leaf helpers only: the three-way present/absent/unreadable classification
 // and the strict record parser the authoritative store uses, so the catalog
 // cannot disagree with it.
@@ -384,6 +385,66 @@ function scanSessionEntries(directory, indexRowsById, forceRead) {
   return { entries };
 }
 
+// The async rescan yields a turn once a slice of reconciles has run this long:
+// a full authoritative rescan strict-reads every session file (≈4 s for 1.8k
+// files / 1.3 GB), which must not hold the daemon loop in one piece.
+let scanSliceMs = 25;
+
+/** Test seam: the async rescan's slice budget (0 yields after every file). */
+export function _setCatalogScanSliceMsForTest(ms) {
+  scanSliceMs = Math.max(0, Number(ms) || 0);
+}
+
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+/** The entry a file still has: `entry` when the file's stamp is unchanged
+ *  since it was reconciled, else a fresh reconcile (null once it is gone). */
+function settledEntry(directory, storageId, entry, retained, forceRead) {
+  if (entry?.stamp) {
+    let stamp = null;
+    try {
+      stamp = statSessionStamp(join(directory, `${storageId}.json`));
+    } catch {
+      // Gone or unstatable: the reconcile below decides which.
+    }
+    if (stamp && sameSessionStamp(entry.stamp, stamp)) return entry;
+  }
+  return reconcileSessionFile(directory, storageId, retained, forceRead);
+}
+
+/** scanSessionEntries in slices, yielding the loop between them. Files can
+ *  change while it yields, so the answer is settled in one synchronous pass at
+ *  the end: the directory is listed again, a file whose stamp moved since its
+ *  read (or that appeared) is reconciled again, and a file that is no longer
+ *  listed is dropped — the entries match storage when they are returned, as
+ *  the one-piece scan's do. That pass is a stat per file (≈20 ms for 1.5k). */
+async function scanSessionEntriesAsync(directory, indexRowsById, forceRead, onSettle) {
+  const sessionIds = listSessionIds(directory);
+  if (!sessionIds) {
+    onSettle?.();
+    return null;
+  }
+  const scanned = new Map();
+  let sliceStart = performance.now();
+  for (const storageId of sessionIds) {
+    if (performance.now() - sliceStart >= scanSliceMs) {
+      await nextTurn();
+      sliceStart = performance.now();
+    }
+    const entry = reconcileSessionFile(directory, storageId, indexRowsById.get(storageId), forceRead);
+    if (entry) scanned.set(storageId, entry);
+  }
+  onSettle?.();
+  const settledIds = listSessionIds(directory);
+  if (!settledIds) return null;
+  const entries = new Map();
+  for (const storageId of settledIds) {
+    const entry = settledEntry(directory, storageId, scanned.get(storageId), indexRowsById.get(storageId), forceRead);
+    if (entry) entries.set(storageId, entry);
+  }
+  return { entries };
+}
+
 /** The row an entry contributes, or null. */
 function entryRow(entry, id, indexRowsById) {
   if (!entry || entry.kind === 'none') return null;
@@ -416,6 +477,21 @@ export function scanSessionFiles(indexRowsById, forceRead) {
   if (dirProbe.state === PROBE_ABSENT) return [];
   if (dirProbe.state !== PROBE_PRESENT) return null;
   const scan = scanSessionEntries(directory, indexRowsById, forceRead);
+  return scan && assembleCatalog(scan.entries, indexRowsById);
+}
+
+/** scanSessionFiles with the same answer, its file reconciles run in slices
+ *  that yield the event loop (the daemon's session.list storage refresh).
+ *  `onSettle` runs once, when the answer's final synchronous part begins: from
+ *  then on storage changes are no longer seen by this scan. */
+export async function scanSessionFilesAsync(indexRowsById, forceRead, { onSettle } = {}) {
+  const directory = join(dataDir(), 'sessions');
+  const dirProbe = probePath(directory);
+  if (dirProbe.state !== PROBE_PRESENT) {
+    onSettle?.();
+    return dirProbe.state === PROBE_ABSENT ? [] : null;
+  }
+  const scan = await scanSessionEntriesAsync(directory, indexRowsById, forceRead, onSettle);
   return scan && assembleCatalog(scan.entries, indexRowsById);
 }
 

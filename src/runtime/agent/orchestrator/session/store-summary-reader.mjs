@@ -20,6 +20,7 @@ import {
   indexListing,
   observeStamp,
   scanSessionFiles,
+  scanSessionFilesAsync,
   stampedDerivation,
 } from './store-summary-catalog.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
@@ -155,6 +156,30 @@ async function catalogDbListing(page) {
   return answer;
 }
 
+// The running storage refresh a new caller may still join: only until its
+// final synchronous settle begins, since a caller arriving after that asked
+// after the answer was fixed (a scan that never yields settles before its own
+// caller awaits it).
+let storageRefreshFlight = null;
+
+async function refreshFromStorageOnce(onSettle) {
+  const index = ordinaryCatalog.loadIndex();
+  return (await scanSessionFilesAsync(index.rowsById, true, { onSettle })) ?? indexListing(index) ?? [];
+}
+
+function storageRefresh() {
+  if (storageRefreshFlight?.joinable) return storageRefreshFlight.rows;
+  const flight = { joinable: true, rows: null };
+  storageRefreshFlight = flight;
+  flight.rows = refreshFromStorageOnce(() => {
+    flight.joinable = false;
+  }).finally(() => {
+    // A newer flight is never cleared by an older one's end.
+    if (storageRefreshFlight === flight) storageRefreshFlight = null;
+  });
+  return flight.rows;
+}
+
 /**
  * listStoredSessionSummaries for async callers (the daemon's session views).
  * In the daemon the ordinary listing comes from the session catalog DB
@@ -163,7 +188,14 @@ async function catalogDbListing(page) {
  * JSON/file path.
  */
 export async function listStoredSessionSummariesAsync(options = {}) {
-  if (options.refreshFromStorage === true || options.rebuildIfMissing === false) {
+  if (options.refreshFromStorage === true) {
+    // The same authoritative rescan as the sync path, in slices that yield.
+    // Concurrent refreshes share one scan while it can still see their
+    // request (it settles against storage when it ends); each caller gets its
+    // own rows.
+    return (await storageRefresh()).map((row) => ({ ...row }));
+  }
+  if (options.rebuildIfMissing === false) {
     return listStoredSessionSummaries(options);
   }
   const answer = await catalogDbListing(null);
