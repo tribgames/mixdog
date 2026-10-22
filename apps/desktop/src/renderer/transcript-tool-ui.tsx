@@ -45,6 +45,7 @@ import { rememberVisualizeTabTitles, visualizeCallTabTitle } from './visualize-c
 import { useToolOutcomeUnknown } from './connection-link-store';
 import { MxIcon } from './MxIcon';
 import { formatElapsed } from './text-format';
+import { toolActivityBackgroundTask } from './transcript-tool-result';
 import { useClock } from './use-clock';
 import { CodeDiff } from './transcript-diff';
 import { TurnChangesContext } from './TurnChangesCard';
@@ -275,6 +276,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   turnKey = '',
 }: ToolActivityGroupProps) {
   const { mode, key: viewKey } = useToolActivityView();
+  void warmToolMarkdownBody();
   const disclosureKey = toolActivityDisclosureKey(items, disclosureScope, viewKey);
   const calls = useMemo(() => flattenedToolActivityItems(items), [items]);
   // Before the rows render: they name a visualize tab by the title it opened with.
@@ -287,7 +289,20 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   const contentId = useId();
   const outcomeUnknown = useToolOutcomeUnknown();
   const pending = items.some((item) => !toolItemDone(item) && !outcomeUnknown(item.id));
-  const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
+  // Past tense only once nothing in the group runs, a background command included.
+  const settled = useMemo(
+    () =>
+      calls.every(
+        (item) =>
+          toolItemDone(item) &&
+          !(
+            desktopToolActivityCategory(item.name, item.args) === 'Shell' &&
+            toolActivityBackgroundTask(String(item.result ?? item.rawResult ?? ''))?.running
+          )
+      ),
+    [calls]
+  );
+  const summary = useMemo(() => desktopToolActivitySummary(items, settled), [items, settled]);
   // Settled changes count as soon as they land; a call still running (or
   // failed) has no counts yet, and the running readout stays its own.
   const lineCounts = useMemo(() => groupLineCounts(calls), [calls]);
@@ -487,7 +502,29 @@ function ToolActivityDetails({
 
 const TOOL_ACTIVITY_MARKDOWN_HINT = /(?:^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)|\n\s*\|[^\n]*\|\s*(?:\n|$)/;
 const TOOL_ACTIVITY_MARKDOWN_MAX = 20_000;
-const ToolMarkdownBody = lazy(preloadMarkdownBody);
+const LazyToolMarkdownBody = lazy(preloadMarkdownBody);
+let loadedToolMarkdownBody: Awaited<ReturnType<typeof preloadMarkdownBody>>['default'] | null = null;
+let toolMarkdownWarm: Promise<void> | null = null;
+
+/** Loads the rich renderer once, when a transcript starts, and keeps the
+ *  component: a body mounted afterwards draws rendered at once instead of
+ *  showing its raw text for the first time and swapping. */
+export function warmToolMarkdownBody(): Promise<void> {
+  toolMarkdownWarm ||= preloadMarkdownBody().then(
+    (module) => {
+      loadedToolMarkdownBody = module.default;
+    },
+    () => {
+      toolMarkdownWarm = null;
+    }
+  );
+  return toolMarkdownWarm;
+}
+
+function ToolMarkdownBody(props: React.ComponentProps<typeof LazyToolMarkdownBody>) {
+  const Loaded = loadedToolMarkdownBody;
+  return Loaded ? <Loaded {...props} /> : <LazyToolMarkdownBody {...props} />;
+}
 
 function structuredKindLabel(kind: string): string {
   if (kind === 'questions') return TOOL_DETAIL_LABELS.questions;
@@ -498,7 +535,7 @@ function toolActivityLooksMarkdown(text: string): boolean {
   return text.length <= TOOL_ACTIVITY_MARKDOWN_MAX && TOOL_ACTIVITY_MARKDOWN_HINT.test(text);
 }
 
-function ToolActivityRichBody({ text, fallbackClassName }: { text: string; fallbackClassName: string }) {
+export function ToolActivityRichBody({ text, fallbackClassName }: { text: string; fallbackClassName: string }) {
   return (
     <div className="markdown tool-activity-markdown">
       <Suspense fallback={<pre className={fallbackClassName}>{text}</pre>}>

@@ -672,43 +672,103 @@ export function desktopToolComputerWindowSuccessAt(items: readonly TranscriptIte
   }
   return at;
 }
-function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, count: number): string {
+function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, count: number, past: boolean): string {
   switch (unit.unitKey) {
     case 'Read|Read|file':
     case 'Read|Read|image':
     case 'Read|Read|resource':
       return count === 1 ? t('Read file') : t('Read {{count}} files', { count });
     case 'Search|Searched|pattern':
-      return count === 1 ? t('Search code') : t('Search {{count}} patterns', { count });
+      return count === 1
+        ? past
+          ? t('Searched code')
+          : t('Search code')
+        : past
+          ? t('Searched {{count}} patterns', { count })
+          : t('Search {{count}} patterns', { count });
     case 'Search|Found|glob':
-      return count === 1 ? t('Find files') : t('Find {{count}} files', { count });
+      return count === 1
+        ? past
+          ? t('Found files')
+          : t('Find files')
+        : past
+          ? t('Found {{count}} files', { count })
+          : t('Find {{count}} files', { count });
     case 'Search|Found|query':
-      return count === 1 ? t('Find path') : t('Find {{count}} paths', { count });
+      return count === 1
+        ? past
+          ? t('Found path')
+          : t('Find path')
+        : past
+          ? t('Found {{count}} paths', { count })
+          : t('Find {{count}} paths', { count });
     case 'Search|Listed|directory':
-      return count === 1 ? t('List directory') : t('List {{count}} directories', { count });
+      return count === 1
+        ? past
+          ? t('Listed directory')
+          : t('List directory')
+        : past
+          ? t('Listed {{count}} directories', { count })
+          : t('List {{count}} directories', { count });
     case 'Search|Mapped|symbol':
-      return count === 1 ? t('Find symbol') : t('Find {{count}} symbols', { count });
+      return count === 1
+        ? past
+          ? t('Found symbol')
+          : t('Find symbol')
+        : past
+          ? t('Found {{count}} symbols', { count })
+          : t('Find {{count}} symbols', { count });
     // File changes always carry their count ("파일 1개 수정"), as commands do.
     case 'Patch|Created|file':
-      return t('Create {{count}} files', { count });
+      return past ? t('Created {{count}} files', { count }) : t('Create {{count}} files', { count });
     case 'Patch|Edited|file':
-      return t('Edit {{count}} files', { count });
+      return past ? t('Edited {{count}} files', { count }) : t('Edit {{count}} files', { count });
     case 'Patch|Changed|file':
-      return t('Change {{count}} files', { count });
+      return past ? t('Changed {{count}} files', { count }) : t('Change {{count}} files', { count });
     case 'Patch|Deleted|file':
-      return t('Delete {{count}} files', { count });
+      return past ? t('Deleted {{count}} files', { count }) : t('Delete {{count}} files', { count });
     case 'Web Research|Researched|query':
-      return count === 1 ? t('Search web') : t('Search web {{count}} times', { count });
+      return count === 1
+        ? past
+          ? t('Searched web')
+          : t('Search web')
+        : past
+          ? t('Searched web {{count}} times', { count })
+          : t('Search web {{count}} times', { count });
     case 'Web Research|Fetched|URL':
-      return count === 1 ? t('Fetch page') : t('Fetch {{count}} pages', { count });
+      return count === 1
+        ? past
+          ? t('Fetched page')
+          : t('Fetch page')
+        : past
+          ? t('Fetched {{count}} pages', { count })
+          : t('Fetch {{count}} pages', { count });
     case 'Web Research|Fetched|message':
-      return count === 1 ? t('Fetch message') : t('Fetch {{count}} messages', { count });
+      return count === 1
+        ? past
+          ? t('Fetched message')
+          : t('Fetch message')
+        : past
+          ? t('Fetched {{count}} messages', { count })
+          : t('Fetch {{count}} messages', { count });
     case 'Shell|Ran|command':
-      return t('Run {{count}} commands', { count });
+      return past ? t('Ran {{count}} commands', { count }) : t('Run {{count}} commands', { count });
     case 'Git|Ran|Git command':
-      return count === 1 ? t('Run Git command') : t('Run {{count}} Git commands', { count });
+      return count === 1
+        ? past
+          ? t('Ran Git command')
+          : t('Run Git command')
+        : past
+          ? t('Ran {{count}} Git commands', { count })
+          : t('Run {{count}} Git commands', { count });
     case 'Git|Staged|change':
-      return count === 1 ? t('Stage changes') : t('Stage {{count}} changes', { count });
+      return count === 1
+        ? past
+          ? t('Staged changes')
+          : t('Stage changes')
+        : past
+          ? t('Staged {{count}} changes', { count })
+          : t('Stage {{count}} changes', { count });
     // Browser and Computer calls are one unit keyed by the category itself
     // (namedToolActivityUnit).
     case 'Browser':
@@ -743,7 +803,7 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
  *  changes first, then the rest in call order, as one list ("Edit 2 files,
  *  Read 6 files, Run 4 commands"). A command that failed says so: a lone one
  *  as "Command failed", otherwise as a closing "N failed". */
-export function desktopToolActivitySummary(items: readonly TranscriptItem[]): string {
+export function desktopToolActivitySummary(items: readonly TranscriptItem[], settled = false): string {
   const groups = new Map<string, { unit: ReturnType<typeof desktopToolActivityUnit>; count: number }>();
   const calls = flattenedToolActivityItems(items);
   let failedCommands = 0;
@@ -769,7 +829,7 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[]): st
   const changesFiles = (unitKey: string) => (unitKey.startsWith('Patch|') ? 0 : 1);
   const phrases = [...groups.values()]
     .sort((left, right) => changesFiles(left.unit.unitKey) - changesFiles(right.unit.unitKey))
-    .map(({ unit, count }) => toolActivitySummaryPhrase(unit, count))
+    .map(({ unit, count }) => toolActivitySummaryPhrase(unit, count, settled))
     .filter(Boolean);
   if (failedCommands > 0 && calls.length === 1) return t('Command failed');
   if (failedCommands > 0) phrases.push(t('{{count}} failed', { count: failedCommands }));

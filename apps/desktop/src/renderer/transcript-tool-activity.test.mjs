@@ -170,7 +170,7 @@ test('desktop activity shows repeated tool counts in natural phrase summary', as
     });
 
     const title = document.querySelector('.tool-activity-title')?.textContent?.trim() || '';
-    assert.equal(title, 'Read file, Search 2 patterns');
+    assert.equal(title, 'Read file, Searched 2 patterns');
     assert.doesNotMatch(title, /×/);
   } finally {
     await act(async () => dom.root.unmount());
@@ -543,7 +543,10 @@ test('desktop activity lists every call as one row under the summary, without ca
       );
     });
     const group = document.querySelector('.tool-activity');
-    assert.equal(group?.querySelector('.tool-activity-title')?.textContent?.trim(), 'Search 2 patterns, Run 1 command');
+    assert.equal(
+      group?.querySelector('.tool-activity-title')?.textContent?.trim(),
+      'Searched 2 patterns, Ran 1 command'
+    );
     assert.equal(group?.querySelector('.tool-activity-failed'), null);
 
     await act(async () => {
@@ -1764,4 +1767,71 @@ test('toolRowRevision changes when output or diff text changes at the same lengt
   assert.notEqual(toolRowRevision(row('aaaa', 'x')), toolRowRevision(row('aaab', 'x')));
   assert.notEqual(toolRowRevision(row('aaaa', 'x')), toolRowRevision(row('aaaa', 'y')));
   assert.equal(toolRowRevision(row('aaaa', 'x')), toolRowRevision(row('aaaa', 'x')));
+});
+
+test('a tool body draws rendered at once once the renderer is warm, never raw text first', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const hadFrame = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  globalThis.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  try {
+    const { ToolActivityRichBody, warmToolMarkdownBody } = await import('./transcript-tool-ui.tsx');
+    await warmToolMarkdownBody();
+    // One synchronous commit: a lazily loaded body would show its raw fallback here.
+    act(() => {
+      dom.root.render(
+        React.createElement(ToolActivityRichBody, { text: 'Plain answer.', fallbackClassName: 'raw-fallback' })
+      );
+    });
+    assert.equal(document.querySelector('.tool-activity-markdown')?.nodeName, 'DIV');
+    assert.equal(document.querySelector('.raw-fallback'), null);
+  } finally {
+    if (hadFrame) Object.defineProperty(globalThis, 'requestAnimationFrame', hadFrame);
+    else delete globalThis.requestAnimationFrame;
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a group header keeps the present form while any call runs and reads past tense once settled', async () => {
+  const { desktopToolActivitySummary } = await import('./transcript-tool-core.ts');
+  const call = (id, name, args, extra = {}) => ({ kind: 'tool', id, name, args, ...extra });
+  const done = { result: 'ok', completedAt: 1 };
+  const calls = [
+    call('r', 'read', { file_path: 'a.ts' }, done),
+    call('g', 'grep', { pattern: 'x' }, done),
+    call('s1', 'shell', { command: 'a' }, done),
+    call('s2', 'shell', { command: 'b' }, done),
+    call('e', 'edit', { file_path: 'a.ts', old_string: 'a', new_string: 'b' }, done),
+  ];
+  assert.equal(desktopToolActivitySummary(calls), 'Edit 1 file, Read file, Search code, Run 2 commands');
+  assert.equal(desktopToolActivitySummary(calls, true), 'Edited 1 file, Read file, Searched code, Ran 2 commands');
+
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    const title = async (items) => {
+      await act(async () => {
+        dom.root.render(React.createElement(ToolActivityGroup, { disclosureScope: 'tense', items }));
+      });
+      return document.querySelector('.tool-activity-title')?.textContent?.trim();
+    };
+    const running = call('s2', 'shell', { command: 'b' }, { startedAt: 1 });
+    assert.equal(await title([calls[2], running]), 'Run 2 commands');
+    assert.equal(await title([calls[2], calls[3]]), 'Ran 2 commands');
+    const background = call(
+      'bg',
+      'shell',
+      { command: 'serve' },
+      { result: 'background task\nstatus: running\ntask_id: job_1', completedAt: 1 }
+    );
+    assert.equal(await title([background]), 'Run 1 command');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a tool icon eases its colour over 150ms when its call settles', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = await readFile(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
+  assert.match(css, /\.tool-card \.tool-icon\s*\{[^}]*transition:\s*color 150ms/);
 });

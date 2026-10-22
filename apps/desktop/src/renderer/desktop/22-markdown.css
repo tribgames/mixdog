@@ -1254,6 +1254,9 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 /* Successful tool work is the transcript baseline, not an alert. Keep settled
    child rows neutral under the ListTree activity group; rare failures and
    warnings retain their semantic colors below. */
+.tool-card .tool-icon {
+  transition: color 150ms ease;
+}
 .tool-card.settled .tool-icon {
   color: var(--mx-icon-muted);
 }
