@@ -196,6 +196,113 @@ test('revert sends the turn checkpoint and is disabled while the session is busy
   }
 });
 
+test('an idle lane republish does not re-read the turn review; a new turn does', async () => {
+  const sessionId = 'sd-revert-idle';
+  const calls = [];
+  const view = await mount(h(SessionDiffPane, { sessionId, active: true, onClose() {} }), (win) => {
+    win.mixdogDesktop = {
+      invokeCapability: async (request) => {
+        calls.push(request);
+        if (request.capability === 'getTurnReviewDiff') {
+          return { value: { checkpointId: 'cp-1', files: [{ path: 'src/cart.js' }] } };
+        }
+        return {
+          value: {
+            supported: true,
+            files: [{ path: 'src/cart.js', status: 'M', additions: 2, deletions: 1, binary: false }],
+            patch: PATCH,
+          },
+        };
+      },
+    };
+  });
+  const reviews = () => calls.filter((call) => call.capability === 'getTurnReviewDiff').length;
+  const publish = (contentRevision, items) =>
+    act(async () => {
+      defaultSessionLaneStore.apply({
+        sessionId,
+        frameSource: 'live',
+        contentRevision,
+        snapshot: { sessionId, items, busy: false },
+      });
+    });
+  const turn = (id) => [
+    { kind: 'user', id: `u-${id}`, text: 'go', checkpointId: id },
+    { kind: 'turndone', id: `d-${id}`, status: 'complete', checkpointId: id },
+  ];
+  try {
+    const wait = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    await publish(1, turn('cp-1'));
+    await wait();
+    const settled = reviews();
+    assert.ok(settled >= 1);
+    // Background agent status reaching the idle Lead moves only the lane's
+    // publication revision: the review the Revert buttons answer from is unchanged.
+    for (const revision of [2, 3, 4, 5]) {
+      await publish(revision, turn('cp-1'));
+      await wait();
+    }
+    assert.equal(reviews(), settled);
+    // A finished new turn has a new checkpoint: its review is read.
+    await publish(6, [...turn('cp-1'), ...turn('cp-2')]);
+    await wait();
+    assert.equal(reviews(), settled + 1);
+  } finally {
+    await view.done();
+  }
+});
+
+test('a revert re-reads the turn review without a new checkpoint', async () => {
+  const sessionId = 'sd-revert-reread';
+  const calls = [];
+  let reviewed = ['src/cart.js', 'src/util.js'];
+  const view = await mount(h(SessionDiffPane, { sessionId, active: true, onClose() {} }), (win) => {
+    overrideConfirmAction(() => true);
+    win.mixdogDesktop = {
+      invokeCapability: async (request) => {
+        calls.push(request);
+        if (request.capability === 'getTurnReviewDiff') {
+          return { value: { checkpointId: 'cp-1', files: reviewed.map((path) => ({ path })) } };
+        }
+        if (request.capability === 'revertTurnReviewFile') {
+          // The turn's review no longer lists the restored file; the
+          // checkpoint and the history epoch are unchanged.
+          reviewed = reviewed.filter((path) => path !== request.args[0]);
+          return { value: { ok: true } };
+        }
+        return {
+          value: {
+            supported: true,
+            files: ['src/cart.js', 'src/util.js'].map((path) => ({
+              path,
+              status: 'M',
+              additions: 2,
+              deletions: 1,
+              binary: false,
+            })),
+            patch: '',
+          },
+        };
+      },
+    };
+  });
+  const reviews = () => calls.filter((call) => call.capability === 'getTurnReviewDiff').length;
+  const revert = (path) => view.container.querySelector(`[aria-label="Revert ${path}"]`);
+  try {
+    const wait = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    await wait();
+    assert.equal(revert('src/cart.js').disabled, false);
+    const settled = reviews();
+    await view.click(revert('src/cart.js'));
+    await wait();
+    assert.equal(reviews(), settled + 1, 'the revert re-read the review');
+    assert.equal(revert('src/cart.js').disabled, true, 'the reverted file is no longer revertable');
+    assert.equal(revert('src/util.js').disabled, false);
+  } finally {
+    await view.done();
+  }
+});
+
 test('the unified diff body shows add/del rows and expandable folds', async () => {
   const view = await mount(h(FileDiffBody, { patch: PATCH, mode: 'unified' }));
   try {

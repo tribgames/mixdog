@@ -976,6 +976,7 @@ export function useSessionChanges({
     if (active && watchable && source === 'session') void reloadChanges(target);
   }, [active, mutations, source, target, watchable]);
   const laneItems = lane?.items;
+  const latestCheckpoint = useMemo(() => latestTurnCheckpoint(laneItems), [laneItems]);
   const fallbackRows = useMemo(() => {
     if (git) return EMPTY_ROWS;
     return resolveSessionRows(diff.result, Array.isArray(laneItems) ? laneItems : [], project);
@@ -1011,6 +1012,20 @@ export function useSessionChanges({
     /** No file's patch fit the reply; the rows still list every file's counts. */
     diffTooLarge: git ? entry?.diffTooLarge === true : diff.result?.diffTooLarge === true,
     revision,
+    /** What the latest turn's review moves with while the session is idle:
+     *  its checkpoint and the history epoch (Undo/Reapply/Delete). Lane
+     *  republishes (agent status reaching an idle Lead) leave it alone. */
+    turnReviewKey: `${mutations}:${latestCheckpoint}`,
     busy,
   };
+}
+
+/** The checkpoint the newest turn opened or closed ('' before any turn). */
+function latestTurnCheckpoint(items: readonly TranscriptItem[] | undefined): string {
+  if (!Array.isArray(items)) return '';
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const checkpointId = items[index]?.checkpointId;
+    if (typeof checkpointId === 'string' && checkpointId) return checkpointId;
+  }
+  return '';
 }

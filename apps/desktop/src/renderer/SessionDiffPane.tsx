@@ -160,7 +160,7 @@ export function SessionDiffPane({
   const ownViewState = useDiffViewState(SESSION_DIFF_STYLE_KEY);
   const { viewMode, onViewModeChange, splitAvailable } = viewState ?? ownViewState;
   const {
-    revision,
+    turnReviewKey,
     busy,
     ready,
     unsupported,
@@ -221,7 +221,7 @@ export function SessionDiffPane({
     sessionId,
     active,
     busy,
-    revision,
+    reviewKey: turnReviewKey,
     refresh,
     setRevertError,
   });
