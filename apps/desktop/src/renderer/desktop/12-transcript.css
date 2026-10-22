@@ -811,6 +811,11 @@ html[data-mixdog-mobile-tabs] .message.user .message-steer {
 .message.user .message-body p {
   margin: 0;
 }
+/* A sent paste shows its original text in the bubble, line breaks kept. */
+.message.user .message-body p.message-pasted-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .markdown pre {
   padding: 12px;
   border: 0;

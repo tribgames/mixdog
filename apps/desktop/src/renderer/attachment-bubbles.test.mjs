@@ -206,6 +206,28 @@ test('a restored paste whose line count was not worked out still shows as its ch
   assert.doesNotMatch(visibleText(html), /undefined|NaN/);
 });
 
+test('a sent paste with its text on hand shows the original inline, in place; without it the card stays', async () => {
+  const { registerSentAttachments } = await import('./attachment-menu.ts');
+  const token = '[Pasted text #1 +2 lines]';
+  registerSentAttachments('inline-1', [
+    { token, kind: 'text', name: 'Pasted text · 2 lines', mimeType: 'text/plain', data: 'alpha\nbeta', paste: true },
+  ]);
+  const text = `before\n${token}\nafter`;
+  const inline = renderToStaticMarkup(
+    React.createElement(TranscriptRow, { item: { kind: 'user', id: 'inline-1', text } })
+  );
+  assert.doesNotMatch(inline, /class="attachment-card/);
+  assert.match(visibleText(inline).replace(/\s+/g, ' '), /before alpha beta after/);
+  assert.doesNotMatch(visibleText(inline), PLACEHOLDER);
+  const card = renderToStaticMarkup(
+    React.createElement(TranscriptRow, { item: { kind: 'user', id: 'inline-missing', text } })
+  );
+  assert.deepEqual(
+    [...card.matchAll(/class="attachment-card (\w+)/g)].map((match) => match[1]),
+    ['pasted']
+  );
+});
+
 for (const c of CASES) {
   test(`${c.kind}: chips only, no placeholder words, nothing dropped`, () => {
     for (const [state, rows] of Object.entries(rowsOf(c))) {

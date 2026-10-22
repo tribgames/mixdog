@@ -3,8 +3,9 @@
 // A big paste is replaced in the prompt by a compact token so the editor does
 // not choke on thousands of raw characters; the original text lives in the
 // surface's pasted-text map and is expanded back on submit.
-export const PASTE_TOKEN_MIN_LINES = 10;
-export const PASTE_TOKEN_MIN_CHARS = 200;
+// Same rule as Claude Code / Codex (LARGE_PASTE_CHAR_THRESHOLD): only a paste
+// longer than this many characters folds; the line count never matters.
+export const PASTE_TOKEN_MIN_CHARS = 1000;
 
 // VISIBLE lines: a copy that ends in a newline ("a\nb\n") is two lines, not
 // three. Counting the empty trailing chunk folded ordinary two-line copies
@@ -18,9 +19,7 @@ export function pastedTextLineCount(text) {
 }
 
 export function shouldFoldPastedText(text) {
-  const value = String(text ?? '');
-  if (!value) return false;
-  return pastedTextLineCount(value) >= PASTE_TOKEN_MIN_LINES || value.length > PASTE_TOKEN_MIN_CHARS;
+  return String(text ?? '').length > PASTE_TOKEN_MIN_CHARS;
 }
 
 export function formatPastedTextRef(id, text) {

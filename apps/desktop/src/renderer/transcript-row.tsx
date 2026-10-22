@@ -47,8 +47,10 @@ import {
   type PastedTextChip,
   ReturnedAttachments,
   SentAttachments,
+  splitInlinePastes,
   stripImagePlaceholders,
   stripImageTokens,
+  useSentPastedTexts,
 } from './transcript-attachments';
 
 // StreamingMarkdownBody already loads the same renderer in this module.
@@ -315,6 +317,7 @@ export const TranscriptRow = memo(
     const multiDevice = useContext(TranscriptDevicesContext);
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const sessionScope = useContext(MarkdownSessionContext);
+    const { texts: pastedTexts, records: pastedTokenRecords } = useSentPastedTexts(item, sessionScope);
     const assistant = item.kind === 'assistant';
     const revealed = useTranscriptTextReveal({
       key: assistant ? revealKey : '',
@@ -398,7 +401,7 @@ export const TranscriptRow = memo(
     const userDisplayText =
       attachedImages.length > 0 ? stripImagePlaceholders(stripImageTokens(imageMarkers.text)) : imageMarkers.text;
     const pastedFold = user
-      ? extractPastedTextMarkers(userDisplayText)
+      ? extractPastedTextMarkers(userDisplayText, pastedTexts)
       : { text: userDisplayText, chips: [] as PastedTextChip[] };
     const fileFold = user ? extractFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
     const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
@@ -427,6 +430,7 @@ export const TranscriptRow = memo(
                 images={attachedImages}
                 markerChips={markerChips}
                 pastedChips={pastedFold.chips}
+                pastedRecords={pastedTokenRecords.filter((_, index) => pastedTexts[index] === undefined)}
                 fileChips={fileFold.chips}
                 menuProps={menuProps}
               />
@@ -435,11 +439,21 @@ export const TranscriptRow = memo(
           {(!user || tweaksFold.text || tweaksFold.lines.length > 0) && (
             // biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control.
             <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-              {user && tweaksFold.text ? (
-                <p>
-                  <SkillMentionText text={tweaksFold.text} isSkill={(name) => appliedSkills.includes(name)} />
-                </p>
-              ) : null}
+              {user && tweaksFold.text
+                ? splitInlinePastes(tweaksFold.text).map((part, index) =>
+                    'paste' in part ? (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
+                      <p key={`paste-${index}`} className="message-pasted-text">
+                        {pastedTexts[part.paste]}
+                      </p>
+                    ) : (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
+                      <p key={`text-${index}`}>
+                        <SkillMentionText text={part.text.trim()} isSkill={(name) => appliedSkills.includes(name)} />
+                      </p>
+                    )
+                  )
+                : null}
               {tweaksFold.lines.map((line, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: lines are parsed from a sent message and never reorder.
                 <p key={`tweaks-${index}`} className="message-tweaks-line">

@@ -145,7 +145,12 @@ test('paste inserts short text raw, folds large text, and resolves image paths i
   assert.equal(paste('short text'), undefined);
   assert.deepEqual(calls.registeredTexts, []);
 
-  const big = Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n');
+  const manyShort = Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n');
+  assert.equal(shouldFoldPastedText(manyShort), false, 'many short lines under the limit stay raw');
+  assert.equal(paste(manyShort), undefined);
+  assert.deepEqual(calls.registeredTexts, []);
+
+  const big = 'x'.repeat(1001);
   assert.equal(shouldFoldPastedText(big), true);
   assert.equal(paste(big), '[paste:1]');
   assert.deepEqual(calls.registeredTexts, [big]);

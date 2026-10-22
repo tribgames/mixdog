@@ -86,7 +86,6 @@ export {
   formatPastedTextRef,
   pastedTextLineCount,
   PASTE_TOKEN_MIN_CHARS,
-  PASTE_TOKEN_MIN_LINES,
   shouldFoldPastedText,
 } from './paste-text-policy.mjs';
 

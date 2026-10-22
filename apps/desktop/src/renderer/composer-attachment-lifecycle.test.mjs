@@ -145,7 +145,7 @@ test('#135 text copied from Word/Excel/browsers (text + html + rendered image) p
     assert.equal(chipCount(), 0);
 
     // Long text folds into ONE pasted-text chip, never an image chip.
-    const long = await paste(rich('row of a spreadsheet\n'.repeat(12)));
+    const long = await paste(rich('row of a spreadsheet\n'.repeat(60)));
     assert.equal(long.defaultPrevented, true);
     assert.equal(chipCount(), 1);
     assert.deepEqual(chipNames(), []);

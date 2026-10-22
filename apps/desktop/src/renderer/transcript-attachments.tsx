@@ -8,7 +8,7 @@ import {
 } from './image-preview-store';
 import { AttachmentCard, composerCardMeta } from './attachment-card';
 import {
-  type extractFileMarkers,
+  extractFileMarkers,
   fileChipKind,
   sentFileSource,
   sentPastedTextSource,
@@ -47,12 +47,36 @@ export interface PastedTextChip {
   lines: number | null;
 }
 
-export function extractPastedTextMarkers(text: string): { text: string; chips: PastedTextChip[] } {
+const PASTE_INLINE_OPEN = '\uE000';
+const PASTE_INLINE_CLOSE = '\uE001';
+const PASTE_INLINE_RE = /\uE000(\d+)\uE001/;
+
+/** Splits display text that went through `extractPastedTextMarkers` with
+ *  `inlineTexts` into plain text parts and the index of each inlined paste. */
+export function splitInlinePastes(text: string): Array<{ text: string } | { paste: number }> {
+  return text
+    .split(new RegExp(PASTE_INLINE_RE.source, 'g'))
+    .flatMap(
+      (part, index): Array<{ text: string } | { paste: number }> =>
+        index % 2 ? [{ paste: Number(part) }] : part.trim() ? [{ text: part }] : []
+    );
+}
+
+/** Strips `[Pasted text #N +K lines]` tokens into cards. A token whose
+ *  original text is in `inlineTexts` (by order) stays in the text as an
+ *  inline marker instead (see `splitInlinePastes`) and makes no card. */
+export function extractPastedTextMarkers(
+  text: string,
+  inlineTexts: readonly (string | undefined)[] = []
+): { text: string; chips: PastedTextChip[] } {
   const chips: PastedTextChip[] = [];
+  let order = 0;
   // A restored paste whose line count was not worked out reads `[Pasted text #n]`.
   const stripped = String(text || '').replace(
     / ?(\[Pasted text #\d+(?: \+(\d+) lines)?\]) ?/g,
     (_match, token, lines) => {
+      const at = order++;
+      if (inlineTexts[at] !== undefined) return `\n${PASTE_INLINE_OPEN}${at}${PASTE_INLINE_CLOSE}\n`;
       chips.push(
         lines === undefined
           ? { name: 'Pasted text', token, lines: null }
@@ -61,7 +85,7 @@ export function extractPastedTextMarkers(text: string): { text: string; chips: P
       return ' ';
     }
   );
-  if (chips.length === 0) return { text, chips };
+  if (order === 0) return { text, chips };
   const cleaned = stripped
     .split(/\r?\n/)
     .map((line) => line.replace(/ {2,}/g, ' ').trim())
@@ -197,6 +221,73 @@ export function chipAttachments(
   return { files, pasted };
 }
 
+/** The original text of each pasted-text token in a sent user message, in
+ *  token order; undefined where it is unavailable (the card stays).
+ *  Source: this run's in-memory sent cache first, else the stored attachment
+ *  the message metadata names (`item.attachments`), read through the host, so
+ *  it survives an app restart. */
+export function useSentPastedTexts(
+  item: TranscriptItem,
+  session: string
+): { texts: Array<string | undefined>; records: Array<SentAttachmentRecord | undefined> } {
+  const chips = item.kind === 'user' ? extractPastedTextMarkers(String(item.text || '')).chips : [];
+  const records = item.kind === 'user' ? sentPastedRecords(item) : [];
+  const [loaded, setLoaded] = useState<Record<string, string>>({});
+  const wanted = chips.map((chip, index) => {
+    const cached = sentPastedTextSource(chip.token, chip.name, item.id);
+    const text = cached.kind === 'pasted-text' ? cached.text : undefined;
+    return { text, id: records[index]?.id ?? '' };
+  });
+  // Every id still needed, whether or not it has loaded yet: a completed read
+  // must not change the key, or it would restart the reads still in flight.
+  const requiredKey = wanted
+    .filter((entry) => entry.text === undefined && entry.id)
+    .map((entry) => entry.id)
+    .join(',');
+  useEffect(() => {
+    const read = window.mixdogDesktop?.readSessionAttachment;
+    if (!session || !requiredKey || !read) return;
+    return readStoredPastes(read, session, requiredKey.split(','), (id, text) =>
+      setLoaded((previous) => ({ ...previous, [id]: text }))
+    );
+  }, [session, requiredKey]);
+  return {
+    texts: wanted.map((entry) => entry.text ?? (entry.id ? loaded[entry.id] : undefined)),
+    records,
+  };
+}
+
+/** The record of each pasted token of a sent message, in token order. Pairs
+ *  once over all tokens, after the message's file chips reserved theirs, so a
+ *  later filter of the tokens never shifts which record a token has. */
+export function sentPastedRecords(item: TranscriptItem): Array<SentAttachmentRecord | undefined> {
+  const { text, chips } = extractPastedTextMarkers(String(item.text || ''));
+  return chipAttachments(item.attachments, extractFileMarkers(text).chips, chips).pasted;
+}
+
+/** Reads each stored paste and hands its text over as it arrives. The returned
+ *  function drops every result still outstanding. */
+export function readStoredPastes(
+  read: (session: string, id: string) => Promise<{ dataUrl: string }>,
+  session: string,
+  ids: readonly string[],
+  onText: (id: string, text: string) => void
+): () => void {
+  let active = true;
+  for (const id of ids) {
+    void read(session, id)
+      .then((attachment) => {
+        const base64 = attachment.dataUrl.slice(attachment.dataUrl.indexOf(',') + 1);
+        const text = new TextDecoder().decode(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
+        if (active) onText(id, text);
+      })
+      .catch(() => undefined);
+  }
+  return () => {
+    active = false;
+  };
+}
+
 export function SentImageCard({
   session,
   attachmentRef,
@@ -311,6 +402,7 @@ export function SentAttachments({
   images,
   markerChips,
   pastedChips,
+  pastedRecords,
   fileChips,
   menuProps,
 }: {
@@ -319,11 +411,13 @@ export function SentAttachments({
   images: NonNullable<TranscriptItem['images']>;
   markerChips: readonly ImageMarkerChip[];
   pastedChips: readonly PastedTextChip[];
+  /** The record of each pasted chip (parallel), paired once over all tokens. */
+  pastedRecords: ReadonlyArray<SentAttachmentRecord | undefined>;
   fileChips: ReturnType<typeof extractFileMarkers>['chips'];
   menuProps: ReturnType<typeof useAttachmentContextMenu>['menuProps'];
 }) {
   const markerRefs = markerChipRefs(markerChips, item.imageRefs);
-  const records = chipAttachments(item.attachments, fileChips, pastedChips);
+  const records = chipAttachments(item.attachments, fileChips, []);
   const hostFileOf = (record: SentAttachmentRecord | undefined) => storedAttachmentRef(session, record?.id);
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
@@ -359,7 +453,7 @@ export function SentAttachments({
       ))}
       {pastedChips.map((chip, index) => {
         const stored = sentPastedTextSource(chip.token, chip.name, item.id);
-        const hostFile = hostFileOf(records.pasted[index]);
+        const hostFile = hostFileOf(pastedRecords[index]);
         return (
           <AttachmentCard
             // biome-ignore lint/suspicious/noArrayIndexKey: chips are parsed from a sent message and never reorder.
