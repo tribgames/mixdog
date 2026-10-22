@@ -2268,6 +2268,69 @@ test('Settings → Bots: Position waits for a placement write before taking the 
   assert.equal(position().textContent.trim(), 'Free in the app window');
 });
 
+async function keyboardSelectPosition(t) {
+  const desktop = fakeDesktop();
+  const answer = desktop.api.setDesktopPetOption;
+  let release = null;
+  desktop.api.setDesktopPetOption = (name, value) =>
+    new Promise((resolve) => {
+      release = () => resolve(answer(name, value));
+    });
+  const dom = await mountSettings(t, desktop);
+  const { document, window } = dom;
+  const position = () => document.querySelector('[role="combobox"][aria-label="Position"]');
+  const press = (key) =>
+    act(async () => {
+      document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  position().focus();
+  await press('ArrowDown'); // opens
+  await press('ArrowDown'); // Pin here
+  await press('Enter');
+  assert.equal(position().disabled, true, 'locked while main applies the choice');
+  return { ...dom, position, release: () => act(async () => release()), settle: () => act(async () => new Promise((r) => setTimeout(r, 0))) };
+}
+
+test('Settings → Bots: a keyboard choice of Position returns focus to the trigger once the write settles', async (t) => {
+  const { document, position, release, settle } = await keyboardSelectPosition(t);
+  await release();
+  await settle();
+  assert.equal(position().disabled, false);
+  assert.equal(position().textContent.trim(), 'Pin here');
+  assert.equal(document.activeElement, position(), 'focus is back on the Position trigger');
+});
+
+test('Settings → Bots: a pointer choice of Position does not pull focus to the trigger when re-enabled', async (t) => {
+  const desktop = fakeDesktop();
+  const answer = desktop.api.setDesktopPetOption;
+  let release = null;
+  desktop.api.setDesktopPetOption = (name, value) =>
+    new Promise((resolve) => {
+      release = () => resolve(answer(name, value));
+    });
+  const { document } = await mountSettings(t, desktop);
+  const position = () => document.querySelector('[role="combobox"][aria-label="Position"]');
+  await act(async () => position().click());
+  await act(async () =>
+    [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === 'Pin here').click()
+  );
+  assert.equal(position().disabled, true);
+  await act(async () => release());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(position().disabled, false);
+  assert.notEqual(document.activeElement, position(), 'pointer choices keep their behaviour');
+});
+
+test('Settings → Bots: focus that moved elsewhere during the write is left alone', async (t) => {
+  const { document, position, release, settle } = await keyboardSelectPosition(t);
+  const other = optionSwitch(document, 'Collapse bubble');
+  other.focus();
+  await release();
+  await settle();
+  assert.equal(position().disabled, false);
+  assert.equal(document.activeElement, other, 'focus stays where the user moved it');
+});
+
 test('Settings → Bots: auto-advance and auto-close are on by default and set through main', async (t) => {
   const desktop = fakeDesktop();
   const { document } = await mountSettings(t, desktop);

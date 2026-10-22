@@ -79,6 +79,8 @@ export function OpenSelect({
   const typeahead = useRef({ value: '', timer: 0 });
   const pendingActive = useRef<number | null>(null);
   const restoreFocusAfterDisabled = useRef(false);
+  const justSelected = useRef(false);
+  const justSelectedTimer = useRef(0);
   const enabledIndexes = useMemo(() => options.flatMap((option, index) => (option.disabled ? [] : [index])), [options]);
   const selected = options.find((option) => option.value === current);
   const routeStyle = variant === 'route';
@@ -146,10 +148,21 @@ export function OpenSelect({
   };
   const toggleMenu = () => commitMenuOpen(!open);
 
-  const select = (next: string) => {
+  const select = (next: string, viaKeyboard = false) => {
     if (!controlled) setInternalValue(next);
     onChange?.(next);
     setOpen(false);
+    // A row may disable this select while its write is in flight; the focus
+    // below then lands on a disabled button. Remember the choice for the
+    // commit that follows (same tick) so the focus returns once re-enabled.
+    // Keyboard choices only: pointer choices keep their behaviour.
+    window.clearTimeout(justSelectedTimer.current);
+    justSelected.current = viaKeyboard;
+    if (viaKeyboard) {
+      justSelectedTimer.current = window.setTimeout(() => {
+        justSelected.current = false;
+      }, 0);
+    }
     queueMicrotask(() => trigger.current?.focus());
   };
 
@@ -196,9 +209,9 @@ export function OpenSelect({
 
   useEffect(() => {
     if (disabled) {
-      if (open) {
+      if (open || justSelected.current) {
         restoreFocusAfterDisabled.current = true;
-        setOpen(false);
+        if (open) setOpen(false);
       }
       return;
     }
@@ -213,7 +226,14 @@ export function OpenSelect({
     }
   }, [disabled, open]);
 
-  useEffect(() => () => window.clearTimeout(typeahead.current.timer), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(typeahead.current.timer);
+      window.clearTimeout(justSelectedTimer.current);
+      justSelected.current = false;
+    },
+    []
+  );
 
   const moveActive = (direction: 1 | -1, boundary?: 'first' | 'last') => {
     if (!enabledIndexes.length) return;
@@ -289,7 +309,7 @@ export function OpenSelect({
     }
     if (event.key === 'Enter' || event.key === ' ') {
       const option = options[active];
-      if (option) select(option.value);
+      if (option) select(option.value, true);
       return;
     }
     if (event.key === 'Home' || event.key === 'PageUp') moveActive(1, 'first');
