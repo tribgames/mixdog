@@ -114,6 +114,7 @@ export function createGoalTurnLifecycle(ctx) {
     turnStartedAt,
     idleReviewTurns,
     continuationTiers,
+    unsavedStops,
     withMutation,
     readRecord,
     commit,
@@ -163,7 +164,14 @@ export function createGoalTurnLifecycle(ctx) {
           applyTurnOutcome(goal, detail, at);
         }
         goal.updatedAt = at;
-        const published = await commit(id, goal);
+        let published;
+        try {
+          published = await commit(id, goal);
+        } catch (error) {
+          if (goal.status !== 'active') unsavedStops.set(id, goal.id);
+          throw error;
+        }
+        unsavedStops.delete(id);
         if (automaticTurnWithoutActivity(detail, published)) idleReviewTurns.set(id, idleReviewKey(published));
         return published;
       });
@@ -189,6 +197,7 @@ export function createGoalTurnLifecycle(ctx) {
       if (goal?.status !== 'active') return { run: false, reason: goal?.status || 'missing', goal };
       if (runningAgentWork(agentStatus)) return { run: false, reason: 'agent-running', goal };
       const id = assertSessionId(sessionId);
+      if (unsavedStops.get(id) === goal.id) return { run: false, reason: 'unsaved-stop', goal };
       const answered = idleReviewTurns.get(id) === idleReviewKey(goal);
       if (settledDurationWait(goal)) {
         // The model already answered this exact list with no new work, so the

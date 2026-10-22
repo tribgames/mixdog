@@ -65,6 +65,10 @@ export function createGoalRuntime({
     // context still owes, from the rules and state already delivered into it.
     // In memory on purpose: a restart is a fresh context that needs them again.
     continuationTiers: new Map(),
+    // Session -> Goal id whose turn ended in a stop (failed, cancelled, usage
+    // limit) the record could not save. The record still reads active, so
+    // without this a full disk would start turn after turn into the same error.
+    unsavedStops: new Map(),
     closed: false,
   };
   Object.assign(ctx, createGoalStore(ctx));
@@ -116,6 +120,7 @@ export function createGoalRuntime({
       ctx.observedGoals.clear();
       ctx.idleReviewTurns.clear();
       ctx.continuationTiers.clear();
+      ctx.unsavedStops.clear();
       listeners.clear();
       // Accepted writes keep their ordering until they settle. Callers may
       // await this barrier before releasing the session's backing resources.
