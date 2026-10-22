@@ -18,6 +18,14 @@ const DAEMON_EXTERNALS = ['@homebridge/node-pty-prebuilt-multiarch'];
 // (opened-file-path.ts). The app keeps it unpacked beside daemon.cjs
 // (electron-builder asarUnpack); a host without it refuses downloads.
 const DESKTOP_HOST_EXTERNALS = ['koffi'];
+// Legacy Office attachments convert where a prompt is prepared for a provider:
+// the session runtime (session-turns.mjs, agent-room-delivery.mjs), loaded
+// from the runtime source and never bundled. This service imports
+// attachments/store.mjs only to read stored blobs, so the converter's lazy
+// import of the office stack (and its native @napi-rs/canvas binding) stays an
+// unfollowed import instead of bundling an office stack it never runs. A static
+// import of the stack still resolves and fails the build on its native binding.
+const RUNTIME_ONLY_LAZY_IMPORT = /^\.\.\/office\/portable\/portable-soffice\.mjs$/;
 
 await build({
   entryPoints: [join(desktopDir, 'src', 'main', 'desktop-service.ts')],
@@ -39,6 +47,9 @@ await build({
         builder.onResolve({ filter: /^electron(?:\/|$)/ }, () => ({
           errors: [{ text: 'daemon service bundle must not import Electron' }],
         }));
+        builder.onResolve({ filter: RUNTIME_ONLY_LAZY_IMPORT }, (args) =>
+          args.kind === 'dynamic-import' ? { path: args.path, external: true } : undefined
+        );
       },
     },
   ],
