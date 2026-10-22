@@ -81,6 +81,34 @@ test('list leaves out sub-agent and archived sessions with full pages across lon
   );
 });
 
+test('a catalog of hidden rows stops at the scan cap with a cursor to continue from', async (t) => {
+  withDesktop(t);
+  const list = [];
+  const add = (id, extra = {}) => list.push({ id, lastUsedAt: 10_000_000 - list.length, ...extra });
+  for (let i = 0; i < 10_500; i++) add(`sess_hidden${i}`, { owner: 'agent', visibility: 'agent-only' });
+  add('sess_visible');
+  let scanned = 0;
+  const service = catalogService(list);
+  const counting = {
+    listSessionCatalog: async (request) => {
+      const page = await service.listSessionCatalog(request);
+      scanned += page.sessions.length;
+      return page;
+    },
+  };
+  const execute = createSessionControl({ getSessionService: () => counting });
+  const first = await execute({ action: 'list', limit: 5 }, CONTEXT);
+  assert.deepEqual(first.sessions, []);
+  assert.equal(typeof first.nextCursor, 'string');
+  assert.ok(scanned >= 10_000 && scanned < 10_500, `scanned ${scanned}`);
+  const second = await execute({ action: 'list', limit: 5, cursor: first.nextCursor }, CONTEXT);
+  assert.deepEqual(
+    second.sessions.map((row) => row.id),
+    ['sess_visible']
+  );
+  assert.equal(second.nextCursor, null);
+});
+
 test('include_agents and include_archived bring the left-out rows back, archived ones marked', async (t) => {
   withDesktop(t);
   const execute = createSessionControl({ getSessionService: () => catalogService() });

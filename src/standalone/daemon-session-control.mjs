@@ -131,7 +131,9 @@ export function createSessionControl({
         (!own || sessionBotOf(row) === own) &&
         (args.include_agents === true || !isAgentOnlySession(row)) &&
         (args.include_archived === true || !Object.hasOwn(archived, row.id));
-      const scan = await scanCatalog(service, keep, { cursor: args.cursor || null, want: limit, maxRows: Infinity });
+      // Bounded: past 10000 rows scanned with fewer than `limit` matching, the
+      // page ends (possibly empty) with a nextCursor to continue from.
+      const scan = await scanCatalog(service, keep, { cursor: args.cursor || null, want: limit, maxRows: 10_000 });
       const sessions = scan.rows.map((row) => (Object.hasOwn(archived, row.id) ? { ...row, archived: true } : row));
       return sessionListOutput({ sessions, nextCursor: scan.nextCursor }, limit, { rich: own !== null });
     }
