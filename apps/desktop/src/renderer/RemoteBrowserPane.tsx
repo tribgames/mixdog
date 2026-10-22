@@ -746,6 +746,24 @@ function RemoteBrowserContent({
   changeZoomLevel(level: number): void;
 }) {
   const zoomBarVisible = useZoomBarVisible();
+  // `touch-action: none` alone does not keep iOS WebKit from taking a touch
+  // on the frame for its own scroll, zoom, selection or callout, and that
+  // cancels the pointer stream the touch controller reads. React registers
+  // touchstart/touchmove passive, so the frame cancels them itself; touches
+  // on controls over it (zoom pill, notices) keep their native tap.
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return undefined;
+    const hold = (event: TouchEvent) => {
+      if (event.target === content && event.cancelable) event.preventDefault();
+    };
+    content.addEventListener('touchstart', hold, { passive: false });
+    content.addEventListener('touchmove', hold, { passive: false });
+    return () => {
+      content.removeEventListener('touchstart', hold);
+      content.removeEventListener('touchmove', hold);
+    };
+  }, [contentRef]);
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') return input.onPointerDown(event);
     event.preventDefault();

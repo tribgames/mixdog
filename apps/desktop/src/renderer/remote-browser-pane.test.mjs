@@ -303,6 +303,29 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
   }
 });
 
+test('touches on the frame are cancelled so the platform cannot claim them; controls over it keep theirs', async () => {
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    const content = await showFrame(state);
+    // React registers touchstart/touchmove passive at its root, so only the
+    // pane's own listener can stop iOS WebKit from taking the touch for a
+    // scroll, zoom, selection or callout (pointercancel ends the gesture).
+    const touch = (target, type) => {
+      const event = new window.TouchEvent(type, { bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    assert.equal(touch(content, 'touchstart'), true);
+    assert.equal(touch(content, 'touchmove'), true);
+    const zoomButton = content.querySelector('.browser-zoom-pill button');
+    assert.ok(zoomButton);
+    assert.equal(touch(zoomButton, 'touchstart'), false, 'the zoom pill keeps its tap');
+  } finally {
+    await pane.unmount();
+  }
+});
+
 test('touch controller maps gestures with injected timing', async () => {
   const sent = [];
   const controller = createRemoteTouchController({

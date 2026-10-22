@@ -336,6 +336,11 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   background: #111;
   touch-action: none;
   user-select: none;
+  /* Safari still needs the prefix, and the chrome-targeted build adds none:
+     without it a long-press on the frame starts an iOS text selection or
+     callout instead of reaching the touch controller. */
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .browser-remote-content > img {
