@@ -49,8 +49,8 @@ export function activeTurnContinuationMessage(messages) {
     pendingTaskNotificationIndexes(list).at(-1) ?? -1
   );
   if (latestInputIndex < 0) return null;
-  const afterLatestUser = list.slice(latestInputIndex + 1);
-  if (!afterLatestUser.some(isExistingContinuation) && !afterLatestUser.some(isExecutionActivity)) {
+  const afterLatestInput = list.slice(latestInputIndex + 1);
+  if (!afterLatestInput.some(isExistingContinuation) && !afterLatestInput.some(isExecutionActivity)) {
     return null;
   }
   return makeActiveTurnContinuationMessage();
