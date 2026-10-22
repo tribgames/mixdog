@@ -333,6 +333,36 @@ test('Web Search adds from its own catalog and excludes the occupied provider', 
   assert.doesNotMatch(catalog.textContent, /Test model/);
 });
 
+test('a custom provider in a route chain picker shows its registered name, not its generated id', async (t) => {
+  const render = harness(t);
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const custom = 'custom-c07a1b4c-4df1-4f8a-9c10-2e5b8d9f0117';
+  await render(
+    React.createElement(RouteEditorDialog, {
+      target: {
+        id: 'worker',
+        label: 'Worker',
+        modelKind: 'agent',
+        readOnlyDefinition: true,
+        route: { provider: custom, model: 'gw-model' },
+      },
+      models: [{ provider: custom, model: 'gw-model', display: 'Gateway model', effortOptions: [] }],
+      providerNames: { [custom]: 'Team Gateway' },
+      busy: false,
+      onCancel() {},
+      onSave() {},
+    })
+  );
+  const dialog = document.querySelector('[role="dialog"]');
+  await act(async () => dialog.querySelector('.model-trigger').click());
+  await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
+  const sheet = document.querySelector('.route-sheet');
+  await act(async () => sheet.querySelector('.route-sheet-row').click());
+  const catalog = document.querySelector('.route-sheet[data-dropdown][data-drilled]');
+  assert.match(catalog.textContent, /Team Gateway/);
+  assert.doesNotMatch(catalog.textContent, /custom-c07a1b4c/);
+});
+
 for (const editor of editors) {
   test(`${editor.name} with no model waits for one before switching on or saving`, async (t) => {
     const render = harness(t);

@@ -60,6 +60,7 @@ function RouteControls({
   disabled,
   composerParity = false,
   fallbacks,
+  providerNames,
   onChange,
 }: {
   composerParity?: boolean;
@@ -67,6 +68,7 @@ function RouteControls({
   label: string;
   route: RecordValue;
   models: DesktopModelOption[];
+  providerNames?: Record<string, string>;
   disabled: boolean;
   onChange(selection: RecordValue): void;
 }) {
@@ -75,6 +77,7 @@ function RouteControls({
       <RouteChainEditor
         label={label}
         models={models}
+        providerNames={providerNames}
         disabled={disabled}
         composerParity={composerParity}
         fallbacks={fallbacks}
@@ -198,6 +201,7 @@ export function AgentEditorDialog({
   agent,
   deletable,
   models,
+  providerNames,
   busy,
   error = '',
   onCancel,
@@ -209,6 +213,7 @@ export function AgentEditorDialog({
   agent: RecordValue | null;
   deletable: boolean;
   models: DesktopModelOption[];
+  providerNames?: Record<string, string>;
   busy: boolean;
   error?: string;
   onCancel(): void;
@@ -301,6 +306,7 @@ export function AgentEditorDialog({
                 label={t('Agent model')}
                 route={route}
                 models={models}
+                providerNames={providerNames}
                 disabled={busy}
                 composerParity
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
@@ -334,6 +340,7 @@ export function AgentEditorDialog({
 export function RouteEditorDialog({
   target,
   models,
+  providerNames,
   busy,
   error = '',
   onCancel,
@@ -342,6 +349,7 @@ export function RouteEditorDialog({
 }: {
   target: RouteEditorTarget;
   models: DesktopModelOption[];
+  providerNames?: Record<string, string>;
   busy: boolean;
   error?: string;
   onCancel(): void;
@@ -404,6 +412,7 @@ export function RouteEditorDialog({
                 label={t('{{name}} model', { name: target.label })}
                 route={route}
                 models={models}
+                providerNames={providerNames}
                 disabled={busy}
                 composerParity={target.modelKind !== 'webSearch'}
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}

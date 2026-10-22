@@ -48,13 +48,14 @@ const snapshot = {
   ],
 };
 
-async function mount(t, props = {}) {
+async function mount(t, props = {}, { setup, models } = {}) {
   resetSidebarReferenceCache();
   adoptSidebarReferenceHost(window.mixdogDesktop);
-  updateSidebarReference('providerSetup', undefined);
-  updateSidebarReference('quickProviderModels', [
-    { provider: 'anthropic-oauth', model: 'claude-opus-5', display: 'Claude Opus 5', effortOptions: [] },
-  ]);
+  updateSidebarReference('providerSetup', setup);
+  updateSidebarReference(
+    'quickProviderModels',
+    models ?? [{ provider: 'anthropic-oauth', model: 'claude-opus-5', display: 'Claude Opus 5', effortOptions: [] }]
+  );
   preflights.length = 0;
   const host = document.createElement('main');
   document.body.append(host);
@@ -78,6 +79,28 @@ test('the Model row hosts the route picker and preflights the chosen route', asy
   assert.ok(row.querySelector('dd button'));
   assert.deepEqual(preflights.at(-1), ['source', { provider: 'anthropic-oauth', model: 'claude-opus-5' }]);
   assert.equal(host.querySelector('.command-surface-facts dd[data-tone]'), null);
+});
+
+test('the fork model picker names a custom provider by its registered name, not its generated id', async (t) => {
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  dom.window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  dom.window.cancelAnimationFrame = (handle) => clearTimeout(handle);
+  const custom = 'custom-c07a1b4c-4df1-4f8a-9c10-2e5b8d9f0117';
+  const host = await mount(
+    t,
+    { snapshot: { ...snapshot, provider: custom, model: 'gw-model' } },
+    {
+      setup: { api: [{ id: custom, name: 'Team Gateway', custom: true, usable: true, authenticated: true }] },
+      models: [{ provider: custom, model: 'gw-model', display: 'Gateway model', effortOptions: [] }],
+    }
+  );
+  await act(async () => host.querySelector('.model-trigger').click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  const sheet = document.querySelector('.route-sheet');
+  await act(async () => sheet.querySelector('.route-sheet-row').click());
+  const catalog = document.querySelector('.route-sheet-flyout');
+  assert.match(catalog.textContent, /Team Gateway/);
+  assert.doesNotMatch(catalog.textContent, /custom-c07a1b4c/);
 });
 
 test('original inheritance is the default and passes { compact: false }', async (t) => {

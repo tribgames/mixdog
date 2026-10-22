@@ -32,7 +32,7 @@ import { AgentInstructionEditors } from './agent-instruction-editors';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { ModelRouteEditor } from './ModelRouteEditor';
-import { filterConfiguredModels } from './model-catalog';
+import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import { showDesktopToast } from './notifications';
 import { normalizeModelOptions } from './provider-display';
 import { SidebarDialogLayer } from './sidebar-dialog';
@@ -45,6 +45,7 @@ const NO_IMAGES: AvatarImages = {};
 
 export function AgentCreateForm({
   models,
+  providerNames,
   initialRoute = null,
   busy,
   error = '',
@@ -56,6 +57,8 @@ export function AgentCreateForm({
   /** Turns a picked file into a state upload (tests stub it). */
   prepareImage?(file: File): Promise<AvatarStateUpload>;
   models: DesktopModelOption[];
+  /** Setup-derived custom provider names (customProviderDisplayNames), keyed by provider id. */
+  providerNames?: Record<string, string>;
   /** The composer's current model: the new agent starts on it. */
   initialRoute?: DesktopModelSelection | null;
   /** 대표 에이전트 mode: creates Mixy, starting from its name and face. */
@@ -177,6 +180,7 @@ export function AgentCreateForm({
                 <ModelRouteEditor
                   ariaLabel={t('Model')}
                   models={models}
+                  providerNames={providerNames}
                   value={route}
                   disabled={busy}
                   composerParity
@@ -240,7 +244,8 @@ export function AgentCreateDialog({
     () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), values.providerSetup),
     [values.quickProviderModels, values.providerSetup]
   );
-  const { pending, error, setError, run } = useSidebarCapabilityRunner({
+  const providerNames = useMemo(() => customProviderDisplayNames(values.providerSetup), [values.providerSetup]);
+  const { pending, error, setError, run }= useSidebarCapabilityRunner({
     api,
     completeMutation,
     toastScope: 'workflow',
@@ -282,6 +287,7 @@ export function AgentCreateDialog({
   return (
     <AgentCreateForm
       models={models}
+      providerNames={providerNames}
       initialRoute={initialRoute}
       representative={representative}
       busy={Boolean(pending)}

@@ -3,7 +3,7 @@ import type { DesktopModelSelection } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
-import { filterConfiguredModels } from './model-catalog';
+import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { normalizeModelOptions } from './provider-display';
 import { record } from './record-utils';
@@ -71,6 +71,7 @@ export function InheritBody({
     () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), values.providerSetup),
     [values.quickProviderModels, values.providerSetup]
   );
+  const providerNames = useMemo(() => customProviderDisplayNames(values.providerSetup), [values.providerSetup]);
   const shell = record(snapshot);
   const items = Array.isArray(shell.items) ? shell.items : [];
   const spoken = items.filter((item) => {
@@ -141,6 +142,7 @@ export function InheritBody({
               {route ? (
                 <ModelRouteEditor
                   models={models}
+                  providerNames={providerNames}
                   value={route}
                   disabled={running}
                   ariaLabel={t('Fork model')}

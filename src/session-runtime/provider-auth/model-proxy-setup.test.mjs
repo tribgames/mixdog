@@ -200,7 +200,7 @@ test('SSH setup covers every built-in API, OAuth, local and custom provider, ena
     }
     for (const custom of customProviders) {
       const row = setup.api.find(({ id }) => id === custom.id);
-      assert.equal(row.name, custom.id);
+      assert.equal(row.name, custom.name);
       assert.equal(row.custom, true);
     }
     assert.equal(setup.local[0].detected, state);
@@ -220,10 +220,13 @@ test('SSH setup reads a desktop-disabled sign-in as Off and carries only hidden 
   t.after(installModelProxyChannel(channel));
   _resetModelProxyProviderConfigForTest();
   const custom = 'custom-00000000-0000-4000-8000-000000000077';
+  const named = 'custom-00000000-0000-4000-8000-000000000078';
   const providers = {
     'openai-oauth': { enabled: false, authState: 'present' },
     'anthropic-oauth': { enabled: false, authState: 'absent' },
     [custom]: { enabled: true, type: 'custom', authState: 'present', hiddenModels: ['secret-model'] },
+    // An older desktop advertises no name: the id stays the fallback.
+    [named]: { enabled: true, type: 'custom', name: ' Team gateway ' },
   };
   const detach = channel.attachPublisher((snapshot) => {
     for (const { id } of snapshot.requests) {
@@ -245,6 +248,8 @@ test('SSH setup reads a desktop-disabled sign-in as Off and carries only hidden 
   assert.equal(row('openai-oauth').usable, false);
   assert.equal(row('anthropic-oauth').status, 'Not connected');
   assert.deepEqual(row(custom).modelOverrides, { 'secret-model': { hidden: true } });
+  assert.equal(row(custom).name, custom);
+  assert.equal(row(named).name, 'Team gateway');
 });
 
 test('client mode reads an empty server account roster and rejects mutations before touching credentials', async (t) => {

@@ -14,8 +14,10 @@ import { useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
-import { modelDisplayName, providerDisplayName } from './provider-display';
+import { customProviderDisplayNames, resolveProviderDisplayName } from './model-catalog';
+import { modelDisplayName } from './provider-display';
 import { record, rows } from './record-utils';
+import { type SidebarReferenceKey, useSidebarReferences } from './sidebar-reference-cache';
 import { usageNumber, usageProviderLabel } from './usage-format';
 import {
   StatsValue,
@@ -173,6 +175,8 @@ function SortHeader({
   );
 }
 
+const USAGE_REFERENCE_KEYS = ['providerSetup'] as const satisfies readonly SidebarReferenceKey[];
+
 export function UsageStatsBody({
   data,
   request,
@@ -183,6 +187,9 @@ export function UsageStatsBody({
   loading?: boolean;
 }) {
   const loaded = useMemo(() => record(data.getUsageStats), [data.getUsageStats]);
+  // A custom provider is named by what the user registered, not its generated id.
+  const { values } = useSidebarReferences(window.mixdogDesktop, USAGE_REFERENCE_KEYS, true);
+  const providerNames = useMemo(() => customProviderDisplayNames(values.providerSetup), [values.providerSetup]);
   // Read initial data directly: an effect-based copy exposed an empty frame
   // between the loading placeholder and the first real response.
   const [selection, setSelection] = useState<{ view: StatsView; stats: Row } | null>(null);
@@ -311,6 +318,7 @@ export function UsageStatsBody({
         view={view}
         providerOrder={providerOrder}
         providers={providers}
+        providerNames={providerNames}
         period={period}
         loading={loading}
       />
@@ -371,7 +379,7 @@ export function UsageStatsBody({
                       disabled={!models.length}
                       onClick={() => toggleExpanded(id)}
                     >
-                      <b>{usageProviderLabel(providerDisplayName(id))}</b>
+                      <b>{usageProviderLabel(resolveProviderDisplayName(id, providerNames))}</b>
                       <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
                       {plan && (
                         <span className="usage-plan" data-plan={plan}>

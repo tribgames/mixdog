@@ -21,7 +21,7 @@ const { CategoryPanel } = await import('./capability-panels.tsx');
 
 const LABEL = 'Compaction summary model';
 
-async function renderContext(compaction, run) {
+async function renderContext(compaction, run, extraData = {}) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -31,7 +31,7 @@ async function renderContext(compaction, run) {
         category: 'context',
         context: {
           api: {},
-          data: { compaction, autoClear: {}, sessionTitles: {} },
+          data: { compaction, autoClear: {}, sessionTitles: {}, ...extraData },
           snapshot: null,
           pending: '',
           run,
@@ -67,6 +67,30 @@ test('compaction summary select renders the saved mode, Smart by default, and sa
     );
     await act(async () => options[2].click());
     assert.deepEqual(calls, [['setCompactionSettings', [{ summaryMode: 'self' }]]]);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('auto-clear idle windows name a custom provider by its registered name, built-ins by their label', async () => {
+  const custom = 'custom-c07a1b4c-4df1-4f8a-9c10-2e5b8d9f0117';
+  const view = await renderContext({}, async () => ({}), {
+    autoClear: {
+      providerDefaults: [{ provider: 'openai-oauth' }, { provider: custom }, { provider: 'custom-noname' }],
+    },
+    providerSetup: {
+      api: [{ id: custom, name: 'Team Gateway', custom: true }],
+      oauth: [{ id: 'openai-oauth', name: 'Renamed OAuth' }],
+      local: [],
+    },
+  });
+  try {
+    const text = document.body.textContent;
+    assert.match(text, /Team Gateway idle window/);
+    assert.equal(text.includes(custom), false);
+    assert.match(text, /OpenAI OAuth idle window/);
+    assert.equal(text.includes('Renamed OAuth'), false);
+    assert.match(text, /custom-noname idle window/);
   } finally {
     await view.cleanup();
   }

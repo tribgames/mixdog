@@ -7,6 +7,7 @@
  * openers (openModelPicker) thread as lazy getter wrappers so they resolve the
  * live binding at call time.
  */
+import { loadProviderDisplayNames } from './model-options.mjs';
 import { createAgentsPicker } from './route-pickers/agents-picker.mjs';
 import { createOutputStylePicker } from './route-pickers/output-style-picker.mjs';
 import { createWorkflowPicker } from './route-pickers/workflow-picker.mjs';
@@ -59,7 +60,8 @@ export function createRoutePickers({
           store.pushNotice('Web-search model save is already running.', 'warn');
           return;
         }
-        store.pushNotice(`Web-search model set to ${routeLabel(result)}`, 'info');
+        const providerNames = await loadProviderDisplayNames(store);
+        store.pushNotice(`Web-search model set to ${routeLabel(result, providerNames)}`, 'info');
         return result;
       },
       onAfterSelect: null,

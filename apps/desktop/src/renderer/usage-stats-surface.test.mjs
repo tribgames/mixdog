@@ -9,6 +9,11 @@ import { UsageStatsBody, resolveUsageTrendGrouping } from './UsageStatsSurface.t
 import { CommandSurface } from './CommandSurface.tsx';
 import { holdStatsDataCache, refreshStatsDataCache } from './command-surface-cache.ts';
 import { t } from './i18n.ts';
+import {
+  adoptSidebarReferenceHost,
+  resetSidebarReferenceCache,
+  updateSidebarReference,
+} from './sidebar-reference-cache.ts';
 import { usageMoney } from './usage-format.ts';
 import { HOVER_POPOVER_CLOSE_DELAY_MS } from './hover-popover.ts';
 import { resolveUsageStatsPeriod } from '../../../../src/standalone/usage-stats-period.mjs';
@@ -426,6 +431,31 @@ test('statistics open with the last 24 hours, four cards, and no sessions or inf
     [...document.querySelectorAll('.stats-trend header *')].some((node) => node.textContent === t('Trend')),
     false
   );
+});
+
+test('a custom provider is named by its registered name in the table and the chart legend, not its id', async (context) => {
+  const render = harness(context);
+  const custom = 'custom-c07a1b4c-4df1-4f8a-9c10-2e5b8d9f0117';
+  const api = { invokeCapability: async () => ({ value: undefined }), rendererDiagnostic() {} };
+  window.mixdogDesktop = api;
+  context.after(() => {
+    delete window.mixdogDesktop;
+    resetSidebarReferenceCache();
+  });
+  resetSidebarReferenceCache();
+  adoptSidebarReferenceHost(api);
+  updateSidebarReference('providerSetup', {
+    api: [{ id: custom, name: 'Team Gateway', custom: true, usable: true, authenticated: true }],
+    oauth: [],
+    local: [],
+  });
+  const stats = snapshot();
+  stats.providers = [{ ...stats.providers[0], provider: custom, providerKind: 'custom' }];
+  await render({ data: { getUsageStats: stats }, request: async () => stats });
+  const surface = document.querySelector('.stats-surface');
+  assert.equal(document.querySelector('.stats-provider-toggle b').textContent, 'Team Gateway');
+  assert.match(document.querySelector('.stats-trend-legend').textContent, /Team Gateway/);
+  assert.equal(surface.textContent.includes('custom-c07a1b4c'), false);
 });
 
 test('models start expanded, request counts lead numeric columns, and cache hits exclude writes', async (context) => {

@@ -873,10 +873,47 @@ test('a custom provider advertises only the ids of its hidden models', async (t)
   assert.deepEqual(advertised, {
     enabled: true,
     type: 'custom',
+    name: 'Private gateway',
     hiddenModels: ['row-hidden', 'override-hidden'],
     authState: 'present',
     modelProxy: {},
   });
+});
+
+test('an advertised custom provider name is trimmed, redacted and capped; empty or non-string names are omitted', async (t) => {
+  const custom = (name) => ({ type: 'custom', enabled: true, ...(name === undefined ? {} : { name }) });
+  const { channel } = connect(
+    t,
+    fakeRuntime(
+      {},
+      {
+        providerConfig: async () => ({
+          ready: true,
+          providers: {
+            'custom-secret': custom('  Gateway sk-abcdefghijklmnop1234  '),
+            'custom-long': custom('n'.repeat(250)),
+            'custom-empty': custom('   '),
+            'custom-number': custom(42),
+            'custom-object': custom({ toString: 'x' }),
+            'custom-missing': custom(),
+            'custom-blocked': custom('Blocked gateway'),
+            openai: { enabled: true, name: 'Renamed OpenAI' },
+          },
+        }),
+      }
+    ),
+    { isProviderAllowed: (name) => name !== 'custom-blocked' }
+  );
+  const { providers } = await channel.request({ provider: '', method: 'providerConfig' });
+  assert.equal(providers['custom-secret'].name, 'Gateway [redacted]');
+  assert.equal(providers['custom-long'].name, 'n'.repeat(200));
+  for (const id of ['custom-empty', 'custom-number', 'custom-object', 'custom-missing']) {
+    assert.equal(Object.hasOwn(providers[id], 'name'), false, `${id} advertises no name, so the server shows its id`);
+    assert.equal(providers[id].type, 'custom');
+  }
+  assert.equal(Object.hasOwn(providers, 'custom-blocked'), false, 'a provider the server may not use is not advertised');
+  assert.equal(JSON.stringify(providers).includes('Blocked gateway'), false);
+  assert.equal(Object.hasOwn(providers.openai, 'name'), false, 'built-in providers never advertise a name');
 });
 
 test('proxy credential presence follows the registry OAuth set and resolveProviderApiKey precedence', (t) => {

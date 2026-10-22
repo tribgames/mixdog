@@ -105,6 +105,30 @@ test('Create stays off until a name is typed, and the save carries the avatar, m
   assert.match(saved[0].body, /^# GitHub Watcher\n\nSum up new PRs\n\n- Help the user/);
 });
 
+test('the model picker names a custom provider by its registered name, not its generated id', async (t) => {
+  const render = harness(t);
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const custom = 'custom-c07a1b4c-4df1-4f8a-9c10-2e5b8d9f0117';
+  await render(
+    React.createElement(AgentCreateForm, {
+      models: [{ provider: custom, model: 'gw-model', display: 'Gateway model', effortOptions: [] }],
+      providerNames: { [custom]: 'Team Gateway' },
+      initialRoute: { provider: custom, model: 'gw-model' },
+      busy: false,
+      onCancel() {},
+      onSave() {},
+    })
+  );
+  await act(async () => dialog().querySelector('.model-trigger').click());
+  await act(async () => new Promise((resolve) => dom.window.requestAnimationFrame(resolve)));
+  const sheet = document.querySelector('.route-sheet');
+  await act(async () => sheet.querySelector('.route-sheet-row').click());
+  // The dialog's picker is not a dropdown: the catalog opens as a flyout beside the sheet.
+  const catalog = document.querySelector('.route-sheet-flyout');
+  assert.match(catalog.textContent, /Team Gateway/);
+  assert.doesNotMatch(catalog.textContent, /custom-c07a1b4c/);
+});
+
 test('내 이미지 takes one image per motion state: idle required, the rest optional, each resettable', async (t) => {
   const render = harness(t);
   const saved = [];

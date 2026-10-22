@@ -368,9 +368,11 @@ const routeModelDetails = (route) =>
     .filter(Boolean)
     .join(' · ');
 
-export const routeLabel = (route) => {
+export const routeLabel = (route, providerNames = null) => {
   if (!route?.provider || !route?.model) return '(unset)';
-  return [providerDisplayName(route.provider), routeModelDetails(route)].filter(Boolean).join(' · ');
+  return [resolveProviderDisplayName(route.provider, providerNames), routeModelDetails(route)]
+    .filter(Boolean)
+    .join(' · ');
 };
 
 export const routeModelLabel = (route) => (route?.model ? routeModelDetails(route) : '(unset)');

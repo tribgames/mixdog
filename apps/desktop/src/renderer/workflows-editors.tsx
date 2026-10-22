@@ -197,11 +197,13 @@ export function WorkflowEditorDialogs({
   editors,
   models,
   webSearchModels,
+  providerNames,
   busy,
   error,
 }: {
   editors: ReturnType<typeof useWorkflowEditors>;
   models: DesktopModelOption[];
+  providerNames?: Record<string, string>;
   webSearchModels: DesktopModelOption[];
   busy: boolean;
   error: string;
@@ -235,6 +237,7 @@ export function WorkflowEditorDialogs({
           agent={agentEditor.agent}
           deletable={agentEditor.deletable}
           models={models}
+          providerNames={providerNames}
           busy={busy}
           error={error}
           onCancel={editors.cancelAgentEditor}
@@ -251,6 +254,7 @@ export function WorkflowEditorDialogs({
           key={`${routeEditor.capability}:${routeEditor.id}`}
           target={routeEditor}
           models={routeEditor.modelKind === 'webSearch' ? webSearchModels : models}
+          providerNames={providerNames}
           busy={busy}
           error={error}
           onCancel={editors.cancelRouteEditor}

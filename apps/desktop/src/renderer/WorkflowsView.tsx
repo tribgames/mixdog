@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import type { DesktopApi } from '../shared/contract';
 import { t } from './i18n';
 import { InitialSurface } from './InitialSurface';
-import { filterConfiguredModels } from './model-catalog';
+import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import { routeOption } from './model-route-utils';
 import { normalizeModelOptions } from './provider-display';
 import { ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
@@ -54,6 +54,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), providerSetup),
     [values.quickProviderModels, providerSetup]
   );
+  const providerNames = useMemo(() => customProviderDisplayNames(providerSetup), [providerSetup]);
   const webSearchModels = useMemo(
     () => filterConfiguredModels(normalizeModelOptions(values.webSearchModels.map(routeOption)), providerSetup),
     [values.webSearchModels, providerSetup]
@@ -192,6 +193,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
           editors={editors}
           models={models}
           webSearchModels={webSearchModels}
+          providerNames={providerNames}
           busy={busy}
           error={error}
         />

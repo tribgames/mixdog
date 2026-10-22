@@ -4,7 +4,7 @@ import { ErrorNotice } from '../ErrorNotice';
 import type { DesktopApi } from '../../shared/contract';
 import { requestOpenDoctor } from '../command-surface-doctor-event';
 import { t } from '../i18n';
-import { providerDisplayName } from '../provider-display';
+import { customProviderDisplayNames, resolveProviderDisplayName } from '../model-catalog';
 import { record } from '../record-utils';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
@@ -337,6 +337,8 @@ function ContextPanel({ data, pending, run }: PanelContext) {
   const compaction = record(data.compaction);
   const sessionTitles = record(data.sessionTitles);
   const providerDefaults = rows(autoClear.providerDefaults);
+  // A custom provider's idle window is named by what the user registered.
+  const providerNames = customProviderDisplayNames(data.providerSetup);
   const busy = Boolean(pending);
   return (
     <Group title={t('Session lifecycle')}>
@@ -399,7 +401,9 @@ function ContextPanel({ data, pending, run }: PanelContext) {
       {providerDefaults.map((entry) => (
         <AutoSaveRow
           key={String(entry.provider)}
-          title={t('{{value0}} idle window', { value0: providerDisplayName(String(entry.provider || 'default')) })}
+          title={t('{{value0}} idle window', {
+            value0: resolveProviderDisplayName(String(entry.provider || 'default'), providerNames),
+          })}
           name="duration"
           // 'unlimited' is the typed token the runtime parses (never auto-clear).
           value={entry.unlimited === true ? AUTO_CLEAR_UNLIMITED_INPUT : durationTextInput(entry.idleMs)}

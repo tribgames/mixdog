@@ -1,7 +1,7 @@
 // Usage trend chart: grouped bars over the selected period.
 import { useState, type ButtonHTMLAttributes } from 'react';
 import { t, uiFormatLocale } from './i18n';
-import { providerDisplayName } from './provider-display';
+import { resolveProviderDisplayName } from './model-catalog';
 import { usageProviderLabel } from './usage-format';
 import { TrendDetailCard, useTrendDetail } from './trend-detail';
 import {
@@ -79,6 +79,7 @@ export function UsageTrend({
   view,
   providerOrder,
   providers,
+  providerNames,
   period,
   loading,
 }: {
@@ -87,6 +88,8 @@ export function UsageTrend({
   view: StatsView;
   providerOrder: string[];
   providers: Row[];
+  /** Setup-derived custom provider names (customProviderDisplayNames), keyed by provider id. */
+  providerNames?: Record<string, string>;
   period: Row;
   loading: boolean;
 }) {
@@ -108,6 +111,7 @@ export function UsageTrend({
   const detail = useTrendDetail([metric, view, daily, hourly]);
   const active = series.find((bucket) => bucket.key === detail.activeKey);
   // The legend and the detail rows name a provider the same way.
+  const providerLabel = (id: string) => usageProviderLabel(resolveProviderDisplayName(id, providerNames));
   const providerPlanSuffix = (id: string) => {
     const plan = statsPlan(id, String(providers.find((row) => row.provider === id)?.providerKind || ''));
     return plan ? ` · ${statsPlanLabel(plan)}` : '';
@@ -199,7 +203,7 @@ export function UsageTrend({
                     <li key={id}>
                       <span>
                         <i data-usage-provider={id} aria-hidden="true" />
-                        {usageProviderLabel(providerDisplayName(id))}
+                        {providerLabel(id)}
                         {providerPlanSuffix(id)}
                       </span>
                       <b>{trendMetricText(usage, metric)}</b>
@@ -220,7 +224,7 @@ export function UsageTrend({
         {providerOrder.map((id) => (
           <li key={id}>
             <i data-usage-provider={id} aria-hidden="true" />
-            {usageProviderLabel(providerDisplayName(id))}
+            {providerLabel(id)}
             {providerPlanSuffix(id)}
           </li>
         ))}
