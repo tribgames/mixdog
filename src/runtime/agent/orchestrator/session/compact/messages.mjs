@@ -53,6 +53,33 @@ export function isProtectedContextAckMessage(m) {
   );
 }
 
+// The text-only copy rule-only Compact keeps of an omitted tool-call turn.
+// It is execution, not a final reply, though it no longer carries its calls.
+export const EXECUTION_TEXT_SOURCE = 'compact-execution-text';
+
+// Delivered task notifications (a background agent's or task's completion,
+// stored as a role:'user' turn with source 'task-notification') the model has
+// not answered yet: every one after the latest final assistant reply. They
+// are turn input but neither a user instruction nor summarized conversation,
+// so a Compact must carry them verbatim or the report is lost.
+export function pendingTaskNotificationIndexes(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const pending = [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const message = list[index];
+    if (
+      message?.role === 'assistant' &&
+      !message.toolCalls?.length &&
+      !isProtectedContextAckMessage(message) &&
+      message.meta?.source !== EXECUTION_TEXT_SOURCE
+    ) {
+      break;
+    }
+    if (message?.role === 'user' && message.meta?.source === 'task-notification') pending.unshift(index);
+  }
+  return pending;
+}
+
 function referenceFilesManifestMessage(message) {
   if (message?.role !== 'user' || typeof message.content !== 'string') return null;
   const text = message.content.trimStart();

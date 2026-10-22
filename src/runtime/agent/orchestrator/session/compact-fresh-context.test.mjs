@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { freshContextCompactMessages, SUMMARY_PREFIX } from './compact.mjs';
 import { runFreshContextCompact } from './loop/fresh-context.mjs';
 import { withRuntimeUserContext } from './runtime-user-context.mjs';
+import { toAnthropicMessages } from '../providers/lib/anthropic-request-utils.mjs';
+import { renderAgentCompletionEnvelope } from '../../../shared/task-notification-envelope.mjs';
 
 test('fresh Compact summarizes the live conversation without calling Memory', async () => {
   const messages = [{ role: 'system', content: 'system' }];
@@ -140,6 +142,67 @@ test('pre-send active turn reaches the fresh builder as a continuation', async (
 
   assert.match(String(result.messages.at(-1)?.content), /already in progress/i);
   assert.equal(result.diagnostics.activeTurnContinuation, true);
+});
+
+test('an agent report delivered as the turn input survives Compact into the next model request', async () => {
+  const report = renderAgentCompletionEnvelope({
+    id: 'task_agent_advise',
+    tag: 'advise-pr-146',
+    status: 'completed',
+    result: 'ADVISOR_REPORT_BODY: recommend merge as is.',
+  });
+  const notification = {
+    role: 'user',
+    content: report,
+    meta: { source: 'task-notification' },
+  };
+  let summaryInput = '';
+  const result = await runFreshContextCompact({
+    config: {},
+    model: 'fake-model',
+    provider: {
+      name: 'fake',
+      async send(input) {
+        summaryInput = input[1].content;
+        return { content: GENERATED_HANDOFF };
+      },
+    },
+    sessionRef: {
+      id: 'sess-notification-wake',
+      cwd: 'C:\\Project\\mixdog',
+      compaction: { conversationThresholdTokens: 1 },
+      contextWindow: 100_000,
+      compactBoundaryTokens: 100_000,
+    },
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'review PR #146' },
+      { role: 'assistant', content: 'PR #146 looks acceptable.' },
+      { role: 'user', content: 'ask the Advisor too' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'agent-call', name: 'agent', arguments: '{"action":"spawn"}' }],
+      },
+      { role: 'tool', toolCallId: 'agent-call', content: 'agent task: task_agent_advise\nstatus: running' },
+      { role: 'assistant', content: 'The Advisor is reviewing; waiting for its report.' },
+      notification,
+    ],
+    compactBudgetTokens: 30_000,
+    compactPolicy: { contextWindow: 100_000, boundaryTokens: 100_000, reserveTokens: 0 },
+    sessionId: 'sess-notification-wake',
+    activeTurn: true,
+  });
+
+  assert.ok(result.messages.some((m) => typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX)));
+  assert.doesNotMatch(summaryInput, /ADVISOR_REPORT_BODY/);
+  // The unanswered report is the turn's input: it ends the context verbatim,
+  // with no reminder claiming the earlier user request is still in progress.
+  assert.deepEqual(result.messages.at(-1), notification);
+  assert.equal(result.diagnostics.activeTurnContinuation, false);
+  const request = JSON.stringify(toAnthropicMessages(result.messages.filter((m) => m.role !== 'system')));
+  assert.match(request, /ADVISOR_REPORT_BODY: recommend merge as is\./);
+  assert.doesNotMatch(request, /active-turn-continuation/);
 });
 
 test('repeated compact replaces one cumulative summary and does not replay older raw history', async () => {

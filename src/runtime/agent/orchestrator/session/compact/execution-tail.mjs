@@ -3,9 +3,11 @@ import { estimateMessagesTokens } from '../context-utils.mjs';
 import { estimateTokens } from '../token-estimate.mjs';
 import { persistToolResultArtifactSync, previewToolResultArtifact } from '../tool-result-offload.mjs';
 import {
+  EXECUTION_TEXT_SOURCE,
   isActualUserInstructionMessage,
   isProtectedContextAckMessage,
   latestActualUserInstructionIndex,
+  pendingTaskNotificationIndexes,
 } from './messages.mjs';
 import { staleObservations, supersedeObservation } from './observation-supersession.mjs';
 import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
@@ -168,9 +170,9 @@ function shrinkGroup(group, archive, level) {
   });
 }
 
-// Walk from the anchor: kept groups verbatim, user instructions, and the
-// conversational assistant text the mode allows.
-function assembleTail(messages, kept, { anchor, firstKept, preserveConversation }) {
+// Walk from the anchor: kept groups verbatim, user instructions, unanswered
+// task notifications, and the conversational assistant text the mode allows.
+function assembleTail(messages, kept, { anchor, firstKept, preserveConversation, pending }) {
   const tail = [];
   for (let i = Math.max(0, anchor); i < messages.length; i += 1) {
     const group = kept.get(i);
@@ -184,8 +186,16 @@ function assembleTail(messages, kept, { anchor, firstKept, preserveConversation 
       // Omitted execution stays in the archive; its conversational text
       // remains verbatim without replaying an orphaned call or reasoning.
       if (message.toolCalls?.length) {
-        // The text-only copy is this message's rewrite: it keeps its id.
-        if (message.content) tail.push(carryMessageId({ role: 'assistant', content: message.content }, message));
+        // The text-only copy is this message's rewrite: it keeps its id, and
+        // its marker keeps it from reading as a final reply.
+        if (message.content) {
+          tail.push(
+            carryMessageId(
+              { role: 'assistant', content: message.content, meta: { source: EXECUTION_TEXT_SOURCE } },
+              message
+            )
+          );
+        }
       } else {
         tail.push(message);
       }
@@ -193,6 +203,7 @@ function assembleTail(messages, kept, { anchor, firstKept, preserveConversation 
     }
     if (
       isActualUserInstructionMessage(message) ||
+      pending.has(i) ||
       (i >= firstKept && message?.role === 'assistant' && !message.toolCalls?.length)
     ) {
       tail.push(message);
@@ -297,13 +308,22 @@ export function buildExecutionTail(
     throw new Error('compact: latest execution group cannot fit the tool-history budget; original context preserved');
   }
   const latest = latestActualUserInstructionIndex(messages);
+  const pendingIndexes = pendingTaskNotificationIndexes(messages);
+  const pending = new Set(pendingIndexes);
   const firstKept = kept.size ? Math.min(...kept.keys()) : messages.length;
   const latestKept = latest < 0 ? firstKept : latest;
-  const anchor = preserveConversation ? 0 : requestStart(messages, Math.min(firstKept, latestKept));
-  const tail = assembleTail(messages, kept, { anchor, firstKept, preserveConversation });
+  const anchor = preserveConversation
+    ? 0
+    : Math.min(requestStart(messages, Math.min(firstKept, latestKept)), ...pendingIndexes);
+  const tail = assembleTail(messages, kept, { anchor, firstKept, preserveConversation, pending });
   // With no execution to retain, keep the existing latest-request contract.
   if (!preserveConversation && !groups.length && !previousRecovery.length) {
-    return { messages: latest < 0 ? [] : [messages[latest]], toolTokens: 0, toolBudget: budget, retainedGroups: 0 };
+    return {
+      messages: messages.filter((_message, index) => index === latest || pending.has(index)),
+      toolTokens: 0,
+      toolBudget: budget,
+      retainedGroups: 0,
+    };
   }
   return {
     messages: [...recovery, ...tail],
