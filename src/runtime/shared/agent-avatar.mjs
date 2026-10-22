@@ -31,8 +31,9 @@ const RETIRED_SPECIES = { dalmatian: 'labrador', cat: 'labrador', bird: 'labrado
 const RETIRED_ACCESSORIES = { headset: 'glasses' };
 export const MASCOT_EXPRESSIONS = Object.freeze(['calm', 'happy', 'wink', 'sleepy']);
 
-/** Mixy, the primary assistant: its own silver pup with one ear up and a
- *  slate collar with the gold star medal. Never offered in the picker. */
+/** Mixy, the primary assistant: its own silver pup with both ears down, a low
+ *  thick tail with a lighter tip and a slate collar with the gold star medal.
+ *  Never offered in the picker. */
 export const MIXY_AVATAR = Object.freeze({
   kind: 'mascot',
   species: 'mixy',

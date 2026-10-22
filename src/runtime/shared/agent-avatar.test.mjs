@@ -155,14 +155,24 @@ test('a look is layered parts: tail and legs outside the bob, eyes with a blink,
   assert.deepEqual(mascotCells(look('nope')), []);
 });
 
-test("Mixy's signature: one ear up, a slate collar and the gold star medal between the legs", () => {
+test("Mixy's signature: both ears down, a low thick tail with a lighter tip, a slate collar and the gold star medal between the legs", () => {
   const parts = mascotParts(MIXY_AVATAR);
   const left = parts.ear.filter(({ x }) => x < 8).map(({ x, y }) => `${15 - x},${y}`);
   const right = parts.ear.filter(({ x }) => x >= 8).map(key);
-  assert.notDeepEqual(left.sort(), right.sort(), 'the ears are not mirror images');
+  assert.deepEqual(left.sort(), right.sort(), 'the ears mirror each other');
   assert.ok(
-    parts.ear.some(({ y }) => y === 0),
-    'the raised ear reaches the top row'
+    parts.ear.every(({ y }) => y >= 3),
+    'both ears hang beside the head'
+  );
+  assert.deepEqual(parts.tail.map(key).sort(), ['13,8', '13,9', '14,8', '14,9'], 'a 2x2 tail low on the body');
+  assert.ok(
+    parts.tail.every(({ x, y }) => !parts.ear.some((ear) => ear.x === x && Math.abs(ear.y - y) <= 1)),
+    'the tail stays clear of the ear'
+  );
+  assert.deepEqual(
+    parts.tail.filter(({ fill }) => fill !== MIXY_AVATAR.color).map(key).sort(),
+    ['14,8', '14,9'],
+    'only the tip is lighter'
   );
   const medal = parts.marks.filter(({ fill }) => fill === '#f2c94c');
   assert.equal(medal.length, 8);
