@@ -1544,6 +1544,35 @@ test("a relay waits for the room's talk to end, runs at its hop, and a stop drop
   assert.equal(h.prompts.filter((p) => p.agentId === 'bench').length, 1);
 });
 
+test('an ask and a relay arriving after a stop, while the room winds down, end cancelled and nothing hangs', async () => {
+  const gate = gated(['gh']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h);
+  const bench = roomMemberSessionId(roomId, 'bench');
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  h.rooms.stop(sessionId);
+  const ends = [];
+  await h.rooms.ask(sessionId, {
+    agentId: 'rel',
+    prompt: 'status?',
+    from: { sessionId: 'sess_lead_1' },
+    id: 'atask_late',
+    onSettled: (detail) => ends.push(detail),
+  });
+  const relayed = await h.rooms.relay(bench, 'REPORT: late', { id: 'awake_late' });
+  assert.equal(await relayed.settled, 'cancelled');
+  assert.deepEqual(ends, [{ status: 'cancelled' }]);
+  gate.release();
+  await h.idle(roomId);
+  assert.deepEqual(ends, [{ status: 'cancelled' }], 'settled once');
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh'],
+    'neither the ask nor the relay got a turn'
+  );
+});
+
 test('remove surfaces a failed cleanup', async () => {
   const h = harness({ deleteFails: true });
   const { roomId } = await room(h);

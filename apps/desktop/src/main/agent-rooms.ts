@@ -330,6 +330,11 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const calls = (options.calls ?? []).map(settlesOnce);
     const active = running.get(roomId);
     if (!active) return start(roomId, { ...options, calls });
+    // A stopping exchange hands nothing on: calls that arrive now end cancelled.
+    if (active.stop) {
+      for (const call of calls) call.onSettled?.({ status: 'cancelled' });
+      calls.length = 0;
+    }
     const prior = active.pending;
     active.pending = {
       to: [...new Set([...(prior?.to ?? []), ...options.to])],
@@ -596,7 +601,8 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     };
     // A relay never cuts a member off: while the room talks it waits in the
     // room's queue, which the exchange's end drains.
-    if (running.has(member.roomId)) relayQueue.set(member.roomId, [...(relayQueue.get(member.roomId) ?? []), call]);
+    if (running.get(member.roomId)?.stop) call.onSettled?.({ status: 'cancelled' });
+    else if (running.has(member.roomId)) relayQueue.set(member.roomId, [...(relayQueue.get(member.roomId) ?? []), call]);
     else route(member.roomId, { to: [member.agentId], waiting: false, only: true, calls: [call] });
     return { settled };
   }

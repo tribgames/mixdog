@@ -217,11 +217,11 @@ async function exchangeTurns(
 /** The calls no turn of this exchange took: the next exchange (a message sent
  *  meanwhile) gives them their turns; with none to follow they end cancelled. */
 function handOverCalls(host: RoomExchangeHost, state: RunState, calls: RoomCall[]): void {
-  if (!calls.length) return;
   const next = state.pending;
   if (next && !state.stop && host.exists()) {
+    if (!calls.length) return;
     next.to = [...new Set([...(next.to ?? []), ...calls.map((call) => call.agentId)])];
     next.calls = [...calls, ...(next.calls ?? [])];
-  } else for (const call of calls) call.onSettled?.({ status: 'cancelled' });
+  } else for (const call of [...calls, ...(next?.calls ?? [])]) call.onSettled?.({ status: 'cancelled' });
   calls.length = 0;
 }
