@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import fs, { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { admitWorkspaceActivity, holdWorkspaceActivity, tryAdmitWorkspaceActivity } from './activity-gate.mjs';
 import { admitTurn, retainAdmittedTurnWorkspace } from '../../../session-runtime/workspace/admission-gate.mjs';
@@ -204,117 +204,145 @@ test('cancellation while waiting registers nothing', async () => {
   holdWorkspaceActivity([repo])();
 });
 
-const asideCopies = (repo) =>
+const FILE = 'mixdog-workspace-admission.json';
+const admissionPath = (repo) => join(repo, '.git', FILE);
+const mirrorPath = (repo) => `${admissionPath(repo)}.management`;
+const asideCopies = (repo, path = admissionPath(repo)) =>
   readdirSync(join(repo, '.git'))
-    .filter((name) => name.startsWith('mixdog-workspace-admission.json.corrupt-'))
+    .filter((name) => name.startsWith(`${basename(path)}.corrupt-`))
     .map((name) => join(repo, '.git', name));
+const ledgerOf = (repo) => JSON.parse(readFileSync(admissionPath(repo), 'utf8'));
+const mirrorOf = (repo) => JSON.parse(readFileSync(mirrorPath(repo), 'utf8'));
+const sessions = (ledger) => ledger.leases.map((lease) => lease.sessionId);
+const zeroFill = (path) => writeFileSync(path, Buffer.alloc(readFileSync(path).length));
+const UNVERIFIED = { code: 'WORKTREE_BUSY_JOBS', details: { reason: 'workspace-admission-unreadable' } };
+const IN_USE = { code: 'WORKTREE_BUSY_JOBS', details: { reason: 'folder-in-use' } };
 
-const RECOVERY_MS = 400;
-// The gate reads Date.now() directly, so a test that asserts a refusal INSIDE
-// the window needs one long enough that a loaded CI disk cannot outrun it.
-const LOAD_PROOF_RECOVERY_MS = 3500;
-async function withShortRecovery(run, windowMs = RECOVERY_MS) {
-  const saved = [process.env.MIXDOG_ADMISSION_RECOVERY_MS, process.env.MIXDOG_ADMISSION_HEAL_MS];
-  process.env.MIXDOG_ADMISSION_RECOVERY_MS = String(windowMs);
-  process.env.MIXDOG_ADMISSION_HEAL_MS = '100';
-  try {
-    await run();
-  } finally {
-    const [recovery, heal] = saved;
-    if (recovery === undefined) delete process.env.MIXDOG_ADMISSION_RECOVERY_MS;
-    else process.env.MIXDOG_ADMISSION_RECOVERY_MS = recovery;
-    if (heal === undefined) delete process.env.MIXDOG_ADMISSION_HEAL_MS;
-    else process.env.MIXDOG_ADMISSION_HEAL_MS = heal;
+/** Both copies of the ledger, which agree after every completed mutation. */
+function copiesOf(repo) {
+  const primary = readFileSync(admissionPath(repo), 'utf8');
+  assert.equal(readFileSync(mirrorPath(repo), 'utf8'), primary, 'both copies hold the same ledger');
+  return JSON.parse(primary);
+}
+
+/** Moves every recovery stamp far into the past: the former 15 s window is long over. */
+function ageRecovery(repo) {
+  for (const path of [admissionPath(repo), mirrorPath(repo)]) {
+    const ledger = JSON.parse(readFileSync(path, 'utf8'));
+    if ('recoveredAt' in ledger) writeFileSync(path, JSON.stringify({ ...ledger, recoveredAt: 0 }));
   }
 }
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const ledgerOf = (repo) => JSON.parse(readFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), 'utf8'));
 
-test('a damaged ledger is kept aside: readers continue, a live holder is never lost, management resumes by itself', async () => {
-  await withShortRecovery(async () => {
-    const repo = makeRepo();
-    const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-    const leave = tryAdmitWorkspaceActivity('reader', repo);
-    const intact = readFileSync(path);
-    for (const damaged of [
-      Buffer.alloc(intact.length),
-      Buffer.from('{broken'),
-      Buffer.alloc(0),
-      Buffer.from('{"version":1,"leases":[null]}'),
-    ]) {
-      writeFileSync(path, damaged);
-      const later = tryAdmitWorkspaceActivity('later-reader', repo);
-      assert.ok(later, 'a damaged ledger admits readers');
-      assert.ok(
-        asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
-        'the damaged bytes are kept aside, not overwritten'
-      );
-      later();
-      // The holder in this process republished its lease: management still refuses on it.
-      assert.throws(() => holdWorkspaceActivity([repo]), {
-        code: 'WORKTREE_BUSY_JOBS',
-        details: { reason: 'folder-in-use' },
-      });
+async function until(condition, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, 'the condition was not reached');
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
 
-      // A fresh profile meets the same damage: its reader continues, its writer waits.
-      writeFileSync(path, damaged);
-      const next = spawnSync(
-        process.execPath,
-        [
-          '--input-type=module',
-          '-e',
-          `
-            import assert from 'node:assert/strict';
-            import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-            const cwd = process.argv[1];
-            tryAdmitWorkspaceActivity('new-process', cwd)();
-            assert.throws(() => holdWorkspaceActivity([cwd]), { details: { reason: 'workspace-admission-unreadable' } });
-          `,
-          repo,
-        ],
-        { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
-      );
-      assert.equal(next.error, undefined);
-      assert.equal(next.status, 0, next.stderr);
-      for (const copy of asideCopies(repo)) unlinkSync(copy);
+/**
+ * A process whose leases are never healed (its heal tick is far away), like a
+ * suspended one: only the ledger's copies keep them. `holds` lists
+ * `[kind, folder]`; any message releases them all and exits.
+ */
+async function holding(t, holds, dataDir = tempDir()) {
+  const child = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        const releases = JSON.parse(process.argv[1]).map(([kind, folder]) =>
+          kind === 'management'
+            ? holdWorkspaceActivity([folder])
+            : tryAdmitWorkspaceActivity('silent-' + kind, folder, { kind })
+        );
+        process.on('message', () => {
+          for (const leave of releases) leave();
+          process.exit(0);
+        });
+        process.send('active');
+      `,
+      JSON.stringify(holds),
+    ],
+    {
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      env: { ...process.env, MIXDOG_DATA_DIR: dataDir, MIXDOG_ADMISSION_HEAL_MS: '600000' },
     }
-    leave();
-    await sleep(RECOVERY_MS + 100);
-    holdWorkspaceActivity([repo])();
-    assert.deepEqual(ledgerOf(repo).leases, []);
-    assert.equal(ledgerOf(repo).recoveredAt, undefined, 'the unknown-lease state cleared on its own');
+  );
+  t.after(() => {
+    if (child.exitCode === null) child.kill();
   });
+  assert.equal((await once(child, 'message'))[0], 'active');
+  return child;
+}
+
+/** A linked worktree Mixdog manages, so management takes a lease on it. */
+async function managedWorktree(repo) {
+  const path = join(tempDir(), 'managed');
+  git(repo, 'worktree', 'add', '-q', '-b', 'feature/managed', path);
+  await putRecord({ id: 'managed', path });
+  return path;
+}
+
+test('a damaged primary copy is restored from the mirror: readers continue and a live holder is never lost', () => {
+  const repo = makeRepo();
+  const path = admissionPath(repo);
+  const leave = tryAdmitWorkspaceActivity('reader', repo);
+  const intact = readFileSync(path);
+  for (const damaged of [
+    Buffer.alloc(intact.length),
+    Buffer.from('{broken'),
+    Buffer.alloc(0),
+    Buffer.from('{"version":2,"leases":[null]}'),
+  ]) {
+    writeFileSync(path, damaged);
+    const later = tryAdmitWorkspaceActivity('later-reader', repo);
+    assert.ok(later, 'a damaged ledger admits readers');
+    assert.ok(
+      asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
+      'the damaged bytes are kept aside, not overwritten'
+    );
+    later();
+    assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+
+    // A fresh profile meets the same damage: the mirror still names the holder.
+    writeFileSync(path, damaged);
+    const next = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+          import assert from 'node:assert/strict';
+          import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+          const cwd = process.argv[1];
+          tryAdmitWorkspaceActivity('new-process', cwd)();
+          assert.throws(() => holdWorkspaceActivity([cwd]), { details: { reason: 'folder-in-use' } });
+        `,
+        repo,
+      ],
+      { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+    );
+    assert.equal(next.error, undefined);
+    assert.equal(next.status, 0, next.stderr);
+    for (const copy of asideCopies(repo)) unlinkSync(copy);
+  }
+  leave();
+  holdWorkspaceActivity([repo])();
+  assert.deepEqual(copiesOf(repo).leases, []);
+  assert.equal(ledgerOf(repo).recoveredAt, undefined, 'an intact mirror leaves nothing unknown');
 });
 
-test('a recovered ledger refuses management only for the unknown window, then the block clears', async () => {
-  await withShortRecovery(async () => {
-    const repo = makeRepo();
-    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), Buffer.alloc(64));
-    tryAdmitWorkspaceActivity('reader', repo)();
-    assert.throws(() => holdWorkspaceActivity([repo]), {
-      code: 'WORKTREE_BUSY_JOBS',
-      details: { reason: 'workspace-admission-unreadable' },
-    });
-    await sleep(LOAD_PROOF_RECOVERY_MS + 100);
-    holdWorkspaceActivity([repo])();
-    assert.equal(ledgerOf(repo).recoveredAt, undefined);
-  }, LOAD_PROOF_RECOVERY_MS);
-});
-
-test('a writer that meets the damage first keeps the recovery, so the next writer still waits', async () => {
-  await withShortRecovery(async () => {
-    const repo = makeRepo();
-    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), Buffer.alloc(64));
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      assert.throws(() => holdWorkspaceActivity([repo]), {
-        code: 'WORKTREE_BUSY_JOBS',
-        details: { reason: 'workspace-admission-unreadable' },
-      });
-    }
-    assert.ok(Number.isFinite(ledgerOf(repo).recoveredAt), 'the refused writer published the recovery');
-    await sleep(RECOVERY_MS + 100);
-    holdWorkspaceActivity([repo])();
-  });
+test('a writer that meets the damage first publishes the uncertainty to both copies, so the next writer still waits', () => {
+  const repo = makeRepo();
+  writeFileSync(admissionPath(repo), Buffer.alloc(64));
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+  }
+  assert.ok(Number.isFinite(copiesOf(repo).recoveredAt), 'the refused writer published the uncertainty');
 });
 
 // Runs `interleave` once, right after the ledger lock is first released: the
@@ -338,175 +366,469 @@ function afterLedgerLockRelease(interleave) {
   };
 }
 
-test('a writer that takes the lock the instant a recovery releases it still waits for the recovery window', async () => {
-  await withShortRecovery(async () => {
-    const repo = makeRepo();
-    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), Buffer.alloc(64));
-    let interleaved = { error: new Error('no writer ran at the lock release') };
-    const stop = afterLedgerLockRelease(() => {
-      try {
-        interleaved = { release: holdWorkspaceActivity([repo]) };
-      } catch (error) {
-        interleaved = { error };
-      }
-    });
+test('a writer that takes the lock the instant a recovery releases it still waits', () => {
+  const repo = makeRepo();
+  writeFileSync(admissionPath(repo), Buffer.alloc(64));
+  let interleaved = { error: new Error('no writer ran at the lock release') };
+  const stop = afterLedgerLockRelease(() => {
     try {
-      holdWorkspaceActivity([repo])();
-    } catch {
-      // The first writer is refused for the window; only the interleaved one is under test.
-    } finally {
-      stop();
+      interleaved = { release: holdWorkspaceActivity([repo]) };
+    } catch (error) {
+      interleaved = { error };
     }
-    interleaved.release?.();
-    assert.equal(
-      interleaved.error?.details?.reason,
-      'workspace-admission-unreadable',
-      `a writer admitted between the move-aside and the recovery read the missing ledger as empty: ${interleaved.error?.message ?? 'admitted'}`
-    );
-    assert.ok(Number.isFinite(ledgerOf(repo).recoveredAt), 'the recovery marker is published');
-    await sleep(RECOVERY_MS + 100);
-    holdWorkspaceActivity([repo])();
   });
+  try {
+    holdWorkspaceActivity([repo])();
+  } catch {
+    // The first writer is refused; only the interleaved one is under test.
+  } finally {
+    stop();
+  }
+  interleaved.release?.();
+  assert.equal(
+    interleaved.error?.details?.reason,
+    'workspace-admission-unreadable',
+    `a writer admitted between the move-aside and the recovery read the missing ledger as empty: ${interleaved.error?.message ?? 'admitted'}`
+  );
+  assert.ok(Number.isFinite(copiesOf(repo).recoveredAt), 'the uncertainty is published to both copies');
 });
 
-test('a crash between keeping the damaged ledger aside and publishing the recovery still refuses management', async () => {
-  await withShortRecovery(async () => {
-    const repo = makeRepo();
-    const damaged = Buffer.alloc(64);
-    writeFileSync(join(repo, '.git', 'mixdog-workspace-admission.json'), damaged);
-    const crashed = spawnSync(
-      process.execPath,
-      [
-        '--input-type=module',
-        '-e',
-        `
-          import fs from 'node:fs';
-          import { syncBuiltinESMExports } from 'node:module';
-          import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-          const rename = fs.renameSync;
-          // The process dies as the recovered ledger is about to be published.
-          fs.renameSync = (from, to) => {
-            if (String(to).endsWith('mixdog-workspace-admission.json')) process.exit(86);
-            return rename(from, to);
-          };
-          syncBuiltinESMExports();
-          holdWorkspaceActivity([process.argv[1]]);
-        `,
-        repo,
-      ],
-      { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
-    );
-    assert.equal(crashed.status, 86, crashed.stderr);
-    assert.ok(
-      asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
-      'the damaged bytes were kept before the crash'
-    );
-    assert.throws(() => holdWorkspaceActivity([repo]), {
-      code: 'WORKTREE_BUSY_JOBS',
-      details: { reason: 'workspace-admission-unreadable' },
-    });
-    await sleep(RECOVERY_MS + 100);
-    holdWorkspaceActivity([repo])();
-  });
+test('a crash between keeping the damaged ledger aside and publishing the recovery still refuses management', () => {
+  const repo = makeRepo();
+  const damaged = Buffer.alloc(64);
+  writeFileSync(admissionPath(repo), damaged);
+  const crashed = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import fs from 'node:fs';
+        import { syncBuiltinESMExports } from 'node:module';
+        import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        const rename = fs.renameSync;
+        // The process dies as the recovered ledger is about to be published.
+        fs.renameSync = (from, to) => {
+          if (String(to).endsWith('mixdog-workspace-admission.json')) process.exit(86);
+          return rename(from, to);
+        };
+        syncBuiltinESMExports();
+        holdWorkspaceActivity([process.argv[1]]);
+      `,
+      repo,
+    ],
+    { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+  );
+  assert.equal(crashed.status, 86, crashed.stderr);
+  assert.ok(
+    asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
+    'the damaged bytes were kept before the crash'
+  );
+  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
 });
 
 test('a damaged ledger cannot hide a foreign management operation from readers', { timeout: 20000 }, async (t) => {
-  await withShortRecovery(async () => {
-    const repo = makeRepo();
-    const child = spawn(
-      process.execPath,
-      [
-        '--input-type=module',
-        '-e',
-        `
-          import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-          const release = holdWorkspaceActivity([process.argv[1]]);
-          process.on('message', () => { release(); process.exit(0); });
-          process.send('active');
-        `,
-        repo,
-      ],
-      {
-        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-        // No self-heal in the holder: only the management mirror can restore its lease.
-        env: { ...process.env, MIXDOG_DATA_DIR: tempDir(), MIXDOG_ADMISSION_HEAL_MS: '600000' },
-      }
-    );
-    t.after(() => {
-      if (child.exitCode === null) child.kill();
-    });
-    assert.equal((await once(child, 'message'))[0], 'active');
-    const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-    writeFileSync(path, Buffer.alloc(readFileSync(path).length));
-    assert.equal(tryAdmitWorkspaceActivity('reader', repo), null, 'the operation in progress still excludes readers');
-    const exited = once(child, 'exit');
-    child.send('release');
-    await exited;
-    const leave = tryAdmitWorkspaceActivity('reader', repo);
-    assert.ok(leave, 'readers resume once the operation ended');
-    leave();
-  });
-});
-
-test('a ledger of a newer build is left in place: readers go unrecorded, management refuses', () => {
   const repo = makeRepo();
-  const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-  const newer = '{"version":2,"leases":[],"future":true}';
-  writeFileSync(path, newer);
+  const child = await holding(t, [['management', repo]]);
+  zeroFill(admissionPath(repo));
+  assert.equal(tryAdmitWorkspaceActivity('reader', repo), null, 'the operation in progress still excludes readers');
+  const exited = once(child, 'exit');
+  child.send('release');
+  await exited;
   const leave = tryAdmitWorkspaceActivity('reader', repo);
-  assert.ok(leave, 'prompts are never blocked by it');
+  assert.ok(leave, 'readers resume once the operation ended');
   leave();
-  assert.throws(() => holdWorkspaceActivity([repo]), {
-    code: 'WORKTREE_BUSY_JOBS',
-    details: { reason: 'workspace-admission-unreadable' },
-  });
-  assert.equal(readFileSync(path, 'utf8'), newer);
-  assert.deepEqual(asideCopies(repo), []);
 });
 
-test('one invalid lease record is dropped without discarding the valid leases', { timeout: 20000 }, async (t) => {
-  await withShortRecovery(async () => {
-    const repo = makeRepo();
-    const child = reader(t, repo);
-    assert.equal((await once(child, 'message'))[0], 'active');
-    const path = join(repo, '.git', 'mixdog-workspace-admission.json');
-    const ledger = JSON.parse(readFileSync(path, 'utf8'));
-    ledger.leases.push({ kind: 'turn', token: 7 });
-    writeFileSync(path, JSON.stringify(ledger));
-    const leave = tryAdmitWorkspaceActivity('parent', repo);
-    assert.ok(leave);
-    assert.ok(
-      ledgerOf(repo).leases.some((lease) => lease.pid === child.pid),
-      'the valid foreign lease survived'
-    );
-    assert.ok(asideCopies(repo).some((copy) => JSON.parse(readFileSync(copy, 'utf8')).leases.length === 2));
-    leave();
-    assert.throws(() => holdWorkspaceActivity([repo]), {
-      code: 'WORKTREE_BUSY_JOBS',
-      details: { reason: 'folder-in-use' },
-    });
-    const exited = once(child, 'exit');
-    child.send('release');
-    await exited;
-    await sleep(RECOVERY_MS + 100);
-    holdWorkspaceActivity([repo])();
-  });
-});
-
-test('an unreadable ledger is not overwritten and admission resumes after access is restored', () => {
+test('invalid lease records drop only themselves; without an intact copy the rest stays uncertain', {
+  timeout: 20000,
+}, async (t) => {
   const repo = makeRepo();
-  const path = join(repo, '.git', 'mixdog-workspace-admission.json');
+  const child = reader(t, repo);
+  assert.equal((await once(child, 'message'))[0], 'active');
+  const withInvalidRecord = () => {
+    const ledger = ledgerOf(repo);
+    ledger.leases.push({ kind: 'turn', token: 7 });
+    return JSON.stringify(ledger);
+  };
+  writeFileSync(admissionPath(repo), withInvalidRecord());
+  const leave = tryAdmitWorkspaceActivity('parent', repo);
+  assert.ok(leave);
+  assert.ok(
+    ledgerOf(repo).leases.some((lease) => lease.pid === child.pid),
+    'the valid foreign lease survived'
+  );
+  assert.ok(asideCopies(repo).some((copy) => JSON.parse(readFileSync(copy, 'utf8')).leases.length === 2));
+  leave();
+  assert.equal(ledgerOf(repo).recoveredAt, undefined, 'the intact mirror accounts for the invalid record');
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+
+  // The same invalid record in both copies: the valid leases stay, the rest is unknown.
+  const damaged = withInvalidRecord();
+  writeFileSync(admissionPath(repo), damaged);
+  writeFileSync(mirrorPath(repo), damaged);
+  tryAdmitWorkspaceActivity('parent', repo)();
+  assert.ok(copiesOf(repo).leases.some((lease) => lease.pid === child.pid));
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  const exited = once(child, 'exit');
+  child.send('release');
+  await exited;
+  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED, 'its release does not prove the ledger whole');
+});
+
+test('an unreadable copy is never overwritten and admission resumes after access is restored', () => {
+  const repo = makeRepo();
   holdWorkspaceActivity([repo])();
-  unlinkSync(path);
-  mkdirSync(path);
-  assert.throws(() => tryAdmitWorkspaceActivity('blocked', repo), {
-    code: 'WORKTREE_BUSY_JOBS',
-    details: { reason: 'workspace-admission-unreadable' },
+  for (const path of [admissionPath(repo), mirrorPath(repo)]) {
+    unlinkSync(path);
+    mkdirSync(path);
+    assert.throws(() => tryAdmitWorkspaceActivity('blocked', repo), UNVERIFIED);
+    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+    rmdirSync(path);
+    holdWorkspaceActivity([repo])();
+  }
+});
+
+// ── #181: no live owner loses its protection to a damaged ledger ─────────
+
+for (const kind of ['turn', 'command']) {
+  test(`#181-1 a suspended foreign ${kind} keeps management refused past the former recovery window`, {
+    timeout: 20000,
+  }, async (t) => {
+    const repo = makeRepo();
+    await holding(t, [[kind, repo]]);
+    zeroFill(admissionPath(repo));
+    assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+    ageRecovery(repo);
+    assert.throws(() => holdWorkspaceActivity([repo]), IN_USE, 'the mirror still names the live holder');
+    assert.ok(copiesOf(repo).leases.some((lease) => lease.kind === kind && lease.sessionId === `silent-${kind}`));
   });
-  assert.throws(() => holdWorkspaceActivity([repo]), {
-    code: 'WORKTREE_BUSY_JOBS',
-    details: { reason: 'workspace-admission-unreadable' },
+}
+
+test('#181-2 a recorded background command outlives its publisher until the command is confirmed dead', {
+  timeout: 20000,
+}, async (t) => {
+  const repo = makeRepo();
+  const command = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { stdio: 'ignore' });
+  t.after(() => {
+    if (command.exitCode === null) command.kill();
   });
-  rmdirSync(path);
+  const records = new URL('../../agent/orchestrator/tools/builtin/lib/shell-job-records.mjs', import.meta.url).href;
+  const publisher = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import { publishShellJobRecord } from ${JSON.stringify(records)};
+        const [cwd, pid] = process.argv.slice(1);
+        publishShellJobRecord({ jobId: 'job_survivor', cwd, pid: Number(pid), command: 'node' }, { ownerSessionId: 'publisher' });
+        process.exit(0);
+      `,
+      repo,
+      String(command.pid),
+    ],
+    { stdio: 'ignore', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+  );
+  assert.deepEqual(await once(publisher, 'exit'), [0, null]);
+  assert.ok(ledgerOf(repo).leases.some((lease) => lease.kind === 'command' && lease.pid === command.pid));
+  zeroFill(admissionPath(repo));
+  assert.throws(() => holdWorkspaceActivity([repo]), { code: 'WORKTREE_BUSY_JOBS' });
+  ageRecovery(repo);
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE, 'no process is left to republish the command');
+  assert.ok(copiesOf(repo).leases.some((lease) => lease.kind === 'command' && lease.pid === command.pid));
+  const exited = once(command, 'exit');
+  command.kill();
+  await exited;
+  holdWorkspaceActivity([repo])();
+});
+
+test('#181-3 a damaged mirror is restored from the intact primary with every kind of lease', {
+  timeout: 30000,
+}, async (t) => {
+  const repo = makeRepo();
+  const managed = await managedWorktree(repo);
+  await holding(
+    t,
+    [
+      ['turn', repo],
+      ['command', repo],
+      ['management', managed],
+    ],
+    process.env.MIXDOG_DATA_DIR
+  );
+  const damaged = Buffer.alloc(readFileSync(mirrorPath(repo)).length);
+  writeFileSync(mirrorPath(repo), damaged);
+  tryAdmitWorkspaceActivity('probe', repo)();
+  assert.deepEqual(
+    copiesOf(repo)
+      .leases.map((lease) => lease.kind)
+      .sort(),
+    ['command', 'management', 'turn']
+  );
+  assert.ok(asideCopies(repo, mirrorPath(repo)).some((copy) => readFileSync(copy).equals(damaged)));
+  // The repaired mirror alone now carries all of them.
+  zeroFill(admissionPath(repo));
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  assert.equal(tryAdmitWorkspaceActivity('blocked', managed), null, 'the management operation still excludes readers');
+  assert.equal(copiesOf(repo).recoveredAt, undefined);
+});
+
+test('#181-4 with both copies damaged the uncertainty survives mutations, releases, restarts and any age', () => {
+  const repo = makeRepo();
+  const keep = tryAdmitWorkspaceActivity('keep', repo);
+  zeroFill(admissionPath(repo));
+  zeroFill(mirrorPath(repo));
+  const reader = tryAdmitWorkspaceActivity('reader', repo);
+  assert.ok(reader, 'readers still run');
+  // This process put `keep` back: some leases came back, which proves nothing about the rest.
+  assert.deepEqual(sessions(copiesOf(repo)).sort(), ['keep', 'reader']);
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  reader();
+  keep();
+  for (let round = 0; round < 3; round += 1) {
+    tryAdmitWorkspaceActivity(`round-${round}`, repo)();
+    ageRecovery(repo);
+    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+  }
+  const restarted = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import assert from 'node:assert/strict';
+        import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        const cwd = process.argv[1];
+        tryAdmitWorkspaceActivity('restarted', cwd)();
+        assert.throws(() => holdWorkspaceActivity([cwd]), { details: { reason: 'workspace-admission-unreadable' } });
+      `,
+      repo,
+    ],
+    { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+  );
+  assert.equal(restarted.status, 0, restarted.stderr);
+  assert.ok('recoveredAt' in copiesOf(repo));
+});
+
+test('#181-5 a missing copy is restored from the other in both directions, never read as empty', {
+  timeout: 20000,
+}, async (t) => {
+  const repo = makeRepo();
+  await holding(t, [
+    ['turn', repo],
+    ['command', repo],
+  ]);
+  for (const missing of [mirrorPath(repo), admissionPath(repo)]) {
+    unlinkSync(missing);
+    assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+    const ledger = copiesOf(repo);
+    assert.deepEqual(sessions(ledger).sort(), ['silent-command', 'silent-turn']);
+    assert.equal(ledger.recoveredAt, undefined, 'the remaining copy was complete');
+  }
+});
+
+// Fails planned writes of one copy: `plan.primary[i]` / `plan.mirror[i]` say
+// whether that copy's i-th write from now on fails.
+function failWrites(plan) {
+  const rename = fs.renameSync;
+  const queues = { [FILE]: [...(plan.primary ?? [])], [`${FILE}.management`]: [...(plan.mirror ?? [])] };
+  fs.renameSync = function (from, to, ...rest) {
+    if (queues[basename(String(to))]?.shift())
+      throw Object.assign(new Error('injected write failure'), { code: 'EIO' });
+    return rename.call(this, from, to, ...rest);
+  };
+  syncBuiltinESMExports();
+  return () => {
+    fs.renameSync = rename;
+    syncBuiltinESMExports();
+  };
+}
+
+function withFailingWrites(plan, run) {
+  const stop = failWrites(plan);
+  try {
+    return run();
+  } finally {
+    stop();
+  }
+}
+
+test('#181-6 publication faults never acknowledge an unprotected grant, lose a lease, or revive a released one', {
+  timeout: 30000,
+}, async (t) => {
+  const repo = makeRepo();
+  const managed = await managedWorktree(repo);
+  // An existing lease of a process that cannot put it back by itself.
+  await holding(t, [['turn', repo]]);
+  const inPrimary = (session) => sessions(ledgerOf(repo)).includes(session);
+  const inMirror = (session) => sessions(mirrorOf(repo)).includes(session);
+  const settled = (...expected) =>
+    assert.deepEqual(sessions(copiesOf(repo)).sort(), ['silent-turn', ...expected].sort());
+
+  // A grant whose write of either copy fails returns no handle and leaves no lease.
+  for (const plan of [{ primary: [true] }, { mirror: [true] }]) {
+    assert.throws(() => withFailingWrites(plan, () => tryAdmitWorkspaceActivity('attempt', repo)), UNVERIFIED);
+    settled();
+  }
+  assert.throws(() => withFailingWrites({ mirror: [true] }, () => holdWorkspaceActivity([managed])), UNVERIFIED);
+  settled();
+  const probe = tryAdmitWorkspaceActivity('probe', managed);
+  assert.ok(probe, 'the failed management grant left no lease behind');
+  probe();
+
+  // Its rollback fails too: the attempt stays recorded (a conservative claim of
+  // this live process) and no grant succeeds while the copies cannot be made whole.
+  assert.throws(
+    () =>
+      withFailingWrites({ mirror: [true], primary: [false, true] }, () => tryAdmitWorkspaceActivity('attempt', repo)),
+    UNVERIFIED
+  );
+  assert.ok(inPrimary('attempt') && !inMirror('attempt'));
+  assert.throws(
+    () => withFailingWrites({ mirror: [true, true] }, () => tryAdmitWorkspaceActivity('refused', repo)),
+    UNVERIFIED
+  );
+  assert.ok(!inPrimary('refused') && !inMirror('refused'));
+  // The next mutation withdraws exactly the pending attempts.
+  const kept = tryAdmitWorkspaceActivity('kept', repo);
+  assert.ok(kept);
+  settled('kept');
+
+  // A release whose write of either copy fails stays pending and is retried by
+  // the next mutation; the released lease is never put back.
+  for (const plan of [{ primary: [true] }, { mirror: [true] }]) {
+    const done = tryAdmitWorkspaceActivity('done', repo);
+    withFailingWrites(plan, done);
+    assert.ok(inPrimary('done') || inMirror('done'), 'a removal that did not land keeps the lease recorded');
+    tryAdmitWorkspaceActivity('next', repo)();
+    settled('kept');
+  }
+
+  // Without another mutation, the heal tick retries the removal by itself.
+  const late = tryAdmitWorkspaceActivity('late', repo);
+  withFailingWrites({ mirror: [true] }, late);
+  assert.ok(inMirror('late'));
+  await until(() => !inMirror('late'));
+  settled('kept');
+  kept();
+  settled();
+});
+
+// Runs `step` in a new process that dies as it is about to replace the mirror,
+// after the primary copy was written.
+function dieBetweenWrites(repo, step) {
+  const crashed = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import fs from 'node:fs';
+        import { basename } from 'node:path';
+        import { syncBuiltinESMExports } from 'node:module';
+        import { tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        const rename = fs.renameSync;
+        fs.renameSync = (from, to) => {
+          if (basename(String(to)) === ${JSON.stringify(`${FILE}.management`)}) process.exit(86);
+          return rename(from, to);
+        };
+        syncBuiltinESMExports();
+        const cwd = process.argv[1];
+        ${step}
+      `,
+      repo,
+    ],
+    { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+  );
+  assert.equal(crashed.status, 86, crashed.stderr);
+}
+
+test('#181-7 a process dying between the two writes never lets management run over acknowledged work', {
+  timeout: 30000,
+}, async (t) => {
+  const repo = makeRepo();
+  await holding(t, [['turn', repo]]);
+  const grant = `tryAdmitWorkspaceActivity('interrupted', cwd);`;
+  dieBetweenWrites(repo, grant);
+  assert.ok(sessions(ledgerOf(repo)).includes('interrupted') && !sessions(mirrorOf(repo)).includes('interrupted'));
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  // The copy the dead process wrote is damaged afterwards: the older mirror still names the holder.
+  dieBetweenWrites(repo, grant);
+  zeroFill(admissionPath(repo));
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+  assert.deepEqual(sessions(copiesOf(repo)), ['silent-turn']);
+  // Both copies damaged, and the process persisting that dies halfway: the next one still refuses.
+  zeroFill(admissionPath(repo));
+  zeroFill(mirrorPath(repo));
+  dieBetweenWrites(repo, grant);
+  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+});
+
+test('#181-8 a version 1 ledger keeps every lease; a damaged one beside a management-only mirror stays uncertain', () => {
+  const repo = makeRepo();
+  const lease = (kind, path) => ({ kind, sessionId: `v1-${kind}`, pid: process.pid, token: `v1-${kind}`, path });
+  const management = lease('management', tempDir());
+  const v1 = { version: 1, leases: [lease('turn', repo), lease('command', repo), management] };
+  const v1Mirror = JSON.stringify({ version: 1, leases: [management] });
+  writeFileSync(admissionPath(repo), JSON.stringify(v1));
+  writeFileSync(mirrorPath(repo), v1Mirror);
+  tryAdmitWorkspaceActivity('probe', repo)();
+  const migrated = copiesOf(repo);
+  assert.equal(migrated.version, 2);
+  assert.deepEqual(migrated.leases, v1.leases);
+  assert.equal(migrated.recoveredAt, undefined, 'an intact version 1 ledger is complete');
+  assert.throws(() => holdWorkspaceActivity([repo]), IN_USE);
+
+  writeFileSync(admissionPath(repo), Buffer.alloc(64));
+  writeFileSync(mirrorPath(repo), v1Mirror);
+  tryAdmitWorkspaceActivity('probe', repo)();
+  const recovered = copiesOf(repo);
+  assert.deepEqual(recovered.leases, [management], 'the mirrored management lease is kept');
+  assert.ok('recoveredAt' in recovered, 'a management-only mirror is not a complete ledger');
+  ageRecovery(repo);
+  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+});
+
+test('#181-10 a ledger of a newer build refuses every admission and is left byte-identical', () => {
+  const repo = makeRepo();
+  const newer = '{"version":3,"leases":[],"future":true}';
+  for (const primary of [newer, '{"version":2,"leases":[]}\n']) {
+    writeFileSync(admissionPath(repo), primary);
+    writeFileSync(mirrorPath(repo), newer);
+    assert.throws(() => tryAdmitWorkspaceActivity('reader', repo), UNVERIFIED);
+    assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+    assert.equal(readFileSync(admissionPath(repo), 'utf8'), primary);
+    assert.equal(readFileSync(mirrorPath(repo), 'utf8'), newer);
+  }
+  assert.deepEqual([...asideCopies(repo), ...asideCopies(repo, mirrorPath(repo))], []);
+});
+
+test('#181-11 a new repository and a quiescent reset start clean; two missing copies read as a new repository', {
+  timeout: 20000,
+}, async (t) => {
+  const repo = makeRepo();
+  holdWorkspaceActivity([repo])();
+  tryAdmitWorkspaceActivity('first', repo)();
+  assert.deepEqual(copiesOf(repo), { version: 2, leases: [] });
+
+  zeroFill(admissionPath(repo));
+  zeroFill(mirrorPath(repo));
+  tryAdmitWorkspaceActivity('reader', repo)();
+  ageRecovery(repo);
+  assert.throws(() => holdWorkspaceActivity([repo]), UNVERIFIED);
+  // The documented reset, with nothing running: remove the pair, keep the `.corrupt-` copies.
+  const kept = [...asideCopies(repo), ...asideCopies(repo, mirrorPath(repo))];
+  assert.equal(kept.length, 2);
+  unlinkSync(admissionPath(repo));
+  unlinkSync(mirrorPath(repo));
+  holdWorkspaceActivity([repo])();
+  assert.deepEqual(copiesOf(repo), { version: 2, leases: [] });
+  assert.ok(kept.every((copy) => existsSync(copy)));
+
+  // The documented limitation: both copies removed while work runs reads as a new repository.
+  await holding(t, [['turn', repo]]);
+  unlinkSync(admissionPath(repo));
+  unlinkSync(mirrorPath(repo));
   holdWorkspaceActivity([repo])();
 });
