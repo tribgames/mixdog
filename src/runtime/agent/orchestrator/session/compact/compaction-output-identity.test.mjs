@@ -353,12 +353,12 @@ const EXPECTED = {
       pressureTokens: 480_145,
     }),
     messages: 181,
-    messagesSha: 'cf51a17106ada17f73078d97bfdfae546cb371f4932294acaeebfd611ddfaf1d',
+    messagesSha: '60f0e65a427fdb2ea2f8ee646f11c61cc1c943fbf4443e6966583ba585737f49',
     recordSha: '9af03accb136319983b290a461281ce54bb69d92e8013876b3b5e416d4422904',
     sends: 0,
     promptsSha: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
     archives: archives(37, 1_210_506, '64055b96698722b5663e1ff09a204d4b8b3d77854916106ea37048420cf95c09'),
-    traceBytes: [1_203_122, 105_892],
+    traceBytes: [1_203_122, 107_999],
   },
   repeat: {
     numbers: numbersFor('rules', 200_000, 35_714, {
@@ -371,12 +371,12 @@ const EXPECTED = {
       pressureTokens: 80_494,
     }),
     messages: 216,
-    messagesSha: '677212f528ee1b5decbf205c4b402215c2e9a20fb0ce3fbf6505c9b8cecc9a9f',
+    messagesSha: '605e488d01506974cc178263255c300d49f27b7a614fc161aeef6f719251982c',
     recordSha: '459d7b38ae81793bf6ef10f2dd75fea2149c55e2f0d633029b33cc47ce02aa4a',
     sends: 0,
     promptsSha: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
-    archives: archives(40, 1_388_186, '64ef5e37d45d64d5e85d1604b80a57e0fb41d76ee1badc5d9f21cbfe2a832a76'),
-    traceBytes: [201_945, 114_919],
+    archives: archives(40, 1_390_293, '4f3011bc5e97f153b9bfc99bc04285d88a9e796ebde825a75a336b35fd7c29ff'),
+    traceBytes: [204_052, 117_069],
   },
   summary: {
     numbers: numbersFor('session-local', 60_000, 10_714, {
