@@ -55,6 +55,83 @@ function pair(id, result, args = { file_path: `${id}.js`, old_string: 'before', 
   ];
 }
 
+function agentReport(body) {
+  return {
+    role: 'user',
+    content: renderAgentCompletionEnvelope({ id: 'task_agent_report', tag: 'advise', status: 'completed', result: body }),
+    meta: { source: 'task-notification' },
+  };
+}
+
+function modelRequest(messages) {
+  return JSON.stringify(toAnthropicMessages(messages.filter((m) => m.role !== 'system')));
+}
+
+test('an unanswered report survives repeated rule-only Compact after its turn of omitted text+call', (t) => {
+  sandbox(t);
+  const report = agentReport('REPORT_BODY_AFTER_TEXT_CALL');
+  // The wake turn's first step: text plus a call too large to retain, so
+  // rule-only Compact keeps only its text.
+  const [bigCall, bigResult] = pair('big', 'read', { content: 'large argument '.repeat(1_000) });
+  const messages = [
+    { role: 'system', content: 'rules' },
+    { role: 'user', content: 'ask the Advisor' },
+    { role: 'assistant', content: 'Waiting for the Advisor.' },
+    report,
+    {
+      ...bigCall,
+      content: 'Checking the files the report names.',
+      meta: { transcript: { messageId: 'msg-text-call' } },
+    },
+    bigResult,
+    ...pair('latest', 'Updated latest.js'),
+  ];
+  const opts = { force: true, contextWindow: 40_000, sessionId: 'report-text-call', activeTurn: true };
+  const first = freshContextCompactMessages(messages, 10_000, opts);
+  const copy = first.messages.find((m) => m.content === 'Checking the files the report names.');
+  assert.equal(copy.toolCalls, undefined);
+  assert.equal(copy.meta.transcript.messageId, 'msg-text-call');
+  assert.equal(first.messages.some((m) => m.toolCallId === 'big'), false);
+  assert.ok(first.messages.some((m) => m.content === report.content));
+  const second = freshContextCompactMessages(first.messages, 10_000, opts);
+  const index = second.messages.findIndex((m) => m.content === report.content);
+  assert.ok(index >= 0);
+  assert.deepEqual(second.messages[index], report);
+  assert.ok(index < second.messages.findIndex((m) => m.content === copy.content));
+  assert.match(modelRequest(second.messages), /REPORT_BODY_AFTER_TEXT_CALL/);
+  // The marker is model-context bookkeeping only: memory ingest keeps the text.
+  assert.deepEqual(
+    projectSessionMessagesForIngest([copy]).map((m) => m.content),
+    ['Checking the files the report names.']
+  );
+});
+
+test('a report steered into a running tool loop survives Compact between its execution groups', (t) => {
+  sandbox(t);
+  const report = agentReport('REPORT_BODY_MID_LOOP');
+  const messages = [
+    { role: 'system', content: 'rules' },
+    { role: 'user', content: 'build and review' },
+    ...pair('before-report', 'Updated a.js'),
+    report,
+    ...pair('after-report', 'Updated b.js'),
+  ];
+  const result = freshContextCompactMessages(messages, 10_000, {
+    force: true,
+    contextWindow: 40_000,
+    sessionId: 'report-mid-loop',
+    handoffText: 'Build in progress.',
+    activeTurn: true,
+  });
+  const index = result.messages.findIndex((m) => m.content === report.content);
+  assert.ok(index >= 0);
+  assert.deepEqual(result.messages[index], report);
+  assert.equal(result.messages[index - 1]?.toolCallId, 'before-report');
+  assert.ok(result.messages[index + 1]?.toolCalls?.some((call) => call.id === 'after-report'));
+  assert.equal(result.diagnostics.activeTurnContinuation, true);
+  assert.match(modelRequest(result.messages), /REPORT_BODY_MID_LOOP/);
+});
+
 test('tool history scales with 5% of the context window up to a 40k-token ceiling', () => {
   assert.equal(TOOL_HISTORY_MAX_TOKENS, 40_000);
   for (const [contextWindow, expected] of [
