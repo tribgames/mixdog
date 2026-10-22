@@ -489,6 +489,56 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   color: var(--mx-text);
   text-decoration: underline;
 }
+/* A task session's ended turn (agent-task-line.tsx): the changed-files card
+   (27-search-review.css) with the head alone — no summary button, so the head
+   holds the inset and the radius, and does not light on hover — and one muted
+   status line under the title. In a chat its column and width are the changes
+   card's own (.mx-chat-row .turn-changes-card above). */
+.mx-task-card > .turn-changes-head {
+  gap: 10px;
+  padding-left: 12px;
+  border-radius: inherit;
+}
+.mx-task-card > .turn-changes-head:hover {
+  background: var(--mx-card-header-surface);
+}
+.mx-task-card .turn-changes-title {
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.mx-task-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  line-height: var(--mx-line-meta);
+}
+.mx-task-card-meta > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-task-card-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-text-muted);
+}
+.mx-task-card[data-status="completed"] .mx-task-card-dot {
+  background: var(--mx-success);
+}
+.mx-task-card[data-status="failed"] .mx-task-card-dot {
+  background: var(--mx-danger);
+}
+.mx-task-card[data-status="failed"] .mx-task-card-meta {
+  color: var(--mx-danger);
+}
 /* The typing bubble stands where the reply will land: under an earlier
    bubble it takes the reply's own 8px part step (12-transcript.css), not
    coding mode's 16px status-slot lead, so the reply replaces it in place. */

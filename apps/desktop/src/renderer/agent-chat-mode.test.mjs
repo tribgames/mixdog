@@ -394,6 +394,98 @@ test('a bot chat row that shows nothing renders no node, so the list gives it no
   assert.deepEqual(await nodes([user('u1', DAY1), reply('a1', DAY1), turnDone]), [true, true, false]);
 });
 
+test('a task session shows nothing while it starts and one card without file cards once it ends', async (t) => {
+  const render = rowHarness(t);
+  const task = (id, status, extra = {}) => ({
+    _tag: 'AssistantPart',
+    key: id,
+    turnKey: id,
+    item: {
+      kind: 'notice',
+      id,
+      text: '🛠 Agent task',
+      at: DAY1,
+      routine: { kind: 'task', name: 'Fence fix', status, sessionId: 'sess_task_9', ...extra },
+      attachments: [
+        { id: 'a1', attachmentRef: 'r1', kind: 'file', name: 'cdp.ts', mimeType: 'text/plain', size: 10 },
+      ],
+    },
+  });
+  const files = [
+    { name: 'cdp.ts', path: 'src/cdp.ts', id: 'a1' },
+    { name: 'big.mp4', path: 'out/big.mp4' },
+  ];
+  const nodes = [];
+  const show = (rows) => {
+    function Rows() {
+      const { renderTranscriptRow } = useConversationRowRenderer({
+        snapshot: { sessionId: HOME },
+        disclosureScope: HOME,
+        readOnly: true,
+        transitioning: false,
+        renderAssistantRow: undefined,
+        onOpenSettings() {},
+        settledItems: [],
+        settledTurnKeys: [],
+        optimisticActivityStartedAt: 0,
+        submit: async () => true,
+        questionCard: null,
+        agentMode: true,
+      });
+      nodes.length = 0;
+      return React.createElement(
+        React.Fragment,
+        null,
+        rows.map((row, index) => {
+          const node = renderTranscriptRow(row, index, rows);
+          nodes.push(node !== null);
+          return React.createElement('div', { key: row.key }, node);
+        })
+      );
+    }
+    return render(React.createElement(Rows));
+  };
+  const host = () => document.querySelector('main');
+
+  // Started: no node at all, so the list gives it no room.
+  await show([user('u1', DAY1), task('s', 'started')]);
+  assert.deepEqual(nodes, [true, false]);
+  assert.equal(host().querySelector('.mx-task-card, .mx-chat-routine-failed'), null);
+
+  // Ended: one card, its status, the changed-file count, no file cards or links.
+  for (const [status, label] of [
+    ['completed', 'Completed'],
+    ['failed', 'Failed'],
+    ['cancelled', 'Cancelled'],
+  ]) {
+    await show([user('u1', DAY1), task(status, status, { files })]);
+    const cards = host().querySelectorAll('.mx-task-card');
+    assert.equal(cards.length, 1, status);
+    assert.equal(cards[0].dataset.status, status);
+    assert.equal(cards[0].querySelector('.turn-changes-title strong').textContent, 'Fence fix');
+    assert.equal(cards[0].querySelector('.mx-task-card-meta').textContent, `Task session · ${label} · 2 files changed`);
+    assert.equal(host().querySelector('.message-attachments, .message-body a'), null, `no files (${status})`);
+  }
+  // No files: the count is left out.
+  await show([user('u1', DAY1), task('plain', 'completed')]);
+  assert.equal(host().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed');
+
+  // "Open session" opens the task session.
+  const opened = [];
+  const listener = (event) => opened.push(event.detail.sessionId);
+  const { OPEN_TASK_SESSION_EVENT } = await import('./agent-task-events.ts');
+  // The component builds its event with the global CustomEvent: jsdom's here.
+  const nodeCustomEvent = globalThis.CustomEvent;
+  globalThis.CustomEvent = window.CustomEvent;
+  t.after(() => {
+    globalThis.CustomEvent = nodeCustomEvent;
+  });
+  window.addEventListener(OPEN_TASK_SESSION_EVENT, listener);
+  t.after(() => window.removeEventListener(OPEN_TASK_SESSION_EVENT, listener));
+  await act(async () => host().querySelector('.mx-task-card .turn-changes-view').click());
+  assert.deepEqual(opened, ['sess_task_9']);
+});
+
 test('coding mode renders its rows exactly as before; agent mode frames them', async (t) => {
   const render = rowHarness(t);
   const rows = [user('u1', DAY1), reply('a1', DAY1)];
@@ -1489,7 +1581,8 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
       ['user', '', false],
     ]
   );
-  // D: a completed reply of a bot's home session names the answering bot; a start or a plain session stays a line.
+  // D: a completed reply of a bot's home session names the answering bot; a
+  // plain session stays a line, and a start paints nothing (no place at all).
   const taskReply = (id, routine) => ({
     _tag: 'AssistantPart',
     key: id,
@@ -1516,12 +1609,8 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   assert.deepEqual(
     replies
       .map((_, index) => agentChatPlace(replies, index))
-      .map((place) => [place.side, place.speaker, Boolean(place.bot)]),
-    [
-      ['agent', MARKETER, true],
-      ['aside', '', false],
-      ['aside', '', false],
-    ]
+      .map((place) => place && [place.side, place.speaker, Boolean(place.bot)]),
+    [['agent', MARKETER, true], null, ['aside', '', false]]
   );
   const send = (id, extra = {}) => ({
     kind: 'tool',

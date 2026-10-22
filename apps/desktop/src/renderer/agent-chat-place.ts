@@ -53,7 +53,7 @@ export function chatRoutineOf(item: TranscriptItem | undefined): {
     string,
     unknown
   >;
-  // A task session's report (agent-task-line.tsx) is a faint line, not a routine.
+  // A task session's report (agent-task-line.tsx) is its own card, not a routine.
   if (typeof name !== 'string' || !name || kind === 'task') return null;
   return {
     kind: kind === 'webhook' ? 'webhook' : 'schedule',
@@ -77,6 +77,15 @@ export function chatRoutineTriggerOf(item: TranscriptItem | undefined): RoutineT
  *  only a failed turn shows a line. */
 export function roomPassIsQuiet(item: TranscriptItem | undefined): boolean {
   return item?.kind === 'notice' && item.room?.kind === 'pass' && !item.room.failed;
+}
+
+const TASK_REPORT_SHOWN = new Set(['blocked', 'completed', 'failed', 'cancelled']);
+
+/** A task session's report that paints nothing (agent-task-line.tsx): its
+ *  start and progress. Only a wait for the user and the turn's end show. */
+export function taskReportIsQuiet(routine: unknown): boolean {
+  const record = asRecord(routine);
+  return record?.kind === 'task' && !TASK_REPORT_SHOWN.has(String(record.status ?? ''));
 }
 
 /** A group room's typing row: the host's transient overlay naming who speaks
@@ -223,8 +232,8 @@ function rowSender(row: TranscriptRowModel | undefined): Sender | null {
       return { side: 'agent', speaker: item.room.speaker || '' };
     // A member typing is the transient typing bubble (agentTypingLead).
     if (item.kind === 'notice' && item.room?.kind === 'typing') return null;
-    // A quiet pass paints nothing, so it neither groups nor breaks a run.
-    if (roomPassIsQuiet(item)) return null;
+    // A quiet pass or task start paints nothing, so it neither groups nor breaks a run.
+    if (roomPassIsQuiet(item) || taskReportIsQuiet(item.routine)) return null;
     // No turn status in a chat: "Response complete", "Thought for…",
     // compaction (agent mode compacts silently) — none of it shows.
     if (item.kind === 'statusdone' || item.kind === 'turndone') return { side: 'hidden', speaker: '' };

@@ -229,21 +229,6 @@ export const TranscriptDevicesContext = createContext(false);
  *  sent from this device is never labelled "from <this device>". */
 export const TranscriptViewerDeviceContext = createContext<string | null>('');
 
-/** The returned files no attachment could carry (too large, or a type no
- *  prompt takes, such as a video): links to their paths, drawn as file chips. */
-function ReturnedFileLinks({ files }: { files: unknown }) {
-  const links = (Array.isArray(files) ? files : [])
-    .map((file) => asRecord(file))
-    .filter((file) => file && !file.id && typeof file.path === 'string' && file.path)
-    .map((file) => `- [${String(file?.name || 'file').replace(/[[\]]/g, '')}](<${String(file?.path)}>)`);
-  if (!links.length) return null;
-  return (
-    <div className="message-body">
-      <MarkdownBody text={links.join('\n')} copyControl={CopyControl} />
-    </div>
-  );
-}
-
 export const TranscriptRow = memo(
   function TranscriptRow({
     item,
@@ -305,15 +290,8 @@ export const TranscriptRow = memo(
       const held = asRecord(item.heldRequest);
       if (held?.status === 'pending') return <HeldRequestCard held={held} sessionId={sessionScope} />;
       const task = asRecord(item.routine);
-      if (task?.kind === 'task') {
-        return (
-          <>
-            <AgentTaskLine routine={task} />
-            <ReturnedAttachments records={item.attachments} />
-            <ReturnedFileLinks files={task.files} />
-          </>
-        );
-      }
+      // A task report's files stay in its session: the card says how many.
+      if (task?.kind === 'task') return <AgentTaskLine routine={task} />;
       const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
       const routine = routineNoticeText(item.routine);
       return (

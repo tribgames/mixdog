@@ -1,5 +1,5 @@
 import { type MutableRefObject, type RefObject, useCallback, useRef } from 'react';
-import { roomPassIsQuiet } from './agent-chat-place';
+import { roomPassIsQuiet, taskReportIsQuiet } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { type TranscriptRowSurface, transcriptRowHeightStore } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
@@ -33,12 +33,12 @@ export function useTranscriptRowEstimates({
       if (!row) return TRANSCRIPT_ROW_ESTIMATE;
       const held = heldEstimates.current.get(row.key);
       if (held !== undefined) return held;
-      // A quiet pass paints nothing: estimating it at a reply's height made
-      // it shrink the thread by that much once measured.
+      // A quiet pass or task start paints nothing: estimating it at a reply's
+      // height made it shrink the thread by that much once measured.
       // A room's live band too: nobody types until the supervisor picks a
       // member (use-conversation-row-renderer.ts roomTyping).
       if (
-        (row._tag === 'AssistantPart' && roomPassIsQuiet(row.item)) ||
+        (row._tag === 'AssistantPart' && (roomPassIsQuiet(row.item) || taskReportIsQuiet(row.item.routine))) ||
         (row._tag === 'Thinking' && surfaceRef.current === 'room')
       ) {
         heldEstimates.current.set(row.key, 0);
