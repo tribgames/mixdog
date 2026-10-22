@@ -22,6 +22,9 @@ export function usagePinStackHeight(rowCount: number, doubleBarCount = 0): numbe
   );
 }
 
+/** Layout height of one scroll chevron above or below the slots. */
+export const PIN_CHEVRON_HEIGHT = 12;
+
 /** True when every rail part fits at its natural height with the stack shown. */
 export function usagePinStackFits(input: {
   railHeight: number;
@@ -30,8 +33,35 @@ export function usagePinStackFits(input: {
   rowCount: number;
   /** Rows drawing two meters (short + long mode). */
   doubleBarCount?: number;
+  /** Height of the scroll chevrons, when the stack scrolls. */
+  chevronHeight?: number;
 }): boolean {
   if (input.rowCount <= 0) return true;
-  const needed = input.navHeight + usagePinStackHeight(input.rowCount, input.doubleBarCount) + input.settingsHeight;
+  const needed =
+    input.navHeight +
+    usagePinStackHeight(input.rowCount, input.doubleBarCount) +
+    (input.chevronHeight ?? 0) +
+    input.settingsHeight;
   return input.railHeight >= needed;
+}
+
+/** How many of `total` slots the rail shows: at most `limit`, fewer when the
+ *  rail is short so the stack never reaches the destinations above or Settings
+ *  below. Chevron room is reserved whenever slots are left out. 0 = not even
+ *  one fits (the pie glyph). */
+export function usagePinVisibleCount(
+  input: Omit<Parameters<typeof usagePinStackFits>[0], 'rowCount' | 'chevronHeight'> & {
+    total: number;
+    limit: number;
+  }
+): number {
+  for (let count = Math.min(input.total, input.limit); count > 0; count -= 1) {
+    const fits = usagePinStackFits({
+      ...input,
+      rowCount: count,
+      chevronHeight: count < input.total ? 2 * PIN_CHEVRON_HEIGHT : 0,
+    });
+    if (fits) return count;
+  }
+  return 0;
 }

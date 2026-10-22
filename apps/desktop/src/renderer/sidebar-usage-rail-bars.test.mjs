@@ -174,7 +174,7 @@ function mount(
 
 const trigger = () => document.querySelector('.sidebar-usage-menu');
 const menu = () => document.querySelector('[role="menu"]');
-const radios = () => [...document.querySelectorAll('[role="menuitemradio"]')];
+const radios = () => [...document.querySelectorAll('[role="menuitemradio"][data-rail-bars]')];
 
 test('the ··· menu replaces the pin button and opens, closes on Escape and returns focus', async (t) => {
   const { render } = mount(t);
@@ -201,16 +201,17 @@ test('arrow keys rove through the enabled items', async (t) => {
   const keys = (key) =>
     act(async () => menu().dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true })));
   const items = [...document.querySelectorAll('[role^="menuitem"]')];
-  assert.equal(items.length, 3);
+  // Pin, Expand all accounts, two bar modes, three slot counts.
+  assert.equal(items.length, 7);
   assert.equal(document.activeElement, items[0]);
   await keys('ArrowDown');
   assert.equal(document.activeElement, items[1]);
   await keys('End');
-  assert.equal(document.activeElement, items[2]);
+  assert.equal(document.activeElement, items[6]);
   await keys('ArrowDown');
   assert.equal(document.activeElement, items[0]);
   await keys('ArrowUp');
-  assert.equal(document.activeElement, items[2]);
+  assert.equal(document.activeElement, items[6]);
   await keys('Home');
   assert.equal(document.activeElement, items[0]);
 });
@@ -260,5 +261,6 @@ test('the bar radios are disabled while the rail pin is off', async (t) => {
   await press(radios()[1]);
   assert.deepEqual(state.changes, []);
   // Disabled radios are skipped by keyboard roving.
-  assert.equal(document.querySelectorAll('[role^="menuitem"]:not(:disabled)').length, 1);
+  // Only Pin to rail and Expand all accounts stay enabled.
+  assert.equal(document.querySelectorAll('[role^="menuitem"]:not(:disabled)').length, 2);
 });

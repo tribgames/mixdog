@@ -70,7 +70,7 @@ export function openingQuotaQuestion(focus: QuotaFocus | null = peekQuotaFocus()
   const last = focus ? null : readQuotaSubscription();
   return {
     provider: focus?.provider || last?.provider || '',
-    account: '',
+    account: focus?.account || '',
     window: focus?.window || last?.window || '',
     view: 'window' as const,
   };

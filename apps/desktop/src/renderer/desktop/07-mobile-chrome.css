@@ -1652,6 +1652,13 @@ html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-row .row-overfl
 html[data-mixdog-mobile-tabs] .sidebar-usage-heading {
   min-height: var(--mx-touch);
 }
+/* An expanded account's name keeps a 44px tap target without growing its
+   20px line: the extra height hangs off negative margins. */
+html[data-mixdog-mobile-tabs] .sidebar-usage-account-name {
+  min-width: var(--mx-touch);
+  min-height: var(--mx-touch);
+  margin: calc((20px - var(--mx-touch)) / 2) 0;
+}
 
 /* ── 5. Side sheet views ──────────────────────────────────────────────────
    The sheet header was converted; everything it contains was not, so one

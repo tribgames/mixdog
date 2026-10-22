@@ -4,6 +4,7 @@
 import { t } from './i18n';
 import { record } from './record-utils';
 import { SUBSCRIPTIONS, type Subscription } from './subscription-providers';
+import { expandableAccounts, type UsageAccount, type UsageAccountPool } from './usage-account-pools';
 import type { UsageRecord } from './usage-dashboard-store';
 import { displayUsagePercent } from './usage-percent';
 import { usageResetSchedule as resetSchedule, usageTimestamp as timestamp } from './usage-window-text';
@@ -58,6 +59,9 @@ export function usedPercent(window: UsageRecord): number | null {
 /** Which quota bars a pinned brand draws on the rail. */
 export type UsageRailBars = 'long' | 'short-long';
 
+/** How many slots the rail shows at most when accounts are expanded. */
+export type UsageRailSlots = '3' | '5' | 'all';
+
 interface UsagePinWindow {
   label: string;
   percent: number;
@@ -81,6 +85,10 @@ interface UsagePinEntry {
   /** Known-connected provider whose quota has not arrived: the row keeps its
    *  final size and the figure fills in place. */
   pending?: boolean;
+  /** Expanded accounts: the 1-based account index in the provider's roster
+   *  (the badge on the rail icon) and whether it is the account in use. */
+  accountIndex?: number;
+  accountSelected?: boolean;
 }
 
 /** A connected subscription provider and how many bars its row draws in
@@ -227,6 +235,52 @@ export function usagePinEntries(dashboard: unknown, mode: UsageRailBars = 'long'
         tooltip: usagePinTooltip(subscription.label, windows),
       },
     ];
+  });
+}
+
+/** The name an account shows under: its registered label, else its email, else its id. */
+export function usageAccountName(account: Pick<UsageAccount, 'id' | 'label' | 'email'>): string {
+  return account.label.trim() || account.email.trim() || account.id;
+}
+
+/** "Expand all accounts": every account of a multi-account provider replaces
+ *  the provider's single entry, in roster order, each with its own windows. */
+export function usagePinAccountEntries(
+  entries: readonly UsagePinEntry[],
+  pools: ReadonlyMap<string, UsageAccountPool>,
+  mode: UsageRailBars
+): UsagePinEntry[] {
+  return entries.flatMap((entry) => {
+    const accounts = entry.pending ? [] : expandableAccounts(pools.get(entry.provider));
+    if (!accounts.length) return [entry];
+    const selectedId = pools.get(entry.provider)?.selectedId;
+    return accounts.map((account, index): UsagePinEntry => {
+      const picked = pinWindows(account.windows, entry.provider);
+      const windows = picked ? (picked.short ? [picked.short, picked.long] : [picked.long]) : [];
+      const bars = picked
+        ? mode === 'short-long'
+          ? windows
+          : [picked.long]
+        : [{ label: '0', percent: 0, resetAt: null }];
+      let hot = 0;
+      bars.forEach((bar, barIndex) => {
+        if (bar.percent >= bars[hot].percent) hot = barIndex;
+      });
+      const title = `${entry.label} · ${index + 1} ${usageAccountName(account)}`;
+      return {
+        key: `${entry.key}:${account.id}`,
+        label: entry.label,
+        provider: entry.provider,
+        percent: bars[hot].percent,
+        bars,
+        windows: picked ? windows : [],
+        hot,
+        tooltip: picked ? usagePinTooltip(title, windows) : title,
+        pending: picked ? undefined : true,
+        accountIndex: index + 1,
+        accountSelected: account.id === selectedId,
+      };
+    });
   });
 }
 

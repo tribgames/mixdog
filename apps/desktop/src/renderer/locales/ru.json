@@ -5495,5 +5495,13 @@
   "Done {{n}}": "Выполнено {{n}}",
   "Rest {{n}}": "Ещё {{n}}",
   "{{n}} dropped": "Отброшено: {{n}}",
-  "{{time}} in progress": "{{time}} в работе"
+  "{{time}} in progress": "{{time}} в работе",
+  "Expand all accounts": "Развернуть все аккаунты",
+  "Rail slots": "Слотов на панели",
+  "{{n}} slots": "{{n}} слота",
+  "All slots": "Все слоты",
+  "{{n}} accounts": "Аккаунтов: {{n}}",
+  "Show earlier slots": "Показать предыдущие слоты",
+  "Show more slots": "Показать ещё слоты",
+  "Open usage for {{name}}": "Открыть использование {{name}}"
 }

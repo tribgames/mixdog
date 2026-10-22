@@ -5,7 +5,7 @@
 import { useCallback, useState } from 'react';
 
 export type UsageSurfaceMode = 'tokens' | 'quota';
-export type QuotaFocus = { provider: string; window?: string };
+export type QuotaFocus = { provider: string; window?: string; account?: string };
 
 const MODE_STORAGE_KEY = 'mixdog.desktop.usage-surface-mode.v1';
 const SUBSCRIPTION_STORAGE_KEY = 'mixdog.desktop.usage-quota-subscription.v1';

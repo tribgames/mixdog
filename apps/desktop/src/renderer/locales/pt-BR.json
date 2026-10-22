@@ -5431,5 +5431,13 @@
   "Done {{n}}": "Concluídas {{n}}",
   "Rest {{n}}": "Outras {{n}}",
   "{{n}} dropped": "{{n}} descartadas",
-  "{{time}} in progress": "{{time}} em andamento"
+  "{{time}} in progress": "{{time}} em andamento",
+  "Expand all accounts": "Expandir todas as contas",
+  "Rail slots": "Espaços na barra",
+  "{{n}} slots": "{{n}} espaços",
+  "All slots": "Todos os espaços",
+  "{{n}} accounts": "{{n}} contas",
+  "Show earlier slots": "Mostrar espaços anteriores",
+  "Show more slots": "Mostrar mais espaços",
+  "Open usage for {{name}}": "Abrir o uso de {{name}}"
 }

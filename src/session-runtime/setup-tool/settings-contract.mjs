@@ -223,6 +223,9 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     turnNotifications: boolean,
     usagePinned: boolean,
     usageRailShortLong: boolean,
+    usageAccountsExpanded: boolean,
+    usageRailSlotsThree: boolean,
+    usageRailSlotsAll: boolean,
     computerObserveOnly: boolean,
     browserAutoSignIn: boolean,
     notificationVolume: {

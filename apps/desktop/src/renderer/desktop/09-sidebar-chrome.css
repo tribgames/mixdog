@@ -92,6 +92,63 @@
   left: 50%;
   transform: translateX(-50%);
 }
+/* Expanded accounts: the account index rides the icon's bottom-right corner,
+   bright for the account in use, muted for the others. */
+.rail-usage-pin-mark {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.rail-usage-pin-mark > sup {
+  position: absolute;
+  right: -7px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  min-width: 11px;
+  height: 11px;
+  padding: 0 2px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-window-band);
+  box-shadow: 0 0 0 1px var(--mx-window-band);
+  color: var(--mx-text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 11px;
+}
+.rail-usage-pin-mark > sup.is-selected {
+  color: var(--mx-text);
+}
+/* Scroll chevrons of the slot stack: no background, 8px glyph, a 24x24 hit
+   area that costs 12px of layout; only the side with more slots shows one. */
+.rail-usage-pin-step-row {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: none;
+  justify-items: center;
+  width: 100%;
+}
+.rail-usage-pin-step {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -6px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-text-muted);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.rail-usage-pin-step:hover,
+.rail-usage-pin-step:focus-visible {
+  color: var(--mx-text);
+  opacity: 1;
+  outline: 0;
+}
 .rail-usage-pin-brand.tone-warning > small {
   color: var(--mx-warning);
 }

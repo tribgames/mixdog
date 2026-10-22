@@ -5429,5 +5429,13 @@
   "Done {{n}}": "Completate {{n}}",
   "Rest {{n}}": "Altri {{n}}",
   "{{n}} dropped": "{{n}} scartate",
-  "{{time}} in progress": "{{time}} in corso"
+  "{{time}} in progress": "{{time}} in corso",
+  "Expand all accounts": "Espandi tutti gli account",
+  "Rail slots": "Posizioni nella barra",
+  "{{n}} slots": "{{n}} posizioni",
+  "All slots": "Tutte le posizioni",
+  "{{n}} accounts": "{{n}} account",
+  "Show earlier slots": "Mostra le posizioni precedenti",
+  "Show more slots": "Mostra altre posizioni",
+  "Open usage for {{name}}": "Apri l’utilizzo di {{name}}"
 }

@@ -5303,5 +5303,13 @@
   "Done {{n}}": "완료 {{n}}개",
   "Rest {{n}}": "나머지 {{n}}개",
   "{{n}} dropped": "뺀 작업 {{n}}개",
-  "{{time}} in progress": "{{time}} 진행"
+  "{{time}} in progress": "{{time}} 진행",
+  "Expand all accounts": "모든 계정 펼치기",
+  "Rail slots": "레일에 보일 칸 수",
+  "{{n}} slots": "{{n}}개",
+  "All slots": "전부",
+  "{{n}} accounts": "{{n}}개 계정",
+  "Show earlier slots": "이전 칸 보기",
+  "Show more slots": "다음 칸 보기",
+  "Open usage for {{name}}": "{{name}} 사용량 열기"
 }

@@ -5303,5 +5303,13 @@
   "Done {{n}}": "已完成 {{n}}",
   "Rest {{n}}": "其餘 {{n}} 項",
   "{{n}} dropped": "已移除 {{n}} 項",
-  "{{time}} in progress": "已進行 {{time}}"
+  "{{time}} in progress": "已進行 {{time}}",
+  "Expand all accounts": "展開所有帳號",
+  "Rail slots": "側欄顯示的格數",
+  "{{n}} slots": "{{n}} 格",
+  "All slots": "全部",
+  "{{n}} accounts": "{{n}} 個帳號",
+  "Show earlier slots": "顯示上一格",
+  "Show more slots": "顯示更多格",
+  "Open usage for {{name}}": "開啟 {{name}} 的用量"
 }

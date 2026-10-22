@@ -5303,5 +5303,13 @@
   "Done {{n}}": "完了 {{n}}件",
   "Rest {{n}}": "その他 {{n}}件",
   "{{n}} dropped": "除外 {{n}}件",
-  "{{time}} in progress": "{{time}} 進行中"
+  "{{time}} in progress": "{{time}} 進行中",
+  "Expand all accounts": "すべてのアカウントを展開",
+  "Rail slots": "レールに表示する枠数",
+  "{{n}} slots": "{{n}}枠",
+  "All slots": "すべて",
+  "{{n}} accounts": "{{n}}アカウント",
+  "Show earlier slots": "前の枠を表示",
+  "Show more slots": "次の枠を表示",
+  "Open usage for {{name}}": "{{name}}の使用量を開く"
 }

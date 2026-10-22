@@ -1879,6 +1879,9 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
     value === 'turnNotifications' ||
     value === 'usagePinned' ||
     value === 'usageRailShortLong' ||
+    value === 'usageAccountsExpanded' ||
+    value === 'usageRailSlotsThree' ||
+    value === 'usageRailSlotsAll' ||
     value === 'computerControl' ||
     value === 'computerObserveOnly' ||
     value === 'browserControl' ||

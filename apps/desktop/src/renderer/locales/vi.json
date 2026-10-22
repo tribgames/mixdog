@@ -5303,5 +5303,13 @@
   "Done {{n}}": "Đã xong {{n}}",
   "Rest {{n}}": "Khác {{n}}",
   "{{n}} dropped": "{{n}} đã bỏ",
-  "{{time}} in progress": "{{time}} đang chạy"
+  "{{time}} in progress": "{{time}} đang chạy",
+  "Expand all accounts": "Mở rộng tất cả tài khoản",
+  "Rail slots": "Số ô trên thanh",
+  "{{n}} slots": "{{n}} ô",
+  "All slots": "Tất cả ô",
+  "{{n}} accounts": "{{n}} tài khoản",
+  "Show earlier slots": "Hiện các ô trước",
+  "Show more slots": "Hiện thêm ô",
+  "Open usage for {{name}}": "Mở mức dùng của {{name}}"
 }

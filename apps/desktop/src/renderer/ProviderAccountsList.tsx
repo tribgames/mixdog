@@ -27,10 +27,11 @@ import {
   type UsageApi,
 } from './usage-dashboard-store';
 import { ProviderIcon } from './provider-display';
+import { PROVIDER_ACCOUNTS_CHANGED } from './usage-account-pools';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 import './provider-accounts.css';
 
-export const PROVIDER_ACCOUNTS_CHANGED = 'mixdog:provider-accounts-changed';
+export { PROVIDER_ACCOUNTS_CHANGED };
 type ProviderAccount = {
   id: string;
   label: string;

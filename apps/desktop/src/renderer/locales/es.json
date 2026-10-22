@@ -5429,5 +5429,13 @@
   "Done {{n}}": "Hechas {{n}}",
   "Rest {{n}}": "Resto {{n}}",
   "{{n}} dropped": "{{n}} descartadas",
-  "{{time}} in progress": "{{time}} en curso"
+  "{{time}} in progress": "{{time}} en curso",
+  "Expand all accounts": "Expandir todas las cuentas",
+  "Rail slots": "Espacios en la barra",
+  "{{n}} slots": "{{n}} espacios",
+  "All slots": "Todos los espacios",
+  "{{n}} accounts": "{{n}} cuentas",
+  "Show earlier slots": "Mostrar espacios anteriores",
+  "Show more slots": "Mostrar más espacios",
+  "Open usage for {{name}}": "Abrir el uso de {{name}}"
 }

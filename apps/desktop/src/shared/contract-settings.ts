@@ -80,6 +80,9 @@ export type DesktopSettingKey =
   | 'turnNotifications'
   | 'usagePinned'
   | 'usageRailShortLong'
+  | 'usageAccountsExpanded'
+  | 'usageRailSlotsThree'
+  | 'usageRailSlotsAll'
   | 'computerControl'
   | 'computerObserveOnly'
   | 'browserControl'
@@ -106,6 +109,11 @@ export interface DesktopSettings {
   /** Pinned rail bars: false = the longest period only (default), true = the
    *  shortest plus the longest period as two bars. */
   usageRailShortLong: boolean;
+  /** Usage panel and rail show every account of a multi-account provider. */
+  usageAccountsExpanded: boolean;
+  /** Rail slot limit with expanded accounts: three on, else five; All overrides. */
+  usageRailSlotsThree: boolean;
+  usageRailSlotsAll: boolean;
   /** Opt-in: expose the agent `computer` tool that controls the local desktop
    *  (Windows). Default off — full-PC control is high risk. */
   computerControl: boolean;

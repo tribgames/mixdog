@@ -5367,5 +5367,13 @@
   "Done {{n}}": "Erledigt {{n}}",
   "Rest {{n}}": "Weitere {{n}}",
   "{{n}} dropped": "{{n}} verworfen",
-  "{{time}} in progress": "{{time}} in Arbeit"
+  "{{time}} in progress": "{{time}} in Arbeit",
+  "Expand all accounts": "Alle Konten aufklappen",
+  "Rail slots": "Plätze in der Leiste",
+  "{{n}} slots": "{{n}} Plätze",
+  "All slots": "Alle Plätze",
+  "{{n}} accounts": "{{n}} Konten",
+  "Show earlier slots": "Vorherige Plätze anzeigen",
+  "Show more slots": "Weitere Plätze anzeigen",
+  "Open usage for {{name}}": "Nutzung von {{name}} öffnen"
 }
