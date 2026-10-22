@@ -114,7 +114,6 @@ export function agentLeadRows(
     const lead: DesktopAgentPoolRow | undefined = flat.find((node) => node.sessionId === group.ownerId)?.agent;
     const provider = lead?.provider || session.provider || null;
     const model = modelDisplayName(lead?.model || session.model, provider || '');
-    const line = (session.lastMessagePreview || session.preview || '').trim();
     let kind: AgentLeadRow['kind'] = 'idle';
     let status = lead ? agentElapsedText(desktopAgentActivityState(lead), lead, now) : t('Idle');
     if (running) {
@@ -129,7 +128,8 @@ export function agentLeadRows(
       sessionId: group.ownerId,
       title: sessionDisplayTitle(session, t('Untitled session')),
       provider,
-      preview: [model, line || status].filter(Boolean).join(' · '),
+      // The row shows the model only; the face's spinner / "!" carries the state.
+      preview: model || status,
       at: Number(session.activityAt) || session.updatedAt || 0,
       kind,
       pinned: isPinned,
@@ -144,12 +144,11 @@ export function agentLeadRows(
     if (!isPinned && !(at > 0 && withinWindow(at, now, retainMs))) continue;
     const provider = session.provider || null;
     const model = modelDisplayName(session.model, provider || '');
-    const line = (session.lastMessagePreview || session.preview || '').trim();
     rows.push({
       sessionId: session.id,
       title: sessionDisplayTitle(session, t('Untitled session')),
       provider,
-      preview: [model, line || t('Idle')].filter(Boolean).join(' · '),
+      preview: model || t('Idle'),
       at,
       kind: 'idle',
       pinned: isPinned,
