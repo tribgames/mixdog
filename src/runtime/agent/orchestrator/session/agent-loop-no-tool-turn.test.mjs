@@ -100,7 +100,10 @@ test('an empty max_tokens turn escalates once with no nudge, then resumes three 
   assert.equal(prompts.length, 3);
   assert.match(prompts[0].content, /Output token limit hit/);
   assert.match(prompts[0].content, /smaller pieces/);
-  assert.equal(messages.some((message) => String(message.content).includes('Empty truncated continuation')), false);
+  assert.equal(
+    messages.some((message) => String(message.content).includes('Empty truncated continuation')),
+    false
+  );
   // Exhaustion ends the turn with a visible notice, not a silent stop.
   assert.equal(result.terminationReason, 'truncated');
   assert.equal(result.content, MAX_OUTPUT_EXHAUSTED_NOTICE);

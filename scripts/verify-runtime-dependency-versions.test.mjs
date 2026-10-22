@@ -103,7 +103,10 @@ test('compareShippedVersions resolves linked lock entries to their target', () =
     'packages/linked': { version: '1.0.0' },
   };
   const ship = (key, version) => [{ key, version, source: 'runtime.asar' }];
-  assert.deepEqual(compareShippedVersions({ lockPackages: linkLock, shipped: ship('node_modules/linked', '1.0.0') }), []);
+  assert.deepEqual(
+    compareShippedVersions({ lockPackages: linkLock, shipped: ship('node_modules/linked', '1.0.0') }),
+    []
+  );
   const stale = compareShippedVersions({ lockPackages: linkLock, shipped: ship('node_modules/linked', '0.9.0') });
   assert.equal(stale.length, 1);
   assert.match(stale[0], /node_modules\/linked: shipped 0\.9\.0, lockfile 1\.0\.0/);
@@ -138,7 +141,10 @@ async function buildRuntimeFixture({ zodVersion }) {
     })
   );
   await writeJson(join(runtimeDir, 'desktop-node-pty', 'package.json'), { version: '0.13.1' });
-  const lock = (packages) => ({ lockfileVersion: 3, packages: { '': { name: 'mixdog', version: '1.3.2' }, ...packages } });
+  const lock = (packages) => ({
+    lockfileVersion: 3,
+    packages: { '': { name: 'mixdog', version: '1.3.2' }, ...packages },
+  });
   await writeJson(
     join(base, 'package-lock.json'),
     lock({
@@ -157,7 +163,9 @@ async function buildRuntimeFixture({ zodVersion }) {
   return { base, runtimeDir, rootDir: base, desktopDir };
 }
 
-test('readArchivePackages lists packed manifests and leaves unpacked ones to the sidecar', { skip: asarSkipReason }, async () => {
+test('readArchivePackages lists packed manifests and leaves unpacked ones to the sidecar', {
+  skip: asarSkipReason,
+}, async () => {
   const fixture = await buildRuntimeFixture({ zodVersion: '3.25.76' });
   try {
     const archive = join(fixture.runtimeDir, 'runtime.asar');
@@ -177,7 +185,9 @@ test('readArchivePackages lists packed manifests and leaves unpacked ones to the
   }
 });
 
-test('verifyRuntimeDependencyVersions passes a runtime that matches the lockfiles', { skip: asarSkipReason }, async () => {
+test('verifyRuntimeDependencyVersions passes a runtime that matches the lockfiles', {
+  skip: asarSkipReason,
+}, async () => {
   const fixture = await buildRuntimeFixture({ zodVersion: '3.25.76' });
   try {
     assert.deepEqual(await verifyRuntimeDependencyVersions(fixture), []);
@@ -186,7 +196,9 @@ test('verifyRuntimeDependencyVersions passes a runtime that matches the lockfile
   }
 });
 
-test('verifyRuntimeDependencyVersions reports drift, unversioned manifests and a stale node-pty', { skip: asarSkipReason }, async () => {
+test('verifyRuntimeDependencyVersions reports drift, unversioned manifests and a stale node-pty', {
+  skip: asarSkipReason,
+}, async () => {
   const fixture = await buildRuntimeFixture({ zodVersion: '3.0.0' });
   try {
     await writeJson(join(fixture.runtimeDir, 'desktop-node-pty', 'package.json'), { version: '0.12.0' });
@@ -197,7 +209,9 @@ test('verifyRuntimeDependencyVersions reports drift, unversioned manifests and a
     await writeFile(lockPath, JSON.stringify(lock));
     const mismatches = await verifyRuntimeDependencyVersions(fixture);
     assert.equal(mismatches.length, 3);
-    assert.ok(mismatches.some((line) => /node_modules\/zod: shipped 3\.0\.0, lockfile 3\.25\.76 \(runtime\.asar\)/.test(line)));
+    assert.ok(
+      mismatches.some((line) => /node_modules\/zod: shipped 3\.0\.0, lockfile 3\.25\.76 \(runtime\.asar\)/.test(line))
+    );
     assert.ok(mismatches.some((line) => /@scope\/pkg: shipped 2\.0\.0, lockfile 2\.1\.0/.test(line)));
     assert.ok(mismatches.some((line) => /shipped 0\.12\.0, desktop lockfile 0\.13\.1/.test(line)));
   } finally {
@@ -205,14 +219,24 @@ test('verifyRuntimeDependencyVersions reports drift, unversioned manifests and a
   }
 });
 
-test('verifyRuntimeDependencyVersions flags a shipped manifest without a version', { skip: asarSkipReason }, async () => {
+test('verifyRuntimeDependencyVersions flags a shipped manifest without a version', {
+  skip: asarSkipReason,
+}, async () => {
   const fixture = await buildRuntimeFixture({ zodVersion: '3.25.76' });
   try {
-    const sidecarManifest = join(`${join(fixture.runtimeDir, 'runtime.asar')}.unpacked`, 'node_modules', 'native', 'package.json');
+    const sidecarManifest = join(
+      `${join(fixture.runtimeDir, 'runtime.asar')}.unpacked`,
+      'node_modules',
+      'native',
+      'package.json'
+    );
     await writeJson(sidecarManifest, { name: 'native' });
     const mismatches = await verifyRuntimeDependencyVersions(fixture);
     assert.equal(mismatches.length, 1);
-    assert.match(mismatches[0], /node_modules\/native: shipped manifest has no version, lockfile 3\.0\.0 \(runtime\.asar\.unpacked\)/);
+    assert.match(
+      mismatches[0],
+      /node_modules\/native: shipped manifest has no version, lockfile 3\.0\.0 \(runtime\.asar\.unpacked\)/
+    );
   } finally {
     await rm(fixture.base, { recursive: true, force: true });
   }

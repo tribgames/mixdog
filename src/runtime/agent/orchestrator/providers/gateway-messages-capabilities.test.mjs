@@ -27,7 +27,17 @@ const sse = (events) => new Response(events.map(frame).join(''), { headers: { 'c
 function respond({ path, body }) {
   if (path.endsWith('/messages')) {
     return sse([
-      { type: 'message_start', message: { id: 'm', type: 'message', role: 'assistant', model: body.model, content: [], usage: { input_tokens: 3, output_tokens: 1 } } },
+      {
+        type: 'message_start',
+        message: {
+          id: 'm',
+          type: 'message',
+          role: 'assistant',
+          model: body.model,
+          content: [],
+          usage: { input_tokens: 3, output_tokens: 1 },
+        },
+      },
       { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
       { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
       { type: 'content_block_stop', index: 0 },
@@ -37,17 +47,32 @@ function respond({ path, body }) {
   }
   if (path.endsWith('/responses')) {
     return sse([
-      { type: 'response.completed', response: { id: 'r', model: body.model, status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }] } },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'r',
+          model: body.model,
+          status: 'completed',
+          output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+        },
+      },
     ]);
   }
-  return sse([{ id: 'c', model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }]);
+  return sse([
+    { id: 'c', model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] },
+  ]);
 }
 
 function recorder() {
   const requests = [];
   const fetchImpl = async (input, init = {}) => {
     const url = new URL(String(input?.url ?? input));
-    const request = { url: url.href, path: url.pathname, headers: new Headers(init.headers || {}), body: JSON.parse(init.body) };
+    const request = {
+      url: url.href,
+      path: url.pathname,
+      headers: new Headers(init.headers || {}),
+      body: JSON.parse(init.body),
+    };
     requests.push(request);
     return respond(request);
   };
@@ -56,7 +81,12 @@ function recorder() {
 
 function deepseek() {
   const { requests, fetchImpl } = recorder();
-  const provider = new DeepSeekProvider({ apiKey: 'ds', preconnect: false, fetchImpl, clientOptions: { fetch: fetchImpl } });
+  const provider = new DeepSeekProvider({
+    apiKey: 'ds',
+    preconnect: false,
+    fetchImpl,
+    clientOptions: { fetch: fetchImpl },
+  });
   return { provider, requests };
 }
 
@@ -105,7 +135,13 @@ test('DeepSeek declares no documents and no parallel-disable; OpenRouter Message
 test('DeepSeek sends the Files API beta only on a request with a file-ID image', async () => {
   const { provider, requests } = deepseek();
   const withFile = [
-    { role: 'user', content: [{ type: 'text', text: 'see' }, { type: 'image', source: { type: 'file', file_id: 'file_1' } }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'see' },
+        { type: 'image', source: { type: 'file', file_id: 'file_1' } },
+      ],
+    },
   ];
   await provider.send(withFile, 'deepseek-v4-pro', [tool], {});
   assert.equal(requests[0].headers.get('anthropic-beta'), 'files-api-2025-04-14');
@@ -114,9 +150,17 @@ test('DeepSeek sends the Files API beta only on a request with a file-ID image',
 });
 
 test('gateway output ceilings reach max_tokens', async () => {
-  assert.deepEqual(withTopProviderOutputCeiling({ id: 'x', top_provider: { max_completion_tokens: 9000 } }).max_output_tokens, 9000);
+  assert.deepEqual(
+    withTopProviderOutputCeiling({ id: 'x', top_provider: { max_completion_tokens: 9000 } }).max_output_tokens,
+    9000
+  );
   const { requests, fetchImpl } = recorder();
-  const router = new OpenRouterProvider({ apiKey: 'or', preconnect: false, fetchImpl, clientOptions: { fetch: fetchImpl } });
+  const router = new OpenRouterProvider({
+    apiKey: 'or',
+    preconnect: false,
+    fetchImpl,
+    clientOptions: { fetch: fetchImpl },
+  });
   router.openai._enrichedModels = [{ id: 'anthropic/claude-opus-4.8', outputTokens: 12000 }];
   await router.send(prompt, 'anthropic/claude-opus-4.8', [tool], {});
   assert.equal(requests[0].path.endsWith('/messages'), true);
@@ -139,8 +183,14 @@ test('a caller wire switch never overrides the resolved route', async () => {
   await goProvider.send(prompt, 'glm-5.2', [], { compatWireApi: 'responses' });
   assert.equal(go.requests[0].path.endsWith('/chat/completions'), true);
   const custom = await createCustomProvider('custom-switch-1', {
-    type: 'custom', name: 'C', baseURL: 'https://llm.example.com/v1', enabled: true, schemaVersion: 2,
-    protocol: 'openai-chat', apiKey: 'k', preconnect: false,
+    type: 'custom',
+    name: 'C',
+    baseURL: 'https://llm.example.com/v1',
+    enabled: true,
+    schemaVersion: 2,
+    protocol: 'openai-chat',
+    apiKey: 'k',
+    preconnect: false,
   });
   const seen = recorder();
   custom.client.fetch = seen.fetchImpl;
@@ -148,16 +198,24 @@ test('a caller wire switch never overrides the resolved route', async () => {
   assert.equal(seen.requests[0].path.endsWith('/chat/completions'), true);
 });
 
-test('a custom provider\'s routed Messages engine matches the Anthropic protocol effort', async () => {
+test("a custom provider's routed Messages engine matches the Anthropic protocol effort", async () => {
   const model = 'claude-opus-5';
   const config = {
-    type: 'custom', name: 'Mine', baseURL: 'https://llm.example.com/v1', enabled: true, schemaVersion: 2,
-    apiKey: 'k', preconnect: false,
+    type: 'custom',
+    name: 'Mine',
+    baseURL: 'https://llm.example.com/v1',
+    enabled: true,
+    schemaVersion: 2,
+    apiKey: 'k',
+    preconnect: false,
     modelOverrides: { [model]: { manual: true, reasoning: { levels: ['low', 'high'] } } },
   };
   const direct = await createCustomProvider('custom-eff-ant', { ...config, protocol: 'anthropic' });
   const routed = await createCustomProvider('custom-eff-routed', {
-    ...config, protocol: 'openai-chat', wires: ['chat', 'messages'], modelWires: { [model]: 'messages' },
+    ...config,
+    protocol: 'openai-chat',
+    wires: ['chat', 'messages'],
+    modelWires: { [model]: 'messages' },
   });
   const a = recorder();
   direct.client.fetch = a.fetchImpl;
@@ -170,12 +228,32 @@ test('a custom provider\'s routed Messages engine matches the Anthropic protocol
   assert.deepEqual(b.requests[0].body.thinking, a.requests[0].body.thinking);
 });
 
-const assistant = (id) => ({ role: 'assistant', content: id, reasoningContent: 'r', reasoningItems: [{ id }], thinkingBlocks: [{ type: 'thinking' }] });
+const assistant = (id) => ({
+  role: 'assistant',
+  content: id,
+  reasoningContent: 'r',
+  reasoningItems: [{ id }],
+  thinkingBlocks: [{ type: 'thinking' }],
+});
 
 test('a pinned wire the provider no longer offers is rerouted, recorded, and its history lowered', async () => {
-  const provider = { name: 'command-code-oauth', resolveWireRoute: async (m, ctx) => resolveWireRoute('command-code-oauth', m, { ...ctx, endpoints: ['chat'] }) };
-  const pin = { provider: 'command-code-oauth', model: 'gpt-5.5', wire: 'responses', profileId: 'command-code-oauth:responses', source: 'family' };
-  const session = { provider: 'command-code-oauth', model: 'gpt-5.5', wireRoute: pin, messages: [assistant('a'), { role: 'user', content: 'u' }, assistant('b')] };
+  const provider = {
+    name: 'command-code-oauth',
+    resolveWireRoute: async (m, ctx) => resolveWireRoute('command-code-oauth', m, { ...ctx, endpoints: ['chat'] }),
+  };
+  const pin = {
+    provider: 'command-code-oauth',
+    model: 'gpt-5.5',
+    wire: 'responses',
+    profileId: 'command-code-oauth:responses',
+    source: 'family',
+  };
+  const session = {
+    provider: 'command-code-oauth',
+    model: 'gpt-5.5',
+    wireRoute: pin,
+    messages: [assistant('a'), { role: 'user', content: 'u' }, assistant('b')],
+  };
   const route = await sendWireRoute(provider, 'gpt-5.5', [], { session }, session.messages);
   assert.equal(route.wire, 'chat');
   assert.equal(route.source, 'reroute');
@@ -183,7 +261,8 @@ test('a pinned wire the provider no longer offers is rerouted, recorded, and its
   assert.equal(session.wireRoute, route);
   const lowered = lowerHistoryForRoute(session.messages, route);
   for (const index of [0, 2]) {
-    for (const field of ['reasoningContent', 'reasoningItems', 'thinkingBlocks']) assert.equal(field in lowered[index], false, field);
+    for (const field of ['reasoningContent', 'reasoningItems', 'thinkingBlocks'])
+      assert.equal(field in lowered[index], false, field);
   }
   // Turns produced on the new wire keep their replay.
   const later = [...session.messages, assistant('c')];
@@ -193,15 +272,29 @@ test('a pinned wire the provider no longer offers is rerouted, recorded, and its
 });
 
 test('a custom provider edited to drop a pinned wire reroutes to Chat and records it', async () => {
-  const make = (wires) => createCustomProvider('custom-reroute-1', {
-    type: 'custom', name: 'R', baseURL: 'https://llm.example.com/v1', enabled: true, schemaVersion: 2,
-    protocol: 'openai-chat', wires, apiKey: 'k', preconnect: false,
-  });
+  const make = (wires) =>
+    createCustomProvider('custom-reroute-1', {
+      type: 'custom',
+      name: 'R',
+      baseURL: 'https://llm.example.com/v1',
+      enabled: true,
+      schemaVersion: 2,
+      protocol: 'openai-chat',
+      wires,
+      apiKey: 'k',
+      preconnect: false,
+    });
   await make(['chat', 'responses']);
   const edited = await make(['chat']);
   const seen = recorder();
   edited.client.fetch = seen.fetchImpl;
-  const pin = { provider: 'custom-reroute-1', model: 'm', wire: 'responses', profileId: 'custom-reroute-1:responses', source: 'default' };
+  const pin = {
+    provider: 'custom-reroute-1',
+    model: 'm',
+    wire: 'responses',
+    profileId: 'custom-reroute-1:responses',
+    source: 'default',
+  };
   const session = { provider: 'custom-reroute-1', model: 'm', wireRoute: pin, messages: [assistant('a')] };
   await edited.send([assistant('a'), { role: 'user', content: 'next' }], 'm', [], { session });
   assert.equal(seen.requests[0].path.endsWith('/chat/completions'), true);

@@ -287,5 +287,9 @@ export function clampFreePetPosition(point: { x: number; y: number }, geometry: 
  *  else the default corner. */
 export function petPositionOn(display: PetDisplay, prefs: DesktopPetPrefs, geometry: DesktopPetGeometry) {
   const saved = prefs.positions[String(display.id)];
-  return clampFreePetPosition(saved ?? defaultPetPosition(display.workArea, geometry.window), geometry, display.workArea);
+  return clampFreePetPosition(
+    saved ?? defaultPetPosition(display.workArea, geometry.window),
+    geometry,
+    display.workArea
+  );
 }

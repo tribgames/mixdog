@@ -406,9 +406,7 @@ test('a task session shows nothing while it starts and one card without file car
       text: '🛠 Agent task',
       at: DAY1,
       routine: { kind: 'task', name: 'Fence fix', status, sessionId: 'sess_task_9', ...extra },
-      attachments: [
-        { id: 'a1', attachmentRef: 'r1', kind: 'file', name: 'cdp.ts', mimeType: 'text/plain', size: 10 },
-      ],
+      attachments: [{ id: 'a1', attachmentRef: 'r1', kind: 'file', name: 'cdp.ts', mimeType: 'text/plain', size: 10 }],
     },
   });
   const files = [
@@ -1469,7 +1467,10 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
       'the tile of the tab the panel shows is announced as current'
     );
     assert.equal(tiles[2].querySelector('.transcript-visualize-badge.is-version'), null);
-    assert.ok(tiles.every((tile) => !tile.querySelector('.transcript-visualize-status')), 'no status words');
+    assert.ok(
+      tiles.every((tile) => !tile.querySelector('.transcript-visualize-status')),
+      'no status words'
+    );
     assert.ok(tiles[1].querySelector('.transcript-visualize-badge.is-problem'), 'page problems badge');
     // A tile reveals its own tab; a closed one opens again.
     await act(async () => tiles[0].click());

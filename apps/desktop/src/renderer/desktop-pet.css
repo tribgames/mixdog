@@ -228,9 +228,6 @@ body {
    this window (a navigation key since the last press: html[data-pet-keys],
    skin-companion-pet.tsx): Chromium's :focus-visible also matches a script
    focus with no pointer before it (the window gaining focus). */
-.skin-companion-pet,
-.skin-companion-pet:focus,
-.skin-companion-pet:focus-visible,
 .skin-companion-bubble:focus {
   outline: none;
 }

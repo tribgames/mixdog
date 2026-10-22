@@ -48,13 +48,18 @@ async function withdrawStreamedText(opts, chars) {
   }
 }
 
-export async function resolveOutputLimit(response, { state, segments, messages, opts, escalateMaxTokens, streamedChars }) {
+export async function resolveOutputLimit(
+  response,
+  { state, segments, messages, opts, escalateMaxTokens, streamedChars }
+) {
   const hasContent = typeof response.content === 'string' && response.content.trim().length > 0;
   if (!state.outputEscalationUsed && isOutputLimitStopReason(response.stopReason ?? response.stop_reason)) {
     state.outputEscalationUsed = true;
     // A provider may resolve the higher limit asynchronously (route lookup);
     // failing to find one only skips the escalation.
-    const limit = await (async () => escalateMaxTokens())().catch(() => null);
+    const limit = await Promise.resolve()
+      .then(escalateMaxTokens)
+      .catch(() => null);
     if (limit > 0 && (await withdrawStreamedText(opts, streamedChars()))) {
       // Taken off the shared options by the very next send (sendProviderRequest).
       opts.maxOutputTokensOverride = limit;
@@ -73,7 +78,9 @@ export async function resolveOutputLimit(response, { state, segments, messages, 
     messages.push(resumePrompt(response, state.maxOutputRecoveryCount));
     return { action: 'continue', response };
   }
-  const terminalSegment = hasContent ? `${response.content}\n\n${MAX_OUTPUT_EXHAUSTED_NOTICE}` : MAX_OUTPUT_EXHAUSTED_NOTICE;
+  const terminalSegment = hasContent
+    ? `${response.content}\n\n${MAX_OUTPUT_EXHAUSTED_NOTICE}`
+    : MAX_OUTPUT_EXHAUSTED_NOTICE;
   const earlier = (hasContent ? segments.parts.slice(0, -1) : segments.parts).join('');
   return {
     action: 'break',

@@ -7,12 +7,7 @@ import { runAbortable, throwIfAborted } from '../../../../../shared/abort-race.m
 import { evaluateExecPolicy } from '../../../tools/bash-policy-scan.mjs';
 import { beginSessionApprovalWait } from '../../manager/runtime-liveness.mjs';
 import { agentMcpToolPermission, writeAgentMcpToolPermission } from '../../../mcp/agent-connectors.mjs';
-import {
-  actingBotId,
-  actingContactBotId,
-  humanGateDecision,
-  recordHumanDecision,
-} from '../../human-gate/gate.mjs';
+import { actingBotId, actingContactBotId, humanGateDecision, recordHumanDecision } from '../../human-gate/gate.mjs';
 import { applyEditedArgs } from '../../human-gate/requests.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
@@ -83,9 +78,7 @@ export function applyConnectorApproval(call, { agentId, callerSessionId, execute
     executeOpts,
     toolApprovalHook,
     decision: { reason: CONNECTOR_APPROVAL_REASON },
-    request: rememberable
-      ? { kind: 'approval', agentId: botId, remember: ['once', 'agent'] }
-      : null,
+    request: rememberable ? { kind: 'approval', agentId: botId, remember: ['once', 'agent'] } : null,
     onApproved: async (approval) => {
       if (!rememberable || approval?.remember !== 'agent') return;
       try {

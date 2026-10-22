@@ -23,7 +23,9 @@ process.on('exit', () => {
 });
 
 const { sendWithRecovery, TRANSPORT_RETRY_MAX } = await import('./send-with-recovery.mjs');
-const { isConnectFailure, markProviderRecoveryExhausted, withRetry } = await import('../providers/retry-classifier.mjs');
+const { isConnectFailure, markProviderRecoveryExhausted, withRetry } = await import(
+  '../providers/retry-classifier.mjs'
+);
 const { parseSSEStream } = await import('../providers/anthropic-sse.mjs');
 const { applyRetryAction } = await import('./loop/send-phase.mjs');
 const { resolveOutputLimit } = await import('./loop/no-tool-turn/output-limit.mjs');
@@ -804,11 +806,19 @@ test('server retry advice is waited in full (never capped) and stays cancellable
       setTimeout(() => controller.abort(new Error('user cancelled')), 0);
     },
   };
-  const overloaded = Object.assign(new Error('busy'), { status: 503, code: 'server_is_overloaded', retryAfterMs: 600_000 });
+  const overloaded = Object.assign(new Error('busy'), {
+    status: 503,
+    code: 'server_is_overloaded',
+    retryAfterMs: 600_000,
+  });
   await assert.rejects(
     sendWithRecovery({
       ...baseCtx,
-      provider: { send: async () => { throw overloaded; } },
+      provider: {
+        send: async () => {
+          throw overloaded;
+        },
+      },
       opts,
       signal: controller.signal,
       transportRetriesUsed: 0,
@@ -828,7 +838,11 @@ test('terminal kinds are never replayed by the loop, whatever the advice', async
     await assert.rejects(
       sendWithRecovery({
         ...baseCtx,
-        provider: { send: async () => { throw error; } },
+        provider: {
+          send: async () => {
+            throw error;
+          },
+        },
         opts: {},
         transportRetriesUsed: 0,
       }),
@@ -843,7 +857,11 @@ test('a typed byte-size refusal never routes to reactive compaction', async () =
   await assert.rejects(
     sendWithRecovery({
       ...baseCtx,
-      provider: { send: async () => { throw error; } },
+      provider: {
+        send: async () => {
+          throw error;
+        },
+      },
       opts: {},
       sessionRef: { id: 'sess-size', provider: 'anthropic', contextWindow: 200_000 },
       transportRetriesUsed: 0,
@@ -858,7 +876,16 @@ test('retryPolicy.unboundedConnectionRetry: a connect failure keeps waiting past
   // file's env override, 13 by default) ends the turn.
   const capped = offline();
   await assert.rejects(
-    sendWithRecovery({ ...baseCtx, provider: { send: async () => { throw capped; } }, opts: {}, transportRetriesUsed: 4 }),
+    sendWithRecovery({
+      ...baseCtx,
+      provider: {
+        send: async () => {
+          throw capped;
+        },
+      },
+      opts: {},
+      transportRetriesUsed: 4,
+    }),
     (thrown) => thrown === capped
   );
   // Opted-in path: no step cap and "waiting for network" progress (the wait is
@@ -867,7 +894,12 @@ test('retryPolicy.unboundedConnectionRetry: a connect failure keeps waiting past
   const opts = { onStageChange: (stage, detail) => stage === 'reconnecting' && stages.push(detail) };
   const result = await sendWithRecovery({
     ...baseCtx,
-    provider: { retryPolicy: { unboundedConnectionRetry: true }, send: async () => { throw offline(); } },
+    provider: {
+      retryPolicy: { unboundedConnectionRetry: true },
+      send: async () => {
+        throw offline();
+      },
+    },
     opts,
     transportRetriesUsed: 40,
   });
@@ -884,12 +916,26 @@ test('retryPolicy.contentFilterRetryable: content_filter replays with a contextu
   const filtered = () => Object.assign(new Error('content filtered'), { code: 'content_filter' });
   const terminal = filtered();
   await assert.rejects(
-    sendWithRecovery({ ...baseCtx, provider: { send: async () => { throw terminal; } }, opts: {}, transportRetriesUsed: 0 }),
+    sendWithRecovery({
+      ...baseCtx,
+      provider: {
+        send: async () => {
+          throw terminal;
+        },
+      },
+      opts: {},
+      transportRetriesUsed: 0,
+    }),
     (thrown) => thrown === terminal
   );
   const result = await sendWithRecovery({
     ...baseCtx,
-    provider: { retryPolicy: { contentFilterRetryable: true }, send: async () => { throw filtered(); } },
+    provider: {
+      retryPolicy: { contentFilterRetryable: true },
+      send: async () => {
+        throw filtered();
+      },
+    },
     opts: {},
     transportRetriesUsed: 0,
   });
@@ -900,7 +946,12 @@ test('retryPolicy.contentFilterRetryable: content_filter replays with a contextu
   await assert.rejects(
     sendWithRecovery({
       ...baseCtx,
-      provider: { retryPolicy: { contentFilterRetryable: true }, send: async () => { throw exhausted; } },
+      provider: {
+        retryPolicy: { contentFilterRetryable: true },
+        send: async () => {
+          throw exhausted;
+        },
+      },
       opts: {},
       transportRetriesUsed: TRANSPORT_RETRY_MAX,
     }),
@@ -911,7 +962,12 @@ test('retryPolicy.contentFilterRetryable: content_filter replays with a contextu
   await assert.rejects(
     sendWithRecovery({
       ...baseCtx,
-      provider: { retryPolicy: { contentFilterRetryable: true }, send: async () => { throw ended; } },
+      provider: {
+        retryPolicy: { contentFilterRetryable: true },
+        send: async () => {
+          throw ended;
+        },
+      },
       opts: {},
       transportRetriesUsed: 0,
     }),
@@ -920,10 +976,15 @@ test('retryPolicy.contentFilterRetryable: content_filter replays with a contextu
 });
 
 test('retryPolicy.recoveryCycles:false surfaces a spent provider ladder instead of parking on recovery cycles', async () => {
-  const spent = () => markProviderRecoveryExhausted(Object.assign(new Error('unavailable'), { status: 503 }), { attempts: 5 });
+  const spent = () =>
+    markProviderRecoveryExhausted(Object.assign(new Error('unavailable'), { status: 503 }), { attempts: 5 });
   const parked = await sendWithRecovery({
     ...baseCtx,
-    provider: { send: async () => { throw spent(); } },
+    provider: {
+      send: async () => {
+        throw spent();
+      },
+    },
     opts: {},
     transportRetriesUsed: 0,
   });
@@ -933,7 +994,12 @@ test('retryPolicy.recoveryCycles:false surfaces a spent provider ladder instead 
   await assert.rejects(
     sendWithRecovery({
       ...baseCtx,
-      provider: { retryPolicy: { recoveryCycles: false }, send: async () => { throw error; } },
+      provider: {
+        retryPolicy: { recoveryCycles: false },
+        send: async () => {
+          throw error;
+        },
+      },
       opts: {},
       transportRetriesUsed: 0,
     }),
@@ -959,7 +1025,11 @@ test('provider-terminal verdicts end loop recovery: unadvised gated overload and
     await assert.rejects(
       sendWithRecovery({
         ...baseCtx,
-        provider: { send: async () => { throw error; } },
+        provider: {
+          send: async () => {
+            throw error;
+          },
+        },
         opts: {},
         transportRetriesUsed: 0,
       }),
@@ -986,12 +1056,29 @@ test('an in-band invalid_request stream error replays only for a provider that o
   // Without the opt-in the refusal is final, even when the exposed text could
   // be retracted.
   const unexposed = xaiStreamCrash();
-  await assert.rejects(run({ send: async () => { throw unexposed; } }), (thrown) => thrown === unexposed);
+  await assert.rejects(
+    run({
+      send: async () => {
+        throw unexposed;
+      },
+    }),
+    (thrown) => thrown === unexposed
+  );
   const exposed = xaiStreamCrash();
   await assert.rejects(run(exposing(undefined, exposed)), (thrown) => thrown === exposed);
   const optIn = { inBandInvalidRequestRetryable: true };
   assert.equal((await run(exposing(optIn, xaiStreamCrash()))).action, 'retry_transport');
-  assert.equal((await run({ retryPolicy: optIn, send: async () => { throw xaiStreamCrash(); } })).action, 'retry_transport');
+  assert.equal(
+    (
+      await run({
+        retryPolicy: optIn,
+        send: async () => {
+          throw xaiStreamCrash();
+        },
+      })
+    ).action,
+    'retry_transport'
+  );
 });
 
 function xaiStreamCrash() {
@@ -1004,13 +1091,23 @@ function xaiStreamCrash() {
 
 async function recoverWithLatestImage(providerName, error) {
   const messages = [
-    { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', mimeType: 'image/png', data: 'AAAA' }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look' },
+        { type: 'image', mimeType: 'image/png', data: 'AAAA' },
+      ],
+    },
   ];
   const { opts } = recordingOpts();
   return await sendWithRecovery({
     ...baseCtx,
     messages,
-    provider: { send: async () => { throw error; } },
+    provider: {
+      send: async () => {
+        throw error;
+      },
+    },
     opts,
     sessionRef: { id: 'sess-image-strip-scope', provider: providerName, contextWindow: 200_000 },
     transportRetriesUsed: 0,
@@ -1021,7 +1118,10 @@ test('a bare retryable stream error strips images only for Grok; others take nor
   const grok = await recoverWithLatestImage('grok-oauth', xaiStreamCrash());
   assert.equal(grok.action, 'retry_image_strip');
   // Not an image-strip: the error is surfaced (or retried as transport), never stripped.
-  const other = await recoverWithLatestImage('anthropic', xaiStreamCrash()).catch((error) => ({ action: 'threw', error }));
+  const other = await recoverWithLatestImage('anthropic', xaiStreamCrash()).catch((error) => ({
+    action: 'threw',
+    error,
+  }));
   assert.notEqual(other.action, 'retry_image_strip');
 });
 

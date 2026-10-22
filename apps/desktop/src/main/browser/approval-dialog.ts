@@ -16,10 +16,7 @@ import { redactBrowserUrl } from './redaction';
 /** Approvals wait here for the in-app card's answer (never an OS dialog),
  *  keyed to the one renderer the card was sent to. */
 type Decision = 'once' | 'always' | 'deny';
-const pending = new Map<
-  string,
-  { owner: WebContents; finish: (decision: Decision, reason?: string) => void }
->();
+const pending = new Map<string, { owner: WebContents; finish: (decision: Decision, reason?: string) => void }>();
 
 /** The store action (human-gate ACTION_KINDS) a standing allow is kept under,
  *  per kind of gated step. `confirm` has none: it always asks. */

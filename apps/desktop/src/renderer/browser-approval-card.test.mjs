@@ -70,7 +70,6 @@ const prompt = (extra = {}) => ({
   requester: 'Marketer › Worker',
   target: 'button "Create account"',
   paths: [],
-  expiresAt: Date.now() + 30_000,
   remember: { kinds: ['submit'] },
   ...extra,
 });
@@ -107,7 +106,6 @@ test('a browser approval docks in its top-level chat; with no such chat open it 
       "With Always allow, Marketer › Worker's Submit a form in the browser won't ask again"
     );
     assert.equal(button(docked, 'Allow just once').title, 'Allow just once');
-    assert.match(docked.querySelector('.approval-corner').textContent, /^0:(29|30) left$/);
     await api.send(prompt({ id: 'b2' }));
     assert.equal(docked.querySelector('.approval-queue').textContent, '1/2');
     await api.send({ id: 'b1', closed: true });
@@ -141,14 +139,13 @@ test('a browser approval docks in its top-level chat; with no such chat open it 
   }
 });
 
-test('a prompt without expiresAt waits for the person: no timer drops it, no countdown', async (t) => {
+test('a prompt waits for the person: no timer drops it, no countdown', async (t) => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.now() });
   await act(async () => host.render(React.createElement(BrowserApprovalHost)));
   try {
-    const { expiresAt: _none, ...waiting } = prompt({ id: 'n1', surfaceSessionId: 'nowhere' });
-    await api.send(waiting);
+    await api.send(prompt({ id: 'n1', surfaceSessionId: 'nowhere' }));
     const root = doc.getElementById('host');
     assert.ok(root.querySelector('.approval-prompt'), 'the card shows');
     await act(async () => t.mock.timers.tick(31_000));

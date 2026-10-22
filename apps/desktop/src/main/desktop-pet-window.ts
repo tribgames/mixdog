@@ -160,7 +160,7 @@ export interface DesktopPetDeps {
   /** An agent's custom picture (getAgentAvatarImage: data URLs by state),
    *  for the pet window, which has no capability bridge of its own. */
   avatarImage?(agentId: string): Promise<unknown>;
-  readPrefs?:(path: string) => DesktopPetPrefs;
+  readPrefs?: (path: string) => DesktopPetPrefs;
   writePrefs?: (path: string, prefs: DesktopPetPrefs) => void;
 }
 

@@ -517,8 +517,8 @@ export function roomTurnPrompt({
           asker
             ? `${asker}'s message has no answer yet: reply to it now. Do not pass.`
             : userLast
-            ? 'The user just spoke and nobody has answered yet: reply to the user now, in their language. Do not pass.'
-            : "Nobody has answered the user's newest message yet (the member messages after it were written before it arrived): reply to that message now, in the user's language. Do not pass.",
+              ? 'The user just spoke and nobody has answered yet: reply to the user now, in their language. Do not pass.'
+              : "Nobody has answered the user's newest message yet (the member messages after it were written before it arrived): reply to that message now, in the user's language. Do not pass.",
         ]
       : []),
     ...(scene === 'casual'

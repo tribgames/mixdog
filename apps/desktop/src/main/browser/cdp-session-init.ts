@@ -211,7 +211,7 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     // has to be in place before the first document reads it. Do not make
     // first navigation wait for anything else. A frame removed meanwhile ends
     // its commands (cdp-execution endSession); that is not a failure.
-    const ended = () => Boolean(sessionId) && !state.for(guest).cdpSessions.has(sessionId!);
+    const ended = () => (sessionId ? !state.for(guest).cdpSessions.has(sessionId) : false);
     const boundary = Promise.all([
       send('Page.enable'),
       // Pages live in hidden windows that never hold the OS focus; the pane

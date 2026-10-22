@@ -69,6 +69,7 @@ export class DesktopSessionMetadata {
   get archived(): Record<string, number> | null {
     return this.archivedMap;
   }
+
   /** Cross-surface read cursors keyed by session id. */
   get reads(): Record<string, SessionReadCursor> {
     return this.readMap || {};

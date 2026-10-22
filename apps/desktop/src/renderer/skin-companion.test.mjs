@@ -991,7 +991,10 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
 });
 
 test('a picture face (#178): an empty box while it loads, the picture once read, the mascot only if it cannot be read', async (t) => {
-  const dom = installTestDom(t, { expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'], actEnvironment: false });
+  const dom = installTestDom(t, {
+    expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'],
+    actEnvironment: false,
+  });
   let showView = null;
   const asked = [];
   const noop = () => {};
@@ -1142,7 +1145,7 @@ test("the bot never draws a ring; the bubble's only for keyboard use, never by C
   assert.ok(
     rules.some(
       ({ selector, body }) =>
-        selector.includes('.skin-companion-pet:focus') &&
+        /\.skin-companion-pet(:focus|:is\([^)]*:focus\b)/.test(selector) &&
         !selector.includes('data-pet-keys') &&
         /outline:\s*none/.test(body)
     ),
@@ -1630,7 +1633,8 @@ test('a screenshot or modifier key never turns on the keyboard rings (bubble, me
   const untrack = trackPetKeyboardUse(dom.document);
   t.after(untrack);
   const root = dom.document.documentElement;
-  const press = (init) => dom.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, ...init }));
+  const press = (init) =>
+    dom.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, ...init }));
   // Clicked (it keeps focus), then a screenshot: PrintScreen, Win+Shift+S, Alt, Ctrl.
   dom.document.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
   for (const init of [
@@ -1805,9 +1809,13 @@ test('the sprite box, bubble, quick message and menu follow the bot size (--pet-
 });
 
 test('nothing draws a box around the bot in any state: no outline, border, shadow, background or box-shaped filter', async () => {
-  const css = (await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8'))
-    .replace(/\/\*[\s\S]*?\*\//g, '');
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
+  const css = (
+    await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')
+  ).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
+    selector: selector.trim(),
+    body,
+  }));
   // Rules on the bot itself (its button, the sprite box, the face and its
   // svg/img), in any state; the bubble, quick message and menu keep theirs.
   const bot = rules.filter(
@@ -1819,7 +1827,8 @@ test('nothing draws a box around the bot in any state: no outline, border, shado
   for (const { selector, body } of bot) {
     for (const [, property, value] of body.matchAll(/(?:^|;)\s*([\w-]+)\s*:\s*([^;]+)/g)) {
       const v = value.trim();
-      if (/^(outline|border(-[\w-]+)?)$/.test(property)) assert.match(v, /^(none|0(px)?)$/, `${selector} ${property}: ${v}`);
+      if (/^(outline|border(-[\w-]+)?)$/.test(property))
+        assert.match(v, /^(none|0(px)?)$/, `${selector} ${property}: ${v}`);
       if (property === 'box-shadow') assert.equal(v, 'none', `${selector} ${property}`);
       if (/^background(-color)?$/.test(property)) assert.equal(v, 'transparent', `${selector} ${property}`);
       if (property === 'border-radius') assert.fail(`${selector}: a rounded box`);
@@ -1833,14 +1842,21 @@ test('nothing draws a box around the bot in any state: no outline, border, shado
   assert.match(pet, /-webkit-tap-highlight-color: transparent;/);
   assert.match(pet, /appearance: none;/);
   assert.ok(
-    rules.some(({ selector, body }) => /:focus-visible/.test(selector) && /skin-companion-pet/.test(selector) && /outline: none/.test(body))
+    rules.some(
+      ({ selector, body }) =>
+        /:focus-visible/.test(selector) && /skin-companion-pet/.test(selector) && /outline: none/.test(body)
+    )
   );
 });
 
 test('a picture face: smooth (pixelated only for the mascot svg) and never continuously animated', async () => {
-  const css = (await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8'))
-    .replace(/\/\*[\s\S]*?\*\//g, '');
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
+  const css = (
+    await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')
+  ).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
+    selector: selector.trim(),
+    body,
+  }));
   const pixelated = rules.filter(({ body }) => /image-rendering:\s*pixelated/.test(body));
   assert.ok(pixelated.length > 0);
   for (const { selector } of pixelated) {
@@ -1849,11 +1865,13 @@ test('a picture face: smooth (pixelated only for the mascot svg) and never conti
   }
   // Every animation that can reach a picture (the face's img, the face, the
   // stack or the pet button around it) steps: no per-frame recomposite.
-  const reaches = /skin-companion-face > img|skin-companion-face > :is\([^)]*img|\.skin-companion-face\s*(,|$)|skin-companion-stack|skin-companion-pet\b/;
+  const reaches =
+    /skin-companion-face > img|skin-companion-face > :is\([^)]*img|\.skin-companion-face\s*(,|$)|skin-companion-stack|skin-companion-pet\b/;
   for (const { selector, body } of rules) {
     if (!reaches.test(selector) || /@media|prefers-reduced/.test(selector)) continue;
     const animation = /(?:^|;)\s*animation:\s*([^;]+)/.exec(body)?.[1];
-    if (animation && animation.trim() !== 'none') assert.match(animation, /step-end|steps\(/, `${selector}: ${animation}`);
+    if (animation && animation.trim() !== 'none')
+      assert.match(animation, /step-end|steps\(/, `${selector}: ${animation}`);
   }
 });
 
@@ -1891,7 +1909,7 @@ test('the overlay draws the sprite at the size main made its window for', async 
     await new Promise((r) => setTimeout(r, 10));
   }
   assert.ok(showView, 'the page subscribed to its view');
-  const base ={ sessionId: '', bubble: { kind: 'idle' }, face: { room: false, members: [] }, quiet: false };
+  const base = { sessionId: '', bubble: { kind: 'idle' }, face: { room: false, members: [] }, quiet: false };
   const view = { ...base, collapsed: false, keepAbove: false, pinned: true, theme: null, visible: true };
   for (const [scale, size] of [
     [50, '28px'],

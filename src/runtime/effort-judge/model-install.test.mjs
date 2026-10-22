@@ -157,7 +157,7 @@ test('each downloaded file is fsynced before it is renamed into place', async (t
 // An open() whose handle fails its sync with `code`, recording the close.
 function failingOpen(code) {
   const seen = { closed: 0 };
-  const open = async (path, flags) => {
+  const open = async (_path, flags) => {
     assert.equal(flags, 'r+', 'a write handle: Windows refuses fsync on a read-only one');
     return {
       sync: async () => {

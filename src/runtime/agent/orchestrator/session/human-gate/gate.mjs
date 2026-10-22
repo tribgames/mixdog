@@ -52,8 +52,9 @@ function ownBoundAgentId(sessionId) {
 }
 
 /** The agent a session acts for: its unattended run's owner, a room member,
- *  a home thread's agent, else Mixy. A sub-agent, a task session and a coding
- *  Lead are bound to nothing. */
+ *  a home thread's agent, else Mixy. Work a schedule/webhook run started (a
+ *  sub-agent, a task session) acts for the run's owner; a chat's sub-agent, a
+ *  chat-created task session and a coding Lead are bound to nothing. */
 export function agentIdForSession(sessionId) {
   return ownBoundAgentId(sessionId) || MIXY_AGENT_ID;
 }
@@ -61,9 +62,11 @@ export function agentIdForSession(sessionId) {
 /** The bot a session acts for, or '' when none: Mixy in her own home thread
  *  (or her unattended run / room member session), or a contact agent (`kind:
  *  bot`, isContactAgentId) in its home thread, room member session or
- *  unattended run. A coding Lead (also id 'lead'), a task session a bot
- *  created, their workflow agents and every sub-agent (also a bot's) are
- *  bound to nothing here, so they are no bot. */
+ *  unattended run. Work a schedule/webhook run started (a sub-agent, a task
+ *  session) resolves to the run's bot (ownBoundAgentId → runOf). A coding Lead
+ *  (also id 'lead'), a task session a bot created in a chat, their workflow
+ *  agents and every sub-agent of a chat (also a bot's) are bound to nothing
+ *  here, so they are no bot. */
 export function actingBotId(sessionId) {
   const id = ownBoundAgentId(sessionId);
   if (!id) return '';
@@ -204,7 +207,7 @@ export async function humanGateDecision(call, decision, ctx = {}) {
     remember: ['once'],
   };
   // "Don't ask again" is the bot's permission.
-  if (isRememberableAction(outbound.category)) request.remember = outboundRemember(outbound.category);
+  request.remember = outboundRemember(outbound.category);
   const store = ctx.store || (await humanGateStore());
   const mode = await store.modeFor({ agentId, action: outbound.category });
   const base = decision && typeof decision === 'object' ? decision : {};

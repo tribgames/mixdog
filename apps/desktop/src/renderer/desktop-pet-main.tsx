@@ -32,11 +32,7 @@ function memberLabel(member: DesktopPetMember): RoomMemberLabel {
 
 /** The one bot's custom picture: none (a mascot or a room), loading,
  *  ready (its still idle frame), or failed (it cannot be read). */
-export type PetPicture =
-  | { state: 'none' }
-  | { state: 'loading' }
-  | { state: 'ready'; src: string }
-  | { state: 'failed' };
+type PetPicture = { state: 'none' } | { state: 'loading' } | { state: 'ready'; src: string } | { state: 'failed' };
 const NO_PICTURE: PetPicture = { state: 'none' };
 const LOADING_PICTURE: PetPicture = { state: 'loading' };
 

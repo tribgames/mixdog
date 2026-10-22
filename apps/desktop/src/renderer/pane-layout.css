@@ -49,11 +49,11 @@
    panel, but it stacks inside its leaf (isolation above): lift that leaf over
    the split handles (5), or their hairline paints across the sheet. */
 .pane-leaf:has(
-    .pane-side-dock[data-expanded="true"],
-    .pane-side-dock-header[data-surface-expanded="true"],
-    .session-browser-surface-container[data-expanded="true"][data-parked="false"],
-    .session-terminal-surface-container[data-expanded="true"][data-parked="false"]
-  ) {
+  .pane-side-dock[data-expanded="true"],
+  .pane-side-dock-header[data-surface-expanded="true"],
+  .session-browser-surface-container[data-expanded="true"][data-parked="false"],
+  .session-terminal-surface-container[data-expanded="true"][data-parked="false"]
+) {
   z-index: 6;
 }
 .pane-resize-handle {

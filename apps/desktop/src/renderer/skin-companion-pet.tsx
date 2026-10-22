@@ -668,7 +668,13 @@ function useQuickMessage({
 /** How far inside either edge of its span the quick message stays. */
 const QUICK_EDGE = 4;
 
-function QuickMessageForm({ quick, span }: { quick: ReturnType<typeof useQuickMessage>; span: BubbleSpan | undefined }) {
+function QuickMessageForm({
+  quick,
+  span,
+}: {
+  quick: ReturnType<typeof useQuickMessage>;
+  span: BubbleSpan | undefined;
+}) {
   const { quickInput, folding, draft, setDraft, inputRef, composingRef, closeInput, send } = quick;
   const ref = useRef<HTMLFormElement | null>(null);
   const shiftRef = useRef(0);
@@ -683,7 +689,9 @@ function QuickMessageForm({ quick, span }: { quick: ReturnType<typeof useQuickMe
     }
     const left = node.offsetLeft - shiftRef.current;
     const shift = span
-      ? Math.round(Math.max(span.left + QUICK_EDGE - left, Math.min(0, span.right - QUICK_EDGE - left - node.offsetWidth)))
+      ? Math.round(
+          Math.max(span.left + QUICK_EDGE - left, Math.min(0, span.right - QUICK_EDGE - left - node.offsetWidth))
+        )
       : 0;
     shiftRef.current = shift;
     if (shift !== 0) node.style.setProperty('--quick-shift', `${shift}px`);
