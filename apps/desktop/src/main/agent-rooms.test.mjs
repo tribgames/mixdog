@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
+import { roomMemberSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { createAgentRooms } from './agent-rooms.ts';
 
 /** The log's intake (agent-room-delivery.mjs): a user row's files come back
@@ -94,10 +95,15 @@ function harness({
       readWindow > 0
         ? log.slice(-readWindow).map(({ text, upload: _upload, artifactsFrom: _from, ...row }) => ({ room: row, text }))
         : [],
-    submit: async (id, prompt) => {
+    submit: async (id, prompt, options = {}) => {
       const agentId = id.split('_').at(-1);
       touched.add(id);
-      prompts.push({ agentId, prompt });
+      prompts.push({
+        agentId,
+        prompt,
+        ...(options.id ? { id: options.id } : {}),
+        ...(options.hop ? { hop: options.hop } : {}),
+      });
       const text = await script(agentId, prompt);
       answers.set(id, { text, at: clock + 1 });
       return true;
@@ -1211,6 +1217,331 @@ test("a listed room's row time follows its latest speech, not the log's older ca
   assert.equal(row.updatedAt, lastAt);
   const newer = { ...catalogRow, updatedAt: lastAt + 50, activityAt: lastAt + 50 };
   assert.equal(h.rooms.withRooms([newer])[0].activityAt, lastAt + 50, 'a newer catalog time is kept');
+});
+
+test('a message from another session must name a member of the room: by `to`, or a leading @name', async () => {
+  const h = harness();
+  const { sessionId } = await room(h);
+  await assert.rejects(h.rooms.member(sessionId, { prompt: 'status?' }), /must name the member it is for/);
+  await assert.rejects(h.rooms.member(sessionId, { to: 'nobody', prompt: 'status?' }), /"nobody" is not a member/);
+  const byName = await h.rooms.member(sessionId, { to: 'release', prompt: 'status?' });
+  assert.deepEqual([byName.agentId, byName.text], ['rel', 'status?']);
+  assert.equal(byName.sessionId, roomMemberSessionId(sessionId.slice('sess_room_'.length), 'rel'));
+  const mention = await h.rooms.member(sessionId, { prompt: '@GitHub check the PR' });
+  assert.deepEqual([mention.agentId, mention.text], ['gh', 'check the PR']);
+});
+
+test('a message from another session is its sender’s row, and only the named member answers it', async () => {
+  const h = harness({ decide: ROTATE });
+  const { sessionId, roomId } = await room(h);
+  const ends = [];
+  await h.rooms.ask(sessionId, {
+    agentId: 'rel',
+    prompt: 'is v2 ready?',
+    from: { sessionId: 'sess_lead_1' },
+    id: 'atask_1',
+    onSettled: (detail) => ends.push(detail),
+  });
+  await h.idle(roomId);
+  const [row] = h.log;
+  assert.deepEqual(
+    [row.kind, row.text, row.to, row.fromSession, row.fromName, row.fromAgent],
+    ['user', 'is v2 ready?', ['rel'], 'sess_lead_1', 'Lead', undefined]
+  );
+  assert.deepEqual(
+    h.prompts.map((p) => [p.agentId, p.id]),
+    [['rel', 'atask_1']],
+    'the named member alone answers, under the sender’s submission id'
+  );
+  assert.equal(h.decisions.length, 0, 'no supervisor step follows');
+  assert.match(h.prompts[0].prompt, /Lead asked you directly from another session/);
+  assert.match(h.prompts[0].prompt, /Lead \(the user's Lead, from another session, not the user\), to you only:/);
+  assert.deepEqual(h.log.at(-1), { ...h.log.at(-1), kind: 'speech', speaker: 'rel', text: 'ok' });
+  assert.deepEqual(ends, [{ status: 'done', result: { content: 'ok' } }]);
+  // A bot's message carries the bot-to-bot trust note.
+  await h.rooms.ask(sessionId, {
+    agentId: 'gh',
+    prompt: 'ship it',
+    from: { sessionId: 'sess_home_bench', agentId: 'bench' },
+  });
+  await h.idle(roomId);
+  assert.deepEqual([h.log.at(-2).fromAgent, h.log.at(-2).fromName], ['bench', 'Bench']);
+  assert.match(
+    h.prompts.at(-1).prompt,
+    /Bench \(another bot, from another session, not the user\)[^\n]*\nFrom another bot, not the user\./
+  );
+});
+
+test("a member relays its own reported work in one turn of its room, with no row of the report itself", async () => {
+  const h = harness({ decide: ROTATE });
+  const { sessionId, roomId } = await room(h);
+  const { settled } = await h.rooms.relay(roomMemberSessionId(roomId, 'bench'), 'REPORT: tests passed', {
+    id: 'awake_1',
+  });
+  assert.equal(await settled, 'done');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => [p.agentId, p.id]),
+    [['bench', 'awake_1']]
+  );
+  assert.match(h.prompts[0].prompt, /Relay them to the room now/);
+  assert.match(h.prompts[0].prompt, /REPORT: tests passed$/);
+  assert.doesNotMatch(h.prompts[0].prompt, /reply exactly "\(pass\)"/);
+  assert.deepEqual(
+    h.log.map((row) => [row.kind, row.speaker]),
+    [['speech', 'bench']],
+    'the room shows the relay, never the raw report'
+  );
+  assert.equal(h.decisions.length, 0);
+  assert.ok(sessionId);
+});
+
+/** A script whose `agentId` turns wait for `release()`; others answer at once. */
+function gated(agentIds) {
+  let release = () => {};
+  let gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  return {
+    script: async (agentId) => {
+      if (agentIds.includes(agentId)) await gate;
+      return `answer from ${agentId}`;
+    },
+    release: () => release(),
+    reset: () => {
+      gate = new Promise((resolve) => {
+        release = resolve;
+      });
+    },
+  };
+}
+
+const until = async (check) => {
+  for (let i = 0; i < 2000 && !check(); i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+
+test('every message waiting on one member is answered by its turn, behind a turn in flight or cutting one short', async () => {
+  const gate = gated(['gh', 'rel']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h);
+  const ends = { a: [], b: [], c: [], d: [] };
+  // Each watch the answering turn's id is recorded for, and how many turns were submitted by then.
+  const follows = [];
+  const ask = (key, id, hop) =>
+    h.rooms.ask(sessionId, {
+      agentId: 'rel',
+      prompt: `question ${key}`,
+      from: { sessionId: 'sess_lead_1' },
+      id,
+      hop,
+      onSettled: (detail) => ends[key].push(detail),
+      follow: (submissionId) => follows.push([key, submissionId, h.prompts.length]),
+    });
+  // Two asks queued behind another member's turn: one turn of rel answers both.
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  await ask('a', 'atask_a', 1);
+  await ask('b', 'atask_b', 1);
+  gate.release();
+  await until(() => ends.a.length && ends.b.length);
+  await h.idle(roomId);
+  const answered = { status: 'done', result: { content: 'answer from rel' } };
+  assert.deepEqual([ends.a, ends.b], [[answered], [answered]]);
+  assert.deepEqual(
+    h.prompts.filter((p) => p.agentId === 'rel').map((p) => [p.id, p.hop]),
+    [['atask_a', 1]],
+    'one turn, under the first submission id'
+  );
+  // An ask that cuts the member's own turn short: the next turn answers both,
+  // under a submission id not used before, at the highest hop.
+  gate.reset();
+  await ask('c', 'atask_c', 1);
+  await until(() => h.prompts.length === 3);
+  await ask('d', 'atask_d', 2);
+  gate.release();
+  await until(() => ends.c.length && ends.d.length);
+  await h.idle(roomId);
+  assert.deepEqual([ends.c, ends.d], [[answered], [answered]]);
+  assert.deepEqual(
+    h.prompts.slice(2).map((p) => [p.agentId, p.id, p.hop]),
+    [
+      ['rel', 'atask_c', 1],
+      ['rel', 'atask_d', 2],
+    ]
+  );
+  // Every call answered under another id has its watch follow that turn,
+  // recorded before the turn was submitted: b follows a's turn, the cut-short
+  // c follows d's.
+  assert.deepEqual(follows, [
+    ['b', 'atask_a', 1],
+    ['c', 'atask_d', 3],
+  ]);
+});
+
+test('coalesced, then cut short: every watch ends on the turn that answered, its own id included', async () => {
+  let openGh = () => {};
+  let openRel = () => {};
+  const ghGate = new Promise((resolve) => {
+    openGh = resolve;
+  });
+  const relGate = new Promise((resolve) => {
+    openRel = resolve;
+  });
+  let holdRel = true;
+  const h = harness({
+    script: async (agentId) => {
+      if (agentId === 'gh') await ghGate;
+      if (agentId === 'rel' && holdRel) await relGate;
+      return `answer from ${agentId}`;
+    },
+  });
+  const { sessionId, roomId } = await room(h);
+  // The durable watch store as recovery reads it: each watch's followed submission id.
+  const follows = new Map();
+  const ends = { a: [], b: [] };
+  const ask = (key) =>
+    h.rooms.ask(sessionId, {
+      agentId: 'rel',
+      prompt: `question ${key}`,
+      from: { sessionId: 'sess_lead_1' },
+      id: `atask_${key}`,
+      onSettled: (detail) => ends[key].push(detail),
+      follow: (submissionId) => follows.set(`atask_${key}`, submissionId),
+    });
+  const recovered = (runId) => follows.get(runId) ?? runId;
+  // a and b wait behind gh's turn: rel's one turn under a's id answers both.
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  await ask('a');
+  await ask('b');
+  openGh();
+  await until(() => h.prompts.length === 2);
+  assert.deepEqual([h.prompts[1].id, recovered('atask_b')], ['atask_a', 'atask_a']);
+  // A user message cuts that turn short: the replacement turn takes b's own id.
+  await h.rooms.send(sessionId, '/ask Release one more thing');
+  holdRel = false;
+  openRel();
+  await until(() => ends.a.length && ends.b.length);
+  await h.idle(roomId);
+  const answering = h.prompts.at(-1);
+  assert.deepEqual([answering.agentId, answering.id], ['rel', 'atask_b']);
+  assert.deepEqual(
+    [recovered('atask_a'), recovered('atask_b')],
+    ['atask_b', 'atask_b'],
+    "after a restart both watches read the answering turn: b's stale alias to a is gone"
+  );
+  const answered = { status: 'done', result: { content: 'answer from rel' } };
+  assert.deepEqual([ends.a, ends.b], [[answered], [answered]]);
+});
+
+test("a watch that cannot follow the shared turn fails every call it covers, and nothing is submitted", async () => {
+  const gate = gated(['gh']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h);
+  const ends = { a: [], b: [] };
+  const ask = (key, follow) =>
+    h.rooms.ask(sessionId, {
+      agentId: 'rel',
+      prompt: `question ${key}`,
+      from: { sessionId: 'sess_lead_1' },
+      id: `atask_${key}`,
+      onSettled: (detail) => ends[key].push(detail),
+      follow,
+    });
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  await ask('a', () => {});
+  await ask('b', async () => {
+    throw new Error('disk full');
+  });
+  gate.release();
+  await until(() => ends.a.length && ends.b.length);
+  await h.idle(roomId);
+  assert.equal(h.prompts.filter((p) => p.agentId === 'rel').length, 0, 'no turn without its durable mapping');
+  assert.deepEqual(
+    [ends.a[0].status, ends.b[0].status],
+    ['failed', 'failed']
+  );
+});
+
+test('a failed save at the start or hand-off of an exchange releases the room and fails what waited on it', async () => {
+  const gate = gated(['gh']);
+  let failing = false;
+  const h = harness({ script: gate.script, saveFails: () => failing });
+  const { sessionId, roomId } = await room(h);
+  const bench = roomMemberSessionId(roomId, 'bench');
+  const ends = [];
+  const ask = () =>
+    h.rooms.ask(sessionId, {
+      agentId: 'rel',
+      prompt: 'status?',
+      from: { sessionId: 'sess_lead_1' },
+      id: `atask_${ends.length}`,
+      onSettled: (detail) => ends.push(detail),
+    });
+  // The hand-off: a message and a relay wait behind a turn; the save that
+  // passes the room on to them fails.
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  const held = await h.rooms.relay(bench, 'REPORT: done', { id: 'awake_1' });
+  await ask();
+  failing = true;
+  gate.release();
+  assert.equal(await held.settled, 'failed');
+  await until(() => ends.length === 1);
+  assert.deepEqual(ends, [{ status: 'failed', error: 'disk full' }]);
+  await until(() => !h.rooms.isRunning(roomId));
+  assert.equal(h.rooms.isRunning(roomId), false, 'the room is released');
+  // The start: the exchange's first save fails.
+  await assert.rejects(ask(), /disk full/);
+  await until(() => ends.length === 2);
+  assert.deepEqual(ends[1], { status: 'failed', error: 'disk full' });
+  assert.equal(h.rooms.isRunning(roomId), false);
+  // Nothing is left stuck: once saves work, a relay runs at once.
+  failing = false;
+  const next = await h.rooms.relay(bench, 'REPORT: again', { id: 'awake_2' });
+  assert.equal(await next.settled, 'done');
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'bench']
+  );
+});
+
+test("a relay waits for the room's talk to end, runs at its hop, and a stop drops it", async () => {
+  const gate = gated(['gh']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h);
+  const bench = roomMemberSessionId(roomId, 'bench');
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  const { settled } = await h.rooms.relay(bench, 'REPORT: done', { id: 'awake_1', hop: 2 });
+  for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh'],
+    'the member speaking is never cut off by a relay'
+  );
+  gate.release();
+  assert.equal(await settled, 'done');
+  assert.deepEqual(
+    h.prompts.map((p) => [p.agentId, p.id, p.hop]),
+    [
+      ['gh', undefined, undefined],
+      ['bench', 'awake_1', 2],
+    ]
+  );
+  assert.deepEqual(h.log.at(-2), { ...h.log.at(-2), kind: 'speech', speaker: 'gh' });
+  assert.deepEqual(h.log.at(-1), { ...h.log.at(-1), kind: 'speech', speaker: 'bench' });
+  // A relay held back while the user stops the room ends cancelled; nobody speaks for it.
+  gate.reset();
+  await h.rooms.send(sessionId, '/ask GitHub again');
+  await until(() => h.prompts.length === 3);
+  const dropped = await h.rooms.relay(bench, 'REPORT: later', { id: 'awake_2' });
+  h.rooms.stop(sessionId);
+  gate.release();
+  assert.equal(await dropped.settled, 'cancelled');
+  await h.idle(roomId);
+  assert.equal(h.prompts.filter((p) => p.agentId === 'bench').length, 1);
 });
 
 test('remove surfaces a failed cleanup', async () => {

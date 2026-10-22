@@ -11,8 +11,10 @@ export function hostDeviceName(): string {
 }
 
 /** Submit options for the session runtime: the device travels as prompt
- *  transcript metadata, which is persisted with the user row. */
+ *  transcript metadata, which is persisted with the user row, and so does a
+ *  room member turn's bot-to-bot hop (bot-hops.mjs). */
 export function submitOptionsWithDevice(options: DesktopSubmitOptions, id: string): Record<string, unknown> {
-  const { device, ...rest } = options;
-  return { ...rest, id, transcriptMeta: { device: device || hostDeviceName() } };
+  const { device, hop, ...rest } = options;
+  const chained = Number.isSafeInteger(hop) && Number(hop) > 0 ? { hop } : {};
+  return { ...rest, id, transcriptMeta: { device: device || hostDeviceName(), ...chained } };
 }

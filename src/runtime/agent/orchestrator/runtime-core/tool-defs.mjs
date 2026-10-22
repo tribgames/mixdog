@@ -112,6 +112,11 @@ export const SESSION_TOOL = {
           'ID from list; required for read/send/cancel/delete, optional for status/bots. send/cancel/delete cannot target the caller.',
       },
       prompt: { type: 'string', description: 'send: message to enqueue; loads a cold session.' },
+      to: {
+        type: 'string',
+        description:
+          'send to a group room (sess_room_*): the member bot it is for, by agent id or room name (or start prompt with @name); only that member answers. A member session (sess_rmem_*) is never a send target.',
+      },
       limit: {
         type: 'integer',
         minimum: 1,

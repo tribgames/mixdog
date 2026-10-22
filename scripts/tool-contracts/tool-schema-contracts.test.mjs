@@ -466,7 +466,11 @@ test('session and memory schemas stay minimal and direct', () => {
     !/Cancel\/delete and worktree actions require the user/i.test(SESSION_TOOL.description || '') ||
     !/Shell cd does not switch Project/i.test(sessionProps.path?.description || '') ||
     Object.keys(sessionProps).join(',') !==
-      'action,title,session_id,prompt,limit,cursor,offset,text_offset,item_id,path,compact,force,value,brief,project,model,notify,attachments' ||
+      'action,title,session_id,prompt,to,limit,cursor,include_agents,include_archived,offset,text_offset,item_id,path,compact,force,value,brief,project,model,notify,attachments' ||
+    sessionProps.to?.type !== 'string' ||
+    !/group room \(sess_room_\*\)/.test(sessionProps.to?.description || '') ||
+    sessionProps.include_agents?.type !== 'boolean' ||
+    sessionProps.include_archived?.type !== 'boolean' ||
     sessionProps.attachments?.type !== 'array' ||
     sessionProps.action?.enum?.join(',') !==
       'status,list,bots,read,send,cancel,delete,create,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||

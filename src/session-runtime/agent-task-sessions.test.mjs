@@ -15,14 +15,9 @@ import { sessionOriginFields } from '../runtime/agent/orchestrator/session/manag
 import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 import {
   roomMemberSessionId,
-  roomRowItem,
   roomRowMessage,
-  roomRowsOfItems,
   roomSessionId,
-  rowsSinceCursor,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
-import { createAgentRoomDelivery } from './agent-room-delivery.mjs';
-import { roomMemberToolDecision } from './room-member-gate.mjs';
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -654,6 +649,7 @@ function restartWorld(t) {
         add: (watch) => (world.failWatch ? Promise.reject(new Error('disk full')) : delivery.watchTask(watch)),
         list: () => delivery.taskWatches(),
         remove: (runId) => delivery.unwatchTask(runId),
+        follow: (runId, submissionId) => delivery.followTask(runId, submissionId),
       },
       queuedSubmissionIds: async () => [...persisted],
       loadSession: async (id) => records.get(id) || null,
@@ -722,6 +718,74 @@ test('a restart while the target turn runs reports it once that turn ends', asyn
   assert.equal(second.h.listeners.size, 0, 'the re-attached watch ends with the report');
   assert.equal(await w.boot().api.recover(), 0, 'a later start has nothing to re-attach');
   assert.equal(Object.hasOwn(w.target(), 'taskOrigin'), false, 'the target never gets an origin stored');
+});
+
+test("sends a room answered under another turn's submission id recover that turn's answer after a restart", async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = await first.api.reportOrigin(TARGET, 'lead', HOME);
+  // The room host takes each send's turn; it submits nothing here.
+  const taken = [];
+  const room = async (options) => {
+    taken.push(options);
+    return { accepted: true };
+  };
+  for (const question of ['a', 'b', 'c', 'd']) await first.api.send(TARGET, question, origin, room);
+  const [a, , c] = taken.map((options) => options.id);
+  // b was answered by a's turn (coalesced); c's own turn was cut short and a
+  // fresh turn answered c and d (superseded): each watch follows its turn,
+  // recorded before that turn ran.
+  await taken[1].follow(a);
+  await taken[2].follow('rturn_1');
+  await taken[3].follow('rturn_1');
+  // The daemon stops before any of this process's onSettled ran.
+  w.target().messages.push(
+    promptRow(a),
+    replyRow(a, 'answer A'),
+    promptRow(c),
+    promptRow('rturn_1'),
+    replyRow('rturn_1', 'answer F')
+  );
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 4);
+  for (let i = 0; i < 20 && w.home.messages.length < 4; i += 1) {
+    await settle();
+    await second.delivery.drain(HOME);
+  }
+  const reports = w.home.messages.map((message) => message.content);
+  assert.equal(reports.length, 4);
+  assert.equal(reports.filter((text) => /reported \(completed\)[\s\S]*answer A/.test(text)).length, 2, 'a and b');
+  assert.equal(reports.filter((text) => /reported \(completed\)[\s\S]*answer F/.test(text)).length, 2, 'c and d');
+  assert.deepEqual(await w.watchIds(), []);
+});
+
+test("coalesced then cut short: after a restart both sends recover the replacement turn's answer", async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = await first.api.reportOrigin(TARGET, 'lead', HOME);
+  const taken = [];
+  const room = async (options) => {
+    taken.push(options);
+    return { accepted: true };
+  };
+  for (const question of ['a', 'b']) await first.api.send(TARGET, question, origin, room);
+  const [a, b] = taken.map((options) => options.id);
+  // a's turn answers both (b follows a); it is cut short, and the
+  // replacement takes b's own id: a follows b, and b's alias returns to itself.
+  await taken[1].follow(a);
+  await taken[0].follow(b);
+  await taken[1].follow(b);
+  w.target().messages.push(promptRow(a), promptRow(b), replyRow(b, 'answer B'));
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 2);
+  for (let i = 0; i < 20 && w.home.messages.length < 2; i += 1) {
+    await settle();
+    await second.delivery.drain(HOME);
+  }
+  const reports = w.home.messages.map((message) => message.content);
+  assert.equal(reports.length, 2);
+  assert.ok(reports.every((text) => /reported \(completed\)[\s\S]*answer B/.test(text)));
+  assert.deepEqual(await w.watchIds(), []);
 });
 
 test('a turn that ended while no report was queued reports once on recovery, never twice', async (t) => {
@@ -1074,7 +1138,7 @@ test('the end of a stored turn is read from its completion, interruption or the 
   assert.deepEqual(submissionOutcome([merged, replyRow('a', 'both')], 'b'), { status: 'completed', text: 'both' });
 });
 
-test('a room member opens a task session and its result lands in the room as its row', async (t) => {
+test('a room member opens a task session: its result reaches the member session alone and wakes its relay turn in the room', async (t) => {
   const member = roomMemberSessionId('abc123', 'gh');
   const roomLog = roomSessionId('abc123');
   const spoke = roomRowMessage({
@@ -1089,9 +1153,9 @@ test('a room member opens a task session and its result lands in the room as its
     [roomLog, { id: roomLog, messages: [spoke], generation: 1 }],
   ]);
   const loadStored = (id) => sessions.get(id) || null;
-  const room = createAgentRoomDelivery({ loadSession: loadStored, saveSession: async () => {}, live: () => null });
   const queue = createRoutineResultQueue(join(tempDir(t), 'routine-results.json'));
   const wakes = [];
+  const relays = [];
   const delivery = createAgentHomeDelivery({
     loadSession: loadStored,
     saveSession: async () => {},
@@ -1099,7 +1163,11 @@ test('a room member opens a task session and its result lands in the room as its
     queue,
     live: () => ({ busy: () => false, notice: () => {}, wake: async (...args) => wakes.push(args) }),
     retryLater: () => {},
-    postRoomReports: (id, items) => room.appendTaskReports(id, items),
+    // The room host's relay turn (agent-room-host.mjs), finished at once.
+    roomRelay: async (...args) => {
+      relays.push(args);
+      return { settled: Promise.resolve('done') };
+    },
     log: () => {},
   });
   const pending = [];
@@ -1118,11 +1186,6 @@ test('a room member opens a task session and its result lands in the room as its
     turnArtifacts: async () => ({ files: [], omitted: 0 }),
   });
   const memberSession = { id: member, owner: 'cli', sourceType: 'lead' };
-  // The room's approval gate lets the create through as the home thread would.
-  assert.deepEqual(
-    await roomMemberToolDecision({ name: 'session', args: { action: 'create', brief: 'x' }, cwd: '.' }, null),
-    null
-  );
   const session = createWorkspaceToolHandlers({
     rt: { session: memberSession, config: {} },
     executeSessionControl: createSessionControl({ getSessionService: () => h.service, agentTasks: api }),
@@ -1148,31 +1211,26 @@ test('a room member opens a task session and its result lands in the room as its
     /started, not done yet; its final answer is reported here when it finishes\./
   );
   assert.equal(sessions.get(roomLog).messages.length, 1);
-  // The brief's turn ends: the result is the member's row in the room log.
+  // The brief's turn ends: the result lands in the member session, never as a raw room row.
   const [{ options }] = submitted(h);
   options.onSettled({ status: 'done', result: { content: 'Report built.\n\n- 3 charts' } });
   for (let i = 0; i < 20 && pending.length < 2; i += 1) await settle();
-  await Promise.all(pending);
-  await delivery.drain(roomLog);
+  assert.equal(await Promise.all(pending).then((homes) => homes.at(-1)), member);
   await delivery.drain(member);
-  const posted = sessions.get(roomLog).messages.at(-1);
   assert.deepEqual(
-    [posted.meta.room.kind, posted.meta.room.speaker, posted.meta.room.name],
-    ['speech', 'gh', 'GH Bot']
+    sessions.get(roomLog).messages.map((message) => message.meta.transcript.messageId),
+    ['row_gh_1'],
+    'the room log gets no report row'
   );
-  assert.equal(
-    posted.content,
-    'Task session **Build the report** (`sess_task_1`) completed.\n\nReport built.\n\n- 3 charts'
-  );
-  // The room's next exchange shows it to the other members.
-  const rows = roomRowsOfItems(sessions.get(roomLog).messages.map((message, i) => roomRowItem(message, `i${i}`)));
-  assert.deepEqual(
-    rowsSinceCursor(rows, 'row_gh_1', 'reviewer').map((row) => row.speaker),
-    ['gh']
-  );
-  // The member itself reads it in its own session; nothing wakes it, no home gets it.
   assert.match(sessions.get(member).messages.at(-1).content, /<task-output session="sess_task_1" status="completed">/);
+  // The member is woken to relay it: a turn in its room through the room host, not a hidden home turn.
   assert.equal(wakes.length, 0);
+  assert.equal(relays.length, 1);
+  assert.equal(relays[0][0], member);
+  assert.match(relays[0][1], /Report built\.[\s\S]*Relay the report above to the user now/);
+  assert.match(relays[0][2].id, /^awake_/);
+  for (let i = 0; i < 5; i += 1) await settle();
+  assert.deepEqual(await queue.wakes(member), { owed: [], batches: [], overflow: null }, 'the relay turn retired it');
   assert.deepEqual(await queue.items('sess_home_gh'), []);
   assert.deepEqual(await delivery.taskWatches(), [], 'the watch dropped once the report was queued');
   // A replayed report adds nothing.
@@ -1186,11 +1244,55 @@ test('a room member opens a task session and its result lands in the room as its
       from: member,
     })
   );
-  assert.equal(sessions.get(roomLog).messages.length, 2);
+  assert.equal(sessions.get(member).messages.length, 2);
+  assert.equal(relays.length, 1, 'never relayed twice');
   // A later send from the room to a task its agent opened at home reports to the room.
   const stored = { taskOrigin: { agentId: 'gh', sessionId: 'sess_home_gh', title: 'T' } };
   const re = tasks(fakeService(), { loadSession: async () => stored });
   assert.equal((await re.api.reportOrigin('sess_task_9', 'gh', member)).sessionId, member);
+});
+
+test("a member's relay answered under another turn's id is found by that turn after a restart, never relayed twice", async (t) => {
+  const member = roomMemberSessionId('abc123', 'gh');
+  const thread = { id: member, messages: [], generation: 1 };
+  const file = join(tempDir(t), 'routine-results.json');
+  const relays = [];
+  const boot = (roomRelay) =>
+    createAgentHomeDelivery({
+      loadSession: (id) => (id === member ? thread : null),
+      saveSession: async () => {},
+      turnInFlight: () => false,
+      queue: createRoutineResultQueue(file),
+      live: () => ({ busy: () => false, notice: () => {} }),
+      retryLater: () => {},
+      roomRelay,
+      log: () => {},
+    });
+  // The room answers the relay in a turn under another id, and the process stops mid-turn.
+  const first = boot(async (...args) => {
+    relays.push(args);
+    await args[2].follow('rturn_1');
+    return { settled: new Promise(() => {}) };
+  });
+  await first.drain(
+    await first.enqueueTask('gh', {
+      runId: 'turn_1_end',
+      taskSessionId: 'sess_task_1',
+      title: 'Job',
+      status: 'completed',
+      text: 'built',
+      from: member,
+    })
+  );
+  assert.equal(relays.length, 1);
+  thread.messages.push(promptRow('rturn_1'), replyRow('rturn_1', 'Relayed: built.'));
+  const second = boot(async (...args) => {
+    relays.push(args);
+    return { settled: Promise.resolve('done') };
+  });
+  for (const homeId of await second.recover()) await second.drain(homeId);
+  assert.equal(relays.length, 1, 'the answering turn retired the relay');
+  assert.deepEqual(await createRoutineResultQueue(file).wakes(member), { owed: [], batches: [], overflow: null });
 });
 
 test('a report that cannot be queued is retried in-process, delivered once, and keeps its watch when every try fails', async () => {

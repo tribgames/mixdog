@@ -516,6 +516,10 @@ export interface DesktopSubmitOptions {
   /** Host-stamped name of the device that sent this (see session-device.ts).
    *  Request validation rejects it from a caller. */
   device?: string;
+  /** Host-only: a group-room member turn's place in a bot-to-bot chain
+   *  (bot-hops.mjs), from the send or relay it answers. Request validation
+   *  rejects it from a caller. */
+  hop?: number;
 }
 
 export interface DesktopAbortOptions {

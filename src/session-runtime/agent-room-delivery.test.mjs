@@ -55,27 +55,17 @@ test('concurrent first callers share one delivery, so no write to a log is lost'
   const results = await Promise.all([
     cold.appendRoomRows(ROOM_LOG, [speech('first')]),
     cold.appendRoomRows(ROOM_LOG, [speech('second')]),
-    cold.appendRoomTaskReports(ROOM_LOG, [
-      {
-        runId: 'run-1',
-        status: 'ended',
-        title: 'Job',
-        taskSessionId: 'sess_task_1',
-        speaker: 'gh',
-        text: 'done',
-        at: 2,
-      },
-    ]),
+    cold.appendRoomRows(ROOM_LOG, [speech('third')]),
   ]);
   assert.deepEqual(
     results.map((result) => result.added),
     [1, 1, 1]
   );
   assert.equal(overlapped, false, 'saves of one log never overlap');
-  assert.deepEqual(ids(JSON.parse(disk.get(ROOM_LOG))), ['first', 'second', 'report_run-1']);
+  assert.deepEqual(ids(JSON.parse(disk.get(ROOM_LOG))), ['first', 'second', 'third']);
 });
 
-test('a post whose files are still being taken in is not overtaken by a later task report', async () => {
+test('a post whose files are still being taken in is not overtaken by a later post', async () => {
   const { session, delivery } = memory();
   const b64 = (text) => Buffer.from(text).toString('base64');
   const user = {
@@ -92,20 +82,10 @@ test('a post whose files are still being taken in is not overtaken by a later ta
   };
   const posts = [
     delivery.append(ROOM_LOG, [user]),
-    delivery.appendTaskReports(ROOM_LOG, [
-      {
-        runId: 'run-2',
-        status: 'ended',
-        title: 'Job',
-        taskSessionId: 'sess_task_1',
-        speaker: 'gh',
-        text: 'done',
-        at: 2,
-      },
-    ]),
+    delivery.append(ROOM_LOG, [speech('later')]),
   ];
   await Promise.all(posts);
-  assert.deepEqual(ids(session), ['sub-1', 'report_run-2']);
+  assert.deepEqual(ids(session), ['sub-1', 'later']);
 });
 
 test('a batch with one id twice stores and shows that row once', async () => {
@@ -121,7 +101,7 @@ test('a batch with one id twice stores and shows that row once', async () => {
   assert.equal((await delivery.append(ROOM_LOG, [speech('dup')])).added, 0, 'a retried post still adds nothing');
 });
 
-test('a post whose PDF intake stalls fails at the deadline and the next task report still commits', async (t) => {
+test('a post whose PDF intake stalls fails at the deadline and the next post still commits', async (t) => {
   const { session, delivery } = memory();
   let started = false;
   loadingPdf = () => {
@@ -153,13 +133,11 @@ test('a post whose PDF intake stalls fails at the deadline and the next task rep
   };
   const stalled = delivery.append(ROOM_LOG, [user]);
   const failed = assert.rejects(stalled, /timed out/);
-  const report = delivery.appendTaskReports(ROOM_LOG, [
-    { runId: 'run-3', status: 'ended', title: 'Job', taskSessionId: 'sess_task_1', speaker: 'gh', text: 'done', at: 2 },
-  ]);
+  const report = delivery.append(ROOM_LOG, [speech('after')]);
   while (!started) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(ids(session), [], 'nothing commits while the intake is pending');
   mock.timers.tick(60_000);
   await failed;
   assert.equal((await report).added, 1);
-  assert.deepEqual(ids(session), ['report_run-3']);
+  assert.deepEqual(ids(session), ['after']);
 });

@@ -11,6 +11,7 @@ import {
   rowsSinceCursor,
   withoutPassMarker,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import type { AgentRoomTurnDetail } from '../../../../src/runtime/shared/agent-room-host.mjs';
 import type { SessionSnapshot } from '../shared/contract';
 import type { AgentRoomRecord } from './agent-rooms';
 import { sessionFinalAnswer } from './session-final-answer';
@@ -28,13 +29,44 @@ export interface RunState {
   typingId: string;
   memberSession: string;
   approval: Record<string, unknown> | null;
-  /** A message sent while members were speaking: the turns still queued are
-   *  dropped at the next turn boundary and its exchange runs next. */
-  pending: { to: string[]; waiting: true } | null;
+  /** A message sent (or a relay asked for) while members were speaking: the
+   *  turns still queued are dropped at the next turn boundary and its
+   *  exchange runs next. */
+  pending: RoomExchangeOptions | null;
   /** The user's newest message has no answer from this exchange yet: set when
    *  a user message starts it, cleared by its first speech. A reply the member
    *  in flight finishes after a newer message is not an answer to it. */
   waiting: boolean;
+}
+
+/** A member's turn another session waits on: a message it sent into the room
+ *  (`askedBy`), or the member relaying its own reported work (`relay`).
+ *  `id`: the submission id the caller watches; `used`: a turn cut short was
+ *  already submitted under it (never submitted again); `hop`: its place in a
+ *  bot-to-bot chain (bot-hops.mjs); `onSettled`: its end, in a session turn's
+ *  shape, called once; `follow(submissionId)`: the caller's watch follows the
+ *  turn submitted under another id that answers it (awaited before submit). */
+export interface RoomCall {
+  agentId: string;
+  id?: string;
+  used?: boolean;
+  /** Its watch follows another submission id than its own. */
+  followed?: boolean;
+  hop?: number;
+  askedBy?: string;
+  relay?: string;
+  onSettled?(detail: AgentRoomTurnDetail): void;
+  follow?(submissionId: string): unknown;
+}
+
+/** One exchange's start: the called members (`to`), whether a message waits
+ *  for an answer, `only` (the called members answer, nobody follows) and the
+ *  turns other sessions wait on. */
+export interface RoomExchangeOptions {
+  to?: string[];
+  waiting?: boolean;
+  only?: boolean;
+  calls?: RoomCall[];
 }
 
 export interface MemberLabel {
@@ -56,7 +88,11 @@ export interface RoomTurnHost {
   republish(): void;
   /** The member's own session in this room, created on first use. */
   memberSession(member: { id: string; route: unknown }): Promise<string>;
-  submit(sessionId: string, prompt: ReturnType<typeof roomTurnPrompt>): Promise<boolean>;
+  submit(
+    sessionId: string,
+    prompt: ReturnType<typeof roomTurnPrompt>,
+    options?: { id?: string; hop?: number }
+  ): Promise<boolean>;
   readSnapshot(sessionId: string): Promise<SessionSnapshot>;
   abort(sessionId: string): Promise<void>;
   persist(): Promise<void>;
@@ -105,13 +141,79 @@ function spokenText(answer: NonNullable<ReturnType<typeof sessionFinalAnswer>>, 
 }
 
 /** One member's turn: hand it the new rows, wait for its answer (relaying
- *  any approval it asks for into the room), then post its words or a pass. */
+ *  any approval it asks for into the room), then post its words or a pass.
+ *  The turns other sessions wait on for this member (`calls`) are all
+ *  answered by this one turn: each is told how it ended, done with the posted
+ *  words ('' for a pass), failed, or cancelled on a stop. A turn a newer
+ *  message cut short settles none of them: the exchange hands them on to the
+ *  next one (a submission id this turn used is not used again). The turn
+ *  takes the first unused submission id among them (a fresh one when all are
+ *  used) and their highest hop; every covered call's watch follows that id,
+ *  recorded before the turn is submitted (a failed record fails the calls
+ *  and submits nothing). */
 export async function speakInRoom(
   host: RoomTurnHost,
   state: RunState,
   labels: Map<string, MemberLabel>,
   agentId: string,
-  { addressed, instruction, mentionedBy, scene }: RoomTurn
+  turn: RoomTurn,
+  calls: RoomCall[] = []
+): Promise<RoomTurnAnswer> {
+  const settle = (detail: AgentRoomTurnDetail) => {
+    for (const call of calls) call.onSettled?.(detail);
+  };
+  const call = calls.length ? combinedCall(host, agentId, calls) : undefined;
+  const outcome = { text: '', failed: false, submitted: false };
+  let answer: RoomTurnAnswer;
+  try {
+    answer = await memberTurn(host, state, labels, agentId, turn, call, outcome);
+  } catch (error) {
+    settle({ status: 'failed', error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
+  const result = typeof answer === 'string' ? answer : answer.result;
+  if (result === 'superseded') {
+    if (outcome.submitted) for (const each of calls) if (each.id === call?.id) each.used = true;
+  } else if (result === 'stopped') settle({ status: 'cancelled' });
+  else if (outcome.failed) settle({ status: 'failed', error: 'The member could not reply in the room.' });
+  else settle({ status: 'done', result: { content: outcome.text } });
+  return answer;
+}
+
+/** One turn's view of every call it answers: its submission id (the first
+ *  unused one, else a fresh one), the highest hop, every asker and every
+ *  relay; its `follow(id)` points every covered call's watch at that id. */
+function combinedCall(host: RoomTurnHost, agentId: string, calls: RoomCall[]): RoomCall {
+  const unused = calls.find((call) => call.id && !call.used)?.id;
+  const id = unused || (calls.some((call) => call.id) ? `rturn_${host.newId()}` : '');
+  const hop = Math.max(0, ...calls.map((call) => Number(call.hop) || 0));
+  const askedBy = [...new Set(calls.map((call) => call.askedBy).filter(Boolean))].join(', ');
+  const relay = calls
+    .map((call) => call.relay)
+    .filter(Boolean)
+    .join('\n\n');
+  // Every covered watch points at this turn: the calls answered under another
+  // id, and a call whose own id is this turn's after an earlier turn had it
+  // follow another (its old alias is replaced). A record that cannot be
+  // written fails the turn before it is submitted.
+  const follow = async (turnId: string) => {
+    for (const each of calls) {
+      if (!each.id || !each.follow || (each.id === turnId && !each.followed)) continue;
+      await each.follow(turnId);
+      each.followed = each.id !== turnId;
+    }
+  };
+  return { agentId, ...(id ? { id } : {}), ...(hop > 0 ? { hop } : {}), askedBy, relay, follow };
+}
+
+async function memberTurn(
+  host: RoomTurnHost,
+  state: RunState,
+  labels: Map<string, MemberLabel>,
+  agentId: string,
+  { addressed, instruction, mentionedBy, scene }: RoomTurn,
+  call: RoomCall | undefined,
+  outcome: { text: string; failed: boolean; submitted: boolean }
 ): Promise<RoomTurnAnswer> {
   const { now, newId } = host;
   const room = host.room();
@@ -127,7 +229,7 @@ export async function speakInRoom(
   // Nothing new, nobody asking for it (the user, a peer's @mention or the
   // supervisor's note) and no user waiting: there is no turn to hand, so
   // none is; the member counts as passing and nothing is posted.
-  const called = addressed.length > 0 || Boolean(mentionedBy) || Boolean(instruction.trim());
+  const called = addressed.length > 0 || Boolean(mentionedBy) || Boolean(instruction.trim()) || Boolean(call);
   if (!waiting && !called && !shown.some((row) => !row.seen)) return 'pass';
   Object.assign(state, {
     speaking: agentId,
@@ -176,13 +278,22 @@ export async function speakInRoom(
       instruction,
       scene,
       waiting,
+      askedBy: call?.askedBy ?? '',
+      relay: call?.relay ?? '',
     });
     const last = rows.at(-1);
     if (last) room.cursors[agentId] = last.id;
+    // Every covered call's watch follows this turn, durably, before the turn
+    // can start; a record that fails throws, so the turn is never submitted
+    // and its calls end failed (below).
+    if (call?.id) await call.follow?.(call.id);
     if (state.stop) return 'stopped';
     if (interrupted()) return await cutShort();
     startedAt = now();
-    if (!(await host.submit(sessionId, prompt))) throw new Error('the turn was not accepted');
+    // From here the submission id counts as used, even when the call throws.
+    outcome.submitted = true;
+    const options = { ...(call?.id ? { id: call.id } : {}), ...(call?.hop ? { hop: call.hop } : {}) };
+    if (!(await host.submit(sessionId, prompt, options))) throw new Error('the turn was not accepted');
     // The member's session now holds every row up to the newest: a cut
     // short restores the cursor, never this.
     const handed = rows.at(-1)?.id;
@@ -213,23 +324,29 @@ export async function speakInRoom(
     );
     if (state.stop) return 'stopped';
     if (interrupted()) return await cutShort();
+    outcome.failed = true;
     await host.post([passRow(true)]);
     return 'pass';
   } finally {
     state.approval = null;
-    void host.persist();
+    // A save in passing: one that fails is logged; the exchange's own saves
+    // decide whether the room can go on.
+    void host.persist().catch((error) => host.log(`room ${host.roomId} save failed: ${String(error)}`));
   }
   if (!answer || (answer.status === 'cancelled' && state.stop)) return 'stopped';
   if (interrupted()) {
     const cut = await cutShort();
-    void host.persist();
+    void host.persist().catch((error) => host.log(`room ${host.roomId} save failed: ${String(error)}`));
     return cut;
   }
-  const text = spokenText(answer, waiting);
+  // A relay of the member's own work is no turn to pass either.
+  const text = spokenText(answer, waiting || Boolean(call?.relay));
   if (!text) {
-    await host.post([passRow(answer.status !== 'done')]);
+    outcome.failed = answer.status !== 'done';
+    await host.post([passRow(outcome.failed)]);
     return 'pass';
   }
+  outcome.text = text;
   const row: RoomRow = {
     id: `row_${newId()}`,
     kind: 'speech',

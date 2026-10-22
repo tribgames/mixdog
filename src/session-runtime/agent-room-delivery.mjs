@@ -6,15 +6,8 @@
  * message id, so a retried post adds nothing. A user row's files are taken in
  * here exactly as a chat prompt's are at submit (session-turns.mjs): the bytes
  * go to the attachment store once, and the row keeps their references.
- *
- * A task session a member opened (session create, agent-task-sessions.mjs)
- * reports here too: each blocked or ended turn becomes that member's speech
- * row (appendTaskReports), queued durably by agent-home-delivery.mjs. Posts
- * into one log run one at a time, so the host's rows and the reports never
- * overwrite each other.
+ * Posts into one log run one at a time, so no two posts overwrite each other.
  */
-import { MIXY_AGENT_ID } from '../runtime/agent/orchestrator/session/agent-home.mjs';
-import { mixyDisplayName } from '../runtime/agent/orchestrator/session/mixy-name.mjs';
 import {
   normalizeRoomRow,
   roomIdOfSession,
@@ -97,42 +90,6 @@ function storedFileFields(files) {
   };
 }
 
-const inline = (value) =>
-  String(value ?? '')
-    .replace(/[`*\r\n]+/g, ' ')
-    .trim();
-
-/** The room row of one task report `item` (agent-home-delivery.mjs
- *  enqueueTask): the member's speech naming the session, then its output
- *  and files. The row id derives from the run id, so a replay adds nothing. */
-export function taskReportRow(item, name = '') {
-  const what = item.target === 'session' ? 'Session' : 'Task session';
-  const head = `${what} **${inline(item.title) || item.taskSessionId}** (\`${inline(item.taskSessionId)}\`)`;
-  const text =
-    item.status === 'blocked'
-      ? `${head} is waiting for the user's answer or approval in that session.`
-      : [`${head} ${item.status}.`, String(item.text ?? '').trim()].filter(Boolean).join('\n\n');
-  return {
-    id: `report_${String(item.runId).replace(/[^A-Za-z0-9_-]/g, '_')}`.slice(0, 120),
-    kind: 'speech',
-    speaker: item.speaker,
-    ...(name ? { name } : {}),
-    at: Number.isFinite(item.at) ? item.at : Date.now(),
-    text,
-    ...(item.status === 'blocked' ? {} : storedFileFields(item.files)),
-  };
-}
-
-/** The name `agentId` last spoke under in a room log; Mixy's display name, else ''. */
-function speakerName(session, agentId) {
-  const messages = Array.isArray(session?.messages) ? session.messages : [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const room = messages[index]?.meta?.room;
-    if (room?.speaker === agentId && room.name) return room.name;
-  }
-  return agentId === MIXY_AGENT_ID ? mixyDisplayName() : '';
-}
-
 export function createAgentRoomDelivery({ loadSession, saveSession, live = agentHomeLiveSurface, log = () => {} }) {
   const tails = new Map(); // log session → its last post
   /** Run `post` after every earlier post into `sessionId`. */
@@ -193,20 +150,7 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
       return commit(sessionId, () => prepared);
     });
   }
-
-  /** Post task reports (agent-home-delivery.mjs room items) into the log of
-   *  `sessionId`, each as its member's speech row. */
-  async function appendTaskReports(sessionId, items) {
-    if (!roomIdOfSession(sessionId)) throw new TypeError('not a group-room session');
-    return serialized(sessionId, () =>
-      commit(sessionId, (session) =>
-        (Array.isArray(items) ? items : []).map((item) =>
-          normalizeRoomRow(taskReportRow(item, speakerName(session, item.speaker)))
-        )
-      )
-    );
-  }
-  return { append, appendTaskReports };
+  return { append };
 }
 
 let processDelivery = null;
@@ -232,9 +176,4 @@ function roomDelivery() {
 /** Daemon entry: post `rows` into the room log `sessionId`. */
 export async function appendRoomRows(sessionId, rows) {
   return (await roomDelivery()).append(sessionId, rows);
-}
-
-/** Post queued task reports into the room log `sessionId` (agent-home-delivery.mjs). */
-export async function appendRoomTaskReports(sessionId, items) {
-  return (await roomDelivery()).appendTaskReports(sessionId, items);
 }

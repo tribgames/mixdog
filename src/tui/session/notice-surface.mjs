@@ -1,6 +1,7 @@
 /**
  * src/tui/session/notice-surface.mjs - toasts, transcript notices, progress hint.
  */
+import { roomRowSender } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
 import { polishNoticeText } from './notice-text.mjs';
 import { nextId } from './transcript-spill.mjs';
 
@@ -59,6 +60,8 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
       // A schedule result posted into a home thread (routine-result.mjs).
       ...(options.routine ? { routine: options.routine } : {}),
       ...(options.room ? { room: options.room } : {}),
+      // A room message another session sent shows its sender, as restored.
+      ...(userRow ? roomRowSender(options.room) : {}),
       // A room user row's files, in the fields a prompt row draws them from;
       // a task report's or member speech's returned files likewise.
       ...(Array.isArray(options.attachments) && options.attachments.length ? { attachments: options.attachments } : {}),

@@ -18,8 +18,13 @@
  *
  * A group-room member (its member session `sess_rmem_<room>_<agent>`) opens
  * and drives task sessions the same way; its reports carry `from` (the member
- * session), so they land in the ROOM's log as that member's row and in its own
- * member session, never in its home (agent-home-delivery.mjs enqueueTask).
+ * session), so they land in that member session alone, never in its home or
+ * the room's log, and an ended turn gives the member a turn in its room to
+ * relay it (agent-home-delivery.mjs enqueueTask).
+ *
+ * A send to a group room's log goes to one member through the desktop room
+ * host (daemon-session-control.mjs): the member's turn in its member session
+ * is the reporting turn, taken by the room (`submit`), not by a prompt.
  */
 import { randomUUID } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
@@ -293,7 +298,7 @@ const WATCH_CAP_REASON =
 const LAST_USED_ROUTE_MAX_PAGES = 20;
 
 /** A report's `from` when its origin is a group-room member session: the
- *  report goes to that member's room instead of the agent's home. */
+ *  report goes to that member session instead of the agent's home. */
 const roomFrom = (originSessionId) => (roomMemberOfSession(originSessionId) ? { from: originSessionId } : {});
 
 /** The route of `modelRef`: a provider/model[@effort…] ref (a superseded
@@ -565,6 +570,9 @@ async function rearmTaskWatch(
   watch
 ) {
   const sessionId = watch.taskSessionId;
+  // The turn that answers: the watched submission's own, or the one it
+  // follows (a room member's turn under another submission id).
+  const turnId = watch.follows || watch.runId;
   const finish = async (status, text = '') =>
     deliver(watch.agentId, {
       runId: `${watch.runId}_end`,
@@ -578,7 +586,7 @@ async function rearmTaskWatch(
       watchId: watch.runId,
       ...(watch.textOnly || text === GONE_TEXT || text === LOST_TEXT
         ? {}
-        : await artifactFields(sessionId, watch.runId)),
+        : await artifactFields(sessionId, turnId)),
     });
   if (!(await loadSession(sessionId))) return finish('cancelled', GONE_TEXT);
   let runtime;
@@ -607,20 +615,20 @@ async function rearmTaskWatch(
     try {
       do {
         again = false;
-        const outcome = submissionOutcome((await loadSession(sessionId))?.messages, watch.runId);
+        const outcome = submissionOutcome((await loadSession(sessionId))?.messages, turnId);
         const state = runtime?.getState?.() || {};
         let end = outcome && outcome !== 'open' ? outcome : null;
         if (!end && !state.busy) {
-          const queued = (state.queued || []).some((entry) => entry?.id === watch.runId);
+          const queued = (state.queued || []).some((entry) => entry?.id === turnId);
           if (outcome === 'open' && !queued) end = { status: 'cancelled', text: '' };
-          else if (!outcome && !queued && !(await queuedSubmissionIds(sessionId)).includes(watch.runId)) {
+          else if (!outcome && !queued && !(await queuedSubmissionIds(sessionId)).includes(turnId)) {
             end = { status: 'cancelled', text: LOST_TEXT };
           }
         }
         if (end?.status === 'completed') {
           follow = followToFinal({
             sessionId,
-            runId: watch.runId,
+            runId: turnId,
             runtime,
             wakeOwed: true,
             progress: (text) =>
@@ -664,6 +672,8 @@ export function createAgentTaskSessions({
     add: async (watch) => (await import('./agent-home-delivery.mjs')).watchAgentTask(watch),
     list: async () => (await import('./agent-home-delivery.mjs')).agentTaskWatches(),
     remove: async (runId) => (await import('./agent-home-delivery.mjs')).unwatchAgentTask(runId),
+    follow: async (runId, submissionId) =>
+      (await import('./agent-home-delivery.mjs')).followAgentTask(runId, submissionId),
   },
   // Submissions still queued (durably) for a session after a restart.
   queuedSubmissionIds = async (sessionId) =>
@@ -736,8 +746,11 @@ export function createAgentTaskSessions({
     );
 
   /** Submit `prompt` as the origin agent's turn; its end (and a wait for the
-   *  user in it) reports to the agent's home. Resolves on intake. */
-  async function agentTurn(sessionId, prompt, origin, id = `atask_${randomUUID()}`, beforeReport = null) {
+   *  user in it) reports to the agent's home. Resolves on intake. `submit`
+   *  takes the turn in another way than a prompt to `sessionId` (a message
+   *  into a group room, whose member answers in `sessionId`): given `{ id,
+   *  onSettled }`, it resolves `{ accepted }`. */
+  async function agentTurn(sessionId, prompt, origin, id = `atask_${randomUUID()}`, beforeReport = null, submit = null) {
     const sessions = service();
     const target = origin.target === 'session' ? { target: 'session' } : {};
     const { notify, noReport } = await watchTurn({ watches, owner: processToken, log }, sessionId, origin, id);
@@ -789,48 +802,49 @@ export function createAgentTaskSessions({
       const sent = origin.envelopeName
         ? wrapAgentMessage(prompt, { name: origin.envelopeName, agentId: origin.agentId })
         : prompt;
-      result = await sessions.submitSession({
-        sessionId,
-        prompt: sent,
-        options: {
-          id,
-          mode: 'prompt',
-          // `fromAgent`: the sending bot, recorded when it writes into another
-          // bot's home chat (otherwise the row would read as the user's);
-          // `hop`: its place in a bot-to-bot chain (bot-hops.mjs).
-          transcriptMeta: {
-            sender: 'lead',
-            ...(origin.envelopeName ? { fromAgent: origin.agentId } : {}),
-            ...(origin.hop > 0 ? { hop: origin.hop } : {}),
-          },
-          ...(notify
-            ? {
-                onSettled: (detail) => {
-                  const status = turnStatus(detail);
-                  const text = detail?.result?.content || detail?.error || '';
-                  // A failed or cancelled turn reports at once; a completed one
-                  // reports the task's final answer (followToFinal).
-                  if (status !== 'completed') {
-                    unwatch();
-                    void report(status, text);
-                    return;
-                  }
-                  follow = followToFinal({
-                    sessionId,
-                    runId: id,
-                    runtime,
-                    immediate: { status, text },
-                    finish: async (endStatus, endText) => {
-                      unwatch();
-                      await report(endStatus, endText);
-                    },
-                    progress: (progressText) => report('working', progressText),
-                  });
-                  follow.check();
-                },
-              }
-            : {}),
+      const take = submit ?? ((options) => sessions.submitSession({ sessionId, prompt: sent, options }));
+      result = await take({
+        id,
+        mode: 'prompt',
+        // `fromAgent`: the sending bot, recorded when it writes into another
+        // bot's home chat (otherwise the row would read as the user's);
+        // `hop`: its place in a bot-to-bot chain (bot-hops.mjs).
+        transcriptMeta: {
+          sender: 'lead',
+          ...(origin.envelopeName ? { fromAgent: origin.agentId } : {}),
+          ...(origin.hop > 0 ? { hop: origin.hop } : {}),
         },
+        ...(notify
+          ? {
+              // A room answers this send in a turn under another submission
+              // id (one turn for several sends, or a fresh turn for one cut
+              // short): the watch follows that turn, recorded before it runs.
+              follow: (submissionId) => watches.follow?.(id, submissionId),
+              onSettled: (detail) => {
+                const status = turnStatus(detail);
+                const text = detail?.result?.content || detail?.error || '';
+                // A failed or cancelled turn reports at once; a completed one
+                // reports the task's final answer (followToFinal).
+                if (status !== 'completed') {
+                  unwatch();
+                  void report(status, text);
+                  return;
+                }
+                follow = followToFinal({
+                  sessionId,
+                  runId: id,
+                  runtime,
+                  immediate: { status, text },
+                  finish: async (endStatus, endText) => {
+                    unwatch();
+                    await report(endStatus, endText);
+                  },
+                  progress: (progressText) => report('working', progressText),
+                });
+                follow.check();
+              },
+            }
+          : {}),
       });
     } catch (error) {
       unwatch();
@@ -958,5 +972,10 @@ export function createAgentTaskSessions({
   const reportOrigin = (sessionId, agentId, callerSessionId) =>
     sendReportOrigin({ loadSession, agentName }, sessionId, agentId, callerSessionId);
 
-  return { create, reportOrigin, recover, send: (sessionId, prompt, origin) => agentTurn(sessionId, prompt, origin) };
+  return {
+    create,
+    reportOrigin,
+    recover,
+    send: (sessionId, prompt, origin, submit = null) => agentTurn(sessionId, prompt, origin, undefined, null, submit),
+  };
 }

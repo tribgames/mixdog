@@ -9,6 +9,11 @@ export interface RoomRow {
   to?: string[] | string;
   toName?: string[] | string;
   failed?: boolean;
+  /** A user-kind row another session sent: its session, the sending bot
+   *  (none for the user's Lead) and the name it is shown under. */
+  fromSession?: string;
+  fromAgent?: string;
+  fromName?: string;
   limit?: 'rounds' | 'messages';
   rounds?: number;
   messages?: number;
@@ -93,6 +98,7 @@ export function parseRoomAsk(
   text: unknown,
   members?: readonly RoomMemberLabel[]
 ): { to: string[]; text: string; error?: 'member' | 'message' };
+export function roomMemberNamed(value: unknown, members?: readonly RoomMemberLabel[]): string;
 export function roomMentionOf(text: unknown, members?: readonly RoomMemberLabel[], selfId?: string): string;
 export function roomRowTargets(row?: Partial<RoomRow>): RoomMemberLabel[];
 export function isPassReply(text: unknown): boolean;
@@ -139,6 +145,8 @@ export function runRoomExchange(options: {
   /** The user's newest message has no answer yet (default true): until a
    *  member speaks, a step must pick. */
   waiting?: boolean;
+  /** The called members (`to`) answer and nobody else follows. */
+  only?: boolean;
 }): Promise<RoomExchangeResult>;
 export function roomDataLabel(value: unknown): string;
 export function roomDataLines(text: unknown): string[];
@@ -165,6 +173,10 @@ export function roomTurnPrompt(options: {
   scene?: RoomScene;
   /** The user's newest message still has no answer (default: it is the newest row). */
   waiting?: boolean;
+  /** The sender of the message this member was asked from another session. */
+  askedBy?: string;
+  /** The member's own reported work it relays to the room this turn. */
+  relay?: string;
 }): string | RoomPromptPart[];
 export function normalizeRoomRow(row?: Partial<RoomRow> & Record<string, unknown>): RoomRow;
 export function roomRowMessage(row: Partial<RoomRow>): {
@@ -179,3 +191,4 @@ export function roomRowMessage(row: Partial<RoomRow>): {
 export function isRoomRowMessage(message: unknown): boolean;
 export function roomRowItem(message: unknown, id?: unknown): Record<string, unknown>;
 export function roomRowsOfItems(items: unknown): RoomRow[];
+export function roomRowSender(room: unknown): { fromAgent?: string; sender?: 'lead' };

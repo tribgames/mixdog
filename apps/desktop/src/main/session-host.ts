@@ -39,6 +39,7 @@ import {
 import { isActiveDesktopAgentEntry } from '../shared/agent-activity';
 import { desktopSessionSummaries } from './desktop-state';
 import type { RoomDecision } from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
+import type { AgentRoomHost } from '../../../../src/runtime/shared/agent-room-host.mjs';
 import { type AgentRooms, createAgentRoomFileStore, createAgentRooms } from './agent-rooms';
 import { deleteAgentMemory, listAgentMemory } from './agent-memory';
 import {
@@ -295,7 +296,13 @@ export class SessionHost implements DesktopService {
       readItems: async (sessionId) => (await this.readSession(sessionId, false, false))?.items ?? [],
       // A member's turn goes in as any chat prompt does; the user's files in it
       // are already stored references, which the daemon intake takes as they are.
-      submit: (sessionId, prompt) => this.lifecycle.submitToSession(sessionId, prompt as DesktopPromptContent, {}),
+      // A turn another session waits on carries its submission id and its
+      // bot-to-bot hop (stamped as transcript metadata, session-device.ts).
+      submit: (sessionId, prompt, options) =>
+        this.lifecycle.submitToSession(sessionId, prompt as DesktopPromptContent, {
+          ...(options?.id ? { id: options.id } : {}),
+          ...(options?.hop ? { hop: options.hop } : {}),
+        }),
       readSnapshot: (sessionId) => this.readSession(sessionId, false, false),
       decideTurn: async (input) =>
         ((await this.transport.invokeControl('decideRoomTurn', [input])) as
@@ -957,6 +964,16 @@ export class SessionHost implements DesktopService {
       return this.agentRooms.approve(sessionIdOf(sessionId), id, decision);
     }
     return this.lifecycle.resolveToolApprovalForSession(sessionId, id, decision);
+  }
+
+  /** The daemon's way into the group rooms (agent-room-host.mjs): a
+   *  `session send` to a room, and a member relaying its reported work. */
+  agentRoomHost(): AgentRoomHost {
+    return {
+      member: (sessionId, request) => this.agentRooms.member(sessionIdOf(sessionId), request),
+      ask: (sessionId, request) => this.agentRooms.ask(sessionIdOf(sessionId), request),
+      relay: (sessionId, prompt, options) => this.agentRooms.relay(sessionIdOf(sessionId), prompt, options),
+    };
   }
 
   /** Group rooms (agent-rooms.ts): `create` (config) → `{ sessionId }`,

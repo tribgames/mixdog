@@ -12,6 +12,7 @@
 // content to the members the row reaches, once each.
 import { escapeHarnessTags } from '../../../shared/shell-output-summary.mjs';
 import { normalizeMessageAttachments, transcriptAttachmentFields } from '../../../shared/transcript-metadata.mjs';
+import { AGENT_MESSAGE_NOTE } from '../../../shared/agent-message-envelope.mjs';
 import { agentHomeSessionId } from './agent-home.mjs';
 
 const ROOM_PREFIX = 'sess_room_';
@@ -41,6 +42,7 @@ const TOOL_SUMMARY_LIMIT = 400;
 const ATTACHMENT_REF = /^[a-f0-9]{64}$/;
 const PART_TYPES = new Set(['image', 'file', 'text']);
 const ATTACHMENT_LIMIT = 64;
+const SENDER_SESSION = /^[A-Za-z0-9_.:-]{1,200}$/;
 
 export function isRoomId(value) {
   return typeof value === 'string' && ROOM_ID.test(value);
@@ -136,6 +138,13 @@ function memberAt(text, members, boundary) {
     }
   }
   return tie ? null : best;
+}
+
+/** The member `value` names exactly (its id or display name, any case); ''
+ *  for none, or a name two members share. */
+export function roomMemberNamed(value, members = []) {
+  const text = String(value ?? '').trim();
+  return (text && memberAt(text, members, /(?!)/)?.id) || '';
 }
 
 /** A user message to the room: `/ask <agent>[, <agent>…] <message>` addresses
@@ -283,6 +292,7 @@ export async function runRoomExchange({
   stopped = () => false,
   superseded = () => false,
   waiting = true,
+  only = false,
 }) {
   const targets = [...new Set((Array.isArray(to) ? to : [to]).filter((id) => members.includes(id)))];
   const maxSteps = maxRounds * members.length;
@@ -337,6 +347,9 @@ export async function runRoomExchange({
   };
   const answered = await callEach(targets);
   if (answered) return answered;
+  // `only`: the called members answer and nobody else follows (a message
+  // from another session, a member relaying its own work).
+  if (only && targets.length) return end('done');
   for (;;) {
     let halt = halted();
     if (halt) return halt;
@@ -456,8 +469,14 @@ export function roomTurnPrompt({
   instruction = '',
   scene = 'work',
   waiting = rows.at(-1)?.kind === 'user' && !rows.at(-1)?.seen,
+  askedBy = '',
+  relay = '',
 }) {
   const userLast = rows.at(-1)?.kind === 'user';
+  // A relay of the member's own reported work, or a message that waits for
+  // an answer: no permission to pass.
+  const urged = waiting || Boolean(relay);
+  const asker = askedBy ? label(askedBy) : '';
   const others = members.filter((member) => member.id !== self.id).map((member) => label(member.name));
   // `addressed`: the members the user asked (or true for this member alone).
   const asked = Array.isArray(addressed) ? addressed.length > 0 : addressed === true;
@@ -465,11 +484,15 @@ export function roomTurnPrompt({
   const note = String(instruction ?? '').trim() ? label(instruction).slice(0, ROOM_INSTRUCTION_LIMIT) : '';
   const lines = [
     `[mixdog-runtime] Group room "${label(roomName)}". You are ${label(self.name)}; the other members are ${others.join(', ')}. The user and the members share this one room and members speak one at a time.`,
-    askedWith
-      ? 'The user asked you and other named members directly: only those members answer this time, one at a time.'
-      : asked
-        ? 'The user asked you directly: only you answer this time.'
-        : 'It is your turn.',
+    relay
+      ? 'Results of work you started yourself (sessions you created or sent to) arrived; they follow the room lines below. Relay them to the room now, briefly and in your own words: only you speak this time.'
+      : askedWith
+        ? 'The user asked you and other named members directly: only those members answer this time, one at a time.'
+        : asked
+          ? asker
+            ? `${asker} asked you directly from another session: only you answer this time.`
+            : 'The user asked you directly: only you answer this time.'
+          : 'It is your turn.',
     ...(asked
       ? [
           'When the user wants another member involved, whatever name they use, write that member as @Name in your reply so the room can hand them a turn.',
@@ -491,7 +514,9 @@ export function roomTurnPrompt({
     // so a message to the room never meets silence.
     ...(waiting
       ? [
-          userLast
+          asker
+            ? `${asker}'s message has no answer yet: reply to it now. Do not pass.`
+            : userLast
             ? 'The user just spoke and nobody has answered yet: reply to the user now, in their language. Do not pass.'
             : "Nobody has answered the user's newest message yet (the member messages after it were written before it arrived): reply to that message now, in the user's language. Do not pass.",
         ]
@@ -506,13 +531,13 @@ export function roomTurnPrompt({
               ]),
           'Do not offer help or ask what the user needs unless they asked for help, and do not summarise the room or speak for the others.',
           'Speak from your own role and the work you remember; never invent facts the user could rely on.',
-          waiting
+          urged
             ? 'Never say you have nothing to add or nothing to report; say something in character instead.'
             : `Never say you have nothing to add or nothing to report; when you truly have nothing to say, reply exactly "${ROOM_PASS_REPLY}".`,
           'Do not end every message with a question.',
         ]
       : [
-          ...(waiting
+          ...(urged
             ? []
             : [
                 `Reply with your message to the room as plain text. Speak only to answer an open question, add relevant evidence, name a concrete disagreement or propose a useful next step; otherwise reply exactly "${ROOM_PASS_REPLY}".`,
@@ -527,7 +552,7 @@ export function roomTurnPrompt({
   ];
   if (!rows.some((row) => !row.seen)) {
     lines.push('Nothing new was said since your last turn.');
-    if (!waiting) {
+    if (!urged) {
       lines.push(
         `This is not a direct call: speak only for what the lines above ask of you; otherwise reply exactly "${ROOM_PASS_REPLY}".`
       );
@@ -578,12 +603,24 @@ export function roomTurnPrompt({
         : rest.length
           ? `to you and ${rest.join(', ')} only`
           : 'to you only';
-    lines.push(`The user${row.seen ? ' (earlier, already shown to you)' : ''}, ${target}:`, String(row.text ?? ''));
+    // A message another session sent into the room names its real sender: a
+    // bot's words carry the trust note of every bot-to-bot message.
+    const who = row.fromName
+      ? `${label(row.fromName)} (${row.fromAgent ? 'another bot' : "the user's Lead"}, from another session, not the user)`
+      : 'The user';
+    lines.push(
+      `${who}${row.seen ? ' (earlier, already shown to you)' : ''}, ${target}:`,
+      ...(row.fromAgent ? [AGENT_MESSAGE_NOTE] : []),
+      String(row.text ?? '')
+    );
     // The user's files follow their words, for the members the message reaches.
     const files = !row.seen && (rest.length < targets.length || !targets.length) ? storedParts(row.parts) : [];
     if (files.length) content.push({ type: 'text', text: lines.splice(0).join('\n') }, ...files);
   }
   if (open) lines.push('</room-transcript>');
+  // The member's reported work (agentTaskWakePrompt: runtime text, task
+  // output already escaped inside its own boundary).
+  if (relay) lines.push(String(relay));
   if (!content.length) return lines.join('\n');
   return lines.length ? [...content, { type: 'text', text: lines.join('\n') }] : content;
 }
@@ -653,12 +690,19 @@ export function normalizeRoomRow(row = {}) {
   const parts = carriesFiles ? storedParts(row.parts) : [];
   const attachments = carriesFiles ? normalizeMessageAttachments(row.attachments) : [];
   const images = row.kind === 'user' ? storedImages(row.images) : [];
+  // A user-kind row another session sent (session send to the room): its
+  // sender session, the sending bot (none for the user's Lead) and its name.
+  const fromSession =
+    row.kind === 'user' && typeof row.fromSession === 'string' && SENDER_SESSION.test(row.fromSession)
+      ? row.fromSession
+      : '';
   return {
     id,
     kind: row.kind,
     ...(Number.isFinite(row.at) ? { at: row.at } : {}),
     ...named('speaker'),
     ...named('name'),
+    ...(fromSession ? { fromSession, ...named('fromAgent'), fromName: cleanName(row.fromName) || 'Lead' } : {}),
     ...(targets.length
       ? { to: targets.map((target) => target.id), toName: targets.map((target) => target.name || target.id) }
       : {}),
@@ -730,7 +774,17 @@ export function roomRowItem(message, id) {
     // A user row's (or member speech's) files, in the fields a chat prompt's row draws them from.
     ...(room.kind === 'user' || room.kind === 'speech' ? transcriptAttachmentFields(message.meta.transcript) : {}),
     ...(room.kind === 'user' && Array.isArray(images) && images.length ? { images } : {}),
+    ...roomRowSender(room),
   };
+}
+
+/** The attribution a user-kind room row from another session shows on its
+ *  bubble, in the fields a chat prompt row has: the sending bot
+ *  (`fromAgent`), else the user's Lead (`sender: 'lead'`); none for the
+ *  user's own message. */
+export function roomRowSender(room) {
+  if (room?.kind !== 'user' || !room.fromSession) return {};
+  return room.fromAgent ? { fromAgent: room.fromAgent } : { sender: 'lead' };
 }
 
 /** The room rows of a transcript (`{ room }` items) as row descriptors, in order. */

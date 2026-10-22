@@ -7,11 +7,33 @@ import { BOT_HOP_LIMIT_ERROR, MAX_BOT_HOPS } from '../runtime/shared/bot-hops.mj
 import { rebindDelegation } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import { isAgentOnlySession } from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
 import { readSessionSidebarState } from '../runtime/shared/session-sidebar-host.mjs';
+import { agentRoomHost } from '../runtime/shared/agent-room-host.mjs';
+import {
+  roomIdOfSession,
+  roomMemberOfSession,
+  roomSessionId,
+} from '../runtime/agent/orchestrator/session/agent-room.mjs';
 
 const TARGET_ACTIONS = new Set(['status', 'read', 'send', 'cancel', 'delete']);
 const MUTATING_ACTIONS = new Set(['send', 'cancel', 'delete']);
 // Why a send from a conversation that is no bot's reports nothing back.
 const NOT_BOT_REASON = 'only a bot conversation gets session results reported back; check that session for the result';
+
+/** The member a send to room log `sessionId` addresses, through the desktop
+ *  room host: `{ host, agentId, sessionId, text }`; throws when no desktop is
+ *  attached or no member resolves. */
+async function roomAddressee(sessionId, args) {
+  let host;
+  try {
+    host = agentRoomHost();
+  } catch (error) {
+    throw new Error(`session: cannot send to ${sessionId}: ${error.message}`);
+  }
+  const member = await host.member(sessionId, { to: args.to, prompt: args.prompt }).catch((error) => {
+    throw new Error(`session: ${error?.message || error}`);
+  });
+  return { host, ...member };
+}
 
 /** Model-facing session operations over the same service used by desktop and TUI. */
 export function createSessionControl({
@@ -80,12 +102,43 @@ export function createSessionControl({
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) {
         throw new Error('session: prompt is required for action=send');
       }
+      // A room member's session is the room's to drive: a message goes to the
+      // room, naming the member.
+      if (roomMemberOfSession(sessionId)) {
+        throw new Error(
+          `session: ${sessionId} is a group-room member's session; send to its room (session_id ${roomSessionId(roomMemberOfSession(sessionId).roomId)}) with to: <member>`
+        );
+      }
+      // A send to a room's log is a message to one member there (`to`, or a
+      // leading @name), run by the desktop room host; the member's turn in
+      // its member session is the turn that answers and reports.
+      const room = roomIdOfSession(sessionId) ? await roomAddressee(sessionId, args) : null;
+      if (room?.sessionId === caller) throw new Error('session: send must target another session');
       // An agent conversation's send reports its turn back to the agent's
       // home: a task session it created by its stored origin, any other
       // session by an origin for this send only.
       // Forwarded files ride along as stored attachment parts (workspace-tools.mjs).
-      const prompt = handoffContent(args.prompt, context.attachmentParts);
-      let origin = await agentTasks.reportOrigin(sessionId, context.callerAgentId, caller);
+      const prompt = handoffContent(room ? room.text : args.prompt, context.attachmentParts);
+      const turnSessionId = room ? room.sessionId : sessionId;
+      const from = { sessionId: caller, ...(context.callerAgentId ? { agentId: context.callerAgentId } : {}) };
+      // The member's turn carries the send's hop (`transcriptMeta.hop`), so a
+      // chain through the room counts on toward MAX_BOT_HOPS.
+      const submit = room
+        ? async ({ id, onSettled, follow, transcriptMeta } = {}) => ({
+            accepted:
+              (await room.host.ask(sessionId, {
+                agentId: room.agentId,
+                prompt,
+                from,
+                ...(id ? { id } : {}),
+                ...(transcriptMeta?.hop > 0 ? { hop: transcriptMeta.hop } : {}),
+                ...(onSettled ? { onSettled } : {}),
+                ...(follow ? { follow } : {}),
+              })) === true,
+          })
+        : null;
+      const addressed = room ? { to: room.agentId } : {};
+      let origin = await agentTasks.reportOrigin(turnSessionId, context.callerAgentId, caller);
       // A send made in a bot-descended turn (`callerHop` > 0), or by a bot to
       // another session, extends the chain by one; a bot's own task session
       // only continues it. Refused past the limit, whatever the target.
@@ -100,20 +153,25 @@ export function createSessionControl({
         // The task session a bot created acts as the sending conversation does
         // from now on (attended chat or run); another's session keeps its own.
         if (origin.target !== 'session') await rebindDelegation(sessionId, caller);
-        const sent = await agentTasks.send(sessionId, prompt, origin);
-        return { sessionId, ...sent, ...(hop > 0 ? { hop } : {}) };
+        const sent = await agentTasks.send(turnSessionId, prompt, origin, submit);
+        return { sessionId, ...addressed, ...sent, ...(hop > 0 ? { hop } : {}) };
       }
       const hop = turnHop > 0 ? chained(turnHop + 1) : 0;
-      // New work from this sender: a delegated target acts as the sender does.
-      await rebindDelegation(sessionId, caller);
-      const result = await service.submitSession({
-        sessionId,
-        prompt,
-        options: { mode: 'prompt', transcriptMeta: { sender: 'lead', ...(hop > 0 ? { hop } : {}) } },
-      });
-      const accepted = result.accepted === true;
+      let accepted;
+      if (submit) accepted = (await submit(hop > 0 ? { transcriptMeta: { hop } } : {})).accepted;
+      else {
+        // New work from this sender: a delegated target acts as the sender does.
+        await rebindDelegation(sessionId, caller);
+        const result = await service.submitSession({
+          sessionId,
+          prompt,
+          options: { mode: 'prompt', transcriptMeta: { sender: 'lead', ...(hop > 0 ? { hop } : {}) } },
+        });
+        accepted = result.accepted === true;
+      }
       return {
         sessionId,
+        ...addressed,
         accepted,
         reportsBack: false,
         ...(accepted ? { reportsBackReason: NOT_BOT_REASON } : {}),

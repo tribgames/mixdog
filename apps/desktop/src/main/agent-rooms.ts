@@ -15,6 +15,8 @@ import {
   normalizeRoomConfig,
   parseRoomAsk,
   roomIdOfSession,
+  roomMemberNamed,
+  roomMemberOfSession,
   roomMemberSessionId,
   roomSessionId,
   type roomTurnPrompt,
@@ -23,6 +25,7 @@ import type {
   RoomDecision,
   RoomSupervisorInput,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
+import type { AgentRoomHost, AgentRoomTurnDetail } from '../../../../src/runtime/shared/agent-room-host.mjs';
 import { readJsonState, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { type AgentCatalogRow, MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 import type {
@@ -37,7 +40,7 @@ import { routeParams } from './agent-home-sessions';
 import { type RoomExchangeHost, runRoomExchangeIn } from './agent-room-exchange';
 import { createRoomLog } from './agent-room-log';
 import { createRoomRecords } from './agent-room-records';
-import type { RoomTurnHost, RunState } from './agent-room-turn';
+import type { MemberLabel, RoomCall, RoomExchangeOptions, RoomTurnHost, RunState } from './agent-room-turn';
 import { catalogWithRooms, decorateRoomSnapshot, roomSummary } from './agent-room-views';
 
 export interface AgentRoomRecord extends RoomConfig {
@@ -91,8 +94,13 @@ export interface AgentRoomDeps {
   /** The transcript items of a session, read without publishing. */
   readItems(sessionId: string): Promise<unknown[]>;
   /** A member's turn: its prompt, text or parts with the user's stored files
-   *  (submitted like a chat prompt). */
-  submit(sessionId: string, prompt: ReturnType<typeof roomTurnPrompt>): Promise<boolean>;
+   *  (submitted like a chat prompt), under submission `id` and at bot-to-bot
+   *  `hop` when given. */
+  submit(
+    sessionId: string,
+    prompt: ReturnType<typeof roomTurnPrompt>,
+    options?: { id?: string; hop?: number }
+  ): Promise<boolean>;
   /** One supervisor step on the Maintainer model (the daemon's
    *  `decideRoomTurn`): the next speaker, finish, null for no usable answer, or
    *  `unmanaged` when no Maintainer model is configured. */
@@ -162,6 +170,21 @@ async function roomLogRoute(
 
 export { inLogOrder } from './agent-room-log';
 
+/** `call` with an `onSettled` that runs once, whichever path ends it first. */
+function settlesOnce(call: RoomCall): RoomCall {
+  const onSettled = call.onSettled;
+  if (!onSettled) return call;
+  let done = false;
+  return {
+    ...call,
+    onSettled: (detail) => {
+      if (done) return;
+      done = true;
+      onSettled(detail);
+    },
+  };
+}
+
 function roomDocOf(value: unknown): AgentRoomStoreDoc {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('The room records are not an object.');
@@ -227,7 +250,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     post: (rows) => post(roomId, rows),
     republish: () => deps.republish(roomSessionId(roomId)),
     memberSession: (member) => ensureMemberSession(roomId, member),
-    submit: (sessionId, prompt) => deps.submit(sessionId, prompt),
+    submit: (sessionId, prompt, options) => deps.submit(sessionId, prompt, options),
     readSnapshot: (sessionId) => deps.readSnapshot(sessionId),
     abort: (sessionId) => deps.abort(sessionId),
     persist,
@@ -244,7 +267,8 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     room: () => roomOf(roomId),
     exists: () => Boolean(records.rooms()[roomId]),
     track: (state) => running.set(roomId, state),
-    untrack: () => running.delete(roomId),
+    untrack: (state) => running.get(roomId) === state && running.delete(roomId),
+    failRelays: (error) => dropRelays(roomId, { status: 'failed', error }),
     rows: () => roomRows(roomId),
     post: (rows) => post(roomId, rows),
     labels: memberLabels,
@@ -258,16 +282,62 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     random,
     log,
   });
-  const exchange = (roomId: string, options: { to?: string[]; waiting?: boolean }) =>
-    runRoomExchangeIn(exchangeHost(roomId), options);
+  const exchange = (roomId: string, options: RoomExchangeOptions) => runRoomExchangeIn(exchangeHost(roomId), options);
 
-  const start = (roomId: string, options: { to?: string[]; waiting?: boolean }) => {
+  const start = (roomId: string, options: RoomExchangeOptions) => {
     // A save that fails outside the exchange's own try (before it, or in its
-    // finally) is logged, never left as an unhandled rejection.
-    void exchange(roomId, options).catch((error) =>
-      log(`room ${roomId} exchange failed: ${error instanceof Error ? error.message : String(error)}`)
-    );
+    // finally) is logged, never left as an unhandled rejection; a call it
+    // carried ends failed (a call settles once).
+    void exchange(roomId, options)
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        log(`room ${roomId} exchange failed: ${message}`);
+        for (const call of options.calls ?? []) call.onSettled?.({ status: 'failed', error: message });
+      })
+      .then(() => drainRelays(roomId));
   };
+
+  /** Relays held back per room while its talk runs: a relay never cuts a
+   *  member off, it waits for the exchange in flight to end. */
+  const relayQueue = new Map<string, RoomCall[]>();
+
+  /** An exchange in `roomId` ended: the relays it held back run as one
+   *  exchange, each member once, unless another exchange already took the
+   *  room (its own end drains them). */
+  function drainRelays(roomId: string): void {
+    const queued = relayQueue.get(roomId);
+    if (!queued?.length || running.has(roomId)) return;
+    relayQueue.delete(roomId);
+    const to = [...new Set(queued.map((call) => call.agentId))];
+    route(roomId, { to, waiting: false, only: true, calls: queued });
+  }
+
+  /** The stop button, or a save the room's talk needed failed: the relays held
+   *  back end (cancelled, or failed); the delivery retries them later. */
+  function dropRelays(roomId: string, detail: AgentRoomTurnDetail = { status: 'cancelled' }): void {
+    const queued = relayQueue.get(roomId) ?? [];
+    relayQueue.delete(roomId);
+    for (const call of queued) call.onSettled?.(detail);
+  }
+
+  /** Route a new request into room `roomId`: it starts an exchange, or, while
+   *  one runs, is merged into the one that runs next (every member any of
+   *  them called keeps its turn, in the order named; `only` holds when every
+   *  merged request is `only`), and the member speaking is cut off: its
+   *  answer would respond to older rows. Each call settles once. */
+  function route(roomId: string, options: Required<Pick<RoomExchangeOptions, 'to' | 'waiting'>> & RoomExchangeOptions) {
+    const calls = (options.calls ?? []).map(settlesOnce);
+    const active = running.get(roomId);
+    if (!active) return start(roomId, { ...options, calls });
+    const prior = active.pending;
+    active.pending = {
+      to: [...new Set([...(prior?.to ?? []), ...options.to])],
+      waiting: prior?.waiting === true || options.waiting,
+      only: (prior ? prior.only === true : true) && options.only === true,
+      calls: [...(prior?.calls ?? []), ...calls],
+    };
+    if (active.speaking && active.memberSession) void deps.abort(active.memberSession).catch(() => undefined);
+  }
 
   async function create(input: Record<string, unknown>): Promise<{ sessionId: string; roomId: string }> {
     await ready();
@@ -413,18 +483,121 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // Taken up as soon as the row is in the log, before the save yields: a
     // member's older answer cannot land meanwhile, and a second message never
     // starts an exchange of its own beside this one.
-    const active = running.get(roomId);
-    if (active) {
-      // Several messages sent meanwhile run as one exchange: every member any
-      // of them addressed keeps its turn, in the order named.
-      active.pending = { to: [...new Set([...(active.pending?.to ?? []), ...parsed.to])], waiting: true };
-      // The member speaking answers rows older than this message: cut it off
-      // now (its turn posts nothing) rather than at the next turn boundary.
-      if (active.speaking && active.memberSession) void deps.abort(active.memberSession).catch(() => undefined);
-    } else start(roomId, { to: parsed.to, waiting: true });
+    route(roomId, { to: parsed.to, waiting: true });
     await persist();
     deps.republishCatalog();
     return true;
+  }
+
+  /** The member a message from another session addresses (room host
+   *  `member`, agent-room-host.mjs): `to` (an agent id or display name), else
+   *  a leading `@name` in `prompt`; its member session exists afterwards. */
+  async function addressee(
+    sessionId: string,
+    { to, prompt }: { to?: unknown; prompt?: unknown }
+  ): Promise<{ agentId: string; name: string; sessionId: string; text: string }> {
+    await ready();
+    const roomId = roomIdOfSession(sessionId);
+    const room = roomOf(roomId);
+    const labels = await memberLabels(room);
+    const members = [...labels.values()];
+    const named = typeof to === 'string' ? to.trim() : '';
+    let text = typeof prompt === 'string' ? prompt.trim() : '';
+    let agentId = roomMemberNamed(named, members);
+    if (!named && text.startsWith('@')) {
+      const parsed = parseRoomAsk(`/ask ${text.slice(1)}`, members);
+      if (parsed.to.length === 1 && parsed.text) [agentId, text] = [parsed.to[0], parsed.text];
+    }
+    const roster = members.map((member) => `${member.name} (${member.id})`).join(', ');
+    if (!agentId) {
+      throw new Error(
+        named
+          ? `"${named}" is not a member of room "${room.name}"; its members are ${roster}.`
+          : `A message to room "${room.name}" must name the member it is for (to: agent id or name); its members are ${roster}.`
+      );
+    }
+    const member = labels.get(agentId) as MemberLabel;
+    return { agentId, name: member.name, sessionId: await ensureMemberSession(roomId, member), text };
+  }
+
+  /** A message from another session (`from`) into the room, for member
+   *  `agentId` alone: posted as a user-kind row naming its real sender, then
+   *  routed like a user message to that member, and no other member follows
+   *  up. `id` / `onSettled`: the member's turn's submission id and end. */
+  async function ask(
+    sessionId: string,
+    { agentId, prompt, from, id = '', hop = 0, onSettled, follow }: Parameters<AgentRoomHost['ask']>[1]
+  ): Promise<boolean> {
+    await ready();
+    const roomId = roomIdOfSession(sessionId);
+    const room = roomOf(roomId);
+    if (!room.members.includes(agentId)) throw new Error(`"${agentId}" is not a member of room "${room.name}".`);
+    const labels = await memberLabels(room);
+    const content = prompt as DesktopPromptContent;
+    const upload = roomUpload(content, {});
+    const text = promptText(content);
+    if (!text && !upload) throw new Error('Write a message to send.');
+    const fromAgent = from.agentId || '';
+    const fromName = fromAgent ? (names.get(fromAgent) ?? fromAgent) : 'Lead';
+    const row: RoomRow = {
+      id: `ask_${newId()}`,
+      kind: 'user',
+      at: now(),
+      text,
+      to: [agentId],
+      toName: [labels.get(agentId)?.name ?? agentId],
+      fromSession: from.sessionId,
+      ...(fromAgent ? { fromAgent } : {}),
+      fromName,
+      ...(upload ? { upload } : {}),
+    };
+    await post(roomId, [row]);
+    room.lastAt = row.at;
+    const call: RoomCall = {
+      agentId,
+      askedBy: fromName,
+      ...(id ? { id } : {}),
+      ...(hop > 0 ? { hop } : {}),
+      ...(onSettled ? { onSettled } : {}),
+      ...(follow ? { follow } : {}),
+    };
+    route(roomId, { to: [agentId], waiting: true, only: true, calls: [call] });
+    await persist();
+    deps.republishCatalog();
+    return true;
+  }
+
+  /** Member session `sessionId` relays its own reported work (`prompt`, the
+   *  agent-home-delivery wake prompt) in one turn in its room, once the room
+   *  is idle; `settled` resolves that turn's end status ('done' when it
+   *  finished). */
+  async function relay(
+    sessionId: string,
+    prompt: string,
+    { id = '', hop = 0, follow }: NonNullable<Parameters<AgentRoomHost['relay']>[2]> = {}
+  ) {
+    await ready();
+    const member = roomMemberOfSession(sessionId);
+    if (!member) throw new TypeError('Not a group-room member session.');
+    const room = roomOf(member.roomId);
+    if (!room.members.includes(member.agentId)) throw new Error('That agent is no longer a member of the room.');
+    let settle: (status: string) => void = () => undefined;
+    const settled = new Promise<string>((resolve) => {
+      settle = resolve;
+    });
+    const call: RoomCall = {
+      agentId: member.agentId,
+      relay: prompt,
+      ...(id ? { id } : {}),
+      ...(hop > 0 ? { hop } : {}),
+      ...(follow ? { follow } : {}),
+      onSettled: (detail) => settle(detail.status),
+    };
+    // A relay never cuts a member off: while the room talks it waits in the
+    // room's queue, which the exchange's end drains.
+    if (running.has(member.roomId)) relayQueue.set(member.roomId, [...(relayQueue.get(member.roomId) ?? []), call]);
+    else route(member.roomId, { to: [member.agentId], waiting: false, only: true, calls: [call] });
+    return { settled };
   }
 
   /** "더 진행": the named members a capped message still owes a turn, else
@@ -441,11 +614,13 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   }
 
   /** The stop button: the speaking member's turn is cancelled and no one
-   *  else gets a turn. */
+   *  else gets a turn, not even a relay held back. */
   function stop(sessionId: string): boolean {
+    dropRelays(roomIdOfSession(sessionId));
     const state = running.get(roomIdOfSession(sessionId));
     if (!state) return false;
     state.stop = true;
+    for (const call of state.pending?.calls ?? []) call.onSettled?.({ status: 'cancelled' });
     state.pending = null;
     if (state.memberSession) void deps.abort(state.memberSession).catch(() => undefined);
     return true;
@@ -497,6 +672,9 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     leave,
     reset,
     send,
+    member: addressee,
+    ask,
+    relay,
     proceed,
     stop,
     approve,
