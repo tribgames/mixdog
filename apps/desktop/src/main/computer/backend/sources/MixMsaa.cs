@@ -154,7 +154,7 @@ public static class MixMsaa
       string path,
       string windowId,
       List<MixMsaaNode> result,
-      HashSet<long> visited,
+      Dictionary<long, IAccessible> visited,
       int maximum,
       int depth,
       bool includeSelf,
@@ -162,7 +162,10 @@ public static class MixMsaa
     {
         if (depth > 64) throw new InvalidOperationException("MSAA tree depth exceeds 64");
         long identity = Identity(accessible);
-        if (!visited.Add(identity)) return;
+        if (visited.ContainsKey(identity)) return;
+        // Keep even omitted nodes alive for this traversal. A released COM
+        // identity address can otherwise be reused by a different element.
+        visited.Add(identity, accessible);
         if (includeSelf)
         {
             if (result.Count >= maximum) { complete = false; return; }
@@ -264,7 +267,7 @@ public static class MixMsaa
         if (root == null) return new MixMsaaSnapshot { Nodes = new MixMsaaNode[0], Complete = false };
         List<MixMsaaNode> result = new List<MixMsaaNode>();
         bool complete = true;
-        Traverse(root, "0", windowId ?? "", result, new HashSet<long>(), maximum, 0, false, ref complete);
+        Traverse(root, "0", windowId ?? "", result, new Dictionary<long, IAccessible>(), maximum, 0, false, ref complete);
         return new MixMsaaSnapshot { Nodes = result.ToArray(), Complete = complete };
     }
 
