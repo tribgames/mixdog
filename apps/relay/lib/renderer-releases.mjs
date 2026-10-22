@@ -126,6 +126,17 @@ export function selectRelease(index, { appVersion = '', rendererRelease = '' } =
   return index.releases.find((entry) => entry.legacy) ?? newestOf(entries);
 }
 
+/** The oldest desktop version any retained non-legacy release is built for
+ *  (what a legacy-served desktop must update to); '' when there is none. */
+export function oldestSupportedVersion(index) {
+  let oldest = null;
+  for (const entry of index.releases) {
+    const version = entry.legacy ? null : parseVersion(entry.desktopVersion);
+    if (version && (!oldest || compareVersions(version, oldest.version) < 0)) oldest = { version, entry };
+  }
+  return oldest ? oldest.entry.desktopVersion : '';
+}
+
 /** The registry with `entry` added; an already registered id is left as is. */
 export function withRelease(index, entry) {
   if (index.releases.some((existing) => existing.id === entry.id)) return index;
@@ -170,6 +181,7 @@ export function planRetention(
 export function createRendererCatalog({ rendererDir = '', releasesDir = '', cacheMs = 1000, now = Date.now } = {}) {
   let cached = null;
   let expiresAt = 0;
+  const selectFrom = (registry, report) => (registry?.releases.length ? selectRelease(registry, report) : null);
   const index = () => {
     if (!releasesDir) return null;
     const time = now();
@@ -186,9 +198,13 @@ export function createRendererCatalog({ rendererDir = '', releasesDir = '', cach
     rendererDir,
     releasesDir,
     index,
-    dirFor(report) {
+    /** { minVersion } when `report` would be served the legacy release, else null. */
+    legacyFor(report) {
       const registry = index();
-      const selected = registry?.releases.length ? selectRelease(registry, report) : null;
+      return selectFrom(registry, report)?.legacy ? { minVersion: oldestSupportedVersion(registry) } : null;
+    },
+    dirFor(report) {
+      const selected = selectFrom(index(), report);
       if (!selected) return rendererDir;
       const dir = join(releasesDir, selected.id);
       try {

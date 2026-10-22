@@ -11,7 +11,13 @@ import WebSocket from 'ws';
 import { startRelay } from '../server.mjs';
 import { DeviceStore } from './device-store.mjs';
 import { createRendererReadiness } from './renderer-readiness.mjs';
-import { createRendererCatalog, parseReleaseIndex, planRetention, selectRelease } from './renderer-releases.mjs';
+import {
+  createRendererCatalog,
+  oldestSupportedVersion,
+  parseReleaseIndex,
+  planRetention,
+  selectRelease,
+} from './renderer-releases.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 0, 1);
@@ -243,6 +249,86 @@ test('the relay serves each device the renderer release for its reported desktop
     await relay.close();
     await rm(fixture.root, { recursive: true, force: true });
   }
+});
+
+test('the phone app gets the update-PC page instead of the legacy renderer', async () => {
+  const fixture = await releaseFixture();
+  const relay = await startRelay({
+    port: 0,
+    dataDir: join(fixture.root, 'data'),
+    rendererDir: fixture.rendererDir,
+    rendererReleasesDir: fixture.releasesDir,
+  });
+  const sockets = [];
+  try {
+    const stale = randomUUID();
+    const silent = randomUUID();
+    const modern = randomUUID();
+    sockets.push(await connectDesktop(relay, stale, { appVersion: '1.0.0' }));
+    sockets.push(await connectDesktop(relay, silent, null));
+    sockets.push(await connectDesktop(relay, modern, { appVersion: '2.0.0' }));
+    await until(
+      () => relay.store.deviceVersion(stale).appVersion === '1.0.0' && relay.store.deviceVersion(modern).appVersion
+    );
+    const origin = `http://127.0.0.1:${relay.port}`;
+    const appUa = { 'user-agent': 'Mozilla/5.0 (iPhone) MixdogApp/1.4.0' };
+    const browserUa = { 'user-agent': 'Mozilla/5.0 (iPhone) Safari/605.1.15' };
+    const get = (id, path, headers) => fetch(`${origin}/d/${id}/${path}`, { headers });
+
+    const update = await get(stale, '', appUa);
+    const html = await update.text();
+    assert.equal(update.status, 200);
+    assert.equal(update.headers.get('cache-control'), 'no-store');
+    assert.match(update.headers.get('content-security-policy'), /script-src 'unsafe-inline'/);
+    assert.match(html, /Update Mixdog on your PC/);
+    assert.match(html, /data-current="1\.0\.0" data-min="2\.0\.0"/);
+    assert.doesNotMatch(html, /<body>legacy<\/body>/);
+    assert.match(html, /openHostPicker/);
+    assert.match(html, /location\.reload\(\)/);
+
+    // A PC that never reported a version is unknown, not blank.
+    const unknown = await (await get(silent, '', appUa)).text();
+    assert.match(unknown, /data-current="" data-min="2\.0\.0"/);
+    assert.match(unknown, /PC version unknown/);
+    assert.match(unknown, /PC 버전 알 수 없음/);
+
+    // An extension-less deep link is the SPA index document too.
+    assert.match(await (await get(stale, 'some/deep/link', appUa)).text(), /Update Mixdog on your PC/);
+    assert.match(await (await get(stale, 'some/deep/link', browserUa)).text(), /<body>legacy<\/body>/);
+
+    // Only a top-level document: Fetch Metadata, when sent, must say so.
+    for (const dest of ['empty', 'iframe']) {
+      const sub = await get(stale, '', { ...appUa, 'sec-fetch-dest': dest });
+      assert.match(await sub.text(), /<body>legacy<\/body>/, dest);
+    }
+    const document = await get(stale, '', { ...appUa, 'sec-fetch-dest': 'document' });
+    assert.match(await document.text(), /Update Mixdog on your PC/);
+
+    // A supported PC, browsers / home-screen apps and assets are unchanged.
+    assert.match(await (await get(modern, '', appUa)).text(), /<body>new<\/body>/);
+    assert.match(await (await get(stale, '', browserUa)).text(), /<body>legacy<\/body>/);
+    assert.match(await (await get(stale, '')).text(), /<body>legacy<\/body>/);
+    assert.match(await (await get(stale, 'icon.svg', appUa)).text(), /<title>legacy<\/title>/);
+    assert.match(await (await get(stale, 'assets/main-12345678.js', appUa)).text(), /'legacy'/);
+  } finally {
+    for (const socket of sockets) socket.terminate();
+    await relay.close();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('the update page escapes the versions it prints', async () => {
+  const { renderUpdatePcPage } = await import('./update-pc-page.mjs');
+  const html = renderUpdatePcPage({ current: '"><script>x</script>', min: "1'&2" });
+  assert.doesNotMatch(html, /<script>x<\/script>/);
+  assert.match(html, /data-current="&#34;&#62;&#60;script&#62;x&#60;\/script&#62;"/);
+  assert.match(html, /data-min="1&#39;&#38;2"/);
+});
+
+test('oldest supported version is the lowest retained non-legacy desktop version', () => {
+  const index = registry(legacyEntry, entry('b', '1.10.0', 2), entry('a', '1.2.4', 1), entry('c', '1.3.2', 3));
+  assert.equal(oldestSupportedVersion(index), '1.2.4');
+  assert.equal(oldestSupportedVersion(registry(legacyEntry)), '');
 });
 
 test('without a registry the relay serves the single renderer to everyone', async () => {

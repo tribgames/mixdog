@@ -23,6 +23,13 @@ function shellCacheKey(request) {
   return url.toString();
 }
 
+// A `no-store` document (the relay's "update your PC" page) answers this
+// moment only: keeping it would show it offline, and the shell it replaces
+// would keep masking it.
+function isTransientDocument(response) {
+  return /(^|[\s,])no-store([\s,;]|$)/i.test(response.headers.get('cache-control') || '');
+}
+
 function storeShell(cache, key, response, body) {
   const bytes = new TextEncoder().encode(body).byteLength;
   if (bytes > MAX_SHELL_ENTRY_BYTES) return Promise.resolve(false);
@@ -98,6 +105,10 @@ async function shellFirst(request) {
   const cachedBody = hit ? await hit.clone().text() : null;
   const refresh = fetch(request).then(async (response) => {
     if (!response.ok || response.type !== 'basic') return response;
+    if (isTransientDocument(response)) {
+      await cache.delete(key).catch(() => false);
+      return response;
+    }
     const body = await response.clone().text();
     // Storage failure must never discard a successful network response.
     let stored = false;
@@ -162,7 +173,7 @@ async function recoverMissingAsset(clientId) {
   const key = shellCacheKey(url.toString());
   if (!key) return;
   const response = await fetch(new Request(url.toString(), { cache: 'no-cache' }));
-  if (!response.ok || response.type !== 'basic') return;
+  if (!response.ok || response.type !== 'basic' || isTransientDocument(response)) return;
   const body = await response.clone().text();
   const cache = await caches.open(SHELL_CACHE);
   try {

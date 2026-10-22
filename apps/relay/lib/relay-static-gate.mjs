@@ -3,6 +3,9 @@
 // served without the pairing gate because browsers fetch them without
 // credentials; a 401 would silently downgrade "install app" to an icon-less
 // shortcut. These assets carry no user data.
+import { realpathSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   deviceCookieHeaders,
   mergeCookieHeaders,
@@ -16,6 +19,7 @@ import {
 import { isRoutingId } from './ids.mjs';
 import { PREVIEW_FRAME_PATH, sendPreviewFrame } from './relay-preview-frame.mjs';
 import { decodedRequestPath, endText, rejectUnauthorizedText } from './relay-http.mjs';
+import { isNativeAppRequest, sendUpdatePcPage } from './update-pc-page.mjs';
 
 export const PUBLIC_APP_ASSETS = new Set([
   '/manifest.webmanifest',
@@ -117,6 +121,28 @@ function rendererRoot(renderer, store, deviceId) {
   return renderer.dirFor(deviceId ? store.deviceVersion(deviceId) : undefined);
 }
 
+// The phone app cannot use the legacy renderer (it predates the app): for the
+// top-level document of a legacy-served PC it gets the update page instead.
+// Assets, browsers and home-screen web apps keep the legacy renderer.
+function serveUpdatePcPage(renderer, store, rendererDir, { route, releaseDevice }, request, response) {
+  if (typeof renderer === 'string' || route.redirect || !isNativeAppRequest(request)) return false;
+  // Fetch Metadata, when sent, must say top-level document: a fetch(), iframe
+  // or worker request is not a page the phone is showing. A WebView navigation
+  // may omit the header altogether.
+  const dest = request.headers['sec-fetch-dest'];
+  if (dest !== undefined && dest !== 'document') return false;
+  const report = store.deviceVersion(releaseDevice);
+  const legacy = renderer.legacyFor(report);
+  if (!legacy) return false;
+  // The document is whatever the static resolver answers with the index file:
+  // `/`, `/index.html` and the extension-less deep links of the SPA fallback.
+  // Real assets and misses resolve to something else and stay untouched.
+  const resolved = resolveStaticTarget(rendererDir, route.rest);
+  if (resolved.status !== 200 || resolved.target !== realpathSync(join(rendererDir, 'index.html'))) return false;
+  sendUpdatePcPage(request, response, { current: report.appVersion, min: legacy.minVersion });
+  return true;
+}
+
 export function serveStatic(renderer, store, unauthorizedLimiter, request, response) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     answerNonReadMethod(request, response);
@@ -147,6 +173,7 @@ export function serveStatic(renderer, store, unauthorizedLimiter, request, respo
     return;
   }
   if (access.route) {
+    if (serveUpdatePcPage(renderer, store, rendererDir, access, request, response)) return;
     serveDeviceRoute(rendererDir, access.route, request, response);
     return;
   }

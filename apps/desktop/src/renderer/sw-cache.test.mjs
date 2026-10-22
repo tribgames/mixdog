@@ -147,6 +147,34 @@ function shellNetwork(body) {
   return async () => basicResponse(shellMarkup(body));
 }
 
+test('a no-store document is never kept as the shell and retires the cached one', async () => {
+  const caches = memoryCacheStorage();
+  const documents = await caches.open('mixdog-shell-v1');
+  const update = async () => {
+    const response = basicResponse('<h1>Update Mixdog on your PC</h1>');
+    response.headers.set('cache-control', 'no-store');
+    return response;
+  };
+  const worker = loadWorker({ caches, fetchAsset: update });
+
+  // First visit: answered from the network, nothing kept.
+  const first = await worker.shellFirst({ url: `${WORKER_ORIGIN}/d/a/` });
+  await first.maintenance;
+  assert.match(await first.response.text(), /Update Mixdog on your PC/);
+  assert.equal(documents.size, 0);
+
+  // A shell cached earlier would mask the page: it is dropped behind the first
+  // paint, so the next launch shows the page.
+  await documents.put(`${WORKER_ORIGIN}/d/a/`, new Response(shellMarkup('old shell')));
+  const assets = await caches.open('mixdog-assets-v2');
+  await assets.put(`${WORKER_ORIGIN}/assets/bootstrap-12345678.js`, new Response('asset'));
+  const masked = await worker.shellFirst({ url: `${WORKER_ORIGIN}/d/a/` });
+  await masked.maintenance;
+  assert.equal(documents.size, 0);
+  const next = await worker.shellFirst({ url: `${WORKER_ORIGIN}/d/a/` });
+  assert.match(await next.response.text(), /Update Mixdog on your PC/);
+});
+
 test('a deploy found behind the paint is offered to the running app', async () => {
   const posted = [];
   const { shellFirst, SHELL_UPDATE_MESSAGE } = loadWorker({
