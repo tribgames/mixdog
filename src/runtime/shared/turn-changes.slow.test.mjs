@@ -372,14 +372,16 @@ function withinDeadline(promise, label, ms = 20_000) {
   ]).finally(() => clearTimeout(timer));
 }
 
-/** The record once no seal of it is in flight. */
-async function settledChanges(sessionId, checkpointId) {
+/** A non-pending record at the expected revision, when a queued re-seal must land. */
+async function settledChanges(sessionId, checkpointId, expectedRevision) {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     const reply = await getTurnChanges(sessionId, { checkpointId });
-    if (reply.status !== 'pending') return reply;
+    if (reply.status !== 'pending' && (expectedRevision === undefined || reply.revision === expectedRevision)) {
+      return reply;
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`deadlock: ${checkpointId} stayed pending`);
+  throw new Error(`deadlock: ${checkpointId} did not settle`);
 }
 
 const workerPatch = 'diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-b\n+B\n';
@@ -631,7 +633,7 @@ test('a late worker re-seal racing an Undo stays consistent in either order', { 
     withinDeadline(revertTurnChanges(sessionId, 'cp', 'a.txt', reply.revision), 'undo behind re-seal'),
     /turn changes changed; refresh/
   );
-  reply = await settledChanges(sessionId, 'cp');
+  reply = await settledChanges(sessionId, 'cp', 2);
   assert.equal(reply.revision, 2);
   assert.deepEqual(statesOf(reply), [
     ['a.txt', 'M', 'applied'],
@@ -643,8 +645,11 @@ test('a late worker re-seal racing an Undo stays consistent in either order', { 
   const undo = revertTurnChanges(sessionId, 'cp', 'a.txt', reply.revision);
   assert.equal(completeAgentTurnReview(second, [workerPatch.replaceAll('b.txt', 'b2.txt')]), true);
   reply = await withinDeadline(undo, 'undo ahead of re-seal');
+  assert.equal(reply.revision, 3);
   assert.equal(readTree(repo, ['a.txt'])['a.txt'], 'a\n');
-  reply = await settledChanges(sessionId, 'cp');
+  // A read begun during re-seal can answer ready with the Undo's old revision.
+  // The second worker's attribution must reach revision 4 before Reapply.
+  reply = await settledChanges(sessionId, 'cp', 4);
   assert.deepEqual(statesOf(reply), [
     ['a.txt', 'M', 'reverted'],
     ['b.txt', 'M', 'applied'],
