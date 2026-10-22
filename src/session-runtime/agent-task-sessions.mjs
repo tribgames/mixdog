@@ -37,6 +37,7 @@ import { sessionsWithPendingWork } from '../runtime/shared/pending-agent-work.mj
 import { agentTaskIdOfExecution } from './services/agent-tool/restart-notify.mjs';
 import { worktreeError, worktreeNameError } from '../runtime/shared/worktrees/contract.mjs';
 import { samePath } from '../runtime/shared/worktrees/paths.mjs';
+import { assertWorktreeMutationAllowed } from './services/worktree-access.mjs';
 
 const TITLE_LIMIT = 60;
 
@@ -946,15 +947,20 @@ export function createAgentTaskSessions({
     return pending.length;
   }
 
-  /** Create the task session for `brief` and start it; returns at once. */
+  /** Create the task session for `brief` and start it; returns at once.
+   *  `callerScope` is the caller's trusted worktree scope (worktree-access.mjs
+   *  worktreeCallerScope): provisioning a worktree is a mutation only an
+   *  attended conversation may make, so an explicit worktree from any other
+   *  caller is refused and the New task default keeps it in the Project folder. */
   async function create(
     args = {},
-    { callerSessionId, callerAgentId, callerCwd, callerHop = 0, attachmentParts = [] } = {}
+    { callerSessionId, callerAgentId, callerCwd, callerHop = 0, callerScope, attachmentParts = [] } = {}
   ) {
     if (!callerAgentId) throw new Error('session: create is only for an agent conversation');
     const brief = typeof args.brief === 'string' ? args.brief.trim() : '';
     if (!brief) throw new Error('session: brief is required for action=create');
     const location = taskLocation(args.worktree);
+    if (location.mode === 'worktree') assertWorktreeMutationAllowed(callerScope, 'session: create with a worktree');
     const projects = await listProjects();
     const where = resolveTaskProject(args.project, { projects, cwd: callerCwd || process.cwd() });
     // An explicit worktree is never silently dropped: it needs a registered Project.
@@ -983,6 +989,16 @@ export function createAgentTaskSessions({
       : (await leadRoute()) || (await lastUsedRoute(service()));
     if (!route) throw new Error('session: no model to start the task session on. Choose a Lead model first.');
     const sessions = service();
+    // Where it starts: the `worktree` option, else the user's New task default
+    // for a caller that may provision one. Decided before the session exists,
+    // so a failure here leaves nothing behind.
+    const explicit = location.mode === 'worktree';
+    const inWorktree =
+      explicit ||
+      (location.mode === 'default' &&
+        where.project &&
+        callerScope?.attended === true &&
+        (await newTaskDefault()) === 'worktree');
     const created = await sessions.createSession({
       ...route,
       cwd: where.cwd,
@@ -991,10 +1007,6 @@ export function createAgentTaskSessions({
     });
     const sessionId = String(created?.sessionId || '');
     if (!sessionId) throw new Error('session: task session creation returned no session id');
-    // Where it starts: the `worktree` option, else the user's New task default.
-    const explicit = location.mode === 'worktree';
-    const inWorktree =
-      explicit || (location.mode === 'default' && where.project && (await newTaskDefault()) === 'worktree');
     if (inWorktree) {
       try {
         await requestTaskWorktree(sessions, sessionId, {
@@ -1006,10 +1018,31 @@ export function createAgentTaskSessions({
         });
       } catch (error) {
         // Nothing was sent: drop the empty session so a retry starts clean.
-        await sessions
-          .configureSession({ sessionId, action: 'deleteSession', args: [sessionId] }, { revision: 1 })
-          .catch((deleteError) => log(`dropping ${sessionId} failed: ${deleteError?.message || deleteError}`));
-        throw error;
+        let dropFailure = null;
+        try {
+          const dropped = await sessions.configureSession(
+            { sessionId, action: 'deleteSession', args: [sessionId] },
+            { revision: 1 }
+          );
+          // A resolved `false` is a refusal, not a deletion.
+          if (dropped?.value === false) dropFailure = new Error('the session service refused the deletion');
+        } catch (deleteError) {
+          dropFailure = deleteError;
+        }
+        if (dropFailure) log(`dropping ${sessionId} failed: ${dropFailure?.message || dropFailure}`);
+        if (!dropFailure) throw error;
+        // The model must know the empty session is still there to delete.
+        throw Object.assign(
+          new Error(
+            `${error?.message || error} The empty task session ${sessionId} could not be deleted either (${dropFailure?.message || dropFailure}); delete it with session action=delete session_id=${sessionId}.`
+          ),
+          {
+            ...(typeof error?.code === 'string' ? { code: error.code } : {}),
+            ...(error?.details ? { details: error.details } : {}),
+            orphanSessionId: sessionId,
+            cause: error,
+          }
+        );
       }
     }
     // "Started" lands in the home before any report of the brief's turn.

@@ -9,6 +9,7 @@ import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator
 import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { turnHopOf } from '../../runtime/shared/bot-hops.mjs';
 import { scheduleCallerScope } from '../services/schedule-access.mjs';
+import { worktreeCallerScope } from '../services/worktree-access.mjs';
 import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.mjs';
 
 const USER_TITLE_ERROR = 'session: the user already titled this session; the title was not changed';
@@ -106,6 +107,8 @@ export function createWorkspaceToolHandlers({
             callerAgentId,
             callerCwd,
             ...(action === 'send' || action === 'create' ? { callerHop: turnHopOf(rt.session) } : {}),
+            // Whether a create may provision a worktree (worktree-access.mjs).
+            ...(action === 'create' ? { callerScope: worktreeCallerScope(rt.session) } : {}),
             // Which bots and sessions it may see (bot-status.mjs).
             ...(action === 'bots' || action === 'list' ? { callerScope: scheduleCallerScope(rt.session) } : {}),
             ...(attachmentParts.length ? { attachmentParts } : {}),

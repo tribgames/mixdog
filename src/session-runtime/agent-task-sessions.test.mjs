@@ -8,6 +8,7 @@ import { createAgentTaskSessions, resolveTaskProject, submissionOutcome } from '
 import { agentTaskMessage, routineResultNotice } from '../runtime/agent/orchestrator/session/routine-result.mjs';
 import { createAgentHomeDelivery, createRoutineResultQueue } from './agent-home-delivery.mjs';
 import { worktreeError } from '../runtime/shared/worktrees/contract.mjs';
+import { markUnattendedRun } from './held-requests.mjs';
 import { createSessionControl } from '../standalone/daemon-session-control.mjs';
 import { isUserTurn } from '../standalone/session-service/session-calls/session-turns.mjs';
 import { createWorkspaceToolHandlers } from './internal-tool-executor/workspace-tools.mjs';
@@ -21,6 +22,9 @@ import {
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+// The trusted scope of an attended agent conversation (worktree-access.mjs worktreeCallerScope).
+const ATTENDED = { kind: 'agent', agentId: 'lead', attended: true };
 
 function tempDir(t) {
   const dir = mkdtempSync(join(tmpdir(), 'agent-task-'));
@@ -159,7 +163,7 @@ test('create records the origin, follows the worktree default and returns at onc
   const { api, delivered } = tasks(h, { newTaskDefault: async () => 'worktree' });
   const result = await api.create(
     { brief: 'Read README.md\nand report its first line', project: 'mixdog', model: 'test/fast' },
-    { callerSessionId: 'sess_home_lead', callerAgentId: 'lead', callerCwd: '/home' }
+    { callerSessionId: 'sess_home_lead', callerAgentId: 'lead', callerCwd: '/home', callerScope: ATTENDED }
   );
   assert.deepEqual(result, {
     session_id: 'sess_task_1',
@@ -232,7 +236,7 @@ test('create records the origin, follows the worktree default and returns at onc
   assert.equal(record.titleSource, 'ai');
 });
 
-const CALLER = { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' };
+const CALLER = { callerSessionId: 'sess_home_lead', callerAgentId: 'lead', callerScope: ATTENDED };
 
 test('a created task session starts on the Lead route; an explicit model wins', async () => {
   const h = fakeService();
@@ -485,6 +489,139 @@ test('the session tool hands create its worktree option and confirm_large throug
   );
   assert.deepEqual(seen[0].worktree, worktree);
   assert.equal(seen[0].confirm_large, true);
+});
+
+test('the session tool gives create the calling session\'s trusted worktree scope, never the model\'s', async () => {
+  const seen = [];
+  const scopeOf = async (session, extra = {}) => {
+    const handler = createWorkspaceToolHandlers({
+      rt: { session, config: {} },
+      executeSessionControl: async (args, context) => seen.push(context.callerScope),
+    }).session;
+    await handler(
+      { action: 'create', brief: 'x', worktree: { mode: 'worktree' }, ...extra },
+      { callerCtx: { callerSessionId: session.id }, callerCwd: '/home' }
+    );
+    return seen.at(-1);
+  };
+  const attended = await scopeOf({ id: 'sess_home_lead', owner: 'cli', agent: 'lead', sourceType: 'lead' });
+  assert.equal(attended.attended, true);
+  // A model-supplied scope never replaces it.
+  const forged = await scopeOf(
+    { id: 'sess_home_reviewer', owner: 'cli', agent: 'reviewer', sourceType: 'lead' },
+    { callerScope: { kind: 'human', attended: true } }
+  );
+  assert.deepEqual([forged.kind, forged.agentId], ['agent', 'reviewer']);
+  const member = roomMemberSessionId('abc123', 'gh');
+  assert.equal((await scopeOf({ id: member, owner: 'cli', sourceType: 'lead' })).attended, false);
+  const unmark = markUnattendedRun('sess_home_reviewer', { kind: 'schedule', agentId: 'reviewer', name: 'nightly' });
+  try {
+    const routine = await scopeOf({ id: 'sess_home_reviewer', owner: 'cli', agent: 'reviewer', sourceType: 'lead' });
+    assert.equal(routine.attended, false);
+    assert.equal(routine.unattended, true);
+  } finally {
+    unmark();
+  }
+});
+
+test('a caller that may not change worktrees: an explicit worktree is refused before any session, the default keeps the folder', async () => {
+  const refused = [
+    ['an unattended run', { kind: 'agent', agentId: 'reviewer', unattended: true, attended: false }],
+    ['a room member', { kind: 'room-member', agentId: 'gh', attended: false }],
+    ['a caller with no scope', undefined],
+  ];
+  for (const [label, callerScope] of refused) {
+    const h = fakeService();
+    const { api } = tasks(h, {
+      newTaskDefault: async () => 'worktree',
+    });
+    const caller = { ...CALLER, callerScope };
+    await assert.rejects(
+      api.create({ brief: 'x', project: 'mixdog', worktree: { mode: 'worktree', name: 'fix' } }, caller),
+      /changes worktrees only in a conversation session/,
+      `${label}: explicit worktree`
+    );
+    assert.deepEqual(h.calls, [], `${label}: nothing is created or provisioned`);
+    // The worktree default silently stays in the Project folder.
+    const result = await api.create({ brief: 'y', project: 'mixdog' }, caller);
+    assert.equal(result.status, 'started', label);
+    assert.deepEqual(names(h), ['create', 'submit'], `${label}: no worktree request under the default`);
+    // A plain folder start was always open to it.
+    await api.create({ brief: 'z', project: 'mixdog', worktree: { mode: 'branch' } }, caller);
+    assert.equal(configured(h).length, 0, label);
+  }
+});
+
+test('the worktree default provisions for an attended caller, and its failure to resolve leaves no session behind', async () => {
+  const h = fakeService();
+  const attended = tasks(h, { newTaskDefault: async () => 'worktree' }).api;
+  await attended.create({ brief: 'x', project: 'mixdog' }, CALLER);
+  assert.deepEqual(names(h), ['create', 'configure', 'submit']);
+
+  const broken = fakeService();
+  const { api } = tasks(broken, {
+    newTaskDefault: async () => {
+      throw new Error('config unreadable');
+    },
+  });
+  await assert.rejects(api.create({ brief: 'x', project: 'mixdog' }, CALLER), /config unreadable/);
+  assert.deepEqual(broken.calls, [], 'the default is resolved before the session is created');
+});
+
+test('a task session that could not be dropped after a provisioning failure is named in the error', async () => {
+  const h = fakeService();
+  const logs = [];
+  h.hooks.configure = async (params) => {
+    if (params.action === 'deleteSession') throw new Error('store locked');
+    throw worktreeError('WORKTREE_LARGE_REPO_CONFIRM', undefined, {
+      estimateBytes: 3 * 1024 * 1024 * 1024,
+      thresholdBytes: 1024 * 1024 * 1024,
+    });
+  };
+  const { api } = tasks(h, { log: (line) => logs.push(line) });
+  await assert.rejects(
+    api.create({ brief: 'x', project: 'mixdog', worktree: { mode: 'worktree' } }, CALLER),
+    (error) => {
+      assert.equal(error.code, 'WORKTREE_LARGE_REPO_CONFIRM', 'the typed failure stays typed');
+      assert.match(error.message, /confirm_large: true/);
+      assert.match(error.message, /sess_task_1 could not be deleted either \(store locked\)/);
+      assert.match(error.message, /session action=delete session_id=sess_task_1/);
+      assert.equal(error.orphanSessionId, 'sess_task_1');
+      assert.deepEqual(error.details, { estimateBytes: 3 * 1024 * 1024 * 1024, thresholdBytes: 1024 * 1024 * 1024 });
+      assert.equal(error.cause.code, 'WORKTREE_LARGE_REPO_CONFIRM');
+      assert.match(error.cause.message, /WORKTREE_LARGE_REPO_CONFIRM/);
+      return true;
+    }
+  );
+  assert.deepEqual(submitted(h), []);
+  assert.equal(logs.length, 1);
+  // A resolved refusal ({ value: false }) leaves the orphan just the same.
+  const refusedDelete = fakeService();
+  refusedDelete.hooks.configure = async (params) => {
+    if (params.action === 'deleteSession') return { value: false };
+    throw worktreeError('WORKTREE_UNSUPPORTED_REPO', undefined, { projectPath: '/repo/mixdog' });
+  };
+  await assert.rejects(
+    tasks(refusedDelete).api.create({ brief: 'x', project: 'mixdog', worktree: { mode: 'worktree' } }, CALLER),
+    (error) => {
+      assert.equal(error.code, 'WORKTREE_UNSUPPORTED_REPO');
+      assert.deepEqual(error.details, { projectPath: '/repo/mixdog' });
+      assert.equal(error.cause.code, 'WORKTREE_UNSUPPORTED_REPO');
+      assert.equal(error.orphanSessionId, 'sess_task_1');
+      assert.match(error.message, /sess_task_1 could not be deleted either \(the session service refused the deletion\)/);
+      return true;
+    }
+  );
+  // A dropped session adds nothing to the error.
+  const dropped = fakeService();
+  dropped.hooks.configure = async (params) => {
+    if (params.action === 'deleteSession') return { value: true };
+    throw worktreeError('WORKTREE_UNSUPPORTED_REPO');
+  };
+  await assert.rejects(
+    tasks(dropped).api.create({ brief: 'x', project: 'mixdog', worktree: { mode: 'worktree' } }, CALLER),
+    (error) => error.code === 'WORKTREE_UNSUPPORTED_REPO' && !/could not be deleted/.test(error.message)
+  );
 });
 
 test('only turns the origin agent starts report back, ended or waiting for the user', async () => {
