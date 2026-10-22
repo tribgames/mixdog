@@ -33,7 +33,9 @@ export function stripRuntimeUserContext(message) {
   } else {
     return message;
   }
-  const { runtimeUserContext: _context, ...meta } = message.meta;
+  // `agentListing` records what the stripped reminder told (agent-listing-
+  // notice.mjs): without the text it must not still count as told.
+  const { runtimeUserContext: _context, agentListing: _agentListing, ...meta } = message.meta;
   const result = { ...message, content, meta };
   if (Object.keys(meta).length === 0) delete result.meta;
   return result;

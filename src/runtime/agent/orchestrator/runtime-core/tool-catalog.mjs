@@ -622,6 +622,18 @@ function reconcileStateMatches(a, b) {
   return true;
 }
 
+// Tools whose schema the session itself keeps exposed: the active surface and
+// the callable/discovered state. Session fields, so a compaction keeps them;
+// discoveries known only from message history (native tool references) are
+// not here, since compaction can remove that history.
+function persistentToolSurfaceNames(session) {
+  return new Set([
+    ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
+    ...parseToolSelection(session.deferredCallableTools),
+    ...parseToolSelection(session.deferredDiscoveredTools),
+  ]);
+}
+
 function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
   const live = filterDisallowedTools(Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools);
   const hadSnapshot = Array.isArray(session.deferredMcpToolNames);
@@ -660,11 +672,7 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
   const knownBefore = isToolBridgeEnabled(session)
     ? new Map(deferredCatalogUnion(session).map((tool) => [clean(tool?.name), tool]))
     : null;
-  const active = new Set([
-    ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
-    ...parseToolSelection(session.deferredCallableTools),
-    ...parseToolSelection(session.deferredDiscoveredTools),
-  ]);
+  const active = persistentToolSurfaceNames(session);
 
   const liveMcpByName = new Map();
   for (const tool of live) {
@@ -721,6 +729,33 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
   mergePendingDeferredToolDelta(session, { added, removed });
   session.updatedAt = Date.now();
   return [...added.map((entry) => entry.name), ...removed];
+}
+
+/**
+ * Compaction strips the delta reminder from older user turns and the boot
+ * manifest in the system prompt is not rebuilt, so a late MCP tool announced
+ * before a compaction would stay invisible. Re-arm it, exactly as compaction
+ * re-marks the Goal reminder (markPendingGoalReminder): every currently
+ * connected tool the boot manifest never listed and the session has not loaded
+ * or discovered rides the next real prompt as one more delta, acknowledged
+ * only once the provider accepts that turn.
+ * Returns the re-armed names, or null when there are none.
+ */
+export function rearmLateDeferredTools(session) {
+  if (!session || !Array.isArray(session.tools) || fixedSurfaceSession(session)) return null;
+  if (!Array.isArray(session.deferredMcpToolNames) || !Array.isArray(session.deferredAnnouncedTools)) return null;
+  // Listed in the boot manifest, or already loaded/discovered: still visible.
+  const listed = new Set([...session.deferredAnnouncedTools, ...persistentToolSurfaceNames(session)]);
+  const connected = new Set(session.deferredMcpToolNames);
+  const added = [];
+  for (const tool of Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []) {
+    const name = clean(tool?.name);
+    if (!name || !connected.has(name) || listed.has(name) || !rosterPermits(session, tool)) continue;
+    added.push({ name, description: lateAnnouncementDescription(tool?.description) });
+  }
+  if (!added.length) return null;
+  mergePendingDeferredToolDelta(session, { added });
+  return added.map((entry) => entry.name);
 }
 
 export function scopedMcpToolsFor(session, config = null) {

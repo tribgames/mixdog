@@ -16,6 +16,7 @@ import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 import {
   applyDeferredToolSurface,
   reconcileDeferredMcpToolCatalog,
+  rearmLateDeferredTools,
   refreshInitialDeferredMcpSurface,
   isReadonlySelectable,
   renderToolSearch,
@@ -320,6 +321,55 @@ test('bridge MCP connect, reconnect and removal append delta notices and keep pr
   same('MCP removal');
   assert.deepEqual(session.pendingDeferredToolDelta.added, []);
   assert.deepEqual(session.pendingDeferredToolDelta.removed, [mcp.name]);
+});
+
+test('a compaction that strips an announced late MCP tool re-arms it for the next turn only', () => {
+  const session = leadSession('gemini');
+  const boot = { name: 'mcp__late__run', description: 'Run.', inputSchema: { type: 'object', properties: {} } };
+  const late = { name: 'mcp__late__two', description: 'Two.', inputSchema: { type: 'object', properties: {} } };
+  refreshInitialDeferredMcpSurface(session, [boot]);
+  reconcileDeferredMcpToolCatalog(session, [boot]);
+  reconcileDeferredMcpToolCatalog(session, [boot, late]);
+  const announced = snapshotPendingDeferredToolDelta(session);
+  assert.deepEqual(announced.added, [{ name: late.name, description: 'Two.' }]);
+  assert.equal(acknowledgePendingDeferredToolDelta(session, announced.revision), true);
+  assert.equal(snapshotPendingDeferredToolDelta(session), null, 'delivered once: nothing pending, text stripped');
+
+  // Compaction: the boot manifest is not rebuilt, so only a re-arm can tell the model again.
+  assert.deepEqual(rearmLateDeferredTools(session), [late.name], 'boot-listed tools are not re-announced');
+  const again = snapshotPendingDeferredToolDelta(session);
+  assert.deepEqual(again.added, [{ name: late.name, description: 'Two.' }]);
+  assert.equal(acknowledgePendingDeferredToolDelta(session, again.revision), true);
+  assert.equal(snapshotPendingDeferredToolDelta(session), null);
+
+  // A tool that disconnected before the compaction is not re-announced.
+  reconcileDeferredMcpToolCatalog(session, [boot]);
+  acknowledgePendingDeferredToolDelta(session, snapshotPendingDeferredToolDelta(session).revision);
+  assert.equal(rearmLateDeferredTools(session), null);
+});
+
+test('re-arming skips late tools the session keeps loaded, keeps history-only ones and never duplicates a pending one', () => {
+  const session = leadSession('anthropic-oauth');
+  const mcp = (name) => ({ name, description: `${name}.`, inputSchema: { type: 'object', properties: {} } });
+  const [boot, loaded, history, pending] = ['boot', 'loaded', 'history', 'pending'].map((n) => mcp(`mcp__late__${n}`));
+  refreshInitialDeferredMcpSurface(session, [boot]);
+  reconcileDeferredMcpToolCatalog(session, [boot]);
+  reconcileDeferredMcpToolCatalog(session, [boot, loaded, history]);
+  acknowledgePendingDeferredToolDelta(session, snapshotPendingDeferredToolDelta(session).revision);
+  // `loaded` stays in session state across a compaction; `history` was only ever
+  // seen in the (compactable) transcript.
+  assert.deepEqual(selectDeferredTools(session, [loaded.name], 'lead').added, [loaded.name]);
+  reconcileDeferredMcpToolCatalog(session, [boot, loaded, history, pending]);
+  assert.deepEqual(session.pendingDeferredToolDelta.added, [
+    { name: pending.name, description: 'mcp__late__pending.' },
+  ]);
+
+  assert.deepEqual(rearmLateDeferredTools(session)?.sort(), [history.name, pending.name]);
+  assert.deepEqual(
+    snapshotPendingDeferredToolDelta(session).added.map((entry) => entry.name),
+    [history.name, pending.name],
+    'loaded tool is skipped; the pending one appears once'
+  );
 });
 
 test('review: a read-only bridge session announces the removal of a late read-only MCP tool', () => {

@@ -40,6 +40,7 @@ import {
   markPendingGoalReminder,
   snapshotPendingGoalReminder,
 } from '../runtime-core/goal-reminder.mjs';
+import { rearmLateDeferredTools } from '../runtime-core/tool-catalog.mjs';
 
 async function setStage(opts, stage) {
   try {
@@ -528,6 +529,12 @@ async function compactBeforeSend(ctx) {
       run.inlineGoalReminder = snapshotPendingGoalReminder(sessionRef);
     } catch {
       run.inlineGoalReminder = null;
+    }
+    // The same compaction strips late MCP tool announcements from older turns.
+    try {
+      rearmLateDeferredTools(sessionRef);
+    } catch {
+      /* best-effort, like the Goal reminder: a tool reminder never fails the compaction */
     }
     try {
       await compactTranscript(ctx, run);

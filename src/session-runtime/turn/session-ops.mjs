@@ -5,6 +5,7 @@
 import { normalizeToolMode } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { interruptTaskWaitForSession } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import { markPendingGoalReminder } from '../../runtime/agent/orchestrator/runtime-core/goal-reminder.mjs';
+import { rearmLateDeferredTools } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 
 export function createSessionOps(deps) {
   const {
@@ -96,6 +97,12 @@ export function createSessionOps(deps) {
       markPendingGoalReminder(getSession(), 'compaction');
     } catch {
       /* best-effort: a Goal reminder must never break manual compact */
+    }
+    // The same compaction strips late MCP tool announcements from older turns.
+    try {
+      rearmLateDeferredTools(getSession());
+    } catch {
+      /* best-effort: a tool reminder must never break manual compact */
     }
     if (options.recoverAgent === true) recoverAgentWorkers();
     invalidateContextStatusCache();

@@ -20,6 +20,7 @@ import { agentProfileRevision, leadRosterRevision } from '../runtime/agent/orche
 import { _sessionForDisk } from '../runtime/agent/orchestrator/session/store/serialize.mjs';
 import { isAgentDisabled, withAgentDisabled } from '../runtime/shared/agent-route-config.mjs';
 import { createSpawnPlanner } from './services/agent-tool/spawn-flow/spawn-plan.mjs';
+import { stripRuntimeUserContext } from '../runtime/agent/orchestrator/session/runtime-user-context.mjs';
 import { buildAgentListingNotice } from '../runtime/agent/orchestrator/session/manager/agent-listing-notice.mjs';
 
 const PACKS = {
@@ -783,6 +784,21 @@ test('a failed turn that kept its reminder counts as told; a rolled-back one is 
       else assert.equal(next, null);
     });
   }
+});
+
+test("a compaction that strips the retained turn's reminder makes the agent announced again", async () => {
+  const { session, state, refresh } = await conversationSession('none', { agentsOff: true });
+  setWorker(state, true);
+  await refresh.applyPendingAgentProfile();
+  assert.match((await turnThat(session, 'answered')).agentListingNotice.content, ADDED_WORKER);
+  assert.equal((await buildUserTurn({ session, prompt: 'more' })).agentListingNotice, null, 'told while it is held');
+  // Compaction keeps older user turns without their runtime reminders.
+  session.messages = session.messages.map(stripRuntimeUserContext);
+  assert.ok(
+    session.messages.every((message) => !message.meta?.agentListing),
+    'no stale told-record'
+  );
+  assert.match((await buildUserTurn({ session, prompt: 'after' })).agentListingNotice.content, ADDED_WORKER);
 });
 
 const rosterSlice = (session) =>
