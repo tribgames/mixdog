@@ -42,7 +42,7 @@ test('a paused Goal shows reply activity without inventing approval or elapsed w
     await render(true);
     assert.equal(activity(), t('Responding'));
     assert.match(host.textContent, /0\/1/);
-    assert.match(host.textContent, /0:12/);
+    assert.match(host.textContent, /0m elapsed/);
     assert.equal(goalElapsedLabel(goal, 200_000), '0:12');
     await render(true, { id: 'approval', name: 'apply_patch' });
     assert.equal(activity(), t('Paused'), 'a live approval prompt is not running work');
@@ -81,7 +81,7 @@ test('background shell execution stays visible without resuming a paused Goal', 
   try {
     await render({ count: 1 });
     assert.equal(activity(), t('Responding'));
-    assert.match(host.textContent, /0:12/);
+    assert.match(host.textContent, /0m elapsed/);
     await render({ jobs: [{ taskId: 'running-shell' }] }, { id: 'other-approval' });
     assert.equal(activity(), t('Responding'));
     await render({ count: 1 }, { id: 'other-approval' }, { ...goal, status: 'active' });
@@ -114,11 +114,11 @@ test('collapsed trigger shows minute-format time and finished glyphs', async () 
     assert.ok(paused.querySelector('svg'));
     assert.equal(trigger().firstElementChild, paused, 'the state icon leads the segment');
     await render({ id: 'g', status: 'complete', timeUsedMs: 65 * 60_000 + 30_000 });
-    assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '1h 05m');
+    assert.equal(trigger().querySelector('.session-goal-trigger-time').textContent, '1h 5m');
     const done = trigger().querySelector('.session-goal-state');
     assert.equal(done.dataset.state, 'complete');
     assert.ok(done.querySelector('svg'));
-    assert.equal(trigger().querySelector('.session-goal-objective').textContent, t('Goal'));
+    assert.equal(trigger().querySelector('.session-goal-objective'), null, 'the segment carries numbers only');
     await render({ id: 'g', status: 'stopped', timeUsedMs: 5 * 60_000 });
     const stopped = trigger().querySelector('.session-goal-state');
     assert.equal(stopped.dataset.state, 'stopped');
@@ -192,10 +192,12 @@ test('task progress is five fixed cells: the finished share, then the work in ha
         total: 3,
       })
     );
-    assert.equal(trigger.querySelector('.session-goal-objective').textContent, 'Ship it');
-    assert.equal(trigger.querySelectorAll('.session-goal-pips > i').length, 5);
-    assert.equal(host.querySelector('.session-goal-badge[data-tone="blocked"]').textContent, t('Blocked'));
-    assert.equal(host.querySelector('.session-goal-badge[data-tone="waiting"]').textContent, t('Needs your answer'));
+    assert.equal(trigger.querySelector('.session-goal-objective'), null, 'no title in the segment');
+    assert.equal(trigger.querySelector('.session-goal-pips'), null, 'the ring replaces the pips');
+    assert.equal(host.querySelector('.session-goal-badge'), null, 'rows carry no text badges');
+    assert.equal(host.querySelector('li[data-stalled="true"] svg')?.dataset.glyph, 'stalled');
+    assert.equal(host.querySelector('li[data-status="awaiting_approval"] svg')?.dataset.glyph, 'awaiting');
+    assert.doesNotMatch(host.textContent, /Needs your answer/);
   } finally {
     await act(async () => root.unmount());
     host.remove();

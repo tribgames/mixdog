@@ -2755,7 +2755,6 @@
   "Needed": "需要",
   "Needs repair": "需要修复",
   "Needs you {{needs}}": "待您处理 {{needs}}",
-  "Needs your answer": "需要您的回答",
   "Nesting": "嵌套",
   "Network allowed": "网络已允许",
   "Network blocked — click to allow": "网络已禁用 — 点击以允许",
@@ -5298,5 +5297,10 @@
   "Zoom options": "缩放选项",
   "Zoom out": "缩小",
   "Zoom Out": "缩小",
-  "Zoom to {{value0}}%": "缩放到 {{value0}}%"
+  "Zoom to {{value0}}%": "缩放到 {{value0}}%",
+  "Remaining {{n}}": "剩余任务 {{n}}",
+  "Done {{n}}": "已完成 {{n}}",
+  "Rest {{n}}": "其余 {{n}} 项",
+  "{{n}} dropped": "已移除 {{n}} 项",
+  "{{time}} in progress": "已进行 {{time}}"
 }

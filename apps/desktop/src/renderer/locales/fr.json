@@ -2869,7 +2869,6 @@
   "Needed": "Requis",
   "Needs repair": "Réparation nécessaire",
   "Needs you {{needs}}": "Action requise {{needs}}",
-  "Needs your answer": "Réponse requise",
   "Nesting": "Nidification",
   "Network allowed": "Réseau autorisé",
   "Network blocked — click to allow": "Réseau bloqué — cliquez pour autoriser",
@@ -5426,5 +5425,10 @@
   "Zoom options": "Options de zoom",
   "Zoom out": "Zoom arrière",
   "Zoom Out": "Zoom arrière",
-  "Zoom to {{value0}}%": "Zoom à {{value0}} %"
+  "Zoom to {{value0}}%": "Zoom à {{value0}} %",
+  "Remaining {{n}}": "Restantes {{n}}",
+  "Done {{n}}": "Terminées {{n}}",
+  "Rest {{n}}": "Autres {{n}}",
+  "{{n}} dropped": "{{n}} abandonnées",
+  "{{time}} in progress": "{{time}} en cours"
 }

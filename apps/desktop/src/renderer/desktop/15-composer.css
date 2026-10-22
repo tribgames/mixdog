@@ -670,7 +670,6 @@
   gap: 4px;
   padding-inline: 6px;
 }
-.composer-island[data-fit-pips] .session-goal-pips,
 .composer-island[data-fit-glyph] .composer-island-seg-branch .composer-island-seg-text {
   display: none;
 }
@@ -753,6 +752,10 @@
 .composer-island .session-goal-panel {
   width: 560px;
   max-width: 100%;
+}
+/* The pill is nowrap; the Goal drawer's text wraps inside the panel. */
+.composer-island .session-goal-panel {
+  white-space: normal;
 }
 .composer-island-phead {
   min-height: 44px;
@@ -1201,6 +1204,31 @@
 .composer-island-button:hover:not(:disabled),
 .composer-island .session-goal-control:hover:not(:disabled) {
   background: var(--mx-hover);
+}
+/* Goal drawer controls: pill buttons. Stop and Edit are quiet text; Pause /
+   Resume is the one filled button. */
+.composer-island .session-goal-control {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--mx-radius-pill);
+  box-shadow: none;
+  background: var(--mx-hover);
+}
+.composer-island .session-goal-control[data-quiet="true"] {
+  background: transparent;
+  color: var(--mx-text-muted);
+}
+.composer-island .session-goal-control:hover:not(:disabled),
+.composer-island .session-goal-control:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.composer-island .session-goal-control[data-danger="true"] {
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 16%, transparent);
+}
+.composer-island .session-goal-control[data-primary="true"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
 }
 .composer-island-button:disabled {
   opacity: var(--mx-op-disabled);

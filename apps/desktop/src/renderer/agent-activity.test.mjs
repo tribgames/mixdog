@@ -497,19 +497,17 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
         })
       );
     });
-    assert.equal(document.querySelector('.session-goal-objective')?.textContent, 'Short Goal Title');
     const trigger = document.querySelector('.session-goal-trigger');
-    assert.equal(trigger.firstElementChild?.dataset.state, 'active', 'the state icon leads the segment');
-    const pips = [...trigger.querySelectorAll('.session-goal-pips > i')].map((pip) => pip.dataset.status);
-    assert.deepEqual(pips, ['completed', 'in_progress', 'pending', 'pending', 'pending'], 'five fixed cells');
+    assert.equal(trigger.firstElementChild?.dataset.state, 'active', 'the ring leads the segment');
+    // Numbers only: no title, no pips; the drawer carries the title.
+    assert.equal(trigger.querySelector('.session-goal-objective'), null);
+    assert.equal(trigger.querySelector('.session-goal-pips'), null);
+    assert.equal(document.querySelector('.session-goal-title')?.textContent, 'Short Goal Title');
     // The segment reads n/m plus elapsed time, as the island mockup does.
     assert.equal(trigger.querySelector('.session-goal-meta')?.textContent, '1/35m');
     assert.equal(trigger.querySelector('.session-goal-trigger-time')?.textContent, '5m');
-    assert.match(document.querySelector('.session-goal-panel .session-goal-time')?.textContent || '', /^\d+:\d{2}$/);
-    assert.match(
-      document.querySelector('.session-goal-panel .session-goal-meta')?.textContent || '',
-      /^1\/3·\d+:\d{2}$/
-    );
+    assert.match(document.querySelector('.session-goal-panel .session-goal-time')?.textContent || '', /^\d+m$/);
+    assert.match(document.querySelector('.session-goal-panel .session-goal-meta')?.textContent || '', /^1\/3·\d+m$/);
     assert.equal(document.querySelector('.session-goal-toggle'), null);
     assert.equal(trigger?.getAttribute('aria-expanded'), 'false');
     assert.equal(document.querySelector('.session-goal-drawer')?.getAttribute('aria-hidden'), 'true');
@@ -519,6 +517,10 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
     });
     assert.equal(trigger?.getAttribute('aria-expanded'), 'true');
     assert.equal(document.querySelector('.session-goal-drawer')?.getAttribute('aria-hidden'), 'false');
+    assert.match(
+      document.querySelector('.session-goal-statusline')?.textContent || '',
+      /^In progress·\d+m \/ 1h 0m · \d+m remaining$/
+    );
     assert.equal(document.querySelectorAll('.session-goal-task-list > li').length, 3);
     assert.equal(document.querySelectorAll('.session-goal-task-list > li .mx-icon').length, 3);
     assert.equal(
@@ -563,7 +565,338 @@ test('blocked Goal island renders the specific blocker', async () => {
     await act(async () => {
       document.querySelector('.session-goal-trigger')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     });
-    assert.equal(document.querySelector('.session-goal-blocker')?.textContent, 'Waiting for deployment credentials');
+    const note = document.querySelector('.session-goal-note');
+    assert.equal(note?.textContent, 'Waiting for deployment credentials', 'text only, no heading label');
+    assert.equal(note?.getAttribute('data-tone'), 'blocked');
+    assert.equal(note?.querySelector('b'), null);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('Goal drawer lists remaining tasks first and folds done and dropped ones', async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: {
+            sessionId: 'goal-session',
+            goal: {
+              id: 'goal-fold',
+              objective: 'Fold the finished work',
+              status: 'active',
+              tasks: [
+                { id: 'a', text: 'Finished', status: 'completed' },
+                { id: 'b', text: 'Running', status: 'in_progress' },
+                { id: 'c', text: 'Scoped out', status: 'dropped' },
+              ],
+            },
+          },
+        })
+      );
+    });
+    await act(async () => {
+      document.querySelector('.session-goal-trigger')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(document.querySelector('.session-goal-group-label')?.textContent, 'Remaining 1');
+    const fold = document.querySelector('.session-goal-fold');
+    assert.equal(fold?.textContent, 'Done 1 · 1 dropped');
+    assert.equal(fold?.getAttribute('aria-expanded'), 'false');
+    const lists = document.querySelectorAll('.session-goal-task-list');
+    assert.equal(lists[0].textContent, 'Running');
+    assert.equal(lists[1].hasAttribute('hidden'), true);
+    await act(async () => {
+      fold?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(fold?.getAttribute('aria-expanded'), 'true');
+    assert.equal(lists[1].hasAttribute('hidden'), false);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a blocker on a Goal that is not blocked reads neutrally', async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: {
+            sessionId: 'goal-session',
+            goal: { id: 'goal-paused', objective: 'Pause me', status: 'paused', blocker: 'Earlier note' },
+          },
+        })
+      );
+    });
+    const block = document.querySelector('.session-goal-note');
+    assert.equal(block?.textContent, 'Earlier note');
+    assert.equal(block?.getAttribute('data-tone'), null);
+    assert.equal(document.querySelector('.session-goal-statusline')?.textContent, 'Paused·0m elapsed');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+const ringOf = (root) => {
+  const svg = root.querySelector('.session-goal-ring');
+  const arc = svg.querySelector('.session-goal-ring-arc');
+  return {
+    size: [svg.getAttribute('width'), svg.getAttribute('height')],
+    glyph: svg.querySelector('[data-glyph]')?.getAttribute('data-glyph'),
+    arc: arc && {
+      r: arc.getAttribute('r'),
+      width: arc.getAttribute('stroke-width'),
+      cap: arc.getAttribute('stroke-linecap'),
+      rotate: arc.getAttribute('transform'),
+      dash: arc.getAttribute('stroke-dasharray').split(' ').map(Number),
+    },
+  };
+};
+
+test('the progress ring fills by completed/total and shows one glyph per state', async () => {
+  const dom = installDom();
+  const tasks = [
+    { id: 'a', text: 'One', status: 'completed' },
+    { id: 'b', text: 'Two', status: 'completed' },
+    { id: 'c', text: 'Three', status: 'pending' },
+    { id: 'd', text: 'Four', status: 'pending' },
+  ];
+  const cases = [
+    [{ status: 'active' }, 'active'],
+    [{ status: 'paused' }, 'paused'],
+    [{ status: 'blocked', blocker: 'No token' }, 'blocked'],
+    [{ status: 'paused', pauseReason: 'waiting' }, 'waiting'],
+    [{ status: 'stopped' }, 'stopped'],
+    [{ status: 'complete' }, 'complete'],
+  ];
+  try {
+    for (const [extra, glyph] of cases) {
+      await act(async () => {
+        dom.root.render(
+          React.createElement(SessionGoalIsland, {
+            snapshot: { sessionId: 'ring', goal: { id: `ring-${glyph}`, objective: 'Ring', tasks, ...extra } },
+          })
+        );
+      });
+      const trigger = document.querySelector('.session-goal-trigger');
+      const ring = ringOf(trigger);
+      assert.deepEqual(ring.size, ['16', '16'], glyph);
+      assert.equal(ring.glyph, glyph);
+      assert.equal(trigger.firstElementChild.dataset.state, glyph);
+      assert.deepEqual(
+        [ring.arc.r, ring.arc.width, ring.arc.cap, ring.arc.rotate],
+        ['6.2', '1.8', 'round', 'rotate(-90 8 8)'],
+        "starts at 12 o'clock with a round cap"
+      );
+      const [filled, length] = ring.arc.dash;
+      assert.ok(Math.abs(length - 2 * Math.PI * 6.2) < 0.01);
+      const expected = glyph === 'complete' ? 1 : 0.5;
+      assert.ok(Math.abs(filled / length - expected) < 0.01, `${glyph}: arc covers ${expected}`);
+      assert.equal(trigger.querySelector('.session-goal-meta .session-goal-progress').textContent, '2/4');
+      assert.equal(
+        ringOf(document.querySelector('.composer-island-tab, .session-goal-panel')).glyph,
+        glyph,
+        'the tab ring matches'
+      );
+    }
+    await act(async () => {
+      dom.root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'ring', goal: { id: 'empty', objective: 'Ring', status: 'active' } },
+        })
+      );
+    });
+    assert.equal(ringOf(document.querySelector('.session-goal-trigger')).arc, null, 'no tasks, no arc');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('task rows carry no badges; five remaining rows show and the rest folds', async () => {
+  const dom = installDom();
+  try {
+    const tasks = [
+      { id: 'run', text: 'Running', status: 'in_progress' },
+      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, text: `Pending ${i}`, status: 'pending' })),
+    ];
+    await act(async () => {
+      dom.root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: {
+            sessionId: 'rest',
+            goal: { id: 'rest', objective: 'Many', status: 'blocked', blocker: 'Stuck', tasks },
+          },
+        })
+      );
+    });
+    await act(async () => {
+      document.querySelector('.session-goal-trigger')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(document.querySelector('.session-goal-badge'), null);
+    assert.doesNotMatch(document.body.textContent, /Needs your answer/);
+    const rows = [...document.querySelectorAll('.session-goal-task-list')];
+    assert.equal(rows[0].children.length, 5, 'first five remaining rows');
+    assert.equal(rows[0].querySelector('li[data-stalled="true"] svg')?.getAttribute('data-glyph'), 'stalled');
+    assert.equal(
+      rows[0].querySelector('li[data-status="awaiting_approval"] svg')?.getAttribute('data-glyph'),
+      'awaiting'
+    );
+    assert.equal(document.querySelector('.session-goal-group-label')?.textContent, 'Remaining 8');
+    const rest = document.querySelector('.session-goal-fold[data-fold="rest"]');
+    assert.equal(rest?.textContent, 'Rest 3');
+    assert.equal(rest?.getAttribute('aria-expanded'), 'false');
+    assert.equal(rows[1].hasAttribute('hidden'), true);
+    assert.equal(rows[1].children.length, 3);
+    await act(async () => {
+      rest?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    assert.equal(rows[1].hasAttribute('hidden'), false);
+    assert.equal(rest?.getAttribute('aria-expanded'), 'true');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('running and awaiting rows always make the five-row cut', async () => {
+  const dom = installDom();
+  const pending = (n) =>
+    Array.from({ length: n }, (_, i) => ({ id: `p${i}`, text: `Pending ${i}`, status: 'pending' }));
+  const shown = async (tasks) => {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: {
+            sessionId: 'cut',
+            goal: { id: `cut-${tasks.length}-${Math.random()}`, objective: 'Cut', status: 'active', tasks },
+          },
+        })
+      );
+    });
+    return [...document.querySelector('.session-goal-task-list').children].map((li) => li.textContent);
+  };
+  try {
+    // Running first, awaiting beyond the cutoff: both stay, order kept.
+    let rows = await shown([
+      { id: 'run', text: 'Running', status: 'in_progress' },
+      ...pending(6),
+      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
+    ]);
+    assert.equal(rows.length, 5);
+    assert.ok(rows.includes('Running') && rows.includes('Asking'));
+    assert.deepEqual(rows, ['Running', 'Pending 0', 'Pending 1', 'Pending 2', 'Asking']);
+    // One protected row inside the cutoff, one across it.
+    rows = await shown([
+      ...pending(3),
+      { id: 'run', text: 'Running', status: 'in_progress' },
+      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
+      ...pending(2).map((t, i) => ({ ...t, id: `q${i}`, text: `Late ${i}` })),
+    ]);
+    assert.deepEqual(rows, ['Pending 0', 'Pending 1', 'Pending 2', 'Running', 'Asking']);
+    // Both beyond the cutoff.
+    rows = await shown([
+      ...pending(7),
+      { id: 'run', text: 'Running', status: 'in_progress' },
+      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
+    ]);
+    assert.deepEqual(rows, ['Pending 0', 'Pending 1', 'Pending 2', 'Running', 'Asking']);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('stop confirmation moves focus to Cancel and back to Stop', async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'focus', goal: { id: 'focus', objective: 'Focus', status: 'active' } },
+        })
+      );
+    });
+    await act(async () => {
+      document.querySelector('.session-goal-trigger')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    const click = (element) =>
+      act(async () => {
+        element.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      });
+    await click(document.querySelector('[aria-label="Stop goal"]'));
+    const cancel = document.querySelector('.session-goal-actions button:first-child');
+    assert.equal(cancel.textContent, 'Cancel');
+    assert.equal(document.activeElement, cancel, 'Cancel takes focus when the confirmation opens');
+    await click(cancel);
+    assert.equal(document.querySelector('.session-goal-confirm'), null);
+    assert.equal(
+      document.activeElement,
+      document.querySelector('[aria-label="Stop goal"]'),
+      'Stop regains focus when cancelled'
+    );
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a failed action on a blocked Goal shows one note, the error first', async () => {
+  const dom = installDom();
+  window.mixdogDesktop = { invokeCapability: async () => ({ value: { ok: false } }) };
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'note', goal: { id: 'note', objective: 'Note', status: 'blocked', blocker: 'Stuck' } },
+        })
+      );
+    });
+    assert.equal(document.querySelectorAll('.session-goal-note').length, 1);
+    await act(async () => {
+      document.querySelector('.session-goal-trigger')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => {
+      document.querySelector('[aria-label="Resume"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    const notes = document.querySelectorAll('.session-goal-note');
+    assert.equal(notes.length, 1);
+    assert.equal(notes[0].getAttribute('role'), 'alert');
+    assert.equal(notes[0].getAttribute('data-tone'), 'error');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('each state has exactly one filled primary control', async () => {
+  const dom = installDom();
+  const labels = (selector) => [...document.querySelectorAll(selector)].map((b) => b.textContent);
+  try {
+    for (const [status, extra, quiet, primary] of [
+      ['active', {}, ['Stop', 'Edit'], ['Pause']],
+      ['paused', {}, ['Stop', 'Edit'], ['Resume']],
+      ['blocked', { blocker: 'x' }, ['Stop', 'Edit'], ['Resume']],
+      ['paused', { pauseReason: 'waiting' }, ['Stop', 'Edit'], ['Resume']],
+      ['complete', {}, [], ['Dismiss goal']],
+      ['stopped', {}, [], ['Dismiss goal']],
+    ]) {
+      await act(async () => {
+        dom.root.render(
+          React.createElement(SessionGoalIsland, {
+            snapshot: { sessionId: 'prim', goal: { id: `prim-${status}`, objective: 'Go', status, ...extra } },
+          })
+        );
+      });
+      const name = `${status}/${extra.pauseReason || ''}`;
+      assert.deepEqual(labels('.session-goal-controls [data-primary="true"]'), primary, name);
+      assert.deepEqual(labels('.session-goal-controls [data-quiet="true"]'), quiet, name);
+    }
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -591,7 +924,7 @@ test('completed Goal island keeps the compact elapsed clock and no extra action'
       );
     });
     const time = document.querySelector('.session-goal-time')?.textContent || '';
-    assert.equal(time, '1:00');
+    assert.equal(time, '1m');
     assert.doesNotMatch(time, /in progress/);
     await act(async () => {
       document.querySelector('.session-goal-trigger')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

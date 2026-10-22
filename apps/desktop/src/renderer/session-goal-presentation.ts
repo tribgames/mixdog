@@ -74,6 +74,56 @@ export function goalElapsedMinutesLabel(goal: GoalSnapshot, clock: number): stri
   return hours > 0 ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
 }
 
+/** Collapsed-segment elapsed time: localized hours/minutes, no seconds, and
+ *  empty under one minute ("0m" says nothing). */
+export function goalSegmentTimeLabel(goal: GoalSnapshot, clock: number): string {
+  const elapsed = goalElapsedMs(goal, clock);
+  return elapsed < 60_000 ? '' : hoursMinutesLabel(elapsed);
+}
+
+/** Share of the time budget used (0..1), or null for a Goal with no limit. */
+export function goalBudgetFraction(goal: GoalSnapshot, clock: number): number | null {
+  const total = Math.max(0, Number(goal.timeLimitMs) || 0);
+  if (total <= 0) return null;
+  const used = goal.status === 'complete' ? Number(goal.timeUsedMs) || 0 : goalElapsedMs(goal, clock);
+  return Math.min(1, Math.max(0, used / total));
+}
+
+/** Drawer elapsed time, localized and without seconds: `3h 34m`, `18m`
+ *  (ko `3시간 34분`, `18분`). Unlike the segment label it never goes empty. */
+export function goalElapsedHoursMinutesLabel(goal: GoalSnapshot, clock: number): string {
+  return hoursMinutesLabel(goalElapsedMs(goal, clock));
+}
+
+function hoursMinutesLabel(milliseconds: number): string {
+  const totalMinutes = Math.floor(Math.max(0, milliseconds) / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? t('{{hours}}h {{minutes}}m', { hours, minutes }) : t('{{minutes}}m', { minutes });
+}
+
+/** Drawer status-line time, hours/minutes only: `18m in progress` while the
+ *  Goal is active, `18m elapsed` in any other state. A Goal with a time budget
+ *  keeps the elapsed / total / remaining line in the same format. */
+export function goalDrawerTimeLabel(goal: GoalSnapshot, clock: number): string {
+  if (goal.status === 'complete') {
+    return t('{{time}} elapsed', { time: hoursMinutesLabel(Number(goal.timeUsedMs) || 0) });
+  }
+  const total = Math.max(0, Number(goal.timeLimitMs) || 0);
+  const elapsed = goalElapsedMs(goal, clock);
+  if (total > 0) {
+    return t('{{elapsed}} / {{total}} · {{remaining}} remaining', {
+      elapsed: hoursMinutesLabel(elapsed),
+      total: hoursMinutesLabel(total),
+      remaining: hoursMinutesLabel(Math.max(0, total - elapsed)),
+    });
+  }
+  const time = hoursMinutesLabel(elapsed);
+  return goal.status === 'active' || !goal.status
+    ? t('{{time}} in progress', { time })
+    : t('{{time}} elapsed', { time });
+}
+
 export function goalStatusLabel(goal: GoalSnapshot): string {
   if (goal.status === 'paused') return t(goal.pauseReason === 'waiting' ? 'Waiting for your answer' : 'Paused');
   if (goal.status === 'duration_reached')

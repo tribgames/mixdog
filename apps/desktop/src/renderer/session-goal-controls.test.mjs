@@ -83,14 +83,14 @@ test('Goal tab controls stay in one visible row under the task list', async (t) 
       const layout = await page.$eval(
         '.session-goal-island',
         (island, scroll) => {
-          const list = island.querySelector('.session-goal-task-list');
+          const list = island.querySelector('.session-goal-content');
           list.scrollTop = scroll ? list.scrollHeight : 0;
           const rect = (element) => {
             const { x, y, width, height, right, bottom } = element.getBoundingClientRect();
             return { x, y, width, height, right, bottom };
           };
           return {
-            tasks: rect(island.querySelector('.session-goal-tasks')),
+            tasks: rect(list),
             controls: [...island.querySelectorAll('.session-goal-control')].map((control) => {
               const bounds = rect(control);
               const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
@@ -109,6 +109,7 @@ test('Goal tab controls stay in one visible row under the task list', async (t) 
         assert.ok(control.y >= layout.tasks.bottom - 1, `${context}: under the task list`);
         assert.ok(control.right <= width && control.y >= 0 && control.bottom <= 760, `${context}: inside viewport`);
         assert.ok(Math.abs(control.y - layout.controls[0].y) < 1, `${context}: same row`);
+        if (mobile) assert.ok(control.height >= 44, `${context}: 44px tap target`);
         right = control.right;
       }
     }
@@ -266,12 +267,14 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
           };
         };
         return {
-          title: typography(island.querySelector('.session-goal-objective')),
+          title: typography(island.querySelector('.session-goal-title')),
           supporting: [
-            ...island.querySelectorAll(
-              '.session-goal-meta-time, .session-goal-details, .session-goal-empty, .session-goal-blocker'
-            ),
-          ].map((element) => ({ ...typography(element), time: element.matches('.session-goal-meta-time') })),
+            ...island.querySelectorAll('.session-goal-meta-time, .session-goal-objective-full, .session-goal-empty'),
+          ].map((element) => ({
+            ...typography(element),
+            time: element.matches('.session-goal-meta-time'),
+            objective: element.matches('.session-goal-objective-full'),
+          })),
           tasks: [...island.querySelectorAll('.session-goal-tasks li')].map((row) => {
             const copy = row.querySelector('div > span');
             const icon = row.querySelector(':scope > span');
@@ -288,14 +291,18 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
       });
       const context = `${width}px empty=${empty}`;
       assert.equal(view.fontLoaded, true, context);
-      // The segment title reads at the island mockup's 14/20 medium line.
-      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['14px', '500', '20px'], context);
+      // The Goal title reads at the v2 mockup's bold 15/21 line.
+      assert.deepEqual([view.title.size, view.title.weight, view.title.line], ['15px', '600', '21px'], context);
       for (const entry of [view.title, ...view.supporting, ...view.tasks]) {
         assert.ok(entry.family.startsWith('"Pretendard Variable"'), `${context}: shared Korean and Latin family`);
       }
       for (const entry of view.supporting) {
-        // The tab's time shares the segment's 14/20 line in muted ink; details stay 13/18.
-        const expected = entry.time ? ['14px', '400', '20px'] : ['13px', '400', '18px'];
+        // The tab's time keeps the segment's 14/20 line in muted ink; the objective is 13/19, the rest 13/18.
+        const expected = entry.time
+          ? ['14px', '400', '20px']
+          : entry.objective
+            ? ['13px', '400', '19px']
+            : ['13px', '400', '18px'];
         assert.deepEqual([entry.size, entry.weight, entry.line], expected, context);
         assert.notEqual(entry.color, view.title.color, `${context}: supporting text is visually secondary`);
       }
@@ -411,8 +418,8 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
   await page.addScriptTag({ content: script });
   await page.waitForSelector('.session-goal-trigger');
   await page.click('.session-goal-trigger');
-  await page.waitForSelector('.session-goal-controls .session-goal-control:last-child', { visible: true });
-  await page.click('.session-goal-controls .session-goal-control:last-child');
+  await page.waitForSelector('.session-goal-controls .session-goal-control:first-child', { visible: true });
+  await page.click('.session-goal-controls .session-goal-control:first-child');
   await page.waitForSelector('.session-goal-confirm');
   const confirm = '.session-goal-confirm .session-goal-actions button:last-child';
   const reachable = await page.$eval(confirm, (button) => {

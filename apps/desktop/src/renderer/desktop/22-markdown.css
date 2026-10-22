@@ -1375,10 +1375,10 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   line-height: var(--mx-line-ui);
 }
 /* Goal: the lead segment of the composer island (15-composer.css owns the
-   island and the segment chrome). Closed it is bar · title · n/m; a crowded
-   island keeps bar · n/m. Open, the island becomes the Goal tab (bar · n/m ·
-   elapsed): the task drawer with pause / edit / stop under it, or one
-   dismiss once the Goal has finished (the closed segment carries it too). */
+   island and the segment chrome). Closed it is numbers only: the progress
+   ring, n/m and elapsed time (the time drops on a narrow island). Open, the
+   island becomes the Goal tab (ring · n/m · elapsed): the task drawer with
+   its controls under it. */
 .session-goal-island {
   position: relative;
   min-width: 0;
@@ -1393,19 +1393,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-island[data-open="true"] > .session-goal-trigger {
   display: none;
 }
-/* The Goal title is the segment's detail: it reads when the Goal is alone
-   or the column is wide, and drops when the island is shared or narrow
-   (same ladder as 15-composer's segments). */
-.composer-island-pill:has(> :not([hidden]) ~ :not([hidden])) .session-goal-trigger .session-goal-objective {
-  display: none;
-}
-@container composer-island (min-width: 720px) {
-  .composer-island-pill .session-goal-trigger .session-goal-objective,
-  .composer-island-pill:has(> :not([hidden]) ~ :not([hidden])) .session-goal-trigger .session-goal-objective {
-    display: block;
-  }
-}
-.composer-island[data-compact] .composer-island-pill .session-goal-trigger .session-goal-objective {
+.composer-island[data-compact] .session-goal-trigger-time {
   display: none;
 }
 /* The approval card and flashes hide the pill even with the Goal tab open. */
@@ -1446,23 +1434,14 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-island[data-open="true"] > .session-goal-dismiss {
   display: none;
 }
-.session-goal-objective {
-  min-width: 0;
-  max-width: 230px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* State tint: the leading icon, the pips' fill and the status label share one
-   hue per state. Static: the Goal segment never animates. */
+/* State tint: the ring, the status label and the budget bar share one hue
+   per state. Static: the Goal segment never animates. */
 .session-goal-island {
   --goal-tint: var(--mx-accent);
-  --goal-fill: var(--mx-accent);
 }
 .session-goal-island[data-state="paused"],
 .session-goal-island[data-state="stopped"] {
   --goal-tint: var(--mx-text-muted);
-  --goal-fill: var(--mx-text-muted);
 }
 .session-goal-island[data-state="blocked"] {
   --goal-tint: var(--mx-danger);
@@ -1472,7 +1451,13 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-island[data-state="complete"] {
   --goal-tint: var(--mx-success);
-  --goal-fill: var(--mx-success);
+}
+/* Blocked and waiting segments carry a 12% wash of their hue. */
+.composer-island .session-goal-island[data-state="blocked"] > .session-goal-trigger {
+  background: color-mix(in srgb, var(--mx-danger) 12%, transparent);
+}
+.composer-island .session-goal-island[data-state="waiting"] > .session-goal-trigger {
+  background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
 }
 .session-goal-state {
   display: inline-flex;
@@ -1480,29 +1465,12 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   align-items: center;
   color: var(--goal-tint);
 }
-/* Five fixed 10px cells whatever the task count, so every Goal's mark keeps
-   one shape and length (goal-progress-bar-v1.html). Static: no motion, so it
-   never reads as a loading spinner. */
-.session-goal-pips {
-  width: 58px;
-  height: 4px;
-  display: grid;
+.session-goal-ring {
+  display: block;
   flex: none;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 2px;
 }
-.session-goal-pips > i {
-  border-radius: 2px;
-  background: var(--mx-meter-track);
-}
-.session-goal-pips > i[data-status="completed"] {
-  background: var(--goal-fill);
-}
-.session-goal-pips > i[data-status="in_progress"] {
-  background: linear-gradient(90deg, var(--goal-tint) 50%, var(--mx-meter-track) 50%);
-}
-.session-goal-pips > i[data-status="awaiting_approval"] {
-  background: var(--mx-warning);
+.session-goal-ring-track {
+  stroke: var(--mx-meter-track);
 }
 .session-goal-progress,
 .session-goal-time {
@@ -1542,38 +1510,130 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
      press landed on the composer behind it.
      With minmax(0, 1fr) the task list scrolls and the rows below it stay
      inside the panel. */
-  grid-template-rows: minmax(0, 1fr) auto;
-  padding: 10px 14px 12px;
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-rows: auto;
+  gap: 10px;
+  padding: 12px 14px;
   overflow: hidden;
 }
 .session-goal-controls {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
-  padding-top: 8px;
+  padding-top: 10px;
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
 }
+/* The content row is the one that scrolls when the drawer hits its
+   max-height; the header and the controls row stay put. */
 .session-goal-content {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
-}
-.session-goal-tasks {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
-}
-.session-goal-tasks ul {
-  min-height: 0;
-  max-height: min(320px, 40dvh);
-  display: grid;
   align-content: start;
-  gap: 0;
-  margin: 0;
-  padding: 0;
+  gap: 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* A 24px fade at the bottom edge, only while more content waits below. */
+.session-goal-content[data-fade="true"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+.session-goal-tasks {
+  display: grid;
+  gap: 10px;
+}
+.session-goal-group {
+  display: grid;
+  gap: 2px;
+}
+.session-goal-group-label {
+  margin: 2px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-minor);
+}
+.session-goal-tasks ul {
+  display: grid;
+  align-content: start;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
   list-style: none;
+}
+.session-goal-tasks ul[hidden] {
+  display: none;
+}
+.session-goal-fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.session-goal-fold:hover,
+.session-goal-fold:focus-visible {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+  outline: none;
+}
+.session-goal-fold > svg {
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+.session-goal-fold[aria-expanded="true"] > svg {
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-goal-fold > svg {
+    transition: none;
+  }
+}
+.session-goal-link {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.session-goal-link:hover,
+.session-goal-link:focus-visible {
+  color: var(--mx-text);
+  outline: none;
+}
+/* One note slot under the status line: a blocker, a wait or an error, text
+   only. Tinted by state; neutral otherwise. */
+.session-goal-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--composer-island-wash);
+  color: var(--mx-text);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
+  overflow-wrap: anywhere;
+}
+.session-goal-note[data-tone="blocked"],
+.session-goal-note[data-tone="error"] {
+  background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
+}
+.session-goal-note[data-tone="waiting"] {
+  background: color-mix(in srgb, var(--mx-warning) 11%, transparent);
 }
 .session-goal-tasks li {
   min-width: 0;
@@ -1608,24 +1668,6 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-tasks li[data-stalled="true"][data-status] > span {
   color: var(--mx-danger);
 }
-.session-goal-badge {
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 7px;
-  border-radius: var(--mx-radius-pill);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: var(--mx-weight-regular);
-  line-height: 18px;
-  white-space: nowrap;
-  color: var(--mx-warning);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-warning) 40%, transparent);
-}
-.session-goal-badge[data-tone="blocked"] {
-  color: var(--mx-danger);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 40%, transparent);
-}
 .session-goal-statusline {
   display: flex;
   flex-wrap: wrap;
@@ -1635,7 +1677,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-statusline-state {
   color: var(--goal-tint);
-  font-weight: var(--mx-weight-label);
+  font-weight: 600;
 }
 .session-goal-tasks li > span {
   width: var(--mx-icon-md);
@@ -1678,8 +1720,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
 }
-.session-goal-empty,
-.session-goal-blocker {
+.session-goal-empty {
   margin: 0;
   color: var(--mx-text-muted);
   font-weight: var(--mx-weight-regular);
@@ -1688,46 +1729,75 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-details {
   display: grid;
-  gap: 2px;
-  color: var(--mx-text-muted);
-  font-weight: var(--mx-weight-regular);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-minor);
+  justify-items: start;
+  gap: 4px;
 }
-/* Full objective, wrapped: the header's one-line ellipsis is only a handle
-. Capped so a paragraph-long goal scrolls
-   instead of pushing the task list out of the drawer. */
+.session-goal-title {
+  margin: 0;
+  max-width: 100%;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+/* The objective under the title: muted, wrapped, 3 lines before "Show more". */
 .session-goal-objective-full {
-  margin: 0 0 4px;
-  max-height: calc(var(--mx-line-ui) * 4);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  color: var(--mx-text);
-  font-size: var(--mx-font-minor);
+  margin: 0;
+  max-width: 100%;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-ui);
+  line-height: 19px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.session-goal-actions {
+.session-goal-title[data-clamped="true"],
+.session-goal-objective-full[data-clamped="true"] {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.session-goal-status {
+  display: grid;
+  gap: 7px;
+}
+.session-goal-budget {
+  height: 3px;
+  display: block;
+  border-radius: 2px;
+  background: var(--mx-meter-track);
+  overflow: hidden;
+}
+.session-goal-budget > i {
+  height: 100%;
+  display: block;
+  border-radius: 2px;
+  background: var(--goal-tint);
+}
+/* The stop confirmation fills the controls row in place. */
+.session-goal-confirm {
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  padding-top: 4px;
-  border-top: var(--mx-hairline) solid var(--mx-border);
+  gap: 6px;
 }
-.session-goal-actions .composer-tool {
-  width: auto;
-  padding-inline: 8px;
+.session-goal-confirm-msg {
+  margin: 0 auto 0 0;
+  min-width: 0;
+  flex: 1 1 200px;
+  color: var(--mx-text);
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
 }
-.session-goal-confirm {
-  display: grid;
-  gap: 8px;
+.session-goal-actions {
+  display: flex;
+  gap: 6px;
 }
-.session-goal-blocker {
-  color: var(--mx-warning);
+.session-goal-tasks li[data-status="completed"] > div > span {
+  color: var(--mx-text-muted);
 }
 
 html[data-mixdog-mobile-tabs] .session-goal-dismiss {
@@ -1735,13 +1805,18 @@ html[data-mixdog-mobile-tabs] .session-goal-dismiss {
   height: 28px;
 }
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-control {
-  height: 32px;
+  height: auto;
+  min-height: var(--mx-touch, 44px);
   padding-inline: 12px;
 }
 /* Phone drawer rows: at a finger's row height and the phone's 14/20 body
    line. */
 html[data-mixdog-mobile-tabs] .session-goal-body {
-  padding: 10px 14px 12px;
+  padding: 12px 14px;
+}
+html[data-mixdog-mobile-tabs] .session-goal-fold,
+html[data-mixdog-mobile-tabs] .session-goal-link {
+  min-height: var(--mx-touch, 44px);
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
   grid-template-columns: 16px minmax(0, 1fr) auto;
@@ -1760,8 +1835,7 @@ html[data-mixdog-mobile-tabs] .session-goal-tasks li > div > span {
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
-html[data-mixdog-mobile-tabs] .session-goal-empty,
-html[data-mixdog-mobile-tabs] .session-goal-blocker {
+html[data-mixdog-mobile-tabs] .session-goal-empty {
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);
 }

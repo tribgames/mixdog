@@ -2755,7 +2755,6 @@
   "Needed": "필요",
   "Needs repair": "복구 필요",
   "Needs you {{needs}}": "확인 필요 {{needs}}",
-  "Needs your answer": "답변이 필요합니다",
   "Nesting": "둥지 트는 중",
   "Network allowed": "네트워크 허용됨",
   "Network blocked — click to allow": "네트워크 차단됨 — 클릭하여 허용",
@@ -5138,7 +5137,7 @@
   "Waiting for approval on your desktop…": "데스크톱에서 승인을 기다리는 중…",
   "Waiting for tasks": "작업 대기",
   "Waiting for the service to list its models. This can take up to a minute; you can stop waiting.": "서비스의 모델 목록을 기다리는 중입니다. 최대 1분 정도 걸릴 수 있으며, 기다리지 않고 중단할 수 있습니다.",
-  "Waiting for your answer": "답변 대기 중",
+  "Waiting for your answer": "대기 중",
   "Waiting for your desktop to come online…": "데스크톱이 온라인 상태가 될 때까지 기다리는 중…",
   "Waiting for your PC": "PC를 기다리는 중",
   "Waiting for your PC to allow it": "PC에서 허용을 기다리는 중",
@@ -5298,5 +5297,10 @@
   "Zoom options": "확대/축소 옵션",
   "Zoom out": "축소",
   "Zoom Out": "축소",
-  "Zoom to {{value0}}%": "{{value0}}%로 확대/축소"
+  "Zoom to {{value0}}%": "{{value0}}%로 확대/축소",
+  "Remaining {{n}}": "남은 작업 {{n}}",
+  "Done {{n}}": "완료 {{n}}개",
+  "Rest {{n}}": "나머지 {{n}}개",
+  "{{n}} dropped": "뺀 작업 {{n}}개",
+  "{{time}} in progress": "{{time}} 진행"
 }

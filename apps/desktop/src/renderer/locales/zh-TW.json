@@ -2755,7 +2755,6 @@
   "Needed": "需要",
   "Needs repair": "需要修復",
   "Needs you {{needs}}": "待您處理 {{needs}}",
-  "Needs your answer": "需要您的回答",
   "Nesting": "巢狀",
   "Network allowed": "網路已允許",
   "Network blocked — click to allow": "網路已封鎖 — 點擊以允許",
@@ -5298,5 +5297,10 @@
   "Zoom options": "縮放選項",
   "Zoom out": "縮小",
   "Zoom Out": "縮小",
-  "Zoom to {{value0}}%": "縮放至 {{value0}}%"
+  "Zoom to {{value0}}%": "縮放至 {{value0}}%",
+  "Remaining {{n}}": "剩餘任務 {{n}}",
+  "Done {{n}}": "已完成 {{n}}",
+  "Rest {{n}}": "其餘 {{n}} 項",
+  "{{n}} dropped": "已移除 {{n}} 項",
+  "{{time}} in progress": "已進行 {{time}}"
 }

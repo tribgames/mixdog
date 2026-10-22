@@ -150,7 +150,7 @@ test('the Goal tab shows its task drawer only while open and keeps task overflow
     <div class="session-goal-island" data-open="true">
       <button class="session-goal-trigger"></button>
       <div class="session-goal-drawer">
-        <section class="session-goal-panel"><div class="session-goal-body"><div class="session-goal-tasks"><ul><li></li><li></li></ul></div></div></section>
+        <section class="session-goal-panel"><div class="session-goal-body"><div class="session-goal-content"><div class="session-goal-tasks"><ul><li></li><li></li></ul></div></div></div></section>
       </div>
     </div>
     <div class="session-goal-island" data-open="false">
@@ -167,8 +167,9 @@ test('the Goal tab shows its task drawer only while open and keeps task overflow
   );
   assert.equal(style('[data-open="false"] .session-goal-drawer').display, 'none');
   assert.equal(style('.session-goal-body').overflow, 'hidden');
-  assert.equal(style('.session-goal-tasks ul').overflowY, 'auto');
-  assert.notEqual(style('.session-goal-tasks ul').scrollbarGutter, 'stable');
+  // Only the content scrolls; header and controls stay fixed.
+  assert.equal(style('.session-goal-content').overflowY, 'auto');
+  assert.notEqual(style('.session-goal-content').scrollbarGutter, 'stable');
   closeWindow(dom);
 });
 

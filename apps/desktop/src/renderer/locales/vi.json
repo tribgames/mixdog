@@ -2755,7 +2755,6 @@
   "Needed": "Cần thiết",
   "Needs repair": "Cần sửa chữa",
   "Needs you {{needs}}": "Cần bạn xử lý {{needs}}",
-  "Needs your answer": "Cần câu trả lời của bạn",
   "Nesting": "Làm tổ",
   "Network allowed": "Mạng được phép",
   "Network blocked — click to allow": "Mạng bị chặn — nhấp để cho phép",
@@ -5298,5 +5297,10 @@
   "Zoom options": "Tùy chọn thu phóng",
   "Zoom out": "Thu nhỏ",
   "Zoom Out": "Thu nhỏ",
-  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%"
+  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
+  "Remaining {{n}}": "Còn lại {{n}}",
+  "Done {{n}}": "Đã xong {{n}}",
+  "Rest {{n}}": "Khác {{n}}",
+  "{{n}} dropped": "{{n}} đã bỏ",
+  "{{time}} in progress": "{{time}} đang chạy"
 }

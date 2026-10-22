@@ -2755,7 +2755,6 @@
   "Needed": "必要",
   "Needs repair": "修復が必要",
   "Needs you {{needs}}": "要対応 {{needs}}",
-  "Needs your answer": "回答が必要です",
   "Nesting": "巣ごもり中",
   "Network allowed": "ネットワーク許可中",
   "Network blocked — click to allow": "ネットワーク遮断中 — クリックで許可",
@@ -5298,5 +5297,10 @@
   "Zoom options": "ズームオプション",
   "Zoom out": "縮小",
   "Zoom Out": "ズームアウト",
-  "Zoom to {{value0}}%": "{{value0}}%にする"
+  "Zoom to {{value0}}%": "{{value0}}%にする",
+  "Remaining {{n}}": "残りのタスク {{n}}",
+  "Done {{n}}": "完了 {{n}}件",
+  "Rest {{n}}": "その他 {{n}}件",
+  "{{n}} dropped": "除外 {{n}}件",
+  "{{time}} in progress": "{{time}} 進行中"
 }

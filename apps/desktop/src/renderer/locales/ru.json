@@ -2926,7 +2926,6 @@
   "Needed": "Нужно",
   "Needs repair": "Требуется восстановление",
   "Needs you {{needs}}": "Ждёт вас {{needs}}",
-  "Needs your answer": "Нужен ваш ответ",
   "Nesting": "Вложение",
   "Network allowed": "Сеть разрешена",
   "Network blocked — click to allow": "Сеть заблокирована — нажмите, чтобы разрешить",
@@ -5490,5 +5489,10 @@
   "Zoom options": "Параметры масштаба",
   "Zoom out": "Уменьшить",
   "Zoom Out": "Уменьшить масштаб",
-  "Zoom to {{value0}}%": "Масштаб {{value0}}%"
+  "Zoom to {{value0}}%": "Масштаб {{value0}}%",
+  "Remaining {{n}}": "Осталось {{n}}",
+  "Done {{n}}": "Выполнено {{n}}",
+  "Rest {{n}}": "Ещё {{n}}",
+  "{{n}} dropped": "Отброшено: {{n}}",
+  "{{time}} in progress": "{{time}} в работе"
 }
