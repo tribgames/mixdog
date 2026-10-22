@@ -10,6 +10,20 @@ MIXDOG_HOME=/path/to/home mixdog
 MIXDOG_DATA_DIR=/path/to/data mixdog
 ```
 
+File-editing locks are shared across profiles of the same OS user on one
+host. They live in `%LOCALAPPDATA%\mixdog\locks` on Windows (falling back to
+`%USERPROFILE%\AppData\Local\mixdog\locks` when `LOCALAPPDATA` is unset), and
+`~/.mixdog/locks` on macOS/Linux. Their location does not follow `MIXDOG_HOME`,
+`MIXDOG_DATA_DIR`, `MIXDOG_RUNTIME_ROOT`, or temporary-directory overrides.
+No lockfile is created beside the target, avoiding MYBOX's restrictions on
+dot-prefixed sibling files. Profiles retain separate settings, sign-ins and
+sessions, while edits to the same file coordinate through the shared lock.
+
+After upgrading from profile-local file locks, restart all Mixdog processes
+that edit the same files. Older processes use a different lock location and
+cannot coordinate with the shared namespace. These locks do not coordinate
+edits between different machines syncing the same folder.
+
 Useful environment variables:
 
 - `MIXDOG_TUI_MOUSE=0` — use terminal-native mouse behavior.

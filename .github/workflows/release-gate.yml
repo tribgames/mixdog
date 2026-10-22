@@ -551,6 +551,13 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/desktop/package-lock.json
+      - name: Verify advisory file locks on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          node scripts/test-direct.mjs \
+            src/runtime/agent/orchestrator/tools/builtin/advisory-lock.test.mjs \
+            src/runtime/agent/orchestrator/tools/builtin/advisory-lock.slow.test.mjs
       # The electron postinstall downloads its zip into this cache (the
       # Windows leg's lives under AppData).
       - name: Cache the Electron download

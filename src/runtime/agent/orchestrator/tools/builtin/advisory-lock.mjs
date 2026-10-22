@@ -3,10 +3,11 @@
 // clean up after crashed holders. Pair with the in-process withPathLock for
 // the same target: in-process serialises async callers in this Node, advisory
 // lock serialises across Node processes.
-import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync, realpathSync } from 'node:fs';
+import { openSync, closeSync, writeSync, readFileSync, unlinkSync, realpathSync } from 'node:fs';
 import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
-import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
+import { ensurePrivateRuntimeRoot } from '../../../../shared/runtime-root.mjs';
 import { sleep } from '../../../../shared/sleep.mjs';
+import { homedir } from 'node:os';
 import { dirname, basename, join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 
@@ -28,14 +29,24 @@ function canonicalLockTarget(targetPath) {
   }
 }
 
-// Lockfiles live in the local data dir, keyed by the target's canonical path,
-// never beside the target: sync-drive folders (e.g. Naver MYBOX) refuse
-// dot-prefixed sibling files, and the pid liveness check only spans this host.
+// External files can be shared by profiles, so neither MIXDOG_HOME/DATA_DIR
+// nor MIXDOG_RUNTIME_ROOT may choose this namespace. Temp directories can
+// differ between processes too. Keep locks in the OS user's local home,
+// never beside the target: sync drives such as MYBOX refuse sibling dotfiles.
+// The pid liveness check coordinates only processes on this host.
+function lockDirectory() {
+  const root =
+    process.platform === 'win32'
+      ? join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'mixdog')
+      : join(homedir(), '.mixdog');
+  return join(root, 'locks');
+}
+
 function lockFileFor(targetPath) {
   const canonical = canonicalLockTarget(targetPath);
   const key = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
   const hash = createHash('sha256').update(key).digest('hex');
-  return join(resolvePluginData(), 'locks', `${hash}.mixdog-lock`);
+  return join(lockDirectory(), `${hash}.mixdog-lock`);
 }
 
 function isPidAlive(pid) {
@@ -112,7 +123,7 @@ function tryCreateLock(lockFile, token) {
 
 async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 } = {}) {
   const lockFile = lockFileFor(targetPath);
-  mkdirSync(dirname(lockFile), { recursive: true });
+  ensurePrivateRuntimeRoot(dirname(lockFile));
   const token = `${process.pid}.${randomBytes(8).toString('hex')}`;
   const deadline = Date.now() + timeoutMs;
   let stalePostDeadlineRetryUsed = false;
