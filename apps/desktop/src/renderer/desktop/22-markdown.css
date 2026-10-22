@@ -1452,13 +1452,6 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-island[data-state="complete"] {
   --goal-tint: var(--mx-success);
 }
-/* Blocked and waiting segments carry a 12% wash of their hue. */
-.composer-island .session-goal-island[data-state="blocked"] > .session-goal-trigger {
-  background: color-mix(in srgb, var(--mx-danger) 12%, transparent);
-}
-.composer-island .session-goal-island[data-state="waiting"] > .session-goal-trigger {
-  background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
-}
 .session-goal-state {
   display: inline-flex;
   flex: none;
