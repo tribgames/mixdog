@@ -40,7 +40,7 @@ import { inlinePageUrl, panePreviewUrl } from './host-pane-preview';
 import { watchPageProblems } from './host-page-observer';
 import { annotatePanes, inspectPanes, requireShownWindow, shownHtmlFrames } from './host-page-ops';
 import { watchVisualizeZoomInput } from './host-zoom-input';
-import { visualizeOverlayScript } from './overlay-script';
+import { preparePaneFrame } from './host-pane-frame';
 import { createVisualizeService, type VisualizeService } from './service';
 
 export { resizePaneFramesScript, restorePaneFramesScript } from './host-page-ops';
@@ -234,9 +234,7 @@ export function createDesktopVisualize(options: {
       if (isMainFrame) return;
       void import('electron').then(({ webFrameMain }) => {
         const frame = webFrameMain.fromId(processId, routingId);
-        if (!frame || frame.isDestroyed()) return;
-        const marks = service.marksForFrame(frame.url);
-        if (marks.length) void frame.executeJavaScript(visualizeOverlayScript(marks)).catch(() => undefined);
+        if (frame) void preparePaneFrame(frame, service);
       });
     });
   };

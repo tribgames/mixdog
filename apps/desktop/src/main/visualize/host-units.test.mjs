@@ -3,11 +3,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import vm from 'node:vm';
 
 import { exportTabBytes } from './host-export-path.ts';
 import { capturedPng, captureWindowRect, htmlFrames, paneFrames, windowAccess } from './host-frames.ts';
 import { watchFile } from './host-file-watch.ts';
 import { pagePoint, visualizeZoomKey, watchVisualizeZoomInput } from './host-zoom-input.ts';
+import { PANE_SCROLLBAR_SCRIPT, preparePaneFrame } from './host-pane-frame.ts';
 import { watchPageProblems } from './host-page-observer.ts';
 import { requireShownWindow } from './host-page-ops.ts';
 
@@ -252,6 +254,50 @@ test('zoom gestures inside a pane frame are forwarded to the renderer, once per 
   contents.focusedFrame = {};
   press({ type: 'keyDown', key: 'Control', control: true, meta: false, alt: false });
   assert.deepEqual(sent.pop()[1], { sessionId: '', zoomModifier: true });
+});
+
+test('a loaded pane page gets the app scrollbar as a layered constructed sheet; other frames get nothing', async () => {
+  const ran = [];
+  const paneFrame = (url) => ({
+    url,
+    isDestroyed: () => false,
+    executeJavaScript: async (script) => {
+      ran.push(script);
+    },
+  });
+  const source = {
+    isPaneFrame: (url) => url.startsWith('http://127.0.0.1:1/tok/'),
+    marksForFrame: () => [{ selector: 'h1', label: 'a' }],
+  };
+
+  await preparePaneFrame(paneFrame('app://panel/other'), source);
+  assert.deepEqual(ran, []);
+
+  await preparePaneFrame(paneFrame('http://127.0.0.1:1/tok/index.html'), source);
+  assert.equal(ran.length, 2);
+  const scrollbar = ran.find((script) => script === PANE_SCROLLBAR_SCRIPT);
+  assert.ok(scrollbar);
+  assert.ok(
+    ran.some((script) => /attachShadow/.test(script)),
+    'the marks are redrawn too'
+  );
+
+  // Run the injected script against a minimal document.
+  const document = { adoptedStyleSheets: ['page-sheet'] };
+  class CSSStyleSheet {
+    replaceSync(css) {
+      this.css = css;
+    }
+  }
+  vm.runInNewContext(scrollbar, { document, CSSStyleSheet });
+  assert.equal(document.adoptedStyleSheets.length, 2);
+  const { css } = document.adoptedStyleSheets[1];
+  // The thin pill look of 02-base.css, inside a cascade layer so the page's own
+  // unlayered ::-webkit-scrollbar / scrollbar-width / scrollbar-color rules win.
+  assert.match(css, /^@layer [\w-]+ \{/);
+  assert.match(css, /::-webkit-scrollbar \{ width: 8px; height: 8px; \}/);
+  assert.match(css, /::-webkit-scrollbar-thumb \{[^}]*border-radius: 999px/);
+  assert.doesNotMatch(css, /!important|scrollbar-width|scrollbar-color/);
 });
 
 test('the cursor maps to page CSS px through the window origin and a non-1 zoom factor', () => {

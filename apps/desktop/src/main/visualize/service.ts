@@ -357,6 +357,10 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     guardNavigation: leases.guardNavigation,
     guardRequest: leases.guardRequest,
     reportLoadFailure: problems.reportLoadFailure,
+    /** Whether `url` is a page of a displayed pane. */
+    isPaneFrame(url: string): boolean {
+      return problems.paneOfUrl([url]) !== null;
+    },
     /** The marks a desktop pane frame at `url` shows (from the tab state):
      *  a page that loaded again within its revision gets them redrawn. */
     marksForFrame(url: string): Array<{ selector: string; label: string }> {
