@@ -1415,6 +1415,21 @@ test('toggling expand sets and clears the dock sheet geometry; a surface switch 
   assert.match(slots, /const panel = expandedSheetBounds\(panelNode\);/);
   const css = await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8');
   assert.match(css, /\.pane-side-dock\[data-expanded="true"\] \{\s*z-index: 40;\s*margin: 0;/);
+  // The expanded sheet stacks inside its isolated leaf: that leaf rises over the
+  // split handles (z-index 5), so no split hairline paints across the sheet.
+  const lifted = [...css.matchAll(/\.pane-leaf:has\(([^{]*)\) \{\s*z-index: (\d+);/g)].find((rule) =>
+    rule[1].includes('data-expanded')
+  );
+  assert.ok(lifted, 'a leaf holding an expanded surface is lifted');
+  assert.ok(Number(lifted[2]) > 5, 'above the split handles');
+  for (const surface of [
+    '.pane-side-dock[data-expanded="true"]',
+    '.pane-side-dock-header[data-surface-expanded="true"]',
+    '.session-browser-surface-container[data-expanded="true"][data-parked="false"]',
+    '.session-terminal-surface-container[data-expanded="true"][data-parked="false"]',
+  ]) {
+    assert.ok(lifted[1].includes(surface), surface);
+  }
   const { expandedDockRect } = await import('./surface-slots.ts');
   const { installTestDom } = await import('./test-support/test-dom.mjs');
   const { restore } = installTestDom(null, {
