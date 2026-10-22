@@ -646,9 +646,12 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   border-bottom: var(--mx-hairline) solid var(--mx-border);
   text-align: left;
   vertical-align: top;
-  /* Same Hangul rule as prose — cells wrap between words, and only a token
-     with no break opportunity (a path, a URL) is cut mid-way. */
-  overflow-wrap: anywhere;
+  /* Cells wrap between words (keep-all holds Hangul words together). Not
+     `anywhere`: auto layout sizes a column's floor by its min-content, and
+     `anywhere` shrinks that to ONE character, so a long prose column starved
+     short ones ("진행 중", "작업") into a letter per line. `break-word` keeps
+     each word as the floor and still cuts a token only when it overflows. */
+  overflow-wrap: break-word;
   word-break: keep-all;
   /* Fixed-width digits: a table is where numbers stack, and proportional
      figures made the columns of counts and sizes wobble row to row. */
@@ -667,6 +670,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   .markdown td {
     padding: 6px 3px;
   }
+}
+/* A path or URL is one unbreakable word: as a column floor it would push the
+   table past the pane, so only these tokens may break anywhere. */
+.markdown :is(th, td) a {
+  overflow-wrap: anywhere;
 }
 .markdown th {
   color: var(--mx-text);
