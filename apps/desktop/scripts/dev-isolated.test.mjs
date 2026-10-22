@@ -242,6 +242,54 @@ test('--copy-auth never reads through a link out of the dev profile', async (t) 
   assert.equal(existsSync(join(fileDataDir, 'provider-accounts.json')), false);
 });
 
+test('--copy-auth refuses a link above the kept dev profile, but accepts a linked trusted root', async (t) => {
+  const root = await tempRoot(t);
+  const outside = join(root, 'outside');
+  await mkdir(join(outside, 'default', 'data', 'secrets'), { recursive: true });
+  await writeFile(join(outside, 'default', 'data', 'provider-accounts.json'), 'stolen');
+  await writeFile(join(outside, 'default', 'data', 'secrets', 'x.dpapi'), 'stolen');
+  await writeFile(join(outside, 'default', 'data', 'mixdog-config.json'), '{}');
+
+  // base/mixdog-dev is a junction (on Windows: fs.symlinkSync(target, path, 'junction'), no admin needed).
+  const base = join(root, 'base');
+  await mkdir(base);
+  const keptRoot = join(base, 'mixdog-dev');
+  try {
+    await symlink(outside, keptRoot, linkType);
+  } catch (error) {
+    if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error;
+    t.skip(`${linkType} creation denied (${error.code}); the ancestor-link case did not run`);
+    return;
+  }
+  const dataDir = join(root, 'data');
+  await mkdir(dataDir);
+
+  // The default trusted root is the directory holding mixdog-dev.
+  await assert.rejects(copyDevAuth(dataDir, { devProfileDir: join(keptRoot, 'default') }), /symlink or junction/);
+  await assert.rejects(
+    seedReadyConfig(dataDir, { withRoutes: true, devDataDir: join(keptRoot, 'default', 'data') }),
+    /symlink or junction/
+  );
+  // A link deeper above the profile is caught from an explicit, higher trusted root.
+  const deep = join(base, 'deep');
+  await mkdir(deep);
+  await symlink(outside, join(deep, 'kept'), linkType);
+  await assert.rejects(
+    copyDevAuth(dataDir, { devProfileDir: join(deep, 'kept', 'default'), trustedRoot: base }),
+    /symlink or junction/
+  );
+  assert.deepEqual(await readdir(dataDir), []);
+
+  // The trusted root itself may be reached through a link; only components below it are checked.
+  await devProfile(root);
+  const alias = join(root, 'alias');
+  await symlink(root, alias, linkType);
+  assert.deepEqual(await copyDevAuth(dataDir, { devProfileDir: join(alias, 'dev-profile'), trustedRoot: alias }), [
+    'provider-accounts.json',
+    'secrets/a.dpapi',
+  ]);
+});
+
 test('a failed --copy-auth aborts the start and cleans up its instance', async (t) => {
   const root = await tempRoot(t);
   await assert.rejects(

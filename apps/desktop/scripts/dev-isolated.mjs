@@ -15,9 +15,9 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, openSync, readFileSync } from 'node:fs';
-import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -366,10 +366,10 @@ export async function sweep(root, { all = false, now = Date.now(), alive = isPid
 
 const CREDENTIAL_FILE = /^(provider-accounts\.json|[a-z0-9-]+-oauth(-credentials)?\.json)$/;
 
-/** lstat that names the dev-profile path in its failure; a missing path yields null when optional. */
-async function lstatDevSource(path, { optional = false } = {}) {
+/** Runs an fs lookup that names the dev-profile path in its failure; a missing path yields null when optional. */
+async function readDevSource(lookup, path, { optional = false } = {}) {
   try {
-    return await lstat(path);
+    return await lookup(path);
   } catch (error) {
     if (optional && error.code === 'ENOENT') return null;
     throw new Error(`--copy-auth: cannot read the kept dev profile at ${path} (${error.code ?? error.message}).`, {
@@ -378,10 +378,43 @@ async function lstatDevSource(path, { optional = false } = {}) {
   }
 }
 
-/** A credential source is only ever a real directory or file inside the dev profile: links
+/** The directory holding the kept-profile root (LOCALAPPDATA or the home directory) for a
+ *  `<base>/mixdog-dev/<name>` profile. It is the user's own location, so it is where trust starts. */
+const devTrustedRoot = (devProfileDir) => resolve(devProfileDir, '..', '..');
+
+const foldCase = (path) => (process.platform === 'win32' ? path.toLowerCase() : path);
+
+/** A credential source is only ever a real directory or file below the trusted root: links
  *  and junctions could point anywhere, so they are refused. */
 function assertNotLink(stat, path) {
   if (stat.isSymbolicLink()) throw new Error(`--copy-auth: refusing ${path}: it is a symlink or junction.`);
+}
+
+/** lstat of `path` after proving every component from the trusted root down to it is a real
+ *  entry. The trusted root is resolved first (its own ancestors may be links); below it lstat
+ *  rejects symlinks and junctions, and each realpath must equal its expected location, which
+ *  also catches a junction lstat did not flag. Null when optional and `path` is absent. */
+async function lstatTrusted(trustedRoot, path, { optional = false } = {}) {
+  const root = resolve(trustedRoot);
+  const below = relative(root, resolve(path));
+  if (!below || below === '..' || below.startsWith(`..${sep}`) || isAbsolute(below)) {
+    throw new Error(`--copy-auth: refusing ${path}: it is outside the trusted dev tree ${root}.`);
+  }
+  let current = root;
+  let expected = await readDevSource(realpath, root);
+  let stat = null;
+  for (const part of below.split(sep)) {
+    current = join(current, part);
+    expected = join(expected, part);
+    stat = await readDevSource(lstat, current, { optional });
+    if (!stat) return null;
+    assertNotLink(stat, current);
+    const actual = await readDevSource(realpath, current);
+    if (foldCase(actual) !== foldCase(expected)) {
+      throw new Error(`--copy-auth: refusing ${current}: it resolves to ${actual} through a symlink or junction.`);
+    }
+  }
+  return stat;
 }
 
 async function readDevDir(path) {
@@ -392,36 +425,36 @@ async function readDevDir(path) {
   }
 }
 
-async function assertDevFile(path, { optional = false } = {}) {
-  const stat = await lstatDevSource(path, { optional });
+async function assertDevFile(trustedRoot, path, { optional = false } = {}) {
+  const stat = await lstatTrusted(trustedRoot, path, { optional });
   if (!stat) return;
-  assertNotLink(stat, path);
   if (!stat.isFile()) throw new Error(`--copy-auth: ${path} is not a regular file.`);
 }
 
 /** Opt-in: copy provider sign-ins from the kept dev profile (never ~/.mixdog). Source is only read.
- *  A missing or unreadable profile, or any link in the source, fails instead of copying nothing. */
-export async function copyDevAuth(dataDir, { devProfileDir = persistentDevProfileDir('default') } = {}) {
+ *  A missing or unreadable profile, or any link from the trusted root down to a source, fails
+ *  instead of copying nothing or copying from outside the kept dev tree. */
+export async function copyDevAuth(
+  dataDir,
+  { devProfileDir = persistentDevProfileDir('default'), trustedRoot = devTrustedRoot(devProfileDir) } = {}
+) {
   const source = join(devProfileDir, 'data');
   for (const dir of [devProfileDir, source]) {
-    const stat = await lstatDevSource(dir);
-    assertNotLink(stat, dir);
+    const stat = await lstatTrusted(trustedRoot, dir);
     if (!stat.isDirectory()) throw new Error(`--copy-auth: ${dir} is not a directory.`);
   }
   const copied = [];
   for (const entry of (await readDevDir(source)).filter((name) => CREDENTIAL_FILE.test(name))) {
-    await assertDevFile(join(source, entry));
+    await assertDevFile(trustedRoot, join(source, entry));
     await copyFile(join(source, entry), join(dataDir, entry));
     copied.push(entry);
   }
   const secretsDir = join(source, 'secrets');
-  const secretsStat = await lstatDevSource(secretsDir, { optional: true });
-  if (secretsStat) {
-    assertNotLink(secretsStat, secretsDir);
+  if (await lstatTrusted(trustedRoot, secretsDir, { optional: true })) {
     const secrets = (await readDevDir(secretsDir)).filter((name) => name.endsWith('.dpapi'));
     if (secrets.length) await mkdir(join(dataDir, 'secrets'), { recursive: true });
     for (const entry of secrets) {
-      await assertDevFile(join(secretsDir, entry));
+      await assertDevFile(trustedRoot, join(secretsDir, entry));
       await copyFile(join(secretsDir, entry), join(dataDir, 'secrets', entry));
       copied.push(`secrets/${entry}`);
     }
@@ -439,7 +472,11 @@ export async function seedReadyConfig(
   dataDir,
   { withRoutes = false, devDataDir = join(persistentDevProfileDir('default'), 'data') } = {}
 ) {
-  if (withRoutes) await assertDevFile(join(devDataDir, 'mixdog-config.json'), { optional: true });
+  if (withRoutes) {
+    await assertDevFile(devTrustedRoot(resolve(devDataDir, '..')), join(devDataDir, 'mixdog-config.json'), {
+      optional: true,
+    });
+  }
   const source = withRoutes ? await readJson(join(devDataDir, 'mixdog-config.json')) : null;
   const config = source && typeof source === 'object' ? source : {};
   const agent = config.agent && typeof config.agent === 'object' ? config.agent : {};
