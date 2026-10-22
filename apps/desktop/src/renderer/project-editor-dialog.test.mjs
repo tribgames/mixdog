@@ -7,7 +7,12 @@ const { restore } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
   expose: ['HTMLElement', 'Element', 'Node', 'navigator'],
 });
-test.after(restore);
+// The dialog's title-bar dim keeps a module-level frame loop (<= 450ms) alive
+// after it unmounts; let it finish before the frame globals are removed.
+test.after(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  restore();
+});
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
