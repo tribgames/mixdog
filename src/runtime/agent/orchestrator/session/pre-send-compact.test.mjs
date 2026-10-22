@@ -17,10 +17,8 @@ function isolatedData(t) {
   });
 }
 
-test('an in-turn compaction re-arms a late MCP tool whose announcement it strips', async (t) => {
-  isolatedData(t);
-  const late = { name: 'mcp__late__two', description: 'Two.' };
-  const session = {
+function lateToolSession(late, toolContent) {
+  return {
     id: 'pre-send-rearm',
     owner: 'agent',
     provider: 'rearm-test',
@@ -38,9 +36,15 @@ test('an in-turn compaction re-arms a late MCP tool whose announcement it strips
       { role: 'system', content: 'Preserve instructions.' },
       { role: 'user', content: 'Continue the approved task.' },
       { role: 'assistant', content: '', toolCalls: [{ id: 'read-1', name: 'read', arguments: '{}' }] },
-      { role: 'tool', toolCallId: 'read-1', content: 'Original recoverable output.\n'.repeat(4_000) },
+      { role: 'tool', toolCallId: 'read-1', content: toolContent },
     ],
   };
+}
+
+test('an in-turn compaction re-arms a late MCP tool whose announcement it strips', async (t) => {
+  isolatedData(t);
+  const late = { name: 'mcp__late__two', description: 'Two.' };
+  const session = lateToolSession(late, 'Original recoverable output.\n'.repeat(4_000));
   assert.equal(snapshotPendingDeferredToolDelta(session), null);
   const result = await runPreSendCompactPass({
     sessionRef: session,
@@ -52,4 +56,23 @@ test('an in-turn compaction re-arms a late MCP tool whose announcement it strips
   });
   assert.equal(result.compactChanged, true);
   assert.deepEqual(snapshotPendingDeferredToolDelta(session)?.added, [late]);
+});
+
+test('a pre-send compaction that fails does not re-arm a late MCP tool', async (t) => {
+  isolatedData(t);
+  const late = { name: 'mcp__late__two', description: 'Two.' };
+  const session = lateToolSession(late, 'Original recoverable output.\n'.repeat(4_000));
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    runPreSendCompactPass({
+      sessionRef: session,
+      sessionId: session.id,
+      messages: session.messages.slice(),
+      requestTools: [],
+      signal: controller.signal,
+      opts: { cacheStrategy: { messages: '5m' } },
+    })
+  );
+  assert.equal(snapshotPendingDeferredToolDelta(session), null);
 });
