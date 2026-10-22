@@ -16,6 +16,15 @@ import {
 } from './push-notification-bridge';
 
 const PUSH_OPEN_SESSION_MESSAGE = 'mixdog:open-session';
+/** A tapped notification is about the newest reply: the pane showing that
+ *  session returns to its latest row even when it was already open and the
+ *  reader had scrolled up (a fresh entry anchors at the end on its own). */
+export const NOTIFICATION_JUMP_LATEST_EVENT = 'mixdog:notification-jump-latest';
+
+function requestJumpToLatest(sessionId: string): void {
+  if (typeof window === 'undefined' || !sessionId) return;
+  window.dispatchEvent(new window.CustomEvent(NOTIFICATION_JUMP_LATEST_EVENT, { detail: sessionId }));
+}
 
 export function usePushNotificationNavigation({
   ready,
@@ -44,7 +53,10 @@ export function usePushNotificationNavigation({
   const routeRef = useRef({ switchHost, hostEnvironment });
   routeRef.current = { switchHost, hostEnvironment };
   const openRef = useRef((sessionId: string) => openSession(sessionId));
-  openRef.current = (sessionId: string) => openSession(sessionId);
+  openRef.current = (sessionId: string) => {
+    openSession(sessionId);
+    requestJumpToLatest(sessionId);
+  };
   const readyRef = useRef(ready);
   readyRef.current = ready;
   // A session for this PC that lands before the catalog exists waits here
@@ -61,8 +73,12 @@ export function usePushNotificationNavigation({
   };
   const deliverRef = useRef(deliver);
   deliverRef.current = deliver;
-  const desktopRef = useRef({ ready: desktopReady, focus: focusDesktopSession });
-  desktopRef.current = { ready: desktopReady, focus: focusDesktopSession };
+  const focusDesktop = (sessionId: string): void => {
+    focusDesktopSession(sessionId);
+    requestJumpToLatest(sessionId);
+  };
+  const desktopRef = useRef({ ready: desktopReady, focus: focusDesktop });
+  desktopRef.current = { ready: desktopReady, focus: focusDesktop };
   const deferredDesktop = useRef('');
 
   // Listening does NOT wait for readiness: the worker posts the instant it

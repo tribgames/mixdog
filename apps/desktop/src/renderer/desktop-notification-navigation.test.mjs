@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { focusOpenNotificationSession } from './desktop-notification-navigation.ts';
-import { usePushNotificationNavigation } from './use-push-notification-navigation.ts';
+import { NOTIFICATION_JUMP_LATEST_EVENT, usePushNotificationNavigation } from './use-push-notification-navigation.ts';
 import { activateTabInPaneLeaf, findPaneLeaf, paneLeaves } from './pane-layout.ts';
 import { remotePairingKeys } from './remote-pairing-recovery.ts';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -90,6 +90,7 @@ async function harness(t, { url, ...initial } = {}) {
   };
   await render();
   return {
+    window,
     opened,
     selected,
     render,
@@ -159,6 +160,22 @@ test('phone push still opens its session, including a click received before cata
   await h.push('another-phone-session');
   assert.deepEqual(h.opened, ['phone-session', 'another-phone-session']);
   assert.deepEqual(h.selected, []);
+});
+
+test('a tapped notification asks the pane for its latest row, after opening or focusing it', async (t) => {
+  const h = await harness(t, { ready: false });
+  const jumps = [];
+  const onJump = (event) => jumps.push(event.detail);
+  h.window.addEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump);
+  t.after(() => h.window.removeEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump));
+  // A phone tap before the catalog exists jumps only once it really opens.
+  await h.push('phone-session');
+  assert.deepEqual(jumps, []);
+  await h.render({ ready: true });
+  assert.deepEqual(jumps, ['phone-session']);
+  // A desktop click on an already open tab jumps too.
+  await h.click('b');
+  assert.deepEqual(jumps, ['phone-session', 'b']);
 });
 
 const PC_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';

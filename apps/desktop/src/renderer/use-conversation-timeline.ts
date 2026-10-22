@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect } from 'react';
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { Snapshot } from './desktop-types';
 import { useMobileRemoteSurface } from './mobile-surface';
@@ -8,6 +8,7 @@ import { useTranscriptRows } from './use-conversation-rows';
 import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
 import type { ConversationViewport } from './use-conversation-viewport';
 import { useTranscriptHistoryFill } from './use-transcript-history';
+import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
 import { useTranscriptReveal } from './use-transcript-reveal';
 
 /** The virtual timeline for one pane: its rows, the entry reveal, the
@@ -95,6 +96,15 @@ export function useConversationTimeline({
   const jumpToLatest = useCallback(() => {
     resumeFollow();
   }, [resumeFollow]);
+  // A tapped notification for this session lands on its latest reply.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onJump = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === sessionKey) resumeFollow();
+    };
+    window.addEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump);
+    return () => window.removeEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump);
+  }, [resumeFollow, sessionKey]);
   const shouldAnchorTranscriptBottom = useConversationFollowEffects({
     armFollow,
     following,
