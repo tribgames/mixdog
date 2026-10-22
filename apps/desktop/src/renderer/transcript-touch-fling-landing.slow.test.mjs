@@ -4,16 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Phone, long session: the reader flings toward older history and the next
-// page lands above them mid-fling. A touch fling holds that landing as a row
-// offset (a translateY of the row space): on an Android phone a scrollTop
-// write under the fling desyncs it until the next touch jumps (위로 빠르게
-// 넘기면 멈추고, 다시 터치하면 훨씬 위로 순간이동). The native offset stays short
-// of the logical one by the page, so the fling runs into native 0 at the old
-// first row. Landing the hold there was still a write under the momentum —
-// headless Chromium flings on through it, a phone does not (phone: 위로
-// 스크롤하면 여전히 멈췄다가 튄다) — so the hold waits for the fling to end
-// there too, and the page is reachable from the next touch on.
+// Android phone, long session: the reader flings toward older history and the
+// next page lands above them mid-fling. Held as a row offset (a translateY of
+// the row space), the page stayed outside the native scroll range, so the
+// fling ran into native 0 at the old first row and stopped there, mid-history
+// (phone: 위로 스크롤하면 중간에 멈춘다). Chromium keeps a touch fling's
+// momentum through a scrollTop write, so off iOS WebKit the landing is written
+// at once and the same fling carries on into the page. Headless Chromium runs
+// the same fling (a stream of scroll deltas) as Android Chrome and its
+// WebView, not their fling curve or any device-only input path.
 
 const HARNESS = `
   import { useLayoutEffect, useRef, useState } from 'react';
@@ -91,7 +90,7 @@ async function fling(cdp, distance) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test('a page landing above a touch fling is held through the momentum, at native 0 too, and lands once it ends', async (t) => {
+test('on Android a page landing above a touch fling is written at once and the fling carries on into it', async (t) => {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const bundle = await build({
     stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
@@ -162,20 +161,18 @@ test('a page landing above a touch fling is held through the momentum, at native
   }
   const frames = await page.evaluate(() => window.landing.frames);
   assert.deepEqual(errors, []);
-  assert.ok(Math.abs(landed.after - landed.before) < 1, 'the landing writes nothing under the fling');
-  const held = frames.filter((frame) => frame.transform);
-  assert.ok(held.length > 0, 'the landing is held as a row offset under the fling');
-  // The page's hold: the frames from the landing until its row offset drops.
-  const first = frames.indexOf(held[0]);
-  const end = frames.findIndex((frame, index) => index > first && !frame.transform);
-  assert.ok(end > first && !frames.at(-1).transform, 'the hold lands once the fling is over');
   assert.ok(
-    frames[end].top - frames[end - 1].top > landed.page - 1_000,
-    `its one write moves the native offset by the page (${frames[end - 1].top} -> ${frames[end].top}, page ${landed.page})`
+    landed.after - landed.before > landed.page - 1_000,
+    `the landing is one native write by the page (${landed.before} -> ${landed.after}, page ${landed.page})`
   );
-  // The write came after the momentum: the native offset had stopped moving.
-  assert.ok(end >= 2 && frames[end - 1].top === frames[end - 2].top, 'no write lands under the momentum');
-  // The fling rested at the old first row (native 0 under the hold), with the
-  // page reachable above it once the hold landed.
-  assert.ok(previous > landed.page - 1_000, `the fling rests at the old top (rest ${previous}, page ${landed.page})`);
+  assert.deepEqual(
+    frames.filter((frame) => frame.transform),
+    [],
+    'nothing is held as a row offset'
+  );
+  // The momentum went on after the write: the native offset kept falling.
+  assert.ok(frames.length > 2 && frames.at(-1).top < frames[0].top - 1, 'the fling keeps moving after the landing');
+  // It carried on past the old first row into the landed page instead of
+  // stopping at native 0 with the page out of reach above it.
+  assert.ok(previous < landed.page, `the fling went on into the page (rest ${previous}, page ${landed.page})`);
 });

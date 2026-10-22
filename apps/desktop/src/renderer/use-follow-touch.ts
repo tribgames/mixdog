@@ -99,34 +99,37 @@ export function useFollowTouch({
       }),
     [fingerOnGlass]
   );
-  // A touch scroll holds measured-size corrections and page landings off the
-  // native offset until its fling is over, on every engine. On an Android
-  // phone a scrollTop write under a touch fling desyncs the fling from the
-  // page: the fling stops short, and the next touch reconciles the two
-  // offsets in one jump (Android: 위로 빠르게 넘기면 멈추고, 다시 터치하면 훨씬
-  // 위로 순간이동). Headless Chromium keeps flinging through such a write, so
-  // only a device shows it. Chromium's fling ends at scrollend (or the idle
-  // fallback); iOS WebKit fires no reliable end, so its hold ends once the
-  // scroll has been quiet for a moment. Native 0 with a page held above it is
-  // no exception while the momentum is on it: the hold lands early only once
-  // the logical offset is at the real top, or when a new finger lands at
-  // native 0 (its drag must reach the page); otherwise it waits for the
-  // settle (transcript-list-touch-deviation).
-  // A finger on the glass holds too, scrolling or not, and so does one lifted
-  // a moment ago: landing in the gap between the fling's stop and the next
-  // touch is the jump itself, and a lifted finger may still start a fling.
+  // On iOS WebKit a touch scroll holds measured-size corrections and page
+  // landings off the native offset until its fling is over: a scrollTop write
+  // there cancels the momentum. WebKit fires no reliable end, so the hold ends
+  // once the scroll has been quiet for a moment. Native 0 with a page held
+  // above it is no exception while the momentum is on it: the hold lands
+  // early only once the logical offset is at the real top, or when a new
+  // finger lands at native 0 (its drag must reach the page); otherwise it
+  // waits for the settle (transcript-list-touch-deviation). A finger on the
+  // glass holds too, scrolling or not, and so does one lifted a moment ago: a
+  // lifted finger may still start a fling.
+  // Nowhere else. Chromium (Android Chrome, its WebView, a desktop
+  // touchscreen) keeps a touch fling's momentum through a scrollTop write —
+  // the fling is a stream of scroll deltas applied to wherever the offset is,
+  // the path its own scroll anchoring adjusts under — so corrections are
+  // written at once, as virtual-core writes them off iOS. Held there, a page
+  // landed above the reader stayed outside the native scroll range until the
+  // fling ended, and an upward fling stopped at the old first row, mid-history
+  // (Android: 위로 스크롤하면 중간에 멈춘다).
   const [iosWebKit] = useState(isIOSWebSurface);
   const touchEndedAt = useRef(0);
   const touchHoldsCorrections = useCallback(
     () =>
-      fingerOnGlass() ||
-      Date.now() - touchEndedAt.current < TOUCH_RELEASE_SETTLE_MS ||
-      touchScrollLatchOpen({
-        latched: touchLatched.current,
-        touchDown: false,
-        sinceScrollMs: Date.now() - touchScrollAt.current,
-        idleMs: iosWebKit ? IOS_TOUCH_SETTLE_MS : undefined,
-      }),
+      iosWebKit &&
+      (fingerOnGlass() ||
+        Date.now() - touchEndedAt.current < TOUCH_RELEASE_SETTLE_MS ||
+        touchScrollLatchOpen({
+          latched: touchLatched.current,
+          touchDown: false,
+          sinceScrollMs: Date.now() - touchScrollAt.current,
+          idleMs: IOS_TOUCH_SETTLE_MS,
+        })),
     [fingerOnGlass, iosWebKit]
   );
   const holdsScrollCorrections = useCallback(

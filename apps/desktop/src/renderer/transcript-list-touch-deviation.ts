@@ -5,9 +5,9 @@ import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './trans
  *  the viewport.
  *
  *  A scrollTop write while Chromium animates a wheel scroll cancels the
- *  animation. Under a touch fling it cancels the fling on iOS, and on an
- *  Android phone it desyncs the fling from the page until the next touch
- *  reconciles them in one jump (use-follow-touch). While the scroll lasts, a
+ *  animation. Under a touch fling it cancels the fling on iOS WebKit, the one
+ *  engine a touch hold exists on; Chromium's touch fling carries on through
+ *  the write (use-follow-touch). While the scroll lasts, a
  *  correction moves the row space instead (a translateY of the spacer): the
  *  reader's rows stay put and the native offset is never written. The
  *  logical offset is the native one plus the held amount. Once the scroll is
@@ -19,8 +19,8 @@ import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './trans
  *  it stops at native 0, the old first row. It still waits there for the
  *  scroll to settle: native 0 is reached by the momentum itself (and starts
  *  its bounce), and a write landed under it was cancelled or dropped by
- *  WebKit and desynced an Android fling — the fling stopped and the rows
- *  jumped by the held page (phone: 위로 스크롤하면 여전히 멈췄다가 튄다).
+ *  WebKit — the fling stopped and the rows jumped by the held page (iPhone:
+ *  위로 스크롤하면 여전히 멈췄다가 튄다).
  *  While `clampAtEdge` (a touch scroll owns the hold) only a LOGICAL offset at
  *  the top lands early, and a landing there is never held: that reader is at
  *  the real top, where the momentum ends anyway, and a negative hold would

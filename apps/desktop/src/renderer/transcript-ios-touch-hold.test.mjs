@@ -7,8 +7,8 @@ import { installTestDom } from './test-support/test-dom.mjs';
 // as a row offset. The hold lands as one native write once the touch scroll
 // has been quiet for 150 ms, or at once when the logical offset reaches the
 // real top. Native 0 with a page held above it is reached by the momentum
-// itself, so it waits there too. A Chromium touch scroll holds the same way
-// until scrollend (transcript-follow.test.mjs).
+// itself, so it waits there too. A Chromium touch scroll holds nothing: its
+// fling carries on through the write (transcript-follow.test.mjs).
 
 const IPHONE = {
   userAgent:

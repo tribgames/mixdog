@@ -64,9 +64,9 @@ interface TranscriptFollow {
   hasScrollGesture(): boolean;
   /** A touch drag that moved the transcript, from finger down through its fling. */
   hasTouchScroll(): boolean;
-  /** A wheel scroll through its native ramp, or a touch scroll through its
-   *  fling: the list holds measured-size corrections off scrollTop until it
-   *  ends. */
+  /** A wheel scroll through its native ramp, or (iOS WebKit only) a touch
+   *  scroll through its fling: the list holds measured-size corrections off
+   *  scrollTop until it ends. */
   holdsScrollCorrections(): boolean;
   /** The touch half of holdsScrollCorrections: such a hold lands early once
    *  the logical offset reaches the real top (a wheel ramp's holds until the

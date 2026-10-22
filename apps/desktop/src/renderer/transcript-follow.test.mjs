@@ -759,7 +759,7 @@ test('a wheel ramp holds measured-size corrections off scrollTop until its scrol
   }
 });
 
-test('a touch scroll owns the transcript and holds corrections from its drag until scrollend ends the fling', async () => {
+test('a touch scroll owns the transcript from its drag until scrollend ends the fling, and off iOS holds no corrections', async () => {
   const [React, { createRoot }, { useTranscriptFollow }] = await Promise.all([
     import('react'),
     import('react-dom/client'),
@@ -791,25 +791,33 @@ test('a touch scroll owns the transcript and holds corrections from its drag unt
     assert.equal(follow.hasTouchScroll(), false, 'a tap alone owns nothing');
     follow.handleTouchMove(touch(160));
     assert.equal(follow.hasTouchScroll(), true, 'the drag owns the transcript');
-    // An Android scrollTop write under a touch fling desyncs it until the next
-    // touch: the drag holds corrections off the native offset, at the edge too.
-    assert.equal(follow.holdsScrollCorrections(), true, 'the drag holds corrections');
-    assert.equal(follow.touchHoldsCorrections(), true, 'as a touch hold');
+    // Off iOS WebKit (Android, a desktop touchscreen) a touch fling keeps its
+    // momentum through a scrollTop write: nothing is held off the native
+    // offset, so the scroll range always includes history landed above.
+    assert.equal(follow.holdsScrollCorrections(), false, 'the drag holds no corrections');
+    assert.equal(follow.touchHoldsCorrections(), false, 'no touch hold');
     follow.handleTouchEnd();
     assert.equal(follow.hasTouchScroll(), true, 'the fling keeps it after the finger lifts');
-    assert.equal(follow.holdsScrollCorrections(), true, 'and so does its fling');
+    assert.equal(follow.holdsScrollCorrections(), false, 'and its fling holds nothing either');
     viewport.dispatchEvent(new window.Event('scrollend'));
     assert.equal(follow.hasTouchScroll(), false, 'scrollend ends it');
-    assert.equal(follow.holdsScrollCorrections(), true, 'a finger lifted a moment ago still holds');
   } finally {
     await React.act(async () => root.unmount());
     restore();
   }
 });
 
+const IPHONE = {
+  userAgent:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  platform: 'iPhone',
+  maxTouchPoints: 5,
+};
+
 /** The follow hook over a 400 px viewport whose native offset the test owns,
- *  with the list's correction hold wired to it as TranscriptList wires it. */
-async function touchHoldHarness(sessionKey, startTop) {
+ *  with the list's correction hold wired to it as TranscriptList wires it.
+ *  `navigator` sets the engine (a touch hold exists on iOS WebKit only). */
+async function touchHoldHarness(sessionKey, startTop, navigator) {
   const [
     React,
     { createRoot },
@@ -825,6 +833,7 @@ async function touchHoldHarness(sessionKey, startTop) {
     html: "<div id='root'></div>",
     jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
     expose: ['Element'],
+    ...(navigator ? { globals: { navigator } } : {}),
   });
   const realNow = Date.now;
   const state = { now: 700_000, native: startTop, writes: [], follow: null };
@@ -904,75 +913,39 @@ async function touchHoldHarness(sessionKey, startTop) {
   };
 }
 
-// Android phone: a scrollTop write under a touch fling desynced the fling from
-// the page, and the next touch reconciled them in one jump (위로 빠르게 넘기면
-// 멈추고, 다시 터치하면 훨씬 위로 순간이동). Rows measured into view during the
-// fling are held as a row offset, and their sum lands once the fling is over.
-test('an Android touch fling writes no measured-size correction until scrollend, then lands them in one write', async () => {
-  const harness = await touchHoldHarness('android-fling', 8_000);
-  const { state, space, viewport, deviation } = harness;
-  try {
-    await harness.drag();
-    assert.equal(deviation.hold(state.native + 30), true, 'a row measured into view mid-fling is held');
-    for (let step = 0; step < 6; step += 1) await harness.scroll(-80);
-    // A second row grows by 40px further into the fling.
-    assert.equal(deviation.hold(state.native + 70), true, 'the next correction joins the hold');
-    assert.equal(space.style.transform, 'translateY(-70px)', 'held as one row offset');
-    for (let step = 0; step < 6; step += 1) await harness.scroll(-40);
-    assert.equal(state.follow.holdsScrollCorrections(), true, 'the fling keeps the hold');
-    assert.deepEqual(state.writes, [], 'no scrollTop write under the fling');
-    const settledAt = state.native + 70;
-    viewport.dispatchEvent(new window.Event('scrollend'));
-    await harness.frame();
-    assert.deepEqual(state.writes, [settledAt], 'the held corrections land as one write once the fling ends');
-    assert.equal(space.style.transform, '');
-    assert.equal(deviation.amount(), 0);
-  } finally {
-    await harness.dispose();
-  }
-});
-
-// A held page landing leaves the native offset short of the logical one, so a
-// fling toward older history runs into native 0 at the old first row. Landing
-// the hold there was a scrollTop write under the fling: the fling stopped and
-// the rows jumped by the page (phone: 위로 스크롤하면 여전히 멈췄다가 튄다).
-// The hold waits for the fling's end at native 0 too, then the page is
-// reachable above.
-test('an Android touch fling toward the top keeps a held page until the fling ends, at native 0 too', async () => {
+// Android phone: a page of older history held as a row offset left the native
+// range short of it, so an upward fling ran into native 0 at the old first row
+// and stopped there, mid-history (phone: 위로 스크롤하면 중간에 멈춘다).
+// Chromium keeps a touch fling's momentum through a scrollTop write (its fling
+// is a stream of scroll deltas, the same path scroll anchoring adjusts under),
+// so off iOS WebKit the landing is written at once and the fling carries on
+// into the page.
+test('an Android touch fling writes a page landed above it at once and flings on into the page', async () => {
   const harness = await touchHoldHarness('android-edge', 1_400);
-  const { state, space, viewport, deviation } = harness;
+  const { state, space, deviation } = harness;
   try {
     await harness.drag();
     // Older history (5,000 px) lands above the reader mid-fling.
-    assert.equal(deviation.hold(state.native + 5_000), true, 'the landing is held away from the top');
-    assert.equal(space.style.transform, 'translateY(-5000px)');
-    while (state.native > 80) await harness.scroll(-80);
-    await harness.scroll(-state.native);
-    await harness.scroll(0);
-    assert.deepEqual(state.writes, [], 'no write under the fling, at native 0 either');
-    assert.equal(space.style.transform, 'translateY(-5000px)');
-    viewport.dispatchEvent(new window.Event('scrollend'));
-    state.now += 160;
-    await harness.frame();
-    assert.deepEqual(state.writes, [5_000], 'the fling over, the hold lands as one write');
-    assert.equal(space.style.transform, '');
-    // The page is reachable above: the next drag moves into it.
-    await harness.drag();
-    for (let step = 0; step < 10; step += 1) await harness.scroll(-80);
-    assert.equal(state.native, 4_140, 'the next touch scroll carries on past the old top');
-    assert.equal(state.writes.length, 1);
-    // A landing at the real top is never held.
-    assert.equal(deviation.hold(-10), false, 'the caller writes it natively');
+    assert.equal(deviation.hold(state.native + 5_000), false, 'the landing is not held under the fling');
+    // The list's scroll writer lands it natively (transcriptScrollTo).
+    harness.viewport.scrollTop = state.native + 5_000;
+    assert.equal(space.style.transform, '', 'no row offset');
+    // The same momentum keeps going: it passes the old first row (5,000).
+    for (let step = 0; step < 30; step += 1) await harness.scroll(-80);
+    assert.equal(state.native, 3_940, 'the fling carries on past the old top into the page');
+    assert.equal(deviation.amount(), 0);
+    // A row measured into view mid-fling is written at once too.
+    assert.equal(deviation.hold(state.native + 30), false, 'a measured-size correction is not held either');
   } finally {
     await harness.dispose();
   }
 });
 
-// The jump landed in the gap between the fling's stop and the next touch: a
-// touch while a hold is pending keeps holding, and so does the finger's
-// release for a moment.
+// iOS WebKit: a touch while a hold is pending keeps holding (away from native
+// 0), and so does the finger's release for a moment — a lifted finger may
+// still start a fling.
 test('a touch after the fling stopped keeps a pending hold until the finger has been off for a moment', async () => {
-  const harness = await touchHoldHarness('android-retouch', 8_000);
+  const harness = await touchHoldHarness('ios-retouch', 8_000, IPHONE);
   const { state, space, viewport, deviation } = harness;
   try {
     await harness.drag();
@@ -999,7 +972,7 @@ test('a touch after the fling stopped keeps a pending hold until the finger has 
 });
 
 test('a hold waits out a rubber-band overscroll before it lands', async () => {
-  const harness = await touchHoldHarness('touch-bounce', 39_600);
+  const harness = await touchHoldHarness('touch-bounce', 39_600, IPHONE);
   const { state, viewport, deviation } = harness;
   try {
     await harness.drag();
