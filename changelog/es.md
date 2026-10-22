@@ -23,6 +23,7 @@ Se agregaron el ajuste de formato de hora de 12/24 horas, archivos adjuntos de O
 - Se cambió la lista de sesiones para ocultar subagentes y sesiones archivadas; las sesiones de subagentes inactivas se archivan tras 3 días y se eliminan tras 30 (#165).
 - Se cambió el cambio de modelo de un bot para que se aplique a sus chats abiertos a partir del siguiente turno (#166).
 - Se cambiaron las aprobaciones de bots para solicitarse solo en los chats propios del bot, siguiendo los miembros de la sala las reglas de su chat principal (#167).
+- Se cambió la apariencia de Mixy a ambas orejas caídas y una cola gruesa con la punta más clara.
 - Se cambió la posición del bot principal a un único menú desplegable en Configuración, se añadió una ubicación libre y se muestra su foto subida (#178, #179).
 - Se cambiaron las sesiones de agentes en la barra lateral para mostrar solo el nombre del modelo, y la sesión de tarea de un bot para mostrarse como una única tarjeta de resultado.
 - Se cambiaron las respuestas de programación para aparecer palabra por palabra, nombrando los grupos de herramientas finalizados en tiempo pasado y la línea de estado al final.

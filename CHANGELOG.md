@@ -23,6 +23,7 @@ Added a 12/24-hour time setting, legacy Office attachments and long-paste foldin
 - Changed the session list to hide sub-agent and archived sessions; idle sub-agent sessions are archived after 3 days and deleted after 30 (#165).
 - Changed a bot's model change to apply to its open chats from the next turn (#166).
 - Changed bot approvals to ask only in the bot's own chats, with room members following their home chat's rules (#167).
+- Changed Mixy's look to both ears down and a thick tail with a lighter tip.
 - Changed the representative bot's position to one dropdown in Settings, added a Free placement, and showed its uploaded picture (#178, #179).
 - Changed agent sessions in the sidebar to show only the model name, and a bot's task session to show as one result card.
 - Changed coding replies to appear word by word, with finished tool groups named in the past tense and the status line last.

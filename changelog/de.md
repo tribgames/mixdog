@@ -22,6 +22,7 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 - Sitzungsliste so geändert, dass Sub-Agenten- und archivierte Sitzungen ausgeblendet werden; inaktive Sub-Agenten-Sitzungen werden nach 3 Tagen archiviert und nach 30 gelöscht (#165).
 - Modellwechsel eines Bots so geändert, dass er ab dem nächsten Zug für seine offenen Chats gilt (#166).
 - Bot-Genehmigungen so geändert, dass nur in den eigenen Chats des Bots gefragt wird, während Raummitglieder den Regeln ihres Stamm-Chats folgen (#167).
+- Mixys Aussehen auf zwei herabhängende Ohren und einen dicken Schwanz mit hellerer Spitze geändert.
 - Position des Hauptbots auf ein einzelnes Dropdown in den Einstellungen umgestellt, eine freie Platzierung hinzugefügt und das hochgeladene Bild angezeigt (#178, #179).
 - Agenten-Sitzungen in der Seitenleiste so geändert, dass nur der Modellname angezeigt wird, und die Aufgaben-Sitzung eines Bots als einzelne Ergebnis-Karte dargestellt wird.
 - Coding-Antworten so geändert, dass sie Wort für Wort erscheinen, mit abgeschlossenen Tool-Gruppen in der Vergangenheitsform und der Statuszeile am Ende.

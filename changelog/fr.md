@@ -23,6 +23,7 @@ Ajout d’un paramètre d’heure au format 12/24 heures, des pièces jointes Of
 - Modification de la liste des sessions pour masquer les sous-agents et les sessions archivées ; les sessions de sous-agents inactives sont archivées après 3 jours et supprimées après 30 (#165).
 - Modification du changement de modèle d’un bot pour qu’il s’applique à ses discussions ouvertes dès le tour suivant (#166).
 - Modification des approbations de bot pour ne demander confirmation que dans les discussions propres au bot, les membres d’un salon suivant les règles de leur discussion d’origine (#167).
+- Modification de l’apparence de Mixy avec les deux oreilles tombantes et une queue épaisse à l’extrémité plus claire.
 - Remplacement de la position du bot principal par un menu déroulant unique dans Réglages, ajout d’un placement libre et affichage de sa photo téléversée (#178, #179).
 - Modification des sessions d’agent dans la barre latérale pour n’afficher que le nom du modèle, et de la session de tâche d’un bot pour s’afficher sous la forme d’une seule carte de résultat.
 - Modification des réponses de code pour apparaître mot à mot, avec les groupes d’outils terminés nommés au passé et la ligne d’état en dernier.

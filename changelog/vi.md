@@ -22,6 +22,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 - Đã thay đổi danh sách phiên để ẩn các phiên agent phụ và phiên đã lưu trữ; các phiên agent phụ không hoạt động sẽ được lưu trữ sau 3 ngày và xóa sau 30 ngày (#165).
 - Đã thay đổi việc đổi mô hình của bot để áp dụng cho các cuộc trò chuyện đang mở từ lượt tiếp theo (#166).
 - Đã thay đổi phê duyệt bot để chỉ hỏi trong cuộc trò chuyện riêng của bot, các thành viên phòng sẽ tuân theo quy tắc của cuộc trò chuyện gốc (#167).
+- Đã thay đổi diện mạo của Mixy thành hai tai cụp và chiếc đuôi dày có chóp sáng màu hơn.
 - Đã thay đổi vị trí của bot chính thành một menu thả xuống duy nhất trong Cài đặt, thêm vị trí tự do và hiển thị ảnh tải lên của bot (#178, #179).
 - Đã thay đổi các phiên agent ở thanh bên để chỉ hiển thị tên mô hình, và phiên tác vụ của bot hiển thị dưới dạng một thẻ kết quả duy nhất.
 - Đã thay đổi phản hồi lập trình xuất hiện theo từng từ, các nhóm công cụ đã hoàn thành được gọi tên ở thì quá khứ và dòng trạng thái ở cuối cùng.

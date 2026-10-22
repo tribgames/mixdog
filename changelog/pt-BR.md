@@ -22,6 +22,7 @@ Adicionada a configuração de horário de 12/24 horas, anexos do Office em form
 - A lista de sessões foi alterada para ocultar subagentes e sessões arquivadas; sessões ociosas de subagentes são arquivadas após 3 dias e excluídas após 30 (#165).
 - A alteração do modelo de um bot passou a ser aplicada aos seus chats abertos a partir do próximo turno (#166).
 - As aprovações de bots passaram a ser solicitadas apenas nos próprios chats do bot, com os membros da sala seguindo as regras do seu chat principal (#167).
+- O visual de Mixy foi alterado para ambas as orelhas caídas e uma cauda grossa com ponta mais clara.
 - A posição do bot principal foi alterada para um único menu suspenso em Configurações, adicionou-se um posicionamento livre e sua foto enviada passou a ser exibida (#178, #179).
 - As sessões de agentes na barra lateral foram alteradas para mostrar apenas o nome do modelo, e a sessão de tarefa de um bot para ser exibida como um único cartão de resultado.
 - As respostas de código passaram a aparecer palavra por palavra, com os grupos de ferramentas concluídos nomeados no passado e a linha de status no final.
