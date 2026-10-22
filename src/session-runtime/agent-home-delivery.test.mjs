@@ -267,6 +267,40 @@ test('a home thread that does not exist yet keeps its result queued until it doe
   assert.deepEqual(await h.deps.queue.items('sess_home_reviewer'), []);
 });
 
+test('task reports an earlier version queued under a room log id are dropped, never posted into the log', async (t) => {
+  const logId = 'sess_room_abc123';
+  const h = homes(t, [logId]);
+  const lines = [];
+  const delivery = createAgentHomeDelivery({ ...h.deps, log: (line) => lines.push(line) });
+  await h.deps.queue.add(logId, {
+    runId: 'run_old',
+    kind: 'room-report',
+    speaker: 'gh',
+    taskSessionId: 'sess_task',
+    title: 't',
+    status: 'completed',
+    text: 'x',
+    at: 1,
+  });
+  await h.deps.queue.add(logId, {
+    runId: 'run_old2',
+    kind: 'agent-task',
+    taskSessionId: 'sess_task',
+    status: 'completed',
+    roundTrip: false,
+    at: 1,
+  });
+  await delivery.drain(logId);
+  assert.deepEqual(h.sessions.get(logId).messages, [{ role: 'user', content: 'hi' }], 'nothing posted');
+  assert.deepEqual(h.saved, []);
+  assert.deepEqual(await h.deps.queue.items(logId), [], 'removed from the queue');
+  assert.deepEqual(await h.deps.queue.pendingHomes(), []);
+  assert.ok(
+    lines.some((line) => line.includes('legacy task report(s)') && line.includes(logId)),
+    'logged'
+  );
+});
+
 test('the queue is durable and idempotent: a restart recovers it, a run never posts twice', async (t) => {
   const { path } = tempQueue(t);
   const before = homes(t, ['sess_home_lead'], { queue: createRoutineResultQueue(path) });

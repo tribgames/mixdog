@@ -865,6 +865,13 @@ export function createAgentHomeDelivery({
     return true;
   }
 
+  /** A room log's queued rows: task reports go to member sessions now, so what
+   *  an earlier version left under the log's id is dropped, never posted. */
+  async function dropRoomLogQueue(logId, items, omitted) {
+    log(`${items.length} legacy task report(s) queued for the room log ${logId} are dropped`);
+    await dropQueued(queue, logId, items, omitted);
+  }
+
   /** A missing home of an agent that can never have one (no bot): its queued
    *  rows are dropped with a log line, never retried. */
   async function dropHomeless(homeId, items, omitted) {
@@ -881,6 +888,7 @@ export function createAgentHomeDelivery({
     const omitted = await queue.omitted(homeId);
     const owed = owesWake(await queue.wakes(homeId));
     if (!items.length && !omitted && !owed) return;
+    if (roomIdOfSession(homeId)) return dropRoomLogQueue(homeId, items, omitted);
     const agentId = agentIdOfHomeSession(homeId);
     if (agentId && agentId !== MIXY_AGENT_ID && agentPresence(agentId) === 'deleted') {
       // The owner is gone (its home archived): Mixy, the default owner, gets them.
