@@ -787,14 +787,12 @@ test("the runtime's known reasons read in the UI language; an agent's own reason
     'This sends or posts outside Mixdog; it needs your approval.',
     "This agent's permission blocks this action.",
     'This connector tool is set to ask before it runs for this agent.',
-    'Group-room members need your approval before changing anything.',
   ];
   {
     const { CONNECTOR_APPROVAL_REASON } = await import(
       '../../../../src/runtime/agent/orchestrator/session/loop/tool-exec/before-hook.mjs'
     );
-    const { ROOM_APPROVAL_REASON } = await import('../../../../src/session-runtime/room-member-gate.mjs');
-    assert.deepEqual([CONNECTOR_APPROVAL_REASON, ROOM_APPROVAL_REASON], known.slice(2), 'the runtime texts mapped');
+    assert.deepEqual([CONNECTOR_APPROVAL_REASON], known.slice(2), 'the runtime texts mapped');
     const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
     for (const key of known.slice(2)) assert.ok(/[가-힣]/.test(ko[key] ?? ''), `ko: ${key}`);
   }

@@ -4,7 +4,7 @@
 // strictly one at a time: after the user's addressees, a supervisor step on the
 // Maintainer model picks each next speaker or ends the talk, under hard caps.
 // A member speaks from its own session per room, sees only the rows new since
-// it last spoke, and its write tools always ask the user (room-member-gate.mjs).
+// it last spoke, and its tools follow the same approval rules as its home chat.
 // The room's log is a plain session, so the transcript, read cursors, unread
 // counts and the phone all work unchanged. A round in flight lives in memory
 // only: a restarted host marks it interrupted and never resumes it.

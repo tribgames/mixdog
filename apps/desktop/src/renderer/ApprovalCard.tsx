@@ -34,11 +34,9 @@ export function approvalReasonText(text: string): string {
     'This sends or posts outside Mixdog; it needs your approval.': () =>
       t('This sends or posts outside Mixdog; it needs your approval.'),
     "This agent's permission blocks this action.": () => t("This agent's permission blocks this action."),
-    // tool-exec/before-hook.mjs CONNECTOR_APPROVAL_REASON, room-member-gate.mjs ROOM_APPROVAL_REASON.
+    // tool-exec/before-hook.mjs CONNECTOR_APPROVAL_REASON.
     'This connector tool is set to ask before it runs for this agent.': () =>
       t('This connector tool is set to ask before it runs for this agent.'),
-    'Group-room members need your approval before changing anything.': () =>
-      t('Group-room members need your approval before changing anything.'),
     // human-gate/run-policy.mjs AUTOMATION_GRANT_REASON.
     "Approving lets this schedule's or webhook's runs act without asking, within the bot's permissions. Payments and permanent deletes are never done in runs.":
       () =>

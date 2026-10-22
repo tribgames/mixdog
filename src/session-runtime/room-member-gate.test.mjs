@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import { roomMemberSessionId } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { assertAutomationAccess, assertInteractiveCaller, scheduleCallerScope } from './services/schedule-access.mjs';
-import { ROOM_APPROVAL_REASON, roomMemberToolDecision } from './room-member-gate.mjs';
 import { attachSessionHooks } from './session-hooks.mjs';
 
 const member = roomMemberSessionId('abc123', 'gh');
@@ -19,34 +18,19 @@ function hooked(id, decision = null) {
   );
 }
 
-test('room members need approval for writes even when hooks allow them; reads are free', async () => {
-  const session = hooked(member, { action: 'allow' });
-  assert.deepEqual(await session.beforeToolHook({ name: 'edit', args: { path: 'a' } }), {
-    action: 'ask',
-    reason: ROOM_APPROVAL_REASON,
-  });
-  assert.equal((await session.beforeToolHook({ name: 'shell', args: { command: 'rm -rf x' } })).action, 'ask');
-  assert.deepEqual(await session.beforeToolHook({ name: 'read', args: { path: 'a' } }), { action: 'allow' });
-  assert.equal((await session.beforeToolHook({ name: 'shell', args: { command: 'git status' } }))?.action, 'allow');
-});
-
-test('opening a task session runs as in the home thread; other session actions still ask', async () => {
-  const session = hooked(member, { action: 'allow' });
-  assert.deepEqual(await session.beforeToolHook({ name: 'session', args: { action: 'create', brief: 'b' } }), {
-    action: 'allow',
-  });
-  assert.equal(
-    (await session.beforeToolHook({ name: 'session', args: { action: 'send', session_id: 's', prompt: 'p' } })).action,
-    'ask'
-  );
+test('a room member follows the same approval rules as its home thread: no room-only ask', async () => {
+  const allow = { action: 'allow' };
   const deny = { action: 'deny', reason: 'no' };
-  assert.equal(await roomMemberToolDecision({ name: 'session', args: { action: 'create' } }, deny), deny);
-});
-
-test('a hook deny still wins, and other sessions are untouched', async () => {
-  const deny = { action: 'deny', reason: 'no' };
-  assert.equal(await roomMemberToolDecision({ name: 'edit' }, deny), deny);
-  assert.equal(await hooked('sess_home_gh').beforeToolHook({ name: 'edit', args: {} }), null);
+  const send = { name: 'session', args: { action: 'send', session_id: 'sess_home_lead', prompt: 'p' } };
+  for (const call of [{ name: 'edit', args: { path: 'a' } }, { name: 'shell', args: { command: 'rm -rf x' } }, send]) {
+    assert.deepEqual(await hooked(member, allow).beforeToolHook(call), allow, `${call.name}: as the hooks decide`);
+    assert.deepEqual(
+      await hooked(member).beforeToolHook(call),
+      await hooked('sess_home_gh').beforeToolHook(call),
+      `${call.name}: the same as the home thread`
+    );
+  }
+  assert.deepEqual(await hooked(member, deny).beforeToolHook({ name: 'edit', args: {} }), deny, 'a deny still wins');
 });
 
 test('member sessions cannot create agents, automations or change settings', () => {
