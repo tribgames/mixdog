@@ -217,6 +217,7 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'max_tokens',
   'maxAttempts',
   'maxOutputTokens',
+  'maxOutputTokensOverride',
   'maxTokens',
   'min_p',
   'minP',
