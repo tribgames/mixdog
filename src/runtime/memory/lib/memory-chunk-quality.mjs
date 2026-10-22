@@ -86,11 +86,22 @@ export function parseCycle1LineFormat(raw) {
   const chunks = [];
   for (const line of lines) {
     const parts = line.split('|');
-    if (parts.length < 4 || !/^\d+(?:\s*,\s*\d+)*$/.test(parts[0].trim())) {
+    // Models often write a run as `1-8` (sessions 2026-10-22: 32 of 71 lines);
+    // an ascending range expands to its indexes, everything else stays invalid.
+    if (parts.length < 4 || !/^\d+(?:\s*-\s*\d+)?(?:\s*,\s*\d+(?:\s*-\s*\d+)?)*$/.test(parts[0].trim())) {
       chunks.push({ _idxList: [], _parseError: 'invalid_line_format' });
       continue;
     }
-    const indexes = parts[0].split(',').map((value) => Number(value.trim()));
+    const indexes = [];
+    for (const token of parts[0].split(',')) {
+      const [from, to = from] = token.split('-').map((value) => Number(value.trim()));
+      if (to < from || to - from >= 1000) {
+        indexes.length = 0;
+        indexes.push(0);
+        break;
+      }
+      for (let n = from; n <= to; n += 1) indexes.push(n);
+    }
     chunks.push({
       _idxList: indexes,
       element: parts[1].trim(),
