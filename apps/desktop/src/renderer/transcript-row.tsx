@@ -1,6 +1,6 @@
 import { GitCommitHorizontal, GitPullRequest, SlidersHorizontal, Upload } from 'lucide-react';
 import { parseIslandGitRequestText } from './island-git-request';
-import { Suspense, createContext, memo, useContext, useEffect, useId, useLayoutEffect, useRef } from 'react';
+import { Suspense, createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { extractFileMarkers } from './attachment-menu';
 import { useAttachmentContextMenu } from './attachment-context-menu';
 import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItemContext } from './MarkdownLink';
@@ -18,7 +18,7 @@ import {
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
-import { type FadeArrival, streamFadeTimeline } from './markdown-stream-fade';
+import { dropStreamFadeTimeline, STREAM_FADE_SETTLE_MS, streamFadeTimeline } from './markdown-stream-fade';
 import { preloadSyncMarkdownParser } from './markdown-worker-client';
 import { CopyControl } from './transcript-primitives';
 import { noteStreamCommit } from './transcript-stream-metrics';
@@ -65,25 +65,32 @@ const MarkdownResponse = memo(function MarkdownResponse({
   text,
   streaming,
   fadeKey,
-  fadeMs,
-  fadeArrival,
+  fadeRevision = 0,
 }: {
   text: string;
   streaming: boolean;
-  /** Row identity of the reply's word-fade timeline (markdown-stream-fade). */
+  /** Row identity of the reply's word-fade timeline (markdown-stream-fade);
+   *  empty: nothing fades. */
   fadeKey: string;
-  /** How long each newly shown word fades in. */
-  fadeMs: number;
-  /** The latest arrival: its new words fade top to bottom. */
-  fadeArrival: FadeArrival | null;
+  /** The reveal's last rewrite of `text` (use-transcript-text-reveal). */
+  fadeRevision?: number;
 }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
   const workerPipeline = useRef(streaming);
-  const instanceKey = useId();
-  // Every chunk, frozen ones included, fades on the reply's one timeline: a
-  // paragraph that froze mid-fade keeps animating and the next block's first
-  // words fade too. A settled reply keeps it: its words keep their wrappers.
-  const fadeTimeline = streamFadeTimeline(fadeKey || instanceKey, streaming, fadeMs, fadeArrival);
+  // Every chunk, frozen ones included, fades on the reply's one timeline. A
+  // settled reply keeps it STREAM_FADE_SETTLE_MS, so the rest it then shows
+  // at once still fades; after that its words show unwrapped.
+  const [fadeSettled, setFadeSettled] = useState(false);
+  const fadeTimeline = fadeKey && !fadeSettled ? streamFadeTimeline(fadeKey, streaming) : null;
+  fadeTimeline?.sync(text, performance.now(), fadeRevision);
+  useEffect(() => {
+    if (streaming || !fadeTimeline) return;
+    const timer = setTimeout(() => {
+      dropStreamFadeTimeline(fadeKey);
+      setFadeSettled(true);
+    }, STREAM_FADE_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [streaming, fadeTimeline, fadeKey]);
   useLayoutEffect(() => {
     if (streaming) noteStreamCommit(text.length);
   }, [streaming, text]);
@@ -239,11 +246,15 @@ export const TranscriptRow = memo(
     attachedUser = false,
     disclosureScope = '',
     revealKey = '',
+    paced = false,
   }: {
     /** Background work still running; passed only to the latest completion. */
     backgroundWork?: BackgroundWorkCounts;
-    /** Row key of an assistant part: its arrivals fade in while it streams. */
+    /** Row key of an assistant part: its reveal and fade identity. */
     revealKey?: string;
+    /** The coding transcript: a live part reveals in paced steps and its new
+     *  words fade in; elsewhere received text shows whole, unfaded. */
+    paced?: boolean;
     item: TranscriptItem;
     completion?: TranscriptItem;
     animateComplete?: boolean;
@@ -255,12 +266,11 @@ export const TranscriptRow = memo(
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const sessionScope = useContext(MarkdownSessionContext);
     const assistant = item.kind === 'assistant';
-    // Received text shows as it arrives; its new words fade in.
     const revealed = useTranscriptTextReveal({
       key: assistant ? revealKey : '',
-      scope: sessionScope,
       text: assistant ? String(item.text || '') : '',
       streaming: Boolean(item.streaming),
+      paced,
     });
     const streaming = Boolean(item.streaming);
     const previousStreaming = useRef(streaming);
@@ -395,9 +405,8 @@ export const TranscriptRow = memo(
                   <MarkdownResponse
                     text={revealed.text}
                     streaming={streaming}
-                    fadeKey={revealKey}
-                    fadeMs={revealed.fadeMs}
-                    fadeArrival={revealed.arrival}
+                    fadeKey={paced ? revealKey : ''}
+                    fadeRevision={revealed.revision}
                   />
                 </MarkdownTranscriptItemContext.Provider>
               )}
@@ -439,5 +448,6 @@ export const TranscriptRow = memo(
     previous.backgroundWork?.agent === next.backgroundWork?.agent &&
     previous.attachedUser === next.attachedUser &&
     previous.revealKey === next.revealKey &&
+    previous.paced === next.paced &&
     previous.disclosureScope === next.disclosureScope
 );

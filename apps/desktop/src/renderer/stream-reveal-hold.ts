@@ -25,6 +25,10 @@
  * `text` is everything received; only `text.slice(0, cut)` paints, so the
  * characters after the cut serve as lookahead. Settled text (`live` false) is
  * never held at its end.
+ *
+ * A paced reveal (coding transcript) holds less: only a line that is only a
+ * list or heading marker, and a closing fence still being typed
+ * (pacedRevealCeiling, pacedRevealStep).
  */
 
 /** A line longer than this is prose, not a row or heading worth holding. */
@@ -205,6 +209,64 @@ function tableHeadHold(text: string, at: number, live: boolean): number {
   if (insideCode(fencedRanges(text), start) || tableAbove(text, start)) return at;
   if (below >= text.length) return live ? start : at;
   return next.trim() && PARTIAL_DELIMITER.test(next) ? start : at;
+}
+
+/** A line that is only a list marker (a task box being typed included). */
+const BARE_LIST_MARKER =
+  /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|\d{1,9}[.)]?)$|(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[(?:[ xX](?:\][ \t]*)?)?)?$)/;
+/** A line that is only heading hashes. */
+const BARE_HEADING_MARKER = /^ {0,3}(?:>[ \t]*)*#{1,6}[ \t]*$/;
+/** What a closing fence looks like while it is typed. */
+const FENCE_BEING_TYPED = /^[ \t>]*(?:`+|~+)$/;
+
+/** Start of the line holding `at` when the paced reveal may not stop at `at`:
+ *  the line so far is only a list or heading marker, or, inside a code block,
+ *  a fence still being typed. -1 when it may stop there. */
+export function pacedHoldStart(text: string, at: number): number {
+  if (at <= 0) return -1;
+  const start = text.lastIndexOf('\n', at - 1) + 1;
+  if (start === at) return -1;
+  const line = text.slice(start, at);
+  if (BARE_LIST_MARKER.test(line) || BARE_HEADING_MARKER.test(line)) return start;
+  return FENCE_BEING_TYPED.test(line) && insideCode(fencedRanges(text), start) ? start : -1;
+}
+
+/** Never end inside a surrogate pair. */
+function wholeChar(text: string, at: number): number {
+  return at > 0 && at < text.length && (text.charCodeAt(at) & 0xfc00) === 0xdc00 ? at - 1 : at;
+}
+
+/** How far the paced reveal of live `text` may go: everything but a last
+ *  line that is only a marker or a closing fence being typed. Code lines,
+ *  table rows and heading text stream within their line; the streaming
+ *  healer closes their inline syntax. */
+export function pacedRevealCeiling(text: string): number {
+  const held = pacedHoldStart(text, text.length);
+  return wholeChar(text, held === -1 ? text.length : held);
+}
+
+/** `size` characters on from `from`, never past `ceiling`, back to just
+ *  after the last space when that keeps more than half the step. */
+function wordStep(text: string, from: number, ceiling: number, size: number): number {
+  const cut = Math.min(from + size, ceiling);
+  if (cut < ceiling) {
+    const space = text.lastIndexOf(' ', cut);
+    if (space > from + size / 2) return space + 1;
+  }
+  return wholeChar(text, cut);
+}
+
+/** End of one paced reveal step of `size` characters from `from`: it never
+ *  stops on a line that is only a marker or a fence being typed (it stops
+ *  before that line, or steps on past it). */
+export function pacedRevealStep(text: string, from: number, ceiling: number, size: number): number {
+  let end = wordStep(text, from, ceiling, size);
+  for (let held = pacedHoldStart(text, end); held !== -1; held = pacedHoldStart(text, end)) {
+    if (held > from) return held;
+    if (end >= ceiling) return ceiling;
+    end = wordStep(text, end, ceiling, size);
+  }
+  return end;
 }
 
 /** The furthest cut at or before `cut` that paints no unfinished construct of

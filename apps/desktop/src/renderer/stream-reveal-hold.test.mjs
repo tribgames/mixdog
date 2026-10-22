@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { revealHold } from './stream-reveal-hold.ts';
+import { pacedRevealCeiling, pacedRevealStep, revealHold } from './stream-reveal-hold.ts';
 
 /** What paints of `text` cut at `cut` (the reveal) while it streams. */
 const painted = (text, cut = text.length, live = true) => text.slice(0, revealHold(text, cut, live));
@@ -86,4 +86,39 @@ test('a trailing marker waits for the character after it while the text streams;
   assert.equal(painted('a <'), 'a ');
   assert.equal(painted('Run `npm ins', 12, false), 'Run `npm ins', 'the settled end shows whole');
   assert.equal(painted('Done!', 5, false), 'Done!');
+});
+
+const paced = (text) => text.slice(0, pacedRevealCeiling(text));
+
+test('paced: only a bare list or heading marker and a closing fence being typed are held', () => {
+  for (const marker of ['- ', '* ', '12. ', '3)', '7', '- [', '- [x', '- [x] ', '> - ', '#', '## ', '> ###']) {
+    assert.equal(paced(`Intro\n${marker}`), 'Intro\n', JSON.stringify(marker));
+  }
+  assert.equal(paced('Intro\n- item'), 'Intro\n- item', 'the first glyph after the marker shows');
+  assert.equal(paced('## Head'), '## Head', 'heading text streams within its line');
+  assert.equal(paced('```ts\nconst a = 1;\nconst b'), '```ts\nconst a = 1;\nconst b', 'code lines stream');
+  assert.equal(paced('```ts\nconst a = 1;\n``'), '```ts\nconst a = 1;\n', 'a closing fence being typed waits');
+  assert.equal(paced('```ts\nconst a = 1;\n```'), '```ts\nconst a = 1;\n```', 'a whole closing fence shows');
+  assert.equal(paced('| a | b'), '| a | b', 'a table row streams within its line');
+  assert.equal(paced('An ![ima'), 'An ![ima', 'images are not held');
+  assert.equal(paced('a <'), 'a <');
+  assert.equal(paced('Use **bo'), 'Use **bo');
+});
+
+test('paced step: cut back to the last space past half a step; never stop on a bare marker', () => {
+  const text = 'alpha beta gamma delta epsilon zeta';
+  // 22 characters on from 0 end on the space after "delta": the step ends
+  // after it.
+  assert.equal(text.slice(0, pacedRevealStep(text, 0, text.length, 22)), 'alpha beta gamma delta ');
+  assert.equal(text.slice(0, pacedRevealStep(text, 0, text.length, 20)), 'alpha beta gamma ', 'back to the space');
+  const long = 'abcdefghijklmnopqrstuvwxyz';
+  assert.equal(pacedRevealStep(long, 0, long.length, 22), 22, 'no space: the plain cut');
+  assert.equal(pacedRevealStep('ab cdefghijklmnopqrstuvwxyz', 0, 27, 22), 22, 'a space before half a step is ignored');
+  const list = 'Intro words.\n- first item here';
+  assert.equal(
+    list.slice(0, pacedRevealStep(list, 0, list.length, 15)),
+    'Intro words.\n',
+    'stops before the marker line'
+  );
+  assert.equal(list.slice(13, pacedRevealStep(list, 13, list.length, 2)), '- fi', 'steps on past the marker');
 });

@@ -507,6 +507,8 @@ export function transcriptRowNode(
     item: row.item,
     live: Boolean(row.live),
     revealKey: row.key,
+    // The coding transcript paces its live text; agent chat shows it whole.
+    paced: !quietTools,
     completion: row.completion,
     backgroundWork: isLatestCompletion ? backgroundWorkCounts(snapshot) : undefined,
     animateComplete: hadLiveActivity(sessionId, turnIdentity),

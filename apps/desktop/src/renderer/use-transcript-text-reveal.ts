@@ -1,50 +1,63 @@
 /**
- * Reveal of the live assistant part.
+ * Paint pacing of the live assistant part.
  *
- * - Steps: received text is revealed in steps. A step shows at least
- *   REVEAL_STEP_CHARS more, or a quarter of what waits when more does
- *   (REVEAL_CATCH_UP_SHARE), so a large backlog is caught up within a few
- *   steps. The next step waits until this one's word stagger has played (the
- *   stagger of its characters, markdown-stream-fade), at least
- *   REVEAL_MIN_STEP_MS.
- * - A part's first text shows in one step when it is longer than
- *   REVEAL_JOIN_CHARS (a reply landing whole), else as a first step.
- * - Hold-back: what shows never passes the start of an unfinished line
- *   construct of the received text (stream-reveal-hold), so table rows,
- *   headings, fence and code lines appear whole and a list item with its
- *   marker; and never moves back while the text only grows.
- * - Each step's new words fade in (markdown-stream-fade), staggered top to
- *   bottom within the step.
- * - A live row this renderer did not watch being born (a reload, a session
- *   entered mid-stream) shows the text it mounts with whole and unfaded; only
- *   later growth is revealed in steps. A remount continues where it was.
- * - The part ending shows the rest at once, unfaded. So do a rewrite that
- *   does not extend the text, a document shown again after being hidden, and
- *   reduced motion (always).
- * - Received text is never delayed upstream: canonical text, persistence,
- *   copy and tools all read the full text.
+ * Paced (the coding transcript):
+ * - Steps: what was received is revealed in steps of REVEAL_STEP_CHARS,
+ *   ending after the last space when that keeps more than half the step, on a
+ *   setTimeout chain. The time between steps follows the backlog (received
+ *   minus shown) so it drains in about REVEAL_TARGET_LAG_MS: TARGET_LAG ×
+ *   STEP / backlog, within [REVEAL_MIN_STEP_MS, REVEAL_MAX_STEP_MS].
+ * - Catch-up: a backlog the fastest cadence cannot drain in time (above
+ *   TARGET_LAG × STEP / MIN_STEP characters) adds its excess to the step,
+ *   scaled by how long the step waited, up to REVEAL_CATCH_UP_RAMP_MS.
+ * - Rejoin: one delivery growing the text by more than REVEAL_REJOIN_CHARS
+ *   while more than that waits shows everything at once; so does what arrived
+ *   while the document was hidden.
+ * - A part's first text longer than REVEAL_JOIN_CHARS shows at once, else as
+ *   a first step. A remount continues where it was (the reveal is kept per
+ *   row key).
+ * - Once the backlog is drained the chain idles; the next arrival restarts
+ *   it, timed from that arrival.
+ * - Hold-back: a line that is only a list or heading marker, and a closing
+ *   fence being typed, wait (stream-reveal-hold pacedRevealCeiling).
+ *
+ * Unpaced (chat): what was received shows whole, at most one paint per
+ * REVEAL_INTERVAL_MS, held back at any unfinished line construct
+ * (stream-reveal-hold revealHold).
+ *
+ * Either way the part ending shows the rest at once, reduced motion shows
+ * everything at once, and received text is never delayed upstream: canonical
+ * text, persistence, copy and tools all read the full text.
+ *
+ * A row's reveal outlives its mounts: rows subscribe by key, so a mode change
+ * (reduced motion, paced) keeps the reveal and its subscribers, and what
+ * already shows stays shown. Steps run only while a row is mounted; a
+ * remount continues where the last mount stopped. A deleted session's
+ * reveals (and fade timelines) are dropped.
  */
-import { useCallback, useLayoutEffect, useSyncExternalStore } from 'react';
-import {
-  type FadeArrival,
-  STREAM_FADE_DURATION_MS,
-  STREAM_FADE_STAGGER_MAX_MS,
-  STREAM_FADE_STAGGER_MS_PER_CHAR,
-} from './markdown-stream-fade';
-import { revealHold } from './stream-reveal-hold';
+import { useCallback, useSyncExternalStore } from 'react';
+import { onSessionPreviewsDeleted } from './image-preview-store';
+import { dropStreamFadeTimelines } from './markdown-stream-fade';
+import { pacedRevealCeiling, pacedRevealStep, revealHold } from './stream-reveal-hold';
+import { transcriptRowNamespace } from './transcript-virtual-cache';
 
-/** Least characters a step reveals. */
+/** Unpaced: least time between two paints of a growing part. */
+export const REVEAL_INTERVAL_MS = 33;
+/** Paced: characters a step reveals. */
 export const REVEAL_STEP_CHARS = 22;
-/** A step reveals at least this share of what waits. */
-export const REVEAL_CATCH_UP_SHARE = 1 / 4;
-/** Least time between steps; also the cadence steps are checked at. */
+/** Paced: a backlog drains in about this long. */
+export const REVEAL_TARGET_LAG_MS = 550;
+/** Paced: shortest and longest time between steps. */
 export const REVEAL_MIN_STEP_MS = 25;
-/** A part's first text longer than this shows in one step. */
-export const REVEAL_JOIN_CHARS = 120;
-/** Rows of a session mounted at least this long before a live row was born:
- *  the session was on screen and watched it arrive (its own first commits,
- *  live row included, land within it). */
-const WATCH_SETTLE_MS = 200;
+export const REVEAL_MAX_STEP_MS = 150;
+/** Paced: a step that waited this long adds the whole excess backlog. */
+export const REVEAL_CATCH_UP_RAMP_MS = 75;
+/** Paced: a first text longer than this shows at once. */
+export const REVEAL_JOIN_CHARS = 400;
+/** Paced: one delivery this large over a backlog this large shows at once. */
+export const REVEAL_REJOIN_CHARS = 600;
+/** The backlog the fastest cadence drains within the target lag. */
+const CATCH_UP_FROM = (REVEAL_TARGET_LAG_MS * REVEAL_STEP_CHARS) / REVEAL_MIN_STEP_MS;
 const REGISTRY_LIMIT = 64;
 /** A character that paints something (not whitespace or a markdown marker). */
 const PAINTING_CHAR = /[^`*_~[\]()<>#|\\!\s]/;
@@ -55,223 +68,302 @@ export function streamingTextPaints(text: string): boolean {
   return PAINTING_CHAR.test(text);
 }
 
-/** How long a step of `chars` characters holds the next one: its stagger. */
-function stepHoldMs(chars: number): number {
-  return Math.max(REVEAL_MIN_STEP_MS, Math.min(STREAM_FADE_STAGGER_MAX_MS, chars * STREAM_FADE_STAGGER_MS_PER_CHAR));
+/** Paced: time between steps while `backlog` characters wait. */
+export function revealStepInterval(backlog: number): number {
+  const interval = (REVEAL_TARGET_LAG_MS * REVEAL_STEP_CHARS) / backlog;
+  return Math.min(REVEAL_MAX_STEP_MS, Math.max(REVEAL_MIN_STEP_MS, interval));
 }
 
-/** Never end inside a surrogate pair. */
-function wholeChar(text: string, at: number): number {
-  return at > 0 && at < text.length && (text.charCodeAt(at) & 0xfc00) === 0xdc00 ? at - 1 : at;
+/** Paced: characters of a step taken `elapsed` ms after the last one while
+ *  `backlog` characters wait. */
+export function revealStepChars(backlog: number, elapsed: number): number {
+  const excess = Math.max(0, backlog - CATCH_UP_FROM);
+  return REVEAL_STEP_CHARS + Math.ceil(excess * Math.min(1, elapsed / REVEAL_CATCH_UP_RAMP_MS));
 }
 
 interface RevealEntry {
+  key: string;
   /** Received text. */
   text: string;
   /** End of what shows. */
   shown: number;
-  /** The reveal never passes this: the hold-back of the received text. */
+  /** What may show: the hold-back of the received text. */
   ceiling: number;
-  /** No step before this. */
+  paced: boolean;
+  /** Unpaced: no paint before this. */
   nextAt: number;
-  /** The latest step, and how long its words fade (0: unfaded). */
-  arrival: FadeArrival;
-  fadeMs: number;
-  /** Bumped on every step: the store version rows subscribe to. */
+  /** Paced: when the last step was taken (or the chain restarted). */
+  steppedAt: number;
+  /** Paced: the backlog drained and the chain stopped. */
+  idle: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+  /** Set on every paint, unique across entries: the store version rows
+   *  subscribe to. */
   version: number;
-  listeners: Set<() => void>;
+  /** The last rewrite of its received text (0: none), unique across
+   *  entries; the word fade starts over on a new one. */
+  revision: number;
 }
 
 const registry = new Map<string, RevealEntry>();
-const active = new Set<RevealEntry>();
-let timer: ReturnType<typeof setTimeout> | null = null;
+/** Mounted rows by key; they outlive the key's entry. */
+const subscribers = new Map<string, Set<() => void>>();
+let versions = 0;
+let revisions = 0;
+
+function subscribed(key: string): boolean {
+  return (subscribers.get(key)?.size ?? 0) > 0;
+}
 
 /** Keeps the registry near REGISTRY_LIMIT by dropping the oldest entries no
- *  row subscribes to and no step waits on: a mounted or still revealing row
- *  keeps its entry, so its subscription never points at a discarded one. */
+ *  row subscribes to. */
 function remember(key: string, entry: RevealEntry): void {
   registry.delete(key);
   registry.set(key, entry);
   for (const [oldKey, old] of registry) {
     if (registry.size <= REGISTRY_LIMIT) break;
-    if (old === entry || old.listeners.size > 0 || active.has(old)) continue;
-    registry.delete(oldKey);
+    if (old === entry || subscribed(oldKey)) continue;
+    forget(oldKey, old);
   }
+}
+
+function forget(key: string, entry: RevealEntry): void {
+  if (entry.timer !== null) clearTimeout(entry.timer);
+  entry.timer = null;
+  registry.delete(key);
 }
 
 function motionReduced(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+function documentHidden(): boolean {
+  return typeof document !== 'undefined' && document.hidden;
+}
+
 function notify(entry: RevealEntry): void {
-  entry.version += 1;
-  for (const listener of [...entry.listeners]) listener();
+  versions += 1;
+  entry.version = versions;
+  for (const listener of [...(subscribers.get(entry.key) ?? [])]) listener();
 }
 
-/** Show up to `end` as one step at `now`. */
-function reveal(entry: RevealEntry, end: number, now: number, fadeMs = STREAM_FADE_DURATION_MS): void {
-  const chars = end - entry.shown;
-  entry.shown = end;
-  entry.arrival = { at: now };
-  entry.fadeMs = fadeMs;
-  entry.nextAt = now + stepHoldMs(chars);
+function wake(entry: RevealEntry, ms: number): void {
+  if (entry.timer !== null) clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => tick(entry), Math.max(0, Math.ceil(ms)));
 }
 
-/** The next step's end: at least the step size, at a point the hold-back
- *  allows, never past the ceiling. */
-function stepEnd(entry: RevealEntry): number {
-  const size = Math.max(REVEAL_STEP_CHARS, Math.ceil((entry.ceiling - entry.shown) * REVEAL_CATCH_UP_SHARE));
-  let cut = entry.shown;
-  let end = entry.shown;
-  while (end <= entry.shown && cut < entry.ceiling) {
-    cut = Math.min(entry.ceiling, cut + size);
-    end = cut >= entry.ceiling ? entry.ceiling : revealHold(entry.text, cut, true);
+function pause(entry: RevealEntry): void {
+  if (entry.timer !== null) clearTimeout(entry.timer);
+  entry.timer = null;
+}
+
+/** A row of `key` mounts: its reveal runs while any is mounted. */
+function subscribe(key: string, listener: () => void): () => void {
+  let rows = subscribers.get(key);
+  if (!rows) {
+    rows = new Set();
+    subscribers.set(key, rows);
   }
-  return wholeChar(entry.text, Math.max(end, entry.shown));
+  rows.add(listener);
+  const entry = registry.get(key);
+  if (rows.size === 1 && entry && entry.timer === null && entry.ceiling > entry.shown) wake(entry, 0);
+  return () => {
+    rows.delete(listener);
+    if (rows.size > 0) return;
+    if (subscribers.get(key) === rows) subscribers.delete(key);
+    const current = registry.get(key);
+    if (current) pause(current);
+  };
 }
 
-function run(): void {
-  timer = null;
-  if (typeof document !== 'undefined' && document.hidden) return;
+// A deleted session's rows never reveal again.
+onSessionPreviewsDeleted((sessionId) => {
+  const prefixes = [...new Set([`${sessionId}:`, `${transcriptRowNamespace(sessionId)}:`])];
+  for (const [key, entry] of registry) {
+    if (prefixes.some((prefix) => key.startsWith(prefix))) forget(key, entry);
+  }
+  dropStreamFadeTimelines(prefixes);
+});
+
+/** Unpaced: show everything that may show. */
+function paint(entry: RevealEntry, now: number): void {
+  entry.shown = entry.ceiling;
+  entry.nextAt = now + REVEAL_INTERVAL_MS;
+}
+
+function tick(entry: RevealEntry): void {
+  entry.timer = null;
+  // No row mounted: the next mount resumes it.
+  if (!subscribed(entry.key)) return;
   const now = performance.now();
-  for (const entry of [...active]) {
-    if (entry.shown >= entry.ceiling) {
-      active.delete(entry);
-      continue;
+  const backlog = entry.ceiling - entry.shown;
+  if (!entry.paced) {
+    if (documentHidden() || backlog <= 0) return;
+    paint(entry, now);
+    notify(entry);
+    return;
+  }
+  if (documentHidden()) {
+    if (entry.shown > 0 && backlog > REVEAL_REJOIN_CHARS) {
+      entry.shown = entry.ceiling;
+      notify(entry);
     }
-    if (now < entry.nextAt) continue;
-    reveal(entry, stepEnd(entry), now);
+    return;
+  }
+  if (backlog <= 0) {
+    entry.steppedAt = now;
+    entry.idle = true;
+    return;
+  }
+  const elapsed = now - entry.steppedAt;
+  const interval = revealStepInterval(backlog);
+  if (elapsed < interval) {
+    wake(entry, interval - elapsed);
+    return;
+  }
+  entry.steppedAt = now;
+  const first = entry.text.search(/\S/);
+  if (first === -1 || first >= entry.ceiling) {
+    entry.idle = true;
+    return;
+  }
+  const end = pacedRevealStep(
+    entry.text,
+    Math.max(entry.shown, first),
+    entry.ceiling,
+    revealStepChars(backlog, elapsed)
+  );
+  if (end > entry.shown) {
+    entry.shown = end;
     notify(entry);
   }
-  schedule();
-}
-
-function schedule(): void {
-  if (timer !== null || active.size === 0) return;
-  timer = setTimeout(run, REVEAL_MIN_STEP_MS);
+  wake(entry, REVEAL_MIN_STEP_MS);
 }
 
 if (typeof document !== 'undefined') {
   // Shown again: what arrived meanwhile shows at once.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
-    for (const entry of [...active]) {
-      if (entry.shown < entry.ceiling) {
-        reveal(entry, entry.ceiling, performance.now(), 0);
+    const now = performance.now();
+    for (const entry of registry.values()) {
+      if (entry.ceiling > entry.shown) {
+        entry.shown = entry.ceiling;
+        entry.nextAt = now + REVEAL_INTERVAL_MS;
         notify(entry);
       }
-      active.delete(entry);
+      if (entry.paced && subscribed(entry.key)) wake(entry, 0);
     }
   });
 }
 
-/** Per session: mounted transcript rows and since when the session shows. */
-const watching = new Map<string, { rows: number; since: number }>();
-
-function watched(scope: string, at: number): boolean {
-  const session = scope ? watching.get(scope) : undefined;
-  return Boolean(session) && at - (session?.since ?? at) >= WATCH_SETTLE_MS;
+/** Paced: a part's first text shows at once when long, else as a step. */
+function firstStep(entry: RevealEntry): void {
+  const first = entry.text.search(/\S/);
+  if (first === -1 || first >= entry.ceiling) return;
+  entry.shown =
+    entry.ceiling > REVEAL_JOIN_CHARS
+      ? entry.ceiling
+      : pacedRevealStep(entry.text, first, entry.ceiling, REVEAL_STEP_CHARS);
 }
 
-function watchScope(scope: string, now: number): () => void {
-  const session = watching.get(scope) ?? { rows: 0, since: now };
-  session.rows += 1;
-  watching.set(scope, session);
-  return () => {
-    session.rows -= 1;
-    if (session.rows <= 0 && watching.get(scope) === session) watching.delete(scope);
-  };
+function commonPrefix(left: string, right: string, limit: number): number {
+  let at = 0;
+  while (at < limit && left.charCodeAt(at) === right.charCodeAt(at)) at += 1;
+  return at;
 }
 
 /** Record `text` received by the live row `key` at `now`. */
-function receive(key: string, scope: string, text: string, now: number): RevealEntry {
-  const ceiling = revealHold(text, text.length, true);
+function receive(key: string, text: string, now: number, paced: boolean): RevealEntry {
+  const ceiling = paced ? pacedRevealCeiling(text) : revealHold(text, text.length, true);
   const known = registry.get(key);
   if (!known) {
+    versions += 1;
     const entry: RevealEntry = {
+      key,
       text,
       shown: 0,
       ceiling,
+      paced,
       nextAt: now,
-      arrival: { at: now },
-      fadeMs: 0,
-      version: 0,
-      listeners: new Set(),
+      steppedAt: now,
+      idle: false,
+      timer: null,
+      version: versions,
+      revision: 0,
     };
     remember(key, entry);
-    if (!watched(scope, now) || motionReduced()) reveal(entry, ceiling, now, 0);
-    else if (ceiling > REVEAL_JOIN_CHARS) reveal(entry, ceiling, now);
-    else if (ceiling > 0) reveal(entry, stepEnd(entry), now);
-  } else if (text !== known.text) {
-    const grew = text.startsWith(known.text.slice(0, known.shown));
-    known.text = text;
-    known.ceiling = grew ? Math.max(ceiling, known.shown) : ceiling;
-    if (!grew || motionReduced()) reveal(known, known.ceiling, now, 0);
-    else if (known.shown === 0 && known.ceiling > 0) reveal(known, stepEnd(known), now);
+    if (!paced) paint(entry, now);
+    else {
+      firstStep(entry);
+      wake(entry, 0);
+    }
+    return entry;
   }
-  const entry = registry.get(key) as RevealEntry;
-  if (entry.shown < entry.ceiling) {
-    active.add(entry);
-    schedule();
+  const modeChanged = known.paced !== paced;
+  if (text === known.text && !modeChanged) return known;
+  if (modeChanged) {
+    // The same reveal goes on in the other mode, from what already shows.
+    known.paced = paced;
+    known.nextAt = now;
+    known.steppedAt = now;
+    known.idle = false;
   }
-  return entry;
-}
-
-interface TranscriptTextReveal {
-  /** What the row paints. */
-  text: string;
-  /** How long the latest step's new words fade (0: unfaded). */
-  fadeMs: number;
-  /** The latest step: its new words fade staggered from their first. */
-  arrival: FadeArrival | null;
+  const growth = text.length - known.text.length;
+  const rewrite = !text.startsWith(known.text.slice(0, known.shown));
+  if (rewrite) {
+    known.shown = commonPrefix(known.text, text, Math.min(known.shown, text.length));
+    revisions += 1;
+    known.revision = revisions;
+  }
+  known.text = text;
+  known.ceiling = Math.max(ceiling, known.shown);
+  if (!paced) {
+    if (rewrite || known.shown === 0 || now >= known.nextAt) paint(known, now);
+    else if (known.shown < known.ceiling && known.timer === null) wake(known, known.nextAt - now);
+    return known;
+  }
+  const backlog = known.ceiling - known.shown;
+  if (known.shown > 0 && backlog > REVEAL_REJOIN_CHARS && growth > REVEAL_REJOIN_CHARS) known.shown = known.ceiling;
+  if (known.shown === 0) firstStep(known);
+  if (known.idle) {
+    known.idle = false;
+    known.steppedAt = now;
+  }
+  wake(known, 0);
+  return known;
 }
 
 /** The painted text of one transcript row. A live assistant part (`key`,
- *  `streaming`) reveals what it received in steps, each fading in; anything
- *  else shows `text` whole. Every transcript row passes its session `scope`:
- *  rows mounted before a live row was born mean the session watched it. */
+ *  `streaming`) shows what it received, paced in steps when `paced`, else
+ *  coalesced; anything else shows `text` whole. `revision` names the last
+ *  rewrite of the painted text (a later one is larger; 0: none known). */
 export function useTranscriptTextReveal({
   key,
-  scope = '',
   text,
   streaming,
+  paced = false,
 }: {
   key: string;
-  scope?: string;
   text: string;
   streaming: boolean;
-}): TranscriptTextReveal {
-  useLayoutEffect(() => (scope ? watchScope(scope, performance.now()) : undefined), [scope]);
+  paced?: boolean;
+}): { text: string; revision: number } {
   const live = Boolean(key) && streaming;
-  const subscribe = useCallback(
-    (listener: () => void) => {
-      const entry = live ? registry.get(key) : undefined;
-      if (!entry) return () => {};
-      entry.listeners.add(listener);
-      return () => entry.listeners.delete(listener);
-    },
-    [key, live]
-  );
+  const subscribeRow = useCallback((listener: () => void) => (live ? subscribe(key, listener) : () => {}), [key, live]);
   const version = useCallback(() => (live ? (registry.get(key)?.version ?? 0) : 0), [key, live]);
-  useSyncExternalStore(subscribe, version, version);
+  useSyncExternalStore(subscribeRow, version, version);
   if (!streaming) {
     const ended = key ? registry.get(key) : undefined;
-    if (ended) {
-      active.delete(ended);
-      registry.delete(key);
-    }
-    return { text, fadeMs: 0, arrival: null };
+    if (!ended) return { text, revision: 0 };
+    forget(key, ended);
+    // The settled text replaces what showed (checked once, as it settles).
+    if (text.startsWith(ended.text.slice(0, ended.shown))) return { text, revision: ended.revision };
+    revisions += 1;
+    return { text, revision: revisions };
   }
-  if (!key) {
-    const cut = revealHold(text, text.length, true);
-    return { text: text.slice(0, cut), fadeMs: 0, arrival: null };
-  }
+  if (!key) return { text: text.slice(0, revealHold(text, text.length, true)), revision: 0 };
   // Recording received text is idempotent per text, so it happens while
-  // rendering: a first step paints in the commit that receives it.
-  const entry = receive(key, scope, text, performance.now());
-  return {
-    text: entry.shown >= text.length ? text : text.slice(0, entry.shown),
-    fadeMs: entry.fadeMs,
-    arrival: entry.arrival,
-  };
+  // rendering: a paint lands in the commit that receives it when it may.
+  const entry = receive(key, text, performance.now(), paced && !motionReduced());
+  return { text: entry.shown >= text.length ? text : text.slice(0, entry.shown), revision: entry.revision };
 }

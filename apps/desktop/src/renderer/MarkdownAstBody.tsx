@@ -1,4 +1,4 @@
-import { createElement, Fragment, memo, type ReactNode, useCallback, useContext, useMemo } from 'react';
+import { createElement, Fragment, memo, type ReactNode, useCallback, useContext, useMemo, useRef } from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
 
@@ -70,12 +70,14 @@ export default memo(function MarkdownAstBody({
     () => (fadeTimeline ? applyStreamFade(body, fadeChunk, fadeTimeline, performance.now()) : null),
     [body, fadeTimeline, fadeChunk]
   );
+  // A body that faded keeps the box components once its timeline is gone, so
+  // settling unwraps its words without remounting its items and rows.
+  const faded = useRef(false);
+  if (shown) faded.current = true;
   const base = markdownComponents(copyControl);
   let components = base;
-  if (shown) {
-    components = { ...base, ...fadeBoxes };
-    for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
-  }
+  if (faded.current) components = { ...base, ...fadeBoxes };
+  if (shown) for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
   return toJsxRuntime((shown?.root ?? body) as never, {
     Fragment,
     jsx,

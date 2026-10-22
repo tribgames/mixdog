@@ -1,5 +1,5 @@
 import { ArrowLeftRight, FoldVertical, GitFork, ListTree, Network, Workflow, X } from 'lucide-react';
-import { memo, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
@@ -23,6 +23,10 @@ import type { QuietProgressParts } from '../../../../src/runtime/shared/quiet-pr
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
+/** A newly published phase is painted once it has lasted this long... */
+const PHASE_SWITCH_DELAY_MS = 150;
+/** ...and the painted one has stood at least this long. */
+const PHASE_MIN_DWELL_MS = 650;
 // The delegation select's labels (model-controls OrchestrationModeSelect).
 const ORCHESTRATION_MODE_LABELS: Record<string, string> = {
   none: 'Solo',
@@ -376,15 +380,68 @@ export function LiveActivity({
   if (submitStartedAt > 0 && (earliest === 0 || submitStartedAt < earliest)) earliest = submitStartedAt;
   if (earliest > 0 && (clockRef.current === 0 || earliest < clockRef.current)) clockRef.current = earliest;
   const startedAt = clockRef.current;
+  const mountedAt = useRef(Date.now());
+  const liveSessionId = String(snapshot.sessionId || '').trim();
+  const liveKey = liveSessionId && turnKey ? liveTurnKey(liveSessionId, turnKey) : '';
+  useLayoutEffect(() => {
+    if (liveKey) liveActivityTurns.add(liveKey);
+  }, [liveKey]);
+  // The entrance belongs to work that starts on screen, once per turn: a
+  // remount of the band (a recycled virtual row, a re-keyed working row)
+  // finds its turn already entered. Once decided, it holds for the mount, so
+  // a later frame never cuts a running entrance.
+  const enterRef = useRef(false);
+  if (
+    !enterRef.current &&
+    startedAt > 0 &&
+    startedAt >= mountedAt.current &&
+    !(liveKey && enteredActivityTurns.has(liveKey))
+  ) {
+    enterRef.current = true;
+  }
+  const animateEnter = enterRef.current;
+  // Every commit of an entered band renews its turn, so a working turn stays
+  // among the most recent ones the bounded record keeps.
+  useLayoutEffect(() => {
+    if (liveKey && (animateEnter || enteredActivityTurns.has(liveKey))) markActivityTurnEntered(liveKey);
+  });
+  // The phase the activity names; '' when it publishes none (between two
+  // phases, before the runtime's first one).
+  let phase = '';
+  if (activity) phase = String(activity.mode || (snapshot.thinking ? 'thinking' : 'responding'));
+  else if (snapshot.thinking) phase = 'thinking';
+  // The painted phase is paced: a newly published phase is painted once it
+  // has lasted PHASE_SWITCH_DELAY_MS and the painted one has stood
+  // PHASE_MIN_DWELL_MS, so a phase one publication long never flashes. While
+  // none is published (between phases, a resume mid-turn) the last painted
+  // phase stays.
+  const phaseRef = useRef({ target: '', targetSince: 0, shown: '', shownAt: 0 });
+  const nowMs = Date.now();
+  const known = phaseRef.current;
+  if (phase && phase !== 'resuming' && phase !== known.target) {
+    known.target = phase;
+    known.targetSince = nowMs;
+  }
+  let switchIn = 0;
+  if (known.target !== known.shown) {
+    const wait = known.shown
+      ? Math.max(PHASE_SWITCH_DELAY_MS - (nowMs - known.targetSince), PHASE_MIN_DWELL_MS - (nowMs - known.shownAt))
+      : 0;
+    if (wait > 0) switchIn = wait;
+    else {
+      known.shown = known.target;
+      known.shownAt = nowMs;
+    }
+  }
+  const [, wake] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    if (switchIn <= 0) return;
+    const timer = setTimeout(wake, switchIn);
+    return () => clearTimeout(timer);
+  });
   // Keep the first timestamp for a turn so thinking/tool/response transitions
   // do not restart the phrase rotation.
   const anchorRef = useRef(0);
-  const mountedAt = useRef(Date.now());
-  const liveSessionId = String(snapshot.sessionId || '').trim();
-  useLayoutEffect(() => {
-    if (!liveSessionId || !turnKey) return;
-    liveActivityTurns.add(liveTurnKey(liveSessionId, turnKey));
-  }, [liveSessionId, turnKey]);
   const logoGradientId = `live-logo-${useId().replace(/:/g, '')}`;
   // Auto replaces the saved level: until the runtime resolves this turn's
   // effort, the saved level must not stand in for it.
@@ -401,19 +458,18 @@ export function LiveActivity({
   // re-renders the band once a second while the turn's clock runs.
   useClock(Boolean(startedAt) && !clockPaused);
   const quiet = useLaneSpinnerQuiet(liveSessionId, asRecord(activity)?.quiet);
-  if (!activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
+  if (!known.shown && !activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
     anchorRef.current = 0;
     return null;
   }
   let fallbackMode = 'responding';
   if (snapshot.thinking) fallbackMode = 'thinking';
   else if (optimisticActivity || !activity) fallbackMode = 'requesting';
-  const mode = String(activity?.mode || fallbackMode);
+  const mode = known.shown || String(activity?.mode || fallbackMode);
   if (mode === 'resuming') {
     anchorRef.current = 0;
     return null;
   }
-  const nowMs = Date.now();
   if (!anchorRef.current || (startedAt > 0 && Math.abs(startedAt - anchorRef.current) > 5_000)) {
     anchorRef.current = startedAt || nowMs;
   }
@@ -487,7 +543,6 @@ export function LiveActivity({
       </span>
     ) : null;
   const reasoning = publicThinkingSummary(snapshot.thinking);
-  const animateEnter = startedAt > 0 && startedAt >= mountedAt.current;
   return (
     <div className="live-activity" data-mode={mode}>
       <div
@@ -562,12 +617,25 @@ function translateStatusDetail(detail: unknown): string {
 // by opening or re-entering a session never had a live band in this view.
 const liveActivityTurns = new Set<string>();
 const completedActivityTurns = new Set<string>();
+/** Turns whose live band already played its entrance in this view, oldest
+ *  first; the ENTERED_ACTIVITY_TURN_LIMIT most recently rendered are kept. */
+const enteredActivityTurns = new Set<string>();
+export const ENTERED_ACTIVITY_TURN_LIMIT = 128;
+
+function markActivityTurnEntered(key: string): void {
+  enteredActivityTurns.delete(key);
+  enteredActivityTurns.add(key);
+  for (const oldest of enteredActivityTurns) {
+    if (enteredActivityTurns.size <= ENTERED_ACTIVITY_TURN_LIMIT) break;
+    enteredActivityTurns.delete(oldest);
+  }
+}
 const liveTurnKey = (sessionId: string, turnKey: string) => `${sessionId}\0${turnKey}`;
 
 // A deleted session's turns never render again: drop its entries.
 onSessionPreviewsDeleted((sessionId) => {
   const prefix = `${sessionId}\0`;
-  for (const turns of [liveActivityTurns, completedActivityTurns]) {
+  for (const turns of [liveActivityTurns, completedActivityTurns, enteredActivityTurns]) {
     for (const key of turns) if (key.startsWith(prefix)) turns.delete(key);
   }
 });

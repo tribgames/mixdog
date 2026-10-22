@@ -462,15 +462,16 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
    Each fade's duration and its delay on the reply timeline (negative when an
    element is re-created mid-fade) are set inline when its element is created.
    A list item fades only its marker (its words fade themselves); table rows,
-   quotes, rules and inline code fade whole with their first word. A wrapper
-   stays after its fade: the ended animation leaves it fully inked. */
+   quotes, rules and inline code fade whole with their first word. Backwards
+   fill keeps a word transparent through its delay; once its fade ended the
+   word is unwrapped. */
 [data-stream-fade],
 [data-stream-fade-box="box"] {
-  animation: markdown-stream-fade var(--mx-fade-ms, 100ms) linear both;
+  animation: markdown-stream-fade var(--mx-fade-ms, 200ms) linear backwards;
   animation-delay: var(--mx-fade-delay, 0ms);
 }
 [data-stream-fade-box="marker"]::marker {
-  animation: markdown-stream-fade-marker var(--mx-fade-ms, 100ms) linear both;
+  animation: markdown-stream-fade-marker var(--mx-fade-ms, 200ms) linear backwards;
   animation-delay: var(--mx-fade-delay, 0ms);
 }
 @keyframes markdown-stream-fade {
