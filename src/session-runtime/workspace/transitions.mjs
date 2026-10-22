@@ -748,8 +748,8 @@ export function createWorkspaceTransitions({
   }
 
   /** The manual prune: clean, merged worktrees no stored or live session retains. */
-  async function pruneWorktrees() {
-    return maintenance.pruneWorktrees(await maintenanceScope());
+  async function pruneWorktrees({ repoCommonDir = null } = {}) {
+    return maintenance.pruneWorktrees({ ...(await maintenanceScope()), repoCommonDir });
   }
 
   /** After `sessionId` was deleted: autoCleanup removes its clean, merged worktree. */

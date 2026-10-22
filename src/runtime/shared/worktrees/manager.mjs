@@ -1373,10 +1373,13 @@ function snapshotInUse(error) {
  * Remove snapshot `entryId` once nothing runs in it (removeManagedWorktree
  * holds its folder); changes made in it only with `force`.
  */
-export async function removeSnapshotWorktree({ entryId, force = false } = {}) {
-  const record = await getRecord(entryId);
-  if (record?.kind !== WORKTREE_SNAPSHOT_KIND) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
-  return removeManagedWorktree({ entryId, force });
+export async function removeSnapshotWorktree({ entryId, force = false, expected = null } = {}) {
+  if (!expected) {
+    const record = await getRecord(entryId);
+    if (record?.kind !== WORKTREE_SNAPSHOT_KIND) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  }
+  // With `expected`, removeManagedWorktree checks identity (kind included) and skips a stale selection.
+  return removeManagedWorktree({ entryId, force, expected });
 }
 
 /**
@@ -1404,7 +1407,13 @@ export async function removeSessionSnapshots(sessionId, { txIds = null } = {}) {
   for (const record of held) {
     const row = { id: record.id, txId: record.txId };
     try {
-      const result = await removeSnapshotWorktree({ entryId: record.id, force: true });
+      const result = await removeSnapshotWorktree({
+        entryId: record.id,
+        force: true,
+        expected: { kind: record.kind, txId: record.txId, holderSessionId: record.holderSessionId },
+      });
+      // Skipped: the record is no longer the snapshot selected above (its slug was reused).
+      if (result.skipped) continue;
       if (result.removed) report.removed.push(record.id);
       else report.kept.push({ ...row, remaining: result.remaining });
     } catch (error) {
@@ -1814,8 +1823,11 @@ export async function assertWorktreeRemovable({ entryId, force = false, sessionI
  * Remove a managed worktree. Refuses dirty (incl. untracked and modified
  * include copies) or unmerged worktrees unless `force`. Retained file recovery
  * data blocks removal regardless of force.
- * @param {{ entryId: string, force?: boolean }} input
- * @returns {Promise<{ removed: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean }>}
+ * `expected` ({ kind, txId, holderSessionId }) pins the record the caller
+ * selected: one that no longer matches under the repository lock (removed,
+ * its slug reused) is left alone and reported `{ removed: false, skipped: true }`.
+ * @param {{ entryId: string, force?: boolean, expected?: { kind?: string, txId?: string, holderSessionId?: string }|null }} input
+ * @returns {Promise<{ removed: boolean, skipped?: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean }>}
  */
 export async function removeManagedWorktree({
   entryId,
@@ -1823,12 +1835,25 @@ export async function removeManagedWorktree({
   sessionId,
   preserveBranch = false,
   safeOnly = false,
+  expected = null,
 } = {}) {
+  const skipped = { removed: false, skipped: true };
+  const matches = (record) =>
+    !expected ||
+    (record.kind === expected.kind &&
+      record.txId === expected.txId &&
+      record.holderSessionId === expected.holderSessionId);
   const record = await getRecord(entryId);
-  if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  if (!record) {
+    if (expected) return skipped;
+    throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  }
   return withRepoLock(record.repoCommonDir, async () => {
     const current = await getRecord(entryId);
-    if (!current) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+    if (!current || !matches(current)) {
+      if (!current && !expected) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+      return skipped;
+    }
     assertNotShared(current, sessionId);
     if (current.state === 'creating' || current.state === 'recovery') {
       const rollback = await rollbackCreation(current);
@@ -1915,12 +1940,14 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
  * session left marked disposable) and whose owner is not live — never one a
  * session in the store still references. A snapshot whose holder is neither
  * live nor running in another process is removed in either mode.
- * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], removeOrphans?: boolean }} input
+ * `repoCommonDir` limits the whole reconcile to that repository.
+ * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], removeOrphans?: boolean, repoCommonDir?: string|null }} input
  */
 export async function reconcileManagedWorktrees({
   liveSessionIds = [],
   retainedSessionIds = [],
   removeOrphans = false,
+  repoCommonDir: onlyRepo = null,
 } = {}) {
   const live = new Set(liveSessionIds);
   const retained = new Set(retainedSessionIds);
@@ -1932,6 +1959,7 @@ export async function reconcileManagedWorktrees({
   const byRepo = new Map();
   for (const record of Object.values((await readRegistry()).entries)) {
     const key = pathKey(record.repoCommonDir);
+    if (onlyRepo && key !== pathKey(onlyRepo)) continue;
     if (!byRepo.has(key)) byRepo.set(key, record.repoCommonDir);
   }
   for (const [key, repoCommonDir] of byRepo) {

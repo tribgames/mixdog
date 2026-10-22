@@ -123,6 +123,44 @@ test('remove, prune and the fixed-location subcommands map or refuse; a worker g
   );
 });
 
+test('git worktree prune validates every argument before any mutation and scopes to the repository', async (t) => {
+  const repo = makeRepo();
+  const commonDir = canonicalPath(join(repo, '.git'));
+  const calls = withHost(t, (request) =>
+    request.op === 'list'
+      ? [
+          { id: 'mine', repoCommonDir: commonDir, path: '/managed/mine', state: 'ready', removable: true },
+          { id: 'theirs', repoCommonDir: join(tempDir(), '.git'), path: '/managed/theirs', state: 'ready', removable: true },
+        ]
+      : { removed: ['mine'], kept: [] }
+  );
+  // Help answers without running anything.
+  for (const command of ['git worktree prune -h', 'git worktree add -h', 'git worktree remove -h', 'git worktree list -h']) {
+    assert.ok(json(await executeGitTool({ command }, repo, asLead)).help, command);
+  }
+  // --help (a manual viewer) is refused by the git tool's policy before it gets here.
+  assert.match(await executeGitTool({ command: 'git worktree prune --help' }, repo, asLead), /^error: /);
+  // Unsupported options and arguments are rejected, not ignored.
+  for (const command of [
+    'git worktree prune --expire=now',
+    'git worktree prune --expire now',
+    'git worktree prune extra',
+    'git worktree prune -n --bogus',
+    'git worktree list --bogus',
+  ]) {
+    assert.match(await executeGitTool({ command }, repo, asLead), /^error: git worktree (prune|list): /, command);
+  }
+  assert.equal(calls.length, 0, 'no host call for help or a rejected command');
+  // The preview names only this repository; the real prune carries the same scope.
+  const preview = json(await executeGitTool({ command: 'git worktree prune -n -v' }, repo, asLead));
+  assert.deepEqual(preview.wouldRemove.map((row) => row.id), ['mine']);
+  assert.ok(calls.every((call) => call.request.op === 'list'));
+  await executeGitTool({ command: 'git worktree prune' }, repo, asLead);
+  assert.deepEqual(calls.at(-1).request, { op: 'prune', repoCommonDir: commonDir });
+  await executeGitTool({ action: 'worktree', worktree_action: 'prune' }, repo, asLead);
+  assert.deepEqual(calls.at(-1).request, { op: 'prune', repoCommonDir: commonDir, txId: 'call-1:prune' });
+});
+
 test('git worktree list shows managed owners and flags unmanaged worktrees; --porcelain stays raw git', async (t) => {
   const repo = makeRepo();
   const external = join(tempDir(), 'external');

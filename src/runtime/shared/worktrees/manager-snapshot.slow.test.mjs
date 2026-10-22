@@ -23,7 +23,7 @@ import {
   removeSnapshotWorktree,
   resolveBranchWorkspace,
 } from './manager.mjs';
-import { cleanupDeletedSessionWorktree } from './maintenance.mjs';
+import { cleanupDeletedSessionWorktree, pruneWorktrees } from './maintenance.mjs';
 import { canonicalPath, isWithin, samePath } from './paths.mjs';
 import { getRecord, putRecord } from './registry.mjs';
 import {
@@ -293,4 +293,65 @@ test('a new branch worktree can start at an explicit commit', async () => {
     resolveBranchWorkspace({ projectPath: repo, branch: 'x', startPoint: first, ...nextIds() }),
     /startPoint needs create/
   );
+});
+
+test('a stale snapshot cleanup never removes the snapshot that replaced it', async () => {
+  const repo = makeRepo();
+  const stale = await snapshot(repo);
+  const staleExpected = { kind: 'snapshot', txId: stale.txId, holderSessionId: stale.sessionId };
+  await removeManagedWorktree({ entryId: stale.entry.id, force: true });
+  // Another turn / session's snapshot now stands where the selected record was.
+  const replacement = await snapshot(repo);
+  const result = await removeSnapshotWorktree({
+    entryId: replacement.entry.id,
+    force: true,
+    expected: staleExpected,
+  });
+  assert.deepEqual(result, { removed: false, skipped: true });
+  assert.equal(existsSync(replacement.entry.path), true);
+  assert.equal((await getRecord(replacement.entry.id)).txId, replacement.txId);
+  // The same call with the replacement's own identity removes it.
+  const own = { kind: 'snapshot', txId: replacement.txId, holderSessionId: replacement.sessionId };
+  assert.equal((await removeSnapshotWorktree({ entryId: replacement.entry.id, force: true, expected: own })).removed, true);
+  // A record already gone is skipped through the snapshot wrapper too, not an error.
+  assert.deepEqual(await removeSnapshotWorktree({ entryId: stale.entry.id, force: true, expected: staleExpected }), {
+    removed: false,
+    skipped: true,
+  });
+  // Without `expected` the wrapper keeps its guard.
+  await assert.rejects(removeSnapshotWorktree({ entryId: stale.entry.id, force: true }), { code: 'WORKTREE_MISSING' });
+});
+
+test('a stale snapshot cleanup skips an entry that is now a branch worktree', async () => {
+  const repo = makeRepo();
+  const stale = await snapshot(repo);
+  const staleExpected = { kind: 'snapshot', txId: stale.txId, holderSessionId: stale.sessionId };
+  const resolved = await resolveBranchWorkspace({ projectPath: repo, branch: 'kept', create: true, ...nextIds() });
+  assert.deepEqual(
+    await removeSnapshotWorktree({ entryId: resolved.entry.id, force: true, expected: staleExpected }),
+    { removed: false, skipped: true }
+  );
+  assert.equal(existsSync(resolved.entry.path), true);
+  assert.equal((await getRecord(resolved.entry.id)).kind, resolved.entry.kind);
+  await assert.rejects(removeSnapshotWorktree({ entryId: resolved.entry.id, force: true }), {
+    code: 'WORKTREE_MISSING',
+  });
+});
+
+test('a prune limited to one repository leaves another repository worktrees alone', async () => {
+  const mine = makeRepo();
+  const other = makeRepo();
+  const mineSnapshot = await snapshot(mine);
+  const otherSnapshot = await snapshot(other);
+  // Both holders are gone, so a global prune would remove both.
+  const report = await pruneWorktrees({
+    listSessionIds: async () => [],
+    repoCommonDir: canonicalPath(join(mine, '.git')),
+  });
+  assert.deepEqual(report.removed, [mineSnapshot.entry.id]);
+  assert.equal(existsSync(mineSnapshot.entry.path), false);
+  assert.equal(existsSync(otherSnapshot.entry.path), true);
+  assert.equal(worktreeCount(other), 2);
+  const everything = await pruneWorktrees({ listSessionIds: async () => [] });
+  assert.deepEqual(everything.removed, [otherSnapshot.entry.id]);
 });

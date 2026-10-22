@@ -399,14 +399,59 @@ async function rawRemove(plan, options) {
   return transitionResult({ mapped: plan.command, path }, result);
 }
 
+/** `git worktree prune` arguments, all validated before anything runs. */
+function parsePruneArgs(args) {
+  let dryRun = false;
+  for (const value of args) {
+    if (value === '-n' || value === '--dry-run') dryRun = true;
+    else if (value === '-v' || value === '--verbose') continue;
+    else if (value.startsWith('-')) {
+      throw new Error(
+        `git worktree prune: option ${value} is not supported (managed prune takes -n/--dry-run and -v/--verbose)`
+      );
+    } else throw new Error(`git worktree prune: unexpected argument ${value}`);
+  }
+  return { dryRun };
+}
+
+/**
+ * The prune and its dry run share one scope: the repository of the command's
+ * directory (every repository outside one), so the preview names exactly what
+ * the real prune may touch.
+ */
 async function rawPrune(plan, options) {
-  const dryRun = plan.args.slice(1).some((value) => value === '-n' || value === '--dry-run');
+  const { dryRun } = parsePruneArgs(plan.args.slice(1));
   const host = leadHost(options, 'git worktree prune');
   if (dryRun) {
     const { worktrees } = await listRows(options, plan.cwd);
     return okJson({ mapped: plan.command, dryRun: true, wouldRemove: worktrees.filter((row) => row.removable) });
   }
-  return okJson({ mapped: plan.command, ...(await runOn(host, { op: 'prune' }, options)) });
+  const repo = await repositoryAt(plan.cwd);
+  return okJson({
+    mapped: plan.command,
+    ...(await runOn(host, { op: 'prune', repoCommonDir: repo?.repoCommonDir ?? null }, options)),
+  });
+}
+
+const WORKTREE_HELP = Object.freeze({
+  add: 'git worktree add [-b <branch>] [--detach] <path> [<commit-ish>]: a managed worktree for the branch (the session stays put), or a read-only snapshot for a detached commit.',
+  remove: 'git worktree remove [-f] <path>: the managed removal of that worktree.',
+  list: 'git worktree list [-v]: managed worktrees plus the repository\'s other worktrees. --porcelain stays raw git.',
+  prune: 'git worktree prune [-n|--dry-run] [-v]: the managed prune of this repository (clean, merged worktrees no session retains); -n only lists what it would remove.',
+});
+
+/** -h/--help before any `--` (the help answers instead of the operation running). */
+function wantsHelp(args) {
+  const end = args.indexOf('--');
+  return (end < 0 ? args : args.slice(0, end)).some((value) => value === '-h' || value === '--help');
+}
+
+/** `git worktree list` takes no managed option beyond -v; the rest is validated, not ignored. */
+function checkListArgs(args) {
+  for (const value of args) {
+    if (value === '-v' || value === '--verbose') continue;
+    throw new Error(`git worktree list: ${value.startsWith('-') ? `option ${value} is not supported` : `unexpected argument ${value}`}`);
+  }
 }
 
 /**
@@ -415,8 +460,12 @@ async function rawPrune(plan, options) {
  */
 export async function executeRawWorktree(plan, input, options = {}) {
   const sub = String(plan.args[0] || '');
+  if (WORKTREE_HELP[sub] && wantsHelp(plan.args.slice(1))) {
+    return { text: okJson({ mapped: plan.command, help: WORKTREE_HELP[sub] }), failed: false };
+  }
   if (sub === 'list' && plan.args.includes('--porcelain')) return null;
   try {
+    if (sub === 'list') checkListArgs(plan.args.slice(1));
     if (sub === 'list') return { text: okJson({ mapped: plan.command, ...(await listRows(options, plan.cwd)) }), failed: false };
     if (sub === 'add') return { text: await rawAdd(plan, input, options), failed: false };
     if (sub === 'remove') return { text: await rawRemove(plan, options), failed: false };
@@ -496,6 +545,7 @@ export async function executeWorktreeAction(input, workDir, options = {}) {
           }
         : {}),
       ...(action === 'remove' ? { force: input.force === true } : {}),
+      ...(action === 'prune' ? { repoCommonDir: (await repositoryAt(resolve(workDir || process.cwd())))?.repoCommonDir ?? null } : {}),
       txId: txIdOf(options, action),
     };
     const result = await runOn(host, request, options);

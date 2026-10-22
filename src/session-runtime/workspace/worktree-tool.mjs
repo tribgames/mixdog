@@ -166,7 +166,7 @@ export function createWorktreeToolHost({
       case 'list':
         return workspaceApi().listWorktrees({ includeSnapshots: true });
       case 'prune':
-        return workspaceApi().pruneWorktrees();
+        return workspaceApi().pruneWorktrees({ repoCommonDir: request.repoCommonDir ?? null });
       case 'add':
         return workspaceApi().addBranchWorktree({
           branch: request.branch,
