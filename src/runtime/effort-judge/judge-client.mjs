@@ -245,6 +245,7 @@ async function repairAfterLoadError(dir) {
       await runInstall();
       // The files are replaced: the next turn loads them without the back-off.
       lastLoadErrorAt = 0;
+      lastLoadError = '';
     });
   } catch (error) {
     process.stderr.write(`[effort-judge] model repair failed: ${error?.message || error}\n`);

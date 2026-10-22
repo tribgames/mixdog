@@ -180,7 +180,7 @@ test('a load error with damaged files drops the stamp, reinstalls and lets the n
   await settle();
   assert.equal(state.verifies, 1);
   assert.deepEqual(state.installs, [dir]);
-  assert.equal(client.effortJudgeLastError(), 'Protobuf parsing failed', 'the reason stays until a load succeeds');
+  assert.equal(client.effortJudgeLastError(), '', 'a completed repair clears the stale load error');
   assert.equal(client.prewarmEffortJudge(), true, 'no 60 s back-off after the files were replaced');
   assert.equal(spawned.length, 2);
   spawned[1].emit('message', { type: 'ready' });
