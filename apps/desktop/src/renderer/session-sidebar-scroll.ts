@@ -8,9 +8,23 @@ import type { OpenMap } from './sidebar-open-state';
 
 export const RECENT_SESSION_INITIAL_ROWS = 24;
 export const RECENT_SESSION_PAGE_ROWS = 32;
-/** How close a session list's end sentinel has to come to the scroller viewport
- *  before the next page is revealed. */
-const RECENT_SENTINEL_REVEAL_MARGIN_PX = 240;
+/** Scroller viewport heights below the viewport at which a session list's end
+ *  sentinel reveals the next page. Revealed only 240px ahead, a fast phone
+ *  fling crossed that band in a few frames and ran into the end of the
+ *  revealed rows before the page committed: the momentum died there and the
+ *  rows appeared under a list at rest (phone: 빠르게 스크롤하고 놓으니 중간에
+ *  멈추고 덜덜). Each revealed page re-checks (useSessionListPaging), so pages
+ *  chain until the end is this far ahead again; rows outside the viewport
+ *  are spacers (session-sidebar-virtual-rows), so the lead costs little. */
+const RECENT_SENTINEL_REVEAL_LEAD_VIEWPORTS = 4;
+/** The lead's floor, for a scroller without a box yet. */
+const RECENT_SENTINEL_REVEAL_MIN_PX = 240;
+
+/** How close a session list's end sentinel has to come to the bottom of a
+ *  scroller viewport this tall before the next page is revealed. */
+function sessionListRevealLead(viewportHeight: number): number {
+  return Math.max(RECENT_SENTINEL_REVEAL_MIN_PX, viewportHeight * RECENT_SENTINEL_REVEAL_LEAD_VIEWPORTS);
+}
 /** A reader's scroll (a finger on the list and the fling after it, or a wheel
  *  burst) is over once this long passes with no finger down and no scroll
  *  event. */
@@ -114,11 +128,8 @@ function useSessionListPaging(
     const scroller = scrollerRef.current;
     const sentinel = sentinelRef.current;
     if (!scroller || !sentinel) return;
-    if (
-      sentinel.getBoundingClientRect().top - scroller.getBoundingClientRect().bottom >
-      RECENT_SENTINEL_REVEAL_MARGIN_PX
-    )
-      return;
+    const viewport = scroller.getBoundingClientRect();
+    if (sentinel.getBoundingClientRect().top - viewport.bottom > sessionListRevealLead(viewport.height)) return;
     revealMore();
   }, [enabled, scrollerRef, sentinelRef, revealMore]);
   // Scrolling pages through the scroller's own scroll handler. No
