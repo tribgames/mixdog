@@ -600,6 +600,10 @@ jobs:
         if: matrix.lane == 'slow'
         shell: bash
         run: npm run test:slow --prefix apps/desktop
+      # Locale catalogs are checked once, here, not during feature work.
+      - name: Check locale catalogs
+        if: matrix.lane == 'slow'
+        run: npm run i18n:check --prefix apps/desktop
       - name: Run the Computer Use suites on Windows
         if: matrix.lane == 'computer'
         shell: bash
