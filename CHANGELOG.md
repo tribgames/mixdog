@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.3.3 - 2026-10-22
+
 Added a 12/24-hour time setting, legacy Office attachments and long-paste folding, with smoother phone scrolling, steadier compaction and broad room and bot fixes.
 
 ### New features

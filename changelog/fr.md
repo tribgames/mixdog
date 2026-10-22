@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.3.3 - 2026-10-22
+
 Ajout d’un paramètre d’heure au format 12/24 heures, des pièces jointes Office aux anciens formats et du repli des longs collages, avec un défilement plus fluide sur téléphone, un compactage plus stable et des correctifs étendus pour les salons et les bots.
 
 ### Nouvelles fonctionnalités

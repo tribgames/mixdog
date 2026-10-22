@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.3.3 - 2026-10-22
+
 Aggiunta l’impostazione del formato orario 12/24 ore, gli allegati Office nei formati precedenti e il raggruppamento per i testi incollati lunghi, con uno scorrimento più fluido su smartphone, una compattazione più stabile e ampie correzioni per stanze e bot.
 
 ### Nuove funzionalità

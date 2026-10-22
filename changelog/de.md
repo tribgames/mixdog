@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.3.3 - 2026-10-22
+
 12/24-Stunden-Zeiteinstellung, ältere Office-Anhänge und das Einklappen langer Einfügungen hinzugefügt, mit flüssigerem Scrollen auf dem Smartphone, stabilerer Kompaktierung sowie umfassenden Fehlerbehebungen für Räume und Bots.
 
 ### Neue Funktionen

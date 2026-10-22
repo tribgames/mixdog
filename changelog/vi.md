@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.3.3 - 2026-10-22
+
 Đã thêm cài đặt định dạng giờ 12/24 giờ, tệp đính kèm Office định dạng cũ và tính năng thu gọn nội dung dán dài, đồng thời cuộn mượt hơn trên điện thoại, nén ổn định hơn cùng các bản sửa lỗi toàn diện cho phòng và bot.
 
 ### Tính năng mới

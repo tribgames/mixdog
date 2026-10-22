@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.3.3 - 2026-10-22
+
 Adicionada a configuração de horário de 12/24 horas, anexos do Office em formatos legados e o recolhimento de colagens longas, com rolagem mais suave no celular, compactação mais estável e amplas correções em salas e bots.
 
 ### Novos recursos

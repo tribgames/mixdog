@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.3.3 - 2026-10-22
+
 Se agregaron el ajuste de formato de hora de 12/24 horas, archivos adjuntos de Office en formatos antiguos y el plegado de textos largos pegados, con un desplazamiento más fluido en teléfonos, una compactación más estable y amplias correcciones en salas y bots.
 
 ### Nuevas funciones
