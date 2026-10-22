@@ -51,3 +51,17 @@ test('generated Windows input host refuses unarmed keyboard and pointer input', 
   assert.match(resultsByName.key.error, /key requires focus_window first/);
   assert.match(resultsByName.click.error, /click requires focus_window first/);
 });
+
+test('MSAA traversal keeps omitted identities alive without retaining them after the snapshot', {
+  skip: process.platform !== 'win32' && 'Windows only',
+  timeout: 200_000,
+}, async () => {
+  const probe = await readFile(new URL('./fixtures/native-msaa-lifetime.ps1', import.meta.url), 'utf8');
+  const payload = await runComputerProbe(probe);
+  assert.equal(payload.visitedLeaves, 1, 'the zero-sized child was traversed');
+  assert.ok(payload.laterBranchChecks > 0, 'GC ran after the omitted child was traversed');
+  assert.equal(payload.keptDuringTraversal, true, 'an omitted COM identity must not be recycled mid-snapshot');
+  assert.deepEqual(payload.names, ['earlier branch', 'later branch', 'live button']);
+  assert.equal(payload.invocations, 1, 'later elements remain actionable');
+  assert.equal(payload.collectedAfterSnapshot, true, 'the visited set must not retain objects across snapshots');
+});
