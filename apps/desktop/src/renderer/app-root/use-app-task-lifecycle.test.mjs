@@ -22,6 +22,7 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   const lastNewTaskPrefs = { current: null };
   const draftPanePrefs = { current: new Map() };
   const openSessionRef = { current: async () => {} };
+  const resetCalls = [];
 
   let focusedSelection = null;
   let harnessSelection = null;
@@ -64,7 +65,7 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
       lastNewTaskPrefs,
       effectiveDraftProjectPath: (p) => p || '/default',
       preferredDraftProjectPath: '/preferred',
-      resetNewTaskDraft: () => {},
+      resetNewTaskDraft: (...args) => resetCalls.push(args),
       draftPanePrefs,
       inheritedDraftPrefs: () => ({
         projectPath: '/default',
@@ -123,6 +124,16 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   assert.equal(navigationEpoch.current, epochBefore + 1);
   assert.equal(hookResult.selection.kind, 'new');
   assert.equal(hookResult.activateSelection, activateSelection);
+
+  // 3b. startProjectlessTask opens a fresh draft with No project, even from a draft
+  resetCalls.length = 0;
+  const draftBefore = harnessSelectionRef.current;
+  await act(async () => {
+    hookResult.startProjectlessTask();
+  });
+  assert.equal(hookResult.selection.kind, 'new');
+  assert.notEqual(harnessSelectionRef.current, draftBefore);
+  assert.deepEqual(resetCalls, [[null, { projectless: true }]]);
 
   // 4. clearSessionToNewTask creates draft seeded from session
   await act(async () => {

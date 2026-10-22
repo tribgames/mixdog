@@ -128,7 +128,7 @@ export function useDraftPanePreferences({
     }
   }, []);
   const rememberDraftPanePrefs = useCallback(
-    (patch: Partial<DraftPanePrefs>) => {
+    (patch: Partial<DraftPanePrefs>, seedNextTask = true) => {
       const draftKey = focusedDraftKey(selectionRef.current);
       if (!draftKey) return;
       // A first-touch entry stays null-valued (inherit live): only the fields
@@ -137,7 +137,7 @@ export function useDraftPanePreferences({
       // Refresh insertion order so the persistence cap drops the oldest drafts.
       draftPanePrefs.current.delete(draftKey);
       draftPanePrefs.current.set(draftKey, { ...entry, ...patch });
-      lastNewTaskPrefs.current = stagedLastNewTaskPrefs(lastNewTaskPrefs.current, patch);
+      if (seedNextTask) lastNewTaskPrefs.current = stagedLastNewTaskPrefs(lastNewTaskPrefs.current, patch);
       persistDraftPanePrefs();
       repaintDrafts();
     },
@@ -234,7 +234,16 @@ export function useDraftPanePreferences({
     [persistDraftPanePrefs, repaintDrafts, selectionRef, setNewTaskModelSelection, setNewTaskWorkflow]
   );
   const resetNewTaskDraft = useCallback(
-    (projectPath: string | null) => {
+    (projectPath: string | null, options: { projectless?: boolean } = {}) => {
+      // projectless (Ctrl+Alt+N): this draft alone is "No project"; the next
+      // task's seed (lastNewTaskPrefs) keeps the previous project.
+      if (options.projectless) {
+        setNewTaskProjectPath('');
+        setNewTaskDeferred(true);
+        rememberDraftPanePrefs({ projectPath: '' }, false);
+        paintFocusedDraft(inheritedDraftPrefs(), { projectPath: false });
+        return;
+      }
       // null: nothing explicit to restore, so the project INHERITS as well —
       // opening New task before the relay catalog lands must not freeze an empty
       // choice into the entry.
@@ -246,7 +255,7 @@ export function useDraftPanePreferences({
       // user explicitly diverges this pane.
       paintFocusedDraft(inheritedDraftPrefs(), { projectPath: projectPath === null });
     },
-    [inheritedDraftPrefs, paintFocusedDraft, stageNewTaskProject]
+    [inheritedDraftPrefs, paintFocusedDraft, rememberDraftPanePrefs, setNewTaskProjectPath, stageNewTaskProject]
   );
   // Focused-draft switch: restore THAT draft's staged prefs into the working
   // singletons (or seed a first-seen draft from the inherited values), so

@@ -73,6 +73,7 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     'Project',
     [
       ['Ctrl+N', 'New task'],
+      ['Ctrl+Alt+N', 'New task without a project'],
       ['Ctrl+P', 'Quick Open'],
       ['Ctrl+Shift+P / Ctrl+K / Ctrl+/', 'Command Palette'],
       ['Ctrl+F', 'Search sessions (no tab open)'],

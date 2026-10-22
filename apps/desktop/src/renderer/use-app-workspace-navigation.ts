@@ -17,6 +17,7 @@ export function useAppWorkspaceNavigation({
   focusSiblingPane,
   focusVerticalPane,
   startTask,
+  startProjectlessTask,
   openSettings,
   toggleSidebar,
   toggleDock,
@@ -34,6 +35,7 @@ export function useAppWorkspaceNavigation({
   focusSiblingPane(offset: number): void;
   focusVerticalPane(direction: 'up' | 'down'): void;
   startTask(): void;
+  startProjectlessTask(): void;
   openSettings(): void;
   toggleSidebar(): void;
   toggleDock(): void;
@@ -128,6 +130,7 @@ export function useAppWorkspaceNavigation({
     focusSiblingPane,
     focusVerticalPane,
     startTask,
+    startProjectlessTask,
     openSettings,
     toggleSidebar,
     toggleDock,

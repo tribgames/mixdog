@@ -27,6 +27,7 @@ export interface UseAppWorkbenchNavigationHubOptions {
   focusPaneTypingSurface: ReturnType<typeof usePaneTabNavigation>['focusPaneTypingSurface'];
   activatePaneSurface: ReturnType<typeof useAppPaneChrome>['activatePaneSurface'];
   startTask: ReturnType<typeof useAppTaskLifecycle>['startTask'];
+  startProjectlessTask: ReturnType<typeof useAppTaskLifecycle>['startProjectlessTask'];
   openSettings: ReturnType<typeof useAppSettingsRouter>['openSettings'];
   toggleSidebar: () => void;
   toggleDock: (leafId?: string) => void;
@@ -57,6 +58,7 @@ export function useAppWorkbenchNavigationHub({
   focusPaneTypingSurface,
   activatePaneSurface,
   startTask,
+  startProjectlessTask,
   openSettings,
   toggleSidebar,
   toggleDock,
@@ -109,6 +111,7 @@ export function useAppWorkbenchNavigationHub({
     focusSiblingPane,
     focusVerticalPane,
     startTask,
+    startProjectlessTask,
     openSettings,
     toggleSidebar,
     toggleDock,
@@ -153,6 +156,7 @@ export function useAppWorkbenchNavigationHub({
     toggleDock,
     openTerminalTab,
     startTask,
+    startProjectlessTask,
     openStudioTab,
     openSettings,
   });

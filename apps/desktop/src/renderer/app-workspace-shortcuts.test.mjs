@@ -287,3 +287,60 @@ test('Alt+Left/Right walks history everywhere except the browser page and termin
   assert.equal(await press(browser, 'ArrowLeft'), false);
   assert.deepEqual(calls, ['back', 'forward']);
 });
+
+test('Ctrl+Alt+N starts a task without a project; Ctrl+N is unchanged; AltGr is not claimed', async (t) => {
+  const host = document.createElement('main');
+  const plain = document.createElement('textarea');
+  document.body.append(host, plain);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    plain.remove();
+  });
+  const calls = [];
+  const noop = () => {};
+  await act(async () => {
+    root.render(
+      React.createElement(Harness, {
+        actions: {
+          tabs: [],
+          activeTabKey: '',
+          navigateTab: noop,
+          startTask: () => calls.push('start'),
+          startProjectlessTask: () => calls.push('projectless'),
+          openSettings: noop,
+          toggleSidebar: noop,
+          toggleDock: noop,
+          togglePanel: noop,
+          openQuickAccess: noop,
+          openCommandPalette: noop,
+          openFindInFiles: noop,
+          openTabSwitcher: noop,
+          focusSiblingPane: noop,
+          focusVerticalPane: noop,
+          navigateBack: noop,
+          navigateForward: noop,
+        },
+      })
+    );
+  });
+  const press = async (init, altGraph = false) => {
+    const event = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    if (altGraph) event.getModifierState = (name) => name === 'AltGraph';
+    await act(async () => {
+      plain.dispatchEvent(event);
+    });
+    return event.defaultPrevented;
+  };
+  assert.equal(await press({ key: 'n', code: 'KeyN', ctrlKey: true }), true);
+  assert.equal(await press({ key: 'n', code: 'KeyN', ctrlKey: true, altKey: true }), true);
+  // macOS: Option+N is a dead key, so only the physical code identifies it.
+  assert.equal(await press({ key: 'Dead', code: 'KeyN', metaKey: true, altKey: true }), true);
+  assert.deepEqual(calls, ['start', 'projectless', 'projectless']);
+
+  calls.length = 0;
+  assert.equal(await press({ key: 'ń', code: 'KeyN', ctrlKey: true, altKey: true }, true), false);
+  assert.equal(await press({ key: 'N', code: 'KeyN', ctrlKey: true, altKey: true, shiftKey: true }), false);
+  assert.deepEqual(calls, []);
+});

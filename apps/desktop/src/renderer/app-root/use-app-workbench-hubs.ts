@@ -41,7 +41,7 @@ export function useAppWorkbenchHubs(
     setSelection,
     requestedSessionId,
   } = nav;
-  const { tabs, startTask, activateSelection } = lifecycle.taskLifecycle;
+  const { tabs, startTask, startProjectlessTask, activateSelection } = lifecycle.taskLifecycle;
   const { startProject, openSettings, renameSession } = commands;
   const { sessionTitle, activeTabKey, toolProjectPath, workbenchWorkspace } = context;
   const {
@@ -100,6 +100,7 @@ export function useAppWorkbenchHubs(
       focusPaneTypingSurface,
       activatePaneSurface,
       startTask,
+      startProjectlessTask,
       openSettings,
       setQuickAccessMode,
       navigateEditorHistory,

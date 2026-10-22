@@ -55,7 +55,7 @@ export interface UseAppTaskLifecycleOptions {
   lastNewTaskPrefs: React.MutableRefObject<DraftPanePrefs | null>;
   effectiveDraftProjectPath: (path?: string | null) => string;
   preferredDraftProjectPath: string;
-  resetNewTaskDraft: (projectPath: string | null) => void;
+  resetNewTaskDraft: (projectPath: string | null, options?: { projectless?: boolean }) => void;
   draftPanePrefs: React.MutableRefObject<Map<string, DraftPanePrefs>>;
   inheritedDraftPrefs: () => DraftPanePrefs;
   persistDraftPanePrefs: () => void;
@@ -201,7 +201,7 @@ export function useAppTaskLifecycle({
   }, [pendingConversationHandoff, setConversationHandoff]);
 
   const startTask = useCallback(
-    (draft?: NavigationSelection, requestComposerFocus = true) => {
+    (draft?: NavigationSelection, requestComposerFocus = true, projectless = false) => {
       closeSidebarForNavigation();
       navigationEpoch.current += 1;
       setRequestedSessionId('');
@@ -211,6 +211,10 @@ export function useAppTaskLifecycle({
       const nextSelection = revisit && draft ? draft : newDraftSelection();
       activateSelection(nextSelection, t('New task'));
       if (requestComposerFocus) setComposerFocusRequest((value) => value + 1);
+      if (projectless) {
+        resetNewTaskDraft(null, { projectless: true });
+        return;
+      }
       if (revisit || alreadyActive) return;
       if (newTaskDeferred && tabs.some((tab) => tab.selection.kind === 'new')) return;
       const cachedProjectPath = lastNewTaskPrefs.current?.projectPath ?? null;
@@ -236,6 +240,8 @@ export function useAppTaskLifecycle({
       tabs,
     ]
   );
+
+  const startProjectlessTask = useCallback(() => startTask(undefined, true, true), [startTask]);
 
   const clearSessionToNewTask = useCallback(
     (sessionId: string) => {
@@ -389,6 +395,7 @@ export function useAppTaskLifecycle({
     activateSelection,
     finishPendingConversationHandoff,
     startTask,
+    startProjectlessTask,
     clearSessionToNewTask,
     synchronizeActualHost,
     conversationNewTask,

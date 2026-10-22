@@ -3,7 +3,7 @@
 // instead of swallowing them;
 // user: 단축키는 우리 걸로 다 인터셉트해서 먼저 처리). Only an open modal
 // outranks the table. User-tuned bindings:
-// mod+N new task · ctrl+Tab MRU switcher · ctrl+PageUp/PageDown cycle ·
+// mod+N new task · mod+alt+N new task without a project · ctrl+Tab MRU switcher · ctrl+PageUp/PageDown cycle ·
 // mod+Left/Right tab traversal, crossing pane boundaries in visual order ·
 // mod+Up/Down focus the pane directly above/below (both pairs stay with a
 // focused code editor: word jumps and line scrolling are editing keys) ·
@@ -29,6 +29,8 @@ interface WorkspaceShortcutActions {
   activeTabKey: string;
   navigateTab: (tab: WorkspaceTab) => void;
   startTask: () => void;
+  /** Ctrl+Alt+N: a new task with No project (this draft only). */
+  startProjectlessTask: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;
   toggleDock: () => void;
@@ -130,6 +132,16 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       if (key === 'b' && plain) return () => actionsRef.current.toggleDock();
       if (key === 'b' && event.shiftKey && !event.altKey) {
         return () => actionsRef.current.toggleSidebar();
+      }
+      // Ctrl+Alt+N = new task with no project. Where Ctrl+Alt is AltGr the key
+      // types a character (Polish ń), so that layout keeps it.
+      if (
+        event.altKey &&
+        !event.shiftKey &&
+        (event.code === 'KeyN' || key === 'n') &&
+        !event.getModifierState?.('AltGraph')
+      ) {
+        return () => actionsRef.current.startProjectlessTask();
       }
       if (!plain) return null;
       if (key === 'n') return () => actionsRef.current.startTask();

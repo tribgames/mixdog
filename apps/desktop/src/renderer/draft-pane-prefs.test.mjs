@@ -328,3 +328,20 @@ test('an explicit model choice replaces the next-task model', async (t) => {
   );
   assert.equal(drafts.api().lastNewTaskPrefs.current.modelSelection.model, 'sol');
 });
+
+test('a projectless new task is No project for that draft only and leaves the next-task seed alone', async (t) => {
+  window.localStorage.clear();
+  const drafts = await mountDrafts(PROJECT);
+  t.after(() => drafts.unmount());
+  await act(async () => drafts.api().stageNewTaskProject('C:/Project/other'));
+  assert.equal(drafts.api().lastNewTaskPrefs.current.projectPath, 'C:/Project/other');
+
+  await act(async () => drafts.api().resetNewTaskDraft(null, { projectless: true }));
+  assert.equal(drafts.project(), '');
+  assert.equal(drafts.api().newTaskProjectPath, '');
+  assert.equal(drafts.api().lastNewTaskPrefs.current.projectPath, 'C:/Project/other');
+  assert.equal(
+    JSON.parse(window.localStorage.getItem('mixdog.desktop-last-new-task-prefs.v2')).projectPath,
+    'C:/Project/other'
+  );
+});

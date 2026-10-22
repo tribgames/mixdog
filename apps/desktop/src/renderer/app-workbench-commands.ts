@@ -57,6 +57,7 @@ export function buildAppWorkbenchCommands({
   toggleDock,
   openTerminalTab,
   startTask,
+  startProjectlessTask,
   openStudioTab,
   openSettings,
 }: {
@@ -77,6 +78,7 @@ export function buildAppWorkbenchCommands({
   toggleDock(): void;
   openTerminalTab(): void;
   startTask(): void;
+  startProjectlessTask(): void;
   openStudioTab(): void;
   openSettings(): void;
 }): WorkbenchCommand[] {
@@ -387,6 +389,13 @@ export function buildAppWorkbenchCommands({
       label: 'New Task',
       shortcut: 'Ctrl+N',
       run: () => startTask(),
+    },
+    {
+      id: 'mixdog.action.newTaskWithoutProject',
+      category: 'Task',
+      label: 'New task without a project',
+      shortcut: 'Ctrl+Alt+N',
+      run: () => startProjectlessTask(),
     },
     {
       id: 'mixdog.action.newStudio',
