@@ -48,13 +48,6 @@ type TranscriptListProps = {
   onSelectionAutoScroll(delta: number): void;
   /** Who paints the rows: an agent chat's rows learn their heights apart. */
   surface?: TranscriptRowSurface;
-  /** The follow hook's pause: on an agent or room surface, a reply taller
-   *  than the viewport that arrived whole opens at its first line, and follow
-   *  lets go there. A coding transcript never takes it: its replies stream,
-   *  and a burst of one (a provider lump, the reveal catching up) is still
-   *  the followed tail — letting go there released auto-scroll with no
-   *  reader input. Without it the end pin always keeps the end. */
-  pauseFollow?: () => void;
 };
 
 /**
@@ -81,12 +74,9 @@ export function TranscriptList({
   touchHoldsCorrections = noTouchScroll,
   onSelectionAutoScroll,
   surface = 'coding',
-  pauseFollow,
 }: TranscriptListProps) {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
-  const pauseFollowRef = useRef(pauseFollow);
-  pauseFollowRef.current = surface === 'coding' ? undefined : pauseFollow;
   const spacer = useRef<HTMLDivElement>(null);
   // The viewport's scrollTop as last observed in a scroll event or written by
   // this list: every other consumer reads this instead of the DOM.
@@ -159,9 +149,7 @@ export function TranscriptList({
     flushDeferredResizes,
     scheduleResizeFlush,
   } = useDeferredResizes({ rowsRef, hasScrollGestureRef, virtualizerRef, visibleTop });
-  const { contentHeight, maxScrollTop, endPin, wholeReply } = useTranscriptEndPin({
-    rowsRef,
-    pauseFollowRef,
+  const { contentHeight, maxScrollTop, endPin } = useTranscriptEndPin({
     viewport,
     spacer,
     scrollInset,
@@ -233,7 +221,6 @@ export function TranscriptList({
     virtualizerRef,
     anchorOverride,
     settleHeldShrinks,
-    onFollowReleased: wholeReply.release,
   });
   useSelectionDrag({ viewport, sessionKey, rowsRef, setSelectionPin, onSelectionAutoScroll });
 

@@ -43,10 +43,7 @@ export function useTranscriptHandles({
   virtualizerRef,
   anchorOverride,
   settleHeldShrinks,
-  onFollowReleased,
 }: {
-  /** Follow let go (reader or pause): rows that land meanwhile are theirs. */
-  onFollowReleased?: () => void;
   endPin: ReturnType<typeof createTranscriptEndPin>;
   scrollToEndRef: MutableRefObject<(behavior?: ScrollBehavior) => void>;
   setAnchorBottomRef?: MutableRefObject<(bottom: boolean) => void>;
@@ -86,10 +83,7 @@ export function useTranscriptHandles({
       }
       // A slot held for the followed tail is the reader's geometry now: its
       // real size lands in this same task, not at the next render.
-      if (!bottom) {
-        settleHeldShrinks();
-        onFollowReleased?.();
-      }
+      if (!bottom) settleHeldShrinks();
     };
     setAnchorBottomRef.current = setAnchorBottom;
     return () => {
@@ -97,7 +91,7 @@ export function useTranscriptHandles({
         setAnchorBottomRef.current = () => {};
       }
     };
-  }, [setAnchorBottomRef, anchorOverride, virtualizerRef, settleHeldShrinks, onFollowReleased]);
+  }, [setAnchorBottomRef, anchorOverride, virtualizerRef, settleHeldShrinks]);
 }
 
 /** Chromium owns the drag range; transcript-selection-drag.ts only pins the

@@ -138,7 +138,6 @@ async function mountChat({ surface }) {
       shouldAnchorBottom: follow.following,
       scrollToEndRef,
       setAnchorBottomRef,
-      pauseFollow: follow.pause,
       renderRow: (row) => (heights.get(row.key) ? React.createElement('div', null, row.key) : null),
       markProgrammaticScroll: follow.markProgrammaticScroll,
       hasScrollGesture: follow.hasScrollGesture,
@@ -225,6 +224,51 @@ for (const surface of ['agent', 'room', 'coding']) {
   });
 }
 
+// A reply taller than the viewport that lands whole is the followed tail on
+// every surface: the end stays pinned and follow stays armed, as in a
+// messenger. Only a reader who scrolled away is left where they are.
+for (const surface of ['agent', 'room', 'coding']) {
+  test(`${surface}: a reply taller than the viewport landing whole keeps the end pinned`, async () => {
+    const chat = await mountChat({ surface });
+    try {
+      await chat.render([...history, prompt, typing], { [typing.key]: 62 });
+      await chat.render([...history, prompt, reply], { [reply.key]: 1200 });
+      assert.equal(chat.top(), chat.maxTop(), 'the whole reply is followed to its end');
+      assert.equal(chat.following(), true, 'follow stays armed');
+      await chat.render([...history, prompt, reply], { [reply.key]: 1500 });
+      assert.equal(chat.top(), chat.maxTop(), 'its later growth is followed');
+      assert.equal(chat.following(), true);
+    } finally {
+      await chat.cleanup();
+    }
+  });
+
+  test(`${surface}: rows restored on entry open at the end and nothing moves the reader after`, async () => {
+    const chat = await mountChat({ surface });
+    try {
+      await chat.render([...history, prompt, reply], { [reply.key]: 1200 });
+      assert.equal(chat.top(), chat.maxTop(), 'opens at the end');
+      assert.equal(chat.following(), true);
+    } finally {
+      await chat.cleanup();
+    }
+  });
+
+  test(`${surface}: a reader scrolled up is not moved by a whole tall reply`, async () => {
+    const chat = await mountChat({ surface });
+    try {
+      await chat.render([...history, prompt]);
+      await chat.scrollUp(200);
+      assert.equal(chat.following(), false);
+      await chat.render([...history, prompt, reply], { [reply.key]: 1200 });
+      assert.equal(chat.top(), 200, 'the reader stays');
+      assert.equal(chat.following(), false);
+    } finally {
+      await chat.cleanup();
+    }
+  });
+}
+
 for (const surface of ['agent', 'room']) {
   test(`${surface}: an unfinished reply hidden behind the typing bubble, then shown whole, stays pinned`, async () => {
     const chat = await mountChat({ surface });
@@ -246,8 +290,7 @@ for (const surface of ['agent', 'room']) {
 
 // A bot's reply that settles in steps while the reader is at the bottom (its
 // markdown parses, an image decodes) is followed to its end like a session's
-// streamed answer; only a reply that lands tall in ONE step opens at its first
-// line (transcript-whole-reply-anchor.test.mjs).
+// streamed answer, and so is one that lands tall in ONE step.
 for (const surface of ['agent', 'room', 'coding']) {
   test(`${surface}: a reply growing past the viewport in steps stays followed at the bottom`, async () => {
     const chat = await mountChat({ surface });

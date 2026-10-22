@@ -268,7 +268,6 @@ export function ConversationTranscript({
                 scrollToEndRef={view.scrollToEndRef}
                 renderRow={renderRow}
                 surface={agentMode ? agentSurface : 'coding'}
-                pauseFollow={follow.pause}
               />
             )}
           </TranscriptRowContexts>

@@ -12,8 +12,6 @@ export function createTranscriptEndPin({
   hasReaderGesture,
   markProgrammaticScroll,
   dropDeviation,
-  takeArrival,
-  onArrival,
 }: {
   getVirtualizer(): Virtualizer<HTMLDivElement, HTMLDivElement>;
   getViewport(): HTMLDivElement | null;
@@ -26,12 +24,6 @@ export function createTranscriptEndPin({
   /** The end is a native offset: a row offset held from a touch scroll ends
    *  with this write. */
   dropDeviation?(): void;
-  /** Where the pin lands instead of `max` (a long reply that arrived whole:
-   *  its first line), or null for the end. */
-  takeArrival?(max: number): number | null;
-  /** Called in the same task after a pin landed on `takeArrival`'s offset:
-   *  follow lets go there. */
-  onArrival?(): void;
 }) {
   let queued = false;
   let generation = 0;
@@ -65,9 +57,7 @@ export function createTranscriptEndPin({
         if (spacer) spacer.style.height = `${instance.getTotalSize()}px`;
         // Reading scrollHeight right after that write forced a synchronous
         // layout of the whole list; the virtual geometry already knows it.
-        const max = getMaxScrollTop();
-        const arrival = takeArrival?.(max) ?? null;
-        const target = arrival ?? max;
+        const target = getMaxScrollTop();
         // Cancel stale core compensation as well as its pending native timer:
         // this write already includes every measured delta in the commit.
         const core = instance as unknown as {
@@ -86,7 +76,7 @@ export function createTranscriptEndPin({
         core.scrollAdjustments = 0;
         // A replacement can briefly shrink the spacer and Chromium clamps
         // scrollTop before delivering its scroll event. The cached offset
-        // still equals `max` then: skipping the write loses the tail. Read the
+        // still equals the target then: skipping the write loses the tail. Read the
         // actual offset once per coalesced pin, after committing the spacer.
         const diagnose = transcriptScrollDiagnosticsEnabled();
         dropDeviation?.();
@@ -105,7 +95,6 @@ export function createTranscriptEndPin({
           });
         }
         markProgrammaticScroll(landed, target);
-        if (arrival !== null) onArrival?.();
       });
     },
     cancel() {
