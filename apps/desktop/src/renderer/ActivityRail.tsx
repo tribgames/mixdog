@@ -4,7 +4,7 @@
 // Usage and Settings live at the rail foot.
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type React from 'react';
-import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopUpdaterState } from '../shared/contract';
 import {
@@ -172,6 +172,22 @@ export const ActivityRail = memo(function ActivityRail({
     wheelPixels.current = 0;
     usagePinScroll.step(direction);
   };
+  // A step control leaves when its end is reached; focus held on it moves to
+  // the opposite control (which that very step just made available) so
+  // keyboard stepping does not drop to the page.
+  const focusedStep = useRef<1 | -1 | null>(null);
+  const stepFromControl = (direction: 1 | -1, event: React.MouseEvent<HTMLButtonElement>) => {
+    focusedStep.current = document.activeElement === event.currentTarget ? direction : null;
+    usagePinScroll.step(direction);
+  };
+  useLayoutEffect(() => {
+    const direction = focusedStep.current;
+    if (direction === null) return;
+    focusedStep.current = null;
+    const rail = railRef.current;
+    if (rail?.querySelector(`[data-rail-step="${direction}"]`)) return;
+    rail?.querySelector<HTMLButtonElement>(`[data-rail-step="${-direction}"]`)?.focus();
+  });
   // Anchor the flyout's bottom edge to the Usage button itself, measured at
   // open time (static offsets drifted a few px from the real rail layout).
   const [usageAnchorBottom, setUsageAnchorBottom] = useState(48);
@@ -268,7 +284,7 @@ export const ActivityRail = memo(function ActivityRail({
             className="rail-usage-pin-step"
             aria-label={t('Show earlier slots')}
             data-rail-step="-1"
-            onClick={() => usagePinScroll.step(-1)}
+            onClick={(event) => stepFromControl(-1, event)}
           >
             <ChevronUp size={8} aria-hidden="true" />
           </button>
@@ -316,7 +332,7 @@ export const ActivityRail = memo(function ActivityRail({
             className="rail-usage-pin-step"
             aria-label={t('Show more slots')}
             data-rail-step="1"
-            onClick={() => usagePinScroll.step(1)}
+            onClick={(event) => stepFromControl(1, event)}
           >
             <ChevronDown size={8} aria-hidden="true" />
           </button>

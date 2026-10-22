@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { ActivityRail } from './ActivityRail.tsx';
+import i18next from './i18n.ts';
 import { SidebarUsage } from './SidebarUsage.tsx';
 import { peekQuotaFocus, clearQuotaFocus } from './usage-surface-mode.ts';
 import { press } from './test-support/pointer-press.mjs';
@@ -369,6 +370,52 @@ test('rail: expanded accounts get their own slot with an index badge, the slot l
   assert.deepEqual(pinKeys(), ['claude:d', 'claude:z', 'opencode-go-oauth']);
   assert.equal(step(1), null);
   assert.equal(settings.usageRailSlotsThree, true);
+});
+
+test('rail: scrolling without a data change does not rebuild entries or tooltips', async (t) => {
+  await mountRail(t, {
+    stored: { usageAccountsExpanded: true, usageRailSlotsThree: true, usageRailSlotsAll: false },
+  });
+  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-mark'));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+  // Tooltips name each window ('weekly'): every entry built formats them.
+  const original = i18next.t;
+  let weekly = 0;
+  i18next.t = function counted(key, ...rest) {
+    if (key === 'weekly') weekly += 1;
+    return original.call(this, key, ...rest);
+  };
+  t.after(() => {
+    i18next.t = original;
+  });
+  const before = pinKeys();
+  await press(step(1));
+  await press(step(1));
+  assert.notDeepEqual(pinKeys(), before);
+  assert.equal(weekly, 0);
+});
+
+test('rail: keyboard stepping to either end keeps focus on a mounted step control', async (t) => {
+  await mountRail(t, {
+    stored: { usageAccountsExpanded: true, usageRailSlotsThree: true, usageRailSlotsAll: false },
+  });
+  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-mark'));
+  // Five slots, three visible: two steps reach the end.
+  step(1).focus();
+  while (step(1)) {
+    assert.equal(document.activeElement, step(1));
+    await act(async () => step(1).click());
+  }
+  assert.deepEqual(pinKeys(), ['claude:d', 'claude:z', 'opencode-go-oauth']);
+  assert.ok(step(-1));
+  assert.equal(document.activeElement, step(-1));
+  // And back to the start: the earlier control leaves, focus moves to more.
+  while (step(-1)) {
+    assert.equal(document.activeElement, step(-1));
+    await act(async () => step(-1).click());
+  }
+  assert.deepEqual(pinKeys(), ['codex', 'claude:p', 'claude:d']);
+  assert.equal(document.activeElement, step(1));
 });
 
 const wheel = (init) =>

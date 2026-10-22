@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { usagePinVisibleCount } from './rail-usage-pin-room';
@@ -19,6 +19,9 @@ import { subscribeSetupChanges } from './setup-change-refresh';
 
 const USAGE_RAIL_PIN_KEY = 'mixdog.desktop.usage-rail-pin.v1';
 const USAGE_RAIL_PREFS_KEY = 'mixdog.desktop.usage-rail-prefs.v2';
+
+// A stable empty list, so memoized rows do not change identity while unpinned.
+const NO_ENTRIES: ReturnType<typeof usagePinEntries> = [];
 
 type RailPrefs = { pinned: boolean; bars: UsageRailBars; expanded: boolean; slots: UsageRailSlots };
 
@@ -214,7 +217,13 @@ export function useUsageRailPin(
   };
   // Computed from the cached snapshot in the first render: the stack's space is
   // reserved from the start, and live data only updates the figures.
-  const real = usagePinned ? usagePinEntries(snapshot.dashboard, railBars) : [];
+  // Entries, windows and tooltips are rebuilt only when their inputs change,
+  // not on every render (each scroll step re-renders).
+  const dashboardEntries = useMemo(
+    () => usagePinEntries(snapshot.dashboard, railBars),
+    [snapshot.dashboard, railBars]
+  );
+  const real = usagePinned ? dashboardEntries : NO_ENTRIES;
   // Which providers get a row is local knowledge, never the slow quota fetch:
   // the roster the rail last drew, else the connected accounts of the provider
   // setup (a quick local read). Rows without quota yet keep their final size.
@@ -236,22 +245,29 @@ export function useUsageRailPin(
     };
   }, [enabled, remembered]);
   const liveResult = snapshot.status === 'ready';
-  const providerRows = usagePinned
-    ? usagePinEntriesWithRoster(real, liveResult ? [] : (remembered ?? setupRoster ?? []), railBars)
-    : [];
+  const providerRows = useMemo(
+    () =>
+      usagePinned
+        ? usagePinEntriesWithRoster(real, liveResult ? [] : (remembered ?? setupRoster ?? []), railBars)
+        : NO_ENTRIES,
+    [usagePinned, real, liveResult, remembered, setupRoster, railBars]
+  );
   const expanding = usagePinned && accountsExpanded;
   const accountPools = useUsageAccountPools(
     api,
     providerRows.filter((entry) => !entry.pending).map((entry) => entry.provider),
     expanding
   );
-  const wanted = expanding ? usagePinAccountEntries(providerRows, accountPools, railBars) : providerRows;
+  const wanted = useMemo(
+    () => (expanding ? usagePinAccountEntries(providerRows, accountPools, railBars) : providerRows),
+    [expanding, providerRows, accountPools, railBars]
+  );
   // The slot limit only applies once accounts got slots of their own.
   const slotLimit =
     wanted.some((entry) => entry.accountIndex !== undefined) && railSlots !== 'all'
       ? Number(railSlots)
       : Number.POSITIVE_INFINITY;
-  const drawnRoster = usagePinRoster(usagePinEntries(snapshot.dashboard, railBars));
+  const drawnRoster = useMemo(() => usagePinRoster(dashboardEntries), [dashboardEntries]);
   const drawnSignature = JSON.stringify(drawnRoster);
   // biome-ignore lint/correctness/useExhaustiveDependencies: drawnSignature is the stable form of drawnRoster
   useEffect(() => {
