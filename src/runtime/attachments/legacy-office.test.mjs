@@ -94,14 +94,14 @@ test('a failing or missing converter yields its message as the attachment text a
   const convert = async (source, output) => {
     dir = dirname(source);
     throw new Error(
-      `${source} is a legacy binary file, not an Office package, and converting it needs LibreOffice. Install LibreOffice, or open it in Microsoft Office and save it as ${output}.`
+      `${source} is a legacy binary file, not an Office package, and converting it needs LibreOffice. Install the Office feature in Mixdog settings (it installs LibreOffice), or open it in Microsoft Office and save it as ${output}.`
     );
   };
   const intake = await preparePromptSubmissionForProvider(legacyPrompt(), {}, { convertLegacy: convert });
   const part = intake.prompt[1];
   assert.equal(part.type, 'text');
   assert.match(part.text, /^--- sales plan\.xls ---\n/);
-  assert.match(part.text, /needs LibreOffice\. Install LibreOffice/);
+  assert.match(part.text, /needs LibreOffice\. Install the Office feature in Mixdog settings/);
   assert.ok(!part.text.includes(dir));
   assert.equal(existsSync(dir), false);
 });

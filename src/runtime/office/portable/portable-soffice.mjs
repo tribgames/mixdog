@@ -581,7 +581,7 @@ export async function convertLegacyOffice(path, output, { signal = null, remove 
   const program = await libreOfficeProgram();
   if (!program) {
     throw new Error(
-      `${path} is a legacy binary file, not an Office package, and converting it needs LibreOffice. Install LibreOffice, or open it in Microsoft Office and save it as ${output}.`
+      `${path} is a legacy binary file, not an Office package, and converting it needs LibreOffice. Install the Office feature in Mixdog settings (it installs LibreOffice), or open it in Microsoft Office and save it as ${output}.`
     );
   }
   const extension = extname(output).slice(1).toLowerCase();
