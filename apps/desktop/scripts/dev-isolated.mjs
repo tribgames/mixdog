@@ -4,20 +4,25 @@
 // sweep reclaims when the owner died or the TTL ran out. The 9342 dev app, the
 // kept dev profiles and the installed app's ~/.mixdog are never touched.
 //
-//   npm run dev:isolated -- --name <tag> [--copy-auth] [--ttl-minutes=120]
+//   npm run dev:isolated -- --name <tag> [--copy-auth] [--skip-onboarding] [--ttl-minutes=120]
+//
+// --copy-auth starts signed in and ready: the kept dev profile's sign-ins and
+// model routes, with onboarding and the getting-started guide marked done.
+// --skip-onboarding marks only those done (no sign-ins).
 //   npm run dev:isolated:stop -- --name <tag>
 //   npm run dev:isolated:sweep [-- --all]
 //   npm run dev:isolated:list
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, openSync, readFileSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { refreshStaleLocalBinaries } from '../../../scripts/native-release-status.mjs';
+import { ONBOARDING_VERSION } from '../../../src/session-runtime/quick-web-search-models.mjs';
 
 import {
   assertDebugPortAvailable,
@@ -361,23 +366,95 @@ export async function sweep(root, { all = false, now = Date.now(), alive = isPid
 
 const CREDENTIAL_FILE = /^(provider-accounts\.json|[a-z0-9-]+-oauth(-credentials)?\.json)$/;
 
-/** Opt-in: copy provider sign-ins from the kept dev profile (never ~/.mixdog). Source is only read. */
-async function copyDevAuth(dataDir) {
-  const source = join(persistentDevProfileDir('default'), 'data');
+/** lstat that names the dev-profile path in its failure; a missing path yields null when optional. */
+async function lstatDevSource(path, { optional = false } = {}) {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (optional && error.code === 'ENOENT') return null;
+    throw new Error(`--copy-auth: cannot read the kept dev profile at ${path} (${error.code ?? error.message}).`, {
+      cause: error,
+    });
+  }
+}
+
+/** A credential source is only ever a real directory or file inside the dev profile: links
+ *  and junctions could point anywhere, so they are refused. */
+function assertNotLink(stat, path) {
+  if (stat.isSymbolicLink()) throw new Error(`--copy-auth: refusing ${path}: it is a symlink or junction.`);
+}
+
+async function readDevDir(path) {
+  try {
+    return await readdir(path);
+  } catch (error) {
+    throw new Error(`--copy-auth: cannot read ${path} (${error.code ?? error.message}).`, { cause: error });
+  }
+}
+
+async function assertDevFile(path, { optional = false } = {}) {
+  const stat = await lstatDevSource(path, { optional });
+  if (!stat) return;
+  assertNotLink(stat, path);
+  if (!stat.isFile()) throw new Error(`--copy-auth: ${path} is not a regular file.`);
+}
+
+/** Opt-in: copy provider sign-ins from the kept dev profile (never ~/.mixdog). Source is only read.
+ *  A missing or unreadable profile, or any link in the source, fails instead of copying nothing. */
+export async function copyDevAuth(dataDir, { devProfileDir = persistentDevProfileDir('default') } = {}) {
+  const source = join(devProfileDir, 'data');
+  for (const dir of [devProfileDir, source]) {
+    const stat = await lstatDevSource(dir);
+    assertNotLink(stat, dir);
+    if (!stat.isDirectory()) throw new Error(`--copy-auth: ${dir} is not a directory.`);
+  }
   const copied = [];
-  for (const entry of await readdir(source).catch(() => [])) {
-    if (CREDENTIAL_FILE.test(entry)) {
-      await copyFile(join(source, entry), join(dataDir, entry));
-      copied.push(entry);
+  for (const entry of (await readDevDir(source)).filter((name) => CREDENTIAL_FILE.test(name))) {
+    await assertDevFile(join(source, entry));
+    await copyFile(join(source, entry), join(dataDir, entry));
+    copied.push(entry);
+  }
+  const secretsDir = join(source, 'secrets');
+  const secretsStat = await lstatDevSource(secretsDir, { optional: true });
+  if (secretsStat) {
+    assertNotLink(secretsStat, secretsDir);
+    const secrets = (await readDevDir(secretsDir)).filter((name) => name.endsWith('.dpapi'));
+    if (secrets.length) await mkdir(join(dataDir, 'secrets'), { recursive: true });
+    for (const entry of secrets) {
+      await assertDevFile(join(secretsDir, entry));
+      await copyFile(join(secretsDir, entry), join(dataDir, 'secrets', entry));
+      copied.push(`secrets/${entry}`);
     }
   }
-  const secrets = await readdir(join(source, 'secrets')).catch(() => []);
-  if (secrets.length) await mkdir(join(dataDir, 'secrets'), { recursive: true });
-  for (const entry of secrets.filter((name) => name.endsWith('.dpapi'))) {
-    await copyFile(join(source, 'secrets', entry), join(dataDir, 'secrets', entry));
-    copied.push(`secrets/${entry}`);
+  if (!copied.length) {
+    throw new Error(`--copy-auth: the kept dev profile at ${devProfileDir} has no provider sign-ins to copy.`);
   }
   return copied;
+}
+
+/** A ready profile's config: onboarding and the getting-started guide done,
+ *  on top of the kept dev profile's config (its model routes) when signed in.
+ *  The source is only read. */
+export async function seedReadyConfig(
+  dataDir,
+  { withRoutes = false, devDataDir = join(persistentDevProfileDir('default'), 'data') } = {}
+) {
+  if (withRoutes) await assertDevFile(join(devDataDir, 'mixdog-config.json'), { optional: true });
+  const source = withRoutes ? await readJson(join(devDataDir, 'mixdog-config.json')) : null;
+  const config = source && typeof source === 'object' ? source : {};
+  const agent = config.agent && typeof config.agent === 'object' ? config.agent : {};
+  config.agent = {
+    ...agent,
+    onboarding: {
+      ...agent.onboarding,
+      completed: true,
+      version: ONBOARDING_VERSION,
+      completedAt: new Date().toISOString(),
+      skipped: true,
+      starterGuide: { closed: true, welcomed: true, visited: [] },
+    },
+  };
+  await writeFile(join(dataDir, 'mixdog-config.json'), JSON.stringify(config, null, 2));
 }
 
 // Electron's app path is the entry directory, and the unpackaged main resolves
@@ -453,9 +530,11 @@ export async function startInstance({
   name,
   ttlMs = DEFAULT_TTL_MS,
   copyAuth = false,
+  skipOnboarding = false,
   timeoutMs = 300_000,
   root = isolatedRoot(),
   relay = 'off',
+  devProfileDir = persistentDevProfileDir('default'),
 }) {
   if (relay !== 'off' && !LOOPBACK_RELAY.test(relay))
     throw new Error('--relay must be a ws://127.0.0.1:<port> or ws://localhost:<port> URL.');
@@ -472,7 +551,10 @@ export async function startInstance({
     await mkdir(instanceDir, { recursive: true });
     const appDir = await prepareAppDir(instanceDir);
     const env = await instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, relay });
-    const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR) : [];
+    const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir }) : [];
+    if (copyAuth || skipOnboarding) {
+      await seedReadyConfig(env.MIXDOG_DATA_DIR, { withRoutes: copyAuth, devDataDir: join(devProfileDir, 'data') });
+    }
     // Source checkouts prefer native/*/target/release over the pinned download;
     // never launch against a binary older than its sources.
     await refreshStaleLocalBinaries();
@@ -528,6 +610,7 @@ async function main() {
       name: { type: 'string' },
       all: { type: 'boolean', default: false },
       'copy-auth': { type: 'boolean', default: false },
+      'skip-onboarding': { type: 'boolean', default: false },
       'ttl-minutes': { type: 'string', default: String(DEFAULT_TTL_MS / 60_000) },
       'timeout-seconds': { type: 'string', default: '300' },
       relay: { type: 'string', default: 'off' },
@@ -542,6 +625,7 @@ async function main() {
       name: values.name,
       ttlMs,
       copyAuth: values['copy-auth'],
+      skipOnboarding: values['skip-onboarding'],
       timeoutMs: Number(values['timeout-seconds']) * 1000,
       root,
       relay: values.relay,

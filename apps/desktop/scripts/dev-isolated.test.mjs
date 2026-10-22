@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -11,10 +11,13 @@ import {
   acquireLease,
   allocatePorts,
   assertIsolation,
+  copyDevAuth,
   instanceEnv,
   instanceProcessIds,
   isPidAlive,
   leaseIsStale,
+  seedReadyConfig,
+  startInstance,
   stopInstance,
   sweep,
 } from './dev-isolated.mjs';
@@ -124,6 +127,129 @@ test('the instance environment never names the real data, userData or the shared
     );
     assert.throws(() => assertIsolation(sharedEnv, { ...ports, instanceDir: inside }), /shared location/);
   }
+});
+
+test('a ready profile skips onboarding and the guide, and keeps the dev profile routes when signed in', async (t) => {
+  const root = await tempRoot(t);
+  const devDataDir = join(root, 'dev-data');
+  const dataDir = join(root, 'data');
+  await mkdir(devDataDir, { recursive: true });
+  await mkdir(dataDir, { recursive: true });
+  const devConfig = {
+    agent: { default: 'workflow-lead', providers: { 'anthropic-oauth': {} }, onboarding: { completed: false } },
+    defaultsVersion: 3,
+  };
+  await writeFile(join(devDataDir, 'mixdog-config.json'), JSON.stringify(devConfig));
+  const read = async () => JSON.parse(await readFile(join(dataDir, 'mixdog-config.json'), 'utf8'));
+
+  await seedReadyConfig(dataDir, { withRoutes: true, devDataDir });
+  const signedIn = await read();
+  assert.equal(signedIn.agent.default, 'workflow-lead');
+  assert.deepEqual(signedIn.agent.providers, { 'anthropic-oauth': {} });
+  assert.equal(signedIn.defaultsVersion, 3);
+  assert.equal(signedIn.agent.onboarding.completed, true);
+  assert.equal(signedIn.agent.onboarding.version, 1);
+  assert.deepEqual(signedIn.agent.onboarding.starterGuide, { closed: true, welcomed: true, visited: [] });
+
+  await seedReadyConfig(dataDir, { devDataDir });
+  const skipped = await read();
+  assert.deepEqual(Object.keys(skipped), ['agent'], 'no routes without sign-ins');
+  assert.deepEqual(Object.keys(skipped.agent), ['onboarding']);
+  assert.equal(skipped.agent.onboarding.completed, true);
+});
+
+async function devProfile(root, { secrets = true } = {}) {
+  const profile = join(root, 'dev-profile');
+  await mkdir(join(profile, 'data', 'secrets'), { recursive: true });
+  await writeFile(join(profile, 'data', 'provider-accounts.json'), '{}');
+  await writeFile(join(profile, 'data', 'unrelated.json'), '{}');
+  if (secrets) await writeFile(join(profile, 'data', 'secrets', 'a.dpapi'), 'secret');
+  const dataDir = join(root, 'data');
+  await mkdir(dataDir, { recursive: true });
+  return { profile, dataDir };
+}
+
+const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+
+test('--copy-auth copies only allowlisted sign-ins; a missing secrets directory is a no-op', async (t) => {
+  const root = await tempRoot(t);
+  const { profile, dataDir } = await devProfile(root);
+  assert.deepEqual(await copyDevAuth(dataDir, { devProfileDir: profile }), [
+    'provider-accounts.json',
+    'secrets/a.dpapi',
+  ]);
+  assert.equal(existsSync(join(dataDir, 'unrelated.json')), false);
+
+  await rm(join(profile, 'data', 'secrets'), { recursive: true });
+  const bare = join(root, 'data2');
+  await mkdir(bare);
+  assert.deepEqual(await copyDevAuth(bare, { devProfileDir: profile }), ['provider-accounts.json']);
+});
+
+test('--copy-auth fails clearly when the dev profile is missing, unreadable or holds no sign-ins', async (t) => {
+  const root = await tempRoot(t);
+  const { profile, dataDir } = await devProfile(root);
+  await assert.rejects(copyDevAuth(dataDir, { devProfileDir: join(root, 'absent') }), /--copy-auth: cannot read/);
+  // A data entry that is a file cannot be listed: the read error surfaces, not an empty list.
+  const broken = join(root, 'broken');
+  await mkdir(broken);
+  await writeFile(join(broken, 'data'), 'not a directory');
+  await assert.rejects(copyDevAuth(dataDir, { devProfileDir: broken }), /--copy-auth/);
+  // An unreadable secrets directory is an error too, not "no secrets".
+  await rm(join(profile, 'data', 'secrets'), { recursive: true });
+  await writeFile(join(profile, 'data', 'secrets'), 'not a directory');
+  await assert.rejects(copyDevAuth(dataDir, { devProfileDir: profile }), /--copy-auth: cannot read/);
+  // Nothing to copy is a failure, not a silent success.
+  const empty = join(root, 'empty');
+  await mkdir(join(empty, 'data'), { recursive: true });
+  await assert.rejects(copyDevAuth(dataDir, { devProfileDir: empty }), /no provider sign-ins/);
+});
+
+test('--copy-auth never reads through a link out of the dev profile', async (t) => {
+  const root = await tempRoot(t);
+  const outside = join(root, 'outside');
+  await mkdir(join(outside, 'secrets'), { recursive: true });
+  await writeFile(join(outside, 'provider-accounts.json'), 'stolen');
+  await writeFile(join(outside, 'secrets', 'x.dpapi'), 'stolen');
+
+  // The profile directory itself, its data directory and its secrets directory.
+  const linkedProfile = join(root, 'linked-profile');
+  await symlink(outside, linkedProfile, linkType);
+  const { profile, dataDir } = await devProfile(root);
+  const linkedData = join(root, 'linked-data');
+  await mkdir(linkedData);
+  await symlink(outside, join(linkedData, 'data'), linkType);
+  await rm(join(profile, 'data', 'secrets'), { recursive: true });
+  await symlink(join(outside, 'secrets'), join(profile, 'data', 'secrets'), linkType);
+  for (const devProfileDir of [linkedProfile, linkedData, profile]) {
+    await assert.rejects(copyDevAuth(dataDir, { devProfileDir }), /symlink or junction/);
+  }
+  assert.equal(existsSync(join(dataDir, 'secrets', 'x.dpapi')), false);
+
+  // A linked credential file (file symlinks need a privilege some Windows accounts lack).
+  const fileProfile = join(root, 'file-profile');
+  await mkdir(join(fileProfile, 'data'), { recursive: true });
+  try {
+    await symlink(join(outside, 'provider-accounts.json'), join(fileProfile, 'data', 'provider-accounts.json'), 'file');
+  } catch (error) {
+    if (error.code !== 'EPERM') throw error;
+    t.diagnostic('file symlink not permitted here; skipping the linked-file case');
+    return;
+  }
+  // A fresh destination: the profile case above already copied its own regular file.
+  const fileDataDir = join(root, 'file-dest');
+  await assert.rejects(copyDevAuth(fileDataDir, { devProfileDir: fileProfile }), /symlink or junction/);
+  assert.equal(existsSync(join(fileDataDir, 'provider-accounts.json')), false);
+});
+
+test('a failed --copy-auth aborts the start and cleans up its instance', async (t) => {
+  const root = await tempRoot(t);
+  await assert.rejects(
+    startInstance({ name: 'noauth', copyAuth: true, root, devProfileDir: join(root, 'absent'), timeoutMs: 1000 }),
+    /--copy-auth: cannot read/
+  );
+  assert.deepEqual(await readdir(join(root, 'instances')), []);
+  assert.deepEqual(await readdir(join(root, 'leases')), []);
 });
 
 test('stale leases (dead owner or past TTL) are reclaimed; a live one is refused', async (t) => {
