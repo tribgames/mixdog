@@ -1142,6 +1142,8 @@ type PaneSideDockProps = {
   switchGroups?: readonly WorkbenchSideViewGroup[];
   descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
   focused: boolean;
+  /** The session this pane shows; its browser/terminal X closes this dock. */
+  sessionId?: string;
   /** Hidden-mount only the focused pane's panel shell after boot. */
   prewarm?: boolean;
   onSelect(id: WorkbenchSideViewId): void;
@@ -1566,7 +1568,18 @@ export function useDockBodyShown(openNow: boolean, deferred: boolean): boolean {
 }
 
 export function PaneSideDock(props: PaneSideDockProps) {
-  const { leafId, entry, groups, focused, prewarm = false, onClose, onCloseDiff, onFocusPane, openFileTab } = props;
+  const {
+    leafId,
+    entry,
+    groups,
+    focused,
+    sessionId = '',
+    prewarm = false,
+    onClose,
+    onCloseDiff,
+    onFocusPane,
+    openFileTab,
+  } = props;
   const openNow = entry.open && (entry.view !== null || entry.surface !== '');
   const { panelMounted, dockBodyMounted: dockBodyMountedRaw } = useDockMounting(openNow, prewarm);
   const mobileSheet = useMobileRemoteSurface();
@@ -1668,7 +1681,8 @@ export function PaneSideDock(props: PaneSideDockProps) {
     browserShowing || terminalShowing || sessionDiffPanelShowing,
     sessionDiffPanelShowing ? (entry.view ?? '') : entry.surface,
     focused,
-    onClose
+    onClose,
+    sessionId
   );
   // The pane edge this render commits (recorded below); its layout effect
   // re-measures the transcripts it narrowed or widened in the same frame.

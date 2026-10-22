@@ -283,7 +283,7 @@ export function SessionTerminalTabs({
   const tabTitles = terminalTabTitles(state.tabs, profiles, knownDefaultLabel);
   const closeTab = (id: string) => {
     if (!closeSessionTerminalTab(sessionId, id)) return;
-    if (!getSessionTerminalTabs(sessionId).tabs.length) requestPaneDockClose('terminal');
+    if (!getSessionTerminalTabs(sessionId).tabs.length) requestPaneDockClose('terminal', sessionId);
     // Dispose after the pane has unmounted so its cleanup cannot re-persist
     // the disposed terminal's view state.
     setTimeout(() => void disposeTerminalPane(id), 0);
@@ -311,7 +311,7 @@ export function SessionTerminalTabs({
   return (
     <div className="session-terminal-tabs">
       <DockHeaderRow
-        onClose={() => requestPaneDockClose('terminal')}
+        onClose={() => requestPaneDockClose('terminal', sessionId)}
         expanded={expanded}
         onToggleExpanded={onToggleExpanded}
         expandLabel={t('Expand terminal')}

@@ -430,17 +430,26 @@ export function useDockExpansion(
 }
 
 /**
- * Surfaces live in their own React roots; their header X asks the focused
- * dock showing that surface to fold.
+ * Surfaces live in their own React roots; their header X asks the dock
+ * showing that surface to fold. A session surface (browser, terminal) floats
+ * outside the dock, so clicking it never focuses the pane: the session it
+ * names picks the dock. Without one, the focused dock takes it.
  */
-export function useDockCloseRequest(active: boolean, surface: string, focused: boolean, onClose: () => void) {
+export function useDockCloseRequest(
+  active: boolean,
+  surface: string,
+  focused: boolean,
+  onClose: () => void,
+  sessionId = ''
+) {
   useEffect(() => {
     if (!active) return undefined;
     const onCloseRequest = (event: Event) => {
-      const requested = (event as CustomEvent<{ surface?: string }>).detail?.surface;
-      if (focused && requested === surface) onClose();
+      const detail = (event as CustomEvent<{ surface?: string; sessionId?: string }>).detail;
+      if (detail?.surface !== surface) return;
+      if (detail.sessionId ? detail.sessionId === sessionId : focused) onClose();
     };
     window.addEventListener(PANE_DOCK_CLOSE_EVENT, onCloseRequest);
     return () => window.removeEventListener(PANE_DOCK_CLOSE_EVENT, onCloseRequest);
-  }, [active, surface, focused, onClose]);
+  }, [active, surface, focused, onClose, sessionId]);
 }

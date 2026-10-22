@@ -316,6 +316,54 @@ function SideFileStub({ rel, side }) {
   );
 }
 
+test("a session terminal's X closes the dock of its session even when that pane is not focused", async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'CustomEvent'],
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  const { requestPaneDockClose } = await import('./pane-dock-chrome.tsx');
+  const Icon = () => React.createElement('span');
+  const closes = [];
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(PaneSideDock, {
+          leafId: 'pane-1',
+          sessionId: 's1',
+          groups: [['terminal']],
+          descriptors: new Map([['terminal', { id: 'terminal', label: 'Terminal', icon: Icon }]]),
+          focused: false,
+          onSelect() {},
+          onClose: () => closes.push('pane-1'),
+          onCloseDiff() {},
+          onMoveGroup() {},
+          onMoveView() {},
+          onFocusPane() {},
+          openFileTab() {},
+          renderTerminalSurface: () => null,
+          renderView: () => null,
+          entry: { open: true, view: 'source-control', surface: 'terminal', diff: null },
+        })
+      )
+    );
+    await act(async () => requestPaneDockClose('terminal', 's2'));
+    assert.deepEqual(closes, [], "another session's X leaves this dock open");
+    await act(async () => requestPaneDockClose('terminal'));
+    assert.deepEqual(closes, [], 'without a session only the focused dock takes the X');
+    await act(async () => requestPaneDockClose('terminal', 's1'));
+    assert.deepEqual(closes, ['pane-1'], 'its own session closes it without focusing the pane first');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('the side file header offers Open in main tab', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',

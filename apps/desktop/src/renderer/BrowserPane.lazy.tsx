@@ -377,7 +377,7 @@ function DesktopBrowserPane({
           onToggleExpanded={onToggleExpanded}
           expandLabel={t('Expand browser')}
           restoreLabel={t('Restore browser')}
-          onClose={() => requestPaneDockClose('browser')}
+          onClose={() => requestPaneDockClose('browser', sessionId)}
           actions={headerActions}
           left={
             <BrowserTabStrip
@@ -389,7 +389,7 @@ function DesktopBrowserPane({
                 // The host's count after the close decides, not the frame this
                 // click was made from: tabs may have changed in between.
                 const result = await webviewRef.current?.closeTab(id);
-                if (result?.remainingTabs === 0) requestPaneDockClose('browser');
+                if (result?.remainingTabs === 0) requestPaneDockClose('browser', sessionId);
               }}
               onCreate={async () => {
                 await webviewRef.current?.createTab();

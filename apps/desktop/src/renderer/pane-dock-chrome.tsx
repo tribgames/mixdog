@@ -83,11 +83,13 @@ export function scrollTabListByWheel(
 }
 
 /** Surfaces live in their own React roots, so the header's X reaches the
- *  owning dock through this window event rather than a context. */
+ *  owning dock through this window event rather than a context. A session
+ *  surface names its session, which picks the dock; otherwise the focused
+ *  dock takes it. */
 export const PANE_DOCK_CLOSE_EVENT = 'mixdog:pane-dock-close';
 export type PaneDockCloseSurface = 'browser' | 'terminal' | 'session-diff' | 'visualize';
-export function requestPaneDockClose(surface: PaneDockCloseSurface): void {
-  window.dispatchEvent(new CustomEvent(PANE_DOCK_CLOSE_EVENT, { detail: { surface } }));
+export function requestPaneDockClose(surface: PaneDockCloseSurface, sessionId?: string): void {
+  window.dispatchEvent(new CustomEvent(PANE_DOCK_CLOSE_EVENT, { detail: { surface, sessionId } }));
 }
 
 const MENU_ITEM_HEIGHT = 28;
