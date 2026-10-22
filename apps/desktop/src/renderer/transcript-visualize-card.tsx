@@ -86,7 +86,6 @@ import {
   useVisualizeState,
   useVisualizeHeldSince,
   useVisualizePanelOnScreen,
-  useVisualizeUpdatedTabs,
   visualizeStateFor,
 } from './visualize-store';
 import './transcript-visualize-card.css';
@@ -140,8 +139,7 @@ function openCall(sessionId: string, call: VisualizeCardCall): Promise<void> {
     : reopenVisualizeTargets(sessionId, tabId, call.targets, call.label);
 }
 
-function tileState(unopened: boolean, closed: boolean, newest: boolean): string {
-  if (unopened) return 'unopened';
+function tileState(closed: boolean, newest: boolean): string {
   if (closed) return 'closed';
   return newest ? 'open' : 'folded';
 }
@@ -158,14 +156,15 @@ function VisualizeTile({
   onOpen: (call: VisualizeCardCall) => void;
 }) {
   const state = useVisualizeState(sessionId);
-  const updatedTabs = useVisualizeUpdatedTabs(sessionId);
   const newest = useSyncExternalStore(
     subscribeVisualizeCards,
     () => visualizeCardNewest(sessionId, call),
     () => true
   );
   const tab = visualizeCardTab(state, call);
-  const closed = tab === null;
+  // A preview with no tab (not opened, or its tab gone) is a plain tile its
+  // click opens, never a dimmed "closed" one.
+  const closed = tab === null && !call.preview;
   const version = cardVersion(sessionId, call, tab, newest);
   // The picture of this version, taken when its turn ended: from the tab while
   // it has it, else the copy saved under that version (a closed tile, an
@@ -187,25 +186,18 @@ function VisualizeTile({
     (call.content ? visualizeInlineKindLabel(call.content.kind) : call.targets.join(', '));
   const panelOnScreen = useVisualizePanelOnScreen(sessionId);
   const shown = Boolean(tab && newest && panelOnScreen && state.active === tab.id);
-  // A preview the turn's end did not open (or whose tab is gone): its tile
-  // opens it, like a closed one.
-  const unopened = closed && Boolean(call.preview);
-  let status = '';
-  if (unopened) status = t('Not opened');
-  else if (closed) status = t('Closed');
-  else if (!newest) status = t('Earlier version');
-  else if (updatedTabs.has(call.tabId)) status = t('Updated');
-  else if (shown) status = t('Showing');
-  const badgeLabel = call.badge === 'mockup' ? t('Preview badge: Mockup') : t('Preview badge: New');
+  // The picture carries only "New" and "Version N": a newer version already
+  // says it was updated, so no status words (showing, updated, closed).
+  const badgeLabel = t('Preview badge: New');
   const versionLabel = version ? `${t('Version')} ${version}` : '';
-  const meta = [versionLabel, status].filter(Boolean).join(' · ');
   return (
     <button
       type="button"
-      aria-label={meta ? `${title}, ${meta}` : title}
+      aria-label={versionLabel ? `${title}, ${versionLabel}` : title}
+      aria-current={shown ? 'true' : undefined}
       className={`transcript-visualize-tile${closed ? ' is-closed' : ''}${shown ? ' is-shown' : ''}`}
-      title={closed && !unopened ? t('Open again in the side panel') : t('Show in the side panel')}
-      data-visualize-card={tileState(unopened, closed, newest)}
+      title={closed ? t('Open again in the side panel') : t('Show in the side panel')}
+      data-visualize-card={tileState(closed, newest)}
       data-badge={call.badge}
       data-visualize-tab={call.tabId}
       data-version={version || undefined}
@@ -233,9 +225,6 @@ function VisualizeTile({
             <span className="transcript-visualize-version-word">{t('Version')} </span>
             {version}
           </span>
-        ) : null}
-        {status ? (
-          <span className="transcript-visualize-badge is-status transcript-visualize-status">{status}</span>
         ) : null}
         {problems ? (
           <span className="transcript-visualize-badge is-problem" title={t('Page problems')}>

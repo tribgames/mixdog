@@ -395,7 +395,7 @@ export function setVisualizePanelOnScreen(sessionId: string, shown: boolean): vo
     onScreen.delete(sessionId);
     userPicks.delete(sessionId);
   }
-  // Chat card tiles mark the tab "Showing" only while the panel is on screen.
+  // Chat card tiles outline the shown tab only while the panel is on screen.
   if (was !== shown) emit();
 }
 

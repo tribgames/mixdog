@@ -23,7 +23,7 @@ export type TurnChangesFile = {
   /** The record kept no counts for this file; the transcript may complete them. */
   unmeasured?: boolean;
   /** Git ignores this file. The record lists only the agent's own tool writes,
-   *  so it is still a turn artifact (build-output folders are left out by path). */
+   *  so it is still a turn artifact. */
   ignored?: true;
 };
 export type TurnChangesReply = {

@@ -181,30 +181,7 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-head {
   font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-ui);
 }
-/* Where the tile is, bottom-left of the picture (Showing, Updated, Closed…). */
-.transcript-visualize-badge.is-status {
-  top: auto;
-  right: auto;
-  left: 4px;
-  bottom: 4px;
-  max-width: calc(100% - 8px);
-  color: var(--mx-text-accent);
-}
-.transcript-visualize-tile:has(.is-problem) .transcript-visualize-badge.is-status {
-  max-width: calc(100% - 56px);
-}
-.transcript-visualize-badge.is-status::before {
-  content: "";
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.transcript-visualize-tile.is-closed .transcript-visualize-badge.is-status {
-  color: var(--mx-text-muted);
-}
-/* "Version N", top-right: opposite the New/Mockup mark. */
+/* "Version N", top-right: opposite the New mark. */
 .transcript-visualize-badge.is-version {
   color: var(--mx-text);
 }
@@ -233,8 +210,7 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-head {
   bottom: 4px;
   color: var(--mx-warning, #b7791f);
 }
-/* What the turn did to the file, on the picture's top-left: "New" (created)
-   or "Mockup" (under design/mockups/). */
+/* What the turn did to the file, on the picture's top-left: "New" (created). */
 .transcript-visualize-badge.is-mark {
   left: 4px;
   right: auto;
@@ -242,9 +218,6 @@ html[data-mixdog-mobile-tabs] .transcript-visualize-head {
 }
 .transcript-visualize-badge.is-new {
   color: var(--mx-text-accent);
-}
-.transcript-visualize-badge.is-mockup {
-  color: var(--mx-warning, #f2cf76);
 }
 /* More than one page of tiles: prev, "1 / 2", next at the bottom-right. */
 .transcript-visualize-pager {

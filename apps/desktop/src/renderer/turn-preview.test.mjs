@@ -16,7 +16,6 @@ import {
 import {
   claimTurnPreviewEnd,
   forgetTurnPreviewMarks,
-  isBuildOutputPath,
   noteTurnRunning,
   resetTurnPreviews,
   runningTurnKeyOf,
@@ -56,7 +55,7 @@ const LINKS =
   '[chart](tests/chart.png), [out](deliverables/out.html), [m](design/mockups/settings/index.html), ' +
   '[ding](sound/ding.mp3), [opened](site/opened.html), [ghost](gone.svg), [dist](dist/bundle.html).';
 
-test('collection: linked panel kinds on disk, not build output, one per file, minus the agent opens', () => {
+test('collection: linked panel kinds on disk, one per file, minus the agent opens', () => {
   const files = [
     file('reports/q3-sales.pdf', 'A'),
     file('site/dashboard.html'),
@@ -84,13 +83,14 @@ test('collection: linked panel kinds on disk, not build output, one per file, mi
       ['reports/q3-sales.pdf', 'pdf', 'new'],
       ['site/dashboard.html', 'html', null],
       ['tests/chart.png', 'image', 'new'],
+      ['dist/bundle.html', 'html', 'new'],
       ['deliverables/out.html', 'html', 'new'],
       ['deck/review.pptx', 'document', 'new'],
       ['media/clip.webm', 'video', 'new'],
       ['sound/ding.mp3', 'audio', 'new'],
-      ['design/mockups/settings/index.html', 'html', 'mockup'],
+      ['design/mockups/settings/index.html', 'html', 'new'],
     ],
-    'in the order the turn lists them; the unlinked source page is left to the diff card'
+    'in the order the turn lists them; no folder is special; the unlinked ones are left to the diff card'
   );
   assert.equal(previews[0].target, `${ROOT}/reports/q3-sales.pdf`, 'opened by its path under the root');
   assert.equal(previews[0].created, true);
@@ -152,28 +152,19 @@ test('a file surfaced earlier in the conversation stays an artifact in later tur
   assert.equal(report.status, 'M');
 });
 
-test('build output folders are any path segment but the file name', () => {
-  assert.equal(isBuildOutputPath('dist/index.html'), true);
-  assert.equal(isBuildOutputPath('apps/web/.next/page.html'), true);
-  assert.equal(isBuildOutputPath('docs/build.html'), false);
-  assert.equal(isBuildOutputPath('reports/q3.pdf'), false);
-});
-
 test('linked paths: markdown links, inline code and prose paths, never fenced code or URLs', () => {
   const linked = linkedLocalPaths(
     '[a](reports/a.pdf) ![i](img/p.png) [w](https://x.dev/a.html) `site/b.html:12` see src/c.html and\n```\nd/e.html\n```'
   );
   assert.deepEqual(linked.sort(), ['img/p.png', 'reports/a.pdf', 'site/b.html', 'src/c.html']);
 });
-test('badges: Mockup wins over New, New only for created files, none for modified ones', () => {
-  assert.equal(turnPreviewBadge('design/mockups/a/index.html', true), 'mockup');
-  assert.equal(turnPreviewBadge('design/mockups/a/index.html', false), 'mockup');
-  assert.equal(turnPreviewBadge('reports/a.pdf', true), 'new');
-  assert.equal(turnPreviewBadge('reports/a.pdf', false), null);
-  const files = [file('site/new.html', 'A'), file('site/old.html')];
+test('badges: New only for created files, none for modified ones, whatever the folder', () => {
+  assert.equal(turnPreviewBadge(true), 'new');
+  assert.equal(turnPreviewBadge(false), null);
+  const files = [file('site/new.html', 'A'), file('site/old.html'), file('design/mockups/m/index.html')];
   assert.equal(turnPreviewBadgeFor(['site/new.html'], files, ROOT), 'new', 'an agent open of a created file');
   assert.equal(turnPreviewBadgeFor([`${ROOT}/site/old.html`], files, ROOT), null);
-  assert.equal(turnPreviewBadgeFor(['design/mockups/m/index.html'], [], ROOT), 'mockup');
+  assert.equal(turnPreviewBadgeFor(['design/mockups/m/index.html'], files, ROOT), null, 'no path-based mark');
   assert.equal(turnPreviewBadgeFor(['site/new.html', 'site/old.html'], files, ROOT), null, 'a split names no one file');
 });
 
@@ -419,21 +410,21 @@ test('a loaded turn: its previews fill the card, its changes card keeps the rest
   const tiles = view.qa('.transcript-visualize-tile');
   assert.deepEqual(
     tiles.map((tile) => tile.querySelector('b').textContent),
-    ['q3-sales.pdf', 'dashboard.html', 'chart.png', 'index.html']
+    ['q3-sales.pdf', 'dashboard.html', 'chart.png', 'index.html', 'bundle.html']
   );
-  assert.equal(view.q('.transcript-visualize-title').textContent, 'Previews 4');
+  assert.equal(view.q('.transcript-visualize-title').textContent, 'Previews 5');
   assert.deepEqual(
     tiles.map((tile) => tile.querySelector('.is-mark')?.textContent ?? ''),
-    ['New', '', 'New', 'Mockup']
+    ['New', '', 'New', 'New', 'New']
   );
-  // No tab yet: dimmed "Not opened", which a click opens.
-  assert.ok(tiles.every((tile) => tile.dataset.visualizeCard === 'unopened' && tile.classList.contains('is-closed')));
-  assert.equal(tiles[2].querySelector('.transcript-visualize-status').textContent, 'Not opened');
+  // No tab yet: a plain tile (not dimmed, no status words), which a click opens.
+  assert.ok(tiles.every((tile) => !tile.classList.contains('is-closed')));
+  assert.ok(tiles.every((tile) => !tile.querySelector('.transcript-visualize-status')));
   assert.equal(view.q('.transcript-visualize-pager'), null, 'no pager at six or fewer');
   assert.deepEqual(view.commands, [], 'a turn not seen ending here opens nothing');
   // The changed-files card lists only what is not a tile, as for agent opens.
   const changes = view.q('.turn-changes-card');
-  assert.equal(changes.dataset.fileCount, '2');
+  assert.equal(changes.dataset.fileCount, '1');
   assert.equal(view.q('.transcript-visualize-turn .turn-changes-action'), null, 'Undo stays on the changes card');
   await view.click(tiles[2]);
   assert.deepEqual(view.commands, [

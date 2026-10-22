@@ -14,9 +14,9 @@ import {
   turnChangeOpenPath,
 } from './turn-changes-model';
 
-/** The thumbnail's top-left mark: a mockup awaiting review, or a file the
- *  turn created. A modified file has none (its "version N · updated" says it). */
-export type TurnPreviewBadge = 'mockup' | 'new';
+/** The thumbnail's top-left mark: a file the turn created. A modified file
+ *  has none (its "version N · updated" says it). */
+export type TurnPreviewBadge = 'new';
 
 export interface TurnPreviewFile {
   /** Root-relative path (forward slashes). */
@@ -31,40 +31,8 @@ export interface TurnPreviewFile {
   badge: TurnPreviewBadge | null;
 }
 
-/** Folders of generated output: their files are never a turn's artifacts
- *  (a Git root also leaves out whatever it ignores, via the reply's `ignored`). */
-const BUILD_OUTPUT_DIRS = new Set([
-  'node_modules',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  '__pycache__',
-  '.next',
-  '.nuxt',
-  '.svelte-kit',
-  '.turbo',
-  '.cache',
-  '.parcel-cache',
-]);
-
-const MOCKUP_PATH = /(?:^|\/)design\/mockups\//;
-
-export function isBuildOutputPath(path: string): boolean {
-  return normalizeChangePath(path)
-    .split('/')
-    .slice(0, -1)
-    .some((part) => BUILD_OUTPUT_DIRS.has(part));
-}
-
-export function isMockupPath(path: string): boolean {
-  return MOCKUP_PATH.test(normalizeChangePath(path));
-}
-
-/** "Mockup" for anything under `design/mockups/` (over "New"), else "New"
- *  for a file the turn created, else none. */
-export function turnPreviewBadge(path: string, created: boolean): TurnPreviewBadge | null {
-  if (isMockupPath(path)) return 'mockup';
+/** "New" for a file the turn created, else none. */
+export function turnPreviewBadge(created: boolean): TurnPreviewBadge | null {
   return created ? 'new' : null;
 }
 
@@ -93,8 +61,8 @@ function previewTarget(root: string, path: string): string {
 }
 
 /** The turn's changed files that become preview tiles: on disk as the turn
- *  left them (not deleted, not undone), inside the root, not build output, of
- *  a kind the panel shows (`visualizeKindForPath`). The record lists only what
+ *  left them (not deleted, not undone), inside the root, of a kind the panel
+ *  shows (`visualizeKindForPath`), and linked by a reply or opened before. The record lists only what
  *  the agent's own file tools wrote (edit, apply_patch, office, tidy; never a
  *  shell command's side effects), so a Git-ignored entry there is still the
  *  turn's artifact, and not already a tile of the agent's
@@ -114,7 +82,7 @@ export function turnPreviewFiles(
   for (const file of files) {
     if (file.state !== 'applied') continue;
     const path = turnChangeOpenPath(file);
-    if (!path || isAbsolutePath(path) || isBuildOutputPath(path)) continue;
+    if (!path || isAbsolutePath(path)) continue;
     const kind = visualizeKindForPath(path);
     if (!kind || !turnPreviewSurfaced(path, surfaced)) continue;
     const target = previewTarget(root, path);
@@ -122,7 +90,7 @@ export function turnPreviewFiles(
     if (taken.has(identity)) continue;
     taken.add(identity);
     const created = file.status === 'A';
-    previews.push({ path, target, kind, created, confident: true, badge: turnPreviewBadge(path, created) });
+    previews.push({ path, target, kind, created, confident: true, badge: turnPreviewBadge(created) });
   }
   return previews;
 }
@@ -133,12 +101,10 @@ export function turnPreviewBadgeFor(
   files: readonly TurnChangesFile[],
   root: string
 ): TurnPreviewBadge | null {
-  if (!targets.length) return null;
-  if (targets.some(isMockupPath)) return 'mockup';
   if (targets.length !== 1) return null;
   const identity = fileIdentity(root, targets[0]);
   const file = files.find((candidate) => fileIdentity(root, candidate.path) === identity);
-  return file ? turnPreviewBadge(file.path, file.status === 'A' && file.state === 'applied') : null;
+  return file ? turnPreviewBadge(file.status === 'A' && file.state === 'applied') : null;
 }
 
 /** The targets the turn's end opens, in order: every confident file, the one

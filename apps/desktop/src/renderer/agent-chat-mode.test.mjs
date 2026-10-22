@@ -1060,11 +1060,8 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   assert.equal(turnCards().length, 2, 'one card per turn');
   assert.equal(rows.at(-3)?.dataset.side, 'agent', 'both under the reply');
   assert.equal(cards()[0].querySelector('.transcript-visualize-badge.is-version').textContent, 'Version 1');
-  assert.equal(cards()[0].querySelector('.transcript-visualize-status').textContent, 'Earlier version');
-  assert.equal(
-    cards()[0].getAttribute('aria-label'),
-    `${cards()[0].querySelector('b').textContent}, Version 1 · Earlier version`
-  );
+  assert.equal(cards()[0].querySelector('.transcript-visualize-status'), null, 'no status words, only the version');
+  assert.equal(cards()[0].getAttribute('aria-label'), `${cards()[0].querySelector('b').textContent}, Version 1`);
   // Each card on its own version's picture: the newest from the tab, the
   // earlier one kept by the host for version 1 (never the tab's v2 picture).
   assert.deepEqual(
@@ -1265,7 +1262,7 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
   const { resyncVisualizeStates, setVisualizePanelOnScreen } = await import('./visualize-store.ts');
   const render = rowHarness(t);
   const SESSION = 'sess_home_lead_turncard';
-  // The panel is open on screen: its active tab reads "Showing".
+  // The panel is open on screen: its active tab's tile is outlined.
   setVisualizePanelOnScreen(SESSION, true);
   const commands = [];
   const previous = window.mixdogDesktop;
@@ -1371,9 +1368,13 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
       ]
     );
     assert.equal(tiles[1].querySelector('.transcript-visualize-badge.is-version').textContent, 'Version 2');
-    assert.equal(tiles[1].querySelector('.transcript-visualize-status').textContent, 'Showing');
+    assert.deepEqual(
+      tiles.map((tile) => tile.getAttribute('aria-current')),
+      [null, 'true', null],
+      'the tile of the tab the panel shows is announced as current'
+    );
     assert.equal(tiles[2].querySelector('.transcript-visualize-badge.is-version'), null);
-    assert.equal(tiles[2].querySelector('.transcript-visualize-status').textContent, 'Closed');
+    assert.ok(tiles.every((tile) => !tile.querySelector('.transcript-visualize-status')), 'no status words');
     assert.ok(tiles[1].querySelector('.transcript-visualize-badge.is-problem'), 'page problems badge');
     // A tile reveals its own tab; a closed one opens again.
     await act(async () => tiles[0].click());

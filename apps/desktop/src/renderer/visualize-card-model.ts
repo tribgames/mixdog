@@ -88,10 +88,10 @@ export interface VisualizeCardCall {
   /** When the call ran (ms), to tell which card of a tab is the newest. */
   at: number;
   /** A turn preview: a file the turn changed that the agent did not open
-   *  (turn-preview-model.ts); without a live tab it reads "Not opened". */
+   *  (turn-preview-model.ts); without a live tab its tile simply opens it. */
   preview?: true;
   /** The thumbnail's top-left mark (turn-preview-model.ts). */
-  badge?: 'mockup' | 'new';
+  badge?: 'new';
 }
 
 /** When a turn's tool rounds last ran (ms): the time of its preview tiles. */
