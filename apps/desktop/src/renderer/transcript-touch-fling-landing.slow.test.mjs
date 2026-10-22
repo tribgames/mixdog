@@ -8,12 +8,12 @@ import puppeteer from 'puppeteer-core';
 // page lands above them mid-fling. A touch fling holds that landing as a row
 // offset (a translateY of the row space): on an Android phone a scrollTop
 // write under the fling desyncs it until the next touch jumps (위로 빠르게
-// 넘기면 멈추고, 다시 터치하면 훨씬 위로 순간이동). Held to the end, the native
-// offset stayed short of the logical one by the whole page: the fling ran into
-// native 0 and stopped there with the page unreachable above it (phone: 다시
-// 들어간 긴 세션에서 위로 넘기면 중간에 멈추고 튄다). The hold therefore lands
-// once the fling comes within a screen of the top, and the fling carries on
-// into the page.
+// 넘기면 멈추고, 다시 터치하면 훨씬 위로 순간이동). The native offset stays short
+// of the logical one by the page, so the fling runs into native 0 at the old
+// first row. Landing the hold there was still a write under the momentum —
+// headless Chromium flings on through it, a phone does not (phone: 위로
+// 스크롤하면 여전히 멈췄다가 튄다) — so the hold waits for the fling to end
+// there too, and the page is reachable from the next touch on.
 
 const HARNESS = `
   import { useLayoutEffect, useRef, useState } from 'react';
@@ -91,7 +91,7 @@ async function fling(cdp, distance) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test('a page landing above a touch fling is held, lands at the top edge, and the fling carries on into it', async (t) => {
+test('a page landing above a touch fling is held through the momentum, at native 0 too, and lands once it ends', async (t) => {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const bundle = await build({
     stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
@@ -168,12 +168,14 @@ test('a page landing above a touch fling is held, lands at the top edge, and the
   // The page's hold: the frames from the landing until its row offset drops.
   const first = frames.indexOf(held[0]);
   const end = frames.findIndex((frame, index) => index > first && !frame.transform);
-  assert.ok(end > first && !frames.at(-1).transform, 'the hold lands once the fling is over or at the top');
+  assert.ok(end > first && !frames.at(-1).transform, 'the hold lands once the fling is over');
   assert.ok(
     frames[end].top - frames[end - 1].top > landed.page - 1_000,
     `its one write moves the native offset by the page (${frames[end - 1].top} -> ${frames[end].top}, page ${landed.page})`
   );
-  // The fling carried on past the old top into the landed page instead of
-  // sticking at native 0 with the page held out of reach above it.
-  assert.ok(previous < landed.page, `the fling went on into the page (rest ${previous}, page ${landed.page})`);
+  // The write came after the momentum: the native offset had stopped moving.
+  assert.ok(end >= 2 && frames[end - 1].top === frames[end - 2].top, 'no write lands under the momentum');
+  // The fling rested at the old first row (native 0 under the hold), with the
+  // page reachable above it once the hold landed.
+  assert.ok(previous > landed.page - 1_000, `the fling rests at the old top (rest ${previous}, page ${landed.page})`);
 });

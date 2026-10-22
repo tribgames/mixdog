@@ -173,11 +173,10 @@ const handedOver = new WeakSet<TranscriptVirtualizer>();
  *  (a measured size above the reader, a prepend's anchor sync) in its own
  *  deferral account and writes the sum once the scroll settles. The rows
  *  above move meanwhile, so the reader's content shifts by the correction and
- *  back again at the write, and nothing lands at the top edge: a fling toward
- *  older history could stop at native 0 short of the corrected rows. This
- *  list owns that hold (scrollToFn → transcript-list-touch-deviation, landed
- *  early at the top edge), so every correction reaches the list's scroll
- *  writer at once, as the core writes it off iOS:
+ *  back again at the write. This list owns that hold (scrollToFn →
+ *  transcript-list-touch-deviation, a row offset that keeps the reader's rows
+ *  still), so every correction reaches the list's scroll writer at once, as
+ *  the core writes it off iOS:
  *  - a measured size takes the core's off-iOS adjustment (its target and the
  *    core offset both move by the delta);
  *  - a prepend already moved the core offset by its anchor delta when the
@@ -231,8 +230,8 @@ function observeTranscriptOffset(
     if (!element) return undefined;
     let idle = 0;
     const onScroll = () => {
-      // A touch hold reaching the top edge lands first (see
-      // transcript-list-touch-deviation), so this read sees the landed offset.
+      // A touch hold whose logical offset reached the real top lands first
+      // (see transcript-list-touch-deviation), so this read sees the landed offset.
       deviation.landAtEdge();
       // The one offset read per scroll event. A correction held during a
       // wheel ramp or a touch fling shifts the rows, so the logical offset

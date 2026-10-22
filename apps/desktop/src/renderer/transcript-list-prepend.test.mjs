@@ -535,12 +535,16 @@ const IPHONE = {
 
 // iOS WebKit cancels a touch fling on a scrollTop write, so there a page
 // landing under the fling is held as a row offset (with the core's own iOS
-// deferral handed over to that hold), lands early once the fling reaches the
-// top, and is never held at the top.
-for (const [scenario, readerTop, flingTo] of [
+// deferral handed over to that hold) and lands once the fling settles. Native
+// 0 is no exception: the momentum reaches it, and the page sits above it.
+// A finger landing at native 0 with the page still held (inside the quiet
+// window, before scrollend) lands it: the momentum already ran into the edge,
+// and the drag that finger starts has to reach the page above.
+for (const [scenario, readerTop, flingTo, retouch = false] of [
   ['far from the top is held, late sizes too, and lands as one write once the fling settles', 8 * VIEWPORT, null],
-  ['is held until the fling reaches the top, then lands as one write', 8 * VIEWPORT, 0],
-  ['at the top is written at once', 0, null],
+  ['stays held when the fling reaches native 0, then lands as one write once it settles', 8 * VIEWPORT, 0],
+  ['at native 0 is held too, and lands as one write once the fling settles', 0, null],
+  ['held at native 0 lands at the next touch, and that drag reaches the page', 8 * VIEWPORT, 0, true],
 ]) {
   test(`iOS: a page landing under a touch fling ${scenario}`, async () => {
     const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
@@ -588,21 +592,46 @@ for (const [scenario, readerTop, flingTo] of [
       const landed = mount.firstVisible(new Set([before.key]));
       assert.equal(landed?.key, before.key);
       assert.ok(Math.abs(landed.offset - before.offset) <= 1, `landed ${landed.offset} vs ${before.offset}`);
-      if (native <= 1) {
-        assert.equal(mount.deviation(), 0, 'nothing is held at the top edge');
-        assert.equal(mount.writes(), writesBefore + 1, 'the landing is one native write');
-        return;
-      }
       assert.equal(mount.writes(), writesBefore, 'no scrollTop write lands inside the fling');
       assert.equal(mount.viewport.scrollTop, native, 'the fling keeps the native offset');
       const held = mount.deviation();
       assert.ok(held > 0, 'the landing is held as the row offset');
-      if (flingTo !== null) {
-        // The fling carries the native offset to the top: the hold lands
-        // there as one write, the logical offset kept.
-        await mount.jump(flingTo);
-        assert.equal(mount.deviation(), 0, 'no hold stands at the top');
-        assert.equal(mount.viewport.scrollTop, flingTo + held, 'one write lands the held amount');
+      if (flingTo !== null || native <= 1) {
+        // The momentum carries the native offset to 0, the old first row:
+        // the hold stands there until the fling settles, then lands as one
+        // write with the logical offset kept.
+        const edge = flingTo ?? native;
+        // The momentum's own frame (the test's write stands in for it).
+        await mount.jump(edge);
+        const momentumWrites = mount.writes();
+        await mount.jump(edge);
+        assert.equal(mount.writes(), momentumWrites + 1, 'nothing lands under the momentum at native 0');
+        assert.equal(mount.deviation(), held, 'the hold stands at native 0');
+        if (retouch) {
+          // The finger lifted, the momentum stopped at native 0, and a new
+          // finger lands before the scroll has been quiet for 150 ms.
+          const keys = new Set(paged.map((row) => row.key));
+          const indexOf = (key) => paged.findIndex((row) => row.key === key);
+          const oldTop = mount.firstVisible(keys);
+          await touch('touchend');
+          await touch('touchstart');
+          assert.equal(mount.deviation(), 0, 'the new touch lands the hold');
+          assert.equal(mount.writes(), momentumWrites + 2, 'as exactly one write');
+          assert.equal(Math.round(mount.viewport.scrollTop), Math.round(edge + held), 'the logical offset is kept');
+          // The drag toward older rows moves into the page above.
+          await mount.jump(mount.viewport.scrollTop - 300);
+          assert.equal(Math.round(mount.viewport.scrollTop), Math.round(edge + held - 300), 'the page is reachable');
+          assert.equal(mount.deviation(), 0, 'no hold returns');
+          const reached = mount.firstVisible(keys);
+          assert.ok(reached && oldTop && indexOf(reached.key) < indexOf(oldTop.key),`${reached?.key} lies above the old top ${oldTop?.key}`);
+          return;
+        }
+        touching = false;
+        await touch('touchend');
+        await mount.idle(200);
+        await mount.settle();
+        assert.equal(mount.deviation(), 0, 'no row offset outlives the fling');
+        assert.equal(Math.round(mount.viewport.scrollTop), Math.round(edge + held), 'one write lands the held amount');
         return;
       }
       // A row above the reader finishes rendering mid-fling: its correction

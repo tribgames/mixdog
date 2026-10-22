@@ -932,29 +932,37 @@ test('an Android touch fling writes no measured-size correction until scrollend,
   }
 });
 
-// A held page landing leaves the native offset short of the logical one: a
-// fling toward older history ran into native 0 and stuck there with the page
-// unreachable above it. A touch hold lands once the reader is at the top.
-test('an Android touch fling toward the top lands a held page at the top, never short of it', async () => {
+// A held page landing leaves the native offset short of the logical one, so a
+// fling toward older history runs into native 0 at the old first row. Landing
+// the hold there was a scrollTop write under the fling: the fling stopped and
+// the rows jumped by the page (phone: 위로 스크롤하면 여전히 멈췄다가 튄다).
+// The hold waits for the fling's end at native 0 too, then the page is
+// reachable above.
+test('an Android touch fling toward the top keeps a held page until the fling ends, at native 0 too', async () => {
   const harness = await touchHoldHarness('android-edge', 1_400);
-  const { state, space, deviation } = harness;
+  const { state, space, viewport, deviation } = harness;
   try {
     await harness.drag();
     // Older history (5,000 px) lands above the reader mid-fling.
     assert.equal(deviation.hold(state.native + 5_000), true, 'the landing is held away from the top');
     assert.equal(space.style.transform, 'translateY(-5000px)');
     while (state.native > 80) await harness.scroll(-80);
-    assert.deepEqual(state.writes, [], 'short of the top it stays held, even within a screen of it');
     await harness.scroll(-state.native);
-    assert.deepEqual(state.writes, [5_000], 'at the top the hold lands as one write');
+    await harness.scroll(0);
+    assert.deepEqual(state.writes, [], 'no write under the fling, at native 0 either');
+    assert.equal(space.style.transform, 'translateY(-5000px)');
+    viewport.dispatchEvent(new window.Event('scrollend'));
+    state.now += 160;
+    await harness.frame();
+    assert.deepEqual(state.writes, [5_000], 'the fling over, the hold lands as one write');
     assert.equal(space.style.transform, '');
-    // The page is reachable above: the reader's next frames move into it.
+    // The page is reachable above: the next drag moves into it.
+    await harness.drag();
     for (let step = 0; step < 10; step += 1) await harness.scroll(-80);
-    assert.equal(state.native, 4_200, 'the touch scroll carries on past the old top');
+    assert.equal(state.native, 4_140, 'the next touch scroll carries on past the old top');
     assert.equal(state.writes.length, 1);
-    // A landing at the top is never held.
-    state.native = 0;
-    assert.equal(deviation.hold(2_000), false, 'the caller writes it natively');
+    // A landing at the real top is never held.
+    assert.equal(deviation.hold(-10), false, 'the caller writes it natively');
   } finally {
     await harness.dispose();
   }

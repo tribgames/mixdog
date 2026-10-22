@@ -15,13 +15,20 @@ import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './trans
  *  drops the row offset.
  *
  *  A positive hold leaves the native offset short of the logical one: history
- *  landed above the reader is unreachable while it stands, and a fling toward
- *  it stopped at native 0 (phone: 긴 세션에 다시 들어가 위로 넘기면 중간에 멈추고
- *  튄다). While `clampAtEdge` (a touch scroll owns the hold) the hold
- *  therefore lands early, as the same one write, once the native offset
- *  reaches the top or the logical offset does, and a landing there is never
- *  held: the narrowest exception, only for a reader really at the top. A
- *  wheel ramp's hold has no edge: it ends within a gesture window anyway.
+ *  landed above the reader is unreachable while it stands, so a fling toward
+ *  it stops at native 0, the old first row. It still waits there for the
+ *  scroll to settle: native 0 is reached by the momentum itself (and starts
+ *  its bounce), and a write landed under it was cancelled or dropped by
+ *  WebKit and desynced an Android fling — the fling stopped and the rows
+ *  jumped by the held page (phone: 위로 스크롤하면 여전히 멈췄다가 튄다).
+ *  While `clampAtEdge` (a touch scroll owns the hold) only a LOGICAL offset at
+ *  the top lands early, and a landing there is never held: that reader is at
+ *  the real top, where the momentum ends anyway, and a negative hold would
+ *  otherwise show blank space above the first row. A new finger landing at
+ *  native 0 with history held above lands it too: the momentum already ran
+ *  into the edge, the finger stops what is left, and the drag it starts has
+ *  to reach that history. A wheel ramp's hold has no edge: it ends within a
+ *  gesture window anyway.
  *
  *  A rubber-band overscroll (iOS) puts the native offset outside [0, max];
  *  a landing then waits for the bounce to settle. */
@@ -32,16 +39,20 @@ export type TouchScrollDeviation = {
    *  the viewport (or the target is at the top edge) and the caller must
    *  write it natively. */
   hold(target: number): boolean;
-  /** Lands the hold now if the viewport reached the top edge (each scroll). */
+  /** Lands the hold now if the logical offset reached the top (each scroll). */
   landAtEdge(): void;
+  /** A finger lands while the native offset rests at 0 with history held
+   *  above it: lands the hold, so the drag that follows can reach it. */
+  landForTouch(): void;
   /** A native write that lands a logical target directly supersedes the hold. */
   drop(): void;
   cancel(): void;
 };
 
-/** At the top, natively or logically: a hold must not stand. */
-function atTopEdge(native: number, logical: number): boolean {
-  return native <= TOP_EDGE_PX || logical <= 0;
+/** The logical offset is at the real top: a hold must not stand. Native 0
+ *  with history held above it is not: the momentum is still on it. */
+function atTopEdge(logical: number): boolean {
+  return logical <= 0;
 }
 
 const TOP_EDGE_PX = 1;
@@ -111,7 +122,7 @@ export function createTouchScrollDeviation({
       const element = getViewport();
       if (!element || !hasTouchScroll()) return false;
       const native = element.scrollTop;
-      if (clampAtEdge() && atTopEdge(native, target)) return false;
+      if (clampAtEdge() && atTopEdge(target)) return false;
       const next = target - native;
       amount = Math.abs(next) < 0.5 ? 0 : next;
       paint();
@@ -122,8 +133,16 @@ export function createTouchScrollDeviation({
       if (!amount || !clampAtEdge()) return;
       const element = getViewport();
       if (!element) return;
-      const native = element.scrollTop;
-      if (atTopEdge(native, native + amount)) land();
+      if (atTopEdge(element.scrollTop + amount)) land();
+    },
+    landForTouch() {
+      // Only native 0 with history held above it: anywhere else the drag
+      // reaches its rows, and the hold keeps waiting for the scroll to settle.
+      // A fling that ran into native 0 is over, and the finger stops whatever
+      // bounce is left; a rubber band still out of range is not written.
+      if (amount <= 0) return;
+      const element = getViewport();
+      if (element && element.scrollTop <= TOP_EDGE_PX) land();
     },
     drop() {
       if (!amount) return;
@@ -167,5 +186,14 @@ export function useTouchScrollDeviation({
     [viewport, spacer, hasTouchScrollRef, touchHoldsRef, domTop, markProgrammaticScrollRef]
   );
   useEffect(() => () => deviation.cancel(), [deviation]);
+  // On the viewport itself, so the landing precedes the follow hook's
+  // touchstart (delegated from the root), which reads the offset it starts at.
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return undefined;
+    const landForTouch = () => deviation.landForTouch();
+    element.addEventListener('touchstart', landForTouch, { passive: true });
+    return () => element.removeEventListener('touchstart', landForTouch);
+  }, [viewport, deviation]);
   return deviation;
 }

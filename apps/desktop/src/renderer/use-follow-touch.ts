@@ -107,9 +107,11 @@ export function useFollowTouch({
   // 위로 순간이동). Headless Chromium keeps flinging through such a write, so
   // only a device shows it. Chromium's fling ends at scrollend (or the idle
   // fallback); iOS WebKit fires no reliable end, so its hold ends once the
-  // scroll has been quiet for a moment. A touch hold lands early at the top
-  // edge, so a fling toward older history never sticks at native 0 short of
-  // a page that landed above it (transcript-list-touch-deviation).
+  // scroll has been quiet for a moment. Native 0 with a page held above it is
+  // no exception while the momentum is on it: the hold lands early only once
+  // the logical offset is at the real top, or when a new finger lands at
+  // native 0 (its drag must reach the page); otherwise it waits for the
+  // settle (transcript-list-touch-deviation).
   // A finger on the glass holds too, scrolling or not, and so does one lifted
   // a moment ago: landing in the gap between the fling's stop and the next
   // touch is the jump itself, and a lifted finger may still start a fling.

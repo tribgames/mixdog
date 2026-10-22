@@ -56,8 +56,8 @@ export function useReadingAnchor({
   // scrollHeight, and older pages then dropped the reader a whole page.
   // During a wheel ramp or a touch fling a page landing and the late sizes of
   // landed rows are held as a row offset, and one settle write lands after
-  // the scroll stops (see transcript-list-touch-deviation). A touch fling's
-  // hold lands early at the top edge, so the fling reaches the landed page.
+  // the scroll stops (see transcript-list-touch-deviation), never under the
+  // fling's momentum, at native 0 included.
   const writeReadingOffset = useCallback(
     (instance: TranscriptVirtualizer, target: number) => {
       const element = viewport.current;

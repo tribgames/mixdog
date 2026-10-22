@@ -41,8 +41,8 @@ type TranscriptListProps = {
    *  corrections are held off the native offset until it ends
    *  (transcript-list-touch-deviation). */
   hasTouchScroll?: () => boolean;
-  /** True while that hold belongs to a touch scroll: it lands early at the
-   *  top edge, so a fling never sticks short of rows landed above it. */
+  /** True while that hold belongs to a touch scroll: it lands early once the
+   *  logical offset reaches the real top. */
   touchHoldsCorrections?: () => boolean;
   /** Claims reader ownership before this list writes selection auto-scroll. */
   onSelectionAutoScroll(delta: number): void;

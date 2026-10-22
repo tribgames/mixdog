@@ -4,12 +4,11 @@ import { installTestDom } from './test-support/test-dom.mjs';
 
 // iOS WebKit (up to iOS 26) cancels a touch fling when scrollTop is written,
 // so a touch scroll there holds measured-size corrections and page landings
-// as a row offset. Held without an edge, the native offset stayed short of the
-// logical one and a fling toward older history stopped at native 0 with the
-// landed rows unreachable above it. The hold lands as one native write once
-// the native offset reaches the top (or the logical offset reaches 0), and
-// once the touch scroll has been quiet for 150 ms. A Chromium
-// touch scroll holds the same way until scrollend (transcript-follow.test.mjs).
+// as a row offset. The hold lands as one native write once the touch scroll
+// has been quiet for 150 ms, or at once when the logical offset reaches the
+// real top. Native 0 with a page held above it is reached by the momentum
+// itself, so it waits there too. A Chromium touch scroll holds the same way
+// until scrollend (transcript-follow.test.mjs).
 
 const IPHONE = {
   userAgent:
@@ -42,7 +41,7 @@ function fakeViewport(native, height) {
   return viewport;
 }
 
-test('a held correction lands as one native write once the native offset reaches the top', async () => {
+test('a held correction lands early only once the logical offset reaches the top', async () => {
   const { restore } = dom();
   try {
     const { createTouchScrollDeviation } = await import('./transcript-list-touch-deviation.ts');
@@ -63,20 +62,22 @@ test('a held correction lands as one native write once the native offset reaches
     assert.deepEqual(viewport.writes, [], 'short of the top it stays held, even within a screen of it');
     viewport.native = 0;
     deviation.landAtEdge();
-    assert.deepEqual(viewport.writes, [5_000], 'at the top the hold lands natively');
-    assert.equal(deviation.amount(), 0);
-    assert.equal(space.style.transform, '');
-    assert.deepEqual(marks, [[5_000, 5_000]], 'and is reported as the timeline’s own write');
-    // At the top a landing is never held: the caller writes it natively.
-    viewport.native = 0;
-    assert.equal(deviation.hold(2_000), false, 'a landing at the top is not held');
-    // A held shrink whose logical offset reaches the top lands too.
+    assert.deepEqual(viewport.writes, [], 'native 0 with the page held above it is the momentum’s, not the top');
+    assert.equal(space.style.transform, 'translateY(-5000px)');
+    assert.equal(deviation.hold(2_000), true, 'a page landing there is held too');
+    deviation.drop();
+    // A held shrink whose logical offset reaches the top lands at once.
     viewport.native = 1_500;
     assert.equal(deviation.hold(300), true);
     viewport.native = 1_100;
     deviation.landAtEdge();
-    assert.deepEqual(viewport.writes.at(-1), 0, 'a logical offset at or above 0 lands at the top');
+    assert.deepEqual(viewport.writes, [0], 'a logical offset at or above 0 lands at the top');
     assert.equal(deviation.amount(), 0);
+    assert.equal(space.style.transform, '');
+    assert.deepEqual(marks, [[0, 0]], 'and is reported as the timeline’s own write');
+    // At the real top a landing is never held: the caller writes it natively.
+    viewport.native = 400;
+    assert.equal(deviation.hold(-20), false, 'a landing at the real top is not held');
     deviation.cancel();
   } finally {
     restore();
@@ -182,6 +183,104 @@ test('on iOS WebKit a touch scroll holds corrections through its fling and lands
     const settledAt = native + 30;
     await frame();
     assert.deepEqual(writes, [settledAt], 'the held correction lands as one write');
+    release();
+    deviation.cancel();
+  } finally {
+    Date.now = realNow;
+    await React.act(async () => root.unmount());
+    restore();
+  }
+});
+
+// iPhone, long session: a page lands above a fling toward older history and is
+// held as a row offset; the fling then runs into native 0, the old first row.
+// Landing the hold there wrote scrollTop under the momentum (and the bounce
+// it starts): WebKit cancels or drops that write, so the fling stopped and the
+// rows jumped by the page. The hold waits out the momentum at the edge too and
+// lands once the touch scroll has gone quiet.
+test('on iOS WebKit a held page is not landed under the momentum that reaches the top edge', async () => {
+  const { restore } = dom({ navigator: IPHONE });
+  const [
+    React,
+    { createRoot },
+    { useTranscriptFollow, registerTranscriptScrollGeometry },
+    { createTouchScrollDeviation },
+  ] = await Promise.all([
+    import('react'),
+    import('react-dom/client'),
+    import('./use-transcript-follow.ts'),
+    import('./transcript-list-touch-deviation.ts'),
+  ]);
+  const realNow = Date.now;
+  let now = 900_000;
+  Date.now = () => now;
+  let native = 1_400;
+  const writes = [];
+  let follow = null;
+  const root = createRoot(document.getElementById('root'));
+  function Harness() {
+    const viewport = React.useRef(null);
+    const content = React.useRef(null);
+    follow = useTranscriptFollow({ viewport, content, sessionKey: 'ios-edge' });
+    return React.createElement(
+      'div',
+      { ref: viewport },
+      React.createElement('div', { ref: content }, React.createElement('div', { id: 'space' }, 'rows'))
+    );
+  }
+  const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
+  try {
+    await React.act(async () => root.render(React.createElement(Harness)));
+    const space = document.getElementById('space');
+    const viewport = space.parentElement.parentElement;
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => 400 });
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => 20_000 });
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      get: () => native,
+      set: (value) => {
+        writes.push(value);
+        native = Math.max(0, value);
+      },
+    });
+    const deviation = createTouchScrollDeviation({
+      getViewport: () => viewport,
+      getSpacer: () => space,
+      hasTouchScroll: () => follow.holdsScrollCorrections(),
+      clampAtEdge: () => follow.touchHoldsCorrections(),
+      markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
+    });
+    const release = registerTranscriptScrollGeometry(viewport, {
+      viewportHeight: () => 400,
+      contentHeight: () => 20_000,
+      scrollTop: () => native,
+      deviation: () => deviation.amount(),
+    });
+    // One momentum frame as the list delivers it: its offset observer runs the
+    // edge check, then the follow hook sees the scroll.
+    const momentum = async (delta) => {
+      now += 16;
+      native = Math.max(0, native + delta);
+      deviation.landAtEdge();
+      await React.act(async () => follow.handleScroll());
+      await frame();
+    };
+    await React.act(async () => follow.handleScroll());
+    const touch = (clientY) => ({ target: space, currentTarget: viewport, touches: [{ clientY }] });
+    follow.handleTouchStart(touch(100));
+    follow.handleTouchMove(touch(160));
+    await momentum(-60);
+    follow.handleTouchEnd();
+    assert.equal(deviation.hold(native + 5_000), true, 'the page landing mid-fling is held');
+    while (native > 0) await momentum(-80);
+    // The momentum is still delivering at the edge (the bounce it starts).
+    for (let step = 0; step < 4; step += 1) await momentum(0);
+    assert.deepEqual(writes, [], 'no scrollTop write under the momentum, at the top edge either');
+    assert.equal(space.style.transform, 'translateY(-5000px)', 'the page stays held above the old first row');
+    now += 160;
+    await frame();
+    assert.deepEqual(writes, [5_000], 'once the touch scroll is quiet the hold lands as one write');
+    assert.equal(space.style.transform, '');
     release();
     deviation.cancel();
   } finally {

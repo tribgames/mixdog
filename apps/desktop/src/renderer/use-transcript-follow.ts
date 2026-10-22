@@ -68,8 +68,9 @@ interface TranscriptFollow {
    *  fling: the list holds measured-size corrections off scrollTop until it
    *  ends. */
   holdsScrollCorrections(): boolean;
-  /** The touch half of holdsScrollCorrections: such a hold lands early at
-   *  the top edge (a wheel ramp's holds until the ramp ends). */
+  /** The touch half of holdsScrollCorrections: such a hold lands early once
+   *  the logical offset reaches the real top (a wheel ramp's holds until the
+   *  ramp ends). */
   touchHoldsCorrections(): boolean;
   handleScroll(): void;
   handleWheel(event: WheelLike): void;
