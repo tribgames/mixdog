@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { usePaneTypingFocus } from '../use-composer-focus';
 import { useDraftPanePreferences } from '../use-draft-pane-preferences';
 import { useUnreadSessions } from '../app-unread-sessions';
@@ -151,8 +151,10 @@ export function useAppNavigationShell(shell: AppWorkspaceShell) {
 
 /** Unread-session dots and the sidebar session catalog they reconcile against. */
 function useUnreadSessionCatalog(unreadViewedSessionRef: Parameters<typeof useUnreadSessions>[0]['viewedSessionRef']) {
+  const unreadScreenSessionIdsRef = useRef<readonly string[]>([]);
   const { unreadSessionIds, reconcileUnreadSessions, consumeUnread } = useUnreadSessions({
     viewedSessionRef: unreadViewedSessionRef,
+    screenSessionIdsRef: unreadScreenSessionIdsRef,
   });
 
   // Sidebar catalog state, optimistic rename/archive/delete overlay, push + poll
@@ -171,6 +173,7 @@ function useUnreadSessionCatalog(unreadViewedSessionRef: Parameters<typeof useUn
 
   return {
     unreadSessionIds,
+    unreadScreenSessionIdsRef,
     consumeUnread,
     sessions,
     setSessions,

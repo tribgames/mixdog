@@ -29,7 +29,13 @@ import {
 } from './use-pane-workspace-interactions';
 import { PersistentPanePortal, TranscriptSkeletonCover } from './PaneSurfaceGate';
 import type { NavigationSelection, WorkspaceSelection } from './nav-types';
-import { paneActiveSessionIds, paneActiveSelection, paneLeavesInVisualOrder, type PaneLeaf } from './pane-layout';
+import {
+  paneActiveSessionIds,
+  paneActiveSelection,
+  paneLeavesInVisualOrder,
+  paneScreenSessionIds,
+  type PaneLeaf,
+} from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { defaultSessionLaneStore } from './session-lane-store';
 import { browserTabTitle } from './text-format';
@@ -63,16 +69,6 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
     case 'diff':
       return t('{{name}} (Diff)', { name: selection.rel.split('/').at(-1) || selection.rel });
   }
-}
-
-/** A phone renders exactly ONE leaf — the focused one — and pays the relay for
- *  every session it registers, so only that leaf's active session is mirrored
- *  (user: vps라 비용때문에). Every other leaf stays unregistered until it is
- *  focused. */
-function mobileVisibleSessionIds(leaves: readonly PaneLeaf[], focusedLeafId: string): string[] {
-  const leaf = leaves.find((entry) => entry.id === focusedLeafId) ?? leaves[0];
-  const active = leaf ? paneActiveSelection(leaf) : null;
-  return active?.kind === 'session' ? [active.id] : [];
 }
 
 /** Sessions a phone keeps mounted besides the shown one, so switching back
@@ -199,10 +195,14 @@ export function PaneWorkspace({
   // A phone shows ONE tab at a time and pays for every mirrored session over
   // the relay, so restored background tabs stay unregistered until opened
   // (user: vps라 비용때문에). Wide surfaces keep every pane tab observable.
+  // A phone renders exactly ONE leaf — the focused one — and pays the relay
+  // for every session it registers, so only that leaf's active session is
+  // mirrored. Every other leaf stays unregistered until it is focused.
   const mobileSurface = useMobileRemoteSurface();
   const paneSessionIds = mobileSurface
-    ? mobileVisibleSessionIds(workspace.leaves, workspace.focusedLeafId)
+    ? paneScreenSessionIds(workspace.leaves, workspace.focusedLeafId, true)
     : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
+  const singlePaneMode = useSinglePaneMode(workspace.layout);
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
   // Not on a phone: its Agents rows read the agent pool and roster, while
@@ -212,11 +212,11 @@ export function PaneWorkspace({
     ? paneSessionIds
     : [...new Set([...paneSessionIds, ...observedSessionIds, ...petSessionIds])];
   useVisibleSessions(visibleSessionIds);
-  useScreenSessions(paneSessionIds);
+  // On screen: every pane of a split, only the focused one of a carousel.
+  useScreenSessions(paneScreenSessionIds(workspace.leaves, workspace.focusedLeafId, singlePaneMode));
   usePaneSelectionFence();
   const fileDropPropsFor = usePaneFileDrop(onOpenDroppedPaths);
   const dropPreview = usePaneDropPreview(workspace, onFocusSelection);
-  const singlePaneMode = useSinglePaneMode(workspace.layout);
   let overlay: ReturnType<typeof createPortal> | null = null;
   if (dropPreview) {
     // ONE drop overlay per editor group: the highlight glides between zones

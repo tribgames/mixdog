@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useWorkspaceCovered } from './workspace-cover';
 
@@ -24,6 +24,35 @@ export function currentVisibleSessionIds(): readonly string[] {
   return shownSessionIds;
 }
 
+let screenSessionIds: readonly string[] = [];
+const screenSessionListeners = new Set<() => void>();
+
+function publishScreenSessions(sessionIds: readonly string[]): void {
+  screenSessionIds = sessionIds;
+  for (const listener of screenSessionListeners) listener();
+  window.mixdogDesktop?.reportScreenSessions?.([...sessionIds]);
+}
+
+function subscribeScreenSessions(listener: () => void): () => void {
+  screenSessionListeners.add(listener);
+  return () => screenSessionListeners.delete(listener);
+}
+
+/** The sessions this window paints (last report): every visible pane, the
+ *  focused one or not. Unread reading follows it. */
+export function currentScreenSessionIds(): readonly string[] {
+  return screenSessionIds;
+}
+
+/** `currentScreenSessionIds`, re-rendering the caller on every report. */
+export function useScreenSessionIds(): readonly string[] {
+  return useSyncExternalStore(
+    subscribeScreenSessions,
+    () => screenSessionIds,
+    () => screenSessionIds
+  );
+}
+
 /** Tell main which sessions this window actually shows (pane-active sessions
  *  only, not the Agents dock's observed ones), so a completion elsewhere still
  *  notifies while this window is focused. Nothing is shown while a modal or an
@@ -34,11 +63,11 @@ export function useScreenSessions(sessionIds: readonly string[]): void {
   const key = shown.join('\0');
   // biome-ignore lint/correctness/useExhaustiveDependencies: key is the content signature of shown
   useLayoutEffect(() => {
-    window.mixdogDesktop?.reportScreenSessions?.([...shown]);
+    publishScreenSessions([...shown]);
   }, [key]);
   useEffect(
     () => () => {
-      window.mixdogDesktop?.reportScreenSessions?.([]);
+      publishScreenSessions([]);
     },
     []
   );

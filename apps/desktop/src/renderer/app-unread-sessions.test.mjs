@@ -99,6 +99,108 @@ test('a turn that completes behind another app stays unread until focus returns'
   }
 });
 
+// The split layout of the report: coding sessions in the focused left pane, a
+// bot chat ('비서') open as the right pane's tab.
+function SplitHarness({ api, screen, focusTick, sessions, useScreenSessions, useUnreadViewedSession }) {
+  useScreenSessions(screen);
+  const viewedSessionRef = useRef('');
+  const unreadViewedSessionRef = useRef('');
+  const screenSessionIdsRef = useRef([]);
+  const unread = useUnreadSessions({ viewedSessionRef: unreadViewedSessionRef, screenSessionIdsRef });
+  Object.assign(api, unread);
+  useUnreadViewedSession({
+    navigationSelection: { kind: 'session', id: 'main' },
+    requestedSessionId: '',
+    sidebarOpen: false,
+    dockOpen: false,
+    bottomPanelOpen: false,
+    settingsOpen: false,
+    sessions,
+    windowFocusTick: focusTick,
+    viewedSessionRef,
+    unreadViewedSessionRef,
+    screenSessionIdsRef,
+    consumeUnread: unread.consumeUnread,
+  });
+  return React.createElement('div', null, [...unread.unreadSessionIds].join(','));
+}
+
+async function splitSetup({ focused }) {
+  const dom = installDom({ focused });
+  const { useScreenSessions } = await import('./use-visible-sessions.ts');
+  const { useUnreadViewedSession } = await import('./app-root/use-unread-viewed-session.ts');
+  const reads = [];
+  window.mixdogDesktop = { markSessionRead: (...args) => void reads.push(args) };
+  const api = {};
+  const render = (props) =>
+    act(async () =>
+      dom.root.render(React.createElement(SplitHarness, { api, useScreenSessions, useUnreadViewedSession, ...props }))
+    );
+  const marks = () => document.querySelector('#root div').textContent;
+  return { dom, api, reads, render, marks };
+}
+
+test('every pane of a split is on screen; a single-pane carousel shows only the focused one', async () => {
+  const { createPaneLeaf, paneScreenSessionIds } = await import('./pane-layout.ts');
+  const leaves = [
+    createPaneLeaf({ kind: 'session', id: 'main', title: '' }, 'left'),
+    createPaneLeaf({ kind: 'session', id: 'bot-home', title: '' }, 'right'),
+  ];
+  assert.deepEqual(paneScreenSessionIds(leaves, 'left', false), ['main', 'bot-home']);
+  assert.deepEqual(paneScreenSessionIds(leaves, 'left', true), ['main']);
+  assert.deepEqual(paneScreenSessionIds(leaves, 'right', true), ['bot-home']);
+});
+
+const main = { ...row, id: 'main', messageCount: 2, readMessageCount: 2 };
+const side = { ...row, id: 'bot-home', messageCount: 2, readMessageCount: 2 };
+
+test('a reply landing in a chat open in the side pane of the focused window is read as it arrives', async () => {
+  const { dom, api, reads, render, marks } = await splitSetup({ focused: true });
+  try {
+    await render({ screen: ['main', 'bot-home'], focusTick: 0, sessions: [main, side] });
+    await act(async () => api.reconcileUnreadSessions([main, side]));
+    await act(async () => api.reconcileUnreadSessions([main, { ...side, messageCount: 4 }]));
+    assert.equal(marks(), '', 'no dot for a reply the user is looking at');
+    assert.deepEqual(
+      reads.filter(([id]) => id === 'bot-home'),
+      [['bot-home', 4, false]]
+    );
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('a side pane chat that got unread behind another app clears when focus returns; a hidden pane keeps it', async () => {
+  const { dom, api, reads, render, marks } = await splitSetup({ focused: false });
+  try {
+    await render({ screen: ['main', 'bot-home'], focusTick: 0, sessions: [main, side] });
+    await act(async () => api.reconcileUnreadSessions([main, side]));
+    const replied = [main, { ...side, messageCount: 4 }];
+    await act(async () => api.reconcileUnreadSessions(replied));
+    assert.equal(marks(), 'bot-home', 'an unfocused window is not reading');
+    // Focus returns, but the side pane is hidden (single-pane carousel).
+    dom.state.focused = true;
+    await render({ screen: ['main'], focusTick: 1, sessions: replied });
+    await act(async () => api.reconcileUnreadSessions([main, { ...side, messageCount: 5 }]));
+    assert.equal(marks(), 'bot-home', 'a hidden pane does not mark read');
+    assert.equal(
+      reads.some(([id]) => id === 'bot-home'),
+      false
+    );
+    // The pane is shown again: its chat is read.
+    await render({ screen: ['main', 'bot-home'], focusTick: 1, sessions: [main, { ...side, messageCount: 5 }] });
+    assert.equal(marks(), '');
+    assert.deepEqual(
+      reads.find(([id]) => id === 'bot-home'),
+      ['bot-home', 5, true]
+    );
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test("a reply read to its end in the bot overlay clears the chat's unread mark (sidebar dot, Bots badge)", async (t) => {
   const { mkdtemp, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');

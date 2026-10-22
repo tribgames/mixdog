@@ -75,9 +75,12 @@ export function resolveUnreadViewedSessionId({
 
 export function useUnreadSessions({
   viewedSessionRef,
+  screenSessionIdsRef,
 }: {
   /** The session on screen, including an in-flight switch target. */
   viewedSessionRef: MutableRefObject<string>;
+  /** Sessions the window's other visible panes show: read the same way. */
+  screenSessionIdsRef?: MutableRefObject<readonly string[]>;
 }) {
   const [unreadSessionIds, setUnreadSessionIds] = useState<ReadonlySet<string>>(() => new Set());
   const unreadSessionIdsRef = useRef<ReadonlySet<string>>(new Set());
@@ -134,16 +137,17 @@ export function useUnreadSessions({
     (rows: DesktopSessionSummary[]) => {
       const seen = loadSeen();
       const activeId = viewedSessionRef.current;
+      const screenIds = new Set(screenSessionIdsRef?.current);
       const liveIds = new Set(rows.map((row) => row.id));
       const workingIds = new Set(rows.filter((row) => row.working === true).map((row) => row.id));
       const completedIds = new Set(
         [...previousWorkingSessionIds.current].filter((id) => liveIds.has(id) && !workingIds.has(id))
       );
       previousWorkingSessionIds.current = workingIds;
-      // "Viewed" means the surface is on screen AND focused; see
-      // sessionSurfaceEngaged.
+      // "Viewed" means the surface is on screen AND focused (see
+      // sessionSurfaceEngaged), in any visible pane, focused or not.
       const engaged = sessionSurfaceEngaged();
-      const viewing = (id: string) => id === activeId && engaged;
+      const viewing = (id: string) => engaged && (id === activeId || screenIds.has(id));
       let dirty = false;
       for (const id of [...seen.keys()]) {
         if (liveIds.has(id)) continue;
@@ -205,7 +209,7 @@ export function useUnreadSessions({
       }
       commitUnread(unread);
     },
-    [commitUnread, loadSeen, persistSeen, publishRead, viewedSessionRef]
+    [commitUnread, loadSeen, persistSeen, publishRead, screenSessionIdsRef, viewedSessionRef]
   );
 
   // Viewing a session consumes its marker — but only while the surface is

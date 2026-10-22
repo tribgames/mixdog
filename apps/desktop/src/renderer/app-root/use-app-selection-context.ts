@@ -44,6 +44,7 @@ export function useAppSelectionContext(
     sessions,
     viewedSessionRef,
     unreadViewedSessionRef,
+    unreadScreenSessionIdsRef,
     consumeUnread,
     newTaskProjectPath,
   } = nav;
@@ -79,6 +80,7 @@ export function useAppSelectionContext(
     windowFocusTick: lifecycle.windowFocusTick,
     viewedSessionRef,
     unreadViewedSessionRef,
+    screenSessionIdsRef: unreadScreenSessionIdsRef,
     consumeUnread,
   });
   const sessionTitle = useAppSessionTitle({

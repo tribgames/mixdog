@@ -133,6 +133,16 @@ export function paneActiveSessionIds(leaves: readonly PaneLeaf[], focusedLeafId 
   return ids;
 }
 
+/** Pane sessions actually on screen. A single-pane carousel (narrow shell, a
+ *  tree whose floors do not fit, the phone) shows only the focused leaf; the
+ *  others are hidden, so nobody reads them. */
+export function paneScreenSessionIds(leaves: readonly PaneLeaf[], focusedLeafId: string, singlePane: boolean): string[] {
+  if (!singlePane) return paneActiveSessionIds(leaves, focusedLeafId);
+  const leaf = leaves.find((entry) => entry.id === focusedLeafId) ?? leaves[0];
+  const active = leaf ? paneActiveSelection(leaf) : null;
+  return active?.kind === 'session' ? [active.id] : [];
+}
+
 /** Authorize persisted session tabs against the durable startup catalog before
  * any pane mounts. Empty orphan-only groups collapse exactly like closed
  * editor groups; non-session tabs retain their original layout. */
