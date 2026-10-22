@@ -584,24 +584,6 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   color: var(--mx-text-muted);
   transform: translateY(1px);
 }
-/* The Working section's heading wraps its fold button (heading semantics);
-   the button wears the heading's label type. */
-.utility-dock .agent-work-heading {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-}
-.utility-dock .agent-work-heading .agent-session-heading {
-  font: inherit;
-  color: inherit;
-}
-.utility-dock .agent-work-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .utility-dock .agent-session-heading:hover .agent-session-chevron {
   color: var(--mx-text-soft);
 }

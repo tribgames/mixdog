@@ -78,7 +78,8 @@ export interface AgentLeadRowOptions {
 
 const NO_PINS: ReadonlySet<string> = new Set();
 
-/** An ordinary coding session: not an agent's home, room, task or automation run. */
+/** An ordinary coding session (a bot's task session included): not an agent's
+ *  home, room or automation run. */
 function ordinaryLeadSession(session: DesktopSessionSummary): boolean {
   return (
     session.messageCount > 0 &&
@@ -86,7 +87,6 @@ function ordinaryLeadSession(session: DesktopSessionSummary): boolean {
     !session.agentHome &&
     !session.agentRoom &&
     !session.agentSession &&
-    !session.taskAgent &&
     !session.sourceType &&
     session.sessionMode !== 'agent'
   );

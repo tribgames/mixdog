@@ -1,4 +1,5 @@
-// The bot page's bottom "Working" section: the bots' running task sessions.
+// The bot page's agent sessions: work groups and Lead rows (a bot's task session
+// is a Lead like any other; there is no separate "Working" section).
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';
@@ -60,40 +61,26 @@ function mount(t, pool, sessions, agentModeIds = [], unreadIds = []) {
   return { document: dom.window.document, window: dom.window, opened, render };
 }
 
-test('running task sessions list at the bottom with bot, title and status; a row opens its session', async (t) => {
+test("a bot's task session is a Lead row under its own title, never a bot-named \"Working\" row", async (t) => {
   const { document, render, opened } = mount(
     t,
-    [
-      poolLead('t1'),
-      poolLead('t2', { awaitingUser: 'approval' }),
-      poolLead('t3', { status: 'failed', stage: 'failed' }),
-    ],
-    [task('t1'), task('t2'), task('t3'), task('t4')]
+    [poolLead('t1'), poolLead('t2', { awaitingUser: 'approval' })],
+    [task('t1', { title: '버그 픽스 세션' }), task('t2')]
   );
   await render();
-  const section = document.querySelector('.agent-work-section');
-  assert.ok(section);
-  const heading = section.querySelector('h2');
-  assert.equal(heading.textContent, 'Working1'.replace('1', '3'));
+  assert.equal(document.querySelector('[data-agent-section="working"]'), null, 'no Working section');
+  assert.equal(document.querySelector('[data-agent-work]'), null);
+  const section = document.querySelector('[data-agent-section="leads"]');
+  assert.equal(section.querySelector('h2, .agent-session-heading'), null, 'no section name');
+  const row = section.querySelector('[data-agent-lead="t1"]');
+  assert.equal(row.querySelector('.agent-chat-title').textContent, '버그 픽스 세션', 'its own title, not the bot');
   assert.equal(
-    heading.querySelector('button').getAttribute('aria-expanded'),
-    'true',
-    'the button sits inside the heading'
+    section.querySelector('[data-agent-lead="t2"] .agent-chat-status').dataset.kind,
+    'attention-mark',
+    'waiting on the user'
   );
-  assert.equal(section.querySelector('.dock-review-count').textContent, '3');
-  assert.equal(section.compareDocumentPosition(document.querySelector('[data-agent-contact="lead"]')) & 2, 2);
-  const rows = [...section.querySelectorAll('[data-agent-work]')];
-  assert.deepEqual(rows.map((row) => row.dataset.agentWork).sort(), ['t1', 't2', 't3']);
-  const status = (id) => section.querySelector(`[data-agent-work="${id}"] .agent-chat-status`).dataset.kind;
-  assert.equal(status('t1'), 'running');
-  assert.equal(status('t2'), 'attention-mark');
-  assert.equal(status('t3'), 'error');
-  const first = section.querySelector('[data-agent-work="t1"]');
-  assert.match(first.textContent, /Task t1/);
-  assert.match(first.querySelector('.agent-chat-title').textContent, /\S/);
-  assert.match(first.querySelector('time').textContent, /1m/);
-  await act(async () => first.querySelector('button').click());
-  assert.deepEqual(opened, ['t1']);
+  await act(async () => row.querySelector('button').click());
+  assert.deepEqual(opened, ['lead:t1'], 'it opens as a Lead');
 });
 
 test('a task Lead blocked on its OWN approval reads as waiting for approval, not working; it clears when answered', async (t) => {
@@ -114,44 +101,14 @@ test('a task Lead blocked on its OWN approval reads as waiting for approval, not
   );
   frame({ id: 'ap-1', tool: 'send_email' });
   await render();
-  const status = (id) => document.querySelector(`[data-agent-work="${id}"] .agent-chat-status`).dataset.kind;
+  const status = (id) => document.querySelector(`[data-agent-lead="${id}"] .agent-chat-status`).dataset.kind;
   assert.equal(status('t1'), 'attention-mark', 'blocked on its own approval');
-  assert.equal(document.querySelector('[data-agent-work="t1"] .agent-chat-time'), null, 'no ticking timer');
   assert.equal(status('t2'), 'running', 'another Lead keeps working');
   await act(async () => frame(null));
   assert.equal(status('t1'), 'running', 'answered, it works again');
 });
 
-test('the header folds the list and the choice persists across mounts', async (t) => {
-  const first = mount(t, [poolLead('t1')], [task('t1')]);
-  await first.render();
-  const heading = first.document.querySelector('.agent-work-section .agent-session-heading');
-  assert.equal(heading.getAttribute('aria-expanded'), 'true');
-  await act(async () => heading.click());
-  assert.equal(heading.getAttribute('aria-expanded'), 'false');
-  assert.equal(first.document.querySelector('[data-agent-work]'), null);
-  assert.equal(first.window.localStorage.getItem('mixdog.agent-work-collapsed'), '1');
-  // A second mount over the same storage starts folded.
-  const stored = first.window.localStorage.getItem('mixdog.agent-work-collapsed');
-  const second = mount(t, [poolLead('t1')], [task('t1')]);
-  second.window.localStorage.setItem('mixdog.agent-work-collapsed', stored);
-  await second.render();
-  assert.equal(
-    second.document.querySelector('.agent-work-section .agent-session-heading').getAttribute('aria-expanded'),
-    'false'
-  );
-  await act(async () => second.document.querySelector('.agent-work-section .agent-session-heading').click());
-  assert.ok(second.document.querySelector('[data-agent-work="t1"]'));
-});
-
-test('nothing running shows no Working section', async (t) => {
-  const { document, render } = mount(t, [poolLead('t1', { status: 'idle', stage: 'idle' })], [task('t1')]);
-  await render();
-  assert.equal(document.querySelector('.agent-work-section'), null);
-  assert.ok(document.querySelector('[data-agent-contact="lead"]'));
-});
-
-test('a task session with members shows once, inside its group; fold hides both; count adds up', async (t) => {
+test('an agent-mode work group shows once; a task session beside it is a Lead row', async (t) => {
   const member = {
     tag: 'w1',
     agent: 'worker',
@@ -164,16 +121,12 @@ test('a task session with members shows once, inside its group; fold hides both;
   };
   const { document, render } = mount(t, [poolLead('g1'), member, poolLead('t1')], [task('g1'), task('t1')], ['g1']);
   await render();
-  const section = document.querySelector('.agent-work-section');
-  assert.equal(section.querySelector('.dock-review-count').textContent, '2');
-  assert.equal(section.querySelectorAll('[data-agent-owner-session-id="g1"]').length, 1);
-  assert.equal(section.querySelector('[data-agent-work="g1"]'), null, 'not repeated as a task row');
-  assert.ok(section.querySelector('[data-agent-work="t1"]'));
-  await act(async () => section.querySelector(':scope > .workflows-section-head h2 > .agent-session-heading').click());
-  assert.equal(section.querySelector('[data-agent-owner-session-id]'), null);
-  assert.equal(section.querySelector('[data-agent-work]'), null);
+  assert.equal(document.querySelector('.agent-work-section'), null, 'no Working wrapper');
+  assert.equal(document.querySelectorAll('[data-agent-owner-session-id="g1"]').length, 1);
+  assert.equal(document.querySelector('[data-agent-lead="g1"]'), null, 'not repeated as a Lead row');
+  assert.ok(document.querySelector('[data-agent-lead="t1"]'));
 });
-test('search shows task rows matching title or bot name, and hides the section when none match', async (t) => {
+test('search finds a task Lead by its title, not by the bot that created it', async (t) => {
   const { document, window, render } = mount(t, [poolLead('t1')], [task('t1', { title: 'Compile docs' })]);
   await render();
   const search = document.querySelector('.session-panel-header-actions [aria-pressed]');
@@ -185,12 +138,9 @@ test('search shows task rows matching title or bot name, and hides the section w
       input.dispatchEvent(new window.Event('input', { bubbles: true }));
     });
   await type('compile');
-  assert.ok(document.querySelector('[data-agent-work="t1"]'), 'title match');
-  const botName = document.querySelector('[data-agent-work="t1"] .agent-chat-title').textContent.toLowerCase();
-  await type(botName);
-  assert.ok(document.querySelector('[data-agent-work="t1"]'), 'bot name match');
+  assert.ok(document.querySelector('[data-agent-lead="t1"]'), 'title match');
   await type('zzz-nothing');
-  assert.equal(document.querySelector('.agent-work-section'), null);
+  assert.equal(document.querySelector('[data-agent-lead="t1"]'), null);
 });
 
 const coding = (id, extra = {}) => ({ id, title: `Code ${id}`, preview: '', updatedAt: 1, messageCount: 1, ...extra });
@@ -238,7 +188,7 @@ test('Leads are one messenger row each, divider-separated with no header; a fini
     'a divider line sets the block apart from what is above'
   );
   const ids = [...section.querySelectorAll('[data-agent-lead]')].map((el) => el.dataset.agentLead);
-  assert.deepEqual(ids.sort(), ['c1', 'c2', 'c3'], 'finished c3 stays; task t1 and bot chat bot1 are not Leads');
+  assert.deepEqual(ids.sort(), ['c1', 'c2', 'c3', 't1'], 'finished c3 stays; task t1 is a Lead; bot chat bot1 is not');
   const row = section.querySelector('[data-agent-lead="c1"]');
   assert.ok(row.matches('li.agent-chat-row[data-kind="contact"]'), 'the bot rows layout');
   assert.equal(row.querySelector('.agent-chat-avatar > .agent-contact-mascot'), null, 'no pup face');
@@ -259,9 +209,7 @@ test('Leads are one messenger row each, divider-separated with no header; a fini
   assert.equal(row.textContent.includes('Completed'), false);
   assert.equal(section.querySelector('[data-agent-lead="c2"] .agent-chat-preview').textContent, 'Working');
   assert.equal(section.querySelector('[data-agent-lead="c3"] .agent-chat-preview').textContent, 'Idle');
-  const working = document.querySelector('[data-agent-section="working"]');
-  assert.ok(working.compareDocumentPosition(section) & 4, 'after the Working section');
-  assert.equal(working.querySelector('[data-agent-lead]'), null);
+  assert.equal(document.querySelector('[data-agent-section="working"]'), null, 'no Working section');
   await act(async () => row.querySelector('button').click());
   assert.deepEqual(opened, ['lead:c1']);
 });

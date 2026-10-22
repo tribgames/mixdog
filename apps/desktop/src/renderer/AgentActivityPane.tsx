@@ -38,7 +38,6 @@ import { AgentPaneHeaderActions } from './agent-pane-header-actions';
 import { TextShimmer } from './transcript-primitives';
 import { type AgentContact, agentContacts } from './agent-contacts-model';
 import { AgentAvatar } from './agent-avatar';
-import { AgentWorkSection, agentWorkRows } from './agent-work-section';
 import { type AgentLeadRow, AgentLeadRows, agentLeadRows, retainWindowMs } from './agent-lead-rows';
 import { SubtreeToggle, subAgentNodes, subAgentsNeedAttention, subtreeMenuItem, subtreeRowAttr } from './agent-subtree';
 import { LeadAppearanceDialog } from './lead-appearance-dialog';
@@ -1010,10 +1009,6 @@ export function AgentActivityPane({
   );
   // Sessions waiting on the user, a Lead's own approval or question included.
   const { needsUser } = useSessionAttentionIndex();
-  const workRows = useMemo(
-    () => agentWorkRows(sessions, new Map(allGroups.map((group) => [group.ownerId, group.nodes])), contacts, needsUser),
-    [allGroups, contacts, needsUser, sessions]
-  );
   const openContact = (contact: AgentContact): Promise<string> => openAgentContact(contact, onOpenSession);
 
   const botOrder = useBotOrder();
@@ -1075,10 +1070,10 @@ export function AgentActivityPane({
   // the user) now, one row each; a finished Lead stays, resting, for the
   // "Keep finished agents" window (1 hour by default, the pool's own window;
   // longer ones and pins are built from the session list, which outlives the
-  // pool's rows).
+  // pool's rows). A task session a bot created is a Lead like any other: it
+  // lists by its own title, never under the bot that created it.
   const leadSessionListed = (session: DesktopSessionSummary): boolean =>
     !isAgentChatSession(session.id) &&
-    !session.taskAgent &&
     !session.archived &&
     !hiddenOwnerIds.has(session.id) &&
     matches(sessionDisplayTitle(session, ''), session.preview, session.lastMessagePreview);
@@ -1125,12 +1120,9 @@ export function AgentActivityPane({
       ],
     });
   };
-  // Task rows skip sessions a group shows, and groups the user hid.
-  const groupedIds = new Set([...visibleGroups.map((group) => group.ownerId), ...hiddenOwnerIds]);
-  const taskRows = workRows.filter((row) => !groupedIds.has(row.sessionId) && matches(row.title, row.botName));
   // Without a representative bot the page shows only its create prompt: no Leads.
   const shownLeadRows = mixyFirst.empty ? [] : leadRows;
-  const workCount = visibleGroups.length + taskRows.length;
+  const workCount = visibleGroups.length;
   const present: Record<PaneSectionId, boolean> = {
     bots: shownContacts.length > 0 || (mixyFirst.empty && !hidden.has('representative')),
     rooms: roomList.rows.length > 0 && !hidden.has('rooms'),
@@ -1233,7 +1225,7 @@ export function AgentActivityPane({
               onOpenSession={onOpenSession}
             />
           ),
-        // The Working block and the Leads are one section: both list agents at work.
+        // The agent sessions: the work-session groups and the Leads, one unnamed section.
         agents: (divider) =>
           !hidden.has('agents') && (
             <>
@@ -1246,24 +1238,20 @@ export function AgentActivityPane({
                   <span>{t('No bots.')}</span>
                 </p>
               )}
-              {/* One foldable "Working" section: the work-session groups, then the
-          task sessions no group already shows. Absent when both are empty. */}
-              <AgentWorkSection groupCount={visibleGroups.length} rows={taskRows} onOpenSession={onOpenSession}>
-                {visibleGroups.map((group) => (
-                  <AgentActivityGroup
-                    key={group.ownerId}
-                    group={group}
-                    expandedSessionIds={expandedSessionIds}
-                    unreadSessionIds={unreadSessionIds}
-                    setSessionExpanded={setSessionExpanded}
-                    hideGroup={hideGroup}
-                    onOpenMenu={setMenu}
-                    onPrefetchSession={onPrefetchSession}
-                    onOpenLeadSession={onOpenLeadSession}
-                    onOpenSession={onOpenSession}
-                  />
-                ))}
-              </AgentWorkSection>
+              {visibleGroups.map((group) => (
+                <AgentActivityGroup
+                  key={group.ownerId}
+                  group={group}
+                  expandedSessionIds={expandedSessionIds}
+                  unreadSessionIds={unreadSessionIds}
+                  setSessionExpanded={setSessionExpanded}
+                  hideGroup={hideGroup}
+                  onOpenMenu={setMenu}
+                  onPrefetchSession={onPrefetchSession}
+                  onOpenLeadSession={onOpenLeadSession}
+                  onOpenSession={onOpenSession}
+                />
+              ))}
               {leadLookOpen && <LeadAppearanceDialog onClose={() => setLeadLookOpen(false)} />}
               {/* Without a representative bot the page shows only its create prompt. */}
               <AgentLeadRows
