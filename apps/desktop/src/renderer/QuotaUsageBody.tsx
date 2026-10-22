@@ -11,7 +11,9 @@ import type { DayRange } from './DateRangePicker';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { OpenSelect } from './OpenSelect';
-import { modelDisplayName, providerDisplayName, ProviderIcon } from './provider-display';
+import { customProviderDisplayNames, resolveProviderDisplayName } from './model-catalog';
+import { modelDisplayName, ProviderIcon } from './provider-display';
+import { type SidebarReferenceKey, useSidebarReferences } from './sidebar-reference-cache';
 import { QuotaTrend } from './QuotaTrend';
 import {
   quotaClock,
@@ -150,6 +152,7 @@ function QuotaMix({
  *  its models beneath it, each with the share of the limit it used. */
 function QuotaTable({
   provider,
+  providerNames,
   totals,
   summary,
   consumed,
@@ -158,6 +161,7 @@ function QuotaTable({
   loading,
 }: {
   provider: string;
+  providerNames: Record<string, string>;
   totals: Row;
   summary: Row;
   /** Share of the limit used in the period, by Mixdog and from outside it. */
@@ -218,7 +222,10 @@ function QuotaTable({
                   aria-expanded={open}
                   onClick={() => setOpen((current) => !current)}
                 >
-                  <b>{subscriptionLabel(provider) ?? usageProviderLabel(providerDisplayName(provider))}</b>
+                  <b>
+                    {subscriptionLabel(provider) ??
+                      usageProviderLabel(resolveProviderDisplayName(provider, providerNames))}
+                  </b>
                   <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
                 </button>
                 <div className="stats-provider-share" aria-hidden="true">
@@ -382,7 +389,11 @@ function QuotaHistory({
   );
 }
 
+const QUOTA_REFERENCE_KEYS = ['providerSetup'] as const satisfies readonly SidebarReferenceKey[];
+
 export function QuotaUsageBody({ api }: { api: QuotaApi }) {
+  const { values: references } = useSidebarReferences(window.mixdogDesktop, QUOTA_REFERENCE_KEYS, true);
+  const providerNames = useMemo(() => customProviderDisplayNames(references.providerSetup), [references.providerSetup]);
   // A provider meter that opened the dialog picks the subscription; otherwise
   // the one shown last does.
   const [query, setQuery] = useState<QuotaQuery>(() => openingQuotaQuestion());
@@ -517,7 +528,10 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   // its account pool.
   const subscriptionOptions = [...new Set(subscriptions.map((row) => String(row.provider || '')))]
     .sort((a, b) => Number(b === provider) - Number(a === provider) || subscriptionRank(a) - subscriptionRank(b))
-    .map((id) => ({ value: id, label: subscriptionLabel(id) ?? usageProviderLabel(providerDisplayName(id)) }));
+    .map((id) => ({
+      value: id,
+      label: subscriptionLabel(id) ?? usageProviderLabel(resolveProviderDisplayName(id, providerNames)),
+    }));
   const rosterRank = (row: Row) => (typeof row.accountRank === 'number' ? row.accountRank : Number.MAX_SAFE_INTEGER);
   const accountOptions = subscriptions
     .filter((row) => row.provider === provider && row.accountInRoster !== false)
@@ -698,6 +712,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
           {(error || historyError) && <ErrorNotice error={error || historyError} className="stats-error" />}
           <QuotaTable
             provider={provider}
+            providerNames={providerNames}
             totals={record(loaded.totals)}
             summary={summary}
             consumed={statsNumber(summary.consumed)}

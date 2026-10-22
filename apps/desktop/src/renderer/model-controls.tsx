@@ -18,7 +18,7 @@ import {
   invalidateSharedModelCatalogRequest,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
-import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
+import { catalogProviderNames, customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import {
   effortForModelChoice,
   modelOffersUltrafast,
@@ -535,7 +535,10 @@ export const ModelSelector = memo(function ModelSelector({
       ),
     [catalogModels, providerSetup, providerSetupError]
   );
-  const providerNames = useMemo(() => customProviderDisplayNames(providerSetup), [providerSetup]);
+  const providerNames = useMemo(
+    () => catalogProviderNames(catalogModels, customProviderDisplayNames(providerSetup)),
+    [catalogModels, providerSetup]
+  );
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');

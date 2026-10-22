@@ -22,7 +22,10 @@ function customProviderModels(provider, providerConfig, discovered = providerCac
   } catch {
     return [];
   }
-  return effectiveCustomModelRows(config, discovered, { providerId: provider });
+  const providerName = clean(config.name);
+  return effectiveCustomModelRows(config, discovered, { providerId: provider }).map((row) =>
+    providerName ? { ...row, providerName } : row
+  );
 }
 
 export function createQuickProviderRows({

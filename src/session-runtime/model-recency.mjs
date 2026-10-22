@@ -11,6 +11,7 @@ function customRowFields(name, m) {
   if (!isCustomProviderName(name)) return {};
   return {
     ...(typeof m.name === 'string' && m.name ? { name: m.name } : {}),
+    ...(typeof m.providerName === 'string' && m.providerName ? { providerName: m.providerName } : {}),
     ...(typeof m.hidden === 'boolean' ? { hidden: m.hidden } : {}),
     ...(typeof m.manual === 'boolean' ? { manual: m.manual } : {}),
     ...(m.customReasoning && typeof m.customReasoning === 'object' ? { customReasoning: m.customReasoning } : {}),

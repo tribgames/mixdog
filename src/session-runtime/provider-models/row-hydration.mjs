@@ -45,8 +45,12 @@ export function hydrateProviderModelRow(cfg, row) {
   const modelParameterOptions = addedOptions.length
     ? [...existingOptions.filter((option) => !addedOptions.some((added) => added.id === option?.id)), ...addedOptions]
     : row.modelParameterOptions;
+  const customName = row.provider?.startsWith?.('custom-')
+    ? String(cfg?.providers?.[row.provider]?.name || '').trim()
+    : '';
   return {
     ...row,
+    ...(customName && !row.providerName ? { providerName: customName } : {}),
     ...(alias ? { display: alias, displayAlias: alias } : {}),
     ...(modelParameterOptions ? { modelParameterOptions } : {}),
     effortOptions: effortItemsFor(row.provider, row, null),

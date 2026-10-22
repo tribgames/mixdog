@@ -187,6 +187,9 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
         ...(family ? { family } : {}),
         ...(row.latest === true ? { latest: true } : {}),
         ...(description ? { description } : {}),
+        ...(typeof row.providerName === 'string' && row.providerName.trim()
+          ? { providerName: row.providerName.trim() }
+          : {}),
         ...(row.supportsVision === true ? { supportsVision: true } : {}),
         effortOptions,
         fastCapable,

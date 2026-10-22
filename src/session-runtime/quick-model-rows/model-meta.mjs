@@ -9,6 +9,7 @@ const CUSTOM_DECLARED_FIELDS = [
   'reasoningOptions',
   'reasoningLevels',
   'reasoningContentField',
+  'providerName',
   'hidden',
   'manual',
   'customReasoning',

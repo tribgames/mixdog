@@ -390,6 +390,8 @@ export interface DesktopModelOption {
   latest?: boolean;
   /** Free-form secondary line; media lanes use it for the provider name. */
   description?: string;
+  /** A custom provider's registered name, so the picker needs no setup call. */
+  providerName?: string;
   supportsVision?: boolean;
   effortOptions: DesktopModelEffortOption[];
   fastCapable: boolean;

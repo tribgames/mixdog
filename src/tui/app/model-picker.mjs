@@ -14,6 +14,7 @@ import {
   normalizeModelOptions,
   buildCatalogFailureItems,
   buildModelProviderItems,
+  catalogProviderDisplayNames,
   loadProviderCatalogFailures,
   loadProviderDisplayNames,
 } from './model-options.mjs';
@@ -83,7 +84,7 @@ export function createModelPicker({
     }
 
     const models = normalizeModelOptions(providerModels);
-    const providerNames = await loadProviderDisplayNames(store);
+    const providerNames = catalogProviderDisplayNames(models, await loadProviderDisplayNames(store));
     const catalogFailures = await loadProviderCatalogFailures(store);
     const activeRoute = options.currentRoute || {
       provider: state.provider,

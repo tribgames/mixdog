@@ -51,6 +51,19 @@ export function customProviderDisplayNames(providerSetup: unknown): Record<strin
   return names;
 }
 
+/** Provider names: setup names win, then the name carried on catalog rows
+ *  (usable before/without the setup load). Custom providers only. */
+export function catalogProviderNames(
+  models: ReadonlyArray<{ provider: string; providerName?: string }> | null | undefined,
+  setupNames?: Record<string, string>
+): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const model of models || []) {
+    if (model.provider.startsWith('custom-') && model.providerName) names[model.provider] = model.providerName;
+  }
+  return { ...names, ...setupNames };
+}
+
 /** Setup names apply only to custom providers; built-ins keep curated labels. */
 export function resolveProviderDisplayName(id: string, providerNames?: Record<string, string>): string {
   return (id.startsWith('custom-') && providerNames?.[id]) || providerDisplayName(id);

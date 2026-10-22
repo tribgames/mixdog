@@ -14,9 +14,8 @@ installTestDom(null, {
 
 globalThis.HTMLElement.prototype.scrollIntoView = () => {};
 
-const { customProviderDisplayNames, filterConfiguredModels, resolveProviderDisplayName } = await import(
-  './model-catalog.tsx'
-);
+const { catalogProviderNames, customProviderDisplayNames, filterConfiguredModels, resolveProviderDisplayName } =
+  await import('./model-catalog.tsx');
 
 test('a server window keeps the desktop hidden custom models out of its picker', () => {
   const custom = 'custom-a92e4651-dab8-45a1-aa63-70b7be71c1f7';
@@ -42,6 +41,35 @@ test('built-in providers keep curated labels; custom ones use setup names', () =
   assert.notEqual(resolveProviderDisplayName('openai', names), 'My OpenAI');
   assert.equal(resolveProviderDisplayName(custom, names), '내 AI');
   assert.equal(resolveProviderDisplayName(custom, {}), custom);
+});
+
+test('catalog rows name a custom provider while setup is null or failed', () => {
+  const custom = 'custom-a92e4651-dab8-45a1-aa63-70b7be71c1f7';
+  const models = [
+    { provider: custom, model: 'm', providerName: 'Gateway' },
+    { provider: 'openai', model: 'g', providerName: 'Spoof' },
+  ];
+  // setup null (not loaded) and setup failed both yield no setup names.
+  for (const setup of [null, undefined]) {
+    const names = catalogProviderNames(models, customProviderDisplayNames(setup));
+    assert.equal(resolveProviderDisplayName(custom, names), 'Gateway');
+    assert.notEqual(resolveProviderDisplayName('openai', names), 'Spoof');
+  }
+  assert.equal(resolveProviderDisplayName(custom, catalogProviderNames([{ provider: custom, model: 'm' }])), custom);
+  assert.equal(
+    resolveProviderDisplayName(custom, catalogProviderNames(models, { [custom]: 'Setup name' })),
+    'Setup name'
+  );
+});
+
+test('a failed setup load still lists custom rows under their row name', () => {
+  const custom = 'custom-a92e4651-dab8-45a1-aa63-70b7be71c1f7';
+  const models = [{ provider: custom, model: 'm', providerName: 'Gateway' }];
+  const listed = filterConfiguredModels(models, null, 'setup failed');
+  assert.deepEqual(listed, models);
+  const names = catalogProviderNames(listed, customProviderDisplayNames(null));
+  assert.deepEqual(names, { [custom]: 'Gateway' });
+  assert.equal(resolveProviderDisplayName(custom, names), 'Gateway');
 });
 
 test('setup rows resolve provider ids to their chosen names', () => {

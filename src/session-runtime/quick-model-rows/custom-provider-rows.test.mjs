@@ -97,6 +97,12 @@ test('v2 custom rows come from effective rows and carry the contract fields, exp
   assert.deepEqual(customEffortLevels(plain), []);
 });
 
+test('quick rows of a custom provider carry its registered name as providerName', () => {
+  const { rows } = quickRows(v2Config());
+  assert.ok(rows.length > 0);
+  for (const row of rows) assert.equal(row.providerName, 'Gateway');
+});
+
 test('a hidden custom model leaves the quick picker, a saved route on it included, but its metadata resolves', () => {
   const { rows, modelMetaByRoute } = quickRows(v2Config(), { provider: V2_ID, model: 'vendor/secret' });
   assert.equal(

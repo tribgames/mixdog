@@ -9,6 +9,13 @@ const cfg = {
     'custom-anthropic': { type: 'custom', protocol: 'anthropic', enabled: true },
   },
 };
+test('a custom provider row is hydrated with its configured name; built-ins and unnamed ones get none', () => {
+  const named = { providers: { 'custom-chat': { type: 'custom', name: ' Gateway ' }, 'custom-x': { type: 'custom' } } };
+  assert.equal(hydrateProviderModelRow(named, { provider: 'custom-chat', id: 'm' }).providerName, 'Gateway');
+  assert.equal('providerName' in hydrateProviderModelRow(named, { provider: 'custom-x', id: 'm' }), false);
+  assert.equal('providerName' in hydrateProviderModelRow(named, { provider: 'openai', id: 'm' }), false);
+});
+
 const LEVELS = ['low', 'medium', 'high'];
 const capable = (provider, row) => hydrateProviderModelRow(cfg, { provider, ...row }).autoEffortCapable;
 
