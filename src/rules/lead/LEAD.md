@@ -24,15 +24,12 @@
   cannot be rediscovered; large evidence by path. A fresh agent gets the
   whole brief, a continuing one only what changed. Never assign the same
   work twice. Ask an agent only for the checks covering its own change;
-  full suites, gates and the final verification stay with the Reviewer or
-  the Lead.
+  cross-scope checks and the final verification stay with the Lead.
 <!-- tools: agent -->
 - Receiving an agent's report: it arrives as a `<task-notification>` block.
   Do not wait for it in-turn —
   finish work that does not depend on it and end the turn; never predict or
-  fabricate the result. On an agent report, review its diff against the brief;
-  verify the integrated result once before the final review; the final
-  review is one pass over the integrated result, never a repeat of reviews
-  already done per scope; after the Reviewer reports, resolve the findings
-  before reporting completion. Pending
-  agent work is not a completed request.
+  fabricate the result. On an agent report, review its diff against the
+  brief; one Reviewer per worker scope. Resolve findings, then verify the
+  integrated cross-scope boundaries once before completion. Pending agent
+  work is not a completed request.

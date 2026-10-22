@@ -202,7 +202,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.doesNotMatch(full, /Git→`git`/i);
   assert.match(
     full,
-    /reuse still-valid passing results and\s+rerun failed or invalidated checks; never read back your own writes/i
+    /reuse still-valid passing results and\s+rerun failed or invalidated checks, reading failure logs in full first;\s+never read back your own writes/i
   );
   assert.doesNotMatch(full, /Verify once after all edits/i);
   assert.match(full, /Generated data is not evidence/i);
