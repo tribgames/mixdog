@@ -9,7 +9,9 @@ export function createRewindAction(bag) {
   const { runtime, getState, set, flushEmitImmediate, replaceItems, syncContextStats } = bag;
 
   return {
-    rewindToItem: async (itemId) => {
+    // `restoreFiles: false` is a composer that cannot hold PDF/Office file
+    // parts (the terminal one): a prompt carrying any is refused untouched.
+    rewindToItem: async (itemId, { restoreFiles = true } = {}) => {
       const target = String(itemId ?? '').trim();
       if (!target) return null;
       if (getState().busy || getState().commandBusy) return null;
@@ -24,13 +26,24 @@ export function createRewindAction(bag) {
         // Matched by the row's stable message id (the stored prompt is the
         // expanded text); rows without one fall back to the text.
         const messageId = String(items[index]?.messageId || '');
-        const rewound = await runtime.rewindMessages?.({ text, ...(messageId ? { messageId } : {}) });
-        if (!rewound) return null;
+        const rewindOptions = { text, ...(messageId ? { messageId } : {}) };
+        // Resolve the prompt and build the whole restore payload BEFORE any
+        // history changes: a refusal or an attachment read error then leaves the
+        // model history and the transcript both untouched.
+        const preview = await runtime.rewindMessages?.({ ...rewindOptions, dryRun: true });
+        if (!preview) return null;
         // The stored prompt's attachment references become the restore payload
         // the abort/queue restores use (pastedTexts / pastedImages / file parts).
-        const content = rewound.message?.content;
+        const content = preview.message?.content;
+        if (!restoreFiles && Array.isArray(content) && content.some((part) => part?.type === 'file')) {
+          throw new Error(
+            'this message has PDF/Office attachments the terminal composer cannot restore; edit it in the desktop app'
+          );
+        }
         const refs = restorableAttachmentsFromPrompt(content, text);
         const attachments = hydrateTolerantly(refs.pastedImages, refs.pastedTexts, content);
+        const rewound = await runtime.rewindMessages?.(rewindOptions);
+        if (!rewound) return null;
         set({
           items: replaceItems(items.slice(0, index), {
             preserveSpill: true,

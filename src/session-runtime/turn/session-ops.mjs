@@ -55,6 +55,7 @@ export function createSessionOps(deps) {
     if (!session?.id) return null;
     const result = await mgr.rewindSessionMessagesTo?.(session.id, options);
     if (!result) return null;
+    if (options.dryRun === true) return result;
     setSession(mgr.getSession(session.id) || session);
     invalidateContextStatusCache();
     return result;

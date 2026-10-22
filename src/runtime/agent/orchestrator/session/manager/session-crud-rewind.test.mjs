@@ -93,6 +93,22 @@ test('a plain text message without an id still rewinds by its text, and carries 
   });
 });
 
+test('a dry-run rewind reports the target and leaves the stored history untouched', async () => {
+  await plant('sess_rewind_dry', [
+    { role: 'user', content: 'first', meta: { transcript: { messageId: 'msg_1' } } },
+    { role: 'assistant', content: 'one' },
+    { role: 'user', content: 'second', meta: { transcript: { messageId: 'msg_2' } } },
+    { role: 'assistant', content: 'two' },
+  ]);
+  const preview = await rewindSessionMessagesTo('sess_rewind_dry', { messageId: 'msg_2', dryRun: true });
+  assert.equal(preview.removed, 2);
+  assert.equal(preview.remaining, 2);
+  assert.equal(preview.message.content, 'second');
+  assert.equal(loadSession('sess_rewind_dry').messages.length, 4);
+  assert.equal((await rewindSessionMessagesTo('sess_rewind_dry', { messageId: 'msg_2' })).removed, 2);
+  assert.equal(loadSession('sess_rewind_dry').messages.length, 2);
+});
+
 test('an id-less prompt that several user messages repeat is refused, not guessed', async () => {
   const messages = [
     { role: 'user', content: 'same' },

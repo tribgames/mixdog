@@ -102,7 +102,7 @@ export function useMessageSelector({
         own.close();
         let restored;
         try {
-          restored = store.rewindToItem?.(value);
+          restored = store.rewindToItem?.(value, { restoreFiles: false });
         } catch (error) {
           showPromptHint(`rewind failed: ${error?.message || error}`, 'error');
           return;

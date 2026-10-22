@@ -433,6 +433,9 @@ export async function rewindSessionMessagesTo(sessionId, options = {}) {
   const start = found[0];
   const removed = messages.length - start;
   const rewoundMessage = messages[start];
+  // `dryRun` resolves the target and reports what a rewind would do, changing
+  // nothing: the caller prepares the restore payload first and commits after.
+  if (options?.dryRun === true) return { removed, remaining: start, message: rewoundMessage };
   session.messages = messages.slice(0, start);
   // The provider cache is keyed on the exact prefix we just truncated;
   // the prefix-guard snapshot and the /btw fork request describe it too and

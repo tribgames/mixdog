@@ -125,14 +125,26 @@ export function createAbortAction(bag) {
     const canceller = typeof options?.device === 'string' ? options.device : '';
     const crossDevice = Boolean(canceller && restoreState?.device && canceller !== restoreState.device);
     const hasAttachments = Boolean(restoreState?.pastedImages || restoreState?.pastedTexts || restoreState?.content);
-    const canRestore =
+    const wantsRestore =
       options?.restorePrompt !== false &&
       restoreState?.restorable &&
       !hasPendingSteering &&
       !(crossDevice && hasAttachments);
+    // Hydrate BEFORE the turn is aborted or the prompt reclaimed: an attachment
+    // read error then cannot strand a prompt that left the transcript with no
+    // draft to land in. On failure the prompt is kept (like a Stop that hands
+    // nothing back) and the error is surfaced as the notice.
+    let restored = null;
+    let hydrateFailure = '';
+    if (wantsRestore) {
+      try {
+        restored = hydrateTolerantly(restoreState?.pastedImages, restoreState?.pastedTexts, restoreState?.content);
+      } catch (error) {
+        hydrateFailure = `Could not restore the attachments (${error?.message || error}); the prompt was kept.`;
+      }
+    }
+    const canRestore = wantsRestore && !hydrateFailure;
     const restoreText = canRestore ? restoreState.text : '';
-    const restorePastedImages = canRestore && restoreState?.pastedImages ? restoreState.pastedImages : null;
-    const restorePastedTexts = canRestore && restoreState?.pastedTexts ? restoreState.pastedTexts : null;
     // When steering suppresses the restore, the interrupted prompt's pasted
     // images never get committed (onCommitted won't fire) nor re-installed into
     // the draft, so hand them back for cleanup to avoid a stale `[Image #id]`
@@ -177,21 +189,16 @@ export function createAbortAction(bag) {
       restoreState.discardExecutionPendingResumeKeys = [];
     }
     kickDrainAfterAbort();
-    const restored = hydrateTolerantly(
-      restorePastedImages,
-      restorePastedTexts,
-      canRestore ? restoreState?.content : null
-    );
     // The canceller never receives another device's prompt.
     const handedOver = crossDevice && Boolean(restoreText) && aborted !== false;
     return {
       aborted,
       restoreText: handedOver ? '' : restoreText,
-      ...(restored.content ? { content: restored.content } : {}),
-      ...(restored.notice ? { notice: restored.notice } : {}),
-      pastedImages: restored.pastedImages,
+      ...(restored?.content ? { content: restored.content } : {}),
+      ...(restored?.notice || hydrateFailure ? { notice: restored?.notice || hydrateFailure } : {}),
+      pastedImages: restored?.pastedImages ?? null,
       discardPastedImages,
-      pastedTexts: restored.pastedTexts,
+      pastedTexts: restored?.pastedTexts ?? null,
       discardPastedTexts,
       restoredSubmissionIds:
         restoreText && !handedOver ? (restoreState?.submittedIds || []).map(String).filter(Boolean) : [],

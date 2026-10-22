@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import fs, { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -37,8 +38,10 @@ function createHarness({
       routeSessionId = id;
       return id;
     },
-    rewindMessages: async ({ text }) => {
-      calls.push(['rewindMessages', text]);
+    // A dry run only resolves the target (nothing is committed, so it is not
+    // recorded as a call); the committing call is what history sees.
+    rewindMessages: async ({ text, dryRun }) => {
+      if (dryRun !== true) calls.push(['rewindMessages', text]);
       return { removed: 3 };
     },
     interruptTaskWait: (reason) => calls.push(['interruptTaskWait', reason]),
@@ -448,7 +451,10 @@ test('rewindToItem finds the prompt by message id and returns its attachments fo
       },
     });
     const result = await h.api.rewindToItem('u1');
-    assert.deepEqual(seen, [{ text, messageId: 'msg_1' }]);
+    assert.deepEqual(seen, [
+      { text, messageId: 'msg_1', dryRun: true },
+      { text, messageId: 'msg_1' },
+    ]);
     assert.equal(result.text, text);
     assert.equal(result.pastedTexts[1].text, body);
     assert.equal(result.pastedTexts[1].source, 'paste');
@@ -457,6 +463,123 @@ test('rewindToItem finds the prompt by message id and returns its attachments fo
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
   }
+});
+
+// A stored attachment whose read fails with a NON-permanent error (EBUSY,
+// like a locked blob), which hydration must propagate.
+async function unreadableAttachmentRef(t) {
+  const { storeAttachmentBuffer, attachmentFilePath, clearAttachmentBufferCache } = await import(
+    '../../../runtime/attachments/store.mjs'
+  );
+  const { attachmentRef } = storeAttachmentBuffer(Buffer.from('blob that is busy\n'.repeat(60)));
+  clearAttachmentBufferCache();
+  const path = attachmentFilePath(attachmentRef);
+  const originalStat = fs.statSync;
+  t.mock.method(fs, 'statSync', (target, ...args) => {
+    if (target === path) throw Object.assign(new Error('resource busy'), { code: 'EBUSY' });
+    return originalStat(target, ...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  return attachmentRef;
+}
+
+async function withDataDir(run) {
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-intake-unreadable-'));
+  try {
+    return await run();
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+  }
+}
+
+test('rewindToItem commits nothing when the attachment payload cannot be prepared', async (t) => {
+  await withDataDir(async () => {
+    const attachmentRef = await unreadableAttachmentRef(t);
+    const text = 'see [Pasted text #1 +3 lines]';
+    const content = [{ type: 'text', text: 'body', attachmentRef, textKind: 'paste', sizeBytes: 900 }];
+    const rewinds = [];
+    const items = [
+      { id: 'u0', kind: 'user', text: 'earlier' },
+      { id: 'u1', kind: 'user', text, messageId: 'msg_1' },
+    ];
+    const h = createHarness({
+      state: { items, promptHistoryList: ['earlier', text] },
+      runtime: {
+        rewindMessages: async (options) => {
+          rewinds.push(options);
+          return { removed: 1, message: { content } };
+        },
+      },
+    });
+    await assert.rejects(h.api.rewindToItem('u1'));
+    // Only the non-committing dry run reached the history.
+    assert.deepEqual(rewinds, [{ text, messageId: 'msg_1', dryRun: true }]);
+    assert.equal(h.state.items, items);
+    assert.deepEqual(h.state.promptHistoryList, ['earlier', text]);
+    assert.equal(h.state.commandBusy, false);
+  });
+});
+
+test('a composer that cannot hold file parts refuses the rewind before anything is truncated', async () => {
+  const content = [
+    { type: 'text', text: 'see [File #1: spec.pdf]' },
+    { type: 'file', data: Buffer.from('%PDF-1.7').toString('base64'), mimeType: 'application/pdf', filename: 'spec.pdf' },
+  ];
+  const rewinds = [];
+  const items = [{ id: 'u1', kind: 'user', text: 'see [File #1: spec.pdf]', messageId: 'msg_1' }];
+  const h = createHarness({
+    state: { items },
+    runtime: {
+      rewindMessages: async (options) => {
+        rewinds.push(options);
+        return { removed: 1, message: { content } };
+      },
+    },
+  });
+  await assert.rejects(h.api.rewindToItem('u1', { restoreFiles: false }), /PDF\/Office/);
+  assert.equal(rewinds.length, 1);
+  assert.equal(rewinds[0].dryRun, true);
+  assert.equal(h.state.items, items);
+  assert.equal(h.state.commandBusy, false);
+
+  // The desktop composer restores files, so it still rewinds and gets them back.
+  const restored = await h.api.rewindToItem('u1');
+  assert.equal(rewinds.length, 3);
+  assert.equal(restored.content[0].filename, 'spec.pdf');
+  assert.deepEqual(h.state.items, []);
+});
+
+test('an unreadable attachment on Esc keeps the in-flight prompt instead of stranding it', async (t) => {
+  await withDataDir(async () => {
+    const attachmentRef = await unreadableAttachmentRef(t);
+    const restoreState = {
+      restorable: true,
+      committed: false,
+      text: 'draft me',
+      submittedIds: ['u1'],
+      requeueEntries: [],
+      pastedImages: null,
+      pastedTexts: { 1: { id: 1, source: 'paste', attachmentRef, sizeBytes: 900 } },
+    };
+    const items = [{ id: 'u1', kind: 'user', text: 'draft me' }];
+    const h = createHarness({
+      state: { busy: true, items, promptHistoryList: ['draft me'] },
+      flags: { activePromptRestore: restoreState },
+    });
+    const result = h.api.abort();
+    assert.deepEqual(
+      h.calls.filter((call) => call[0] === 'runtime.abort'),
+      [['runtime.abort', USER_CANCEL_KEEP_PROMPT_REASON]]
+    );
+    assert.equal(result.aborted, true);
+    assert.equal(result.restoreText, '');
+    assert.match(result.notice, /Could not restore the attachments/);
+    assert.equal(h.state.items, items);
+    assert.deepEqual(h.state.promptHistoryList, ['draft me']);
+  });
 });
 
 test('reserveSession publishes the reserved id and reports whether the route took it', () => {
