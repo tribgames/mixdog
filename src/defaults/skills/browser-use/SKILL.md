@@ -315,9 +315,12 @@ in the page instead of retrying the same `navigate`.
   personal details, or files only to the destination the user named.
 - A refused or restricted action stays refused; do not reach the same effect
   through another page, tool, or `evaluate`.
-- Tool-side confirmation does not replace the user's approved scope.
-  Submitting a form (`submit`, Enter) or clicking a send/post control asks the
-  user once in the desktop app; a denial dispatches nothing.
+- Tool-side confirmation does not replace the user's approved scope, and its
+  absence is not approval. Ordinary sessions submit, post and upload without
+  a card. A bot's own chat asks before a form submit (`submit`, Enter), a
+  click on a send/post control, or an upload, unless that bot already holds
+  an "always allow" for it; schedule and webhook runs never ask, though the
+  bot's block still refuses. A denial dispatches nothing.
   `MIXDOG_BROWSER_CONFIRM_ACTIONS` and
   `MIXDOG_BROWSER_DENY_ACTIONS` optionally name comma-separated public actions
   (or `*`) the desktop app confirms once or refuses; denial takes precedence.
