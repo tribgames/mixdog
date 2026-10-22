@@ -47,12 +47,24 @@ test('an external edit of an own file never joins the live review, whatever the 
   const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
   writeFileSync(join(repo, 'a.txt'), 'changed a\n');
   recordTurnDiffChanges(sessionId, [
-    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'original a\n', after: 'changed a\n', additions: 1, deletions: 1 },
+    {
+      path: join(repo, 'a.txt'),
+      displayPath: 'a.txt',
+      before: 'original a\n',
+      after: 'changed a\n',
+      additions: 1,
+      deletions: 1,
+    },
   ]);
   // An external editor rewrites it later: no tool of this session did.
   writeFileSync(join(repo, 'a.txt'), 'changed a\nexternal line\n');
   invalidateBuiltinResultCache([join(repo, 'a.txt')]);
-  for (const options of [{ refresh: true }, { refresh: true, poll: 'background' }, { refresh: true, summary: true }, {}]) {
+  for (const options of [
+    { refresh: true },
+    { refresh: true, poll: 'background' },
+    { refresh: true, summary: true },
+    {},
+  ]) {
     const review = await api.getTurnReviewDiff(options);
     const label = JSON.stringify(options);
     assert.deepEqual(
@@ -75,7 +87,14 @@ test('a live turn review answers a matching tag with the unchanged reply', {
 
   writeFileSync(join(repo, 'a.txt'), 'changed a\n');
   recordTurnDiffChanges(sessionId, [
-    { path: join(repo, 'a.txt'), displayPath: 'a.txt', before: 'original a\n', after: 'changed a\n', additions: 1, deletions: 1 },
+    {
+      path: join(repo, 'a.txt'),
+      displayPath: 'a.txt',
+      before: 'original a\n',
+      after: 'changed a\n',
+      additions: 1,
+      deletions: 1,
+    },
   ]);
   // The tool-write signal every builtin mutation sends.
   invalidateBuiltinResultCache([join(repo, 'a.txt')]);
@@ -196,4 +215,43 @@ test("deleting a session removes its Delete history marker; another session's st
   }
   assert.equal(await sessionChangeHistoryCleared('purged'), false);
   assert.equal(await sessionChangeHistoryCleared('kept'), true);
+});
+
+test("deleting a Lead session releases its parked worker reviews and bound worker trackers; another Lead's stay", async () => {
+  const { _runSessionPurgeHooks } = await import('../runtime/agent/orchestrator/session/store/session-observers.mjs');
+  const snapshot = await import('../runtime/shared/turn-snapshot.mjs');
+  const leads = ['purged-lead', 'kept-lead'];
+  const state = {};
+  for (const lead of leads) {
+    const dir = join(root, lead);
+    mkdirSync(dir, { recursive: true });
+    const token = await snapshot.beginTurnSnapshot(dir, lead, { checkpointId: 'cp1' });
+    const done = snapshot.beginAgentTurnReview(lead, `${lead}-done`, { agent: 'worker' });
+    const running = snapshot.beginAgentTurnReview(lead, `${lead}-running`, { agent: 'worker' });
+    await snapshot.completeTurnSnapshot(lead, token);
+    for (const name of ['done', 'running']) {
+      writeFileSync(join(dir, `${name}.txt`), `${name}\n`);
+      snapshot.recordTurnDiffChanges(`${lead}-${name}`, [
+        { path: join(dir, `${name}.txt`), displayPath: `${name}.txt`, before: null, after: `${name}\n` },
+      ]);
+    }
+    const runningTracker = snapshot._diffTrackerForTest(`${lead}-running`);
+    assert.equal(snapshot.completeAgentTurnReview(done), true);
+    state[lead] = { running, runningTracker };
+  }
+  _runSessionPurgeHooks('purged-lead');
+
+  assert.deepEqual(snapshot._parkedWorkerReviewsForTest('purged-lead'), []);
+  assert.equal(snapshot._diffTrackerForTest('purged-lead'), undefined);
+  assert.equal(snapshot._diffTrackerForTest('purged-lead-running'), undefined);
+  assert.equal(state['purged-lead'].runningTracker.chains.size, 0);
+  assert.equal(snapshot.completeAgentTurnReview(state['purged-lead'].running), false);
+  assert.deepEqual(snapshot._parkedWorkerReviewsForTest('purged-lead'), []);
+
+  assert.deepEqual(
+    snapshot._parkedWorkerReviewsForTest('kept-lead').map((review) => review.key),
+    ['kept-lead-done']
+  );
+  assert.equal(snapshot._diffTrackerForTest('kept-lead-running'), state['kept-lead'].runningTracker);
+  assert.equal(snapshot.completeAgentTurnReview(state['kept-lead'].running), true);
 });

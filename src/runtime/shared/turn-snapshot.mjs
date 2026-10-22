@@ -75,7 +75,11 @@ import { createLineDiffBudget, lineDiffHunks, unifiedHunksBody } from './bounded
 // baseline of the session-wide review.
 //
 // Worker trackers remain separate until the worker completes: then its
-// segments, owned paths and counts join the owning Lead turn's.
+// segments, owned paths and counts join the Lead turn that is running at that
+// moment, or — when the Lead's turn already ended (sealed or sealing) — the
+// next Lead turn that opens or reopens: the turn that receives the worker's
+// completion and reports it. A worker's edits so land in exactly one turn
+// record, and never in a record that was already frozen.
 
 const DISABLED = /^(0|false|off)$/i.test(String(process.env.MIXDOG_TURN_SNAPSHOT || ''));
 const TURN_CACHE_MAX = 32;
@@ -99,17 +103,45 @@ const _changeMutations = new Map();
 // `${sessionId}\0${checkpointId}` → path keys whose worktree state is unknown
 // and whose record could not even be marked so (the store refused every write).
 const _unknownChangeStates = new Map();
+// Owner session → worker key → completed worker review waiting for the
+// owner's next turn (its turn had ended when they completed), in completion
+// order. Bounded like a turn's agents (trimWorkerReviews).
+const _parkedWorkerReviews = new Map();
+// Owner session → how many times its change history was deleted: a worker
+// bound before a delete never writes into the history after it.
+const _historyEpochs = new Map();
+
+/** A parked review owns its worker's bound tracker content (`release`). */
+function releaseParkedReview(review) {
+  if (review.release) releaseDiffTrackerContent(review.source);
+}
+
+function dropParkedWorkerReviews(ownerSessionId) {
+  for (const review of _parkedWorkerReviews.get(ownerSessionId)?.values() || []) releaseParkedReview(review);
+  _parkedWorkerReviews.delete(ownerSessionId);
+}
 
 function trimTurnCache() {
   while (_turnsBySession.size > TURN_CACHE_MAX) {
     const oldest = _turnsBySession.keys().next().value;
     if (oldest === undefined) break;
     _turnsBySession.delete(oldest);
+    dropParkedWorkerReviews(oldest);
     for (const [sessionId, tracker] of _diffTrackersBySession) {
       if (sessionId === oldest || tracker.ownerSessionId === oldest) {
         _diffTrackersBySession.delete(sessionId);
+        // A bound worker's content is read by nothing else; the Lead's own
+        // tracker may still be sealing, so it is only unregistered.
+        if (sessionId !== oldest) releaseDiffTrackerContent(tracker);
       }
     }
+  }
+  // Parked reviews of a Lead with no turn in memory (a worker resumed after a
+  // restart) are bounded on their own: oldest owner first.
+  while (_parkedWorkerReviews.size > TURN_CACHE_MAX) {
+    const oldest = _parkedWorkerReviews.keys().next().value;
+    if (oldest === undefined) break;
+    dropParkedWorkerReviews(oldest);
   }
 }
 
@@ -695,13 +727,17 @@ function mergeTrackedContent(target, source) {
   }
 }
 
-function trimAgentReviews(turn) {
+/** Bound worker reviews keyed by worker (a turn's agents, an owner's parked
+ *  reviews): oldest out first, by count and retained patch bytes. */
+function trimWorkerReviews(reviews, evicted = () => {}) {
   const retainedBytes = () =>
-    [...turn.agents.values()].reduce((total, review) => total + Buffer.byteLength(review.patch || '', 'utf8'), 0);
-  while (turn.agents.size > MAX_AGENT_REVIEWS_PER_TURN || retainedBytes() > MAX_AGENT_REVIEW_BYTES_PER_TURN) {
-    const oldest = turn.agents.keys().next().value;
+    [...reviews.values()].reduce((total, review) => total + Buffer.byteLength(review.patch || '', 'utf8'), 0);
+  while (reviews.size > MAX_AGENT_REVIEWS_PER_TURN || retainedBytes() > MAX_AGENT_REVIEW_BYTES_PER_TURN) {
+    const oldest = reviews.keys().next().value;
     if (oldest === undefined) break;
-    turn.agents.delete(oldest);
+    const review = reviews.get(oldest);
+    reviews.delete(oldest);
+    evicted(review);
   }
 }
 
@@ -741,6 +777,7 @@ function continueTurnSnapshot(ownerSessionId) {
   tracker.sealed = false;
   tracker.sealEpoch += 1;
   markWorktreeContention(ownerSessionId, tracker);
+  adoptParkedWorkerReviews(ownerSessionId, turn, tracker);
   return true;
 }
 
@@ -757,16 +794,8 @@ export async function beginTurnSnapshot(worktree, sessionId, options = {}) {
   // Turn start and Undo/Reapply share the per-session lock: a start waits for
   // an in-flight mutation, and a mutation queued after this start re-checks
   // under the lock and finds the turn running.
-  // Late-worker re-seals still queued for the previous turn run first, in
-  // this same step — including one a worker queued while an earlier one ran —
-  // so the workers' edits stay in that turn's record and nothing the new turn
-  // writes can reach it. (A queued re-seal implies a chain.)
   const { token, tracker } = _changeMutations.has(ownerSessionId)
-    ? await serializeChangeMutation(ownerSessionId, async () => {
-        const previous = _diffTrackersBySession.get(ownerSessionId);
-        while (previous?.resealQueued) await runQueuedReseal(ownerSessionId, previous).catch(() => {});
-        return openTurnSnapshot(worktree, ownerSessionId, options);
-      })
+    ? await serializeChangeMutation(ownerSessionId, async () => openTurnSnapshot(worktree, ownerSessionId, options))
     : openTurnSnapshot(worktree, ownerSessionId, options);
   if (!tracker) return token;
   try {
@@ -796,15 +825,15 @@ function openTurnSnapshot(worktree, ownerSessionId, options) {
   // worktree lock ahead of this turn's baseline.
   const prior = _diffTrackersBySession.get(ownerSessionId);
   if (prior && prior.ownerGeneration > 0 && !prior.sealed) void sealTurn(ownerSessionId, prior).catch(() => {});
-  for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
-    if (tracker.ownerSessionId === ownerSessionId) _diffTrackersBySession.delete(trackedSessionId);
-  }
+  // Workers still running keep their bound trackers across the new turn:
+  // their edits join whichever turn is running when they complete.
   _turnsBySession.delete(ownerSessionId);
-  _turnsBySession.set(ownerSessionId, {
+  const turn = {
     generation,
     checkpointId,
     agents: new Map(),
-  });
+  };
+  _turnsBySession.set(ownerSessionId, turn);
   const worktreeRequest = pathKey(worktree);
   const tracker = resetDiffTracker(ownerSessionId, {
     ownerGeneration: generation,
@@ -813,7 +842,10 @@ function openTurnSnapshot(worktree, ownerSessionId, options) {
     worktreeRoot: resolve(clean(worktree) || '.'),
   });
   trimTurnCache();
-  if (tracker) markWorktreeContention(ownerSessionId, tracker);
+  if (tracker) {
+    markWorktreeContention(ownerSessionId, tracker);
+    adoptParkedWorkerReviews(ownerSessionId, turn, tracker);
+  }
   _turnOpenedHookForTest?.(ownerSessionId, checkpointId);
   return { token: { generation, checkpointId }, tracker };
 }
@@ -825,7 +857,9 @@ export function _setTurnOpenedHookForTest(hook) {
   _turnOpenedHookForTest = typeof hook === 'function' ? hook : null;
 }
 
-/** Bind one worker execution to the Lead turn that launched it. */
+/** Bind one worker execution to its Lead. A Lead with no turn in memory (a
+ *  worker resumed after a restart) binds generation 0: its completion waits
+ *  for the Lead's next turn. */
 export function beginAgentTurnReview(ownerSessionId, childSessionId, meta = {}) {
   if (DISABLED) return null;
   const owner = clean(ownerSessionId);
@@ -833,24 +867,21 @@ export function beginAgentTurnReview(ownerSessionId, childSessionId, meta = {}) 
   // Durable: the worker's edits join the Lead's session review even when it
   // runs its own session turn, and whatever the turn's agent list keeps.
   recordReviewOwner(child, owner);
-  const turn = _turnsBySession.get(owner);
-  if (!owner || !child || !turn) return null;
+  if (!owner || !child) return null;
+  const generation = _turnsBySession.get(owner)?.generation || 0;
   const existingTracker = _diffTrackersBySession.get(child);
-  if (
-    !existingTracker ||
-    existingTracker.ownerSessionId !== owner ||
-    existingTracker.ownerGeneration !== turn.generation
-  ) {
+  if (!existingTracker || existingTracker.ownerSessionId !== owner || existingTracker.ownerGeneration !== generation) {
     resetDiffTracker(child, {
       ownerSessionId: owner,
-      ownerGeneration: turn.generation,
+      ownerGeneration: generation,
     });
   }
   _agentTurnSeq += 1;
   return {
     id: `agent-review-${_agentTurnSeq}`,
     ownerSessionId: owner,
-    generation: turn.generation,
+    generation,
+    historyEpoch: _historyEpochs.get(owner) || 0,
     sessionId: child,
     agent: clean(meta.agent) || null,
     tag: clean(meta.tag) || null,
@@ -858,62 +889,145 @@ export function beginAgentTurnReview(ownerSessionId, childSessionId, meta = {}) 
   };
 }
 
-/** Freeze successful worker apply_patch diffs into their owning Lead turn.
- *  Everything a seal reads — the agent entry, the worker's owned paths and a
- *  late re-seal — is published before this returns, so a seal started right
- *  after it already includes the worker. */
+/** The Lead turn is running: not sealed, not sealing. */
+const turnRunning = (turn, tracker) =>
+  Boolean(turn && tracker) &&
+  tracker.ownerGeneration === turn.generation &&
+  !tracker.sealed &&
+  !tracker.freezing &&
+  !tracker.discarded;
+
+/** Attribute one completed worker review to `turn` and fold its own segments,
+ *  owned paths and counts into the turn's tracker. */
+function joinWorkerReview(turn, ownerTracker, review) {
+  const { key, source, tracked, patch } = review;
+  const prior = turn.agents.get(key);
+  if (!patch) {
+    if (!(tracked && prior)) return false;
+    turn.agents.delete(key);
+    return true;
+  }
+  turn.agents.delete(key);
+  turn.agents.set(key, {
+    sessionId: key,
+    agent: review.agent || prior?.agent || null,
+    tag: review.tag || prior?.tag || null,
+    patch: tracked ? patch : mergePatches([prior?.patch, patch]),
+  });
+  if (source && ownerTracker !== source) foldWorkerTracker(ownerTracker, source);
+  trimWorkerReviews(turn.agents);
+  return true;
+}
+
+/** Fold a finished worker's owned paths, counts and own segments into
+ *  `target`. */
+function foldWorkerTracker(target, source) {
+  for (const path of source.ownedPaths) target.ownedPaths.add(path);
+  mergeOwnStats(target.ownStats, source.ownStats);
+  mergeTrackedContent(target, source);
+}
+
+/** One parked review of a worker that completed again before its Lead's next
+ *  turn: both runs' sources fold into one tracker this review owns — the
+ *  older run's own bound tracker, else a fresh one, never a worker session's
+ *  own tracker — exactly as both would have joined a running turn. The patch
+ *  is the merged tracker's cumulative view when tracked, else the merged
+ *  apply_patch diffs. */
+function mergeParkedReview(prior, review) {
+  const sources = [prior.source, review.source].filter(Boolean);
+  let source = null;
+  if (sources.length > 0) {
+    source = prior.release && prior.source ? prior.source : createDiffTracker();
+    for (const other of sources) if (other !== source) foldWorkerTracker(source, other);
+  }
+  releaseParkedReview(review);
+  const tracked = prior.tracked || review.tracked;
+  return {
+    key: review.key,
+    source,
+    tracked,
+    patch: tracked ? trackerView(source).patch : mergePatches([prior.patch, review.patch]),
+    agent: review.agent || prior.agent,
+    tag: review.tag || prior.tag,
+    release: Boolean(source),
+  };
+}
+
+/** Park a completed worker review for its Lead's next turn. A newer
+ *  completion of the same worker merges into the parked one (every run's
+ *  edits are kept, as a running turn keeps them); the parked reviews are
+ *  bounded by the turn's own limits, and an evicted one releases its tracker
+ *  content. */
+function parkWorkerReview(ownerSessionId, review) {
+  const parked = _parkedWorkerReviews.get(ownerSessionId) || new Map();
+  const prior = parked.get(review.key);
+  if (!prior && !review.patch) {
+    releaseParkedReview(review);
+    return false;
+  }
+  parked.delete(review.key);
+  parked.set(review.key, prior ? mergeParkedReview(prior, review) : review);
+  trimWorkerReviews(parked, releaseParkedReview);
+  _parkedWorkerReviews.set(ownerSessionId, parked);
+  trimTurnCache();
+  return true;
+}
+
+/** A turn that just opened (or reopened) takes the worker reviews that
+ *  completed while its Lead had no running turn. */
+function adoptParkedWorkerReviews(ownerSessionId, turn, tracker) {
+  const parked = _parkedWorkerReviews.get(ownerSessionId);
+  if (!parked) return;
+  _parkedWorkerReviews.delete(ownerSessionId);
+  for (const review of parked.values()) {
+    joinWorkerReview(turn, tracker, review);
+    releaseParkedReview(review);
+  }
+}
+
+/** Hand a finished worker's own edits (its tracker, else its apply_patch
+ *  diffs) to its Lead: into the Lead turn running now, or — when none runs —
+ *  parked for the Lead's next turn to open or reopen. Everything a seal
+ *  reads is published before this returns, so a seal started right after it
+ *  already includes the worker. */
 export function completeAgentTurnReview(handle, patches = []) {
   if (!handle || handle.completed === true) return false;
   handle.completed = true;
   const ownerSessionId = clean(handle.ownerSessionId);
   const key = clean(handle.sessionId) || handle.id;
-  const turn = _turnsBySession.get(ownerSessionId);
   const tracker = _diffTrackersBySession.get(key);
   const matchingTracker =
     tracker && tracker.ownerSessionId === ownerSessionId && tracker.ownerGeneration === handle.generation;
+  // This execution is over: its bound tracker leaves the registry, so a next
+  // execution of the worker starts its own.
+  if (matchingTracker) _diffTrackersBySession.delete(key);
+  // The Lead's change history was deleted after this worker was bound.
+  if ((_historyEpochs.get(ownerSessionId) || 0) !== (handle.historyEpoch || 0)) {
+    if (matchingTracker) releaseDiffTrackerContent(tracker);
+    return false;
+  }
   // A worker that runs its own session turn replaces the bound tracker with
   // its turn's own one (no owner). beginAgentTurnReview reset any older
   // tracker, so an unowned one here holds this execution's edits.
   const source = matchingTracker || (tracker && !tracker.ownerSessionId) ? tracker : null;
+  const tracked = Boolean(source) && source.revision > 0;
+  const review = {
+    key,
+    source,
+    tracked,
+    patch: tracked ? trackerView(source).patch : mergePatches(patches),
+    agent: handle.agent,
+    tag: handle.tag,
+    release: Boolean(matchingTracker),
+  };
+  const turn = _turnsBySession.get(ownerSessionId);
   const ownerTracker = _diffTrackersBySession.get(ownerSessionId);
-  try {
-    if (!turn || turn.generation !== handle.generation) return false;
-    const prior = turn.agents.get(key);
-    const tracked = Boolean(source) && source.revision > 0;
-    const patch = tracked ? trackerView(source).patch : mergePatches(patches);
-    if (!patch) {
-      if (tracked && prior) {
-        turn.agents.delete(key);
-        return true;
-      }
-      return false;
-    }
-    turn.agents.delete(key);
-    turn.agents.set(key, {
-      sessionId: key,
-      agent: handle.agent || prior?.agent || null,
-      tag: handle.tag || prior?.tag || null,
-      patch: tracked ? patch : mergePatches([prior?.patch, patch]),
-    });
-    if (source && ownerTracker && ownerTracker !== source) {
-      for (const path of source.ownedPaths) ownerTracker.ownedPaths.add(path);
-      mergeOwnStats(ownerTracker.ownStats, source.ownStats);
-      mergeTrackedContent(ownerTracker, source);
-    }
-    trimAgentReviews(turn);
-    // A worker that finishes after its Lead turn sealed (or while it seals)
-    // re-seals that turn's change record (its edits are part of the turn's net
-    // worktree diff).
-    if (ownerTracker && ownerTracker !== tracker && ownerTracker.ownerGeneration === handle.generation) {
-      resealTurn(ownerSessionId, ownerTracker);
-    }
-    return true;
-  } finally {
-    if (matchingTracker && _diffTrackersBySession.get(key) === tracker) {
-      releaseDiffTrackerContent(tracker);
-      _diffTrackersBySession.delete(key);
-    }
+  if (turnRunning(turn, ownerTracker)) {
+    const joined = joinWorkerReview(turn, ownerTracker, review);
+    releaseParkedReview(review);
+    return joined;
   }
+  return parkWorkerReview(ownerSessionId, review);
 }
 
 /** Persist the durable half of a finished review: the baseline tree hash plus
@@ -1092,15 +1206,12 @@ const pendingFreezeKey = (ownerSessionId, checkpointId) => `${ownerSessionId}\0$
  * Seal a Lead turn: capture the worktree one last time, persist the review
  * baseline and freeze the change record. Single-flight per tracker; a seal
  * requested while another runs waits for it and then seals again only if a
- * completion wake reopened the turn meanwhile. `reseal` (a late worker) only
- * re-freezes a turn that is still sealed, after any seal in flight: that one
- * captured its agents before the worker was attributed.
+ * completion wake reopened the turn meanwhile.
  */
-function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
+function sealTurn(ownerSessionId, tracker) {
   // Its history was deleted (clearSessionChangeHistory): never written again.
   if (tracker.discarded) return Promise.resolve();
   if (tracker.freezing) {
-    if (reseal) return tracker.freezing.then(() => sealTurn(ownerSessionId, tracker, { reseal: true }));
     return tracker.freezing.then(() => (tracker.sealed ? undefined : sealTurn(ownerSessionId, tracker)));
   }
   const epoch = tracker.sealEpoch;
@@ -1115,9 +1226,7 @@ function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
         // Best-effort refresh: seal with the last captured worktree state.
       }
     }
-    if (tracker.discarded || tracker.sealEpoch !== epoch || (reseal && !tracker.sealed)) return;
-    // A re-seal never rewrites a turn once the next one opened.
-    if (reseal && turnSuperseded(ownerSessionId, tracker)) return;
+    if (tracker.discarded || tracker.sealEpoch !== epoch) return;
     tracker.sealed = true;
     await persistTurnSnapshotRecord(ownerSessionId, tracker);
     try {
@@ -1125,8 +1234,8 @@ function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
     } catch {
       /* the change record adds Undo history; it never fails a turn */
     }
-    // The bounded own before/after content stays until the next turn: a late
-    // worker's re-seal and an Undo/Reapply of this turn fold into it.
+    // The bounded own before/after content stays until the next turn: a
+    // completion wake reopening it and an Undo/Reapply of this turn fold into it.
   })().finally(() => {
     if (tracker.freezing === run) tracker.freezing = null;
     const count = (_pendingFreezes.get(key) || 1) - 1;
@@ -1135,31 +1244,6 @@ function sealTurn(ownerSessionId, tracker, { reseal = false } = {}) {
   });
   tracker.freezing = run;
   return run;
-}
-
-function resealTurn(ownerSessionId, tracker) {
-  // A turn still running seals with every published agent; one sealed or
-  // sealing queues its re-seal (sealTurn runs it after a seal in flight).
-  if (!(tracker.sealed || tracker.freezing) || !clean(tracker.checkpointId) || tracker.resealQueued) return;
-  // On the session lock: an in-flight Undo/Reapply lands before the re-freeze
-  // reads the worktree. A turn start queued ahead of it runs it before opening
-  // (beginTurnSnapshot), so one queued re-seal covers every late worker.
-  tracker.resealQueued = true;
-  void serializeChangeMutation(ownerSessionId, () => runQueuedReseal(ownerSessionId, tracker)).catch(() => {});
-}
-
-/** True once a newer turn of the session opened over `tracker`'s. */
-function turnSuperseded(ownerSessionId, tracker) {
-  const turn = _turnsBySession.get(ownerSessionId);
-  return Boolean(turn) && turn.generation !== tracker.ownerGeneration;
-}
-
-/** Run `tracker`'s queued re-seal once, whichever lock step reaches it first. */
-function runQueuedReseal(ownerSessionId, tracker) {
-  if (!tracker.resealQueued) return undefined;
-  tracker.resealQueued = false;
-  if (turnSuperseded(ownerSessionId, tracker)) return undefined;
-  return sealTurn(ownerSessionId, tracker, { reseal: true });
 }
 
 /** Freeze a completed (or cancelled) Lead turn while retaining only its
@@ -1947,20 +2031,8 @@ export async function clearSessionChangeHistory(sessionId) {
       throw new Error('change history cannot be deleted while this session is running a turn');
     }
     // Invalidate every producer of the old history BEFORE the awaited
-    // deletion: a worker finishing meanwhile finds no turn to fold into, and
-    // a re-seal it (or anything earlier) already queued finds its tracker
-    // discarded, so nothing begun before the delete can write it back.
-    for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
-      if (trackedSessionId !== ownerSessionId && tracker.ownerSessionId !== ownerSessionId) continue;
-      tracker.discarded = true;
-      tracker.resealQueued = false;
-      releaseDiffTrackerContent(tracker);
-      _diffTrackersBySession.delete(trackedSessionId);
-    }
-    _turnsBySession.delete(ownerSessionId);
-    for (const key of _unknownChangeStates.keys()) {
-      if (key.startsWith(`${ownerSessionId}\0`)) _unknownChangeStates.delete(key);
-    }
+    // deletion, so nothing begun before the delete can write it back.
+    discardSessionChangeState(ownerSessionId);
     // The session's first-seen baselines go too: later edits start fresh ones.
     const [turns] = await Promise.all([
       clearStoredChangeHistory(ownerSessionId),
@@ -1970,12 +2042,51 @@ export async function clearSessionChangeHistory(sessionId) {
   });
 }
 
+/** Release a Lead session's in-memory change state: a worker bound before
+ *  this finds its history epoch moved on (its completion parks nothing), its
+ *  parked worker reviews are dropped, and its own and bound worker trackers
+ *  are discarded (anything earlier that seals writes nothing). */
+function discardSessionChangeState(ownerSessionId) {
+  _historyEpochs.set(ownerSessionId, (_historyEpochs.get(ownerSessionId) || 0) + 1);
+  dropParkedWorkerReviews(ownerSessionId);
+  for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
+    if (trackedSessionId !== ownerSessionId && tracker.ownerSessionId !== ownerSessionId) continue;
+    tracker.discarded = true;
+    releaseDiffTrackerContent(tracker);
+    _diffTrackersBySession.delete(trackedSessionId);
+  }
+  _turnsBySession.delete(ownerSessionId);
+  for (const key of _unknownChangeStates.keys()) {
+    if (key.startsWith(`${ownerSessionId}\0`)) _unknownChangeStates.delete(key);
+  }
+}
+
+/** The session was deleted: release its turn, parked worker reviews and
+ *  bound worker trackers (its stored records go with the session purge). */
+export function forgetTurnSnapshotSession(sessionId) {
+  const ownerSessionId = clean(sessionId);
+  if (ownerSessionId) discardSessionChangeState(ownerSessionId);
+}
+
+export function _diffTrackerForTest(sessionId) {
+  return _diffTrackersBySession.get(clean(sessionId));
+}
+
+export function _parkedWorkerReviewsForTest(ownerSessionId) {
+  return [...(_parkedWorkerReviews.get(clean(ownerSessionId))?.values() || [])].map(({ key, patch }) => ({
+    key,
+    patch,
+  }));
+}
+
 export function _resetTurnSnapshotForTest() {
   _turnsBySession.clear();
   _diffTrackersBySession.clear();
   _pendingFreezes.clear();
   _changeMutations.clear();
   _unknownChangeStates.clear();
+  _parkedWorkerReviews.clear();
+  _historyEpochs.clear();
   _turnOpenedHookForTest = null;
   _agentTurnSeq = 0;
   _resetTurnWorktreeSnapshotsForTest();

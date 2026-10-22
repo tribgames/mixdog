@@ -2,6 +2,7 @@ import { registerCacheInvalidationListener } from '../runtime/agent/orchestrator
 import { turnReviewReply } from '../runtime/shared/turn-review-reply.mjs';
 import {
   clearSessionChangeHistory,
+  forgetTurnSnapshotSession,
   getSessionReviewDiff,
   getSessionReviewFilePatch,
   getTurnChanges,
@@ -19,8 +20,10 @@ import { registerSessionPurgeHook } from '../runtime/agent/orchestrator/session/
 
 // A deleted history stays deleted for as long as its session exists; the
 // session's own deletion takes the marker — and its stored first-seen file
-// contents — with it.
+// contents — with it, and its in-memory turn, parked worker reviews and
+// bound worker trackers.
 registerSessionPurgeHook((sessionId) => {
+  forgetTurnSnapshotSession(sessionId);
   void forgetSessionChangeHistoryMarker(sessionId);
   void forgetSessionBaselines(sessionId);
 });
