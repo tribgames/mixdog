@@ -49,7 +49,11 @@ function harness({
   listGate = () => undefined,
   // Definition presence per id (gentDefinitionPresence); none by default.
   presence = undefined,
+  // Awaited by every session creation, after it started.
+  createGate = () => undefined,
 } = {}) {
+  /** Every session whose creation started. */
+  const createStarted = [];
   const logs = [];
   /** Every session created, with its create params. */
   const created = [];
@@ -65,6 +69,8 @@ function harness({
   const resets = [];
   /** Every member session aborted. */
   const aborts = [];
+  /** Every session a delete was asked for. */
+  const deleted = [];
   /** Every input a supervisor step was given. */
   const decisions = [];
   let failures = appendFails;
@@ -88,6 +94,8 @@ function harness({
     sessionExists: async (id) => sessions.has(id),
     ...(mixyRoute === undefined ? {} : { mixyRoute: async () => mixyRoute }),
     createSession: async (id, params) => {
+      createStarted.push(id);
+      await createGate(id);
       sessions.add(id);
       created.push([id, params]);
     },
@@ -137,7 +145,9 @@ function harness({
       aborts.push(id);
     },
     approve: async () => true,
-    deleteSession: async () => {
+    deleteSession: async (id) => {
+      deleted.push(id);
+      sessions.delete(id);
       if (deleteFails) throw new Error('locked');
     },
     setArchived: async () => {},
@@ -163,7 +173,7 @@ function harness({
   const idle = async (roomId) => {
     for (let i = 0; i < 2000 && rooms.isRunning(roomId); i += 1) await new Promise((r) => setImmediate(r));
   };
-  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created, aborts };
+  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created, aborts, deleted, sessions, createStarted };
 }
 
 /** A supervisor that hands the turn to the member after the last speaker
@@ -1682,6 +1692,261 @@ test('an ask and a relay arriving after a stop, while the room winds down, end c
     ['gh'],
     'neither the ask nor the relay got a turn'
   );
+});
+
+test('a bot deleted during its own turn: the turn is aborted and posts nothing, its callers end cancelled, queued targets drop it', async () => {
+  const gate = gated(['rel']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h);
+  const rel = roomMemberSessionId(roomId, 'rel');
+  const ends = { first: [], second: [], bench: [] };
+  const ask = (key, agentId) =>
+    h.rooms.ask(sessionId, {
+      agentId,
+      prompt: `question ${key}`,
+      from: { sessionId: 'sess_lead_1' },
+      id: `atask_${key}`,
+      onSettled: (detail) => ends[key].push(detail),
+    });
+  await ask('first', 'rel');
+  await until(() => h.prompts.length === 1);
+  // Queued behind rel's turn in flight: another ask for it, one for bench, and rel's own relay.
+  await ask('second', 'rel');
+  await ask('bench', 'bench');
+  const relayed = await h.rooms.relay(rel, 'REPORT: done', { id: 'awake_1' });
+  await h.rooms.forgetMember('rel');
+  assert.deepEqual(ends.second, [{ status: 'cancelled' }], 'the queued ask for the removed bot ends at once');
+  assert.equal(await relayed.settled, 'cancelled', 'so does its queued relay');
+  gate.release();
+  await until(() => ends.first.length && ends.bench.length);
+  await h.idle(roomId);
+  assert.deepEqual(ends.first, [{ status: 'cancelled' }], 'the ask its turn was answering ends cancelled');
+  assert.deepEqual(ends.second, [{ status: 'cancelled' }], 'settled once');
+  assert.equal(ends.bench[0].status, 'done', 'the other member still gets its turn');
+  assert.ok(h.aborts.includes(rel), 'the removed bot’s turn in flight is aborted');
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['rel', 'bench'],
+    'the removed bot gets no further turn'
+  );
+  assert.deepEqual(
+    h.log.filter((row) => row.speaker === 'rel'),
+    [],
+    'nothing is posted for the turn it was in'
+  );
+  assert.equal(h.rooms.isRunning(roomId), false, 'the room is not held by the removed bot');
+});
+
+test('a bot deleted while an exchange still owes it a turn: its queued calls end cancelled and it is never handed one', async () => {
+  const gate = gated(['gh', 'bench']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h);
+  const rel = roomMemberSessionId(roomId, 'rel');
+  const ends = { bench: [], rel: [] };
+  const ask = (key, agentId) =>
+    h.rooms.ask(sessionId, {
+      agentId,
+      prompt: `question ${key}`,
+      from: { sessionId: 'sess_lead_1' },
+      id: `atask_${key}`,
+      onSettled: (detail) => ends[key].push(detail),
+    });
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  // Both wait for the next exchange: bench first, then rel.
+  await ask('bench', 'bench');
+  await ask('rel', 'rel');
+  const relayed = await h.rooms.relay(rel, 'REPORT: done', { id: 'awake_1' });
+  gate.release();
+  gate.reset();
+  await until(() => h.prompts.some((p) => p.agentId === 'bench'));
+  // rel's ask now sits in the running exchange, behind bench's turn.
+  await h.rooms.forgetMember('rel');
+  assert.deepEqual(ends.rel, [{ status: 'cancelled' }]);
+  assert.equal(await relayed.settled, 'cancelled');
+  gate.release();
+  await until(() => ends.bench.length);
+  await h.idle(roomId);
+  assert.equal(ends.bench[0].status, 'done');
+  assert.deepEqual(ends.rel, [{ status: 'cancelled' }], 'settled once');
+  assert.equal(
+    h.prompts.some((p) => p.agentId === 'rel'),
+    false,
+    'the removed bot was never handed a turn'
+  );
+  assert.deepEqual(h.logs, []);
+});
+
+test('a member taken out of one room by its settings leaves as a deleted bot does: queued calls end cancelled once, the others carry on', async () => {
+  const gate = gated(['gh', 'bench']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h);
+  const other = await room(h, { name: 'Other' });
+  const rel = roomMemberSessionId(roomId, 'rel');
+  const ends = { bench: [], rel: [], more: [], elsewhere: [] };
+  const ask = (key, agentId, to = sessionId) =>
+    h.rooms.ask(to, {
+      agentId,
+      prompt: `question ${key}`,
+      from: { sessionId: 'sess_lead_1' },
+      id: `atask_${key}`,
+      onSettled: (detail) => ends[key].push(detail),
+    });
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  await ask('bench', 'bench');
+  await ask('rel', 'rel');
+  await ask('more', 'rel');
+  const relayed = await h.rooms.relay(rel, 'REPORT: done', { id: 'awake_1' });
+  await h.rooms.update(roomId, { members: ['gh', 'bench'] });
+  assert.deepEqual(ends.rel, [{ status: 'cancelled' }], 'cancelled at once, not when the exchange gets to it');
+  assert.deepEqual(ends.more, [{ status: 'cancelled' }]);
+  assert.equal(await relayed.settled, 'cancelled');
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'bench']);
+  gate.release();
+  await until(() => ends.bench.length);
+  await h.idle(roomId);
+  assert.equal(ends.bench[0].status, 'done', 'a member that stays is still answered');
+  assert.deepEqual([ends.rel.length, ends.more.length], [1, 1], 'settled once');
+  assert.equal(
+    h.prompts.some((p) => p.agentId === 'rel'),
+    false,
+    'the removed member got no turn'
+  );
+  assert.equal(h.rooms.isRunning(roomId), false);
+  // The room works on with its remaining members, and the same bot still serves another room.
+  gate.reset();
+  gate.release();
+  await ask('elsewhere', 'rel', other.sessionId);
+  await until(() => ends.elsewhere.length);
+  assert.equal(ends.elsewhere[0].status, 'done', 'removal from one room leaves its other rooms alone');
+  await h.rooms.send(sessionId, '/ask GitHub again');
+  await h.idle(roomId);
+  assert.equal(h.log.at(-1).speaker, 'gh');
+});
+
+test('a member removed by the room settings takes its conversation with it: none survives the room or a re-add', async () => {
+  const h = harness();
+  const { sessionId, roomId } = await room(h);
+  const rel = roomMemberSessionId(roomId, 'rel');
+  await h.rooms.send(sessionId, '/ask Release status');
+  await h.idle(roomId);
+  assert.ok(h.sessions.has(rel), 'rel has a conversation in the room');
+  await h.rooms.update(roomId, { members: ['gh', 'bench'] });
+  assert.deepEqual(h.deleted, [rel]);
+  assert.equal(h.sessions.has(rel), false);
+  assert.equal(h.saved.doc.rooms[roomId].cursors.rel, undefined);
+  // Added back, it starts a fresh conversation.
+  await h.rooms.update(roomId, { members: ['gh', 'rel', 'bench'] });
+  await h.rooms.send(sessionId, '/ask Release again');
+  await h.idle(roomId);
+  assert.equal(h.created.filter(([id]) => id === rel).length, 2);
+  await h.rooms.update(roomId, { members: ['gh', 'bench'] });
+  await h.rooms.remove(roomId);
+  const leftover = [...h.sessions].filter((id) => id.includes(roomId));
+  assert.deepEqual(leftover, [], 'no conversation of the room survives its removal');
+
+  // A delete that fails is surfaced, and the removal still applies.
+  const stuck = harness({ deleteFails: true });
+  const made = await room(stuck);
+  await assert.rejects(stuck.rooms.update(made.roomId, { members: ['gh', 'bench'], name: 'Renamed' }), /could not be deleted/);
+  assert.deepEqual(stuck.saved.doc.rooms[made.roomId].members, ['gh', 'bench']);
+  assert.equal(stuck.saved.doc.rooms[made.roomId].name, 'Renamed');
+});
+
+test('every member removed while the room talks: the calls end cancelled and the room is released without a cap notice', async () => {
+  const gate = gated(['gh']);
+  const h = harness({ script: gate.script });
+  const { sessionId, roomId } = await room(h, { members: ['gh', 'rel'] });
+  const rel = roomMemberSessionId(roomId, 'rel');
+  const ends = [];
+  await h.rooms.send(sessionId, '/ask GitHub status');
+  await until(() => h.prompts.length === 1);
+  await h.rooms.ask(sessionId, {
+    agentId: 'rel',
+    prompt: 'status?',
+    from: { sessionId: 'sess_lead_1' },
+    id: 'atask_1',
+    onSettled: (detail) => ends.push(detail),
+  });
+  const relayed = await h.rooms.relay(rel, 'REPORT: done', { id: 'awake_1' });
+  await h.rooms.forgetMember('gh');
+  await h.rooms.forgetMember('rel');
+  assert.deepEqual(ends, [{ status: 'cancelled' }]);
+  assert.equal(await relayed.settled, 'cancelled');
+  gate.release();
+  await h.idle(roomId);
+  assert.equal(h.rooms.isRunning(roomId), false, 'nothing hangs');
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, []);
+  assert.deepEqual(ends, [{ status: 'cancelled' }], 'settled once');
+  assert.deepEqual(
+    h.log.filter((row) => ['speech', 'pass', 'cap'].includes(row.kind)),
+    []
+  );
+  // The empty room still takes a message and ends it with no turn.
+  await h.rooms.send(sessionId, 'anyone?');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh']
+  );
+});
+
+test('a member removed while its session is being created is left without one', async () => {
+  let openCreate = () => {};
+  const createGate = new Promise((resolve) => {
+    openCreate = resolve;
+  });
+  let holdCreate = false;
+  const h = harness({ createGate: () => (holdCreate ? createGate : undefined) });
+  const { sessionId, roomId } = await room(h);
+  const rel = roomMemberSessionId(roomId, 'rel');
+  const ends = [];
+  holdCreate = true;
+  await h.rooms.ask(sessionId, {
+    agentId: 'rel',
+    prompt: 'status?',
+    from: { sessionId: 'sess_lead_1' },
+    id: 'atask_1',
+    onSettled: (detail) => ends.push(detail),
+  });
+  await until(() => h.createStarted.includes(rel));
+  const forgetting = h.rooms.forgetMember('rel');
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(h.deleted, [], 'the removal waits behind the creation it raced');
+  openCreate();
+  await forgetting;
+  await h.idle(roomId);
+  assert.deepEqual(h.deleted, [rel], 'the session the creation finished is deleted with the member');
+  assert.equal(h.sessions.has(rel), false, 'no conversation of the removed member is left behind');
+  assert.deepEqual(ends, [{ status: 'cancelled' }]);
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'bench']);
+});
+
+test('a removed bot’s room conversation is deleted and its cursors go; a failed cleanup is surfaced', async () => {
+  const h = harness();
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, '/ask Bench status');
+  await h.idle(roomId);
+  const bench = roomMemberSessionId(roomId, 'bench');
+  assert.ok(h.saved.doc.rooms[roomId].cursors.bench, 'bench has a cursor before it leaves');
+  await h.rooms.forgetMember('bench');
+  assert.deepEqual(h.deleted, [bench], 'only the removed bot’s conversation in that room');
+  assert.equal(h.saved.doc.rooms[roomId].cursors.bench, undefined);
+  assert.equal(h.saved.doc.rooms[roomId].seen?.bench, undefined);
+
+  const stuck = harness({ deleteFails: true });
+  const made = await room(stuck);
+  await assert.rejects(stuck.rooms.forgetMember('bench'), /could not be deleted/);
+  assert.deepEqual(stuck.saved.doc.rooms[made.roomId].members, ['gh', 'rel'], 'the member still left');
+
+  // Rooms that load holding a deleted bot retire its conversation too.
+  const loaded = harness({
+    doc: { rooms: { r1: { ...STORED } } },
+    presence: () => ({ gh: 'present', rel: 'present', bench: 'deleted' }),
+  });
+  await loaded.rooms.ready();
+  assert.deepEqual(loaded.deleted, [roomMemberSessionId('r1', 'bench')]);
 });
 
 test('remove surfaces a failed cleanup', async () => {

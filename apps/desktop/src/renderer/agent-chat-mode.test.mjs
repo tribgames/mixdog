@@ -939,6 +939,41 @@ test('a room composer’s @ offers Everyone: it addresses each current member on
   assert.equal(textOf(calls.at(-1)), '/ask bench now', 'a member who left is not addressed');
 });
 
+test('a room composer’s @all inside a Markdown code fence is text: no picker opens and Enter tags nobody', async (t) => {
+  publishAgentRooms([
+    {
+      id: ROOM,
+      agentRoom: {
+        id: 'release01',
+        name: '릴리스 점검',
+        members: ['bench', 'release'],
+        memberNames: { bench: 'Bench', release: '릴리스 관리' },
+        maxRounds: 1,
+        maxMessages: 6,
+        shareTools: false,
+      },
+    },
+  ]);
+  t.after(() => publishAgentRooms([]));
+  const calls = [];
+  const { host, type, key, render } = await mountComposer(t);
+  await render(composerProps(calls, { agentMode: true }));
+  await act(async () => host.querySelector('.mx-chat-tag')?.click());
+  const palette = () => document.getElementById('composer-room-ask-palette');
+
+  await type('```\n@all');
+  assert.equal(palette(), null, 'an @ on a line inside an open fence offers nothing');
+  await key('Enter');
+  assert.equal(host.querySelector('.mx-chat-tag'), null, 'Enter does not tag Everyone');
+
+  await type('```js\nconst a = 1;\n```\n@all');
+  assert.ok(palette(), 'once the fence is closed, @ is a tag again');
+  assert.deepEqual(
+    [...palette().querySelectorAll('[role="option"]')].map((option) => option.textContent),
+    ['Everyone']
+  );
+});
+
 test('the agent-mode composer runs /compact and /clear as commands, other `/` lines stay text', async (t) => {
   const calls = [];
   const capabilities = [];

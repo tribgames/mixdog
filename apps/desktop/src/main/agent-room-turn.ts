@@ -33,6 +33,9 @@ export interface RunState {
    *  turns still queued are dropped at the next turn boundary and its
    *  exchange runs next. */
   pending: RoomExchangeOptions | null;
+  /** The calls this exchange still owes a turn (shared with the exchange, which
+   *  takes them out as members answer): a removed member's end cancelled. */
+  calls: RoomCall[];
   /** The user's newest message has no answer from this exchange yet: set when
    *  a user message starts it, cleared by its first speech. A reply the member
    *  in flight finishes after a newer message is not an answer to it. */
@@ -163,7 +166,7 @@ export async function speakInRoom(
     for (const call of calls) call.onSettled?.(detail);
   };
   const call = calls.length ? combinedCall(host, agentId, calls) : undefined;
-  const outcome = { text: '', failed: false, submitted: false };
+  const outcome = { text: '', failed: false, submitted: false, removed: false };
   let answer: RoomTurnAnswer;
   try {
     answer = await memberTurn(host, state, labels, agentId, turn, call, outcome);
@@ -174,7 +177,7 @@ export async function speakInRoom(
   const result = typeof answer === 'string' ? answer : answer.result;
   if (result === 'superseded') {
     if (outcome.submitted) for (const each of calls) if (each.id === call?.id) each.used = true;
-  } else if (result === 'stopped') settle({ status: 'cancelled' });
+  } else if (result === 'stopped' || outcome.removed) settle({ status: 'cancelled' });
   else if (outcome.failed) settle({ status: 'failed', error: 'The member could not reply in the room.' });
   else settle({ status: 'done', result: { content: outcome.text } });
   return answer;
@@ -213,11 +216,24 @@ async function memberTurn(
   agentId: string,
   { addressed, instruction, mentionedBy, scene }: RoomTurn,
   call: RoomCall | undefined,
-  outcome: { text: string; failed: boolean; submitted: boolean }
+  outcome: { text: string; failed: boolean; submitted: boolean; removed: boolean }
 ): Promise<RoomTurnAnswer> {
   const { now, newId } = host;
   const room = host.room();
   const member = labels.get(agentId) ?? { id: agentId, name: agentId, route: undefined, description: '' };
+  // A member removed from the room (its bot was deleted) gets no turn, and one
+  // in flight is aborted: nothing is posted, its cursors go, its calls end
+  // cancelled (speakInRoom).
+  let sessionId = '';
+  const gone = () => !room.members.includes(agentId);
+  const left = async (): Promise<'pass'> => {
+    outcome.removed = true;
+    delete room.cursors[agentId];
+    if (room.seen) delete room.seen[agentId];
+    if (sessionId) await host.abort(sessionId).catch(() => undefined);
+    return 'pass';
+  };
+  if (gone()) return await left();
   // Whether the user's newest message still has no answer in the room.
   const waiting = state.waiting;
   const rows = await host.rows();
@@ -265,8 +281,9 @@ async function memberTurn(
   let snapshot: SessionSnapshot = null;
   let startedAt = 0;
   try {
-    const sessionId = await host.memberSession(member);
+    sessionId = await host.memberSession(member);
     state.memberSession = sessionId;
+    if (gone()) return await left();
     const prompt = roomTurnPrompt({
       roomName: room.name,
       self: member,
@@ -288,6 +305,7 @@ async function memberTurn(
     // and its calls end failed (below).
     if (call?.id) await call.follow?.(call.id);
     if (state.stop) return 'stopped';
+    if (gone()) return await left();
     if (interrupted()) return await cutShort();
     startedAt = now();
     // From here the submission id counts as used, even when the call throws.
@@ -301,6 +319,7 @@ async function memberTurn(
     let misses = 0;
     while (!answer) {
       if (state.stop) return 'stopped';
+      if (gone()) return await left();
       if (interrupted()) return await cutShort();
       await host.sleep(host.pollMs);
       try {
@@ -323,6 +342,7 @@ async function memberTurn(
       `${agentId} could not speak in room ${host.roomId}: ${error instanceof Error ? error.message : String(error)}`
     );
     if (state.stop) return 'stopped';
+    if (gone()) return await left();
     if (interrupted()) return await cutShort();
     outcome.failed = true;
     await host.post([passRow(true)]);
@@ -334,6 +354,7 @@ async function memberTurn(
     void host.persist().catch((error) => host.log(`room ${host.roomId} save failed: ${String(error)}`));
   }
   if (!answer || (answer.status === 'cancelled' && state.stop)) return 'stopped';
+  if (gone()) return await left();
   if (interrupted()) {
     const cut = await cutShort();
     void host.persist().catch((error) => host.log(`room ${host.roomId} save failed: ${String(error)}`));

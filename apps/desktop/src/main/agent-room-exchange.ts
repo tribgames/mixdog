@@ -66,7 +66,9 @@ async function supervisorDecision(
   const decision = await host
     .decideTurn({
       roomName: room.name,
-      members: members.map(({ id, name, description }) => ({ id, name, description })),
+      members: members
+        .filter(({ id }) => room.members.includes(id))
+        .map(({ id, name, description }) => ({ id, name, description })),
       rows: roomSupervisorRows(await host.rows()),
       turns: step.turns,
       mustPick: step.mustPick,
@@ -123,6 +125,7 @@ export async function runRoomExchangeIn(
     memberSession: '',
     approval: null,
     pending: null,
+    calls,
     waiting: waiting === true,
   };
   host.track(state);

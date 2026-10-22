@@ -233,17 +233,26 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   const post = roomLog.post;
   const roomRows = roomLog.rows;
 
-  async function ensureMemberSession(roomId: string, member: { id: string; route: unknown }): Promise<string> {
+  /** The member's own session in the room, created on first use. Whether the
+   *  member still belongs is checked in the room writes' queue, the one a
+   *  removal runs in: a member removed before never gets a session, and one
+   *  removed after finds it created, to delete. */
+  function ensureMemberSession(roomId: string, member: { id: string; route: unknown }): Promise<string> {
     const sessionId = roomMemberSessionId(roomId, member.id);
-    if (await deps.sessionExists(sessionId)) return sessionId;
-    await deps.createSession(sessionId, {
-      ...(member.id === MIXY_AGENT_ID
-        ? routeParams(await deps.mixyRoute?.())
-        : { ...routeParams(member.route), sessionProfile: { homeAgent: member.id } }),
-      cwd: await deps.taskWorkspace(),
-      desktopSession: { classification: 'task', projectPath: null },
+    return writer(async () => {
+      if (!records.rooms()[roomId]?.members.includes(member.id)) {
+        throw new Error(`"${member.id}" is not a member of that room.`);
+      }
+      if (await deps.sessionExists(sessionId)) return sessionId;
+      await deps.createSession(sessionId, {
+        ...(member.id === MIXY_AGENT_ID
+          ? routeParams(await deps.mixyRoute?.())
+          : { ...routeParams(member.route), sessionProfile: { homeAgent: member.id } }),
+        cwd: await deps.taskWorkspace(),
+        desktopSession: { classification: 'task', projectPath: null },
+      });
+      return sessionId;
     });
-    return sessionId;
   }
 
   /** What a member's turn in this room needs from the host. */
@@ -386,10 +395,21 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     }
     await refreshNames();
     const renamed = config.name !== room.name;
-    Object.assign(room, config);
+    // Members taken out leave as a deleted bot does; the roster keeps its identity.
+    const gone = new Set(room.members.filter((id) => !config.members.includes(id)));
+    if (gone.size) removeFromRoom(room, gone);
+    const { members, ...settings } = config;
+    Object.assign(room, settings);
+    room.members.splice(0, room.members.length, ...members);
     await persist();
     if (renamed) await deps.renameSession(roomSessionId(roomId), config.name).catch(() => undefined);
     deps.republishCatalog();
+    // Their conversations go with them (no one owns them afterwards; a member
+    // added back starts a fresh one), as a deleted bot's do.
+    const failed = await deleteSessions([...gone].map((id) => roomMemberSessionId(roomId, id)));
+    if (failed) {
+      throw new Error(`The room was updated, but ${failed} conversations of removed members could not be deleted.`);
+    }
     return summaryOf(room);
   }
 
@@ -400,15 +420,12 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     delete records.rooms()[roomId];
     roomLog.forget(roomId);
     await persist();
-    const failed: string[] = [];
-    for (const id of room.members) {
-      await deps.deleteSession(roomMemberSessionId(roomId, id)).catch(() => failed.push(id));
-    }
-    await deps.deleteSession(roomSessionId(roomId)).catch(() => failed.push('room'));
+    const failed = await deleteSessions([
+      ...room.members.map((id) => roomMemberSessionId(roomId, id)),
+      roomSessionId(roomId),
+    ]);
     deps.republishCatalog();
-    if (failed.length) {
-      throw new Error(`The room was removed, but ${failed.length} of its conversations could not be deleted.`);
-    }
+    if (failed) throw new Error(`The room was removed, but ${failed} of its conversations could not be deleted.`);
   }
 
   // Membership belongs to the agent's existence: a bot proven deleted leaves
@@ -416,28 +433,84 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   // not rejoin (`update` adds it back by hand); a room keeps its id and log
   // however few members remain.
 
-  /** `agentIds` out of every room's members (and owed turns); Mixy is never
-   *  removed. Whether any room changed. */
-  function dropMembers(agentIds: readonly string[]): boolean {
-    const gone = new Set(agentIds.filter((id) => id !== MIXY_AGENT_ID));
-    let changed = false;
-    for (const room of Object.values(records.rooms())) {
-      const kept = room.members.filter((id) => !gone.has(id));
-      if (kept.length === room.members.length) continue;
-      room.members = kept;
-      if (room.owed) room.owed = room.owed.filter((id) => !gone.has(id));
-      changed = true;
-    }
-    return changed;
+  /** The calls of `calls` addressed to `gone` end cancelled and leave it
+   *  (in place: the exchange shares the array). */
+  function cancelCallsTo(calls: RoomCall[], gone: ReadonlySet<string>): void {
+    const kept = calls.filter((call) => !gone.has(call.agentId));
+    for (const call of calls) if (gone.has(call.agentId)) call.onSettled?.({ status: 'cancelled' });
+    calls.splice(0, calls.length, ...kept);
   }
 
-  /** A bot whose definition was proven deleted leaves every room, saved. */
+  /** `gone` left room `roomId`: what is owed to them ends. Their calls waiting
+   *  in the room's exchange, in the exchange that runs next and in the relay
+   *  queue end cancelled, and they are no queued target. Their turn in flight
+   *  (or about to start) notices the removal itself (memberTurn). */
+  function cancelOwedTo(roomId: string, gone: ReadonlySet<string>): void {
+    const queued = relayQueue.get(roomId);
+    if (queued) {
+      cancelCallsTo(queued, gone);
+      if (!queued.length) relayQueue.delete(roomId);
+    }
+    const state = running.get(roomId);
+    if (!state) return;
+    cancelCallsTo(state.calls, gone);
+    if (state.pending) {
+      if (state.pending.calls) cancelCallsTo(state.pending.calls, gone);
+      state.pending.to = state.pending.to?.filter((id) => !gone.has(id));
+    }
+  }
+
+  /** `gone` out of `room`'s members and everything kept for them (owed turns,
+   *  cursors, seen rows, calls waiting on them). The members array stays the
+   *  same array: an exchange in flight holds it as its roster. */
+  function removeFromRoom(room: AgentRoomRecord, gone: ReadonlySet<string>): void {
+    room.members.splice(0, room.members.length, ...room.members.filter((id) => !gone.has(id)));
+    if (room.owed) room.owed = room.owed.filter((id) => !gone.has(id));
+    for (const id of gone) {
+      delete room.cursors[id];
+      if (room.seen) delete room.seen[id];
+    }
+    cancelOwedTo(room.id, gone);
+  }
+
+  /** `agentIds` out of every room's members; Mixy is never removed. Who left
+   *  which room. */
+  function dropMembers(agentIds: readonly string[]): Array<{ roomId: string; agentId: string }> {
+    const ids = new Set(agentIds.filter((id) => id !== MIXY_AGENT_ID));
+    const left: Array<{ roomId: string; agentId: string }> = [];
+    for (const room of Object.values(records.rooms())) {
+      const gone = new Set(room.members.filter((id) => ids.has(id)));
+      if (!gone.size) continue;
+      removeFromRoom(room, gone);
+      for (const agentId of gone) left.push({ roomId: room.id, agentId });
+    }
+    return left;
+  }
+
+  /** Each of `sessionIds` deleted, whatever happens to the others; how many
+   *  could not be. */
+  async function deleteSessions(sessionIds: string[]): Promise<number> {
+    let failed = 0;
+    for (const id of sessionIds) await deps.deleteSession(id).catch(() => (failed += 1));
+    return failed;
+  }
+
+  const memberSessionsOf = (left: Array<{ roomId: string; agentId: string }>) =>
+    left.map(({ roomId, agentId }) => roomMemberSessionId(roomId, agentId));
+
+  /** A bot whose definition was proven deleted leaves every room, saved, and
+   *  its room conversations are deleted as a room's are on removal. */
   const forgetMember = (agentId: string): Promise<void> =>
     writer(async () => {
       await ready();
-      if (!dropMembers([agentId])) return;
+      const left = dropMembers([agentId]);
+      if (!left.length) return;
       await persist();
       deps.republishCatalog();
+      const failed = await deleteSessions(memberSessionsOf(left));
+      if (failed) {
+        throw new Error(`The member left its rooms, but ${failed} of its conversations could not be deleted.`);
+      }
     });
 
   /** Once, as the rooms load: members whose definition is proven deleted
@@ -448,9 +521,13 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     if (!deps.agentPresence || !ids.some((id) => id !== MIXY_AGENT_ID)) return;
     const presence = (await deps.agentPresence(ids).catch(() => null)) as Record<string, unknown> | null;
     if (!presence || typeof presence !== 'object') return;
-    if (!dropMembers(ids.filter((id) => presence[id] === 'deleted'))) return;
+    const left = dropMembers(ids.filter((id) => presence[id] === 'deleted'));
+    if (!left.length) return;
     await persist();
     deps.republishCatalog();
+    // Load must not fail on a conversation that stays behind: it is logged.
+    const failed = await deleteSessions(memberSessionsOf(left));
+    if (failed) log(`${failed} conversations of members who left their rooms could not be deleted`);
   }
 
   let prepared: Promise<void> | null = null;

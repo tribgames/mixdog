@@ -82,6 +82,7 @@ import {
   composerPlaceholder,
 } from './composer-surfaces';
 import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
+import { isInMarkdownCode } from '../../../../src/runtime/shared/skill-mentions.mjs';
 import { ComposerBanners } from './ComposerBanners';
 import {
   type ComposerModelControlProps,
@@ -615,7 +616,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     };
   }, [attachmentsRef, replaceAttachments]);
   const taggedMembers = roomTaggedMembers(tagged, roomMembers);
-  const tagMatch = agentMode && roomMembers ? mention.match : null;
+  // An `@` inside Markdown code (a fence or inline span) is text, not a tag.
+  const tagMatch =
+    agentMode && roomMembers && mention.match && !isInMarkdownCode(draft, mention.match.start) ? mention.match : null;
   const tagCandidates =
     tagMatch && composerFocused && paneActive && tagDismissed !== mention.signature
       ? roomTagCandidates(tagMatch.query, roomMembers).filter((member) => !tagged.includes(member.id))
