@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose new behavior or a change to existing behavior.
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: Search existing issues first. Wait for a maintainer to confirm before you write code.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: What you would see or do differently.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you tried (optional)

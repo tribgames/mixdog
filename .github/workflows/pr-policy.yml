@@ -1,0 +1,95 @@
+name: PR policy
+
+# Every outside pull request links an issue of this repository in its
+# description, and an author keeps at most three pull requests open.
+# Runs on the base branch's copy and never checks out PR code.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+# One run per pull request at a time, so two events never post the same notice.
+concurrency:
+  group: pr-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  pr-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            if (pr.user.type !== 'User') return;
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: pr.user.login });
+              if (['admin', 'maintain', 'write'].includes(data.permission)) return;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            // Comments, code blocks (``` or ~~~, closed or not) and inline code do not count as links.
+            const body = (pr.body || '')
+              .replace(/<!--[\s\S]*?-->/g, '')
+              .replace(/^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1[^\n]*|(?![\s\S]))/gm, '')
+              .replace(/`[^`]*`/g, '');
+            // "Fixes #123" or "Refs #123", or the same with this repository's issue URL.
+            const reference = new RegExp(
+              `\\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?|refs?)\\b:?\\s+(?:#(\\d+)|https://github\\.com/${owner}/${repo}/issues/(\\d+))\\b`,
+              'gi'
+            );
+            const numbers = new Set();
+            for (const match of body.matchAll(reference)) numbers.add(Number(match[1] ?? match[2]));
+            let linked = false;
+            for (const issue_number of numbers) {
+              try {
+                const { data } = await github.rest.issues.get({ owner, repo, issue_number });
+                if (!data.pull_request) {
+                  linked = true;
+                  break;
+                }
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+            const MAX_OPEN = 3;
+            const open = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', per_page: 100 });
+            const mine = open.filter((other) => other.user?.login === pr.user.login).sort((a, b) => a.number - b.number);
+            // Only pull requests opened after the first three are over the limit.
+            const overLimit = mine.findIndex((other) => other.number === pr.number) >= MAX_OPEN;
+            const guide = `See [CONTRIBUTING.md](https://github.com/${owner}/${repo}/blob/main/CONTRIBUTING.md).`;
+            const problems = [];
+            if (!linked) {
+              problems.push({
+                marker: '<!-- pr-policy:issue -->',
+                text: 'Every pull request must link a confirmed issue in this repository: open or find the issue, then add `Fixes #123` to the description.',
+                error: 'The description does not link an issue of this repository (e.g. "Fixes #123").',
+              });
+            }
+            if (overLimit) {
+              problems.push({
+                marker: '<!-- pr-policy:limit -->',
+                text: `You have ${mine.length} open pull requests; the limit is ${MAX_OPEN} per person. Please wait until one is merged or closed.`,
+                error: `The author has more than ${MAX_OPEN} open pull requests.`,
+              });
+            }
+            if (!problems.length) return;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number, per_page: 100 });
+            for (const problem of problems) {
+              // Only this workflow's own comments count, so nobody can pre-empt the notice.
+              const posted = comments.some(
+                (comment) => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(problem.marker)
+              );
+              if (posted) continue;
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body: `${problem.marker}\nThanks for the pull request. ${problem.text} ${guide}`,
+              });
+            }
+            core.setFailed(problems.map((problem) => problem.error).join(' '));

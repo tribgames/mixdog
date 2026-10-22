@@ -1,0 +1,59 @@
+name: Bug report
+description: Something that used to work, or should work, does not.
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: Search existing issues first. One bug per issue.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Desktop app
+        - Terminal (CLI)
+        - Mobile app
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Mixdog version
+      placeholder: 'e.g. 1.3.2'
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: 'e.g. Windows 11, macOS 15, Ubuntu 24.04, Android 15'
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Include error messages, logs, or screenshots. Remove keys and personal data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: cause
+    attributes:
+      label: Cause or fix idea (optional)
+      description: Root-cause analysis or the code involved, if you looked.
