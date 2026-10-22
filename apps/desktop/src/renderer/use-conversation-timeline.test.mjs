@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { ENTRY_CHROME_MAX_MS } from './use-transcript-reveal';
 import { useConversationTimeline } from './use-conversation-timeline';
+import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
 
 const ITEMS = [
   { id: 'u1', kind: 'user', text: 'hello' },
@@ -38,9 +39,16 @@ function mount(t, { showTimeline = true, items = ITEMS } = {}) {
     content: { current: document.getElementById('content') },
     conversation: { current: document.getElementById('scope') },
     scrollToEndRef: { current: () => {} },
-    follow: { following: true, hasScrollGesture: () => false, resume() {}, arm() {} },
+    follow: {
+      following: true,
+      hasScrollGesture: () => false,
+      resume() {
+        calls.resumed += 1;
+      },
+      arm() {},
+    },
   };
-  const calls = { revealed: [], hidden: [] };
+  const calls = { revealed: [], hidden: [], resumed: 0 };
   const identity = { current: 'entry' };
   const props = {
     view,
@@ -78,6 +86,7 @@ function mount(t, { showTimeline = true, items = ITEMS } = {}) {
   return {
     calls,
     tick,
+    window: document.defaultView,
     hidden: () => calls.hidden.at(-1),
     ready: () => document.querySelector('[data-entry-pending]').remove(),
     visit: (key) => {
@@ -122,6 +131,18 @@ test('a revisit hides the transcript again and reports it until it reveals', (t)
   entry.tick(48);
   entry.tick(64);
   assert.equal(entry.hidden(), false);
+});
+
+test('a tapped notification for this session returns the pane to its latest row; others do not', (t) => {
+  const entry = mount(t);
+  const jump = (sessionId) =>
+    act(() => {
+      entry.window.dispatchEvent(new entry.window.CustomEvent(NOTIFICATION_JUMP_LATEST_EVENT, { detail: sessionId }));
+    });
+  jump('session-b');
+  assert.equal(entry.calls.resumed, 0);
+  jump('session-a');
+  assert.equal(entry.calls.resumed, 1);
 });
 
 test('a slow dock chrome releases the hidden report after the bound', (t) => {
