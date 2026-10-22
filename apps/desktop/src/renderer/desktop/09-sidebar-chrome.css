@@ -104,20 +104,20 @@
   position: absolute;
   /* Above the meter that follows it in the slot (user: 배지가 프로그래스바보다 앞으로). */
   z-index: 1;
-  right: -7px;
-  bottom: -4px;
+  right: -6px;
+  bottom: -3px;
   display: grid;
   place-items: center;
-  min-width: 11px;
-  height: 11px;
-  padding: 0 2px;
+  min-width: 9px;
+  height: 9px;
+  padding: 0 1px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-window-band);
   box-shadow: 0 0 0 1px var(--mx-window-band);
   color: var(--mx-text-muted);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
-  line-height: 11px;
+  line-height: 9px;
 }
 .rail-usage-pin-mark > sup.is-selected {
   color: var(--mx-text);

@@ -286,7 +286,7 @@ export const ActivityRail = memo(function ActivityRail({
             data-rail-step="-1"
             onClick={(event) => stepFromControl(-1, event)}
           >
-            <ChevronUp size={8} strokeWidth={3} aria-hidden="true" />
+            <ChevronUp size={8} strokeWidth={4.5} aria-hidden="true" />
           </button>
         </div>
       )}
@@ -334,7 +334,7 @@ export const ActivityRail = memo(function ActivityRail({
             data-rail-step="1"
             onClick={(event) => stepFromControl(1, event)}
           >
-            <ChevronDown size={8} strokeWidth={3} aria-hidden="true" />
+            <ChevronDown size={8} strokeWidth={4.5} aria-hidden="true" />
           </button>
         </div>
       )}
