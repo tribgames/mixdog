@@ -316,8 +316,9 @@ test('toSessionWorkflowMeta keeps delegatesAgents for Solo packs', () => {
     delegatesAgents: false,
   });
   assert.equal(meta.delegatesAgents, false);
-  assert.equal(workflowDisallowsAgentTool(meta), true);
-  assert.equal(workflowDisallowsAgentTool({ id: 'solo' }), false);
+  assert.equal(workflowDisallowsAgentTool(meta, { agentMode: true }), true, 'an agent-mode Lead without agents');
+  assert.equal(workflowDisallowsAgentTool(meta), false, 'a coding Lead keeps `agent` without agents');
+  assert.equal(workflowDisallowsAgentTool({ id: 'solo' }, { agentMode: true }), false);
 });
 
 function surfaceFor({
@@ -344,6 +345,33 @@ function surfaceFor({
   });
 }
 
+test('the preview before a session exists keeps `agent` for a coding Lead without agents', () => {
+  const standalone = [{ name: 'read' }, { name: 'agent' }];
+  const surface = (session) =>
+    createToolSurface({
+      mgr: { previewSessionTools: () => standalone },
+      mode: 'full',
+      standaloneTools: standalone,
+      agentToolNames: new Set(['agent']),
+      getSession: () => session,
+      getRoute: () => ({ provider: 'grok-oauth' }),
+      getConfig: () => ({ workflow: { active: 'default' } }),
+      cfgMod: { getPluginData: () => '' },
+      delegatableAgentIds: () => [],
+      dataDir: '',
+    });
+  const preview = surface(null).activeToolSurface();
+  const names = [...preview.tools, ...(preview.deferredToolCatalog || [])].map((tool) => tool.name);
+  assert.ok(names.includes('agent'), 'the coding preview offers it');
+  // A new agent-mode Lead still gets it only with agents.
+  assert.deepEqual(
+    surface({ ownerAgentId: 'poet' })
+      .modelStandaloneTools()
+      .map((tool) => tool.name),
+    ['read']
+  );
+});
+
 test('modelStandaloneTools hides agent and disabled first-party feature tools', () => {
   const standalone = [
     { name: 'read' },
@@ -357,14 +385,21 @@ test('modelStandaloneTools hides agent and disabled first-party feature tools', 
     { name: 'office' },
     { name: 'tidy' },
   ];
+  const denied = ['git', 'github', 'web_search', 'web_fetch', 'memory', 'recall', 'office', 'tidy'];
   const { modelStandaloneTools } = surfaceFor({
-    session: { workflow: { id: 'solo', delegatesAgents: false } },
-    denied: ['git', 'github', 'web_search', 'web_fetch', 'memory', 'recall', 'office', 'tidy'],
+    session: { workflow: { id: 'solo', delegatesAgents: false }, sessionMode: 'agent' },
+    denied,
     standalone,
   });
   assert.deepEqual(
     modelStandaloneTools().map((tool) => tool.name),
     ['read']
+  );
+  // A coding Lead keeps `agent` without agents (they reach it as a listing reminder).
+  const coding = surfaceFor({ session: { workflow: { id: 'solo', delegatesAgents: false } }, denied, standalone });
+  assert.deepEqual(
+    coding.modelStandaloneTools().map((tool) => tool.name),
+    ['read', 'agent']
   );
 });
 
@@ -552,7 +587,8 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
   assert.equal(session.workflow.delegatesAgents, false);
   assert.deepEqual(
     session.tools.map((tool) => tool.name),
-    ['read', 'load_tool', 'call_tool']
+    ['read', 'agent', 'load_tool', 'call_tool'],
+    'a coding Lead keeps `agent` without agents'
   );
   const bp1 = session.messages[0].content;
   assert.equal(bp1.includes('`web_search`'), false);

@@ -23,7 +23,7 @@ import { stampTurnHop } from '../../../../shared/bot-hops.mjs';
 
 /** Resolves the provider, builds the user turn and pre-commits it; returns
  *  what the loop and the commit need from this preparation. */
-export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta }) {
+export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta, currentAgents }) {
   const { turn, runtime, turnSignal, askGeneration, checkpoint, turnToken, startedAt, codexTurnId } = opened;
   const session = turn.session;
   // Where the turn sits in a bot-to-bot chain (session-runtime/bot-hops.mjs).
@@ -97,6 +97,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
           transcriptMeta,
           turnPromptSource: input.promptSource,
           effortConfiguration: null,
+          currentAgents,
         }),
     wireRoutePending,
   ]);

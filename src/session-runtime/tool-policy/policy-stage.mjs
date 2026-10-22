@@ -1,6 +1,9 @@
 // Staging and applying the tool/prompt policy a config gives a Lead session:
 // the tools it is denied, its BP1 rules and its BP3 core.
-import { toSessionWorkflowMeta } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import {
+  toSessionWorkflowMeta,
+  workflowDisallowsAgentTool,
+} from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import {
   applyDeferredToolSurface,
   filterDisallowedTools,
@@ -20,7 +23,10 @@ import { finalizeSessionToolList } from '../../runtime/agent/orchestrator/sessio
 import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
 import { AGENT_MODE, sessionModeOf } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
 import { unusedModelEditToolName } from '../../runtime/shared/edit-tool-dialect.mjs';
-import { withPresentedWorkspaceSlices } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+import {
+  presentedAgentCatalogSlice,
+  withPresentedWorkspaceSlices,
+} from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { leadPartsFor, rewriteSystemHeading, toolNames } from './surface-helpers.mjs';
 
 export function createPolicyStage({
@@ -34,12 +40,14 @@ export function createPolicyStage({
   activeWorkflowContext,
 }) {
   // The tools `session` is denied now: its caller's denials, the feature gates
-  // as they stand, and the agent tool when its workflow delegates to no one.
+  // as they stand, and an agent-mode Lead's agent tool when its workflow
+  // delegates to no one (a coding Lead keeps it: workflow.mjs
+  // workflowDisallowsAgentTool).
   function liveDeniedTools(session, workflow) {
     return [
       ...session.callerDisallowedTools,
       ...featureDisallowedTools(),
-      ...(workflow?.delegatesAgents === false ? ['agent'] : []),
+      ...(workflowDisallowsAgentTool(workflow, { agentMode: sessionModeOf(session) === AGENT_MODE }) ? ['agent'] : []),
     ]
       .map((name) => String(name || ''))
       .filter(Boolean);
@@ -100,7 +108,17 @@ export function createPolicyStage({
     } = activeWorkflowContext(config, getDataDir());
     const sessionMode = sessionModeOf(session);
     const agentMode = sessionMode === AGENT_MODE;
-    const leadWorkflowParts = ownerIsAgent ? {} : leadPartsFor(session, leadPromptParts);
+    // A coding Lead's conversation keeps the agent list it was built with, as
+    // it keeps the workspace slices: agents switched on or off since reach it
+    // as reminders on top of that list (agent-listing-notice.mjs). A slice
+    // that is not one generated list is rebuilt as before.
+    const presentedCatalog = conversation && !agentMode ? presentedAgentCatalogSlice(session) : null;
+    const leadWorkflowParts = ownerIsAgent
+      ? {}
+      : {
+          ...leadPartsFor(session, leadPromptParts),
+          ...(presentedCatalog !== null ? { agentCatalogContext: presentedCatalog } : {}),
+        };
     const denied = liveDeniedTools(session, workflow);
 
     const baseRules =

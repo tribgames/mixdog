@@ -64,10 +64,13 @@ export function toSessionWorkflowMeta(workflow) {
 }
 
 // Older sessions stored delegation policy here. Current summaries retain the
-// effective capability so an empty agent catalog still removes the tool.
-export function workflowDisallowsAgentTool(workflow) {
+// effective capability: an empty agent catalog removes the tool from an
+// agent-mode Lead only. A coding Lead keeps `agent` whichever agents exist;
+// the agents it may delegate to reach it as a listing reminder
+// (manager/agent-listing-notice.mjs) and a spawn of one switched off is refused.
+export function workflowDisallowsAgentTool(workflow, { agentMode = false } = {}) {
   if (!workflow || typeof workflow !== 'object') return false;
-  if (workflow.delegatesAgents === false) return true;
+  if (agentMode && workflow.delegatesAgents === false) return true;
   return Boolean(workflow.agentsConfigured === true && Array.isArray(workflow.agents) && workflow.agents.length === 0);
 }
 

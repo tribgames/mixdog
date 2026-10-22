@@ -101,5 +101,6 @@ export function createToolPolicyRefresh({
     applyPendingSessionSwitches: switches.applyPendingSessionSwitches,
     refreshAgentProfile: profile.refreshAgentProfile,
     applyPendingAgentProfile: profile.applyPendingAgentProfile,
+    currentAgents: profile.currentAgents,
   };
 }

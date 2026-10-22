@@ -167,6 +167,7 @@ function wireToolPolicyRefresh(boot) {
     applyPendingSessionSwitches,
     refreshAgentProfile,
     applyPendingAgentProfile,
+    currentAgents,
   } = createToolPolicyRefresh({
     getSession: () => rt.session,
     getRoute: () => rt.route,
@@ -193,6 +194,7 @@ function wireToolPolicyRefresh(boot) {
   boot.applyPendingSessionSwitches = applyPendingSessionSwitches;
   boot.refreshAgentProfile = refreshAgentProfile;
   boot.applyPendingAgentProfile = applyPendingAgentProfile;
+  boot.currentAgents = currentAgents;
   // A saved bot reaches this runtime's thread when its prompt embeds it (it
   // runs as that bot, or lists it); the rebuilt prompt is saved with the session.
   const profileChanges = subscribeAgentProfileChanges(async () => {
@@ -660,6 +662,7 @@ function sessionTurnApiFor(boot) {
   return createSessionTurnApi({
     applyPendingRoute: () => boot.modelRouteApi.applyPendingRoute(),
     applyPendingAgentProfile: boot.applyPendingAgentProfile,
+    currentAgents: boot.currentAgents,
     applyPendingSessionSwitches: boot.applyPendingSessionSwitches,
     prepareTurnWorkspace: boot.workspaceApi.prepareTurnWorkspace,
     admitTurnWorkspace: boot.workspaceApi.admitTurnWorkspace,

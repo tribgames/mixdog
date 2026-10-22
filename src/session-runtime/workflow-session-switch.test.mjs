@@ -6,11 +6,10 @@ import {
   composeSessionSystem,
   seedSessionMessages,
 } from '../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
-import { buildUserTurn } from '../runtime/agent/orchestrator/session/manager/ask-turn-prepare.mjs';
+import { buildUserTurn as buildTurn } from '../runtime/agent/orchestrator/session/manager/ask-turn-prepare.mjs';
 import { acknowledgePendingWorkflowNotice } from '../runtime/agent/orchestrator/session/manager/workflow-switch-notice.mjs';
 import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 import { preDispatchDenyForSession } from '../runtime/agent/orchestrator/session/loop/pre-dispatch-deny.mjs';
-import { selectDeferredTools } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { isToolPermittedBySessionPolicy } from '../runtime/agent/orchestrator/runtime-core/deferred-tool-availability.mjs';
 
 const PACKS = {
@@ -61,6 +60,11 @@ function leadSession() {
   };
 }
 
+// As the session runtime's turn does (turn-run.mjs): the turn is built with
+// the agents enabled as it starts.
+const runtimeOf = new WeakMap();
+const buildUserTurn = (args) => buildTurn({ currentAgents: runtimeOf.get(args.session)?.currentAgents?.(), ...args });
+
 function harness(session, { activeTurns = () => 0, config = { workflow: { active: 'alpha' } } } = {}) {
   const state = { config, memory: 'OLD MEMORY', saved: [], persisted: [] };
   const refresh = createToolPolicyRefresh({
@@ -82,6 +86,7 @@ function harness(session, { activeTurns = () => 0, config = { workflow: { active
       state.persisted.push(JSON.parse(JSON.stringify(saved)));
     },
   });
+  runtimeOf.set(session, refresh);
   const api = createWorkflowPacksApi({
     getConfig: () => state.config,
     saveConfigAndAdopt: (next) => {
@@ -145,11 +150,9 @@ test('a switch in a conversation keeps the request prefix and gives the next tur
   const divider = restoreTranscriptItems(session.messages).find((item) => item.status === 'workflow-switched');
   assert.deepEqual({ from: divider.from, to: divider.to }, { from: 'Alpha', to: 'Beta' });
 
-  // A denied tool keeps its schema and is refused at call time.
-  assert.match(
-    String(preDispatchDenyForSession(session, { name: 'agent', arguments: {} })),
-    /not available in workflow Beta/
-  );
+  // A coding Lead keeps `agent` when the workflow has no agents: the agent
+  // list reminder says who is there (agent-listing-notice.mjs).
+  assert.equal(preDispatchDenyForSession(session, { name: 'agent', arguments: {} }), null);
   assert.equal(preDispatchDenyForSession(session, { name: 'read', arguments: {} }), null);
 
   const turn = await buildUserTurn({ session, prompt: 'continue' });
@@ -157,7 +160,7 @@ test('a switch in a conversation keeps the request prefix and gives the next tur
   assert.ok(content.startsWith(`continue\n\n${NOTICE_HEAD}`));
   assert.match(content, /still Alpha's: they no longer apply; follow Beta's below instead/);
   assert.match(content, /replaces every earlier Workflow Changed reminder/);
-  assert.match(content, /Not available in Beta \(calls are refused\): `agent`\./);
+  assert.doesNotMatch(content, /Not available in Beta/);
   assert.match(content, /# Active Workflow: Beta\n\nBETA RULES/);
   assert.match(content, /Beta has no agents to delegate to/);
   // A turn the provider never accepted re-sends it.
@@ -177,18 +180,26 @@ test('a compaction after a switch builds the prompt with the new workflow', asyn
   const { session, api, refresh } = await conversationSession();
   await api.setWorkflow('beta', { scope: 'session' });
   const turn = await buildUserTurn({ session, prompt: 'continue' });
+  // Beta's missing agent is told as a reminder with the switch.
+  assert.match(turn.agentListingNotice.content, /no longer available[^\n]*\n- Worker \(worker\)/);
   acknowledgePendingWorkflowNotice(session, turn.workflowNotice.revision);
   session.messages.push(turn.userTurnMessage, { role: 'assistant', content: 'ok' });
   // Warm: nothing folds.
-  assert.equal(await refresh.applyPendingAgentProfile(), false);
+  await refresh.applyPendingAgentProfile();
   assert.ok(session.workflowOverlay);
 
   session.pendingCacheBreakIntent = 'post_turn_compaction';
   assert.equal(await refresh.applyPendingAgentProfile(), true);
   assert.match(bp3(session), /# Active Workflow: Beta/);
-  assert.doesNotMatch(bp3(session), /ALPHA RULES|# Available Agents/);
+  assert.doesNotMatch(bp3(session), /ALPHA RULES/);
   assert.match(bp3(session), /OLD MEMORY/, 'the workspace slices the model was told stay');
-  assert.equal(toolNames(session).includes('agent'), false);
+  assert.match(bp3(session), /# Available Agents\n\n- Worker \(worker\)/, 'and the agent list it was built with');
+  assert.equal(toolNames(session).includes('agent'), true, 'a coding Lead keeps `agent`');
+  assert.equal(
+    (await buildUserTurn({ session, prompt: 'go' })).agentListingNotice,
+    null,
+    'the removal told on top of that list still applies'
+  );
   assert.equal(session.workflowOverlay, undefined);
   assert.equal(session.pendingCacheBreakIntent, 'post_turn_compaction');
 });
@@ -209,66 +220,22 @@ test('a compaction that dropped the delivered reminder folds the new workflow in
   assert.equal(session.workflowOverlay, undefined);
 });
 
-test('no agents → agents: the prefix stays, `agent` is loadable and callable, and a fold makes it a real tool', async () => {
+test('no agents → agents → none: `agent` stays callable and the prefix unchanged', async () => {
   const { session, api, refresh } = await conversationSession({ config: { workflow: { active: 'beta' } } });
-  assert.equal(
-    session.tools.some((tool) => tool.name === 'agent'),
-    false,
-    'built without agents'
-  );
-  assert.match(String(preDispatchDenyForSession(session, { name: 'agent', arguments: {} })), /not available/);
-  const before = prefix(session);
-  const tools = JSON.stringify(session.tools);
-
-  await api.setWorkflow('alpha', { scope: 'session' });
-  assert.equal(JSON.stringify(session.tools), tools, 'tool schemas are byte-identical');
-  assert.equal(
-    JSON.stringify(session.messages.filter((message) => message.role === 'system')),
-    JSON.stringify(JSON.parse(before)[0])
-  );
-  assert.equal(session.pendingCacheBreakIntent, undefined);
-  assert.ok(
-    session.deferredToolCatalog.some((tool) => tool.name === 'agent'),
-    'in the deferred catalog'
-  );
-  assert.deepEqual(
-    session.pendingDeferredToolDelta.added.map((entry) => entry.name),
-    ['agent']
-  );
+  assert.ok(toolNames(session).includes('agent'), 'built without agents, a coding Lead keeps `agent`');
   assert.equal(isToolPermittedBySessionPolicy(session, 'agent'), true, 'load_tool may load it');
-  selectDeferredTools(session, ['agent'], 'full');
-  assert.ok(
-    [...(session.deferredDiscoveredTools || []), ...(session.deferredCallableTools || [])].includes('agent'),
-    'loaded into the conversation'
-  );
-  assert.equal(JSON.stringify(session.tools), tools, 'loading never makes it eager');
-  assert.equal(preDispatchDenyForSession(session, { name: 'agent', arguments: {} }), null);
-  const turn = await buildUserTurn({ session, prompt: 'delegate it' });
-  assert.match(turn.userTurnMessage.content, /Alpha adds `agent`: .*load it with `load_tool` before the first call\./);
-  assert.match(turn.userTurnMessage.content, /# Available Agents\n\n- Worker \(worker\)/);
-
-  // Fold at the next cold point: `agent` joins the real tool list.
-  session.pendingCacheBreakIntent = 'post_turn_compaction';
-  assert.equal(await refresh.applyPendingAgentProfile(), true);
-  assert.ok(session.tools.some((tool) => tool.name === 'agent'));
-  assert.match(bp3(session), /ALPHA RULES[\s\S]*# Available Agents/);
-  assert.equal(session.workflowOpenedTools, undefined);
-});
-
-test('agents → none → agents: `agent` is refused, then allowed again, with the prefix unchanged', async () => {
-  const { session, api } = await conversationSession({ config: { workflow: { active: 'beta' } } });
-  const tools = JSON.stringify(session.tools);
   const agentCall = () => preDispatchDenyForSession(session, { name: 'agent', arguments: {} });
+  const before = prefix(session);
+
   await api.setWorkflow('alpha', { scope: 'session' });
   assert.equal(agentCall(), null);
+  await refresh.applyPendingAgentProfile();
+  const turn = await buildUserTurn({ session, prompt: 'delegate it' });
+  assert.match(turn.userTurnMessage.content, /# Available Agents\n\n- Worker \(worker\)/);
   await api.setWorkflow('beta', { scope: 'session' });
-  assert.match(String(agentCall()), /not available/, 'refused on the prompt workflow again');
-  await api.setWorkflow('alpha', { scope: 'session' });
-  assert.equal(agentCall(), null, 'allowed again');
-  assert.equal(JSON.stringify(session.tools), tools);
+  assert.equal(agentCall(), null);
+  assert.equal(prefix(session), before);
   assert.equal(session.pendingCacheBreakIntent, undefined);
-  const turn = await buildUserTurn({ session, prompt: 'go' });
-  assert.match(turn.userTurnMessage.content, /Alpha adds `agent`/);
 });
 
 test('A→B→A: back before the notice leaves nothing; after it, the latest reminder says the prompt applies again', async (t) => {
@@ -364,9 +331,8 @@ test('agents already running under the old workflow keep running; only new deleg
   const result = await api.setWorkflow('beta', { scope: 'session' });
   assert.equal(result.appliedToCurrentSession, true, 'a running worker does not refuse the switch');
   assert.equal(JSON.stringify(worker), before);
-  // New delegation is refused under Beta; the schema itself is untouched.
+  // The schema is untouched; a spawn of an agent that is not there is refused when it is called.
   assert.ok(toolNames(session).includes('agent'));
-  assert.match(String(preDispatchDenyForSession(session, { name: 'agent', arguments: {} })), /workflow Beta/);
 });
 
 test('agent-owned sessions have no workflow to switch', async () => {

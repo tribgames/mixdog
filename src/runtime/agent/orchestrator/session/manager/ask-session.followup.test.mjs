@@ -47,6 +47,92 @@ async function waitFor(predicate, timeoutMs = 5000) {
   return true;
 }
 
+// The agents enabled now, as the session runtime resolves them (turn-run.mjs
+// passes its resolver): asked again for every user turn the ask prepares.
+const WORKER = { id: 'worker', name: 'Worker', line: '- Worker (worker)' };
+const ANNOUNCED = /# Available Agents Changed[\s\S]*- Worker \(worker\)/;
+
+test('a queued turn and the background follow-up are told of an agent enabled meanwhile', async (t) => {
+  const providerName = 'ask-session-agents-now-test';
+  const sends = [];
+  let agents = [];
+  let onSend = () => {};
+  const provider = {
+    name: providerName,
+    contextWindow: 128000,
+    async send(messages) {
+      sends.push(String(messages.at(-1).content));
+      onSend();
+      return { content: 'ok', usage: { inputTokens: 1, outputTokens: 1 } };
+    },
+  };
+  await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+    const session = createSession({
+      provider: providerName,
+      model: 'fake-model',
+      cwd: root,
+      skipSkills: true,
+      schemaAllowedTools: modelToolSchemaAllowlist('headless'),
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    t.after(() => deleteSession(session.id, { deferSummaryUpdate: true }));
+    const askOpts = { agentsNow: () => agents };
+
+    // Two queued turns of one ask (task notifications run one each); Worker
+    // is enabled while the first runs.
+    enqueuePendingMessage(session.id, { content: 'first note', mode: 'task-notification' });
+    enqueuePendingMessage(session.id, { content: 'second note', mode: 'task-notification' });
+    onSend = () => {
+      onSend = () => {};
+      agents = [WORKER];
+    };
+    await askSession(session.id, '', null, null, null, null, askOpts);
+    assert.equal(sends.length, 2, 'both queued turns ran in the same ask');
+    assert.match(sends[0], /first note/);
+    assert.doesNotMatch(sends[0], ANNOUNCED);
+    assert.match(sends[1], /second note/);
+    assert.match(sends[1], ANNOUNCED, 'the queued turn is told');
+
+    // The background follow-up ask of another conversation: Worker switched
+    // off after its ask returned, before the follow-up runs.
+    const other = createSession({
+      provider: providerName,
+      model: 'fake-model',
+      cwd: root,
+      skipSkills: true,
+      schemaAllowedTools: modelToolSchemaAllowlist('headless'),
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    t.after(() => deleteSession(other.id, { deferSummaryUpdate: true }));
+    let landHydration;
+    let hydrateCalls = 0;
+    hydrate = async (sessionId) => {
+      if (sessionId !== other.id) return 0;
+      hydrateCalls += 1;
+      if (hydrateCalls !== 2) return 0;
+      return await new Promise((resolve) => {
+        landHydration = resolve;
+      });
+    };
+    t.after(() => {
+      hydrate = async () => 0;
+    });
+    sends.length = 0;
+    await askSession(other.id, 'hello', null, null, null, null, askOpts);
+    assert.match(sends[0], ANNOUNCED, 'Worker was enabled when the ask ran');
+    assert.ok(await waitFor(() => typeof landHydration === 'function'), 'the post-turn hydration started');
+    agents = [];
+    enqueuePendingMessage(other.id, 'queued after return');
+    landHydration(1);
+    assert.ok(await waitFor(() => sends.length === 2), 'the follow-up ask ran');
+    assert.match(sends[1], /queued after return/);
+    assert.match(sends[1], /no longer available[^\n]*\n- Worker \(worker\)/, 'the follow-up is told');
+    // The follow-up ask has settled (its own post-turn hydration ran) before
+    // the next test counts hydrations.
+    assert.ok(await waitFor(() => hydrateCalls >= 4), 'the follow-up ask settled');
+  });
+});
+
 test('hydration that completes after a retained-input retry runs the queued message', async (t) => {
   const providerName = 'ask-session-followup-test';
   const sends = [];

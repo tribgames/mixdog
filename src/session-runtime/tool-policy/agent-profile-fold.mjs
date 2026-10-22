@@ -17,6 +17,7 @@ import {
   agentMcpToolPermission,
   connectorPolicyAgentOf,
 } from '../../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
+import { agentListEntries } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { markToolSurfaceMigrated } from '../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
 import {
   agentProfileRevision,
@@ -67,7 +68,8 @@ function orchestrationRecoveryNeeded(session) {
     session.orchestrationModeOverlay ||
     session.pendingWorkflowId !== undefined ||
     session.pendingOrchestrationMode !== undefined
-  ) return false;
+  )
+    return false;
   const presented = orchestrationModeFromPrompt(session);
   return presented !== null && presented !== session.orchestrationMode;
 }
@@ -147,6 +149,35 @@ function stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session
   mergePendingDeferredToolDelta(session, {
     added: added.map((name) => ({ name, description: known.get(name)?.description || '' })),
     removed,
+  });
+  session.updatedAt = Date.now();
+  return true;
+}
+
+// A coding Lead keeps `agent` whichever agents exist (workflow.mjs
+// workflowDisallowsAgentTool); a denial a session recorded under the older
+// rule, because no agent was enabled, is lifted as the live policy no longer
+// holds it: the tool becomes reachable by deferred loading and the next
+// turn's deferred_tools_delta names it. Nothing in the request prefix moves.
+// Returns true when the session changed.
+function liftAgentDenial({ liveDeniedTools, modelStandaloneTools }, session) {
+  const disallowed = (session.disallowedTools || []).map(String);
+  const overlayDenied = (session.workflowOverlay?.deniedTools || []).includes('agent');
+  if (!disallowed.includes('agent') && !overlayDenied) return false;
+  if (liveDeniedTools(session, session.workflow).includes('agent')) return false;
+  const known = new Map(schemaTools(session).map((tool) => [toolName(tool), tool]));
+  if (!known.has('agent')) {
+    const fresh = modelStandaloneTools().filter((tool) => toolName(tool) === 'agent');
+    if (!fresh.length) return false;
+    session.deferredToolCatalog = [...(session.deferredToolCatalog || []), ...fresh];
+    known.set('agent', fresh[0]);
+  }
+  session.disallowedTools = disallowed.filter((name) => name !== 'agent');
+  if (overlayDenied) {
+    session.workflowOverlay.deniedTools = session.workflowOverlay.deniedTools.filter((name) => name !== 'agent');
+  }
+  mergePendingDeferredToolDelta(session, {
+    added: [{ name: 'agent', description: known.get('agent')?.description || '' }],
   });
   session.updatedAt = Date.now();
   return true;
@@ -233,18 +264,21 @@ export function createAgentProfileFold({
     const { leadPromptParts, summary: workflow } = activeWorkflowContext(workflowConfig, getDataDir());
     const roster = leadRosterRevision(leadPartsFor(session, leadPromptParts));
     const recoverMode = orchestrationRecoveryNeeded(session);
-    const edited = recoverMode || session.agentProfileRevision !== revision || session.agentRosterRevision !== roster;
+    // A coding Lead hears of its agents through the listing reminder
+    // (syncAgentListing), never a rewritten prompt.
+    const edited =
+      recoverMode || session.agentProfileRevision !== revision || (agentMode && session.agentRosterRevision !== roster);
     // At a turn's start its own turn is the one counted; nothing runs yet.
     const busy = () => getSession?.() !== session || (trigger !== 'turn' && turnInFlight(session));
     if (busy()) {
       agentProfilePending = true;
       return false;
     }
-    const toolsChanged =
-      agentMode &&
-      stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session, workflow, {
-        edited: session.agentProfileRevision !== revision,
-      });
+    const toolsChanged = agentMode
+      ? stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session, workflow, {
+          edited: session.agentProfileRevision !== revision,
+        })
+      : trigger === 'resume' && syncAgentListing(session);
     if (!edited) return (trigger === 'resume' && (await foldPromptIfCold())) || toolsChanged;
     // A coding session from before profile stamps keeps its prompt when it
     // is reopened; a saved edit still reaches it.
@@ -283,8 +317,30 @@ export function createAgentProfileFold({
       agentProfilePending = false;
       changed = await refreshAgentProfile({ trigger: 'turn' });
     }
-    return (await foldPromptIfCold()) || changed;
+    changed = (await foldPromptIfCold()) || changed;
+    return syncAgentListing(session) || changed;
   }
 
-  return { refreshAgentProfile, applyPendingAgentProfile };
+  // A coding Lead hears of its agents through the agent list reminder.
+  const codingLead = (session) =>
+    Boolean(session?.id && session.promptIdentity && !isAgentOwner(session) && sessionModeOf(session) !== AGENT_MODE);
+
+  /** A coding Lead keeps `agent` reachable (liftAgentDenial). Returns true
+   *  when the session changed. */
+  function syncAgentListing(session) {
+    return codingLead(session) && liftAgentDenial({ liveDeniedTools, modelStandaloneTools }, session);
+  }
+
+  /** The agents a coding Lead may delegate to now, as its prompt would list
+   *  them: the turn's input to the agent list reminder (manager/
+   *  agent-listing-notice.mjs); undefined for any other session. */
+  function currentAgents() {
+    const session = getSession?.();
+    if (!codingLead(session)) return undefined;
+    const config = configForSession(getConfig(), session.workflow?.id, currentMode(session));
+    const { leadPromptParts } = activeWorkflowContext(config, getDataDir());
+    return agentListEntries(leadPartsFor(session, leadPromptParts).agentCatalogContext) || [];
+  }
+
+  return { refreshAgentProfile, applyPendingAgentProfile, currentAgents };
 }

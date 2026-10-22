@@ -38,7 +38,10 @@ const PROFILE_VALUE_IDS = Object.freeze({
 });
 
 const ACTION_APPLIES_TO = {
-  set_agent_route: "the bot's chats from their next turn (a running turn finishes on the old model)",
+  set_agent_route:
+    "the bot's chats from their next turn (a running turn finishes on the old model); an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+  set_orchestration_mode:
+    "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
   set_recap_enabled: 'background Memory cycles; no restart required',
   set_auto_update: 'subsequent automatic update checks',
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',

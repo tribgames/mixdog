@@ -28,6 +28,7 @@ export function createTurnRunner(deps) {
     completeTurnSnapshotForTurn = completeTurnSnapshot,
     turnCleanupSettleMs = 2_000,
     getConfig = () => null,
+    currentAgents,
   } = deps;
   const transcript = createTurnTranscript(deps);
   const openTurn = createTurnOpener({
@@ -81,7 +82,10 @@ export function createTurnRunner(deps) {
           plannedToolCalls(session0, options),
           getCurrentCwd(),
           options.prefetch || null,
-          callbacks
+          // The agents enabled now (coding Leads), asked for each user turn
+          // the ask prepares, for its agent list reminder
+          // (manager/agent-listing-notice.mjs).
+          { ...callbacks, agentsNow: currentAgents }
         );
       } finally {
         releaseWebSearchUsage?.();

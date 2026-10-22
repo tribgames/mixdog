@@ -9,15 +9,19 @@ import { collectPromptSkillsCached } from '../../context/collect.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
 import { workflowDisallowsAgentTool } from '../../runtime-core/workflow.mjs';
+import { isAgentModeSession } from '../agent-mode.mjs';
 import { finalizeSessionToolList, resolveSessionTools, permissionFromToolSpec } from './tool-resolution.mjs';
 import { unusedModelEditToolName } from '../../../../shared/edit-tool-dialect.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
 
 // A lead session may not delegate when its workflow forbids the agent tool
-// (no delegatable agents); Solo keeps it deferred for explicit user requests.
-// An agent-owned session never gets the tool anyway.
+// (an agent-mode Lead without delegatable agents); Solo keeps it deferred for
+// explicit user requests. An agent-owned session never gets the tool anyway.
 export function delegationDisabled(source, ownerIsAgent) {
-  return !ownerIsAgent && workflowDisallowsAgentTool(source?.workflow);
+  return (
+    !ownerIsAgent &&
+    workflowDisallowsAgentTool(source?.workflow, { agentMode: Boolean(source) && isAgentModeSession(source) })
+  );
 }
 
 // Exactly two schema surfaces exist: Lead and Agent. Every Agent role gets

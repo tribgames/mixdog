@@ -84,7 +84,18 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
       cwdOverride || opened.turn.session.cwd || process.cwd(),
       opened.runtime.controller?.signal
     );
-    const prepared = await prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta: transcript.user });
+    const prepared = await prepareAskTurn({
+      sessionId,
+      opened,
+      input,
+      cwdOverride,
+      transcriptMeta: transcript.user,
+      // The agents enabled as this user turn is prepared (the session
+      // runtime's resolver; coding Leads): the agent list reminder compares
+      // them with what the model was told. Asked again for every user turn
+      // the ask runs, queued and background follow-ups included.
+      currentAgents: askOpts?.agentsNow?.(),
+    });
     const result = await runAskAgentLoop({
       sessionId,
       opened,

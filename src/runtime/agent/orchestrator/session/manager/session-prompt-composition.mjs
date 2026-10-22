@@ -159,7 +159,7 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
         provider: providerName,
         model: modelName,
       });
-  const delegationFree = delegationDisabled(opts, ownerIsAgent);
+  const delegationFree = delegationDisabled({ ...opts, sessionMode }, ownerIsAgent);
   const promptIdentity = {
     systemPrompt: opts.systemPrompt || '',
     skipAgentRules: opts.skipAgentRules === true,

@@ -329,6 +329,42 @@ export function withPresentedWorkspaceSlices(session, nextHead) {
   return [nextHead, instructionFiles, memory].filter((part) => part?.trim()).join(BP3_PART_SEPARATOR);
 }
 
+const AGENT_CATALOG_HEADING = '# Available Agents';
+// One generated catalog line (workflow/context.mjs agentCatalog):
+// `- <name> (<id>)` with an optional `: <description>`.
+const AGENT_CATALOG_ENTRY = /^- (.+?) \(([^()\s]+)\)(?:: .*)?$/;
+
+/** The entries of a generated agent list slice, or null when `slice` is not
+ *  one (only the exact generated format is evidence). */
+export function agentListEntries(slice) {
+  const text = String(slice || '').trim();
+  if (!text.startsWith(`${AGENT_CATALOG_HEADING}\n\n`)) return null;
+  const entries = [];
+  for (const line of text.slice(AGENT_CATALOG_HEADING.length + 2).split('\n')) {
+    const match = AGENT_CATALOG_ENTRY.exec(line);
+    if (!match) return null;
+    entries.push({ id: match[2], name: match[1], line });
+  }
+  return entries;
+}
+
+/**
+ * The "# Available Agents" slice the session's prompt presents: '' when it
+ * carries none, null when what it carries under that heading is not one
+ * complete generated list (custom text, or more than one). A coding Lead's
+ * rebuilt core keeps a presented list, as it keeps the workspace slices: the
+ * list the model saw first stays the baseline every later agent list
+ * reminder applies to (agent-listing-notice.mjs).
+ */
+export function presentedAgentCatalogSlice(session) {
+  const core = session.bp3EnvSplit === true ? textOf(bp3SystemMessage(session)) : String(session.bp3CoreContext || '');
+  const slices = core
+    .split(BP3_PART_SEPARATOR)
+    .filter((slice) => slice === AGENT_CATALOG_HEADING || slice.startsWith(`${AGENT_CATALOG_HEADING}\n`));
+  if (!slices.length) return '';
+  return slices.length === 1 && agentListEntries(slices[0]) ? slices[0] : null;
+}
+
 const WORKSPACE_SLICES = ['environmentContext', 'coreMemoryContext', 'instructionFilesContext'];
 
 /**

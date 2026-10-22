@@ -17,6 +17,7 @@ import {
 import { workflowDisallowsAgentTool } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { promptWorkflowOf } from '../runtime/agent/orchestrator/session/manager/workflow-switch-notice.mjs';
 import { configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
+import { isAgentModeSession } from '../runtime/agent/orchestrator/session/agent-mode.mjs';
 
 export function createToolSurface({
   mgr,
@@ -36,15 +37,18 @@ export function createToolSurface({
 }) {
   let preSessionSurface = null;
 
-  // A live session keeps its frozen capability (the workflow its prompt was
-  // built with, even after a mid-conversation switch); a new session uses
-  // current agents. Solo still offers the tool (deferred) for explicit user requests.
+  // A coding Lead keeps `agent` whichever agents exist (the agents reach it as
+  // a listing reminder); Solo still offers it (deferred) for explicit user
+  // requests. An agent-mode Lead keeps its frozen capability once live (the
+  // workflow its prompt was built with, even after a mid-conversation switch)
+  // and a new one gets it with current agents.
   function workflowAllowsAgents() {
     const session = getSession();
+    const agentMode = isAgentModeSession(session || {});
     if (session?.id || session?.workflow || session?.orchestrationMode) {
-      return !workflowDisallowsAgentTool(promptWorkflowOf(session));
+      return !workflowDisallowsAgentTool(promptWorkflowOf(session), { agentMode });
     }
-    return (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0;
+    return !agentMode || (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0;
   }
 
   function modelStandaloneTools() {

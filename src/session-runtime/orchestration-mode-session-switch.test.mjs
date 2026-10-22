@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
 import { createStyleAndModeApi } from './workflow-agents-api/style-and-mode.mjs';
@@ -7,7 +10,7 @@ import {
   composeSessionSystem,
   seedSessionMessages,
 } from '../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
-import { buildUserTurn } from '../runtime/agent/orchestrator/session/manager/ask-turn-prepare.mjs';
+import { buildUserTurn as buildTurn } from '../runtime/agent/orchestrator/session/manager/ask-turn-prepare.mjs';
 import { acknowledgePendingOrchestrationModeNotice } from '../runtime/agent/orchestrator/session/manager/orchestration-mode-switch-notice.mjs';
 import { acknowledgePendingWorkflowNotice } from '../runtime/agent/orchestrator/session/manager/workflow-switch-notice.mjs';
 import { orchestrationInstructions } from '../runtime/agent/orchestrator/runtime-core/orchestration.mjs';
@@ -15,22 +18,27 @@ import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/tr
 import { preDispatchDenyForSession } from '../runtime/agent/orchestrator/session/loop/pre-dispatch-deny.mjs';
 import { agentProfileRevision, leadRosterRevision } from '../runtime/agent/orchestrator/context/role-instructions.mjs';
 import { _sessionForDisk } from '../runtime/agent/orchestrator/session/store/serialize.mjs';
+import { isAgentDisabled, withAgentDisabled } from '../runtime/shared/agent-route-config.mjs';
+import { createSpawnPlanner } from './services/agent-tool/spawn-flow/spawn-plan.mjs';
+import { buildAgentListingNotice } from '../runtime/agent/orchestrator/session/manager/agent-listing-notice.mjs';
 
 const PACKS = {
   alpha: { id: 'alpha', name: 'Alpha', delegatesAgents: true, body: 'ALPHA RULES' },
   beta: { id: 'beta', name: 'Beta', delegatesAgents: true, body: 'BETA RULES' },
 };
 
+// As workflow/context.mjs: the one agent (Worker) delegates unless switched off.
 function workflowContext(cfg) {
   const pack = PACKS[cfg?.workflow?.active] || PACKS.alpha;
   const mode = cfg?.orchestrationMode || 'swarm';
+  const agents = !isAgentDisabled(cfg, 'worker');
   return {
-    summary: { id: pack.id, name: pack.name, description: '', source: 'built-in', delegatesAgents: true },
+    summary: { id: pack.id, name: pack.name, description: '', source: 'built-in', delegatesAgents: agents },
     orchestrationMode: mode,
     packContext: `# Active Workflow: ${pack.name}\n\n${pack.body}`,
     leadPromptParts: () => ({
-      orchestrationContext: orchestrationInstructions(mode),
-      agentCatalogContext: '# Available Agents\n\n- Worker (worker)',
+      orchestrationContext: mode === 'none' && !agents ? '' : orchestrationInstructions(mode),
+      agentCatalogContext: agents ? '# Available Agents\n\n- Worker (worker)' : '',
     }),
   };
 }
@@ -65,6 +73,11 @@ function leadSession() {
   };
 }
 
+// As the session runtime's turn does (turn-run.mjs): the turn is built with
+// the agents enabled as it starts.
+const runtimeOf = new WeakMap();
+const buildUserTurn = (args) => buildTurn({ currentAgents: runtimeOf.get(args.session)?.currentAgents?.(), ...args });
+
 function harness(session, { config = { workflow: { active: 'alpha' }, orchestrationMode: 'swarm' } } = {}) {
   const state = { config, turns: 0, saved: [], persisted: [], persistGate: null };
   const refresh = createToolPolicyRefresh({
@@ -85,6 +98,7 @@ function harness(session, { config = { workflow: { active: 'alpha' }, orchestrat
       await state.persistGate;
     },
   });
+  runtimeOf.set(session, refresh);
   const save = (next) => {
     state.saved.push({ workflow: next.workflow?.active, mode: next.orchestrationMode });
     state.config = next;
@@ -119,10 +133,13 @@ function harness(session, { config = { workflow: { active: 'alpha' }, orchestrat
   return { state, refresh, switchMode, switchWorkflow, modes };
 }
 
-/** A lead session that started on `mode` (resolved while empty) and has a conversation. */
-async function conversationSession(mode = 'swarm') {
+/** A lead session that started on `mode` (resolved while empty) and has a
+ *  conversation; `agentsOff`: with Worker, its one agent, switched off. */
+async function conversationSession(mode = 'swarm', { agentsOff = false, sessionMode = 'coding' } = {}) {
   const session = leadSession();
-  const h = harness(session, { config: { workflow: { active: 'alpha' }, orchestrationMode: mode } });
+  session.sessionMode = sessionMode;
+  const base = { workflow: { active: 'alpha' }, orchestrationMode: mode };
+  const h = harness(session, { config: agentsOff ? withAgentDisabled(base, 'worker', true) : base });
   assert.equal((await h.refresh.refreshEmptySessionToolPolicy()).appliedToCurrentSession, true);
   assert.equal(session.orchestrationMode, mode);
   session.messages.push({ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' });
@@ -491,7 +508,10 @@ test('legacy mode recovery on resume repairs the prompt once without changing th
   assert.equal(state.config.orchestrationMode, 'none', 'the new-session default is not changed');
   assert.deepEqual(state.saved, []);
   assert.equal(JSON.stringify(session.tools), tools);
-  assert.equal(JSON.stringify(session.messages.filter((m) => m.role === 'system' && m.cacheTier !== 'tier3')), otherSystem);
+  assert.equal(
+    JSON.stringify(session.messages.filter((m) => m.role === 'system' && m.cacheTier !== 'tier3')),
+    otherSystem
+  );
   assert.equal(JSON.stringify(session.messages.filter((m) => m.role !== 'system')), transcript);
   assert.equal(session.providerState, undefined, 'old provider replay state cannot carry the stale prefix');
   assert.deepEqual(dividers(session), [], 'repairing the prompt is not a user mode change');
@@ -591,7 +611,9 @@ test('legacy mode recovery does not infer modes from custom, ambiguous, or non-c
   const cases = {
     custom: (session) => {
       const message = session.messages.find((m) => m.cacheTier === 'tier3');
-      message.content = '# Active Workflow: Alpha\n\n# Orchestration Mode: Solo\n\nCustom rules.';
+      // Still listing the agent: a missing one would be announced (agent-listing-notice.mjs).
+      message.content =
+        '# Active Workflow: Alpha\n\n# Orchestration Mode: Solo\n\nCustom rules.\n\n---\n\n# Available Agents\n\n- Worker (worker)';
       session.bp3CoreContext = message.content;
     },
     ambiguous: (session) => {
@@ -599,12 +621,25 @@ test('legacy mode recovery does not infer modes from custom, ambiguous, or non-c
       message.content += `\n\n---\n\n${orchestrationInstructions('focused')}`;
       session.bp3CoreContext = message.content;
     },
-    'no identity': (session) => { delete session.promptIdentity; },
-    'no recorded mode': (session) => { delete session.orchestrationMode; },
-    'unknown recorded mode': (session) => { session.orchestrationMode = 'custom'; },
-    'custom role policy': (session) => { session.promptIdentity.skipAgentRules = true; },
-    'agent mode': (session) => { session.sessionMode = 'agent'; },
-    worker: (session) => { session.owner = 'agent'; session.agent = 'worker'; },
+    'no identity': (session) => {
+      delete session.promptIdentity;
+    },
+    'no recorded mode': (session) => {
+      delete session.orchestrationMode;
+    },
+    'unknown recorded mode': (session) => {
+      session.orchestrationMode = 'custom';
+    },
+    'custom role policy': (session) => {
+      session.promptIdentity.skipAgentRules = true;
+    },
+    'agent mode': (session) => {
+      session.sessionMode = 'agent';
+    },
+    worker: (session) => {
+      session.owner = 'agent';
+      session.agent = 'worker';
+    },
   };
   for (const [name, arrange] of Object.entries(cases)) {
     await t.test(name, async () => {
@@ -615,4 +650,280 @@ test('legacy mode recovery does not infer modes from custom, ambiguous, or non-c
       assert.equal(prefix(session), before);
     });
   }
+});
+
+// #184: agents switched on or off while a conversation is open.
+const setWorker = (state, on) => {
+  state.config = withAgentDisabled(state.config, 'worker', !on);
+};
+const ROSTER_WORKER = /# Available Agents\n\n- Worker \(worker\)/;
+
+const ADDED_WORKER = /# Available Agents Changed\n[\s\S]*New agents are now available[^\n]*\n- Worker \(worker\)/;
+const REMOVED_WORKER = /no longer available[^\n]*\n- Worker \(worker\)/;
+const loadable = (session) => (session.deferredToolCatalog || []).some((tool) => tool.name === 'agent');
+
+/** A session saved before agents reached a coding Lead as a reminder: it
+ *  started without agents, so the old rule denied `agent` and dropped it. */
+function savedBeforeTheFix(session) {
+  session.workflow.delegatesAgents = false;
+  session.disallowedTools = [...new Set([...(session.disallowedTools || []), 'agent'])];
+  session.tools = session.tools.filter((tool) => tool.name !== 'agent');
+  session.deferredToolCatalog = (session.deferredToolCatalog || []).filter((tool) => tool.name !== 'agent');
+  delete session.agentListing;
+}
+
+/** The session as it is read back after a restart, in a new runtime. */
+async function restart(session, state) {
+  const restored = JSON.parse(JSON.stringify(_sessionForDisk(session)));
+  const after = harness(restored, { config: state.config });
+  await after.refresh.refreshAgentProfile({ trigger: 'resume' });
+  return { session: restored, ...after };
+}
+
+test('a Lead started without agents keeps `agent` loadable; an agent switched on is announced at the next turn', async () => {
+  const { session, state, refresh } = await conversationSession('none', { agentsOff: true });
+  assert.ok(loadable(session) && agentDenied(session) === null, 'Solo keeps `agent` deferred without agents');
+  assert.doesNotMatch(bp3(session), ROSTER_WORKER);
+  const before = prefix(session);
+
+  setWorker(state, true);
+  await refresh.applyPendingAgentProfile();
+  const turn = await deliver(session);
+  assert.match(turn.agentListingNotice.content, ADDED_WORKER);
+  assert.ok(turn.userTurnMessage.content.includes(turn.agentListingNotice.content), 'it rides the user turn');
+  assert.equal(prefix(session), before, 'system blocks and tool schemas are byte-identical');
+  assert.equal(session.pendingCacheBreakIntent, undefined, 'no cache break');
+  assert.deepEqual(session.providerState, { previousResponseId: 'resp_1' });
+  assert.equal(agentDenied(session), null);
+
+  assert.equal(await refresh.applyPendingAgentProfile(), false, 'nothing changed since');
+  assert.equal((await buildUserTurn({ session, prompt: 'more' })).agentListingNotice, null);
+});
+
+test('an agent switched on while the app was closed is announced after the restart; told once', async () => {
+  const { session, state } = await conversationSession('none', { agentsOff: true });
+  setWorker(state, true);
+  const first = await restart(session, state);
+  await first.refresh.applyPendingAgentProfile();
+  assert.match((await deliver(first.session)).agentListingNotice.content, ADDED_WORKER);
+
+  const second = await restart(first.session, state);
+  assert.equal(await second.refresh.applyPendingAgentProfile(), false);
+  assert.equal((await buildUserTurn({ session: second.session, prompt: 'go' })).agentListingNotice, null);
+});
+
+test('switching off the last agent: the next turn says it was removed, and a spawn naming it is refused', async (t) => {
+  const { session, state, refresh } = await conversationSession('swarm');
+  assert.match(bp3(session), ROSTER_WORKER);
+  const before = prefix(session);
+  setWorker(state, false);
+  await refresh.applyPendingAgentProfile();
+  const told = (await deliver(session)).agentListingNotice.content;
+  assert.match(told, REMOVED_WORKER);
+  assert.match(told, /No agents are enabled now/);
+  assert.equal(prefix(session), before);
+
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-agent-listing-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'agents'), { recursive: true });
+  writeFileSync(join(root, 'agents', 'worker.md'), '---\ndescription: worker\n---\nWork.\n');
+  const { resolveSpawnPlan } = createSpawnPlanner({
+    cfgMod: { loadConfig: () => state.config },
+    dataDir: join(root, 'data'),
+    STANDALONE_SOURCE_ROOT: root,
+    defaultCwd: root,
+    nextTag: () => 'tag1',
+    resolveTag: () => null,
+    wantsSessionScan: () => false,
+  });
+  await assert.rejects(
+    resolveSpawnPlan({ agent: 'worker', provider: 'p', model: 'm', prompt: 'do it' }, root, {}),
+    /agent "worker" is turned off/
+  );
+});
+
+// The user turn is in the conversation from the moment it is built (the
+// provider call comes after); `settle` is how the turn then ends.
+async function turnThat(session, settle) {
+  const turn = await buildUserTurn({ session, prompt: 'go' });
+  session.messages.push(turn.userTurnMessage);
+  if (settle === 'answered') session.messages.push({ role: 'assistant', content: 'ok' });
+  if (settle === 'rolled back') session.messages.pop();
+  return turn;
+}
+
+test('an agent switched off while the turn announcing it runs is told as removed at the next turn', async () => {
+  const { session, state, refresh } = await conversationSession('none', { agentsOff: true });
+  setWorker(state, true);
+  await refresh.applyPendingAgentProfile();
+  const turn = await buildUserTurn({ session, prompt: 'go' });
+  session.messages.push(turn.userTurnMessage);
+  assert.match(turn.agentListingNotice.content, ADDED_WORKER);
+  // While it runs: switched off, and the agents re-read (another path, as a resume does).
+  setWorker(state, false);
+  await refresh.refreshAgentProfile({ trigger: 'resume' });
+  session.messages.push({ role: 'assistant', content: 'ok' });
+  await refresh.applyPendingAgentProfile();
+  const next = (await buildUserTurn({ session, prompt: 'more' })).agentListingNotice;
+  assert.match(next.content, REMOVED_WORKER);
+});
+
+test('a failed turn that kept its reminder counts as told; a rolled-back one is told again', async (t) => {
+  for (const [settle, repeated] of [
+    ['failed', false],
+    ['rolled back', true],
+  ]) {
+    await t.test(settle, async () => {
+      const { session, state, refresh } = await conversationSession('none', { agentsOff: true });
+      setWorker(state, true);
+      await refresh.applyPendingAgentProfile();
+      assert.match((await turnThat(session, settle)).agentListingNotice.content, ADDED_WORKER);
+      await refresh.applyPendingAgentProfile();
+      const next = (await buildUserTurn({ session, prompt: 'retry' })).agentListingNotice;
+      if (repeated) assert.match(next.content, ADDED_WORKER);
+      else assert.equal(next, null);
+    });
+  }
+});
+
+const rosterSlice = (session) =>
+  bp3(session)
+    .split('\n\n---\n\n')
+    .filter((slice) => slice.startsWith('# Available Agents'));
+
+test('a prompt rebuilt at a cold point keeps the agent list the model saw first; reminders still apply once', async () => {
+  const { session, state, refresh, switchMode } = await conversationSession('swarm', { agentsOff: true });
+  const roster = rosterSlice(session);
+  assert.deepEqual(roster, [], 'built without agents');
+  setWorker(state, true);
+  await refresh.applyPendingAgentProfile();
+  assert.match((await deliver(session)).agentListingNotice.content, ADDED_WORKER);
+  setWorker(state, false);
+  await refresh.applyPendingAgentProfile();
+  assert.match((await deliver(session)).agentListingNotice.content, REMOVED_WORKER);
+  setWorker(state, true);
+  // A pending fold (a mode switch) at a compaction that kept the recent turns.
+  await switchMode('focused');
+  session.pendingCacheBreakIntent = 'manual_compaction';
+  await refresh.applyPendingAgentProfile();
+  assert.match(bp3(session), /# Orchestration Mode: Focused/, 'the fold ran');
+  assert.deepEqual(rosterSlice(session), roster, 'the agent list slice is unchanged');
+  const told = (await deliver(session)).agentListingNotice.content;
+  assert.equal(told.match(/- Worker \(worker\)/g).length, 1);
+  assert.match(told, ADDED_WORKER);
+  await refresh.applyPendingAgentProfile();
+  assert.equal((await buildUserTurn({ session, prompt: 'more' })).agentListingNotice, null, 'no duplicate');
+});
+
+test('the agents enabled now are the turn input, never session state', async () => {
+  const { session, refresh } = await conversationSession('swarm');
+  const before = JSON.stringify(session);
+  assert.deepEqual(
+    refresh.currentAgents().map((entry) => entry.id),
+    ['worker'],
+    'resolved even when the conversation already knows them'
+  );
+  await refresh.applyPendingAgentProfile();
+  assert.equal(JSON.stringify(session), before);
+  assert.equal(Object.getOwnPropertyDescriptor(session, 'currentAgents'), undefined);
+  assert.equal(buildAgentListingNotice(session, undefined), null, 'no input, no reminder');
+});
+
+test('a custom or duplicated agent list slice is not kept by a rebuilt prompt nor taken as the list told', async (t) => {
+  const cases = {
+    custom: '# Available Agents\n\nAsk the user before delegating anything.',
+    duplicate: '# Available Agents\n\n- Worker (worker)\n\n---\n\n# Available Agents\n\n- Worker (worker)',
+  };
+  for (const [name, slice] of Object.entries(cases)) {
+    await t.test(name, async () => {
+      const { session, refresh, switchMode } = await conversationSession('swarm');
+      const message = session.messages.find((m) => m.cacheTier === 'tier3');
+      message.content = message.content.replace('# Available Agents\n\n- Worker (worker)', slice);
+      assert.equal(
+        buildAgentListingNotice(session, refresh.currentAgents()).meta.added[0].id,
+        'worker',
+        'the prompt lists no valid agent list'
+      );
+      await switchMode('focused');
+      session.pendingCacheBreakIntent = 'manual_compaction';
+      await refresh.applyPendingAgentProfile();
+      assert.match(bp3(session), /# Orchestration Mode: Focused/, 'the fold ran');
+      assert.equal(bp3(session).includes(slice), false, 'rebuilt, not kept');
+      assert.match(bp3(session), /# Available Agents\n\n- Worker \(worker\)/);
+    });
+  }
+});
+
+test('a compaction that dropped the reminder announces the agents again', async () => {
+  const { session, state, refresh } = await conversationSession('none', { agentsOff: true });
+  setWorker(state, true);
+  await refresh.applyPendingAgentProfile();
+  await deliver(session);
+  assert.equal(await refresh.applyPendingAgentProfile(), false);
+  session.messages = [
+    ...session.messages.filter((message) => message.role === 'system'),
+    { role: 'user', content: 'summary of the work so far' },
+  ];
+  await refresh.applyPendingAgentProfile();
+  assert.match((await buildUserTurn({ session, prompt: 'go' })).agentListingNotice.content, ADDED_WORKER);
+});
+
+test('a mode switch after an agent was switched on offers `agent` and announces it (repro #184)', async () => {
+  const { session, state, refresh, switchMode } = await conversationSession('none', { agentsOff: true });
+  setWorker(state, true);
+  await switchMode('swarm');
+  assert.deepEqual(session.orchestrationModeOverlay.loadableTools, ['agent']);
+  await refresh.applyPendingAgentProfile();
+  const turn = await buildUserTurn({ session, prompt: 'split it' });
+  assert.match(turn.orchestrationModeNotice.content, /`agent`: not among your directly defined tools yet; load it/);
+  assert.ok(turn.orchestrationModeNotice.content.includes(orchestrationInstructions('swarm')));
+  assert.match(turn.agentListingNotice.content, ADDED_WORKER);
+});
+
+test('a session saved before the fix, its prompt listing no agents, hears of Worker and gets `agent` back', async () => {
+  // As reported: started without agents, switched to Swarm (delivered), Worker enabled, app restarted.
+  const { session, state, switchMode } = await conversationSession('none', { agentsOff: true });
+  savedBeforeTheFix(session);
+  await switchMode('swarm');
+  await deliver(session);
+  assert.match(String(agentDenied(session)), /not available/, 'the old rule refused it');
+  setWorker(state, true);
+
+  const resumed = await restart(session, state);
+  const before = JSON.stringify([
+    resumed.session.messages.filter((message) => message.role === 'system'),
+    resumed.session.tools,
+  ]);
+  await resumed.refresh.applyPendingAgentProfile();
+  assert.equal(agentDenied(resumed.session), null, 'lifted');
+  assert.ok(loadable(resumed.session), 'loadable through load_tool');
+  assert.deepEqual(
+    resumed.session.pendingDeferredToolDelta.added.map((entry) => entry.name),
+    ['agent'],
+    'the deferred_tools_delta announces it'
+  );
+  const turn = await buildUserTurn({ session: resumed.session, prompt: 'continue' });
+  assert.match(turn.agentListingNotice.content, ADDED_WORKER);
+  assert.equal(turn.orchestrationModeNotice, null, 'the delivered mode notice is not repeated');
+  assert.equal(
+    JSON.stringify([resumed.session.messages.filter((message) => message.role === 'system'), resumed.session.tools]),
+    before,
+    'the request prefix is untouched'
+  );
+});
+
+test('a session saved before the fix whose prompt already lists Worker gets no reminder', async () => {
+  const { session, state } = await conversationSession('swarm');
+  delete session.agentListing;
+  const resumed = await restart(session, state);
+  assert.equal(await resumed.refresh.applyPendingAgentProfile(), false);
+  assert.ok(!(await buildUserTurn({ session: resumed.session, prompt: 'go' })).agentListingNotice);
+});
+
+test('a bot thread keeps its own agent handling: no listing reminder, and no `agent` without sub-agents', async () => {
+  const { session, state, refresh } = await conversationSession('swarm', { agentsOff: true, sessionMode: 'agent' });
+  assert.match(String(agentDenied(session)), /not available/);
+  setWorker(state, true);
+  await refresh.applyPendingAgentProfile();
+  assert.ok(!(await buildUserTurn({ session, prompt: 'go' })).agentListingNotice);
 });
