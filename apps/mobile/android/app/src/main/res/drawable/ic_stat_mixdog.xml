@@ -1,9 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome silhouette of the Mixdog mark (apps/desktop/src/renderer/public/mixdog.svg):
+     three round-capped arcs around a four-point star. Only alpha is rendered in the status bar. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM9,16L7,16L7,8h2l3,4 3,-4h2v8h-2v-4.5l-3,4 -3,-4L9,16z" />
+    android:viewportWidth="176"
+    android:viewportHeight="176">
+    <group android:translateX="-40" android:translateY="-40">
+        <path
+            android:pathData="M116.2,61A68,68 0 0,1 191.9,104.7"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="24"
+            android:strokeLineCap="round" />
+        <group android:pivotX="128" android:pivotY="128" android:rotation="120">
+            <path
+                android:pathData="M116.2,61A68,68 0 0,1 191.9,104.7"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="24"
+                android:strokeLineCap="round" />
+        </group>
+        <group android:pivotX="128" android:pivotY="128" android:rotation="240">
+            <path
+                android:pathData="M116.2,61A68,68 0 0,1 191.9,104.7"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="24"
+                android:strokeLineCap="round" />
+        </group>
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M128,108L134,122L148,128L134,134L128,148L122,134L108,128L122,122Z" />
+    </group>
 </vector>
