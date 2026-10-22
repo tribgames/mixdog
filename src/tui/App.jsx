@@ -516,6 +516,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     syncPromptLayoutRows,
     showPromptHint,
     clearPromptHint,
+    installPastedImages,
+    installPastedTexts,
   });
 
   // PROMPT HANDLER cluster extracted to app/use-prompt-handlers.mjs.

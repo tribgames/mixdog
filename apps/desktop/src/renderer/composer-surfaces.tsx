@@ -11,6 +11,7 @@ import type { SkillMentionResult } from './composer-skill-mentions';
 import type { ComposerAttachment } from './composer-support';
 import { ComposerPalette } from './ComposerPalette';
 import { t } from './i18n';
+import { attachmentSummary, textWithoutAttachmentTokens } from './message-attachment-summary';
 import { MxIcon } from './MxIcon';
 import { ProgressSpinner } from './ProgressSpinner';
 import { type desktopComposerSlashCommands, desktopSlashCommandDescription } from './slash-commands';
@@ -87,7 +88,10 @@ export function MessageSelectorPalette({
           onMouseEnter={() => setIndex(rowIndex)}
           onClick={() => onSelect(message.id)}
         >
-          <span>{oneLine(firstLinePreview(message.text), 90)}</span>
+          {attachmentSummary(message.text) && (
+            <small className="message-applied-skill">{attachmentSummary(message.text)}</small>
+          )}
+          <span>{oneLine(firstLinePreview(textWithoutAttachmentTokens(message.text)), 90)}</span>
         </button>
       ))}
     </ComposerPalette>

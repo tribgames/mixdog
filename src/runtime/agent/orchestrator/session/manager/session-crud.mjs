@@ -29,6 +29,7 @@ import { hideCompactionArchive } from '../compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
 import { isAgentHomeSessionId } from '../agent-home.mjs';
+import { messageIdOf } from '../message-ids.mjs';
 
 /** Force-flush session metrics to disk. */
 export async function flushSessionMetrics(sessionId) {
@@ -412,19 +413,26 @@ export async function updateSessionStatus(id, status) {
 export async function rewindSessionMessagesTo(sessionId, options = {}) {
   const session = loadSession(sessionId);
   if (!session || session.closed === true) return null;
+  const targetId = String(options?.messageId ?? '').trim();
   const target = String(options?.text ?? '').trim();
-  if (!target) return null;
+  if (!targetId && !target) return null;
   const messages = Array.isArray(session.messages) ? session.messages : [];
-  let start = -1;
+  // The stable message id is the identity: the stored prompt is the EXPANDED
+  // text (attachment tokens materialized), so display text cannot find it.
+  // Text is only the fallback for a row that carries no id.
+  const matches = targetId
+    ? (message) => messageIdOf(message) === targetId
+    : (message) => promptContentText(message.content).trim() === target;
+  const found = [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== 'user') continue;
-    if (promptContentText(message.content).trim() !== target) continue;
-    start = index;
-    break;
+    if (messages[index]?.role === 'user' && matches(messages[index])) found.push(index);
   }
-  if (start < 0) return null;
+  // Without an id, text that several prompts repeat cannot say which one the
+  // user picked: refuse rather than rewind the wrong occurrence.
+  if (found.length === 0 || (!targetId && found.length > 1)) return null;
+  const start = found[0];
   const removed = messages.length - start;
+  const rewoundMessage = messages[start];
   session.messages = messages.slice(0, start);
   // The provider cache is keyed on the exact prefix we just truncated;
   // the prefix-guard snapshot and the /btw fork request describe it too and
@@ -435,5 +443,5 @@ export async function rewindSessionMessagesTo(sessionId, options = {}) {
   session.updatedAt = Date.now();
   session.lastUsedAt = Date.now();
   await saveSessionAsync(session, { expectedGeneration: session.generation });
-  return { removed, remaining: session.messages.length };
+  return { removed, remaining: session.messages.length, message: rewoundMessage };
 }

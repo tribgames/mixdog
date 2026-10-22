@@ -1,6 +1,7 @@
 // Esc-Esc message selector: pick a previous prompt, rewind the conversation
 // to it on the engine side, and restore its text for editing.
-import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
+import { SteerContext } from './steer-actions';
 import type { DesktopCapability } from '../shared/contract';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
@@ -27,6 +28,7 @@ export function useComposerMessageSelector({
   historyNavigation: MutableRefObject<{ index: number; seed: string }>;
   showNotice: (message: string, tone?: 'info' | 'error') => void;
 }) {
+  const steer = useContext(SteerContext);
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const palette = useRef<HTMLDivElement>(null);
@@ -59,10 +61,17 @@ export function useComposerMessageSelector({
         return;
       }
       historyNavigation.current = { index: -1, seed: '' };
-      setDraft(text);
+      // The composer's own restore replaces the whole draft and its chips (the
+      // same path a message taken back from the transcript uses), so a
+      // pasted-text chip keeps its edit dialog and a plain message leaves no
+      // stale chips behind.
+      const handoff = steer?.draft.current;
+      if (!handoff?.restore(value as RecordValue, { replace: true })) setDraft(text);
+      if (typeof value?.notice === 'string' && value.notice) showNotice(value.notice, 'error');
       window.setTimeout(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(text.length, text.length);
+        const field = textarea.current;
+        field?.focus();
+        field?.setSelectionRange(field.value.length, field.value.length);
       }, 0);
     } finally {
       setRestoring(false);

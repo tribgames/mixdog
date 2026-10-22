@@ -60,6 +60,7 @@ import { useComposerPromptRestore } from './use-composer-prompt-restore';
 import { useComposerSubmission } from './use-composer-submission';
 import { useComposerKeyboard } from './use-composer-keyboard';
 import { useComposerFocus } from './use-composer-focus';
+import { restoreDraftHandoff } from './composer-attachment-restore';
 import { useComposerHistory } from './use-composer-history';
 import { useComposerIme } from './use-composer-ime';
 import { useComposerMessageSelector } from './use-composer-message-selector';
@@ -514,13 +515,15 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     const handoff: typeof steer.draft.current = {
       scope: () => activeIdentityScope.current,
       recoveryScope: () => recoveryScopeRef.current,
-      restore(value, { ifEmpty = false, notice } = {}) {
-        if (ifEmpty && (draftRef.current.trim() || attachmentsRef.current.length > 0)) return false;
-        const restored = restoredAttachments(value, String(value.text || ''));
-        const text = mergeRestoredAttachments(restored.attachments, restored.text);
-        const next = [text, draftRef.current].filter(Boolean).join('\n');
-        draftRef.current = next;
-        setDraft(next);
+      restore(value, { ifEmpty = false, replace = false, notice } = {}) {
+        if (
+          !restoreDraftHandoff(
+            { draftRef, attachmentsRef, replaceAttachments, restoredAttachments, mergeRestoredAttachments, setDraft },
+            value,
+            { ifEmpty, replace }
+          )
+        )
+          return false;
         history.navigation.current = { index: -1, seed: '' };
         if (notice) showComposerNotice(notice);
         window.setTimeout(() => textarea.current?.focus(), 0);
@@ -531,7 +534,15 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     return () => {
       if (steer.draft.current === handoff) steer.draft.current = null;
     };
-  }, [steer, attachmentsRef, restoredAttachments, mergeRestoredAttachments, showComposerNotice, history.navigation]);
+  }, [
+    steer,
+    attachmentsRef,
+    replaceAttachments,
+    restoredAttachments,
+    mergeRestoredAttachments,
+    showComposerNotice,
+    history.navigation,
+  ]);
   useComposerPromptRestore({ promptRestore, setDraft, draftRef, textarea, onQueuedRestored });
   const selector = useComposerMessageSelector({
     userMessages,

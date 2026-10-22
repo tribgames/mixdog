@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { createSessionIntakeApi } from './intake.mjs';
@@ -422,6 +425,38 @@ test('rewindToItem trims the transcript to the chosen prompt and returns it for 
   assert.equal(await h.api.rewindToItem('a1'), null);
   h.set({ busy: true });
   assert.equal(await h.api.rewindToItem('u1'), null);
+});
+
+test('rewindToItem finds the prompt by message id and returns its attachments for the composer', async () => {
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-intake-rewind-'));
+  try {
+    const { materializePromptSubmission } = await import('../../../runtime/attachments/store.mjs');
+    const text = 'see [Pasted text #1 +3 lines]';
+    const body = 'one\ntwo\nthree\n'.repeat(80);
+    const { prompt } = materializePromptSubmission(text, {
+      pastedTexts: { 1: { id: 1, text: body, source: 'paste', filename: 'Pasted text #1' } },
+    });
+    const seen = [];
+    const h = createHarness({
+      state: { items: [{ id: 'u1', kind: 'user', text, messageId: 'msg_1' }] },
+      runtime: {
+        rewindMessages: async (options) => {
+          seen.push(options);
+          return { removed: 1, message: { content: prompt } };
+        },
+      },
+    });
+    const result = await h.api.rewindToItem('u1');
+    assert.deepEqual(seen, [{ text, messageId: 'msg_1' }]);
+    assert.equal(result.text, text);
+    assert.equal(result.pastedTexts[1].text, body);
+    assert.equal(result.pastedTexts[1].source, 'paste');
+    assert.equal(result.pastedImages, undefined);
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+  }
 });
 
 test('reserveSession publishes the reserved id and reports whether the route took it', () => {

@@ -45,6 +45,8 @@ export function useMessageSelector({
   syncPromptLayoutRows,
   showPromptHint,
   clearPromptHint,
+  installPastedImages,
+  installPastedTexts,
 }) {
   // Cheap enough to recompute only when the transcript array identity changes;
   // the prompt asks for this on every Escape, never per keystroke.
@@ -64,11 +66,22 @@ export function useMessageSelector({
         return false;
       }
       clearPromptHint();
+      // The prompt's pasted blocks return with it, so its tokens still expand.
+      if (restored.pastedImages) installPastedImages?.(restored.pastedImages, { merge: true });
+      if (restored.pastedTexts) installPastedTexts?.(restored.pastedTexts, { merge: true });
       syncPromptLayoutRows(text);
       setPromptDraftOverride({ id: Date.now(), value: text });
+      if (restored.notice) showPromptHint(restored.notice, 'error');
       return true;
     },
-    [clearPromptHint, syncPromptLayoutRows, setPromptDraftOverride, showPromptHint]
+    [
+      clearPromptHint,
+      syncPromptLayoutRows,
+      setPromptDraftOverride,
+      showPromptHint,
+      installPastedImages,
+      installPastedTexts,
+    ]
   );
 
   const openMessageSelector = useCallback(() => {

@@ -26,8 +26,9 @@ export type ComposerDraftHandoff = {
   recoveryScope(): string;
   /** Puts the message (its text and attachments) into the editor, before
    *  what it holds. `ifEmpty`: only when the editor holds nothing. Returns
-   *  whether it did. */
-  restore(value: RecordValue, options?: { ifEmpty?: boolean; notice?: string }): boolean;
+   *  whether it did. `replace`: the message takes the place of the whole
+   *  draft and its chips (editing a previous message). */
+  restore(value: RecordValue, options?: { ifEmpty?: boolean; replace?: boolean; notice?: string }): boolean;
 };
 
 export type SteerActions = {

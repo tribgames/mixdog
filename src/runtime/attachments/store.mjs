@@ -396,7 +396,7 @@ function materializePastedTexts(pastedTexts) {
         type: 'text',
         attachmentRef: raw.attachmentRef,
         sizeBytes: attachmentBlobSize(raw, raw.sizeBytes),
-        ...(raw.source === 'file' ? { textKind: 'file' } : {}),
+        textKind: raw.source === 'file' ? 'file' : 'paste',
         ...(raw.filename ? { filename: raw.filename } : {}),
         ...(raw.mimeType ? { mimeType: raw.mimeType } : {}),
       };

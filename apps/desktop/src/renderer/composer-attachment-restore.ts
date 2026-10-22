@@ -230,6 +230,34 @@ export function foldAttachmentTokens(
   };
 }
 
+/**
+ * Puts a restored message (text + attachments) into the composer. By default it
+ * goes before the live draft and joins the live chips (a message taken back
+ * from the transcript); `replace` swaps the whole draft and chip set for it
+ * (editing a previous message). `ifEmpty` only acts on an empty composer.
+ */
+export function restoreDraftHandoff(
+  deps: {
+    draftRef: { current: string };
+    attachmentsRef: { current: readonly ComposerAttachment[] };
+    replaceAttachments(attachments: ComposerAttachment[]): void;
+    restoredAttachments(value: RecordValue, text: string): { attachments: ComposerAttachment[]; text: string };
+    mergeRestoredAttachments(attachments: ComposerAttachment[], text: string): string;
+    setDraft(value: string): void;
+  },
+  value: RecordValue,
+  { ifEmpty = false, replace = false }: { ifEmpty?: boolean; replace?: boolean } = {}
+): boolean {
+  if (ifEmpty && (deps.draftRef.current.trim() || deps.attachmentsRef.current.length > 0)) return false;
+  if (replace) deps.replaceAttachments([]);
+  const restored = deps.restoredAttachments(value, String(value.text || ''));
+  const text = deps.mergeRestoredAttachments(restored.attachments, restored.text);
+  const next = replace ? text : [text, deps.draftRef.current].filter(Boolean).join('\n');
+  deps.draftRef.current = next;
+  deps.setDraft(next);
+  return true;
+}
+
 /** `@path` mentions for project-relative paths; drive letters and `..` are refused. */
 export function projectMentionTokens(paths: string[]): string[] {
   return paths

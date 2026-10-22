@@ -8,7 +8,7 @@ import { promptHistoryWithout } from '../../prompt-history.mjs';
 import { isQueuedEntryEditable } from '../../queue-helpers.mjs';
 
 // An attachment whose blob is gone is dropped alone; the prompt is kept.
-function hydrateTolerantly(pastedImages, pastedTexts, content = null) {
+export function hydrateTolerantly(pastedImages, pastedTexts, content = null) {
   let unreadable = 0;
   const onUnreadable = () => {
     unreadable += 1;
