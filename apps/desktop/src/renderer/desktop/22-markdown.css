@@ -677,6 +677,12 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 .markdown :is(th, td) a {
   overflow-wrap: anywhere;
 }
+/* A word-wide floor times many columns outgrows a narrow pane (12 columns of
+   8-letter words are ~800px at 375px), so a table of six or more columns goes
+   back to cutting anywhere: it must fit the pane before its words stay whole. */
+.markdown table:has(tr > :nth-child(6)) :is(th, td) {
+  overflow-wrap: anywhere;
+}
 .markdown th {
   color: var(--mx-text);
   font-weight: var(--mx-weight-medium);
