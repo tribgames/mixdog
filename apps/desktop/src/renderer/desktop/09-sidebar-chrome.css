@@ -102,6 +102,8 @@
 }
 .rail-usage-pin-mark > sup {
   position: absolute;
+  /* Above the meter that follows it in the slot (user: 배지가 프로그래스바보다 앞으로). */
+  z-index: 1;
   right: -7px;
   bottom: -4px;
   display: grid;
