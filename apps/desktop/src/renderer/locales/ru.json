@@ -5498,7 +5498,7 @@
   "{{time}} in progress": "{{time}} в работе",
   "Expand all accounts": "Развернуть все аккаунты",
   "Rail slots": "Слотов на панели",
-  "{{n}} slots": "{{n}} слота",
+  "{{n}} slots": "Слотов: {{n}}",
   "All slots": "Все слоты",
   "{{n}} accounts": "Аккаунтов: {{n}}",
   "Show earlier slots": "Показать предыдущие слоты",
