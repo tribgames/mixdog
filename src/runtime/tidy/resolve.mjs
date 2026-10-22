@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ENGINE_CATALOG, ENGINE_IDS, engineEntry, enginesForLanguages } from './engines.mjs';
-import { mapLimit, runProcess, which } from './process.mjs';
+import { createPathIndex, mapLimit, runProcess, which } from './process.mjs';
 import { managedEngineBinary, manifestAsset, readEnginesManifest } from './install.mjs';
 
 const DOWNLOAD_POLICIES = Object.freeze(['ask', 'auto', 'never']);
@@ -113,9 +113,9 @@ export function projectConfigFileFor(cwd, entry) {
   return null;
 }
 
-function pathBinary(entry, env) {
+function pathBinary(entry, env, index) {
   for (const name of [entry.bin, ...(entry.altBins || [])]) {
-    const found = which(name, { env });
+    const found = which(name, { env, index });
     if (found) return { path: found, bin: name };
   }
   return null;
@@ -135,7 +135,7 @@ function installableFlag(entry, manifest) {
   return entry.managed && manifestAsset(manifest, entry.id) ? { installable: true } : {};
 }
 
-function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
+function resolveOne({ cwd, entry, config, env, manifest, pluginData, pathIndex }) {
   const base = {
     id: entry.id,
     kind: entry.kind,
@@ -159,7 +159,7 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
     return { ...base, source: 'missing', path: '', missing: true };
   }
   if (entry.managedModule) {
-    const host = pathBinary(entry, env);
+    const host = pathBinary(entry, env, pathIndex);
     if (!host) {
       return {
         ...base,
@@ -191,7 +191,7 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
       ...installableFlag(entry, manifest),
     };
   }
-  const onPath = pathBinary(entry, env);
+  const onPath = pathBinary(entry, env, pathIndex);
   if (onPath) return { ...base, source: 'path', path: onPath.path, ...commandFor(entry, onPath.path) };
   if (entry.managed && pluginData) {
     const managed = managedEngineBinary({ id: entry.id, manifest, pluginData });
@@ -282,9 +282,12 @@ export async function resolveEngines({
   else if (languages.length > 0) requested = enginesForLanguages(languages);
   const unknown = engineIds.filter((id) => !ENGINE_IDS.includes(id));
 
+  // One listing per PATH dir for the whole batch: this runs synchronously on
+  // the host loop (the desktop's Code Tidy status read at startup).
+  const pathIndex = createPathIndex(env);
   const resolved = requested.map((id) => {
     const entry = ENGINE_CATALOG[id];
-    const result = resolveOne({ cwd, entry, config, env, manifest: loadedManifest, pluginData });
+    const result = resolveOne({ cwd, entry, config, env, manifest: loadedManifest, pluginData, pathIndex });
     const configFile = projectConfigFileFor(cwd, entry);
     if (configFile) result.configFile = configFile;
     if (entry.requiresConfig && !configFile && result.source !== 'project-config') {

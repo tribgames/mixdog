@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { platformAssetKey } from './install.mjs';
 import {
@@ -35,6 +36,43 @@ function fakeBin(dir, name) {
 }
 
 const noPathEnv = { PATH: '', Path: '' };
+
+// The desktop's Code Tidy status resolves the whole catalog synchronously on
+// the daemon loop at startup (the 1.5–1.8 s `getTidyEngineStatus` stalls):
+// one stat per PATH dir × PATHEXT extension × engine name is far too many.
+test('resolving the catalog reads each PATH dir once instead of stat-probing every candidate', async (t) => {
+  const root = workspace(t);
+  const dirs = Array.from({ length: 30 }, (_, index) => {
+    const dir = join(root, `path-${index}`);
+    mkdirSync(dir);
+    return dir;
+  });
+  const biome = fakeBin(dirs[17], process.platform === 'win32' ? 'biome.exe' : 'biome');
+  const env = { PATH: dirs.join(delimiter), Path: dirs.join(delimiter) };
+  const statSync = fs.statSync;
+  let stats = 0;
+  fs.statSync = (...args) => {
+    stats += 1;
+    return statSync(...args);
+  };
+  syncBuiltinESMExports();
+  let engines;
+  try {
+    ({ engines } = await resolveEngines({
+      cwd: root,
+      engineIds: Object.keys(ENGINE_CATALOG),
+      env,
+      probeVersions: false,
+    }));
+  } finally {
+    fs.statSync = statSync;
+    syncBuiltinESMExports();
+  }
+  const found = engines.find((engine) => engine.id === 'biome');
+  assert.equal(found.source, 'path');
+  assert.equal(found.path, biome);
+  assert.ok(stats <= dirs.length, `PATH probes made ${stats} stat calls`);
+});
 
 test('project config beats every other source', async (t) => {
   const root = workspace(t);

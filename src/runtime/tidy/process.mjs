@@ -4,7 +4,7 @@
 // binaries and file paths are untrusted input, so no value ever reaches a shell
 // parser.
 import { spawn } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { delimiter, extname, isAbsolute, join } from 'node:path';
 
 const DEFAULT_PROCESS_TIMEOUT_MS = 90_000;
@@ -36,19 +36,52 @@ function isExecutableFile(candidate) {
   }
 }
 
-/** First match for `name` on PATH, or null. Pure filesystem lookup, no spawn. */
-export function which(name, { env = process.env } = {}) {
+const pathDirs = (env) =>
+  String(env.PATH || env.Path || '')
+    .split(delimiter)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+const nameKey = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
+
+/**
+ * One PATH's directory listings, read once per directory on first use, for a
+ * batch of `which` lookups. Resolving the whole engine catalog probed every
+ * PATH dir × PATHEXT extension × engine name with its own statSync (≈17k
+ * synchronous stats on a 65-entry PATH); with an index a name that is on no
+ * directory costs no filesystem call at all.
+ */
+export function createPathIndex(env = process.env) {
+  const listings = new Map(); // dir -> Set of entry names, or null (unlistable)
+  return {
+    dirs: pathDirs(env),
+    has(dir, candidate) {
+      if (!listings.has(dir)) {
+        let names = null;
+        try {
+          names = new Set(readdirSync(dir).map(nameKey));
+        } catch {
+          // Unlistable (no list permission, gone): probe it per candidate.
+        }
+        listings.set(dir, names);
+      }
+      const names = listings.get(dir);
+      return names ? names.has(nameKey(candidate)) : true;
+    },
+  };
+}
+
+/** First match for `name` on PATH, or null. Pure filesystem lookup, no spawn.
+ *  `index` (createPathIndex over the same env) answers from directory listings. */
+export function which(name, { env = process.env, index = null } = {}) {
   const bin = String(name || '').trim();
   if (!bin) return null;
   if (isAbsolute(bin) || bin.includes('/') || bin.includes('\\')) {
     return existsSync(bin) ? bin : null;
   }
-  const dirs = String(env.PATH || env.Path || '')
-    .split(delimiter)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  for (const dir of dirs) {
+  for (const dir of index ? index.dirs : pathDirs(env)) {
     for (const candidate of executableCandidates(bin)) {
+      if (index && !index.has(dir, candidate)) continue;
       const full = join(dir, candidate);
       if (isExecutableFile(full)) return full;
     }
