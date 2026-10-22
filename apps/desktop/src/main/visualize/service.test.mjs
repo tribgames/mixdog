@@ -1434,6 +1434,9 @@ test('page problems are captured per tab, reported in results, deduped, capped a
 
     // Output that is not a problem, and frames that are not this tab's, are ignored.
     report({ level: 'info', message: 'hello' });
+    // Chromium's benign ResizeObserver notice (a fit-to-width page, resized by the panel).
+    report({ message: 'ResizeObserver loop completed with undelivered notifications.', lineNumber: 0 });
+    report({ message: 'ResizeObserver loop limit exceeded', lineNumber: 0 });
     report({ frameUrl: 'http://127.0.0.1:4321/other/x.html', sourceId: 'http://127.0.0.1:4321/other/x.js' });
     assert.equal(problems(), undefined);
 

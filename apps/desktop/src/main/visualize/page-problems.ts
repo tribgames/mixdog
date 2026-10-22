@@ -66,6 +66,11 @@ export function classifyConsole(
   // A failed resource load is reported by the network layer (host.ts), with
   // its status; Chromium does not log it to the page console.
   if (/^Failed to load resource/.test(message)) return null;
+  // A ResizeObserver whose callback resizes what it observes (a fit-to-width
+  // mockup) defers the rest to the next frame; Chromium logs that as an error
+  // whenever the panel resizes the frame. Nothing is broken, and the
+  // off-screen render never resizes, so it would show only in the panel.
+  if (/^ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/.test(message)) return null;
   return { kind: report.level === 'error' ? 'console-error' : 'console-warn', message };
 }
 
