@@ -1,6 +1,6 @@
 import { basename, dirname, extname, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { redactDirectories } from '../../shared/redact-directories.mjs';
 import { removeDirectoryWithRetry } from '../../shared/remove-directory.mjs';
 import { constants as fsConstants, rmSync } from 'node:fs';
@@ -52,15 +52,41 @@ const SOFFICE_KILL_GRACE_MS = 10_000;
 // soffice.com hands the work to a soffice.bin child, which a plain kill of the
 // launcher leaves running (and holding the files it was given); Windows needs
 // the whole tree stopped.
+// The tree is stopped asynchronously and the helper itself is bounded, so a
+// cancellation never blocks the event loop or waits on a stuck taskkill.
+const SOFFICE_TASKKILL_TIMEOUT_MS = 5_000;
+
+// The launcher is killed only once taskkill is done (or out of time): a launcher
+// that exits first leaves taskkill with no descendants to find.
 function killProcessTree(child) {
-  if (process.platform === 'win32' && child.pid) {
-    try {
-      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-    } catch {
-      // Fall through to the plain kill.
-    }
+  if (process.platform !== 'win32' || !child.pid) {
+    killQuietly(child);
+    return;
   }
-  killQuietly(child);
+  let launcherKilled = false;
+  const killLauncher = () => {
+    if (launcherKilled) return;
+    launcherKilled = true;
+    killQuietly(child);
+  };
+  let killer = null;
+  try {
+    killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  } catch {
+    killLauncher();
+    return;
+  }
+  const bound = setTimeout(() => {
+    killQuietly(killer);
+    killLauncher();
+  }, SOFFICE_TASKKILL_TIMEOUT_MS);
+  bound.unref?.();
+  const settle = () => {
+    clearTimeout(bound);
+    killLauncher();
+  };
+  killer.once('error', settle);
+  killer.once('close', settle);
 }
 
 // Documents reach this LibreOffice from untrusted sources (chat attachments),
@@ -177,10 +203,19 @@ let exitHandlerRegistered = false;
 // creating the profile costs far more than the conversion it serves. One
 // private profile is built on first use and reused for the life of the process.
 export function sharedProfileDir() {
-  pendingProfile ||= (async () => {
+  if (pendingProfile) return pendingProfile;
+  const attempt = (async () => {
     const created = await mkdtemp(join(tmpdir(), 'mixdog-office-profile-'));
-    await mkdir(join(created, 'user'), { recursive: true });
-    await writeFile(join(created, 'user', 'registrymodifications.xcu'), MACRO_LOCKDOWN_REGISTRY);
+    try {
+      await mkdir(join(created, 'user'), { recursive: true });
+      await writeFile(join(created, 'user', 'registrymodifications.xcu'), MACRO_LOCKDOWN_REGISTRY);
+    } catch (error) {
+      // A half-built profile is never registered, so nothing else would remove it.
+      await rm(created, { recursive: true, force: true }).catch(() => {});
+      const failure = new Error(redactDirectories(error?.message || String(error), [created]));
+      if (error?.code) failure.code = error.code;
+      throw failure;
+    }
     // An exit handler cannot await, and a profile left behind accumulates one
     // directory per run of the app.
     createdProfiles.add(created);
@@ -198,7 +233,12 @@ export function sharedProfileDir() {
     }
     return created;
   })();
-  return pendingProfile;
+  pendingProfile = attempt;
+  // A failed build must not stay cached: the next call starts over.
+  attempt.catch(() => {
+    if (pendingProfile === attempt) pendingProfile = null;
+  });
+  return attempt;
 }
 
 // One profile means one LibreOffice at a time: a second process sharing it
@@ -246,8 +286,8 @@ export function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, c
       stopped = value;
       clearTimeout(timer);
       signal?.removeEventListener?.('abort', onAbort);
-      killProcessTree(child);
       killTimer = setTimeout(() => finish(value), SOFFICE_KILL_GRACE_MS);
+      killProcessTree(child);
     };
     const onAbort = () => stop({ ok: false, error: cancelMessage });
     child.stderr.setEncoding('utf8');
