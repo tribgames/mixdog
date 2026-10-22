@@ -82,7 +82,8 @@ export interface AgentRoomDeps {
   listAgents(): Promise<unknown>;
   /** Mixy's display name (agents/lead/agent.json `name`); '' for the default. */
   leadName?(): Promise<string>;
-  /** Mixy's own route (getLeadStatus `route`), null when it has none. */
+  /** The route Mixy follows (`getLeadHomeRoute`): its own, else Main's; null
+   *  when neither is set. */
   mixyRoute?(): Promise<unknown>;
   sessionExists(sessionId: string): Promise<boolean>;
   createSession(sessionId: string, params: Record<string, unknown>): Promise<void>;

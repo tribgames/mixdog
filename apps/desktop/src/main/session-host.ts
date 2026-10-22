@@ -272,8 +272,7 @@ export class SessionHost implements DesktopService {
       listAgents: () => this.transport.invokeControl('listAgents', []),
       leadName: async () =>
         String(((await this.transport.invokeControl('getLeadStatus', [])) as { name?: unknown } | null)?.name || ''),
-      mixyRoute: async () =>
-        ((await this.transport.invokeControl('getLeadStatus', [])) as { route?: unknown } | null)?.route ?? null,
+      mixyRoute: () => this.transport.invokeControl('getLeadHomeRoute', []),
       sessionExists: async (sessionId) => {
         try {
           await this.readSession(sessionId, false, false);

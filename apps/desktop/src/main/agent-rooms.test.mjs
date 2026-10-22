@@ -174,7 +174,7 @@ async function room(h, extra = {}) {
 }
 
 test("a room's log is created on a member's model: a model-less session is never stored", async () => {
-  // Mixy first with no route of its own: the next member's model carries it.
+  // Mixy first with no route (neither its own nor Main's): the next member's model carries it.
   const h = harness({ mixyRoute: null });
   const { sessionId } = await room(h, { members: ['lead', 'rel'] });
   assert.deepEqual(h.created[0][1].provider, 'openai');
