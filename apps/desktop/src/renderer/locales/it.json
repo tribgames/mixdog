@@ -255,7 +255,6 @@
   "{{name}} will be deleted from your skills.": "{{name}} verrà eliminata dalle tue skill.",
   "{{name}} will be removed from Mixdog.": "{{name}} sarà rimosso da Mixdog.",
   "{{name}}: each image must be {{max}} MB or smaller.": "{{name}}: ogni immagine deve essere di {{max}} MB o meno.",
-  "{{name}}: legacy Office files can't be attached. Save it as {{format}} and try again.": "{{name}}: i vecchi file Office non possono essere allegati. Salvalo come {{format}} e riprova.",
   "{{name}}: Office files must be under 20 MB.": "{{name}}: i file Office devono essere inferiori a 20 MB.",
   "{{name}}: only files up to {{limit}} MB can be uploaded to the server.": "{{name}}: sul server possono essere caricati solo file fino a {{limit}} MB.",
   "{{name}}: only PNG, JPEG or WebP images can be attached.": "{{name}}: è possibile allegare solo immagini PNG, JPEG o WebP.",

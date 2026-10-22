@@ -33,7 +33,7 @@ function harness(session = null) {
     retention: { retainUnwatched: () => {} },
     entries: { entryForSession: async () => entry },
   });
-  return { calls, submitted };
+  return { calls, submitted, runtime };
 }
 
 const send = (calls, options = {}) =>
@@ -91,8 +91,67 @@ test('a coding session leaves the slash decision to the queue', async () => {
   assert.equal('skipSlashCommands' in submitted[0].options, false);
 });
 
+const OLE_XLS_PROMPT = [
+  { type: 'text', text: 'read it' },
+  {
+    type: 'file',
+    data: Buffer.concat([Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), Buffer.from('x')]).toString(
+      'base64'
+    ),
+    mimeType: 'application/vnd.ms-excel',
+    filename: 'sheet.xls',
+  },
+];
+
+test('a send whose caller signal is already aborted is rejected before any conversion runs', async () => {
+  const { calls, submitted } = harness();
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    calls.submitSession({ sessionId: 's1', prompt: OLE_XLS_PROMPT, options: {}, signal: controller.signal }),
+    { name: 'AbortError' }
+  );
+  assert.equal(submitted.length, 0);
+});
+
+test('aborting a session cancels its attachment conversion in flight', async () => {
+  const { calls, submitted, runtime } = harness();
+  runtime.abort = async () => true;
+  // The provider is read while the intake is registered: abort the session right there.
+  const aborting = [];
+  Object.defineProperty(runtime, 'provider', {
+    get() {
+      aborting.push(calls.abortSession({ sessionId: 's1' }));
+      return 'anthropic';
+    },
+  });
+  await assert.rejects(calls.submitSession({ sessionId: 's1', prompt: OLE_XLS_PROMPT, options: {} }), {
+    name: 'AbortError',
+  });
+  await Promise.all(aborting);
+  assert.equal(submitted.length, 0);
+});
+
 test('a prompt without attachments adds no attachment metadata', async () => {
   const { calls, submitted } = harness();
   await calls.submitSession({ sessionId: 's1', prompt: 'plain', options: { transcriptMeta: { messageId: 'm' } } });
   assert.equal('attachments' in submitted[0].options.transcriptMeta, false);
+});
+
+test('a cancel that lands after preparation, before the send, submits nothing', async () => {
+  const { calls, submitted, runtime } = harness();
+  runtime.abort = async () => true;
+  const aborting = [];
+  // A prompt with no legacy file never checks the signal itself: only the send gate can notice.
+  Object.defineProperty(runtime, 'provider', {
+    get() {
+      aborting.push(calls.abortSession({ sessionId: 's1' }));
+      return 'anthropic';
+    },
+  });
+  await assert.rejects(calls.submitSession({ sessionId: 's1', prompt: 'plain text', options: {} }), {
+    name: 'AbortError',
+  });
+  await Promise.all(aborting);
+  assert.equal(submitted.length, 0);
 });

@@ -25,6 +25,13 @@ import { dirname, join } from 'node:path';
 
 import { writeFileAtomicSync, writeJsonAtomicAsync } from '../shared/atomic-file.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
+import {
+  convertLegacyOfficeBuffer,
+  isLegacyOfficeBuffer,
+  legacyOfficeLabelPackage,
+  OOXML_MIME_BY_PACKAGE,
+  ooxmlLabelPackage,
+} from './legacy-office.mjs';
 import { MAX_ATTACHMENT_BLOB_BYTES, MAX_PDF_BYTES, MAX_PDF_PAGES, isPdfBuffer } from './limits.mjs';
 import { inspectPdfBuffer, PDF_INTAKE_TIMEOUT_MS } from './pdf-extract.mjs';
 
@@ -631,6 +638,50 @@ export function providerTakesNativePdf(provider) {
 }
 
 /**
+ * A legacy Office attachment (.doc/.xls/.ppt: by label, or an OLE file renamed
+ * to an OOXML name) as the OOXML package LibreOffice saves it as, stored under
+ * its own reference, so text extraction and every later lowering see an
+ * ordinary package. A conversion that cannot run (LibreOffice missing, damaged
+ * file, or bytes that are not a legacy file under a legacy label) becomes a text
+ * part carrying the converter's message, so the model and the user are told
+ * instead of the file vanishing. A cancellation (`signal`) is rethrown, never
+ * turned into text. Any other part is returned as is.
+ */
+async function packageLegacyOfficePart(part, { convertLegacy, signal }) {
+  if (part?.type !== 'file' || !isAttachmentReference(part)) return part;
+  const mimeType = part.mimeType || part.mediaType;
+  const legacyKind = legacyOfficeLabelPackage(mimeType, part.filename);
+  const kind = legacyKind || ooxmlLabelPackage(mimeType, part.filename);
+  if (!kind) return part;
+  const buffer = readAttachmentBuffer(part);
+  // An OOXML-labelled part converts only when its bytes are legacy; a legacy
+  // label is always converted (or explained).
+  if (!legacyKind && !isLegacyOfficeBuffer(buffer)) return part;
+  const name = String(part.filename || '')
+    .split(/[\\/]/)
+    .pop();
+  try {
+    const converted = await convertLegacyOfficeBuffer(buffer, part.filename, kind, {
+      signal,
+      ...(convertLegacy ? { convert: convertLegacy } : {}),
+    });
+    const { mediaType: _mediaType, ...rest } = part;
+    return {
+      ...rest,
+      ...saveBuffer(converted.buffer),
+      mimeType: OOXML_MIME_BY_PACKAGE[kind],
+      filename: converted.filename,
+    };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return {
+      type: 'text',
+      text: `--- ${name || 'attachment'} ---\n${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/**
  * PDF intake validation. Every PDF keeps its content-addressed reference — the
  * one conversion to text happens at provider lowering — so this only checks what
  * would make the PDF unusable later: the real blob size, readability, and (for a
@@ -638,13 +689,19 @@ export function providerTakesNativePdf(provider) {
  * PDF as text reads its first MAX_PDF_PAGES pages, so a longer PDF is accepted.
  * The page count is recorded on the part for estimates.
  */
-export async function preparePromptSubmissionForProvider(intake, provider) {
+export async function preparePromptSubmissionForProvider(
+  intake,
+  provider,
+  { convertLegacy = undefined, signal = null } = {}
+) {
   const prompt = intake?.prompt;
   if (!Array.isArray(prompt)) return intake;
   const nativePdf = providerTakesNativePdf(provider);
   let changed = false;
   const prepared = [];
-  for (const part of prompt) {
+  for (const candidate of prompt) {
+    const part = await packageLegacyOfficePart(candidate, { convertLegacy, signal });
+    if (part !== candidate) changed = true;
     const mimeType = String(part?.mimeType || part?.mediaType || '').toLowerCase();
     if (part?.type !== 'file' || mimeType !== 'application/pdf' || !isAttachmentReference(part)) {
       prepared.push(part);

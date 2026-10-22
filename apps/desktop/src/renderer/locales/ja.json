@@ -182,7 +182,6 @@
   "{{name}} will be deleted from your skills.": "{{name}} がマイスキルから削除されます。",
   "{{name}} will be removed from Mixdog.": "{{name}}はMixdogから削除されます。",
   "{{name}}: each image must be {{max}} MB or smaller.": "{{name}}: 各画像のサイズは {{max}} MB 以下にしてください。",
-  "{{name}}: legacy Office files can't be attached. Save it as {{format}} and try again.": "{{name}}: 旧形式のOfficeファイルは添付できません。{{format}} として保存してからもう一度お試しください。",
   "{{name}}: Office files must be under 20 MB.": "{{name}}: Officeファイルは20 MB未満にしてください。",
   "{{name}}: only files up to {{limit}} MB can be uploaded to the server.": "{{name}}: サーバーには最大 {{limit}} MB までのファイルのみアップロードできます。",
   "{{name}}: only PNG, JPEG or WebP images can be attached.": "{{name}}: 添付できる画像は PNG、JPEG、WebP のみです。",

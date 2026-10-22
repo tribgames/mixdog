@@ -30,7 +30,7 @@ test('the IPC validator accepts every OOXML MIME type the composer produces', ()
     const content = requiredPromptContent([{ type: 'text', text: 'hi' }, filePart(mimeType)]);
     assert.equal(content[1].mimeType, mimeType);
   }
-  assert.throws(() => requiredPromptContent([filePart('application/msword')]), /unsupported/);
+  assert.throws(() => requiredPromptContent([filePart('application/x-msdownload')]), /unsupported/);
 });
 
 test('composer file limits never exceed what the IPC validator accepts', () => {

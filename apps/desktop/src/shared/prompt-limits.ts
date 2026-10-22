@@ -15,27 +15,28 @@ export const MAX_PROMPT_FILE_MIME_LENGTH = 128;
 
 export const PDF_MIME_TYPE = 'application/pdf';
 
-/** OOXML extension → MIME type the runtime converts to extracted text. */
+/** Office extension → MIME type the runtime converts to extracted text. The
+ *  legacy binary formats (doc/xls/ppt) are converted to OOXML by the runtime
+ *  (LibreOffice) before extraction. */
 export const OFFICE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  doc: 'application/msword',
+  ppt: 'application/vnd.ms-powerpoint',
+  xls: 'application/vnd.ms-excel',
 };
 
 export const OFFICE_MIME_TYPES: readonly string[] = Object.values(OFFICE_MIME_BY_EXTENSION);
 
-/** Legacy binary Office extension → the OOXML extension to save as. */
-export const LEGACY_OFFICE_REPLACEMENT: Readonly<Record<string, string>> = {
-  doc: '.docx',
-  xls: '.xlsx',
-  ppt: '.pptx',
-};
-
 /** Canonical-case MIME type for a supported prompt file type (matched
  *  case-insensitively, parameters ignored), else ''. */
 export function canonicalPromptFileMimeType(mimeType: string): string {
-  const base = String(mimeType || '').split(';', 1)[0].trim().toLowerCase();
+  const base = String(mimeType || '')
+    .split(';', 1)[0]
+    .trim()
+    .toLowerCase();
   if (base === PDF_MIME_TYPE) return PDF_MIME_TYPE;
   return OFFICE_MIME_TYPES.find((candidate) => candidate.toLowerCase() === base) || '';
 }

@@ -1,6 +1,8 @@
 import { basename, dirname, extname, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { redactDirectories } from '../../shared/redact-directories.mjs';
+import { removeDirectoryWithRetry } from '../../shared/remove-directory.mjs';
 import { constants as fsConstants, rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import JSZip from 'jszip';
@@ -42,6 +44,48 @@ function killQuietly(child) {
   } catch {
     // Already exited: nothing left to stop.
   }
+}
+
+// How long a killed conversion is waited for before it is reported anyway.
+const SOFFICE_KILL_GRACE_MS = 10_000;
+
+// soffice.com hands the work to a soffice.bin child, which a plain kill of the
+// launcher leaves running (and holding the files it was given); Windows needs
+// the whole tree stopped.
+function killProcessTree(child) {
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    } catch {
+      // Fall through to the plain kill.
+    }
+  }
+  killQuietly(child);
+}
+
+// Documents reach this LibreOffice from untrusted sources (chat attachments),
+// so the private profile it runs with turns every macro off: the strictest
+// security level, and macro execution disabled outright.
+export const MACRO_LOCKDOWN_REGISTRY = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+  '<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item>',
+  '<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="DisableMacrosExecution" oor:op="fuse"><value>true</value></prop></item>',
+  '</oor:items>',
+  '',
+].join('\n');
+
+/** The command line of one headless conversion, in a private profile. */
+export function sofficeConvertArguments(profile, { to, outDir, input }) {
+  return [
+    `-env:UserInstallation=${pathToFileURL(profile).href}`,
+    ...SOFFICE_QUIET_ARGS,
+    '--convert-to',
+    to,
+    '--outdir',
+    outDir,
+    input,
+  ];
 }
 
 // A detection probe must always answer. soffice.exe is a GUI launcher that can
@@ -132,9 +176,11 @@ let exitHandlerRegistered = false;
 // window closes. It must not build a throwaway profile per call either —
 // creating the profile costs far more than the conversion it serves. One
 // private profile is built on first use and reused for the life of the process.
-function sharedProfileDir() {
+export function sharedProfileDir() {
   pendingProfile ||= (async () => {
     const created = await mkdtemp(join(tmpdir(), 'mixdog-office-profile-'));
+    await mkdir(join(created, 'user'), { recursive: true });
+    await writeFile(join(created, 'user', 'registrymodifications.xcu'), MACRO_LOCKDOWN_REGISTRY);
     // An exit handler cannot await, and a profile left behind accumulates one
     // directory per run of the app.
     createdProfiles.add(created);
@@ -177,6 +223,8 @@ export function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, c
   return new Promise((resolve) => {
     let settled = false;
     let timer = null;
+    let killTimer = null;
+    let stopped = null;
     let stderr = '';
     const child = spawn(program, args, {
       windowsHide: true,
@@ -187,25 +235,33 @@ export function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, c
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(killTimer);
       signal?.removeEventListener?.('abort', onAbort);
       resolve(value);
     };
-    const onAbort = () => {
-      killQuietly(child);
-      finish({ ok: false, error: cancelMessage });
+    // A conversion that is cancelled or out of time is reported once the
+    // process has closed, so the caller never removes files it still holds.
+    const stop = (value) => {
+      if (settled || stopped) return;
+      stopped = value;
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
+      killProcessTree(child);
+      killTimer = setTimeout(() => finish(value), SOFFICE_KILL_GRACE_MS);
     };
+    const onAbort = () => stop({ ok: false, error: cancelMessage });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk) => {
       if (stderr.length < MAX_SOFFICE_STDERR_CHARS) stderr = `${stderr}${chunk}`.slice(0, MAX_SOFFICE_STDERR_CHARS);
     });
     child.once('error', (error) => finish({ ok: false, error: error?.message || String(error) }));
     child.once('close', (code) =>
-      finish(code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || `LibreOffice exited with code ${code}` })
+      finish(
+        stopped ||
+          (code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || `LibreOffice exited with code ${code}` })
+      )
     );
-    timer = setTimeout(() => {
-      killQuietly(child);
-      finish({ ok: false, error: timeoutMessage });
-    }, timeoutMs);
+    timer = setTimeout(() => stop({ ok: false, error: timeoutMessage }), timeoutMs);
     if (signal?.aborted) onAbort();
     else signal?.addEventListener?.('abort', onAbort, { once: true });
   });
@@ -228,21 +284,17 @@ function convertWithLibreOffice(program, input, { to, outDir, signal = null, tim
   return queueConversion(async () => {
     const profile = await sharedProfileDir();
     const env = await headlessFontEnvironment(profile);
-    const result = await runSoffice(
-      program,
-      [
-        `-env:UserInstallation=${pathToFileURL(profile).href}`,
-        ...SOFFICE_QUIET_ARGS,
-        '--convert-to',
-        to,
-        '--outdir',
-        outDir,
-        input,
-      ],
-      { signal, timeoutMs, timeoutMessage: messages.timeout, cancelMessage: messages.cancelled, env }
-    );
-    if (!result.ok) await discardProfileDir();
-    return result;
+    const result = await runSoffice(program, sofficeConvertArguments(profile, { to, outDir, input }), {
+      signal,
+      timeoutMs,
+      timeoutMessage: messages.timeout,
+      cancelMessage: messages.cancelled,
+      env,
+    });
+    if (result.ok) return result;
+    await discardProfileDir();
+    // The profile is the converter's private folder; what it printed about it stays out of the error.
+    return { ...result, error: redactDirectories(result.error, [profile]) };
   });
 }
 
@@ -525,7 +577,7 @@ export async function validateLibreOfficeReopen(path, { signal = null } = {}) {
  * folder and lands with an exclusive copy, so a file already at `output` is
  * never replaced.
  */
-export async function convertLegacyOffice(path, output, { signal = null } = {}) {
+export async function convertLegacyOffice(path, output, { signal = null, remove = undefined, log = undefined } = {}) {
   const program = await libreOfficeProgram();
   if (!program) {
     throw new Error(
@@ -545,6 +597,8 @@ export async function convertLegacyOffice(path, output, { signal = null } = {}) 
         cancelled: 'LibreOffice conversion was cancelled',
       },
     });
+    // A cancellation is the caller's abort, not a conversion failure.
+    if (signal?.aborted) throw signal.reason ?? Object.assign(new Error(result.error), { name: 'AbortError' });
     if (!result.ok) throw new Error(`LibreOffice could not convert ${path} to .${extension}: ${result.error}`);
     const generated = convertedOutputPath(outputDir, path, extension);
     if (!(await producedFileSize(generated))) {
@@ -554,8 +608,14 @@ export async function convertLegacyOffice(path, output, { signal = null } = {}) 
     }
     await copyFile(generated, output, fsConstants.COPYFILE_EXCL);
     return output;
+  } catch (error) {
+    // The scratch folder is this function's own: no error leaves naming it
+    // (a failed copy reports both of its paths). A cancellation stays an abort.
+    if (error?.name === 'AbortError') throw error;
+    if (signal?.aborted) throw signal.reason;
+    throw new Error(redactDirectories(error instanceof Error ? error.message : String(error), [outputDir]));
   } finally {
-    await rm(outputDir, { recursive: true, force: true }).catch(() => {});
+    await removeDirectoryWithRetry(outputDir, { remove, log });
   }
 }
 
@@ -581,7 +641,9 @@ export async function renderPortableOoxml(path, output, { signal = null } = {}) 
   const generated = convertedOutputPath(outputDir, path, 'pdf');
   // LibreOffice can exit 0 without writing anything (a missing or unreadable source).
   if (!(await producedFileSize(generated))) {
-    throw new Error(`LibreOffice produced no PDF from ${path}; the file may be missing, damaged or password-protected.`);
+    throw new Error(
+      `LibreOffice produced no PDF from ${path}; the file may be missing, damaged or password-protected.`
+    );
   }
   if (generated !== output) await rename(generated, output);
   return output;

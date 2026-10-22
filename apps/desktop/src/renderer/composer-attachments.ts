@@ -16,7 +16,6 @@ import { t } from './i18n';
 import { isRemoteBrowserRenderer, isRemoteHostRenderer } from './remote-ui-projection';
 import { learnedRelayUplinkBinaryBytes } from './remote-shim-payload-limit';
 import {
-  LEGACY_OFFICE_REPLACEMENT,
   MAX_PROMPT_IMAGE_BASE64_LENGTH,
   OFFICE_MIME_BY_EXTENSION,
   canonicalPromptFileMimeType,
@@ -54,14 +53,9 @@ export function fileExtension(name: string): string {
   return match ? match[1].toLowerCase() : '';
 }
 
-/** OOXML MIME type for a .docx/.pptx/.xlsx/.xlsm name, else ''. */
+/** Office MIME type for a .docx/.pptx/.xlsx/.xlsm/.doc/.ppt/.xls name, else ''. */
 export function officeMimeForName(name: string): string {
   return OFFICE_MIME_BY_EXTENSION[fileExtension(name)] || '';
-}
-
-/** The OOXML extension to save a legacy .doc/.xls/.ppt as, else ''. */
-export function legacyOfficeReplacement(name: string): string {
-  return LEGACY_OFFICE_REPLACEMENT[fileExtension(name)] || '';
 }
 
 /** True when the file starts with the `%PDF-` signature. */
@@ -459,15 +453,6 @@ export async function attachmentFromFile(
   const input: AttachmentInput = { file, id, displayName, cancelled };
   if (file.size === 0) {
     throw new RejectedComposerFileError(t('{{name}}: the file is empty.', { name: displayName }));
-  }
-  const legacyFormat = legacyOfficeReplacement(displayName);
-  if (legacyFormat) {
-    throw new RejectedComposerFileError(
-      t("{{name}}: legacy Office files can't be attached. Save it as {{format}} and try again.", {
-        name: displayName,
-        format: legacyFormat,
-      })
-    );
   }
   // Windows often reports an empty or octet-stream type; the extension then
   // decides the image type (PDF and Office are already decided by name).

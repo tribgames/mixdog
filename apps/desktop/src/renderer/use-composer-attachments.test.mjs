@@ -251,6 +251,24 @@ test('Office files attach as chip-only file attachments with OOXML MIME types an
   assert.equal(harness.current.attachmentError, '');
 });
 
+test('legacy Office files attach as Office attachments with their legacy MIME types', async (t) => {
+  const harness = await mountComposer(t);
+  await harness.attach([
+    new File(['x'], 'old.doc', { type: '' }),
+    new File(['x'], 'sheet.xls', { type: 'application/vnd.ms-excel' }),
+    new File(['x'], 'deck.ppt', { type: 'application/octet-stream' }),
+  ]);
+  assert.deepEqual(
+    harness.current.attachments.map(({ name, kind, mimeType, token }) => ({ name, kind, mimeType, token })),
+    [
+      { name: 'old.doc', kind: 'office', mimeType: 'application/msword', token: '[File #1: old.doc]' },
+      { name: 'sheet.xls', kind: 'office', mimeType: 'application/vnd.ms-excel', token: '[File #2: sheet.xls]' },
+      { name: 'deck.ppt', kind: 'office', mimeType: 'application/vnd.ms-powerpoint', token: '[File #3: deck.ppt]' },
+    ]
+  );
+  assert.equal(harness.current.attachmentError, '');
+});
+
 test('an empty or octet-stream File.type is inferred from the extension and the filename is kept', async (t) => {
   const harness = await mountComposer(t);
   await harness.attach([
@@ -316,9 +334,7 @@ test('Office size cap, legacy formats, empty files and fake PDFs get clear rejec
       /huge\.docx: Office files must be under 20 MB/,
       true,
     ],
-    [new File(['x'], 'old.doc'), /old\.doc: legacy Office files can't be attached\. Save it as \.docx/, false],
-    [new File(['x'], 'sheet.xls'), /sheet\.xls: legacy Office files can't be attached\. Save it as \.xlsx/, false],
-    [new File(['x'], 'deck.ppt'), /deck\.ppt: legacy Office files can't be attached\. Save it as \.pptx/, false],
+    [new File([], 'empty.xls'), /empty\.xls: the file is empty\./, false],
     [new File([], 'empty.txt', { type: 'text/plain' }), /empty\.txt: the file is empty\./, false],
     [new File([], 'empty.docx'), /empty\.docx: the file is empty\./, false],
     [new File(['<html>'], 'fake.pdf', { type: 'application/pdf' }), /fake\.pdf: this file is not a valid PDF\./, true],

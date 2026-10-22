@@ -182,7 +182,6 @@
   "{{name}} will be deleted from your skills.": "{{name}} 將從你的技能中刪除。",
   "{{name}} will be removed from Mixdog.": "{{name}} 將從 Mixdog 中移除。",
   "{{name}}: each image must be {{max}} MB or smaller.": "{{name}}：每張圖片不得超過 {{max}} MB。",
-  "{{name}}: legacy Office files can't be attached. Save it as {{format}} and try again.": "{{name}}:無法附加舊版 Office 檔案。請另存為 {{format}} 後再試一次。",
   "{{name}}: Office files must be under 20 MB.": "{{name}}:Office 檔案必須小於 20 MB。",
   "{{name}}: only files up to {{limit}} MB can be uploaded to the server.": "{{name}}：最多只能向伺服器上傳 {{limit}} MB 的檔案。",
   "{{name}}: only PNG, JPEG or WebP images can be attached.": "{{name}}：僅可附加 PNG、JPEG 或 WebP 圖片。",

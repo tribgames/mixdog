@@ -42,9 +42,25 @@ test('Office files are stored as kind office with the inferred OOXML MIME type',
   ]);
 });
 
-test('automation intake rejects empty, legacy and fake PDF files and keeps old pdf-kind Office rows', async () => {
+test('legacy Office files are stored as kind office with their legacy MIME types', async () => {
+  const files = [
+    new File(['x'], 'a.doc', { type: '' }),
+    new File(['x'], 'b.xls', { type: 'application/vnd.ms-excel' }),
+    new File(['x'], 'c.ppt', { type: 'application/octet-stream' }),
+  ];
+  const { attachments, error } = await readAutomationFiles(files, []);
+  assert.equal(error, '');
+  const data = Buffer.from('x').toString('base64');
+  assert.deepEqual(attachments, [
+    { kind: 'office', name: 'a.doc', mimeType: 'application/msword', data },
+    { kind: 'office', name: 'b.xls', mimeType: 'application/vnd.ms-excel', data },
+    { kind: 'office', name: 'c.ppt', mimeType: 'application/vnd.ms-powerpoint', data },
+  ]);
+});
+
+test('automation intake rejects empty and fake PDF files and keeps old pdf-kind Office rows', async () => {
   assert.match((await readAutomationFiles([new File([], 'a.docx')], [])).error, /a\.docx: the file is empty/);
-  assert.match((await readAutomationFiles([new File(['x'], 'a.doc')], [])).error, /Save it as \.docx/);
+  assert.match((await readAutomationFiles([new File([], 'a.xls')], [])).error, /a\.xls: the file is empty/);
   assert.match(
     (await readAutomationFiles([new File(['<html>'], 'a.pdf', { type: 'application/pdf' })], [])).error,
     /not a valid PDF/

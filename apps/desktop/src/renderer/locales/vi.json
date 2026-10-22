@@ -182,7 +182,6 @@
   "{{name}} will be deleted from your skills.": "{{name}} sẽ bị xóa khỏi kỹ năng của bạn.",
   "{{name}} will be removed from Mixdog.": "{{name}} sẽ bị gỡ khỏi Mixdog.",
   "{{name}}: each image must be {{max}} MB or smaller.": "{{name}}: mỗi hình ảnh phải có dung lượng tối đa {{max}} MB.",
-  "{{name}}: legacy Office files can't be attached. Save it as {{format}} and try again.": "{{name}}: không thể đính kèm tệp Office định dạng cũ. Hãy lưu thành {{format}} rồi thử lại.",
   "{{name}}: Office files must be under 20 MB.": "{{name}}: tệp Office phải nhỏ hơn 20 MB.",
   "{{name}}: only files up to {{limit}} MB can be uploaded to the server.": "{{name}}: chỉ có thể tải lên máy chủ các tệp tối đa {{limit}} MB.",
   "{{name}}: only PNG, JPEG or WebP images can be attached.": "{{name}}: chỉ có thể đính kèm hình ảnh PNG, JPEG hoặc WebP.",

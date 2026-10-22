@@ -62,15 +62,43 @@ export function createSessionTurnCalls(ctx) {
     return step;
   };
 
-  async function submitSession({ sessionId, prompt, options = {}, open: openHints = {}, baseRevision = null } = {}) {
+  // Intakes in flight per session: an abort of the session also cancels an
+  // attachment conversion that has not yet become a turn.
+  const intakeAborts = new Map();
+
+  async function submitSession({
+    sessionId,
+    prompt,
+    options = {},
+    open: openHints = {},
+    baseRevision = null,
+    signal = null,
+  } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
     const target = entry.runtime.submitAsync;
     if (typeof target !== 'function') throw new TypeError('session runtime must implement submitAsync');
-    const intake = await preparePromptSubmissionForProvider(materializePromptSubmission(prompt, options || {}), {
-      nativePdf: providerNativePdf(entry.runtime.provider || entry.runtime.session?.provider || ''),
-    });
+    const intakeAbort = new AbortController();
+    const forwardAbort = () => intakeAbort.abort(signal.reason);
+    if (signal?.aborted) forwardAbort();
+    else signal?.addEventListener?.('abort', forwardAbort, { once: true });
+    if (!intakeAborts.has(id)) intakeAborts.set(id, new Set());
+    intakeAborts.get(id).add(intakeAbort);
+    let intake;
+    try {
+      intake = await preparePromptSubmissionForProvider(
+        materializePromptSubmission(prompt, options || {}),
+        { nativePdf: providerNativePdf(entry.runtime.provider || entry.runtime.session?.provider || '') },
+        { signal: intakeAbort.signal }
+      );
+    } finally {
+      signal?.removeEventListener?.('abort', forwardAbort);
+      intakeAborts.get(id)?.delete(intakeAbort);
+      if (!intakeAborts.get(id)?.size) intakeAborts.delete(id);
+    }
+    // A cancel that landed after the last conversion step must not submit.
+    intakeAbort.signal.throwIfAborted();
     // Await intake only: submitAsync resolves once the prompt is represented by
     // the queue/user row, while provider execution remains daemon-owned and
     // detached.
@@ -131,6 +159,7 @@ export function createSessionTurnCalls(ctx) {
   async function abortSession({ sessionId, open: openHints = {}, options = {}, baseRevision = null } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
+    for (const intakeAbort of intakeAborts.get(id) ?? []) intakeAbort.abort();
     const entry = await entryForSession(id, openHints || {});
     const target = entry.runtime.abort;
     if (typeof target !== 'function') throw new TypeError('session action abort is unavailable');

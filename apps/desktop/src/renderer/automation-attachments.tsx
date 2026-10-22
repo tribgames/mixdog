@@ -4,7 +4,6 @@ import {
   fileExtension,
   hasPdfHeader,
   IMAGE_MIME_BY_EXTENSION,
-  legacyOfficeReplacement,
   officeMimeForName,
   SUPPORTED_IMAGE_TYPES,
 } from './composer-attachments';
@@ -85,16 +84,6 @@ export async function readAutomationFiles(
     }
     const name = file.name || 'attachment';
     if (file.size === 0) return { attachments: next, error: t('{{name}}: the file is empty.', { name }) };
-    const legacyFormat = legacyOfficeReplacement(name);
-    if (legacyFormat) {
-      return {
-        attachments: next,
-        error: t("{{name}}: legacy Office files can't be attached. Save it as {{format}} and try again.", {
-          name,
-          format: legacyFormat,
-        }),
-      };
-    }
     const mimeKind = (file.type || '').split(';', 1)[0].trim().toLowerCase();
     const isPdf = mimeKind === PDF_MIME_TYPE || /\.pdf$/i.test(name);
     const officeMime = officeMimeForName(name) || canonicalPromptFileMimeType(mimeKind);
