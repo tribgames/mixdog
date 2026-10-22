@@ -32,6 +32,52 @@ const CLEANUP_TIMEOUT_MS = 2_000;
 
 export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
   const settling = new WeakMap<WebContents, Promise<void>>();
+  /** Commands in flight per child session, settled when that session ends. */
+  const inFlight = new WeakMap<WebContents, Map<string, Set<(error: Error) => void>>>();
+
+  /** A child target detached: its frame was removed or replaced, so nothing
+   *  of its document can still run. Chromium never answers a command that was
+   *  in flight on it (the reply only comes once the whole page is destroyed),
+   *  which would hold the fence on this page forever; settle those here. */
+  function endSession(guest: WebContents, sessionId: string): void {
+    const sessions = inFlight.get(guest);
+    const pending = sessions?.get(sessionId);
+    if (!sessions || !pending) return;
+    sessions.delete(sessionId);
+    for (const end of pending) end(new Error('Inspected target navigated or closed (frame target detached)'));
+  }
+
+  function send<T>(
+    guest: WebContents,
+    cdp: Debugger,
+    method: string,
+    params: Record<string, unknown>,
+    sessionId?: string
+  ): Promise<T> {
+    const sent = cdp.sendCommand(method, params, sessionId) as Promise<T>;
+    if (!sessionId) return sent;
+    let sessions = inFlight.get(guest);
+    if (!sessions) {
+      sessions = new Map();
+      inFlight.set(guest, sessions);
+    }
+    let pending = sessions.get(sessionId);
+    if (!pending) {
+      pending = new Set();
+      sessions.set(sessionId, pending);
+    }
+    const owners = sessions;
+    const group = pending;
+    let end!: (error: Error) => void;
+    const ended = new Promise<never>((_resolve, reject) => {
+      end = reject;
+    });
+    group.add(end);
+    return Promise.race([sent, ended]).finally(() => {
+      group.delete(end);
+      if (!group.size && owners.get(sessionId) === group) owners.delete(sessionId);
+    });
+  }
 
   async function waitForIdle(guest: WebContents, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
@@ -66,7 +112,7 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
     }
     signal?.throwIfAborted();
     beforeDispatch?.();
-    const dispatch = cdp.sendCommand(method, params, sessionId) as Promise<T>;
+    const dispatch = send<T>(guest, cdp, method, params, sessionId);
     let interrupted = false;
     const interrupt = () => {
       if (interrupted) return;
@@ -81,7 +127,7 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
           ? Promise.resolve()
               .then(() =>
                 host.bounded(
-                  cdp.sendCommand('Runtime.terminateExecution', {}, sessionId),
+                  send(guest, cdp, 'Runtime.terminateExecution', {}, sessionId),
                   CLEANUP_TIMEOUT_MS,
                   'browser execution termination'
                 )
@@ -93,7 +139,8 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
       const barrier = Promise.allSettled([previous, dispatch, terminate]).then(() => undefined);
       settling.set(guest, barrier);
       // A cleanup timeout does not remove the fence. The actual old dispatch
-      // must finish (or be rejected by navigation/destruction) before reuse.
+      // must finish, be rejected by navigation/destruction, or lose its child
+      // target (endSession) before reuse.
       void barrier.then(() => {
         if (settling.get(guest) === barrier) settling.delete(guest);
       });
@@ -111,5 +158,5 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
     }
   }
 
-  return { sendCdp, waitForIdle };
+  return { sendCdp, waitForIdle, endSession };
 }

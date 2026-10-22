@@ -99,7 +99,7 @@ export interface BrowserGuestCdp {
 
 export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCdp {
   const { state } = host;
-  const { sendCdp, waitForIdle } = createBrowserCdpExecution({
+  const { sendCdp, waitForIdle, endSession } = createBrowserCdpExecution({
     bounded,
     diagnostic: (guest, message) => state.for(guest).console.recordInternal(message),
     awaitingDialog: (guest) => Boolean(state.peek(guest)?.pendingDialog),
@@ -118,6 +118,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
   const onCdpEvent = createBrowserCdpEventRouter({
     state,
     sendCdp,
+    targetDetached: endSession,
     matchInterceptRule: host.matchInterceptRule,
     permissionRefused: host.permissionRefused,
     initializeTargetSession: sessions.initializeTargetSession,

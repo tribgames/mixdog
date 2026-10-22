@@ -28,6 +28,8 @@ type GuestRecord = ReturnType<BrowserGuestStateStore['for']>;
 interface BrowserCdpEventRouterHost extends RequestPauseHost, TargetAttachHost {
   /** The page's top-level document committed (see cdp-session-init). */
   onTopDocument?(guest: WebContents, cdp: Electron.Debugger): void;
+  /** A child target's session ended; commands still in flight on it settle. */
+  targetDetached(guest: WebContents, sessionId: string): void;
 }
 
 interface EventContext {
@@ -84,7 +86,9 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     'Target.attachedToTarget': ({ guest, cdp, params, sessionId }) =>
       onAttachedToTarget(host, guest, cdp, params, sessionId),
     'Target.detachedFromTarget': ({ guest, params, sessionId }) => {
-      state.endTargetSession(guest, String(params.sessionId || sessionId || ''));
+      const ended = String(params.sessionId || sessionId || '');
+      state.endTargetSession(guest, ended);
+      host.targetDetached(guest, ended);
     },
     'Fetch.requestPaused': ({ guest, cdp, params, sessionId }) => onRequestPaused(host, guest, cdp, params, sessionId),
     // The page answered a press-and-move with its own HTML5 drag, so

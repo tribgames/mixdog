@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createBrowserGuestCdp } from './cdp.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
@@ -193,6 +194,58 @@ test('a rejected termination does not release a still-running script, and anothe
   assert.equal(calls.filter((method) => method === 'Input.insertText').length, 1);
   running.resolve({});
   await barrier;
+});
+
+// Chromium (Electron 3x) never answers a command that was in flight on an
+// out-of-process frame whose target then detached (an ad iframe swapped out);
+// the reply only comes when the whole page is destroyed. A timeout on such a
+// command used to fence the page for good: every later command failed with
+// "browser execution cleanup is pending" until the app restarted.
+test('a timed-out command on a frame target that detaches releases the page fence', async () => {
+  const calls = [];
+  const never = new Promise(() => {});
+  const guest = new EventEmitter();
+  let attached = false;
+  const debug = Object.assign(new EventEmitter(), {
+    isAttached: () => attached,
+    attach: () => {
+      attached = true;
+    },
+    detach: () => {
+      attached = false;
+    },
+    sendCommand: (method, _params, sessionId) => {
+      calls.push({ method, sessionId });
+      if (sessionId === 'ad-frame' && ['Runtime.evaluate', 'Runtime.terminateExecution'].includes(method)) {
+        return never;
+      }
+      return Promise.resolve({});
+    },
+  });
+  Object.assign(guest, {
+    debugger: debug,
+    isDestroyed: () => false,
+    getURL: () => 'https://page.test/',
+    getUserAgent: () => 'Fixture/1.0',
+  });
+  const state = new BrowserGuestStateStore();
+  const cdp = createBrowserGuestCdp({ state, interceptFetchPatterns: () => [], matchInterceptRule: () => undefined });
+  await cdp.guestDebugger(guest);
+  debug.emit('message', {}, 'Target.attachedToTarget', {
+    sessionId: 'ad-frame',
+    targetInfo: { type: 'iframe', targetId: 'ad-frame', url: 'https://ads.test/' },
+  });
+  await assert.rejects(cdp.sendCdp(guest, debug, 'Runtime.evaluate', {}, 5, undefined, 'ad-frame'), /timed out/);
+  const next = cdp.sendCdp(guest, debug, 'Runtime.evaluate', { expression: 'document.title' });
+  await tick(); // negative: still fenced while the frame's script may be running
+  assert.equal(calls.filter((call) => call.method === 'Runtime.evaluate' && !call.sessionId).length, 0);
+  // Another page is never held by this one's fence.
+  await cdp.sendCdp({}, debug, 'Input.insertText');
+  debug.emit('message', {}, 'Target.detachedFromTarget', { sessionId: 'ad-frame' });
+  await cdp.waitForIdle(guest);
+  await next;
+  assert.equal(calls.filter((call) => call.method === 'Runtime.evaluate' && !call.sessionId).length, 1);
+  assert.equal(state.for(guest).cdpSessions.has('ad-frame'), false);
 });
 
 test('cleanup wait timeout never lifts the fence on an unfinished dispatch', async () => {

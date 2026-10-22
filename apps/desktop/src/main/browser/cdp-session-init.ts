@@ -209,8 +209,10 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     }
     // Dialog interception is the startup safety boundary, and the identity
     // has to be in place before the first document reads it. Do not make
-    // first navigation wait for anything else.
-    await Promise.all([
+    // first navigation wait for anything else. A frame removed meanwhile ends
+    // its commands (cdp-execution endSession); that is not a failure.
+    const ended = () => Boolean(sessionId) && !state.for(guest).cdpSessions.has(sessionId!);
+    const boundary = Promise.all([
       send('Page.enable'),
       // Pages live in hidden windows that never hold the OS focus; the pane
       // shows them as the focused page a person is using.
@@ -223,8 +225,14 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
       ...(host.pageGuardScripts?.() || []).map(newDocumentScript),
       send('Fetch.enable', { patterns: fetchPatternsFor(guest) }),
     ]);
+    try {
+      await boundary;
+    } catch (error) {
+      if (ended()) return;
+      throw error;
+    }
     signal.throwIfAborted();
-    if (sessionId && !state.for(guest).cdpSessions.has(sessionId)) return;
+    if (ended()) return;
     // A frame attached (or a debugger re-attached) while an agent drives the
     // page is driven with it.
     if (driving.get(guest)?.on) void switchDriving(guest, cdp, true, sessionId, signal);
