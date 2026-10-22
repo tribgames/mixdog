@@ -15,7 +15,7 @@ import {
 import { listStoredSessions, listStoredSessionSummaries as listInternalSummaries } from './store/listing.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { createTurnCheckpointRecorder, settleTurnCheckpointWrites } from './manager/turn-checkpoint.mjs';
-import { agentDescendantIds } from './store-summary-visibility.mjs';
+import { agentDescendantIds, agentParentIds } from './store-summary-visibility.mjs';
 
 test('agent descendants follow every owner/parent link to any depth, agent-only rows only', () => {
   const sub = (id, links) => ({ id, owner: 'agent', agent: 'worker', visibility: 'agent-only', ...links });
@@ -35,6 +35,18 @@ test('agent descendants follow every owner/parent link to any depth, agent-only 
   assert.deepEqual(agentDescendantIds(rows, 'sess_w1_child'), ['sess_w1_grand']);
   assert.deepEqual(agentDescendantIds(rows, 'sess_lead_self'), []);
   assert.deepEqual(agentDescendantIds(null, 'sess_lead'), []);
+});
+
+test('agent parent links are the owner and the parent, never the row itself', () => {
+  assert.deepEqual(agentParentIds({ id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_p' }), [
+    'sess_lead',
+    'sess_p',
+  ]);
+  assert.deepEqual(agentParentIds({ id: 'sess_x', ownerSessionId: 'sess_x', parentSessionId: 'sess_x' }), []);
+  assert.deepEqual(agentParentIds({ id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_lead' }), [
+    'sess_lead',
+  ]);
+  assert.deepEqual(agentParentIds(null), []);
 });
 
 function session(id, extra = {}) {

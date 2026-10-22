@@ -8,7 +8,7 @@
 // SUB_AGENT_DELETE_AFTER_MS. Otherwise the whole tree stays as it is.
 // Never a member: a root Lead, a task session from `session create`, a bot
 // home chat or a group room's log/member session.
-import { isAgentOnlySession, isRootLeadSession } from '../../store-summary-visibility.mjs';
+import { agentParentIds, isAgentOnlySession, isRootLeadSession } from '../../store-summary-visibility.mjs';
 import { probePath, PROBE_PRESENT } from '../fs-probe.mjs';
 import { sessionPath } from '../session-paths.mjs';
 import { _queueSummaryIndexPrune } from '../summary-cache.mjs';
@@ -24,7 +24,6 @@ const PERMANENT_ID = /^sess_(?:home|room|rmem)_/;
 export const SUB_AGENT_AUTO_ARCHIVE = Object.freeze({ archived: true, cascade: false });
 
 const positive = (value) => (Number(value) > 0 ? Number(value) : 0);
-const clean = (value) => String(value || '').trim();
 
 /** Last activity of a stored record: its last conversation turn (`lastUsedAt`;
  *  `updatedAt` also moves on detach/resume bookkeeping) or its heartbeat. */
@@ -35,32 +34,45 @@ export function subAgentActivityAt(doc) {
   );
 }
 
-/** `{ id, parentId, lastActive }` for a sub-agent record; null for anything else. */
+/** `{ id, parentIds, lastActive }` for a sub-agent record (open or closed);
+ *  null for anything else. `parentIds` are the owner and parent links the
+ *  record names (agentParentIds), the same ones an archive cascade follows. */
 export function subAgentMember(id, doc) {
   if (!doc || PERMANENT_ID.test(id) || doc.taskOrigin) return null;
   if (isRootLeadSession(doc) || !isAgentOnlySession(doc)) return null;
-  return {
-    id,
-    parentId: clean(doc.parentSessionId) || clean(doc.ownerSessionId) || null,
-    lastActive: subAgentActivityAt(doc),
-  };
+  return { id, parentIds: agentParentIds({ ...doc, id }), lastActive: subAgentActivityAt(doc) };
 }
 
-/** The members grouped into trees, each its top member (whose parent is no
- *  member) first, then every member below it. */
+/** The members grouped into trees: members joined by any owner/parent link
+ *  between them (a link to a non-member joins nothing), each tree listing a
+ *  top member (no member parent) first and its members below in link order. */
 export function subAgentTrees(members) {
-  const ids = new Set(members.map((member) => member.id));
-  const children = new Map();
-  const tops = [];
+  const byId = new Map(members.map((member) => [member.id, member]));
+  const links = new Map(members.map((member) => [member.id, new Set()]));
+  const hasMemberParent = new Set();
   for (const member of members) {
-    if (!ids.has(member.parentId) || member.parentId === member.id) tops.push(member);
-    else children.set(member.parentId, [...(children.get(member.parentId) || []), member]);
+    for (const parent of (member.parentIds || []).filter((parentId) => byId.has(parentId))) {
+      links.get(member.id).add(parent);
+      links.get(parent).add(member.id);
+      hasMemberParent.add(member.id);
+    }
   }
-  return tops.map((top) => {
-    const tree = [top];
-    for (let index = 0; index < tree.length; index++) tree.push(...(children.get(tree[index].id) || []));
-    return tree;
-  });
+  const seen = new Set();
+  const trees = [];
+  for (const start of [...members.filter((m) => !hasMemberParent.has(m.id)), ...members]) {
+    if (seen.has(start.id)) continue;
+    const tree = [start];
+    seen.add(start.id);
+    for (let index = 0; index < tree.length; index++) {
+      for (const id of links.get(tree[index].id)) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        tree.push(byId.get(id));
+      }
+    }
+    trees.push(tree);
+  }
+  return trees;
 }
 
 /** The stored activity time of `id` now; null when its record cannot be read. */

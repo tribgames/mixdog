@@ -29,6 +29,14 @@ const effectiveFields = (actual, row) => ({
   createdAt: Number(actual?.createdAt) > 0 ? Number(actual.createdAt) : row.createdAt || 0,
 });
 
+/** Every sub-agent record, open or closed, fresh or not, for the tree
+ *  retention its caller applies (sub-agent-retention.mjs). */
+function noteSubAgent(ctx, id, doc) {
+  if (!ctx.plan.retainSubAgents) return;
+  const member = subAgentMember(id, doc);
+  if (member) ctx.tally.subAgents.push(member);
+}
+
 /** A closed record: a mature tombstone is deleted; otherwise a stale summary
  *  row that still claims the session open is repaired and the row is kept. */
 function sweepClosedRecord(ctx, row, actual, jsonPath) {
@@ -154,12 +162,7 @@ function sweepOpenRecord(ctx, row, record, { jsonMtime }) {
     tally.remaining++;
     return;
   }
-  // Every sub-agent record, fresh or not, for the tree retention its caller
-  // applies (sub-agent-retention.mjs).
-  if (plan.retainSubAgents) {
-    const member = subAgentMember(row.id, record.doc);
-    if (member) tally.subAgents.push(member);
-  }
+  noteSubAgent(ctx, row.id, record.doc);
   const eff = effectiveFields(record.doc, row);
   const ownerNamed = typeof eff.owner === 'string' && eff.owner.length > 0;
   // Freshness gate — recently-touched open sessions are skipped cheaply here.
@@ -284,7 +287,10 @@ export function sweepRow(ctx, row) {
     return;
   }
   if (record.closed === true || actual.status === 'closed') {
+    const cleanedBefore = ctx.tally.tombstonesCleaned;
     sweepClosedRecord(ctx, row, actual, jsonPath);
+    // A tombstone this sweep just deleted is gone, not a member.
+    if (ctx.tally.tombstonesCleaned === cleanedBefore) noteSubAgent(ctx, row.id, actual);
     return;
   }
   sweepOpenRecord(ctx, row, record, { jsonMtime: jsonProbe.mtimeMs || 0 });
