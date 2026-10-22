@@ -15,7 +15,7 @@
 //     the provider accepted it. `from` is the mode the model was last told
 //     about, `to` the session's mode now.
 // Every notice says it replaces the earlier ones, so the latest one wins.
-import { normalizeOrchestrationMode } from '../../../../shared/orchestration.mjs';
+import { normalizeOrchestrationMode, ORCHESTRATION_MODES } from '../../../../shared/orchestration.mjs';
 import { orchestrationInstructions } from '../../runtime-core/orchestration.mjs';
 
 /** The mode's name as its BP3 block titles it (`# Orchestration Mode: …`). */
@@ -29,6 +29,22 @@ export function promptOrchestrationModeOf(session) {
   if (session?.workflowOverlay) return session.workflowOverlay.promptOrchestrationMode;
   if (session?.orchestrationModeOverlay) return session.orchestrationModeOverlay.prompt;
   return session?.orchestrationMode;
+}
+
+/**
+ * Read a shipped coding-mode slice from the actual BP3 message, not the mode
+ * metadata: older profile refreshes could rewrite one without the other.
+ * Only a complete, unambiguous generated slice is evidence. Custom rules,
+ * headings quoted in another slice, and unrecognized legacy layouts are not.
+ */
+export function orchestrationModeFromPrompt(session) {
+  const core = session?.messages?.find(
+    (message) => message?.role === 'system' && message.cacheTier === 'tier3'
+  )?.content;
+  if (typeof core !== 'string') return null;
+  const slices = core.split('\n\n---\n\n');
+  const modes = ORCHESTRATION_MODES.filter((mode) => slices.includes(orchestrationInstructions(mode)));
+  return modes.length === 1 ? modes[0] : null;
 }
 
 const listed = (names) => names.map((name) => `\`${name}\``).join(', ');
