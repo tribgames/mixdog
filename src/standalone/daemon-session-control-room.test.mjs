@@ -87,6 +87,44 @@ test("a room send without a resolvable member fails; with one it is the member's
   assert.deepEqual(h.sends, [], 'the room log itself never runs a turn');
 });
 
+test("session cancel on a room's log stops the room exchange through the room host", async (t) => {
+  const stops = [];
+  t.after(
+    registerAgentRoomHost({
+      member: async () => assert.fail('cancel never addresses a member'),
+      ask: async () => true,
+      relay: async () => ({ settled: Promise.resolve('done') }),
+      stop: (room) => {
+        stops.push(room);
+        return true;
+      },
+    })
+  );
+  const aborts = [];
+  const run = createSessionControl({
+    getSessionService: () => ({
+      abortSession: async (params) => {
+        aborts.push(params);
+        return { aborted: false };
+      },
+    }),
+  });
+  assert.deepEqual(await run({ action: 'cancel', session_id: ROOM }, { callerSessionId: 'sess_lead_1' }), {
+    sessionId: ROOM,
+    aborted: true,
+  });
+  assert.deepEqual(stops, [ROOM]);
+  assert.deepEqual(aborts, [], 'the room log is not an ordinary session to abort');
+});
+
+test('session cancel on a room fails clearly with no desktop attached', async () => {
+  const run = createSessionControl({ getSessionService: () => ({ abortSession: async () => ({ aborted: false }) }) });
+  await assert.rejects(
+    run({ action: 'cancel', session_id: ROOM }, { callerSessionId: 'sess_lead_1' }),
+    /cannot cancel sess_room_abc123: group rooms run in the desktop app, and no desktop app is attached/
+  );
+});
+
 test('a bot-to-bot chain through a room counts on and is refused past MAX_BOT_HOPS', async (t) => {
   const { MAX_BOT_HOPS } = await import('../runtime/shared/bot-hops.mjs');
   const limit = /Bot-to-bot chain limit reached; ask the user before continuing\./;

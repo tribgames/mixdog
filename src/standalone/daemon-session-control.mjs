@@ -218,6 +218,17 @@ export function createSessionControl({
       };
     }
     if (action === 'cancel') {
+      // A room's exchange is run by the desktop room host, so its stop (the UI
+      // stop button) ends it; the log is not a session the service can abort.
+      if (roomIdOfSession(sessionId)) {
+        let host;
+        try {
+          host = agentRoomHost();
+        } catch (error) {
+          throw new Error(`session: cannot cancel ${sessionId}: ${error.message}`);
+        }
+        return { sessionId, aborted: host.stop(sessionId) === true };
+      }
       const result = await service.abortSession({ sessionId });
       return { sessionId, aborted: result.aborted === true };
     }

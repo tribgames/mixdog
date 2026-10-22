@@ -25,6 +25,7 @@ export interface AgentRoomHost {
     prompt: string,
     options?: { id?: string; hop?: number; follow?: (submissionId: string) => unknown }
   ): Promise<{ settled: Promise<string> }>;
+  stop(roomSessionId: string): boolean;
 }
 export function registerAgentRoomHost(host: AgentRoomHost): () => void;
 export function agentRoomHost(): AgentRoomHost;

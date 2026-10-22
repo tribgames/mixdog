@@ -974,6 +974,7 @@ export class SessionHost implements DesktopService {
       member: (sessionId, request) => this.agentRooms.member(sessionIdOf(sessionId), request),
       ask: (sessionId, request) => this.agentRooms.ask(sessionIdOf(sessionId), request),
       relay: (sessionId, prompt, options) => this.agentRooms.relay(sessionIdOf(sessionId), prompt, options),
+      stop: (sessionId) => this.agentRooms.stop(sessionIdOf(sessionId)),
     };
   }
 

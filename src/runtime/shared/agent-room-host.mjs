@@ -28,6 +28,9 @@ function hosts() {
  * - `relay(memberSessionId, prompt, { id?, hop? })` → `{ settled }`: the
  *   member's turn in its room relaying `prompt` (its reported work); `settled`
  *   resolves the turn's end status ('done' when it finished).
+ * - `stop(roomSessionId)` → boolean: the room's stop button: the speaking
+ *   member's turn is cancelled, queued calls settle cancelled, and no one else
+ *   gets a turn; true when an exchange was running.
  * `hop`: the send's or report's place in a bot-to-bot chain (bot-hops.mjs);
  * the member's turn carries it, so the sends it makes count on from there.
  * `follow(submissionId)` (both): the turn that answers is submitted under
