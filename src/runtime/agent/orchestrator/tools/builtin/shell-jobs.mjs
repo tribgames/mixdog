@@ -31,6 +31,7 @@ import {
   listShellJobRecords,
   markShellJobTerminationUnconfirmed,
   publishShellJobRecord,
+  recordShellJobHop,
   registerTerminationHold,
   retireShellJobRecord,
   takeReleaseRequest,
@@ -68,6 +69,7 @@ function prepareTrackedKill(entry) {
   );
 }
 import { isPidAlive } from '../../../../shared/pid-liveness.mjs';
+import { hopOf } from '../../../../shared/bot-hops.mjs';
 import {
   renderShellCompletionEnvelope,
   shellCompletionInstruction,
@@ -456,6 +458,10 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
       : jobNotifyCtxByJobId.get(jobId);
   if (!jobId || !getNativeTask(jobId) || backgroundShellJobWatchers.has(jobId)) return;
   if (ctx) jobNotifyCtxByJobId.set(jobId, ctx);
+  // The launching turn's bot-chain hop travels with the job: on its notify
+  // context, and on its record for a completion recovered after a restart.
+  const hop = hopOf(notifyCtx?.hop) || ctx?.hop || 0;
+  if (hop) void recordShellJobHop(jobId, hop);
   let settled = false;
   let unsubscribe = () => {};
   const cancel = () => {
@@ -501,7 +507,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         text: completion.notification,
         resultType: 'shell_task_result',
         instruction: completion.instruction,
-        context: ctx || { callerSessionId: owner },
+        context: ctx || { callerSessionId: owner, hop },
         enqueueFallback: enqueueCompletionFallback,
         logPrefix: 'shell-jobs',
       });
@@ -663,7 +669,7 @@ export async function reconcileRecoveredShellJobCompletions() {
         text: completion.notification,
         resultType: 'shell_task_result',
         instruction: completion.instruction,
-        context: { callerSessionId: owner },
+        context: { callerSessionId: owner, hop: record.hop },
         enqueueFallback: enqueueCompletionFallback,
         logPrefix: 'shell-jobs-recovery',
       });

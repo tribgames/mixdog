@@ -59,6 +59,7 @@ export function createAskSteeringDrain({ sessionId, turn, askOpts }) {
               ids: group.ids,
               mode: group.mode,
               ...(group.execution ? { execution: group.execution } : {}),
+              ...(group.hop ? { transcriptMeta: { hop: group.hop } } : {}),
             });
           }
         } else {

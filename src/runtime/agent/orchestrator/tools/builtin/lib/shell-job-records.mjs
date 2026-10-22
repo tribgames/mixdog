@@ -344,6 +344,12 @@ export function markShellJobTerminationUnconfirmed(jobId) {
   return patchRunningShellJobRecord(jobId, { terminationUnconfirmed: true });
 }
 
+/** Keep the bot-chain hop of the turn that launched a running job on its record,
+ *  so a completion recovered after a restart returns at it (bot-hops.mjs). */
+export function recordShellJobHop(jobId, hop) {
+  return patchRunningShellJobRecord(jobId, { hop });
+}
+
 function patchRunningShellJobRecord(jobId, patch) {
   const key = validJobId(jobId);
   if (!key) return Promise.resolve(false);

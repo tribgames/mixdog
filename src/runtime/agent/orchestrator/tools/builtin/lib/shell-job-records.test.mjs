@@ -13,6 +13,7 @@ import {
   listShellJobRecords,
   publishShellJobRecord,
   readShellJobRecord,
+  recordShellJobHop,
   retireShellJobRecord,
 } from './shell-job-records.mjs';
 import { holdWorkspaceActivity } from '../../../../../shared/worktrees/activity-gate.mjs';
@@ -30,6 +31,27 @@ async function readStatus(predicate) {
   }
   return shellJobsStatus({ clientHostPid: process.pid });
 }
+
+test('a running job record keeps the bot-chain hop of the turn that launched it, for restart recovery', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-records-hop-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    publishShellJobRecord(
+      { jobId: 'job_hop_1', pid: process.pid, command: 'sleep 30', cwd: root },
+      { ownerSessionId: 'sess-hop', clientHostPid: process.pid }
+    );
+    await recordShellJobHop('job_hop_1', 2);
+    assert.equal((await readShellJobRecord('job_hop_1')).hop, 2);
+    assert.equal((await listShellJobRecords()).find((record) => record.jobId === 'job_hop_1').hop, 2);
+    retireShellJobRecord('job_hop_1');
+    await _shellJobRecordWritesSettledForTest('job_hop_1');
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('a running shell job publishes a record the statusline reader counts', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-records-'));

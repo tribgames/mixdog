@@ -19,6 +19,7 @@ export function shellTaskIdentity(command, options) {
       callerSessionId: options?.callerSessionId || options?.sessionId || null,
       routingSessionId: options?.routingSessionId || options?.sessionId || null,
       clientHostPid: options?.clientHostPid,
+      hop: options?.hop,
     },
   };
 }
@@ -61,6 +62,7 @@ export function renderBackgroundedResult({ result, command, cwd, options, starte
         callerSessionId: options?.callerSessionId || options?.sessionId,
         routingSessionId: options?.routingSessionId || options?.sessionId,
         clientHostPid: options?.clientHostPid,
+        hop: options?.hop,
       });
     } catch {
       /* best effort */

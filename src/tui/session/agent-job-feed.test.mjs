@@ -259,6 +259,17 @@ test('an execution completion pushes one response card, enqueues the model-visib
   assert.deepEqual(h.sets.at(-1), { agentStatus: 'forced' }, 'a terminal status forces one coalesced refresh');
 });
 
+test('a completion that carries a bot-chain hop queues it as transcript metadata, and one without carries none', () => {
+  const h = makeHarness();
+  const withHop = completionEvent('exec-hop', 'Done.').event;
+  withHop.meta.hop = 2;
+  assert.equal(h.notify(withHop), true);
+  assert.deepEqual(h.named('enqueue')[0][2].transcriptMeta, { hop: 2 });
+  assert.equal(withHop.modelVisibleDelivered, true);
+  h.notify(completionEvent('exec-nohop', 'Done.').event);
+  assert.equal(h.named('enqueue')[1][2].transcriptMeta, undefined);
+});
+
 test('a running preview and its later body-carrying completion each get a card', () => {
   const h = makeHarness();
   const preview = completionEvent('exec-200', '', 'running');

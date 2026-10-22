@@ -34,6 +34,7 @@ const promptSourceFields = (source, execution) => {
 const tailTurnFor = (group) => ({
   content: group.content,
   entries: group.entries,
+  ...(group.hop ? { hop: group.hop } : {}),
   ...(group.mode === PENDING_MODE_TASK_NOTIFICATION
     ? promptSourceFields(PENDING_MODE_TASK_NOTIFICATION, group.execution)
     : {}),
@@ -46,6 +47,7 @@ const queuedTurnInput = (tailTurn) => ({
   context: null,
   explicitPrefetch: null,
   pendingEntries: tailTurn.entries,
+  ...(tailTurn.hop ? { hop: tailTurn.hop } : {}),
   promptSource: promptSourceFields(tailTurn.source, tailTurn.execution),
 });
 

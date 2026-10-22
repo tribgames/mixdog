@@ -3,6 +3,7 @@ import { mergeNormalizedContentEntries } from '../loop/steering.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 import { parseTaskNotification, taskNotificationId } from '../../../../shared/task-notification-envelope.mjs';
+import { hopOf } from '../../../../shared/bot-hops.mjs';
 
 const STALE_USER_INJECTION_TTL_MS = 30 * 60 * 1000;
 const PENDING_PROCESS_START_MS = Date.now();
@@ -95,11 +96,13 @@ function executionFromCompletionMeta(meta) {
 function completionEntryFields(entry) {
   const executionId = completionExecutionId(entry);
   const execution = normalizeExecution(entry?.execution, executionId);
+  const hop = hopOf(entry?.hop);
   return {
     notificationKind: COMPLETION_NOTIFICATION_KIND,
     mode: PENDING_MODE_TASK_NOTIFICATION,
     ...(executionId ? { executionId } : {}),
     ...(execution ? { execution } : {}),
+    ...(hop ? { hop } : {}),
   };
 }
 
@@ -141,6 +144,8 @@ export function markCompletionEntry(text, options = {}) {
     mode: PENDING_MODE_TASK_NOTIFICATION,
     ...(executionId ? { executionId } : {}),
     ...(execution ? { execution } : {}),
+    // The bot-chain hop of the turn that launched the work (bot-hops.mjs).
+    ...(hopOf(options?.meta?.hop) ? { hop: options.meta.hop } : {}),
     enqueuedAt: Date.now(),
   };
 }
@@ -337,6 +342,7 @@ export function _groupPendingMessageEntries(entries) {
       ...merged,
       mode: PENDING_MODE_TASK_NOTIFICATION,
       ...(normalized.execution ? { execution: normalized.execution } : {}),
+      ...(normalized.hop ? { hop: normalized.hop } : {}),
       ids: idsOf([entry]),
       entries: [entry],
     });

@@ -86,10 +86,13 @@ export function createExecutionDelivery({
     // active loop can attach them after the next tool batch. The immediate
     // response card was already pushed above, so the queued twin stays
     // model-visible but suppresses its drain-time transcript card.
-    const { execution } = markCompletionEntry(resumeBody, { executionId, meta: event?.meta });
+    const { execution, hop } = markCompletionEntry(resumeBody, { executionId, meta: event?.meta });
     const enqueued = enqueue(resumeBody, {
       mode: 'task-notification',
       ...(execution ? { execution } : {}),
+      // The launching turn's bot-chain hop: the turn this wakes, or the running
+      // turn this joins, resumes at it (bot-hops.mjs).
+      ...(hop ? { transcriptMeta: { hop } } : {}),
       priority: 'next',
       key: notificationKey || undefined,
       abortDiscardOnAbort: true,

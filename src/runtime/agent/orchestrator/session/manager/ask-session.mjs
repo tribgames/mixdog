@@ -89,7 +89,8 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
       opened,
       input,
       cwdOverride,
-      transcriptMeta: transcript.user,
+      // A task notification resumes the bot-chain hop of the turn that launched its work.
+      transcriptMeta: input.hop ? { ...transcript.user, hop: input.hop } : transcript.user,
       // The agents enabled as this user turn is prepared (the session
       // runtime's resolver; coding Leads): the agent list reminder compares
       // them with what the model was told. Asked again for every user turn

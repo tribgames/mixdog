@@ -1,4 +1,5 @@
 import { clean } from './clean.mjs';
+import { hopOf } from './bot-hops.mjs';
 import {
   parseTaskNotification,
   renderTaskCompletionEnvelope,
@@ -113,6 +114,8 @@ export function normalizeToolNotifyContext(context = {}) {
     callerSessionId: callerSessionId || null,
     routingSessionId: routingSessionId || null,
     clientHostPid,
+    // The bot-chain hop of the turn that launched the work (bot-hops.mjs).
+    ...(hopOf(context.hop) ? { hop: context.hop } : {}),
   };
 }
 
@@ -133,6 +136,7 @@ function toolCompletionMeta({ surface = 'tool', id, status, resultType, instruct
       ? { routing_session_id: ctx.routingSessionId }
       : {}),
     ...(ctx.clientHostPid ? { client_host_pid: String(ctx.clientHostPid) } : {}),
+    ...(ctx.hop ? { hop: ctx.hop } : {}),
   };
 }
 

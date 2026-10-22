@@ -4,11 +4,14 @@
 // stamped on the session when the turn is prepared); a send made in it goes
 // out at turnHop + 1. Only a message another bot sent counts: a turn started by
 // the user, a routine or a runtime notification (a task report, a wake) starts
-// at 0, so a bot's reports of its own sends never use up its budget.
+// at 0, so a bot's reports of its own sends never use up its budget. Background
+// work (a command, an agent task) launched in a bot-descended turn carries that
+// turn's hop on its completion notification (`hop` in the completion meta and
+// entry), and the turn the notification starts or joins resumes at it.
 export const MAX_BOT_HOPS = 3;
 export const BOT_HOP_LIMIT_ERROR = 'session: Bot-to-bot chain limit reached; ask the user before continuing.';
 
-const hopOf = (value) => (Number.isInteger(value) && value > 0 ? value : 0);
+export const hopOf = (value) => (Number.isInteger(value) && value > 0 ? value : 0);
 
 /** The hop of the turn that made a send, from the send's own place in the chain
  *  (`hop`, as a task report or watch carries it, with its `target`): a send to

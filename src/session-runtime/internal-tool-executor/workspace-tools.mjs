@@ -246,6 +246,8 @@ export function createWorkspaceToolHandlers({
         clientHostPid: callerCtx?.clientHostPid || rt.session?.clientHostPid || process.pid,
         signal: callerCtx?.signal,
         notifyFn: notifyFnForSession(callerSessionId),
+        // The jobs it starts report back at this turn's bot-chain hop (bot-hops.mjs).
+        ...(turnHopOf(rt.session) > 0 ? { hop: turnHopOf(rt.session) } : {}),
         // The jobs this call starts are recorded under it (agent-task-starts.mjs).
         ...(callerCtx?.toolCallId ? { toolCallId: callerCtx.toolCallId } : {}),
       });

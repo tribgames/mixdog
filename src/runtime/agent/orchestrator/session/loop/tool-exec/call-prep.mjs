@@ -7,6 +7,7 @@ import { enqueuePendingMessage, markCompletionEntry } from '../../manager/pendin
 import { markSessionToolOutputTail } from '../../manager/runtime-liveness.mjs';
 import { createScopedCacheOutcome } from '../../cache/scoped-cache-outcome.mjs';
 import { modelVisibleToolCompletionMessage } from '../../../../../shared/tool-execution-contract.mjs';
+import { turnHopOf } from '../../../../../shared/bot-hops.mjs';
 import { _isScopedCacheableTool } from '../tool-classify.mjs';
 import { refreshDeferredMcpToolCatalog } from '../../../runtime-core/tool-catalog.mjs';
 import { coerceToolArgsForSession } from '../arg-schema-coerce.mjs';
@@ -84,8 +85,12 @@ export function prepareToolCall(name, args, cwd, callerSessionId, sessionRef, ex
   const notificationSessionId = resolveToolCompletionSessionId({ callerSessionId });
   const notifyFn =
     typeof executeOpts.notifyFn === 'function' ? executeOpts.notifyFn : completionNotifier(notificationSessionId);
+  // Background work launched in a bot-descended turn reports back at that hop:
+  // it rides the job's notify context, so every completion's meta carries it.
+  const hop = turnHopOf(sessionRef);
   const completionToolOpts = {
     ...toolOpts,
+    ...(hop > 0 ? { hop } : {}),
     sessionId: callerSessionId,
     agent: sessionRef?.agent || null,
     callerSessionId: notificationSessionId || callerSessionId,

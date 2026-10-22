@@ -9,6 +9,7 @@ import { resourceAdmission } from '../../../../runtime/shared/resource-admission
 import { clean, terminalPidForContext } from '../helpers.mjs';
 import { renderResult } from '../render.mjs';
 import { closeManagedSession } from '../../../lifecycle/shared.mjs';
+import { hopOf } from '../../../../runtime/shared/bot-hops.mjs';
 
 /** The completion callback that hands a worker's result back to its caller session; null without a handoff. */
 function handoffNotifier(handoffSessionId, notifySessionCompletion) {
@@ -30,6 +31,8 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
       ownerSessionId: ownerSessionId || null,
       clientHostPid: clientHostPid || null,
       notifyFn: handoffNotifier(handoffSessionId, notifySessionCompletion),
+      // The turn that started the job: its completion returns at that bot-chain hop (bot-hops.mjs).
+      ...(hopOf(notifyContext?.hop) ? { hop: notifyContext.hop } : {}),
     };
     const jobMeta = sanitizeTaskMeta({
       ...(meta || {}),
