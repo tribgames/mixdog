@@ -12,6 +12,7 @@ import { t, uiFormatLocale } from './i18n';
 import { modelDisplayName } from './provider-display';
 import { quotaClock, quotaPercent, quotaValue, quotaValueBreakdown, quotaValueCaution } from './quota-usage-model';
 import { record, rows } from './record-utils';
+import { timeFormatOptions } from './time-format-preference';
 import { TrendDetailCard, useTrendDetail } from './trend-detail';
 import { statsNumber, statsTokens, trendPeriodLabel, type Row } from './usage-stats-model';
 
@@ -36,11 +37,12 @@ const AXIS_STEPS: AxisStep[] = [
   ...[1, 2, 7, 14].map((size) => ({ unit: 'day' as const, size })),
   ...[1, 2, 3, 6, 12].map((size) => ({ unit: 'month' as const, size })),
 ];
-const AXIS_FORMATS: Record<AxisUnit, Intl.DateTimeFormatOptions> = {
-  hour: { hour: '2-digit', minute: '2-digit' },
+// A function, not a constant: the time format is read when the axis is drawn.
+const axisFormats = (): Record<AxisUnit, Intl.DateTimeFormatOptions> => ({
+  hour: { hour: '2-digit', minute: '2-digit', ...timeFormatOptions() },
   day: { month: 'short', day: 'numeric' },
   month: { month: 'short' },
-};
+});
 
 type Point = [number, number, number];
 type LegendItem = { key: string; label: string; series: string };
@@ -326,7 +328,7 @@ export function QuotaTrend({
     uiFormatLocale(),
     axis.unit === 'month' && new Date(from).getFullYear() !== new Date(to).getFullYear()
       ? { year: 'numeric', month: 'short' }
-      : AXIS_FORMATS[axis.unit]
+      : axisFormats()[axis.unit]
   );
   const ticks = axis.times.filter((time) => {
     const share = x(time) / WIDTH;
@@ -334,7 +336,11 @@ export function QuotaTrend({
     return share >= AXIS_EDGE && share <= 1 - AXIS_EDGE && clearOfNow;
   });
   const clockRange = (start: number, end: number) =>
-    new Intl.DateTimeFormat(uiFormatLocale(), { hour: '2-digit', minute: '2-digit' }).formatRange(
+    new Intl.DateTimeFormat(uiFormatLocale(), {
+      hour: '2-digit',
+      minute: '2-digit',
+      ...timeFormatOptions(),
+    }).formatRange(
       new Date(start),
       new Date(end)
     );

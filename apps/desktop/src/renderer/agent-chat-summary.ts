@@ -9,6 +9,7 @@ import {
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import { agentRoleLabel, flattenAgentActivityNodes, type AgentActivityNode } from './agent-activity-model';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 
 /** The ONE trailing status of a row, strongest first: blocked on the user,
  *  failed, working, unread. Done-and-read shows nothing. */
@@ -59,7 +60,11 @@ export function agentGroupIndicator(
  *  two-digit month and day. Older numeric dates are the rare case: they wrap. */
 export function agentChatTimeColumnLabels(locale = uiFormatLocale()): string[] {
   const clock = (hour: number) =>
-    new Date(2026, 11, 28, hour, 59).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+    new Date(2026, 11, 28, hour, 59).toLocaleTimeString(locale, {
+      hour: 'numeric',
+      minute: '2-digit',
+      ...timeFormatOptions(),
+    });
   return [
     clock(12),
     clock(23),
@@ -104,7 +109,7 @@ export function agentChatTimeLabel(at: number, now = Date.now()): string {
   const day = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
   const diff = Math.round((day(today) - day(date)) / 86_400_000);
   const locale = uiFormatLocale();
-  if (diff <= 0) return date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+  if (diff <= 0) return date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit', ...timeFormatOptions() });
   if (diff === 1) return t('Yesterday');
   if (date.getFullYear() === today.getFullYear()) {
     return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });

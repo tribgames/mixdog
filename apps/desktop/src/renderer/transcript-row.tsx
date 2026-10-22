@@ -6,6 +6,7 @@ import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItem
 import type { TranscriptItem } from './desktop-types';
 import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 import { useRoomContacts } from './agent-room-parts';
 import { stripAgentMessageEnvelope } from '../../../../src/runtime/shared/agent-message-envelope.mjs';
 import { localizeRouteFallbackNotice } from './error-notice-copy';
@@ -192,7 +193,7 @@ export function transcriptItemsEqual(previous: TranscriptItem | undefined, next:
 function messageMetadata(item: TranscriptItem) {
   const shortTime =
     typeof item.at === 'number' && Number.isFinite(item.at) && item.at > 0
-      ? new Date(item.at).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short' })
+      ? new Date(item.at).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short', ...timeFormatOptions() })
       : '';
   return { shortTime };
 }

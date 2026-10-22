@@ -18,6 +18,7 @@ import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, use
 import { ProgressSpinner } from './ProgressSpinner';
 import { isSshConnectionWindow } from './desktop-connection';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 import { useMobileBack } from './mobile-back';
 import { formatBytes, pillLabel, type MediaAsset, type MediaKind } from './studio-support';
 
@@ -244,7 +245,11 @@ export function StudioDetailViewer({
     [t('File size'), formatBytes(asset.bytes)],
     [
       t('Created'),
-      new Date(asset.createdAt).toLocaleString(uiFormatLocale(), { dateStyle: 'medium', timeStyle: 'short' }),
+      new Date(asset.createdAt).toLocaleString(uiFormatLocale(), {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        ...timeFormatOptions(),
+      }),
     ],
   ];
   return (

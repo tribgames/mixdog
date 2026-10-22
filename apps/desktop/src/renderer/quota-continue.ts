@@ -1,5 +1,6 @@
 import type { TranscriptItem } from './desktop-types';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
+import { clockText } from './time-format-preference';
 
 /** Provider kinds the composer banner speaks to; only the first can be resumed at a reset. */
 export type QuotaFailureKind = 'quota_exhausted' | 'entitlement' | 'billing';
@@ -62,8 +63,7 @@ export function quotaPanelVisible(state: {
 /** Local HH:mm, prefixed with month/day when the reset is not today. */
 export function quotaResetLabel(resetAt: number, now = Date.now()): string {
   const reset = new Date(resetAt);
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const time = `${pad(reset.getHours())}:${pad(reset.getMinutes())}`;
+  const time = clockText(reset, uiFormatLocale());
   return reset.toDateString() === new Date(now).toDateString()
     ? time
     : `${reset.getMonth() + 1}/${reset.getDate()} ${time}`;

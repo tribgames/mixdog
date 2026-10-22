@@ -21,6 +21,7 @@ import {
 } from '../shared/window-layout';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { sessionLabel } from './session-sidebar-rows';
 import { projectIdentity, sessionProjectKey } from './project-catalog-cache';
@@ -98,6 +99,7 @@ export function groupAutomationSessions(activityOrderedRows: DesktopSessionSumma
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        ...timeFormatOptions(),
       }),
     });
   }

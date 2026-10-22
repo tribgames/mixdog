@@ -11,6 +11,7 @@ import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
 import { record } from '../record-utils';
+import { getTimeFormat, setTimeFormat, subscribeTimeFormat, type TimeFormat } from '../time-format-preference';
 import { isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
 import {
   getSidePanelMode,
@@ -51,6 +52,37 @@ function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
           setError('');
           setPreference(selected);
           if (resolveUiLanguage(selected) !== previous) window.location.reload();
+        }}
+      />
+      {error && <p role="alert">{error}</p>}
+    </Group>
+  );
+}
+
+/** Per-device clock style. Reloads on a change, like the language: times are formatted
+ *  where they render, so one reload refreshes every visible time. */
+function TimeFormatChoice({ pending }: Pick<PanelContext, 'pending'>) {
+  const format = useSyncExternalStore(subscribeTimeFormat, getTimeFormat, () => 'system' as TimeFormat);
+  const [error, setError] = useState('');
+  return (
+    <Group title={t('Time format')}>
+      <SelectRow
+        title={t('Time format')}
+        value={format}
+        disabled={Boolean(pending)}
+        options={[
+          { value: 'system', label: t('System default') },
+          { value: '12h', label: t('12-hour') },
+          { value: '24h', label: t('24-hour') },
+        ]}
+        onChange={(next) => {
+          if (next === format) return;
+          if (!setTimeFormat(next as TimeFormat)) {
+            setError(t('The setting could not be saved.'));
+            return;
+          }
+          setError('');
+          window.location.reload();
         }}
       />
       {error && <p role="alert">{error}</p>}
@@ -172,6 +204,7 @@ export function DisplayPanel({ pending }: PanelContext) {
         </Group>
       )}
       <UiLanguageChoices pending={pending} />
+      <TimeFormatChoice pending={pending} />
       <Group title={t('Link preview')}>
         <LinkPreviewToggle pending={pending} />
       </Group>
@@ -291,6 +324,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
       {!remoteSurface && (
         <>
           <UiLanguageChoices pending={pending} />
+          <TimeFormatChoice pending={pending} />
           <SidePanelChoices pending={pending} />
         </>
       )}

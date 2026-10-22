@@ -1,5 +1,6 @@
 import { ArrowLeft, Check, Copy } from 'lucide-react';
 import { t, uiFormatLocale } from './i18n';
+import { clockText, timeFormatOptions } from './time-format-preference';
 import type { DesktopGitCommitDetails, DesktopGitCommitFile } from '../shared/contract';
 import { GitFileDiff } from './ReviewPane';
 import { ScmPathText } from './ScmPathText';
@@ -9,13 +10,13 @@ import { fileBaseName } from './text-format';
 
 /** Compact `YYYY-MM-DD HH:mm` for the byline; the full locale string stays
  *  in the tooltip. Falls back to the raw value when git gave no ISO date. */
-function formatCommitDate(iso: string): string {
+export function formatCommitDate(iso: string): string {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return iso;
   const pad = (value: number) => String(value).padStart(2, '0');
   return (
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}`
+    clockText(date, uiFormatLocale())
   );
 }
 
@@ -81,7 +82,7 @@ export function SourceControlCommitDetail({
               <span className="dock-scm-commit-author" title={detail.email}>
                 <span>{detailAuthor || unknownAuthor()}</span>
               </span>
-              <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString(uiFormatLocale())}>
+              <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString(uiFormatLocale(), timeFormatOptions())}>
                 {formatCommitDate(detail.authoredAt)}
               </time>
               <span className="dock-scm-commit-sha" title={detail.hash}>

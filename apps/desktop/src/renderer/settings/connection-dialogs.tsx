@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopRemoteAccessInfo } from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
 import { t, uiFormatLocale } from '../i18n';
+import { timeFormatOptions } from '../time-format-preference';
 import { useMobileBack } from '../mobile-back';
 import { scrimDismiss } from '../scrim-dismiss';
 import { setRemoteClaimPromptActive } from '../remote-claim-prompt-state';
@@ -210,6 +211,7 @@ function ClaimBody({ claim, error }: { claim: ReturnType<typeof useClaimQueue>[n
   const time = new Date(claim.requestedAt ?? Date.now()).toLocaleTimeString(uiFormatLocale(), {
     hour: '2-digit',
     minute: '2-digit',
+    ...timeFormatOptions(),
   });
   return (
     <div className="conn-claim">

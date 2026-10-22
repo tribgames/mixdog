@@ -1,5 +1,6 @@
 import type { GoalSnapshot, Snapshot } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 
 export type GoalDisplayStatus = NonNullable<GoalSnapshot['status']> | 'responding';
 
@@ -39,7 +40,7 @@ export function formatGoalDuration(milliseconds: number): string {
 export function goalCompletedTimeLabel(goal: GoalSnapshot): string {
   const completedAt = Number(goal.completedAt) || 0;
   if (goal.status !== 'complete' || completedAt <= 0) return '';
-  return new Date(completedAt).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short' });
+  return new Date(completedAt).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short', ...timeFormatOptions() });
 }
 
 function goalElapsedMs(goal: GoalSnapshot, clock: number): number {

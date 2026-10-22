@@ -1,6 +1,7 @@
 // Subscription usage presentation: meter percentages, clock times, the
 // even-pace reference, the warning tone and the chart inks.
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 import { usageMoney } from './usage-format';
 import { localDayKey, statsNumber, type Row } from './usage-stats-model';
 
@@ -32,7 +33,11 @@ export function quotaPercent(value: unknown): string {
 
 /** A clock time, dated once it is not today. */
 export function quotaClock(time: number, now: number): string {
-  const options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+  const options: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...timeFormatOptions(),
+  };
   if (localDayKey(time) !== localDayKey(now)) {
     options.month = 'short';
     options.day = 'numeric';

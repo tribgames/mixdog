@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { recoveryFailureCode, type RecoveryErrorCode } from '../shared/project-recovery';
+import { timeFormatOptions } from './time-format-preference';
 import type {
   ProjectRecoveryDetail,
   ProjectRecoveryFileStatus,
@@ -161,7 +162,7 @@ export function ProjectRecoveryPanel({
             </span>{' '}
             {record.createdAt > 0 && (
               <time dateTime={new Date(record.createdAt).toISOString()}>
-                {new Date(record.createdAt).toLocaleString()}
+                {new Date(record.createdAt).toLocaleString(undefined, timeFormatOptions())}
               </time>
             )}{' '}
             <button

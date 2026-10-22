@@ -16,13 +16,14 @@ import type { TranscriptItem } from './desktop-types';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 import MarkdownBody from './MarkdownBody';
 import { CopyControl } from './transcript-primitives';
 import { ChromeReimportButton, routineLoginRequiredSite, signInAgainOn } from './browser-login-recovery';
 import { routineFailureLine, routineHumanNeededLine } from './routine-notice';
 import './agent-chat.css';
 
-const timeText = (at: number) => (at ? new Date(at).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short' }) : '');
+const timeText = (at: number) => (at ? new Date(at).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short', ...timeFormatOptions() }) : '');
 const dayText = (at: number) => new Date(at).toLocaleDateString(uiFormatLocale(), { dateStyle: 'full' });
 
 /** Show `sessionId`'s 루틴 tab, where each routine's runs are listed. */

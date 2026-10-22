@@ -9,9 +9,16 @@ import { t, uiFormatLocale } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import type { RoutineHealth, RoutineRow } from './routines-model';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
+import { timeFormatOptions } from './time-format-preference';
 
 const when = (at: number) =>
-  new Date(at).toLocaleString(uiFormatLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  new Date(at).toLocaleString(uiFormatLocale(), {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...timeFormatOptions(),
+  });
 
 const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ['day', 86_400_000],

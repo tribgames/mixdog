@@ -17,6 +17,7 @@ import { OPEN_AGENT_PANEL_EVENT, setAgentPanelTab } from './agent-panel-tab';
 import { FittedReadout, type ReadoutItem, readoutVariants } from './composer-usage-readout';
 import type { RecordValue } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 import { record, rows } from './record-utils';
 import { requestNewSchedule } from './routine-editor-request';
 import { relativeTime } from './routine-list-item';
@@ -90,6 +91,7 @@ export function nextRunPhrase(at: number, now = Date.now()): string {
   const time = date.toLocaleTimeString(locale, {
     hour: 'numeric',
     minute: date.getMinutes() ? '2-digit' : undefined,
+    ...timeFormatOptions(),
   });
   return `${relative.format(days, 'day')} ${time}`;
 }

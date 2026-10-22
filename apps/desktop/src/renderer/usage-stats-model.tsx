@@ -4,6 +4,7 @@ import type { DesktopCapability } from '../shared/contract';
 import { dayKey, pad2, type DayRange } from './DateRangePicker';
 import { t, uiFormatLocale } from './i18n';
 import { rows } from './record-utils';
+import { timeFormatOptions } from './time-format-preference';
 import { usageCompact, usageMoney, usageNumber } from './usage-format';
 
 export type Row = Record<string, unknown>;
@@ -284,6 +285,7 @@ export function trendPeriodLabel(
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      ...timeFormatOptions(),
     }).formatRange(new Date(bucket.fromMs), new Date(bucket.toMs));
   }
   if (!bucket.startDay) return bucket.label;
@@ -306,6 +308,7 @@ export function periodLabel(view: StatsView | 'window', period: Row, firstDay?: 
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      ...timeFormatOptions(),
     };
     if (clocked) options.year = 'numeric';
     return new Intl.DateTimeFormat(uiFormatLocale(), options).formatRange(

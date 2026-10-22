@@ -17,6 +17,7 @@ import {
 } from './automation-agent-picker';
 import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
+import { timeFormatOptions } from './time-format-preference';
 import { record, rows } from './record-utils';
 import { RoutineItem, relativeTime } from './routine-list-item';
 import {
@@ -126,6 +127,7 @@ export function describeSchedule(schedule: RecordValue): string {
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
+            ...timeFormatOptions(),
           }),
         });
   }

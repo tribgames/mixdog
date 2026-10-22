@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 
 import { type NativeAppUpdateState, NATIVE_UPDATE_EVENT, nativeAppInfo } from '../shared/native-app';
 import { t, uiFormatLocale } from './i18n';
+import { timeFormatOptions } from './time-format-preference';
 
 // The Android phone app shell reports its own app-update state through the
 // native bridge; this banner is the whole UI for it. Old shells answer the
@@ -140,7 +141,11 @@ export interface PhoneAppUpdateView {
 
 function clockLabel(at: number | undefined): string {
   if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return '';
-  return new Date(at).toLocaleTimeString(uiFormatLocale(), { hour: 'numeric', minute: '2-digit' });
+  return new Date(at).toLocaleTimeString(uiFormatLocale(), {
+    hour: 'numeric',
+    minute: '2-digit',
+    ...timeFormatOptions(),
+  });
 }
 
 /** Settings view of the phone app's update: always shown, ignores `dismissed`.
