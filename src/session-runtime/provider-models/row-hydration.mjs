@@ -45,12 +45,15 @@ export function hydrateProviderModelRow(cfg, row) {
   const modelParameterOptions = addedOptions.length
     ? [...existingOptions.filter((option) => !addedOptions.some((added) => added.id === option?.id)), ...addedOptions]
     : row.modelParameterOptions;
-  const customName = row.provider?.startsWith?.('custom-')
-    ? String(cfg?.providers?.[row.provider]?.name || '').trim()
-    : '';
+  const isCustom = row.provider?.startsWith?.('custom-');
+  const customName = isCustom ? String(cfg?.providers?.[row.provider]?.name || '').trim() : '';
+  // A custom provider's name always comes from the current configuration; a
+  // row's own (possibly renamed or removed) name is dropped.
+  const base = { ...row };
+  if (isCustom) delete base.providerName;
   return {
-    ...row,
-    ...(customName && !row.providerName ? { providerName: customName } : {}),
+    ...base,
+    ...(customName ? { providerName: customName } : {}),
     ...(alias ? { display: alias, displayAlias: alias } : {}),
     ...(modelParameterOptions ? { modelParameterOptions } : {}),
     effortOptions: effortItemsFor(row.provider, row, null),
