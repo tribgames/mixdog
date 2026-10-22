@@ -20,7 +20,7 @@ import type { CommandSurface as CommandSurfaceName, SettingsSection } from './sl
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import { submissionIdentity, transcriptRowArchived, turnPromptText, type TranscriptRowModel } from './transcript-rows';
-import { TranscriptRow } from './transcript-row';
+import { showsResponseFooter, TranscriptResponseFooter, TranscriptRow } from './transcript-row';
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
@@ -515,6 +515,15 @@ export function transcriptRowNode(
     completionActivityKey: completionActivityKey(sessionId, turnIdentity),
     disclosureScope,
   };
+  // Coding mode: a turn's status line is the last thing of the turn, so with
+  // cards the footer follows them instead of sitting inside the message.
+  const footerAfterCards =
+    !quietTools &&
+    Boolean(row.turnChanges) &&
+    Boolean(row.completion) &&
+    row.item?.kind === 'assistant' &&
+    showsResponseFooter(row.item, row.completion);
+  if (footerAfterCards) assistantProps.footerAfterCards = true;
   const assistant = renderAssistantRow ? (
     renderAssistantRow(assistantProps)
   ) : (
@@ -525,6 +534,16 @@ export function transcriptRowNode(
       {assistant}
       {seatTurnCards(turnCards)}
       <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
+      {footerAfterCards && row.item && row.completion ? (
+        <TranscriptResponseFooter
+          trailing
+          item={row.item}
+          completion={row.completion}
+          animateComplete={assistantProps.animateComplete}
+          completionActivityKey={assistantProps.completionActivityKey}
+          backgroundWork={assistantProps.backgroundWork}
+        />
+      ) : null}
     </>
   ) : (
     assistant

@@ -236,6 +236,52 @@ export const TranscriptDevicesContext = createContext(false);
  *  sent from this device is never labelled "from <this device>". */
 export const TranscriptViewerDeviceContext = createContext<string | null>('');
 
+/** Whether a settled reply carries a response footer (status line + copy). */
+export function showsResponseFooter(item: TranscriptItem, completion?: TranscriptItem): boolean {
+  return item.kind === 'assistant' && !item.streaming && Boolean(completion) && isVisibleTranscriptItem(item);
+}
+
+/** The response footer: the turn's status line, time and copy control. One
+ *  element for waiting and complete alike, so the swap never remounts it. */
+export function TranscriptResponseFooter({
+  item,
+  completion,
+  animateComplete,
+  completionActivityKey,
+  backgroundWork,
+  trailing = false,
+}: {
+  item: TranscriptItem;
+  completion: TranscriptItem;
+  animateComplete?: boolean;
+  completionActivityKey?: string;
+  backgroundWork?: BackgroundWorkCounts;
+  /** Rendered after the turn's cards rather than inside the message. */
+  trailing?: boolean;
+}) {
+  // Only the footer shows the time. Formatting it per render cost the live
+  // row a locale lookup on every streamed commit.
+  const metadata = messageMetadata(item);
+  const text = String(item.text || '');
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.
+    <footer
+      className={trailing ? 'response-footer response-footer-trailing' : 'response-footer'}
+      role="group"
+      aria-label={t('Response details')}
+    >
+      <CompletionStatus
+        item={completion}
+        animateComplete={animateComplete}
+        completionActivityKey={completionActivityKey}
+        backgroundWork={backgroundWork}
+      />
+      {metadata?.shortTime && <time className="message-time">{metadata.shortTime}</time>}
+      {text && <CopyControl value={text} label="Copy response" className="message-actions response-copy" />}
+    </footer>
+  );
+}
+
 export const TranscriptRow = memo(
   function TranscriptRow({
     item,
@@ -247,7 +293,11 @@ export const TranscriptRow = memo(
     disclosureScope = '',
     revealKey = '',
     paced = false,
+    footerAfterCards = false,
   }: {
+    /** The turn's cards follow this row: its response footer is rendered by the
+     *  caller after them (TranscriptResponseFooter), not inside the message. */
+    footerAfterCards?: boolean;
     /** Background work still running; passed only to the latest completion. */
     backgroundWork?: BackgroundWorkCounts;
     /** Row key of an assistant part: its reveal and fade identity. */
@@ -342,9 +392,6 @@ export const TranscriptRow = memo(
       );
     }
     const showFooter = !user && !streaming && Boolean(completion);
-    // Only the footer shows the time. Formatting it per render cost the live
-    // row a locale lookup on every streamed commit.
-    const metadata = showFooter ? messageMetadata(item) : null;
     const attachedImages = user && Array.isArray(item.images) ? item.images : [];
     const imageMarkers = user ? extractImageMarkers(text) : { text, chips: [] };
     const markerChips = attachedImages.length > 0 ? [] : imageMarkers.chips;
@@ -417,18 +464,14 @@ export const TranscriptRow = memo(
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
           )}
           {user && <SteerStatus item={item} />}
-          {showFooter && completion && (
-            // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.
-            <footer className="response-footer" role="group" aria-label={t('Response details')}>
-              <CompletionStatus
-                item={completion}
-                animateComplete={animateComplete}
-                completionActivityKey={completionActivityKey}
-                backgroundWork={backgroundWork}
-              />
-              {metadata?.shortTime && <time className="message-time">{metadata.shortTime}</time>}
-              {text && <CopyControl value={text} label="Copy response" className="message-actions response-copy" />}
-            </footer>
+          {showFooter && completion && !footerAfterCards && (
+            <TranscriptResponseFooter
+              item={item}
+              completion={completion}
+              animateComplete={animateComplete}
+              completionActivityKey={completionActivityKey}
+              backgroundWork={backgroundWork}
+            />
           )}
         </article>
         {announceSettled && !completion && (
@@ -447,6 +490,7 @@ export const TranscriptRow = memo(
     previous.backgroundWork?.shell === next.backgroundWork?.shell &&
     previous.backgroundWork?.agent === next.backgroundWork?.agent &&
     previous.attachedUser === next.attachedUser &&
+    previous.footerAfterCards === next.footerAfterCards &&
     previous.revealKey === next.revealKey &&
     previous.paced === next.paced &&
     previous.disclosureScope === next.disclosureScope

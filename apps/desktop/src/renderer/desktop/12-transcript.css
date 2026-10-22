@@ -638,11 +638,15 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
    it: the completion footer here and the live band row (TranscriptList: the
    row above a band takes no step, the band row leads in 16px). Swapping one
    for the other cannot move the transcript. */
-.message.assistant .response-footer:has(.turn-status) {
+.message.assistant .response-footer:has(.turn-status),
+.response-footer-trailing:has(.turn-status) {
   min-height: 24px;
   margin-top: 16px;
 }
-.message.assistant .response-footer .message-actions {
+/* The footer of a turn with cards follows them (the status line is the last
+   thing of the turn), outside the message: same copy control, same rhythm. */
+.message.assistant .response-footer .message-actions,
+.response-footer-trailing .message-actions {
   position: static;
   width: 24px;
   height: 24px;
@@ -659,6 +663,10 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
 }
 .message.assistant:hover .response-footer .message-actions,
 .message.assistant:focus-within .response-footer .message-actions,
+.transcript-live-part:hover ~ .response-footer-trailing .message-actions,
+.transcript-live-part:focus-within ~ .response-footer-trailing .message-actions,
+.response-footer-trailing:hover .message-actions,
+.response-footer-trailing:focus-within .message-actions,
 .message.assistant .response-footer .message-actions:hover,
 .message.assistant .response-footer .message-actions:focus-visible {
   opacity: 1;

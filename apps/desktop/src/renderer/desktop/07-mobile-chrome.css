@@ -1479,6 +1479,7 @@ html[data-mixdog-mobile-tabs]
    action the desktop reveals under the pointer rests visible here. */
 html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer .message-actions,
+html[data-mixdog-mobile-tabs] .response-footer-trailing .message-actions,
 html[data-mixdog-mobile-tabs] .dock-pr-row-actions {
   opacity: 1;
   pointer-events: auto;
@@ -1552,6 +1553,7 @@ html[data-mixdog-mobile-tabs] .attachment-card-edit {
    the box grows for the finger, the mark stays a mark. */
 html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer .message-actions,
+html[data-mixdog-mobile-tabs] .response-footer-trailing .message-actions,
 html[data-mixdog-mobile-tabs] .tool-detail-copy,
 html[data-mixdog-mobile-tabs] .markdown-code-copy,
 html[data-mixdog-mobile-tabs] .markdown-code-run,
@@ -1563,6 +1565,7 @@ html[data-mixdog-mobile-tabs] .turn-review-revert {
 }
 html[data-mixdog-mobile-tabs] .message .response-footer,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer:has(.turn-status),
+html[data-mixdog-mobile-tabs] .response-footer-trailing:has(.turn-status),
 html[data-mixdog-mobile-tabs] .live-activity-slot[data-busy="true"],
 html[data-mixdog-mobile-tabs] .markdown-code > header {
   min-height: var(--mx-touch-fixed-main);
