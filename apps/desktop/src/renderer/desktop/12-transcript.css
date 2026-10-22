@@ -816,6 +816,44 @@ html[data-mixdog-mobile-tabs] .message.user .message-steer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A long sent paste is cut to its first lines; its last lines fade out to mark the hidden rest. */
+.message.user .message-body p.message-pasted-text-collapsed {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 4.5em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 4.5em), transparent);
+}
+.message-pasted-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  margin: 2px 0 2px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.message-pasted-toggle:hover {
+  color: var(--mx-text);
+}
+.message-pasted-toggle:focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: 2px;
+}
+.message-pasted-toggle svg {
+  transition: transform 0.15s;
+}
+.message-pasted-toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-pasted-toggle svg {
+    transition: none;
+  }
+}
 .markdown pre {
   padding: 12px;
   border: 0;

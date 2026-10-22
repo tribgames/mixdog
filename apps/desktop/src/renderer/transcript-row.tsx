@@ -1,6 +1,6 @@
-import { GitCommitHorizontal, GitPullRequest, SlidersHorizontal, Upload } from 'lucide-react';
+import { ChevronDown, GitCommitHorizontal, GitPullRequest, SlidersHorizontal, Upload } from 'lucide-react';
 import { parseIslandGitRequestText } from './island-git-request';
-import { Suspense, createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, createContext, memo, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useAttachmentContextMenu } from './attachment-context-menu';
 import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItemContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
@@ -57,6 +57,40 @@ import {
 // Wrapping history in React.lazy suspended even after preloading completed,
 // holding the first transcript behind React's fallback reveal throttle.
 export { MarkdownBody };
+
+const SENT_PASTE_PREVIEW_LINES = 20;
+
+/** A sent paste inline; past 20 lines only the first 20 are rendered until expanded. */
+function SentPasteBlock({ text }: { text?: string }) {
+  const id = useId();
+  const [expanded, setExpanded] = useState(false);
+  const full = text ?? '';
+  const lines = full.split('\n');
+  const long = lines.length > SENT_PASTE_PREVIEW_LINES;
+  const collapsed = long && !expanded;
+  return (
+    <>
+      <p
+        id={id}
+        className={collapsed ? 'message-pasted-text message-pasted-text-collapsed' : 'message-pasted-text'}
+      >
+        {collapsed ? lines.slice(0, SENT_PASTE_PREVIEW_LINES).join('\n') : full}
+      </p>
+      {long && (
+        <button
+          type="button"
+          className="message-pasted-toggle"
+          aria-expanded={expanded}
+          aria-controls={id}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {t(expanded ? 'Show less' : 'Show more')}
+          <ChevronDown size={12} aria-hidden="true" />
+        </button>
+      )}
+    </>
+  );
+}
 
 const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: string }) {
   if (isPlainTextMarkdown(text)) return <p>{text}</p>;
@@ -443,9 +477,7 @@ export const TranscriptRow = memo(
                 ? splitInlinePastes(tweaksFold.text).map((part, index) =>
                     'paste' in part ? (
                       // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
-                      <p key={`paste-${index}`} className="message-pasted-text">
-                        {pastedTexts[part.paste]}
-                      </p>
+                      <SentPasteBlock key={`paste-${index}`} text={pastedTexts[part.paste]} />
                     ) : (
                       // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
                       <p key={`text-${index}`}>

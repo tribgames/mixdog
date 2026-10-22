@@ -252,3 +252,38 @@ test('one finished read does not restart the reads still in flight', async () =>
   assert.equal(host.textContent, JSON.stringify(['first', 'second']));
   await act(async () => root.unmount());
 });
+
+async function renderPaste(id, lineCount) {
+  const { registerSentAttachments } = await import('./attachment-menu.ts');
+  const name = `Pasted text · ${lineCount} lines`;
+  const token = `[Pasted text #1 +${lineCount} lines]`;
+  const data = Array.from({ length: lineCount }, (_, i) => `line${i + 1}`).join('\n');
+  registerSentAttachments(id, [{ token, kind: 'text', name, mimeType: 'text/plain', data, paste: true }]);
+  return { data, ...(await renderRow({ kind: 'user', id, text: token })) };
+}
+
+test('a 20-line sent paste renders in full with no toggle', async () => {
+  const { data, host, unmount } = await renderPaste('m20', 20);
+  assert.equal(host.querySelector('.message-pasted-text').textContent, data);
+  assert.equal(host.querySelector('.message-pasted-toggle'), null);
+  await unmount();
+});
+
+test('a 21-line sent paste collapses to 20 lines and toggles', async () => {
+  const { data, host, unmount } = await renderPaste('m21', 21);
+  const block = () => host.querySelector('.message-pasted-text');
+  const button = () => host.querySelector('.message-pasted-toggle');
+  assert.equal(block().textContent, data.split('\n').slice(0, 20).join('\n'));
+  assert.equal(button().textContent, 'Show more');
+  assert.equal(button().getAttribute('aria-expanded'), 'false');
+  assert.equal(button().getAttribute('aria-controls'), block().id);
+  await act(async () => button().click());
+  assert.equal(block().textContent, data);
+  assert.equal(button().textContent, 'Show less');
+  assert.equal(button().getAttribute('aria-expanded'), 'true');
+  await act(async () => button().click());
+  assert.equal(block().textContent, data.split('\n').slice(0, 20).join('\n'));
+  assert.equal(button().textContent, 'Show more');
+  assert.equal(button().getAttribute('aria-expanded'), 'false');
+  await unmount();
+});
