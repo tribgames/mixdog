@@ -1,16 +1,21 @@
-import { type RefObject, useCallback, useEffect, useRef } from 'react';
+import { type RefObject, useCallback, useRef } from 'react';
 import {
+  chromePressHeld,
   distanceFromBottom,
-  readerScrollShouldReleaseFollow,
-  scrollExtentClamped,
+  judgeScrollEvent,
+  keyUpRecent,
+  mutationExplainsScroll,
   scrollMetrics,
-  transcriptEndReached,
+  touchEndRecent,
   transcriptScrollDeviation,
+  wheelUpRecent,
+  widthShiftPending,
 } from './transcript-follow-rules';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
+import type { FollowSignals } from './use-follow-signals';
 
-/** What the last scroll event and the last content observation saw: the
- *  baselines every release / re-attach / growth decision is judged against. */
+/** What the last scroll event saw: the baselines every direction judgement is
+ *  made against. */
 export function useScrollBaselines() {
   // Last observed offset, so a release demands an actual UPWARD move.
   const lastTop = useRef(0);
@@ -18,217 +23,168 @@ export function useScrollBaselines() {
   // native displacement: a correction the timeline holds (or lands) during a
   // touch scroll moves the logical offset while the reader does not move.
   const lastNativeTop = useRef(0);
-  // Last observed content height, so a growth commit can be judged against the
-  // bottom it had BEFORE that growth (see grewWhileAtBottom).
-  const lastScrollHeight = useRef(0);
-  // Distance from the content end as of the last event that was NOT a
-  // content mutation — the pre-mutation snapshot a plain listener takes.
-  const lastDistance = useRef(0);
 
   /** Re-seeds from the viewport as it is now (or zeroes without one). */
   const reseedBaselines = useCallback((element: HTMLDivElement | null) => {
     if (!element) {
       lastNativeTop.current = 0;
       lastTop.current = 0;
-      lastScrollHeight.current = 0;
-      lastDistance.current = 0;
       return;
     }
     try {
       const metrics = scrollMetrics(element);
       lastTop.current = metrics.top;
       lastNativeTop.current = metrics.top - transcriptScrollDeviation(element);
-      lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
-      lastDistance.current = distanceFromBottom(metrics);
     } catch {
       /* layout only */
     }
   }, []);
 
-  return { lastTop, lastNativeTop, lastScrollHeight, lastDistance, reseedBaselines };
+  return { lastTop, lastNativeTop, reseedBaselines };
 }
 
 /**
- * Follow re-engages only where the reader stopped THEMSELVES: at the end of
- * the content, once their scroll has settled. Re-attaching mid-scroll handed
- * the viewport to the end pin while the reader was still moving — it snapped
- * the rest of the way down for them and pushed new output up under their hand
- * (wheel, touch and its fling alike). So a reader scroll event only records
- * whether it ended at the end; the decision waits, frame by frame, until the
- * reader's scroll is over, and is then taken from that last reader position.
- * Content that grows meanwhile does not undo the arrival: the reader reached
- * the end, and from then on the end pin keeps it.
+ * The scroll judgement: one observation of the viewport's offset (a scroll
+ * event, or a finger lift) and what it means for follow — see
+ * judgeScrollEvent. Returns the observer to call with `true` for a scroll
+ * event and `false` for a lift.
  */
-export function useSettledReattach({
-  followingRef,
-  readerSettled,
-  publish,
-}: {
-  followingRef: RefObject<boolean>;
-  /** No wheel, touch, fling or touch hold owns the viewport. */
-  readerSettled(): boolean;
-  publish(next: boolean): void;
-}) {
-  const atEnd = useRef(false);
-  const frame = useRef(0);
-  const settle = useCallback(() => {
-    frame.current = 0;
-    if (followingRef.current || !atEnd.current) return;
-    if (!readerSettled()) {
-      frame.current = window.requestAnimationFrame(settle);
-      return;
-    }
-    atEnd.current = false;
-    publish(true);
-  }, [followingRef, publish, readerSettled]);
-  /** A reader scroll event, at the content end or not. */
-  const noteReaderPosition = useCallback(
-    (reached: boolean) => {
-      atEnd.current = reached;
-      if (reached && !frame.current) settle();
-    },
-    [settle]
-  );
-  const cancelReattach = useCallback(() => {
-    atEnd.current = false;
-    if (frame.current) window.cancelAnimationFrame(frame.current);
-    frame.current = 0;
-  }, []);
-  useEffect(() => cancelReattach, [cancelReattach]);
-  return { noteReaderPosition, cancelReattach };
-}
-
-/** The viewport's scroll event: updates the baselines, extends reader motion,
- *  and decides between release, re-attach, or nothing. */
-export function useFollowScrollEvent({
+export function useFollowScrollJudge({
   viewport,
   followingRef,
+  signals,
   lastTop,
   lastNativeTop,
-  lastScrollHeight,
-  lastDistance,
   scheduleScrollState,
   noteScroll,
-  isProgrammatic,
-  isChromePress,
+  attributeScroll,
+  settleWrites,
   fingerOnGlass,
   hasReaderScroll,
   markReaderMotion,
-  noteReaderPosition,
+  publish,
   stop,
+  restore,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   followingRef: RefObject<boolean>;
+  signals: RefObject<FollowSignals>;
   lastTop: { current: number };
   lastNativeTop: { current: number };
-  lastScrollHeight: { current: number };
-  lastDistance: { current: number };
   scheduleScrollState(element: HTMLDivElement): void;
   noteScroll(): void;
-  isProgrammatic(top: number): boolean;
-  isChromePress(): boolean;
+  attributeScroll(top: number): { recent: boolean; exact: boolean };
+  settleWrites(): void;
   fingerOnGlass(): boolean;
   hasReaderScroll(): boolean;
   markReaderMotion(): void;
-  /** useSettledReattach: whether this reader position is the content end. */
-  noteReaderPosition(reached: boolean): void;
+  publish(next: boolean): void;
   stop(reason?: string, previousTop?: number): void;
+  /** Put the viewport back at the end (the pinned resnap). */
+  restore(): void;
 }) {
-  return useCallback(() => {
-    const element = viewport.current;
-    if (!element) return;
-    scheduleScrollState(element);
-    // Every frame of a touch scroll — finger-driven or inertial — keeps the
-    // latch alive, so the idle fallback can only close it once the native
-    // stream has actually stopped delivering.
-    noteScroll();
-    // The offset is the only layout value read here; the extent comes from the
-    // timeline's geometry. Programmatic writes are recorded as the native
-    // offsets they landed on; reading position and extent are logical, which
-    // includes a correction the timeline holds during a touch scroll. The
-    // previous position is the current logical one minus the NATIVE move, so
-    // a held correction growing between two events is never read as reader
-    // direction.
-    const nativeTop = element.scrollTop;
-    const metrics = scrollMetrics(element, undefined, nativeTop + transcriptScrollDeviation(element));
-    const top = metrics.top;
-    const previousNativeTop = lastNativeTop.current;
-    const previousTop = top - (nativeTop - previousNativeTop);
-    lastNativeTop.current = nativeTop;
-    lastTop.current = top;
-    const programmaticScroll = isProgrammatic(nativeTop);
-    // A content click must not open the gesture window: a stream wobble in
-    // the next 250ms would then unlock follow (user: 스크립트 클릭하면
-    // 오토스크롤·줄바꿈이 풀린다). Selection autoscroll is the exception —
-    // pointerDragging is armed only after a real 4px drag.
-    const releaseCandidate =
-      followingRef.current &&
-      readerScrollShouldReleaseFollow({
-        programmatic: programmaticScroll,
-        chromePointer: isChromePress(),
-        fingerOnGlass: fingerOnGlass(),
-        upwardMove: previousTop - top,
+  return useCallback(
+    (scrollEvent: boolean) => {
+      const element = viewport.current;
+      if (!element) return;
+      if (scrollEvent) {
+        scheduleScrollState(element);
+        // Every frame of a touch scroll — finger-driven or inertial — keeps the
+        // latch alive, so the idle fallback can only close it once the native
+        // stream has actually stopped delivering.
+        noteScroll();
+      }
+      const now = Date.now();
+      const state = signals.current;
+      // The offset is the only layout value read here; the extent comes from the
+      // timeline's geometry. Programmatic writes are recorded as the native
+      // offsets they landed on; reading position and extent are logical, which
+      // includes a correction the timeline holds during a touch scroll. The
+      // previous position is the current logical one minus the NATIVE move, so
+      // a held correction growing between two events is never read as reader
+      // direction.
+      const nativeTop = element.scrollTop;
+      const metrics = scrollMetrics(element, undefined, nativeTop + transcriptScrollDeviation(element));
+      const top = metrics.top;
+      const previousTop = top - (nativeTop - lastNativeTop.current);
+      lastNativeTop.current = nativeTop;
+      lastTop.current = top;
+      const write = scrollEvent ? attributeScroll(nativeTop) : { recent: false, exact: false };
+      let distance = distanceFromBottom(metrics);
+      // A viewport that grew (the dock shrank) is clamped by the browser onto
+      // its new end before the timeline observes the new height, so its cached
+      // extent still reads far from the end. For a move that could leave, the
+      // native extent has the final word.
+      if (top < previousTop && followingRef.current && element.clientHeight > 0) {
+        distance = Math.min(distance, element.scrollHeight - element.clientHeight - nativeTop);
+      }
+      if (top !== previousTop) state.direction = top > previousTop ? 1 : -1;
+      const zoom = window.devicePixelRatio || 1;
+      const zoomChanged = zoom !== state.zoom;
+      state.zoom = zoom;
+      const touchDown = fingerOnGlass();
+      const widthShifted = widthShiftPending(state.width, element.clientWidth);
+      const verdict = judgeScrollEvent({
+        pinned: followingRef.current,
+        previousTop,
+        top,
+        distance,
+        lastDirection: state.direction,
+        touchDown,
+        wheelUpRecent: wheelUpRecent({ wheelUpAt: state.wheelUpAt, now }),
+        inWriteWindow: write.recent,
+        atWrittenTop: write.exact,
+        pressHeld: chromePressHeld({ pressedAt: state.pressAt, now }),
+        keyUpRecent: keyUpRecent({ keyUpAt: state.keyUpAt, now }),
+        touchEndRecent: touchEndRecent({ touchEndUpAt: state.touchEndUpAt, now }),
+        zoomChanged,
+        zoom,
+        mutationRecent: mutationExplainsScroll({ mutationAt: state.mutationAt, restoredAt: state.restoredAt, now }),
+        widthShifted,
       });
-    // The dock shrinking grows the viewport, and Chromium clamps an offset
-    // past the new end onto it — while a pointer held still on the scrollbar
-    // keeps the end pin deferred, so no write of the timeline accounts for
-    // that move. It is the extent changing, not the reader. Checked only for
-    // a move that would release, and against the native extent: a clamp from
-    // a forced layout can arrive before the timeline observes the new height.
-    const clamped =
-      releaseCandidate &&
-      scrollExtentClamped({
-        previousTop: previousNativeTop,
-        top: nativeTop,
-        maxScrollTop: element.scrollHeight - element.clientHeight,
-      });
-    if (transcriptScrollDiagnosticsEnabled() && Math.abs(top - previousTop) >= 8) {
-      logTranscriptScroll('viewport-move', {
-        from: previousTop,
-        to: top,
-        delta: top - previousTop,
-        programmatic: programmaticScroll,
-        following: followingRef.current,
-      });
-    }
-    // A native reader ramp may outlive the initial 250ms gesture window.
-    // Extend ownership only from real movement, never from a virtual-core
-    // correction, so compensation resumes once wheel/inertia actually stops.
-    if (top !== previousTop && !programmaticScroll && !clamped && hasReaderScroll()) {
-      markReaderMotion();
-    }
-    lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
-    // A scroll event is the reader's (or the core's) position talking, not a
-    // content mutation: it is exactly the snapshot the content observer needs.
-    lastDistance.current = distanceFromBottom(metrics);
-    // Re-attaching is not gesture-gated: smooth-scroll and inertial tails
-    // deliver their last frames well after the 250ms window closes. Every
-    // reader position is recorded, and an arrival at the end re-attaches once
-    // the reader's scroll settles (useSettledReattach). Only the RELEASE
-    // decision needs gesture attribution; a detached viewport cannot release
-    // again.
-    if (!followingRef.current) {
-      // The timeline's own corrective writes are not the reader moving.
-      if (programmaticScroll) return;
-      noteReaderPosition(transcriptEndReached(metrics));
-      return;
-    }
-    if (releaseCandidate && !clamped) stop('scroll', previousTop);
-  }, [
-    fingerOnGlass,
-    followingRef,
-    hasReaderScroll,
-    isChromePress,
-    isProgrammatic,
-    lastDistance,
-    lastNativeTop,
-    lastScrollHeight,
-    lastTop,
-    markReaderMotion,
-    noteReaderPosition,
-    noteScroll,
-    scheduleScrollState,
-    stop,
-    viewport,
-  ]);
+      // A scroll the timeline did not write while a finger is down.
+      if (scrollEvent && touchDown && !write.recent && !write.exact) state.touchScrolled = true;
+      if (scrollEvent) settleWrites();
+      if (transcriptScrollDiagnosticsEnabled() && Math.abs(top - previousTop) >= 8) {
+        logTranscriptScroll('viewport-move', {
+          from: previousTop,
+          to: top,
+          delta: top - previousTop,
+          programmatic: write.recent || write.exact,
+          following: followingRef.current,
+          verdict,
+        });
+      }
+      // A native reader ramp may outlive the initial 250ms gesture window.
+      // Extend ownership only from real movement, never from a virtual-core
+      // correction, so compensation resumes once wheel/inertia actually stops.
+      if (top !== previousTop && !write.recent && !write.exact && hasReaderScroll()) markReaderMotion();
+      if (verdict === 'pin') {
+        if (!followingRef.current) publish(true);
+      } else if (verdict === 'unpin') {
+        stop('scroll', previousTop);
+      } else if (verdict === 'restore') {
+        if (widthShifted && state.width) state.width.spent = element.clientWidth;
+        state.restoredAt = now;
+        restore();
+      }
+    },
+    [
+      attributeScroll,
+      fingerOnGlass,
+      followingRef,
+      hasReaderScroll,
+      lastNativeTop,
+      lastTop,
+      markReaderMotion,
+      noteScroll,
+      publish,
+      restore,
+      scheduleScrollState,
+      settleWrites,
+      signals,
+      stop,
+      viewport,
+    ]
+  );
 }

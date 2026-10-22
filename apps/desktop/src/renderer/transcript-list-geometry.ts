@@ -2,9 +2,10 @@ import type { Virtualizer } from '@tanstack/react-virtual';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
 
-/** End band while the tail is owned: every append and measured-size delta is
- *  an end pin (see the virtualizer options in TranscriptList). */
-export const SCROLL_END_THRESHOLD_PX = 80;
+/** No distance band while the tail is owned: the pinned flag alone decides,
+ *  so every append and measured-size delta is an end pin wherever the
+ *  viewport sits (see the virtualizer options in TranscriptList). */
+export const SCROLL_END_THRESHOLD_PX = Number.POSITIVE_INFINITY;
 
 export type TranscriptVirtualizer = Virtualizer<HTMLDivElement, HTMLDivElement>;
 

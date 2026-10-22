@@ -71,17 +71,21 @@ export function useJumpPin({
 }
 
 /** Whether the jump-to-latest button shows, refreshed at most once a frame. */
-export function useJumpButtonState() {
+export function useJumpButtonState(followingRef: RefObject<boolean>) {
   const [showJump, setShowJump] = useState(false);
   const scrollStateFrame = useRef(0);
   const scrollStateTarget = useRef<HTMLDivElement | null>(null);
 
-  const updateScrollState = useCallback((element: HTMLDivElement) => {
-    // No timeline mounted yet: nothing to jump to, and the DOM fallback would
-    // force a layout of the opening pane from this animation frame.
-    const jump = transcriptScrollGeometryRegistered(element) && jumpButtonVisible(scrollMetrics(element));
-    setShowJump((current) => (current === jump ? current : jump));
-  }, []);
+  const updateScrollState = useCallback(
+    (element: HTMLDivElement) => {
+      // No timeline mounted yet: nothing to jump to, and the DOM fallback would
+      // force a layout of the opening pane from this animation frame.
+      const jump =
+        transcriptScrollGeometryRegistered(element) && jumpButtonVisible(scrollMetrics(element), followingRef.current);
+      setShowJump((current) => (current === jump ? current : jump));
+    },
+    [followingRef]
+  );
 
   const scheduleScrollState = useCallback(
     (element: HTMLDivElement) => {

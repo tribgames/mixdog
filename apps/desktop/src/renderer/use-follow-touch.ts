@@ -4,10 +4,12 @@ import {
   boundaryGestureReached,
   boundaryTarget,
   IOS_TOUCH_SETTLE_MS,
-  touchMoveShouldReleaseFollow,
+  scrollMetrics,
   touchScrollLatchOpen,
+  touchTravelled,
   type TouchLike,
 } from './transcript-follow-rules';
+import type { FollowSignals } from './use-follow-signals';
 
 /** A lifted finger keeps holding corrections this long: a fling it starts
  *  latches meanwhile, and a tap that only stopped a fling lands after it. */
@@ -52,15 +54,19 @@ function followDetachedTouch(
 export function useFollowTouch({
   viewport,
   markGesture,
-  stop,
-  lastTop,
   wheelScrolling,
+  signals,
+  lastWriteAt,
+  onLift,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   markGesture(): void;
-  stop(reason?: string, previousTop?: number): void;
-  lastTop: RefObject<number>;
   wheelScrolling(): boolean;
+  signals: RefObject<FollowSignals>;
+  /** When the timeline last wrote the offset. */
+  lastWriteAt(): number;
+  /** Every finger is up: judge the scroll the touch ended. */
+  onLift(): void;
 }) {
   const touchGesture = useRef<number | undefined>(undefined);
   const touchLatched = useRef(false);
@@ -148,6 +154,7 @@ export function useFollowTouch({
       const previous = touchGesture.current;
       touchGesture.current = next;
       if (next === undefined || previous === undefined) return;
+      if (touchTravelled(signals.current.touchStartY, next)) signals.current.touchMoved = true;
       const delta = previous - next;
       if (!delta) return;
       const target = boundaryTarget(event.currentTarget, event.target);
@@ -158,16 +165,9 @@ export function useFollowTouch({
         // the touch, not to a window that expires while the phone is busy.
         touchLatched.current = true;
         touchScrollAt.current = Date.now();
-        // Wheel intent releases synchronously before Chromium's first scroll
-        // frame; touch must do the same. Keeping the end anchor alive until the
-        // later scroll event lets row measurement and followOnAppend reverse the
-        // finger's movement, producing the mobile up/down scrollbar shake.
-        if (touchMoveShouldReleaseFollow({ delta, transcriptReached })) {
-          stop('touch', lastTop.current);
-        }
       }
     },
-    [lastTop, markGesture, stop]
+    [markGesture, signals]
   );
 
   const handleTouchEnd = useCallback(() => {
@@ -179,18 +179,31 @@ export function useFollowTouch({
     // idle fallback is what closes it.
     touchScrollAt.current = Date.now();
     touchEndedAt.current = touchScrollAt.current;
-  }, []);
+    onLift();
+  }, [onLift]);
 
   const handleTouchStart = useCallback(
     (event: TouchLike) => {
       touchGesture.current = event.touches[0]?.clientY;
+      const state = signals.current;
+      if (!touchDown.current) {
+        // The first finger down: what the lift is judged against.
+        const root = viewport.current;
+        state.touchStartTop = root ? scrollMetrics(root).top : 0;
+        state.touchStartY = event.touches[0]?.clientY ?? 0;
+        state.touchStartWriteAt = lastWriteAt();
+        state.touchMoved = false;
+        state.touchScrolled = false;
+        state.touchEndUpAt = 0;
+        state.mutationAt = Number.NEGATIVE_INFINITY;
+      }
       touchDown.current = true;
       touchTarget.current = event.target as { isConnected?: boolean } | null;
       touchScrollAt.current = Date.now();
       releaseTouchTarget.current?.();
       releaseTouchTarget.current = followDetachedTouch(event, handleTouchMove, handleTouchEnd);
     },
-    [handleTouchEnd, handleTouchMove]
+    [handleTouchEnd, handleTouchMove, lastWriteAt, signals, viewport]
   );
   useEffect(
     () => () => {

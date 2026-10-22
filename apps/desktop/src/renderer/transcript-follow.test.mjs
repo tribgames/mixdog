@@ -10,27 +10,7 @@ import {
   transcriptSelectionPrimaryButtonDown,
   transcriptSelectionPointerRegion,
 } from './transcript-selection-drag.ts';
-import {
-  boundaryGestureReached,
-  grewWhileAtBottom,
-  pointerShouldReleaseFollow,
-  programmaticWriteMatches,
-  readerScrollShouldReleaseFollow,
-  selectionAutoScrollShouldReleaseFollow,
-  touchMoveShouldReleaseFollow,
-  touchScrollLatchOpen,
-  wheelShouldReleaseFollow,
-  TRANSCRIPT_OVERFLOW_ANCHOR,
-} from './use-transcript-follow.ts';
-
-/** The wheel handler's boundary decision, exactly as the hook composes it. */
-function wheelReleases({ delta, nested }) {
-  const transcriptReached = !nested || boundaryGestureReached(nested, delta);
-  return {
-    marks: transcriptReached,
-    releases: wheelShouldReleaseFollow({ delta, transcriptReached }),
-  };
-}
+import { boundaryGestureReached, touchScrollLatchOpen, TRANSCRIPT_OVERFLOW_ANCHOR } from './use-transcript-follow.ts';
 
 test('transcript history grows in bounded pages only at a full window', () => {
   assert.equal(nextTranscriptHistoryLimit(120, 512), null);
@@ -59,99 +39,9 @@ test('virtual-core remains the only transcript scroll anchoring authority', () =
   assert.equal(TRANSCRIPT_OVERFLOW_ANCHOR, 'none');
 });
 
-test('a touch drag toward older transcript history releases follow', () => {
-  assert.equal(
-    touchMoveShouldReleaseFollow({
-      delta: -12,
-      transcriptReached: true,
-    }),
-    true
-  );
-});
-
-test('nested scrollers keep touch ownership until the transcript is reached', () => {
-  assert.equal(
-    touchMoveShouldReleaseFollow({
-      delta: -12,
-      transcriptReached: false,
-    }),
-    false
-  );
-});
-
-test('touch movement toward the tail and sub-pixel jitter keep follow armed', () => {
-  assert.equal(
-    touchMoveShouldReleaseFollow({
-      delta: 12,
-      transcriptReached: true,
-    }),
-    false
-  );
-  assert.equal(
-    touchMoveShouldReleaseFollow({
-      delta: -1,
-      transcriptReached: true,
-    }),
-    false
-  );
-});
-
-test('an upward wheel over the transcript itself releases follow immediately', () => {
-  const outcome = wheelReleases({ delta: -3, nested: null });
-  assert.equal(outcome.marks, true);
-  assert.equal(outcome.releases, true);
-});
-
-test("an upward wheel at a nested scroller's leading boundary releases follow", () => {
-  // The nested code block cannot scroll up any further, so the notch scrolls
-  // the transcript. Marking the gesture without releasing left the end anchor
-  // fighting the reader every frame.
-  const outcome = wheelReleases({
-    delta: -120,
-    nested: { scrollTop: 0, scrollHeight: 900, clientHeight: 300 },
-  });
-  assert.equal(outcome.marks, true);
-  assert.equal(outcome.releases, true);
-});
-
-test('a nested scroller with room left keeps the wheel and never releases follow', () => {
-  const outcome = wheelReleases({
-    delta: -120,
-    nested: { scrollTop: 400, scrollHeight: 900, clientHeight: 300 },
-  });
-  assert.equal(outcome.marks, false);
-  assert.equal(outcome.releases, false);
-});
-
-test('a downward wheel never releases follow, boundary or not', () => {
-  assert.equal(wheelReleases({ delta: 120, nested: null }).releases, false);
-  assert.equal(
-    wheelReleases({
-      delta: 120,
-      nested: { scrollTop: 600, scrollHeight: 900, clientHeight: 300 },
-    }).releases,
-    false
-  );
-});
-
 test('an unscrollable nested target hands the gesture straight to the transcript', () => {
   assert.equal(boundaryGestureReached({ scrollTop: 0, scrollHeight: 300, clientHeight: 300 }, -50), true);
   assert.equal(boundaryGestureReached({ scrollTop: 0, scrollHeight: 900, clientHeight: 300 }, 0), false);
-});
-
-test('a pointer drag releases follow only after leaving the tail upward', () => {
-  assert.equal(pointerShouldReleaseFollow({ distance: 400, upwardMove: 20 }), true);
-  // Inside the bottom band the drag is selection, not a leave.
-  assert.equal(pointerShouldReleaseFollow({ distance: 4, upwardMove: 20 }), false);
-  // Downward and sub-pixel travel are not a leave either.
-  assert.equal(pointerShouldReleaseFollow({ distance: 400, upwardMove: -20 }), false);
-  assert.equal(pointerShouldReleaseFollow({ distance: 400, upwardMove: 1 }), false);
-});
-
-test('native selection autoscroll releases follow only when it moves upward', () => {
-  assert.equal(selectionAutoScrollShouldReleaseFollow(-12), true);
-  assert.equal(selectionAutoScrollShouldReleaseFollow(12), false);
-  assert.equal(selectionAutoScrollShouldReleaseFollow(0), false);
 });
 
 test('selection remains active outside the viewport only while the primary button is held', () => {
@@ -202,45 +92,6 @@ test('a pointer off any row extends into the nearest row, never a boundary row',
   assert.equal(nearest(420), 'last');
   assert.equal(nearest(90), 'first');
   assert.equal(nearestTranscriptSelectionRow([], 200), null);
-});
-
-test('only a chrome-pointer upward move counts as a reader scroll release', () => {
-  assert.equal(
-    readerScrollShouldReleaseFollow({
-      programmatic: false,
-      chromePointer: true,
-      upwardMove: 30,
-    }),
-    true
-  );
-  // The timeline's own corrective write is never reader intent.
-  assert.equal(
-    readerScrollShouldReleaseFollow({
-      programmatic: true,
-      chromePointer: true,
-      upwardMove: 30,
-    }),
-    false
-  );
-  // A scroll that did not start on the scrollbar/padding keeps follow.
-  assert.equal(
-    readerScrollShouldReleaseFollow({
-      programmatic: false,
-      chromePointer: false,
-      upwardMove: 30,
-    }),
-    false
-  );
-  // A native upward move under a finger is the touch, even before its
-  // touchmove reaches the main thread; the timeline's own write never is.
-  assert.equal(
-    readerScrollShouldReleaseFollow({ programmatic: false, chromePointer: false, fingerOnGlass: true, upwardMove: 30 }),
-    true
-  );
-  assert.equal(
-    readerScrollShouldReleaseFollow({ programmatic: true, chromePointer: false, fingerOnGlass: true, upwardMove: 30 }),
-    false
-  );
 });
 
 // Phone: the compositor scrolls from the first move past the slop while the
@@ -307,35 +158,6 @@ test('a finger on the glass holds the end pin off and its upward scroll releases
     await React.act(async () => root.unmount());
     restore();
   }
-});
-
-test('growth follows the tail only when the viewport was at the bottom before it', () => {
-  assert.equal(grewWhileAtBottom({ distanceBefore: 2, growth: 400 }), true);
-  // A row above the reader resolving from its estimate must not yank the view.
-  assert.equal(grewWhileAtBottom({ distanceBefore: 900, growth: 400 }), false);
-  assert.equal(grewWhileAtBottom({ distanceBefore: 0, growth: 0 }), false);
-});
-
-test('a burst of programmatic writes stays attributable to the timeline', () => {
-  const now = 10_000;
-  const writes = [
-    { top: 1_200, time: now - 900 },
-    { top: 1_480, time: now - 40 },
-  ];
-  // Any offset in the live burst, not just the last one.
-  assert.equal(programmaticWriteMatches({ writes, top: 1_200.4, now }), true);
-  assert.equal(programmaticWriteMatches({ writes, top: 1_480, now }), true);
-  // A reader offset the timeline never wrote is reader intent.
-  assert.equal(programmaticWriteMatches({ writes, top: 900, now }), false);
-  // Expired writes no longer excuse a move.
-  assert.equal(
-    programmaticWriteMatches({
-      writes: [{ top: 1_200, time: now - 5_000 }],
-      top: 1_200,
-      now,
-    }),
-    false
-  );
 });
 
 // A touch keeps targeting the row it started on. Virtualization unmounting
@@ -422,11 +244,12 @@ test('a drag whose pressed word left the document still releases follow and owns
     await React.act(async () => root.render(React.createElement(Harness)));
     const word = document.getElementById('word');
     const viewport = word.parentElement.parentElement;
-    Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => 2000, set: () => {} });
+    let native = 2000;
+    Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => native, set: () => {} });
     const release = registerTranscriptScrollGeometry(viewport, {
       viewportHeight: () => 400,
       contentHeight: () => 2400,
-      scrollTop: () => 2000,
+      scrollTop: () => native,
       deviation: () => 0,
     });
     await React.act(async () => follow.handleScroll());
@@ -434,8 +257,10 @@ test('a drag whose pressed word left the document still releases follow and owns
     follow.handleTouchStart({ target: word, currentTarget: viewport, touches: [{ clientY: 100 }] });
     word.remove();
     await React.act(async () => word.dispatchEvent(touchEvent('touchmove', 140)));
-    assert.equal(follow.followingRef.current, false, 'the drag toward older rows releases follow');
-    assert.equal(follow.hasTouchScroll(), true, 'and owns the transcript');
+    assert.equal(follow.hasTouchScroll(), true, 'the drag owns the transcript');
+    native = 1960;
+    await React.act(async () => follow.handleScroll());
+    assert.equal(follow.followingRef.current, false, 'the scroll under the finger releases follow');
     word.dispatchEvent(touchEvent('touchend'));
     viewport.dispatchEvent(new window.Event('scrollend'));
     assert.equal(follow.hasTouchScroll(), false, 'its lift and scrollend end the touch scroll');
@@ -491,8 +316,10 @@ test('a held touch correction growing between scroll events is not read as a ret
     const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
     follow.handleTouchStart(touch(100));
     await React.act(async () => follow.handleTouchMove(touch(140)));
+    native = 1990;
+    await React.act(async () => follow.handleScroll());
     assert.equal(follow.followingRef.current, false, 'the upward drag releases follow');
-    // The finger climbs 20 px while a row above grows by 400 px into a hold.
+    // The finger climbs 10 px more while a row above grows by 400 px into a hold.
     native = 1980;
     held = 400;
     content = 2800;
@@ -796,32 +623,29 @@ test('a reader scrolling back down near the bottom is never moved, and follow st
   }
 });
 
-test('reaching the true bottom re-engages follow once the scroll settles, and growth is then pinned', async () => {
+test('arriving at the true bottom re-engages follow at once (a wheel) or at the lift (a finger)', async () => {
   for (const input of ['wheel', 'touch']) {
     const reader = await mountReturningReader();
     try {
       if (input === 'wheel') {
         await reader.wheel(100);
         await reader.scroll(reader.max());
+        assert.equal(reader.follow.followingRef.current, true, `${input}: the arrival itself re-engages`);
       } else {
         await reader.touch.start(300);
         await reader.touch.move(200);
         await reader.scroll(reader.max());
+        assert.equal(reader.follow.followingRef.current, false, `${input}: not while the finger is down`);
+        await reader.touch.end();
+        assert.equal(reader.follow.followingRef.current, true, `${input}: the lift at the end re-engages`);
+        await reader.touch.scrollend();
       }
-      // Still scrolling (wheel ramp, finger on the glass): not yet.
-      assert.equal(reader.follow.followingRef.current, false, `${input}: not while the reader scrolls`);
+      // The timeline still waits out the reader's gesture before it writes.
       await reader.grow(40);
       assert.deepEqual(reader.writes, [], `${input}: nothing pushes the content under the reader's hand`);
-      if (input === 'touch') {
-        await reader.touch.end();
-        await reader.touch.scrollend();
-        assert.equal(reader.follow.followingRef.current, false, `${input}: not the instant the finger lifts`);
-      }
       await reader.idle();
-      assert.equal(reader.follow.followingRef.current, true, `${input}: settled at the end, follow re-engages`);
       await reader.grow(40);
-      assert.equal(reader.writes.length, 1, `${input}: the next growth is pinned`);
-      assert.equal(reader.native(), reader.max(), `${input}: at the bottom`);
+      assert.equal(reader.native(), reader.max(), `${input}: growth is pinned once the reader is done`);
       await reader.grow(40);
       assert.equal(reader.native(), reader.max(), `${input}: and stays there`);
     } finally {
@@ -1183,6 +1007,437 @@ test('a hold waits out a rubber-band overscroll before it lands', async () => {
     await harness.frame();
     assert.deepEqual(state.writes, [39_970], 'the bounce settled: the hold lands');
   } finally {
+    await harness.dispose();
+  }
+});
+
+/** A followed tail in jsdom: 2400px of content in a 400px viewport. */
+async function tailHarness(sessionKey) {
+  const [React, { createRoot }, follow] = await Promise.all([
+    import('react'),
+    import('react-dom/client'),
+    import('./use-transcript-follow.ts'),
+  ]);
+  const { restore } = installTestDom(null, {
+    html: "<div id='root'></div>",
+    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
+    expose: ['Element', 'MutationObserver'],
+  });
+  const realNow = Date.now;
+  const state = { native: 2000, now: 200_000, hook: null, restores: 0 };
+  Date.now = () => state.now;
+  const scrollToEndRef = { current: () => (state.restores += 1) };
+  const root = createRoot(document.getElementById('root'));
+  function Harness() {
+    const viewport = React.useRef(null);
+    const content = React.useRef(null);
+    state.hook = follow.useTranscriptFollow({ viewport, content, sessionKey, scrollToEndRef });
+    return React.createElement(
+      'div',
+      { ref: viewport },
+      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
+    );
+  }
+  await React.act(async () => root.render(React.createElement(Harness)));
+  const row = document.getElementById('row');
+  const viewport = row.parentElement.parentElement;
+  Object.defineProperty(viewport, 'scrollTop', { configurable: true, get: () => state.native, set: () => {} });
+  const release = follow.registerTranscriptScrollGeometry(viewport, {
+    viewportHeight: () => 400,
+    contentHeight: () => 2400,
+    scrollTop: () => state.native,
+    deviation: () => 0,
+  });
+  await React.act(async () => state.hook.handleScroll());
+  state.now += 1_000;
+  return {
+    state,
+    row,
+    viewport,
+    wheel: (event) =>
+      React.act(() => {
+        state.hook.handleWheel({ target: row, currentTarget: viewport, ...event });
+      }),
+    key: (event) =>
+      React.act(() => {
+        state.hook.handleKeyDown({ target: row, currentTarget: viewport, ...event });
+      }),
+    rearm: async () => {
+      await React.act(async () => state.hook.arm());
+      state.now += 1_000;
+    },
+    scroll: (top) => {
+      state.native = top;
+      return React.act(async () => state.hook.handleScroll());
+    },
+    /** The page changes under the reader: a node lands in the transcript. */
+    mutate: () =>
+      React.act(async () => {
+        const node = document.createElement('span');
+        viewport.appendChild(node);
+        await Promise.resolve();
+      }),
+    pointerDown: (target, extra = {}) =>
+      React.act(async () => state.hook.handlePointerDown({ target, currentTarget: viewport, button: 0, ...extra })),
+    act: (callback) => React.act(callback),
+    frame: () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve()))),
+    dispose: async () => {
+      release();
+      Date.now = realNow;
+      await React.act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+test('a wheel releases follow only as a vertical upward notch, over a nested scroller too', async () => {
+  const harness = await tailHarness('wheel-intent');
+  const { state } = harness;
+  try {
+    // Pinch-zoom and a mostly-sideways swipe are not a scroll toward older rows.
+    harness.wheel({ deltaY: -3, ctrlKey: true });
+    harness.wheel({ deltaY: -3, deltaX: 12 });
+    assert.equal(state.hook.followingRef.current, true, 'neither a zoom nor a sideways swipe leaves the tail');
+    // Nothing is above the viewport to scroll toward at the very top.
+    state.native = 0;
+    harness.wheel({ deltaY: -3 });
+    assert.equal(state.hook.followingRef.current, true, 'a notch with no room above is not a leave');
+    state.native = 2000;
+    // A code block with room left takes the notch itself; the notch still counts.
+    const block = document.createElement('div');
+    block.setAttribute('data-scrollable', '');
+    Object.defineProperty(block, 'scrollHeight', { value: 900 });
+    Object.defineProperty(block, 'clientHeight', { value: 300 });
+    Object.defineProperty(block, 'scrollTop', { value: 400 });
+    harness.viewport.appendChild(block);
+    harness.wheel({ deltaY: -120, target: block });
+    assert.equal(state.hook.followingRef.current, false, 'a plain upward notch leaves at once, wherever it lands');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('an up key opens a window: the scroll it causes leaves, a key that scrolls nothing does not', async () => {
+  const harness = await tailHarness('key-window');
+  const { state, row, viewport } = harness;
+  try {
+    const field = document.createElement('input');
+    viewport.appendChild(field);
+    harness.key({ key: 'PageUp', ctrlKey: true });
+    harness.key({ key: 'ArrowUp', target: field });
+    assert.equal(state.hook.hasScrollGesture(), false, 'a shortcut and a field caret open no window');
+    // The timeline just wrote: without a vouching key the move is its own.
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 50;
+    await harness.scroll(1900);
+    assert.equal(state.hook.followingRef.current, true, 'inside the write window an unvouched move is put back');
+    await harness.rearm();
+    harness.key({ key: 'ArrowUp', target: row });
+    assert.equal(state.hook.followingRef.current, true, 'the key alone does not leave');
+    assert.equal(state.hook.hasScrollGesture(), true, 'but it keeps the end pin off while the scroll lands');
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 50;
+    await harness.scroll(1800);
+    assert.equal(state.hook.followingRef.current, false, 'the scroll it caused leaves, write window or not');
+    await harness.rearm();
+    harness.key({ key: ' ', shiftKey: true, target: row });
+    state.now += 1_100;
+    assert.equal(state.hook.hasScrollGesture(), false, 'the window passes');
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 50;
+    await harness.scroll(1700);
+    assert.equal(state.hook.followingRef.current, true, 'a Shift+Space that scrolled nothing never left');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('an upward scroll right after a layout change is put back, not a leave; a quiet one leaves', async () => {
+  const harness = await tailHarness('streaming-mutation');
+  const { state } = harness;
+  try {
+    // Streaming: nodes land and the page shifts under the reader (typing during
+    // parallel work). The move is not intent.
+    await harness.mutate();
+    state.now += 100;
+    const before = state.restores;
+    await harness.scroll(1990);
+    assert.equal(state.hook.followingRef.current, true, 'a layout-driven move up keeps follow');
+    assert.equal(state.restores, before + 1, 'and puts the viewport back at the end');
+    // The same move with the page quiet for longer than the mutation window.
+    state.now += 450;
+    await harness.scroll(1930);
+    assert.equal(state.hook.followingRef.current, false, 'nothing explains it: it leaves');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a delayed upward event on the exact written offset stays pinned', async () => {
+  const harness = await tailHarness('exact-write-unpin');
+  const { state } = harness;
+  try {
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 5_000;
+    await harness.scroll(1500);
+    assert.equal(state.hook.followingRef.current, true, "no reader input: the timeline's own landing");
+    await harness.scroll(1400);
+    assert.equal(state.hook.followingRef.current, false, 'a spent value excuses nothing');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a stationary press on prose does not vouch for a streaming correction; scrollbar and selection autoscroll do', async () => {
+  const harness = await tailHarness('prose-press');
+  const { state, row, viewport } = harness;
+  try {
+    await harness.pointerDown(row);
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 50;
+    await harness.scroll(1900);
+    assert.equal(state.hook.followingRef.current, true, 'a click on prose keeps follow through a correction');
+    await harness.rearm();
+    await harness.pointerDown(row);
+    await harness.act(async () => state.hook.handleSelectionAutoScroll(-8));
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 50;
+    await harness.scroll(1800);
+    assert.equal(state.hook.followingRef.current, false, 'a selection drag that autoscrolls up leaves');
+    await harness.rearm();
+    await harness.pointerDown(viewport);
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 50;
+    await harness.scroll(1700);
+    assert.equal(state.hook.followingRef.current, false, 'a scrollbar press leaves');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('updating an existing text node is a layout change that explains an upward scroll', async () => {
+  const harness = await tailHarness('text-update');
+  const { state, viewport } = harness;
+  try {
+    const text = document.createTextNode('a');
+    viewport.appendChild(text);
+    await harness.mutate();
+    state.now += 1_000;
+    await harness.act(async () => {
+      text.data = 'ab';
+      await Promise.resolve();
+    });
+    state.now += 100;
+    await harness.scroll(1930);
+    assert.equal(state.hook.followingRef.current, true, 'the streamed text edit explains the move');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a mutation that predates our own restore is answered by it', async () => {
+  const harness = await tailHarness('restored-mutation');
+  const { state } = harness;
+  try {
+    await harness.mutate();
+    state.now += 100;
+    await harness.scroll(1990);
+    assert.equal(state.hook.followingRef.current, true);
+    // Within 400ms of the mutation, but after the restore it was answered by.
+    state.now += 100;
+    await harness.scroll(1930);
+    assert.equal(state.hook.followingRef.current, false, 'a second move after the restore leaves');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a scroll within 150ms of the timeline write is the write; one on its exact value never re-engages', async () => {
+  const harness = await tailHarness('write-window');
+  const { state } = harness;
+  try {
+    state.hook.markProgrammaticScroll(1500);
+    state.now += 100;
+    await harness.scroll(1700);
+    assert.equal(state.hook.followingRef.current, true, 'inside the window any event is the write');
+    state.now += 100;
+    await harness.scroll(1650);
+    assert.equal(state.hook.followingRef.current, false, 'past the window it is not');
+    // Released and parked 350px up. The timeline lands exactly on the end.
+    state.hook.markProgrammaticScroll(2000);
+    state.now += 5_000;
+    await harness.scroll(2000);
+    assert.equal(state.hook.followingRef.current, false, 'its own landing at the end is not the reader arriving');
+    await harness.scroll(1900);
+    await harness.scroll(2000);
+    assert.equal(state.hook.followingRef.current, true, 'the reader scrolling down onto the end is');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a held press, a lift from above the end, and a finger down each vouch for an upward scroll', async () => {
+  const harness = await tailHarness('corroboration');
+  const { state, viewport } = harness;
+  try {
+    await harness.mutate();
+    await harness.pointerDown(viewport);
+    state.now += 50;
+    await harness.scroll(1900);
+    assert.equal(state.hook.followingRef.current, false, 'a held press beats a layout change');
+    await harness.rearm();
+    // The press ended (mouseup), so it vouches for nothing.
+    await harness.pointerDown(viewport);
+    document.dispatchEvent(new window.Event('mouseup'));
+    await harness.mutate();
+    state.now += 50;
+    await harness.scroll(1800);
+    assert.equal(state.hook.followingRef.current, true, 'a released press is only a layout change');
+    await harness.rearm();
+    // A press inside a nested scroller is that scroller's: it vouches for nothing.
+    const block = document.createElement('div');
+    block.style.overflowY = 'auto';
+    Object.defineProperty(block, 'scrollHeight', { value: 900 });
+    Object.defineProperty(block, 'clientHeight', { value: 300 });
+    viewport.appendChild(block);
+    state.hook.markProgrammaticScroll(1500);
+    await harness.pointerDown(block);
+    state.now += 50;
+    await harness.scroll(1700);
+    assert.equal(state.hook.followingRef.current, true, 'inside the write window the move is put back');
+    await harness.rearm();
+    state.hook.markProgrammaticScroll(1500);
+    await harness.pointerDown(viewport);
+    state.now += 50;
+    await harness.scroll(1600);
+    assert.equal(state.hook.followingRef.current, false, 'a held press on the transcript itself leaves');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a finger lifted above the end vouches for the momentum scrolls after it', async () => {
+  const harness = await tailHarness('touch-momentum');
+  const { state, row, viewport } = harness;
+  try {
+    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    state.hook.handleTouchStart(touch(100));
+    // The timeline wrote while the finger was down, and the finger travelled
+    // less than a tap: the lift has no scroll of its own to judge.
+    state.hook.markProgrammaticScroll(1700);
+    state.native = 1700;
+    await harness.act(async () => state.hook.handleTouchEnd());
+    assert.equal(state.hook.followingRef.current, true, 'the lift alone leaves nothing');
+    state.now += 300;
+    await harness.mutate();
+    await harness.scroll(1650);
+    assert.equal(state.hook.followingRef.current, false, 'the momentum scroll after a lift from above the end leaves');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('pressing, or pressing Enter or Space on, a control lets go of follow; prose and code do not', async () => {
+  const harness = await tailHarness('press-control');
+  const { state, row, viewport } = harness;
+  try {
+    const button = document.createElement('button');
+    const label = document.createElement('span');
+    button.appendChild(label);
+    const code = document.createElement('pre');
+    const kept = document.createElement('button');
+    kept.setAttribute('data-transcript-keeps-follow', '');
+    viewport.append(button, code, kept);
+    await harness.pointerDown(row);
+    await harness.pointerDown(code);
+    await harness.pointerDown(viewport);
+    await harness.pointerDown(kept);
+    harness.key({ key: 'Enter', target: row });
+    harness.key({ key: 'Enter', target: kept });
+    assert.equal(state.hook.followingRef.current, true, 'prose, code, chrome and a keep-follow control keep it');
+    await harness.pointerDown(label);
+    assert.equal(state.hook.followingRef.current, false, 'pressing inside a control lets go');
+    await harness.rearm();
+    harness.key({ key: 'Enter', target: button });
+    assert.equal(state.hook.followingRef.current, false, 'Enter on a control lets go');
+    await harness.rearm();
+    // Space on a control activates it: that is the leave, not a scroll.
+    harness.key({ key: ' ', shiftKey: true, target: button });
+    assert.equal(state.hook.followingRef.current, false, 'Shift+Space on a focused button leaves via the control');
+    await harness.rearm();
+    const field = document.createElement('input');
+    viewport.appendChild(field);
+    harness.key({ key: ' ', target: field });
+    assert.equal(state.hook.followingRef.current, true, 'a space typed in a field leaves nothing');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('the jump control shows only while follow is off and the end is more than 200px away', async () => {
+  const harness = await tailHarness('jump-state');
+  const { state } = harness;
+  try {
+    const frame = harness.frame;
+    state.hook.markProgrammaticScroll(1700);
+    await harness.scroll(1700);
+    await frame();
+    assert.equal(state.hook.followingRef.current, true);
+    assert.equal(state.hook.showJump, false, 'following hides it, however far the end is');
+    state.now += 1_000;
+    await harness.scroll(1650);
+    await frame();
+    await frame();
+    assert.equal(state.hook.followingRef.current, false);
+    assert.equal(state.hook.showJump, true, 'released and 350px from the end');
+    await harness.scroll(1850);
+    await frame();
+    assert.equal(state.hook.showJump, false, 'within 200px of the end');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a scrollbar press stops vouching for scrolls after fifteen seconds', async () => {
+  const harness = await tailHarness('scrollbar-hold');
+  const { state, viewport } = harness;
+  try {
+    await harness.pointerDown(viewport);
+    state.now += 1_000;
+    await harness.scroll(1940);
+    assert.equal(state.hook.followingRef.current, false, 'a drag on the scrollbar leaves the tail');
+    await harness.rearm();
+    // The release of the press was lost (the pointer left the window).
+    await harness.pointerDown(viewport);
+    await harness.mutate();
+    state.now += 16_000;
+    await harness.mutate();
+    state.now += 100;
+    await harness.scroll(1880);
+    assert.equal(state.hook.followingRef.current, true, 'a press older than 15s is only a layout change');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a zoom change rounding the offset by a device pixel is put back, not a leave', async () => {
+  const harness = await tailHarness('zoom');
+  const { state } = harness;
+  const realRatio = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+  try {
+    state.hook.markProgrammaticScroll(1990);
+    await harness.scroll(1990);
+    state.now += 1_000;
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 2 });
+    const before = state.restores;
+    await harness.scroll(1989.7);
+    assert.equal(state.hook.followingRef.current, true);
+    assert.equal(state.restores, before + 1);
+    await harness.scroll(1950);
+    assert.equal(state.hook.followingRef.current, false, 'a real move at the same zoom still leaves');
+  } finally {
+    if (realRatio) Object.defineProperty(window, 'devicePixelRatio', realRatio);
+    else delete window.devicePixelRatio;
     await harness.dispose();
   }
 });
