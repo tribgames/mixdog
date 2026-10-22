@@ -109,6 +109,31 @@ test('a dry-run rewind reports the target and leaves the stored history untouche
   assert.equal(loadSession('sess_rewind_dry').messages.length, 2);
 });
 
+test('a committing rewind is refused, changing nothing, when history changed since the dry run', async () => {
+  await plant('sess_rewind_stale', [
+    { role: 'user', content: 'first', meta: { transcript: { messageId: 'msg_1' } } },
+    { role: 'assistant', content: 'one' },
+    { role: 'user', content: 'second', meta: { transcript: { messageId: 'msg_2' } } },
+    { role: 'assistant', content: 'two' },
+  ]);
+  const preview = await rewindSessionMessagesTo('sess_rewind_stale', { messageId: 'msg_2', dryRun: true });
+  assert.ok(preview.historyMarker);
+  const changed = loadSession('sess_rewind_stale');
+  changed.messages.push({ role: 'user', content: 'third' });
+  await saveSessionAsync(changed, { expectedGeneration: changed.generation });
+  const stale = { messageId: 'msg_2', expectedHistoryMarker: preview.historyMarker };
+  assert.equal(await rewindSessionMessagesTo('sess_rewind_stale', stale), null);
+  assert.equal(loadSession('sess_rewind_stale').messages.length, 5);
+  // A fresh preview commits.
+  const fresh = await rewindSessionMessagesTo('sess_rewind_stale', { messageId: 'msg_2', dryRun: true });
+  const done = await rewindSessionMessagesTo('sess_rewind_stale', {
+    messageId: 'msg_2',
+    expectedHistoryMarker: fresh.historyMarker,
+  });
+  assert.equal(done.removed, 3);
+  assert.equal(loadSession('sess_rewind_stale').messages.length, 2);
+});
+
 test('an id-less prompt that several user messages repeat is refused, not guessed', async () => {
   const messages = [
     { role: 'user', content: 'same' },

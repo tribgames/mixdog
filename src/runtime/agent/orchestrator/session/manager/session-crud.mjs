@@ -1,6 +1,7 @@
 // manager/session-crud.mjs
 // Session read + mutate CRUD: lookup (getSession/listSessions/findSessionByScopeKey),
 // message clear (with clear-fork), manual compaction, status update, and metric flush.
+import { createHash } from 'node:crypto';
 import {
   loadSession,
   saveSessionAsync,
@@ -435,7 +436,14 @@ export async function rewindSessionMessagesTo(sessionId, options = {}) {
   const rewoundMessage = messages[start];
   // `dryRun` resolves the target and reports what a rewind would do, changing
   // nothing: the caller prepares the restore payload first and commits after.
-  if (options?.dryRun === true) return { removed, remaining: start, message: rewoundMessage };
+  // The marker names the exact history the dry run saw (generation alone only
+  // moves on lifecycle changes); the commit passes it back and is refused when
+  // the history differs.
+  const historyMarker = `${session.generation ?? 0}:${messages.length}:${createHash('sha1')
+    .update(JSON.stringify(messages))
+    .digest('hex')}`;
+  if (options?.dryRun === true) return { removed, remaining: start, message: rewoundMessage, historyMarker };
+  if (options?.expectedHistoryMarker != null && options.expectedHistoryMarker !== historyMarker) return null;
   session.messages = messages.slice(0, start);
   // The provider cache is keyed on the exact prefix we just truncated;
   // the prefix-guard snapshot and the /btw fork request describe it too and

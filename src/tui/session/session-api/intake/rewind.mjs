@@ -42,7 +42,11 @@ export function createRewindAction(bag) {
         }
         const refs = restorableAttachmentsFromPrompt(content, text);
         const attachments = hydrateTolerantly(refs.pastedImages, refs.pastedTexts, content);
-        const rewound = await runtime.rewindMessages?.(rewindOptions);
+        // Refused when the history changed since the preview.
+        const rewound = await runtime.rewindMessages?.({
+          ...rewindOptions,
+          ...(preview.historyMarker ? { expectedHistoryMarker: preview.historyMarker } : {}),
+        });
         if (!rewound) return null;
         set({
           items: replaceItems(items.slice(0, index), {

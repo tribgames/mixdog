@@ -57,9 +57,13 @@ export function createAbortAction(bag) {
 
   // Pull the interrupted prompt back out of the transcript and history and
   // put its unsent requeue entries at the front of the queue.
-  const reclaimInFlightPrompt = (restoreState, { restoreText, requeueEntries, handoff = false }) => {
-    restoreState.reclaimed = true;
-    const idSet = new Set((restoreState.submittedIds || []).filter((id) => id != null));
+  // `keepPrompt` only requeues: the submitted rows stay in the transcript.
+  const reclaimInFlightPrompt = (
+    restoreState,
+    { restoreText, requeueEntries, handoff = false, keepPrompt = false }
+  ) => {
+    if (!keepPrompt) restoreState.reclaimed = true;
+    const idSet = new Set((keepPrompt ? [] : restoreState.submittedIds || []).filter((id) => id != null));
     const patch = { spinner: null, thinking: null, lastTurn: null };
     // Another device cancelled this turn: the prompt travels to the device that
     // sent it through the state, never through the canceller's reply.
@@ -182,7 +186,12 @@ export function createAbortAction(bag) {
         discardExecutionPendingResume?.(restoreState.discardExecutionPendingResumeKeys);
       }
       if ((restoreText || requeueEntries.length > 0) && aborted !== false) {
-        reclaimInFlightPrompt(restoreState, { restoreText, requeueEntries, handoff: crossDevice });
+        reclaimInFlightPrompt(restoreState, {
+          restoreText,
+          requeueEntries,
+          handoff: crossDevice,
+          keepPrompt: Boolean(hydrateFailure),
+        });
       }
       restoreState.restorable = false;
       restoreState.requeueEntries = [];

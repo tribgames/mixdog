@@ -523,10 +523,36 @@ test('rewindToItem commits nothing when the attachment payload cannot be prepare
   });
 });
 
+test('rewindToItem commits against the history the preview saw and refuses once it changed', async () => {
+  const items = [{ id: 'u1', kind: 'user', text: 'hello', messageId: 'msg_1' }];
+  const seen = [];
+  const h = createHarness({
+    state: { items, promptHistoryList: ['hello'] },
+    runtime: {
+      rewindMessages: async (options) => {
+        seen.push(options);
+        if (options.dryRun === true) return { removed: 1, message: { content: 'hello' }, historyMarker: 'm1' };
+        // History changed after the preview: the marker no longer matches.
+        return options.expectedHistoryMarker === 'm1' ? null : { removed: 1 };
+      },
+    },
+  });
+  assert.equal(await h.api.rewindToItem('u1'), null);
+  assert.equal(seen[1].expectedHistoryMarker, 'm1');
+  assert.equal(h.state.items, items);
+  assert.deepEqual(h.state.promptHistoryList, ['hello']);
+  assert.equal(h.state.commandBusy, false);
+});
+
 test('a composer that cannot hold file parts refuses the rewind before anything is truncated', async () => {
   const content = [
     { type: 'text', text: 'see [File #1: spec.pdf]' },
-    { type: 'file', data: Buffer.from('%PDF-1.7').toString('base64'), mimeType: 'application/pdf', filename: 'spec.pdf' },
+    {
+      type: 'file',
+      data: Buffer.from('%PDF-1.7').toString('base64'),
+      mimeType: 'application/pdf',
+      filename: 'spec.pdf',
+    },
   ];
   const rewinds = [];
   const items = [{ id: 'u1', kind: 'user', text: 'see [File #1: spec.pdf]', messageId: 'msg_1' }];
@@ -579,6 +605,36 @@ test('an unreadable attachment on Esc keeps the in-flight prompt instead of stra
     assert.match(result.notice, /Could not restore the attachments/);
     assert.equal(h.state.items, items);
     assert.deepEqual(h.state.promptHistoryList, ['draft me']);
+  });
+});
+
+test('an unreadable attachment keeps the submitted rows even when the turn also requeues entries', async (t) => {
+  await withDataDir(async () => {
+    const attachmentRef = await unreadableAttachmentRef(t);
+    const restoreState = {
+      restorable: true,
+      committed: false,
+      text: 'draft me',
+      submittedIds: ['u1'],
+      requeueEntries: [{ text: 'again' }],
+      pastedImages: null,
+      pastedTexts: { 1: { id: 1, source: 'paste', attachmentRef, sizeBytes: 900 } },
+    };
+    const items = [{ id: 'u1', kind: 'user', text: 'draft me' }];
+    const h = createHarness({
+      state: { busy: true, items, promptHistoryList: ['draft me'] },
+      flags: { activePromptRestore: restoreState },
+    });
+    const result = h.api.abort();
+    assert.equal(result.restoreText, '');
+    assert.match(result.notice, /the prompt was kept/);
+    assert.equal(h.state.items, items, 'the submitted rows stay in the transcript');
+    assert.deepEqual(h.state.promptHistoryList, ['draft me']);
+    assert.notEqual(restoreState.reclaimed, true);
+    assert.deepEqual(
+      h.calls.find((call) => call[0] === 'requeueFront'),
+      ['requeueFront', [{ text: 'again' }]]
+    );
   });
 });
 
