@@ -6,6 +6,25 @@ import { runFreshContextCompact } from '../loop/fresh-context.mjs';
 import { estimateMessagesTokens } from '../context-utils.mjs';
 import { _sessionForDisk } from '../store/serialize.mjs';
 import { prefixUserTurnContent, suffixUserTurnReminders } from '../manager/prompt-utils.mjs';
+import { announcedAgents } from '../manager/agent-listing-notice.mjs';
+
+test('in-turn Compact keeps an agent told when the latest turn keeps its agent list reminder', () => {
+  const reminder = '<system-reminder>\n# Available Agents Changed\n- worker (agent_w)\n</system-reminder>';
+  const latest = {
+    ...withRuntimeUserContext({ role: 'user', content: 'Delegate the review.' }, { suffix: `\n\n${reminder}` }),
+  };
+  latest.meta.agentListing = { added: [{ id: 'agent_w', name: 'worker' }], removed: [] };
+  const messages = [{ role: 'user', content: 'Old request.' }, { role: 'assistant', content: 'Checked.' }, latest];
+  assert.deepEqual(announcedAgents({ messages }), [{ id: 'agent_w', name: 'worker' }]);
+  const result = freshContextCompactMessages(messages, 5000, {
+    force: true,
+    contextWindow: 20_000,
+    latestUserPrefix: '<system-reminder><goal_state>RUNTIME_GOAL</goal_state></system-reminder>',
+  });
+  const kept = result.messages.at(-1);
+  assert.ok(kept.content.includes(reminder));
+  assert.deepEqual(announcedAgents({ messages: result.messages }), [{ id: 'agent_w', name: 'worker' }]);
+});
 
 const literal = 'Keep this XML:\n```xml\n<system-reminder>USER_XML</system-reminder>\n```\n';
 const suffix = '\n\n<system-reminder>\nOLD_RUNTIME_NOISE\n</system-reminder>';

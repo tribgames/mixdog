@@ -392,7 +392,8 @@ const EXPECTED = {
     messagesSha: '7a3fd462b4dbd1e400b82903313f1576255c3878a012a0f455798f73ca458849',
     recordSha: '5ab36533b09e563dc54dadc23243f1944f55625e138b37dcfbd4966732dd07b5',
     sends: 2,
-    promptsSha: '5a08c90124788bcb43cc80dc9b9be236825dc1dcf76d2eaa8971d23e3a6b8480',
+    // The summary input carries one bounded line per tool call.
+    promptsSha: '8c859542e9cf4d900807bb0f1809f03a47ede3795bb4e0ae950ea4b90b2921ae',
     archives: archives(1, 712_408, '464b1d3a86d92f8da4a5ed4f643649b6affc8d52b86702c48bf9950288c28a02'),
     traceBytes: [714_283, 12_694],
   },
@@ -410,7 +411,7 @@ const EXPECTED = {
     messagesSha: '20fbb536eb69b0eb7a4170e191c42fbec9657a6dba1e6904fac49fcad461c0ea',
     recordSha: '8ff0ce2f0652109ae6f9a443c3ff9e9738c0f54d24270fdd65c7633cc15f3181',
     sends: 1,
-    promptsSha: '1b807b773b532a65f6da196aec2ad9bea0c5ff6f47f8617935b9e9e2c66208cb',
+    promptsSha: '5f8570a037261e645d4d55d65efd99cefac1a98f0e068d1040dfe42fa41e7fb1',
     archives: archives(102, 3_402_411, '60bebec70ec783c2861c64afbd14a3f4dc03af2b38497aab7e7c221074c7e809'),
     traceBytes: [3_380_664, 72_692],
   },

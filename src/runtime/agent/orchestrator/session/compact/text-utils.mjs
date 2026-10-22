@@ -48,7 +48,7 @@ const SENSITIVE_RAW_KEY_RES = [
 // string. Consumes the WHOLE value after the key — spaces, `Bearer `/`Basic `
 // scheme words, quoted values with internal spaces, and `;`-separated cookie
 // pairs — so no secret fragment survives.
-function redactRawSecretString(text) {
+export function redactRawSecretString(text) {
   let value = String(text ?? '');
   if (!value) return value;
   for (const keyRe of SENSITIVE_RAW_KEY_RES) {

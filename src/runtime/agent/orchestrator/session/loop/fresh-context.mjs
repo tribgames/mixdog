@@ -117,9 +117,9 @@ export function compactionSummaryPlan({
   return { mode, warm, steps };
 }
 
-// The summary request on one route: the conversation alone (earlier summary
-// and dialogue; tool output, skills and injections excluded), never the
-// cached context. Its input budget belongs to its OWN model, split into
+// The summary request on one route: the conversation alone (earlier summary,
+// dialogue, runtime conversation rows and one bounded line per tool call;
+// skills and injections excluded), never the cached context. Its input budget belongs to its OWN model, split into
 // batches when the conversation is larger, whereas the rebuilt conversation
 // must fit the original session's target/window.
 function summarizeConversation(target, ctx) {
@@ -159,7 +159,6 @@ function summarizeConversation(target, ctx) {
       fast: target.fast,
       timeoutMs: compactPolicy.handoffTimeoutMs,
       force: true,
-      filterOldHistoryForIngest: true,
     }
   );
 }
@@ -338,8 +337,13 @@ export async function runFreshContextCompact({
 } = {}) {
   const startedAt = Date.now();
   signal?.throwIfAborted();
-  const { contextWindow, hardBudget, conversationInput, conversationTokens, conversationThresholdTokens } =
-    freshContextBudget({ compactPolicy, sessionRef, provider, compactBudgetTokens, messages });
+  const { contextWindow, hardBudget, conversationTokens, conversationThresholdTokens } = freshContextBudget({
+    compactPolicy,
+    sessionRef,
+    provider,
+    compactBudgetTokens,
+    messages,
+  });
   const summaryTriggered = conversationTokens >= conversationThresholdTokens;
   const buildOptions = freshContextBuildOptions(
     { compactPolicy, sessionId, goalReminderText, activeTurn, referenceLatestAttachments },
@@ -383,7 +387,9 @@ export async function runFreshContextCompact({
       compactBudgetTokens,
       hardBudget,
       contextWindow,
-      conversationInput,
+      // What the summary is written from: the measured conversation plus one
+      // bounded line per tool call (conversationCompactionInput).
+      conversationInput: conversationCompactionInput(messages, { summary: true }),
     },
     plan
   );

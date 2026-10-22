@@ -5,6 +5,7 @@ import { persistToolResultArtifactSync, previewToolResultArtifact } from '../too
 import {
   EXECUTION_TEXT_SOURCE,
   isActualUserInstructionMessage,
+  isCompactConversationRow,
   isProtectedContextAckMessage,
   latestActualUserInstructionIndex,
   pendingTaskNotificationIndexes,
@@ -171,7 +172,8 @@ function shrinkGroup(group, archive, level) {
 }
 
 // Walk from the anchor: kept groups verbatim, user instructions, unanswered
-// task notifications, and the conversational assistant text the mode allows.
+// task notifications, and the conversation the mode allows (rule-only:
+// assistant text and runtime conversation rows).
 function assembleTail(messages, kept, { anchor, firstKept, preserveConversation, pending }) {
   const tail = [];
   for (let i = Math.max(0, anchor); i < messages.length; i += 1) {
@@ -204,6 +206,7 @@ function assembleTail(messages, kept, { anchor, firstKept, preserveConversation,
     if (
       isActualUserInstructionMessage(message) ||
       pending.has(i) ||
+      (preserveConversation && isCompactConversationRow(message)) ||
       (i >= firstKept && message?.role === 'assistant' && !message.toolCalls?.length)
     ) {
       tail.push(message);

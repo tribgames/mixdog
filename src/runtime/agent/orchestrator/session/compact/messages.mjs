@@ -10,6 +10,7 @@ import {
   isProtectedContextUserMessage,
   isSummaryMessage,
 } from './user-message-kind.mjs';
+import { CONTROL_MARKER_RE } from '../../../../shared/tool-execution-contract.mjs';
 
 export function compactHeader(oldHistory) {
   // Stable display ids are bookkeeping, not conversation: the header names
@@ -78,6 +79,22 @@ export function pendingTaskNotificationIndexes(messages) {
     if (message?.role === 'user' && message.meta?.source === 'task-notification') pending.unshift(index);
   }
   return pending;
+}
+
+// Runtime rows that are conversation, not instructions: task and channel
+// notifications (answered or not), routine and task results posted into a
+// home thread, and turn interruption markers. Rule-only Compact keeps them
+// with the dialogue; the summary reads them as data.
+const CONVERSATION_RUNTIME_SOURCES = new Set(['task-notification', 'schedule-result']);
+
+export function isCompactConversationRow(message) {
+  if (message?.role !== 'user') return false;
+  if (CONVERSATION_RUNTIME_SOURCES.has(String(message.meta?.source || ''))) return true;
+  return (
+    typeof message.content === 'string' &&
+    CONTROL_MARKER_RE.test(message.content.trim()) &&
+    !isActualUserInstructionMessage(message)
+  );
 }
 
 function referenceFilesManifestMessage(message) {
