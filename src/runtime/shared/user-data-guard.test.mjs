@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import fs, { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
@@ -602,4 +603,194 @@ test('a backup is not written when its scope cannot be listed', (t) => {
     fs.readdirSync(scope).filter((name) => name !== basename(first)),
     []
   );
+});
+
+// ── Failed and completed backups ─────────────────────────────────────
+
+// Makes `owner[method]` fail with `error` for calls whose arguments satisfy
+// `matches`: a rejected promise for fs/promises, a throw for the sync API.
+function failCall(t, owner, method, matches, error) {
+  const original = owner[method];
+  owner[method] = (...args) => {
+    if (!matches(args.map(String))) return original(...args);
+    if (owner === fsPromises) return Promise.reject(error);
+    throw error;
+  };
+  syncBuiltinESMExports();
+  const restore = () => {
+    owner[method] = original;
+    syncBuiltinESMExports();
+  };
+  t.after(restore);
+  return restore;
+}
+
+const ioError = (message, code = 'EIO') => Object.assign(new Error(message), { code });
+const isError = (expected) => (actual) => actual === expected;
+const completedIn = (scope) =>
+  readdirSync(scope)
+    .filter((name) => existsSync(join(scope, name, 'backup.json')))
+    .sort();
+
+// A data dir with a config, one completed backup (which also creates the init
+// marker) and its scope directory.
+function backedUp(t) {
+  const a = sandbox(t).dir('profile');
+  const config = JSON.stringify(complete('kept'));
+  writeFileSync(configFile(a), config);
+  const first = backupDir(backupUserData(a, 'first'));
+  const marker = join(a, '.mixdog-user-data.json');
+  return { a, config, first, scope: dirname(first), marker, markerBytes: readFileSync(marker) };
+}
+
+// The source config and the init marker must come through a failed backup untouched.
+function assertSourceIntact({ a, config, marker, markerBytes }) {
+  assert.equal(readFileSync(configFile(a), 'utf8'), config);
+  assert.deepEqual(readFileSync(marker), markerBytes);
+}
+
+const failsAtManifest = (t, scope, error) =>
+  failCall(t, fs, 'renameSync', ([, to]) => dirname(dirname(to)) === scope && basename(to) === 'backup.json', error);
+
+const modes = [
+  { kind: 'sync', backup: backupUserData, owner: fs, read: 'readFileSync', remove: 'rmSync' },
+  { kind: 'async', backup: backupUserDataAsync, owner: fsPromises, read: 'readFile', remove: 'rm' },
+];
+
+for (const { kind, backup, owner, read, remove } of modes) {
+  test(`${kind} backup: a failed copy removes only the reservation it made`, async (t) => {
+    const state = backedUp(t);
+    const { a, config, first, scope } = state;
+    const foreign = join(scope, `${basename(first)}-foreign`);
+    mkdirSync(foreign);
+    writeFileSync(join(foreign, 'pending.txt'), 'someone else\n');
+    const before = readdirSync(scope).sort();
+    const job = join(a, 'schedules', 'job.json');
+    mkdirSync(dirname(job));
+    writeFileSync(job, '{"job":1}');
+    const error = ioError('job copy failed');
+    const restore = failCall(t, owner, read, ([path]) => path === job, error);
+
+    await assert.rejects(async () => backup(a, 'copy'), isError(error));
+    assert.deepEqual(readdirSync(scope).sort(), before);
+    assert.equal(readFileSync(join(foreign, 'pending.txt'), 'utf8'), 'someone else\n');
+    assert.equal(readFileSync(join(first, 'mixdog-config.json'), 'utf8'), config);
+    assertSourceIntact(state);
+
+    restore();
+    const next = await backup(a, 'again');
+    assert.equal(readFileSync(join(next.dir, 'schedules', 'job.json'), 'utf8'), '{"job":1}');
+  });
+
+  test(`${kind} backup: a failed manifest publication removes its reservation`, async (t) => {
+    const state = backedUp(t);
+    const { a, first, scope } = state;
+    const manifest = readFileSync(join(first, 'backup.json'));
+    const error = ioError('manifest failed');
+    const restore = failsAtManifest(t, scope, error);
+
+    await assert.rejects(async () => backup(a, 'manifest'), isError(error));
+    assert.deepEqual(readdirSync(scope), [basename(first)]);
+    assert.deepEqual(readFileSync(join(first, 'backup.json')), manifest);
+    assertSourceIntact(state);
+
+    restore();
+    assert.equal(JSON.parse(readFileSync(join((await backup(a, 'again')).dir, 'backup.json'), 'utf8')).reason, 'again');
+  });
+
+  test(`${kind} backup: retention counts completed backups only, schedule-only ones included`, async (t) => {
+    const { a, first, scope } = backedUp(t);
+    const kept = [first];
+    for (let i = 0; i < 38; i++) kept.push((await backup(a, 'kept')).dir);
+    assert.equal(completedIn(scope).length, 39);
+
+    // A failed publication whose cleanup also fails leaves an unfinished dir.
+    const error = ioError('manifest failed');
+    const restoreManifest = failsAtManifest(t, scope, error);
+    const restoreRemove = failCall(
+      t,
+      owner,
+      remove,
+      ([path]) => dirname(path) === scope && !kept.includes(path),
+      ioError('cleanup denied', 'EACCES')
+    );
+    await assert.rejects(async () => backup(a, 'broken'), isError(error));
+    restoreManifest();
+    restoreRemove();
+    const unfinished = readdirSync(scope).filter((name) => !kept.includes(join(scope, name)));
+    assert.equal(unfinished.length, 1);
+    const stale = join(scope, unfinished[0]);
+    assert.equal(existsSync(join(stale, 'backup.json')), false);
+
+    // The unfinished dir takes no slot: the 40th completed backup evicts nothing.
+    kept.push((await backup(a, 'kept')).dir);
+    for (const path of kept) assert.equal(existsSync(path), true, 'an unfinished dir must not evict history');
+    assert.equal(completedIn(scope).length, 40);
+    assert.deepEqual(loadLatestMixdogConfigFromBackup(a, { fresh: true }), complete('kept'));
+
+    // Schedule-only backups complete too, and each takes exactly one slot.
+    rmSync(configFile(a));
+    mkdirSync(join(a, 'schedules'));
+    writeFileSync(join(a, 'schedules', 'job.json'), '{"job":1}');
+    for (let i = 0; i < 2; i++) {
+      const only = await backup(a, 'schedules-only');
+      assert.equal(existsSync(join(only.dir, 'mixdog-config.json')), false);
+      assert.equal(readFileSync(join(only.dir, 'schedules', 'job.json'), 'utf8'), '{"job":1}');
+      assert.equal(existsSync(kept[i]), false);
+      assert.equal(existsSync(kept[i + 1]), true);
+      assert.equal(completedIn(scope).length, 40);
+    }
+    assert.equal(existsSync(stale), true, 'retention does not sweep unfinished reservations');
+  });
+
+  test(`${kind} backup: a reporting error after completion keeps the backup`, async (t) => {
+    const { a, config, first, scope } = backedUp(t);
+    const quiet = process.env.MIXDOG_SETUP_QUIET;
+    process.env.MIXDOG_SETUP_QUIET = '0';
+    t.after(() => {
+      process.env.MIXDOG_SETUP_QUIET = quiet;
+    });
+    const error = new Error('report failed');
+    const stderrWrite = process.stderr.write;
+    t.mock.method(process.stderr, 'write', function (chunk, ...args) {
+      if (String(chunk).startsWith('[user-data-backup]')) throw error;
+      return stderrWrite.call(this, chunk, ...args);
+    });
+
+    await assert.rejects(async () => backup(a, 'published'), isError(error));
+    const [published] = completedIn(scope).filter((name) => name !== basename(first));
+    assert.equal(JSON.parse(readFileSync(join(scope, published, 'backup.json'), 'utf8')).reason, 'published');
+    assert.equal(readFileSync(join(scope, published, 'mixdog-config.json'), 'utf8'), config);
+    assert.equal(existsSync(first), true);
+  });
+}
+
+test('async backup: a marker damaged during the copy removes only that reservation', async (t) => {
+  const { a, config, first, scope, marker } = backedUp(t);
+  const damaged = '{"instanceId":';
+  let damagedDuringCopy = false;
+  const readFile = fsPromises.readFile;
+  fsPromises.readFile = async (path, ...args) => {
+    const bytes = await readFile(path, ...args);
+    if (String(path) === configFile(a)) {
+      writeFileSync(marker, damaged);
+      damagedDuringCopy = true;
+    }
+    return bytes;
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fsPromises.readFile = readFile;
+    syncBuiltinESMExports();
+  });
+
+  await assert.rejects(
+    backupUserDataAsync(a, 'damaged'),
+    (error) => error instanceof SyntaxError && error.message.includes(marker)
+  );
+  assert.equal(damagedDuringCopy, true, 'the marker was damaged while the config was being copied');
+  assert.equal(readFileSync(marker, 'utf8'), damaged, 'the damaged marker is left as found');
+  assert.equal(readFileSync(configFile(a), 'utf8'), config);
+  assert.deepEqual(readdirSync(scope), [basename(first)]);
+  assert.equal(readFileSync(join(first, 'mixdog-config.json'), 'utf8'), config);
 });

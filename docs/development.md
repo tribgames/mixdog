@@ -24,6 +24,15 @@ that edit the same files. Older processes use a different lock location and
 cannot coordinate with the shared namespace. These locks do not coordinate
 edits between different machines syncing the same folder.
 
+User-data backups keep the newest 40 completed snapshots per data directory.
+A snapshot is completed once its `backup.json` manifest is published, and
+schedule-, webhook- or workflow-only snapshots count too. If copying or
+publishing fails, Mixdog removes only the directory that call reserved and
+rethrows the original error. Once the manifest is published, a later pruning or
+reporting error never rolls the backup back. Incomplete directories left by a
+crash or a failed cleanup are neither counted nor pruned, so they can
+accumulate and take disk space beyond the 40 completed backups.
+
 Useful environment variables:
 
 - `MIXDOG_TUI_MOUSE=0` — use terminal-native mouse behavior.
