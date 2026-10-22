@@ -51,14 +51,42 @@ const PASTE_INLINE_OPEN = '\uE000';
 const PASTE_INLINE_CLOSE = '\uE001';
 const PASTE_INLINE_RE = /\uE000(\d+)\uE001/;
 
-/** Splits display text that went through `extractPastedTextMarkers` with
- *  `inlineTexts` into plain text parts and the index of each inlined paste. */
+// The user's own text may hold the marker characters. `extractPastedTextMarkers`
+// escapes them (each becomes PASTE_INLINE_ESCAPE + its offset digit) before it
+// writes any marker, so a marker in its output is always one it wrote.
+const PASTE_INLINE_ESCAPE = '\uE002';
+
+function escapeInlineSentinels(text: string): string {
+  return text.replace(/[\uE000-\uE002]/g, (char) => PASTE_INLINE_ESCAPE + (char.charCodeAt(0) - 0xe000));
+}
+
+function unescapeInlineSentinels(text: string): string {
+  return text.replace(/\uE002([012])/g, (_match, offset) => String.fromCharCode(0xe000 + Number(offset)));
+}
+
+/** `extractFileMarkers` for the text `extractPastedTextMarkers` returned: the
+ *  body stays escaped, while the chips (token, name) are the user's own. */
+export function extractEscapedFileMarkers(text: string): ReturnType<typeof extractFileMarkers> {
+  const folded = extractFileMarkers(text);
+  return {
+    text: folded.text,
+    chips: folded.chips.map((chip) => ({
+      ...chip,
+      token: unescapeInlineSentinels(chip.token),
+      name: unescapeInlineSentinels(chip.name),
+    })),
+  };
+}
+
+/** Splits display text that went through `extractPastedTextMarkers` into plain
+ *  text parts (the user's own characters restored) and the index of each
+ *  inlined paste. */
 export function splitInlinePastes(text: string): Array<{ text: string } | { paste: number }> {
   return text
     .split(new RegExp(PASTE_INLINE_RE.source, 'g'))
     .flatMap(
       (part, index): Array<{ text: string } | { paste: number }> =>
-        index % 2 ? [{ paste: Number(part) }] : part.trim() ? [{ text: part }] : []
+        index % 2 ? [{ paste: Number(part) }] : part.trim() ? [{ text: unescapeInlineSentinels(part) }] : []
     );
 }
 
@@ -72,7 +100,8 @@ export function extractPastedTextMarkers(
   const chips: PastedTextChip[] = [];
   let order = 0;
   // A restored paste whose line count was not worked out reads `[Pasted text #n]`.
-  const stripped = String(text || '').replace(
+  const source = escapeInlineSentinels(String(text || ''));
+  const stripped = source.replace(
     / ?(\[Pasted text #\d+(?: \+(\d+) lines)?\]) ?/g,
     (_match, token, lines) => {
       const at = order++;
@@ -85,7 +114,7 @@ export function extractPastedTextMarkers(
       return ' ';
     }
   );
-  if (order === 0) return { text, chips };
+  if (order === 0) return { text: source, chips };
   const cleaned = stripped
     .split(/\r?\n/)
     .map((line) => line.replace(/ {2,}/g, ' ').trim())
@@ -95,12 +124,16 @@ export function extractPastedTextMarkers(
   return { text: cleaned, chips };
 }
 
-/** Tweaks lines of a feedback message (`<mark> accent: #fff (was #000)`) come out of the text, to be drawn with an icon. */
+/** Tweaks lines of a feedback message (`<mark> accent: #fff (was #000)`) come out of the text, to be drawn with an icon.
+ *  The text is the escaped body from `extractPastedTextMarkers`: it stays
+ *  escaped for `splitInlinePastes`, the extracted lines are the user's own. */
 export function extractTweaksLines(text: string): { text: string; lines: string[] } {
   const lines: string[] = [];
   const kept: string[] = [];
   for (const line of String(text || '').split('\n')) {
-    if (line.startsWith(`${VISUALIZE_TWEAKS_MARK} `)) lines.push(line.slice(VISUALIZE_TWEAKS_MARK.length + 1).trim());
+    if (line.startsWith(`${VISUALIZE_TWEAKS_MARK} `)) {
+      lines.push(unescapeInlineSentinels(line.slice(VISUALIZE_TWEAKS_MARK.length + 1).trim()));
+    }
     else kept.push(line);
   }
   return lines.length ? { text: kept.join('\n').trim(), lines } : { text, lines };
@@ -262,7 +295,7 @@ export function useSentPastedTexts(
  *  later filter of the tokens never shifts which record a token has. */
 export function sentPastedRecords(item: TranscriptItem): Array<SentAttachmentRecord | undefined> {
   const { text, chips } = extractPastedTextMarkers(String(item.text || ''));
-  return chipAttachments(item.attachments, extractFileMarkers(text).chips, chips).pasted;
+  return chipAttachments(item.attachments, extractEscapedFileMarkers(text).chips, chips).pasted;
 }
 
 /** Reads each stored paste and hands its text over as it arrives. The returned

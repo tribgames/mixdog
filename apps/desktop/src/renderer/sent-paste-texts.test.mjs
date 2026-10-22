@@ -98,6 +98,111 @@ test('with the first of two same-name pastes shown inline, the remaining card ac
   await act(async () => root.unmount());
 });
 
+async function renderRow(item) {
+  const { TranscriptRow } = await import('./transcript-row.tsx');
+  const { MarkdownSessionContext } = await import('./MarkdownLink.tsx');
+  window.mixdogDesktop = {};
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      React.createElement(MarkdownSessionContext.Provider, { value: 's1' }, React.createElement(TranscriptRow, { item }))
+    )
+  );
+  return { host, unmount: () => act(async () => root.unmount()) };
+}
+
+test('a literal paste marker in the user text with no pastes shows verbatim', async () => {
+  const text = 'keep \uE0000\uE001 and \uE002 here';
+  const { host, unmount } = await renderRow({ kind: 'user', id: 'm5', text });
+  assert.equal(host.querySelector('.message-body').textContent, text);
+  assert.equal(host.querySelectorAll('.message-pasted-text').length, 0);
+  await unmount();
+});
+
+test('a literal marker with an unrelated id next to real pastes shows verbatim; real pastes still render', async () => {
+  const { registerSentAttachments } = await import('./attachment-menu.ts');
+  const name = 'Pasted text · 2 lines';
+  const token = '[Pasted text #1 +2 lines]';
+  registerSentAttachments('m6', [{ token, kind: 'text', name, mimeType: 'text/plain', data: 'one\ntwo', paste: true }]);
+  const literal = 'see \uE0000\uE001 and \uE0007\uE001 too';
+  const { host, unmount } = await renderRow({ kind: 'user', id: 'm6', text: `${literal}\n${token}` });
+  const pasted = [...host.querySelectorAll('.message-pasted-text')];
+  assert.deepEqual(
+    pasted.map((entry) => entry.textContent),
+    ['one\ntwo'],
+    'only the real paste is inlined'
+  );
+  const plain = [...host.querySelectorAll('.message-body p:not(.message-pasted-text)')].map((entry) => entry.textContent);
+  assert.deepEqual(plain, [literal]);
+  await unmount();
+});
+
+test('a file chip whose name holds a marker character shows its real name and keeps its attachment', async () => {
+  const { registerSentAttachments } = await import('./attachment-menu.ts');
+  const name = 'a\uE000b.txt';
+  const token = `[File #1: ${name}]`;
+  registerSentAttachments('m7', [{ token, kind: 'text', name, mimeType: 'text/plain', data: 'FILEDATA' }]);
+  const item = {
+    kind: 'user',
+    id: 'm7',
+    text: `${token}\n[Pasted text #2 +2 lines]`,
+    attachments: [
+      { id: F, name, kind: 'text' },
+      { id: A, name: 'other', kind: 'text' },
+    ],
+  };
+  assert.deepEqual(
+    sentPastedRecords(item).map((record) => record?.id),
+    [A],
+    'the file chip reserves its own record by the real name'
+  );
+  const { host, unmount } = await renderRow(item);
+  const cards = [...host.querySelectorAll('.attachment-card')];
+  assert.ok(cards.some((card) => card.textContent.includes(name)), 'the card shows the real name');
+  await unmount();
+  const { extractEscapedFileMarkers, extractPastedTextMarkers } = await import('./transcript-attachments.tsx');
+  const { sentFileSource } = await import('./attachment-menu.ts');
+  const { text } = extractPastedTextMarkers(item.text);
+  const [chip] = extractEscapedFileMarkers(text).chips;
+  assert.deepEqual(sentFileSource(chip, 'm7'), { kind: 'text-file', name, text: 'FILEDATA' });
+});
+
+test('a tweaks line holding a marker character shows verbatim', async () => {
+  const line = 'accent: \uE0000\uE001 \uE002 (was #000)';
+  const { host, unmount } = await renderRow({ kind: 'user', id: 'm8', text: `hello\n\uD83C\uDF9A ${line}` });
+  assert.equal(host.querySelector('.message-tweaks-line').textContent.trim(), line);
+  await unmount();
+});
+
+test('marker characters in text, a file marker and a real paste together', async () => {
+  const { registerSentAttachments } = await import('./attachment-menu.ts');
+  const name = 'n\uE001.txt';
+  const fileToken = `[File #1: ${name}]`;
+  const pasteToken = '[Pasted text #2 +2 lines]';
+  registerSentAttachments('m9', [
+    { token: fileToken, kind: 'text', name, mimeType: 'text/plain', data: 'FILEDATA' },
+    { token: pasteToken, kind: 'text', name: 'Pasted text · 2 lines', mimeType: 'text/plain', data: 'one\ntwo', paste: true },
+  ]);
+  const body = 'see \uE0000\uE001 and \uE002 0';
+  const { host, unmount } = await renderRow({
+    kind: 'user',
+    id: 'm9',
+    text: `${body}\n${fileToken}\n${pasteToken}`,
+  });
+  assert.deepEqual(
+    [...host.querySelectorAll('.message-pasted-text')].map((entry) => entry.textContent),
+    ['one\ntwo']
+  );
+  assert.deepEqual(
+    [...host.querySelectorAll('.message-body p:not(.message-pasted-text)')].map((entry) => entry.textContent),
+    [body]
+  );
+  assert.ok([...host.querySelectorAll('.attachment-card')].some((card) => card.textContent.includes(name)));
+  await unmount();
+});
+
 test('an attached text file is never taken for a paste marker', () => {
   const item = {
     kind: 'user',

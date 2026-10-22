@@ -1,7 +1,6 @@
 import { GitCommitHorizontal, GitPullRequest, SlidersHorizontal, Upload } from 'lucide-react';
 import { parseIslandGitRequestText } from './island-git-request';
 import { Suspense, createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { extractFileMarkers } from './attachment-menu';
 import { useAttachmentContextMenu } from './attachment-context-menu';
 import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItemContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
@@ -41,6 +40,7 @@ import { asRecord } from './text-format';
 export { routineNoticeText };
 export { loadAttachmentThumbnail, ReturnedAttachments } from './transcript-attachments';
 import {
+  extractEscapedFileMarkers,
   extractImageMarkers,
   extractPastedTextMarkers,
   extractTweaksLines,
@@ -403,7 +403,7 @@ export const TranscriptRow = memo(
     const pastedFold = user
       ? extractPastedTextMarkers(userDisplayText, pastedTexts)
       : { text: userDisplayText, chips: [] as PastedTextChip[] };
-    const fileFold = user ? extractFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
+    const fileFold = user ? extractEscapedFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
     const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
     const tweaksFold = user ? extractTweaksLines(webhookFold.text) : { text: webhookFold.text, lines: [] as string[] };
     // The runtime reports which `$name` mentions it applied; only those are
