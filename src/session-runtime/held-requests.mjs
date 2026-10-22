@@ -1,7 +1,8 @@
 /**
- * Unattended runs. A schedule or webhook run never asks (its saved routine is
- * the user's grant; human-gate/run-policy.mjs), so only group-room members
- * still use held requests: an approval-needing call is HELD instead of shown as
+ * Held requests. A schedule or webhook run never asks and never holds (its
+ * saved routine is the user's grant; human-gate/run-policy.mjs), so only group
+ * room members use held requests: with no
+ * approval UI attached, an approval-needing call is HELD instead of shown as
  * a card: the run pauses on it, a structured held-request row lands in the
  * owning agent's home thread (agent-home-delivery.mjs queue), a phone push
  * says only "<agent>가 승인을 기다립니다" (no tool, arguments or text), and the
@@ -24,8 +25,8 @@ import {
   setUnattendedApprovalPort,
 } from '../runtime/agent/orchestrator/session/human-gate/gate.mjs';
 import { normalizeHumanResponse } from '../runtime/agent/orchestrator/session/human-gate/requests.mjs';
+import { runStampOf } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import { normalizeHeldRequest } from '../runtime/agent/orchestrator/session/human-gate/held-message.mjs';
-import { delegationOf } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import {
   notifyHeldRequest,
   recordRunOwner,
@@ -49,28 +50,21 @@ export function markUnattendedRun(sessionId, { kind, agentId, name = '' }) {
   };
 }
 
-/** The unattended run `sessionId` belongs to, or null for an attended session.
- *  Work delegated from a run or a room (a sub-agent at any depth, a task
- *  session the bot created) belongs to it by the origin recorded on its own
- *  session record when it was created (human-gate/delegation.mjs) — however
- *  long ago that run ended, across restarts: its approvals are held like the
- *  run's own. */
+/** The unattended run `sessionId` is, or null for an attended session: a
+ *  marked schedule/webhook run, a room member's own session, or work a
+ *  schedule/webhook run started (a sub-agent at any depth, a task session) by
+ *  the `run` stamped on its own record when it was created
+ *  (human-gate/delegation.mjs) — however long ago that run ended, across
+ *  restarts. Work a bot's attended chat or a room member started is no run. */
 export function unattendedRunOf(sessionId) {
   const run = runs.get(sessionId);
   if (run) return run;
   const member = roomMemberOfSession(sessionId);
   if (member) return { kind: 'room', agentId: member.agentId, name: member.roomId };
-  const delegation = delegationOf(sessionId);
-  if (delegation.state !== 'resolved') return null;
-  if (delegation.via === 'run') {
-    return {
-      kind: delegation.run.kind === 'webhook' ? 'webhook' : 'schedule',
-      agentId: delegation.rootAgentId,
-      name: String(delegation.run.name || ''),
-    };
-  }
-  const root = delegation.via === 'room' ? roomMemberOfSession(delegation.rootSessionId) : null;
-  return root ? { kind: 'room', agentId: root.agentId, name: root.roomId } : null;
+  const stamped = runStampOf(sessionId);
+  return stamped && (stamped.kind === 'schedule' || stamped.kind === 'webhook') && stamped.agentId
+    ? { kind: stamped.kind, agentId: String(stamped.agentId), name: String(stamped.name || '') }
+    : null;
 }
 
 /**
@@ -134,6 +128,8 @@ export function createHeldRequests({
   /** Hold `request` (the approval hook's payload) until answered or the run is cancelled. */
   function hold(request = {}, { signal } = {}) {
     const run = runOf(request.sessionId) || { kind: 'schedule', agentId: MIXY_AGENT_ID, name: '' };
+    // The scopes the gate offered (gate.mjs): the bot's own grant, or once.
+    const remember = Array.isArray(request.remember) && request.remember.length ? request.remember : ['once'];
     const id = `held_${randomUUID()}`;
     const held = normalizeHeldRequest({
       id,
@@ -152,13 +148,12 @@ export function createHeldRequests({
             details: request.outbound?.details,
           }
         : {}),
-      // An unattended run never remembers: its held row offers once only.
-      remember: ['once'],
+      remember,
       run: { kind: run.kind, name: run.name, sessionId: request.sessionId },
     });
-    const shape = { kind: held.kind, outbound: request.outbound, remember: ['once'] };
+    const shape = { kind: held.kind, outbound: request.outbound, remember };
     const gate = {
-      remember: ['once'],
+      remember,
       agentId: run.agentId,
       kind: held.kind,
       ...(held.action ? { action: held.action } : {}),

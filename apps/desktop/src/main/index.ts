@@ -826,7 +826,6 @@ setBrowserApprovalHooks({
     listAgents: browserApprovalGrants.listAgents,
     titleLabels: nativeSessionTitleLabels,
     leadName: () => nativeT('Lead'),
-    taskName: () => nativeT('Task session'),
   }),
   isAllowed: browserApprovalGrants.isAllowed,
   isBlocked: browserApprovalGrants.isBlocked,

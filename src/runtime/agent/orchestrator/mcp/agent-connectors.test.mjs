@@ -306,10 +306,12 @@ test('needs_approval asks through the approval hook; disabled never reaches the 
   assert.equal(agentMcpToolPermission('asker', 'mcp__alpha__write_it'), 'needs_approval');
   assert.equal(agentMcpToolPermission('asker', 'mcp__alpha__read_it'), 'auto');
   assert.equal(agentMcpToolPermission('asker', 'read'), 'auto');
-  const session = { id: 's1', agent: 'asker', mcpScopeId: scopeId };
+  // Only a bot's own session asks (its home chat here); another session runs the tool unasked.
+  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'agents', 'asker', 'AGENT.md'), '---\nkind: bot\n---\nAsker.\n');
+  const session = { id: 'sess_home_asker', agent: 'asker', mcpScopeId: scopeId };
   const asked = [];
   const run = (name, approve) =>
-    executeTool(name, {}, process.cwd(), 's1', session, {
+    executeTool(name, {}, process.cwd(), 'sess_home_asker', session, {
       toolApprovalHook: async (request) => {
         asked.push(request.name);
         return approve;
@@ -327,9 +329,24 @@ test('needs_approval asks through the approval hook; disabled never reaches the 
   await run('mcp__alpha__write_it', true);
   assert.deepEqual(calls, ['read_it', 'write_it']);
 
-  // No approval UI (a headless delegated run): the call is refused, not run.
-  assert.match(await executeTool('mcp__alpha__write_it', {}, process.cwd(), 's1', session, {}), /no approval UI/);
+  // No approval UI in the bot's own session: the call is refused, not run.
+  assert.match(
+    await executeTool('mcp__alpha__write_it', {}, process.cwd(), 'sess_home_asker', session, {}),
+    /no approval UI/
+  );
   assert.deepEqual(calls, ['read_it', 'write_it']);
+
+  // The same agent in any other session (a workflow or coding session, a sub-agent) is never asked.
+  asked.length = 0;
+  const elsewhere = { ...session, id: 's1' };
+  await executeTool('mcp__alpha__write_it', {}, process.cwd(), 's1', elsewhere, {
+    toolApprovalHook: async (request) => {
+      asked.push(request.name);
+      return false;
+    },
+  });
+  assert.deepEqual(asked, []);
+  assert.deepEqual(calls, ['read_it', 'write_it', 'write_it']);
 });
 
 test('a needs_approval tool the outbound gate already approved asks once; others still ask', async (t) => {

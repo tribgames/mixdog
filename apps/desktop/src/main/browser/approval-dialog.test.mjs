@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  roomMemberSessionId,
+  roomSessionId,
+} from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { decideBrowserApproval, requestBrowserApproval, setBrowserApprovalHooks } from './approval-dialog.ts';
 
 function fakeWindow(focused) {
@@ -28,11 +32,14 @@ const listenerCount = (window) =>
 const request = () => ({
   action: 'click',
   url: 'https://example.test/path?token=secret',
-  sessionId: 'sess_a',
+  sessionId: 'sess_home_bot',
   target: 'Send',
   paths: [],
   kinds: ['submit'],
 });
+
+// Only a bot's own session asks: unless a test says otherwise, the asker is one.
+beforeEach(() => setBrowserApprovalHooks({ resolveRequester: async () => ({ name: 'bot' }) }));
 
 test('an approval is an in-app card answered over IPC, never an OS dialog', async () => {
   const window = fakeWindow(true);
@@ -40,7 +47,7 @@ test('an approval is an in-app card answered over IPC, never an OS dialog', asyn
   await settle();
   const [card] = window.sent;
   assert.equal(card.channel, 'mixdog:browser-approval');
-  assert.equal(card.payload.sessionId, 'sess_a');
+  assert.equal(card.payload.sessionId, 'sess_home_bot');
   assert.ok(!card.payload.url.includes('secret'));
   decideBrowserApproval(window.contents, card.payload.id, 'once');
   assert.equal(await pending, true);
@@ -121,13 +128,13 @@ test('cancel denies; a background approval names the bot and notifies without fo
   const window = fakeWindow(false);
   const notified = [];
   setBrowserApprovalHooks({
-    resolveRequester: async (sessionId) => ({ name: `bot for ${sessionId}`, agentId: '' }),
+    resolveRequester: async (sessionId) => ({ name: `bot for ${sessionId}` }),
     notify: (_window, requester) => notified.push(requester),
   });
   const pending = requestBrowserApproval(window, request());
   await settle();
-  assert.equal(window.sent[0].payload.requester, 'bot for sess_a');
-  assert.deepEqual(notified, [{ sessionId: 'sess_a', name: 'bot for sess_a' }]);
+  assert.equal(window.sent[0].payload.requester, 'bot for sess_home_bot');
+  assert.deepEqual(notified, [{ sessionId: 'sess_home_bot', name: 'bot for sess_home_bot' }]);
   decideBrowserApproval(window.contents, window.sent[0].payload.id, 'deny');
   assert.equal(await pending, false);
   setBrowserApprovalHooks({});
@@ -136,14 +143,14 @@ test('cancel denies; a background approval names the bot and notifies without fo
 test('the card names the chat it docks in and the bot; a denial note reaches the agent as the error', async () => {
   const window = fakeWindow(true);
   setBrowserApprovalHooks({
-    resolveRequester: async () => ({ name: '사무관 › Worker', agentId: 'clerk' }),
+    resolveRequester: async () => ({ name: '사무관 › Worker' }),
     surfaceSessionId: (sessionId) => `home-of-${sessionId}`,
   });
   const pending = requestBrowserApproval(window, request());
   await settle();
   const { payload } = window.sent[0];
-  assert.equal(payload.surfaceSessionId, 'home-of-sess_a');
-  assert.equal(payload.agentId, 'clerk');
+  assert.equal(payload.surfaceSessionId, 'home-of-sess_home_bot');
+  assert.equal(payload.agentId, 'bot');
   decideBrowserApproval(window.contents, payload.id, 'deny', '  Use the staging account  ');
   // The same wording as every tool denial that a person said no to.
   await assert.rejects(
@@ -157,24 +164,75 @@ test('the card names the chat it docks in and the bot; a denial note reaches the
   setBrowserApprovalHooks({});
 });
 
-test('a focused window shows the card without a notification, and a failing resolver leaves the name blank', async () => {
+test('a focused window shows the card without a notification', async () => {
   const window = fakeWindow(true);
   let notified = 0;
   setBrowserApprovalHooks({
-    resolveRequester: async () => {
-      throw new Error('catalog unavailable');
-    },
+    resolveRequester: async () => ({ name: 'bot' }),
     notify: () => {
       notified += 1;
     },
   });
   const pending = requestBrowserApproval(window, request());
   await settle();
-  assert.equal(window.sent[0].payload.requester, '');
+  assert.equal(window.sent[0].payload.requester, 'bot');
   assert.equal(notified, 0);
   decideBrowserApproval(window.contents, window.sent[0].payload.id, 'once');
   assert.equal(await pending, true);
   setBrowserApprovalHooks({});
+});
+
+const failingResolvers = {
+  rejects: async () => {
+    throw new Error('catalog unavailable');
+  },
+  'times out': () => new Promise(() => {}),
+  'catalog empty': async () => ({ name: '' }),
+  'no resolver': undefined,
+};
+
+test('a bot own session (home or room seat) keeps its card for submit and confirm when the requester lookup fails', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const seat = roomMemberSessionId('abc123', 'marketer');
+  for (const [how, resolveRequester] of Object.entries(failingResolvers)) {
+    for (const sessionId of ['sess_home_marketer', seat]) {
+      for (const kinds of [['submit'], ['confirm'], ['submit', 'confirm']]) {
+        const window = fakeWindow(true);
+        setBrowserApprovalHooks({ resolveRequester });
+        const pending = requestBrowserApproval(window, { ...request(), sessionId, kinds });
+        for (let i = 0; i < 20 && window.sent.length === 0; i += 1) {
+          t.mock.timers.tick(2_000);
+          await settle();
+        }
+        const label = `${how} ${sessionId} ${kinds}`;
+        assert.equal(window.sent.length, 1, `${label} still asks`);
+        const { payload } = window.sent[0];
+        assert.equal(payload.agentId, 'marketer', label);
+        assert.equal(payload.requester, 'marketer', `${label}: named by its id`);
+        assert.equal(Boolean(payload.remember), !kinds.includes('confirm'), label);
+        decideBrowserApproval(window.contents, payload.id, 'deny');
+        assert.equal(await pending, false, label);
+      }
+    }
+  }
+});
+
+test('a session that is no bot runs without a card, even when the requester lookup fails', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const resolveRequester of Object.values(failingResolvers)) {
+    for (const sessionId of ['sess_coding', 'sess_w1', 'sess_task', 'sess_unknown', roomSessionId('abc123')]) {
+      const window = fakeWindow(true);
+      setBrowserApprovalHooks({ resolveRequester });
+      assert.equal(await requestBrowserApproval(window, { ...request(), sessionId, kinds: ['confirm'] }), true);
+      assert.equal(window.sent.length, 0, sessionId);
+    }
+  }
+  const stopped = new AbortController();
+  stopped.abort();
+  assert.equal(
+    await requestBrowserApproval(fakeWindow(true), { ...request(), sessionId: 'sess_coding' }, stopped.signal),
+    false
+  );
 });
 
 test('only the renderer the card was sent to can answer it', async () => {
@@ -233,10 +291,7 @@ function memoryGrants() {
   const allowed = new Set();
   return {
     allowed,
-    resolveRequester: async (sessionId) => ({
-      name: sessionId.replace('sess_home_', ''),
-      agentId: sessionId.startsWith('sess_home_') ? sessionId.slice('sess_home_'.length) : '',
-    }),
+    resolveRequester: async (sessionId) => ({ name: sessionId.replace('sess_home_', '') }),
     isAllowed: async (agentId, actions) => actions.every((action) => allowed.has(`${agentId}\n${action}`)),
     remember: async (agentId, actions) => {
       for (const action of actions) allowed.add(`${agentId}\n${action}`);
@@ -270,7 +325,6 @@ test('always allow is kept for that bot and kind, and its next use runs without 
   const grants = memoryGrants();
   const first = await ask(grants, 'sess_home_marketer', ['submit'], 'always');
   assert.deepEqual(first.card.remember, { kinds: ['submit'] });
-  assert.equal(first.card.onceReason, '');
   assert.equal(first.card.requester, 'marketer');
   assert.equal(first.outcome, true);
   assert.deepEqual([...grants.allowed], ['marketer\nbrowser_submit']);
@@ -296,20 +350,19 @@ test('another bot, another kind, a mixed command and a revoked allow are all ask
   setBrowserApprovalHooks({});
 });
 
-test('operator-confirmed actions and non-bot sessions only ever ask once, with a reason', async () => {
+test('operator-confirmed actions ask once for a bot; a non-bot session runs every kind with no card', async () => {
   const grants = memoryGrants();
   grants.allowed.add('marketer\nbrowser_submit');
   const confirm = await ask(grants, 'sess_home_marketer', ['confirm'], 'always');
-  assert.deepEqual(
-    { remember: confirm.card.remember, why: confirm.card.onceReason },
-    { remember: null, why: 'confirm' }
-  );
+  assert.equal(confirm.card.remember, null);
   assert.equal(confirm.outcome, true, 'always where none was offered is a single allow');
   const mixed = await ask(grants, 'sess_home_marketer', ['submit', 'confirm'], 'deny');
   assert.equal(mixed.shown, true, 'one kind that always asks keeps the whole command asking');
-  const coding = await ask(grants, 'sess_coding', ['submit'], 'always');
-  assert.deepEqual({ remember: coding.card.remember, why: coding.card.onceReason }, { remember: null, why: 'bot' });
-  assert.equal(coding.outcome, true);
+  for (const kinds of [['submit'], ['post'], ['upload'], ['confirm'], ['submit', 'confirm']]) {
+    const coding = await ask(grants, 'sess_coding', kinds, 'deny');
+    assert.deepEqual({ shown: coding.shown, outcome: coding.outcome }, { shown: false, outcome: true }, `${kinds}`);
+    assert.equal(coding.window.sent.length, 0);
+  }
   assert.deepEqual([...grants.allowed], ['marketer\nbrowser_submit'], 'nothing new was stored');
   setBrowserApprovalHooks({});
 });
@@ -409,7 +462,7 @@ test('a run whose owning bot cannot be established, or whose permission cannot b
     assert.equal(run.window.sent.length, 0);
   }
   // A run-origin task session resolves to no agent id: the run's bot still blocks it.
-  const taskSession = { ...base, resolveRequester: async () => ({ name: 'Task', agentId: '', rememberable: false }) };
+  const taskSession = { ...base, resolveRequester: async () => ({ name: 'Task' }) };
   await assert.rejects(askRun(taskSession, 'sess_task_run', 'marketer').pending, refused);
   // Not blocked: allowed, audited under the run's bot, with no card.
   blocked.clear();
@@ -488,7 +541,7 @@ test('an upload card carries the destination origin, each file, and marks files 
   try {
     const grants = {
       ...memoryGrants(),
-      resolveRequester: async () => ({ name: 'marketer', agentId: 'marketer', cwd: project }),
+      resolveRequester: async () => ({ name: 'marketer', cwd: project }),
       downloadsDir: () => downloads,
     };
     const files = [
@@ -562,10 +615,7 @@ test('an operator-listed upload (confirm) always asks and is never remembered', 
   grants.allowed.add('marketer\nbrowser_upload');
   const confirm = await askUpload(grants, 'sess_home_marketer', ['upload', 'confirm'], 'always');
   assert.equal(confirm.shown, true, 'a standing upload allow does not skip an operator confirm');
-  assert.deepEqual(
-    { remember: confirm.card.remember, why: confirm.card.onceReason },
-    { remember: null, why: 'confirm' }
-  );
+  assert.equal(confirm.card.remember, null);
   assert.deepEqual([...grants.allowed], ['marketer\nbrowser_upload'], 'nothing new was stored');
   const only = await askUpload(memoryGrants(), 'sess_home_marketer', ['confirm'], 'always');
   assert.equal(only.card.remember, null);

@@ -5,7 +5,7 @@
 // here is field derivation — no ownership, no prompt text; the only read is the
 // parent's record a delegated session takes its root from.
 import { toSessionWorkflowMeta } from '../../runtime-core/workflow.mjs';
-import { delegationForNewSession } from '../human-gate/delegation.mjs';
+import { delegationForNewSession, runForNewSession } from '../human-gate/delegation.mjs';
 import { sessionOrchestrationMode } from '../../../../shared/orchestration.mjs';
 import { preserveBufferConfigFields } from './context-meta.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
@@ -103,16 +103,18 @@ export function sessionOriginFields(opts, { profile, presetObj, providerCacheOpt
     ownerSessionId: opts.ownerSessionId || null,
     visibility: opts.visibility || null,
     clientHostPid: opts.clientHostPid || null,
-    // A sub-agent's or a bot-created task session's root (who it works for, and
-    // how that root was acting), derived from the parent's record — the one
-    // read here — never taken from the options (human-gate/delegation.mjs).
+    // A sub-agent's root and the run (if any) that started a sub-agent or a
+    // bot-created task session, derived from its creator — the one read here —
+    // never taken from the options (human-gate/delegation.mjs).
     ...delegationFields(opts),
   };
 }
 
 function delegationFields(opts) {
   const delegation = delegationForNewSession(opts);
-  return delegation ? { delegation } : {};
+  // Work a schedule/webhook run started (a sub-agent, a task session) stays the run's.
+  const run = runForNewSession(opts);
+  return { ...(delegation ? { delegation } : {}), ...(run ? { run } : {}) };
 }
 
 // The persisted session record.

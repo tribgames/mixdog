@@ -10,7 +10,7 @@ import {
   type BrowserApprovalKind,
   type BrowserApprovalRequest,
 } from './action-approval';
-import type { ApprovalRequester } from './approval-requester';
+import { type ApprovalRequester, ownBotOfSession } from './approval-requester';
 import { redactBrowserUrl } from './redaction';
 
 /** Approvals wait here for the in-app card's answer (never an OS dialog),
@@ -18,7 +18,7 @@ import { redactBrowserUrl } from './redaction';
 type Decision = 'once' | 'always' | 'deny';
 const pending = new Map<
   string,
-  { owner: WebContents; rememberable: boolean; finish: (decision: Decision, reason?: string) => void }
+  { owner: WebContents; finish: (decision: Decision, reason?: string) => void }
 >();
 
 /** The store action (human-gate ACTION_KINDS) a standing allow is kept under,
@@ -55,8 +55,8 @@ function grantActions(kinds: readonly BrowserApprovalKind[]): string[] | null {
 }
 
 export interface BrowserApprovalHooks {
-  /** The asking bot's (or session's) display name and, for a bot's own chat,
-   *  its agent id; empty when unknown. */
+  /** The asking session's display name and working directory; empty when
+   *  unknown. Never decides whether the session asks (that is its id). */
   resolveRequester?(sessionId: string): Promise<ApprovalRequester>;
   /** Whether `agentId` has a standing allow for every one of `actions`. */
   isAllowed?(agentId: string, actions: string[]): Promise<boolean>;
@@ -83,7 +83,7 @@ export function setBrowserApprovalHooks(next: BrowserApprovalHooks): void {
 }
 
 const REQUESTER_TIMEOUT_MS = 1_500;
-const UNKNOWN_REQUESTER: ApprovalRequester = { name: '', agentId: '' };
+const UNKNOWN_REQUESTER: ApprovalRequester = { name: '' };
 
 async function requesterOf(sessionId: string): Promise<ApprovalRequester> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -104,13 +104,14 @@ async function requesterOf(sessionId: string): Promise<ApprovalRequester> {
 
 /** The renderer card's answer (`once`, `always`, `deny`; anything else denies).
  *  Only the renderer the card was sent to can answer it; an unknown, settled
- *  or foreign id is ignored, and `always` where none was offered is `once`.
+ *  or foreign id is ignored. `always` stores a grant only for a bot's own
+ *  card; where none was offered (no bot) it is a single allow.
  *  A denial may carry the person's note for the asking agent. */
 export function decideBrowserApproval(sender: WebContents, id: unknown, decision: unknown, reason?: unknown): void {
   if (typeof id !== 'string') return;
   const entry = pending.get(id);
   if (entry?.owner !== sender) return;
-  if (decision === 'always') entry.finish(entry.rememberable ? 'always' : 'once');
+  if (decision === 'always') entry.finish('always');
   else if (decision === 'once') entry.finish('once');
   else entry.finish('deny', typeof reason === 'string' ? reason.trim().slice(0, 4_000) : '');
 }
@@ -140,14 +141,18 @@ export async function requestBrowserApproval(
   request: BrowserApprovalRequest,
   signal?: AbortSignal
 ): Promise<boolean> {
-  // A standing allow is per bot (the bot's own chat) and per kind of step: a
-  // command is let through unasked only when this bot holds one for EVERY kind
-  // it contains, and never for a kind that always asks.
+  // A standing allow is per bot (its own home chat or room seat, one grant
+  // for both) and per kind of step: a command is let through unasked only when
+  // this bot holds one for EVERY kind it contains, and never for a kind that
+  // always asks. The bot is read from the session id alone (ownBotOfSession):
+  // a failed or slow requester lookup never turns a bot's session into one
+  // that runs unasked. Nothing else (a sub-agent, a task session, a coding
+  // session) has a bot, and it runs without a card.
+  const ownBot = ownBotOfSession(request.sessionId);
+  if (!ownBot && request.unattended !== true) return !signal?.aborted;
   const requester = await requesterOf(request.sessionId);
   const actions = grantActions(request.kinds);
-  const bot = actions && requester.agentId ? requester.agentId : '';
-  // "Always allow" only for the bot's own chat, never delegated work (approval-requester.ts).
-  const rememberable = Boolean(bot) && requester.rememberable !== false;
+  const bot = actions ? ownBot : '';
   const audit = (decision: string) => {
     if (bot && actions) void (async () => hooks.audit?.(bot, actions, decision))().catch(() => undefined);
   };
@@ -222,33 +227,30 @@ export async function requestBrowserApproval(
           );
         }
       };
-      pending.set(id, { owner: contents, rememberable, finish });
+      pending.set(id, { owner: contents, finish });
       signal?.addEventListener('abort', onDocumentGone, { once: true });
       contents.on('did-start-navigation', onNavigation as never);
       contents.on('render-process-gone', onDocumentGone);
       contents.once('destroyed', onDocumentGone);
       window.once('closed', onDocumentGone);
-      let onceReason = '';
-      if (!rememberable) onceReason = request.kinds.includes('confirm') ? 'confirm' : 'bot';
       send({
         id,
         action: request.action,
         url: redactBrowserUrl(request.url),
         sessionId: request.sessionId,
         surfaceSessionId: hooks.surfaceSessionId?.(request.sessionId) || request.sessionId,
-        agentId: requester.agentId,
-        requester: requester.name,
+        agentId: ownBot,
+        requester: requester.name || ownBot,
         target: request.target,
         paths: request.paths,
         ...(files.length
           ? { origin: originOfUrl(request.url), receiverOrigin: request.receiverOrigin || '', files }
           : {}),
         // What "always allow" would change, or why this one only asks once.
-        remember: rememberable ? { kinds: request.kinds } : null,
-        onceReason,
+        remember: bot ? { kinds: request.kinds } : null,
       });
       if (!window.isDestroyed() && !window.isFocused()) {
-        hooks.notify?.(window, { sessionId: request.sessionId, name: requester.name });
+        hooks.notify?.(window, { sessionId: request.sessionId, name: requester.name || ownBot });
       }
     });
   }, signal);

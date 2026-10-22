@@ -1002,9 +1002,6 @@ export interface DesktopApi {
             /** Set when a standing "always allow" may be recorded for this bot
              *  and these kinds of step (`submit`, `post`, `upload`); null = it only asks once. */
             remember: { kinds: Array<'submit' | 'post' | 'upload' | 'confirm'> } | null;
-            /** Why it only asks once: `confirm` (an action the operator set to
-             *  always ask) or `bot` (not a bot's own chat). */
-            onceReason: '' | 'confirm' | 'bot';
           }
     ) => void
   ): () => void;

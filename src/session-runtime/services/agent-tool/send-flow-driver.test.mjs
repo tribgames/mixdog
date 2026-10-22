@@ -1,8 +1,8 @@
 // `agent send` and a `spawn` of an existing tag hand a worker new work from the
-// calling session: from then on the worker is attended or a schedule/webhook
-// run's exactly as that caller is (human-gate/delegation.mjs rebindDelegation).
-// A background-task completion wake is the worker's own continuation and
-// keeps what it was.
+// calling session: from then on the worker is rooted under that caller and is
+// a schedule/webhook run's exactly as that caller is (human-gate/delegation.mjs
+// rebindDelegation). A bot's worker is never a bot. A background-task
+// completion wake is the worker's own continuation and keeps what it was.
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,7 +46,11 @@ function worker(id, { run } = {}) {
     providerCacheOpts: null,
     surface: { toolPermission: null, hasCallerAllow: false },
   });
-  setLiveSession({ ...record, ...(origin.delegation ? { delegation: origin.delegation } : {}) });
+  setLiveSession({
+    ...record,
+    ...(origin.delegation ? { delegation: origin.delegation } : {}),
+    ...(origin.run ? { run: origin.run } : {}),
+  });
   unmark();
   return id;
 }
@@ -100,12 +104,12 @@ for (const via of ['send', 'spawn']) {
     assert.equal(unattendedRunOf(id)?.kind, 'schedule');
     const out = await reuse(tool(id), HOME);
     assert.match(out, /queued/);
-    assert.equal(unattendedRunOf(id), null, 'the chat drives it now: it asks');
-    assert.equal(loadSession(id).delegation.via, 'home');
+    assert.equal(unattendedRunOf(id), null, 'the chat drives it now');
+    assert.equal(loadSession(id).delegation.via, 'bot');
   });
 
   test(`${via}: a worker the chat started is the run's when a run reuses its tag`, async () => {
-    const id = worker(`sess_fd_${via}_b`);
+    const id = worker(`sess_fd_${via}_c`);
     assert.equal(unattendedRunOf(id), null);
     const unmark = markUnattendedRun(HOME, { kind: 'webhook', agentId: 'flowbot', name: 'Hook' });
     try {
@@ -114,6 +118,16 @@ for (const via of ['send', 'spawn']) {
       unmark();
     }
     assert.deepEqual(unattendedRunOf(id), { kind: 'webhook', agentId: 'flowbot', name: 'Hook' });
+  });
+
+  test(`${via}: a coding Lead reusing the tag takes the worker under its own root`, async () => {
+    const id = worker(`sess_fd_${via}_b`);
+    setLiveSession({ id: `sess_fd_${via}_lead`, owner: 'cli', agent: 'lead' });
+    await reuse(tool(id), `sess_fd_${via}_lead`);
+    assert.deepEqual(
+      { via: loadSession(id).delegation.via, root: loadSession(id).delegation.rootSessionId },
+      { via: 'coding', root: `sess_fd_${via}_lead` }
+    );
   });
 }
 
@@ -130,6 +144,10 @@ test("a completion wake continues the worker as it was: a run's worker stays the
   assert.equal(sendFlow.wakeIdleWorker(id), true);
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(started, [['send', id]], 'the wake ran as a send job');
-  assert.equal(unattendedRunOf(id)?.kind, 'schedule', 'its owner is attended now, but the wake is not its send');
-  assert.equal(loadSession(id).delegation.via, 'run');
+  assert.equal(unattendedRunOf(id)?.kind, 'schedule', 'the wake is not a send of the chat');
+  assert.deepEqual(loadSession(id).delegation, {
+    rootSessionId: HOME,
+    via: 'bot',
+    path: [{ kind: 'agent', agent: 'worker' }],
+  });
 });

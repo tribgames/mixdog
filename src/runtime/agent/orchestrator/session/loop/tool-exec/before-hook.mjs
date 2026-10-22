@@ -8,10 +8,10 @@ import { evaluateExecPolicy } from '../../../tools/bash-policy-scan.mjs';
 import { beginSessionApprovalWait } from '../../manager/runtime-liveness.mjs';
 import { agentMcpToolPermission, writeAgentMcpToolPermission } from '../../../mcp/agent-connectors.mjs';
 import {
+  actingBotId,
   actingContactBotId,
   humanGateDecision,
   recordHumanDecision,
-  rememberSurfaceOf,
 } from '../../human-gate/gate.mjs';
 import { applyEditedArgs } from '../../human-gate/requests.mjs';
 
@@ -60,18 +60,22 @@ export const ALLOW_NOT_SAVED_NOTICE = 'Allowed this once. The setting could not 
 export const CONNECTOR_APPROVAL_REASON = 'This connector tool is set to ask before it runs for this agent.';
 
 /**
- * A connector tool the running agent set to `needs_approval` asks through the
- * ordinary approval hook, whatever the PreToolUse hooks decided. Run after
- * them, on the final call: a renamed call is judged under its final name.
- * A call the outbound gate owns (its card approved it, or a remembered
- * outbound grant answered it) is not asked a second time.
+ * A connector tool a bot's own session (its home chat or room seat; a
+ * schedule/webhook run, which the approval hook then answers by run policy)
+ * runs, and the bot set to `needs_approval`, asks through the ordinary
+ * approval hook, whatever the PreToolUse hooks decided. Any other session (a
+ * coding Lead, a task session, a workflow agent, a sub-agent) runs it unasked.
+ * Run after the hooks, on the final call: a renamed call is judged under its
+ * final name. A call the outbound gate owns (its card approved it, or a
+ * remembered outbound grant answered it) is not asked a second time.
  * @returns {Promise<{ denial: string } | null>} the denial, or null to run
  */
 export function applyConnectorApproval(call, { agentId, callerSessionId, executeOpts, toolApprovalHook }) {
   if (call.outboundApproved) return null;
+  if (!actingBotId(callerSessionId)) return null;
   if (agentMcpToolPermission(agentId, call.name) !== 'needs_approval') return null;
   // "Always allow" is offered only to the contact bot that is acting, for its
-  // own policy entry for this one tool: never another bot, Mixy or the Lead.
+  // own policy entry for this one tool: never another bot or Mixy.
   const botId = actingContactBotId(callerSessionId);
   const rememberable = Boolean(botId) && botId === agentId;
   return askApproval(call, {
@@ -80,12 +84,7 @@ export function applyConnectorApproval(call, { agentId, callerSessionId, execute
     toolApprovalHook,
     decision: { reason: CONNECTOR_APPROVAL_REASON },
     request: rememberable
-      ? {
-          kind: 'approval',
-          agentId: botId,
-          remember: ['once', 'agent'],
-          rememberAt: rememberSurfaceOf(callerSessionId),
-        }
+      ? { kind: 'approval', agentId: botId, remember: ['once', 'agent'] }
       : null,
     onApproved: async (approval) => {
       if (!rememberable || approval?.remember !== 'agent') return;

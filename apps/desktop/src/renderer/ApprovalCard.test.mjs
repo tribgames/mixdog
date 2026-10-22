@@ -166,6 +166,49 @@ test('a bot connector-tool ask offers 항상 허용 naming that tool; without re
   }
 });
 
+test("a held request row offers the scopes the gate gave it: a room seat's row can be always-allowed", async () => {
+  const { HeldRequestCard } = await import('./ApprovalCard.tsx');
+  const held = {
+    id: 'held_1',
+    status: 'pending',
+    agentId: 'github-watcher',
+    kind: 'outbound',
+    tool: 'github',
+    action: 'comment',
+    target: '22nsuk/mixdog#120',
+    payload: 'LGTM',
+    editable: ['body'],
+    remember: ['once', 'agent'],
+    run: { kind: 'room', name: 'Standup', sessionId: 'sess_rmem_abc123_github-watcher' },
+  };
+  const answers = [];
+  const rowOf = (row) => React.createElement(HeldRequestCard, { held: row, sessionId: 'sess_home_github-watcher' });
+  let ui = await mount(rowOf(held));
+  dom.window.mixdogDesktop = {
+    resolveToolApprovalForSession: async (sessionId, id, decision) => {
+      answers.push([sessionId, id, decision]);
+      return true;
+    },
+  };
+  try {
+    assert.deepEqual(ui.rows(), ['Deny', 'Always allow', 'Allow just once']);
+    await ui.click(ui.button('Always allow'));
+    assert.deepEqual(answers, [['sess_home_github-watcher', 'held_1', { approved: true, remember: 'agent' }]]);
+  } finally {
+    delete dom.window.mixdogDesktop;
+    await ui.done();
+  }
+  // An unattended schedule's row (or an older one with no scopes) asks once only.
+  for (const row of [{ ...held, remember: ['once'] }, { ...held, remember: undefined }]) {
+    ui = await mount(rowOf(row));
+    try {
+      assert.deepEqual(ui.rows(), ['Deny', 'Allow just once']);
+    } finally {
+      await ui.done();
+    }
+  }
+});
+
 test('항상 허용 resolves with the agent scope and shows no toast', async () => {
   const toasts = [];
   const onToast = (event) => toasts.push(event.detail);
@@ -900,18 +943,12 @@ test("a delegated request's chain label: tokens in this UI's language, nothing f
   const { approvalChainLabel } = await import('./ApprovalCard.tsx');
   assert.equal(approvalChainLabel(['사무관', 'Worker']), '사무관 › Worker');
   assert.equal(approvalChainLabel(['Lead', 'Reviewer']), 'Lead › Reviewer');
-  assert.equal(approvalChainLabel(['사무관', 'Task session', 'Worker']), '사무관 › Task session › Worker');
+  assert.equal(approvalChainLabel(['Lead', 'Worker', 'Reviewer']), 'Lead › Worker › Reviewer');
   assert.equal(approvalChainLabel(['사무관']), '');
   assert.equal(approvalChainLabel(undefined), '');
-  // A bot's task session is named in every UI language.
-  const { readFileSync, readdirSync } = await import('node:fs');
-  const locales = new URL('./locales/', import.meta.url);
-  for (const file of readdirSync(locales).filter((name) => name.endsWith('.json'))) {
-    const catalog = JSON.parse(readFileSync(new URL(file, locales), 'utf8'));
-    assert.ok(catalog['Task session'], `${file} names a task session`);
-  }
-  assert.equal(JSON.parse(readFileSync(new URL('ko.json', locales), 'utf8'))['Task session'], '작업 세션');
   // The card's once button, as the maintainer words it.
+  const { readFileSync } = await import('node:fs');
+  const locales = new URL('./locales/', import.meta.url);
   assert.equal(JSON.parse(readFileSync(new URL('ko.json', locales), 'utf8'))['Allow just once'], '한 번만 허용');
 });
 

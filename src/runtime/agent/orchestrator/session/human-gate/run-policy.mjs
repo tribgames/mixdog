@@ -1,7 +1,7 @@
 // session/human-gate/run-policy.mjs
 // Schedule and webhook runs never ask. Saving a schedule or webhook is the
-// user's explicit grant for its runs (and for the work they start: sub-agents,
-// a bot's task sessions): outbound actions and ordinary tool approvals are
+// user's explicit grant for its runs (and for the work they start: sub-agents):
+// outbound actions and ordinary tool approvals are
 // allowed without a card, a held row or a push, inside the bot's own
 // permissions (a `block` is applied before any ask, gate.mjs). Payments and
 // permanent deletes (the action kinds that can never be remembered) are never

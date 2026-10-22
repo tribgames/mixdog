@@ -4,8 +4,12 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 
 import { decideBrowserApproval, requestBrowserApproval, setBrowserApprovalHooks } from './approval-dialog.ts';
-import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './approval-requester.ts';
+import { approvalSurfaceSessionId, createApprovalRequesterResolver, ownBotOfSession } from './approval-requester.ts';
 import { desktopSessionSummaries } from '../desktop-state.ts';
+import {
+  roomMemberSessionId,
+  roomSessionId,
+} from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 
 const agents = [{ id: 'agent-12c3dee5bf', custom: true, kind: 'bot', definition: { name: '마케터' } }];
 const sessions = [
@@ -19,12 +23,21 @@ const resolve = createApprovalRequesterResolver({
   titleLabels: () => ({ image: '이미지', video: '비디오', file: '파일' }),
 });
 
-test('a bot home chat resolves to the bot; every other session is named by its title and is no bot', async () => {
-  assert.deepEqual(await resolve('sess_home_agent-12c3dee5bf'), { name: '마케터', agentId: 'agent-12c3dee5bf' });
-  // A deleted or non-contact agent's home, a coding session and an unknown one belong to no bot.
-  assert.deepEqual(await resolve('sess_home_agent-gone'), { name: 'Old chat', agentId: '' });
-  assert.deepEqual(await resolve('sess_code'), { name: '이미지', agentId: '' });
-  assert.deepEqual(await resolve('sess_unknown'), { name: '', agentId: '' });
+test('a bot home chat is named by the bot; any other session by its title; only a bot own session id is a bot', async () => {
+  assert.deepEqual(await resolve('sess_home_agent-12c3dee5bf'), { name: '마케터' });
+  // A deleted agent's home keeps its title but is still that agent's own session.
+  assert.deepEqual(await resolve('sess_home_agent-gone'), { name: 'Old chat' });
+  assert.deepEqual(await resolve('sess_code'), { name: '이미지' });
+  assert.deepEqual(await resolve('sess_unknown'), { name: '' });
+  // The bot is read from the id alone: home, room seat and Mixy; nothing else.
+  const seat = roomMemberSessionId('abc123', 'agent-12c3dee5bf');
+  assert.equal(ownBotOfSession('sess_home_agent-12c3dee5bf'), 'agent-12c3dee5bf');
+  assert.equal(ownBotOfSession('sess_home_agent-gone'), 'agent-gone');
+  assert.equal(ownBotOfSession('sess_home_lead'), 'lead');
+  assert.equal(ownBotOfSession(seat), 'agent-12c3dee5bf');
+  for (const id of ['sess_code', 'sess_unknown', 'sess_w1', 'sess_task', roomSessionId('abc123'), '', undefined]) {
+    assert.equal(ownBotOfSession(id), '', String(id));
+  }
 });
 
 test('Mixy home is her own bot (the id the Lead shares is never read from a coding session)', async () => {
@@ -32,7 +45,7 @@ test('Mixy home is her own bot (the id the Lead shares is never read from a codi
     sessions: () => [{ id: 'sess_home_lead', agentHome: 'lead', title: 'Mixy chat', preview: '' }],
     listAgents: async () => [],
   });
-  assert.deepEqual(await mixy('sess_home_lead'), { name: 'Mixy chat', agentId: 'lead' });
+  assert.deepEqual(await mixy('sess_home_lead'), { name: 'Mixy chat' });
 });
 
 // A bot's home chat, a task session the bot created, a coding Lead; sub-agents
@@ -66,59 +79,118 @@ const delegation = {
   ],
 };
 
-test("a bot's sub-agent (nested, or under its task session) asks as the bot; a coding Lead's as no bot", async () => {
+test("a bot's sub-agent is no bot; a task session and its sub-agents are ordinary coding sessions", async () => {
   const resolveChain = createApprovalRequesterResolver(delegation);
-  // Delegated work uses the bot's standing allows, but its card (not the bot's
-  // own chat) never offers "always allow".
-  assert.deepEqual(await resolveChain('sess_w1'), {
-    name: '마케터 › Worker',
-    agentId: 'agent-12c3dee5bf',
-    rememberable: false,
-    cwd: '/w',
-  });
-  assert.deepEqual(await resolveChain('sess_t2'), {
-    name: '마케터 › Task session › Worker › Reviewer',
-    agentId: 'agent-12c3dee5bf',
-    rememberable: false,
-  });
-  assert.deepEqual(await resolveChain('sess_r1'), { name: 'Lead › Reviewer', agentId: '', rememberable: false });
-  // The task session's own Lead asks as the bot that created it from its chat.
-  assert.deepEqual(await resolveChain('sess_task'), {
-    name: '마케터 › Task session',
-    agentId: 'agent-12c3dee5bf',
-    rememberable: false,
-  });
-  // Created in a room, or before the origin was recorded: no bot, so no standing allow and no "always".
-  for (const sessionId of ['sess_rtask', 'sess_rw', 'sess_otask', 'sess_ow']) {
-    assert.equal((await resolveChain(sessionId)).agentId, '', sessionId);
+  // Only a bot's OWN session is the bot: a sub-agent of its home chat is named
+  // by its chain but has no agent id, so no standing allow applies to it.
+  assert.deepEqual(await resolveChain('sess_w1'), { name: '마케터 › Worker', cwd: '/w' });
+  assert.deepEqual(await resolveChain('sess_r1'), { name: 'Lead › Reviewer' });
+  // A task session a bot created is named by its title like any coding session
+  // and never asks as the bot, whatever its origin; its sub-agents are
+  // "Lead › Worker…", no bot.
+  assert.deepEqual(await resolveChain('sess_task'), { name: 'Report' });
+  assert.deepEqual(await resolveChain('sess_t2'), { name: 'Lead › Worker › Reviewer' });
+  for (const sessionId of ['sess_rtask', 'sess_otask']) {
+    assert.equal(ownBotOfSession(sessionId), '', sessionId);
   }
-  assert.equal((await resolveChain('sess_rw')).name, '마케터 › Task session › Worker');
+  assert.equal((await resolveChain('sess_rw')).name, 'Lead › Worker');
+  assert.deepEqual(await resolveChain('sess_ow'), { name: 'Lead › Worker' });
   // A pool row whose owner is unknown stays unknown.
   const orphan = createApprovalRequesterResolver({ ...delegation, sessions: () => [] });
-  assert.deepEqual(await orphan('sess_w1'), { name: '', agentId: '' });
+  assert.deepEqual(await orphan('sess_w1'), { name: '' });
 });
 
-test("the approval notification opens the top-level chat: the bot's home, else the owner session", () => {
+test('the approval notification opens the top-level chat: the owner session, a task session itself', () => {
   assert.equal(approvalSurfaceSessionId('sess_w1', delegation), 'sess_home_agent-12c3dee5bf');
-  assert.equal(approvalSurfaceSessionId('sess_t2', delegation), 'sess_home_agent-12c3dee5bf');
+  assert.equal(approvalSurfaceSessionId('sess_t2', delegation), 'sess_task', "a task's sub-agent opens the task");
   assert.equal(approvalSurfaceSessionId('sess_r1', delegation), 'sess_lead');
-  assert.equal(
-    approvalSurfaceSessionId('sess_task', delegation),
-    'sess_home_agent-12c3dee5bf',
-    "the bot's task opens its chat"
-  );
+  assert.equal(approvalSurfaceSessionId('sess_task', delegation), 'sess_task', "a bot's task opens itself");
   assert.equal(approvalSurfaceSessionId('sess_rtask', delegation), 'sess_rtask', 'a room task opens itself');
   assert.equal(approvalSurfaceSessionId('sess_lead', delegation), 'sess_lead', 'a top-level session opens itself');
   assert.equal(approvalSurfaceSessionId('sess_unknown', delegation), 'sess_unknown');
 });
 
-test("a bot's sub-agent upload runs on the bot's browser_upload allow, unasked; a coding sub-agent asks once", async () => {
+test("a group-room member is its bot like the home chat; its sub-agents are no bot; cards dock in the room log", async () => {
+  const roomId = 'abc123';
+  const member = roomMemberSessionId(roomId, 'agent-12c3dee5bf');
+  const gone = roomMemberSessionId(roomId, 'agent-gone');
+  // Member sessions are no catalog rows; only the agent pool names their sub-agents.
+  const room = {
+    sessions: () => [...sessions, { id: roomSessionId(roomId), title: 'Standup', preview: '' }],
+    agentPool: () => [
+      { sessionId: 'sess_m1', ownerSessionId: member, parentSessionId: member, agent: 'worker', cwd: '/m' },
+      { sessionId: 'sess_m2', ownerSessionId: member, parentSessionId: 'sess_m1', agent: 'reviewer' },
+      { sessionId: 'sess_g1', ownerSessionId: gone, parentSessionId: gone, agent: 'worker' },
+    ],
+    listAgents: delegation.listAgents,
+  };
+  const resolveRoom = createApprovalRequesterResolver(room);
+  assert.deepEqual(await resolveRoom(member), { name: '마케터' });
+  assert.deepEqual(await resolveRoom('sess_m1'), { name: '마케터 › Worker', cwd: '/m' });
+  assert.deepEqual(await resolveRoom('sess_m2'), { name: '마케터 › Worker › Reviewer' });
+  // A seat whose bot left the catalog is still that bot's seat, named by its id.
+  assert.deepEqual(await resolveRoom(gone), { name: 'agent-gone' });
+  // The room shows its members' approvals in its log.
+  const logId = roomSessionId(roomId);
+  assert.equal(approvalSurfaceSessionId(member, room), logId);
+  assert.equal(approvalSurfaceSessionId('sess_m2', room), logId);
+  assert.equal(approvalSurfaceSessionId(logId, room), logId);
+  // A browser ask from a member offers "always allow" like the home chat, and
+  // the grant is the bot's: the same one the home chat reads.
+  const sent = [];
+  const stored = [];
+  const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false, send: (_c, p) => sent.push(p) });
+  const window = Object.assign(new EventEmitter(), {
+    isDestroyed: () => false,
+    isFocused: () => true,
+    webContents: contents,
+  });
+  const ask = (sessionId) => ({
+    action: 'click',
+    url: 'https://example.test/form',
+    sessionId,
+    target: 'Send',
+    paths: [],
+    kinds: ['submit'],
+  });
+  try {
+    setBrowserApprovalHooks({
+      resolveRequester: resolveRoom,
+      isAllowed: async (agentId) => stored.some(([id]) => id === agentId),
+      remember: async (agentId, actions) => stored.push([agentId, actions]),
+      surfaceSessionId: (sessionId) => approvalSurfaceSessionId(sessionId, room),
+    });
+    const own = requestBrowserApproval(window, ask(member));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(sent[0].remember, { kinds: ['submit'] }, 'the seat offers "always allow"');
+    assert.equal(sent[0].agentId, 'agent-12c3dee5bf');
+    assert.equal(sent[0].surfaceSessionId, logId);
+    decideBrowserApproval(contents, sent[0].id, 'always');
+    assert.equal(await own, true);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(stored, [['agent-12c3dee5bf', ['browser_submit']]]);
+    // The bot's home chat then runs unasked on the grant the seat stored.
+    sent.length = 0;
+    assert.equal(await requestBrowserApproval(window, ask('sess_home_agent-12c3dee5bf')), true);
+    assert.deepEqual(sent, [], "no card: the grant is the bot's, shared between home and room");
+    // A sub-agent of the seat is no bot: it runs without a card and stores nothing.
+    assert.equal(await requestBrowserApproval(window, ask('sess_m1')), true);
+    assert.deepEqual(sent, []);
+    assert.equal(stored.length, 1, 'nothing more was stored');
+  } finally {
+    setBrowserApprovalHooks({});
+  }
+});
+
+test('only a bot own session asks; a coding Lead, any sub-agent and a task session run every kind with no card', async () => {
   const allowed = new Set(['agent-12c3dee5bf\nbrowser_upload']);
   const audits = [];
+  const remembered = [];
   setBrowserApprovalHooks({
     resolveRequester: createApprovalRequesterResolver(delegation),
     isAllowed: async (agentId, actions) => actions.every((action) => allowed.has(`${agentId}\n${action}`)),
     audit: async (agentId, actions, decision) => audits.push([agentId, actions, decision]),
+    remember: async (agentId, actions) => remembered.push([agentId, actions]),
   });
   const sent = [];
   const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false, send: (_c, p) => sent.push(p) });
@@ -127,41 +199,34 @@ test("a bot's sub-agent upload runs on the bot's browser_upload allow, unasked; 
     isFocused: () => true,
     webContents: contents,
   });
-  const upload = (sessionId) => ({
-    action: 'upload',
+  const ask = (sessionId, kinds) => ({
+    action: 'click',
     url: 'https://example.test/form',
     sessionId,
-    target: 'Attach',
+    target: 'Go',
     paths: [],
-    kinds: ['upload'],
+    kinds,
   });
   try {
-    assert.equal(await requestBrowserApproval(window, upload('sess_w1')), true);
-    assert.deepEqual(sent, [], 'no card: the bot already allows uploads');
+    for (const kinds of [['submit'], ['post'], ['upload'], ['confirm'], ['submit', 'confirm']]) {
+      for (const sessionId of ['sess_lead', 'sess_r1', 'sess_w1', 'sess_t2', 'sess_task', 'sess_unknown']) {
+        assert.equal(await requestBrowserApproval(window, ask(sessionId, kinds)), true, `${sessionId} ${kinds}`);
+      }
+    }
+    assert.deepEqual(sent, [], 'no card for any session that is not a bot own');
+    assert.deepEqual(remembered, []);
+    assert.deepEqual(audits, []);
+    // The bot's own chat still runs on its allow, audited, and asks for the rest.
+    assert.equal(await requestBrowserApproval(window, ask('sess_home_agent-12c3dee5bf', ['upload'])), true);
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(audits, [['agent-12c3dee5bf', ['browser_upload'], 'remembered']]);
-    const pending = requestBrowserApproval(window, upload('sess_r1'));
+    const own = requestBrowserApproval(window, ask('sess_home_agent-12c3dee5bf', ['submit']));
     await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(sent[0].requester, 'Lead › Reviewer');
-    assert.equal(sent[0].remember, null, 'no bot: once only');
-    decideBrowserApproval(contents, sent[0].id, 'deny');
-    assert.equal(await pending, false);
-    // The bot's sub-agent on a step it has no allow for: asked, once only —
-    // a forged "always" stores nothing.
-    const remembered = [];
-    setBrowserApprovalHooks({
-      resolveRequester: createApprovalRequesterResolver(delegation),
-      isAllowed: async () => false,
-      remember: async (agentId, actions) => remembered.push([agentId, actions]),
-    });
-    sent.length = 0;
-    const submit = requestBrowserApproval(window, { ...upload('sess_w1'), action: 'click', kinds: ['submit'] });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(sent[0].remember, null);
+    assert.deepEqual(sent[0].remember, { kinds: ['submit'] });
     decideBrowserApproval(contents, sent[0].id, 'always');
-    assert.equal(await submit, true);
+    assert.equal(await own, true);
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(remembered, []);
+    assert.deepEqual(remembered, [['agent-12c3dee5bf', ['browser_submit']]]);
   } finally {
     setBrowserApprovalHooks({});
   }
@@ -217,5 +282,5 @@ test('an unavailable agent catalog falls back to the session title', async () =>
     sessions: () => sessions,
     listAgents: () => Promise.reject(new Error('down')),
   });
-  assert.deepEqual(await fallback('sess_home_agent-12c3dee5bf'), { name: 'hello', agentId: '' });
+  assert.deepEqual(await fallback('sess_home_agent-12c3dee5bf'), { name: 'hello' });
 });

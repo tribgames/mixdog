@@ -90,7 +90,6 @@ test('the upload card shows the destination origin, each file with its size, and
     ],
     expiresAt: Date.now() + 30_000,
     remember: { kinds: ['upload'] },
-    onceReason: '',
   };
   await act(async () => listener(prompt));
   const card = host.textContent;

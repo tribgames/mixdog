@@ -24,7 +24,6 @@ export type BrowserApprovalPrompt = {
   /** Absent: the card waits until the person answers (no countdown). */
   expiresAt?: number;
   remember: { kinds: string[] } | null;
-  onceReason: '' | 'confirm' | 'bot';
 };
 
 /** The store action a kind of gated step is allowed under (see main/browser/approval-dialog.ts). */

@@ -102,16 +102,12 @@ function useRequester(
 }
 
 /** "사무관 › Worker": the runtime's chain of a delegated request (its tokens
- *  'Lead' and 'Task session' in this UI's language), or '' when it has none. */
+ *  'Lead' in this UI's language), or '' when it has none. */
 export function approvalChainLabel(chain: unknown): string {
   const parts = Array.isArray(chain)
     ? chain.filter((part): part is string => typeof part === 'string' && part !== '')
     : [];
-  const label = (part: string) => {
-    if (part === 'Lead') return t('Lead');
-    if (part === 'Task session') return t('Task session');
-    return part;
-  };
+  const label = (part: string) => (part === 'Lead' ? t('Lead') : part);
   return parts.length > 1 ? parts.map(label).join(' › ') : '';
 }
 

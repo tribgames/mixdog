@@ -96,17 +96,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
   // Settle one entry: drop its timeout, then hand the waiter its answer. The
   // resolve stays guarded — a waiter whose caller already went away must never
   // take the rest of the queue down with it.
-  function settleToolApproval(entry, approved, reason, answers, reply, extra, device = '', forwarded = false) {
+  function settleToolApproval(entry, approved, reason, answers, reply, extra, device = '') {
     if (entry?.timer) clearTimeout(entry.timer);
     const result = { approved, reason };
     if (answers !== undefined) result.answers = answers;
     if (reply !== undefined) result.reply = reply;
-    // A human-kind request answers with its canonical response (never a value),
-    // judged against what the answering place offered: this queue's own view,
-    // or — answered on its copy — the full request the copy already narrowed.
-    const answered = forwarded ? entry?.full || entry?.request : entry?.request;
-    if (answered?.remember) {
-      Object.assign(result, normalizeHumanResponse(answered, approved, extra));
+    // A human-kind request answers with its canonical response (never a value).
+    if (entry?.request?.remember) {
+      Object.assign(result, normalizeHumanResponse(entry.request, approved, extra));
       if (device) result.device = device;
     }
     if (extra?.timedOut === true) result.timedOut = true;
@@ -120,28 +117,15 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
    *  owner had already settled it. */
   function forwardToOwner(entry, approved, reason, device, answers, reply, extra) {
     try {
-      return entry.mirror.answer(approved, reason, device, answers, reply, onlyOffered(entry.request, extra)) === true;
+      return entry.mirror.answer(approved, reason, device, answers, reply, extra) === true;
     } catch {
       return false;
     }
   }
-  /** `request` as this session shows it: a remembering scope is offered only
-   *  in the one session the request names for it (`rememberAt`, the bot's own
-   *  chat); everywhere else — and when it names none — it asks once. */
-  function viewFor(request) {
-    if (!Array.isArray(request?.remember) || request.remember.length <= 1) return request;
-    const here = ownSessionId();
-    return here && request.rememberAt === here ? request : { ...request, remember: ['once'] };
-  }
-  /** `extra` without a remember scope `view` did not offer. */
-  function onlyOffered(view, extra) {
-    if (!extra || extra.remember === undefined) return extra;
-    return (view?.remember || ['once']).includes(extra.remember) ? extra : { ...extra, remember: 'once' };
-  }
   function offerDelegatedApproval(delegated) {
     if (getDisposed() || delegated.sessionId !== ownSessionId()) return;
     if (activeToolApproval?.id === delegated.id || toolApprovalQueue.some((entry) => entry.id === delegated.id)) return;
-    toolApprovalQueue.push({ id: delegated.id, request: viewFor(delegated.request), mirror: delegated, timer: null });
+    toolApprovalQueue.push({ id: delegated.id, request: delegated.request, mirror: delegated, timer: null });
     presentNextToolApproval();
   }
   function withdrawDelegatedCopy(id, result) {
@@ -183,8 +167,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     device = '',
     answers = undefined,
     reply = undefined,
-    extra = undefined,
-    { forwarded = false } = {}
+    extra = undefined
   ) {
     const targetId = String(id || '');
     if (activeToolApproval && activeToolApproval.id === targetId) {
@@ -200,16 +183,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       if (entry.mirror) {
         accepted = forwardToOwner(entry, approved, reason, device, answers, reply, extra);
       } else {
-        settleToolApproval(
-          entry,
-          approved === true,
-          String(reason || ''),
-          answers,
-          reply,
-          extra,
-          String(device || ''),
-          forwarded
-        );
+        settleToolApproval(entry, approved === true, String(reason || ''), answers, reply, extra, String(device || ''));
       }
       presentNextToolApproval();
       return accepted;
@@ -218,16 +192,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (index >= 0) {
       const [entry] = toolApprovalQueue.splice(index, 1);
       if (entry.mirror) return forwardToOwner(entry, approved, reason, device, answers, reply, extra);
-      settleToolApproval(
-        entry,
-        approved === true,
-        String(reason || ''),
-        answers,
-        reply,
-        extra,
-        String(device || ''),
-        forwarded
-      );
+      settleToolApproval(entry, approved === true, String(reason || ''), answers, reply, extra, String(device || ''));
       return true;
     }
     return false;
@@ -265,9 +230,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
         full.chain = surface.chain;
         full.surfaceSessionId = surface.sessionId;
       }
-      // `request` is what this session shows (and accepts answers against);
-      // `full` what the copy in the top-level chat is made from.
-      const entry = { id, request: viewFor(full), full, resolve, timer: null, delegated: Boolean(surface) };
+      const entry = { id, request: full, resolve, timer: null, delegated: Boolean(surface) };
       toolApprovalQueue.push(entry);
       armToolApprovalTimeout(entry);
       presentNextToolApproval();
@@ -277,7 +240,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
           sessionId: surface.sessionId,
           request: full,
           answer: (approved, reason, device, answers, reply, extra) =>
-            finishToolApproval(id, approved, reason, device, answers, reply, extra, { forwarded: true }),
+            finishToolApproval(id, approved, reason, device, answers, reply, extra),
         });
       }
     });

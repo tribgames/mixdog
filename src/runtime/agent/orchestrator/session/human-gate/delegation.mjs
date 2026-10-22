@@ -1,29 +1,35 @@
 // session/human-gate/delegation.mjs
 // Who a delegated session works for, recorded when it is created and re-bound
 // only when another session sends it work (rebindDelegation): a sub-agent (any
-// depth) and a task session a bot created carry `delegation` on their session
-// record —
-//   { rootSessionId, rootAgentId, via, run?, path }
-// `rootSessionId` is the top-level conversation (a bot's home chat, a room
-// member session, a coding Lead's session); `rootAgentId` the bot or Mixy it
-// acts for ('' under a coding Lead); `via` how that root was acting when the
-// work started: 'home' (the bot's own attended chat), 'room', 'run' (a
-// schedule/webhook turn; `run` = { kind, name }) or 'coding'; `path` the steps
-// from the root down ({ kind: 'task' } | { kind: 'agent', agent }).
+// depth) carries `delegation` on its session record —
+//   { rootSessionId, via, path }
+// `rootSessionId` is the top-level conversation the work started in; `via`
+// says what it is: 'coding' (a coding Lead's session or a task session a bot
+// created) or 'bot' (a bot's own home chat or room member session); either way
+// the agents under it mirror their ordinary approval cards into that root, but
+// a 'bot' root's sub-agents are no bot: they ask no bot approval and use no
+// bot grant. `path` is the agent steps from the root down
+// ({ kind: 'agent', agent }).
+// A task session a bot created is an ordinary coding Lead session: top-level,
+// never delegated from the bot, and its sub-agents are rooted at it.
 // It is copied from the parent's record (or bound from the parent itself when
 // the parent is top-level) by the host at creation — never from tool input —
-// so no parent walk happens at gate time. It follows the session that drives
-// the work: when a session sends an existing worker (or task session) a new
-// request, the record is re-bound to what that sender is doing now, so work an
-// unattended run started asks when the attended chat later reuses it, and the
-// reverse. A background wake of the worker is no new request and keeps it. A
-// record from before this field existed is
-// backfilled once, from its parent by the same rules (backfillOf), and kept on
-// the in-memory record, which its next save persists. A session that has a
-// parent link but no valid or derivable root is UNRESOLVED: the gate fails
-// closed on it. `via: 'unknown'` — a legacy task session that names its bot
-// but not where it was created: acts as that bot, never remembers.
-import { agentHomeSessionId, agentIdOfHomeSession } from '../agent-home.mjs';
+// so no parent walk happens at gate time. When a session sends an existing
+// worker a new request, the record is re-bound to that sender's root. A
+// record from before this field existed, or one stored in an older shape (a
+// task step in its path, a home/room/run/unknown `via`), is derived again from
+// its parent by the same rules (backfillOf) and kept on the in-memory record,
+// which its next save persists. A session that has a parent link but no valid
+// or derivable root has no delegation (it is no bot's own session either).
+// Work a schedule/webhook run started (a sub-agent, a task session) carries the
+// `run` it was started under on its record, stamped at creation from its
+// creator (never from creation options or tool input) and re-stamped, whether
+// or not a root resolves, when another session sends it work (`run: null` =
+// attended). A record from before the stamp keeps the run it recorded (an old
+// `via: 'run'` delegation, an `agent:<bot>@run` task source, or its parent's
+// run when it recorded no delegation): that is stamped before its delegation is
+// derived again, which would drop it.
+import { agentIdOfHomeSession } from '../agent-home.mjs';
 import { roomMemberOfSession } from '../agent-room.mjs';
 import { loadSession } from '../store/load-session.mjs';
 import { _liveSessions } from '../store/live-state.mjs';
@@ -31,8 +37,7 @@ import { saveSessionAsync } from '../store/save-worker.mjs';
 import { isTurnInFlight, runtimeState } from '../manager/runtime-state.mjs';
 import { unattendedApprovalPort } from './unattended-port.mjs';
 
-const VIA = new Set(['home', 'room', 'run', 'coding', 'unknown']);
-const AGENT_ID = /^[A-Za-z0-9_-]+$/;
+const VIA = new Set(['coding', 'bot']);
 const MAX_PATH = 32;
 const clean = (value) => (typeof value === 'string' ? value.trim() : '');
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -40,36 +45,89 @@ const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Arra
 const agentOwned = (record) =>
   clean(record?.owner).toLowerCase() === 'agent' || clean(record?.visibility).toLowerCase() === 'agent-only';
 
-/** The session that started `record` (its spawn parent, or the chat that
- *  created a task session), or '' for a top-level session. */
+/** The session that spawned `record`, or '' for a top-level session (a task
+ *  session a bot created is top-level, like any coding Lead). */
 function parentOf(record) {
-  if (agentOwned(record)) return clean(record.parentSessionId) || clean(record.ownerSessionId);
-  return clean(record?.taskOrigin?.sessionId);
+  return agentOwned(record) ? clean(record.parentSessionId) || clean(record.ownerSessionId) : '';
 }
 
 /** The step a new session adds to its parent's path. */
-function stepOf(record) {
-  return agentOwned(record) ? { kind: 'agent', agent: clean(record.agent) } : { kind: 'task' };
-}
+const stepOf = (record) => ({ kind: 'agent', agent: clean(record.agent) });
 
+/** A recorded delegation, or null when it is malformed or carries a step that
+ *  is not an agent (a stored task step: derived again, never trusted). */
 function validDelegation(value) {
   if (!isRecord(value) || !clean(value.rootSessionId) || !VIA.has(value.via)) return null;
   if (!Array.isArray(value.path) || value.path.length === 0 || value.path.length > MAX_PATH) return null;
-  if (value.via === 'run' && !isRecord(value.run)) return null;
+  if (!value.path.every((step) => step?.kind === 'agent')) return null;
   return value;
 }
 
-/** A failed rebind leaves `{ unresolved: true }` instead of a delegation: an
- *  explicit "no root", so the legacy backfill cannot derive one again from a
- *  parent that still holds a run. */
-const UNRESOLVED = Object.freeze({ unresolved: true });
-const isUnresolvedMark = (value) => isRecord(value) && value.unresolved === true;
-
 /** The recorded delegation of `record`, else its legacy backfill; null when
- *  it has none or was explicitly left unresolved. */
+ *  it has none and none can be derived. */
 function delegationOfRecord(id, record, depth) {
-  if (isUnresolvedMark(record.delegation)) return null;
+  stampRun(id, record);
   return validDelegation(record.delegation) || backfillOf(id, record, depth);
+}
+
+const RUN_TASK_SOURCE = /^agent:([A-Za-z0-9_-]+)@run$/;
+const runStamp = (kind, agentId, name) =>
+  clean(agentId)
+    ? { kind: kind === 'webhook' ? 'webhook' : 'schedule', agentId: clean(agentId), name: String(name || '') }
+    : null;
+
+/** The run a record from before the `run` stamp was started by, from what it
+ *  recorded itself: an old `via: 'run'` delegation, a host-set `@run` task
+ *  source, else — a sub-agent that recorded no delegation — its parent's run. */
+function legacyRunOf(id, record, depth) {
+  const old = record.delegation;
+  if (isRecord(old) && old.via === 'run' && isRecord(old.run)) {
+    return runStamp(old.run.kind, old.rootAgentId || agentIdOfHomeSession(old.rootSessionId), old.run.name);
+  }
+  const taskBot =
+    !agentOwned(record) && clean(record.sourceType) === 'lead'
+      ? RUN_TASK_SOURCE.exec(clean(record.sourceName))?.[1]
+      : '';
+  if (taskBot) return runStamp('schedule', taskBot, '');
+  const parent = parentOf(record);
+  if (!parent || parent === id || isRecord(old) || depth >= MAX_PATH) return null;
+  const parentRecord = loadRecord(parent);
+  return parentRecord ? stampRun(parent, parentRecord, depth + 1) : null;
+}
+
+/** The `run` of `record`: its stamp (`null` = attended), else the run it
+ *  recorded before stamps existed, kept on the live record. */
+function stampRun(id, record, depth = 0) {
+  if (record.run !== undefined) return isRecord(record.run) ? record.run : null;
+  const run = legacyRunOf(id, record, depth);
+  if (run && _liveSessions.get(id) === record) record.run = run;
+  return run;
+}
+
+/** The run stamped on session `sessionId` (human-gate/delegation.mjs), or null. */
+export function runStampOf(sessionId) {
+  const id = clean(sessionId);
+  const record = id ? loadRecord(id) : null;
+  return record ? stampRun(id, record) : null;
+}
+
+/** The schedule/webhook run `sessionId` is, or inherited from the session that
+ *  started it, as `{ kind, agentId, name }`; null otherwise (a room member's
+ *  own session is no run here). */
+function runOfSession(sessionId) {
+  const run = unattendedApprovalPort()?.runOf?.(sessionId);
+  return run && run.kind !== 'room' ? { kind: run.kind, agentId: run.agentId, name: String(run.name || '') } : null;
+}
+
+/**
+ * The `run` to stamp on a session being created with `opts`: the run its
+ * creator (the spawning session, or the chat a task session was created from)
+ * is or inherited, else null. Work a run started stays the run's, however long
+ * ago the run ended; it is read from the creator, never from tool input.
+ */
+export function runForNewSession(opts = {}) {
+  const creator = parentOf(opts) || clean(opts.taskOrigin?.sessionId);
+  return creator && creator !== clean(opts.id) ? runOfSession(creator) : null;
 }
 
 function loadRecord(sessionId) {
@@ -80,85 +138,35 @@ function loadRecord(sessionId) {
   }
 }
 
-/** How a top-level session `sessionId` is acting right now (no record needed
- *  for a home or room member id, which name their agent themselves). */
-function bindingOf(sessionId, record, { legacy = false } = {}) {
-  // A legacy record is classified from what was recorded, never from what the
-  // parent is doing now (a run going or ended since says nothing about it).
-  const run = legacy ? null : unattendedApprovalPort()?.runOf?.(sessionId);
-  if (run && run.kind !== 'room') {
-    return { rootAgentId: clean(run.agentId), via: 'run', run: { kind: run.kind, name: String(run.name || '') } };
-  }
-  const member = roomMemberOfSession(sessionId);
-  if (member) return { rootAgentId: member.agentId, via: 'room' };
-  const home = agentIdOfHomeSession(sessionId);
-  if (home) return { rootAgentId: home, via: 'home' };
-  if (!record || agentOwned(record)) return null;
-  // A Lead with host-set bot provenance (session-options taskOriginSuffix) is
-  // a bot's task session, never coding work: its root is that bot's chat.
-  const source = sourceTaskOf(record);
-  if (source === false) return null;
-  if (source) {
-    const task = { rootSessionId: agentHomeSessionId(source.bot), rootAgentId: source.bot, task: true };
-    if (source.from === 'home') return { ...task, via: 'home' };
-    if (source.from === 'run') return { ...task, via: 'run', run: { kind: 'schedule', name: '' } };
-    if (source.from === undefined) return { ...task, via: 'unknown' };
-    return null; // a room (which one is not recorded) or anything else: ambiguous
-  }
-  return { rootAgentId: '', via: 'coding' };
-}
-
-/** A Lead's host-set bot provenance `agent:<bot>[@from]`: `{ bot, from }`,
- *  null when it has none, false when it is malformed. */
-function sourceTaskOf(record) {
-  const source = clean(record?.sourceName);
-  if (agentOwned(record) || clean(record?.sourceType) !== 'lead' || !source.startsWith('agent:')) return null;
-  const [bot, from, ...rest] = source.slice(6).split('@');
-  return AGENT_ID.test(bot) && !rest.length ? { bot, from } : false;
+/** What a top-level session `sessionId` is to a child: a bot's own home chat
+ *  or room member session ('bot', no record needed, the id names its agent),
+ *  a record-bearing coding session ('coding'), else nothing. */
+function viaOf(sessionId, record) {
+  if (roomMemberOfSession(sessionId) || agentIdOfHomeSession(sessionId)) return 'bot';
+  return record && !agentOwned(record) ? 'coding' : null;
 }
 
 /** The root of a top-level `parent` for a child taking `step`. */
-function rootFrom(parent, record, step, options) {
-  const binding = bindingOf(parent, record, options);
-  if (!binding) return null;
-  const { task, ...root } = binding;
-  return { rootSessionId: parent, ...root, path: task ? [{ kind: 'task' }, step] : [step] };
+function rootFrom(parent, record, step) {
+  const via = viaOf(parent, record);
+  return via ? { rootSessionId: parent, via, path: [step] } : null;
 }
 
-/** The delegation a legacy `record` (id `id`, a parent link, none recorded)
- *  is given, derived now from what was recorded — its own host-set `@run`
- *  provenance, else its parent's record, which must exist — and kept on the
- *  live record; null when it cannot be derived. Never `via: 'home'`: whether
- *  an old record was started by the attended chat (or by a run that has
- *  ended since) is not recorded, so home ancestry becomes 'unknown' — that
- *  bot, never remembered. Only a session created with its `delegation` can be
- *  'home'. */
+/** The delegation a legacy `record` (id `id`, a parent link, none valid
+ *  recorded) is given, derived now from its parent, and kept on the live
+ *  record; null when it cannot be derived. */
 function backfillOf(id, record, depth = 0) {
   const parent = parentOf(record);
   if (!parent || parent === id || depth >= MAX_PATH) return null;
-  const own = sourceTaskOf(record);
+  const parentRecord = loadRecord(parent);
+  const step = stepOf(record);
   let delegation = null;
-  if (own && own.from === 'run') {
-    // A run's task session stays the run's, whatever its origin chat is doing now.
-    delegation = {
-      rootSessionId: agentHomeSessionId(own.bot),
-      rootAgentId: own.bot,
-      via: 'run',
-      run: { kind: 'schedule', name: '' },
-      path: [{ kind: 'task' }],
-    };
+  if (parentOf(parentRecord)) {
+    const inherited = delegationOfRecord(parent, parentRecord, depth + 1);
+    if (!inherited || inherited.path.length >= MAX_PATH) return null;
+    delegation = { ...inherited, path: [...inherited.path, step] };
   } else {
-    const parentRecord = loadRecord(parent);
-    if (!parentRecord) return null;
-    const step = stepOf(record);
-    if (parentOf(parentRecord)) {
-      const inherited = delegationOfRecord(parent, parentRecord, depth + 1);
-      if (!inherited || inherited.path.length >= MAX_PATH) return null;
-      delegation = { ...inherited, path: [...inherited.path, step] };
-    } else {
-      delegation = rootFrom(parent, parentRecord, step, { legacy: true });
-    }
-    if (delegation?.via === 'home') delegation = { ...delegation, via: 'unknown' };
+    delegation = rootFrom(parent, parentRecord, step);
   }
   if (delegation && _liveSessions.get(id) === record) record.delegation = delegation;
   return delegation;
@@ -166,9 +174,9 @@ function backfillOf(id, record, depth = 0) {
 
 /**
  * The `delegation` to record on a session being created with `opts` (its
- * owner/visibility, parentSessionId/ownerSessionId, taskOrigin and agent), or
+ * owner/visibility, parentSessionId/ownerSessionId and agent), or
  * null: none for a top-level session, none for one whose parent's root cannot
- * be established (the record then stays unresolved and the gate fails closed).
+ * be established (it is no bot's session: nothing is asked or mirrored for it).
  */
 export function delegationForNewSession(opts = {}) {
   const parent = parentOf(opts);
@@ -189,42 +197,44 @@ function delegationUnder(parent, step) {
 }
 
 /**
- * Session `callerSessionId` sends the delegated session `sessionId` new work
- * (`agent send`, a spawn of its tag, a task-session send): from now on it
- * acts as that caller does — the delegation it would have been created with
- * under the caller — and the record is saved, so a restart keeps it. A worker
- * a run started is attended when the chat sends it work, and the other way
- * round; only the requests of the session that sends it count, never the
- * session that created it. A turn already running keeps its attended status
- * against a run (the run's request queues behind it and asks): it is never
- * loosened mid-turn. Resolves true when the record changed; false when
- * nothing applies (no record, not delegated, no or the same caller, the same
- * delegation) or the running turn kept its status. A caller whose root cannot
- * be established leaves the record without one, which the gate fails closed on.
+ * Session `callerSessionId` sends the sub-agent or task session `sessionId`
+ * new work (`agent send`, a spawn of its tag, a task-session send): from now
+ * on it is run-stamped as it would have been created under the caller, and a
+ * sub-agent is rooted under the caller's root when one can be established; the
+ * record is saved, so a restart keeps it — work an unattended run started is
+ * attended when the chat later reuses it, and the reverse. The run is passed on
+ * whether or not a root resolves. A turn already running is never made a run
+ * mid-turn. Resolves true when the record changed; false when nothing applies
+ * (no record, neither a sub-agent nor a task session, no or the same caller,
+ * nothing different).
  */
 export async function rebindDelegation(sessionId, callerSessionId) {
   const id = clean(sessionId);
   const caller = clean(callerSessionId);
   const record = id ? loadRecord(id) : null;
-  if (!record || record.closed === true || !caller || caller === id || !parentOf(record)) return false;
-  const current = validDelegation(record.delegation);
-  const next = delegationUnder(caller, stepOf(record));
-  if (next ? JSON.stringify(current) === JSON.stringify(next) : isUnresolvedMark(record.delegation)) return false;
-  if (next?.via === 'run' && current?.via !== 'run' && isTurnInFlight(runtimeState.get(id))) return false;
-  record.delegation = next || { ...UNRESOLVED };
+  if (!record || record.closed === true || !caller || caller === id) return false;
+  const delegated = Boolean(parentOf(record));
+  if (!delegated && !record.taskOrigin) return false;
+  const next = delegated ? delegationUnder(caller, stepOf(record)) : null;
+  const run = runOfSession(caller);
+  const current = stampRun(id, record);
+  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const reroot = Boolean(next) && !same(validDelegation(record.delegation), next);
+  if (!reroot && same(current, run)) return false;
+  if (run && !current && isTurnInFlight(runtimeState.get(id))) return false;
+  if (reroot) record.delegation = next;
+  if (run || current) record.run = run; // null = attended: legacy provenance no longer applies
   await saveSessionAsync(record, { expectedGeneration: record.generation });
   return true;
 }
 
-/** `{ state: 'top' }` for a top-level session (or one with no record),
- *  `{ state: 'resolved', ...delegation }` for a delegated one, `{ state:
- *  'unresolved' }` for one with a parent link and no valid recorded root. */
+/** `{ state: 'resolved', ...delegation }` for a sub-agent whose root is known,
+ *  else `{ state: 'top' }`: a top-level session, one with no record, or one
+ *  with a parent link and no derivable root (no bot's session either). */
 export function delegationOf(sessionId) {
   const id = clean(sessionId);
   const record = id ? loadRecord(id) : null;
-  if (!record) return { state: 'top' };
-  const parent = parentOf(record);
-  if (!parent) return { state: 'top' };
-  const delegation = parent === id ? null : delegationOfRecord(id, record);
-  return delegation ? { state: 'resolved', ...delegation } : { state: 'unresolved' };
+  const parent = record ? parentOf(record) : '';
+  const delegation = parent && parent !== id ? delegationOfRecord(id, record) : null;
+  return delegation ? { state: 'resolved', ...delegation } : { state: 'top' };
 }

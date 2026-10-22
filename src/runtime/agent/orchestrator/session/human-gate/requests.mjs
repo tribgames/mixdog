@@ -84,8 +84,6 @@ export function humanRequestFields(input = {}) {
   const fields = { remember: rememberScopes(input.remember) };
   // The agent the request acts for (its name on the card and the remembered grant).
   if (text(input.agentId)) fields.agentId = text(input.agentId);
-  // The one session a remembering answer may come from (gate.mjs rememberSurfaceOf).
-  if (text(input.rememberAt)) fields.rememberAt = text(input.rememberAt);
   if (kind === 'outbound' && isRecord(input.outbound)) {
     const outbound = input.outbound;
     const details = isRecord(outbound.details) ? outbound.details : {};

@@ -72,7 +72,6 @@ const prompt = (extra = {}) => ({
   paths: [],
   expiresAt: Date.now() + 30_000,
   remember: { kinds: ['submit'] },
-  onceReason: '',
   ...extra,
 });
 
@@ -203,7 +202,6 @@ test('an unconfirmed receiver or an outside file: focus on 거절, Enter never a
         receiverOrigin: '',
         files: [{ name: 'tax.pdf', path: 'C:\\Users\\me\\tax.pdf', size: 860 * 1024, outside: true }],
         remember: null,
-        onceReason: 'bot',
       })
     );
     const root = doc.getElementById('host');

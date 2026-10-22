@@ -16,6 +16,7 @@ import { createHumanGateStore, setHumanGateStore } from '../runtime/agent/orches
 import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 import { isActualUserInstructionMessage } from '../runtime/agent/orchestrator/session/compact/user-message-kind.mjs';
 import { registerHeldRequestNotifier, resolveHeldRequest } from '../runtime/shared/held-request-host.mjs';
+import { createSessionLifecycleApi } from '../tui/session/session-api/lifecycle.mjs';
 
 function harness() {
   const delivered = [];
@@ -65,16 +66,79 @@ test('a held request is delivered to the owner, pushed without any text, and ans
   assert.equal(h.audits[0][1].device, 'Pixel');
 });
 
-test('a held request never offers or keeps a remembering scope, whatever the gate asked', async () => {
+test('a held row offers exactly the scopes the gate offered, and a scope it did not offer counts as once', async () => {
   const h = harness();
   const answer = h.held.hold(outboundRequest);
   await Promise.resolve();
   const [[, row]] = h.delivered;
-  assert.deepEqual(row.remember, ['once']);
+  assert.deepEqual(row.remember, ['once', 'agent']);
   assert.equal(h.held.resolve(row.id, { approved: true, response: 'approve', remember: 'agent' }), true);
-  const result = await answer;
-  assert.equal(result.remember, 'once');
-  assert.deepEqual(h.audits[0][0].remember, ['once'], 'the stored gate offers once only: no grant');
+  assert.equal((await answer).remember, 'agent');
+  assert.deepEqual(h.audits[0][0].remember, ['once', 'agent']);
+
+  const onceOnly = h.held.hold({ ...outboundRequest, remember: ['once'] });
+  await Promise.resolve();
+  const [, row2] = h.delivered.filter(([, held]) => held.status === 'pending').at(-1);
+  assert.deepEqual(row2.remember, ['once']);
+  assert.equal(h.held.resolve(row2.id, { approved: true, response: 'approve', remember: 'agent' }), true);
+  assert.equal((await onceOnly).remember, 'once', 'a scope the row did not offer is dropped');
+});
+
+test('a remembering held answer stores the bot grant whichever session answers it', async () => {
+  for (const session of ['sess_home_reviewer', 'sess_other_pane', '', undefined]) {
+    const h = harness();
+    const answer = h.held.hold(outboundRequest);
+    await Promise.resolve();
+    const [[, row]] = h.delivered;
+    assert.equal(h.held.resolve(row.id, { approved: true, response: 'approve', remember: 'agent' }), true);
+    const result = await answer;
+    assert.equal(result.approved, true, String(session));
+    assert.equal(result.remember, 'agent', String(session));
+  }
+});
+
+test('the session API answers a held row from any session and stores the grant', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'held-surface-'));
+  const store = createHumanGateStore(dir);
+  setHumanGateStore(store);
+  const unregister = registerHeldRequestNotifier(() => {});
+  t.after(() => {
+    unregister();
+    setHumanGateStore(null);
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const member = roomMemberSessionId('room123abc', 'reviewer');
+  const home = 'sess_home_reviewer';
+  const ask = () => {
+    const events = [];
+    const stop = registerHeldRequestNotifier((event) => events.push(event));
+    const outcome = resolvePreToolAskApproval({
+      toolName: 'github',
+      args: outboundRequest.args,
+      sessionId: member,
+      askReason: 'needs approval',
+      toolApprovalHook: null,
+      request: { kind: 'outbound', outbound: outboundRequest.outbound, remember: ['once', 'agent'] },
+    });
+    return { events, stop, outcome };
+  };
+  const answerFrom = async (sessionId) => {
+    const { events, stop, outcome } = ask();
+    for (let i = 0; i < 10 && !events.length; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    stop();
+    const api = createSessionLifecycleApi(
+      { runtime: {}, getState: () => ({ sessionId }), finishToolApproval: () => false },
+      {}
+    );
+    assert.equal(
+      api.resolveToolApproval(events[0].requestId, { approved: true, response: 'approve', remember: 'agent' }),
+      true
+    );
+    return (await outcome).approval.remember;
+  };
+  for (const sessionId of ['sess_other_pane', member, home]) {
+    assert.equal(await answerFrom(sessionId), 'agent', sessionId);
+  }
 });
 
 test('an unanswered held request never expires: it waits for an answer like any approval', async (t) => {

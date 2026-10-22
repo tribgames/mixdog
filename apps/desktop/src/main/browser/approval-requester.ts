@@ -1,4 +1,8 @@
-import { agentHomeSessionId } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentIdOfHomeSession } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import {
+  roomMemberOfSession,
+  roomSessionId,
+} from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import {
   MIXY_AGENT_ID,
   MIXY_DEFAULT_NAME,
@@ -9,20 +13,20 @@ import {
 import { type SessionTitleLabels, sessionTitleLabel } from '../../shared/session-title.mjs';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../../shared/contract';
 
-/** `name`: who is asking, for the card ('' when the session is unknown).
- *  `agentId`: the bot whose own chat asked ('' for a coding session, a room, a
- *  schedule or an agent that is no bot): the only one a standing allow may be
- *  recorded for or read from. A sub-agent (any depth) asks as the root bot
- *  of the chat its work surfaces in. */
+/** `name`: who is asking, for the card ('' when the session is unknown). */
 export interface ApprovalRequester {
   name: string;
-  agentId: string;
   /** The asking session's working directory, when known. */
   cwd?: string;
-  /** false: the step may run on `agentId`'s standing allows, but the card
-   *  must not offer "always allow" — delegated work (a sub-agent, a task
-   *  session) is not answered in the bot's own chat. Absent: as `agentId`. */
-  rememberable?: boolean;
+}
+
+/** The bot whose OWN session `sessionId` is: its 1:1 home chat or its room
+ *  member session; '' for anything else (a coding session, a task session, a
+ *  sub-agent at any depth, an unknown id). Read from the id alone, so it never
+ *  depends on the agent catalog or on a lookup succeeding. Only this bot asks,
+ *  and a standing allow is recorded for / read from it alone. */
+export function ownBotOfSession(sessionId: string): string {
+  return agentIdOfHomeSession(sessionId) || roomMemberOfSession(sessionId)?.agentId || '';
 }
 
 interface RequesterSources {
@@ -59,15 +63,25 @@ function topSessionOf(sessionId: string, sources: RequesterSources) {
   return top ? { top, chain } : null;
 }
 
-/** The top-level chat a session's approvals surface in: a task session a bot
- *  created in its own chat (and its sub-agents) → that chat; a sub-agent of
- *  any other session → that session; anything else itself. The approval
- *  notification opens it. */
+/** A group-room member session (unlisted: the catalog leaves members out) a
+ *  session is, or works for, with the sub-agent's pool rows (nearest first,
+ *  [] for the member itself); null for any other session. */
+function roomSeatOf(sessionId: string, sources: RequesterSources) {
+  const chain = agentRowChain(sessionId, sources.agentPool?.() ?? []);
+  const member = roomMemberOfSession(text(chain.at(-1)?.ownerSessionId) || sessionId);
+  return member ? { member, chain } : null;
+}
+
+/** The top-level chat a session's approvals surface in: a sub-agent → the
+ *  session it works for; a room member (and its sub-agents) → the room's log,
+ *  where the room shows its approvals; anything else itself. A task session a
+ *  bot created is an ordinary top-level session, so it and its sub-agents
+ *  surface in it, never the bot's home. The approval notification opens it. */
 export function approvalSurfaceSessionId(sessionId: string, sources: RequesterSources): string {
   const found = topSessionOf(sessionId, sources);
-  if (!found) return sessionId;
-  const home = found.top.taskFrom === 'home' && found.top.taskAgent ? agentHomeSessionId(found.top.taskAgent) : '';
-  return home && sources.sessions().some((entry) => entry.id === home) ? home : found.top.id;
+  if (found) return found.top.id;
+  const seat = roomSeatOf(sessionId, sources);
+  return seat ? roomSessionId(seat.member.roomId) : sessionId;
 }
 
 /** A listed bot's catalog name (its rename included); '' when `agentId` is no
@@ -79,36 +93,37 @@ export function agentHomeName(agents: unknown, agentId: string, leadName = ''): 
   return row ? agentRowName(row) : '';
 }
 
-/** Who is asking: a bot's home chat is that bot (its catalog name), any other
- *  session is named by its title and belongs to no bot. A sub-agent or a
- *  bot's task session is named by its chain ("사무관 › Worker", "사무관 ›
- *  Task session", "Lead › Reviewer") and belongs to the bot whose own chat it
- *  works under. */
+/** Who is asking: a bot's home chat and its room member session are that bot
+ *  (its catalog name), any other session (a task session a bot created
+ *  included) is named by its title and belongs to no bot. A sub-agent is named
+ *  by its chain ("사무관 › Worker", "Lead › Reviewer") and belongs to no bot. */
 export function createApprovalRequesterResolver(
   deps: RequesterSources & {
     listAgents(): Promise<unknown>;
     titleLabels?(): SessionTitleLabels;
     /** "Lead" in this PC's language: a coding Lead's place in a chain. */
     leadName?(): string;
-    /** "Task session" in this PC's language: a bot's task session in a chain. */
-    taskName?(): string;
   }
 ): (sessionId: string) => Promise<ApprovalRequester> {
   const ownRequester = async (session: DesktopSessionSummary, agents: unknown): Promise<ApprovalRequester> => {
     const title = sessionTitleLabel(session.title || session.preview, deps.titleLabels?.());
     const cwd = session.cwd ? { cwd: session.cwd } : {};
     const home = session.agentHome || '';
-    if (!home) return { name: title, agentId: '', ...cwd };
-    if (home === MIXY_AGENT_ID) return { name: title, agentId: home, ...cwd };
-    const name = agentHomeName(await agents, home);
-    return name ? { name, agentId: home, ...cwd } : { name: title, agentId: '', ...cwd };
+    if (!home || home === MIXY_AGENT_ID) return { name: title, ...cwd };
+    return { name: agentHomeName(await agents, home) || title, ...cwd };
   };
   return async (sessionId) => {
     const agents = deps.listAgents().catch(() => []);
     const found = topSessionOf(sessionId, deps);
-    if (!found) return { name: '', agentId: '' };
-    const { top, chain } = found;
-    if (!chain.length && !top.taskAgent) return ownRequester(top, agents);
+    const seat = found ? null : roomSeatOf(sessionId, deps);
+    if (!found && !seat) return { name: '' };
+    const chain = found?.chain ?? seat?.chain ?? [];
+    // A room member is its bot, as in the bot's home chat.
+    const seatRequester = async (): Promise<ApprovalRequester> => {
+      const agentId = seat?.member.agentId ?? '';
+      return { name: agentHomeName(await agents, agentId) || agentId };
+    };
+    if (!chain.length) return found ? ownRequester(found.top, agents) : seatRequester();
     const catalog = await agents;
     const agentName = (row: DesktopAgentPoolRow) => {
       const id = text(row.agent);
@@ -117,21 +132,11 @@ export function createApprovalRequesterResolver(
         : undefined;
       return entry ? agentRowName(entry) : id || text(row.tag);
     };
-    const cwdOf = chain.length ? text(chain[0].cwd) : text(top.cwd);
+    const cwdOf = text(chain[0].cwd);
     const cwd = cwdOf ? { cwd: cwdOf } : {};
     const below = chain.map(agentName).reverse();
-    if (top.taskAgent) {
-      // A task session a bot created, or its sub-agent: named under the bot.
-      // It acts as the bot only when the bot's own chat created it — never a
-      // room, a run, or a task whose origin was not recorded.
-      const bot = contactAgentRows(catalog).find((agent) => agent.id === top.taskAgent);
-      const head = bot ? agentRowName(bot) : top.taskAgent;
-      const agentId = bot && top.taskFrom === 'home' ? bot.id : '';
-      const name = [head, deps.taskName?.() || 'Task session', ...below].join(' › ');
-      return { name, agentId, rememberable: false, ...cwd };
-    }
-    const own = await ownRequester(top, catalog);
-    const head = top.agentHome ? own.name : deps.leadName?.() || 'Lead';
-    return { name: [head, ...below].join(' › '), agentId: own.agentId, rememberable: false, ...cwd };
+    const own = found ? await ownRequester(found.top, catalog) : await seatRequester();
+    const head = !found || found.top.agentHome ? own.name : deps.leadName?.() || 'Lead';
+    return { name: [head, ...below].join(' › '), ...cwd };
   };
 }

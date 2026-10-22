@@ -12,6 +12,7 @@ import {
 } from '../../mcp/agent-connectors.mjs';
 import { ALLOW_NOT_SAVED_NOTICE, applyConnectorApproval } from '../loop/tool-exec/before-hook.mjs';
 import { roomMemberSessionId } from '../agent-room.mjs';
+import { setLiveSession } from '../store.mjs';
 import { setUnattendedApprovalPort } from './gate.mjs';
 import { ACTION_KINDS } from './outbound-policy.mjs';
 import { createHumanGateStore, recordAgentApprovalAudit, setHumanGateStore } from './store.mjs';
@@ -110,19 +111,23 @@ test('only a contact bot in its own chat can be given an always allow', async ()
   mkdirSync(join(dataRoot, 'agents', 'lead'), { recursive: true });
   setPolicy('helper', 'needs_approval');
   setPolicy('lead', 'needs_approval');
-  // A workflow agent, even in a session named for it, and a coding session: once only.
+  // Mixy in her own home asks, but is offered no remember scope.
+  const mixy = await run('lead', 'sess_home_lead', always);
+  assert.equal(mixy.asked.length, 1, 'Mixy in her home asks');
+  assert.equal(mixy.asked[0].remember, undefined, 'and is offered no remember scope');
+  assert.equal(toolPermission('lead'), 'needs_approval', 'nothing was saved');
+  // Only a bot's own sessions ask: a workflow agent (even in a session named for
+  // it) and a coding Lead's session run the connector tool unasked.
   for (const [agent, session] of [
     ['helper', 'sess_home_helper'],
     ['helper', 'sess_desktop_coding'],
-    ['lead', 'sess_home_lead'],
     ['lead', 'sess_desktop_coding'],
   ]) {
-    const { asked } = await run(agent, session, always);
-    assert.equal(asked.length, 1, `${agent} in ${session} asks`);
-    assert.equal(asked[0].remember, undefined, `${agent} in ${session} is offered no remember scope`);
+    const { outcome, asked } = await run(agent, session, () => assert.fail('no card'));
+    assert.deepEqual(asked, [], `${agent} in ${session} is not asked`);
+    assert.equal(outcome, null, `${agent} in ${session} runs the tool`);
   }
   assert.equal(toolPermission('helper'), 'needs_approval', 'nothing was saved');
-  assert.equal(toolPermission('lead'), 'needs_approval', 'Mixy and a coding Lead are offered none: nothing was saved');
   // A bot asking from another bot's session cannot write its own entry either.
   setPolicy('mailer', 'needs_approval');
   await run('mailer', 'sess_home_inspector', always);
@@ -130,7 +135,7 @@ test('only a contact bot in its own chat can be given an always allow', async ()
   assert.equal(toolPermission('inspector'), 'needs_approval');
 });
 
-test('a room member is offered no always allow; a schedule run never asks and stores none', async () => {
+test('a room member is offered always allow like the home chat; a schedule run never asks and stores none', async () => {
   const member = roomMemberSessionId('room123abc', 'mailer');
   assert.ok(member, 'a room member session id');
   setPolicy('mailer', 'needs_approval');
@@ -146,12 +151,64 @@ test('a room member is offered no always allow; a schedule run never asks and st
   try {
     const room = await run('mailer', member, always);
     assert.equal(room.asked.length, 1);
-    assert.equal(room.asked[0].remember, undefined, 'a room member is no home chat');
+    assert.deepEqual(room.asked[0].remember, ['once', 'agent']);
+    assert.equal(toolPermission('mailer'), 'auto', "saved in the bot's own policy, as from the home chat");
+    setPolicy('mailer', 'needs_approval');
     // Saving the schedule was the grant: the run is neither asked nor held.
     const schedule = await run('mailer', 'sess_schedule_run', () => assert.fail('a run has no card'));
     assert.deepEqual(held, []);
     assert.equal(schedule.outcome, null, 'the call runs');
-    assert.equal(toolPermission('mailer'), 'needs_approval', 'neither answer was saved');
+    assert.equal(toolPermission('mailer'), 'needs_approval', 'the run saved nothing');
+  } finally {
+    setUnattendedApprovalPort(null);
+  }
+});
+
+test('connector approval is for a bot own session only: sub-agents and task sessions run unasked, run work follows run policy', async () => {
+  const member = roomMemberSessionId('room123abc', 'mailer');
+  setPolicy('helper', 'needs_approval');
+  setPolicy('mailer', 'needs_approval');
+  const child = (id, parent, extra = {}) =>
+    setLiveSession({
+      id,
+      owner: 'agent',
+      agent: 'helper',
+      visibility: 'agent-only',
+      parentSessionId: parent,
+      ownerSessionId: parent,
+      createdAt: Date.now(),
+      ...extra,
+    });
+  setLiveSession({ id: 'sess_conn_lead', owner: 'cli', agent: 'lead', createdAt: Date.now() });
+  child('sess_conn_leadsub', 'sess_conn_lead');
+  child('sess_conn_homesub', 'sess_home_mailer');
+  child('sess_conn_roomsub', member);
+  child('sess_conn_runsub', 'sess_home_mailer', { run: { kind: 'schedule', agentId: 'mailer', name: 'Daily' } });
+  for (const [agent, session] of [
+    ['helper', 'sess_conn_lead'],
+    ['helper', 'sess_conn_leadsub'],
+    ['helper', 'sess_conn_homesub'],
+    ['mailer', 'sess_conn_homesub'],
+    ['helper', 'sess_conn_roomsub'],
+  ]) {
+    const { outcome, asked } = await run(agent, session, () => assert.fail('no card'));
+    assert.deepEqual(asked, [], `${agent} in ${session} is not asked`);
+    assert.equal(outcome, null, `${agent} in ${session} runs the tool`);
+  }
+  // A bot's own seats still ask.
+  for (const session of ['sess_home_mailer', member]) {
+    assert.equal((await run('mailer', session, once)).asked.length, 1, session);
+  }
+  // Work a run started is answered by run policy: allowed, no card, nothing stored.
+  setUnattendedApprovalPort({
+    runOf: (id) => (id === 'sess_conn_runsub' ? { kind: 'schedule', agentId: 'mailer', name: 'Daily' } : null),
+    hold: async () => assert.fail('a run is never held'),
+  });
+  try {
+    const out = await run('helper', 'sess_conn_runsub', () => assert.fail('a run has no card'));
+    assert.equal(out.outcome, null);
+    assert.deepEqual(out.asked, []);
+    assert.equal(toolPermission('helper'), 'needs_approval');
   } finally {
     setUnattendedApprovalPort(null);
   }

@@ -12,7 +12,6 @@ import { applyBeforeToolHook } from '../loop/tool-exec/before-hook.mjs';
 import { setLiveSession } from '../store.mjs';
 import { loadSession } from '../store/load-session.mjs';
 import { runtimeState } from '../manager/runtime-state.mjs';
-import { _liveSessions } from '../store/live-state.mjs';
 import { delegationOf, rebindDelegation } from './delegation.mjs';
 import { humanGateDecision, setUnattendedApprovalPort, unattendedApprovalPort } from './gate.mjs';
 import { AUTOMATION_GRANT_REASON, RUN_FORBIDDEN_REASON } from './run-policy.mjs';
@@ -45,7 +44,12 @@ const created = (record) => {
     providerCacheOpts: null,
     surface: { toolPermission: null, hasCallerAllow: false },
   });
-  const session = { ...record, ...(origin.delegation ? { delegation: origin.delegation } : {}), createdAt: Date.now() };
+  const session = {
+    ...record,
+    ...(origin.delegation ? { delegation: origin.delegation } : {}),
+    ...(origin.run ? { run: origin.run } : {}),
+    createdAt: Date.now(),
+  };
   setLiveSession(session);
   return session;
 };
@@ -186,7 +190,6 @@ test('an attended bot chat asks before delete_message, on a card with no "always
   assert.equal(cards[0].kind, 'outbound');
   assert.equal(cards[0].outbound.category, 'delete');
   assert.deepEqual(cards[0].remember, ['once']);
-  assert.equal(cards[0].rememberAt, undefined);
   assert.deepEqual(held, []);
   // A deny stops it.
   const denied = await applyBeforeToolHook({
@@ -208,20 +211,21 @@ test('a room member asks before a delete on its card', async (t) => {
   assert.deepEqual(cards[0].remember, ['once']);
 });
 
-test('a sub-agent of an attended bot chat asks before a delete', async (t) => {
-  const { cards, call } = setup(t);
+test('a sub-agent of a bot chat or room seat is no bot: no outbound ask, not even a delete', async (t) => {
+  const { cards, held, call } = setup(t);
+  const member = roomMemberSessionId('room123abc', 'mailer');
   subAgent('sess_rp_att_sub', HOME);
   subAgent('sess_rp_att_deep', 'sess_rp_att_sub');
-  for (const sessionId of ['sess_rp_att_sub', 'sess_rp_att_deep']) {
-    const out = await call(sessionId, deleteMessage);
-    assert.equal(out.denial, undefined, sessionId);
+  subAgent('sess_rp_room_sub', member);
+  for (const sessionId of ['sess_rp_att_sub', 'sess_rp_att_deep', 'sess_rp_room_sub']) {
+    for (const tool of [deleteMessage, email, payment]) {
+      const out = await call(sessionId, tool);
+      assert.equal(out.denial, undefined, `${sessionId} ${tool.name}`);
+    }
+    assert.equal(unattendedApprovalPort().runOf(sessionId), null, sessionId);
   }
-  assert.equal(cards.length, 2);
-  for (const card of cards) {
-    assert.equal(card.outbound.category, 'delete');
-    assert.deepEqual(card.remember, ['once']);
-    assert.equal(card.agentId, 'mailer');
-  }
+  assert.deepEqual(cards, []);
+  assert.deepEqual(held, []);
 });
 
 test('a coding Lead and its sub-agents delete without a card, as before', async (t) => {
@@ -284,8 +288,10 @@ test('a room member keeps its approval: asked on its card, held when it has none
   const out = await call(member, email);
   assert.equal(out.denial, undefined, 'the card approved it');
   assert.equal(cards.length, 1, 'a room asks on its own card');
+  assert.deepEqual(cards[0].remember, ['once', 'agent'], 'as in the bot home: always-allow is offered');
+  assert.equal(cards[0].agentId, 'mailer');
   assert.deepEqual(held, []);
-  // No approval UI attached: the request is held for the owner, as before.
+  // No approval UI attached: the request is held for the owner, with the same scopes.
   const withoutCard = await applyBeforeToolHook({
     ...email,
     cwd: '/tmp',
@@ -295,7 +301,27 @@ test('a room member keeps its approval: asked on its card, held when it has none
     toolApprovalHook: null,
   });
   assert.equal(held.length, 1);
+  assert.deepEqual(held[0].remember, ['once', 'agent']);
   assert.match(withoutCard.denial, /not approved|denied/);
+});
+
+// Production only marks a run on the bot's home thread id (routine-home-turn.mjs:
+// markUnattendedRun(agentHomeSessionId)), never on a room member's session id, so a
+// schedule/webhook inside a room seat cannot occur. If one were marked, the run
+// would win over the seat: nothing asked, held or remembered, payments denied.
+test('a run marked on a room member session is still a run: no ask, no hold, nothing remembered', async (t) => {
+  const { store, cards, held, call } = setup(t);
+  const member = roomMemberSessionId('room123abc', 'mailer');
+  const unmark = markUnattendedRun(member, { kind: 'schedule', agentId: 'mailer', name: 'Daily' });
+  t.after(unmark);
+  assert.equal((await call(member, email)).denial, undefined);
+  assert.match((await call(member, permanentDelete)).denial, /do it from the chat/);
+  assert.deepEqual(cards, []);
+  assert.deepEqual(held, []);
+  assert.deepEqual(await store.listGrants({ agentId: 'mailer' }), []);
+  unmark();
+  assert.equal((await call(member, email)).denial, undefined, 'a seat again once the run ends');
+  assert.deepEqual(cards.at(-1).remember, ['once', 'agent']);
 });
 
 test('an attended bot chat still asks, for mail and for a payment', async (t) => {
@@ -308,95 +334,57 @@ test('an attended bot chat still asks, for mail and for a payment', async (t) =>
   assert.deepEqual(held, []);
 });
 
-// A worker's status follows the turn that drives it: reusing a tag re-binds
-// it (delegation.mjs rebindDelegation) to the session that sends it work.
-const BUSY = { stage: 'tool_running' };
-
-test('a worker a run started asks when the attended chat later reuses its tag', async (t) => {
+// Reusing a tag re-binds a worker (delegation.mjs rebindDelegation) to the root
+// and the run (if any) of the session that sends it work.
+test('a worker a run started stays the run, however long after; the attended chat reusing its tag ends that', async (t) => {
   const { store, cards, held, call } = setup(t);
   const unmark = markUnattendedRun(HOME, { kind: 'schedule', agentId: 'mailer', name: 'Nightly' });
   subAgent('sess_rb_w1', HOME);
+  subAgent('sess_rb_w1_deep', 'sess_rb_w1');
   unmark();
-  assert.equal((await call('sess_rb_w1', email)).denial, undefined);
-  assert.equal(cards.length, 0, 'still the run: allowed without a card');
+  for (const sessionId of ['sess_rb_w1', 'sess_rb_w1_deep']) {
+    assert.equal((await call(sessionId, email)).denial, undefined, sessionId);
+    assert.equal(unattendedApprovalPort().runOf(sessionId)?.kind, 'schedule', sessionId);
+  }
+  assert.deepEqual(cards, [], 'auto-allowed: never a card');
+  assert.deepEqual(held, []);
   assert.equal((await store.readAudit({ agentId: 'mailer' }))[0].decision, 'run-allowed');
+  assert.match((await call('sess_rb_w1', payment)).denial, /do it from the chat/);
 
   assert.equal(await rebindDelegation('sess_rb_w1', HOME), true, 'the attended chat sends it work');
   assert.equal(unattendedApprovalPort().runOf('sess_rb_w1'), null);
-  assert.equal((await call('sess_rb_w1', email)).denial, undefined, 'the person approved it on the card');
-  assert.equal(cards.length, 1, 'now it asks');
-  assert.deepEqual(held, []);
-  assert.notEqual((await store.readAudit({ agentId: 'mailer' }))[0].decision, 'run-allowed');
-  assert.equal(loadSession('sess_rb_w1').delegation.via, 'home', 'kept on the record, so a restart keeps it');
+  assert.equal(unattendedApprovalPort().runOf('sess_rb_w1_deep')?.kind, 'schedule', 'a sibling keeps its own');
+  assert.equal((await call('sess_rb_w1', email)).denial, undefined);
+  assert.deepEqual(cards, [], 'a bot home sub-agent still has no bot ask');
   assert.equal(await rebindDelegation('sess_rb_w1', HOME), false, 'nothing changes when the driver is the same');
+  assert.equal(loadSession('sess_rb_w1').delegation.via, 'bot');
 });
 
-test('a worker the attended chat started is the run only for what a run sends it', async (t) => {
-  const { cards, call } = setup(t);
-  subAgent('sess_rb_w2', HOME);
-  assert.equal((await call('sess_rb_w2', email)).denial, undefined);
-  assert.equal(cards.length, 1, 'attended: asks');
-
+test('a worker the attended chat started is the run only for what a run sends it; a busy turn is not loosened', async (t) => {
+  const { call } = setup(t);
+  subAgent('sess_rb_w3', HOME);
+  assert.equal(unattendedApprovalPort().runOf('sess_rb_w3'), null);
   const unmark = markUnattendedRun(HOME, { kind: 'webhook', agentId: 'mailer', name: 'Hook' });
-  assert.equal(await rebindDelegation('sess_rb_w2', HOME), true);
-  assert.deepEqual(unattendedApprovalPort().runOf('sess_rb_w2'), { kind: 'webhook', agentId: 'mailer', name: 'Hook' });
-  assert.equal((await call('sess_rb_w2', email)).denial, undefined);
-  assert.equal(cards.length, 1, 'the run reused it: allowed without a card');
-  unmark();
-  // The run's work stays the run's after it ended, until the chat drives it again.
-  assert.notEqual(unattendedApprovalPort().runOf('sess_rb_w2'), null);
-  await rebindDelegation('sess_rb_w2', HOME);
-  assert.equal(unattendedApprovalPort().runOf('sess_rb_w2'), null);
-});
-
-test("a run's own late sub-agent stays the run's, however long after; a sibling's reuse does not touch it", async (t) => {
-  const { cards, call } = setup(t);
-  const unmark = markUnattendedRun(HOME, { kind: 'schedule', agentId: 'mailer', name: 'Nightly' });
-  subAgent('sess_rb_late', HOME);
-  subAgent('sess_rb_late_sibling', HOME);
-  subAgent('sess_rb_late_deep', 'sess_rb_late');
-  unmark();
-  await rebindDelegation('sess_rb_late_sibling', HOME);
-  for (const sessionId of ['sess_rb_late', 'sess_rb_late_deep']) {
-    assert.equal((await call(sessionId, email)).denial, undefined, sessionId);
-  }
-  assert.deepEqual(cards, []);
-  assert.equal(unattendedApprovalPort().runOf('sess_rb_late_sibling'), null);
-});
-
-test("a sub-agent reached through another worker takes that worker's status", async (t) => {
-  setup(t);
-  const unmark = markUnattendedRun(HOME, { kind: 'schedule', agentId: 'mailer', name: 'Nightly' });
-  subAgent('sess_rb_mid', HOME);
-  subAgent('sess_rb_leaf', HOME);
-  unmark();
-  assert.equal(await rebindDelegation('sess_rb_leaf', 'sess_rb_mid'), true, 'driven by the run-started worker');
-  assert.equal(unattendedApprovalPort().runOf('sess_rb_leaf')?.kind, 'schedule');
-  await rebindDelegation('sess_rb_mid', HOME);
-  assert.equal(await rebindDelegation('sess_rb_leaf', 'sess_rb_mid'), true, 'now driven by an attended one');
-  assert.equal(unattendedApprovalPort().runOf('sess_rb_leaf'), null);
-});
-
-test('a worker busy with attended work is not made a run mid-turn; a run reaching it asks', async (t) => {
-  const { cards, call } = setup(t);
-  subAgent('sess_rb_busy', HOME);
-  runtimeState.set('sess_rb_busy', BUSY);
-  t.after(() => runtimeState.delete('sess_rb_busy'));
-  const unmark = markUnattendedRun(HOME, { kind: 'schedule', agentId: 'mailer', name: 'Nightly' });
   t.after(unmark);
-  assert.equal(await rebindDelegation('sess_rb_busy', HOME), false, 'the in-flight attended turn is not loosened');
-  assert.equal(unattendedApprovalPort().runOf('sess_rb_busy'), null);
-  assert.equal((await call('sess_rb_busy', email)).denial, undefined);
-  assert.equal(cards.length, 1);
-  // The other way is stricter, so it applies at once: the run's in-flight work now asks.
-  unmark();
-  const again = markUnattendedRun(HOME, { kind: 'schedule', agentId: 'mailer', name: 'Nightly' });
-  subAgent('sess_rb_busy_run', HOME);
-  again();
-  runtimeState.set('sess_rb_busy_run', BUSY);
-  t.after(() => runtimeState.delete('sess_rb_busy_run'));
-  assert.equal(await rebindDelegation('sess_rb_busy_run', HOME), true);
-  assert.equal(unattendedApprovalPort().runOf('sess_rb_busy_run'), null);
+  runtimeState.set('sess_rb_w3', { stage: 'tool_running' });
+  assert.equal(await rebindDelegation('sess_rb_w3', HOME), false, 'the in-flight attended turn stays attended');
+  runtimeState.delete('sess_rb_w3');
+  assert.equal(await rebindDelegation('sess_rb_w3', HOME), true);
+  assert.deepEqual(unattendedApprovalPort().runOf('sess_rb_w3'), { kind: 'webhook', agentId: 'mailer', name: 'Hook' });
+  assert.equal((await call('sess_rb_w3', email)).denial, undefined);
+});
+
+test("a worker reused by a coding Lead takes the Lead's root; by a bot seat, none", async (t) => {
+  const { cards, call } = setup(t);
+  setLiveSession({ id: 'sess_rb_lead', owner: 'cli', agent: 'lead' });
+  subAgent('sess_rb_w2', HOME);
+  assert.equal(await rebindDelegation('sess_rb_w2', 'sess_rb_lead'), true);
+  assert.equal(loadSession('sess_rb_w2').delegation.via, 'coding');
+  assert.equal(loadSession('sess_rb_w2').delegation.rootSessionId, 'sess_rb_lead');
+  assert.equal(await rebindDelegation('sess_rb_w2', HOME), true);
+  assert.equal(loadSession('sess_rb_w2').delegation.via, 'bot');
+  assert.equal((await call('sess_rb_w2', email)).denial, undefined);
+  assert.deepEqual(cards, []);
 });
 
 test('rebinding ignores sessions it cannot be applied to', async (t) => {
@@ -409,11 +397,8 @@ test('rebinding ignores sessions it cannot be applied to', async (t) => {
   assert.equal(await rebindDelegation('sess_rb_self', ''), false, 'no caller, no change');
 });
 
-// A rebind that cannot establish the sender's root leaves an explicit
-// unresolved binding: the legacy backfill must not hand the run back.
-test('a rebind that cannot establish a root fails closed, also for its legacy child and after a restart', async (t) => {
-  const { cards, held, store, call } = setup(t);
-  const unmark = markUnattendedRun(HOME, { kind: 'schedule', agentId: 'mailer', name: 'Nightly' });
+test('a rebind that cannot establish a root changes nothing, and an unknown-parent session never asks', async (t) => {
+  const { cards, held, call } = setup(t);
   subAgent('sess_rb_fc', HOME);
   setLiveSession({
     id: 'sess_rb_fc_legacy',
@@ -424,37 +409,90 @@ test('a rebind that cannot establish a root fails closed, also for its legacy ch
     ownerSessionId: 'sess_rb_fc',
     createdAt: Date.now(),
   });
-  unmark();
   subAgent('sess_rb_orphan', 'sess_rb_gone_parent');
   assert.equal((await call('sess_rb_fc', email)).denial, undefined);
-  assert.equal(cards.length, 0, 'before the rebind: the run, no card');
+  assert.equal(cards.length, 0, "before the rebind: a bot's sub-agent, no card");
 
-  assert.equal(await rebindDelegation('sess_rb_fc', 'sess_rb_orphan'), true);
-  assert.equal(delegationOf('sess_rb_fc').state, 'unresolved');
-  assert.equal(await rebindDelegation('sess_rb_fc', 'sess_rb_orphan'), false, 'unchanged the second time');
+  // A sender whose root cannot be established changes nothing; the session
+  // never becomes a bot's, so it never asks for an outbound call.
+  assert.equal(await rebindDelegation('sess_rb_fc', 'sess_rb_orphan'), false);
+  assert.equal(delegationOf('sess_rb_fc').via, 'bot');
+  assert.equal(delegationOf('sess_rb_orphan').state, 'top', 'no root, no delegation');
+  for (const sessionId of ['sess_rb_fc', 'sess_rb_fc_legacy', 'sess_rb_orphan']) {
+    assert.equal((await call(sessionId, email)).denial, undefined, sessionId);
+  }
+  assert.deepEqual(cards, []);
+  assert.deepEqual(held, []);
+});
 
-  const expectAsks = async (label) => {
-    for (const sessionId of ['sess_rb_fc', 'sess_rb_fc_legacy']) {
-      const before = cards.length;
-      assert.equal((await call(sessionId, email)).denial, undefined, `${label} ${sessionId}: the card approved`);
-      assert.equal(cards.length, before + 1, `${label} ${sessionId}: asks`);
-      assert.deepEqual(cards.at(-1).remember, ['once'], 'once only, nothing is remembered');
-    }
-    assert.deepEqual(held, []);
-    const decisions = (await store.readAudit({ agentId: 'mailer' })).map((row) => row.decision);
-    assert.equal(decisions.filter((decision) => decision === 'run-allowed').length, 1, `${label}: no new run-allowed`);
-  };
-  await expectAsks('rebound');
+test('the run passes between sender and worker whether or not the sender has a resolvable root', async (t) => {
+  const { cards, held, call } = setup(t);
+  const run = { kind: 'schedule', agentId: 'mailer', name: 'Nightly' };
+  // Senders with no derivable root: their parent record is gone.
+  const orphan = (id, extra = {}) =>
+    setLiveSession({
+      id,
+      owner: 'agent',
+      agent: 'worker',
+      visibility: 'agent-only',
+      parentSessionId: 'sess_rb_gone_parent',
+      ownerSessionId: 'sess_rb_gone_parent',
+      createdAt: Date.now(),
+      ...extra,
+    });
+  orphan('sess_rb_runsender', { run });
+  orphan('sess_rb_attsender');
+  assert.equal(delegationOf('sess_rb_runsender').state, 'top');
 
-  // A restart: nothing live, everything read back from disk.
-  _liveSessions.delete('sess_rb_fc');
-  assert.equal(loadSession('sess_rb_fc').delegation.unresolved, true, 'the binding is on disk');
-  assert.equal(delegationOf('sess_rb_fc').state, 'unresolved');
-  await expectAsks('after restart');
+  // A run-stamped sender passes the run to an attended worker; its root stays.
+  subAgent('sess_rb_pw', HOME);
+  assert.equal(unattendedApprovalPort().runOf('sess_rb_pw'), null);
+  assert.equal(await rebindDelegation('sess_rb_pw', 'sess_rb_runsender'), true);
+  assert.deepEqual(unattendedApprovalPort().runOf('sess_rb_pw'), run);
+  assert.equal(delegationOf('sess_rb_pw').via, 'bot', 'the root it had is kept');
+  assert.equal((await call('sess_rb_pw', email)).denial, undefined);
+  assert.match((await call('sess_rb_pw', payment)).denial, /do it from the chat/);
+  assert.deepEqual(loadSession('sess_rb_pw').run, run, 'persisted');
+  assert.equal(await rebindDelegation('sess_rb_pw', 'sess_rb_runsender'), false, 'nothing more to change');
 
-  // A later send by a resolvable sender binds it again.
-  assert.equal(await rebindDelegation('sess_rb_fc', HOME), true);
-  assert.equal(delegationOf('sess_rb_fc').state, 'resolved');
+  // An attended sender ends the run of a worker (and a stale stamp is not kept).
+  assert.equal(await rebindDelegation('sess_rb_pw', 'sess_rb_attsender'), true);
+  assert.equal(unattendedApprovalPort().runOf('sess_rb_pw'), null);
+  assert.equal(loadSession('sess_rb_pw').run, null);
+  assert.equal(delegationOf('sess_rb_pw').via, 'bot');
+  assert.equal((await call('sess_rb_pw', payment)).denial, undefined, 'attended again: no run denial');
+  assert.deepEqual(cards, [], 'a bot home sub-agent still has no bot ask');
+  assert.deepEqual(held, []);
+
+  // A worker stored by the old code as the run's (`via: 'run'`) is that run's until an attended sender reuses it, then for good.
+  setLiveSession({
+    id: 'sess_rb_old',
+    owner: 'agent',
+    agent: 'worker',
+    visibility: 'agent-only',
+    parentSessionId: HOME,
+    ownerSessionId: HOME,
+    createdAt: Date.now(),
+    delegation: {
+      rootSessionId: HOME,
+      rootAgentId: 'mailer',
+      via: 'run',
+      run: { kind: 'schedule', name: 'Nightly' },
+      path: [{ kind: 'agent', agent: 'worker' }],
+    },
+  });
+  assert.deepEqual(unattendedApprovalPort().runOf('sess_rb_old'), run);
+  assert.equal(await rebindDelegation('sess_rb_old', 'sess_rb_attsender'), true);
+  assert.equal(unattendedApprovalPort().runOf('sess_rb_old'), null, 'the old record no longer brings the run back');
+  assert.equal(delegationOf('sess_rb_old').via, 'bot');
+  assert.equal(unattendedApprovalPort().runOf('sess_rb_old'), null);
+
+  // A busy attended turn is never made a run mid-turn, root or not.
+  subAgent('sess_rb_pw2', HOME);
+  runtimeState.set('sess_rb_pw2', { stage: 'tool_running' });
+  t.after(() => runtimeState.delete('sess_rb_pw2'));
+  assert.equal(await rebindDelegation('sess_rb_pw2', 'sess_rb_runsender'), false);
+  assert.equal(unattendedApprovalPort().runOf('sess_rb_pw2'), null);
 });
 
 test('saving a schedule or webhook says what the approval grants', async (t) => {
