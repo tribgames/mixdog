@@ -466,6 +466,9 @@ test('a task session shows nothing while it starts and one card without file car
     assert.equal(cards[0].querySelector('.mx-task-card-meta').textContent, `Task session · ${label} · 2 files changed`);
     assert.equal(host().querySelector('.message-attachments, .message-body a'), null, `no files (${status})`);
   }
+  // One file reads in the singular.
+  await show([user('u1', DAY1), task('single', 'completed', { files: files.slice(0, 1) })]);
+  assert.equal(host().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed · 1 file changed');
   // No files: the count is left out.
   await show([user('u1', DAY1), task('plain', 'completed')]);
   assert.equal(host().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed');
