@@ -50,6 +50,10 @@ function petStillFrame(src: string): Promise<string> {
   return new Promise((resolve) => {
     const image = new Image();
     image.onload = () => {
+      if (!image.naturalWidth || !image.naturalHeight) {
+        resolve('');
+        return;
+      }
       try {
         const canvas = document.createElement('canvas');
         canvas.width = image.naturalWidth;

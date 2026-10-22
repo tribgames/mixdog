@@ -1066,6 +1066,33 @@ test('a picture face (#178): an empty box while it loads, the picture once read,
   for (let wait = 0; wait < 100 && !face()?.querySelector('svg'); wait += 1) await turn();
   assert.ok(face().querySelector('svg'), 'unreadable: the mascot in its place');
   assert.equal(face().querySelector('img'), null);
+  // A moving picture that decodes to nothing (zero size) cannot be read either: the mascot, not an empty image.
+  const { HTMLCanvasElement } = dom.window;
+  const realToDataURL = HTMLCanvasElement.prototype.toDataURL;
+  const realGetContext = HTMLCanvasElement.prototype.getContext;
+  const realImage = globalThis.Image;
+  HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
+  HTMLCanvasElement.prototype.getContext = () => null;
+  globalThis.Image = class {
+    naturalWidth = 0;
+    naturalHeight = 0;
+    set src(_value) {
+      queueMicrotask(() => this.onload?.());
+    }
+  };
+  t.after(() => {
+    HTMLCanvasElement.prototype.toDataURL = realToDataURL;
+    HTMLCanvasElement.prototype.getContext = realGetContext;
+    globalThis.Image = realImage;
+  });
+  flushSync(() => showView(view('idle-eeeeeeeeeeee.gif')));
+  for (let wait = 0; wait < 100 && asked.length < 3; wait += 1) await turn();
+  asked[2].resolve({
+    states: { idle: { file: 'idle-eeeeeeeeeeee.gif', url: 'data:image/gif;base64,R0lGODlh', poster: '' } },
+  });
+  for (let wait = 0; wait < 100 && !face()?.querySelector('svg'); wait += 1) await turn();
+  assert.ok(face().querySelector('svg'), 'zero-size decode: the mascot in its place');
+  assert.equal(face().querySelector('img'), null);
   // #179: main's flip at the screen's top marks the page (desktop-pet.css html[data-pet-flipped]).
   const html = dom.document.documentElement;
   flushSync(() => showView({ ...view('idle-ffffffffffff.png'), flipped: true }));
