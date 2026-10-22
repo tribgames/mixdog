@@ -204,6 +204,86 @@ test('task progress is five fixed cells: the finished share, then the work in ha
   }
 });
 
+test('stalled and awaiting task rows carry accessible status text', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const tasks = [
+    { id: 'a', text: 'Run migration', status: 'in_progress' },
+    { id: 'b', text: 'Ship it', status: 'awaiting_approval' },
+    { id: 'c', text: 'Write docs', status: 'pending' },
+  ];
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'a11y', goal: { id: 'g', status: 'blocked', objective: 'Ship', tasks, blocker: 'x' } },
+        })
+      );
+    });
+    const rowText = (selector) => host.querySelector(selector).textContent;
+    assert.equal(rowText('li[data-stalled="true"]'), `${t('Blocked')}: Run migration`);
+    assert.equal(rowText('li[data-status="awaiting_approval"]'), `${t('Waiting for your answer')}: Ship it`);
+    assert.equal(rowText('li[data-status="pending"]'), 'Write docs');
+    assert.ok(host.querySelector('li[data-stalled="true"] .sr-only'));
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('closing the drawer drops an armed Stop confirmation', async () => {
+  const calls = [];
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      return { value: { ok: true } };
+    },
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const click = (element) =>
+    act(async () => {
+      element.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+  const confirmGroup = () => host.querySelector('.session-goal-confirm');
+  const stopButton = () => host.querySelector('button[aria-label="Stop goal"]');
+  const dismissers = {
+    Escape: () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    'outside pointerdown': () => document.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true })),
+    'Close button': () => host.querySelector('.composer-island-close').dispatchEvent(
+      new window.MouseEvent('click', { bubbles: true })
+    ),
+  };
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'stop-close', goal: { id: 'g', status: 'active', objective: 'Ship', tasks: [] } },
+        })
+      );
+    });
+    for (const [name, dismiss] of Object.entries(dismissers)) {
+      await click(host.querySelector('.session-goal-trigger'));
+      assert.equal(host.querySelector('.session-goal-island').dataset.open, 'true', name);
+      await click(stopButton());
+      assert.ok(confirmGroup(), `${name}: Stop arms the confirmation`);
+      await act(async () => dismiss());
+      assert.equal(host.querySelector('.session-goal-island').dataset.open, 'false', name);
+      await click(host.querySelector('.session-goal-trigger'));
+      assert.equal(confirmGroup(), null, `${name}: reopening shows ordinary controls`);
+      assert.ok(stopButton(), name);
+      await act(async () => dismissers.Escape());
+    }
+    assert.equal(calls.length, 0, 'no stop call was made');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    delete window.mixdogDesktop;
+  }
+});
+
 test('active child work remains visible while a separate approval is waiting', () => {
   assert.equal(goalDisplayStatus({ status: 'paused' }, { busy: false }, true), 'responding');
   assert.equal(goalDisplayStatus({ status: 'active' }, { busy: true, toolApproval: { id: 'approval' } }), 'paused');

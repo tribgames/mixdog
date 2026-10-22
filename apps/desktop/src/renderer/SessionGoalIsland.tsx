@@ -138,10 +138,13 @@ function GoalTaskRow({ task, kind }: { task: GoalTask; kind: GoalStateKind }) {
   // The running row carries the Goal's blocker; the one parked on the user
   // asks for the answer. Both read by wash and glyph, not by a text badge.
   const stalled = taskStatus === 'in_progress' && kind === 'blocked';
+  // The glyph is decorative; these two states also get spoken text.
+  const statusText = stalled ? t('Blocked') : taskStatus === 'awaiting_approval' ? t('Waiting for your answer') : '';
   return (
     <li data-status={taskStatus} data-stalled={stalled ? 'true' : undefined}>
       <span>
         <GoalTaskGlyph status={taskStatus} stalled={stalled} />
+        {statusText && <span className="sr-only">{statusText}: </span>}
       </span>
       <div>
         <span>{String(task.text || '')}</span>
@@ -227,11 +230,19 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
 
   // The confirmation takes the focused Stop button's place: focus follows it
   // to Cancel, and returns to Stop when it closes.
+  // Closing the drawer (Escape, outside click, Close) drops an armed
+  // confirmation, so reopening never shows Stop already armed; focus is not
+  // returned into the closed drawer.
   useEffect(() => {
-    if (confirmStop) cancelRef.current?.focus();
-    else if (wasConfirming.current) stopRef.current?.focus();
+    if (!open) setConfirmStop(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (confirmStop) {
+      if (open) cancelRef.current?.focus();
+    } else if (wasConfirming.current && open) stopRef.current?.focus();
     wasConfirming.current = confirmStop;
-  }, [confirmStop]);
+  }, [confirmStop, open]);
 
   // The 24px bottom fade shows only while the content overflows and is not
   // scrolled to its end, so a final row is never obscured when nothing scrolls.
