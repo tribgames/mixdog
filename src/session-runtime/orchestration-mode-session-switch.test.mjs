@@ -13,6 +13,8 @@ import { acknowledgePendingWorkflowNotice } from '../runtime/agent/orchestrator/
 import { orchestrationInstructions } from '../runtime/agent/orchestrator/runtime-core/orchestration.mjs';
 import { restoreTranscriptItems } from '../runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 import { preDispatchDenyForSession } from '../runtime/agent/orchestrator/session/loop/pre-dispatch-deny.mjs';
+import { agentProfileRevision, leadRosterRevision } from '../runtime/agent/orchestrator/context/role-instructions.mjs';
+import { _sessionForDisk } from '../runtime/agent/orchestrator/session/store/serialize.mjs';
 
 const PACKS = {
   alpha: { id: 'alpha', name: 'Alpha', delegatesAgents: true, body: 'ALPHA RULES' },
@@ -465,4 +467,152 @@ test('agent-owned sessions have no orchestration mode to switch', async () => {
   const { switchMode, state } = harness(session);
   await assert.rejects(switchMode('none'), /Only a coding session/);
   assert.deepEqual(state.saved, []);
+});
+
+// The persisted state produced by the pre-1.3.2 profile-refresh bug: the mode
+// setting survived, but the generated prompt took the global default instead.
+async function mismatchedModeSession(presented = 'none', selected = 'balanced') {
+  const h = await conversationSession(presented);
+  h.session.orchestrationMode = selected;
+  h.session.agentProfileRevision = agentProfileRevision('lead', { mixy: false });
+  h.session.agentRosterRevision = leadRosterRevision(workflowContext(h.state.config).leadPromptParts());
+  return h;
+}
+
+test('legacy mode recovery on resume repairs the prompt once without changing the selection or tools', async () => {
+  const { session, state, refresh } = await mismatchedModeSession();
+  const tools = JSON.stringify(session.tools);
+  const otherSystem = JSON.stringify(session.messages.filter((m) => m.role === 'system' && m.cacheTier !== 'tier3'));
+  const transcript = JSON.stringify(session.messages.filter((m) => m.role !== 'system'));
+  assert.equal(await refresh.refreshAgentProfile({ trigger: 'resume' }), true);
+  assert.match(bp3(session), /# Orchestration Mode: Balanced/);
+  assert.doesNotMatch(bp3(session), /# Orchestration Mode: Solo/);
+  assert.equal(session.orchestrationMode, 'balanced');
+  assert.equal(state.config.orchestrationMode, 'none', 'the new-session default is not changed');
+  assert.deepEqual(state.saved, []);
+  assert.equal(JSON.stringify(session.tools), tools);
+  assert.equal(JSON.stringify(session.messages.filter((m) => m.role === 'system' && m.cacheTier !== 'tier3')), otherSystem);
+  assert.equal(JSON.stringify(session.messages.filter((m) => m.role !== 'system')), transcript);
+  assert.equal(session.providerState, undefined, 'old provider replay state cannot carry the stale prefix');
+  assert.deepEqual(dividers(session), [], 'repairing the prompt is not a user mode change');
+
+  const restored = JSON.parse(JSON.stringify(_sessionForDisk(session)));
+  const resumed = harness(restored, { config: state.config });
+  const stable = prefix(restored);
+  assert.equal(await resumed.refresh.refreshAgentProfile({ trigger: 'resume' }), false);
+  assert.equal(await resumed.refresh.applyPendingAgentProfile(), false);
+  assert.equal(prefix(restored), stable, 'the recovery does not break the prefix again');
+  const turn = await buildUserTurn({ session: restored, prompt: 'continue' });
+  assert.match(turn.historyMessages.find((m) => m.cacheTier === 'tier3').content, /# Orchestration Mode: Balanced/);
+  assert.equal(turn.orchestrationModeNotice, null, 'the repaired system prompt itself carries the mode');
+});
+
+test('legacy mode recovery reaches the next turn for every recognized mode without a resume or profile edit', async (t) => {
+  for (const presented of ['none', 'focused', 'balanced', 'swarm']) {
+    for (const selected of ['none', 'focused', 'balanced', 'swarm']) {
+      if (presented === selected) continue;
+      await t.test(`${presented} → ${selected}`, async () => {
+        const { session, refresh } = await mismatchedModeSession(presented, selected);
+        assert.equal(await refresh.applyPendingAgentProfile(), true);
+        assert.ok(bp3(session).includes(orchestrationInstructions(selected)));
+        assert.ok(!bp3(session).includes(orchestrationInstructions(presented)));
+        assert.equal(session.orchestrationMode, selected);
+        assert.equal(await refresh.applyPendingAgentProfile(), false);
+      });
+    }
+  }
+});
+
+test('legacy mode recovery does not rewrite an executing turn and applies before the next one', async () => {
+  const { session, state, refresh } = await mismatchedModeSession();
+  const before = prefix(session);
+  state.turns = 1;
+  assert.equal(await refresh.refreshAgentProfile({ trigger: 'resume' }), false);
+  assert.equal(prefix(session), before);
+  state.turns = 0;
+  assert.equal(await refresh.applyPendingAgentProfile(), true);
+  assert.match(bp3(session), /# Orchestration Mode: Balanced/);
+});
+
+test('legacy mode recovery also repairs recognized unstamped and cold-cache records', async (t) => {
+  for (const cold of [false, true]) {
+    await t.test(cold ? 'after compaction' : 'unstamped resume', async () => {
+      const { session, refresh } = await mismatchedModeSession();
+      delete session.agentProfileRevision;
+      delete session.agentRosterRevision;
+      if (cold) session.pendingCacheBreakIntent = 'manual_compaction';
+      assert.equal(await refresh.refreshAgentProfile({ trigger: 'resume' }), true);
+      assert.match(bp3(session), /# Orchestration Mode: Balanced/);
+      assert.equal(await refresh.applyPendingAgentProfile(), false);
+    });
+  }
+});
+
+test('legacy mode recovery leaves pending user choices and valid overlays in charge', async () => {
+  const { session, state, refresh, switchMode } = await mismatchedModeSession();
+  state.turns = 1;
+  await switchMode('focused');
+  state.turns = 0;
+  const before = prefix(session);
+  assert.equal(await refresh.refreshAgentProfile({ trigger: 'resume' }), false);
+  assert.equal(session.pendingOrchestrationMode, 'focused');
+  assert.equal(prefix(session), before);
+  refresh.applyPendingSessionSwitches();
+  assert.equal(await refresh.applyPendingAgentProfile(), false);
+  assert.equal(session.orchestrationMode, 'focused');
+  assert.equal(prefix(session), before, 'normal mode switches still preserve their cached prefix');
+  const turn = await deliver(session);
+  assert.ok(turn.orchestrationModeNotice.content.includes(orchestrationInstructions('focused')));
+});
+
+test('legacy mode recovery preserves the notice when a user returns to the original mode or workflow', async (t) => {
+  for (const kind of ['mode', 'workflow']) {
+    await t.test(kind, async () => {
+      const { session, refresh, switchMode, switchWorkflow } = await mismatchedModeSession();
+      if (kind === 'mode') await switchMode('focused');
+      else await switchWorkflow('beta');
+      await deliver(session);
+      if (kind === 'mode') await switchMode('balanced');
+      else await switchWorkflow('alpha');
+      const field = kind === 'mode' ? 'orchestrationModeSwitch' : 'workflowSwitch';
+      const notice = JSON.stringify(session[field]);
+      assert.ok(session[field], 'the return-to-prompt notice is still pending');
+      assert.equal(await refresh.applyPendingAgentProfile(), true);
+      assert.match(bp3(session), /# Orchestration Mode: Balanced/);
+      assert.equal(JSON.stringify(session[field]), notice, 'the user change is not dropped or replaced');
+      const turn = await deliver(session);
+      assert.ok(kind === 'mode' ? turn.orchestrationModeNotice : turn.workflowNotice);
+      assert.equal(await refresh.applyPendingAgentProfile(), false);
+    });
+  }
+});
+
+test('legacy mode recovery does not infer modes from custom, ambiguous, or non-coding prompts', async (t) => {
+  const cases = {
+    custom: (session) => {
+      const message = session.messages.find((m) => m.cacheTier === 'tier3');
+      message.content = '# Active Workflow: Alpha\n\n# Orchestration Mode: Solo\n\nCustom rules.';
+      session.bp3CoreContext = message.content;
+    },
+    ambiguous: (session) => {
+      const message = session.messages.find((m) => m.cacheTier === 'tier3');
+      message.content += `\n\n---\n\n${orchestrationInstructions('focused')}`;
+      session.bp3CoreContext = message.content;
+    },
+    'no identity': (session) => { delete session.promptIdentity; },
+    'no recorded mode': (session) => { delete session.orchestrationMode; },
+    'unknown recorded mode': (session) => { session.orchestrationMode = 'custom'; },
+    'custom role policy': (session) => { session.promptIdentity.skipAgentRules = true; },
+    'agent mode': (session) => { session.sessionMode = 'agent'; },
+    worker: (session) => { session.owner = 'agent'; session.agent = 'worker'; },
+  };
+  for (const [name, arrange] of Object.entries(cases)) {
+    await t.test(name, async () => {
+      const { session, refresh } = await mismatchedModeSession();
+      arrange(session);
+      const before = prefix(session);
+      assert.equal(await refresh.applyPendingAgentProfile(), false);
+      assert.equal(prefix(session), before);
+    });
+  }
 });

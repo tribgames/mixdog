@@ -2,6 +2,8 @@
 // changes (a switched workflow or mode, moved tool gates, changed shipped
 // rules) in where the provider cache is cold anyway.
 import { sessionHasConversationMessages } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
+import { orchestrationModeFromPrompt } from '../../runtime/agent/orchestrator/session/manager/orchestration-mode-switch-notice.mjs';
 import { promptRulesRevision } from '../../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
 import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
 import { AGENT_MODE, sessionModeOf } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
@@ -49,6 +51,26 @@ const promptPrefix = (session) =>
 // A bot thread built from other shipped rules than these (a release changed one).
 const rulesStale = (session) =>
   sessionModeOf(session) === AGENT_MODE && session.rulesRevision !== promptRulesRevision();
+
+// Before session-local modes were used by profile refreshes, changing the
+// roster could replace a coding Lead's mode rules with the configured default
+// while leaving its selected mode intact. This is not a normal mode overlay:
+// repair only a known generated mismatch, with no user switch still pending.
+function orchestrationRecoveryNeeded(session) {
+  if (
+    !session?.promptIdentity ||
+    session.promptIdentity.skipAgentRules ||
+    isAgentOwner(session) ||
+    sessionModeOf(session) === AGENT_MODE ||
+    !ORCHESTRATION_MODES.includes(session.orchestrationMode) ||
+    session.workflowOverlay ||
+    session.orchestrationModeOverlay ||
+    session.pendingWorkflowId !== undefined ||
+    session.pendingOrchestrationMode !== undefined
+  ) return false;
+  const presented = orchestrationModeFromPrompt(session);
+  return presented !== null && presented !== session.orchestrationMode;
+}
 
 // Changes the prompt does not carry yet: a workflow switched mid-conversation,
 // a bot's tool gates that moved, or shipped rules a release changed.
@@ -210,7 +232,8 @@ export function createAgentProfileFold({
     const workflowConfig = configForSession(getConfig(), promptWorkflowOf(session)?.id, promptMode(session));
     const { leadPromptParts, summary: workflow } = activeWorkflowContext(workflowConfig, getDataDir());
     const roster = leadRosterRevision(leadPartsFor(session, leadPromptParts));
-    const edited = session.agentProfileRevision !== revision || session.agentRosterRevision !== roster;
+    const recoverMode = orchestrationRecoveryNeeded(session);
+    const edited = recoverMode || session.agentProfileRevision !== revision || session.agentRosterRevision !== roster;
     // At a turn's start its own turn is the one counted; nothing runs yet.
     const busy = () => getSession?.() !== session || (trigger !== 'turn' && turnInFlight(session));
     if (busy()) {
@@ -225,7 +248,9 @@ export function createAgentProfileFold({
     if (!edited) return (trigger === 'resume' && (await foldPromptIfCold())) || toolsChanged;
     // A coding session from before profile stamps keeps its prompt when it
     // is reopened; a saved edit still reaches it.
-    if (session.agentProfileRevision === undefined && trigger === 'resume' && !agentMode) return toolsChanged;
+    if (session.agentProfileRevision === undefined && trigger === 'resume' && !agentMode && !recoverMode) {
+      return toolsChanged;
+    }
     if (foldPending(session)) {
       await foldPrompt(session, AGENT_PROFILE_INTENT);
       return true;
@@ -241,7 +266,7 @@ export function createAgentProfileFold({
     if (staged.core === presentedBp3Core(session)) return toolsChanged;
     rewriteConversationBp3Core(session, staged.core);
     // The request prefix changed: one cache break, tagged on the next send.
-    markToolSurfaceMigrated(session, AGENT_PROFILE_INTENT);
+    markToolSurfaceMigrated(session, recoverMode ? PROMPT_FOLD_INTENT : AGENT_PROFILE_INTENT);
     return true;
   }
 
@@ -254,7 +279,7 @@ export function createAgentProfileFold({
     if (session?.id && sessionModeOf(session) === AGENT_MODE && !Array.isArray(session.agentConnectorTools)) {
       session.agentConnectorTools = connectorTools(session, schemaTools(session).map(toolName));
     }
-    if (agentProfilePending) {
+    if (agentProfilePending || orchestrationRecoveryNeeded(session)) {
       agentProfilePending = false;
       changed = await refreshAgentProfile({ trigger: 'turn' });
     }
