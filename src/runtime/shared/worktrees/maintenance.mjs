@@ -93,6 +93,8 @@ export async function pruneWorktrees({ liveSessionIds = [], listSessionIds = sto
 export async function cleanupDeletedSessionWorktree(sessionId, { manager = null, autoCleanup } = {}) {
   const backend = manager || (await loadManager());
   await backend.forgetSharedWorktreeSession?.(sessionId);
+  // Its read-only snapshots go whatever autoCleanup says (they never outlive their holder).
+  await backend.removeSessionSnapshots?.(sessionId);
   const entry = await backend.getSessionWorktree(sessionId);
   if (!entry) return null;
   const enabled = autoCleanup ?? (await backend.currentWorktreeSettings()).autoCleanup;

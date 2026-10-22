@@ -1,6 +1,7 @@
 import { SESSION_ID_PATTERN } from '../runtime/agent/orchestrator/runtime-core/session-id.mjs';
 import { sessionListOutput, sessionReadOutput, SESSION_TOOL_OUTPUT_BYTES } from './session-tool-output.mjs';
 import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
+import { assertWorktreeMutationAllowed } from '../session-runtime/services/worktree-access.mjs';
 import { createBotStatus, scanCatalog, scopedBot, sessionBotOf } from '../session-runtime/bot-status.mjs';
 import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
 import { BOT_HOP_LIMIT_ERROR, MAX_BOT_HOPS } from '../runtime/shared/bot-hops.mjs';
@@ -16,6 +17,9 @@ import {
 
 const TARGET_ACTIONS = new Set(['status', 'read', 'send', 'cancel', 'delete']);
 const MUTATING_ACTIONS = new Set(['send', 'cancel', 'delete']);
+// The workspace methods `worktree` reaches on another session (all on the
+// session protocol's read/configure allowlists).
+const WORKTREE_METHODS = new Set(['getBranchMenu', 'requestWorktree', 'selectBranch', 'mergeWorkspace', 'removeWorktree']);
 // Why a send from a conversation that is no bot's reports nothing back.
 const NOT_BOT_REASON = 'only a bot conversation gets session results reported back; check that session for the result';
 
@@ -41,9 +45,41 @@ export function createSessionControl({
   agentTasks = createAgentTaskSessions({ getSessionService }),
   botStatus = createBotStatus({ getSessionService }),
 }) {
+  /**
+   * Another session's workspace for the git tool's worktree operations
+   * (session-runtime/workspace/worktree-tool.mjs): one workspace method with
+   * one input, through the same configure / read lanes the desktop uses. No
+   * `ownTurn` ever crosses: the target must be idle. A change (anything but
+   * the menu read) needs the caller's trusted scope (`callerScope`, from
+   * worktree-access.mjs worktreeCallerScope) to be an attended conversation.
+   */
+  async function worktreeControl(args, caller, callerScope) {
+    const sessionId = typeof args.session_id === 'string' ? args.session_id.trim() : '';
+    if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error('session: session_id is required for action=worktree');
+    if (sessionId === caller) throw new Error('session: worktree control must target another session');
+    if (!WORKTREE_METHODS.has(args.method)) throw new Error(`session: unsupported worktree method "${args.method}"`);
+    if (args.method !== 'getBranchMenu') assertWorktreeMutationAllowed(callerScope, `session: worktree ${args.method}`);
+    const service = getSessionService();
+    if (!service) throw new Error('session: session service is unavailable');
+    if (args.method === 'getBranchMenu') {
+      return (await service.readSession({ sessionId, action: 'getBranchMenu', args: [] })).value;
+    }
+    const result = await service.configureSession(
+      { sessionId, action: args.method, args: [args.input ?? {}] },
+      { revision: 1 }
+    );
+    return result.value;
+  }
+
   return async function executeSessionControl(args = {}, context = {}) {
     const action = args.action;
-    if (action !== 'list' && action !== 'create' && action !== 'bots' && !TARGET_ACTIONS.has(action)) {
+    if (
+      action !== 'list' &&
+      action !== 'create' &&
+      action !== 'bots' &&
+      action !== 'worktree' &&
+      !TARGET_ACTIONS.has(action)
+    ) {
       throw new Error(`session: unsupported remote action "${action}"`);
     }
     const caller = context.callerSessionId;
@@ -52,6 +88,7 @@ export function createSessionControl({
     }
     // `callerAgentId`: set only for an attended agent conversation (workspace-tools.mjs).
     if (action === 'create') return agentTasks.create(args, context);
+    if (action === 'worktree') return worktreeControl(args, caller, context.callerScope);
     // `callerScope`: the caller's schedule-access scope (workspace-tools.mjs).
     if (action === 'bots') return botStatus(args, context);
     const sessionId = typeof args.session_id === 'string' ? args.session_id.trim() : '';

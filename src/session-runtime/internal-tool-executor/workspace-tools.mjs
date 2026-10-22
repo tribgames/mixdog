@@ -44,9 +44,6 @@ export function createWorkspaceToolHandlers({
   getLifecycleApi = () => null,
   executeSessionControl = null,
 }) {
-  // The Lead's own worktree, on the user's request: the same authority the
-  // branch chip menu drives, tolerating the calling turn but nothing else
-  // running (workers, background shells).
   const assertLead = (action, callerCtx) => {
     const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
     if (!rt.session?.id || callerSessionId !== rt.session.id) {
@@ -55,24 +52,6 @@ export function createWorkspaceToolHandlers({
     return rt.session.id;
   };
 
-  const worktreeAction = async (action, args, callerCtx) => {
-    const workspace = getWorkspaceApi();
-    if (!workspace) throw new Error(`session: ${action} is unavailable in this runtime`);
-    assertLead(action, callerCtx);
-    let result;
-    if (action === 'merge-worktree') {
-      result = await workspace.mergeWorkspace({ confirmed: true }, { ownTurn: true });
-    } else if (action === 'remove-worktree') {
-      result = await workspace.removeWorktree({ force: args?.force === true }, { ownTurn: true });
-    } else if (action === 'list-worktrees') {
-      result = await workspace.listWorktrees();
-    } else {
-      result = await workspace.pruneWorktrees();
-    }
-    return JSON.stringify({ action, cwd: rt.currentCwd, result }, null, 2);
-  };
-
-  const WORKTREE_ACTIONS = new Set(['merge-worktree', 'remove-worktree', 'list-worktrees', 'prune-worktrees']);
   const SIDEBAR_ACTIONS = new Set(['favorite', 'archive']);
 
   // Sidebar flags only (the desktop's favorite/archive metadata).
@@ -137,7 +116,6 @@ export function createWorkspaceToolHandlers({
     if (target && target !== assertLead(action, callerCtx)) {
       throw new Error(`session: action=${action} only applies to the current session`);
     }
-    if (WORKTREE_ACTIONS.has(action)) return worktreeAction(action, args, callerCtx);
     if (SIDEBAR_ACTIONS.has(action)) return sidebarAction(action, args, callerCtx);
     let currentCwd = callerCwd;
     if (action === 'status' || action === 'list-projects' || action === 'set-project') assertLead(action, callerCtx);

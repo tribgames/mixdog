@@ -232,35 +232,17 @@ test('session fork calls the lifecycle API and returns the new session id', asyn
   await assert.rejects(bare('session', { action: 'fork' }, {}), /unavailable/);
 });
 
-test('session merge-worktree / remove-worktree drive the Lead workspace authority within the calling turn', async () => {
+test('worktree operations on existing sessions belong to the git tool, not the session tool', async () => {
   const calls = [];
   const workspace = {
-    mergeWorkspace: async (input, options) => {
-      calls.push(['merge', input, options]);
-      return { merged: true };
-    },
-    removeWorktree: async (input, options) => {
-      calls.push(['remove', input, options]);
-      return { revision: 4 };
-    },
+    mergeWorkspace: async () => calls.push('merge'),
+    removeWorktree: async () => calls.push('remove'),
+    listWorktrees: async () => calls.push('list'),
+    pruneWorktrees: async () => calls.push('prune'),
   };
   const { execute } = harness({ getWorkspaceApi: () => workspace });
-  const merged = JSON.parse(await execute('session', { action: 'merge-worktree' }, { callerSessionId: 'sess-1' }));
-  assert.deepEqual(merged, { action: 'merge-worktree', cwd: 'C:/work', result: { merged: true } });
-  assert.deepEqual(calls.at(-1), ['merge', { confirmed: true }, { ownTurn: true }]);
-  await execute('session', { action: 'remove-worktree', force: true }, {});
-  assert.deepEqual(calls.at(-1), ['remove', { force: true }, { ownTurn: true }]);
-  // The manual list / prune: never a retained worktree (the authority decides).
-  workspace.listWorktrees = async () => (calls.push(['list']), [{ id: 'fix', retained: true }]);
-  workspace.pruneWorktrees = async () => (calls.push(['prune']), { removed: [] });
-  const listed = JSON.parse(await execute('session', { action: 'list-worktrees' }, {}));
-  assert.deepEqual(listed.result, [{ id: 'fix', retained: true }]);
-  await execute('session', { action: 'prune-worktrees' }, {});
-  assert.deepEqual(calls.slice(-2), [['list'], ['prune']]);
-  await assert.rejects(
-    execute('session', { action: 'remove-worktree' }, { callerSessionId: 'worker-2' }),
-    /belongs to the Lead session/
-  );
-  const { execute: bare } = harness();
-  await assert.rejects(bare('session', { action: 'merge-worktree' }, {}), /unavailable in this runtime/);
+  for (const action of ['merge-worktree', 'remove-worktree', 'list-worktrees', 'prune-worktrees']) {
+    await assert.rejects(execute('session', { action }, { callerSessionId: 'sess-1' }), /unknown action/);
+  }
+  assert.deepEqual(calls, []);
 });

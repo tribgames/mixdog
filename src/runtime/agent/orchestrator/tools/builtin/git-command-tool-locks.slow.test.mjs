@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -93,7 +93,7 @@ test('git reads take no lock: they answer while a write holds the repository and
   assert.doesNotMatch(await waitingWrite, FAILED);
 });
 
-test('neither light reads nor a worktree remove wait behind a long git log -S', async (t) => {
+test('neither light reads nor a write on another worktree wait behind a long git log -S', async (t) => {
   const { repo, linked } = linkedRepo(t, 'mixdog-git-long-read-');
   addSlowHistory(repo, 80);
   const started = Date.now();
@@ -103,8 +103,8 @@ test('neither light reads nor a worktree remove wait behind a long git log -S', 
     return text;
   });
   await new Promise((resolve) => setTimeout(resolve, 100));
-  const removed = await executeGitTool({ command: `git worktree remove ${quote(linked)}` }, repo);
-  const removeDone = Date.now();
+  const written = await executeGitTool({ command: `git -C ${quote(linked)} commit -q --allow-empty -m quick` }, repo);
+  const writeDone = Date.now();
   const light = await Promise.all(
     ['git rev-parse history', 'git log --oneline -1 history', 'git status --short', 'git branch --list'].map(
       (command) => executeGitTool({ command }, repo)
@@ -112,42 +112,39 @@ test('neither light reads nor a worktree remove wait behind a long git log -S', 
   );
   const lightDone = Date.now();
   assert.doesNotMatch(await long, FAILED);
-  assert.doesNotMatch(removed, FAILED);
-  assert.equal(existsSync(linked), false);
+  assert.doesNotMatch(written, FAILED);
+  assert.match(rawGit(repo, ['log', '--format=%s', '-1', 'side']), /^quick$/m);
   for (const answer of light) assert.doesNotMatch(answer, FAILED);
-  const timing = `remove ${removeDone - started}ms, light ${lightDone - started}ms, long log ${longDone - started}ms`;
-  assert.ok(removeDone < longDone && lightDone < longDone, timing);
+  const timing = `write ${writeDone - started}ms, light ${lightDone - started}ms, long log ${longDone - started}ms`;
+  assert.ok(writeDone < longDone && lightDone < longDone, timing);
 });
 
 test('git writes wait only for writes on the same worktree and report a wait over a second', async (t) => {
-  const { root, repo, linked, lockKey } = linkedRepo(t, 'mixdog-git-writes-');
+  const { repo, linked, lockKey } = linkedRepo(t, 'mixdog-git-writes-');
   const hold = gate();
   const held = withGitWorktreeWriteLock(lockKey, [linked], () => hold.promise);
-  const other = join(root, 'other');
   const free = await Promise.all([
     executeGitTool({ command: 'git tag main-tag' }, repo),
     executeGitTool({ command: 'git commit -q --allow-empty -m main' }, repo),
-    executeGitTool({ command: `git worktree add -q --detach ${quote(other)}` }, repo),
   ]);
   for (const answer of free) {
     assert.doesNotMatch(answer, FAILED);
     assert.doesNotMatch(answer, WAIT_NOTE);
   }
-  assert.equal(existsSync(join(other, '.git')), true);
-  // Queued in this order, so the commit runs before the remove deletes its cwd.
+  // Queued in this order: the commit runs before the tag that points at it.
   const sameWorktree = executeGitTool({ command: 'git commit -q --allow-empty -m side' }, linked);
   assert.equal(await pendingAfter(sameWorktree, 300), true);
-  const removeLinked = executeGitTool({ command: `git worktree remove ${quote(linked)}` }, repo);
-  assert.equal(await pendingAfter(removeLinked, 1200), true);
+  const tagLinked = executeGitTool({ command: `git -C ${quote(linked)} tag side-tag` }, repo);
+  assert.equal(await pendingAfter(tagLinked, 1200), true);
   assert.equal(await pendingAfter(sameWorktree, 0), true);
   hold.release();
   await held;
   const committed = await sameWorktree;
   assert.doesNotMatch(committed, FAILED);
   assert.match(committed, WAIT_NOTE);
-  assert.doesNotMatch(await removeLinked, FAILED);
-  assert.equal(existsSync(linked), false);
+  assert.doesNotMatch(await tagLinked, FAILED);
   assert.match(rawGit(repo, ['log', '--format=%s', '-1', 'side']), /^side$/m);
+  assert.match(rawGit(repo, ['log', '--format=%s', '-1', 'side-tag']), /^side$/m);
 });
 
 test('a git write refused on a busy lock file retries with backoff instead of failing', async (t) => {

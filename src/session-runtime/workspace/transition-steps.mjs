@@ -251,7 +251,6 @@ export function createTransitionSteps({
     const projectPath = previous.projectPath;
     const project = await inspectProject(projectPath, { signal });
     let entry = await backendApi.getSessionWorktree(session.id);
-    const created = !entry;
     if (entry) {
       if (!existsSync(entry.path)) {
         throw worktreeError('WORKTREE_MISSING', undefined, { worktreeId: entry.id, path: entry.path });
@@ -333,18 +332,9 @@ export function createTransitionSteps({
       await backendApi.dropCarryRecoveryRef({ projectPath, recoveryRef: entry.changes.recoveryRef }).catch(() => {});
     }
     // Creation notes (submodules, include entries missing or already present).
-    // `created`: a new checkout, whose first-turn preparation still awaits
-    // (`prepared`: what creation did and what the turn still has to run).
+    // A new checkout's first-turn preparation stays pending in its registry entry.
     return {
       ...entered,
-      ...(created
-        ? {
-            created: {
-              prepared: entry.prepared ?? null,
-              root: entry.prepared?.root || project.topLevel || projectPath,
-            },
-          }
-        : {}),
       warnings: Array.isArray(entry.warnings) ? [...entry.warnings] : [],
       ...(entry.changes ? { changes: { mode: entry.changes.mode, count: entry.changes.count } } : {}),
     };
@@ -394,13 +384,6 @@ export function createTransitionSteps({
     if (previous.worktreeId && previous.worktreeId !== entry?.id) {
       journal.push(() => backendApi.claimWorktreeOwner(previous.worktreeId, owner(session.id)));
       await releaseOwner(backendApi, previous.worktreeId, session.id, { forgetReference: true });
-    }
-    // A managed worktree made for the branch: its first-turn preparation awaits.
-    if (resolved.created === true && entry) {
-      return {
-        ...result,
-        created: { prepared: entry.prepared ?? null, root: entry.prepared?.root || project.topLevel || projectPath },
-      };
     }
     return result;
   }

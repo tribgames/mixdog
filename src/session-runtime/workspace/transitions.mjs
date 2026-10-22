@@ -15,9 +15,11 @@
  * (runtime/shared/worktrees/manager.mjs), loaded on first use.
  */
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import {
   WORKTREE_CARRY_CHOICES,
+  WORKTREE_SNAPSHOT_KIND,
   branchMenuEntries,
   isWorktreeBound,
   isWorktreeError,
@@ -170,6 +172,27 @@ function assertRevision(revision, expectedRevision) {
   }
 }
 
+/**
+ * The workspace methods every external caller (the runtime facade: desktop
+ * IPC, the daemon's `session.configure` lane, remote views) reaches: exactly
+ * the public input, so internal options (`ownTurn`, the calling-turn
+ * allowance of the Lead's own tool call) and the git tool's snapshot listing
+ * stay with in-process callers of the workspace API itself.
+ */
+export function publicWorkspaceMethods(api) {
+  return {
+    selectBranch: (input) => api.selectBranch(input),
+    requestWorktree: (input) => api.requestWorktree(input),
+    mergeWorkspace: (input) => api.mergeWorkspace(input),
+    removeWorktree: (input) => api.removeWorktree(input),
+    listWorktrees: () => api.listWorktrees(),
+    pruneWorktrees: () => api.pruneWorktrees(),
+  };
+}
+
+// A settled turn's snapshot cleanup waits at most 2^5 times its first delay between attempts.
+const SNAPSHOT_BACKOFF_STEPS = 5;
+
 /** The in-flight marker state of each transition kind. */
 const TRANSITION_STATE = { worktree: 'provisioning', branch: 'switching', 'remove-worktree': 'removing' };
 
@@ -220,12 +243,18 @@ export function createWorkspaceTransitions({
   newTxId = randomUUID,
   planWorktreeSetup = defaultPlanWorktreeSetup,
   runWorktreeSetup = defaultRunWorktreeSetup,
+  snapshotRetryMs = 2_000,
+  snapshotRetryLimit = 20,
 }) {
   const worktreeSettings = () => normalizeWorktreeSettings(getConfig?.()?.worktree);
   let pendingIntent = creationIntent(initialIntent, worktreeSettings());
-  // The new worktree whose dependencies have not been prepared yet, bound to
-  // that worktree (worktreeId + cwd): it runs only while the session is there.
-  let pendingSetup = null;
+  // The creation txIds of the read-only snapshots the current admitted turn
+  // made. Each turn owns its own set, so its cleanup never touches a later
+  // turn's snapshots (a txId, unlike a freed slug, is never reused).
+  let turnSnapshots = null;
+  // The running cleanups of settled turns' snapshots (controller → session id).
+  const snapshotCleanups = new Map();
+  let disposed = false;
   const setupListeners = new Set();
   let managerPromise = null;
   const backend = () => {
@@ -480,49 +509,26 @@ export function createWorkspaceTransitions({
     try {
       await assertLeadIdle(session, { ownTurn: options.ownTurn === true });
       const run = { signal: options.signal, txId, journal };
+      // A new checkout gets its dependencies prepared at the start of the
+      // first turn a session runs there (runPendingSetup, from its registry entry).
       if (target.kind === 'worktree') {
-        const { created, ...entered } = await steps.enterWorktree(session, previous, {
+        return await steps.enterWorktree(session, previous, {
           ...run,
           name: target.name,
           nameHint: options.nameHint,
           confirmLarge: options.confirmLarge,
           changes: options.changes,
         });
-        // A new checkout gets its dependencies prepared at the start of the
-        // session's next turn there (prepareTurnWorkspace).
-        if (created) {
-          pendingSetup = {
-            ...created,
-            sessionId: session.id,
-            worktreeId: entered.workspace.worktreeId,
-            cwd: entered.workspace.cwd,
-            mainDir: previous.projectPath,
-          };
-        }
-        return entered;
       }
       if (target.kind === 'branch') {
-        const { created, ...entered } = await steps.enterProjectBranch(session, previous, {
+        return await steps.enterProjectBranch(session, previous, {
           ...run,
           branch: target.branch,
           create: target.create,
           confirmLarge: options.confirmLarge,
         });
-        if (created && entered.workspace?.worktreeId) {
-          pendingSetup = {
-            ...created,
-            sessionId: session.id,
-            worktreeId: entered.workspace.worktreeId,
-            cwd: entered.workspace.cwd,
-            mainDir: previous.projectPath,
-          };
-        }
-        return entered;
       }
-      const removed = await steps.removeRetainedWorktree(session, previous, { ...run, force: target.force });
-      // The session's retained worktree is gone: its pending setup goes with it.
-      if (pendingSetup?.sessionId === session.id) pendingSetup = null;
-      return removed;
+      return await steps.removeRetainedWorktree(session, previous, { ...run, force: target.force });
     } catch (error) {
       // Whatever already moved (cwd, record, prompts, worker roots, lease)
       // goes back exactly; the previous workspace stays authoritative.
@@ -534,14 +540,24 @@ export function createWorkspaceTransitions({
     }
   }
 
-  /** @type {import('../../runtime/shared/worktrees/contract.mjs').ApplyWorkspaceTransition} */
-  async function applyWorkspaceTransition(sessionRef, target, options = {}) {
+  /**
+   * The one entry of every transition. `ownTurn` (internal: the Lead's own
+   * tool call) tolerates the calling turn; `txId` keys the creation.
+   */
+  async function runTransition(sessionRef, target, options = {}, { ownTurn = false, txId = '' } = {}) {
     const session = hostedSession(sessionRef);
     return transition(session, normalizeTarget(target), {
       expectedRevision: validRevision(options.expectedRevision),
       confirmLarge: options.confirmLarge === true,
       signal: options.signal,
+      ownTurn: ownTurn === true,
+      txId,
     });
+  }
+
+  /** @type {import('../../runtime/shared/worktrees/contract.mjs').ApplyWorkspaceTransition} */
+  async function applyWorkspaceTransition(sessionRef, target, options = {}) {
+    return runTransition(sessionRef, target, options);
   }
 
   /** The pending worktree intent that applies to `session`'s next turn, if any. */
@@ -628,29 +644,35 @@ export function createWorkspaceTransitions({
    * output tail) and what was skipped. A failure or timeout is in the note
    * and the turn goes on; a cancel aborts the turn like any other stop. The
    * worktree stays either way. The setup belongs to the worktree it was made
-   * for: while the session works elsewhere (it returned to a project-folder
-   * branch before its first turn there) it is deferred, never run in another
-   * folder, and runs on the first turn after the session re-enters it.
+   * for, whichever path made it (a worktree task, a branch selection, `git
+   * worktree add`): its registry entry keeps it pending (manager
+   * claimWorktreeSetup) until the first turn a session runs there, never in
+   * another folder.
    */
   async function runPendingSetup(session, signal) {
-    const pending = pendingSetup;
-    if (!pending || pending.sessionId !== session.id) return;
     const here = readSessionWorkspace(session);
-    if (!isWorktreeBound(here) || here.worktreeId !== pending.worktreeId || !samePath(here.cwd, pending.cwd)) return;
-    pendingSetup = null;
+    if (!isWorktreeBound(here)) return;
+    const claimed = await (await backend()).claimWorktreeSetup(here.worktreeId);
+    if (!claimed) return;
     const id = newTxId();
-    const report = { root: pending.root, prepared: pending.prepared, dependencyNotes: [], installs: null, notes: [] };
+    const report = {
+      root: claimed.prepared?.root || here.projectPath,
+      prepared: claimed.prepared,
+      dependencyNotes: [],
+      installs: null,
+      notes: [],
+    };
     const emit = (event) => {
       for (const listener of setupListeners) {
         try {
-          listener({ ...event, id, sessionId: session.id, cwd: pending.cwd });
+          listener({ ...event, id, sessionId: session.id, cwd: here.cwd });
         } catch {
           /* a viewer's failure never stops the setup */
         }
       }
     };
     try {
-      const plan = await planWorktreeSetup({ worktreeDir: pending.cwd, mainDir: pending.mainDir, signal });
+      const plan = await planWorktreeSetup({ worktreeDir: here.cwd, mainDir: here.projectPath, signal });
       report.dependencyNotes = plan.notes;
       if (plan.commands.length) {
         report.installs = await runWorktreeSetup({ commands: plan.commands, signal, onProgress: emit });
@@ -715,9 +737,14 @@ export function createWorkspaceTransitions({
     return { liveSessionIds, listSessionIds: listStoredSessionIds, manager: await backend() };
   }
 
-  /** Every managed worktree with who retains it (the manual list). */
-  async function listWorktrees() {
-    return maintenance.listWorktreesWithRetention(await maintenanceScope());
+  /**
+   * Every managed worktree with who retains it (the manual list). Read-only
+   * snapshots (no branch) only with `includeSnapshots` (the git tool); the
+   * desktop list (DesktopManagedWorktreeRow, a branch per row) never gets them.
+   */
+  async function listWorktrees({ includeSnapshots = false } = {}) {
+    const rows = await maintenance.listWorktreesWithRetention(await maintenanceScope());
+    return includeSnapshots ? rows : rows.filter((row) => row.kind !== WORKTREE_SNAPSHOT_KIND);
   }
 
   /** The manual prune: clean, merged worktrees no stored or live session retains. */
@@ -727,18 +754,87 @@ export function createWorkspaceTransitions({
 
   /** After `sessionId` was deleted: autoCleanup removes its clean, merged worktree. */
   async function cleanupDeletedSession(sessionId) {
+    // Its snapshots go with it below; no turn cleanup keeps retrying them.
+    cancelSnapshotCleanups(sessionId);
     return maintenance.cleanupDeletedSessionWorktree(sessionId, {
       manager: await backend(),
       autoCleanup: worktreeSettings().autoCleanup,
     });
   }
 
-  /** Turn admission (see admission-gate admitTurn); resolves the release. */
-  function admitTurnWorkspace({ signal } = {}) {
-    return admitTurn({ sessionId: getSession()?.id || '', cwd: () => getCurrentCwd() || '', signal });
+  /**
+   * Turn admission (see admission-gate admitTurn); resolves the release. The
+   * release also starts the removal of the read-only snapshots this turn
+   * made — only those (removeTurnSnapshots).
+   */
+  async function admitTurnWorkspace({ signal } = {}) {
+    const release = await admitTurn({ sessionId: getSession()?.id || '', cwd: () => getCurrentCwd() || '', signal });
+    const made = new Set();
+    turnSnapshots = made;
+    return () => {
+      release();
+      if (turnSnapshots === made) turnSnapshots = null;
+      const sessionId = getSession()?.id;
+      if (made.size && sessionId) void removeTurnSnapshots(sessionId, [...made]);
+    };
   }
 
-  async function selectBranch({ branch, create = false, expectedRevision, confirmLarge = false } = {}) {
+  /**
+   * Remove a settled turn's snapshots (by creation `txIds`) once nothing runs
+   * in them: a worker turn or background shell holding a workspace lease
+   * inside one keeps it (manager removeSessionSnapshots reports it `in-use`).
+   * Those are retried with a doubling delay (`snapshotRetryMs`, at most
+   * 2^SNAPSHOT_BACKOFF_STEPS times it) for at most `snapshotRetryLimit`
+   * attempts; a snapshot removal that fails otherwise is not retried. What is
+   * left then — or when the runtime is disposed, the session closes, is
+   * deleted or is no longer the one hosted here — is the prune's and the
+   * startup reconcile's. Admission is not held meanwhile: the removal only
+   * ever names this turn's snapshots.
+   */
+  async function removeTurnSnapshots(sessionId, txIds) {
+    if (disposed) return;
+    const controller = new AbortController();
+    snapshotCleanups.set(controller, sessionId);
+    try {
+      let pending = txIds;
+      for (let attempt = 0; pending.length && attempt < snapshotRetryLimit; attempt++) {
+        if (attempt > 0) {
+          const wait = snapshotRetryMs * 2 ** Math.min(attempt - 1, SNAPSHOT_BACKOFF_STEPS);
+          await delay(wait, undefined, { ref: false, signal: controller.signal });
+        }
+        const session = getSession();
+        if (session?.id !== sessionId || session.closed === true) return;
+        const report = await (await backend()).removeSessionSnapshots(sessionId, { txIds: pending });
+        pending = report.kept.filter((row) => row.reason === 'in-use').map((row) => row.txId);
+      }
+    } catch {
+      // Cancelled, or the backend failed: the rest is the maintenance's.
+    } finally {
+      snapshotCleanups.delete(controller);
+    }
+  }
+
+  /** Stop the snapshot cleanups of `sessionId` (every session's when null). */
+  function cancelSnapshotCleanups(sessionId = null) {
+    for (const [controller, owner] of snapshotCleanups) {
+      if (sessionId === null || owner === sessionId) controller.abort();
+    }
+  }
+
+  /** Runtime teardown: no snapshot cleanup runs on (prune / startup reconcile finish them). */
+  function dispose() {
+    disposed = true;
+    cancelSnapshotCleanups();
+  }
+
+  /**
+   * Run in `branch`'s checkout (see enterProjectBranch). `ownTurn`
+   * (internal: the Lead's own tool call) tolerates the calling turn.
+   */
+  async function selectBranch(
+    { branch, create = false, expectedRevision, confirmLarge = false, txId = '' } = {},
+    { ownTurn = false } = {}
+  ) {
     const session = await ensureSession();
     const current = currentWorkspace(session);
     if (current.branch === branch && current.worktreeId) {
@@ -747,12 +843,125 @@ export function createWorkspaceTransitions({
       return { revision: current.revision, workspace: current };
     }
     const target = { kind: 'branch', branch, create: create === true };
-    const result = await applyWorkspaceTransition({ sessionId: session.id }, target, {
-      expectedRevision,
-      confirmLarge,
-    });
+    const result = await runTransition(
+      { sessionId: session.id },
+      target,
+      { expectedRevision, confirmLarge },
+      { ownTurn, txId: String(txId || '').trim() }
+    );
     pendingIntent = null;
     return result;
+  }
+
+  /** WORKTREE_PROJECT_MISMATCH unless `repoCommonDir` (when given) is the session Project's repository. */
+  async function sessionProject(session, repoCommonDir) {
+    const workspace = currentWorkspace(session);
+    const project = await inspectProject(workspace.projectPath);
+    if (repoCommonDir && !samePath(repoCommonDir, project.repoCommonDir)) {
+      throw worktreeError(
+        'WORKTREE_PROJECT_MISMATCH',
+        "Managed worktrees belong to this session's Project repository; run the command there.",
+        { projectPath: workspace.projectPath, repoCommonDir }
+      );
+    }
+    return { workspace, project };
+  }
+
+  /**
+   * A managed worktree for `branch` without moving the session (`git
+   * worktree add`): retained by this session like a branch it selected, so
+   * entering it later (selectBranch) reuses it. A branch already checked out
+   * elsewhere is WORKTREE_BRANCH_OCCUPIED, except in this session's own
+   * managed worktree, which is returned as it is. `startPoint` (with
+   * `create`): the commit the new branch starts at.
+   */
+  async function addBranchWorktree({
+    branch,
+    create = false,
+    startPoint = null,
+    confirmLarge = false,
+    txId = '',
+    repoCommonDir = null,
+  } = {}) {
+    const session = hostedSession(null);
+    const { workspace } = await sessionProject(session, repoCommonDir);
+    const backendApi = await backend();
+    const { occupancy } = await backendApi.listBranchOccupancy({
+      projectPath: workspace.projectPath,
+      sessionId: session.id,
+    });
+    const held = occupancy.find((row) => row.branch === branch && row.kind !== 'free');
+    if (held && !(held.kind === 'session' && held.sessionId === session.id)) {
+      throw worktreeError('WORKTREE_BRANCH_OCCUPIED', `Branch ${branch} is checked out in ${held.path}.`, {
+        branch,
+        path: held.path,
+        kind: held.kind,
+        ...(held.sessionId ? { sessionId: held.sessionId } : {}),
+      });
+    }
+    const resolved = await backendApi.resolveBranchWorkspace({
+      projectPath: workspace.projectPath,
+      branch,
+      create: create === true,
+      startPoint,
+      sessionId: session.id,
+      runtimeToken,
+      txId: String(txId || '').trim() || newTxId(),
+      confirmLarge: confirmLarge === true,
+    });
+    return {
+      path: resolved.path,
+      branch,
+      worktreeId: resolved.entry?.id ?? null,
+      created: resolved.created === true,
+      baseCommit: resolved.entry?.baseCommit ?? null,
+      mergeTarget: resolved.entry?.mergeTarget ?? null,
+    };
+  }
+
+  /**
+   * A read-only snapshot of `commit` for this session's turn (`git worktree
+   * add --detach`): a detached managed checkout no session works in,
+   * removed when the turn settles (and nothing runs in it any more). The
+   * session does not move. Only inside an admitted turn: a snapshot always
+   * belongs to the turn that made it.
+   */
+  async function createSnapshot({ commit = 'HEAD', confirmLarge = false, txId = '', repoCommonDir = null } = {}) {
+    const session = hostedSession(null);
+    const made = turnSnapshots;
+    if (!made) throw new Error('A read-only snapshot belongs to a turn; none is running in this session.');
+    const { workspace } = await sessionProject(session, repoCommonDir);
+    const tx = String(txId || '').trim() || newTxId();
+    const entry = await (await backend()).createSnapshotWorktree({
+      projectPath: workspace.projectPath,
+      sessionId: session.id,
+      runtimeToken,
+      commit,
+      txId: tx,
+      confirmLarge: confirmLarge === true,
+    });
+    made.add(tx);
+    return entry;
+  }
+
+  /**
+   * Remove this session's snapshot at `path` now; a dirty one only with
+   * `force`, and none while a worker or background shell runs in it.
+   */
+  async function removeSnapshot({ path, force = false } = {}) {
+    const session = hostedSession(null);
+    const backendApi = await backend();
+    const entry = await backendApi.getWorktreeByPath(path);
+    if (entry?.kind !== WORKTREE_SNAPSHOT_KIND) throw worktreeError('WORKTREE_MISSING', undefined, { path });
+    if (entry.holderSessionId !== session.id) {
+      throw worktreeError(
+        'WORKTREE_BUSY_JOBS',
+        "This snapshot belongs to another session's turn; it is removed when that turn ends, or by a prune.",
+        { reason: 'snapshot-held', sessionId: entry.holderSessionId, entryId: entry.id }
+      );
+    }
+    const removed = await backendApi.removeSnapshotWorktree({ entryId: entry.id, force: force === true });
+    return { ...removed, entryId: entry.id, path: entry.path };
   }
 
   /**
@@ -772,16 +981,13 @@ export function createWorkspaceTransitions({
    * `leave` starts the worktree at HEAD and leaves them; `carry` moves them
    * into it (the result's `changes` reports which). Re-entering a retained
    * worktree never touches them.
+   *
+   * `ownTurn` (internal: the Lead's own tool call) tolerates the calling turn.
    */
-  async function requestWorktree({
-    name = null,
-    confirmLarge = false,
-    provision = false,
-    carryChanges,
-    prompt = '',
-    txId = '',
-    expectedRevision,
-  } = {}) {
+  async function requestWorktree(
+    { name = null, confirmLarge = false, provision = false, carryChanges, prompt = '', txId = '', expectedRevision } = {},
+    { ownTurn = false } = {}
+  ) {
     const nameHint = validName(name);
     const expected = validRevision(expectedRevision);
     if (carryChanges !== undefined && carryChanges !== null && !WORKTREE_CARRY_CHOICES.includes(carryChanges)) {
@@ -794,10 +1000,11 @@ export function createWorkspaceTransitions({
     if (current) {
       if (isWorktreeBound(current)) return { revision: current.revision, workspace: current, pending: false };
       if (await (await backend()).getSessionWorktree(session.id)) {
-        const entered = await applyWorkspaceTransition(
+        const entered = await runTransition(
           { sessionId: session.id },
           { kind: 'worktree' },
-          { expectedRevision: expected }
+          { expectedRevision: expected },
+          { ownTurn }
         );
         return { ...entered, pending: false };
       }
@@ -817,6 +1024,7 @@ export function createWorkspaceTransitions({
           ...(await provisionIntent(session, intent, txId, prompt, {
             expectedRevision: expected,
             changes: carryChanges ?? 'ask',
+            ownTurn: ownTurn === true,
           })),
           pending: false,
         };
@@ -997,10 +1205,14 @@ export function createWorkspaceTransitions({
     requestWorktree,
     mergeWorkspace,
     removeWorktree,
+    addBranchWorktree,
+    createSnapshot,
+    removeSnapshot,
     switchProject,
     listWorktrees,
     pruneWorktrees,
     cleanupDeletedSession,
     onWorktreeSetup,
+    dispose,
   };
 }

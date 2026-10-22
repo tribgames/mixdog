@@ -20,6 +20,7 @@ import {
 } from '../../runtime/shared/worktrees/test-support.mjs';
 import { createWorkspaceTransitions } from './transitions.mjs';
 import { workspaceCwdLock } from './admission-gate.mjs';
+import { tryAdmitWorkspaceActivity } from '../../runtime/shared/worktrees/activity-gate.mjs';
 
 after(() => cleanupTempDirs());
 
@@ -113,8 +114,9 @@ test('lazy provisioning, branch return, re-entry and removal against a real repo
   }
 });
 
-function realApi(session, projects, cwdRef) {
+function realApi(session, projects, cwdRef, extra = {}) {
   return createWorkspaceTransitions({
+    ...extra,
     getSession: () => session,
     getCurrentCwd: () => cwdRef.cwd,
     applyResolvedCwd: (next) => {
@@ -271,6 +273,77 @@ test('merged, cleanup refused while the session still uses the worktree: it, its
     assert.ok(existsSync(worktree), 'the worktree is kept');
     assert.ok(samePath(cwd, worktree), 'the session stays in its worktree');
     assert.equal(readFileSync(join(store, 'record', 'manifest.json'), 'utf8'), 'retained');
+  } finally {
+    restore();
+  }
+});
+
+test('a turn snapshot a background worker still runs in outlives the turn until the worker ends', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const repo = makeRepo();
+    const session = {
+      id: `sess_snap_${process.pid}`,
+      cwd: repo,
+      desktopSession: { classification: 'project', projectPath: repo },
+      messages: [],
+    };
+    const api = realApi(session, [repo], { cwd: repo }, { snapshotRetryMs: 20 });
+    const until = async (predicate) => {
+      for (let i = 0; i < 500 && !predicate(); i++) await new Promise((done) => setTimeout(done, 20));
+      assert.ok(predicate());
+    };
+
+    const leaveFirst = await api.admitTurnWorkspace({});
+    const kept = await api.createSnapshot({ txId: 'snap-turn-1' });
+    // The background worker the Lead started there holds its turn lease (ask-session).
+    const leaveWorker = tryAdmitWorkspaceActivity('sess_worker_bg', kept.path, { kind: 'turn' });
+    leaveFirst();
+    const leaveSecond = await api.admitTurnWorkspace({});
+    const next = await api.createSnapshot({ txId: 'snap-turn-2' });
+    await new Promise((done) => setTimeout(done, 200));
+    assert.ok(existsSync(kept.path), 'kept while the worker runs there');
+    assert.ok(existsSync(next.path), "turn 1's cleanup never names turn 2's snapshot");
+    leaveWorker();
+    await until(() => !existsSync(kept.path));
+    assert.ok(existsSync(next.path), 'turn 2 is still running');
+    leaveSecond();
+    await until(() => !existsSync(next.path));
+    assert.equal(git(repo, 'worktree', 'list', '--porcelain').match(/^worktree /gm).length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test('a checkout made without moving the session (git worktree add) is prepared on the first turn there', async () => {
+  useTempDataDir();
+  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  try {
+    const repo = makeRepo();
+    const session = {
+      id: `sess_rawadd_${process.pid}`,
+      cwd: repo,
+      desktopSession: { classification: 'project', projectPath: repo },
+      messages: [],
+    };
+    const plans = [];
+    const api = realApi(session, [repo], { cwd: repo }, {
+      planWorktreeSetup: async (input) => {
+        plans.push(input.worktreeDir);
+        return { notes: [], commands: [] };
+      },
+    });
+    const added = await api.addBranchWorktree({ branch: 'raw-add', create: true, txId: 'raw-add-1' });
+    assert.equal(session.cwd, repo, 'the session did not move');
+    await api.prepareTurnWorkspace({ submissionId: 'turn-1' });
+    assert.deepEqual(plans, []);
+    const entered = await api.selectBranch({ branch: 'raw-add' });
+    assert.ok(samePath(entered.workspace.cwd, added.path));
+    await api.prepareTurnWorkspace({ submissionId: 'turn-2' });
+    await api.prepareTurnWorkspace({ submissionId: 'turn-3' });
+    assert.deepEqual(plans, [entered.workspace.cwd], 'once, on the first turn there');
+    assert.match(session.pendingSetupNotice.content, /Worktree Preparation/);
   } finally {
     restore();
   }

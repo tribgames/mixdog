@@ -190,8 +190,10 @@ test('git command tool preserves native text, shell syntax, and destructive comm
   assert.match(cappedStatus, /\[output capped at 2 lines; 2 more lines omitted;/);
   for (const name of ['one.tmp', 'two.tmp', 'three.tmp']) rmSync(join(repo, name));
 
+  // `worktree add` maps to a managed worktree (git-worktree-tool.test.mjs);
+  // the porcelain listing still answers from git itself.
   const worktree = join(root, 'worktree');
-  parseOk(await git(repo, `worktree add -b topic ${quote(worktree)} HEAD`));
+  assert.equal(spawnSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'topic', worktree]).status, 0);
   assert.match(JSON.stringify(parseOk(await git(repo, 'worktree list --porcelain'))), /topic/);
   assert.match(JSON.stringify(parseOk(await git(repo, 'branch --list'))), /topic/);
 
@@ -400,9 +402,19 @@ test('git exposes command and selected staging in one compact contract', () => {
     'include_stage_ids',
     'diff_id',
     'change_ids',
+    'worktree_action',
+    'session_id',
+    'name',
+    'branch',
+    'create',
+    'carry',
+    'confirm_large',
+    'force',
   ]);
   assert.equal(properties.include_stage_ids.type, 'boolean');
-  assert.deepEqual(properties.action.enum, ['command', 'stage']);
+  assert.deepEqual(properties.action.enum, ['command', 'stage', 'worktree']);
+  assert.deepEqual(properties.worktree_action.enum, ['enter', 'return', 'merge', 'remove', 'list', 'prune']);
+  assert.deepEqual(properties.carry.enum, ['leave', 'carry']);
   assert.equal(GIT_TOOL_DEF.inputSchema.required, undefined);
   assert.deepEqual(
     properties.command.anyOf.map((entry) => entry.type),
@@ -419,6 +431,8 @@ test('git exposes command and selected staging in one compact contract', () => {
   assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
   assert.match(GIT_TOOL_DEF.description, /An array \(max 10\) runs in order and stops on failure/i);
   assert.match(GIT_TOOL_DEF.description, /history only when needed/i);
+  assert.match(GIT_TOOL_DEF.description, /Worktrees are managed only/);
+  assert.match(GIT_TOOL_DEF.description, /list --porcelain stays raw git/);
   assert.match(properties.command.description, /no pipes\/redirects\/substitution/i);
   assert.match(properties.command.description, /&& chain runs as the array/i);
 });

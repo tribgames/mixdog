@@ -7,6 +7,7 @@ import test from 'node:test';
 import { createAgentTaskSessions, resolveTaskProject, submissionOutcome } from './agent-task-sessions.mjs';
 import { agentTaskMessage, routineResultNotice } from '../runtime/agent/orchestrator/session/routine-result.mjs';
 import { createAgentHomeDelivery, createRoutineResultQueue } from './agent-home-delivery.mjs';
+import { worktreeError } from '../runtime/shared/worktrees/contract.mjs';
 import { createSessionControl } from '../standalone/daemon-session-control.mjs';
 import { isUserTurn } from '../standalone/session-service/session-calls/session-turns.mjs';
 import { createWorkspaceToolHandlers } from './internal-tool-executor/workspace-tools.mjs';
@@ -30,6 +31,7 @@ function tempDir(t) {
 /** A session service over one fake task-session runtime. */
 function fakeService() {
   const calls = [];
+  const hooks = {};
   const state = {};
   const listeners = new Set();
   const runtime = {
@@ -46,6 +48,11 @@ function fakeService() {
     },
     configureSession: async (params, ctx) => {
       calls.push(['configure', params, ctx]);
+      if (hooks.configure) return hooks.configure(params, ctx);
+      // A provisioned worktree leaves the session bound.
+      if (params.action === 'requestWorktree') {
+        return { value: { pending: false, workspace: { worktreeId: 'fix-login', branch: 'mixdog/fix-login' } } };
+      }
       return { value: {} };
     },
     materializeSession: async () => runtime,
@@ -57,7 +64,7 @@ function fakeService() {
   const emit = () => {
     for (const listener of [...listeners]) listener();
   };
-  return { service, calls, state, listeners, emit };
+  return { service, calls, hooks, state, listeners, emit };
 }
 
 function tasks(h, overrides = {}) {
@@ -340,6 +347,144 @@ test('a Project task without the worktree default stays in the Project folder', 
     api.create({ brief: 'x', project: '/no/such/dir' }, { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' }),
     /neither a registered Project/
   );
+});
+
+const names = (h) => h.calls.map(([name]) => name);
+const configured = (h) => h.calls.filter(([name]) => name === 'configure').map(([, params]) => params);
+
+test('create worktree {mode:"branch"} stays in the Project folder even under the worktree default', async () => {
+  const h = fakeService();
+  const { api } = tasks(h, { newTaskDefault: async () => 'worktree' });
+  const result = await api.create({ brief: 'x', project: 'mixdog', worktree: { mode: 'branch' } }, CALLER);
+  assert.equal(result.project, '/repo/mixdog');
+  assert.deepEqual(names(h), ['create', 'submit']);
+});
+
+test('create worktree {mode:"worktree"} provisions a named worktree that carries no changes, then sends the brief', async () => {
+  const h = fakeService();
+  const { api } = tasks(h);
+  await api.create({ brief: 'Fix it', project: 'mixdog', worktree: { mode: 'worktree', name: 'fix-login' } }, CALLER);
+  assert.deepEqual(names(h), ['create', 'configure', 'submit']);
+  const [request] = configured(h);
+  assert.equal(request.action, 'requestWorktree');
+  const [args] = request.args;
+  assert.deepEqual(
+    { ...args, txId: undefined },
+    { provision: true, carryChanges: 'leave', prompt: 'Fix it', txId: undefined, name: 'fix-login' }
+  );
+  assert.match(args.txId, /^atask_/);
+});
+
+test('create worktree {mode:"worktree"} without a name lets the brief title name it, under any default', async () => {
+  const h = fakeService();
+  const { api } = tasks(h, { newTaskDefault: async () => 'branch' });
+  await api.create({ brief: 'x', title: 'Check the login', project: 'mixdog', worktree: { mode: 'worktree' } }, CALLER);
+  const [args] = configured(h)[0].args;
+  assert.equal(args.prompt, 'Check the login');
+  assert.equal('name' in args, false);
+  assert.equal('confirmLarge' in args, false);
+});
+
+test('an invalid worktree option is refused before any session exists', async () => {
+  const h = fakeService();
+  const { api } = tasks(h);
+  const create = (worktree) => api.create({ brief: 'x', project: 'mixdog', worktree }, CALLER);
+  await assert.rejects(create({ mode: 'worktree', name: 'a b' }), /worktree.name is invalid/);
+  await assert.rejects(create({ mode: 'branch', name: 'ok' }), /applies only to mode "worktree"/);
+  await assert.rejects(create({ mode: 'detached' }), /worktree.mode must be/);
+  await assert.rejects(create('worktree'), /worktree.mode must be/);
+  assert.deepEqual(h.calls, []);
+});
+
+test('an explicit worktree on no Project or an unregistered folder returns the typed error and creates nothing', async (t) => {
+  const h = fakeService();
+  const { api } = tasks(h);
+  const dir = tempDir(t);
+  for (const project of [undefined, dir]) {
+    await assert.rejects(
+      api.create({ brief: 'x', project, worktree: { mode: 'worktree' } }, { ...CALLER, callerCwd: dir }),
+      (error) => error.code === 'WORKTREE_PROJECT_UNKNOWN' && /WORKTREE_PROJECT_UNKNOWN/.test(error.message)
+    );
+  }
+  assert.deepEqual(h.calls, []);
+});
+
+test('a folder that cannot have a worktree: explicit mode returns the typed error, the default keeps the folder', async () => {
+  const h = fakeService();
+  h.hooks.configure = async (params) => {
+    if (params.action === 'deleteSession') return { value: true };
+    throw worktreeError('WORKTREE_UNSUPPORTED_REPO');
+  };
+  const explicit = tasks(h).api;
+  await assert.rejects(
+    explicit.create({ brief: 'x', project: 'mixdog', worktree: { mode: 'worktree' } }, CALLER),
+    (error) => error.code === 'WORKTREE_UNSUPPORTED_REPO'
+  );
+  assert.deepEqual(submitted(h), [], 'the brief is not sent');
+  assert.deepEqual(
+    configured(h).map((params) => params.action),
+    ['requestWorktree', 'deleteSession'],
+    'the empty session is dropped'
+  );
+  const silent = tasks(h, { newTaskDefault: async () => 'worktree' }).api;
+  const result = await silent.create({ brief: 'x', project: 'mixdog' }, CALLER);
+  assert.equal(result.status, 'started');
+  assert.equal(submitted(h).length, 1);
+});
+
+test('a large repository comes back with its size, and confirm_large retries it', async () => {
+  const h = fakeService();
+  h.hooks.configure = async (params) => {
+    if (params.action === 'deleteSession') return { value: true };
+    if (!params.args[0].confirmLarge) {
+      throw worktreeError('WORKTREE_LARGE_REPO_CONFIRM', undefined, {
+        estimateBytes: 3 * 1024 * 1024 * 1024,
+        thresholdBytes: 1024 * 1024 * 1024,
+      });
+    }
+    return { value: { pending: false, workspace: { worktreeId: 'big', branch: 'mixdog/big' } } };
+  };
+  const { api } = tasks(h);
+  const args = { brief: 'x', project: 'mixdog', worktree: { mode: 'worktree' } };
+  await assert.rejects(api.create(args, CALLER), (error) => {
+    assert.equal(error.code, 'WORKTREE_LARGE_REPO_CONFIRM');
+    assert.match(error.message, /about 3072 MB \(warning threshold 1024 MB\)/);
+    assert.match(error.message, /confirm_large: true/);
+    return true;
+  });
+  assert.deepEqual(submitted(h), []);
+  const result = await api.create({ ...args, confirm_large: true }, CALLER);
+  assert.equal(result.status, 'started');
+  assert.equal(submitted(h).length, 1);
+  assert.equal(configured(h).at(-1).args[0].confirmLarge, true);
+});
+
+test('the brief is not sent unless the session ended up in its worktree', async () => {
+  for (const value of [{ pending: true, workspace: null }, { pending: false, workspace: { branch: 'main' } }, {}]) {
+    const h = fakeService();
+    h.hooks.configure = async (params) => (params.action === 'deleteSession' ? { value: true } : { value });
+    const { api } = tasks(h);
+    await assert.rejects(
+      api.create({ brief: 'x', project: 'mixdog', worktree: { mode: 'worktree' } }, CALLER),
+      (error) => error.code === 'WORKTREE_NOT_IMPLEMENTED'
+    );
+    assert.deepEqual(submitted(h), []);
+  }
+});
+
+test('the session tool hands create its worktree option and confirm_large through', async () => {
+  const seen = [];
+  const handler = createWorkspaceToolHandlers({
+    rt: { session: { id: 'sess_home_lead', owner: 'cli', agent: 'lead', sourceType: 'lead' }, config: {} },
+    executeSessionControl: async (args) => seen.push(args),
+  }).session;
+  const worktree = { mode: 'worktree', name: 'fix-login' };
+  await handler(
+    { action: 'create', brief: 'x', worktree, confirm_large: true },
+    { callerCtx: { callerSessionId: 'sess_home_lead' }, callerCwd: '/home' }
+  );
+  assert.deepEqual(seen[0].worktree, worktree);
+  assert.equal(seen[0].confirm_large, true);
 });
 
 test('only turns the origin agent starts report back, ended or waiting for the user', async () => {

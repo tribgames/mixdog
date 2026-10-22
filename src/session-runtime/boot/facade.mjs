@@ -7,6 +7,7 @@ import { createRuntimeFacade } from '../runtime-facade.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { assertAdmissionOpen, bindSessionAddress } from '../session-address.mjs';
 import { dataDirOf, workflowHelpers } from './shared.mjs';
+import { publicWorkspaceMethods } from '../workspace/transitions.mjs';
 
 export function buildFacade(boot) {
   const { rt, setupTool } = boot;
@@ -41,16 +42,14 @@ export function buildFacade(boot) {
       getLiveWorkspace: boot.workspaceApi.getLiveWorkspace,
       getBranchMenu: boot.workspaceApi.getBranchMenu,
       getProjectBranchMenu: boot.workspaceApi.getProjectBranchMenu,
-      selectBranch: boot.workspaceApi.selectBranch,
       selectProjectBranch: boot.workspaceApi.selectProjectBranch,
       mergeProjectBranch: boot.workspaceApi.mergeProjectBranch,
       inspectProjectBranch: boot.workspaceApi.inspectProjectBranch,
       manageProjectBranch: boot.workspaceApi.manageProjectBranch,
-      requestWorktree: boot.workspaceApi.requestWorktree,
-      mergeWorkspace: boot.workspaceApi.mergeWorkspace,
-      removeWorktree: boot.workspaceApi.removeWorktree,
-      listWorktrees: boot.workspaceApi.listWorktrees,
-      pruneWorktrees: boot.workspaceApi.pruneWorktrees,
+      // selectBranch, requestWorktree, mergeWorkspace, removeWorktree,
+      // listWorktrees, pruneWorktrees: the public arity only, so no external
+      // caller (desktop IPC, the daemon's configure lane) reaches `ownTurn`.
+      ...publicWorkspaceMethods(boot.workspaceApi),
       onWorktreeSetup: boot.workspaceApi.onWorktreeSetup,
       claimSetupRequest: setupTool.claimSetupRequest,
       isSetupRequestActive: setupTool.isSetupRequestActive,

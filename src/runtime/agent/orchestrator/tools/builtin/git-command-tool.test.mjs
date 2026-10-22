@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _gitCommandInternals } from './git-command-tool.mjs';
@@ -225,26 +225,16 @@ test('the repository lock key is the common git dir shared by the main checkout 
   }
 });
 
-test('a write holds the worktrees it touches: its cwd, or the target of worktree add/remove/move', () => {
+test('a write holds the worktree of its cwd; pruning object maintenance holds the whole repository', () => {
   const { parseCommand, writeScopes } = _gitCommandInternals;
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-scopes-'));
   try {
     const repo = join(root, 'repo');
-    const existing = join(root, 'wt');
     mkdirSync(repo);
-    mkdirSync(existing);
-    writeFileSync(join(existing, '.git'), 'gitdir: elsewhere\n');
     const scopes = (command) => writeScopes(parseCommand(command, repo), repo);
     assert.deepEqual(scopes('git commit -m x'), [repo]);
-    assert.deepEqual(scopes('git worktree add -b feature ../next HEAD'), [join(root, 'next')]);
-    assert.deepEqual(scopes('git worktree remove --force ../wt'), [existing]);
-    assert.deepEqual(scopes('git worktree lock --reason busy ../wt'), [existing]);
-    assert.deepEqual(scopes('git worktree move ../wt ../moved'), [existing, join(root, 'moved')]);
-    // A name git may resolve as a unique suffix elsewhere, prune and pruning
-    // object maintenance hold the whole repository.
-    assert.equal(scopes('git worktree remove wt'), null);
-    assert.equal(scopes('git worktree prune'), null);
     assert.equal(scopes('git gc --prune=now'), null);
+    assert.equal(scopes('git prune --expire=now'), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { createWorkspaceTransitions } from './transitions.mjs';
+import { createWorkspaceTransitions, publicWorkspaceMethods } from './transitions.mjs';
 import {
   admitTurn,
   beginWorkspaceTransition,
@@ -24,7 +24,15 @@ import {
 const BASE = 'a'.repeat(40);
 let counter = 0;
 
-function harness({ intent, sessionMessages = [], live = [], config = null, refresh = null, planSetup = null } = {}) {
+function harness({
+  intent,
+  sessionMessages = [],
+  live = [],
+  config = null,
+  refresh = null,
+  planSetup = null,
+  snapshotRetryLimit = 20,
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-workspace-'));
   const project = join(root, 'project');
   const worktree = join(root, 'worktrees', 'fix');
@@ -43,6 +51,8 @@ function harness({ intent, sessionMessages = [], live = [], config = null, refre
     shellJobs: 0,
     projectBranch: 'main',
     retained: null,
+    setupPending: new Map(),
+    setupClaims: [],
   };
   const session = {
     id: sessionId,
@@ -91,7 +101,17 @@ function harness({ intent, sessionMessages = [], live = [], config = null, refre
       calls.push(['create', input]);
       if (manager.createImpl) return manager.createImpl(input);
       state.retained = entry;
+      state.setupPending.set(entry.id, { prepared: null });
       return entry;
+    },
+    // Stands in for the registry entry's pending first-turn setup.
+    async claimWorktreeSetup(id) {
+      const pending = state.setupPending.get(id) ?? null;
+      if (pending) {
+        state.setupPending.delete(id);
+        state.setupClaims.push(id);
+      }
+      return pending;
     },
     async claimWorktreeOwner(id, owner) {
       calls.push(['claim', id, owner.sessionId]);
@@ -189,6 +209,8 @@ function harness({ intent, sessionMessages = [], live = [], config = null, refre
       return `tx-${counter}`;
     },
     ...(planSetup ? { planWorktreeSetup: planSetup } : {}),
+    snapshotRetryMs: 5,
+    snapshotRetryLimit,
   });
   const names = () => calls.map((call) => call[0]);
   const cleanup = () => rmSync(root, { recursive: true, force: true });
@@ -608,6 +630,7 @@ test('a branch switch that creates a managed worktree schedules its setup for th
     const original = h.manager.resolveBranchWorkspace;
     h.manager.resolveBranchWorkspace = async (input) => {
       const resolved = await original(input);
+      h.state.setupPending.set('branch-wt', { prepared: null });
       return {
         ...resolved,
         entry: { ...h.entry, id: 'branch-wt', path: resolved.path, branch: input.branch },
@@ -1755,4 +1778,278 @@ test('getLiveWorkspace: outside a git repository a never-moved session publishes
   const h = harness();
   t.after(h.cleanup);
   assert.equal(h.api.getLiveWorkspace(), null);
+});
+
+test("the Lead's own tool call enters a worktree or branch during its turn; nothing else running is tolerated", async (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  h.state.activeTurns = 1;
+  // Without ownTurn the running turn refuses (another session's request, the desktop).
+  await assert.rejects(h.api.requestWorktree({ provision: true, txId: 'call-1' }), {
+    code: 'WORKTREE_BUSY_JOBS',
+    details: { reason: 'turn' },
+  });
+  assert.equal(h.session.workspace, undefined);
+  assert.equal(h.names().includes('create'), false);
+  const entered = await h.api.requestWorktree({ provision: true, name: 'fix', txId: 'call-1' }, { ownTurn: true });
+  assert.equal(entered.workspace.cwd, h.worktree);
+  assert.equal(entered.pending, false);
+  const create = h.calls.find((call) => call[0] === 'create')[1];
+  assert.deepEqual([create.txId, create.nameHint, create.carryChanges], ['call-1', 'fix', 'ask']);
+
+  h.state.workers = [{ status: 'running' }];
+  await assert.rejects(h.api.selectBranch({ branch: 'dev' }, { ownTurn: true }), (error) => {
+    assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
+    assert.equal(error.details.reason, 'workers');
+    return true;
+  });
+  h.state.workers = [];
+  await assert.rejects(h.api.selectBranch({ branch: 'dev' }), { code: 'WORKTREE_BUSY_JOBS' });
+  const moved = await h.api.selectBranch({ branch: 'dev', txId: 'call-2' }, { ownTurn: true });
+  assert.equal(moved.workspace.branch, 'dev');
+  assert.equal(h.calls.filter((call) => call[0] === 'resolveBranch').at(-1)[1].txId, 'call-2');
+  // Re-entering the retained worktree takes the same allowance.
+  const back = await h.api.requestWorktree({ provision: true }, { ownTurn: true });
+  assert.equal(back.workspace.worktreeId, 'fix');
+});
+
+test('external callers reach the public arity only: a smuggled { ownTurn: true } never passes a running turn', async (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  h.session.workspace = {
+    revision: 3,
+    worktreeId: 'fix',
+    branch: 'mixdog/fix',
+    cwd: h.worktree,
+    repoCommonDir: join(h.project, '.git'),
+    mergeTarget: 'main',
+  };
+  h.state.activeTurns = 1;
+  // What the facade (desktop IPC, daemon session.configure) exposes.
+  const external = publicWorkspaceMethods(h.api);
+  const smuggled = { ownTurn: true };
+  const calls = [
+    () => external.requestWorktree({ provision: true, txId: 'x-1' }, smuggled),
+    () => external.selectBranch({ branch: 'dev', txId: 'x-2' }, smuggled),
+    () => external.mergeWorkspace({ confirmed: true, target: 'main', cleanup: true }, smuggled),
+    () => external.removeWorktree({ force: true }, smuggled),
+  ];
+  for (const call of calls) {
+    await assert.rejects(call(), (error) => {
+      assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
+      assert.equal(error.details.reason, 'turn');
+      return true;
+    });
+  }
+  assert.equal(h.session.workspace.worktreeId, 'fix', 'nothing moved');
+});
+
+/** A manager stand-in for snapshots: `inUse` ids are reported kept (a worker or shell runs there). */
+function snapshotBackend(h) {
+  const backend = { made: 0, inUse: new Set(), removals: [], gate: null };
+  const idOf = new Map();
+  h.manager.createSnapshotWorktree = async (input) => {
+    h.calls.push(['snapshot', input]);
+    backend.made += 1;
+    idOf.set(input.txId, `snapshot-${backend.made}`);
+    return { id: idOf.get(input.txId), kind: 'snapshot', path: join(h.project, '..', 'snap'), baseCommit: BASE };
+  };
+  // Named by creation transaction; reported by entry id.
+  h.manager.removeSessionSnapshots = async (id, { txIds }) => {
+    const ids = txIds.map((tx) => idOf.get(tx));
+    backend.removals.push([id, ids]);
+    if (backend.gate) await backend.gate;
+    return {
+      removed: ids.filter((one) => !backend.inUse.has(one)),
+      kept: txIds
+        .filter((tx) => backend.inUse.has(idOf.get(tx)))
+        .map((tx) => ({ id: idOf.get(tx), txId: tx, reason: 'in-use' })),
+    };
+  };
+  return backend;
+}
+
+const until = async (predicate) => {
+  for (let i = 0; i < 400 && !predicate(); i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(predicate(), 'condition reached');
+};
+
+test('a snapshot lives for the turn that made it; addBranchWorktree never moves the session', async (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  const backend = snapshotBackend(h);
+  const repoCommonDir = join(h.project, '.git');
+  // Outside a turn there is no turn to own it.
+  await assert.rejects(h.api.createSnapshot({ repoCommonDir }), /belongs to a turn/);
+  const leave = await h.api.admitTurnWorkspace({});
+  const entry = await h.api.createSnapshot({ commit: BASE, txId: 'call-1:snap', repoCommonDir });
+  assert.equal(entry.id, 'snapshot-1');
+  const input = h.calls.find((call) => call[0] === 'snapshot')[1];
+  assert.deepEqual([input.projectPath, input.sessionId, input.commit, input.txId], [
+    h.project,
+    h.session.id,
+    BASE,
+    'call-1:snap',
+  ]);
+  assert.equal(h.state.cwd, h.project, 'the session did not move');
+  leave();
+  await until(() => backend.removals.length === 1);
+  assert.deepEqual(backend.removals, [[h.session.id, ['snapshot-1']]]);
+  // A turn that made none removes nothing.
+  (await h.api.admitTurnWorkspace({}))();
+  await tick();
+  assert.equal(backend.removals.length, 1);
+  const turn = await h.api.admitTurnWorkspace({});
+  await assert.rejects(h.api.createSnapshot({ repoCommonDir: join(h.project, 'elsewhere', '.git') }), {
+    code: 'WORKTREE_PROJECT_MISMATCH',
+  });
+  turn();
+
+  // A branch worktree is made for the session, which stays where it is.
+  const added = await h.api.addBranchWorktree({ branch: 'feature', create: true, startPoint: BASE, txId: 'call-3' });
+  const resolved = h.calls.filter((call) => call[0] === 'resolveBranch').at(-1)[1];
+  assert.deepEqual([resolved.branch, resolved.create, resolved.startPoint, resolved.txId], [
+    'feature',
+    true,
+    BASE,
+    'call-3',
+  ]);
+  assert.equal(added.branch, 'feature');
+  assert.equal(h.state.cwd, h.project);
+  assert.equal(h.session.workspace, undefined);
+  // A branch checked out elsewhere is refused, as git refuses it.
+  await assert.rejects(h.api.addBranchWorktree({ branch: 'main' }), (error) => {
+    assert.equal(error.code, 'WORKTREE_BRANCH_OCCUPIED');
+    assert.equal(error.details.kind, 'current');
+    return true;
+  });
+});
+
+test('a snapshot a worker still runs in after the turn is kept until the worker ends, then removed', async (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  const backend = snapshotBackend(h);
+  const leave = await h.api.admitTurnWorkspace({});
+  await h.api.createSnapshot({ repoCommonDir: join(h.project, '.git') });
+  backend.inUse.add('snapshot-1');
+  leave();
+  await until(() => backend.removals.length >= 3);
+  assert.ok(
+    backend.removals.every(([, ids]) => ids.join() === 'snapshot-1'),
+    'retried while the worker runs'
+  );
+  backend.inUse.delete('snapshot-1');
+  const tries = backend.removals.length;
+  await until(() => backend.removals.length > tries);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(backend.removals.length, tries + 1, 'removed once the worker ended; no further retries');
+});
+
+test('a snapshot cleanup stops on disposal, at its attempt cap, and on a non-in-use failure', async (t) => {
+  const repoCommonDir = (h) => join(h.project, '.git');
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+  const disposed = harness();
+  t.after(disposed.cleanup);
+  const kept = snapshotBackend(disposed);
+  const leave = await disposed.api.admitTurnWorkspace({});
+  await disposed.api.createSnapshot({ repoCommonDir: repoCommonDir(disposed) });
+  kept.inUse.add('snapshot-1');
+  leave();
+  await until(() => kept.removals.length >= 2);
+  disposed.api.dispose();
+  await settle();
+  const atDispose = kept.removals.length;
+  await settle();
+  assert.equal(kept.removals.length, atDispose, 'no retry after disposal');
+  // A disposed runtime starts none.
+  (await disposed.api.admitTurnWorkspace({}))();
+  await settle();
+  assert.equal(kept.removals.length, atDispose);
+
+  const capped = harness({ snapshotRetryLimit: 3 });
+  t.after(capped.cleanup);
+  const busy = snapshotBackend(capped);
+  const turn = await capped.api.admitTurnWorkspace({});
+  await capped.api.createSnapshot({ repoCommonDir: repoCommonDir(capped) });
+  busy.inUse.add('snapshot-1');
+  turn();
+  await until(() => busy.removals.length === 3);
+  await settle();
+  assert.equal(busy.removals.length, 3, 'maintenance takes over after the cap');
+
+  const failing = harness();
+  t.after(failing.cleanup);
+  let attempts = 0;
+  snapshotBackend(failing);
+  failing.manager.removeSessionSnapshots = async () => {
+    attempts += 1;
+    throw new Error('admission ledger unreadable');
+  };
+  const run = await failing.api.admitTurnWorkspace({});
+  await failing.api.createSnapshot({ repoCommonDir: repoCommonDir(failing) });
+  run();
+  await until(() => attempts === 1);
+  await settle();
+  assert.equal(attempts, 1, 'a failure other than in-use is not retried');
+});
+
+test("consecutive turns: turn 1's cleanup never touches the snapshot turn 2 made", async (t) => {
+  const h = harness();
+  t.after(h.cleanup);
+  const backend = snapshotBackend(h);
+  const repoCommonDir = join(h.project, '.git');
+  let open;
+  backend.gate = new Promise((resolve) => {
+    open = resolve;
+  });
+  const first = await h.api.admitTurnWorkspace({});
+  await h.api.createSnapshot({ repoCommonDir });
+  first();
+  // Turn 1's cleanup is still in flight while turn 2 starts and makes its own.
+  const second = await h.api.admitTurnWorkspace({});
+  await h.api.createSnapshot({ repoCommonDir });
+  open();
+  await until(() => backend.removals.length === 1);
+  await tick();
+  assert.deepEqual(backend.removals, [[h.session.id, ['snapshot-1']]]);
+  backend.gate = null;
+  second();
+  await until(() => backend.removals.length === 2);
+  assert.deepEqual(backend.removals[1], [h.session.id, ['snapshot-2']]);
+});
+
+test('a checkout made by git worktree add gets its first-turn setup once, when a session enters it', async (t) => {
+  const plans = [];
+  const h = harness({
+    planSetup: async (input) => {
+      plans.push([input.worktreeDir, input.mainDir]);
+      return { notes: [], commands: [] };
+    },
+  });
+  t.after(h.cleanup);
+  const original = h.manager.resolveBranchWorkspace;
+  h.manager.resolveBranchWorkspace = async (input) => {
+    const resolved = await original(input);
+    if (!input.create) {
+      return { ...resolved, entry: { ...h.entry, id: 'raw-wt', path: resolved.path, branch: input.branch } };
+    }
+    // Made now (raw add): its registry entry keeps the setup pending.
+    h.state.setupPending.set('raw-wt', { prepared: { root: h.project } });
+    return {
+      ...resolved,
+      entry: { ...h.entry, id: 'raw-wt', path: resolved.path, branch: input.branch },
+      created: true,
+    };
+  };
+  await h.api.addBranchWorktree({ branch: 'feature', create: true, startPoint: BASE });
+  await h.api.prepareTurnWorkspace({ submissionId: 'turn-1', prompt: 'go' });
+  assert.deepEqual(plans, [], 'nothing runs while the session stays in the project folder');
+  const entered = await h.api.selectBranch({ branch: 'feature' });
+  assert.equal(entered.workspace.worktreeId, 'raw-wt');
+  await h.api.prepareTurnWorkspace({ submissionId: 'turn-2', prompt: 'go' });
+  await h.api.prepareTurnWorkspace({ submissionId: 'turn-3', prompt: 'again' });
+  assert.deepEqual(plans, [[entered.workspace.cwd, h.project]], 'once, in that checkout');
+  assert.deepEqual(h.state.setupClaims, ['raw-wt']);
+  assert.ok(h.session.pendingSetupNotice);
 });

@@ -540,7 +540,7 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     (args) =>
       args.action === 'stage'
         ? toolActivityOneOrCount(toolActivityValues(args.change_ids ?? args.change_id), 'change')
-        : commandSubject(args),
+        : (args.action === 'worktree' && gitWorktreeSubject(args)) || commandSubject(args),
   ],
   [['git_stage'], (args) => toolActivityOneOrCount(toolActivityValues(args.files ?? args.paths), 'file')],
   [['grep'], grepSubject],
@@ -647,16 +647,29 @@ function sessionSubject(args: Record<string, unknown>, fallback: string): string
       return args.value === false ? t('Remove from favorites') : t('Add to favorites');
     case 'archive':
       return args.value === false ? t('Unarchive session') : t('Archive session');
-    case 'merge-worktree':
-      return path ? `${t('Merge worktree')} · ${path}` : t('Merge worktree');
-    case 'remove-worktree':
-      return path ? `${t('Remove worktree')} · ${path}` : t('Remove worktree');
-    case 'list-worktrees':
-      return t('List worktrees');
-    case 'prune-worktrees':
-      return t('Prune worktrees');
     default:
       return action ? toolActivityActionLabel(action) : fallback;
+  }
+}
+
+/** The git tool's `worktree` action as a short label, by its `worktree_action`;
+ *  '' for any other (the command line then names the call). */
+function gitWorktreeSubject(args: Record<string, unknown>): string {
+  switch (toolActivityFirstText(args, 'worktree_action').toLowerCase()) {
+    case 'enter':
+      return t('Enter worktree');
+    case 'return':
+      return t('Return to project folder');
+    case 'merge':
+      return t('Merge worktree');
+    case 'remove':
+      return t('Remove worktree');
+    case 'list':
+      return t('List worktrees');
+    case 'prune':
+      return t('Prune worktrees');
+    default:
+      return '';
   }
 }
 

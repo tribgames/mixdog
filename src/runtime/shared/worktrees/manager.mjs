@@ -26,6 +26,10 @@
  * reachable at `refs/mixdog/removed/<id>` (returned as `recoveryRef`/`tip`;
  * `git branch <name> refs/mixdog/removed/<id>` restores it, `git update-ref
  * -d` forgets it).
+ *
+ * A snapshot (createSnapshotWorktree) is a read-only detached checkout in the
+ * same store and registry, bound to no session and removed with the turn
+ * that made it (or by the prune / startup reconcile once its holder is gone).
  */
 import { existsSync } from 'node:fs';
 import {
@@ -42,6 +46,7 @@ import {
   normalizeWorktreeOwner,
   runRootCleanups,
   runRootReleasers,
+  WORKTREE_SNAPSHOT_KIND,
   worktreeBranchName,
   worktreeError,
 } from './contract.mjs';
@@ -79,6 +84,8 @@ import {
 } from './include.mjs';
 import { linkWorktreeDependencies } from './dependencies.mjs';
 import { withRepoLock as withRepoMutationLock } from './lock.mjs';
+import { holdWorkspaceActivity } from './activity-gate.mjs';
+import { withAdvisoryLocks } from '../../agent/orchestrator/tools/builtin/advisory-lock.mjs';
 import { mergeBranchIntoCheckout, operationInProgress } from './merge.mjs';
 import { readOwnerLease, removeOwnerLease, sameOwner, writeOwnerLease } from './owner.mjs';
 import { canonicalPath, checkoutFolder, isWithin, pathKey, projectSubdirOf, samePath } from './paths.mjs';
@@ -318,6 +325,8 @@ async function recordInclude(record, ledger) {
 }
 
 async function unmergedCommitCount(record) {
+  // A snapshot has no branch, so nothing of it can be unmerged.
+  if (!record.branch) return 0;
   const cwd = repoCwd(record);
   const tip = await branchCommit(cwd, record.branch);
   if (!tip) return 0;
@@ -591,6 +600,20 @@ async function rollbackCreation(record, cause) {
   return { complete: false, remaining };
 }
 
+/** finishDeletion's folder step; what is left over goes to `remaining`. */
+async function removeFolder(record, remaining) {
+  await removeOwnerLease(record);
+  const ctx = { reason: 'worktree-removed', entryId: record.id };
+  const results = await runRootReleasers(record.path, ctx);
+  for (const root of new Set([record.path, sessionRootOf(record)])) {
+    results.push(...(await runRootCleanups(root, ctx)));
+  }
+  for (const result of results) {
+    if (!result.ok) remaining.push({ kind: 'cleanup', name: result.name, error: result.error.message });
+  }
+  remaining.push(...(await (record.deleting?.safeOnly ? removeCheckoutSafely(record) : removeCheckout(record))));
+}
+
 /**
  * Finish (or resume) a decided deletion, in order: release the live handles
  * on the folder (desktop terminals), drop the caches keyed by it (the checkout
@@ -602,16 +625,14 @@ async function finishDeletion(record) {
   await assertRecoveryStoresClear(record);
   const remaining = [];
   try {
-    await removeOwnerLease(record);
-    const ctx = { reason: 'worktree-removed', entryId: record.id };
-    const results = await runRootReleasers(record.path, ctx);
-    for (const root of new Set([record.path, sessionRootOf(record)])) {
-      results.push(...(await runRootCleanups(root, ctx)));
+    // A snapshot is deleted under the cross-process write lock the git tool
+    // takes on the worktree it writes in (withGitWriteLocks: its advisory
+    // lock), so no git write of another process runs while the folder goes.
+    if (record.kind === WORKTREE_SNAPSHOT_KIND) {
+      await withAdvisoryLocks([record.path], () => removeFolder(record, remaining));
+    } else {
+      await removeFolder(record, remaining);
     }
-    for (const result of results) {
-      if (!result.ok) remaining.push({ kind: 'cleanup', name: result.name, error: result.error.message });
-    }
-    remaining.push(...(await (record.deleting?.safeOnly ? removeCheckoutSafely(record) : removeCheckout(record))));
   } catch (error) {
     remaining.push({ kind: 'error', error: String(error?.message || error) });
   }
@@ -623,7 +644,7 @@ async function finishDeletion(record) {
   let branch = { deleted: false, reason: 'kept' };
   let kept = { tip: null, recoveryRef: null };
   const merged = (await unmergedCommitCount(record)) === 0;
-  if (!record.deleting?.preserveBranch && (record.deleting?.force || merged)) {
+  if (record.branch && !record.deleting?.preserveBranch && (record.deleting?.force || merged)) {
     // Forced past unmerged commits: the tip stays reachable before `branch -D`.
     if (!merged) kept = await keepRemovedTip(record);
     else kept.tip = await branchCommit(repoCwd(record), record.branch);
@@ -672,11 +693,16 @@ export async function getWorktreeByPath(path) {
   return record ? entryView(record) : null;
 }
 
-/** Resolve a branch to its checkout without switching any existing folder. */
+/**
+ * Resolve a branch to its checkout without switching any existing folder.
+ * `startPoint` (with `create`): the new branch starts at that commit-ish
+ * instead of the project folder's branch.
+ */
 export async function resolveBranchWorkspace({
   projectPath,
   branch,
   create = false,
+  startPoint = null,
   sessionId,
   runtimeToken,
   txId,
@@ -684,6 +710,7 @@ export async function resolveBranchWorkspace({
   signal,
 } = {}) {
   requireText(branch, 'branch');
+  if (startPoint !== null && create !== true) throw new TypeError('startPoint needs create.');
   const repo = await inspectRepo(projectPath, { signal });
   return withRepoLock(repo.repoCommonDir, async () => {
     if (!(await validBranchName(repo.projectPath, branch))) throw new TypeError('Invalid branch name.');
@@ -738,6 +765,7 @@ export async function resolveBranchWorkspace({
       branch,
       existingBranch: !create,
       baseBranch: create ? repo.currentBranch : branch,
+      startCommit: startPoint,
       nameHint: branch,
       confirmLarge,
       signal,
@@ -902,6 +930,53 @@ async function diskFullFailure(error, { needed, root }) {
 }
 
 /**
+ * The size preflight of every managed checkout of `baseCommit`:
+ * WORKTREE_DISK_INSUFFICIENT when it cannot fit, WORKTREE_LARGE_REPO_CONFIRM
+ * (`details: { estimateBytes, thresholdBytes }`) above the warning size until
+ * `confirmLarge`. `extraBytes`: include copies on top of the tracked files.
+ */
+async function assertCheckoutFits({ repo, baseCommit, extraBytes = 0, settings, confirmLarge, signal }) {
+  const tracked = await trackedCheckoutBytes(repo.topLevel, baseCommit, { signal });
+  const contentBytes = tracked.bytes + extraBytes;
+  const root = managedWorktreeRoot(repo.repoCommonDir);
+  const needed = requiredBytes(contentBytes);
+  const free = await config.freeBytes(root);
+  if (free < needed) {
+    throw worktreeError('WORKTREE_DISK_INSUFFICIENT', undefined, {
+      requiredBytes: needed,
+      freeBytes: free,
+      path: root,
+    });
+  }
+  if (settings.sizeWarnBytes > 0 && contentBytes > settings.sizeWarnBytes && confirmLarge !== true) {
+    throw worktreeError('WORKTREE_LARGE_REPO_CONFIRM', undefined, {
+      estimateBytes: contentBytes,
+      thresholdBytes: settings.sizeWarnBytes,
+    });
+  }
+  return { tracked, root, needed };
+}
+
+/** The full id of commit-ish `value` in `cwd`; TypeError when it names no commit. */
+async function resolveCommit(cwd, value, signal) {
+  const name = String(value ?? '').trim();
+  if (!name || name.startsWith('-')) throw new TypeError('A commit is required.');
+  const result = await runGit(cwd, ['rev-parse', '--verify', '--quiet', `${name}^{commit}`], {
+    signal,
+    allowFailure: true,
+  });
+  if (result.code !== 0) throw new TypeError(`Commit ${name} does not exist.`);
+  return firstLine(result.stdout);
+}
+
+/** A snapshot is in use while its holder session is live, or its lease holder runs in another process. */
+async function snapshotHolderLive(record, live) {
+  if (record.holderSessionId && live.has(record.holderSessionId)) return true;
+  const lease = await readOwnerLease(record);
+  return !!lease && lease.pid !== process.pid && leaseProcessAlive(lease);
+}
+
+/**
  * `carryChanges` decides the project folder's uncommitted changes (tracked
  * and untracked, ignored excluded), judged under the repository lock:
  * omitted/null leaves them unexamined; `ask` refuses with
@@ -913,9 +988,12 @@ async function diskFullFailure(error, { needed, root }) {
  * untracked files. The result's `changes` (`{ mode: 'carried'|'left',
  * count, recoveryRef? }`) reports what happened to them; a carried move's
  * `recoveryRef` stays until dropCarryRecoveryRef / restoreCarriedChanges.
+ * `startCommit` (a new exact `branch` only) starts the branch at that
+ * commit-ish instead of the base branch's tip.
  * @param {{ projectPath: string, sessionId: string, runtimeToken: string, baseBranch?: string|null,
  *   nameHint?: string, confirmLarge?: boolean, txId: string, signal?: AbortSignal,
- *   carryChanges?: 'ask'|'leave'|'carry'|null }} input
+ *   carryChanges?: 'ask'|'leave'|'carry'|null, branch?: string|null, existingBranch?: boolean,
+ *   startCommit?: string|null }} input
  */
 export async function createManagedWorktree({
   projectPath,
@@ -929,9 +1007,13 @@ export async function createManagedWorktree({
   carryChanges = null,
   branch: requestedBranch = null,
   existingBranch = false,
+  startCommit = null,
 } = {}) {
   requireText(projectPath, 'projectPath');
   requireText(txId, 'txId');
+  if (startCommit !== null && (existingBranch || requestedBranch === null)) {
+    throw new TypeError('startCommit applies to a new exact branch only.');
+  }
   if (![null, 'ask', 'leave', 'carry'].includes(carryChanges)) {
     throw new TypeError('carryChanges must be ask, leave or carry.');
   }
@@ -970,30 +1052,22 @@ export async function createManagedWorktree({
       }
       mergeTarget = baseBranch;
     }
+    // A new branch at an explicit start point (`git worktree add -b <b> <path> <commit-ish>`).
+    if (startCommit) baseCommit = await resolveCommit(repo.projectPath, startCommit, signal);
 
     // The main checkout's local env files come along on their own;
     // `.worktreeinclude` applies on top.
     const includePlan = await planIncludes(repo.topLevel, await readIncludeEntries(repo.topLevel), {
       envFiles: await untrackedEnvFiles(repo.topLevel),
     });
-    const tracked = await trackedCheckoutBytes(repo.topLevel, baseCommit, { signal });
-    const contentBytes = tracked.bytes + includePlan.copyBytes;
-    const root = managedWorktreeRoot(repo.repoCommonDir);
-    const needed = requiredBytes(contentBytes);
-    const free = await config.freeBytes(root);
-    if (free < needed) {
-      throw worktreeError('WORKTREE_DISK_INSUFFICIENT', undefined, {
-        requiredBytes: needed,
-        freeBytes: free,
-        path: root,
-      });
-    }
-    if (settings.sizeWarnBytes > 0 && contentBytes > settings.sizeWarnBytes && confirmLarge !== true) {
-      throw worktreeError('WORKTREE_LARGE_REPO_CONFIRM', undefined, {
-        estimateBytes: contentBytes,
-        thresholdBytes: settings.sizeWarnBytes,
-      });
-    }
+    const { tracked, root, needed } = await assertCheckoutFits({
+      repo,
+      baseCommit,
+      extraBytes: includePlan.copyBytes,
+      settings,
+      confirmLarge,
+      signal,
+    });
     throwIfAborted(signal);
 
     const branches = new Set(
@@ -1085,11 +1159,9 @@ export async function createManagedWorktree({
       });
       throwIfAborted(signal);
       record.warnings = [...record.warnings, ...applied.warnings];
-      record.state = 'ready';
-      await putRecord(record);
       const made = (record.resources.includes || []).filter((item) => item.status === 'created');
       const rels = (predicate) => made.filter(predicate).map((item) => item.rel);
-      // What creation did, for the agent's note at the first turn (transitions.mjs).
+      // What creation did, for the agent's note at the first turn there (transitions.mjs).
       const prepared = {
         root: repo.topLevel,
         copied: rels((item) => item.mode === 'copy'),
@@ -1097,6 +1169,12 @@ export async function createManagedWorktree({
         dependencies: linkedDependencies,
         skipped: [...includePlan.warnings, ...applied.warnings],
       };
+      // Whichever path made it (a worktree task, a branch selection, `git
+      // worktree add`), the first turn a session runs here prepares its
+      // dependencies (claimWorktreeSetup).
+      record.setup = { pending: true, prepared };
+      record.state = 'ready';
+      await putRecord(record);
       return { ...entryView(record), prepared, ...(changes ? { changes } : {}) };
     } catch (error) {
       // Carried already: the changes go back to the project folder before the
@@ -1155,6 +1233,204 @@ export async function createManagedWorktree({
       };
       return (await insertRecord(candidate)) ? candidate : null;
     }
+  });
+}
+
+/**
+ * A read-only snapshot: a detached checkout of `commit` (any commit-ish of
+ * the repository) in the managed store, bound to no session. Its record
+ * (`kind: 'snapshot'`, `branch` and `ownerSessionId` null) names the session
+ * whose turn made it (`holderSessionId`, with an owner lease); it is removed
+ * when that turn settles (removeSessionSnapshots), when the session is
+ * deleted, and by the manual prune / startup reconcile once its holder is
+ * gone. No include copies, dependency links or carried changes: a snapshot
+ * only shows the commit. `txId` makes a retry return the same snapshot.
+ * @param {{ projectPath: string, sessionId: string, runtimeToken: string, commit?: string,
+ *   txId: string, confirmLarge?: boolean, signal?: AbortSignal }} input
+ */
+export async function createSnapshotWorktree({
+  projectPath,
+  sessionId,
+  runtimeToken,
+  commit = 'HEAD',
+  txId,
+  confirmLarge = false,
+  signal,
+} = {}) {
+  requireText(projectPath, 'projectPath');
+  requireText(txId, 'txId');
+  const holder = normalizeWorktreeOwner({ sessionId, runtimeToken, pid: process.pid });
+  throwIfAborted(signal);
+  const repo = await inspectRepo(projectPath, { signal });
+  return withRepoLock(repo.repoCommonDir, async () => {
+    const prior = findRecord(await readRegistry(), (record) => record.txId === txId);
+    if (prior) {
+      if (prior.kind !== WORKTREE_SNAPSHOT_KIND || prior.holderSessionId !== holder.sessionId) {
+        throw worktreeError('WORKTREE_REVISION_CONFLICT', 'This transaction belongs to another workspace.', { txId });
+      }
+      if (prior.state === 'ready') return entryView(prior);
+      const rollback = await rollbackCreation(prior);
+      if (!rollback.complete) {
+        throw worktreeError('WORKTREE_REVISION_CONFLICT', 'A previous snapshot is still being cleaned up; try again.', {
+          entryId: prior.id,
+          remaining: rollback.remaining,
+        });
+      }
+    }
+    const baseCommit = await resolveCommit(repo.projectPath, commit, signal);
+    const settings = await currentWorktreeSettings();
+    const { tracked, root, needed } = await assertCheckoutFits({ repo, baseCommit, settings, confirmLarge, signal });
+    throwIfAborted(signal);
+    let record = null;
+    for (let attempt = 0; attempt < 5 && !record; attempt++) {
+      const ids = new Set(Object.keys((await readRegistry()).entries).map((id) => id.toLowerCase()));
+      const slug = uniqueSlug(
+        `snapshot-${baseCommit.slice(0, 8)}`,
+        (candidate) => ids.has(candidate.toLowerCase()) || existsSync(join(root, candidate))
+      );
+      const candidate = {
+        id: slug,
+        txId,
+        kind: WORKTREE_SNAPSHOT_KIND,
+        repoCommonDir: repo.repoCommonDir,
+        projectPath: repo.projectPath,
+        projectSubdir: projectSubdirOf(repo.topLevel, repo.projectPath),
+        path: managedWorktreePath(repo.repoCommonDir, slug),
+        branch: null,
+        baseCommit,
+        mergeTarget: null,
+        createdAt: Date.now(),
+        ownerSessionId: null,
+        holderSessionId: holder.sessionId,
+        // No branch of its own: nothing is ever deleted from refs/heads.
+        existingBranch: true,
+        exactBranch: false,
+        state: 'creating',
+        disposable: true,
+        warnings: tracked.submodules ? ['submodules'] : [],
+        resources: { worktree: null, lock: null, owner: null, includes: [] },
+        deleting: null,
+        recovery: null,
+      };
+      if (await insertRecord(candidate)) record = candidate;
+    }
+    if (!record) throw worktreeError('WORKTREE_REVISION_CONFLICT', 'Could not reserve a worktree name; try again.');
+    try {
+      await mkdir(root, { recursive: true });
+      await setResource(record, 'worktree', 'pending');
+      await runGit(repo.projectPath, ['worktree', 'add', '--detach', record.path, baseCommit], {
+        signal,
+        timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+      });
+      await setResource(record, 'worktree', 'created');
+      throwIfAborted(signal);
+      await setResource(record, 'lock', 'pending');
+      await runGit(repo.projectPath, [
+        'worktree',
+        'lock',
+        '--reason',
+        `mixdog snapshot session=${holder.sessionId}`,
+        record.path,
+      ]);
+      await setResource(record, 'lock', 'created');
+      await setResource(record, 'owner', 'pending');
+      await writeOwnerLease(record, holder);
+      await setResource(record, 'owner', 'created');
+      record.state = 'ready';
+      await putRecord(record);
+      return entryView(record);
+    } catch (error) {
+      const rollback = await rollbackCreation(record, error);
+      const failure = isDiskFullError(error) ? await diskFullFailure(error, { needed, root }) : error;
+      if (!rollback.complete) failure.rollback = rollback;
+      throw failure;
+    }
+  });
+}
+
+/**
+ * Hold a snapshot's folder against its consumers on every deletion attempt,
+ * a resumed (`deleting`) one included: WORKTREE_BUSY_JOBS (`folder-in-use`)
+ * while any process's turn (a worker running there) or command (a background
+ * shell, a git tool call) holds a workspace lease inside it; otherwise no new
+ * one is admitted there until the returned release. A folder no longer a
+ * checkout admits no consumer (activity-gate tracks git checkouts only).
+ */
+function holdSnapshotFolder(record) {
+  if (!existsSync(join(record.path, '.git'))) return () => {};
+  return holdWorkspaceActivity([record.path]);
+}
+
+/** A refusal that only says "something still runs there" (retry once it ends). */
+function snapshotInUse(error) {
+  return (
+    error?.code === 'WORKTREE_BUSY_JOBS' &&
+    ['folder-in-use', 'workspace-admission-unreadable'].includes(error.details?.reason)
+  );
+}
+
+/**
+ * Remove snapshot `entryId` once nothing runs in it (removeManagedWorktree
+ * holds its folder); changes made in it only with `force`.
+ */
+export async function removeSnapshotWorktree({ entryId, force = false } = {}) {
+  const record = await getRecord(entryId);
+  if (record?.kind !== WORKTREE_SNAPSHOT_KIND) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  return removeManagedWorktree({ entryId, force });
+}
+
+/**
+ * Remove the snapshots `sessionId` holds (`txIds`: only the ones those
+ * creation transactions made — a settled turn's; an id alone could name a
+ * later snapshot reusing a freed slug), changes and all: snapshots are
+ * read-only by contract.
+ * One a worker or background shell still runs in is kept with reason
+ * `in-use` (its caller retries after they end); any other failure stays for
+ * the prune / startup reconcile.
+ * @param {string} sessionId
+ * @param {{ txIds?: string[]|null }} [options]
+ * @returns {Promise<{ removed: string[], kept: Array<{ id: string, txId: string, reason?: 'in-use', error?: string, remaining?: object[] }> }>}
+ */
+export async function removeSessionSnapshots(sessionId, { txIds = null } = {}) {
+  const report = { removed: [], kept: [] };
+  if (typeof sessionId !== 'string' || !sessionId) return report;
+  const only = txIds ? new Set(txIds) : null;
+  const held = Object.values((await readRegistry()).entries).filter(
+    (record) =>
+      record.kind === WORKTREE_SNAPSHOT_KIND &&
+      record.holderSessionId === sessionId &&
+      (!only || only.has(record.txId))
+  );
+  for (const record of held) {
+    const row = { id: record.id, txId: record.txId };
+    try {
+      const result = await removeSnapshotWorktree({ entryId: record.id, force: true });
+      if (result.removed) report.removed.push(record.id);
+      else report.kept.push({ ...row, remaining: result.remaining });
+    } catch (error) {
+      report.kept.push(
+        snapshotInUse(error) ? { ...row, reason: 'in-use' } : { ...row, error: String(error?.message || error) }
+      );
+    }
+  }
+  return report;
+}
+
+/**
+ * The first turn a session runs in managed worktree `entryId` claims its
+ * dependency preparation, once: `{ prepared }` (what creation did) while it
+ * is still pending, else null. Claimed before it runs, so a failed or
+ * cancelled preparation is never repeated.
+ */
+export async function claimWorktreeSetup(entryId) {
+  const record = await getRecord(entryId);
+  if (!record?.setup?.pending) return null;
+  return withRepoLock(record.repoCommonDir, async () => {
+    const current = await getRecord(entryId);
+    if (current?.state !== 'ready' || !current.setup?.pending) return null;
+    current.setup = { ...current.setup, pending: false, claimedAt: Date.now() };
+    await putRecord(current);
+    return { prepared: current.setup.prepared ?? null };
   });
 }
 
@@ -1558,16 +1834,28 @@ export async function removeManagedWorktree({
       const rollback = await rollbackCreation(current);
       return rollback.complete ? { removed: true } : { removed: false, retryable: true, remaining: rollback.remaining };
     }
-    if (current.state === 'ready') {
-      await assertRecoveryStoresClear(current);
-      await assertManagedCheckoutPath(current);
-      if (!force) await assertRemovable(current);
-      current.state = 'deleting';
-      current.deleting = { force: force === true, preserveBranch, safeOnly, startedAt: Date.now(), remaining: [] };
-      await putRecord(current);
+    // Every deletion attempt of a snapshot, a resumed one included, waits
+    // for (refuses on) its consumers.
+    const release = current.kind === WORKTREE_SNAPSHOT_KIND ? holdSnapshotFolder(current) : () => {};
+    try {
+      return await decideAndFinishDeletion(current, { force, preserveBranch, safeOnly });
+    } finally {
+      release();
     }
-    return finishDeletion(current);
   });
+}
+
+/** Mark a ready worktree `deleting` (after its guards), then finish the deletion. */
+async function decideAndFinishDeletion(current, { force, preserveBranch, safeOnly }) {
+  if (current.state === 'ready') {
+    await assertRecoveryStoresClear(current);
+    await assertManagedCheckoutPath(current);
+    if (!force) await assertRemovable(current);
+    current.state = 'deleting';
+    current.deleting = { force: force === true, preserveBranch, safeOnly, startedAt: Date.now(), remaining: [] };
+    await putRecord(current);
+  }
+  return finishDeletion(current);
 }
 
 /** A lease whose recorded process still runs. */
@@ -1587,12 +1875,17 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
   const retained = new Set(retainedSessionIds);
   const rows = [];
   for (const record of Object.values((await readRegistry()).entries)) {
-    const ownerLive =
-      (!!record.ownerSessionId && live.has(record.ownerSessionId)) || leaseProcessAlive(await readOwnerLease(record));
+    const snapshot = record.kind === WORKTREE_SNAPSHOT_KIND;
+    const ownerLive = snapshot
+      ? await snapshotHolderLive(record, live)
+      : (!!record.ownerSessionId && live.has(record.ownerSessionId)) ||
+        leaseProcessAlive(await readOwnerLease(record));
     const isRetained = !!record.ownerSessionId && retained.has(record.ownerSessionId);
-    let removable =
-      !record.sharedSessionIds?.length &&
-      (record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained)));
+    // A snapshot outlives no holder: the prune removes it, changes and all.
+    let removable = snapshot
+      ? !ownerLive
+      : !record.sharedSessionIds?.length &&
+        (record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained)));
     if (removable) {
       try {
         await assertRecoveryStoresClear(record);
@@ -1620,7 +1913,8 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
  * autoCleanup setting at startup; true for a manual prune) also removes
  * clean, merged worktrees that no stored session retains (or that a deleted
  * session left marked disposable) and whose owner is not live — never one a
- * session in the store still references.
+ * session in the store still references. A snapshot whose holder is neither
+ * live nor running in another process is removed in either mode.
  * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], removeOrphans?: boolean }} input
  */
 export async function reconcileManagedWorktrees({
@@ -1668,9 +1962,54 @@ export async function reconcileManagedWorktrees({
               else report.kept.push({ id: record.id, reason: 'recovery', remaining: result.remaining });
               continue;
             }
+            if (record.state === 'deleting' && record.kind === WORKTREE_SNAPSHOT_KIND) {
+              // An unfinished snapshot deletion: whatever entered the
+              // surviving folder since still keeps it.
+              let release;
+              try {
+                release = holdSnapshotFolder(record);
+              } catch (error) {
+                if (!snapshotInUse(error)) throw error;
+                report.kept.push({ id: record.id, reason: 'snapshot-in-use' });
+                continue;
+              }
+              try {
+                reportDeletion(record, await finishDeletion(record));
+              } finally {
+                release();
+              }
+              continue;
+            }
             if (record.state === 'deleting') {
               // A decided deletion: its session already left the folder.
               reportDeletion(record, await finishDeletion(record));
+              continue;
+            }
+            if (record.kind === WORKTREE_SNAPSHOT_KIND) {
+              // Read-only and turn-scoped: once its holder is gone it goes,
+              // whatever autoCleanup says and whatever was changed in it.
+              // A worker or background shell still running in it keeps it too.
+              let release = null;
+              if (!(await snapshotHolderLive(record, live))) {
+                try {
+                  release = holdSnapshotFolder(record);
+                } catch (error) {
+                  if (!snapshotInUse(error)) throw error;
+                }
+              }
+              if (!release) {
+                report.kept.push({ id: record.id, reason: 'snapshot-in-use' });
+                continue;
+              }
+              try {
+                await assertRecoveryStoresClear(record);
+                record.state = 'deleting';
+                record.deleting = { force: true, startedAt: Date.now(), remaining: [] };
+                await putRecord(record);
+                reportDeletion(record, await finishDeletion(record));
+              } finally {
+                release();
+              }
               continue;
             }
             const lease = await readOwnerLease(record);

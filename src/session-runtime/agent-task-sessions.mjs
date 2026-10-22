@@ -35,6 +35,8 @@ import { roomMemberOfSession } from '../runtime/agent/orchestrator/session/agent
 import { wrapAgentMessage } from '../runtime/shared/agent-message-envelope.mjs';
 import { sessionsWithPendingWork } from '../runtime/shared/pending-agent-work.mjs';
 import { agentTaskIdOfExecution } from './services/agent-tool/restart-notify.mjs';
+import { worktreeError, worktreeNameError } from '../runtime/shared/worktrees/contract.mjs';
+import { samePath } from '../runtime/shared/worktrees/paths.mjs';
 
 const TITLE_LIMIT = 60;
 
@@ -519,20 +521,68 @@ async function deliverWithRetries({ deliver, retryDelaysMs, log }, agentId, sess
   }
 }
 
-/** Start task session `sessionId` in its own worktree; a repo that cannot
- *  have one keeps the Project folder. */
-async function requestTaskWorktree(sessions, sessionId, title, requestId) {
+/** Where create's `worktree` option starts the task session: `{ mode }` is
+ *  'default' (the user's New task setting), 'branch' (the Project folder on its
+ *  current branch) or 'worktree' (its own new one, `name` optional). */
+function taskLocation(option) {
+  if (option === undefined || option === null) return { mode: 'default' };
+  if (typeof option !== 'object' || Array.isArray(option) || !['branch', 'worktree'].includes(option.mode)) {
+    throw new Error('session: worktree.mode must be "branch" or "worktree"');
+  }
+  if (option.name === undefined) return { mode: option.mode };
+  if (option.mode !== 'worktree') throw new Error('session: worktree.name applies only to mode "worktree"');
+  const reason = worktreeNameError(option.name);
+  if (reason) throw new Error(`session: worktree.name is invalid: ${reason}`);
+  return { mode: 'worktree', name: option.name };
+}
+
+const megabytes = (bytes) => `${Math.round(Number(bytes) / (1024 * 1024))} MB`;
+
+/** A typed worktree failure as the model should read it: its code and, for a
+ *  large repository, the size to put to the user. */
+function taskWorktreeFailure(error) {
+  const details = error?.details;
+  const size =
+    error?.code === 'WORKTREE_LARGE_REPO_CONFIRM' && Number.isFinite(details?.estimateBytes)
+      ? ` The repository is about ${megabytes(details.estimateBytes)} (warning threshold ${megabytes(details.thresholdBytes)}). Ask the user whether to create the worktree anyway; only if they confirm, call create again with confirm_large: true.`
+      : '';
+  return Object.assign(new Error(`session: ${error.code}: ${error.message}${size}`), {
+    code: error.code,
+    ...(details ? { details } : {}),
+  });
+}
+
+/** Start task session `sessionId` in its own worktree and return its workspace
+ *  value. A New task never carries the Project folder's changes. Unless
+ *  `explicit`, a repo that cannot have one keeps the Project folder (null).
+ *  The session must end up bound: the brief goes out only after it. */
+async function requestTaskWorktree(sessions, sessionId, { title, requestId, name, confirmLarge, explicit }) {
   try {
-    await sessions.configureSession(
+    const result = await sessions.configureSession(
       {
         sessionId,
         action: 'requestWorktree',
-        args: [{ provision: true, carryChanges: 'leave', prompt: title, txId: requestId }],
+        args: [
+          {
+            provision: true,
+            carryChanges: 'leave',
+            prompt: title,
+            txId: requestId,
+            ...(name ? { name } : {}),
+            ...(confirmLarge ? { confirmLarge: true } : {}),
+          },
+        ],
       },
       { revision: 1 }
     );
+    const value = result?.value;
+    if (value?.pending !== false || typeof value.workspace?.worktreeId !== 'string') {
+      throw worktreeError('WORKTREE_NOT_IMPLEMENTED', 'The session did not enter its worktree before the brief.');
+    }
+    return value;
   } catch (error) {
-    if (error?.code !== 'WORKTREE_UNSUPPORTED_REPO') throw error;
+    if (!explicit && error?.code === 'WORKTREE_UNSUPPORTED_REPO') return null;
+    throw typeof error?.code === 'string' && error.code.startsWith('WORKTREE_') ? taskWorktreeFailure(error) : error;
   }
 }
 
@@ -904,7 +954,18 @@ export function createAgentTaskSessions({
     if (!callerAgentId) throw new Error('session: create is only for an agent conversation');
     const brief = typeof args.brief === 'string' ? args.brief.trim() : '';
     if (!brief) throw new Error('session: brief is required for action=create');
-    const where = resolveTaskProject(args.project, { projects: await listProjects(), cwd: callerCwd || process.cwd() });
+    const location = taskLocation(args.worktree);
+    const projects = await listProjects();
+    const where = resolveTaskProject(args.project, { projects, cwd: callerCwd || process.cwd() });
+    // An explicit worktree is never silently dropped: it needs a registered Project.
+    const registered = where.project && projects.some((entry) => samePath(entry.path, where.project.path));
+    if (location.mode === 'worktree' && !registered) {
+      throw taskWorktreeFailure(
+        worktreeError('WORKTREE_PROJECT_UNKNOWN', 'A worktree needs a registered Project; run list-projects.', {
+          projectPath: where.project?.path ?? null,
+        })
+      );
+    }
     const requestId = `atask_${randomUUID()}`;
     const title = (clean(args.title) || clean(brief.split('\n')[0])).slice(0, TITLE_LIMIT);
     const taskOrigin = {
@@ -930,9 +991,26 @@ export function createAgentTaskSessions({
     });
     const sessionId = String(created?.sessionId || '');
     if (!sessionId) throw new Error('session: task session creation returned no session id');
-    // The user's New task default: a Project task starts in its own worktree.
-    if (where.project && (await newTaskDefault()) === 'worktree') {
-      await requestTaskWorktree(sessions, sessionId, title, requestId);
+    // Where it starts: the `worktree` option, else the user's New task default.
+    const explicit = location.mode === 'worktree';
+    const inWorktree =
+      explicit || (location.mode === 'default' && where.project && (await newTaskDefault()) === 'worktree');
+    if (inWorktree) {
+      try {
+        await requestTaskWorktree(sessions, sessionId, {
+          title,
+          requestId,
+          name: location.name,
+          confirmLarge: args.confirm_large === true,
+          explicit,
+        });
+      } catch (error) {
+        // Nothing was sent: drop the empty session so a retry starts clean.
+        await sessions
+          .configureSession({ sessionId, action: 'deleteSession', args: [sessionId] }, { revision: 1 })
+          .catch((deleteError) => log(`dropping ${sessionId} failed: ${deleteError?.message || deleteError}`));
+        throw error;
+      }
     }
     // "Started" lands in the home before any report of the brief's turn.
     let started = () => {};

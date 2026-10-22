@@ -95,6 +95,59 @@ test('send, cancel and delete call existing addressed service operations', async
   ]);
 });
 
+test('worktree control reaches another session through the read and configure lanes, never the caller', async () => {
+  const h = fixture();
+  const context = { callerSessionId: 'caller', callerScope: { kind: 'human', attended: true } };
+  await h.execute({ action: 'worktree', session_id: 'target', method: 'getBranchMenu' }, context);
+  assert.deepEqual(h.calls.at(-1), ['read', { sessionId: 'target', action: 'getBranchMenu', args: [] }]);
+  const input = { confirmed: true, target: 'main', expectedRevision: 3, cleanup: true };
+  assert.equal(
+    await h.execute({ action: 'worktree', session_id: 'target', method: 'mergeWorkspace', input }, context),
+    true
+  );
+  // One input, never an ownTurn allowance: the target must be idle.
+  assert.deepEqual(h.calls.at(-1), [
+    'configure',
+    { sessionId: 'target', action: 'mergeWorkspace', args: [input] },
+    { revision: 1 },
+  ]);
+  const calls = h.calls.length;
+  await assert.rejects(
+    h.execute({ action: 'worktree', session_id: 'caller', method: 'removeWorktree' }, context),
+    /must target another session/
+  );
+  await assert.rejects(
+    h.execute({ action: 'worktree', session_id: 'target', method: 'deleteSession' }, context),
+    /unsupported worktree method/
+  );
+  assert.equal(h.calls.length, calls);
+});
+
+test('worktree control changes another session only for a conversation caller; the menu read stays open', async () => {
+  const h = fixture();
+  const unattended = [
+    undefined,
+    { kind: 'headless', attended: false },
+    { kind: 'agent', agentId: 'reviewer', unattended: true, attended: false },
+    { kind: 'room-member', agentId: 'gh', attended: false },
+  ];
+  for (const callerScope of unattended) {
+    const context = { callerSessionId: 'caller', callerScope };
+    for (const method of ['requestWorktree', 'selectBranch', 'mergeWorkspace', 'removeWorktree']) {
+      await assert.rejects(
+        h.execute({ action: 'worktree', session_id: 'target', method, input: {} }, context),
+        /only in a conversation session/,
+        `${method} ${JSON.stringify(callerScope)}`
+      );
+    }
+    await h.execute({ action: 'worktree', session_id: 'target', method: 'getBranchMenu' }, context);
+  }
+  assert.deepEqual(
+    h.calls.map((call) => call[0]),
+    unattended.map(() => 'read')
+  );
+});
+
 test("a bot's send to a session it did not create reports the turn to its home and wakes it", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'session-control-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

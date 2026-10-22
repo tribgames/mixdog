@@ -573,6 +573,15 @@ function gitStageUnit(a) {
   });
 }
 
+function gitWorktreeUnit(a) {
+  return unitDescriptor('Git', {
+    active: 'Managing',
+    done: 'Managed',
+    noun: 'worktree',
+    effect: String(a.worktree_action || '').toLowerCase() !== 'list',
+  });
+}
+
 function cwdUnit(a) {
   const action = String(a.action || a.type || '').toLowerCase();
   // A bare `path` selects that Project even when action is omitted.
@@ -603,14 +612,6 @@ function cwdUnit(a) {
     else words = off ? ['Unarchiving', 'Unarchived'] : ['Archiving', 'Archived'];
     const [active, done] = words;
     return unitDescriptor('Setup', { active, done, noun: 'session', effect: true });
-  }
-  if (action.endsWith('-worktree') || action.endsWith('-worktrees')) {
-    return unitDescriptor('Setup', {
-      active: 'Managing',
-      done: 'Managed',
-      noun: 'worktree',
-      effect: !action.startsWith('list'),
-    });
   }
   if (action === 'status') {
     return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'session' });
@@ -715,7 +716,9 @@ const TOOL_UNITS = new Map([
     (a) =>
       a.action === 'stage'
         ? gitStageUnit(a)
-        : unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' }),
+        : a.action === 'worktree'
+          ? gitWorktreeUnit(a)
+          : unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' }),
   ],
   ['github', githubUnit],
   // Preserve the staging work unit when rendering historical transcripts.

@@ -34,6 +34,8 @@ import {
   createContextStatus,
 } from '../../runtime/agent/orchestrator/runtime-core/context-status.mjs';
 import { createInternalToolExecutor } from '../internal-tool-executor.mjs';
+import { registerWorktreeToolHost } from '../../runtime/shared/worktrees/tool-host.mjs';
+import { createWorktreeToolHost } from '../workspace/worktree-tool.mjs';
 import { STANDALONE_ROOT, standaloneDataDir } from '../runtime-paths.mjs';
 import { dataDirOf, workflowHelpers } from './shared.mjs';
 
@@ -261,5 +263,23 @@ function wireInternalTools(boot) {
       executeSessionControl: boot.params.executeSessionControl,
     }),
   });
-  Object.assign(boot, { setupTool, disposeInternalTools });
+  // The git tool's managed-worktree operations reach this Lead's workspace
+  // authority (late-bound like the internal tools) through this host.
+  const disposeWorktreeToolHost = registerWorktreeToolHost({
+    sessionId: () => rt.session?.id || null,
+    run: createWorktreeToolHost({
+      getSession: () => rt.session,
+      getWorkspaceApi: () => boot.workspaceApi || null,
+      executeSessionControl: boot.params.executeSessionControl || null,
+    }).run,
+  });
+  Object.assign(boot, {
+    setupTool,
+    disposeInternalTools: () => {
+      disposeWorktreeToolHost();
+      // Its turn snapshot cleanups stop with the runtime (maintenance finishes them).
+      boot.workspaceApi?.dispose();
+      disposeInternalTools();
+    },
+  });
 }

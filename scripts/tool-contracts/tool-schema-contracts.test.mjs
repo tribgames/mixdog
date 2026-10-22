@@ -463,29 +463,36 @@ test('session and memory schemas stay minimal and direct', () => {
     SESSION_TOOL.annotations?.agentHidden !== true ||
     SESSION_TOOL.annotations?.destructiveHint !== true ||
     !/exact ID, never a guessed one/i.test(SESSION_TOOL.description || '') ||
-    !/Cancel\/delete and worktree actions require the user/i.test(SESSION_TOOL.description || '') ||
+    !/Cancel\/delete require the user/i.test(SESSION_TOOL.description || '') ||
+    !/initial location/i.test(SESSION_TOOL.description || '') ||
+    !/git tool’s action:"worktree"/.test(SESSION_TOOL.description || '') ||
     !/Shell cd does not switch Project/i.test(sessionProps.path?.description || '') ||
     Object.keys(sessionProps).join(',') !==
-      'action,title,session_id,prompt,to,limit,cursor,include_agents,include_archived,offset,text_offset,item_id,path,compact,force,value,brief,project,model,notify,attachments' ||
+      'action,title,session_id,prompt,to,limit,cursor,include_agents,include_archived,offset,text_offset,item_id,path,compact,value,brief,project,worktree,confirm_large,model,notify,attachments' ||
+    sessionProps.worktree?.type !== 'object' ||
+    sessionProps.worktree?.additionalProperties !== false ||
+    sessionProps.worktree?.required?.join(',') !== 'mode' ||
+    sessionProps.worktree?.properties?.mode?.enum?.join(',') !== 'branch,worktree' ||
+    sessionProps.worktree?.properties?.name?.type !== 'string' ||
+    sessionProps.confirm_large?.type !== 'boolean' ||
     sessionProps.to?.type !== 'string' ||
     !/group room \(sess_room_\*\)/.test(sessionProps.to?.description || '') ||
     sessionProps.include_agents?.type !== 'boolean' ||
     sessionProps.include_archived?.type !== 'boolean' ||
     sessionProps.attachments?.type !== 'array' ||
     sessionProps.action?.enum?.join(',') !==
-      'status,list,bots,read,send,cancel,delete,create,rename,compact,fork,set-project,list-projects,favorite,archive,merge-worktree,remove-worktree,list-worktrees,prune-worktrees' ||
+      'status,list,bots,read,send,cancel,delete,create,rename,compact,fork,set-project,list-projects,favorite,archive' ||
     !/cannot target the caller/i.test(sessionProps.session_id?.description || '') ||
     sessionProps.limit?.minimum !== 1 ||
     sessionProps.limit?.maximum !== 100 ||
     sessionProps.path?.minLength !== undefined ||
     sessionProps.path?.type !== 'string' ||
     sessionProps.compact?.type !== 'boolean' ||
-    sessionProps.force?.type !== 'boolean' ||
     sessionProps.value?.type !== 'boolean' ||
     SESSION_TOOL.inputSchema?.additionalProperties !== false
   ) {
     throw new Error(
-      'session schema must expose session lookup/control by exact id, status/rename/compact/fork, the Project and worktree actions'
+      'session schema must expose session lookup/control by exact id, status/rename/compact/fork, the Project action and create’s initial worktree location'
     );
   }
   const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');

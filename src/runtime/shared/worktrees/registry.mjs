@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { readJsonState, readJsonStateSync, updateJsonAtomic } from '../atomic-file.mjs';
 import { isPlainObject } from '../object.mjs';
 import { resolvePluginData } from '../plugin-paths.mjs';
-import { normalizeWorktreeEntry, WORKTREE_STORE_DIR } from './contract.mjs';
+import { normalizeWorktreeEntry, WORKTREE_SNAPSHOT_KIND, WORKTREE_STORE_DIR } from './contract.mjs';
 
 const REGISTRY_VERSION = 1;
 
@@ -106,5 +106,7 @@ export function entryView(record) {
     mergeTarget: record.mergeTarget ?? null,
     warnings: Array.isArray(record.warnings) ? [...record.warnings] : [],
     disposable: record.disposable === true,
+    // The session whose turn made a snapshot (it is removed when that turn settles).
+    ...(record.kind === WORKTREE_SNAPSHOT_KIND ? { holderSessionId: record.holderSessionId ?? null } : {}),
   };
 }

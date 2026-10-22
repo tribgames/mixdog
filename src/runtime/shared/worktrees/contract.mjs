@@ -265,12 +265,18 @@ export function nextRevision(workspace) {
  * @property {string} repoCommonDir
  * @property {string} projectPath
  * @property {string} path Absolute worktree folder (see managedWorktreePath).
- * @property {string} branch Full branch name, e.g. "mixdog/fix-login".
+ * @property {string|null} branch Full branch name, e.g. "mixdog/fix-login"; null only for a snapshot.
  * @property {string|null} baseCommit
  * @property {number} createdAt Epoch milliseconds.
- * @property {string|null} ownerSessionId Lead session that retains it; null once released.
+ * @property {string|null} ownerSessionId Lead session that retains it; null once released (and for a snapshot).
  * @property {WorktreeEntryState} state
+ * @property {'snapshot'} [kind] A read-only detached checkout of `baseCommit`
+ *   (WORKTREE_SNAPSHOT_KIND): no branch, bound to no session, removed with
+ *   the turn that made it.
  */
+
+/** `kind` of a managed read-only snapshot: a detached checkout no session works in. */
+export const WORKTREE_SNAPSHOT_KIND = 'snapshot';
 
 /**
  * @param {unknown} input
@@ -284,16 +290,18 @@ export function normalizeWorktreeEntry(input) {
   const id = text(value.id, 'worktree.id');
   const idError = worktreeNameError(id);
   if (idError) throw new TypeError(`worktree.id is invalid: ${idError}`);
+  const snapshot = value.kind === WORKTREE_SNAPSHOT_KIND;
   return {
     id,
     repoCommonDir: text(value.repoCommonDir, 'worktree.repoCommonDir'),
     projectPath: text(value.projectPath, 'worktree.projectPath'),
     path: text(value.path, 'worktree.path'),
-    branch: text(value.branch, 'worktree.branch'),
+    branch: snapshot ? nullableText(value.branch, 'worktree.branch') : text(value.branch, 'worktree.branch'),
     baseCommit: nullableCommit(value.baseCommit, 'worktree.baseCommit'),
     createdAt: value.createdAt,
     ownerSessionId: nullableText(value.ownerSessionId, 'worktree.ownerSessionId'),
     state: oneOf(value.state, WORKTREE_ENTRY_STATES, 'worktree.state'),
+    ...(snapshot ? { kind: WORKTREE_SNAPSHOT_KIND } : {}),
   };
 }
 

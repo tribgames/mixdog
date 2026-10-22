@@ -9,6 +9,10 @@ import { withBuiltinPathLocks } from './path-locks.mjs';
 import { withAdvisoryLocks } from './advisory-lock.mjs';
 import { gitRepoLockKey, withGitWorktreeWriteLock } from './git-repo-rw-lock.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
+import { tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { WORKTREE_SNAPSHOT_KIND } from '../../../../shared/worktrees/contract.mjs';
+import { isWithin } from '../../../../shared/worktrees/paths.mjs';
+import { readRegistrySync } from '../../../../shared/worktrees/registry.mjs';
 import { runAbortable } from '../../../../shared/abort-race.mjs';
 import { sleep } from '../../../../shared/sleep.mjs';
 import { capMarker } from '../../../../shared/tool-output-marker.mjs';
@@ -27,6 +31,12 @@ import {
   diffSnapshotMatches,
   getDiffSnapshot,
 } from './git-partial-stage.mjs';
+import {
+  executeRawWorktree,
+  executeWorktreeAction,
+  WORKTREE_INPUT_FIELDS,
+  WORKTREE_TOOL_ACTIONS,
+} from './git-worktree-tool.mjs';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
@@ -85,14 +95,15 @@ export const GIT_TOOL_DEF = {
     compressible: true,
   },
   description:
-    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts.',
+    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree (Lead only) moves a session into/out of its managed worktree, merges, removes, lists, prunes; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks; carry and large-size answers come from the user; force only on explicit request.',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['command', 'stage'],
-        description: 'Default command. stage uses diff_id/change_ids instead of command.',
+        enum: ['command', 'stage', 'worktree'],
+        description:
+          'Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields.',
       },
       command: {
         anyOf: [
@@ -119,6 +130,29 @@ export const GIT_TOOL_DEF = {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 50 }],
         description: 'stage: exact change ID or IDs to stage, including new files.',
       },
+      worktree_action: {
+        type: 'string',
+        enum: [...WORKTREE_TOOL_ACTIONS],
+        description:
+          'enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune.',
+      },
+      session_id: {
+        type: 'string',
+        description: 'enter/return/merge/remove: another session (it must be idle); default the caller.',
+      },
+      name: { type: 'string', description: 'enter: the new worktree name (branch <prefix><name>).' },
+      branch: { type: 'string', description: 'enter: use the worktree of this branch instead.' },
+      create: { type: 'boolean', description: 'enter with branch: create that branch.' },
+      carry: {
+        type: 'string',
+        enum: ['leave', 'carry'],
+        description: 'enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes).',
+      },
+      confirm_large: {
+        type: 'boolean',
+        description: 'enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size.',
+      },
+      force: { type: 'boolean', description: 'remove: discard dirty/unmerged work; only on explicit user request.' },
     },
     additionalProperties: false,
   },
@@ -775,26 +809,14 @@ function creationTarget(plan) {
 // --prune=now as unsafe beside a concurrent writer), so these hold the whole
 // repository.
 const REPO_WIDE_OPERATIONS = new Set(['gc', 'maintenance', 'prune', 'prune-packed', 'repack']);
-const WORKTREE_VALUE_FLAGS = new Set(['-b', '-B', '--reason']);
 
 // The worktrees a mutating plan touches; null holds the whole repository. A
-// write changes its cwd's worktree, except that `git worktree add/remove/move`
-// change the target worktree (plus the shared admin dir, which git itself
-// guards), so writes on different worktrees never wait for each other.
+// write changes its cwd's worktree, so writes on different worktrees never
+// wait for each other. (`git worktree` never runs as a git write here: it
+// maps to managed operations, which take the repository lock themselves.)
 function writeScopes(plan, root) {
   if (REPO_WIDE_OPERATIONS.has(plan.operation)) return null;
-  if (plan.operation !== 'worktree') return [root];
-  const [action, ...paths] = optionFreePositionals(plan.args, WORKTREE_VALUE_FLAGS);
-  const target = (path) => resolve(plan.cwd, path);
-  // git also names a worktree by a unique path suffix, which no cwd-relative
-  // path resolves; an argument that is not a worktree here holds the whole
-  // repository instead of guessing (so do prune and an argument-less repair).
-  const existing = (path) => (existsSync(join(target(path), '.git')) ? target(path) : null);
-  let scopes = null;
-  if (action === 'add') scopes = paths.slice(0, 1).map(target);
-  else if (action === 'move' && paths.length === 2) scopes = [existing(paths[0]), target(paths[1])];
-  else if (['remove', 'lock', 'unlock', 'repair'].includes(action)) scopes = paths.map(existing);
-  return scopes?.length && scopes.every(Boolean) ? scopes : null;
+  return [root];
 }
 
 // A mutating git call holds the in-process and cross-process locks on its
@@ -814,6 +836,34 @@ function withGitWriteLocks(lockKey, scopes, root, signal, callback) {
     () => withGitMutationLocks(scopes || [root], () => callback(Date.now() - started)),
     { signal }
   );
+}
+
+// The managed snapshot worktree `repo` lies in, else null. A registry that
+// cannot be read names none: commands elsewhere run as before.
+function snapshotContaining(repo) {
+  let entries;
+  try {
+    entries = readRegistrySync().entries;
+  } catch {
+    return null;
+  }
+  return (
+    Object.values(entries).find(
+      (record) => record?.kind === WORKTREE_SNAPSHOT_KIND && typeof record.path === 'string' && isWithin(record.path, repo)
+    ) ?? null
+  );
+}
+
+// A command run in a snapshot worktree is one of its consumers: the workspace
+// lease it holds (activity-gate, the same as a background shell's) keeps the
+// snapshot from being removed in any process until it ends, and a snapshot
+// whose removal is under way refuses it. Returns the release.
+function admitSnapshotCommand(repo, sessionId) {
+  const snapshot = snapshotContaining(repo);
+  if (!snapshot) return () => {};
+  const leave = tryAdmitWorkspaceActivity(sessionId || 'git-tool', repo, { kind: 'command' });
+  if (!leave) throw new Error(`the snapshot worktree ${snapshot.path} is being removed; nothing ran`);
+  return leave;
 }
 
 function invalidateAfterGitMutation() {
@@ -932,6 +982,15 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   } catch (error) {
     return rejected(error.message);
   }
+  // No unmanaged worktree is ever made here: worktree commands run as their
+  // managed operations (git-worktree-tool.mjs); only `list --porcelain` stays git.
+  if (plan.operation === 'worktree') {
+    const mapped = await executeRawWorktree(plan, input, options);
+    if (mapped) {
+      if (!isReadOnly(plan)) invalidateAfterGitMutation();
+      return mapped;
+    }
+  }
   if (
     plan.operation === 'archive' &&
     !plan.args.some((value) => value === '-o' || value === '--output' || value.startsWith('--output='))
@@ -967,6 +1026,23 @@ async function executeSingleGitTool(input, workDir, options = {}) {
     const missing = probe ?? (await runGit(plan, ['rev-parse', '--show-toplevel'], { signal }));
     return commandResult(plan, missing, limit);
   }
+  // A command in a snapshot worktree uses it like a worker would: it holds a
+  // workspace lease there while it runs, so the snapshot is never removed
+  // under it, and a snapshot being removed refuses it.
+  let leaveSnapshot;
+  try {
+    leaveSnapshot = admitSnapshotCommand(repo, options.sessionId);
+  } catch (error) {
+    return rejected(error.message);
+  }
+  try {
+    return await runInRepository(input, plan, { repo, lockKey, limit, signal, workDir });
+  } finally {
+    leaveSnapshot();
+  }
+}
+
+async function runInRepository(input, plan, { repo, lockKey, limit, signal, workDir }) {
   const prepared = prepare(plan);
   const stageableRequest = plan.operation === 'diff' && (plan.args.length === 0 || plan.args[0] === '--');
   if (stageableRequest) prepared.argv.splice(1, 0, '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/');
@@ -995,6 +1071,9 @@ async function executeSingleGitTool(input, workDir, options = {}) {
     return commandResult(plan, result, limit);
   }
   return withGitWriteLocks(lockKey, writeScopes(plan, repo), repo, signal, async (waitedMs) => {
+    // A managed removal holds the same folder lock while it deletes: once it
+    // is ours, a folder that is gone was removed, and nothing runs there.
+    if (!existsSync(repo)) return rejected(`the worktree folder ${repo} was removed meanwhile; nothing ran`);
     const result = await runGitWrite(plan, prepared.argv, { signal });
     invalidateAfterGitMutation();
     const rendered = commandResult(plan, result, limit);
@@ -1082,13 +1161,23 @@ export async function executeGitTool(rawInput, workDir, options = {}) {
   if (rawInput.change_ids !== undefined) input.change_ids = parseStringifiedArray(rawInput.change_ids);
   if (rawInput.command === undefined) delete input.command;
   const action = input.action ?? 'command';
+  if (action === 'worktree') {
+    const text = await executeWorktreeAction(input, workDir, options);
+    if (input.worktree_action !== 'list') invalidateAfterGitMutation();
+    return text;
+  }
+  const worktreeField = WORKTREE_INPUT_FIELDS.find((field) => input[field] !== undefined);
+  if (worktreeField) return fail(`git ${worktreeField} requires action:worktree`);
+  if (input.confirm_large !== undefined && action !== 'command') {
+    return fail('git confirm_large applies to action:worktree or a git worktree add command');
+  }
   if (action === 'stage') {
     if (input.command !== undefined || input.include_stage_ids !== undefined) {
       return fail('git action:stage accepts diff_id/change_ids, not command/include_stage_ids');
     }
     return executeGitStage(input, workDir, options);
   }
-  if (action !== 'command') return fail('git action must be command or stage');
+  if (action !== 'command') return fail('git action must be command, stage or worktree');
   if (input.diff_id !== undefined || input.change_ids !== undefined) {
     return fail('git diff_id/change_ids require action:stage');
   }
