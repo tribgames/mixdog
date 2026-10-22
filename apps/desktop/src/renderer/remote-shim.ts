@@ -51,9 +51,9 @@ import { installRemoteSync } from './remote-shim-sync';
 })();
 
 async function begin(ctx: ReturnType<typeof createRemoteShimContext>): Promise<void> {
-  // A browser tab always gets the install guide. A desktop-installed PWA is
-  // also guide-only: only an installed phone/tablet app may hold a credential
-  // and dial the relay.
+  // A surface that holds no credential yet (a browser tab before its first
+  // approval) asks the PC for approval directly; once approved it is marked and
+  // dials like an installed app.
   const installed = isInstalledMobileWebAppSurface();
   // The OS may have trimmed localStorage and kept IndexedDB.
   if (installed && (!ctx.token || !ctx.e2eePairing)) await ctx.restoreDurablePairing();

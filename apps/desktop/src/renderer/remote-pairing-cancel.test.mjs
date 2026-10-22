@@ -26,7 +26,6 @@ test('cancel while an approved answer is in flight stores no credential and stay
   const reply = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
   const fakeFetch = (url, init = {}) => {
     const path = new URL(String(url), 'https://relay.example').pathname;
-    if (path === '/pair-code/support') return reply({ online: true, pairV2: true });
     if (path === '/claim' && init.method === 'POST') {
       publicKey = JSON.parse(init.body).publicKey;
       return reply({ claimId: 'c1' }, 202);
@@ -93,7 +92,6 @@ test('pairing completes on engines without AbortSignal.any (Chrome < 116, Safari
   const reply = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
   const fakeFetch = async (url, init = {}) => {
     const path = new URL(String(url), 'https://relay.example').pathname;
-    if (path === '/pair-code/support') return reply({ online: true, pairV2: true });
     if (path === '/claim' && init.method === 'POST') {
       publicKey = JSON.parse(init.body).publicKey;
       return reply({ claimId: 'c1' }, 202);

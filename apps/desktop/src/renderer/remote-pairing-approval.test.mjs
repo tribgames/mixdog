@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { VirtualConsole } from 'jsdom';
+
 import { sealRelayE2EEPairingMaterial } from '../shared/remote-e2ee.ts';
 import { installTestDom } from './test-support/test-dom.mjs';
 
@@ -258,8 +260,14 @@ test('a boot whose saved sign-in vanished asks the user instead of filing a clai
 });
 
 /** The approval loop against a fake relay; `poll` answers each claim poll. */
-async function runApproval(t, poll) {
+async function runApproval(t, poll, { support, deviceId = 'abc', installed = false } = {}) {
   const claims = [];
+  const supportCalls = [];
+  const fetchCalls = [];
+  const navigations = [];
+  const virtualConsole = new VirtualConsole();
+  // jsdom cannot navigate: an attempted move to another path is reported here.
+  virtualConsole.on('jsdomError', (error) => navigations.push(error.message));
   let publicKey = '';
   const reply = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
   const approved = async () => ({
@@ -269,7 +277,11 @@ async function runApproval(t, poll) {
   });
   const fakeFetch = async (url, init = {}) => {
     const path = new URL(String(url), 'https://relay.example').pathname;
-    if (path === '/pair-code/support') return reply({ online: true, pairV2: true });
+    fetchCalls.push(path);
+    if (path === '/pair-code/support') {
+      supportCalls.push(path);
+      return support(init);
+    }
     if (path === '/claim' && init.method === 'POST') {
       publicKey = JSON.parse(init.body).publicKey;
       claims.push(publicKey);
@@ -277,15 +289,16 @@ async function runApproval(t, poll) {
     }
     return reply(await poll(path, approved));
   };
-  const { document } = installTestDom(t, {
-    jsdom: { url: 'https://relay.example/d/abc/' },
+  const { document, window } = installTestDom(t, {
+    jsdom: { url: 'https://relay.example/d/abc/', virtualConsole },
     expose: ['localStorage', 'location', 'navigator'],
     globals: { fetch: fakeFetch },
   });
+  if (installed) window.localStorage.setItem('mixdog.directBrowser', '1');
   const { createRemotePairingScreen } = await import('./remote-pairing-screen.ts');
   let accepted = 0;
   createRemotePairingScreen({
-    deviceId: 'abc',
+    deviceId,
     claimStorageKey: 'claim',
     serverBase: () => 'https://relay.example',
     clientId: () => 'client',
@@ -296,8 +309,48 @@ async function runApproval(t, poll) {
     verifyConnection: () => Promise.resolve(),
   })('', true);
   t.after(() => document.getElementById('mixdog-remote-pairing')?.remove());
-  return { claims, accepted: () => accepted, document };
+  return { claims, accepted: () => accepted, document, supportCalls, fetchCalls, navigations };
 }
+
+const pending = async () => ({ status: 'pending' });
+
+for (const [name, answer] of [
+  ['429', () => Promise.resolve(new Response('{}', { status: 429, headers: { 'Retry-After': '1' } }))],
+  ['404', () => Promise.resolve(new Response('{}', { status: 404 }))],
+  ['a probe that never answers', () => new Promise(() => undefined)],
+  ['a network error', () => Promise.reject(new TypeError('Failed to fetch'))],
+]) {
+  test(`a browser tab asks its PC directly and never probes support (${name})`, async (t) => {
+    const run = await runApproval(t, pending, { support: answer });
+    await until(() => run.claims.length === 1);
+    await until(() => run.document.querySelector('.mxp-title')?.textContent === 'Allow it on your PC');
+    assert.equal(run.document.querySelector('.mxp-step'), null, 'no install steps');
+    assert.deepEqual(
+      [...run.document.querySelectorAll('.mxp-actions button')].map((b) => b.dataset.role),
+      ['cancel']
+    );
+    assert.deepEqual(run.supportCalls, [], 'the support endpoint is not called');
+    assert.deepEqual(run.navigations, []);
+  });
+}
+
+test('a browser tab with no deviceId goes to the code entry page and paints nothing', async (t) => {
+  const run = await runApproval(t, pending, { deviceId: '' });
+  await until(() => run.navigations.some((message) => /navigation/iu.test(message)));
+  assert.equal(run.document.getElementById('mixdog-remote-pairing'), null);
+  assert.deepEqual(run.fetchCalls, [], 'nothing is asked of the relay');
+});
+
+test('an installed surface still asks directly, and without a deviceId still reports instead of navigating', async (t) => {
+  const asking = await runApproval(t, pending, { installed: true });
+  await until(() => asking.claims.length === 1);
+  assert.equal(asking.document.querySelector('.mxp-title').textContent, 'Allow it on your PC');
+  assert.deepEqual(asking.supportCalls, []);
+  const empty = await runApproval(t, pending, { installed: true, deviceId: '' });
+  await until(() => empty.document.querySelector('.mxp-title')?.textContent === 'Connection failed');
+  assert.deepEqual(empty.navigations, []);
+  assert.deepEqual(empty.fetchCalls, []);
+});
 
 test('a claim the relay no longer knows is filed again on its own', async (t) => {
   const run = await runApproval(t, async (path, approved) =>

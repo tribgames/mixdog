@@ -11,12 +11,7 @@ import {
 } from '../shared/remote-e2ee';
 import { earlyUiT } from './early-ui-i18n';
 import { nativeAppInfo } from '../shared/native-app';
-import {
-  isInstalledMobileWebAppSurface,
-  isIOSWebSurface,
-  isMobileDeviceSurface,
-  markDirectBrowserSurface,
-} from './mobile-surface';
+import { isInstalledMobileWebAppSurface, isIOSWebSurface, markDirectBrowserSurface } from './mobile-surface';
 import { browserProfile } from './remote-browser-identity';
 import { isRemoteClientCredential } from './remote-pairing-recovery';
 
@@ -49,30 +44,6 @@ const takeTicketFromAddress = (): void => {
   }
 };
 
-/** Whether this host takes a browser tab directly (pairing v2). An old host
- *  keeps the install gate; one that is offline right now cannot say, and the
- *  approval loop waits for it to come back. */
-const hostAllowsDirectBrowser = async (deviceId: string, base: string): Promise<boolean> => {
-  if (!deviceId) return false;
-  const url = `${new URL('/pair-code/support', base).toString()}?deviceId=${encodeURIComponent(deviceId)}`;
-  try {
-    // The relay throttles this probe (429): wait out a short Retry-After once
-    // instead of dropping a capable host to the install guide. Only
-    // online/pairV2 are read — the host name is no longer served here.
-    let response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    if (response.status === 429) {
-      const seconds = Number(response.headers.get('Retry-After'));
-      await new Promise((done) => window.setTimeout(done, Math.min(Number.isFinite(seconds) ? seconds : 1, 3) * 1_000));
-      response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    }
-    if (!response.ok) return false;
-    const body = (await response.json()) as { online?: unknown; pairV2?: unknown };
-    return body.online !== true || body.pairV2 === true;
-  } catch {
-    return false;
-  }
-};
-
 /** What the pairing screen is told while a request runs; it paints one step per event. */
 type PairingEvent =
   | { kind: 'waiting' }
@@ -101,19 +72,12 @@ const networkEvent = (): PairingEvent => ({
 
 /** States the screenshot switch can render (shared names with the phone app and /connect). */
 export const PAIRING_PREVIEW_STATES = [
-  'start-empty',
-  'start-with-pcs',
-  'code',
-  'code-error',
-  'code-ratelimited',
   'waiting',
   'waiting-offline',
   'declined',
   'expired',
   'revoked',
   'network-error',
-  'outdated',
-  'scan-unavailable',
 ] as const;
 
 /** `?mxPairingPreview=<state>`, honored only when localStorage
@@ -136,7 +100,7 @@ const PAIRING_CSS =
 const PAIRING_OVERLAY_CSS = '#mixdog-remote-pairing{z-index:9999}';
 
 interface PairingAction {
-  role: 'ask' | 'cancel' | 'back' | 'install';
+  role: 'ask' | 'cancel' | 'back';
   label: string;
   primary: boolean;
   hidden?: boolean;
@@ -419,39 +383,25 @@ const requestApproval = async (
 
 /**
  * Entry screen, vanilla DOM so it works before React mounts and with no
- * socket at all. Two states, decided by what this container IS: a browser
- * gets the install guide (the installed app is what pairs, never the
- * browser), and an installed app asks this desktop for approval.
- *
- * Chromium's install offer fires once and early — possibly before the entry
- * screen exists — so it is captured here and replayed when that screen mounts.
+ * socket at all. Every container asks this desktop for approval: an installed
+ * app, and a plain browser tab too (which then keeps running as the app). A
+ * browser tab that knows no desktop goes to the code entry page instead.
  */
 export const createRemotePairingScreen = (
   deps: RemotePairingScreenDeps
 ): ((message: string, autoAsk?: boolean, title?: string) => void) => {
   takeTicketFromAddress();
-  let installPrompt: (Event & { prompt(): Promise<void> }) | null = null;
-  window.addEventListener('beforeinstallprompt', (event) => {
-    event.preventDefault();
-    installPrompt = event as Event & { prompt(): Promise<void> };
-    document.querySelector('#mixdog-remote-pairing [data-role="install"]')?.removeAttribute('hidden');
-  });
   return (message: string, autoAsk = true, title?: string): void => {
     if (document.getElementById('mixdog-remote-pairing')) return;
-    // Install instructions depend on the device, not on the current layout width.
-    const mobile = isMobileDeviceSurface();
     const installed = isInstalledMobileWebAppSurface();
-    const ios =
-      /iPad|iPhone|iPod/iu.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const mount = async () => {
+    const mount = () => {
       const preview = pairingPreviewState();
-      // Pairing v2: a plain browser tab connects directly when its host takes
-      // it; an old host keeps the install guide.
-      const direct = !preview && !installed && (await hostAllowsDirectBrowser(deps.deviceId, deps.serverBase()));
-      if (document.getElementById('mixdog-remote-pairing')) return;
-      const previewInstallGuide = preview !== null && /^(start|code|outdated|scan)/u.test(preview);
-      const standalone = preview ? !previewInstallGuide : installed || direct;
+      // A plain browser tab pairs directly with the desktop its route names.
+      const direct = !preview && !installed;
+      if (direct && !deps.deviceId) {
+        location.assign('/connect');
+        return;
+      }
       const layer = document.createElement('div');
       layer.id = 'mixdog-remote-pairing';
       layer.className = 'mxp-screen';
@@ -506,28 +456,6 @@ export const createRemotePairingScreen = (
       };
       const endedView = (): PairingView =>
         retryView(title || earlyUiT('You were disconnected'), message || earlyUiT('Your PC disconnected this device.'));
-      const installView = (): PairingView => {
-        let stepOne = earlyUiT('Open this page on your phone or tablet');
-        let stepTwo = earlyUiT('Install Mixdog from the mobile browser');
-        if (mobile) {
-          stepOne = ios ? earlyUiT('Tap the Share button') : earlyUiT('Install Mixdog from your browser menu');
-          stepTwo = ios ? earlyUiT('Choose Add to Home Screen') : earlyUiT('Open it and allow it on your PC');
-        }
-        const stepThree = !mobile
-          ? earlyUiT('Open the installed app and allow it on your PC')
-          : earlyUiT('Open Mixdog and allow it on your PC');
-        return {
-          title: mobile ? earlyUiT('Install Mixdog') : earlyUiT('Install Mixdog on your phone'),
-          sub: mobile
-            ? earlyUiT('Add Mixdog to your home screen, then allow it on your PC.')
-            : earlyUiT('Add Mixdog to your phone’s home screen to use it.'),
-          steps: !mobile || ios ? [stepOne, stepTwo, stepThree] : [stepOne, stepTwo],
-          actions: mobile
-            ? [{ role: 'install', label: earlyUiT('Install'), primary: true, hidden: !installPrompt }]
-            : [],
-        };
-      };
-
       const el = <K extends keyof HTMLElementTagNameMap>(
         tag: K,
         className = '',
@@ -604,8 +532,7 @@ export const createRemotePairingScreen = (
         if (preview) return;
         if (role === 'ask') start();
         else if (role === 'back') location.assign('/connect');
-        else if (role === 'cancel') cancel();
-        else void installPrompt?.prompt().catch(() => undefined);
+        else cancel();
       }
 
       document.body.appendChild(layer);
@@ -634,18 +561,13 @@ export const createRemotePairingScreen = (
           'network-error': networkEvent(),
         };
         if (preview === 'revoked') paint(endedView());
-        else if (events[preview]) report(events[preview]);
-        else paint(installView());
-        return;
-      }
-      if (!standalone) {
-        paint(installView());
+        else report(events[preview]);
         return;
       }
       if (autoAsk) start();
       else paint(endedView());
     };
-    if (document.body) void mount();
-    else window.addEventListener('DOMContentLoaded', () => void mount(), { once: true });
+    if (document.body) mount();
+    else window.addEventListener('DOMContentLoaded', mount, { once: true });
   };
 };

@@ -35,10 +35,10 @@ test('inlined recovery catalogs cannot break out of their script element', async
   }
 });
 
-function harness(installed = false, { language, systemLanguages } = {}) {
+function harness(installed = false, { language, systemLanguages, url = 'https://mixdog.test/' } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     runScripts: 'outside-only',
-    url: 'https://mixdog.test/',
+    url,
   });
   const timers = [];
   const observers = [];
@@ -232,7 +232,7 @@ test('boot ignores invalid saved preferences and honors explicit Chinese scripts
   }
 });
 
-test('the real pre-React installation guide uses early catalogs and treats translations as text', async () => {
+test('the real pre-React pairing screen uses early catalogs and treats translations as text', async () => {
   const remoteSource = buildSync({
     entryPoints: [fileURLToPath(new URL('./remote-shim.ts', import.meta.url))],
     bundle: true,
@@ -244,28 +244,27 @@ test('the real pre-React installation guide uses early catalogs and treats trans
   for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
     const catalog =
       language === 'en' ? {} : JSON.parse(readFileSync(new URL(`./locales/${language}.json`, import.meta.url)));
-    const h = harness(false, { language });
+    const h = harness(false, { language, url: 'https://mixdog.test/d/abcdef0123456789/' });
     try {
       h.dom.window.TextEncoder = TextEncoder;
       h.dom.window.TextDecoder = TextDecoder;
+      Object.defineProperty(h.dom.window, 'crypto', { value: globalThis.crypto });
+      h.dom.window.fetch = () => new Promise(() => undefined);
       h.dom.window.eval(remoteSource);
-      // The guide waits for the host's pairing-v2 probe before it draws.
       await new Promise((resolve) => setTimeout(resolve, 25));
       const heading = h.document.querySelector('.mxp-title');
-      const key = 'Install Mixdog on your phone';
+      const key = 'Allow it on your PC';
       assert.equal(heading?.textContent, catalog[key] || key, language);
-      assert.equal(
-        h.document.querySelector('.mxp-step span').textContent,
-        catalog['Open this page on your phone or tablet'] || 'Open this page on your phone or tablet',
-        language
-      );
+      assert.equal(h.document.querySelector('.mxp-step'), null, language);
     } finally {
       h.dom.window.close();
     }
   }
-  const h = harness();
+  const h = harness(false, { url: 'https://mixdog.test/d/abcdef0123456789/' });
   try {
     h.dom.window.bootT = () => '<img src=x onerror="throw 1">';
+    Object.defineProperty(h.dom.window, 'crypto', { value: globalThis.crypto });
+    h.dom.window.fetch = () => new Promise(() => undefined);
     h.dom.window.eval(remoteSource);
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(h.document.querySelector('.mxp-title').textContent, '<img src=x onerror="throw 1">');

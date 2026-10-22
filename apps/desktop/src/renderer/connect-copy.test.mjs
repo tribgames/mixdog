@@ -145,13 +145,10 @@ test('web pairing layer: every preview state paints logo, title, subtitle region
     assert.ok(layer.querySelector('.mxp-sub'), `${state}: subtitle slot`);
     assert.ok(layer.querySelector('.mxp-col'), `${state}: one column, no card`);
     const roles = [...layer.querySelectorAll('.mxp-actions button')].map((b) => b.dataset.role);
-    const [title, actions] = expectations[state] ?? [null, null];
-    if (title) {
-      assert.equal(layer.querySelector('.mxp-title').textContent, title);
-      assert.deepEqual(roles, actions, state);
-    } else {
-      assert.ok(layer.querySelectorAll('.mxp-step').length >= 2, `${state}: install guide steps`);
-    }
+    const [title, actions] = expectations[state];
+    assert.equal(layer.querySelector('.mxp-title').textContent, title);
+    assert.deepEqual(roles, actions, state);
+    assert.equal(layer.querySelector('.mxp-step'), null, `${state}: no install steps`);
     t.after(() => document.getElementById('mixdog-remote-pairing')?.remove());
   }
 });
