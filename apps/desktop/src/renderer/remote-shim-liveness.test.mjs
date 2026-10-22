@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-installTestDom(null, {
+const dom = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
   jsdom: { url: 'https://mixdog.test/' },
   expose: ['Event', 'navigator'],
 });
+// Every installRemoteLiveness() starts the 5 s keepalive interval on this
+// jsdom window; closing the window is what clears them, or the file never exits.
+test.after(() => dom.restore());
 
 const { installRemoteLiveness } = await import('./remote-shim-liveness.ts');
 
