@@ -221,6 +221,24 @@ test('the production timer is a single 30s unrefed loop that samples then runs o
   assert.deepEqual(intervalTicks, ['lag']);
 });
 
+test('onStart runs once when the loop starts, before its first tick, and a throw stays contained', () => {
+  const started = [];
+  const { telemetry, timers, intervalTicks } = fixture({
+    onStart() {
+      started.push(intervalTicks.length);
+      throw new Error('probe boom');
+    },
+  });
+  telemetry.start();
+  telemetry.start();
+  assert.deepEqual(started, [0]);
+  assert.equal(timers.length, 1);
+  timers[0].fn();
+  assert.deepEqual(intervalTicks, ['lag']);
+  assert.deepEqual(started, [0]);
+  telemetry.stop();
+});
+
 test('a getWork failure still emits memory fields and does not throw into the timer', () => {
   const { telemetry, lines } = fixture({
     getWork: () => {

@@ -20,7 +20,9 @@ export const LAG_PROFILE_KEEP = 10;
 export const LAG_PROFILE_TOP = 15;
 export const LAG_PROFILE_SAMPLING_US = 1000;
 export const LAG_P99_THRESHOLD_MS = 1000;
-export const LAG_MAX_THRESHOLD_MS = 2000;
+// The owner lease's stall threshold: any window holding one logged
+// `event loop stalled` line is kept.
+export const LAG_MAX_THRESHOLD_MS = 1000;
 
 const PROFILE_FILE_RE = /^daemon-lag-.+\.cpuprofile$/;
 const SRC_ROOT = fileURLToPath(new URL('..', import.meta.url));

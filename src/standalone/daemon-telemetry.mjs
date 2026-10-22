@@ -184,6 +184,10 @@ export function createDaemonTelemetry({
   log = () => {},
   getWork = () => ({}),
   onInterval = null,
+  // Runs once when the loop starts, before its first window: a probe that
+  // judges each window (the lag profiler) arms here so the first one covers
+  // boot instead of starting only at the first tick.
+  onStart = null,
   now,
   pid,
   memoryUsage,
@@ -239,6 +243,11 @@ export function createDaemonTelemetry({
     }, ms);
     handle?.unref?.();
     timer = handle;
+    try {
+      onStart?.();
+    } catch {
+      /* a start probe must not stop the sample loop */
+    }
     return timer;
   }
 

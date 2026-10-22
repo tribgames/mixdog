@@ -359,6 +359,11 @@ slowSpans.setLog(log);
 daemonTelemetry = createDaemonTelemetry({
   log,
   getWork: inFlightWork,
+  // Arms the profiler at daemon-ready when lag-profile.on exists (a no-op
+  // without it), so the first window holds the startup stalls.
+  onStart() {
+    void lagProfiler.tick();
+  },
   onInterval() {
     // eventLoopDelay is reset at the end of every tick, so this status is the
     // lag of the 30s window that just ended — the same window the lag

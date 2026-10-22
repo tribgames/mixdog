@@ -13,6 +13,7 @@ import {
   shortenScriptUrl,
   summarizeCpuProfile,
 } from './daemon-lag-profiler.mjs';
+import { createDaemonTelemetry } from './daemon-telemetry.mjs';
 
 const SRC = path.resolve(tmpdir(), 'mixdog-repo', 'src');
 
@@ -81,11 +82,69 @@ function profileFiles(dataDir) {
   }
 }
 
-test('lag window thresholds: p99 >= 1000ms or max >= 2000ms', () => {
-  assert.equal(isLagWindow({ p99Ms: 999, maxMs: 1999 }), false);
+test('lag window thresholds: p99 >= 1000ms or max >= 1000ms', () => {
+  assert.equal(isLagWindow({ p99Ms: 999, maxMs: 999 }), false);
   assert.equal(isLagWindow({ p99Ms: 1000, maxMs: 0 }), true);
-  assert.equal(isLagWindow({ p99Ms: 0, maxMs: 2000 }), true);
+  // One stall the owner lease logs (> 1000ms) keeps its window.
+  assert.equal(isLagWindow({ p99Ms: 0, maxMs: 1000 }), true);
+  assert.equal(isLagWindow({ p99Ms: 3, maxMs: 1100 }), true);
   assert.equal(isLagWindow({}), false);
+});
+
+test('armed at telemetry start, a flagged daemon profiles its boot window and keeps a 1.1s stall', async (t) => {
+  const dataDir = tempDataDir(t);
+  const inspector = fakeInspector();
+  const profiler = createLagProfiler({
+    dataDir,
+    now: fakeClock(),
+    createSession: inspector.createSession,
+    srcRoot: SRC,
+  });
+  const timers = [];
+  const ticks = [];
+  const telemetry = createDaemonTelemetry({
+    onStart: () => ticks.push(profiler.tick()),
+    onInterval: () => ticks.push(profiler.tick({ p99Ms: 4, maxMs: 1100, busySessions: 0 })),
+    createGcTracker: () => ({ take: () => -1, stop() {} }),
+    setIntervalFn: (fn) => {
+      timers.push(fn);
+      return { unref() {} };
+    },
+  });
+  flagOn(dataDir);
+
+  telemetry.start();
+  // The session runs from daemon-ready, before the first 30s tick.
+  assert.equal(await ticks[0], 'started');
+  assert.equal(inspector.sessions.length, 1);
+  assert.deepEqual(
+    inspector.sessions[0].calls.map(([method]) => method),
+    ['Profiler.enable', 'Profiler.setSamplingInterval', 'Profiler.start']
+  );
+
+  timers[0]();
+  assert.equal(await ticks[1], 'saved');
+  assert.deepEqual(profileFiles(dataDir), ['daemon-lag-2026-04-08T12-00-00.000Z.cpuprofile']);
+  telemetry.stop();
+});
+
+test('without the flag, arming at telemetry start is a no-op', async (t) => {
+  const dataDir = tempDataDir(t);
+  const inspector = fakeInspector();
+  const profiler = createLagProfiler({ dataDir, createSession: inspector.createSession, srcRoot: SRC });
+  let armed = null;
+  const telemetry = createDaemonTelemetry({
+    onStart: () => {
+      armed = profiler.tick();
+    },
+    createGcTracker: () => ({ take: () => -1, stop() {} }),
+    setIntervalFn: () => ({ unref() {} }),
+  });
+  telemetry.start();
+  assert.equal(await armed, 'disabled');
+  assert.equal(inspector.sessions.length, 0);
+  assert.equal(profiler.active, false);
+  telemetry.stop();
 });
 
 test('a window is kept only when its own lag crosses a threshold', async (t) => {
@@ -110,7 +169,7 @@ test('a window is kept only when its own lag crosses a threshold', async (t) => 
   assert.equal(LAG_PROFILE_SAMPLING_US, 1000);
   assert.deepEqual(profileFiles(dataDir), []);
 
-  assert.equal(await profiler.tick({ p99Ms: 999, maxMs: 1999, busySessions: 3 }), 'discarded');
+  assert.equal(await profiler.tick({ p99Ms: 999, maxMs: 999, busySessions: 3 }), 'discarded');
   assert.deepEqual(profileFiles(dataDir), []);
   assert.deepEqual(
     inspector.sessions[0].calls.slice(3).map(([method]) => method),
