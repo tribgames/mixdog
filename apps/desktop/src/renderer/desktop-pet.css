@@ -79,22 +79,43 @@ body {
      sixteenth of the box each): the visible feet are the box's bottom. */
   margin-bottom: calc(var(--pet-size, 56px) / -16 * var(--pet-feet-gap, 0));
 }
-/* Pixel art at every scale: hard pixel edges, never smoothed. */
-.skin-companion .skin-companion-face > :is(img, svg) {
+/* Pixel art at every scale: hard pixel edges, never smoothed. Only the
+   mascot's svg: an uploaded picture scales smoothly (pixelated it turns jagged). */
+.skin-companion .skin-companion-face > svg {
   image-rendering: pixelated;
   shape-rendering: crispEdges;
+  /* The shadow follows the mascot's own pixels. Only on the svg: on a
+     picture with an opaque background it drew a square shadow box. */
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.35));
 }
+/* Nothing around the bot in any state (focused, pressed, hovered, dragged,
+   pinned, quick message open): no outline, border, shadow, background, tap
+   or selection highlight, nor the button's native look. */
 .skin-companion-pet {
   display: block;
   width: var(--pet-size, 56px);
   height: var(--pet-size, 56px);
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  outline: none;
+  box-shadow: none;
   background: transparent;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
   cursor: grab;
   touch-action: none;
-  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.35));
+}
+.skin-companion-pet:is(:hover, :active, :focus, :focus-visible),
+.skin-companion :is(.skin-companion-stack, .skin-companion-face, .skin-companion-face > *) {
+  outline: none;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.skin-companion-pet ::selection,
+.skin-companion-pet::selection {
+  background: transparent;
 }
 .skin-companion[data-dragging] .skin-companion-pet {
   cursor: grabbing;
@@ -107,9 +128,11 @@ body {
    cycles of different lengths so it never looks mechanical: breathing (the
    body, not the feet, ~1px), a blink (the mascot's own closed-eye pixels;
    other faces squash) and an ear twitch now and then. The eyes never move:
-   the pet always looks straight ahead. */
+   the pet always looks straight ahead. Every cycle steps (step-end): an
+   eased one recomposites the transparent pet window every vsync, a steady
+   GPU cost while the pet just sits there. */
 .skin-companion[data-idle] .mx-av .bob {
-  animation: pet-breathe 4.6s ease-in-out infinite;
+  animation: pet-breathe 4.6s step-end infinite;
 }
 .skin-companion[data-idle] .mx-av .eyes-open {
   animation: pet-blink-open 7.3s step-end infinite;
@@ -200,17 +223,16 @@ body {
     transform: none;
   }
 }
-/* The ring only while the user is on the keyboard in this window (a real
-   keydown since the last press: html[data-pet-keys], skin-companion-pet.tsx).
-   Chromium's :focus-visible also matches a script focus with no pointer
-   before it (the window gaining focus), which drew a box around the bot. */
+/* The bot never draws a ring or box, in any state (focused, keyboard use or
+   not). The bubble's ring shows only while the user is on the keyboard in
+   this window (a navigation key since the last press: html[data-pet-keys],
+   skin-companion-pet.tsx): Chromium's :focus-visible also matches a script
+   focus with no pointer before it (the window gaining focus). */
+.skin-companion-pet,
 .skin-companion-pet:focus,
+.skin-companion-pet:focus-visible,
 .skin-companion-bubble:focus {
   outline: none;
-}
-html[data-pet-keys] .skin-companion-pet:focus {
-  outline: 2px solid var(--mx-focus);
-  outline-offset: 2px;
 }
 /* Just above-right of the head: anchored at its bottom-left over the pet's
    head, growing up and right. A bubble that would come within 16px of
@@ -514,7 +536,8 @@ html[data-pet-keys] .skin-companion-reply-tool:focus {
    window's left; 256px at 100%). */
 .skin-companion-quick {
   position: absolute;
-  left: calc(108px + var(--pet-size, 56px) / 2);
+  /* --quick-shift: moved inside its span at a screen edge (skin-companion-pet.tsx). */
+  left: calc(108px + var(--pet-size, 56px) / 2 + var(--quick-shift, 0px));
   bottom: 8px;
   box-sizing: border-box;
   display: flex;
@@ -580,8 +603,8 @@ html[data-pet-keys] .skin-companion-reply-tool:focus {
   /* The window loads no scrollbar grammar (02-base.css): never the OS bar. */
   scrollbar-width: none;
   z-index: 2;
-  /* Compact fixed rows: nine of them, three dividers, the inset and border
-     come to 281px, inside the 300px of room (DESKTOP_PET_MENU) whatever the
+  /* Compact fixed rows: ten of them, three dividers, the inset and border
+     come to 309px, inside the 328px of room (DESKTOP_PET_MENU) whatever the
      label's line height; the Size row's 34px (24px steps in 5px padding)
      no longer overflows into a scrollbar. */
   --mx-menu-row-height: 28px;
@@ -712,6 +735,43 @@ html[data-pet-keys] .desktop-pet-menu-step:focus {
     opacity: 0;
     transform: scaleY(0.2);
   }
+}
+/* Flipped at the screen's top (DesktopPetView.flipped; main moves the
+   window so the bot stays put): the sprite box as far from the window's top
+   as it stands from its bottom unflipped, and what opens above it (bubble,
+   quick message, menu) opens below it instead. The bot does not hop: the
+   quick message unfolds under its feet, the bubble under that. */
+html[data-pet-flipped] .skin-companion-stack {
+  top: 8px;
+  bottom: auto;
+}
+html[data-pet-flipped] .skin-companion[data-quick] .skin-companion-stack {
+  transform: none;
+}
+html[data-pet-flipped] .skin-companion-balloon {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+html[data-pet-flipped] .skin-companion[data-quick] .skin-companion-balloon {
+  top: calc(100% + 46px);
+}
+html[data-pet-flipped] .skin-companion-bubble {
+  transform-origin: calc(16px - var(--bubble-shift, 0px)) 0;
+}
+html[data-pet-flipped] .skin-companion-bubble::after {
+  top: -5px;
+  bottom: auto;
+  border: 0;
+  border-left: 1px solid var(--mx-border);
+  border-top: 1px solid var(--mx-border);
+}
+html[data-pet-flipped] .skin-companion-quick {
+  top: calc(14px + var(--pet-size, 56px));
+  bottom: auto;
+}
+html[data-pet-flipped] .desktop-pet-menu {
+  top: 4px;
+  bottom: auto;
 }
 /* Reduced motion: no idle life at all (the eyes stay open), static symbols. */
 @media (prefers-reduced-motion: reduce) {

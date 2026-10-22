@@ -53,6 +53,7 @@ export function DesktopPetToggle() {
         onChange={option('pinned')}
       />
       <ToggleRow title={t('Pin here')} checked={config.pinnedHere} disabled={off} onChange={option('pinnedHere')} />
+      <ToggleRow title={t('Free on screen')} checked={config.onScreen} disabled={off} onChange={option('onScreen')} />
       <ToggleRow
         title={t('Keep above other windows')}
         checked={config.keepAbove}

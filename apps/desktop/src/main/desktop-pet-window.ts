@@ -26,6 +26,7 @@ import {
 } from '../shared/desktop-pet';
 import { petMascotCells } from '../shared/desktop-pet-art';
 import {
+  clampFreePetPosition,
   clampPetPosition,
   DESKTOP_PET_PIN_INSET,
   type DesktopPetPrefs,
@@ -110,7 +111,12 @@ const APP_WINDOW_EVENTS = [
 ] as const;
 type AppWindowEvent = (typeof APP_WINDOW_EVENTS)[number] | 'closed';
 
-type AppContentsEvent = 'did-start-loading' | 'render-process-gone';
+/** The app page replaced (a reload committed: `did-navigate` fires only for
+ *  a main-frame, cross-document navigation) or its renderer gone. Not
+ *  `did-start-loading`/`did-start-navigation`: Electron fires those for an
+ *  iframe loading in the chat, history.pushState and a navigation the
+ *  window's guard then blocks, none of which replaces the page. */
+type AppContentsEvent = 'did-navigate' | 'render-process-gone';
 
 /** The app window, as far as the pet needs it. */
 export interface PetAppWindow {
@@ -151,7 +157,10 @@ export interface DesktopPetDeps {
   markRead(sessionId: string): void;
   /** The system clipboard (the pet window has no clipboard permission). */
   copyText(text: string): void;
-  readPrefs?: (path: string) => DesktopPetPrefs;
+  /** An agent's custom picture (getAgentAvatarImage: data URLs by state),
+   *  for the pet window, which has no capability bridge of its own. */
+  avatarImage?(agentId: string): Promise<unknown>;
+  readPrefs?:(path: string) => DesktopPetPrefs;
   writePrefs?: (path: string, prefs: DesktopPetPrefs) => void;
 }
 
@@ -215,6 +224,9 @@ interface PetContext {
   petOwner: PetAppWindow | null;
   /** The app layout last sent to the app window (JSON; '' for none yet). */
   sentAppLayout: string;
+  /** The live window is flipped: at the screen's top, its bubble, quick
+   *  message and menu open below the bot (windowAt). */
+  flipped: boolean;
 }
 
 const live = (window: PetWindow | null): window is PetWindow => Boolean(window && !window.isDestroyed());
@@ -229,6 +241,7 @@ function config(s: PetContext): DesktopPetConfig {
     enabled: s.prefs.enabled,
     pinned: s.prefs.pinned,
     pinnedHere: s.prefs.pinnedHere,
+    onScreen: s.prefs.onScreen,
     keepAbove: s.prefs.keepAbove,
     collapsed: s.prefs.collapsed,
     autoAdvance: s.prefs.autoAdvance,
@@ -260,9 +273,10 @@ function appShowing(s: PetContext): boolean {
 
 /** Which layer the pet lives on: following the app window (owned by it:
  *  just above it, covered with it by other apps' windows, minimised with
- *  it), or above every window. */
+ *  it), or above every window. Free on screen it is owned by none either:
+ *  a window of its own (above every window only with keepAbove). */
 function wantedOwner(s: PetContext): PetAppWindow | null {
-  return s.prefs.keepAbove ? null : appWindow(s);
+  return s.prefs.keepAbove || s.prefs.onScreen ? null : appWindow(s);
 }
 
 /** The display the pet belongs on now: the app window's, else the primary. */
@@ -277,15 +291,39 @@ function displayFor(s: PetContext, point: { x: number; y: number }): PetDisplay 
   );
 }
 
-/** The window's top-left. */
-function currentPosition(s: PetContext): { x: number; y: number } {
+/** The window's real top-left on screen. */
+function windowPosition(s: PetContext): { x: number; y: number } {
   const [x = 0, y = 0] = live(s.pet) ? s.pet.getPosition() : [];
   return { x, y };
 }
 
+/** How far below its spot a flipped window stands: its sprite box moves
+ *  from the window's bottom (DESKTOP_PET_SPRITE.bottom up) to its top (as
+ *  far down), so the bot stays where it was put. */
+function flipShift(s: PetContext): number {
+  const { sprite, window } = geometry(s);
+  return window.height - 2 * sprite.bottom - sprite.size;
+}
+
+/** The window's spot: its top-left as laid out unflipped (above the work
+ *  area's top while flipped). Spots are saved, dragged and anchored as this;
+ *  the sprite box is at the same place on screen either way (spriteBox). */
+function currentPosition(s: PetContext): { x: number; y: number } {
+  const at = windowPosition(s);
+  return s.flipped ? { x: at.x, y: at.y - flipShift(s) } : at;
+}
+
+/** The window for `spot`: flipped (its bubble, quick message and menu below
+ *  the bot) when the unflipped window's top would be above its work area,
+ *  which only a free or pinned-here bot at the screen's top reaches. */
+function windowAt(s: PetContext, spot: { x: number; y: number }) {
+  const flipped = spot.y < displayFor(s, spot).workArea.y;
+  return { flipped, x: spot.x, y: spot.y + (flipped ? flipShift(s) : 0) };
+}
+
 function screenRight(s: PetContext): number {
   if (!live(s.pet)) return windowSize(s).width;
-  const at = currentPosition(s);
+  const at = windowPosition(s);
   const area = displayFor(s, at).workArea;
   return Math.max(0, Math.min(windowSize(s).width, area.x + area.width - at.x));
 }
@@ -294,18 +332,19 @@ function screenRight(s: PetContext): number {
  *  content while the bot stands on it (pinned, or its sprite's centre over
  *  it), else the work area; within the window either way. */
 function bubbleSpan(s: PetContext): { left: number; right: number } {
-  const { width, height } = windowSize(s);
+  const { width } = windowSize(s);
   if (!live(s.pet)) return { left: 0, right: width };
   const at = currentPosition(s);
   const area = displayFor(s, at).workArea;
   let left = area.x;
   let right = area.x + area.width;
   const owner = appWindow(s);
-  if (owner && appShowing(s)) {
+  // Free on screen: the bubble keeps to the screen, never to the app window.
+  if (owner && appShowing(s) && !s.prefs.onScreen) {
     const content = owner.getContentBounds();
-    const { sprite } = geometry(s);
-    const x = at.x + sprite.left + sprite.size / 2;
-    const y = at.y + height - sprite.bottom - sprite.size / 2;
+    const box = spriteBox(s, at);
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
     const over = x >= content.x && x < content.x + content.width && y >= content.y && y < content.y + content.height;
     if (locked(s) || over) {
       left = Math.max(left, content.x);
@@ -325,7 +364,7 @@ function cutouts(s: PetContext): DesktopPetRect[] {
   if (!owner || !live(s.pet) || !s.layers.length || !appShowing(s)) return [];
   const content = owner.getContentBounds();
   const zoom = owner.webContents.getZoomFactor();
-  const at = currentPosition(s);
+  const at = windowPosition(s);
   const { width, height } = windowSize(s);
   const cuts: DesktopPetRect[] = [];
   for (const layer of s.layers) {
@@ -343,7 +382,7 @@ function cutouts(s: PetContext): DesktopPetRect[] {
  *  it changed. */
 function edgesKey(s: PetContext): string {
   const span = bubbleSpan(s);
-  return `${screenRight(s)} ${span.left} ${span.right} ${JSON.stringify(cutouts(s))}`;
+  return `${s.flipped} ${screenRight(s)} ${span.left} ${span.right} ${JSON.stringify(cutouts(s))}`;
 }
 
 function view(s: PetContext): DesktopPetView {
@@ -356,7 +395,9 @@ function view(s: PetContext): DesktopPetView {
     keepAbove: s.prefs.keepAbove,
     pinned: s.prefs.pinned,
     pinnedHere: s.prefs.pinnedHere,
+    onScreen: s.prefs.onScreen,
     scale: s.prefs.scale,
+    flipped: s.flipped,
     theme: s.theme,
     visible: live(s.pet) && s.pet.isVisible(),
     screenRight: screenRight(s),
@@ -374,21 +415,26 @@ function pushConfig(s: PetContext) {
   if (owner && !owner.webContents.isDestroyed()) owner.webContents.send(DESKTOP_PET_IPC.config, config(s));
 }
 
-/** Put the window's top-left at `spot`. Its size never changes (the menu
- *  fits beside the pet): resizing a transparent window flashes its old
- *  frame at the new bounds on Windows. */
+/** Put the window at `spot` (currentPosition), flipped at the screen's top
+ *  (windowAt). Its size never changes (the menu fits beside the pet):
+ *  resizing a transparent window flashes its old frame at the new bounds on
+ *  Windows. */
 function place(s: PetContext, spot: { x: number; y: number }) {
   if (!live(s.pet)) return;
-  s.pet.setBounds({ x: spot.x, y: spot.y, width: windowSize(s).width, height: windowSize(s).height });
-  // Moved on or off a screen or app edge: the menu's side and the bubble's span follow.
+  const { flipped, x, y } = windowAt(s, spot);
+  s.flipped = flipped;
+  s.pet.setBounds({ x, y, width: windowSize(s).width, height: windowSize(s).height });
+  // Moved on or off a screen or app edge (or flipped): the menu's side, the
+  // bubble's span and the layout follow.
   if (edgesKey(s) !== s.sentEdges) pushView(s);
 }
 
-/** Move inside the work area of the display the spot belongs to. */
+/** Move inside the work area of the display the spot belongs to (the bot
+ *  itself reaches its side edges: clampFreePetPosition). */
 function moveTo(s: PetContext, point: { x: number; y: number }, persist: boolean) {
   if (!live(s.pet)) return;
   const display = displayFor(s, point);
-  const next = clampPetPosition(point, windowSize(s), display.workArea);
+  const next = clampFreePetPosition(point, geometry(s), display.workArea);
   place(s, next);
   if (persist) save(s, { positions: { ...s.prefs.positions, [String(display.id)]: next } });
 }
@@ -432,7 +478,7 @@ function hereSpot(s: PetContext): { x: number; y: number } | null {
   const owner = appWindow(s);
   if (!owner || !appShowing(s)) return null;
   if (!s.prefs.hereAnchor)
-    anchorHere(s, live(s.pet) ? currentPosition(s) : petPositionOn(homeDisplay(s), s.prefs, windowSize(s)));
+    anchorHere(s, live(s.pet) ? currentPosition(s) : petPositionOn(homeDisplay(s), s.prefs, geometry(s)));
   const anchor = s.prefs.hereAnchor;
   if (!anchor) return null;
   const content = owner.getContentBounds();
@@ -448,8 +494,7 @@ function hereSpot(s: PetContext): { x: number; y: number } | null {
     ),
     y: clamp(target.y, content.y - above, content.y + content.height - (shape.window.height - shape.sprite.bottom)),
   };
-  const core = { width: shape.coreWidth, height: shape.window.height };
-  return clampPetPosition(inside, core, displayFor(s, inside).workArea);
+  return clampFreePetPosition(inside, shape, displayFor(s, inside).workArea);
 }
 
 /** Composer-pinned and on screen, its sprite box over the transcript's
@@ -533,8 +578,10 @@ function layout(s: PetContext) {
     s.loaded &&
     s.painted &&
     s.published &&
-    s.composer !== null &&
-    (locked(s) ? Boolean(spot) : s.prefs.keepAbove || appShowing(s)) &&
+    // Free on screen: shown apart from the app window (minimised, hidden or
+    // on a page with no composer).
+    (s.prefs.onScreen || s.composer !== null) &&
+    (locked(s) ? Boolean(spot) : s.prefs.keepAbove || s.prefs.onScreen || appShowing(s)) &&
     !occluded(s);
   if (show !== s.pet.isVisible()) {
     if (show) s.pet.showInactive();
@@ -567,7 +614,7 @@ function onDisplaysChanged(s: PetContext) {
     moveTo(s, point, false);
     return;
   }
-  place(s, petPositionOn(s.deps.screen.getPrimaryDisplay(), s.prefs, windowSize(s)));
+  place(s, petPositionOn(s.deps.screen.getPrimaryDisplay(), s.prefs, geometry(s)));
 }
 
 /** Pinned (above the message box or here): it cannot be moved by hand. */
@@ -622,6 +669,10 @@ function setCollapsed(s: PetContext, on: boolean) {
 function setPinned(s: PetContext, on: boolean) {
   if (s.prefs.pinned !== on) save(s, { pinned: on });
   if (on && s.prefs.pinnedHere) save(s, { pinnedHere: false });
+  if (on && s.prefs.onScreen) {
+    save(s, { onScreen: false });
+    applyLayer(s);
+  }
   s.drag = null;
   if (on) layout(s);
   else {
@@ -645,9 +696,9 @@ function setScale(s: PetContext, scale: number): DesktopPetConfig {
   if (wasLive) {
     if (!s.prefs.pinned) {
       const display = displayFor(s, at);
-      const spot = clampPetPosition(
+      const spot = clampFreePetPosition(
         { x: at.x, y: at.y + before.height - windowSize(s).height },
-        windowSize(s),
+        geometry(s),
         display.workArea
       );
       save(s, { positions: { ...s.prefs.positions, [String(display.id)]: spot } });
@@ -666,6 +717,10 @@ function setScale(s: PetContext, scale: number): DesktopPetConfig {
  *  message box" off. Off: free and draggable again, where it stands. */
 function setPinnedHere(s: PetContext, on: boolean) {
   if (on && s.prefs.pinned) setPinned(s, false);
+  if (on && s.prefs.onScreen) {
+    save(s, { onScreen: false });
+    applyLayer(s);
+  }
   if (s.prefs.pinnedHere !== on) save(s, { pinnedHere: on });
   s.drag = null;
   if (on) {
@@ -679,11 +734,28 @@ function setPinnedHere(s: PetContext, on: boolean) {
   return changed(s);
 }
 
+/** "Free on screen": free and draggable anywhere on its displays, apart
+ *  from the app window: a window of its own (owned by none), never clamped
+ *  to, moved with or hidden with the app window, its bubble kept to the
+ *  screen; turns both pins off. "Keep above other windows" stays its own
+ *  choice (the layer only). Off: free as before, following the app window. */
+function setOnScreen(s: PetContext, on: boolean) {
+  if (on && s.prefs.pinned) setPinned(s, false);
+  if (on && s.prefs.pinnedHere) setPinnedHere(s, false);
+  if (s.prefs.onScreen !== on) save(s, { onScreen: on });
+  s.drag = null;
+  applyLayer(s);
+  if (live(s.pet)) moveTo(s, currentPosition(s), true);
+  layout(s);
+  return changed(s);
+}
+
 /** One option by name (the app window's Settings). */
 function setOption(s: PetContext, rawName: unknown, rawValue: unknown): DesktopPetConfig {
   const { name, value } = requiredDesktopPetOption(rawName, rawValue);
   if (name === 'pinned') return setPinned(s, value);
   if (name === 'pinnedHere') return setPinnedHere(s, value);
+  if (name === 'onScreen') return setOnScreen(s, value);
   if (name === 'keepAbove') return setKeepAbove(s, value);
   if (name === 'collapsed') return setCollapsed(s, value);
   // Reply reading only: the pet window draws it from the view.
@@ -700,10 +772,11 @@ function reset(s: PetContext): DesktopPetConfig {
     delete positions[String(display.id)];
     save(s, { positions });
   }
-  if (!s.prefs.pinned || s.prefs.pinnedHere || s.prefs.hereAnchor) {
-    save(s, { pinned: true, pinnedHere: false, hereAnchor: null });
+  if (!s.prefs.pinned || s.prefs.pinnedHere || s.prefs.hereAnchor || s.prefs.onScreen) {
+    save(s, { pinned: true, pinnedHere: false, hereAnchor: null, onScreen: false });
   }
   s.drag = null;
+  applyLayer(s);
   layout(s);
   return changed(s);
 }
@@ -730,6 +803,9 @@ function runCommand(s: PetContext, command: DesktopPetCommand) {
     }
     case 'pin-here':
       setPinnedHere(s, !s.prefs.pinnedHere);
+      return;
+    case 'on-screen':
+      setOnScreen(s, !s.prefs.onScreen);
       return;
     case 'collapse':
       setCollapsed(s, !s.prefs.collapsed);
@@ -850,6 +926,12 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
       s.pet.focus();
     })
   );
+  // Only a picture the pet shows now: the published face's custom look.
+  ipc.handle(DESKTOP_PET_IPC.avatarImage, async (_event, agentId) => {
+    const member = s.state.face.members.find((entry) => entry.id === agentId);
+    if (!member || (member.avatar as { kind?: unknown } | null)?.kind !== 'custom') return null;
+    return (await s.deps.avatarImage?.(member.id)) ?? null;
+  });
   ipc.handle(DESKTOP_PET_IPC.send, async (_event, text) => {
     const message = requiredDesktopPetText(text);
     if (!s.state.sessionId) return false;
@@ -861,10 +943,12 @@ async function createPetWindow(s: PetContext) {
   if (live(s.pet) || s.disposed) return;
   const at =
     (s.prefs.pinned ? pinnedSpot(s) : s.prefs.pinnedHere ? hereSpot(s) : null) ??
-    petPositionOn(homeDisplay(s), s.prefs, windowSize(s));
+    petPositionOn(homeDisplay(s), s.prefs, geometry(s));
   s.petOwner = wantedOwner(s);
+  const { flipped, x, y } = windowAt(s, at);
+  s.flipped = flipped;
   const window = s.deps.createWindow(
-    { ...at, ...windowSize(s) },
+    { x, y, ...windowSize(s) },
     { parent: s.petOwner, alwaysOnTop: s.prefs.keepAbove }
   );
   s.pet = window;
@@ -906,6 +990,7 @@ async function createPetWindow(s: PetContext) {
 function destroyPetWindow(s: PetContext) {
   const window = s.pet;
   s.pet = null;
+  s.flipped = false;
   s.loaded = false;
   s.painted = false;
   s.drag = null;
@@ -916,7 +1001,7 @@ function destroyPetWindow(s: PetContext) {
 /** The window exists while the setting is on and the representative bot does. */
 function syncPetWindow(s: PetContext) {
   // Following the app window needs one to belong to.
-  if (s.started && s.prefs.enabled && s.available && (s.prefs.keepAbove || appWindow(s))) {
+  if (s.started && s.prefs.enabled && s.available && (s.prefs.keepAbove || s.prefs.onScreen || appWindow(s))) {
     void createPetWindow(s).catch(() => {});
   } else {
     destroyPetWindow(s);
@@ -941,7 +1026,7 @@ function listenAppWindow(s: PetContext, window: PetAppWindow): () => void {
     s.sentAppLayout = '';
     layout(s);
   };
-  contents.on('did-start-loading', onReload);
+  contents.on('did-navigate', onReload);
   contents.on('render-process-gone', onReload);
   const publish = applyValid(requiredDesktopPetState, (next) => {
     s.state = next;
@@ -985,7 +1070,7 @@ function listenAppWindow(s: PetContext, window: PetAppWindow): () => void {
   ipc.handle(DESKTOP_PET_IPC.resetPosition, () => reset(s));
   return () => {
     if (contents.isDestroyed()) return;
-    contents.removeListener('did-start-loading', onReload);
+    contents.removeListener('did-navigate', onReload);
     contents.removeListener('render-process-gone', onReload);
     ipc.removeListener(DESKTOP_PET_IPC.publish, publish);
     ipc.removeListener(DESKTOP_PET_IPC.composer, onComposer);
@@ -1058,6 +1143,7 @@ export function createDesktopPet(deps: DesktopPetDeps) {
     sentEdges: '',
     petOwner: null,
     sentAppLayout: '',
+    flipped: false,
   };
 
   const onScreenChange = () => onDisplaysChanged(s);

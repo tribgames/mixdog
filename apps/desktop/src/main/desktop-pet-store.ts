@@ -27,6 +27,10 @@ export interface DesktopPetPrefs {
   pinned: boolean;
   /** "Pin here": free but locked at its saved spot (never with `pinned`). */
   pinnedHere: boolean;
+  /** "Free on screen": free and draggable anywhere on its displays, apart
+   *  from the app window (owned by none, shown while the app is minimised,
+   *  hidden or without a composer); never with `pinned` or `pinnedHere`. */
+  onScreen: boolean;
   /** The bot's size in percent (one of DESKTOP_PET_SCALES). */
   scale: number;
   /** Saved free-floating window positions by display id. */
@@ -93,6 +97,7 @@ export const DEFAULT_DESKTOP_PET_PREFS: DesktopPetPrefs = Object.freeze({
   autoClose: true,
   pinned: true,
   pinnedHere: false,
+  onScreen: false,
   scale: DESKTOP_PET_SCALE.default,
   positions: {},
   hereAnchor: null,
@@ -118,6 +123,7 @@ export function normalizeDesktopPetPrefs(value: unknown): DesktopPetPrefs {
     autoClose: raw.autoClose !== false,
     pinned,
     pinnedHere: !pinned && raw.pinnedHere === true,
+    onScreen: !pinned && raw.pinnedHere !== true && raw.onScreen === true,
     scale: DESKTOP_PET_SCALES.includes(raw.scale as number) ? (raw.scale as number) : DESKTOP_PET_SCALE.default,
     positions,
     hereAnchor: !pinned && raw.pinnedHere === true ? readHereAnchor(raw.hereAnchor) : null,
@@ -259,9 +265,27 @@ export function displayForPetPosition(
   return best;
 }
 
+/** A free (or pinned-here) window's spot (its unflipped top-left) inside
+ *  the work area by the bot itself: its sprite box reaches the left, right
+ *  and top edges, the window's transparent room (for its bubble, menu and
+ *  quick message, each of which keeps to the screen on its own) running
+ *  past the screen there; at the top the window flips, that room below the
+ *  bot (desktop-pet-window.ts windowAt). At the bottom the box keeps its
+ *  margin under the feet (the window's bottom on the work area's). */
+export function clampFreePetPosition(point: { x: number; y: number }, geometry: DesktopPetGeometry, workArea: PetRect) {
+  const { sprite, window } = geometry;
+  const above = window.height - sprite.bottom - sprite.size;
+  const box = clampPetPosition(
+    { x: point.x + sprite.left, y: point.y + above },
+    { width: sprite.size, height: sprite.size + sprite.bottom },
+    workArea
+  );
+  return { x: box.x - sprite.left, y: box.y - above };
+}
+
 /** Where the pet window opens on `display`: its saved spot there (clamped),
  *  else the default corner. */
-export function petPositionOn(display: PetDisplay, prefs: DesktopPetPrefs, size: PetSize) {
+export function petPositionOn(display: PetDisplay, prefs: DesktopPetPrefs, geometry: DesktopPetGeometry) {
   const saved = prefs.positions[String(display.id)];
-  return clampPetPosition(saved ?? defaultPetPosition(display.workArea, size), size, display.workArea);
+  return clampFreePetPosition(saved ?? defaultPetPosition(display.workArea, geometry.window), geometry, display.workArea);
 }

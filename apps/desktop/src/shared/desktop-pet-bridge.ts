@@ -27,6 +27,9 @@ export interface DesktopPetBridge {
   scale(scale: number): void;
   interactive(on: boolean): void;
   focusInput(open: boolean): void;
+  /** The face's custom picture (getAgentAvatarImage's answer: data URLs by
+   *  state), or null: only for a member of the face main relays. */
+  avatarImage(agentId: string): Promise<unknown>;
 }
 
 /** Channels on the pet window's own webContents.ipc. Only the pet preload
@@ -49,6 +52,8 @@ export const DESKTOP_PET_WINDOW_IPC = {
   scale: 'mixdog-pet:scale',
   interactive: 'mixdog-pet:interactive',
   focusInput: 'mixdog-pet:focus-input',
+  /** pet → main (invoke): the face's custom picture. */
+  avatarImage: 'mixdog-pet:avatar-image',
   /** main → pet: the window lost focus (closes the quick message). */
   blurred: 'mixdog-pet:blurred',
 } as const;

@@ -177,6 +177,16 @@ test('the idle animation lives on the sprite in CSS: eyes pixels blink, squash f
   assert.doesNotMatch(css.match(/@keyframes pet-twitch \{[^@]*/)[0], /translateX/, 'the ear only bobs');
 });
 
+test('every idle animation steps, so the transparent pet window is not recomposited every frame', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
+  const idle = [...css.matchAll(/\.skin-companion\[data-idle\][^{]*\{([^}]*)\}/g)]
+    .flatMap((rule) => [...rule[1].matchAll(/animation:\s*(pet-[\w-]+)[^;]*;/g)])
+    .map((declaration) => declaration[0]);
+  assert.ok(idle.length >= 5, idle.join('\n'));
+  for (const declaration of idle) assert.match(declaration, /step-end/, declaration);
+});
+
 test('each busy state is a comic symbol in a polite live region with a spoken label', async (t) => {
   const { $, render, calls } = await mountPet(t);
   const status = $('.skin-companion-status');
@@ -220,7 +230,7 @@ test('each busy state is a comic symbol in a polite live region with a spoken la
   assert.ok($('.skin-companion-pet'));
 });
 
-test('reply text reads like the app: 13.5px/1.6 type; a short and a paged reply fit the 308px window at 50/100/200%', async () => {
+test('reply text reads like the app: 13.5px/1.6 type; a short and a paged reply fit the 336px window at 50/100/200%', async () => {
   const { readFile } = await import('node:fs/promises');
   const css = (await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
   const rule = (selector) => new RegExp(`\\n${selector.replace(/[.[\]"=>+*]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)[1];
@@ -260,8 +270,8 @@ test('reply text reads like the app: 13.5px/1.6 type; a short and a paged reply 
     assert.ok(below + 28 + paged + 12 <= room.height, `${scale}%: the paged bubble stays in the window`);
     budgets[scale] = Math.round(paged);
   }
-  assert.deepEqual(heights, { 50: 308, 100: 308, 200: 308 }, 'the window never grows');
-  assert.deepEqual(budgets, { 50: 140, 100: 140, 200: 88 }, 'a page height budget (px)');
+  assert.deepEqual(heights, { 50: 336, 100: 336, 200: 336 }, 'the window never grows');
+  assert.deepEqual(budgets, { 50: 140, 100: 140, 200: 116 }, 'a page height budget (px)');
 });
 
 test("the reply's markdown becomes compact blocks: paragraphs, bold, code, lists; headings bold; code and tables as text", async () => {
@@ -970,7 +980,7 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
   at(bot, 'mousemove', 232, 296);
   assert.deepEqual(calls.interactive, [true]);
   // A layer opens under the resting pointer: passed on at once; it closes: the pet's again.
-  await show([{ x: 0, y: 0, width: 512, height: 308 }]);
+  await show([{ x: 0, y: 0, width: 512, height: 336 }]);
   assert.deepEqual(calls.interactive, [true, false]);
   await show([]);
   assert.deepEqual(calls.interactive, [true, false, true]);
@@ -980,7 +990,107 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
   await new Promise((r) => setTimeout(r, 100));
 });
 
-test("the bot's ring is drawn only for keyboard use, never by Chromium's :focus-visible guess", async () => {
+test('a picture face (#178): an empty box while it loads, the picture once read, the mascot only if it cannot be read', async (t) => {
+  const dom = installTestDom(t, { expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'], actEnvironment: false });
+  let showView = null;
+  const asked = [];
+  const noop = () => {};
+  dom.window.mixdogPet = {
+    onView: (listener) => {
+      showView = listener;
+      return noop;
+    },
+    onBlurred: () => noop,
+    ready: noop,
+    painted: noop,
+    send: async () => true,
+    open: noop,
+    command: noop,
+    area: noop,
+    drag: noop,
+    nudge: noop,
+    reset: noop,
+    read: noop,
+    copy: noop,
+    interactive: noop,
+    focusInput: noop,
+    avatarImage: (id) =>
+      new Promise((resolve, reject) => {
+        asked.push({ id, resolve, reject });
+      }),
+  };
+  const { flushSync } = await import('react-dom');
+  await import(`./desktop-pet-main.tsx?picture=${Date.now()}`);
+  const $ = (selector) => dom.document.querySelector(selector);
+  const turn = () => new Promise((r) => setTimeout(r, 10));
+  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !showView); wait += 1) await turn();
+  assert.ok(showView, 'the page subscribed to its view');
+  const { MIXY_AGENT_ID: lead } = await import('../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const view = (idle) => ({
+    sessionId: 's1',
+    bubble: { kind: 'idle' },
+    face: { room: false, members: [{ id: lead, name: '하치와레', avatar: { kind: 'custom', states: { idle } } }] },
+    quiet: false,
+    collapsed: false,
+    keepAbove: false,
+    pinned: true,
+    theme: null,
+    visible: true,
+    scale: 100,
+    screenRight: 512,
+    bubbleSpan: { left: 0, right: 512 },
+    cutouts: [],
+  });
+  const face = () => $('.skin-companion-pet .skin-companion-face');
+  const feetGap = () => dom.document.documentElement.style.getPropertyValue('--pet-feet-gap');
+  flushSync(() => showView(view('idle-0123456789ab.png')));
+  for (let wait = 0; wait < 100 && !asked.length; wait += 1) await turn();
+  assert.deepEqual(
+    asked.map(({ id }) => id),
+    [lead]
+  );
+  assert.ok(face(), 'the sprite box stands');
+  assert.equal(face().children.length, 0, 'loading: nothing drawn (no mascot first)');
+  assert.equal(feetGap(), '0', "loading: the picture face's geometry");
+  asked[0].resolve({
+    states: { idle: { file: 'idle-0123456789ab.png', url: 'data:image/png;base64,AAAA', poster: '' } },
+  });
+  for (let wait = 0; wait < 100 && !face()?.querySelector('img'); wait += 1) await turn();
+  assert.equal(face().querySelector('img')?.getAttribute('src'), 'data:image/png;base64,AAAA', 'the picture');
+  assert.equal(face().querySelector('svg'), null);
+  // A new picture that cannot be read: empty while asked, then the mascot.
+  flushSync(() => showView(view('idle-ffffffffffff.png')));
+  for (let wait = 0; wait < 100 && asked.length < 2; wait += 1) await turn();
+  assert.equal(face().children.length, 0, 'the new picture loading: nothing drawn');
+  asked[1].reject(new Error('gone'));
+  for (let wait = 0; wait < 100 && !face()?.querySelector('svg'); wait += 1) await turn();
+  assert.ok(face().querySelector('svg'), 'unreadable: the mascot in its place');
+  assert.equal(face().querySelector('img'), null);
+  // #179: main's flip at the screen's top marks the page (desktop-pet.css html[data-pet-flipped]).
+  const html = dom.document.documentElement;
+  flushSync(() => showView({ ...view('idle-ffffffffffff.png'), flipped: true }));
+  assert.equal(html.dataset.petFlipped, 'true');
+  flushSync(() => showView({ ...view('idle-ffffffffffff.png'), flipped: false }));
+  assert.equal(html.dataset.petFlipped, undefined);
+  await new Promise((r) => setTimeout(r, 100));
+});
+
+test('flipped at the screen top (#179): the page marks it, and the bot stands at the top with all else below it', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = (await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = (selector) => {
+    const at = css.indexOf(`${selector} {`);
+    assert.ok(at >= 0, `rule ${selector}`);
+    return css.slice(at, css.indexOf('}', at));
+  };
+  assert.match(rule('html[data-pet-flipped] .skin-companion-stack'), /top: 8px;[\s\S]*bottom: auto;/);
+  assert.match(rule('html[data-pet-flipped] .skin-companion[data-quick] .skin-companion-stack'), /transform: none;/);
+  assert.match(rule('html[data-pet-flipped] .skin-companion-balloon'), /top: calc\(100% \+ 6px\);/);
+  assert.match(rule('html[data-pet-flipped] .skin-companion-quick'), /top: calc\(14px \+ var\(--pet-size, 56px\)\);/);
+  assert.match(rule('html[data-pet-flipped] .desktop-pet-menu'), /top: 4px;[\s\S]*bottom: auto;/);
+});
+
+test("the bot never draws a ring; the bubble's only for keyboard use, never by Chromium's :focus-visible guess", async () => {
   const { readFile } = await import('node:fs/promises');
   const css = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
   const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)].map(
@@ -994,7 +1104,13 @@ test("the bot's ring is drawn only for keyboard use, never by Chromium's :focus-
   );
   assert.deepEqual(
     ringed.map(({ selector }) => selector),
-    ['html[data-pet-keys] .skin-companion-pet:focus', 'html[data-pet-keys] .skin-companion-bubble:focus']
+    ['html[data-pet-keys] .skin-companion-bubble:focus']
+  );
+  assert.ok(
+    !rules.some(
+      ({ selector, body }) => /\.skin-companion-pet\b/.test(selector) && /outline(-\w+)?:\s*(?!none\b)\S/.test(body)
+    ),
+    'no rule outlines the bot'
   );
   assert.ok(
     rules.some(
@@ -1350,6 +1466,7 @@ test("the pet's menu: the app's menu look, our labels, checkbox states, keyboard
       ['settings', 'Settings', 'menuitem', null],
       ['pin', 'Pin above the message box', 'menuitemcheckbox', 'true'],
       ['pin-here', 'Pin here', 'menuitemcheckbox', 'false'],
+      ['on-screen', 'Free on screen', 'menuitemcheckbox', 'false'],
       ['keep-above', 'Keep above other windows', 'menuitemcheckbox', 'false'],
       ['collapse', 'Collapse bubble', 'menuitemcheckbox', 'true'],
       ['reset', 'Reset position', 'menuitem', null],
@@ -1357,7 +1474,7 @@ test("the pet's menu: the app's menu look, our labels, checkbox states, keyboard
     ]
   );
   assert.equal(items[2].querySelector('svg') !== null, true, 'a checked item shows our check');
-  assert.equal(items[4].querySelector('svg'), null);
+  assert.equal(items[5].querySelector('svg'), null);
   // Beside the pet inside the resting window: nothing asks to resize it.
   const css = await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
   assert.match(
@@ -1377,8 +1494,8 @@ test("the pet's menu: the app's menu look, our labels, checkbox states, keyboard
   assert.equal(dom.document.activeElement, items[1]);
   await key({ key: 'ArrowUp' });
   await key({ key: 'ArrowUp' });
-  assert.equal(dom.document.activeElement, items[7], 'wraps');
-  await act(async () => items[4].click());
+  assert.equal(dom.document.activeElement, items[8], 'wraps');
+  await act(async () => items[5].click());
   assert.deepEqual(calls.command, ['keep-above']);
   assert.equal(calls.close, 1, 'a choice closes the menu');
   await key({ key: 'Escape' });
@@ -1427,7 +1544,7 @@ test('the whole menu fits its window with no scrollbar at 50/100/200%, and draws
   const panel = dom.document.querySelector('.desktop-pet-menu');
   const rows = panel.querySelectorAll(':scope > .mx-menu-item').length;
   const dividers = panel.querySelectorAll(':scope > .desktop-pet-menu-separated').length;
-  assert.deepEqual([rows, dividers], [9, 3]);
+  assert.deepEqual([rows, dividers], [10, 3]);
   // The menu's laid-out height (jsdom has no layout: modelled from the sheet):
   // its content against the room `max-height: calc(100vh - 8px)` leaves it.
   assert.match(menu, /max-height:\s*calc\(100vh - 8px\)/);
@@ -1455,6 +1572,66 @@ test('the whole menu fits its window with no scrollbar at 50/100/200%, and draws
   assert.equal(dom.document.documentElement.dataset.petKeys, undefined, 'opened by the mouse: no ring');
   dom.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
   assert.equal(dom.document.documentElement.dataset.petKeys, 'true', 'a key in the menu: ring');
+});
+
+test('the bot never shows an outline: clicked, then Tab, PrintScreen and Shift', async (t) => {
+  const dom = installTestDom(t, { expose: ['MouseEvent', 'KeyboardEvent'], actEnvironment: false });
+  const { readFile } = await import('node:fs/promises');
+  const style = dom.document.createElement('style');
+  style.textContent = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
+  dom.document.head.append(style);
+  const { trackPetKeyboardUse } = await import('./skin-companion-pet');
+  t.after(trackPetKeyboardUse(dom.document));
+  const bot = dom.document.createElement('button');
+  bot.className = 'skin-companion-pet';
+  dom.document.body.append(bot);
+  bot.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+  bot.focus();
+  bot.click();
+  for (const key of ['Tab', 'PrintScreen', 'Shift']) {
+    bot.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key, shiftKey: key === 'Shift' }));
+    assert.equal(dom.document.activeElement, bot);
+    const drawn = dom.window.getComputedStyle(bot);
+    const outline = `${drawn.outline} ${drawn.outlineStyle} ${drawn.outlineWidth}`;
+    assert.doesNotMatch(outline, /solid|\dpx/, `${key}: no outline`);
+  }
+});
+
+test('a screenshot or modifier key never turns on the keyboard rings (bubble, menu); navigation keys do', async (t) => {
+  const dom = installTestDom(t, { expose: ['MouseEvent', 'KeyboardEvent'], actEnvironment: false });
+  const { trackPetKeyboardUse } = await import('./skin-companion-pet');
+  const untrack = trackPetKeyboardUse(dom.document);
+  t.after(untrack);
+  const root = dom.document.documentElement;
+  const press = (init) => dom.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, ...init }));
+  // Clicked (it keeps focus), then a screenshot: PrintScreen, Win+Shift+S, Alt, Ctrl.
+  dom.document.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+  for (const init of [
+    { key: 'PrintScreen' },
+    { key: 'Meta', metaKey: true },
+    { key: 'Shift', shiftKey: true, metaKey: true },
+    { key: 'S', shiftKey: true, metaKey: true },
+    { key: 'Alt', altKey: true },
+    { key: 'Control', ctrlKey: true },
+    { key: 'F10' },
+    { key: 'a' },
+  ]) {
+    press(init);
+    assert.equal(root.dataset.petKeys, undefined, `${init.key}: no ring`);
+  }
+  for (const init of [
+    { key: 'Tab' },
+    { key: 'ArrowLeft' },
+    { key: 'Enter' },
+    { key: ' ' },
+    { key: 'Escape' },
+    { key: 'ContextMenu' },
+    { key: 'F10', shiftKey: true },
+  ]) {
+    dom.document.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+    press(init);
+    assert.equal(root.dataset.petKeys, 'true', `${JSON.stringify(init)}: ring`);
+  }
 });
 
 test("the menu's Size row steps 10% within 50–200%, keeps the menu open, and applies once as it closes", async (t) => {
@@ -1489,7 +1666,7 @@ test("the menu's Size row steps 10% within 50–200%, keeps the menu open, and a
   const rows = dom.document.querySelectorAll('.desktop-pet-menu > .mx-menu-item');
   assert.equal(rows.length, DESKTOP_PET_MENU.rows);
   assert.equal(dom.document.querySelectorAll('.desktop-pet-menu-separated').length, DESKTOP_PET_MENU.dividers);
-  assert.equal(rows[6], row, 'between Collapse bubble and Reset position');
+  assert.equal(rows[7], row, 'between Collapse bubble and Reset position');
   larger.focus();
   await act(async () => larger.click());
   assert.equal(value(), '190%');
@@ -1589,16 +1766,68 @@ test('the sprite box, bubble, quick message and menu follow the bot size (--pet-
   assert.match(rule('.skin-companion-stack'), /left: 228px;\s*bottom: 8px;/, 'the box stands where main pins it');
   assert.match(
     rule('.skin-companion-quick'),
-    /left: calc\(108px \+ var\(--pet-size, 56px\) \/ 2\);/,
-    'centred under it'
+    /left: calc\(108px \+ var\(--pet-size, 56px\) \/ 2 \+ var\(--quick-shift, 0px\)\);/,
+    'centred under it (shifted inside its span at a screen edge)'
   );
   assert.match(rule('.skin-companion-balloon'), /left: calc\(var\(--pet-size, 56px\) \* 9 \/ 28\);/, 'over its head');
-  assert.match(rule('.skin-companion .skin-companion-face > :is(img, svg)'), /image-rendering: pixelated;/);
   assert.match(
     rule('.skin-companion .skin-companion-face > svg'),
     /margin-bottom: calc\(var\(--pet-size, 56px\) \/ -16 \* var\(--pet-feet-gap, 0\)\);/,
     'lowered by the empty rows under the feet, a sixteenth of the box each'
   );
+});
+
+test('nothing draws a box around the bot in any state: no outline, border, shadow, background or box-shaped filter', async () => {
+  const css = (await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8'))
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
+  // Rules on the bot itself (its button, the sprite box, the face and its
+  // svg/img), in any state; the bubble, quick message and menu keep theirs.
+  const bot = rules.filter(
+    ({ selector }) =>
+      /skin-companion-pet|skin-companion-stack|skin-companion-face|\.mx-av/.test(selector) &&
+      !/bubble|quick|menu|balloon|reply/.test(selector)
+  );
+  assert.ok(bot.length > 5);
+  for (const { selector, body } of bot) {
+    for (const [, property, value] of body.matchAll(/(?:^|;)\s*([\w-]+)\s*:\s*([^;]+)/g)) {
+      const v = value.trim();
+      if (/^(outline|border(-[\w-]+)?)$/.test(property)) assert.match(v, /^(none|0(px)?)$/, `${selector} ${property}: ${v}`);
+      if (property === 'box-shadow') assert.equal(v, 'none', `${selector} ${property}`);
+      if (/^background(-color)?$/.test(property)) assert.equal(v, 'transparent', `${selector} ${property}`);
+      if (property === 'border-radius') assert.fail(`${selector}: a rounded box`);
+      // A drop-shadow follows the drawn pixels: only on the mascot svg, never
+      // on a picture (an opaque one gets a square shadow box) or the button.
+      if (property === 'filter') assert.match(selector, /> svg$/, `${selector}: filter only on the mascot svg`);
+    }
+  }
+  const pet = rules.find(({ selector }) => selector === '.skin-companion-pet').body;
+  assert.match(pet, /outline: none;/);
+  assert.match(pet, /-webkit-tap-highlight-color: transparent;/);
+  assert.match(pet, /appearance: none;/);
+  assert.ok(
+    rules.some(({ selector, body }) => /:focus-visible/.test(selector) && /skin-companion-pet/.test(selector) && /outline: none/.test(body))
+  );
+});
+
+test('a picture face: smooth (pixelated only for the mascot svg) and never continuously animated', async () => {
+  const css = (await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8'))
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
+  const pixelated = rules.filter(({ body }) => /image-rendering:\s*pixelated/.test(body));
+  assert.ok(pixelated.length > 0);
+  for (const { selector } of pixelated) {
+    assert.doesNotMatch(selector, /\bimg\b/, `${selector}: an uploaded picture is never pixelated`);
+    assert.match(selector, /svg/, selector);
+  }
+  // Every animation that can reach a picture (the face's img, the face, the
+  // stack or the pet button around it) steps: no per-frame recomposite.
+  const reaches = /skin-companion-face > img|skin-companion-face > :is\([^)]*img|\.skin-companion-face\s*(,|$)|skin-companion-stack|skin-companion-pet\b/;
+  for (const { selector, body } of rules) {
+    if (!reaches.test(selector) || /@media|prefers-reduced/.test(selector)) continue;
+    const animation = /(?:^|;)\s*animation:\s*([^;]+)/.exec(body)?.[1];
+    if (animation && animation.trim() !== 'none') assert.match(animation, /step-end|steps\(/, `${selector}: ${animation}`);
+  }
 });
 
 test('the overlay draws the sprite at the size main made its window for', async (t) => {

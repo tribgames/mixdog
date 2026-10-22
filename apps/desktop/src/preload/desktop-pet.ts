@@ -29,6 +29,7 @@ const bridge: DesktopPetBridge = {
   scale: (scale) => ipcRenderer.send(DESKTOP_PET_IPC.scale, Number(scale)),
   interactive: (on) => ipcRenderer.send(DESKTOP_PET_IPC.interactive, on === true),
   focusInput: (open) => ipcRenderer.send(DESKTOP_PET_IPC.focusInput, open === true),
+  avatarImage: (agentId) => ipcRenderer.invoke(DESKTOP_PET_IPC.avatarImage, String(agentId)),
 };
 
 contextBridge.exposeInMainWorld('mixdogPet', Object.freeze(bridge));

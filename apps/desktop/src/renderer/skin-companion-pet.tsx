@@ -266,17 +266,39 @@ export function notePetOpenedBy(keyboard: boolean): void {
   openedByKeyboard = keyboard;
 }
 
-/** The bot's ring (desktop-pet.css) shows only while this is set: a real
- *  keydown in the overlay since the last pointer press. A script focus (the
- *  window gaining focus, focus handed back) never draws it by itself. */
+/** The overlay's keyboard rings (desktop-pet.css: the bubble, its reply
+ *  tools, the menu's items; never the bot, which draws none) show only while
+ *  this is set: a navigation key in the overlay since the last pointer
+ *  press. A script focus (the window gaining focus, focus handed back) never
+ *  draws them by itself. */
 export function setPetKeyboardUse(on: boolean, root: HTMLElement = document.documentElement): void {
   if (on) root.dataset.petKeys = 'true';
   else delete root.dataset.petKeys;
 }
 
-/** Keys in this document turn the ring on; a press turns it off. */
+/** The keys that move or act in the overlay. Any other (a modifier alone,
+ *  PrintScreen, the Win+Shift+S chord of a screenshot, typing) leaves the
+ *  ring as it is. */
+const PET_NAVIGATION_KEYS = new Set([
+  'Tab',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Enter',
+  ' ',
+  'Escape',
+  'ContextMenu',
+]);
+export function isPetNavigationKey(event: { key: string; shiftKey: boolean }): boolean {
+  return PET_NAVIGATION_KEYS.has(event.key) || (event.key === 'F10' && event.shiftKey);
+}
+
+/** Navigation keys in this document turn the ring on; a press turns it off. */
 export function trackPetKeyboardUse(doc: Document = document): () => void {
-  const key = () => setPetKeyboardUse(true, doc.documentElement);
+  const key = (event: globalThis.KeyboardEvent) => {
+    if (isPetNavigationKey(event)) setPetKeyboardUse(true, doc.documentElement);
+  };
   const press = () => setPetKeyboardUse(false, doc.documentElement);
   doc.addEventListener('keydown', key, true);
   doc.addEventListener('pointerdown', press, true);
@@ -643,11 +665,34 @@ function useQuickMessage({
   };
 }
 
-function QuickMessageForm({ quick }: { quick: ReturnType<typeof useQuickMessage> }) {
+/** How far inside either edge of its span the quick message stays. */
+const QUICK_EDGE = 4;
+
+function QuickMessageForm({ quick, span }: { quick: ReturnType<typeof useQuickMessage>; span: BubbleSpan | undefined }) {
   const { quickInput, folding, draft, setDraft, inputRef, composingRef, closeInput, send } = quick;
+  const ref = useRef<HTMLFormElement | null>(null);
+  const shiftRef = useRef(0);
+  // Centred under the pet, moved inside its span (the screen or the app
+  // window's content) where the bot stands at a side edge and the window
+  // runs past it; measured from the layout box (not the unfold's scale).
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) {
+      shiftRef.current = 0;
+      return;
+    }
+    const left = node.offsetLeft - shiftRef.current;
+    const shift = span
+      ? Math.round(Math.max(span.left + QUICK_EDGE - left, Math.min(0, span.right - QUICK_EDGE - left - node.offsetWidth)))
+      : 0;
+    shiftRef.current = shift;
+    if (shift !== 0) node.style.setProperty('--quick-shift', `${shift}px`);
+    else node.style.removeProperty('--quick-shift');
+  });
   if (!quickInput && !folding) return null;
   return (
     <form
+      ref={ref}
       className="skin-companion-quick"
       data-pet-hit=""
       data-folding={quickInput ? undefined : 'true'}
@@ -867,7 +912,7 @@ export function CompanionPet({
           {face}
         </button>
       </div>
-      <QuickMessageForm quick={quick} />
+      <QuickMessageForm quick={quick} span={bubbleSpan} />
     </div>
   );
 }

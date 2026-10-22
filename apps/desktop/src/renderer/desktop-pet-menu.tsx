@@ -16,8 +16,8 @@ import { t } from './i18n';
 
 /** The side of the pet its menu opens on: the right unless a menu `width`
  *  wide would run past `screenRight` (the window's on-screen extent, window
- *  px); then the left, which always lies on screen (main keeps the window's
- *  left inside the work area). `sprite` is the sprite box at the bot's scale. */
+ *  px); then the left, which lies on screen whenever the right does not
+ *  (main keeps the sprite box inside the work area). `sprite` is the sprite box at the bot's scale. */
 export function petMenuSide(
   width: number,
   screenRight: number,
@@ -67,6 +67,8 @@ export function applyPetTheme(theme: DesktopPetTheme | null, root: HTMLElement =
 export interface PetMenuState {
   pinned: boolean;
   pinnedHere?: boolean;
+  /** "Free on screen": anywhere on screen, apart from the app window. */
+  onScreen?: boolean;
   keepAbove: boolean;
   collapsed: boolean;
   /** The bot's size in percent (default 100). */
@@ -88,6 +90,7 @@ export function petMenuEntries(state: PetMenuState): PetMenuEntry[] {
     { command: 'settings', label: t('Settings') },
     { command: 'pin', label: t('Pin above the message box'), checked: state.pinned, separatorBefore: true },
     { command: 'pin-here', label: t('Pin here'), checked: state.pinnedHere === true },
+    { command: 'on-screen', label: t('Free on screen'), checked: state.onScreen === true },
     { command: 'keep-above', label: t('Keep above other windows'), checked: state.keepAbove },
     { command: 'collapse', label: t('Collapse bubble'), checked: state.collapsed },
     { command: 'reset', label: t('Reset position') },

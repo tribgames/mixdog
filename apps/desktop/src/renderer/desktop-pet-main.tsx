@@ -7,7 +7,7 @@ import './desktop/16-overlays.css';
 import './desktop-pet.css';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { petMascotCells, petMemberAvatar } from '../shared/desktop-pet-art';
+import { petFallbackAvatar, petMascotCells, petMemberAvatar, petPictureSource } from '../shared/desktop-pet-art';
 import type { DesktopPetBridge } from '../shared/desktop-pet-bridge';
 import {
   type DesktopPetMember,
@@ -15,6 +15,7 @@ import {
   type DesktopPetView,
   desktopPetGeometry,
 } from '../shared/desktop-pet';
+import { AgentImageAvatar } from './agent-avatar';
 import { RoomAvatar, RoomMemberFace, type RoomMemberLabel } from './agent-room-parts';
 import { applyPetTheme, PetMenu, petArea } from './desktop-pet-menu';
 import { initUiLanguage } from './i18n';
@@ -23,10 +24,72 @@ import type { CompanionBubble } from './skin-companion-model';
 
 const pet = (window as unknown as { mixdogPet: DesktopPetBridge }).mixdogPet;
 
-/** A face this window can draw on its own: a custom picture needs the app's
- *  capability bridge, so it shows the agent's own mascot look instead. */
+/** A face as a mascot: a picture that cannot be read shows the agent's own
+ *  mascot look in its place (usePetPicture). */
 function memberLabel(member: DesktopPetMember): RoomMemberLabel {
-  return { id: member.id, name: member.name, avatar: petMemberAvatar(member) };
+  return { id: member.id, name: member.name, avatar: petFallbackAvatar(member) };
+}
+
+/** The one bot's custom picture: none (a mascot or a room), loading,
+ *  ready (its still idle frame), or failed (it cannot be read). */
+export type PetPicture =
+  | { state: 'none' }
+  | { state: 'loading' }
+  | { state: 'ready'; src: string }
+  | { state: 'failed' };
+const NO_PICTURE: PetPicture = { state: 'none' };
+const LOADING_PICTURE: PetPicture = { state: 'loading' };
+
+/** A GIF or WebP that came without its stored first frame (an older single
+ *  upload): its first frame drawn once to a still PNG, so an animated picture
+ *  never repaints the transparent overlay every frame (the pet draws only its
+ *  still idle look; it shows no typing/message motion). '' if it cannot be
+ *  decoded. A PNG (and every stored first frame) is used as it is. */
+function petStillFrame(src: string): Promise<string> {
+  if (!/^data:image\/(gif|webp)[;,]/.test(src)) return Promise.resolve(src);
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        canvas.getContext('2d')?.drawImage(image, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve('');
+      }
+    };
+    image.onerror = () => resolve('');
+    image.src = src;
+  });
+}
+
+/** The one bot's custom picture, read through main once per picture (its
+ *  file names are content hashes). */
+function usePetPicture(view: DesktopPetView | null): PetPicture {
+  const member = view && !view.face.room ? view.face.members[0] : undefined;
+  const avatar = member ? petMemberAvatar(member) : null;
+  const custom = avatar?.kind === 'custom' ? avatar : null;
+  const key = member && custom ? `${member.id}/${Object.values(custom.states).join('/')}` : '';
+  const [read, setRead] = useState<{ key: string; picture: PetPicture }>({ key: '', picture: NO_PICTURE });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for the member and its picture's files
+  useEffect(() => {
+    if (!member || !custom) return undefined;
+    let current = true;
+    const settle = (src: string) => {
+      if (current) setRead({ key, picture: src ? { state: 'ready', src } : { state: 'failed' } });
+    };
+    pet
+      .avatarImage(member.id)
+      .then((answer) => petStillFrame(petPictureSource(custom, answer)))
+      .then(settle, () => settle(''));
+    return () => {
+      current = false;
+    };
+  }, [key]);
+  if (!key) return NO_PICTURE;
+  return read.key === key ? read.picture : LOADING_PICTURE;
 }
 
 /** The bubble after this window's own dismissal of a finished reply. */
@@ -37,16 +100,28 @@ export function shownBubble(view: DesktopPetView | null, dismissedKey: string): 
 
 /** Empty rows (of the mascot's 12) under the one bot's lowest drawn row: the
  *  sprite is lowered by them so its visible feet are the box's bottom, the
- *  line main stands the bot on. */
-export function petFeetGap(view: DesktopPetView | null): number {
-  const rows = petMascotCells(view?.face).map((cell) => cell.y);
+ *  line main stands the bot on. None under a picture (it fills the box),
+ *  nor while it loads (the box stands empty in its geometry). */
+export function petFeetGap(view: DesktopPetView | null, picture: PetPicture = NO_PICTURE): number {
+  if (picture.state === 'ready' || picture.state === 'loading') return 0;
+  const rows = petMascotCells(view?.face, true).map((cell) => cell.y);
   return rows.length ? 11 - Math.max(...rows) : 0;
 }
 
-/** The pet's face: the room's avatar stack, or its one member's face. */
-function petFace(view: DesktopPetView | null) {
+/** The pet's face: the room's avatar stack, or its one member's face: its
+ *  custom picture once read, an empty box while it loads (never a mascot
+ *  flashing first), its mascot look when the picture cannot be read. */
+export function petFace(view: DesktopPetView | null, picture: PetPicture) {
   const members = (view?.face.members ?? []).map(memberLabel);
   if (view?.face.room) return <RoomAvatar members={members} className="skin-companion-face" />;
+  if (picture.state === 'loading') return <span className="agent-room-face skin-companion-face" />;
+  if (picture.state === 'ready') {
+    return (
+      <span className="agent-room-face skin-companion-face">
+        <AgentImageAvatar src={picture.src} />
+      </span>
+    );
+  }
   if (members[0]) return <RoomMemberFace member={members[0]} className="skin-companion-face" />;
   return null;
 }
@@ -175,7 +250,14 @@ function PetApp() {
   useLayoutEffect(() => {
     document.documentElement.style.setProperty('--pet-size', `${shape.sprite.size}px`);
   }, [shape]);
-  const feetGap = petFeetGap(view);
+  // At the screen's top the window is flipped: the bot at its top, all else below.
+  const flipped = view?.flipped === true;
+  useLayoutEffect(() => {
+    if (flipped) document.documentElement.dataset.petFlipped = 'true';
+    else delete document.documentElement.dataset.petFlipped;
+  }, [flipped]);
+  const picture = usePetPicture(view);
+  const feetGap = petFeetGap(view, picture);
   useLayoutEffect(() => {
     document.documentElement.style.setProperty('--pet-feet-gap', String(feetGap));
   }, [feetGap]);
@@ -219,7 +301,7 @@ function PetApp() {
     else document.documentElement.style.removeProperty('--pet-clip');
   }, [clip]);
   usePointerPassThrough(cutouts);
-  const face = petFace(view);
+  const face = petFace(view, picture);
   const bubble = shownBubble(view, dismissedKey);
   const pinned = view?.pinned !== false;
   const pinnedHere = !pinned && view?.pinnedHere === true;
@@ -261,6 +343,7 @@ function PetApp() {
           state={{
             pinned,
             pinnedHere,
+            onScreen: view?.onScreen === true,
             keepAbove: view?.keepAbove === true,
             collapsed: view?.collapsed === true,
             scale: view?.scale,

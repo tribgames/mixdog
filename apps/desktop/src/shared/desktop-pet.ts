@@ -14,6 +14,9 @@ export interface DesktopPetConfig {
   /** "Pin here": locked at its free spot, not draggable; never together
    *  with `pinned` (turning one on turns the other off). */
   pinnedHere: boolean;
+  /** "Free on screen": placed anywhere on screen apart from the app window
+   *  (not owned by it, not hidden with it); never with either pin. */
+  onScreen: boolean;
   /** Above every window; else it follows the app window's layer (default). */
   keepAbove: boolean;
   /** Only the pet shows, no bubble. */
@@ -31,6 +34,7 @@ export interface DesktopPetConfig {
 export const DESKTOP_PET_OPTIONS = [
   'pinned',
   'pinnedHere',
+  'onScreen',
   'keepAbove',
   'collapsed',
   'autoAdvance',
@@ -111,6 +115,7 @@ export const DESKTOP_PET_COMMANDS = [
   'keep-above',
   'pin',
   'pin-here',
+  'on-screen',
   'reset',
   'off',
 ] as const;
@@ -124,8 +129,13 @@ export interface DesktopPetView extends DesktopPetState {
   keepAbove: boolean;
   pinned: boolean;
   pinnedHere: boolean;
+  onScreen: boolean;
   /** The bot's size in percent: the window was made for it (desktopPetGeometry). */
   scale: number;
+  /** At the screen's top: the sprite box stands at the window's top (as far
+   *  down as it stands from the bottom unflipped) and the bubble, the quick
+   *  message and the menu open below it (desktop-pet.css html[data-pet-flipped]). */
+  flipped: boolean;
   theme: DesktopPetTheme | null;
   /** The window is on screen (its idle animation runs only then). */
   visible: boolean;
@@ -243,18 +253,18 @@ export function desktopPetAppLayout(value: unknown): DesktopPetAppLayout {
   return { overTranscript: overTranscript === true, islandReserve: reserve };
 }
 
-/** The room for the pet's menu (desktop-pet-menu.tsx): its rows (eight items
+/** The room for the pet's menu (desktop-pet-menu.tsx): its rows (nine items
  *  and the Size row) at its fixed 28px row (desktop-pet.css), the 5px of
  *  each of its three dividers, the 6px inset and hairline border on both
- *  sides (01-tokens.css) come to 281px; the rest is headroom. */
-export const DESKTOP_PET_MENU = { rows: 9, dividers: 3, height: 300 } as const;
+ *  sides (01-tokens.css) come to 309px; the rest is headroom. */
+export const DESKTOP_PET_MENU = { rows: 10, dividers: 3, height: 328 } as const;
 
 /** The pet window's size, never changed while it lives: the bubble (four
  *  lines, growing up and right from the pet's head), the 40px the pet hops
  *  up onto the quick message, the pet and a small margin, room for its
  *  menu on either side of the pet, and the menu's full height (4px inside
  *  the window top and bottom). */
-export const DESKTOP_PET_WINDOW = { width: 512, height: 308 } as const;
+export const DESKTOP_PET_WINDOW = { width: 512, height: 336 } as const;
 
 /** Above the sprite box: the bubble and the quick message's hop (the 100%
  *  window before the menu grew, 212px, less the box and its 8px). */

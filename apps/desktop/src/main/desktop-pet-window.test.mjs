@@ -181,7 +181,7 @@ function fakeApp() {
   app.webContents.on = (event, listener) => contentsEvents.on(event, listener);
   app.webContents.removeListener = (event, listener) => contentsEvents.removeListener(event, listener);
   /** A webContents event (a reload starting, the renderer gone). */
-  app.webContents.fire = (event) => contentsEvents.emit(event);
+  app.webContents.fire = (event, ...args) => contentsEvents.emit(event, ...args);
   app.isDestroyed = () => false;
   app.getBounds = () => ({ ...app.content });
   app.getContentBounds = () => ({ ...app.content });
@@ -204,6 +204,7 @@ function setup({
   available = true,
   paint = true,
   pageLoaded = Promise.resolve(),
+  avatarImage,
 } = {}) {
   let stored = normalizeDesktopPetPrefs(prefs);
   const screen = fakeScreen(displays);
@@ -234,6 +235,7 @@ function setup({
     openApp: (sessionId) => calls.open.push(sessionId),
     markRead: (sessionId) => calls.read.push(sessionId),
     copyText: (text) => calls.copy.push(text),
+    avatarImage,
   });
   const app = fakeApp();
   pet.attachAppWindow(app);
@@ -282,6 +284,7 @@ test('the overlay is on by default; off persists across a restart; on and quit',
     enabled: true,
     pinned: true,
     pinnedHere: false,
+    onScreen: false,
     keepAbove: false,
     collapsed: false,
     autoAdvance: true,
@@ -293,6 +296,7 @@ test('the overlay is on by default; off persists across a restart; on and quit',
     enabled: false,
     pinned: true,
     pinnedHere: false,
+    onScreen: false,
     keepAbove: false,
     collapsed: false,
     autoAdvance: true,
@@ -369,7 +373,7 @@ test('the pet appears with the composer, not before: first shown already at its 
   app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
   // A renderer reload (or crash) takes the composer with it.
-  app.webContents.fire('did-start-loading');
+  app.webContents.fire('did-navigate');
   assert.equal(window.shown, false);
   app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
   app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
@@ -384,6 +388,26 @@ test('unpinned, the pet also waits for the composer', async () => {
   app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
   assert.equal(window.shows.length, 1);
+});
+
+test('an iframe loading or an in-page navigation in the app window is not a reload: the pet stays', async () => {
+  const { app, window } = await started();
+  assert.equal(window.shown, true);
+  // Electron fires these on the app's webContents for a chat's inline
+  // visualize/preview frame loading, for history.pushState and for a link
+  // the window's navigation guard blocks (Electron 41): the page and its
+  // renderer state are unchanged, and it publishes nothing again.
+  app.webContents.fire('did-start-loading');
+  app.webContents.fire('did-start-navigation', { isMainFrame: false, isSameDocument: false });
+  app.webContents.fire('did-start-navigation', { isMainFrame: true, isSameDocument: true });
+  app.webContents.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+  assert.equal(window.shown, true, 'still on the message box');
+  // The app page replaced (a reload committed) hides it until the new page publishes.
+  app.webContents.fire('did-navigate');
+  assert.equal(window.shown, false);
+  app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
+  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  assert.equal(window.shown, true);
 });
 
 // ---- Layer -----------------------------------------------------------------------
@@ -479,7 +503,7 @@ test('the overlay stays hidden until the app renderer published its first state 
   assert.equal(window.shown, true, 'the app renderer is up: shown');
   assert.equal(window.shows.length, 1);
   // A reload takes the app back to its boot screen: hidden until it publishes again.
-  app.webContents.fire('did-start-loading');
+  app.webContents.fire('did-navigate');
   app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, false);
   app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
@@ -498,7 +522,7 @@ test('unpinned, the window opens at the default corner of the app window display
   assert.deepEqual(window.bounds, { ...expected, ...SIZE });
 });
 
-test('unpinned, dragging moves the window, clamps it to the work area and saves the spot per display', async () => {
+test('unpinned, dragging moves the window, clamps the bot to the work area and saves the spot per display', async () => {
   const { window, stored } = await started({ prefs: FREE, displays: [PRIMARY, SECOND] });
   const contents = window.webContents;
   const start = { ...window.bounds };
@@ -506,7 +530,11 @@ test('unpinned, dragging moves the window, clamps it to the work area and saves 
   contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: 1700, screenY: 850 });
   assert.deepEqual(position(window), [start.x - 100, start.y - 50]);
   contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: -5000, screenY: -5000 });
-  assert.deepEqual(position(window), [0, 0]);
+  assert.deepEqual(
+    position(window),
+    [-DESKTOP_PET_SPRITE.left, -DESKTOP_PET_SPRITE.bottom],
+    'the sprite box at the corner (the window flipped at the top)'
+  );
   assert.deepEqual(stored().positions, {}, 'nothing saved mid-drag');
   contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000, screenY: 500 });
   const dropped = { x: start.x - 800, y: start.y - 400 };
@@ -527,7 +555,11 @@ test('unpinned, dragging moves the window, clamps it to the work area and saves 
 
 test('unpinned, a saved spot is restored (clamped)', async () => {
   const { window } = await started({ prefs: { ...FREE, positions: { 1: { x: 5000, y: 300 } } } });
-  assert.deepEqual(position(window), [1920 - SIZE.width, 300], 'clamped into the work area');
+  assert.deepEqual(
+    position(window),
+    [1920 - DESKTOP_PET_SPRITE.left - DESKTOP_PET_SPRITE.size, 300],
+    'the bot clamped into the work area'
+  );
 });
 
 test('a removed display moves a free pet onto the primary display; a resized one keeps it inside', async () => {
@@ -545,6 +577,204 @@ test('a removed display moves a free pet onto the primary display; a resized one
 
 test('clampPetPosition keeps the whole window inside the work area', () => {
   assert.deepEqual(clampPetPosition({ x: -10, y: 9999 }, SIZE, PRIMARY.workArea), { x: 0, y: 1040 - SIZE.height });
+});
+
+// #179: the free bot was held 228px inside the screen's sides (and 244px
+// below its top) by its transparent window: on a maximised app window it
+// looked boxed into the app's area.
+test('free (kept above other windows), the dragged bot reaches both side edges of the screen, at every scale', async () => {
+  for (const scale of [50, 100, 200]) {
+    const { window, stored } = await started({ prefs: { ...FREE, keepAbove: true, scale } });
+    assert.equal(window.parent, null, 'above every window, owned by none');
+    const { sprite, window: size } = desktopPetGeometry(scale);
+    const drag = (dx, dy) => {
+      const at = { ...window.bounds };
+      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000 + dx, screenY: 500 + dy });
+      return at;
+    };
+    drag(-5000, 0);
+    assert.equal(window.bounds.x + sprite.left, 0, `${scale}%: the sprite box at the left edge`);
+    drag(5000, 5000);
+    assert.equal(window.bounds.x + sprite.left + sprite.size, 1920, `${scale}%: the sprite box at the right edge`);
+    assert.equal(window.bounds.y + size.height, 1040, `${scale}%: the window's bottom on the work area's`);
+    assert.deepEqual(stored().positions[1], { x: window.bounds.x, y: window.bounds.y }, 'saved');
+    assert.equal(window.webContents.lastView().flipped, false);
+    // Restarted: the saved edge spot comes back as it was.
+    const again = await started({ prefs: stored() });
+    assert.deepEqual(position(again.window), [window.bounds.x, window.bounds.y], `${scale}%: restored at the edge`);
+  }
+});
+
+const spriteTop = (window, scale = 100) => {
+  const { sprite, window: size } = desktopPetGeometry(scale);
+  return window.webContents.lastView().flipped
+    ? window.bounds.y + sprite.bottom
+    : window.bounds.y + size.height - sprite.bottom - sprite.size;
+};
+
+test('free, the bot reaches the top edge: the window flips (bubble, quick message, menu below it), at every scale', async () => {
+  for (const scale of [50, 100, 200]) {
+    const { window, stored } = await started({ prefs: { ...FREE, scale } });
+    const { sprite, window: size } = desktopPetGeometry(scale);
+    const drag = (dx, dy) => {
+      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000 + dx, screenY: 500 + dy });
+    };
+    drag(0, -5000);
+    assert.equal(window.webContents.lastView().flipped, true, `${scale}%: flipped at the top`);
+    assert.equal(spriteTop(window, scale), 0, `${scale}%: the sprite box at the top edge`);
+    assert.equal(window.bounds.y, -sprite.bottom, `${scale}%: the window hangs down from just above the bot`);
+    assert.ok(window.bounds.y + size.height <= 1040, 'the room below it on screen');
+    // Dragged on from there, the bot follows the pointer one to one (no jump at the flip).
+    drag(0, 150);
+    assert.equal(spriteTop(window, scale), 150, `${scale}%: still under the pointer`);
+    drag(0, 400);
+    assert.equal(window.webContents.lastView().flipped, false, `${scale}%: room above again: unflipped`);
+    assert.equal(spriteTop(window, scale), 550);
+    drag(0, -5000);
+    // Restarted at the top: flipped again, at the same place.
+    const again = await started({ prefs: stored() });
+    assert.equal(again.window.webContents.lastView().flipped, true);
+    assert.equal(spriteTop(again.window, scale), 0, `${scale}%: restored at the top`);
+  }
+});
+
+test('the composer-pinned bot never flips; "Pin here" at the top keeps its flip', async () => {
+  const pinned = await started();
+  pinned.app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: -80, width: 700, height: 120 });
+  assert.equal(pinned.window.webContents.lastView().flipped, false);
+  assert.equal(pinned.window.bounds.y, 0, 'its whole window on screen, as before');
+  const here = await started({ prefs: FREE });
+  here.app.fire('move', { content: { x: 0, y: 0, width: 1920, height: 1040 } });
+  here.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+  here.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000, screenY: -5000 });
+  command(here.window, 'pin-here');
+  assert.equal(here.window.webContents.lastView().flipped, true);
+  assert.equal(spriteTop(here.window), 0);
+  here.app.fire('resize', { content: { x: 0, y: 0, width: 1800, height: 1000 } });
+  assert.equal(spriteTop(here.window), 0, 'kept at the top against the app window');
+});
+
+test('"Free on screen": anywhere on screen apart from the app window, with or without "Keep above"; exclusive with both pins; kept across a restart', async () => {
+  for (const keepAbove of [false, true]) {
+    const { pet, window: first, windows, app, stored } = await started({ prefs: { keepAbove } });
+    command(first, 'on-screen');
+    await tick();
+    assert.deepEqual(
+      [lastConfig(app).onScreen, lastConfig(app).pinned, lastConfig(app).pinnedHere],
+      [true, false, false],
+      'the menu turns it on and the composer pin off'
+    );
+    const window = windows.at(-1);
+    assert.equal(window.parent, null, 'a window of its own, never owned by the app window');
+    assert.equal(window.alwaysOnTop, keepAbove, '"Keep above" stays its own choice');
+    assert.equal(window.webContents.lastView().onScreen, true);
+    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: -9000, screenY: 9000 });
+    assert.equal(window.bounds.x + GEOMETRY.sprite.left, 0, 'at the screen edge, outside the app window');
+    // Over the app window: the bubble still keeps to the screen, not the app's content.
+    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
+    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 500, screenY: -400 });
+    assert.deepEqual(window.webContents.lastView().bubbleSpan, {
+      left: Math.max(0, -window.bounds.x),
+      right: Math.min(SIZE.width, 1920 - window.bounds.x),
+    });
+    const at = position(window);
+    app.fire('move', { content: { x: 900, y: 500, width: 400, height: 300 } });
+    assert.deepEqual(position(window), at, 'never moved with the app window');
+    app.fire('minimize', { minimized: true });
+    assert.equal(window.shown, true, 'not hidden with the minimised app window');
+    app.fire('restore', { minimized: false });
+    app.webContents.emit(DESKTOP_PET_IPC.composer, null);
+    assert.equal(window.shown, true, 'nor on an app page with no composer');
+    assert.equal(stored().onScreen, true);
+    pet.dispose();
+    const again = await started({ prefs: stored() });
+    assert.equal(again.window.parent, null);
+    assert.deepEqual(position(again.window), at, 'restored where it was');
+    command(again.window, 'pin-here');
+    await tick();
+    assert.deepEqual([lastConfig(again.app).onScreen, lastConfig(again.app).pinnedHere], [false, true]);
+    command(again.windows.at(-1), 'on-screen');
+    await tick();
+    command(again.windows.at(-1), 'pin');
+    await tick();
+    assert.deepEqual([lastConfig(again.app).onScreen, lastConfig(again.app).pinned], [false, true]);
+    assert.equal(again.windows.at(-1).parent, keepAbove ? null : again.app, 'pinned: following the app again');
+  }
+  assert.equal(normalizeDesktopPetPrefs({ pinned: false, onScreen: true }).onScreen, true);
+  assert.equal(normalizeDesktopPetPrefs({ onScreen: true }).onScreen, false, 'never with the composer pin');
+  assert.equal(normalizeDesktopPetPrefs({ pinned: false, pinnedHere: true, onScreen: true }).onScreen, false);
+});
+
+// #179 follow-up: what each placement allows. Pinned (composer) and "Pin
+// here" are locked to the app window (other tests); free is placed on the
+// screen alone: the same with or without "Keep above other windows", and
+// never moved or clamped by the app window.
+test('free, placement is the screen\'s, the same with or without "Keep above", never the app window\'s', async () => {
+  const spots = [];
+  for (const keepAbove of [false, true]) {
+    const { window, app } = await started({ prefs: { ...FREE, keepAbove } });
+    assert.equal(window.parent, keepAbove ? null : app, keepAbove ? 'above every window' : "on the app window's layer");
+    // The app window is small, in the middle; the bot goes to the screen's bottom-right corner, far outside it.
+    app.fire('move', { content: { x: 600, y: 300, width: 700, height: 400 } });
+    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 6000, screenY: 6000 });
+    const left = () => window.bounds.x + GEOMETRY.sprite.left;
+    assert.equal(left() + GEOMETRY.sprite.size, 1920, 'at the screen edge, outside the app window');
+    assert.ok(left() > 600 + 700);
+    app.fire('move', { content: { x: 100, y: 100, width: 500, height: 300 } });
+    assert.equal(left() + GEOMETRY.sprite.size, 1920, 'the app window moving does not move it');
+    assert.equal(window.shown, true);
+    spots.push(position(window));
+  }
+  assert.deepEqual(spots[0], spots[1], 'keepAbove changes the layer only, never where it may go');
+});
+
+// #178: a representative bot whose look is an uploaded picture showed
+// Mixy's fixed pup: the pet window dropped the picture.
+test('the pet window reads the face\'s custom picture through main; nothing for another agent or a mascot', async () => {
+  const asked = [];
+  const answer = { states: { idle: { file: 'idle-0123456789ab.png', url: 'data:image/png;base64,AAAA', poster: '' } } };
+  const { window, app } = await started({
+    avatarImage: async (id) => {
+      asked.push(id);
+      return answer;
+    },
+  });
+  const custom = { kind: 'custom', states: { idle: 'idle-0123456789ab.png' } };
+  const face = (avatar) => ({ room: false, members: [{ id: MIXY_AGENT_ID, name: '하치와레', avatar }] });
+  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, face: face(custom) });
+  assert.deepEqual(window.webContents.lastView().face.members[0].avatar, custom, 'the picture look reaches the pet');
+  assert.deepEqual(await window.webContents.invoke(DESKTOP_PET_IPC.avatarImage, MIXY_AGENT_ID), answer);
+  assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.avatarImage, 'someone-else'), null);
+  app.webContents.emit(DESKTOP_PET_IPC.publish, {
+    ...STATE,
+    face: face({ kind: 'mascot', species: 'shiba', color: '#5b9bff' }),
+  });
+  assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.avatarImage, MIXY_AGENT_ID), null);
+  assert.deepEqual(asked, [MIXY_AGENT_ID]);
+});
+
+test('a picture face: kept as the look, drawn from its idle still, a mascot only in its place', async () => {
+  const { petMemberAvatar, petFallbackAvatar, petMascotCells, petPictureSource } = await import(
+    '../shared/desktop-pet-art.ts'
+  );
+  const { MIXY_AVATAR: pup, mascotCells: cells } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
+  const custom = { kind: 'custom', states: { idle: 'idle-0123456789ab.png' } };
+  const member = { id: MIXY_AGENT_ID, name: '하치와레', avatar: custom };
+  assert.deepEqual(petMemberAvatar(member), custom);
+  assert.deepEqual(petFallbackAvatar(member), { ...pup });
+  const face = { room: false, members: [member] };
+  assert.deepEqual(petMascotCells(face), [], 'a picture fills the box (no feet gap, the whole box reserved)');
+  assert.deepEqual(petMascotCells(face, true), cells(pup), 'the mascot shown until it is read');
+  const idle = { file: 'idle-0123456789ab.png', url: 'data:image/gif;base64,R0lG', poster: 'data:image/png;base64,iVBO' };
+  assert.equal(petPictureSource(custom, { states: { idle } }), idle.poster, 'a moving picture: its first frame');
+  assert.equal(petPictureSource(custom, { states: { idle: { ...idle, poster: '' } } }), idle.url);
+  assert.equal(petPictureSource(custom, { states: { idle: { ...idle, file: 'idle-ffffffffffff.png' } } }), '');
+  assert.equal(petPictureSource(custom, { states: { idle: { ...idle, url: 'file:///x.png' } } }), '');
+  assert.equal(petPictureSource(custom, null), '');
 });
 
 // ---- Pinned above the message box -------------------------------------------------
@@ -880,6 +1110,7 @@ test('Reset position re-pins; Settings and the menu set the same options and bot
     enabled: true,
     pinned: false,
     pinnedHere: false,
+    onScreen: false,
     keepAbove: false,
     collapsed: true,
     autoAdvance: true,
@@ -989,7 +1220,11 @@ test('"Pin here" is held against the app window: moves with it, keeps its neares
   app.fire('resize', { content: { x: 0, y: 0, width: 300, height: 300 } });
   const { sprite: box, window: room } = GEOMETRY;
   assert.ok(window.bounds.x + box.left >= 0 && window.bounds.x + box.left + box.size <= 300, 'inside, x');
-  assert.ok(window.bounds.y + room.height - box.bottom <= 300, 'inside, y');
+  // (Its window flipped: no room above it on the screen's top.)
+  const feet = window.webContents.lastView().flipped
+    ? window.bounds.y + box.bottom + box.size
+    : window.bounds.y + room.height - box.bottom;
+  assert.ok(feet <= 300 && feet - box.size >= 0, 'inside, y');
   // Restart with the window back at its first place: the same anchored spot.
   pet.dispose();
   const again = await started({ prefs: stored() });
@@ -1375,7 +1610,9 @@ test('the published state and theme reach the pet window; the quick message goes
     keepAbove: false,
     pinned: true,
     pinnedHere: false,
+    onScreen: false,
     scale: 100,
+    flipped: false,
     theme: null,
     visible: true,
     screenRight: Math.min(SIZE.width, 1920 - window.bounds.x),
@@ -1557,6 +1794,7 @@ test('stored prefs: malformed fields read as defaults', () => {
       autoClose: true,
       pinned: true,
       pinnedHere: false,
+      onScreen: false,
       scale: 100,
       positions: { 7: { x: 1, y: 2 } },
       hereAnchor: null,
@@ -1577,16 +1815,16 @@ test('stored prefs: malformed fields read as defaults', () => {
 
 test('the bot scales 50–200%: only the sprite grows, the bubble, quick message and menu keep their room', () => {
   assert.deepEqual(desktopPetGeometry(100), {
-    window: { width: 512, height: 308 },
+    window: { width: 512, height: 336 },
     sprite: { left: 228, bottom: 8, size: 56 },
     coreWidth: 384,
   });
   assert.deepEqual(desktopPetGeometry(), desktopPetGeometry(100), '100% is today');
   assert.deepEqual(desktopPetGeometry(50).sprite, { left: 228, bottom: 8, size: 28 });
-  assert.deepEqual(desktopPetGeometry(50).window, { width: 512, height: 308 }, 'smaller: the 100% window');
+  assert.deepEqual(desktopPetGeometry(50).window, { width: 512, height: 336 }, 'smaller: the 100% window');
   assert.deepEqual(desktopPetGeometry(150).sprite.size, 84);
   assert.deepEqual(desktopPetGeometry(200).sprite, { left: 228, bottom: 8, size: 112 });
-  assert.deepEqual(desktopPetGeometry(200).window, { width: 568, height: 308 });
+  assert.deepEqual(desktopPetGeometry(200).window, { width: 568, height: 336 });
   for (let scale = 50; scale <= 200; scale += 10) {
     const { window, sprite: box, coreWidth } = desktopPetGeometry(scale);
     assert.equal(box.size % 4, 0, `${scale}%: a whole number of quarter art pixels`);
@@ -1602,10 +1840,10 @@ test('the bot scales 50–200%: only the sprite grows, the bubble, quick message
   }
 });
 
-test('the whole menu (eight items, the Size row, three dividers) fits in the window at every scale', () => {
+test('the whole menu (nine items, the Size row, three dividers) fits in the window at every scale', () => {
   // 28px rows, 5px per divider, 6px inset and a hairline border each side (01-tokens.css, desktop-pet.css).
-  assert.deepEqual([DESKTOP_PET_MENU.rows, DESKTOP_PET_MENU.dividers], [9, 3]);
-  assert.ok(DESKTOP_PET_MENU.height >= 9 * 28 + 3 * 5 + 2 * 6 + 2, 'the room covers the drawn menu');
+  assert.deepEqual([DESKTOP_PET_MENU.rows, DESKTOP_PET_MENU.dividers], [10, 3]);
+  assert.ok(DESKTOP_PET_MENU.height >= 10 * 28 + 3 * 5 + 2 * 6 + 2, 'the room covers the drawn menu');
   for (const scale of [50, 100, 200]) {
     const { window, sprite: box } = desktopPetGeometry(scale);
     // The menu stands 4px above the window's bottom and stays 4px below its top.
@@ -1616,7 +1854,7 @@ test('the whole menu (eight items, the Size row, three dividers) fits in the win
 
 test('Size is persisted, validated, and a new size replaces the window with one made for it', async () => {
   const { pet, app, windows, stored } = await started({ composer: COMPOSER });
-  assert.deepEqual([windows[0].bounds.width, windows[0].bounds.height], [512, 308]);
+  assert.deepEqual([windows[0].bounds.width, windows[0].bounds.height], [512, 336]);
   for (const bad of [45, 210, 105, '150', Number.NaN, null]) {
     await assert.rejects(async () => app.webContents.invoke(DESKTOP_PET_IPC.setScale, bad), /scale/);
   }
@@ -1629,26 +1867,26 @@ test('Size is persisted, validated, and a new size replaces the window with one 
   assert.equal(windows[0].destroyed, true, 'the old window is not resized');
   const big = windows.at(-1);
   const shape = desktopPetGeometry(200);
-  assert.deepEqual([big.bounds.width, big.bounds.height], [568, 308]);
+  assert.deepEqual([big.bounds.width, big.bounds.height], [568, 336]);
   assert.equal(big.webContents.lastView().scale, 200, 'the overlay draws the sprite at the new size');
   assert.ok(Math.abs(sprite(big.bounds, shape).bottom - (APP_CONTENT.y + COMPOSER.y - NO_ISLAND_LINE)) <= 1);
   assert.deepEqual(
     big.shows.map(({ width, height }) => [width, height]),
-    [[568, 308]],
+    [[568, 336]],
     'shown once at its size'
   );
   await app.webContents.invoke(DESKTOP_PET_IPC.setScale, 200);
   assert.equal(windows.length, 2, 'the same size again: same window');
   pet.dispose();
   const restarted = await started({ prefs: stored(), composer: COMPOSER });
-  assert.deepEqual([restarted.window.bounds.width, restarted.window.bounds.height], [568, 308], 'after restart');
+  assert.deepEqual([restarted.window.bounds.width, restarted.window.bounds.height], [568, 336], 'after restart');
   // Free: the feet stay where they stood.
   await restarted.app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'pinned', false);
   const feet = sprite(restarted.window.bounds, shape);
   await restarted.app.webContents.invoke(DESKTOP_PET_IPC.setScale, 50);
   await tick();
   const small = restarted.windows.at(-1);
-  assert.deepEqual([small.bounds.width, small.bounds.height], [512, 308]);
+  assert.deepEqual([small.bounds.width, small.bounds.height], [512, 336]);
   const after = sprite(small.bounds, desktopPetGeometry(50));
   assert.deepEqual([after.left, after.bottom], [feet.left, feet.bottom]);
 });
