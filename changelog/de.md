@@ -4,6 +4,51 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+12/24-Stunden-Zeiteinstellung, ältere Office-Anhänge und das Einklappen langer Einfügungen hinzugefügt, mit flüssigerem Scrollen auf dem Smartphone, stabilerer Kompaktierung sowie umfassenden Fehlerbehebungen für Räume und Bots.
+
+### Neue Funktionen
+
+- **Zeitformat** — Einstellungen → Allgemein → "Zeitformat" (Smartphone: Einstellungen → Anzeige) hinzugefügt, um Zeiten als System, 12-Stunden oder 24-Stunden anzuzeigen.
+- **Ältere Office-Anhänge** — Senden von `.xls`-, `.doc`- und `.ppt`-Dateien hinzugefügt; sie werden über LibreOffice konvertiert, wenn die Office-Funktion installiert ist (#163).
+- **Lange Einfügungen** — Einklappen von Einfügungen mit mehr als 1.000 Zeichen im Composer sowie das Einklappen gesendeter Nachrichten mit mehr als 20 Zeilen hinter "Mehr anzeigen" hinzugefügt (#186).
+- **Alle in einem Raum** — `@all` zur Adressierung aller Raummitglieder sowie die Nennung eines Raummitglieds aus einer anderen Sitzung hinzugefügt, um es zu erreichen (#164, #180).
+- **Neue Aufgabe ohne Projekt** — `Ctrl+Alt+N` hinzugefügt, um eine neue Aufgabe zu öffnen, die an kein Projekt gebunden ist (#185).
+- **Alle Nutzungskonten** — Aufklappen aller angemeldeten Konten im Nutzungspanel und der Aktivitätsleiste hinzugefügt.
+- **Bildeingabe pro Modell** — Auswahl "Bildeingabe" mit Auto/Ein/Aus für jedes benutzerdefinierte Anbietermodell hinzugefügt (#191).
+- **Zielleiste** — Fortschrittsring, kompakte reine Zählerleiste und Inline-Stopp-Bestätigung zur Zielleiste hinzugefügt.
+
+### Änderungen
+
+- Sitzungsliste so geändert, dass Sub-Agenten- und archivierte Sitzungen ausgeblendet werden; inaktive Sub-Agenten-Sitzungen werden nach 3 Tagen archiviert und nach 30 gelöscht (#165).
+- Modellwechsel eines Bots so geändert, dass er ab dem nächsten Zug für seine offenen Chats gilt (#166).
+- Bot-Genehmigungen so geändert, dass nur in den eigenen Chats des Bots gefragt wird, während Raummitglieder den Regeln ihres Stamm-Chats folgen (#167).
+- Position des Hauptbots auf ein einzelnes Dropdown in den Einstellungen umgestellt, eine freie Platzierung hinzugefügt und das hochgeladene Bild angezeigt (#178, #179).
+- Agenten-Sitzungen in der Seitenleiste so geändert, dass nur der Modellname angezeigt wird, und die Aufgaben-Sitzung eines Bots als einzelne Ergebnis-Karte dargestellt wird.
+- Coding-Antworten so geändert, dass sie Wort für Wort erscheinen, mit abgeschlossenen Tool-Gruppen in der Vergangenheitsform und der Statuszeile am Ende.
+- Benutzerdefinierte Anbieter so geändert, dass ihr registrierter Name in Modellauswahl, Nutzung, Workflows und Hinweisen angezeigt wird.
+- Konnektoren mit mehreren Konten, wie etwa drei Gmail-Konten, so geändert, dass sie als eine Zeile und ein Symbol angezeigt werden.
+- Antippen einer Benachrichtigung so geändert, dass die Sitzung bei ihrer neuesten Nachricht geöffnet wird.
+- Smartphone-Browser-Tabs so geändert, dass sie direkt gekoppelt werden, statt die Anleitung zum Hinzufügen zum Startbildschirm anzuzeigen.
+- Android-Benachrichtigungssymbol auf das Mixdog-Zeichen geändert.
+
+### Fehlerbehebungen
+
+- Behoben: Das Hochscrollen auf dem Smartphone stoppte auf halbem Weg oder sprang, wenn ältere Nachrichten geladen wurden.
+- Behoben: Tippen und Ziehen erreichten das Browser-Panel nicht, wenn Mixdog von einem iPhone oder iPad aus ferngesteuert verwendet wurde.
+- Behoben: Agentenberichte, Tool-Ergebnisse und spät geladene MCP-Tools gingen nach dem Kompaktieren einer Konversation verloren.
+- Behoben: Die Konversation folgte einer langen Antwort nicht mehr oder löste das Folgen, sobald Text angetippt wurde.
+- Behoben: Der Ungelesen-Punkt blieb bei einem Chat bestehen, der im Seitenbereich gelesen wurde.
+- Behoben: Das Bearbeiten einer vorherigen Nachricht verwarf deren Anhänge, und Rückspulungen ignorierten den späteren Verlauf (#186).
+- Behoben: Offene Konversationen erkannten aktivierte oder deaktivierte Agenten nicht (#184).
+- Behoben: Antworten stoppten am Ausgabelimit und eine fehlerhafte Bewertung des Reasoning-Aufwands blieb fehlerhaft (#183).
+- Behoben: Ein entfernter Bot setzte seine Arbeit in Räumen und Konversationen fort (#180).
+- Behoben: Bots umgingen das Bot-zu-Bot-Limit über Hintergrundaufgaben.
+- Behoben: Ein fehlgeschlagenes Einstellungs-Backup verdrängte intakte Backups vorzeitig (thanks @22nsuk).
+- Behoben: Windows Computer Use verlor Bildschirmelemente während eines Snapshots (#173, thanks @22nsuk).
+- Behoben: Die Speichersortierung lehnte Klassifikator-Antworten ab, die Zeilenbereiche auflisteten (#170, thanks @134634623).
+- Behoben: Staging von Git-Änderungen in Dateien, die nicht UTF-8 sind (#177).
+- Behoben: Das Maskottchen wurde nicht angezeigt, wenn sein Bild keine Größe hatte.
+
 ## v1.3.2 - 2026-10-21
 
 Designs und Foto-Skins, das Hauptbot-Overlay sowie den Wechsel des Workflows und des Delegationsmodus mitten in der Konversation hinzugefügt, zusammen mit Windows-Codesignierung und umfassenden Fehlerbehebungen für Kompaktierung, Genehmigungen und Anhänge.

@@ -5,6 +5,51 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Ajout d’un paramètre d’heure au format 12/24 heures, des pièces jointes Office aux anciens formats et du repli des longs collages, avec un défilement plus fluide sur téléphone, un compactage plus stable et des correctifs étendus pour les salons et les bots.
+
+### Nouvelles fonctionnalités
+
+- **Format de l’heure** — Ajout de Réglages → Général → "Format de l’heure" (téléphone : Réglages → Affichage) pour afficher les heures au format Système, 12 heures ou 24 heures.
+- **Anciennes pièces jointes Office** — Ajout de l’envoi de fichiers `.xls`, `.doc` et `.ppt` ; ils sont convertis via LibreOffice lorsque la fonctionnalité Office est installée (#163).
+- **Longs collages** — Ajout du repli des collages de plus de 1 000 caractères dans la zone de saisie, et des messages envoyés de plus de 20 lignes derrière "Afficher plus" (#186).
+- **Tout le monde dans un salon** — Ajout de `@all` pour s’adresser à tous les membres d’un salon, et de la possibilité de nommer un membre d’un salon depuis une autre session pour le joindre (#164, #180).
+- **Nouvelle tâche sans projet** — Ajout de `Ctrl+Alt+N` pour ouvrir une nouvelle tâche non liée à un projet (#185).
+- **Tous les comptes d’utilisation** — Ajout du déploiement de tous les comptes connectés dans le panneau d’utilisation et la barre latérale d'activité.
+- **Entrée d'images par modèle** — Ajout d’un choix Auto/Activé/Désactivé pour "Entrée d'images" sur chaque modèle de fournisseur personnalisé (#191).
+- **Barre d'objectifs** — Ajout d’un anneau de progression, d’une barre compacte affichant uniquement le décompte et d’une confirmation d’arrêt intégrée à la barre d'objectifs.
+
+### Modifications
+
+- Modification de la liste des sessions pour masquer les sous-agents et les sessions archivées ; les sessions de sous-agents inactives sont archivées après 3 jours et supprimées après 30 (#165).
+- Modification du changement de modèle d’un bot pour qu’il s’applique à ses discussions ouvertes dès le tour suivant (#166).
+- Modification des approbations de bot pour ne demander confirmation que dans les discussions propres au bot, les membres d’un salon suivant les règles de leur discussion d’origine (#167).
+- Remplacement de la position du bot principal par un menu déroulant unique dans Réglages, ajout d’un placement libre et affichage de sa photo téléversée (#178, #179).
+- Modification des sessions d’agent dans la barre latérale pour n’afficher que le nom du modèle, et de la session de tâche d’un bot pour s’afficher sous la forme d’une seule carte de résultat.
+- Modification des réponses de code pour apparaître mot à mot, avec les groupes d’outils terminés nommés au passé et la ligne d’état en dernier.
+- Modification des fournisseurs personnalisés pour afficher leur nom enregistré dans les sélecteurs de modèles, l’utilisation, les workflows et les notifications.
+- Modification des connecteurs comportant plusieurs comptes, comme trois comptes Gmail, pour s’afficher sur une seule ligne avec une seule icône.
+- Modification de l’appui sur une notification pour ouvrir la session sur son message le plus récent.
+- Modification des onglets de navigateur sur téléphone pour s’associer directement au lieu d’afficher le guide d’ajout à l’écran d’accueil.
+- Remplacement de l’icône de notification Android par le symbole Mixdog.
+
+### Corrections de bugs
+
+- Correction du défilement vers le haut sur téléphone qui s’arrêtait à mi-chemin ou sautait lors du chargement des messages plus anciens.
+- Correction des touchers et glissements qui n’atteignaient pas le panneau du navigateur lors de l’utilisation de Mixdog à distance depuis un iPhone ou un iPad.
+- Correction de la perte des rapports d’agent, des résultats d’outils et des outils MCP tardifs après le compactage d’une conversation.
+- Correction de la conversation qui cessait de suivre une longue réponse ou qui interrompait le suivi lorsqu’un texte était touché.
+- Correction du point de non-lu qui restait sur une discussion en cours de lecture dans un panneau latéral.
+- Correction de la modification d’un message précédent qui supprimait ses pièces jointes, et des retours en arrière qui ignoraient l’historique ultérieur (#186).
+- Correction des conversations ouvertes qui ne détectaient pas les agents activés ou désactivés (#184).
+- Correction des réponses qui s’arrêtaient à la limite de sortie et d’une évaluation de l’effort de raisonnement défaillante qui restait bloquée (#183).
+- Correction d’un bot supprimé qui continuait son travail dans les salons et les conversations (#180).
+- Correction des bots contournant la limite de communication entre bots en passant par des tâches en arrière-plan.
+- Correction d’une sauvegarde des réglages échouée qui écrasait prématurément de bonnes sauvegardes (thanks @22nsuk).
+- Correction de Windows Computer Use perdant des éléments d’écran pendant une capture instantanée (#173, thanks @22nsuk).
+- Correction du tri de mémoire rejetant les réponses du classificateur listant des plages de lignes (#170, thanks @134634623).
+- Correction de l’indexation (staging) des modifications Git dans les fichiers qui ne sont pas en UTF-8 (#177).
+- Correction de la mascotte qui ne s’affichait pas lorsque son image n’avait pas de dimensions.
+
 ## v1.3.2 - 2026-10-21
 
 Ajout des thèmes et des skins photo, de la superposition du bot principal et du basculement de workflow et de mode de délégation en pleine conversation, avec signature de code Windows et des correctifs étendus pour le compactage, les approbations et les pièces jointes.

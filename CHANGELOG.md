@@ -5,6 +5,51 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Added a 12/24-hour time setting, legacy Office attachments and long-paste folding, with smoother phone scrolling, steadier compaction and broad room and bot fixes.
+
+### New features
+
+- **Time format** — Added Settings → General → "Time format" (phone: Settings → Display) to show times as System, 12-hour or 24-hour.
+- **Legacy Office attachments** — Added sending `.xls`, `.doc` and `.ppt` files; they are converted through LibreOffice when the Office feature is installed (#163).
+- **Long pastes** — Added folding pastes over 1,000 characters in the composer, and sent messages longer than 20 lines behind "Show more" (#186).
+- **Everyone in a room** — Added `@all` to address every room member, and naming a room member from another session to reach it (#164, #180).
+- **New task without a project** — Added `Ctrl+Alt+N` to open a new task that is not tied to a project (#185).
+- **All usage accounts** — Added expanding every signed-in account in the usage panel and the side rail.
+- **Image input per model** — Added an Auto/On/Off "Image input" choice to each custom provider model (#191).
+- **Goal bar** — Added a progress ring, a compact count-only bar and an inline stop confirmation to the Goal bar.
+
+### Changes
+
+- Changed the session list to hide sub-agent and archived sessions; idle sub-agent sessions are archived after 3 days and deleted after 30 (#165).
+- Changed a bot's model change to apply to its open chats from the next turn (#166).
+- Changed bot approvals to ask only in the bot's own chats, with room members following their home chat's rules (#167).
+- Changed the representative bot's position to one dropdown in Settings, added a Free placement, and showed its uploaded picture (#178, #179).
+- Changed agent sessions in the sidebar to show only the model name, and a bot's task session to show as one result card.
+- Changed coding replies to appear word by word, with finished tool groups named in the past tense and the status line last.
+- Changed custom providers to show their registered name in model pickers, usage, workflows and notices.
+- Changed connectors with several accounts, such as three Gmail accounts, to show as one row and one icon.
+- Changed tapping a notification to open the session at its latest message.
+- Changed phone browser tabs to pair directly instead of showing the Add to Home Screen guide.
+- Changed the Android notification icon to the Mixdog mark.
+
+### Bug fixes
+
+- Fixed scrolling up on the phone stopping midway or jumping when older messages loaded.
+- Fixed taps and drags not reaching the browser panel when using Mixdog remotely from an iPhone or iPad.
+- Fixed agent reports, tool results and late MCP tools being lost after a conversation was compacted.
+- Fixed the conversation stopping to follow a long reply, or releasing it when text was pressed.
+- Fixed the unread dot staying on a chat you were reading in a side pane.
+- Fixed editing a previous message dropping its attachments, and rewinds that ignored later history (#186).
+- Fixed open conversations not noticing agents that were enabled or disabled (#184).
+- Fixed replies stopping at the output limit and a broken reasoning-effort judge staying broken (#183).
+- Fixed a removed bot continuing its work in rooms and conversations (#180).
+- Fixed bots escaping the bot-to-bot limit by passing through background tasks.
+- Fixed a failed settings backup pushing out good backups early (thanks @22nsuk).
+- Fixed Windows Computer Use losing screen elements during a snapshot (#173, thanks @22nsuk).
+- Fixed memory sorting rejecting classifier answers that list row ranges (#170, thanks @134634623).
+- Fixed staging Git changes in files that are not UTF-8 (#177).
+- Fixed the mascot not showing when its picture had no size.
+
 ## v1.3.2 - 2026-10-21
 
 Added themes and photo skins, the representative bot overlay, and switching the workflow and delegation mode mid-conversation, with Windows code signing and broad fixes to compaction, approvals and attachments.

@@ -4,6 +4,51 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đã thêm cài đặt định dạng giờ 12/24 giờ, tệp đính kèm Office định dạng cũ và tính năng thu gọn nội dung dán dài, đồng thời cuộn mượt hơn trên điện thoại, nén ổn định hơn cùng các bản sửa lỗi toàn diện cho phòng và bot.
+
+### Tính năng mới
+
+- **Định dạng giờ** — Đã thêm Cài đặt → Chung → "Định dạng giờ" (điện thoại: Cài đặt → Hiển thị) để hiển thị thời gian theo Hệ thống, 12 giờ hoặc 24 giờ.
+- **Tệp đính kèm Office định dạng cũ** — Đã thêm tính năng gửi tệp `.xls`, `.doc` và `.ppt`; chúng sẽ được chuyển đổi qua LibreOffice khi tính năng Office được cài đặt (#163).
+- **Nội dung dán dài** — Đã thêm tính năng thu gọn các nội dung dán hơn 1.000 ký tự trong ô soạn thảo, và thu gọn tin nhắn đã gửi dài hơn 20 dòng phía sau "Xem thêm" (#186).
+- **Mọi người trong phòng** — Đã thêm `@all` để gọi tất cả thành viên trong phòng, và chỉ định tên thành viên phòng từ phiên khác để kết nối (#164, #180).
+- **Tác vụ mới không theo dự án** — Đã thêm `Ctrl+Alt+N` để mở tác vụ mới không gắn với dự án nào (#185).
+- **Tất cả tài khoản sử dụng** — Đã thêm tính năng mở rộng mọi tài khoản đã đăng nhập trong bảng mức dùng và thanh tác vụ bên.
+- **Đầu vào hình ảnh theo từng mô hình** — Đã thêm lựa chọn Tự động/Bật/Tắt cho "Đầu vào hình ảnh" đối với từng mô hình nhà cung cấp tùy chỉnh (#191).
+- **Thanh mục tiêu** — Đã thêm vòng tiến độ, thanh thu gọn chỉ hiển thị số lượng và xác nhận dừng nội tuyến vào Thanh mục tiêu.
+
+### Thay đổi
+
+- Đã thay đổi danh sách phiên để ẩn các phiên agent phụ và phiên đã lưu trữ; các phiên agent phụ không hoạt động sẽ được lưu trữ sau 3 ngày và xóa sau 30 ngày (#165).
+- Đã thay đổi việc đổi mô hình của bot để áp dụng cho các cuộc trò chuyện đang mở từ lượt tiếp theo (#166).
+- Đã thay đổi phê duyệt bot để chỉ hỏi trong cuộc trò chuyện riêng của bot, các thành viên phòng sẽ tuân theo quy tắc của cuộc trò chuyện gốc (#167).
+- Đã thay đổi vị trí của bot chính thành một menu thả xuống duy nhất trong Cài đặt, thêm vị trí tự do và hiển thị ảnh tải lên của bot (#178, #179).
+- Đã thay đổi các phiên agent ở thanh bên để chỉ hiển thị tên mô hình, và phiên tác vụ của bot hiển thị dưới dạng một thẻ kết quả duy nhất.
+- Đã thay đổi phản hồi lập trình xuất hiện theo từng từ, các nhóm công cụ đã hoàn thành được gọi tên ở thì quá khứ và dòng trạng thái ở cuối cùng.
+- Đã thay đổi nhà cung cấp tùy chỉnh để hiển thị tên đã đăng ký trong bộ chọn mô hình, mức dùng, quy trình và thông báo.
+- Đã thay đổi các trình kết nối có nhiều tài khoản, chẳng hạn như ba tài khoản Gmail, hiển thị thành một hàng và một biểu tượng duy nhất.
+- Đã thay đổi thao tác chạm vào thông báo để mở phiên tại tin nhắn mới nhất.
+- Đã thay đổi các tab trình duyệt trên điện thoại để ghép nối trực tiếp thay vì hiển thị hướng dẫn Thêm vào màn hình chính.
+- Đã đổi biểu tượng thông báo Android thành biểu tượng Mixdog.
+
+### Sửa lỗi
+
+- Đã sửa lỗi cuộn lên trên điện thoại bị dừng giữa chừng hoặc giật nhảy khi tải các tin nhắn cũ hơn.
+- Đã sửa lỗi chạm và kéo không tới bảng trình duyệt khi dùng Mixdog từ xa trên iPhone hoặc iPad.
+- Đã sửa lỗi mất báo cáo agent, kết quả công cụ và các công cụ MCP kết nối muộn sau khi cuộc trò chuyện được nén.
+- Đã sửa lỗi cuộc trò chuyện ngừng cuộn theo phản hồi dài, hoặc dừng cuộn theo khi nhấn vào văn bản.
+- Đã sửa lỗi dấu chấm chưa đọc vẫn giữ nguyên trên cuộc trò chuyện đang xem trong bảng bên.
+- Đã sửa lỗi chỉnh sửa tin nhắn trước đó làm mất tệp đính kèm và tua lại bỏ qua lịch sử phía sau (#186).
+- Đã sửa lỗi các cuộc trò chuyện đang mở không nhận biết các agent vừa được bật hoặc tắt (#184).
+- Đã sửa lỗi phản hồi bị dừng tại giới hạn đầu ra và bộ đánh giá mức suy luận bị lỗi vẫn giữ nguyên trạng thái lỗi (#183).
+- Đã sửa lỗi bot đã bị xóa vẫn tiếp tục làm việc trong phòng và cuộc trò chuyện (#180).
+- Đã sửa lỗi bot vượt qua giới hạn giao tiếp giữa các bot bằng cách chuyển tiếp qua các tác vụ nền.
+- Đã sửa lỗi sao lưu cài đặt thất bại làm đẩy sớm các bản sao lưu tốt ra ngoài (thanks @22nsuk).
+- Đã sửa lỗi Windows Computer Use bị mất các phần tử màn hình trong khi chụp ảnh nhanh (#173, thanks @22nsuk).
+- Đã sửa lỗi sắp xếp bộ nhớ từ chối câu trả lời của bộ phân loại khi liệt kê phạm vi hàng (#170, thanks @134634623).
+- Đã sửa lỗi đưa các thay đổi Git vào vùng chờ (staging) đối với các tệp không phải UTF-8 (#177).
+- Đã sửa lỗi linh vật không hiển thị khi hình ảnh không có kích thước.
+
 ## v1.3.2 - 2026-10-21
 
 Đã thêm giao diện và skin hình ảnh, lớp phủ bot chính và chuyển đổi quy trình cùng chế độ ủy quyền ngay trong cuộc trò chuyện, cùng chữ ký mã nguồn Windows và các bản sửa lỗi toàn diện về nén, phê duyệt và tệp đính kèm.

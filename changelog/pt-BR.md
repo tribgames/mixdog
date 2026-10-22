@@ -4,6 +4,51 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Adicionada a configuração de horário de 12/24 horas, anexos do Office em formatos legados e o recolhimento de colagens longas, com rolagem mais suave no celular, compactação mais estável e amplas correções em salas e bots.
+
+### Novos recursos
+
+- **Formato de hora** — Adicionado Configurações → Geral → "Formato de hora" (celular: Configurações → Exibição) para mostrar horários como Sistema, 12 horas ou 24 horas.
+- **Anexos do Office legados** — Adicionado o envio de arquivos `.xls`, `.doc` e `.ppt`; eles são convertidos pelo LibreOffice quando o recurso do Office está instalado (#163).
+- **Colagens longas** — Adicionado o recolhimento de textos colados com mais de 1.000 caracteres no campo de mensagem e de mensagens enviadas com mais de 20 linhas atrás de "Ver mais" (#186).
+- **Todos na sala** — Adicionado `@all` para mencionar todos os membros da sala e a possibilidade de chamar um membro da sala a partir de outra sessão para contatá-lo (#164, #180).
+- **Nova tarefa sem projeto** — Adicionado `Ctrl+Alt+N` para abrir uma nova tarefa que não esteja vinculada a um projeto (#185).
+- **Todas as contas de uso** — Adicionada a expansão de todas as contas conectadas no painel de uso e na barra lateral de atividades.
+- **Entrada de imagens por modelo** — Adicionada a opção Auto/Ativado/Desativado em "Entrada de imagens" para cada modelo de provedor personalizado (#191).
+- **Barra de metas** — Adicionados um anel de progresso, uma barra compacta apenas com contagem e uma confirmação de interrupção em linha à barra de metas.
+
+### Alterações
+
+- A lista de sessões foi alterada para ocultar subagentes e sessões arquivadas; sessões ociosas de subagentes são arquivadas após 3 dias e excluídas após 30 (#165).
+- A alteração do modelo de um bot passou a ser aplicada aos seus chats abertos a partir do próximo turno (#166).
+- As aprovações de bots passaram a ser solicitadas apenas nos próprios chats do bot, com os membros da sala seguindo as regras do seu chat principal (#167).
+- A posição do bot principal foi alterada para um único menu suspenso em Configurações, adicionou-se um posicionamento livre e sua foto enviada passou a ser exibida (#178, #179).
+- As sessões de agentes na barra lateral foram alteradas para mostrar apenas o nome do modelo, e a sessão de tarefa de um bot para ser exibida como um único cartão de resultado.
+- As respostas de código passaram a aparecer palavra por palavra, com os grupos de ferramentas concluídos nomeados no passado e a linha de status no final.
+- Os provedores personalizados passaram a exibir o nome registrado nos seletores de modelos, no uso, nos fluxos de trabalho e nos avisos.
+- Conectores com várias contas, como três contas do Gmail, passaram a ser exibidos como uma única linha e um único ícone.
+- O toque em uma notificação foi alterado para abrir a sessão na sua mensagem mais recente.
+- As abas do navegador no celular passaram a se conectar diretamente em vez de exibir o guia Adicionar à tela inicial.
+- O ícone de notificação do Android foi alterado para o símbolo do Mixdog.
+
+### Correções de bugs
+
+- Corrigida a rolagem para cima no celular que parava no meio ou pulava quando mensagens mais antigas eram carregadas.
+- Corrigidos toques e arrastes que não chegavam ao painel do navegador ao usar o Mixdog remotamente de um iPhone ou iPad.
+- Corrigida a perda de relatórios de agentes, resultados de ferramentas e ferramentas MCP tardias após a compactação de uma conversa.
+- Corrigida a conversa que parava de acompanhar uma resposta longa ou cancelava o acompanhamento ao tocar no texto.
+- Corrigido o ponto de não lido que permanecia em um chat que estava sendo lido em um painel lateral.
+- Corrigida a edição de uma mensagem anterior que perdia seus anexos e reversões que ignoravam o histórico posterior (#186).
+- Corrigidas conversas abertas que não reconheciam agentes habilitados ou desabilitados (#184).
+- Corrigidas respostas que paravam no limite de saída e um avaliador de esforço de raciocínio com falha que continuava quebrado (#183).
+- Corrigido um bot removido que continuava suas atividades em salas e conversas (#180).
+- Corrigidos bots que contornavam o limite de bot para bot passando por tarefas em segundo plano.
+- Corrigido um backup de configurações com falha que descartava backups íntegros prematuramente (thanks @22nsuk).
+- Corrigido o Windows Computer Use que perdia elementos de tela durante uma captura (#173, thanks @22nsuk).
+- Corrigida a ordenação de memória que rejeitava respostas do classificador que listavam intervalos de linhas (#170, thanks @134634623).
+- Corrigido o preparo (staging) de alterações do Git em arquivos que não estão em UTF-8 (#177).
+- Corrigido o mascote que não aparecia quando sua imagem não possuía dimensões.
+
 ## v1.3.2 - 2026-10-21
 
 Adicionados temas e skins com foto, a sobreposição do bot principal e a troca de workflow e modo de delegação no meio da conversa, com assinatura de código no Windows e amplas correções em compactação, aprovações e anexos.
