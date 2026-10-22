@@ -4,8 +4,9 @@
 // above. A reply taller than the viewport now opens at its first line and
 // follow lets go; a reply that fits keeps the end pin, a reader scrolled up
 // is never moved, later growth of the reply never re-pins. A coding session
-// (streamed replies) does the same where a reply lands whole or grows past
-// the viewport; its small deltas before that keep the end pin.
+// streams its replies: a burst there (a provider lump, the reveal catching
+// up) is still the followed tail, so follow holds at the end — letting go
+// there released auto-scroll with no reader input.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -249,7 +250,7 @@ test('agent: a hidden unfinished reply that completes lands at its first line', 
 // let go must not park its followed viewport there: nothing re-pins it.
 test('a list without a follow pause keeps a whole reply at the end', async () => {
   await withList(
-    'coding',
+    'agent',
     async (list) => {
       await list.render([...history, prompt, reply], { [reply.key]: 1200 });
       assert.equal(list.top(), list.maxTop(), 'the followed tail stays at the end');
@@ -280,16 +281,13 @@ test('agent: a reader scrolled up is not moved, and returning to the end does no
   });
 });
 
-test('coding: a reply that lands whole opens at its first line and follow lets go; streamed growth is followed', async () => {
+test('coding: a reply that lands whole or in a burst stays followed at the end; follow never lets go', async () => {
   await withList('coding', async (list) => {
     await list.render([...history, prompt, reply], { [reply.key]: 1200 });
-    assert.equal(list.top(), list.startOf(reply.key) - GAP, 'a whole landing shows the first line');
-    assert.equal(list.pauses.length, 1);
+    assert.equal(list.top(), list.maxTop(), 'a whole landing keeps the bottom');
     await list.render([...history, prompt, reply], { [reply.key]: 1500 });
-    assert.equal(list.top(), list.startOf(reply.key) - GAP, 'it stays put while it grows');
-    await list.reattach();
-    await list.render([...history, prompt, reply], { [reply.key]: 1600 });
-    assert.equal(list.top(), list.maxTop(), 'reaching the bottom resumes follow');
+    assert.equal(list.top(), list.maxTop(), 'its later growth is followed');
+    assert.equal(list.pauses.length, 0, 'follow never let go');
   });
   await withList('coding', async (list) => {
     await list.render([...history, prompt, reply], { [reply.key]: 100 });
@@ -299,11 +297,11 @@ test('coding: a reply that lands whole opens at its first line and follow lets g
       await list.render([...history, prompt, reply], { [reply.key]: size });
       assert.equal(list.top(), list.maxTop(), `${size}px: follow keeps the bottom`);
     }
-    assert.equal(list.pauses.length, 0);
-    // A burst that lands in one step is a whole landing.
+    // A burst that lands in one step (552px in one frame in the headless
+    // replay) is still the followed tail.
     await list.render([...history, prompt, reply], { [reply.key]: 1800 });
-    assert.equal(list.top(), list.startOf(reply.key) - GAP, 'a landed burst aligns to the first line');
-    assert.equal(list.pauses.length, 1);
+    assert.equal(list.top(), list.maxTop(), 'a landed burst keeps the bottom');
+    assert.equal(list.pauses.length, 0, 'follow never let go');
   });
 });
 
@@ -353,15 +351,14 @@ test('coding: an answer growing in small steps keeps the bottom pinned at every 
   });
 });
 
-test('coding: a tall answer landing whole after a sent prompt opens at its first line', async () => {
+test('coding: a tall streamed answer landing in one step after a sent prompt keeps the bottom', async () => {
   await withList('coding', async (list) => {
     await list.submit([...history, prompt, pendingPrompt]);
     await list.render([...history, prompt, pendingPrompt, liveReply], { [liveReply.key]: 1500 });
-    assert.equal(list.top(), list.startOf(liveReply.key) - GAP, 'the first line shows');
-    assert.equal(list.pauses.length, 1, 'follow lets go');
-    await list.reattach();
+    assert.equal(list.top(), list.maxTop(), 'the bottom stays pinned');
     await list.render([...history, prompt, pendingPrompt, liveReply], { [liveReply.key]: 1600 });
-    assert.equal(list.top(), list.maxTop(), 'reaching the bottom resumes follow');
+    assert.equal(list.top(), list.maxTop(), 'and keeps following');
+    assert.equal(list.pauses.length, 0, 'follow never let go');
   });
 });
 

@@ -20,10 +20,12 @@ const TAIL_ROWS = 6;
  * A reply qualifies once: a row that arrived while follow held, after the
  * list mounted (rows restored on entry never move the reader), and that a
  * single pin step grew by at least WHOLE_REPLY_VIEWPORT_SHARE of the viewport
- * (a message landing whole, a caught-up burst). The same rule serves every
- * surface: a reply that settles in smaller steps (markdown parsing, an image
- * decoding) is followed to its end, as the reader's follow rules say, in a
- * bot's chat as in a session.
+ * (a message landing whole, a caught-up burst). A reply that settles in
+ * smaller steps (markdown parsing, an image decoding) is followed to its end,
+ * as the reader's follow rules say. Agent and room surfaces only
+ * (TranscriptList's pauseFollow): a coding session streams its replies, so a
+ * step that large there is a burst of the followed tail, and follow holds
+ * until the reader scrolls away.
  */
 export function createWholeReplyAnchor({
   getRows,
