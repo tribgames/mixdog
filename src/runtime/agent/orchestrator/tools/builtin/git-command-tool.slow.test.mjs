@@ -753,6 +753,67 @@ test('git stages selected change IDs and rejects stale diff snapshots without to
   assert.equal(cachedAfterStale, cached);
 });
 
+// Dense Korean is three bytes a character, so characters straddle the pipe
+// reads of a large diff. `size` bytes: whole rows, ASCII padding, then `끝`.
+function koreanFixture(size) {
+  const row = Buffer.from(`${'한글경계검사'.repeat(24)}\n`);
+  const tail = Buffer.from('끝\n');
+  const body = Buffer.alloc(size - tail.length, 'x');
+  for (let at = 0; at + row.length <= body.length; at += row.length) row.copy(body, at);
+  return Buffer.concat([body, tail]);
+}
+
+test('staging keeps multibyte text split across pipe reads byte-exact in added, deleted and context lines', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-utf8-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await git(root, `init ${quote(repo)}`));
+  parseOk(await git(repo, 'config user.email test@example.com'));
+  parseOk(await git(repo, 'config user.name Test'));
+  parseOk(await git(repo, 'config core.autocrlf false'));
+  const files = { 'a.txt': koreanFixture(65_537), 'b.txt': koreanFixture(262_147) };
+  const stageAll = async () => {
+    const diff = parseDiff(parseOk(await git(repo, 'diff', { output_limit: 1, include_stage_ids: true })));
+    assert.ok(diff.changes.length > 0);
+    const ids = diff.changes.map(({ id }) => id);
+    return parseStage(await executeGitTool({ action: 'stage', diff_id: diff.diff_id, change_ids: ids }, repo));
+  };
+  const assertIndexMatches = (label) => {
+    for (const [path, bytes] of Object.entries(files)) {
+      const blob = spawnSync('git', ['-C', repo, 'show', `:${path}`]).stdout;
+      assert.ok(blob.equals(bytes), `${path}: ${label} staged byte-exact`);
+    }
+  };
+  // Two new files in one batch: every added line carries split characters.
+  for (const [path, bytes] of Object.entries(files)) writeFileSync(join(repo, path), bytes);
+  assert.equal((await stageAll()).staged, true);
+  assertIndexMatches('new file');
+  parseOk(await git(repo, 'commit -m base'));
+  // Tracked edits on every 25th row (under the 50-id stage cap): the deleted
+  // and context lines around them carry split characters too.
+  for (const [path, bytes] of Object.entries(files)) {
+    const lines = bytes.toString('utf8').split('\n');
+    files[path] = Buffer.from(lines.map((line, i) => (i % 25 ? line : line.replaceAll('한', '글'))).join('\n'));
+    writeFileSync(join(repo, path), files[path]);
+  }
+  assert.equal((await stageAll()).staged, true);
+  assertIndexMatches('tracked change');
+});
+
+test('a diff with bytes that are not UTF-8 offers no staging ids, so no replaced character is ever staged', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-git-not-utf8-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, 'repo');
+  parseOk(await git(root, `init ${quote(repo)}`));
+  // "한글" saved as EUC-KR.
+  writeFileSync(join(repo, 'legacy.txt'), Buffer.from([0xc7, 0xd1, 0xb1, 0xdb, 0x0a]));
+  const text = parseOk(await git(repo, 'diff', { output_limit: 100, include_stage_ids: true }));
+  assert.match(text, /^diff --git a\/legacy\.txt b\/legacy\.txt$/m, 'the diff itself is still shown');
+  assert.doesNotMatch(text, /^diff_id:/m);
+  assert.match(text, /not UTF-8[\s\S]*git add -- <paths>/);
+  assert.equal(spawnSync('git', ['-C', repo, 'diff', '--cached', '--name-only'], { encoding: 'utf8' }).stdout, '');
+});
+
 test('ordinal change ids are scoped to their diff_id: stale or unknown snapshots never reuse them', async (t) => {
   const repo = mkdtempSync(join(tmpdir(), 'mixdog-git-ordinal-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));

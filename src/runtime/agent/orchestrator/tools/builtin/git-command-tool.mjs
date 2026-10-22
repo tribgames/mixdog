@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -135,6 +136,9 @@ function ok(data = {}) {
     ...(data && typeof data === 'object' && !Array.isArray(data) ? data : { output: data }),
   });
 }
+
+const NOT_UTF8_STAGE_NOTE =
+  'staging ids unavailable: this diff has bytes that are not UTF-8 (a file in another encoding), and staging its text would replace them; stage those files whole with git add -- <paths>';
 
 function fail(message) {
   return `error: ${message}`;
@@ -398,6 +402,9 @@ async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_B
           ...(optionalLocks ? {} : { GIT_OPTIONAL_LOCKS: '0' }),
         },
         outputLimit: maxBytes,
+        // Bytes as git wrote them, decoded once by the caller: a multibyte
+        // character split across two pipe reads must not become U+FFFD.
+        rawOutput: true,
       },
     });
     if (!native?.child)
@@ -561,9 +568,13 @@ function prepare(plan) {
   return { argv: [operation, ...args] };
 }
 
+// A stage applies the text of this diff, so a patch with bytes that are not
+// UTF-8 (a legacy-encoded file) would be applied with U+FFFD in their place.
+// `notUtf8` marks such a diff: it is shown, but never staged by id.
 async function runStageableDiff(plan, argv, repo, signal) {
   const result = await runGit(plan, argv, { signal, readOnly: true });
   if (!succeeded(result)) return result;
+  result.notUtf8 = !isUtf8(result.stdout);
   result.stdout = String(result.stdout);
   result.stderr = String(result.stderr);
   const paths = plan.args.slice(1);
@@ -593,6 +604,7 @@ async function runStageableDiff(plan, argv, repo, signal) {
     );
     // --no-index uses exit 1 for a successfully produced patch.
     if (!succeeded({ ...added, exitCode: added.exitCode === 1 ? 0 : added.exitCode })) return added;
+    if (!isUtf8(added.stdout)) result.notUtf8 = true;
     result.stdout = appendText(result.stdout, String(added.stdout));
     result.stderr = appendText(result.stderr, String(added.stderr));
   }
@@ -873,6 +885,7 @@ async function executeGitStage(input, workDir, options = {}) {
     };
     const current = await runStageableDiff(snapshot.plan, snapshot.argv, repo, signal);
     if (!succeeded(current)) return noted(commandFailure(snapshot.plan, current, limit));
+    if (current.notUtf8) return noted(fail(NOT_UTF8_STAGE_NOTE));
     const raw = current.stdout;
     if (!diffSnapshotMatches(snapshot, raw)) {
       return answer({
@@ -965,6 +978,11 @@ async function executeSingleGitTool(input, workDir, options = {}) {
       : await runGit(plan, prepared.argv, { signal, readOnly: true });
     if (!succeeded(result)) return commandResult(plan, result, limit);
     if (stageableRequest && input.include_stage_ids === true) {
+      if (result.notUtf8) {
+        const rendered = commandResult(plan, result, limit);
+        rendered.text = appendText(rendered.text, NOT_UTF8_STAGE_NOTE);
+        return rendered;
+      }
       const snapshot = createDiffSnapshot({
         repo,
         scope: resolve(workDir || process.cwd()),
