@@ -11,7 +11,8 @@
 // told again. When the agents enabled at this turn's start (resolved by the
 // session runtime, passed in with the turn) differ from that, the turn carries
 // one reminder naming the agents added and removed.
-import { agentListEntries, presentedAgentCatalogSlice } from './prompt-utils.mjs';
+import { agentListEntries, presentedAgentCatalogSlice, suffixUserTurnReminders } from './prompt-utils.mjs';
+import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
 
 /** The agent list the system prompt carries: one complete generated slice of
  *  the BP3 block, [] when it carries none (or none valid). */
@@ -74,4 +75,28 @@ export function buildAgentListingNotice(session, current) {
     content: agentListingContent(added, removed, current),
     meta: { added: added.map(ref), removed: removed.map(ref) },
   };
+}
+
+/**
+ * A retained failed turn resubmitted as it was (its own message, its input
+ * untouched) learns what changed since: the reminder joins its runtime
+ * context, and `meta.agentListing` becomes the net change against what the
+ * conversation was told before that message, so later turns read it back as a
+ * normal turn's. `index` is the message's place in `session.messages`.
+ */
+export function withAgentListingNotice(session, index, message, current) {
+  const notice = buildAgentListingNotice(session, current);
+  if (!notice) return message;
+  const before = { ...session, messages: session.messages.filter((_, i) => i !== index) };
+  const net = buildAgentListingNotice(before, current);
+  const { agentListing: _told, ...meta } = message.meta || {};
+  const stripped = stripRuntimeUserContext({ ...message, meta });
+  const owned = stripped.meta?.runtimeUserContext ? null : message.meta?.runtimeUserContext;
+  return withRuntimeUserContext(
+    { ...stripped, meta: { ...stripped.meta, ...(net ? { agentListing: net.meta } : {}) } },
+    {
+      prefix: owned?.prefix || '',
+      suffix: `${owned?.suffix || ''}${suffixUserTurnReminders('', notice.content)}`,
+    }
+  );
 }

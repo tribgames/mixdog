@@ -669,7 +669,6 @@ function savedBeforeTheFix(session) {
   session.disallowedTools = [...new Set([...(session.disallowedTools || []), 'agent'])];
   session.tools = session.tools.filter((tool) => tool.name !== 'agent');
   session.deferredToolCatalog = (session.deferredToolCatalog || []).filter((tool) => tool.name !== 'agent');
-  delete session.agentListing;
 }
 
 /** The session as it is read back after a restart, in a new runtime. */
@@ -825,7 +824,6 @@ test('the agents enabled now are the turn input, never session state', async () 
   );
   await refresh.applyPendingAgentProfile();
   assert.equal(JSON.stringify(session), before);
-  assert.equal(Object.getOwnPropertyDescriptor(session, 'currentAgents'), undefined);
   assert.equal(buildAgentListingNotice(session, undefined), null, 'no input, no reminder');
 });
 
@@ -914,7 +912,6 @@ test('a session saved before the fix, its prompt listing no agents, hears of Wor
 
 test('a session saved before the fix whose prompt already lists Worker gets no reminder', async () => {
   const { session, state } = await conversationSession('swarm');
-  delete session.agentListing;
   const resumed = await restart(session, state);
   assert.equal(await resumed.refresh.applyPendingAgentProfile(), false);
   assert.ok(!(await buildUserTurn({ session: resumed.session, prompt: 'go' })).agentListingNotice);

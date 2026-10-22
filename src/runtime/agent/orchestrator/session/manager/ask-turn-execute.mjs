@@ -15,6 +15,7 @@ import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 import { _getAgentLoop } from './runtime-loaders.mjs';
 import { runAbortable, throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { applyTurnContextMeta, buildUserTurn, startProviderPrewarm, traceTurnContext } from './ask-turn-prepare.mjs';
+import { withAgentListingNotice } from './agent-listing-notice.mjs';
 import { retainedFailedTurnInput, rewindUnansweredPrompt } from './failed-turn-rewind.mjs';
 import { buildAgentLoopOptions, trackedToolCallHook } from './ask-turn-loop-options.mjs';
 import { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
@@ -71,21 +72,28 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
       ? (() => {
           const historyMessages = filterModelVisibleSessionMessages(session.messages.slice(0, retained.index));
           const { completion, ...previousTranscript } = retained.message.meta.transcript;
-          const userTurnMessage = {
-            ...retained.message,
-            meta: {
-              ...retained.message.meta,
-              transcript: {
-                ...previousTranscript,
-                ...transcriptMeta,
-                messageId: previousTranscript.messageId,
-                previousCompletions: [
-                  ...(previousTranscript.previousCompletions || []),
-                  { ...completion, at: completion.at ?? previousTranscript.at },
-                ],
+          // The retained message keeps its input; agents enabled or switched
+          // off since it was built ride its runtime context.
+          const userTurnMessage = withAgentListingNotice(
+            session,
+            retained.index,
+            {
+              ...retained.message,
+              meta: {
+                ...retained.message.meta,
+                transcript: {
+                  ...previousTranscript,
+                  ...transcriptMeta,
+                  messageId: previousTranscript.messageId,
+                  previousCompletions: [
+                    ...(previousTranscript.previousCompletions || []),
+                    { ...completion, at: completion.at ?? previousTranscript.at },
+                  ],
+                },
               },
             },
-          };
+            currentAgents
+          );
           return { historyMessages, userTurnMessage, outgoing: [...historyMessages, userTurnMessage] };
         })()
       : buildUserTurn({

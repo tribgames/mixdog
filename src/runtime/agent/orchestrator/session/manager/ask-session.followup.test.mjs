@@ -214,3 +214,64 @@ test('hydration that completes after a retained-input retry runs the queued mess
     assert.deepEqual(followUpErrors, []);
   });
 });
+
+for (const [name, announcedBefore, agentsAtRetry, expected] of [
+  ['enabled', [], [WORKER], ANNOUNCED],
+  ['disabled', [WORKER], [], /no longer available[^\n]*\n- Worker \(worker\)/],
+]) {
+  test(`a retained failed turn retried after an agent was ${name} carries the notice once, and the next turn does not repeat it`, async (t) => {
+    const providerName = `ask-session-retry-agents-${name}-test`;
+    const sends = [];
+    const provider = {
+      name: providerName,
+      contextWindow: 128000,
+      async send(messages) {
+        sends.push(String(messages.at(-1).content));
+        return { content: 'ok', usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    };
+    await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+      const session = createSession({
+        provider: providerName,
+        model: 'fake-model',
+        cwd: root,
+        skipSkills: true,
+        schemaAllowedTools: modelToolSchemaAllowlist('headless'),
+        workflow: { id: 'headless', delegatesAgents: false },
+      });
+      t.after(() => deleteSession(session.id, { deferSummaryUpdate: true }));
+      let agents = announcedBefore;
+      const askOpts = (extra) => ({ agentsNow: () => agents, ...extra });
+
+      // The conversation was told `announcedBefore`; the next turn fails.
+      await askSession(session.id, 'hello', null, null, null, null, askOpts());
+      assert.equal(/# Available Agents Changed/.test(sends.at(-1)), announcedBefore.length > 0);
+      const live = loadSession(session.id);
+      live.messages = [
+        ...live.messages,
+        {
+          role: 'user',
+          content: 'retry me',
+          meta: { transcript: { messageId: 'failed-input', completion: { status: 'failed', attemptId: 'attempt-1' } } },
+        },
+      ];
+      await saveSessionAsync(live);
+
+      // The agent changes between the failure and the retry.
+      agents = agentsAtRetry;
+      sends.length = 0;
+      await askSession(session.id, 'retry me', null, null, null, null, askOpts({
+        retryTurnId: 'failed-input',
+        retryAttemptId: 'attempt-1',
+      }));
+      assert.equal(sends.length, 1);
+      assert.match(sends[0], expected, 'the retry is told');
+      assert.equal(sends[0].match(/# Available Agents Changed/g).length, 1, 'once');
+      assert.equal(sends[0].match(/retry me/g).length, 1, 'the input is not duplicated');
+
+      await askSession(session.id, 'next', null, null, null, null, askOpts());
+      assert.match(sends[1], /next/);
+      assert.doesNotMatch(sends[1], /# Available Agents Changed/, 'the next turn does not repeat it');
+    });
+  });
+}

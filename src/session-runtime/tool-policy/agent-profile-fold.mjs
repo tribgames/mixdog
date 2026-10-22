@@ -242,9 +242,11 @@ export function createAgentProfileFold({
    * anything it embeds changed; a delegated worker keeps its prompt. The core
    * is rebuilt like a workflow switch's (the session's own workflow, the
    * workspace slices the model was told) and replaces the stored one, so the
-   * next turn sends it with one provider cache break; nothing is re-read per
-   * turn. That rewrite is immediate (one tagged cache break) and takes every
-   * pending fold with it (foldPrompt), moving all stamps.
+   * next turn sends it with one provider cache break. The prompt is not re-embedded
+   * per turn, but currentAgents() does resolve the agent catalog at each
+   * turn's preparation (for the listing reminder). That rewrite is immediate
+   * (one tagged cache break) and takes every pending fold with it
+   * (foldPrompt), moving all stamps.
    * What is not an edit never touches the prefix: a bot thread's feature gates
    * and connectors are staged live (stageLiveToolChanges), and shipped rules a
    * release changed wait silently; both are folded in at the next cold point
@@ -264,8 +266,9 @@ export function createAgentProfileFold({
     const { leadPromptParts, summary: workflow } = activeWorkflowContext(workflowConfig, getDataDir());
     const roster = leadRosterRevision(leadPartsFor(session, leadPromptParts));
     const recoverMode = orchestrationRecoveryNeeded(session);
-    // A coding Lead hears of its agents through the listing reminder
-    // (syncAgentListing), never a rewritten prompt.
+    // A coding Lead hears of its agents through the listing reminder each
+    // turn carries (agent-listing-notice.mjs), never a rewritten prompt;
+    // syncAgentListing only lifts a stale `agent` denial.
     const edited =
       recoverMode || session.agentProfileRevision !== revision || (agentMode && session.agentRosterRevision !== roster);
     // At a turn's start its own turn is the one counted; nothing runs yet.
