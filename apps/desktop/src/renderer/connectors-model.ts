@@ -87,6 +87,13 @@ export function uniqueServerName(base: string, taken: readonly string[]): string
   for (let n = 2; ; n += 1) if (!used.has(`${slug}-${n}`)) return `${slug}-${n}`;
 }
 
+/** The catalog connector id a server name belongs to: the inverse of
+ *  uniqueServerName (`gmail-2` → `gmail`); any other name is returned as is. */
+export function baseConnectorId(serverName: string): string {
+  const base = serverName.replace(/-\d+$/, '');
+  return base !== serverName && CONNECTOR_CATALOG.some((entry) => entry.id === base) ? base : serverName;
+}
+
 /** A sign-in session's phase (connector-connect.ts): `starting` (the click
  *  landed), `browser` (waiting for the sign-in page), `connecting` (the
  *  callback arrived), `tools` (signed in; connecting and listing tools),

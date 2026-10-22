@@ -52,6 +52,57 @@ test('opening project settings by path shows the dialog while no Projects panel 
   assert.equal(document.querySelector('input[name="project-alias"]').value, 'alpha');
 });
 
+test('three Gmail accounts are one Gmail row whose switch writes all three; a single connector is unchanged', async (t) => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  const calls = [];
+  let rows = [
+    { id: 'gmail', enabled: true },
+    { id: 'gmail-2', enabled: true },
+    { id: 'gmail-3', enabled: true },
+    { id: 'notion', enabled: true },
+  ];
+  const connectorApi = {
+    invokeCapability: async ({ capability, args }) => {
+      calls.push([capability, ...args]);
+      if (capability === 'setProjectConnectorEnabled') {
+        rows = rows.map((row) => (row.id === args[1] ? { ...row, enabled: args[2] } : row));
+      }
+      return { value: rows };
+    },
+  };
+  const ref = React.createRef();
+  await act(async () =>
+    root.render(React.createElement(ProjectEditorDialog, { ref, projects, connectorApi, onRename() {}, onRemove() {} }))
+  );
+  await act(async () => ref.current.open('/work/alpha'));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const list = document.querySelector('[data-connector-switches="project"]');
+  const rowEls = [...list.querySelectorAll('.connector-switch-row')];
+  assert.deepEqual(
+    rowEls.map((row) => row.querySelector('.connector-switch-name').textContent),
+    ['Gmail', 'Notion']
+  );
+  assert.equal(rowEls[0].querySelector('svg.lucide-plug'), null, 'the Gmail icon, not the generic plug');
+  const inputs = () => [...list.querySelectorAll('input[type="checkbox"]')];
+  await act(async () => inputs()[0].click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.deepEqual(calls.slice(1), [
+    ['setProjectConnectorEnabled', '/work/alpha', 'gmail', false],
+    ['setProjectConnectorEnabled', '/work/alpha', 'gmail-2', false],
+    ['setProjectConnectorEnabled', '/work/alpha', 'gmail-3', false],
+  ]);
+  assert.deepEqual(
+    inputs().map((input) => input.checked),
+    [false, true]
+  );
+});
+
 test('project settings switch a connector off for the project; every other one stays on', async (t) => {
   const host = document.createElement('main');
   document.body.append(host);

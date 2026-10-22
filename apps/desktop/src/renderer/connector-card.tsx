@@ -137,7 +137,7 @@ export function ConnectorsPill() {
   const servers = useMcpServers();
   const connected = (servers ?? [])
     .map((row) => (row.connected === true && row.source !== 'plugin' ? connectorById(row.connector) : null))
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .filter((entry, index, all): entry is NonNullable<typeof entry> => Boolean(entry) && all.indexOf(entry) === index)
     .sort((a, b) => a.name.localeCompare(b.name));
   const shown = connected.slice(0, 4);
   return (

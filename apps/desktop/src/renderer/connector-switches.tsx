@@ -8,6 +8,7 @@ import { connectorById } from '../../../../src/runtime/shared/connector-catalog.
 import type { DesktopApi } from '../shared/contract';
 import { openConnectorsTab } from './connector-connect';
 import { ConnectorIcon } from './connector-icon';
+import { baseConnectorId } from './connectors-model';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { CompactSwitch } from './settings/capability-controls';
@@ -63,11 +64,12 @@ export function ConnectorSwitchList({
       live = false;
     };
   }, [api, read, target, active]);
-  const toggle = async (id: string, enabled: boolean) => {
+  const toggle = async (ids: string[], enabled: boolean) => {
     setBusy(true);
     setError('');
     try {
-      const result = await api?.invokeCapability?.({ capability: write, args: [target, id, enabled] });
+      let result: { value?: unknown } | undefined;
+      for (const id of ids) result = await api?.invokeCapability?.({ capability: write, args: [target, id, enabled] });
       setRows(connectorSwitches(result?.value));
     } catch (reason) {
       setError(errorMessageText(reason));
@@ -76,7 +78,18 @@ export function ConnectorSwitchList({
     }
   };
   // The Extensions → 커넥터 order: alphabetical by the name shown.
-  const named = (rows ?? [])
+  // One row per connector: its accounts (`gmail`, `gmail-2`…) are on together
+  // (every account on), and a toggle sets all of them.
+  const groups = new Map<string, { id: string; ids: string[]; enabled: boolean }>();
+  for (const row of rows ?? []) {
+    const id = baseConnectorId(row.id);
+    const group = groups.get(id);
+    if (group) {
+      group.ids.push(row.id);
+      group.enabled = group.enabled && row.enabled;
+    } else groups.set(id, { id, ids: [row.id], enabled: row.enabled });
+  }
+  const named = [...groups.values()]
     .map((row) => ({ ...row, name: connectorById(row.id)?.name ?? row.id }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return (
@@ -104,7 +117,7 @@ export function ConnectorSwitchList({
             label={row.name}
             checked={row.enabled}
             disabled={busy}
-            onChange={(enabled) => void toggle(row.id, enabled)}
+            onChange={(enabled) => void toggle(row.ids, enabled)}
           />
         </div>
       ))}
