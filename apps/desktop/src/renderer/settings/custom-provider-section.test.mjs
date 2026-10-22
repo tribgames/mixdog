@@ -745,6 +745,38 @@ test('model editor sends only touched fields: chips, explicit [], reset null', a
   assert.deepEqual(args()[2], { reasoning: { levels: null }, contextWindow: 5000, maxOutputTokens: null });
 });
 
+test('model editor image input is a tri-state: Auto sends nothing, On/Off send booleans, Reset sends null', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    api: [withRows({ modelOverrides: { 'acme-1': { supportsVision: false } } })],
+    handlers: { updateCustomProviderModel: () => ({}) },
+  });
+  await render();
+  await click(button('Edit'));
+  const args = () => calls.filter((c) => c.capability === 'updateCustomProviderModel').at(-1).args;
+  const choose = async (label) => {
+    await click(button('Image input'));
+    await click([...document.querySelectorAll('[role=option]')].find((o) => o.textContent === label));
+  };
+  // The stored override (false) shows as Off.
+  await click(button('Edit model acme-1'));
+  assert.equal(button('Image input').textContent, 'Off');
+  await choose('On');
+  await click(editorBtn('Save'));
+  assert.deepEqual(args()[2], { supportsVision: true });
+
+  await click(button('Edit model acme-1'));
+  await choose('Auto');
+  await click(editorBtn('Save'));
+  assert.deepEqual(args()[2], { supportsVision: null });
+
+  await click(button('Edit model acme-1'));
+  await click(button('Reset Image input to inherited'));
+  await click(editorBtn('Save'));
+  assert.deepEqual(args()[2], { supportsVision: null });
+});
+
 test('changing levels sends wire values pruned to the new levels (null when none remain)', async (t) => {
   const calls = [];
   const rows = [{ ...ROWS[0], customReasoning: { wireValues: { low: 'L', high: 'H' } } }, ROWS[1]];

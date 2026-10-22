@@ -17,7 +17,7 @@ import { isOnDeferredToolSurface } from '../deferred-call-through.mjs';
 import { _executeCodeGraphToolLazy } from '../../manager/runtime-loaders.mjs';
 import { requiresReadBody } from '../tool-classify.mjs';
 import { executeCursorNativeBuiltin } from '../../../tools/builtin/external-tool-adapters.mjs';
-import { providerNativePdf, providerReadsImages } from '../../../providers/registry.mjs';
+import { providerModelVisionOverride, providerNativePdf, providerReadsImages } from '../../../providers/registry.mjs';
 import { getModelMetadataSync } from '../../../../../shared/llm/model-catalog.mjs';
 
 /**
@@ -25,16 +25,22 @@ import { getModelMetadataSync } from '../../../../../shared/llm/model-catalog.mj
  * only whether a short PDF may arrive whole as a document block. A scanned
  * page arrives as a page image whenever the model sees images — the provider
  * sends image input (only the text-only local runtime does not) and the
- * catalog does not say the model lacks it — and as OCR text otherwise.
+ * catalog does not say the model lacks it — and as OCR text otherwise. A
+ * custom model's own image-input setting (on or off) beats the catalog.
  */
 export function pdfReadModes(
   sessionRef,
-  { nativePdf = providerNativePdf, readsImages = providerReadsImages, catalogRow = getModelMetadataSync } = {}
+  {
+    nativePdf = providerNativePdf,
+    readsImages = providerReadsImages,
+    catalogRow = getModelMetadataSync,
+    visionOverride = providerModelVisionOverride,
+  } = {}
 ) {
   const provider = sessionRef?.provider;
   const model = sessionRef?.model;
-  const seesImages =
-    readsImages(provider) && (model ? catalogRow(model, provider)?.supportsVision : undefined) !== false;
+  const vision = model ? (visionOverride(provider, model) ?? catalogRow(model, provider)?.supportsVision) : undefined;
+  const seesImages = readsImages(provider) && vision !== false;
   return { pdfPageMode: seesImages ? 'image' : 'ocr', pdfNativeDocument: nativePdf(provider) };
 }
 

@@ -56,6 +56,8 @@ export function createQuickProviderRows({
         display: model.display || model.name || modelId,
         contextWindow: model.contextWindow || meta.contextWindow || null,
         outputTokens: model.outputTokens || meta.outputTokens || null,
+        // An explicit value (an override's false included) wins; the catalog fills the rest.
+        supportsVision: model.supportsVision ?? meta.supportsVision,
         supportsReasoning: model.supportsReasoning === true || meta.supportsReasoning === true,
         supportsFunctionCalling: model.supportsFunctionCalling === true || meta.supportsFunctionCalling === true,
         supportsPromptCaching: model.supportsPromptCaching === true || meta.supportsPromptCaching === true,
@@ -81,6 +83,7 @@ export function createQuickProviderRows({
         contextWindow: meta.contextWindow || null,
         outputTokens: meta.outputTokens || null,
         latest: routeLike.latest === true,
+        supportsVision: meta.supportsVision,
         supportsReasoning: !!routeLike.effort || meta.supportsReasoning === true,
         supportsFunctionCalling: meta.supportsFunctionCalling === true,
         supportsPromptCaching: meta.supportsPromptCaching === true,

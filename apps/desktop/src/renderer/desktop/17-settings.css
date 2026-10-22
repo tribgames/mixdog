@@ -427,7 +427,8 @@
   padding-block: 8px;
   line-height: var(--mx-line-ui);
 }
-.settings-custom-provider-form > label {
+.settings-custom-provider-form > label,
+.settings-custom-provider-form > .settings-model-label {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
 }
@@ -470,8 +471,12 @@
 .settings-oauth-dialog.settings-custom-provider-dialog {
   width: min(520px, calc(100vw - 32px));
 }
-.settings-custom-provider-form > label:not(:first-child) {
+.settings-custom-provider-form > label:not(:first-child),
+.settings-custom-provider-form > .settings-model-label {
   margin-top: 6px;
+}
+.settings-custom-provider-form > .settings-model-label {
+  display: block;
 }
 .settings-form-controls input:hover,
 .settings-provider-secret input:hover {

@@ -442,6 +442,7 @@ function publicCustomModelRows(rows) {
     model.hidden = item.hidden === true;
     model.manual = item.manual === true;
     for (const key of [
+      'supportsVision',
       'supportsReasoning',
       'reasoningOptions',
       'reasoningLevels',
@@ -1112,7 +1113,15 @@ export async function saveCustomProvider(cfgMod, rawInput) {
   return typed ? serializeCustomKeySave(id, commit) : commit();
 }
 
-const MODEL_PATCH_KEYS = new Set(['manual', 'hidden', 'name', 'contextWindow', 'maxOutputTokens', 'reasoning']);
+const MODEL_PATCH_KEYS = new Set([
+  'manual',
+  'hidden',
+  'name',
+  'contextWindow',
+  'maxOutputTokens',
+  'supportsVision',
+  'reasoning',
+]);
 const REASONING_PATCH_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 'replay']);
 
 // Tri-state merge: undefined preserves, null deletes the property, a value replaces it.

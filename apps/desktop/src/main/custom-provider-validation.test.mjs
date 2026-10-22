@@ -204,6 +204,10 @@ const PARITY_CASES = [
   ['model id with control char', { modelOverrides: { 'm\u0000': {} } }, false],
   ['non-boolean hidden', { modelOverrides: { m: { hidden: 'no' } } }, false],
   ['non-boolean replay', { modelOverrides: { m: { reasoning: { replay: 1 } } } }, false],
+  ['supportsVision true', { modelOverrides: { m: { supportsVision: true } } }, true],
+  ['supportsVision false', { modelOverrides: { m: { supportsVision: false } } }, true],
+  ['non-boolean supportsVision', { modelOverrides: { m: { supportsVision: 'auto' } } }, false],
+  ['null supportsVision', { modelOverrides: { m: { supportsVision: null } } }, false],
   // Top level.
   ['auth omitted', {}, true],
   ['auth none', { auth: 'none' }, true],

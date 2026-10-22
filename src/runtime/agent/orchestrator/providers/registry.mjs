@@ -519,6 +519,16 @@ export function providerReadsImages(name) {
   return providers.get(String(name || '').toLowerCase())?.takesImages !== false;
 }
 /**
+ * The user's image-input override for one model of a custom provider: true or
+ * false as set, undefined when unset (auto) or the provider is not a loaded
+ * custom one. A pure lookup; it never instantiates a provider.
+ */
+export function providerModelVisionOverride(name, model) {
+  const overrides = providers.get(String(name || '').toLowerCase())?.customConfig?.modelOverrides;
+  const value = overrides && Object.hasOwn(overrides, model) ? overrides[model]?.supportsVision : undefined;
+  return typeof value === 'boolean' ? value : undefined;
+}
+/**
  * Whether the named provider's adapter declares `consumesReadWindows`: it
  * needs the structured clip report of read results. A pure lookup; a proxy
  * stand-in carries the PC adapter's declared trait.

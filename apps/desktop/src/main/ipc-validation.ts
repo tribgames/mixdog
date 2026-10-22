@@ -643,7 +643,15 @@ const CUSTOM_WIRES = new Set(['chat', 'responses', 'messages']);
 const CUSTOM_MODEL_KEYS = new Set(['id', 'name', 'contextWindow', 'maxOutputTokens']);
 const CUSTOM_PROTOCOLS = new Set(['openai-chat', 'openai-responses', 'anthropic']);
 const CUSTOM_DISCOVERY_KEYS = new Set(['newModelsHidden']);
-const CUSTOM_OVERRIDE_KEYS = new Set(['manual', 'hidden', 'name', 'contextWindow', 'maxOutputTokens', 'reasoning']);
+const CUSTOM_OVERRIDE_KEYS = new Set([
+  'manual',
+  'hidden',
+  'name',
+  'contextWindow',
+  'maxOutputTokens',
+  'supportsVision',
+  'reasoning',
+]);
 const CUSTOM_REASONING_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 'replay']);
 // Mirror the runtime normalizer (custom-provider-config.mjs): the same level
 // list (CUSTOM_REASONING_LEVELS, kept identical by custom-provider-validation
@@ -809,7 +817,7 @@ function validateCustomModelOverride(value: unknown, patch: boolean, protocol?: 
   const row = plainRecord(value, 'custom provider model override');
   requireAllowedKeys(row, CUSTOM_OVERRIDE_KEYS, 'custom provider model override');
   const nullable = (v: unknown) => patch && v === null;
-  for (const key of ['manual', 'hidden']) {
+  for (const key of ['manual', 'hidden', 'supportsVision']) {
     if (row[key] !== undefined && !nullable(row[key]) && typeof row[key] !== 'boolean') {
       throw new TypeError(`custom provider model ${key} is invalid.`);
     }

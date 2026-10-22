@@ -2164,6 +2164,7 @@
   "Ignoring a folder": "フォルダーの無視",
   "Image": "画像",
   "Image generation": "画像生成",
+  "Image input": "画像入力",
   "Image preview": "画像プレビュー",
   "Image viewing": "画像の確認",
   "Image, PDF and Office attachments are too large together ({{max}} MB max).": "画像・PDF・Office の添付ファイルの合計サイズが大きすぎます（最大 {{max}} MB）。",

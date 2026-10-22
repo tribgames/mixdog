@@ -58,7 +58,15 @@ function strictPositiveInt(value, label) {
   return value;
 }
 
-const OVERRIDE_KEYS = new Set(['manual', 'hidden', 'name', 'contextWindow', 'maxOutputTokens', 'reasoning']);
+const OVERRIDE_KEYS = new Set([
+  'manual',
+  'hidden',
+  'name',
+  'contextWindow',
+  'maxOutputTokens',
+  'supportsVision',
+  'reasoning',
+]);
 const REASONING_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 'replay']);
 const DISCOVERY_KEYS = new Set(['newModelsHidden']);
 // v2 config fields, plus the transport fields callers pass alongside them and
@@ -220,6 +228,9 @@ function normalizeOverride(id, raw, protocol, legacy) {
   if (contextWindow) out.contextWindow = contextWindow;
   const maxOutputTokens = positiveInt(raw.maxOutputTokens, `${label}.maxOutputTokens`);
   if (maxOutputTokens) out.maxOutputTokens = maxOutputTokens;
+  // Tri-state image input: absent = auto (catalog / default), true / false = the user's word.
+  const supportsVision = optionalBoolean(raw.supportsVision, `${label}.supportsVision`);
+  if (supportsVision !== undefined) out.supportsVision = supportsVision;
   if (raw.reasoning !== undefined) {
     const reasoning = normalizeReasoning(raw.reasoning, `${label}.reasoning`, protocol);
     if (Object.keys(reasoning).length) out.reasoning = reasoning;
@@ -420,6 +431,8 @@ function effectiveRow(base, override, { providerId, discovered, newModelsHidden 
     outputTokens: ov.maxOutputTokens ?? (Number(base.outputTokens) > 0 ? Number(base.outputTokens) : null),
     hidden,
     manual: ov.manual === true,
+    // An explicit override (false included) beats the catalog; unset keeps the base.
+    ...(typeof ov.supportsVision === 'boolean' ? { supportsVision: ov.supportsVision } : {}),
     supportsReasoning: levels ? levels.some((level) => level !== 'none') : base.supportsReasoning === true,
     ...reasoningLevelFields(levels),
     customReasoning: { wireFormat: reasoning.wireFormat ?? 'standard', wireValues, replay },

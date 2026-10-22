@@ -4,6 +4,10 @@ import { createQuickProviderRows } from './provider-rows.mjs';
 import { hydratedModel } from './model-meta.mjs';
 import { providerModelCacheRow } from '../model-recency.mjs';
 import { customEffortLevels } from '../../runtime/agent/orchestrator/providers/custom-reasoning.mjs';
+import {
+  effectiveCustomModelRows,
+  normalizeCustomProviderConfig,
+} from '../../runtime/agent/orchestrator/providers/custom-provider-config.mjs';
 
 const BASE = {
   type: 'custom',
@@ -145,6 +149,59 @@ test('a custom provider whose stored config is invalid lists nothing, saved rout
   const config = v2Config({ broken: { contextWindow: '4096' } });
   const { rows } = quickRows(config, { provider: V2_ID, model: 'vendor/visible' });
   assert.deepEqual(rows, []);
+});
+
+const BUILD = 'gemini-4-argon-build';
+const buildRow = (override) => {
+  const { rows } = quickRows(v2Config({ [BUILD]: { manual: true, ...override } }));
+  return rows.find((row) => row.id === BUILD);
+};
+
+test('image input override on a suffixed id: true / false / unset (auto stays off for an unknown model)', () => {
+  assert.equal(buildRow({ supportsVision: true }).supportsVision, true);
+  assert.equal(buildRow({ supportsVision: false }).supportsVision, false);
+  assert.equal(buildRow({}).supportsVision, false);
+});
+
+test('reasoning levels override makes a suffixed id show its effort levels', () => {
+  const row = buildRow({ reasoning: { levels: ['low', 'medium', 'high'] } });
+  assert.deepEqual(customEffortLevels(row), ['low', 'medium', 'high']);
+  assert.equal(row.supportsReasoning, true);
+  const bare = buildRow({});
+  assert.equal(bare.supportsReasoning, false);
+  assert.equal(customEffortLevels(bare)?.length ?? 0, 0);
+});
+
+test('an explicit image-input false beats a catalog true; unset follows the catalog; true beats a catalog false', () => {
+  const config = normalizeCustomProviderConfig({
+    ...BASE,
+    schemaVersion: 2,
+    modelOverrides: { off: { supportsVision: false }, on: { supportsVision: true }, auto: {} },
+  });
+  const discovered = (supportsVision) => ['off', 'on', 'auto'].map((id) => ({ id, supportsVision }));
+  const flags = (catalog) =>
+    Object.fromEntries(
+      effectiveCustomModelRows(config, discovered(catalog), { providerId: V2_ID }).map((r) => [r.id, r.supportsVision])
+    );
+  assert.deepEqual(flags(true), { off: false, on: true, auto: true });
+  assert.deepEqual(flags(false), { off: false, on: true, auto: false });
+  assert.deepEqual(flags(undefined), { off: false, on: true, auto: undefined });
+});
+
+test('the image-input override survives hydratedModel as a declared custom field', () => {
+  const hydrate = (model) => hydratedModel(V2_ID, { id: BUILD, ...model });
+  assert.equal(hydrate({ supportsVision: false }).supportsVision, false);
+  assert.equal(hydrate({ supportsVision: true }).supportsVision, true);
+  assert.equal(Object.hasOwn(hydrate({}), 'supportsVision'), false);
+});
+
+test('config normalizer accepts boolean supportsVision overrides and rejects anything else', () => {
+  const make = (supportsVision) =>
+    normalizeCustomProviderConfig({ ...BASE, schemaVersion: 2, modelOverrides: { m: { supportsVision } } });
+  assert.equal(make(true).modelOverrides.m.supportsVision, true);
+  assert.equal(make(false).modelOverrides.m.supportsVision, false);
+  assert.equal(Object.hasOwn(make(undefined).modelOverrides.m, 'supportsVision'), false);
+  for (const bad of ['yes', 1, null, 'auto']) assert.throws(() => make(bad), /supportsVision must be a boolean/);
 });
 
 test("hydratedModel keeps a custom row's declared fields over catalog metadata", () => {

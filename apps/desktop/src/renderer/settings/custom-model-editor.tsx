@@ -113,6 +113,15 @@ export function CustomModelEditor({
   const replay =
     has(reasoning, 'replay') && reasoning.replay !== null ? Boolean(reasoning.replay) : custom.replay === true;
 
+  // Tri-state image input: no override = Auto (catalog / default), else on / off.
+  const visionValue = has(patch, 'supportsVision') ? patch.supportsVision : ov.supportsVision;
+  const visionChoice = visionValue === true ? 'on' : visionValue === false ? 'off' : 'auto';
+  const visionOptions = [
+    { value: 'auto', label: t('Auto') },
+    { value: 'on', label: t('On') },
+    { value: 'off', label: t('Off') },
+  ];
+
   const overridden = (value: unknown) => value !== undefined;
   const reset = (apply: () => void, isOverridden: boolean, touched: boolean, label: string) => (
     <button
@@ -241,6 +250,24 @@ export function CustomModelEditor({
           </div>
           {numberField('contextWindow', 'contextWindow', t('Context window'))}
           {numberField('maxOutputTokens', 'maxOutputTokens', t('Max output tokens'))}
+          <span className="settings-model-label">{t('Image input')}</span>
+          <div className="settings-model-field">
+            <OpenSelect
+              className="settings-select"
+              ariaLabel={t('Image input')}
+              value={visionChoice}
+              disabled={saving}
+              options={visionOptions}
+              onChange={(value) => set('supportsVision', value === 'on' ? true : value === 'off' ? false : null)}
+            />
+            {badge(overridden(ov.supportsVision), has(patch, 'supportsVision') && patch.supportsVision !== null)}
+            {reset(
+              () => set('supportsVision', null),
+              overridden(ov.supportsVision),
+              has(patch, 'supportsVision'),
+              t('Image input')
+            )}
+          </div>
 
           <fieldset className="settings-model-reasoning">
             <legend>{t('Reasoning levels')}</legend>
