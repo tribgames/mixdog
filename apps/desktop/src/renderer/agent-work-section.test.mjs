@@ -199,11 +199,7 @@ test('Leads are one messenger row each, divider-separated with no header; a fini
     'the provider plate fills the avatar box'
   );
   assert.equal(row.querySelector('.agent-chat-title').textContent, 'Code c1');
-  assert.equal(row.querySelector('.agent-chat-preview').textContent, 'fake-1 · Reading the config');
-  assert.ok(
-    row.querySelector('.agent-chat-preview').textContent.startsWith('fake-1 · '),
-    'the parent row preview starts with the model display name'
-  );
+  assert.equal(row.querySelector('.agent-chat-preview').textContent, 'fake-1', 'the parent row preview is the model display name only');
   assert.ok(row.querySelector('.agent-contact-aside > time.agent-chat-time').textContent);
   assert.ok(row.querySelector('.agent-contact-aside > .agent-chat-status[data-kind="running"]'));
   assert.equal(row.textContent.includes('Completed'), false);

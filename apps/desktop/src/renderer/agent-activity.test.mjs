@@ -779,7 +779,8 @@ test('running and awaiting rows always make the five-row cut', async () => {
         })
       );
     });
-    return [...document.querySelector('.session-goal-task-list').children].map((li) => li.textContent);
+    // The task text only; an awaiting row also carries spoken (sr-only) status text.
+    return [...document.querySelector('.session-goal-task-list').children].map((li) => li.querySelector('div').textContent);
   };
   try {
     // Running first, awaiting beyond the cutoff: both stay, order kept.

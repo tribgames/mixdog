@@ -30,6 +30,10 @@ test('the daemon service bundle graph imports no Electron', async () => {
           builder.onResolve({ filter: /^electron(?:\/|$)/ }, (args) => ({
             errors: [{ text: `daemon service bundle must not import Electron (from ${args.importer})` }],
           }));
+          // The legacy Office converter's lazy office import stays unfollowed (build-daemon.mjs).
+          builder.onResolve({ filter: /^\.\.\/office\/portable\/portable-soffice\.mjs$/ }, (args) =>
+            args.kind === 'dynamic-import' ? { path: args.path, external: true } : undefined
+          );
         },
       },
     ],
