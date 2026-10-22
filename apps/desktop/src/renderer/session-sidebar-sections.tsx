@@ -444,8 +444,18 @@ function AgentsSection({
   );
 }
 
+/** Scroller-level drag handlers: the dead space around the drop targets
+ *  (side padding, gaps between sections) resolves to the nearest target. */
+export interface SessionGapDrop {
+  onDragOver(event: React.DragEvent<HTMLElement>): void;
+  onDragLeave(event: React.DragEvent<HTMLElement>): void;
+  onDrop(event: React.DragEvent<HTMLElement>): void;
+}
+
 /** A session row dragged onto Favorites stars it. */
 export interface FavoriteSessionDrop {
+  /** Drop-zone key of the Favorites section (never a project key). */
+  key: string;
   /** A session that may be starred is being dragged. */
   available: boolean;
   /** Favorites is highlighted as the drop target. */
@@ -478,6 +488,7 @@ export function favoritesSection({
       className="sidebar-recent sidebar-favorites"
       aria-label={t('Favorites')}
       data-session-drop={sessionDrop?.active ? 'true' : undefined}
+      data-session-drop-zone={sessionDrop?.key}
       {...reorder}
       onDragOver={(event) => {
         if (!sessionDrop?.onDragOver(event)) reorder?.onDragOver?.(event);
@@ -708,6 +719,7 @@ function projectFolderGroup(
       key={group.key}
       data-project-key={group.key}
       data-session-drop={sessionDrop?.activeKey === group.key ? 'true' : undefined}
+      data-session-drop-zone={sessionDrop ? group.key : undefined}
       {...reorderTarget(reorder)}
       onDragOver={(event) => {
         if (!sessionDrop?.onDragOver(group, event)) reorder.onDragOver?.(event);

@@ -25,6 +25,7 @@ import {
   type FavoriteSessionDrop,
   type ProjectSessionGroup,
   type RenderForkRows,
+  type SessionGapDrop,
 } from './session-sidebar-sections';
 import type { useProjectFolderState, useSidebarOpenState } from './session-sidebar-state';
 import type { usePersistedListOrder } from './use-persisted-list-order';
@@ -366,7 +367,15 @@ export function sessionsSurface({
           <span className="session-launcher-label">{t('New Studio')}</span>
         </button>
       </nav>
-      <div className="session-sidebar-scroll" ref={scrollerRef} onScroll={onScroll}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop gap handling; the keyboard path is the session menu's Move to project */}
+      <div
+        className="session-sidebar-scroll"
+        ref={scrollerRef}
+        onScroll={onScroll}
+        onDragOver={sectionContext.gapDrop.onDragOver}
+        onDragLeave={sectionContext.gapDrop.onDragLeave}
+        onDrop={sectionContext.gapDrop.onDrop}
+      >
         {(sectionContext.agentContacts.length > 0 || sectionContext.agentRooms.length > 0) &&
           agentsSection({
             contacts: sectionContext.agentContacts,
@@ -445,6 +454,7 @@ export interface SidebarSectionContext {
   projectOrder: Pick<ListOrder, 'getReorderProps'>;
   sessionDrop: ProjectsSectionProps['sessionDrop'];
   favoriteDrop: FavoriteSessionDrop;
+  gapDrop: SessionGapDrop;
   automationRows: readonly DesktopSessionSummary[];
   archivedRows: readonly DesktopSessionSummary[];
   visibleArchivedRows: DesktopSessionSummary[];
