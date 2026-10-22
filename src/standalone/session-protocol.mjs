@@ -22,6 +22,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getLeadPersona',
   'getLeadAgentBody',
   'getLeadStatus',
+  'getLeadHomeRoute',
   'getAutoClear',
   'getChannelSettings',
   'getChannelSetup',

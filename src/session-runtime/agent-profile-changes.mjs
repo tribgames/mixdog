@@ -14,6 +14,22 @@ export function subscribeAgentProfileChanges(listener) {
   return { unsubscribe: () => listeners.delete(listener) };
 }
 
+// A bot's saved model route: the hosts of its chats (the session service)
+// move them onto it from their next turn.
+const routeListeners = new Set();
+
+export function subscribeAgentRouteChanges(listener) {
+  routeListeners.add(listener);
+  return { unsubscribe: () => routeListeners.delete(listener) };
+}
+
+/** Settles once every host has taken the route; one failing host never fails the save. */
+export async function publishAgentRouteChange(agentId, route) {
+  await Promise.allSettled(
+    [...routeListeners].map((listener) => Promise.resolve().then(() => listener(agentId, route)))
+  );
+}
+
 /** Settles once every runtime has applied the edit; one failing runtime never fails the save. */
 export async function publishAgentProfileChange() {
   invalidateRoleInstructionsCache();

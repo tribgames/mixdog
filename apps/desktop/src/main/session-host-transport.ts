@@ -54,7 +54,7 @@ export interface SessionHostTransportOwner {
 
 // Session reads reached through dedicated IPC rather than the generic
 // capability list still ride the daemon's `read` lane.
-const READ_CAPABILITIES = new Set<string>([...DESKTOP_READ_CAPABILITIES, 'getQuotaAutoResume']);
+const READ_CAPABILITIES = new Set<string>([...DESKTOP_READ_CAPABILITIES, 'getQuotaAutoResume', 'getLeadHomeRoute']);
 
 export function sessionIdOf(value: unknown): string {
   const id = String(value || '');

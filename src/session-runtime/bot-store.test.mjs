@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { migrateAgentKinds } from '../runtime/shared/agent-kind-migration.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
+import { subscribeAgentRouteChanges } from './agent-profile-changes.mjs';
 import {
   FIXED_AGENT_SLOTS,
   clearAgentDefinitionCache,
@@ -172,6 +173,69 @@ test('a bot route is saved with the bot, a workflow agent route in the config; n
   // Dropping the bot's own model: it follows Main again, still not in the config.
   await api.setAgentRoute('tool-bot', { provider: '' });
   assert.equal(JSON.parse(readFileSync(join(dataDir, 'bots', 'tool-bot', 'agent.json'), 'utf8')).route, undefined);
+});
+
+test('a saved route is announced to the hosts of the bot chats, Mixy and a cleared route included', async (t) => {
+  const { dataDir, api } = fixture(t);
+  seed(dataDir);
+  api.migrateBotStore();
+  const heard = [];
+  const subscription = subscribeAgentRouteChanges((id, route) => heard.push([id, route.model]));
+  t.after(subscription.unsubscribe);
+  await api.setAgentRoute('tool-bot', { provider: 'openai', model: 'gpt-6-mini' });
+  await api.setAgentRoute('lead', { provider: 'openai', model: 'gpt-6' });
+  // Dropping the bot's own model: its chats follow Main from their next turn.
+  await api.setAgentRoute('tool-bot', { provider: '' });
+  // A compare-and-set that finds a route, and an on/off switch, change no route.
+  await api.setAgentRoute('lead', { provider: 'openai', model: 'gpt-x', onlyIfEmpty: true });
+  await api.setAgentRoute('tool-bot', { disabled: true });
+  assert.deepEqual(heard, [
+    ['tool-bot', 'gpt-6-mini'],
+    ['lead', 'gpt-6'],
+    ['tool-bot', MAIN.model],
+  ]);
+});
+
+test('a route change that changes nothing announces nothing', async (t) => {
+  const { dataDir, api } = fixture(t);
+  seed(dataDir);
+  api.migrateBotStore();
+  const heard = [];
+  const subscription = subscribeAgentRouteChanges((id, route) => heard.push([id, route.model]));
+  t.after(subscription.unsubscribe);
+  // Clearing a route the bot never had: its chats already run on Main.
+  await api.setAgentRoute('tool-bot', { provider: '' });
+  await api.setAgentRoute('lead', { provider: '' });
+  // Mixy's on/off request is no model pick (and saves no route for it).
+  await api.setAgentRoute('lead', { disabled: false });
+  await api.setAgentRoute('lead', { disabled: true });
+  assert.equal(api.getLeadStatus().route, null);
+  assert.deepEqual(heard, []);
+  // Saving the same route again.
+  await api.setAgentRoute('tool-bot', { provider: 'openai', model: 'gpt-6-mini' });
+  await api.setAgentRoute('tool-bot', { provider: 'openai', model: 'gpt-6-mini' });
+  assert.deepEqual(heard, [['tool-bot', 'gpt-6-mini']]);
+  // Equivalent model parameters in another key order are the same route.
+  const route = { provider: 'openai', model: 'gpt-6-mini' };
+  await api.setAgentRoute('tool-bot', { ...route, modelParameters: { verbosity: 'low', reasoning: 'auto' } });
+  assert.equal(heard.length, 2, 'new parameters are a change');
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(dataDir, 'bots', 'tool-bot', 'agent.json'), 'utf8')).route.modelParameters,
+    { verbosity: 'low', reasoning: 'auto' }
+  );
+  await api.setAgentRoute('tool-bot', { ...route, modelParameters: { reasoning: 'auto', verbosity: 'low' } });
+  assert.equal(heard.length, 2, 'reversed key order publishes nothing');
+});
+
+test("Mixy's home thread follows its own route, Main's once the override is cleared", async (t) => {
+  const { dataDir, api } = fixture(t);
+  seed(dataDir);
+  api.migrateBotStore();
+  assert.deepEqual(api.getLeadHomeRoute(), { ...MAIN });
+  await api.setAgentRoute('lead', { provider: 'openai', model: 'gpt-6' });
+  assert.equal(api.getLeadHomeRoute().model, 'gpt-6');
+  await api.setAgentRoute('lead', { provider: '' });
+  assert.deepEqual(api.getLeadHomeRoute(), { ...MAIN });
 });
 
 test('new bots are made in bots/ (marked kind: bot), new agents in agents/; a purged migrated bot never comes back as an agent', async (t) => {

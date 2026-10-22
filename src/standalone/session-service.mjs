@@ -23,6 +23,7 @@ import { createViewerRegistry } from './session-service/viewers.mjs';
 import { createSessionEntries } from './session-service/entries.mjs';
 import { createSessionCalls } from './session-service/session-calls.mjs';
 import { createQuotaResumeScheduler } from './session-service/quota-resume.mjs';
+import { createAgentRouteFollow } from './session-service/agent-route-follow.mjs';
 import { registerDelegatedApprovalOpener } from '../runtime/shared/delegated-approval-host.mjs';
 
 const EXTERNAL_SESSION_ACTIONS = new Set([
@@ -209,6 +210,14 @@ export function createSessionService({
   // A sub-agent's approval shows in its top-level chat; one not loaded is
   // brought up so the copy (and its notifications) appear there.
   const unregisterApprovalOpener = registerDelegatedApprovalOpener((sessionId) => calls.materializeSession(sessionId));
+  // A bot's saved route reaches its hosted home and room-member chats from their next turn.
+  const agentRouteFollow = createAgentRouteFollow({
+    sessionsById,
+    sessionOwner: projection.sessionOwner,
+    advance: projection.advance,
+    publishStep: projection.publishStep,
+    log,
+  });
   const quotaUsableReader = typeof readQuotaUsable === 'function' ? readQuotaUsable : async () => false;
   const quotaResume = quotaResumeStore
     ? createQuotaResumeScheduler({
@@ -224,6 +233,7 @@ export function createSessionService({
     if (stopPromise) return stopPromise;
     closed = true;
     unregisterApprovalOpener();
+    agentRouteFollow.unsubscribe();
     quotaResume?.stop();
     stopPromise = Promise.resolve().then(async () => {
       try {

@@ -55,6 +55,7 @@ export function createAgentDefinitionApi(runtime) {
     saveLeadAgentBody: async (text) => runtime.saveLeadAgentBody?.(text) ?? '',
     getLeadStatus: () =>
       runtime.getLeadStatus?.() ?? { created: null, name: '', avatar: null, homeChatted: false, route: null },
+    getLeadHomeRoute: () => runtime.getLeadHomeRoute?.() ?? null,
     saveLeadIdentity: async (payload) => runtime.saveLeadIdentity?.(payload) ?? null,
     setLeadCreated: async (created, description) => runtime.setLeadCreated?.(created, description) ?? null,
     saveAgentDefinition: async (payload, options) => runtime.saveAgentDefinition?.(payload, options) ?? null,

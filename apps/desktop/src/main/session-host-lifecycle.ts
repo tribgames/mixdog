@@ -310,8 +310,7 @@ export class SessionHostLifecycle {
 
   private readonly agentHomes = createAgentHomeSessions({
     listAgents: () => this.owner.invokeControl('listAgents', []),
-    mixyRoute: async () =>
-      ((await this.owner.invokeControl('getLeadStatus', [])) as { route?: unknown } | null)?.route ?? null,
+    mixyRoute: () => this.owner.invokeControl('getLeadHomeRoute', []),
     readSession: (sessionId) => this.owner.readSession(sessionId, false, false),
     createSession: async (sessionId, params) => {
       const created = await this.owner.client.create(

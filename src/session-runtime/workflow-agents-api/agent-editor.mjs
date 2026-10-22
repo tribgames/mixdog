@@ -420,7 +420,7 @@ function customAvatarImages(dir, avatar) {
 // from Mixy's identity folder: bots/mixy once the bot store is active,
 // agents/lead before (mixyIdentityDir, agent-store.mjs). Saved empty, the
 // file goes. `dataDirOf()` resolves the data folder on each call.
-function createLeadIdentityApi(dataDirOf) {
+function createLeadIdentityApi(dataDirOf, mainRoute) {
   const leadDir = () => mixyIdentityDir(dataDirOf());
   function readLeadFile(file) {
     return readTextOrEmpty(join(leadDir(), file));
@@ -462,6 +462,8 @@ function createLeadIdentityApi(dataDirOf) {
       route: readMixyRoute(dataDirOf()),
     };
   }
+  // The route Mixy's thread follows: its own, else Main's (an override cleared).
+  const getLeadHomeRoute = () => readMixyRoute(dataDirOf()) ?? mainRoute();
   // Mixy's name and face, chosen in the 대표 에이전트 dialog or its profile:
   // a name '' and an avatar null go back to the defaults; absent keys are kept.
   function saveLeadIdentity(payload = {}) {
@@ -511,6 +513,7 @@ function createLeadIdentityApi(dataDirOf) {
     getLeadAgentBody: () => readLeadFile('AGENT.md'),
     saveLeadAgentBody: (text) => saveLeadFile('AGENT.md', text),
     getLeadStatus,
+    getLeadHomeRoute,
     saveLeadIdentity,
     setLeadCreated,
     // Mixy's connector policy, in its agent.json (`next` null removes it).
@@ -932,11 +935,15 @@ export function createAgentEditorApi(deps) {
     getLeadAgentBody,
     saveLeadAgentBody,
     getLeadStatus,
+    getLeadHomeRoute,
     saveLeadIdentity,
     setLeadCreated,
     getLeadConnectorPolicy,
     setLeadConnectorPolicy,
-  } = createLeadIdentityApi(() => resolveDataDir(deps));
+  } = createLeadIdentityApi(
+    () => resolveDataDir(deps),
+    () => normalizeWorkflowRoute(deps.resolveRoute(getConfig(), {}))
+  );
 
   // The agent's connector policy (see runtime/.../mcp/agent-connectors.mjs),
   // or null when its definition has none: every connector is on. Read as the
@@ -979,6 +986,7 @@ export function createAgentEditorApi(deps) {
     getLeadAgentBody,
     saveLeadAgentBody,
     getLeadStatus,
+    getLeadHomeRoute,
     setLeadCreated,
     saveLeadIdentity,
     saveAgentDefinition,

@@ -538,8 +538,10 @@ test('mutations go through the runtime facade with validated input', async () =>
   assert.deepEqual(calls[0], ['setRoute', { model: 'gpt-5' }]);
   assert.match(route.appliesTo, /next session/);
 
-  await run(executor, { action: 'set_agent_route', agent: 'worker', route: { provider: '' } });
+  const agentRoute = await run(executor, { action: 'set_agent_route', agent: 'worker', route: { provider: '' } });
   assert.deepEqual(calls[1], ['setAgentRoute', 'worker', { provider: '' }]);
+  assert.match(agentRoute.appliesTo, /chats from their next turn/);
+  assert.doesNotMatch(agentRoute.appliesTo, /new sessions/);
 
   await run(executor, { action: 'set_builtin_enabled', name: 'office', enabled: false });
   assert.deepEqual(calls[2], ['setBuiltinToolEnabled', 'office', false]);

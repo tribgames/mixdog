@@ -357,6 +357,15 @@ test("Mixy's thread keeps sess_home_lead and runs on Mixy's own route, never the
   assert.deepEqual(plain.calls.routes, []);
 });
 
+test("clearing Mixy's route moves its existing thread onto Main's when it is reopened", async () => {
+  const id = 'sess_home_lead';
+  const main = { provider: 'anthropic-oauth', model: 'claude-main' };
+  // getLeadHomeRoute answers Main's route once Mixy's own is cleared.
+  const host = fakeHost({ stored: new Set([id]), routes: { [id]: { provider: 'openai-oauth', model: 'gpt-6' } } });
+  await createAgentHomeSessions({ ...host.deps, mixyRoute: async () => main }).open('lead');
+  assert.deepEqual(host.calls.routes, [[id, main]]);
+});
+
 test('a migrated bot reopens its existing thread (history kept) on its own stored route', async () => {
   const id = 'sess_home_github-watcher';
   const host = fakeHost({

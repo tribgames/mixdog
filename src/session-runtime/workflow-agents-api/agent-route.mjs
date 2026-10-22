@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';
@@ -10,6 +11,7 @@ import {
   withAgentDisabled,
 } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId, resolveDataDir } from './shared.mjs';
+import { publishAgentRouteChange } from '../agent-profile-changes.mjs';
 import {
   isStoreBot,
   readBotRoute,
@@ -101,21 +103,38 @@ export function createAgentRouteApi(deps) {
     saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
   }
 
+  // The route a bot saved of its own ({} when none).
+  function ownRoute(id) {
+    if (isMixy(id)) return readMixyRoute(dataDir()) || {};
+    if (storeBot(id)) return readBotRoute(dataDir(), id) || {};
+    return agentRouteFromConfig(getConfig(), id) || {};
+  }
+  // The route a bot's chats run on: its own, else Main's.
+  const chatRoute = (id) => {
+    const own = ownRoute(id);
+    return normalizeWorkflowRoute(own.provider ? own : resolveRoute(getConfig(), {}));
+  };
+  // Structural, so equivalent parameter objects in another key order are the same route.
+  const plainRoute = (route) => JSON.parse(JSON.stringify(normalizeWorkflowRoute(route) ?? null));
+  const sameRoute = (a, b) => isDeepStrictEqual(plainRoute(a), plainRoute(b));
+
   // Only an explicitly empty provider removes an override: the agent inherits Main.
-  function clearOverride(id) {
+  async function clearOverride(id) {
+    const before = chatRoute(id);
     if (isMixy(id) || storeBot(id)) {
       if (isMixy(id)) writeMixyRoute(dataDir(), null);
       else writeBotRoute(dataDir(), id, null);
-      const inherited = normalizeWorkflowRoute(resolveRoute(getConfig(), {}));
-      return { ...(inherited || {}), inherited: true };
+    } else {
+      const nextConfig = { ...getConfig() };
+      const agents = { ...(nextConfig.agents || {}) };
+      const hadOverride = Object.hasOwn(agents, id);
+      delete agents[id];
+      nextConfig.agents = agents;
+      if (hadOverride) saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
     }
-    const nextConfig = { ...getConfig() };
-    const agents = { ...(nextConfig.agents || {}) };
-    const hadOverride = Object.hasOwn(agents, id);
-    delete agents[id];
-    nextConfig.agents = agents;
-    if (hadOverride) saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
     const inherited = normalizeWorkflowRoute(resolveRoute(getConfig(), {}));
+    // The bot's chats follow Main from their next turn (unless they already do).
+    if (inherited && !sameRoute(before, inherited)) await publishAgentRouteChange(id, inherited);
     return { ...(inherited || {}), inherited: true };
   }
 
@@ -128,16 +147,16 @@ export function createAgentRouteApi(deps) {
     // picked while the model resolved below stays (answered with `skipped`).
     const onlyIfEmpty = requested.onlyIfEmpty === true;
     delete requested.onlyIfEmpty;
-    const readStored = () => {
-      if (isMixy(id)) return readMixyRoute(dataDir()) || {};
-      if (storeBot(id)) return readBotRoute(dataDir(), id) || {};
-      return agentRouteFromConfig(getConfig(), id) || {};
-    };
+    const readStored = () => ownRoute(id);
     const kept = () => ({ ...readStored(), id, skipped: true });
     const stored = readStored();
     if (onlyIfEmpty && clean(stored.provider)) return kept();
-    // Mixy is never off: its route request is a model pick alone.
-    if (isMixy(id)) delete requested.disabled;
+    // Mixy is never off: its route request is a model pick alone, and an
+    // on/off request alone changes nothing.
+    if (isMixy(id) && hasOwn(requested, 'disabled')) {
+      delete requested.disabled;
+      if (!Object.keys(requested).length) return { ...stored, id };
+    }
     // Off is an explicit state, stored apart from the route so the model the
     // user picked survives and comes back when the agent is switched on. An
     // off request that also carries a model saves that model and stays off.
@@ -147,7 +166,7 @@ export function createAgentRouteApi(deps) {
       // An explicitly empty provider still asks to drop the override, as it
       // does for an agent that stays on: off and inheriting Main.
       if (hasOwn(requested, 'provider') && !clean(requested.provider)) {
-        return { ...clearOverride(id), id, disabled: true };
+        return { ...(await clearOverride(id)), id, disabled: true };
       }
       return { ...stored, id, disabled: true };
     }
@@ -189,7 +208,10 @@ export function createAgentRouteApi(deps) {
     if (onlyIfEmpty && clean(readStored().provider)) return kept();
     const stayOff = onlyIfEmpty ? isAgentDisabled(getConfig(), id) : keepOff;
     // Picking a model is also the "on" switch unless the request keeps it off.
+    const before = chatRoute(id);
     saveRoute(id, routeToSave, stayOff);
+    // The bot's existing chats move onto it from their next turn (unless they already run it).
+    if (!sameRoute(before, routeToSave)) await publishAgentRouteChange(id, routeToSave);
     return stayOff ? { ...routeToSave, id, disabled: true } : routeToSave;
   }
 
