@@ -14,7 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { onnxRuntimeSupported } from '../shared/onnx-runtime-support.mjs';
 import { fileHasData } from '../shared/file-has-data.mjs';
-import { effortJudgeInstallCurrent, effortJudgeInstallStamped, installEffortJudgeModel } from './model-install.mjs';
+import {
+  effortJudgeInstallCurrent,
+  effortJudgeInstallStamped,
+  installEffortJudgeModel,
+  invalidateDamagedEffortJudgeInstall,
+} from './model-install.mjs';
 
 export const EFFORT_JUDGE_UNSUPPORTED = 'Auto effort is unsupported on darwin-x64 (no onnxruntime-node binding)';
 const WORKER_PATH = fileURLToPath(new URL('./judge-worker.mjs', import.meta.url));
@@ -139,6 +144,7 @@ function ensureWorker(dir) {
       lastLoadError = msg.message;
       lastLoadErrorAt = Date.now();
       notifyReady(false);
+      void repairAfterLoadError(dir);
     } else if (msg.type === 'result') {
       settle(msg.id, (entry) => entry.resolve(msg.probs));
     } else if (msg.type === 'error') {
@@ -204,6 +210,48 @@ function request(target, { request: text, prev, prevRequest, step }) {
 // One install at a time (the settings install and the boot refresh can overlap).
 let installing = null;
 let refreshChecked = false;
+let verifying = false;
+
+/** Why the judge last failed to load; '' when it loaded or never failed. */
+export function effortJudgeLastError() {
+  return lastLoadError;
+}
+
+// Runs `task` as the one install: the slot stays taken until it settles, so
+// installs, refreshes and repairs never overlap.
+function occupyInstall(task) {
+  const run = task().finally(() => {
+    if (installing === run) installing = null;
+  });
+  installing = run;
+  return run;
+}
+
+// A model that fails to load may be damaged on disk (a crash can leave a
+// stamped file with a zeroed tail). Re-verify the hashes once per load error,
+// off the turn's path: a mismatch drops the stamp and re-downloads only the bad
+// files; matching hashes keep the plain LOAD_RETRY_MS back-off. Verifying and
+// invalidating hold the install slot, after any install in flight has settled,
+// so the stamp they remove is never one an installer just wrote.
+async function repairAfterLoadError(dir) {
+  if (verifying || process.env.MIXDOG_EFFORT_JUDGE_DIR || !onnxRuntimeSupported()) return;
+  verifying = true;
+  try {
+    while (installing) await installing.catch(() => {});
+    await occupyInstall(async () => {
+      const bad = await invalidateDamagedEffortJudgeInstall(dir);
+      if (!bad.length) return;
+      process.stderr.write(`[effort-judge] reinstalling damaged model files: ${bad.join(', ')}\n`);
+      await runInstall();
+      // The files are replaced: the next turn loads them without the back-off.
+      lastLoadErrorAt = 0;
+    });
+  } catch (error) {
+    process.stderr.write(`[effort-judge] model repair failed: ${error?.message || error}\n`);
+  } finally {
+    verifying = false;
+  }
+}
 
 /**
  * Installs or updates the judge model from the release the bundled manifest
@@ -213,19 +261,17 @@ let refreshChecked = false;
  */
 export function installEffortJudge() {
   if (!onnxRuntimeSupported()) return Promise.reject(new Error(EFFORT_JUDGE_UNSUPPORTED));
-  installing ??= (async () => {
-    const dir = effortJudgeModelDir();
-    if (process.env.MIXDOG_EFFORT_JUDGE_DIR || (effortJudgeAvailable(dir) && effortJudgeInstallCurrent(dir))) {
-      if (!effortJudgeAvailable(dir))
-        throw new Error(`The Auto reasoning model is not installed (expected in ${dir}).`);
-      return;
-    }
-    await installEffortJudgeModel(dir);
-    if (worker) await shutdownEffortJudge();
-  })().finally(() => {
-    installing = null;
-  });
-  return installing;
+  return installing ?? occupyInstall(runInstall);
+}
+
+async function runInstall() {
+  const dir = effortJudgeModelDir();
+  if (process.env.MIXDOG_EFFORT_JUDGE_DIR || (effortJudgeAvailable(dir) && effortJudgeInstallCurrent(dir))) {
+    if (!effortJudgeAvailable(dir)) throw new Error(`The Auto reasoning model is not installed (expected in ${dir}).`);
+    return;
+  }
+  await installEffortJudgeModel(dir);
+  if (worker) await shutdownEffortJudge();
 }
 
 /**

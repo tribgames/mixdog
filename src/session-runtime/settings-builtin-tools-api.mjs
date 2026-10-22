@@ -19,6 +19,7 @@ import {
   effortJudgeAvailable,
   effortJudgeInfo,
   effortJudgeInstalling,
+  effortJudgeLastError,
   effortJudgeReady,
   shutdownEffortJudge,
 } from '../runtime/effort-judge/judge-client.mjs';
@@ -178,6 +179,7 @@ export function createBuiltinToolSettings(
           installed: effortJudgeAvailable(),
           installing: effortJudgeInstalling(),
           ready: effortJudgeReady(),
+          lastError: effortJudgeLastError(),
           info: effortJudgeInfo(),
         },
       };

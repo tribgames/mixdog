@@ -5,9 +5,10 @@
 // install.json records the installed release; a newer bundled manifest makes
 // the install stale and the next refresh downloads only what changed.
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { open as openAsync } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseJsonText, writeJsonAtomicSync } from '../shared/atomic-file.mjs';
+import { isFileFsyncUnsupported, parseJsonText, writeJsonAtomicSync } from '../shared/atomic-file.mjs';
 import { downloadToFileWithRetry } from '../shared/bounded-download.mjs';
 import { sha256File, validSha256 } from '../shared/native-asset.mjs';
 
@@ -52,10 +53,40 @@ export function effortJudgeInstallCurrent(dir, manifest = effortJudgeManifest())
   return stampedRelease(dir) === manifest.release;
 }
 
+/**
+ * Files in `dir` that are missing or differ from the manifest sha256. When any
+ * does, the stamp is removed so the folder reads as not installed and the next
+ * install re-downloads only those files (a crash can leave a stamped model with
+ * its tail zeroed: same size, wrong hash).
+ */
+export async function invalidateDamagedEffortJudgeInstall(dir, manifest = effortJudgeManifest()) {
+  const bad = [];
+  for (const [name, file] of Object.entries(manifest.files)) {
+    const target = join(dir, name);
+    if (!existsSync(target) || (await sha256File(target)) !== file.sha256) bad.push(name);
+  }
+  if (bad.length) rmSync(join(dir, STAMP), { force: true });
+  return bad;
+}
+
+// Flushes the downloaded file through a write handle (Windows refuses fsync on
+// a read-only one) so a crash right after the rename cannot publish a file
+// whose size is committed but whose tail never reached the disk.
+export async function fsyncFile(path, open = openAsync) {
+  const handle = await open(path, 'r+');
+  try {
+    await handle.sync();
+  } catch (err) {
+    if (!isFileFsyncUnsupported(err)) throw err;
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Download what is missing or different, then stamp the release. */
 export async function installEffortJudgeModel(
   dir,
-  { fetchFn = globalThis.fetch, manifest = effortJudgeManifest() } = {}
+  { fetchFn = globalThis.fetch, manifest = effortJudgeManifest(), syncFile = fsyncFile } = {}
 ) {
   mkdirSync(dir, { recursive: true });
   let replaced = false;
@@ -73,6 +104,7 @@ export async function installEffortJudgeModel(
       const actual = await sha256File(partial);
       if (actual !== file.sha256)
         throw new Error(`effort judge ${name}: sha256 mismatch (expected ${file.sha256}, got ${actual})`);
+      await syncFile(partial);
       // From the first replaced file until the new stamp, the folder is a mix of
       // releases: without a stamp it reads as not installed, so an interrupted
       // install is never loaded.

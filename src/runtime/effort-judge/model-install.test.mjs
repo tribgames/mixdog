@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   effortJudgeInstallCurrent,
   effortJudgeInstallStamped,
   effortJudgeManifest,
+  fsyncFile,
   installEffortJudgeModel,
+  invalidateDamagedEffortJudgeInstall,
 } from './model-install.mjs';
 
 const sha = (text) => createHash('sha256').update(text).digest('hex');
@@ -103,6 +105,105 @@ test('an update interrupted after replacing a file leaves the folder unstamped, 
   // The next install completes it and stamps again.
   await installEffortJudgeModel(dir, { fetchFn: server(bodies2).fetchFn, manifest: v2 });
   assert.equal(effortJudgeInstallCurrent(dir, v2), true);
+});
+
+test('a stamped model with a zeroed tail is invalidated and reinstalled by fetching only that file', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-install-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const v1 = manifest('effort-judge-v1');
+  await installEffortJudgeModel(dir, { fetchFn: server().fetchFn, manifest: v1 });
+  assert.deepEqual(await invalidateDamagedEffortJudgeInstall(dir, v1), []);
+  assert.equal(effortJudgeInstallCurrent(dir, v1), true, 'an intact install keeps its stamp');
+
+  // Same size, wrong bytes: the tail never reached the disk.
+  writeFileSync(join(dir, 'model.onnx'), Buffer.concat([Buffer.from('model-by'), Buffer.alloc(3)]));
+  assert.equal(effortJudgeInstallCurrent(dir, v1), true, 'the stamp alone cannot tell');
+  assert.deepEqual(await invalidateDamagedEffortJudgeInstall(dir, v1), ['model.onnx']);
+  assert.equal(effortJudgeInstallStamped(dir), false);
+
+  const repair = server();
+  await installEffortJudgeModel(dir, { fetchFn: repair.fetchFn, manifest: v1 });
+  assert.deepEqual(repair.calls, ['model.onnx']);
+  assert.equal(readFileSync(join(dir, 'model.onnx'), 'utf8'), 'model-bytes');
+  assert.equal(effortJudgeInstallCurrent(dir, v1), true);
+});
+
+test('a missing file counts as damaged', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-install-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const v1 = manifest('effort-judge-v1');
+  await installEffortJudgeModel(dir, { fetchFn: server().fetchFn, manifest: v1 });
+  rmSync(join(dir, 'tokenizer.json'));
+  assert.deepEqual(await invalidateDamagedEffortJudgeInstall(dir, v1), ['tokenizer.json']);
+});
+
+test('each downloaded file is fsynced before it is renamed into place', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-install-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const synced = [];
+  await installEffortJudgeModel(dir, {
+    fetchFn: server().fetchFn,
+    manifest: manifest('effort-judge-v1'),
+    syncFile: async (path) => {
+      const name = path.replace(/\.\d+\.part$/, '');
+      synced.push(name.slice(dir.length + 1));
+      assert.equal(existsSync(path), true, 'the partial file is still there');
+      assert.equal(existsSync(name), false, 'the target is not yet published');
+    },
+  });
+  assert.deepEqual(synced.sort(), ['calibration.json', 'model.onnx', 'tokenizer.json']);
+});
+
+// An open() whose handle fails its sync with `code`, recording the close.
+function failingOpen(code) {
+  const seen = { closed: 0 };
+  const open = async (path, flags) => {
+    assert.equal(flags, 'r+', 'a write handle: Windows refuses fsync on a read-only one');
+    return {
+      sync: async () => {
+        throw Object.assign(new Error(`${code} from fsync`), { code });
+      },
+      close: async () => {
+        seen.closed += 1;
+      },
+    };
+  };
+  return { open, seen };
+}
+
+test('an fsync the filesystem refuses is tolerated and the handle is closed', async () => {
+  for (const code of ['EPERM', 'ENOTSUP', 'EINVAL']) {
+    const { open, seen } = failingOpen(code);
+    await fsyncFile('unused', open);
+    assert.equal(seen.closed, 1, code);
+  }
+});
+
+test('a fatal fsync error closes the handle and the file is never renamed into place', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-install-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { open, seen } = failingOpen('EIO');
+  await assert.rejects(fsyncFile('unused', open), /EIO from fsync/);
+  assert.equal(seen.closed, 1);
+
+  const install = failingOpen('EIO');
+  await assert.rejects(
+    installEffortJudgeModel(dir, {
+      fetchFn: server().fetchFn,
+      manifest: manifest('effort-judge-v1'),
+      syncFile: (path) => fsyncFile(path, install.open),
+    }),
+    /EIO from fsync/
+  );
+  assert.equal(install.seen.closed, 1);
+  assert.deepEqual(readdirSync(dir), [], 'no published file, no stamp, no leftover .part');
+});
+
+test('the default fsync accepts a real downloaded file', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-install-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  await installEffortJudgeModel(dir, { fetchFn: server().fetchFn, manifest: manifest('effort-judge-v1') });
+  assert.equal(readFileSync(join(dir, 'model.onnx'), 'utf8'), 'model-bytes');
 });
 
 test('an empty or NUL-filled install stamp reads as not installed', () => {
