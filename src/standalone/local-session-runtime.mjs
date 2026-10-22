@@ -41,13 +41,22 @@ import {
   createTranscriptSpillBuffer,
   sweepStaleTranscriptSpillDirsOnce,
 } from '../tui/session/transcript-spill.mjs';
+import { importInStages } from './staged-import.mjs';
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
+// Its one module (only mixdog-session-runtime.mjs imports it): its boot
+// modules are the graph's stages.
+const SESSION_RUNTIME_CORE = '../session-runtime/runtime-core.mjs';
+const importSessionRuntimeInStages = () =>
+  importInStages(
+    new URL(SESSION_RUNTIME_MODULE, import.meta.url).href,
+    new URL(SESSION_RUNTIME_CORE, import.meta.url).href
+  );
 
 // Shared across create calls so concurrent session startups import the
 // runtime graph once.
 let sessionRuntimeModulePromise = null;
-let sessionRuntimeImporter = () => import(SESSION_RUNTIME_MODULE);
+let sessionRuntimeImporter = importSessionRuntimeInStages;
 function importSessionRuntimeModule() {
   // A failed import is forgotten so the next caller retries lazily.
   sessionRuntimeModulePromise ??= Promise.resolve()
@@ -79,7 +88,7 @@ export async function warmLocalSessionRuntime() {
 
 /** Test seam: replace the dynamic import of the session-runtime module. */
 export function setSessionRuntimeImporterForTest(importer) {
-  sessionRuntimeImporter = importer || (() => import(SESSION_RUNTIME_MODULE));
+  sessionRuntimeImporter = importer || importSessionRuntimeInStages;
   sessionRuntimeModulePromise = null;
 }
 

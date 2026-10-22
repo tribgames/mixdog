@@ -25,11 +25,16 @@ export function isActiveWorkerRow(row = {}) {
   return !isTerminalWorkerStatus(effective);
 }
 
-function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
+function rowState(session, runtime) {
   const status = session.closed === true ? 'closed' : session.status || 'idle';
   const stage =
     session.stage ||
     (status === 'idle' || status === 'error' || status === 'closed' ? status : runtime?.stage || status);
+  return { status, stage };
+}
+
+function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
+  const { status, stage } = rowState(session, runtime);
   // Additive: the current turn's start (worker index, stamped at dispatch) so
   // surfaces time a continued worker from its turn, not from createdAt.
   const turnStartedAt = indexRow?.turnStartedAt || session.turnStartedAt || null;
@@ -76,24 +81,34 @@ export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntr
   return function list({ scanSessions = false, context = {}, includeTerminal = false } = {}) {
     refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
-    const rows = agentSessionEntries({ scanSessions, context }).map(({ tag, session, indexRow, loaded }) =>
-      agentRow({
-        tag,
-        session,
-        indexRow,
-        runtime: mgr.getSessionRuntime?.(session.id),
-        // A tag-bound entry is the getSession answer itself; an index row or
-        // a scanned summary is only a projection and still reads the session.
-        progress: progress.sessionProgressExtras(
-          session.id,
-          session.agent || null,
+    const rows = [];
+    for (const { tag, session, indexRow, loaded } of agentSessionEntries({ scanSessions, context })) {
+      const runtime = mgr.getSessionRuntime?.(session.id);
+      // Whether a row is listed depends on its status and stage alone, so a
+      // finished worker is dropped before its progress is read: that read
+      // loads the worker's stored session, and a Lead's status pulse (every
+      // 2 s) would otherwise read every worker it ever ran, whole transcripts
+      // on first sight, synchronously on the daemon loop.
+      if (!includeTerminal && !isActiveWorkerRow(rowState(session, runtime))) continue;
+      rows.push(
+        agentRow({
+          tag,
+          session,
+          indexRow,
+          runtime,
+          // A tag-bound entry is the getSession answer itself; an index row or
+          // a scanned summary is only a projection and still reads the session.
+          progress: progress.sessionProgressExtras(
+            session.id,
+            session.agent || null,
+            now,
+            null,
+            loaded ? { loaded: session } : {}
+          ),
           now,
-          null,
-          loaded ? { loaded: session } : {}
-        ),
-        now,
-      })
-    );
-    return includeTerminal ? rows : rows.filter((row) => isActiveWorkerRow(row));
+        })
+      );
+    }
+    return rows;
   };
 }

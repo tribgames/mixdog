@@ -57,6 +57,8 @@ export function createInlineBootLoaders({
     if (isClosed()) return false;
     try {
       const module = await loadLocalModule();
+      // A loop turn between the two graph loads: one piece held the loop.
+      await new Promise((resolve) => setImmediate(resolve));
       if (isClosed()) return false;
       return (await module.warmLocalSessionRuntime?.()) !== false;
     } catch {
