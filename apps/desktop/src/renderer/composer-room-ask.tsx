@@ -3,6 +3,7 @@
 // and the "→ name" chip once one is named. `@`, `/` and `$` keep their meaning.
 import { type RefObject, useMemo, useRef } from 'react';
 import { parseRoomAsk } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
 import { RoomMemberFace, type RoomMemberLabel, useRoomContacts } from './agent-room-parts';
 import { useAgentRoom } from './agent-room-store';
 import { ComposerPalette } from './ComposerPalette';
@@ -91,6 +92,45 @@ export function roomMentionCandidates(query: string, members: readonly RoomMembe
   return (members ?? []).filter(
     (member) => member.id.toLowerCase().startsWith(lower) || member.name.toLowerCase().startsWith(lower)
   );
+}
+
+/** The picker's "Everyone" tag (`@all`): not a member id, resolved to the room's current members at send. */
+export const ROOM_EVERYONE = '@all';
+
+function everyoneLabel(): RoomMemberLabel {
+  return { id: ROOM_EVERYONE, name: t('Everyone'), avatar: agentAvatar(ROOM_EVERYONE, null) };
+}
+
+/** The `@` tag picker's rows: the members `roomMentionCandidates` finds, then
+ *  "Everyone" while `query` starts "all" or its name (and the room has members). */
+export function roomTagCandidates(query: string, members: readonly RoomMemberLabel[] | null): RoomMemberLabel[] {
+  const everyone = everyoneLabel();
+  const lower = query.toLowerCase();
+  const found = roomMentionCandidates(query, members);
+  return members?.length && ['all', everyone.name.toLowerCase()].some((label) => label.startsWith(lower))
+    ? [...found, everyone]
+    : found;
+}
+
+/** The tags (member ids, or Everyone) that still name something in the room, in tag order. */
+export function roomTaggedMembers(
+  tagged: readonly string[],
+  members: readonly RoomMemberLabel[] | null
+): RoomMemberLabel[] {
+  return tagged.flatMap((id) =>
+    id === ROOM_EVERYONE
+      ? members?.length
+        ? [everyoneLabel()]
+        : []
+      : (members ?? []).filter((member) => member.id === id)
+  );
+}
+
+/** The member ids a message to these tags addresses: Everyone is the room's members
+ *  (room order), and nobody is named twice. */
+export function roomTagTargets(tagged: readonly RoomMemberLabel[], members: readonly RoomMemberLabel[]): string[] {
+  const active = members.map((member) => member.id);
+  return [...new Set(tagged.flatMap((member) => (member.id === ROOM_EVERYONE ? active : [member.id])))];
 }
 
 /** A message tagged for members goes out on the room's `/ask` path, in tag order. */

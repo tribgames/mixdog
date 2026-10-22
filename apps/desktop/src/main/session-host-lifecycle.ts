@@ -60,6 +60,8 @@ export type SessionWorkspaceResolution = {
 const mintArchiveId = () => `sess_${process.pid}_${Date.now()}_${randomUUID().replaceAll('-', '')}`;
 
 export interface SessionHostLifecycleOwner {
+  /** Take a deleted agent out of every room's members. */
+  forgetRoomMember(agentId: string): Promise<void>;
   readonly client: SessionClient;
   readonly publication: SessionHostPublication;
   readonly sessionViews: SessionViewRegistry;
@@ -343,6 +345,7 @@ export class SessionHostLifecycle {
     ],
     agentPresence: (agentIds) => this.owner.invokeControl('agentDefinitionPresence', [agentIds]),
     taskWorkspace: () => this.owner.taskWorkspace(),
+    forgetRoomMember: (agentId) => this.owner.forgetRoomMember(agentId),
     disableAgentSchedules: (agentId) =>
       disableAgentSchedules((method, args) => this.owner.invokeControl(method, args), agentId),
     clearSession: (sessionId, archiveAs) => this.resetSessionConversation(sessionId, { archiveAs }),

@@ -40,6 +40,8 @@ export interface AgentHomeDeps {
    *  (`agentDefinitionPresence`); anything but 'deleted' keeps a thread. */
   agentPresence(agentIds: string[]): Promise<unknown>;
   taskWorkspace(): Promise<string>;
+  /** An agent proven deleted leaves every room's members. */
+  forgetRoomMember?(agentId: string): Promise<void>;
   /** Switch off (never delete) the schedules and webhooks a deleted agent owns. */
   disableAgentSchedules?(agentId: string): Promise<void>;
   /** Clear `sessionId` in place, its transcript first copied (durably) to the
@@ -190,6 +192,9 @@ export function createAgentHomeSessions(deps: AgentHomeDeps) {
       await deps
         .disableAgentSchedules?.(id)
         .catch((error) => console.warn('[mixdog-session] Could not switch off the deleted agent schedules:', error));
+      // Its membership goes with it: the one place a deletion is proven here,
+      // whether the delete came through this host or a chat's setup tool.
+      await deps.forgetRoomMember?.(id);
     }
   }
 

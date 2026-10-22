@@ -233,6 +233,7 @@ export class SessionHost implements DesktopService {
         await this.projects.enter(path);
       },
       knownProject: (path) => this.knownProjectPath(path),
+      forgetRoomMember: (agentId) => this.agentRooms.forgetMember(agentId),
       registeredProject: (path) => this.projects.knownPath(path),
       touchProject: async (path) => {
         try {
@@ -270,6 +271,7 @@ export class SessionHost implements DesktopService {
     this.agentRooms = createAgentRooms({
       store: createAgentRoomFileStore(join(options.userDataPath, 'agent-rooms.json')),
       listAgents: () => this.transport.invokeControl('listAgents', []),
+      agentPresence: (agentIds) => this.transport.invokeControl('agentDefinitionPresence', [agentIds]),
       leadName: async () =>
         String(((await this.transport.invokeControl('getLeadStatus', [])) as { name?: unknown } | null)?.name || ''),
       mixyRoute: () => this.transport.invokeControl('getLeadHomeRoute', []),

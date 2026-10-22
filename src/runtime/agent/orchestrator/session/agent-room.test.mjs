@@ -106,6 +106,16 @@ const scripted = (plan, choose) => {
 const SPEAK = (agentId, instruction) => ({ action: 'speak', agentId, ...(instruction ? { instruction } : {}) });
 const FINISH = { action: 'finish' };
 
+test('a room with no members finishes done with zero rounds, steps and messages', async () => {
+  const run = scripted(
+    () => 'speech',
+    () => FINISH
+  );
+  const result = await runRoomExchange({ members: [], maxRounds: 3, maxMessages: 8, ...run });
+  assert.deepEqual(result, { outcome: 'done', rounds: 0, steps: 0, messages: 0 });
+  assert.deepEqual(run.spoken, []);
+});
+
 test('the supervisor picks each speaker, may brief it, and finishes once the user is served', async () => {
   const run = scripted(
     () => 'speech',

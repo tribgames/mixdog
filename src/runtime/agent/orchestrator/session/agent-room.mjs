@@ -294,6 +294,8 @@ export async function runRoomExchange({
   waiting = true,
   only = false,
 }) {
+  // A room whose last member was removed has nobody to hear it: finished, no turns.
+  if (!members.length) return { outcome: 'done', rounds: 0, steps: 0, messages: 0 };
   const targets = [...new Set((Array.isArray(to) ? to : [to]).filter((id) => members.includes(id)))];
   const maxSteps = maxRounds * members.length;
   const turns = [];

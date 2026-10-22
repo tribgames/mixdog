@@ -85,6 +85,9 @@ export interface AgentRoomDeps {
   /** The route Mixy follows (`getLeadHomeRoute`): its own, else Main's; null
    *  when neither is set. */
   mixyRoute?(): Promise<unknown>;
+  /** Per-id definition presence from the files (`agentDefinitionPresence`):
+   *  only 'deleted' removes a member from its rooms. */
+  agentPresence?(agentIds: string[]): Promise<unknown>;
   sessionExists(sessionId: string): Promise<boolean>;
   createSession(sessionId: string, params: Record<string, unknown>): Promise<void>;
   renameSession(sessionId: string, title: string): Promise<void>;
@@ -224,7 +227,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   const pollMs = deps.pollMs ?? 500;
   const log = deps.log ?? ((line: string) => console.warn(`[mixdog-rooms] ${line}`));
   const records = createRoomRecords(deps);
-  const { loadRecords, ready, refreshNames, memberLabels, persist, roomOf, names } = records;
+  const { loadRecords, ready: recordsReady, refreshNames, memberLabels, persist, roomOf, names } = records;
   const running = new Map<string, RunState>();
   const roomLog = createRoomLog(deps, records.rooms);
   const post = roomLog.post;
@@ -406,6 +409,69 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     if (failed.length) {
       throw new Error(`The room was removed, but ${failed.length} of its conversations could not be deleted.`);
     }
+  }
+
+  // Membership belongs to the agent's existence: a bot proven deleted leaves
+  // every room it was in, in the operation that finds out. A restored bot does
+  // not rejoin (`update` adds it back by hand); a room keeps its id and log
+  // however few members remain.
+
+  /** `agentIds` out of every room's members (and owed turns); Mixy is never
+   *  removed. Whether any room changed. */
+  function dropMembers(agentIds: readonly string[]): boolean {
+    const gone = new Set(agentIds.filter((id) => id !== MIXY_AGENT_ID));
+    let changed = false;
+    for (const room of Object.values(records.rooms())) {
+      const kept = room.members.filter((id) => !gone.has(id));
+      if (kept.length === room.members.length) continue;
+      room.members = kept;
+      if (room.owed) room.owed = room.owed.filter((id) => !gone.has(id));
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** A bot whose definition was proven deleted leaves every room, saved. */
+  const forgetMember = (agentId: string): Promise<void> =>
+    writer(async () => {
+      await ready();
+      if (!dropMembers([agentId])) return;
+      await persist();
+      deps.republishCatalog();
+    });
+
+  /** Once, as the rooms load: members whose definition is proven deleted
+   *  (`agentDefinitionPresence`; an unknown or failed check proves nothing)
+   *  leave, and the rooms are saved. */
+  async function pruneDeleted(): Promise<void> {
+    const ids = [...new Set(Object.values(records.rooms()).flatMap((room) => room.members))];
+    if (!deps.agentPresence || !ids.some((id) => id !== MIXY_AGENT_ID)) return;
+    const presence = (await deps.agentPresence(ids).catch(() => null)) as Record<string, unknown> | null;
+    if (!presence || typeof presence !== 'object') return;
+    if (!dropMembers(ids.filter((id) => presence[id] === 'deleted'))) return;
+    await persist();
+    deps.republishCatalog();
+  }
+
+  let prepared: Promise<void> | null = null;
+  /** The rooms loaded and pruned; every mutation starts here. */
+  function ready(): Promise<void> {
+    prepared ??= recordsReady()
+      .then(pruneDeleted)
+      .catch((error) => {
+        prepared = null;
+        throw error;
+      });
+    return prepared;
+  }
+
+  /** The one writer of room records (rooms created, changed, removed, members
+   *  forgotten): each runs whole, read to save, after the one before it. */
+  let writes: Promise<unknown> = Promise.resolve();
+  function writer<T>(write: () => Promise<T>): Promise<T> {
+    const done = writes.then(write);
+    writes = done.catch(() => undefined);
+    return done;
   }
 
   async function leave(roomId: string): Promise<void> {
@@ -673,9 +739,10 @@ export function createAgentRooms(deps: AgentRoomDeps) {
 
   return {
     ready,
-    create,
-    update,
-    remove,
+    create: (input: Record<string, unknown>) => writer(() => create(input)),
+    update: (roomId: string, patch: Record<string, unknown>) => writer(() => update(roomId, patch)),
+    remove: (roomId: string) => writer(() => remove(roomId)),
+    forgetMember,
     leave,
     reset,
     send,

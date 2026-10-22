@@ -45,6 +45,10 @@ function harness({
   readWindow = 0,
   // Called on every republish of a room's log view.
   onRepublish = () => {},
+  // Awaited by every agent listing (a name refresh waits on it).
+  listGate = () => undefined,
+  // Definition presence per id (gentDefinitionPresence); none by default.
+  presence = undefined,
 } = {}) {
   const logs = [];
   /** Every session created, with its create params. */
@@ -73,7 +77,13 @@ function harness({
         saved.doc = structuredClone(value);
       },
     },
-    listAgents: async () => agents,
+    listAgents: async () => {
+      await listGate();
+      return agents;
+    },
+    ...(presence === undefined
+      ? {}
+      : { agentPresence: async (ids) => (typeof presence === 'function' ? presence(ids) : presence) }),
     ...(leadName === undefined ? {} : { leadName: async () => leadName }),
     sessionExists: async (id) => sessions.has(id),
     ...(mixyRoute === undefined ? {} : { mixyRoute: async () => mixyRoute }),
@@ -196,6 +206,107 @@ test('a room whose members have no model cannot be created: the model-required r
   assert.deepEqual(h.created, []);
 });
 
+const STORED = {
+  id: 'r1',
+  name: 'Stored',
+  members: ['gh', 'rel', 'bench'],
+  maxRounds: 1,
+  maxMessages: 6,
+  shareTools: false,
+  createdAt: 1,
+  cursors: {},
+  running: null,
+};
+
+test('a deleted bot leaves every room it was in, saved; Mixy and the other members stay', async () => {
+  const h = harness();
+  const a = await room(h);
+  const b = await room(h, { name: 'Other', members: ['lead', 'gh', 'bench'] });
+  await h.rooms.forgetMember('bench');
+  await h.rooms.forgetMember('lead');
+  assert.deepEqual(h.saved.doc.rooms[a.roomId].members, ['gh', 'rel']);
+  assert.deepEqual(h.saved.doc.rooms[b.roomId].members, ['lead', 'gh']);
+  const listed = h.rooms.withRooms([]).map((row) => row.agentRoom.members);
+  assert.deepEqual(listed, [
+    ['gh', 'rel'],
+    ['lead', 'gh'],
+  ]);
+});
+
+test('a rename racing a removal ends without the removed bot: room writes run one after the other', async () => {
+  let hold = null;
+  const h = harness({ listGate: () => hold });
+  const { roomId } = await room(h);
+  let release = () => {};
+  hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  const renaming = h.rooms.update(roomId, { name: 'Renamed' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const forgetting = h.rooms.forgetMember('bench');
+  release();
+  await Promise.all([renaming, forgetting]);
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'rel']);
+  assert.equal(h.saved.doc.rooms[roomId].name, 'Renamed');
+});
+
+test('a room holding a deleted id is cleaned and saved as the rooms load; an unknown or failed check removes nothing', async () => {
+  const doc = { rooms: { r1: { ...STORED, members: ['lead', 'gh', 'rel', 'bench'], owed: ['bench', 'gh'] } } };
+  const probed = [];
+  const h = harness({
+    doc,
+    presence: (ids) => {
+      probed.push(ids);
+      return { gh: 'present', rel: 'unknown', bench: 'deleted' };
+    },
+  });
+  await h.rooms.ready();
+  assert.deepEqual(h.saved.doc.rooms.r1.members, ['lead', 'gh', 'rel']);
+  assert.deepEqual(h.saved.doc.rooms.r1.owed, ['gh']);
+  assert.deepEqual(probed, [['lead', 'gh', 'rel', 'bench']]);
+  const failing = harness({
+    doc,
+    presence: () => {
+      throw new Error('daemon down');
+    },
+  });
+  await failing.rooms.ready();
+  assert.deepEqual(failing.saved.doc.rooms.r1.members, ['lead', 'gh', 'rel', 'bench']);
+});
+
+test('a save that fails while a member is removed fails that call, like any other room save', async () => {
+  let failing = false;
+  const h = harness({ saveFails: () => failing });
+  const { roomId } = await room(h);
+  failing = true;
+  await assert.rejects(() => h.rooms.forgetMember('bench'), /disk full/);
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'rel', 'bench'], 'nothing reached the disk');
+});
+
+test('a restored bot does not rejoin on its own, but update() adds it back by hand', async () => {
+  const h = harness();
+  const { roomId } = await room(h);
+  await h.rooms.forgetMember('bench');
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'rel']);
+  const summary = await h.rooms.update(roomId, { members: ['gh', 'rel', 'bench'] });
+  assert.deepEqual(summary.members, ['gh', 'rel', 'bench']);
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'rel', 'bench']);
+});
+
+test('a message to a room whose last member was removed ends done with no turn and no cap notice', async () => {
+  const h = harness();
+  const { sessionId, roomId } = await room(h, { members: ['gh', 'rel'] });
+  await h.rooms.forgetMember('gh');
+  await h.rooms.forgetMember('rel');
+  await h.rooms.send(sessionId, 'anyone there?');
+  await h.idle(roomId);
+  assert.deepEqual(h.prompts, []);
+  assert.deepEqual(
+    h.log.filter((row) => row.kind === 'cap' || row.kind === 'interrupted'),
+    []
+  );
+  assert.deepEqual(h.logs, []);
+});
 test('a renamed representative is listed in its rooms under its name', async () => {
   const rename = async (leadName) => {
     const h = harness({ leadName });

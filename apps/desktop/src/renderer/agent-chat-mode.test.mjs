@@ -862,6 +862,83 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
   assert.equal(document.getElementById('composer-mention-palette'), null);
 });
 
+test('a room composer’s @ offers Everyone: it addresses each current member once, never a bot that left', async (t) => {
+  const publish = (members) =>
+    publishAgentRooms([
+      {
+        id: ROOM,
+        agentRoom: {
+          id: 'release01',
+          name: '릴리스 점검',
+          members,
+          memberNames: { bench: 'Bench', release: '릴리스 관리' },
+          maxRounds: 1,
+          maxMessages: 6,
+          shareTools: false,
+        },
+      },
+    ]);
+  publish(['bench', 'release']);
+  t.after(() => publishAgentRooms([]));
+  const calls = [];
+  const { host, type, key, render } = await mountComposer(t);
+  await render(composerProps(calls, { agentMode: true }));
+  // The room's composer keeps its tags between mounts: start from none.
+  await act(async () => host.querySelector('.mx-chat-tag')?.click());
+  const options = () => [...document.querySelectorAll('#composer-room-ask-palette [role="option"]')];
+  const pick = (label) =>
+    act(async () =>
+      options()
+        .find((option) => option.textContent === label)
+        .click()
+    );
+
+  await type('@');
+  assert.deepEqual(
+    options().map((option) => option.textContent),
+    ['Bench', '릴리스 관리', 'Everyone'],
+    'Everyone is listed with the members'
+  );
+  await type('@ev');
+  assert.deepEqual(
+    options().map((option) => option.textContent),
+    ['Everyone']
+  );
+  await pick('Everyone');
+  assert.equal(host.querySelector('.mx-chat-tag')?.textContent, '@Everyone');
+  await type('hi all');
+  await key('Enter');
+  assert.equal(textOf(calls.at(-1)), '/ask bench, release hi all', 'every member, once');
+
+  // With individual mentions, nobody is called twice.
+  await type('@be');
+  await pick('Bench');
+  await type('@all');
+  await key('Enter');
+  assert.deepEqual(
+    [...host.querySelectorAll('.mx-chat-tag')].map((tag) => tag.textContent),
+    ['@Bench', '@Everyone'],
+    'the keyboard picks Everyone too'
+  );
+  await type('both');
+  await key('Enter');
+  assert.equal(textOf(calls.at(-1)), '/ask bench, release both');
+
+  // Everyone means the room as it is when the message goes out.
+  await type('@all');
+  await key('Enter');
+  publish(['bench']);
+  await type('@');
+  assert.deepEqual(
+    options().map((option) => option.textContent),
+    ['Bench'],
+    'the picker no longer lists the removed member'
+  );
+  await type('now');
+  await key('Enter');
+  assert.equal(textOf(calls.at(-1)), '/ask bench now', 'a member who left is not addressed');
+});
+
 test('the agent-mode composer runs /compact and /clear as commands, other `/` lines stay text', async (t) => {
   const calls = [];
   const capabilities = [];

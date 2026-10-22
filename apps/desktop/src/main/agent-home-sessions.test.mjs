@@ -179,6 +179,21 @@ test("a deleted agent's thread is archived by its fixed id; present and switched
   assert.deepEqual(calls.archived, [['sess_home_gone', true]]);
 });
 
+test('a deleted agent leaves every room with its home: on an explicit delete and on a deletion seen later, never a present one', async () => {
+  const forgotten = [];
+  const { deps } = fakeHost({
+    known: HOMES,
+    presence: { 'github-watcher': 'present', gone: 'deleted', off: 'present' },
+  });
+  deps.forgetRoomMember = async (id) => void forgotten.push(id);
+  const wired = createAgentHomeSessions(deps);
+  await wired.retire(['gone']);
+  assert.deepEqual(forgotten, ['gone']);
+  forgotten.length = 0;
+  await wired.reconcile();
+  assert.deepEqual(forgotten, ['gone']);
+});
+
 test('the delete path archives a blank home that no summary or store row lists', async () => {
   // Opened, never messaged, then deleted: nothing lists the session at all.
   const { homes, calls } = fakeHost({ known: [], presence: { 'github-watcher': 'deleted' } });

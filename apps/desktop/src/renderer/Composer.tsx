@@ -98,10 +98,12 @@ import {
   RoomAskPalette,
   RoomMentionChip,
   contentAsking,
-  roomMentionCandidates,
   draftAskingMore,
   roomAskCandidates,
   roomAskTargets,
+  roomTagCandidates,
+  roomTagTargets,
+  roomTaggedMembers,
   useComposerRoomMembers,
 } from './composer-room-ask';
 import { useVisualizeFeedback, visualizeFeedbackPending } from './visualize-feedback-store';
@@ -612,11 +614,11 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       stashComposerTags(scope, taggedRef.current);
     };
   }, [attachmentsRef, replaceAttachments]);
-  const taggedMembers = tagged.flatMap((id) => roomMembers?.filter((member) => member.id === id) ?? []);
+  const taggedMembers = roomTaggedMembers(tagged, roomMembers);
   const tagMatch = agentMode && roomMembers ? mention.match : null;
   const tagCandidates =
     tagMatch && composerFocused && paneActive && tagDismissed !== mention.signature
-      ? roomMentionCandidates(tagMatch.query, roomMembers).filter((member) => !tagged.includes(member.id))
+      ? roomTagCandidates(tagMatch.query, roomMembers).filter((member) => !tagged.includes(member.id))
       : [];
   const tagMember = (agentId: string) => {
     const match = tagMatch;
@@ -638,10 +640,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const submitTagged: typeof submit = taggedMembers.length
     ? async (content, options) => {
         const accepted = await submit(
-          contentAsking(
-            content,
-            taggedMembers.map((member) => member.id)
-          ),
+          contentAsking(content, roomTagTargets(taggedMembers, roomMembers ?? [])),
           options
         );
         if (accepted === true) setTagged([]);
