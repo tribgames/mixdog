@@ -52,6 +52,7 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
       providerInputExcludesCache: () => false,
       providerNativePdf: () => true,
       providerReadsImages: () => true,
+      providerModelVisionOverride: () => undefined,
       providerCatalogRevision: () => 0,
       refreshProviderCatalogsOnStartup: async () => {},
       refreshCatalogs: async () => {},
