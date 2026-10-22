@@ -122,14 +122,14 @@ test('every transient state keeps reconnecting by itself, with bounded backoff, 
     };
     /** The retry the loop armed on its own: bounded, then fired by the clock. */
     const delays = [];
-    const runArmedRetry = async ({ fleet = false } = {}) => {
+    const runArmedRetry = async ({ fleet = false, max = 10_000 } = {}) => {
       const id = ctx.reconnectTimer;
       assert.notEqual(id, null, 'a retry is armed without any user input');
       const timer = timers.live.get(id);
       // The first retry of an outage leaves at once — spread over 1.5 s when
       // the relay closed a live leg — and every later one is inside the
-      // jittered [500 ms, 10 s] backoff.
-      assert.ok(timer.ms >= 0 && timer.ms <= 10_000, `retry delay ${timer.ms} within bounds`);
+      // jittered [500 ms, 10 s] backoff (60 s while the PC is offline).
+      assert.ok(timer.ms >= 0 && timer.ms <= max, `retry delay ${timer.ms} within bounds`);
       if (fleet) assert.ok(timer.ms <= 1_500, `first retry ${timer.ms} after a relay close is only spread`);
       else if (timer.ms !== 0) assert.ok(timer.ms >= 500, `retry delay ${timer.ms} keeps the floor`);
       delays.push(timer.ms);
@@ -153,18 +153,20 @@ test('every transient state keeps reconnecting by itself, with bounded backoff, 
     let ws = await nextSocket(before);
 
     // 1. PC offline or asleep: the relay answers with its own close, again and
-    //    again; the loop keeps dialing with a growing but capped delay.
-    for (let round = 0; round < 8; round++) {
+    //    again; the loop keeps dialing, with a delay that grows past the usual
+    //    10 s cap up to a 60 s one — nothing can connect until the PC is back.
+    for (let round = 0; round < 10; round++) {
       open(ws);
       close(ws, 4002);
-      ws = await runArmedRetry();
+      ws = await runArmedRetry({ max: 60_000 });
     }
     assert.ok(
-      delays.slice(-3).every((delay) => delay >= 5_000 && delay <= 10_000),
-      `the backoff caps: ${delays}`
+      delays.slice(-3).every((delay) => delay >= 30_000 && delay <= 60_000),
+      `the offline backoff caps: ${delays}`
     );
 
-    // 2. No internet: attempts fail before they ever open.
+    // 2. No internet: attempts fail before they ever open. Any other failure
+    //    brings the usual 10 s cap back.
     for (let round = 0; round < 3; round++) {
       ws.onerror();
       close(ws, 1006);

@@ -3,6 +3,7 @@ import { isInstalledMobileWebAppSurface } from './mobile-surface';
 import {
   REMOTE_WAKE_EVENT,
   beginRemoteConnectionTimeline,
+  isRemoteDesktopOffline,
   reportRemoteConnectionIssue,
   setRemoteConnectionPhase,
   setRemoteConnectionState,
@@ -16,6 +17,10 @@ const RECONNECT_MIN_MS = 500;
 const FLEET_FIRST_RETRY_SPREAD_MS = 1_500;
 /** Longest wait between two reconnect attempts. */
 const RECONNECT_MAX_MS = 10_000;
+/** The same ceiling while the relay's latest answer is "PC offline": nothing
+ *  can connect until the PC returns, so each phone backs off much further
+ *  instead of being refused every few seconds. A wake still redials at once. */
+const OFFLINE_RECONNECT_MAX_MS = 60_000;
 /** How long a foreground wake waits for the relay to answer its probe. */
 const WAKE_PROBE_MS = 2_500;
 /** Frames still arriving this long after a wake probe come from a live leg.
@@ -35,6 +40,11 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     if (ctx.wakePongTimer === null) return;
     window.clearTimeout(ctx.wakePongTimer);
     ctx.wakePongTimer = null;
+  };
+  const clearReconnectTimer = (): void => {
+    if (ctx.reconnectTimer === null) return;
+    window.clearTimeout(ctx.reconnectTimer);
+    ctx.reconnectTimer = null;
   };
   // Recycling a silent socket is invisible maintenance: nothing is waiting on
   // an answer, so the redial that follows must not raise the disconnect
@@ -99,10 +109,7 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     ctx.resyncOnWake = true;
     ctx.awaitingPong = false;
     clearWakePongTimer();
-    if (ctx.reconnectTimer !== null) {
-      window.clearTimeout(ctx.reconnectTimer);
-      ctx.reconnectTimer = null;
-    }
+    clearReconnectTimer();
     setRemoteConnectionState('connecting');
     ctx.retireConnection?.(1000, 'background');
   };
@@ -172,6 +179,10 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       ctx.resyncOnWake = true;
       ctx.retryMs = 0;
+      // The redial below replaces the wait still running: left armed (up to
+      // 60 s while the PC is offline), it would swallow this redial's own
+      // failure and the backoff would never restart from the minimum.
+      clearReconnectTimer();
       // Neither a stalled handshake nor a delayed close event may keep
       // connect() pinned to the previous attempt after a foreground wake.
       const attempt = ctx.openingSocket ?? ws;
@@ -253,17 +264,20 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     // spread over [0, FLEET_FIRST_RETRY_SPREAD_MS] instead of one burst.
     // From then on each delay is drawn from [step, next step], floored at
     // RECONNECT_MIN_MS; at the ceiling the range stays [ceiling / 2, ceiling],
-    // so retries that reached the cap never line up again.
+    // so retries that reached the cap never line up again. The ceiling is
+    // OFFLINE_RECONNECT_MAX_MS only while the relay's latest answer is "PC
+    // offline"; any other failure returns it to RECONNECT_MAX_MS.
+    const ceiling = isRemoteDesktopOffline() ? OFFLINE_RECONNECT_MAX_MS : RECONNECT_MAX_MS;
     const step = ctx.retryMs;
     let delay: number;
     if (step === 0) {
       delay = fleet ? Math.round(Math.random() * FLEET_FIRST_RETRY_SPREAD_MS) : 0;
     } else {
-      const high = Math.min(RECONNECT_MAX_MS, step * 2);
+      const high = Math.min(ceiling, step * 2);
       const low = Math.min(step, high / 2);
       delay = Math.round(low + Math.random() * (high - low));
     }
-    ctx.retryMs = step === 0 ? RECONNECT_MIN_MS : Math.min(RECONNECT_MAX_MS, step * 2);
+    ctx.retryMs = step === 0 ? RECONNECT_MIN_MS : Math.min(ceiling, step * 2);
     ctx.reconnectTimer = window.setTimeout(() => {
       ctx.reconnectTimer = null;
       void ctx.connect().catch(() => {});
