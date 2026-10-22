@@ -31,6 +31,7 @@ import {
   nativeToolInstalledName,
 } from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
+import { compareDesktopPtyVersion } from '../../../scripts/verify-runtime-dependency-versions.mjs';
 import { optionValue } from './cli-args.mjs';
 import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
 
@@ -507,11 +508,23 @@ async function runtimeInputFingerprint(manifest) {
       sha256: sha256(await readFile(source)),
     });
   }
-  const [preparationSource, desktopPruneSource, desktopLockfile] = await Promise.all([
+  const [preparationSource, desktopPruneSource, desktopLockfile, installedDesktopPty] = await Promise.all([
     readFile(fileURLToPath(import.meta.url)),
     readFile(join(rootDir, 'scripts', 'prune-desktop-runtime.mjs')),
     readFile(join(desktopDir, 'package-lock.json')),
+    readFile(join(desktopPtyPackageDir, 'package.json'), 'utf8'),
   ]);
+  // node-pty is copied from the live apps/desktop/node_modules, which the
+  // lockfile hash below does not describe. Refuse a stale install here, before
+  // a reuse check could pass an old node-pty off as current.
+  const ptyMismatch = compareDesktopPtyVersion({
+    desktopLockPackages: JSON.parse(desktopLockfile).packages,
+    shippedVersion: JSON.parse(installedDesktopPty).version,
+    source: desktopPtyPackageDir,
+  });
+  if (ptyMismatch.length > 0) {
+    throw new Error(`${ptyMismatch[0]}. Run npm ci in apps/desktop before preparing the runtime.`);
+  }
   return sha256(
     JSON.stringify({
       schemaVersion: preparedRuntimeSchema,

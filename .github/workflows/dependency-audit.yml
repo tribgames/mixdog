@@ -1,0 +1,58 @@
+name: dependency-audit
+
+# Fails on high or critical advisories in the lockfiles (issue #159). The root
+# audit covers production dependencies only, since those ship in runtime.asar;
+# the desktop audit includes its dev dependencies, which build the installer.
+# npm audit reads package-lock.json, so no install is needed.
+on:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - apps/desktop/package.json
+      - apps/desktop/package-lock.json
+      - .github/workflows/dependency-audit.yml
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - package-lock.json
+      - apps/desktop/package.json
+      - apps/desktop/package-lock.json
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: audit-${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: root-runtime
+            directory: .
+            flags: --omit=dev
+          - name: desktop
+            directory: apps/desktop
+            flags: ""
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: npm audit (high and critical)
+        working-directory: ${{ matrix.directory }}
+        run: npm audit ${{ matrix.flags }} --audit-level=high
