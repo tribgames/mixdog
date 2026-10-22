@@ -182,8 +182,10 @@ export function agentTaskRelayFailedMessage({ count, tries, at = Date.now(), mes
   };
 }
 
-/** Agent-initiated round trips on one task session before each report asks
- *  the agent to check with the user (session create). */
+/** Bot-descended round trips (sent from a turn another bot's message started)
+ *  on one task session before each report asks the agent to check with the
+ *  user (session create). The user's or a routine's own delegations are not
+ *  counted (agent-home-delivery.mjs `add`). */
 export const TASK_LOOP_CAP = 3;
 
 /** A coding task session's report into the home of the agent that created it

@@ -173,7 +173,7 @@ test('turn start overlaps the judgment with buildUserTurn and still stamps the f
   assert.deepEqual(Object.keys(message.meta), ['effortConfiguration', 'runtimeUserContext']);
 });
 
-test('a turn carries its starting hop, a steered bot message raises it, a hopless notification turn keeps it', async () => {
+test('a turn carries its starting hop, a steered bot message raises it, a hopless notification turn starts at 0', async () => {
   const { createSteeringDrain } = await import('../loop/steering.mjs');
   const { createSessionControl } = await import('../../../../../standalone/daemon-session-control.mjs');
   const { createWorkspaceToolHandlers } = await import(
@@ -238,9 +238,11 @@ test('a turn carries its starting hop, a steered bot message raises it, a hoples
   );
   assert.deepEqual(context, [3]);
 
-  // A hopless notification turn keeps the raised hop; a user turn resets it.
+  // A hopless notification turn is not a bot message: it starts at 0, as a user turn does.
   await start({ promptSource: 'task-notification' }, null);
-  assert.equal(session.turnHop, 3);
+  assert.equal(session.turnHop, 0);
+  await start({}, { sender: 'lead', fromAgent: 'b', hop: 2 });
+  assert.equal(session.turnHop, 2);
   await start({}, { device: 'PC' });
   assert.equal(session.turnHop, 0);
 });

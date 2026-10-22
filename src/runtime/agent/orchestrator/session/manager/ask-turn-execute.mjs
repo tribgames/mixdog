@@ -28,7 +28,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   const { turn, runtime, turnSignal, askGeneration, checkpoint, turnToken, startedAt, codexTurnId } = opened;
   const session = turn.session;
   // Where the turn sits in a bot-to-bot chain (session-runtime/bot-hops.mjs).
-  stampTurnHop(session, transcriptMeta, input.promptSource);
+  stampTurnHop(session, transcriptMeta);
   const retained = input.retryTurnId
     ? retainedFailedTurnInput(session.messages, input.retryTurnId, input.retryAttemptId)
     : null;

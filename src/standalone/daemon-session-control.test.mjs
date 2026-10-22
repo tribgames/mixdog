@@ -339,19 +339,19 @@ test('a bot-to-bot chain is refused past MAX_BOT_HOPS, directly and through a co
   await assert.rejects(chainFixture({ targets, callerAgentId: 'b', callerHop: 3 }).send('sess_user_1', 'loop'), limit);
 });
 
-test('turn hops: a user message and a routine reset, a notification keeps the chain, a steered bot message raises it', async () => {
+test('turn hops: a bot message sets the hop, a user message, a routine and a notification start at 0, a steered bot message raises it', async () => {
   const { stampTurnHop, raiseTurnHop, turnHopOf } = await import('../runtime/shared/bot-hops.mjs');
   const session = { messages: [] };
-  stampTurnHop(session, { sender: 'lead', fromAgent: 'a', hop: 2 }, undefined);
+  stampTurnHop(session, { sender: 'lead', fromAgent: 'a', hop: 2 });
   assert.equal(turnHopOf(session), 2);
-  // A task notification (runtime source, no hop of its own) arriving mid-chain does not reset it.
-  stampTurnHop(session, null, 'task-notification');
-  assert.equal(turnHopOf(session), 2);
-  // A genuine user message, or a routine fire, starts at 0.
-  stampTurnHop(session, { device: 'PC' }, undefined);
+  // A task notification (no hop of its own) is not a bot message: it does not inherit the previous turn's hop.
+  stampTurnHop(session, null);
   assert.equal(turnHopOf(session), 0);
-  stampTurnHop(session, { hop: 3 }, undefined);
-  stampTurnHop(session, { routineTrigger: { kind: 'schedule', name: 'n' } }, undefined);
+  stampTurnHop(session, { hop: 2 });
+  stampTurnHop(session, { device: 'PC' });
+  assert.equal(turnHopOf(session), 0);
+  stampTurnHop(session, { hop: 3 });
+  stampTurnHop(session, { routineTrigger: { kind: 'schedule', name: 'n' } });
   assert.equal(turnHopOf(session), 0);
   // A bot message steered into the running turn raises it.
   raiseTurnHop(session, { fromAgent: 'a', hop: 2 });
@@ -361,7 +361,139 @@ test('turn hops: a user message and a routine reset, a notification keeps the ch
   assert.equal(turnHopOf({}), 0);
 });
 
-test('two sends at hops 3 and 1: each reply wakes its sender with its own hop, in either order, and the hop survives a restart', async (t) => {
+// One bot's home with real report delivery and wakes: `send` is a `session send` from a turn
+// at `hop`, `settle` the target's turn ending (its report wakes the home), `wakeTurn` the
+// turn that wake starts (the daemon's wake: transcript meta carries the hop when above 0).
+function reportWorld(t, { agent, targets = {} }) {
+  const dir = mkdtempSync(join(tmpdir(), 'session-control-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const home = { id: `sess_home_${agent}`, owner: 'cli', agent, sourceType: 'lead', messages: [], generation: 1 };
+  const wakes = [];
+  const delivery = createAgentHomeDelivery({
+    loadSession: (id) => (id === home.id ? home : null),
+    saveSession: async () => {},
+    turnInFlight: () => false,
+    queue: createRoutineResultQueue(join(dir, 'routine-results.json')),
+    live: () => ({
+      busy: () => false,
+      notice: () => {},
+      wake: async (_id, prompt, options) => wakes.push({ prompt, ...options }),
+    }),
+    retryLater: () => {},
+    log: () => {},
+  });
+  const submits = [];
+  const service = {
+    materializeSession: async () => ({ getState: () => ({}), subscribe: () => () => {} }),
+    submitSession: async (params) => {
+      submits.push(params);
+      return { accepted: true };
+    },
+  };
+  let queued = null;
+  const agentTasks = createAgentTaskSessions({
+    getSessionService: () => service,
+    deliver: (agentId, report) => (queued = delivery.enqueueTask(agentId, report)),
+    watches: {
+      add: (watch) => delivery.watchTask(watch),
+      list: () => delivery.taskWatches(),
+      remove: (runId) => delivery.unwatchTask(runId),
+    },
+    loadSession: async (id) => targets[id] ?? null,
+    agentName: async () => `Name ${agent}`,
+    pendingWork: async () => false,
+    settleMs: 0,
+    log: () => {},
+  });
+  const run = createSessionControl({ getSessionService: () => service, agentTasks });
+  return {
+    home,
+    wakes,
+    submits,
+    send: (sessionId, hop) =>
+      run(
+        { action: 'send', session_id: sessionId, prompt: 'work' },
+        { callerSessionId: home.id, callerAgentId: agent, callerHop: hop }
+      ),
+    settle: async (text) => {
+      submits.at(-1).options.onSettled({ status: 'done', result: { content: text } });
+      await new Promise((resolve) => setImmediate(resolve));
+      await delivery.drain(await queued);
+    },
+    wakeTurn: async () => {
+      const { stampTurnHop, turnHopOf } = await import('../runtime/shared/bot-hops.mjs');
+      const session = { messages: [] };
+      const { hop } = wakes.at(-1);
+      stampTurnHop(session, hop > 0 ? { hop } : null);
+      return turnHopOf(session);
+    },
+  };
+}
+
+test('the Lead (user-started) delegating to a records home 6+ times via report wakes is never refused, capped or suppressed', async (t) => {
+  const records = { id: 'sess_home_records', title: 'Records' };
+  const lead = reportWorld(t, { agent: 'lead', targets: { [records.id]: records } });
+  let leadHop = 0; // the user's message starts the Lead's turn
+  for (let round = 1; round <= 7; round++) {
+    const sent = await lead.send(records.id, leadHop);
+    assert.equal(sent.accepted, true);
+    await lead.settle(`saved ${round}`);
+    assert.equal(lead.wakes.length, round, 'every report wakes the Lead');
+    leadHop = await lead.wakeTurn();
+    assert.equal(leadHop, 0, 'the Lead delegated on its own: its wake turn starts over');
+  }
+  assert.equal(
+    lead.home.messages.some((message) => /check with the user|did not wake you|round trip/.test(message.content)),
+    false,
+    'no report asks the Lead to stop and ask the user'
+  );
+});
+
+test('a bot-descended chain resumed through a report wake keeps counting and is refused past MAX_BOT_HOPS', async (t) => {
+  const { stampTurnHop, turnHopOf, MAX_BOT_HOPS } = await import('../runtime/shared/bot-hops.mjs');
+  const limit = /Bot-to-bot chain limit reached/;
+  const bots = { sess_home_c: { id: 'sess_home_c', title: 'C' } };
+  const b = reportWorld(t, { agent: 'b', targets: bots });
+  // A (user turn, hop 0) -> B: B's turn starts at the message's hop 1.
+  const fromA = chainFixture({ callerAgentId: 'a', callerHop: 0 });
+  assert.equal((await fromA.send('sess_home_b', 'start')).hop, 1);
+  const turn = { messages: [] };
+  stampTurnHop(turn, fromA.submits[0].options.transcriptMeta);
+  assert.equal(turnHopOf(turn), 1);
+  // B -> C goes out at hop 2; C's report wakes B back in the turn depth it sent from (1), not 2 or 0.
+  assert.equal((await b.send('sess_home_c', turnHopOf(turn))).hop, 2);
+  await b.settle('c done');
+  assert.equal(await b.wakeTurn(), 1);
+  // B -> A (hop 2) -> B (hop 3): B is refused from there, so the loop is bounded.
+  assert.equal((await b.send('sess_home_a', 1)).hop, 2);
+  const fromA2 = chainFixture({ callerAgentId: 'a', callerHop: 2 });
+  assert.equal((await fromA2.send('sess_home_b', 'again')).hop, MAX_BOT_HOPS);
+  await assert.rejects(b.send('sess_home_a', MAX_BOT_HOPS), limit);
+});
+
+test('a real A -> B -> A loop through messages is still refused past MAX_BOT_HOPS', async () => {
+  const { stampTurnHop, turnHopOf, MAX_BOT_HOPS } = await import('../runtime/shared/bot-hops.mjs');
+  const limit = /Bot-to-bot chain limit reached/;
+  const session = { messages: [] };
+  stampTurnHop(session, null); // A's turn, started by the user
+  let from = 'a';
+  let to = 'b';
+  for (let sends = 1; sends <= MAX_BOT_HOPS; sends++) {
+    const fixture = chainFixture({ callerAgentId: from, callerHop: turnHopOf(session) });
+    const sent = await fixture.send(`sess_home_${to}`, 'ping');
+    assert.equal(sent.hop, sends);
+    // The receiving bot's turn is started by the message, which carries the hop.
+    stampTurnHop(session, fixture.submits[0].options.transcriptMeta);
+    assert.equal(turnHopOf(session), sends);
+    [from, to] = [to, from];
+  }
+  await assert.rejects(
+    chainFixture({ callerAgentId: from, callerHop: turnHopOf(session) }).send(`sess_home_${to}`, 'again'),
+    limit
+  );
+});
+
+test('two sends at hops 3 and 1: each reply wakes its sender at the depth of the turn that sent, in either order, and the hop survives a restart', async (t) => {
   for (const order of [
     [0, 1],
     [1, 0],
@@ -416,9 +548,10 @@ test('two sends at hops 3 and 1: each reply wakes its sender with its own hop, i
       await new Promise((resolve) => setImmediate(resolve));
       await delivery.drain(await queued);
     }
+    // Each wake resumes the depth of the turn that sent it (the send's hop less the one it added).
     assert.deepEqual(
       wakes.map((wake) => wake.hop),
-      order.map((index) => [3, 1][index])
+      order.map((index) => [2, 0][index])
     );
     // A restart re-attaches the watch with its hop: the recovered report carries it.
     const lost = [];

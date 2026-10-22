@@ -759,6 +759,7 @@ const report = (n, status = 'completed') => ({
   title: 'README',
   status,
   text: `answer ${n}`,
+  hop: 1, // sent from a bot-descended turn: only those count as round trips
 });
 
 test('a task result is persisted before delivery, retried on failure, and wakes the agent once', async (t) => {
@@ -810,6 +811,20 @@ test('after three round trips the report asks the agent to check with the user',
   assert.equal(h.wakes.length, 4, 'one wake per reported turn');
 });
 
+test('sends from a turn the user or a routine started never count as round trips', async (t) => {
+  const h = homeDelivery(t);
+  for (const n of [1, 2, 3, 4, 5, 6]) {
+    // The Lead's own delegation (hop 1 to another session, sent at depth 0).
+    const own = { ...report(n), taskSessionId: 'sess_home_records', target: 'session', hop: 1 };
+    await h.delivery.drain(await h.delivery.enqueueTask('lead', own));
+  }
+  assert.equal(h.wakes.length, 6, 'every report wakes the Lead');
+  assert.equal(
+    h.thread().some((message) => /check with the user|did not wake you|round trip/.test(message.content)),
+    false
+  );
+});
+
 test('a turn waiting for the user posts one faint line and wakes nobody', async (t) => {
   const h = homeDelivery(t);
   await h.delivery.drain(await h.delivery.enqueueTask('lead', report(1, 'blocked')));
@@ -831,6 +846,7 @@ test("an ordinary session reports as a session, and another agent's thread stops
     status: 'completed',
     text: `answer ${n}`,
     target: 'session',
+    hop: 2, // a bot-descended send (depth 1)
   });
   for (const n of [1, 2, 3, 4, 5]) await h.delivery.drain(await h.delivery.enqueueTask('lead', botReport(n)));
   const thread = h.thread();
@@ -861,6 +877,7 @@ test("the user's own message in the home thread restarts its round trips, so a c
     status: 'completed',
     text: `answer ${n}`,
     target: 'session',
+    hop: 2,
   });
   for (const n of [1, 2, 3, 4]) await h.delivery.drain(await h.delivery.enqueueTask('lead', botReport(n)));
   assert.equal(h.wakes.length, 3);
@@ -1253,7 +1270,7 @@ test('a wake taken before a restart is not taken again when a later result is ow
 });
 
 const DAY = 24 * 60 * 60 * 1000;
-const roundItem = (runId, target) => ({ runId, kind: 'agent-task', taskSessionId: target, roundTrip: true });
+const roundItem = (runId, target) => ({ runId, kind: 'agent-task', taskSessionId: target, roundTrip: true, hop: 1 });
 
 function capWorld(
   t,

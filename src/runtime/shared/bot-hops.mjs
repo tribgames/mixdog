@@ -2,22 +2,24 @@
 // transcript meta of the message it delivers, and in the report that answers
 // it). A turn knows the hop of the submission that started it (`turnHop`,
 // stamped on the session when the turn is prepared); a send made in it goes
-// out at turnHop + 1. A turn started by the user or by a routine starts at 0;
-// a runtime notification keeps the hop of the work it belongs to.
+// out at turnHop + 1. Only a message another bot sent counts: a turn started by
+// the user, a routine or a runtime notification (a task report, a wake) starts
+// at 0, so a bot's reports of its own sends never use up its budget.
 export const MAX_BOT_HOPS = 3;
 export const BOT_HOP_LIMIT_ERROR = 'session: Bot-to-bot chain limit reached; ask the user before continuing.';
 
 const hopOf = (value) => (Number.isInteger(value) && value > 0 ? value : 0);
 
-/** The hop a turn starts at: its submission's own, else (a runtime
- *  notification, `runtimeSource`) the hop the session was already at, else 0. */
-export function startingTurnHop(transcriptMeta, runtimeSource, previous) {
-  return hopOf(transcriptMeta?.hop) || (runtimeSource ? hopOf(previous) : 0);
-}
+/** The hop of the turn that made a send, from the send's own place in the chain
+ *  (`hop`, as a task report or watch carries it, with its `target`): a send to
+ *  another session is one hop past its turn, one to a task session the bot
+ *  created only continues it. A report wakes the sender's turn back at this
+ *  depth: bot-descended work resumes where it was, independent work at 0. */
+export const sendDepth = ({ hop, target } = {}) => Math.max(0, hopOf(hop) - (target === 'session' ? 1 : 0));
 
-/** Stamp the starting hop on `session` for the turn about to run. */
-export function stampTurnHop(session, transcriptMeta, runtimeSource) {
-  session.turnHop = startingTurnHop(transcriptMeta, runtimeSource, session.turnHop);
+/** Stamp the hop of the submission that starts the turn (else 0) on `session`. */
+export function stampTurnHop(session, transcriptMeta) {
+  session.turnHop = hopOf(transcriptMeta?.hop);
 }
 
 /** A bot's message steered into the running turn raises the turn's hop. */

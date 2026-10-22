@@ -43,6 +43,7 @@ import {
   roomMemberOfSession,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { agentRoomHost } from '../runtime/shared/agent-room-host.mjs';
+import { sendDepth } from '../runtime/shared/bot-hops.mjs';
 import {
   TASK_LOOP_CAP,
   agentTaskMessage,
@@ -421,11 +422,14 @@ export function createRoutineResultQueue(
         else {
           // A task turn's end counts one round trip, once per run id, per home
           // and target: the user's next message in that home starts over
-          // (resetRounds), and so does a count idle past ROUND_TTL_MS.
+          // (resetRounds), and so does a count idle past ROUND_TTL_MS. Only a
+          // send made in a bot-descended turn counts: the user's or a routine's
+          // own delegations never use the budget up.
           const own = freshRounds(doc.rounds[homeId]);
-          const round = (own[item.taskSessionId]?.n || 0) + 1;
+          const counts = sendDepth(item) > 0;
+          const round = counts ? (own[item.taskSessionId]?.n || 0) + 1 : 0;
           next = appended(doc, homeId, [{ ...item, round }]);
-          if (next) {
+          if (next && counts) {
             const counted = { ...own, [item.taskSessionId]: { n: round, at: now() } };
             next = { ...next, rounds: { ...doc.rounds, [homeId]: counted } };
           }
@@ -736,8 +740,10 @@ function createHomeRelay({
     let turn;
     relays.set(batchId, 'running');
     try {
-      // The turn descends from the bot-to-bot sends it reports: it carries their highest hop.
-      const hop = Math.max(0, ...woken.map((message) => Number(message?.meta?.routine?.hop) || 0));
+      // The reports answer sends this home made itself: the wake turn resumes
+      // at the depth of the turns that sent them (bot-hops.mjs), 0 for work the
+      // user or a routine started, so only bot-descended chains keep counting.
+      const hop = Math.max(0, ...woken.map((message) => sendDepth(message?.meta?.routine)));
       // A room relay may be answered under another turn's submission id: the
       // batch records it before that turn is submitted.
       const follow = (submissionId) => queue.markBatch(homeId, batchId, { follows: submissionId });
