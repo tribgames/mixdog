@@ -622,7 +622,8 @@ test('a rename over a read-only file fails at once with its own error instead of
   writeFileSync(path, '{"keep":true}\n');
   fs.chmodSync(path, 0o444);
   const calls = mockRenameFailures(t, Infinity, 'EPERM');
-  const started = performance.now();
+  // Observe retry waits, not time spent flushing the file or waiting for the runner.
+  const wait = t.mock.method(Atomics, 'wait', () => 'timed-out');
   try {
     assert.throws(
       () => writeJsonAtomicSync(path, { keep: false }),
@@ -631,7 +632,7 @@ test('a rename over a read-only file fails at once with its own error instead of
   } finally {
     fs.chmodSync(path, 0o666);
   }
-  assert.ok(performance.now() - started < 200, 'no multi-second synchronous retry');
+  assert.equal(wait.mock.callCount(), 0, 'no synchronous retry sleeps');
   assert.equal(calls(), 1);
   assert.equal(readFileSync(path, 'utf8'), '{"keep":true}\n');
   assert.deepEqual(
@@ -645,7 +646,9 @@ test('a transient sharing violation on a writable file is still retried until th
   const { path } = fixture(t);
   writeFileSync(path, '{"keep":true}\n');
   const calls = mockRenameFailures(t, 2, 'EPERM');
+  const wait = t.mock.method(Atomics, 'wait', () => 'timed-out');
   writeJsonAtomicSync(path, { keep: false }, { backoffs: [1, 1, 1] });
   assert.equal(calls(), 3);
+  assert.equal(wait.mock.callCount(), 2, 'each transient failure waits before retrying');
   assert.equal(readFileSync(path, 'utf8'), '{\n  "keep": false\n}\n');
 });
