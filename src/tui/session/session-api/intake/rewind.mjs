@@ -47,7 +47,7 @@ export function createRewindAction(bag) {
           ...rewindOptions,
           ...(preview.historyMarker ? { expectedHistoryMarker: preview.historyMarker } : {}),
         });
-        if (!rewound) return null;
+        if (!rewound) throw new Error('the conversation changed; select the message again');
         set({
           items: replaceItems(items.slice(0, index), {
             preserveSpill: true,

@@ -537,7 +537,7 @@ test('rewindToItem commits against the history the preview saw and refuses once 
       },
     },
   });
-  assert.equal(await h.api.rewindToItem('u1'), null);
+  await assert.rejects(h.api.rewindToItem('u1'), /conversation changed; select the message again/);
   assert.equal(seen[1].expectedHistoryMarker, 'm1');
   assert.equal(h.state.items, items);
   assert.deepEqual(h.state.promptHistoryList, ['hello']);

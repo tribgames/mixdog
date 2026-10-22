@@ -54,7 +54,13 @@ export function useComposerMessageSelector({
     setOpen(false);
     setRestoring(true);
     try {
-      const value = asRecord(await invokeCapability<RecordValue>('rewindToItem', [messageId]));
+      let value: RecordValue | null;
+      try {
+        value = asRecord(await invokeCapability<RecordValue>('rewindToItem', [messageId]));
+      } catch (error) {
+        showNotice(error instanceof Error && error.message ? error.message : t('Could not restore that message.'), 'error');
+        return;
+      }
       const text = String(value?.text || '');
       if (!text) {
         showNotice(t('Could not restore that message.'), 'error');
