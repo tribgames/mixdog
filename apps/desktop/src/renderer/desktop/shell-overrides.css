@@ -404,10 +404,13 @@ html[data-mixdog-mobile-tabs] .provider-account-row {
   flex-wrap: wrap;
   row-gap: 4px;
 }
+/* The account's actions stay on the name's line at the right edge; usage
+   meters take the full line below. A full-width actions line left the
+   button floating alone between the email and the meters. */
 html[data-mixdog-mobile-tabs] .provider-account-row > .settings-resource-actions {
-  flex: 1 0 100%;
-  margin-left: 0;
-  justify-content: flex-end;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-left: auto;
 }
 /* Provider card header: the title reads whole; when title + count + the
    Auto-switch/+ cluster do not fit one line, the cluster takes the next line
