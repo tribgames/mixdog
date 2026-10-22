@@ -12,7 +12,12 @@ import { join } from 'node:path';
 // before any runtime module resolves it, so this suite never touches real data.
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-session-admission-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
-test.after(() => rmSync(dataDir, { recursive: true, force: true }));
+const { flushTuiSteeringPersist } = await import('./tui-steering-persist.mjs');
+test.after(async () => {
+  // In-memory admission assertions can finish before the durable queue writes.
+  await flushTuiSteeringPersist();
+  rmSync(dataDir, { recursive: true, force: true });
+});
 const { createAgentJobFeed } = await import('./agent-job-feed.mjs');
 const { createSessionFlow } = await import('./session-flow.mjs');
 const { createSessionApi } = await import('./session-api.mjs');
