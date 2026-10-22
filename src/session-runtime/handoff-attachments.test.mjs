@@ -417,7 +417,13 @@ test('agent → bot: a task turn’s files come back on its report as attachment
   const message = agentTaskMessage({ ...report, messageId: 'routine_x' });
   assert.equal(message.meta.transcript.attachments.length, 2);
   assert.match(message.content, /\[attachment:[a-f0-9]{64}\]/);
-  assert.match(agentTaskWakePrompt([message]), /already shown to the user/);
+  // The chat's result card shows no files: the bot is told to name them itself.
+  const wake = agentTaskWakePrompt([message]);
+  assert.match(wake, /Its files are not shown in this chat: the user sees only the result card/);
+  assert.match(wake, /Name the files that matter by path yourself/);
+  assert.doesNotMatch(wake, /already shown to the user/);
+  // A report without files says nothing about them.
+  assert.doesNotMatch(agentTaskWakePrompt([agentTaskMessage({ ...report, files: [], messageId: 'routine_z' })]), /files/i);
   const notice = routineResultNotice(message);
   assert.equal(notice.attachments.length, 2);
   const [restored] = restoreTranscriptItems([message], { sessionId: 'sess_home_mixy' });

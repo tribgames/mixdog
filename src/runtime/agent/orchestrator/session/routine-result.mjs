@@ -213,7 +213,8 @@ export function agentTaskMessage({
   const summary = typeof givenSummary === 'string' ? givenSummary : routineSummary(text);
   const reply = textChars > String(text ?? '').length ? { text: String(text), chars: textChars } : boundedReply(text);
   // The files the turn produced: listed for the agent, stored ones carried as
-  // the row's attachments (shown with the report, forwardable by id).
+  // the row's attachments (forwardable by id; the chat's result card does not
+  // show them, the task session does).
   const produced = normalizeHandoffFiles(files);
   const attachments = artifactRecords(produced);
   const label = escapeHarnessTags(String(title).replace(/["\r\n]/g, ''));
@@ -310,7 +311,7 @@ export function agentTaskWakePrompt(messages, { more = 0 } = {}) {
     'Relay the report above to the user now, briefly and in your own words; a report marked (working) is still in progress, not done.',
     ...(files
       ? [
-          'Its files are already shown to the user with the report; name the ones that matter by path, and pass them on to another session or agent with attachments.',
+          'Its files are not shown in this chat: the user sees only the result card and can open the task session for details. Name the files that matter by path yourself, and pass them on to another session or agent with attachments.',
         ]
       : []),
   ].join('\n\n');
