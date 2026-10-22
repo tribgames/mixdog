@@ -1,6 +1,8 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Free in the app window": "앱 창 안에서 자유 이동",
+  "Position": "위치",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "—는 가격 미확인, +는 가격 미확인 사용량을 제외한 부분 합계입니다. 구독 환산액은 API 청구액이 아닙니다.",
   ", Col": ", 열",

@@ -1,6 +1,8 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Free in the app window": "在應用程式視窗內自由移動",
+  "Position": "位置",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— 表示價格不明；+ 表示不含價格不明用量的部分合計。訂閱換算金額並非 API 帳單金額。",
   ", Col": ", 欄",

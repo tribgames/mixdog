@@ -2070,7 +2070,10 @@ function fakeDesktop(
       },
       setDesktopPetOption: async (name, value) => {
         calls.options.push([name, value]);
-        config = { ...config, [name]: value };
+        // Main keeps the three placements mutually exclusive.
+        const exclusive = ['pinned', 'pinnedHere', 'onScreen'];
+        const others = value && exclusive.includes(name) ? Object.fromEntries(exclusive.map((k) => [k, false])) : {};
+        config = { ...config, ...others, [name]: value };
         return config;
       },
       setDesktopPetScale: async (scale) => {
@@ -2157,28 +2160,31 @@ const optionSwitch = (document, label) => document.querySelector(`input[type="ch
 test('Settings → Bots holds every overlay option, synced with the pet menu through main', async (t) => {
   const desktop = fakeDesktop();
   const { document } = await mountSettings(t, desktop);
-  const labels = ['Pin above the message box', 'Pin here', 'Keep above other windows', 'Collapse bubble'];
+  const labels = ['Keep above other windows', 'Collapse bubble'];
+  const position = () => document.querySelector('[role="combobox"][aria-label="Position"]');
   assert.deepEqual(
     labels.map((label) => optionSwitch(document, label)?.checked),
-    [true, false, false, false],
-    'pinned by default, not pinned here, following the app window, bubble shown'
+    [false, false],
+    'following the app window, bubble shown'
   );
+  assert.equal(position().textContent.trim(), 'Pin above the message box', 'pinned by default');
   await act(async () => optionSwitch(document, 'Keep above other windows').click());
-  await act(async () => optionSwitch(document, 'Pin above the message box').click());
-  await act(async () => optionSwitch(document, 'Pin here').click());
+  await act(async () => position().click());
+  await act(async () =>
+    [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === 'Pin here').click()
+  );
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   assert.deepEqual(desktop.calls.options, [
     ['keepAbove', true],
-    ['pinned', false],
     ['pinnedHere', true],
   ]);
-  assert.equal(optionSwitch(document, 'Pin here').checked, true);
+  assert.equal(position().textContent.trim(), 'Pin here');
   assert.equal(optionSwitch(document, 'Keep above other windows').checked, true);
   const reset = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset position');
   await act(async () => reset.click());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   assert.equal(desktop.calls.reset, 1);
-  assert.equal(optionSwitch(document, 'Pin above the message box').checked, true, 'reset re-pins');
+  assert.equal(position().textContent.trim(), 'Pin above the message box', 'reset re-pins');
   // The pet's own menu changed something: main pushes it, the page follows.
   await act(async () => desktop.push({ enabled: true, pinned: false, keepAbove: false, collapsed: true }));
   assert.equal(optionSwitch(document, 'Collapse bubble').checked, true);
@@ -2186,6 +2192,80 @@ test('Settings → Bots holds every overlay option, synced with the pet menu thr
   // Off: the options stay visible but cannot change.
   await act(async () => desktop.push({ enabled: false, pinned: true, keepAbove: false, collapsed: false }));
   assert.equal(optionSwitch(document, 'Collapse bubble').disabled, true);
+});
+
+test('Settings → Bots: Position is one dropdown over the four mutually exclusive placements', async (t) => {
+  const desktop = fakeDesktop();
+  const { document } = await mountSettings(t, desktop);
+  const position = () => document.querySelector('[role="combobox"][aria-label="Position"]');
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const choose = async (label) => {
+    await act(async () => position().click());
+    await act(async () =>
+      [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === label).click()
+    );
+    await settle();
+  };
+  for (const label of ['Pin above the message box', 'Pin here', 'Free on screen']) {
+    assert.equal(optionSwitch(document, label), null, `${label} is no longer a toggle`);
+  }
+  await act(async () => position().click());
+  assert.deepEqual(
+    [...document.querySelectorAll('[role="option"]')].map((o) => o.textContent.trim()),
+    ['Pin above the message box', 'Pin here', 'Free in the app window', 'Free on screen']
+  );
+  await act(async () => position().click());
+  await choose('Free on screen');
+  await choose('Pin here');
+  await choose('Pin above the message box');
+  await choose('Free on screen');
+  await choose('Free in the app window');
+  assert.deepEqual(desktop.calls.options, [
+    ['onScreen', true],
+    ['pinnedHere', true],
+    ['pinned', true],
+    ['onScreen', true],
+    ['onScreen', false],
+  ]);
+  assert.equal(position().textContent.trim(), 'Free in the app window');
+  await act(async () => desktop.push({ enabled: true, pinned: false, pinnedHere: true, keepAbove: false }));
+  assert.equal(position().textContent.trim(), 'Pin here', 'a push from main updates the value');
+  await act(async () => desktop.push({ enabled: false, pinned: true, keepAbove: false }));
+  assert.equal(position().disabled, true);
+});
+
+test('Settings → Bots: Position waits for a placement write before taking the next choice', async (t) => {
+  const desktop = fakeDesktop();
+  const answer = desktop.api.setDesktopPetOption;
+  let release = null;
+  desktop.api.setDesktopPetOption = (name, value) =>
+    new Promise((resolve) => {
+      release = () => resolve(answer(name, value));
+    });
+  const { document } = await mountSettings(t, desktop);
+  const position = () => document.querySelector('[role="combobox"][aria-label="Position"]');
+  await act(async () => position().click());
+  await act(async () =>
+    [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === 'Free on screen').click()
+  );
+  assert.equal(position().disabled, true, 'locked while main applies the choice');
+  await act(async () => release());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(position().disabled, false);
+  assert.equal(position().textContent.trim(), 'Free on screen');
+  await act(async () => position().click());
+  await act(async () =>
+    [...document.querySelectorAll('[role="option"]')]
+      .find((o) => o.textContent.trim() === 'Free in the app window')
+      .click()
+  );
+  await act(async () => release());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.deepEqual(desktop.calls.options, [
+    ['onScreen', true],
+    ['onScreen', false],
+  ]);
+  assert.equal(position().textContent.trim(), 'Free in the app window');
 });
 
 test('Settings → Bots: auto-advance and auto-close are on by default and set through main', async (t) => {
@@ -2327,14 +2407,10 @@ test('no representative bot: the overlay options are disabled with a note; the s
   const desktop = fakeDesktop();
   const { document, publisher, root } = await mountSettings(t, desktop, { mixy: false });
   assert.ok(document.body.textContent.includes('Create the representative bot to use the overlay.'));
-  for (const label of [
-    'Representative bot overlay',
-    'Pin above the message box',
-    'Keep above other windows',
-    'Collapse bubble',
-  ]) {
+  for (const label of ['Representative bot overlay', 'Keep above other windows', 'Collapse bubble']) {
     assert.equal(optionSwitch(document, label).disabled, true, `${label} disabled`);
   }
+  assert.equal(document.querySelector('[role="combobox"][aria-label="Position"]').disabled, true);
   assert.equal(switchOf(document).checked, true, 'still shows the stored on');
   const reset = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset position');
   assert.equal(reset.disabled, true);

@@ -1,6 +1,8 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Free in the app window": "Livre na janela do app",
+  "Position": "Posição",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— indica preço indisponível; + marca um subtotal que exclui o uso sem preço conhecido. O valor da assinatura não é uma cobrança de API.",
   ", Col": ", Col",

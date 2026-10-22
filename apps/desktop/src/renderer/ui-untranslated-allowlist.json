@@ -103,6 +103,7 @@
   },
   "localeExceptions": {
     "de": {
+      "Position": "same spelling for a position in German UI",
       "Ports": "same spelling for network ports in German UI",
       "Port {{port}}": "same spelling for a network port in German UI",
       "Workflow": "established software term in German UI",
@@ -235,6 +236,7 @@
       "Web": "same spelling in Spanish"
     },
     "fr": {
+      "Position": "same spelling for a position in French UI",
       "Ports": "same spelling for network ports in French UI",
       "Conversations": "same spelling in French",
       "{{count}} conversations": "same spelling in French",

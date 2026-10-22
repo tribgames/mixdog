@@ -2,6 +2,7 @@
 // overlay, a small window that is a side chat with the representative bot
 // (Mixy's agent id, whatever it is named). Every overlay option lives here,
 // the same ones its right-click menu shows, kept in sync through main.
+import { useState } from 'react';
 import { DESKTOP_PET_SCALES, type DesktopPetOption } from '../../shared/desktop-pet';
 import {
   resetDesktopPetPosition,
@@ -20,12 +21,16 @@ export function DesktopPetToggle() {
   const config = useDesktopPetConfig();
   // The same answer the Bots page and the overlay use (mixy-first.tsx).
   const created = useMixyCreated(window.mixdogDesktop);
+  // A placement write in flight: the next choice waits for main's answer, so
+  // it is always made against the placement actually in effect.
+  const [placing, setPlacing] = useState(false);
   if (!config) return null;
   // No representative bot: the overlay cannot appear, so nothing here can
   // change; the stored setting is left as it is.
   const missing = created === false;
   const off = !config.enabled || missing;
   const option = (name: DesktopPetOption) => (on: boolean) => void setDesktopPetOption(name, on).catch(() => {});
+  const position = config.pinned ? 'pinned' : config.pinnedHere ? 'pinnedHere' : config.onScreen ? 'onScreen' : 'free';
   return (
     <Group
       title={t('Representative bot overlay')}
@@ -46,14 +51,25 @@ export function DesktopPetToggle() {
         disabled={missing}
         onChange={(enabled) => void setDesktopPetEnabled(enabled).catch(() => {})}
       />
-      <ToggleRow
-        title={t('Pin above the message box')}
-        checked={config.pinned}
-        disabled={off}
-        onChange={option('pinned')}
+      <SelectRow
+        title={t('Position')}
+        value={position}
+        disabled={off || placing}
+        options={[
+          { value: 'pinned', label: t('Pin above the message box') },
+          { value: 'pinnedHere', label: t('Pin here') },
+          { value: 'free', label: t('Free in the app window') },
+          { value: 'onScreen', label: t('Free on screen') },
+        ]}
+        onChange={(value) => {
+          if (value === position) return;
+          const name = (value === 'free' ? position : value) as DesktopPetOption;
+          setPlacing(true);
+          void setDesktopPetOption(name, value !== 'free')
+            .catch(() => {})
+            .finally(() => setPlacing(false));
+        }}
       />
-      <ToggleRow title={t('Pin here')} checked={config.pinnedHere} disabled={off} onChange={option('pinnedHere')} />
-      <ToggleRow title={t('Free on screen')} checked={config.onScreen} disabled={off} onChange={option('onScreen')} />
       <ToggleRow
         title={t('Keep above other windows')}
         checked={config.keepAbove}

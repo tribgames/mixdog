@@ -1,6 +1,8 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Free in the app window": "Свободно в окне приложения",
+  "Position": "Положение",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— означает, что цена неизвестна; + обозначает промежуточную сумму без учёта использования с неизвестной ценой. Расчётная стоимость подписки не является счётом за API.",
   ", Col": ", Кол",

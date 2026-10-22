@@ -1,6 +1,8 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Free in the app window": "アプリウィンドウ内で自由に移動",
+  "Position": "位置",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— は価格不明、+ は価格不明の使用量を除いた小計を示します。サブスクリプションの換算額はAPIの請求額ではありません。",
   ", Col": "、コル",
