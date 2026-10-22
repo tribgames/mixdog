@@ -51,6 +51,20 @@ test('a new phase paints after 150 ms, once the painted one stood 650 ms', async
   assert.equal(mode(), 'thinking');
 });
 
+test('a phase withdrawn before it paints never paints later; the painted phase stays', async (t) => {
+  const { host, render } = mount(t);
+  const mode = () => host.querySelector('.live-activity')?.getAttribute('data-mode') ?? null;
+  await render({ snapshot: spinner({ mode: 'compacting' }) });
+  await render({ snapshot: spinner({ mode: 'tool-use' }) });
+  await render({ snapshot: {} });
+  await act(async () => sleep(900));
+  assert.equal(mode(), 'compacting', 'the withdrawn phase did not paint');
+  await render({ snapshot: spinner({ mode: 'thinking' }) });
+  await render({ snapshot: { commandStatus: { active: true, mode: 'resuming', startedAt: Date.now() } } });
+  await act(async () => sleep(900));
+  assert.equal(mode(), 'compacting', 'a resume cancels the pending phase too');
+});
+
 test('with no phase published, the last painted phase holds while the turn works', async (t) => {
   const { host, render } = mount(t);
   const mode = () => host.querySelector('.live-activity')?.getAttribute('data-mode') ?? null;

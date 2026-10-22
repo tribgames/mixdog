@@ -421,6 +421,9 @@ export function LiveActivity({
   if (phase && phase !== 'resuming' && phase !== known.target) {
     known.target = phase;
     known.targetSince = nowMs;
+  } else if (!phase || phase === 'resuming') {
+    // A withdrawn phase never paints: drop a pending switch, keep the painted one.
+    known.target = known.shown;
   }
   let switchIn = 0;
   if (known.target !== known.shown) {

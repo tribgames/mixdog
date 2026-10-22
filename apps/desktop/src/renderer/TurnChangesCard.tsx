@@ -14,6 +14,7 @@ import {
 import { t } from './i18n';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { showDesktopToast } from './desktop-toasts';
+import { publishReviewInvalidation } from './review-invalidation';
 import { SetiFileIcon } from './SetiFileIcon';
 import { requestSessionDiffFile, requestSessionDiffList } from './session-diff-focus';
 import { isAbsolutePath } from './session-diff-model';
@@ -369,6 +370,7 @@ function useTurnChangesMutation({
         adopt(next);
         // The worktree moved: every Git surface (Source Control, the Changes chip) re-reads.
         window.dispatchEvent(new Event('mixdog:git-changed'));
+        publishReviewInvalidation(sessionId);
         showDesktopToast(success, 'success');
       })
       .catch((reason: unknown) => {

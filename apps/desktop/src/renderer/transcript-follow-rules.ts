@@ -247,10 +247,13 @@ export function judgeScrollEvent(input: {
   widthShifted: boolean;
 }): ScrollVerdict {
   const gesture = input.touchDown || input.wheelUpRecent;
+  // Inside the write window an event at an offset the timeline did not write,
+  // moving down, is the reader's own arrival: nothing would reconsider it
+  // once the window closes.
+  const writeExplains = input.atWrittenTop || (input.inWriteWindow && !(input.top > input.previousTop));
   if (
     !gesture &&
-    !input.inWriteWindow &&
-    !input.atWrittenTop &&
+    !writeExplains &&
     input.lastDirection > 0 &&
     input.distance <= REPIN_PX
   ) {

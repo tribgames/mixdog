@@ -2,6 +2,7 @@ import { Check, FileDiff, FileText, Undo2, X } from 'lucide-react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { t } from './i18n';
 import { errorMessageText } from './ErrorNotice';
+import { publishReviewInvalidation } from './review-invalidation';
 import { GitDiffBody } from './ReviewPane';
 import { IslandSegLabel } from './ComposerIsland';
 import { TurnReviewDigestDiff } from './turn-review-digest-diff';
@@ -244,6 +245,7 @@ function turnReviewRevertControl({
               setReverted((current) => [...current, name]);
               setRevertedBoundary(turnBoundaryKey);
               window.dispatchEvent(new Event('mixdog:git-changed'));
+              if (sessionId) publishReviewInvalidation(sessionId);
               await refreshAgentReviews();
             })
             .catch((reason: unknown) => setRevertError(errorMessageText(reason)));

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { confirmText } from './confirm-text';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
+import { publishReviewInvalidation, subscribeReviewInvalidation } from './review-invalidation';
 import type { useSessionDiffRefresh } from './use-session-diff-refresh';
 
 /** The session diff spans turns and has no revert contract: only the latest
@@ -24,9 +25,14 @@ export function useSessionDiffRevert({
   setRevertError(message: string): void;
 }) {
   const [turnReview, setTurnReview] = useState<{ checkpointId: string; paths: ReadonlySet<string> } | null>(null);
-  // Bumped by a revert this pane made: it changes the review's files without
-  // a new checkpoint or history epoch.
+  // Bumped by a revert of this session made anywhere (this pane, the turn
+  // review, the turn changes card): it changes the review's files without a
+  // new checkpoint or history epoch.
   const [reverts, setReverts] = useState(0);
+  useEffect(() => {
+    if (!sessionId) return;
+    return subscribeReviewInvalidation(sessionId, () => setReverts((count) => count + 1));
+  }, [sessionId]);
   // A turn's review is fixed once it ends: it is re-read when a turn ends
   // (busy), a new turn's checkpoint lands, its history moves, or a revert
   // lands — never on every lane publication, which re-ran the whole review
@@ -67,7 +73,7 @@ export function useSessionDiffRevert({
           sessionId,
         })
         .then(() => {
-          setReverts((count) => count + 1);
+          publishReviewInvalidation(sessionId);
           // Every Git surface (Source Control, the Changes chip) re-reads.
           window.dispatchEvent(new Event('mixdog:git-changed'));
           return refresh(true);

@@ -121,8 +121,17 @@ test('arriving at the end re-engages follow at once, unless a gesture or a write
   assert.equal(judge({ ...arrive, lastDirection: -1 }), 'none', 'the last move was up');
   assert.equal(judge({ ...arrive, touchDown: true }), 'none', 'a finger is still down');
   assert.equal(judge({ ...arrive, wheelUpRecent: true }), 'none');
-  assert.equal(judge({ ...arrive, inWriteWindow: true }), 'none', 'the timeline wrote it');
+  assert.equal(judge({ ...arrive, inWriteWindow: true, previousTop: 2_000 }), 'none', 'the timeline wrote it');
   assert.equal(judge({ ...arrive, atWrittenTop: true }), 'none');
+  assert.equal(judge({ ...arrive, inWriteWindow: true, atWrittenTop: true }), 'none', 'exactly the written offset');
+});
+
+test('a downward arrival at the end inside the write window, off the written offset, is the reader and re-pins', () => {
+  const arrive = { pinned: false, previousTop: 1_900, top: 2_000, distance: 1, lastDirection: 1, inWriteWindow: true };
+  assert.equal(judge(arrive), 'pin');
+  assert.equal(judge({ ...arrive, touchDown: true }), 'none', 'a finger still down is not an arrival yet');
+  assert.equal(judge({ ...arrive, distance: 2 }), 'none', 'short of the end');
+  assert.equal(judge({ ...arrive, top: 1_900, previousTop: 1_900 }), 'none', 'no downward move');
 });
 
 test('a finger lift is judged after a native scroll, or after a travelled or unwritten move', () => {
