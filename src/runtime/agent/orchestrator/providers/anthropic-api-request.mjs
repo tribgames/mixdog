@@ -71,7 +71,7 @@ export async function buildAnthropicApiRequest({
   // first-party knowledge and must not leak onto (or from) a custom endpoint.
   const isCustom = isCustomProviderName(name);
   const { messages, reminder } = splitTailReminder(requestMessages);
-  const maxTokens = resolveMaxTokens(capabilityModel, { modelMaxOutputTokens });
+  const maxTokens = resolveMaxTokens(capabilityModel, { modelMaxOutputTokens, override: opts?.maxOutputTokensOverride });
   const effortOptions = { ...config, ...opts, disableBetaHeaders: config?.disableBetaHeaders };
   const gatewayEffort = typeof config?.messagesEffort === 'function' ? config.messagesEffort(opts) : null;
   const effortProjection = projectEffortConfiguration(messages, name, useModel, effortOptions);

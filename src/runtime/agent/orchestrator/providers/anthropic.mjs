@@ -27,7 +27,12 @@ import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 
-import { loadAnthropic, _normalizeAnthropicModel, _setApiKeyCatalogMirror } from './anthropic-messages.mjs';
+import {
+  loadAnthropic,
+  resolveEscalatedMaxTokens,
+  _normalizeAnthropicModel,
+  _setApiKeyCatalogMirror,
+} from './anthropic-messages.mjs';
 import { ANTHROPIC_VERSION, MODELS } from './lib/anthropic-models.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
@@ -91,6 +96,14 @@ export class AnthropicProvider {
   // a gateway engine maps its routing slug to the Claude id it stands for.
   _capabilityModel(model) {
     return model;
+  }
+  // The larger max_tokens the loop may retry a max_tokens-truncated turn with
+  // (one-shot, via opts.maxOutputTokensOverride), or null when the model has
+  // nothing above the normal request.
+  escalatedMaxTokens(model, opts = {}) {
+    return resolveEscalatedMaxTokens(this._capabilityModel(model), {
+      modelMaxOutputTokens: opts.modelMaxOutputTokens ?? null,
+    });
   }
   reloadApiKey() {
     try {

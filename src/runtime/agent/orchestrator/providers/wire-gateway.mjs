@@ -9,7 +9,7 @@ import { OpenAICompatProvider, OPENAI_COMPAT_PRESETS } from './openai-compat.mjs
 import { originBoundFetch } from './lib/origin-bound-fetch.mjs';
 import { withInclusiveUsage } from './lib/inclusive-usage.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
-import { resolveWireRoute, sendOnRoute } from './wire-route.mjs';
+import { resolveWireRoute, sendOnRoute, sendWireRoute } from './wire-route.mjs';
 
 // A Files API file-ID image anywhere in the history (tool results nest content).
 function hasFileIdImage(value, depth = 0) {
@@ -65,6 +65,10 @@ export class GatewayMessagesEngine extends AnthropicProvider {
   nativeDocuments = this.config.nativeDocuments;
   _sendOnce(messages, model, tools, opts) {
     return super._sendOnce(messages, model, tools, gatewayMessagesOpts(this.config, model, messages, opts));
+  }
+  // Same ceiling a send resolves, so a retry never asks above the gateway's limit.
+  escalatedMaxTokens(model, opts) {
+    return super.escalatedMaxTokens(model, gatewayMessagesOpts(this.config, model, [], opts));
   }
   _createClient(apiKey) {
     const client = super._createClient(apiKey);
@@ -136,6 +140,14 @@ export class WireGatewayProvider {
       if (wire === 'responses') return this.openai.send(history, model, tools, { ...opts, compatWireApi: 'responses' });
       return this.openai.send(history, model, tools, opts);
     });
+  }
+
+  // A higher one-shot max_tokens exists only on the Messages wire; the
+  // route is the same one the send itself resolves. Other wires: null.
+  async escalatedMaxTokens(model, opts, tools) {
+    const useModel = model || this.openai.defaultModel;
+    const route = await sendWireRoute(this, useModel, tools, opts);
+    return route?.wire === 'messages' ? this.anthropic.escalatedMaxTokens(useModel, opts) : null;
   }
 
   reloadApiKey() {

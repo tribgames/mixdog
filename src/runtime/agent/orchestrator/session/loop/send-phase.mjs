@@ -186,10 +186,16 @@ export async function sendProviderRequest(state, round) {
   // included: the span the usage ledger recorded as `duration_ms` (stamped on
   // the response); wall time only for a response no ledger row timed.
   const requestStartedAt = Date.now();
+  // The output-limit escalation is one-shot: take it off the shared options
+  // before sending, so this attempt alone carries it whatever the outcome
+  // (retry, route fallback, thrown error, abort).
+  const maxOutputTokensOverride = opts.maxOutputTokensOverride;
+  delete opts.maxOutputTokensOverride;
   let result;
   try {
     result = await runWithProviderRequestToolsScope(round.requestToolScope, () =>
       sendWithRecovery({
+        maxOutputTokensOverride,
         provider,
         messages: providerMessages,
         recoveryMessages: messageSource,
@@ -384,6 +390,7 @@ export function settleSendResult(state, round, sent) {
   if (state.imageStrip) settleImageStrip(state, round, sent);
   opts.onToolCall = undefined;
   delete opts.cacheBreakIntent;
+  state.lastStreamedChars = sent.result.streamedChars || 0;
   state.contextOverflowRetryUsed = false;
   // A completed send ends the outage this budget was covering; the next
   // iteration is a fresh request and must get the full replay budget again.

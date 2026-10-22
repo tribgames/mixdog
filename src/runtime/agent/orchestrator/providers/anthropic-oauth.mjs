@@ -12,7 +12,7 @@ import {
   recordAnthropicPrefix,
 } from './lib/anthropic-prefix-trace.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
-import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
+import { resolveAnthropicEscalatedMaxTokens, resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import { MODELS } from './lib/anthropic-models.mjs';
 import { systemBlockItems, systemBlockTtl } from './lib/anthropic-system-blocks.mjs';
 import { prepareAnthropicImages } from './lib/anthropic-image-input.mjs';
@@ -176,8 +176,8 @@ function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
 //      clamped to [MAX_TOKENS_FLOOR, safetyCap].
 //   3. Shared model catalog outputTokens, then the floor, when the live
 //      roster has no entry for this model.
-function resolveMaxTokens(model, { modelMaxOutputTokens = null } = {}) {
-  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens, modelMaxOutputTokens });
+function resolveMaxTokens(model, { modelMaxOutputTokens = null, override = null } = {}) {
+  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens, modelMaxOutputTokens, override });
 }
 
 // --- Message conversion ---
@@ -201,7 +201,10 @@ function buildRequestBody(requestMessages, model, tools, sendOpts) {
   const systemMsgs = messages.filter((m) => m.role === 'system');
   const chatMsgs = messages.filter((m) => m.role !== 'system');
   const opts = sendOpts || {};
-  const maxTokens = resolveMaxTokens(model, { modelMaxOutputTokens: opts.modelMaxOutputTokens });
+  const maxTokens = resolveMaxTokens(model, {
+    modelMaxOutputTokens: opts.modelMaxOutputTokens,
+    override: opts.maxOutputTokensOverride,
+  });
   const effortProjection = projectEffortConfiguration(messages, 'anthropic-oauth', model, opts);
   const ttls = resolveCacheTtls(opts);
   // Each system message becomes its own Anthropic content block with its own
@@ -310,6 +313,16 @@ export class AnthropicOAuthProvider {
     // Warm a kept-alive socket to the messages API so the first request
     // skips the cold TLS handshake. Best-effort; never throws.
     preconnect('https://api.anthropic.com');
+  }
+
+  // The larger max_tokens the loop may retry a max_tokens-truncated turn with
+  // (one-shot, via opts.maxOutputTokensOverride), or null when the model has
+  // nothing above the normal request.
+  escalatedMaxTokens(model, opts = {}) {
+    return resolveAnthropicEscalatedMaxTokens(model, {
+      catalogLookup: _catalogOutputTokens,
+      modelMaxOutputTokens: opts.modelMaxOutputTokens,
+    });
   }
 
   async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {

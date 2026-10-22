@@ -256,7 +256,13 @@ export async function sendWithRecovery(ctx) {
     let response;
     try {
       const { timedOpts } = hooks;
-      const admittedOpts = timedOpts?.admissionOwner ? timedOpts : { ...(timedOpts || {}), admissionOwner: sessionId };
+      const baseOpts = timedOpts?.admissionOwner ? timedOpts : { ...(timedOpts || {}), admissionOwner: sessionId };
+      // A one-shot max_tokens request rides on this send's own copy only: the
+      // shared opts never carry it, so no later attempt can inherit it.
+      const admittedOpts =
+        ctx.maxOutputTokensOverride > 0
+          ? { ...baseOpts, maxOutputTokensOverride: ctx.maxOutputTokensOverride }
+          : baseOpts;
       // Ephemeral tail reminder (tail-reminder-rules.mjs): added to this request's
       // copy only, never to the stored transcript.
       const requestMessages = withTailReminder(messages, { session: ctx.sessionRef, provider, model });
@@ -267,7 +273,10 @@ export async function sendWithRecovery(ctx) {
       stampStreamOutcome(sendErr, hooks.relayWitness);
       return await recoverFromSendError(sendErr, { ...ctx, relayWitness: hooks.relayWitness });
     }
-    return { action: 'proceed', response };
+    // streamedChars: what this send put on screen through onTextDelta (net of
+    // acknowledged retractions), so the loop can withdraw it if it discards
+    // the response and re-sends.
+    return { action: 'proceed', response, streamedChars: hooks.relayWitness.text.length };
   } finally {
     hooks.restore();
   }

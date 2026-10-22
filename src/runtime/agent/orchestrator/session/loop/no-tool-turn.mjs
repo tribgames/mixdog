@@ -14,16 +14,27 @@ import { HIDDEN_AGENT_NAMES } from './hidden-agents.mjs';
 import { INCOMPLETE_STOP_REASONS, isOutputLimitStopReason, providerContinuationSignal } from './termination.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
 import { createTurnSegments } from './no-tool-turn/segments.mjs';
-import { resolveOutputLimit } from './no-tool-turn/output-limit.mjs';
+import { resetOutputLimitRecovery, resolveOutputLimit } from './no-tool-turn/output-limit.mjs';
 import { resolveRefusal } from './no-tool-turn/refusal.mjs';
 import { resumeContinuation } from './no-tool-turn/continuation.mjs';
 import { nudgeEmptyTurn } from './no-tool-turn/empty-nudge.mjs';
 
-export function createNoToolTurnResolver({ messages, opts, sessionId, sessionAgent, drainSteering }) {
+// `escalateMaxTokens()` asks the live provider for a higher one-shot max_tokens
+// (number) or reports none (null/undefined) — the loop stays provider-agnostic.
+export function createNoToolTurnResolver({
+  messages,
+  opts,
+  sessionId,
+  sessionAgent,
+  drainSteering,
+  escalateMaxTokens = () => null,
+  streamedChars = () => 0,
+}) {
   const segments = createTurnSegments({ messages, opts });
   // Per-turn recovery counters shared by the ladders.
   const state = {
     maxOutputRecoveryCount: 0,
+    outputEscalationUsed: false,
     refusalRetryUsed: false,
     emptyNudgeStreak: 0,
     // Structured provider continuation signals honored this turn. Diagnostic
@@ -42,7 +53,7 @@ export function createNoToolTurnResolver({ messages, opts, sessionId, sessionAge
       /* best-effort telemetry */
     }
   };
-  const ladder = { state, segments, messages, sessionId, trace };
+  const ladder = { state, segments, messages, opts, sessionId, trace, escalateMaxTokens, streamedChars };
 
   // A no-tool message ends the turn. Unresolved tool failures remain visible
   // in history and can be reported directly without a synthetic continuation
@@ -66,11 +77,13 @@ export function createNoToolTurnResolver({ messages, opts, sessionId, sessionAge
     // { action: 'continue' | 'break', response }. 'continue' means the
     // recovery appended to the transcript and the loop must re-send;
     // 'break' returns the (possibly aggregated) terminal response.
-    resolve(response, iteration) {
+    async resolve(response, iteration) {
       const hasContent = typeof response.content === 'string' && response.content.trim().length > 0;
       const stopReason = response.stopReason ?? response.stop_reason ?? null;
       const isOutputLimitStop = isOutputLimitStopReason(stopReason);
-      if (hasContent && (isOutputLimitStop || response.streamCut === true)) return resolveOutputLimit(response, ladder);
+      if (isOutputLimitStop || (hasContent && response.streamCut === true)) {
+        return resolveOutputLimit(response, ladder);
+      }
       if (stopReason === 'refusal') return resolveRefusal(response, hasContent, ladder);
       // Output-limit stops keep the bounded max-output ladder above and
       // refusals (already returned) keep the bounded refusal retry; both
@@ -108,13 +121,16 @@ export function createNoToolTurnResolver({ messages, opts, sessionId, sessionAge
         })
       ) {
         state.emptyNudgeStreak = 0;
+        resetOutputLimitRecovery(state);
         return { action: 'continue', response };
       }
       return finishTurn(response);
     },
-    // A turn that produced tool calls is never an empty contract violation.
+    // A turn that produced tool calls is never an empty contract violation,
+    // and it is real progress: a later output-limit cut starts a fresh ladder.
     noteToolCallTurn() {
       state.emptyNudgeStreak = 0;
+      resetOutputLimitRecovery(state);
     },
     noteToolBatchCompleted() {
       state.continuationsSinceToolBatch = 0;

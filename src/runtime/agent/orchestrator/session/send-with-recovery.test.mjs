@@ -717,7 +717,7 @@ test('text the owner cannot withdraw is kept and continued instead of failing th
 
   // The loop resumes it through the output-limit ladder with a network notice.
   const messages = [];
-  const verdict = resolveOutputLimit(result.response, {
+  const verdict = await resolveOutputLimit(result.response, {
     state: { maxOutputRecoveryCount: 0 },
     segments: { record() {}, commitIntermediate() {}, parts: [] },
     messages,

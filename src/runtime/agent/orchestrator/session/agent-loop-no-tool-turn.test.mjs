@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { agentLoop } from './agent-loop.mjs';
 
-const MAX_OUTPUT_EXHAUSTED_NOTICE = '[mixdog-runtime] Output remained truncated after 3 continuation attempts.';
+const MAX_OUTPUT_EXHAUSTED_NOTICE =
+  '[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.';
 
 function leadSession(extra = {}) {
   return {
@@ -20,11 +21,15 @@ function leadSession(extra = {}) {
 
 // Replays `script` per send; the last entry repeats for every further send so a
 // runaway guard can be observed without hardcoding the cap in the fixture.
-function scriptedProvider(script) {
-  const state = { sends: 0 };
+// `escalated` (number|null) is what the provider offers as a higher one-shot
+// max_tokens; `state.requests` records what each send was asked for.
+function scriptedProvider(script, { escalated = null } = {}) {
+  const state = { sends: 0, requests: [] };
   return {
     state,
-    async send() {
+    escalatedMaxTokens: () => escalated,
+    async send(messages, _model, _tools, sendOpts) {
+      state.requests.push({ override: sendOpts?.maxOutputTokensOverride, messageCount: messages.length });
       state.sends += 1;
       const entry = script[Math.min(state.sends, script.length) - 1];
       return typeof entry === 'function' ? entry(state.sends) : entry;
@@ -70,6 +75,98 @@ test('a recovered max-output turn keeps every partial in the caller aggregate bu
   assert.equal(result.historyContent, 'done');
   assert.equal(result.maxOutputRecoveryAttempts, 1);
   assert.equal(messages.filter((message) => message.meta?.source === 'max-output-recovery').length, 1);
+});
+
+const emptyCut = { content: '', toolCalls: [], stopReason: 'max_tokens' };
+
+test('an empty max_tokens turn escalates once with no nudge, then resumes three times at normal max_tokens', async () => {
+  const messages = [{ role: 'user', content: 'think hard' }];
+  const provider = scriptedProvider([emptyCut], { escalated: 128_000 });
+  const result = await run(provider, messages);
+  assert.equal(provider.state.sends, 5);
+  const { requests } = provider.state;
+  assert.deepEqual(
+    requests.map((request) => request.override),
+    [undefined, 128_000, undefined, undefined, undefined]
+  );
+  // The escalated re-send carries the same transcript: no message was added.
+  assert.equal(requests[1].messageCount, requests[0].messageCount);
+  // Every later send differs from its predecessor (a resume prompt each time).
+  assert.deepEqual(
+    requests.slice(2).map((request) => request.messageCount),
+    [requests[0].messageCount + 1, requests[0].messageCount + 2, requests[0].messageCount + 3]
+  );
+  const prompts = messages.filter((message) => message.meta?.source === 'max-output-recovery');
+  assert.equal(prompts.length, 3);
+  assert.match(prompts[0].content, /Output token limit hit/);
+  assert.match(prompts[0].content, /smaller pieces/);
+  assert.equal(messages.some((message) => String(message.content).includes('Empty truncated continuation')), false);
+  // Exhaustion ends the turn with a visible notice, not a silent stop.
+  assert.equal(result.terminationReason, 'truncated');
+  assert.equal(result.content, MAX_OUTPUT_EXHAUSTED_NOTICE);
+  assert.equal(result.maxOutputRecoveryAttempts, 3);
+});
+
+test('no escalation is attempted when the provider has no higher limit', async () => {
+  const messages = [{ role: 'user', content: 'think hard' }];
+  const provider = scriptedProvider([emptyCut], { escalated: null });
+  const result = await run(provider, messages);
+  assert.equal(provider.state.sends, 4);
+  assert.deepEqual(
+    provider.state.requests.map((request) => request.override),
+    [undefined, undefined, undefined, undefined]
+  );
+  assert.deepEqual(
+    provider.state.requests.map((request) => request.messageCount),
+    [1, 2, 3, 4]
+  );
+  assert.equal(result.terminationReason, 'truncated');
+  assert.equal(result.content, MAX_OUTPUT_EXHAUSTED_NOTICE);
+});
+
+test('a truncated turn with text follows the same rule: escalate without keeping the partial, then resume', async () => {
+  const messages = [{ role: 'user', content: 'write' }];
+  const provider = scriptedProvider(
+    [
+      { content: 'part1', toolCalls: [], stopReason: 'max_tokens' },
+      { content: 'part2', toolCalls: [], stopReason: 'max_tokens' },
+      { content: 'done', toolCalls: [], stopReason: 'end_turn' },
+    ],
+    { escalated: 128_000 }
+  );
+  const result = await run(provider, messages);
+  assert.deepEqual(
+    provider.state.requests.map((request) => [request.override, request.messageCount]),
+    [
+      [undefined, 1],
+      [128_000, 1],
+      [undefined, 3],
+    ]
+  );
+  assert.equal(result.content, 'part2done');
+  assert.equal(result.historyContent, 'done');
+  assert.equal(result.terminationReason, undefined);
+});
+
+test('a tool-call turn is progress: the escalation and the three resumes are available again', async () => {
+  const provider = scriptedProvider(
+    [
+      emptyCut,
+      emptyCut,
+      { content: '', toolCalls: [{ id: 'c1', name: 'definitely_missing_no_tool_turn_tool', arguments: {} }] },
+      emptyCut,
+    ],
+    { escalated: 128_000 }
+  );
+  const result = await run(provider, [{ role: 'user', content: 'go' }]);
+  // cut, escalated cut, one resume that ends in a tool call (progress), then a
+  // full fresh ladder: cut, escalated cut, 3 resumes, exhausted.
+  assert.equal(provider.state.sends, 3 + 5);
+  assert.deepEqual(
+    provider.state.requests.map((request) => request.override),
+    [undefined, 128_000, undefined, undefined, 128_000, undefined, undefined, undefined]
+  );
+  assert.equal(result.terminationReason, 'truncated');
 });
 
 test('one refusal is retried with a policy reminder and its partial text is preserved', async () => {

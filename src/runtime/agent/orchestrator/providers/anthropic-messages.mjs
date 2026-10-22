@@ -2,7 +2,7 @@
 import { createRequire } from 'node:module';
 import { effortValuesForModel, thinkingTypesFromCapabilities } from './anthropic-effort.mjs';
 import { makeModelCache } from './model-cache.mjs';
-import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
+import { resolveAnthropicEscalatedMaxTokens, resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import {
   deferredAnthropicTools as sharedDeferredAnthropicTools,
   requestAnthropicTools as sharedRequestAnthropicTools,
@@ -130,8 +130,20 @@ function _catalogOutputTokensFromSharedCache(model) {
   }
 }
 
-export function resolveMaxTokens(model, { modelMaxOutputTokens = null } = {}) {
-  return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokensFromSharedCache, modelMaxOutputTokens });
+export function resolveMaxTokens(model, { modelMaxOutputTokens = null, override = null } = {}) {
+  return resolveAnthropicMaxTokens(model, {
+    catalogLookup: _catalogOutputTokensFromSharedCache,
+    modelMaxOutputTokens,
+    override,
+  });
+}
+
+// The higher max_tokens an output-limit retry may use for `model`, or null.
+export function resolveEscalatedMaxTokens(model, { modelMaxOutputTokens = null } = {}) {
+  return resolveAnthropicEscalatedMaxTokens(model, {
+    catalogLookup: _catalogOutputTokensFromSharedCache,
+    modelMaxOutputTokens,
+  });
 }
 
 // Test-only escape hatch for the provider contract scripts

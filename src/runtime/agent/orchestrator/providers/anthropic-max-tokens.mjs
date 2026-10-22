@@ -67,8 +67,16 @@ function sharedCatalogOutputTokens(model) {
 // positive it takes precedence over every catalog lookup. A declared model
 // maximum is a ceiling: it is never raised to the floor, and the env override
 // is capped by it.
-export function resolveAnthropicMaxTokens(model, { catalogLookup, modelMaxOutputTokens = null } = {}) {
-  const isLimit = (value) => Number.isFinite(value) && value > 0;
+//
+// `override` (number|null): a one-shot request for a specific max_tokens (the
+// loop's output-limit escalation). When positive it wins outright; the caller
+// derives it from resolveAnthropicEscalatedMaxTokens, which already respects
+// the declared model limit.
+const isLimit = (value) => Number.isFinite(value) && value > 0;
+
+// The model's declared output limit (gateway value, then catalogs), unclamped
+// by the safety cap; null when nothing declares one.
+function declaredOutputLimit(model, { catalogLookup, modelMaxOutputTokens }) {
   let declared = Number(modelMaxOutputTokens);
   if (!isLimit(declared)) {
     declared = null;
@@ -81,7 +89,29 @@ export function resolveAnthropicMaxTokens(model, { catalogLookup, modelMaxOutput
     }
     if (!isLimit(declared)) declared = sharedCatalogOutputTokens(model);
   }
-  declared = isLimit(declared) ? Math.floor(declared) : null;
+  return isLimit(declared) ? Math.floor(declared) : null;
+}
+
+/**
+ * The larger max_tokens to retry a turn with after it spent the whole normal
+ * budget: the model's declared output limit when it exceeds what a normal
+ * request carries, else null (nothing higher to try). An explicit env override
+ * is the user's chosen ceiling and is never escalated past.
+ */
+export function resolveAnthropicEscalatedMaxTokens(model, { catalogLookup, modelMaxOutputTokens = null } = {}) {
+  if (envAnthropicMaxOutputOverride() != null) return null;
+  const declared = declaredOutputLimit(model, { catalogLookup, modelMaxOutputTokens });
+  if (declared == null) return null;
+  const current = resolveAnthropicMaxTokens(model, { catalogLookup, modelMaxOutputTokens });
+  return declared > current ? declared : null;
+}
+
+export function resolveAnthropicMaxTokens(
+  model,
+  { catalogLookup, modelMaxOutputTokens = null, override = null } = {}
+) {
+  if (isLimit(Number(override))) return Math.floor(Number(override));
+  const declared = declaredOutputLimit(model, { catalogLookup, modelMaxOutputTokens });
   const envOverride = envAnthropicMaxOutputOverride();
   if (envOverride != null) return declared == null ? envOverride : Math.min(envOverride, declared);
   if (declared != null) return Math.min(declared, DEFAULT_SAFETY_CAP);

@@ -6,6 +6,7 @@
 // continuations with no intervening tool batch, the current text is accepted
 // as the final answer.
 import { writeLoopDiagnostic } from './diagnostic.mjs';
+import { resetOutputLimitRecovery } from './output-limit.mjs';
 
 const PROVIDER_CONTINUATION_NO_TOOL_LIMIT = Math.max(
   1,
@@ -38,6 +39,7 @@ export function resumeContinuation(
   state.providerContinuationCount += 1;
   state.continuationsSinceToolBatch += 1;
   state.emptyNudgeStreak = 0;
+  resetOutputLimitRecovery(state);
   trace(iteration, 'provider_continuation', {
     signal,
     stop_reason: stopReason,

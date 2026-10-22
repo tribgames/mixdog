@@ -25,7 +25,7 @@ export function nudgeEmptyTurn(response, { stopReason, isIncompleteStop }, { sta
   messages.push({
     role: 'user',
     content: isIncompleteStop
-      ? `[mixdog-runtime] Empty truncated continuation (stopReason=${stopReason}). Return the remaining final handoff; use tools only for required evidence still missing.`
+      ? `[mixdog-runtime] Empty incomplete turn (stopReason=${stopReason}). Return the remaining final handoff; use tools only for required evidence still missing.`
       : `[mixdog-runtime] Empty response (${state.emptyNudgeStreak}/${EMPTY_NUDGE_MAX}). Return final text, or use tools only for required evidence still missing.`,
   });
   return { action: 'continue', response };

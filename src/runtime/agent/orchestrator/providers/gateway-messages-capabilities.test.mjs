@@ -210,6 +210,33 @@ test('a custom provider edited to drop a pinned wire reroutes to Chat and record
   assert.equal(JSON.stringify(seen.requests[0].body).includes('reasoning'), false);
 });
 
+test('a gateway offers a higher one-shot max_tokens only on a Messages route, bounded by its own ceiling', async () => {
+  const router = new OpenRouterProvider({ apiKey: 'or', preconnect: false });
+  const claude = 'anthropic/claude-opus-5.5';
+  router.getCachedModelInfo = () => ({ outputTokens: 128_000 });
+  assert.equal(resolveWireRoute('openrouter', claude, { agent: true }).wire, 'messages');
+  assert.equal(await router.escalatedMaxTokens(claude, {}, [tool]), 128_000);
+  // A model served on another wire has no Messages max_tokens to raise.
+  const other = 'openai/gpt-5';
+  assert.notEqual(resolveWireRoute('openrouter', other, { agent: true }).wire, 'messages');
+  assert.equal(await router.escalatedMaxTokens(other, {}, [tool]), null);
+  // The gateway ceiling bounds the escalation: nothing above the normal request.
+  router.getCachedModelInfo = () => ({ outputTokens: 32_000 });
+  assert.equal(await router.escalatedMaxTokens(claude, {}, [tool]), null);
+
+  // The one-shot override reaches the wire request, and only that request.
+  router.getCachedModelInfo = () => ({ outputTokens: 128_000 });
+  const seen = recorder();
+  router.anthropic.client.fetch = seen.fetchImpl;
+  await router.send(prompt, claude, [tool], {});
+  await router.send(prompt, claude, [tool], { maxOutputTokensOverride: 128_000 });
+  await router.send(prompt, claude, [tool], {});
+  assert.deepEqual(
+    seen.requests.map((request) => request.body.max_tokens),
+    [65_536, 128_000, 65_536]
+  );
+});
+
 test('OpenCode Go Messages requests carry the preset headers; user headers win', async () => {
   const send = async (config) => {
     const go = recorder();

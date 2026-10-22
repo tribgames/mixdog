@@ -58,6 +58,7 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     lastUsage: undefined,
     firstTurnUsage: undefined,
     response: undefined,
+    lastStreamedChars: 0,
     lastSendTools: tools,
     contextOverflowRetryUsed: false,
     // Set when a provider context-overflow refusal triggers the in-turn
@@ -133,6 +134,10 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     sessionId,
     sessionAgent: state.sessionAgent,
     drainSteering: state.drainSteering,
+    // Only a provider that can offer a higher max_tokens implements this.
+    escalateMaxTokens: () => state.provider?.escalatedMaxTokens?.(state.model, state.opts, state.lastSendTools) ?? null,
+    // Characters the latest send put on screen through the live text stream.
+    streamedChars: () => state.lastStreamedChars,
   });
   return state;
 }
