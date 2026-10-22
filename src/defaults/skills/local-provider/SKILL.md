@@ -47,6 +47,29 @@ available before Local Provider is installed or enabled.
    headroom. Missing disk/hardware evidence is not proof of compatibility.
    Follow the active approval workflow before downloading or activating.
 
+## Tool support
+
+Every Mixdog conversation sends tools, so a usable model must handle tool
+calls. A chat-only model (its chat template has no tool-call support) can load
+and chat in other apps, yet every Mixdog conversation with it fails with
+"does not support the requested tool interface".
+
+- Prefer instruct GGUF builds whose model card or chat template documents
+  tool or function calling. Say before installing that a model without it
+  cannot be used for Mixdog conversations.
+- GGUF inspection cannot prove tool support. After installation the loaded
+  server's capability report decides: `supportsFunctionCalling: false` means
+  chat-only, so tell the user it cannot be used here and offer a tool-capable
+  alternative; unknown means verify with one real response before calling it
+  working.
+- Never edit chat templates, runtime flags or configuration files to force
+  tool support.
+- When the Hugging Face connector is connected, its tools may help search
+  models and read model cards. Installation still goes only through
+  `inspect_hf_model`, `register_hf_model` and `start_local_installation`.
+  A GGUF the user downloaded elsewhere is not imported by path: find the same
+  repository and file on Hugging Face and install it through this flow.
+
 ## Install
 
 1. If the runtime is absent, use `setup` with `action: start_local_installation`,
