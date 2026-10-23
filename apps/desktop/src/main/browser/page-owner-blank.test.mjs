@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createBrowserCommandRunner } from './command-runner.ts';
 import { createBrowserPageOwner } from './page-owner.ts';
 import { BrowserSessionRegistry } from './session-registry.ts';
 import { createBrowserSessionTabStrip } from './session-tab-strip.ts';
@@ -118,7 +119,35 @@ function fixture() {
   // The page the host makes on its own: the pane opening first, or an agent
   // command that needs one, are the same call.
   const agentCreates = () => owner.ensure('s');
-  return { sessions, owner, popup, strip, agentCreates, gate };
+  const runner = createBrowserCommandRunner({
+    state: { peek: () => undefined, for: () => ({}), redactText: (_guest, text) => text },
+    approvals: { approve: async () => {} },
+    browserSessions: sessions,
+    lifecycle: {
+      restoreSession: async () => {},
+      recoverCrashedGuest: async () => {},
+      discardUntouchedBlank: owner.discardUntouchedBlank,
+    },
+    tabs,
+    downloads: {},
+    taskLifecycle: { begin() {}, use() {} },
+    retainGuest() {},
+    drivePage: () => () => {},
+    assertNoTakeover() {},
+    services: {
+      cdp: { waitForIdle: async () => {} },
+      reply: {
+        dialogResult: () => null,
+        refRecoveryFor: () => undefined,
+        snapshotResult: async () => ({ text: 'ok' }),
+      },
+      settle: {},
+    },
+  });
+  /** One agent command on the session's tab `helper` (an agent-kind page). */
+  const runHelper = (turn, extra) =>
+    runner({ action: 'snapshot', session_id: 's', turn_id: turn, tab: 'helper', ...extra });
+  return { sessions, owner, popup, strip, agentCreates, gate, runHelper };
 }
 
 test('an untouched agent-created blank is closed once the agent works in a popup', async () => {
@@ -245,21 +274,28 @@ test('a blank the agent navigates, or that is still loading, is kept', async () 
 test('empty pane + a hidden background:true page: the blank goes and the helper is the one selected tab', async () => {
   const f = fixture();
   const blank = await f.owner.ensure('s');
-  const helper = f.popup('helper');
-  assert.equal(f.owner.discardUntouchedBlank('s', helper), true);
+  await f.runHelper(1, { background: true });
+  const helper = f.sessions.backgroundPages('s').get('helper');
+  assert.equal(helper.kind, 'agent');
   assert.equal(blank.destroyed, true);
   assert.deepEqual(f.sessions.visibleGuests('s'), []);
-  assert.equal(f.sessions.currentGuest('s'), helper);
+  assert.equal(f.sessions.currentGuest('s'), helper.guest);
 });
 
-test('a real page the person is on keeps the selection when a hidden helper opens', async () => {
+test('a real page the person is on is kept when a hidden helper opens, and the agent page is selected once it reveals it', async () => {
   const f = fixture();
   const real = await f.owner.ensure('s');
   real.navigate('https://example.test/'); // claimed: no longer a placeholder
-  const helper = f.popup('helper');
-  assert.equal(f.owner.discardUntouchedBlank('s', helper), false);
+  await f.runHelper(1, { background: true });
+  const helper = f.sessions.backgroundPages('s').get('helper').guest;
   assert.equal(real.destroyed, false);
-  assert.equal(f.sessions.currentGuest('s'), real);
+  assert.equal(f.sessions.currentGuest('s'), real, 'a hidden helper does not take the selection');
+  assert.equal(f.sessions.agentPage('s'), null, 'and is not followed');
+  await f.runHelper(2, { background: false });
+  assert.equal(f.sessions.currentGuest('s'), helper, 'the revealed agent page is the selected tab');
+  assert.equal(f.sessions.agentPage('s').guest, helper);
+  assert.equal(real.destroyed, false);
+  assert.deepEqual(f.sessions.visibleGuests('s'), [real], "the person's page stays a tab");
 });
 
 test('a pane opened after the agent made its page shows that page and creates no blank', async () => {

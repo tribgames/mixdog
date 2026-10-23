@@ -136,12 +136,10 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     // one it revealed (`open`, background:false) is shown, so it is followed.
     if (backgroundPage?.kind !== 'agent' || !targetIsBackground) {
       browserSessions.setAgentPage(ownerSessionId, guest, turnId);
-      lifecycle.discardUntouchedBlank(ownerSessionId, guest);
-    } else {
-      // A hidden helper never takes the selection from a page the person is
-      // on; it only replaces the pane's untouched blank, which is no page.
-      lifecycle.discardUntouchedBlank(ownerSessionId, guest);
     }
+    // A hidden helper never takes the selection from a page the person is
+    // on; it only replaces the pane's untouched blank, which is no page.
+    lifecycle.discardUntouchedBlank(ownerSessionId, guest);
     taskLifecycle.use(
       ownerSessionId,
       turnId,
