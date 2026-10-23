@@ -438,11 +438,39 @@ const ensuredDataDirs = new Set();
  * data dir per process.
  */
 export function ensureUserDataInitialized(dataDir) {
-  if (!dataDir) return;
+  if (!dataDir || skipBackups()) return;
   const key = normalizeDataDir(dataDir);
   if (ensuredDataDirs.has(key)) return;
-  if (!hasUserDataInitMarker(dataDir)) backupUserData(dataDir, 'initial-snapshot');
+  // The marker alone is no proof: a first snapshot whose manifest failed left
+  // it behind. Only a published backup of this incarnation counts, so a failed
+  // or interrupted one is taken again by the next read or restart.
+  if (!hasPublishedBackup(dataDir)) {
+    backupUserData(dataDir, 'initial-snapshot');
+    if (!hasPublishedBackup(dataDir)) return;
+  }
   ensuredDataDirs.add(key);
+}
+
+/** Whether this data dir's scope holds a published backup of its current
+ *  incarnation (marker instanceId). A transient manifest read failure throws. */
+function hasPublishedBackup(dataDir) {
+  const instanceId = readInitInstanceId(dataDir);
+  if (!instanceId) return false;
+  const key = normalizeDataDir(dataDir);
+  const scopeDir = scopeDirFor(dataDir);
+  return listBackupDirsNewestFirst(scopeDir).some((name) => {
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath(scopeDir, name), 'utf8'));
+      return (
+        typeof manifest?.dataDir === 'string' &&
+        normalizeDataDir(manifest.dataDir) === key &&
+        manifest.instanceId === instanceId
+      );
+    } catch (error) {
+      if (isAbsentBackupError(error)) return false;
+      throw error;
+    }
+  });
 }
 
 function skipBackups() {

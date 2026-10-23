@@ -11,6 +11,7 @@ import { readConfig, updateConfig, updateSection } from './config.mjs';
 import {
   backupUserData,
   backupUserDataAsync,
+  ensureUserDataInitialized,
   hasUserDataInitMarker,
   loadLatestMixdogConfigFromBackup,
   markUserDataInitialized,
@@ -235,8 +236,11 @@ test('readAll reuses one restore lookup until this process writes again', (t) =>
   syncBuiltinESMExports();
   try {
     assert.equal(tag(), 'v1');
+    assert.ok(scans > 0);
+    // The read that finds the restored file checks once per process that a
+    // published backup exists (ensureUserDataInitialized); later reads do not.
+    assert.equal(tag(), 'v1');
     const first = scans;
-    assert.ok(first > 0);
     for (let i = 0; i < 5; i += 1) assert.equal(tag(), 'v1');
     assert.equal(scans, first);
   } finally {
@@ -631,6 +635,29 @@ const completedIn = (scope) =>
   readdirSync(scope)
     .filter((name) => existsSync(join(scope, name, 'backup.json')))
     .sort();
+
+test('a first snapshot whose manifest failed is taken again by the next initialization, once', (t) => {
+  const { dir, backupRoot, scopes } = sandbox(t);
+  const a = dir('first-snapshot');
+  writeFileSync(configFile(a), JSON.stringify(complete('first')));
+  const error = ioError('manifest failed');
+  const restore = failCall(t, fs, 'renameSync', ([, to]) => basename(to) === 'backup.json', error);
+  assert.throws(() => ensureUserDataInitialized(a), isError(error));
+  assert.equal(hasUserDataInitMarker(a), true, 'the marker survives the failed publication');
+  const marker = readFileSync(join(a, '.mixdog-user-data.json'));
+  const scope = join(backupRoot, scopes()[0]);
+  assert.deepEqual(completedIn(scope), []);
+
+  restore();
+  ensureUserDataInitialized(a);
+  ensureUserDataInitialized(a);
+  assert.equal(completedIn(scope).length, 1, 'retried once, no duplicate snapshot');
+  assert.deepEqual(readFileSync(join(a, '.mixdog-user-data.json')), marker, 'same instanceId');
+
+  rmSync(configFile(a));
+  use(a);
+  assert.equal(tag(), 'first');
+});
 
 // A data dir with a config, one completed backup (which also creates the init
 // marker) and its scope directory.
