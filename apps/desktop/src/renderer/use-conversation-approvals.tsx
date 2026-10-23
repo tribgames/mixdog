@@ -69,6 +69,11 @@ export function useConversationApprovals(
     draftsApprovalId.current = String(pendingApproval?.id ?? '');
     questionDrafts.current = [];
   }
+  // The approval id this device's accepted answer settled, held only while
+  // that same pending instance stays in the snapshot: a render without it
+  // (gone, or another id) ends the hold, so a reissued id can be answered.
+  const answeredHere = useRef('');
+  if (answeredHere.current !== String(pendingApproval?.id ?? '')) answeredHere.current = '';
   if (pendingApproval && String(pendingApproval.id ?? '') !== answeredElsewhere?.id) {
     const resolveDecision = async (decision: ToolApprovalDecision) => {
       const host = window.mixdogDesktop;
@@ -79,6 +84,7 @@ export function useConversationApprovals(
       if (accepted === true && decidedLocally.current.sessionId === decidedSessionId) {
         decidedLocally.current.ids.add(approvalId);
       }
+      if (accepted === true) answeredHere.current = approvalId;
       if (accepted === false) {
         const result = snapshot.toolApprovalResult;
         setAnsweredElsewhere({
@@ -90,7 +96,7 @@ export function useConversationApprovals(
       return accepted;
     };
     const questions = pendingApproval.kind === 'question' ? approvalQuestions(pendingApproval.args) : null;
-    if (questions && decidedLocally.current.ids.has(String(pendingApproval.id ?? ''))) {
+    if (questions && answeredHere.current && answeredHere.current === String(pendingApproval.id ?? '')) {
       // This device's answer was accepted; the snapshot has not dropped the
       // approval yet. No card (a remount would show it enabled again), no
       // second answer, and the picks are spent.

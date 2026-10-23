@@ -122,6 +122,30 @@ test('after this device\'s accepted answer, a row move leaves no enabled card an
   }
 });
 
+test('a reissued approval id (after the accepted one left the snapshot, result retained) can be answered again', async () => {
+  decisions.length = 0;
+  const approval = { id: 'ap-7', kind: 'question', args: { questions } };
+  const result = { id: 'ap-7', approved: true };
+  const base = { sessionId: 's', busy: true };
+  const ui = await mountRows({ ...base, items: [askUser('c1', null)], toolApproval: approval });
+  try {
+    await clickFirstOption(ui);
+    await act(async () => ui.doc.querySelector('button[data-action="send"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+    assert.equal(decisions.length, 1);
+    await ui.show({ ...base, items: [askUser('c1', null)], toolApproval: approval });
+    assert.equal(ui.state.approvals.answerQuestion, null, 'still suppressed while the same instance is pending');
+    await ui.show({ ...base, items: [askUser('c1', null)], toolApproval: undefined, toolApprovalResult: result });
+    assert.equal(ui.doc.querySelectorAll('.question-card').length, 0);
+    await ui.show({ ...base, items: [askUser('c1', null)], toolApproval: approval, toolApprovalResult: result });
+    assert.equal(ui.doc.querySelectorAll('.question-card').length, 1, 'the reissued id shows its card');
+    assert.equal(typeof ui.state.approvals.answerQuestion, 'function');
+    await ui.state.approvals.answerQuestion('again');
+    assert.equal(decisions.length, 2);
+  } finally {
+    await ui.done();
+  }
+});
+
 test('drafts start empty for a new approval id; a composer answer after the explicit-id row vanished keeps the picks', async () => {
   decisions.length = 0;
   const base = { sessionId: 's', busy: true };
