@@ -2650,6 +2650,25 @@ test("while on, the publisher sends the focused pane's composer card rect, and n
   assert.equal(on.calls.composer.at(-1), null);
 });
 
+test('an open side panel is cut out of the bot: the bot stays behind it, a hidden or closed panel cuts nothing', async (t) => {
+  const { document } = installTestDom(t, { expose: ['HTMLElement'] });
+  const { floatingLayers } = await import('./desktop-pet-publisher');
+  document.body.innerHTML = `
+    <div class="pane-cell is-focused"></div>
+    <aside class="workbench-side-panel" data-side="right"></aside>
+    <div class="pane-side-dock"></div>`;
+  const panel = document.querySelector('.workbench-side-panel');
+  const dock = document.querySelector('.pane-side-dock');
+  panel.getBoundingClientRect = () => ({ left: 900, top: 40, width: 380, height: 680 });
+  dock.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 });
+  assert.deepEqual(floatingLayers().rects, [{ x: 900, y: 40, width: 380, height: 680 }], 'the panel, in static flow');
+  panel.style.display = 'none';
+  assert.deepEqual(floatingLayers().rects, [], 'a hidden panel cuts nothing');
+  panel.style.display = '';
+  panel.remove();
+  assert.deepEqual(floatingLayers().rects, [], 'a closed panel cuts nothing');
+});
+
 test("the composer report carries the island pill's real bottom edge while a pill rests above the card", async (t) => {
   const { document } = installTestDom(t, { expose: ['HTMLElement'] });
   const { islandPillLine } = await import('./desktop-pet-publisher');
