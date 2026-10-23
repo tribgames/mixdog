@@ -218,9 +218,16 @@ test("a bot's room send reports the member's answer back to the bot and wakes it
       { callerCtx: { callerSessionId: home.id }, callerCwd: '/project' }
     )
   );
-  assert.deepEqual(result, { sessionId: ROOM, to: 'rel', accepted: true, reportsBack: true, hop: 1 });
-  assert.deepEqual(submits, [], 'the room host takes the turn, not a prompt to any session');
   const [[room, ask]] = asks;
+  assert.deepEqual(result, {
+    sessionId: ROOM,
+    to: 'rel',
+    accepted: true,
+    sendId: ask.id,
+    reportsBack: true,
+    hop: 1,
+  });
+  assert.deepEqual(submits, [], 'the room host takes the turn, not a prompt to any session');
   assert.equal(room, ROOM);
   assert.deepEqual(
     [ask.agentId, ask.prompt, ask.from],

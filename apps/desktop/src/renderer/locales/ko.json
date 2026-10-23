@@ -3742,6 +3742,7 @@
   "Replace the key only if you know why it changed. To confirm, type the server name {{host}}.": "키가 바뀐 이유를 알고 있을 때만 교체하세요. 확인하려면 서버 이름 {{host}}을 입력하세요.",
   "Replay reasoning content": "추론 내용 다시 보내기",
   "Replies at a time": "한 번에 올라오는 답",
+  "Reply": "답",
   "Reply email": "답장받을 이메일",
   "Repo": "저장소",
   "Report an issue": "문제 신고",

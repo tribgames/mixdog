@@ -3742,6 +3742,7 @@
   "Replace the key only if you know why it changed. To confirm, type the server name {{host}}.": "仅在你清楚密钥为何变化时才替换。要确认，请输入服务器名称 {{host}}。",
   "Replay reasoning content": "回传推理内容",
   "Replies at a time": "一次收到的回复数",
+  "Reply": "回复",
   "Reply email": "回复邮箱",
   "Repo": "仓库",
   "Report an issue": "报告问题",

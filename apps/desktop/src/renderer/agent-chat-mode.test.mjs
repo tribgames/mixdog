@@ -32,6 +32,7 @@ const { routineLoginRequiredText } = await import(
 const { useConversationRowRenderer } = await import('./use-conversation-row-renderer.ts');
 const { transcriptRowNode } = await import('./conversation-support.tsx');
 const { publishAgentRooms } = await import('./agent-room-store.ts');
+const { publishSessionGlances } = await import('./session-glance-store.ts');
 const { Composer } = await import('./Composer.tsx');
 const { recognisedAgentRoomSlash } = await import('./slash-commands.ts');
 const { usePaneWorkspace, agentChatSlotKey } = await import('./pane-workspace-state.ts');
@@ -1699,8 +1700,8 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
       ['user', '', false],
     ]
   );
-  // D: a completed reply of a bot's home session names the answering bot; a
-  // plain session stays a line, and a start paints nothing (no place at all).
+  // D: a completed reply of a bot's home session names the answering bot; an
+  // ordinary session's is a session-attributed line, and a start paints nothing (no place at all).
   const taskReply = (id, routine) => ({
     _tag: 'AssistantPart',
     key: id,
@@ -1728,7 +1729,7 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
     replies
       .map((_, index) => agentChatPlace(replies, index))
       .map((place) => place && [place.side, place.speaker, Boolean(place.bot)]),
-    [['agent', MARKETER, true], null, ['aside', '', false]]
+    [['agent', MARKETER, true], null, ['agent', 'session:', false]]
   );
   const send = (id, extra = {}) => ({
     kind: 'tool',
@@ -1810,22 +1811,27 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   assert.equal(main().querySelector('.mx-bot-fold-body'), null, 'a reply is folded by default');
   await act(async () => main().querySelector('.mx-bot-fold-pill .mx-routine-more').click());
   assert.match(main().querySelector('.mx-bot-fold-body').textContent, /Got it/);
-  const full = [...main().querySelectorAll('button.mx-routine-more')].find((b) => b.textContent === 'View full reply');
-  assert.ok(full, 'the reply links to the whole session');
-  const before = opened.length;
-  await act(async () => full.click());
-  assert.equal(opened.length, before + 1);
+  assert.equal(
+    [...main().querySelectorAll('button')].some((b) => b.textContent === 'View full reply'),
+    false,
+    'the old link is gone'
+  );
+  const openReply = main().querySelector('.mx-bot-fold-pill .mx-open-session');
+  assert.equal(openReply.textContent, 'Open ↗');
+  await act(async () => openReply.click());
+  assert.equal(opened.at(-1), replies[0].item.routine.sessionId);
 
   // C: the send is a folded line naming the recipient; the prompt is plain text behind the disclosure.
   for (const items of [[send('s1')], [ask, send('s1')]]) {
     await show([round(items)]);
     const pill = main().querySelector('.mx-bot-sent .mx-routine-trigger-name');
     assert.ok(pill, 'the sent line is drawn');
+    assert.equal(pill.tagName, 'SPAN', 'the name is plain text');
     assert.match(pill.textContent, /agent-a70d746b04/);
     assert.equal(main().querySelector('.mx-routine-trigger-body'), null, 'folded by default');
     await act(async () => main().querySelector('.mx-bot-sent .mx-routine-more').click());
     assert.equal(main().querySelector('.mx-routine-trigger-body').textContent, 'Please watch the mailbox');
-    await act(async () => pill.click());
+    await act(async () => main().querySelector('.mx-bot-sent .mx-open-session').click());
     assert.equal(opened.at(-1), CLERK_HOME);
   }
   // The send sits under the sending bot's reply bubble, in its group, never above the name.
@@ -1844,15 +1850,157 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   assert.equal(main().querySelectorAll('.mx-bot-sent').length, 1);
   await act(async () => group.querySelector('.mx-bot-sent .mx-routine-more').click());
   assert.equal(group.querySelector('.mx-routine-trigger-body').textContent, 'Please watch the mailbox');
-  await act(async () => group.querySelector('.mx-bot-sent .mx-routine-trigger-name').click());
+  await act(async () => group.querySelector('.mx-bot-sent .mx-open-session').click());
   assert.equal(opened.at(-1), CLERK_HOME);
-  // Not a bot home, not a send, and coding mode: no line.
-  await show([round([send('s2', { session_id: 'sess_task_1' })])]);
-  assert.equal(main().querySelector('.mx-bot-sent'), null);
+
+  // An ordinary session: its current title, a glyph, "Open ↗", "View message"; "Working" while it is busy.
+  publishSessionGlances([{ id: 'sess_dev_1', title: 'Dev session', preview: '', working: true }]);
+  await show([round([send('s2', { session_id: 'sess_dev_1' })])]);
+  const line = main().querySelector('.mx-bot-sent');
+  assert.match(line.textContent, /Sent to Dev session/);
+  assert.ok(line.querySelector('.mx-session-glyph'), 'a session glyph stands for the face');
+  assert.equal(line.querySelector('.mx-routine-more:not(.mx-open-session)').textContent, 'View message');
+  assert.equal(line.querySelector('.mx-open-session').textContent, 'Open ↗');
+  assert.match(line.querySelector('.mx-bot-sent-status').textContent, /Working/);
+  await act(async () => line.querySelector('.mx-open-session').click());
+  assert.equal(opened.at(-1), 'sess_dev_1');
+  await act(async () => publishSessionGlances([{ id: 'sess_dev_1', title: 'Renamed', preview: '', working: false }]));
+  assert.match(main().querySelector('.mx-bot-sent').textContent, /Sent to Renamed/);
+  assert.equal(main().querySelector('.mx-bot-sent-status'), null, 'idle: no working dot');
+  // Busy again, but the session's answer is already in the chat: no dot.
+  await act(async () => publishSessionGlances([{ id: 'sess_dev_1', title: 'Renamed', preview: '', working: true }]));
+  const answer = {
+    _tag: 'AssistantPart',
+    key: 'ans',
+    turnKey: 'ans',
+    item: {
+      kind: 'notice',
+      id: 'ans',
+      text: '🛠 x',
+      at: DAY1,
+      routine: {
+        kind: 'task',
+        name: 'Dev session',
+        status: 'completed',
+        summary: 'Done it',
+        sessionId: 'sess_dev_1',
+        target: 'session',
+      },
+    },
+  };
+  await show([round([send('s2', { session_id: 'sess_dev_1' })]), answer]);
+  assert.equal(main().querySelector('.mx-bot-sent-status'), null, 'the answer arrived');
+  const from = main().querySelector('.mx-chat-row .mx-chat-name');
+  assert.match(from.textContent, /Renamed/);
+  assert.match(from.querySelector('.mx-chat-bot-tag').textContent, /Reply/);
+  assert.ok(main().querySelector('.mx-chat-face.mx-session-glyph'));
+  assert.match(main().querySelector('.mx-bot-fold-preview').textContent, /Done it/);
+  await act(async () => main().querySelector('.mx-bot-fold-pill .mx-open-session').click());
+  assert.equal(opened.at(-1), 'sess_dev_1');
+  // Not a send, and coding mode: no line.
   await show([round([send('s3', { action: 'read' })])]);
   assert.equal(main().querySelector('.mx-bot-sent'), null);
   await show([round([send('s4')])], false);
   assert.equal(main().querySelector('.mx-bot-sent'), null);
+});
+test('the working dot follows the session that still owes an answer, per send', async (t) => {
+  const render = rowHarness(t);
+  const CLERK_HOME = 'sess_home_agent-a70d746b04';
+  const DEV = 'sess_dev_1';
+  const send = (id, sessionId, sendId) => ({
+    kind: 'tool',
+    id,
+    name: 'session',
+    args: { action: 'send', session_id: sessionId, prompt: `prompt ${id}` },
+    result: JSON.stringify({ sessionId, accepted: true, reportsBack: true, ...(sendId ? { sendId } : {}) }),
+    status: 'done',
+    startedAt: DAY1,
+  });
+  const round = (key, items) => ({ _tag: 'ToolActivity', key, turnKey: key, items });
+  const answer = (key, sessionId, sendId, status = 'completed') => ({
+    _tag: 'AssistantPart',
+    key,
+    turnKey: key,
+    item: {
+      kind: 'notice',
+      id: key,
+      text: '🛠 x',
+      at: DAY1,
+      routine: {
+        kind: 'task',
+        name: 'x',
+        status,
+        summary: 'ok',
+        sessionId,
+        target: 'session',
+        ...(sendId ? { sendId } : {}),
+      },
+    },
+  });
+  const options = {
+    snapshot: { sessionId: HOME },
+    disclosureScope: HOME,
+    readOnly: false,
+    transitioning: false,
+    renderAssistantRow: undefined,
+    onOpenSettings() {},
+    settledItems: [],
+    settledTurnKeys: [],
+    optimisticActivityStartedAt: 0,
+    submit: async () => true,
+    questionCard: null,
+    agentMode: true,
+  };
+  const show = async (rows) => {
+    function Rows() {
+      const { renderTranscriptRow } = useConversationRowRenderer(options);
+      return React.createElement(
+        React.Fragment,
+        null,
+        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
+      );
+    }
+    await render(React.createElement(Rows));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  };
+  const lines = () => [...document.querySelectorAll('main .mx-bot-sent')];
+  const working = () => lines().map((line) => Boolean(line.querySelector('.mx-bot-sent-status')));
+  const glance = (id, busy) => ({ id, title: id, preview: '', working: busy });
+
+  // A bot recipient: the dot while its chat works, gone once idle; "Open ↗" too.
+  await act(async () => publishSessionGlances([glance(CLERK_HOME, true)]));
+  await show([round('r1', [send('a', CLERK_HOME, 'atask_1')])]);
+  assert.deepEqual(working(), [true]);
+  assert.equal(lines()[0].querySelector('.mx-open-session').textContent, 'Open ↗');
+  await act(async () => publishSessionGlances([glance(CLERK_HOME, false)]));
+  assert.deepEqual(working(), [false]);
+
+  // Several sends in one round: each session's own state.
+  await act(async () => publishSessionGlances([glance(CLERK_HOME, true), glance(DEV, false)]));
+  await show([round('r1', [send('a', CLERK_HOME, 'atask_1'), send('b', DEV, 'atask_2')])]);
+  assert.deepEqual(working(), [true, false]);
+
+  // Two sends to one session in a round: the newest owns the dot.
+  await act(async () => publishSessionGlances([glance(DEV, true)]));
+  await show([round('r1', [send('a', DEV, 'atask_1'), send('b', DEV, 'atask_2')])]);
+  assert.deepEqual(working(), [false, true]);
+
+  // Across rounds: send A, send B, then A's answer. B's session still works.
+  const rounds = [round('r1', [send('a', DEV, 'atask_1')]), round('r2', [send('b', DEV, 'atask_2')])];
+  await show(rounds);
+  assert.deepEqual(working(), [false, true], 'B supersedes A');
+  await show([...rounds, answer('ans-a', DEV, 'atask_1')]);
+  assert.deepEqual(working(), [false, true], "A's late answer does not clear B");
+  await show([...rounds, answer('ans-a', DEV, 'atask_1'), answer('ans-b', DEV, 'atask_2')]);
+  assert.deepEqual(working(), [false, false], "B's own answer clears it");
+  // A report without a correlation (an older one) settles by session, as before.
+  await show([...rounds, answer('old', DEV, '')]);
+  assert.deepEqual(working(), [false, false]);
+  // A failed end settles the send too; a start does not.
+  await show([...rounds, answer('f', DEV, 'atask_2', 'failed')]);
+  assert.deepEqual(working(), [false, false]);
+  await show([...rounds, answer('s', DEV, 'atask_2', 'started')]);
+  assert.deepEqual(working(), [false, true]);
 });
 test('bot-to-bot: only an accepted send draws the sent line; only a completed reply becomes the bot bubble', async (t) => {
   const render = rowHarness(t);
@@ -1964,7 +2112,7 @@ test('a bot message shows its name and its words, never the envelope or LEAD, in
   }
 });
 
-test('agent chat: an older ask_user left waiting keeps its round content; only the approval\'s call holds the card', async (t) => {
+test("agent chat: an older ask_user left waiting keeps its round content; only the approval's call holds the card", async (t) => {
   const render = rowHarness(t);
   const signIn = {
     kind: 'tool',
@@ -1976,7 +2124,14 @@ test('agent chat: an older ask_user left waiting keeps its round content; only t
     at: DAY1,
   };
   const questions = [{ question: 'Which?', header: 'W', options: [{ label: 'A', description: '' }] }];
-  const ask = (callId) => ({ kind: 'tool', id: `item-${callId}`, callId, name: 'ask_user', args: { questions }, result: null });
+  const ask = (callId) => ({
+    kind: 'tool',
+    id: `item-${callId}`,
+    callId,
+    name: 'ask_user',
+    args: { questions },
+    result: null,
+  });
   const rows = [
     { _tag: 'ToolActivity', key: 'tools-old', turnKey: 's', items: [signIn, ask('call-old')] },
     { _tag: 'ToolActivity', key: 'tools-new', turnKey: 's', items: [ask('call-new')] },
@@ -2001,13 +2156,23 @@ test('agent chat: an older ask_user left waiting keeps its round content; only t
     return React.createElement(
       React.Fragment,
       null,
-      rows.map((row, index) => React.createElement('div', { key: row.key, 'data-row': row.key }, renderTranscriptRow(row, index, rows)))
+      rows.map((row, index) =>
+        React.createElement('div', { key: row.key, 'data-row': row.key }, renderTranscriptRow(row, index, rows))
+      )
     );
   }
   await render(React.createElement(Rows));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   const row = (key) => document.querySelector(`main [data-row="${key}"]`);
   assert.equal(document.querySelectorAll('main .stub-question-card').length, 1);
-  assert.equal(row('tools-new').querySelectorAll('.stub-question-card').length, 1, 'the card sits at the approval\'s call');
-  assert.equal(row('tools-old').querySelectorAll('.transcript-saved-sign-in').length, 1, 'the older waiting round keeps its sign-in line');
+  assert.equal(
+    row('tools-new').querySelectorAll('.stub-question-card').length,
+    1,
+    "the card sits at the approval's call"
+  );
+  assert.equal(
+    row('tools-old').querySelectorAll('.transcript-saved-sign-in').length,
+    1,
+    'the older waiting round keeps its sign-in line'
+  );
 });

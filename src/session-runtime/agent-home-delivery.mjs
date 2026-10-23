@@ -594,7 +594,18 @@ function homeProvenDeleted(homeId, agentPresence, roomPresence) {
 }
 
 /** The queued item of one task report (enqueueTask). */
-function taskReportItem({ runId, taskSessionId, title, status, text = '', target, files = [], omitted = 0, hop = 0 }) {
+function taskReportItem({
+  runId,
+  taskSessionId,
+  title,
+  status,
+  text = '',
+  target,
+  files = [],
+  omitted = 0,
+  hop = 0,
+  watchId = '',
+}) {
   // The model-facing reply keeps its lines up to REPLY_LIMIT; the row's
   // one-line summary is derived from it (agentTaskMessage).
   const reply = boundedReply(text);
@@ -610,6 +621,8 @@ function taskReportItem({ runId, taskSessionId, title, status, text = '', target
     ...(reply.chars > reply.text.length ? { textChars: reply.chars } : {}),
     // Any session other than a task session the agent created.
     ...(target === 'session' ? { target } : {}),
+    // The send this report ends (the `sendId` the send's result named).
+    ...(watchId ? { sendId: String(watchId) } : {}),
     // The files the turn produced (handoff-attachments.mjs collectTurnArtifacts).
     ...(Array.isArray(files) && files.length ? { files, ...(omitted > 0 ? { omitted } : {}) } : {}),
     roundTrip: status !== 'started' && status !== 'blocked',

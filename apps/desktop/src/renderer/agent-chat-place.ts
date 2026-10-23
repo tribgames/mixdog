@@ -20,6 +20,9 @@ export interface AgentChatPlace {
   source?: string;
   /** Another bot's message into this chat: its name carries the "봇 메시지" tag. */
   bot?: boolean;
+  /** An ordinary session's answer to this chat's send: the session's id. Its
+   *  name carries the session's title and a "reply" tag, its face the session glyph. */
+  session?: string;
   first: boolean;
   last: boolean;
   /** The row's own time (0 when it has none). */
@@ -100,18 +103,27 @@ export function chatBotSenderOf(item: TranscriptItem | undefined): string {
   return item?.kind === 'user' && typeof item.fromAgent === 'string' ? item.fromAgent : '';
 }
 
-/** A bot's answer to this chat's own send (routine-result.mjs agentTaskMessage
- *  with `routine.agentId`): who answered and what. null for any other row,
- *  and for a start or a wait, which stay faint lines. */
+/** The answer to a `session send` of this chat's bot (routine-result.mjs
+ *  agentTaskMessage): a bot's home chat answered (`routine.agentId`), or any
+ *  other session did (`routine.target: 'session'`, `agentId` ''; `name` is the
+ *  title the report carried). null for any other row, and for a start or a
+ *  wait, which stay faint lines. A task session the bot created reports
+ *  without either, as its own card (agent-task-line.tsx). */
 export function chatBotReplyOf(
   item: TranscriptItem | undefined
-): { agentId: string; text: string; sessionId: string } | null {
+): { agentId: string; text: string; sessionId: string; name: string } | null {
   if (item?.kind !== 'notice' || !item.routine || typeof item.routine !== 'object') return null;
-  const { kind, agentId, status, summary, sessionId } = item.routine as Record<string, unknown>;
-  if (kind !== 'task' || typeof agentId !== 'string' || !agentId) return null;
+  const { kind, agentId, status, summary, sessionId, target, name } = item.routine as Record<string, unknown>;
+  const bot = typeof agentId === 'string' ? agentId : '';
+  if (kind !== 'task' || !(bot || target === 'session')) return null;
   // Failed and cancelled results keep their status line.
   if (status !== 'completed' || typeof summary !== 'string' || !summary.trim()) return null;
-  return { agentId, text: summary, sessionId: typeof sessionId === 'string' ? sessionId : '' };
+  return {
+    agentId: bot,
+    text: summary,
+    sessionId: typeof sessionId === 'string' ? sessionId : '',
+    name: typeof name === 'string' ? name : '',
+  };
 }
 
 /** Whether a `session send` call finished with `accepted: true`: a running
@@ -121,13 +133,13 @@ function sendAccepted(item: TranscriptItem): boolean {
   return asRecord(toolActivityResultValue(item))?.accepted === true;
 }
 
-/** The sends to another bot's home chat among a tool round's calls
- *  (`session` action `send`), from the stored calls: the recipient, its home
- *  session, the message and when. */
+/** The sends to another session among a tool round's calls (`session` action
+ *  `send`), from the stored calls: the recipient session, the bot whose home
+ *  chat it is ('' for an ordinary session), the message and when. */
 export function chatBotSendsOf(
   items: readonly TranscriptItem[]
-): { id: string; agentId: string; sessionId: string; prompt: string; at: number }[] {
-  const sends: { id: string; agentId: string; sessionId: string; prompt: string; at: number }[] = [];
+): { id: string; agentId: string; sessionId: string; prompt: string; at: number; sendId: string }[] {
+  const sends: { id: string; agentId: string; sessionId: string; prompt: string; at: number; sendId: string }[] = [];
   for (const item of items) {
     const members =
       item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
@@ -137,10 +149,13 @@ export function chatBotSendsOf(
       const args = asRecord(identity.args);
       const sessionId = typeof args?.session_id === 'string' ? args.session_id.trim() : '';
       const agentId = agentIdOfHomeSession(sessionId);
-      if (identity.name !== 'session' || args?.action !== 'send' || !agentId) continue;
+      if (identity.name !== 'session' || args?.action !== 'send' || !sessionId) continue;
       if (!sendAccepted(member)) continue;
       const at = Number(member.startedAt ?? member.at);
+      // The id the send's result named; its terminal report carries it back.
+      const sendId = asRecord(toolActivityResultValue(member))?.sendId;
       sends.push({
+        sendId: typeof sendId === 'string' ? sendId : '',
         id: String(member.id ?? sends.length),
         agentId,
         sessionId,
@@ -152,7 +167,47 @@ export function chatBotSendsOf(
   return sends;
 }
 
-type BotSend = ReturnType<typeof chatBotSendsOf>[number];
+type BotSend = ReturnType<typeof chatBotSendsOf>[number] & {
+  /** No answer came back since and no later send went to the same session:
+   *  while that session works, it works on this one. */
+  pending: boolean;
+};
+
+const TASK_REPORT_ENDED = new Set(['completed', 'failed', 'cancelled']);
+
+/** Whether `item` (a task report row) reports the end of the turn `send`
+ *  started: from its session, ending a turn, and (when both name one) for the
+ *  same send. A report or a send without `sendId` (an older one) matches by
+ *  session alone. */
+function reportsEndOf(item: TranscriptItem, send: { sessionId: string; sendId: string }): boolean {
+  const record = item.kind === 'notice' ? asRecord(item.routine) : null;
+  if (record?.kind !== 'task' || record.sessionId !== send.sessionId) return false;
+  if (!TASK_REPORT_ENDED.has(String(record.status))) return false;
+  const answered = typeof record.sendId === 'string' ? record.sendId : '';
+  return !answered || !send.sendId || answered === send.sendId;
+}
+
+/** The sends of the tool round at `rows[index]`, each with whether it is the
+ *  one its session is still answering (the latest, with no report after it). */
+function botSendsOfRound(rows: readonly TranscriptRowModel[], index: number): BotSend[] {
+  const row = rows[index];
+  if (row?._tag !== 'ToolActivity') return [];
+  const sends = chatBotSendsOf(row.items);
+  return sends.map((send, at) => {
+    const settled =
+      sends.slice(at + 1).some((other) => other.sessionId === send.sessionId) ||
+      rows.slice(index + 1).some((next) => {
+        if (next._tag === 'ToolActivity') return chatBotSendsOf(next.items).some((o) => o.sessionId === send.sessionId);
+        return next._tag === 'AssistantPart' && reportsEndOf(next.item, send);
+      });
+    return { ...send, pending: !settled };
+  });
+}
+
+/** The sends of the tool round at `rows[index]`, for a line of their own. */
+export function asideBotSends(rows: readonly TranscriptRowModel[], index: number): BotSend[] {
+  return botSendsPlacement(rows, index) === 'aside' ? botSendsOfRound(rows, index) : [];
+}
 
 /** The row index of the bubble that carries its turn's "sent to" lines: the
  *  turn's last finished reply of the agent itself. -1: the turn has none. */
@@ -176,8 +231,8 @@ function sendCarrierIndex(rows: readonly TranscriptRowModel[], turnKey: string |
 export function carriedBotSends(rows: readonly TranscriptRowModel[], index: number): BotSend[] {
   const row = rows[index];
   if (row?._tag !== 'AssistantPart' || sendCarrierIndex(rows, row.turnKey) !== index) return [];
-  return rows.flatMap((other) =>
-    other._tag === 'ToolActivity' && other.turnKey === row.turnKey ? chatBotSendsOf(other.items) : []
+  return rows.flatMap((other, at) =>
+    other._tag === 'ToolActivity' && other.turnKey === row.turnKey ? botSendsOfRound(rows, at) : []
   );
 }
 
@@ -194,7 +249,7 @@ export function botSendsPlacement(rows: readonly TranscriptRowModel[], index: nu
   return coming ? 'pending' : 'aside';
 }
 
-type Sender = { side: AgentChatSide; speaker: string; source?: string; bot?: boolean };
+type Sender = { side: AgentChatSide; speaker: string; source?: string; bot?: boolean; session?: string };
 
 /** null: a row that neither groups nor breaks a group (tool rounds, the live
  *  band, turn gaps). */
@@ -225,7 +280,9 @@ function rowSender(row: TranscriptRowModel | undefined, cardKey?: string): Sende
     const routine = chatRoutineOf(item);
     if (routine) return { side: 'agent', speaker: '', source: `${routine.kind}:${routine.name}` };
     const botReply = chatBotReplyOf(item);
-    if (botReply) return { side: 'agent', speaker: botReply.agentId, bot: true };
+    if (botReply?.agentId) return { side: 'agent', speaker: botReply.agentId, bot: true };
+    // An ordinary session's answer: its own run, under the session's glyph and title.
+    if (botReply) return { side: 'agent', speaker: `session:${botReply.sessionId}`, session: botReply.sessionId };
     if (item.kind === 'notice' && !item.room && !item.routine && /^(?:⏱|🔗)\s/u.test(String(item.text || ''))) {
       return { side: 'agent', speaker: '' };
     }

@@ -3742,6 +3742,7 @@
   "Replace the key only if you know why it changed. To confirm, type the server name {{host}}.": "鍵が変わった理由を把握している場合にのみ置き換えてください。確認のため、サーバー名 {{host}} を入力してください。",
   "Replay reasoning content": "推論内容を再送する",
   "Replies at a time": "一度に届く返信",
+  "Reply": "返信",
   "Reply email": "返信先メールアドレス",
   "Repo": "リポジトリ",
   "Report an issue": "問題を報告",

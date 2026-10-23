@@ -3742,6 +3742,7 @@
   "Replace the key only if you know why it changed. To confirm, type the server name {{host}}.": "Chỉ thay khóa khi bạn biết vì sao khóa đổi. Để xác nhận, hãy nhập tên máy chủ {{host}}.",
   "Replay reasoning content": "Gửi lại nội dung suy luận",
   "Replies at a time": "Số câu trả lời mỗi lần",
+  "Reply": "Phản hồi",
   "Reply email": "Email nhận phản hồi",
   "Repo": "Kho lưu trữ",
   "Report an issue": "Báo cáo vấn đề",

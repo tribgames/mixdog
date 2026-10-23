@@ -10,9 +10,8 @@ import {
   agentTypingLead,
   agentTypingShown,
   chatBotReplyOf,
-  botSendsPlacement,
+  asideBotSends,
   carriedBotSends,
-  chatBotSendsOf,
   chatRoutineOf,
   chatRoutineTriggerOf,
   isEndedTurnLastRow,
@@ -476,8 +475,7 @@ function agentChatRow(
   // A send to another bot's chat leaves one "sent to" line per message
   // (derived from the stored call), above whatever else the round shows.
   // Under the turn's reply bubble when it has one (carriedBotSends).
-  const sends =
-    row._tag === 'ToolActivity' && botSendsPlacement(rows, index) === 'aside' ? chatBotSendsOf(row.items) : [];
+  const sends = row._tag === 'ToolActivity' ? asideBotSends(rows, index) : [];
   const sentLines = sends.length
     ? createElement(
         Fragment,
@@ -541,7 +539,11 @@ function agentChatRow(
         ...carried.map((send) => createElement(AgentBotSent, { key: send.id, send, member: label(send.agentId) }))
       )
     : undefined;
-  const bubble = createElement(AgentChatRow, { place: cardPlace, member: named, card: Boolean(routine), after }, body);
+  const bubble = createElement(
+    AgentChatRow,
+    { place: cardPlace, member: named, card: Boolean(routine), after, replyName: botReply?.name },
+    body
+  );
   // The turn's changed files: coding mode's own card under its reply (or the
   // error that ended it), in the bubble column, below the turn's visualize cards.
   const changes = row._tag === 'AssistantPart' || row._tag === 'Error' ? row.turnChanges : undefined;

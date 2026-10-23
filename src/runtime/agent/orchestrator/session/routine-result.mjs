@@ -206,6 +206,7 @@ export function agentTaskMessage({
   files = [],
   omitted = 0,
   hop = 0,
+  sendId = '',
   at = Date.now(),
   messageId,
 }) {
@@ -260,6 +261,8 @@ export function agentTaskMessage({
         ...(agentIdOfHomeSession(taskSessionId) ? { agentId: agentIdOfHomeSession(taskSessionId) } : {}),
         // Bot-to-bot chain position of the send this answers (session-runtime/bot-hops.mjs).
         ...(hop > 0 ? { hop } : {}),
+        // The send this report answers (the send result's `sendId`).
+        ...(sendId ? { sendId } : {}),
         ...(produced.length ? { files: produced } : {}),
       },
       transcript: { at, ...(messageId ? { messageId } : {}), ...(attachments.length ? { attachments } : {}) },
@@ -385,6 +388,7 @@ export function routineResultNotice(message) {
         sessionId,
         ...(session ? { target: 'session' } : {}),
         ...(agentId ? { agentId } : {}),
+        ...(routine.sendId ? { sendId: routine.sendId } : {}),
         ...(files.length ? { files } : {}),
       },
       // The stored files, in the field a prompt row draws its attachments from.

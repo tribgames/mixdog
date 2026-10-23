@@ -753,13 +753,17 @@ test('only turns the origin agent starts report back, ended or waiting for the u
   // agent alone; a coding session's send reports to nobody.
   const execute = createSessionControl({ getSessionService: () => h.service, agentTasks: api });
   const storedOrigin = structuredClone(stored.get(taskId).taskOrigin);
-  assert.deepEqual(
-    await execute(
-      { action: 'send', session_id: taskId, prompt: 'and the second line?' },
-      { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' }
-    ),
-    { sessionId: taskId, accepted: true, reportsBack: true }
+  const followUpResult = await execute(
+    { action: 'send', session_id: taskId, prompt: 'and the second line?' },
+    { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' }
   );
+  assert.match(followUpResult.sendId, /^atask_/);
+  assert.deepEqual(followUpResult, {
+    sessionId: taskId,
+    accepted: true,
+    sendId: followUpResult.sendId,
+    reportsBack: true,
+  });
   assert.equal(
     (
       await execute(
@@ -1094,9 +1098,10 @@ test('a restart while the target turn runs reports it once that turn ends', asyn
     assert.deepEqual(await w.watchIds(), [params.options.id]);
     return { accepted: true };
   };
-  assert.deepEqual(await first.api.send(TARGET, 'run the simulation', origin), { accepted: true, reportsBack: true });
+  const sent = await first.api.send(TARGET, 'run the simulation', origin);
   const [{ options }] = submitted(first.h);
   const runId = options.id;
+  assert.deepEqual(sent, { accepted: true, sendId: runId, reportsBack: true });
   assert.deepEqual(await w.watchIds(), [runId], 'the watch is stored when the send is accepted');
   // The daemon stops mid-turn: this process's onSettled never runs.
   const second = w.boot();

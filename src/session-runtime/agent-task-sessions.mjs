@@ -1042,6 +1042,8 @@ export function createAgentTaskSessions({
     }
     return {
       accepted,
+      // Names this send; its terminal report carries it back (routine.sendId).
+      ...(accepted && notify ? { sendId: id } : {}),
       reportsBack: accepted && notify,
       ...(accepted && !notify ? { reportsBackReason: noReport } : {}),
     };

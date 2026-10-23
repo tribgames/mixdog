@@ -232,8 +232,15 @@ test("a bot's send to a session it did not create reports the turn to its home a
       { callerCtx: { callerSessionId: home.id }, callerCwd: '/project' }
     )
   );
-  assert.deepEqual(result, { sessionId: target.id, accepted: true, reportsBack: true, hop: 1 });
   const [send] = submits;
+  // `sendId` names the send; its terminal report carries it back.
+  assert.deepEqual(result, {
+    sessionId: target.id,
+    accepted: true,
+    sendId: send.options.id,
+    reportsBack: true,
+    hop: 1,
+  });
   assert.equal(send.sessionId, target.id);
   assert.equal(
     send.prompt,

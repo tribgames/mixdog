@@ -3800,6 +3800,7 @@
   "Replace the key only if you know why it changed. To confirm, type the server name {{host}}.": "Ersetzen Sie den Schlüssel nur, wenn Sie wissen, warum er sich geändert hat. Geben Sie zur Bestätigung den Servernamen {{host}} ein.",
   "Replay reasoning content": "Reasoning-Inhalt erneut senden",
   "Replies at a time": "Antworten auf einmal",
+  "Reply": "Antwort",
   "Reply email": "E-Mail für Antwort",
   "Repo": "Repository",
   "Report an issue": "Problem melden",

@@ -29,3 +29,14 @@ test('routine provenance keeps only kind, name, status, summary and error', () =
   );
   assert.equal(normalizeRoutineProvenance({ kind: 'task', name: 'x', status: 'ok' }), null);
 });
+
+test('a task report carries the id of the send it answers into its notice; none when the send had none', async () => {
+  const { agentTaskMessage } = await import('./routine-result.mjs');
+  const base = { title: 'Dev', status: 'completed', text: 'done', taskSessionId: 'sess_dev', target: 'session' };
+  const withId = agentTaskMessage({ ...base, sendId: 'atask_1' });
+  assert.equal(withId.meta.routine.sendId, 'atask_1');
+  assert.equal(routineResultNotice(withId).routine.sendId, 'atask_1');
+  const without = agentTaskMessage(base);
+  assert.equal('sendId' in without.meta.routine, false);
+  assert.equal('sendId' in routineResultNotice(without).routine, false);
+});

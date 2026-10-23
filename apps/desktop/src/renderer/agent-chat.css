@@ -295,6 +295,59 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   width: 18px;
   height: 18px;
 }
+/* Not a button any more: the name is plain text, "Open ↗" is its own action. */
+.mx-bot-sent-pill > .mx-bot-sent-to {
+  cursor: default;
+}
+.mx-bot-sent-pill > .mx-routine-more,
+.mx-bot-fold-pill > .mx-routine-more {
+  margin-top: 0;
+  min-height: 24px;
+  padding: 0 6px;
+}
+.mx-open-session {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-semibold);
+}
+/* The session's stand-in for a bot's face. */
+.mx-session-glyph {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 12%, transparent);
+}
+.mx-chat-row > .mx-session-glyph.mx-chat-face {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.mx-bot-sent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--mx-text-muted);
+}
+.mx-bot-sent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-accent, #5bb0ff);
+  animation: mx-bot-sent-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mx-bot-sent-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mx-bot-sent-dot {
+    animation: none;
+  }
+}
 /* Another bot's words (AgentBotFolded): one bordered line with the start of
    the text; opened, the words are a quote (a rule, no bubble) so they never
    read as this chat's own bot. */

@@ -3857,6 +3857,7 @@
   "Replace the key only if you know why it changed. To confirm, type the server name {{host}}.": "Sostituisci la chiave solo se sai perché è cambiata. Per confermare, digita il nome del server {{host}}.",
   "Replay reasoning content": "Reinvia contenuto del ragionamento",
   "Replies at a time": "Risposte alla volta",
+  "Reply": "Risposta",
   "Reply email": "Email per la risposta",
   "Repo": "Repository",
   "Report an issue": "Segnala un problema",

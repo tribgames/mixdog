@@ -3916,6 +3916,7 @@
   "Replace the key only if you know why it changed. To confirm, type the server name {{host}}.": "Заменяйте ключ только в том случае, если знаете, почему он изменился. Для подтверждения введите имя сервера {{host}}.",
   "Replay reasoning content": "Повторно отправлять содержимое рассуждений",
   "Replies at a time": "Ответов за раз",
+  "Reply": "Ответ",
   "Reply email": "Email для ответа",
   "Repo": "Репозиторий",
   "Report an issue": "Сообщить о проблеме",
