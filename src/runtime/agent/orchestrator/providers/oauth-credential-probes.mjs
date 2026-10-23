@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { cursorTokenExpiry } from './cursor-auth.mjs';
+import { describeDevinOAuthCredentials } from './devin-auth.mjs';
 import { isValidMuseCredentialDocument } from './muse-code-oauth-tokens.mjs';
 import { isValidOpenCodeGoCredentialDocument } from './opencode-go-oauth-tokens.mjs';
 import { developerOptionEnabled, developerOptionForProvider } from '../../../shared/developer-options.mjs';
@@ -273,6 +274,21 @@ function cursorOAuthState() {
   );
 }
 
+// Account-scoped like the token store: the selected account's file wins. Expiry
+// comes from describeDevinOAuthCredentials (no refresh is attempted here); an
+// expired access token still counts when a refresh token can renew it.
+function devinOAuthState() {
+  const paths = [
+    boundProviderAuthPath('devin-oauth') ||
+      process.env.DEVIN_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'devin-oauth.json'),
+  ];
+  return memoProbe('devin-oauth', paths, () => {
+    const info = describeDevinOAuthCredentials();
+    return info?.authenticated && (info.usable || info.refreshable) ? 'present' : 'absent';
+  });
+}
+
 const OAUTH_PROBE_STATES = new Map([
   ['anthropic-oauth', anthropicOAuthState],
   ['openai-oauth', openAIOAuthState],
@@ -281,6 +297,7 @@ const OAUTH_PROBE_STATES = new Map([
   ['command-code-oauth', commandCodeOAuthState],
   ['mimo-oauth', mimoOAuthState],
   ['cursor-oauth', cursorOAuthState],
+  ['devin-oauth', devinOAuthState],
   ['antigravity-oauth', antigravityOAuthState],
   ['opencode-go-oauth', openCodeGoOAuthState],
 ]);

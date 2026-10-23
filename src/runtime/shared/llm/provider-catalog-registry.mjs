@@ -92,6 +92,7 @@ const PROVIDER_CATALOGS = Object.freeze({
     rosterLimitsAuthoritative: true,
   },
   'cursor-oauth': { relay: true },
+  'devin-oauth': { relay: true },
   'cursor-api': { relay: true },
   // The models.dev listing id of the Go gateway: a relay catalog, not a
   // selectable provider (the model lookup needs it flagged as a relay).

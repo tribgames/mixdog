@@ -22,6 +22,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   'mimo-oauth': 'MiMo',
   'antigravity-oauth': 'Antigravity OAuth',
   'cursor-oauth': 'Cursor OAuth',
+  'devin-oauth': 'Devin',
   'mixdog-local': 'Local Provider',
   // Media Studio's NanoGPT lane (the key comes from a NanoGPT custom provider).
   'nano-gpt': 'NanoGPT',
@@ -44,6 +45,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   'mimo-oauth': 34,
   'antigravity-oauth': 31,
   'cursor-oauth': 32,
+  'devin-oauth': 32.5,
   'opencode-go-oauth': 34.5,
   openai: 40,
   'openai-api': 40,

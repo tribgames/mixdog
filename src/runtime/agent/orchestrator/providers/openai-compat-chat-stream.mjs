@@ -44,6 +44,7 @@ export async function consumeCompatChatCompletionStream(
     knownToolNames,
     semanticIdleTimeoutMs,
     firstByteTimeoutMs,
+    leakedToolCallRecovery = true,
   } = {}
 ) {
   const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
@@ -57,6 +58,7 @@ export async function consumeCompatChatCompletionStream(
     onToolCall,
     onTextDelta,
     onStreamItemStart,
+    leakedToolCallRecovery,
   });
   reportTransport(state);
   const iterator = stream[Symbol.asyncIterator]();

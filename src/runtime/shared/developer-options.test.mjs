@@ -45,6 +45,7 @@ test('registry: Gemini (Antigravity), Cursor and MiMo are separate provider opti
         [
           ['antigravityOAuth', 'Gemini (Antigravity)', 'antigravity-oauth'],
           ['cursorOAuth', 'Cursor', 'cursor-oauth'],
+          ['devinOAuth', 'Devin', 'devin-oauth'],
           ['mimoOAuth', 'MiMo', 'mimo-oauth'],
         ],
       ],
@@ -55,6 +56,7 @@ test('registry: Gemini (Antigravity), Cursor and MiMo are separate provider opti
   }
   assert.equal(developerOptionForProvider('antigravity-oauth').id, 'antigravityOAuth');
   assert.equal(developerOptionForProvider('cursor-oauth').id, 'cursorOAuth');
+  assert.equal(developerOptionForProvider('devin-oauth').id, 'devinOAuth');
   assert.equal(developerOptionForProvider('mimo-oauth').id, 'mimoOAuth');
   assert.equal(developerOptionForProvider('muse-code-oauth'), null);
   assert.equal(developerOptionForProvider('openai-oauth'), null);
@@ -105,6 +107,14 @@ test('default off: no stored value', () => {
             enabled: false,
           },
           {
+            id: 'devinOAuth',
+            label: 'Devin',
+            description: 'Show Devin OAuth in Providers and the model picker.',
+            warning,
+            provider: 'devin-oauth',
+            enabled: false,
+          },
+          {
             id: 'mimoOAuth',
             label: 'MiMo',
             description: 'Show Xiaomi MiMo OAuth in Providers and the model picker.',
@@ -144,6 +154,7 @@ test('each stored value turns only its own option on', () => {
     [
       ['antigravityOAuth', false],
       ['cursorOAuth', true],
+      ['devinOAuth', false],
       ['mimoOAuth', false],
     ]
   );

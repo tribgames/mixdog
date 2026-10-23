@@ -1,5 +1,5 @@
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
-import { oauthCredentialProbeState } from './oauth-credential-probes.mjs';
+import { isOAuthProviderAvailable, oauthCredentialProbeState } from './oauth-credential-probes.mjs';
 import { refreshCatalog as refreshMetadataCatalog } from './model-catalog.mjs';
 import { wrapProviderAdmission } from './admission-scheduler.mjs';
 import { createAccountPoolProvider } from './account-pool.mjs';
@@ -33,6 +33,7 @@ export const OAUTH_PROVIDER_NAMES = new Set([
   'command-code-oauth',
   'mimo-oauth',
   'cursor-oauth',
+  'devin-oauth',
   'antigravity-oauth',
   'opencode-go-oauth',
 ]);
@@ -176,6 +177,7 @@ const PROVIDER_MODULES = {
   'command-code-oauth': ['./command-code-oauth.mjs', 'CommandCodeOAuthProvider'],
   'mimo-oauth': ['./mimo-oauth.mjs', 'MimoOAuthProvider'],
   'cursor-oauth': ['./cursor.mjs', 'CursorOAuthProvider'],
+  'devin-oauth': ['./devin.mjs', 'DevinOAuthProvider'],
   'antigravity-oauth': ['./antigravity-oauth.mjs', 'AntigravityOAuthProvider'],
   'cursor-api': ['./cursor.mjs', 'CursorApiProvider'],
   openai: ['./openai-ws.mjs', 'OpenAIDirectProvider'],
@@ -290,6 +292,9 @@ async function _initProvidersUnsynchronized(config, signal = null, proxyChannel 
   const enabledResults = await Promise.all(
     entries.map(async ([name, cfg]) => {
       if (!cfg.enabled) return null;
+      // A dev-gated provider whose Developer option is off is never admitted,
+      // even from a config that still says enabled:true.
+      if (!providerAvailable(name)) return null;
       // A retired provider's saved config is inert: its replacement is its own entry.
       if (Object.hasOwn(RETIRED_PROVIDER_ALIASES, name)) return null;
       // Idempotent reuse: an enabled provider whose config signature is
@@ -450,6 +455,9 @@ export function getProvider(requestedName) {
   const name = Object.hasOwn(RETIRED_PROVIDER_ALIASES, requestedName)
     ? RETIRED_PROVIDER_ALIASES[requestedName]
     : requestedName;
+  // Availability first: switching a dev-gated provider's option off takes
+  // effect on the next lookup, even for an already-initialized instance.
+  if (!providerAvailable(name)) return undefined;
   const cached = providers.get(name);
   if (cached) return cached;
   // OAuth lazy fallback. Covers the boot-time race where the credential probe
@@ -539,7 +547,18 @@ export function providerConsumesReadWindows(name) {
 export function getAllProviders() {
   // Defensive copy — callers must not mutate the live registry or retain
   // stale entries across re-init (initProviders rebuilds the map in place).
-  return new Map(providers);
+  return new Map(availableProviderEntries());
+}
+
+// Live instances minus dev-gated providers whose Developer option is off.
+function availableProviderEntries() {
+  return [...providers].filter(([name]) => providerAvailable(name));
+}
+
+// Remote client mode serves the PC's providers, whose availability the PC
+// already decided; only a locally run provider answers to the local option.
+function providerAvailable(name) {
+  return modelProxyClientMode() || isOAuthProviderAvailable(name);
 }
 
 export function disableProvider(name) {
@@ -629,7 +648,7 @@ export function refreshProviderCatalogsOnStartup() {
   if (_startupCatalogRefreshPromise) return _startupCatalogRefreshPromise;
   armNextCatalogRefresh();
   const pending = [];
-  for (const [name, provider] of providers) {
+  for (const [name, provider] of availableProviderEntries()) {
     const refreshFn = providerCatalogRefreshFn(provider);
     if (!refreshFn) continue;
     pending.push(boundedCatalogRefresh(name, provider, refreshFn, 'startup catalog refresh'));
@@ -669,7 +688,7 @@ export function refreshCatalogs(options = {}) {
     const msg = error instanceof Error ? error.message : String(error);
     process.stderr.write(`[model-catalog] metadata refresh failed: ${msg}\n`);
   });
-  for (const [name, provider] of providers) {
+  for (const [name, provider] of availableProviderEntries()) {
     const refreshFn = providerCatalogRefreshFn(provider);
     if (!refreshFn) continue;
     pending.push(metadataReady.then(() => boundedCatalogRefresh(name, provider, refreshFn, 'catalog refresh')));

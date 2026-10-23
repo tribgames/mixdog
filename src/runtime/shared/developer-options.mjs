@@ -44,6 +44,13 @@ export const DEVELOPER_SECTIONS = Object.freeze([
         provider: 'cursor-oauth',
       }),
       Object.freeze({
+        id: 'devinOAuth',
+        label: 'Devin',
+        description: 'Show Devin OAuth in Providers and the model picker.',
+        warning: OAUTH_RISK_WARNING,
+        provider: 'devin-oauth',
+      }),
+      Object.freeze({
         id: 'mimoOAuth',
         label: 'MiMo',
         description: 'Show Xiaomi MiMo OAuth in Providers and the model picker.',

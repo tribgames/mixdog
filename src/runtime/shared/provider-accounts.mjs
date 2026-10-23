@@ -11,6 +11,7 @@ export const ACCOUNT_PROVIDERS = Object.freeze([
   'command-code-oauth',
   'mimo-oauth',
   'cursor-oauth',
+  'devin-oauth',
   'antigravity-oauth',
   'opencode-go-oauth',
 ]);

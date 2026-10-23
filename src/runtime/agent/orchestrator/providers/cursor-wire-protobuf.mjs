@@ -1,9 +1,10 @@
-function fields(entries) {
-  return Object.fromEntries(entries.map(([name, no, type, options = {}]) => [no, { name, no, type, ...options }]));
-}
-
-const map = (key, value) => ({ map: [key, value] });
-const repeated = { repeated: true };
+import {
+  concatBytes,
+  createProtobufCodec,
+  protobufFields as fields,
+  mapOf as map,
+  repeated,
+} from './wire-protobuf-codec.mjs';
 
 // Only the fields read or written by the provider are described here.
 const SCHEMAS = {
@@ -639,149 +640,10 @@ const SCHEMAS = {
   JsonList: fields([['values', 1, 'JsonValue', repeated]]),
 };
 
-const textEncoder = new TextEncoder();
-// A protobuf string is data, not a text document with a disposable BOM.
-const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
+const codec = createProtobufCodec(SCHEMAS, { label: 'Cursor protobuf' });
+const { encodeField, ProtoReader } = codec;
 
-function concatBytes(parts) {
-  const length = parts.reduce((sum, part) => sum + part.length, 0);
-  const output = new Uint8Array(length);
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.length;
-  }
-  return output;
-}
-
-function encodeVarint(value) {
-  let current = BigInt(value ?? 0);
-  if (current < 0) current = BigInt.asUintN(64, current);
-  const bytes = [];
-  do {
-    let byte = Number(current & 0x7fn);
-    current >>= 7n;
-    if (current) byte |= 0x80;
-    bytes.push(byte);
-  } while (current);
-  return Uint8Array.from(bytes);
-}
-
-function encodeTag(no, wireType) {
-  return encodeVarint((BigInt(no) << 3n) | BigInt(wireType));
-}
-
-function isMessageType(type) {
-  return Object.hasOwn(SCHEMAS, type);
-}
-
-function wireTypeFor(type) {
-  if (type === 'double') return 1;
-  if (['string', 'bytes', 'raw'].includes(type) || isMessageType(type)) return 2;
-  return 0;
-}
-
-function scalarBytes(type, value) {
-  if (type === 'string') return textEncoder.encode(String(value));
-  if (type === 'bytes' || type === 'raw') return value instanceof Uint8Array ? value : new Uint8Array(value);
-  if (type === 'double') {
-    const buffer = new ArrayBuffer(8);
-    new DataView(buffer).setFloat64(0, Number(value), true);
-    return new Uint8Array(buffer);
-  }
-  if (type === 'bool') return encodeVarint(value ? 1 : 0);
-  if (type === 'int' || type === 'uint') return encodeVarint(value);
-  if (isMessageType(type)) return encodeMessage(type, value);
-  throw new Error(`Unknown Cursor protobuf type: ${type}`);
-}
-
-function shouldWrite(type, value) {
-  if (value == null) return false;
-  if (type === 'string') return value !== '';
-  return true;
-}
-
-function encodeField(no, type, value) {
-  const wireType = wireTypeFor(type);
-  const payload = scalarBytes(type, value);
-  if (wireType === 2) return concatBytes([encodeTag(no, wireType), encodeVarint(payload.length), payload]);
-  return concatBytes([encodeTag(no, wireType), payload]);
-}
-
-function encodeMapField(no, [keyType, valueType], value) {
-  const parts = [];
-  for (const [key, entryValue] of Object.entries(value || {})) {
-    const entry = concatBytes([encodeField(1, keyType, key), encodeField(2, valueType, entryValue)]);
-    parts.push(concatBytes([encodeTag(no, 2), encodeVarint(entry.length), entry]));
-  }
-  return parts;
-}
-
-export function encodeMessage(type, value = {}) {
-  const schema = SCHEMAS[type];
-  if (!schema) throw new Error(`Unknown Cursor protobuf message: ${type}`);
-  const parts = [];
-  for (const descriptor of Object.values(schema)) {
-    const fieldValue = value[descriptor.name];
-    if (descriptor.type?.map) {
-      parts.push(...encodeMapField(descriptor.no, descriptor.type.map, fieldValue));
-      continue;
-    }
-    let values = [fieldValue];
-    if (descriptor.repeated) values = Array.isArray(fieldValue) ? fieldValue : [];
-    for (const item of values) {
-      // A oneof's explicit empty string is a value, not an absent field.
-      if ((descriptor.presence && item != null) || shouldWrite(descriptor.type, item)) {
-        parts.push(encodeField(descriptor.no, descriptor.type, item));
-      }
-    }
-  }
-  return concatBytes(parts);
-}
-
-class ProtoReader {
-  constructor(bytes) {
-    this.bytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    this.offset = 0;
-  }
-
-  get done() {
-    return this.offset >= this.bytes.length;
-  }
-
-  varint() {
-    let value = 0n;
-    let shift = 0n;
-    while (!this.done) {
-      const byte = this.bytes[this.offset++];
-      value |= BigInt(byte & 0x7f) << shift;
-      if ((byte & 0x80) === 0) return value;
-      shift += 7n;
-      if (shift > 70n) throw new Error('Invalid Cursor protobuf varint');
-    }
-    throw new Error('Truncated Cursor protobuf varint');
-  }
-
-  take(length) {
-    const end = this.offset + length;
-    if (end > this.bytes.length) throw new Error('Truncated Cursor protobuf field');
-    const value = this.bytes.subarray(this.offset, end);
-    this.offset = end;
-    return value;
-  }
-
-  bytesValue() {
-    return this.take(Number(this.varint()));
-  }
-
-  skip(wireType) {
-    if (wireType === 0) this.varint();
-    else if (wireType === 1) this.take(8);
-    else if (wireType === 2) this.bytesValue();
-    else if (wireType === 5) this.take(4);
-    else throw new Error(`Unsupported Cursor protobuf wire type: ${wireType}`);
-  }
-}
+export const { encodeMessage, decodeMessage } = codec;
 
 export function rewriteConversationState(checkpoint, rootPromptMessagesJson, turns = []) {
   const preserved = [];
@@ -806,75 +668,6 @@ export function rewriteConversationState(checkpoint, rootPromptMessagesJson, tur
     ...turns.map((value) => encodeField(8, 'bytes', value)),
   ];
   return concatBytes([...preserved, ...replacement]);
-}
-
-function decodeScalar(reader, type, wireType) {
-  if (type === 'string') return textDecoder.decode(reader.bytesValue());
-  if (type === 'bytes' || type === 'raw') return new Uint8Array(reader.bytesValue());
-  if (type === 'double') {
-    if (wireType !== 1) throw new Error('Invalid Cursor protobuf double');
-    const value = new DataView(reader.bytes.buffer, reader.bytes.byteOffset + reader.offset, 8).getFloat64(0, true);
-    reader.offset += 8;
-    return value;
-  }
-  if (type === 'bool') return reader.varint() !== 0n;
-  if (type === 'int') return Number(BigInt.asIntN(64, reader.varint()));
-  if (type === 'uint') return Number(reader.varint());
-  if (isMessageType(type)) return decodeMessage(type, reader.bytesValue());
-  throw new Error(`Unknown Cursor protobuf type: ${type}`);
-}
-
-function decodeMapEntry(bytes, [keyType, valueType]) {
-  const reader = new ProtoReader(bytes);
-  let key = '';
-  let value = valueType === 'string' ? '' : undefined;
-  while (!reader.done) {
-    const tag = reader.varint();
-    const no = Number(tag >> 3n);
-    const wireType = Number(tag & 7n);
-    if (no === 1) key = decodeScalar(reader, keyType, wireType);
-    else if (no === 2) value = decodeScalar(reader, valueType, wireType);
-    else reader.skip(wireType);
-  }
-  return [String(key), value];
-}
-
-export function decodeMessage(type, bytes) {
-  const schema = SCHEMAS[type];
-  if (!schema) throw new Error(`Unknown Cursor protobuf message: ${type}`);
-  const reader = new ProtoReader(bytes);
-  const output = {};
-  while (!reader.done) {
-    const tag = reader.varint();
-    const no = Number(tag >> 3n);
-    const wireType = Number(tag & 7n);
-    const descriptor = schema[no];
-    if (!descriptor) {
-      const start = reader.offset;
-      reader.skip(wireType);
-      output.$unknown ||= [];
-      output.$unknown.push({
-        no,
-        wireType,
-        data: new Uint8Array(reader.bytes.subarray(start, reader.offset)),
-      });
-      continue;
-    }
-    if (descriptor.type?.map) {
-      const [key, value] = decodeMapEntry(reader.bytesValue(), descriptor.type.map);
-      output[descriptor.name] ||= {};
-      output[descriptor.name][key] = value;
-      continue;
-    }
-    const value = decodeScalar(reader, descriptor.type, wireType);
-    if (descriptor.repeated) {
-      output[descriptor.name] ||= [];
-      output[descriptor.name].push(value);
-    } else {
-      output[descriptor.name] = value;
-    }
-  }
-  return output;
 }
 
 function jsonToProtoValue(value) {

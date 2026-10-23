@@ -81,6 +81,13 @@ import {
   loginCursorOAuth,
 } from '../../runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import {
+  beginDevinOAuthLogin,
+  describeDevinOAuthCredentials,
+  forgetDevinOAuthCredentials,
+  hasDevinOAuthCredentials,
+  loginDevinOAuth,
+} from '../../runtime/agent/orchestrator/providers/devin-auth.mjs';
+import {
   describeAntigravityOAuthCredentials,
   forgetAntigravityOAuthCredentials,
   hasAntigravityOAuthCredentials,
@@ -216,6 +223,16 @@ const OAUTH_PROVIDERS = Object.freeze([
     login: loginCursorOAuth,
   }),
   Object.freeze({
+    id: 'devin-oauth',
+    name: 'Devin',
+    desc: 'Sign in with your Devin account',
+    has: hasDevinOAuthCredentials,
+    describe: describeDevinOAuthCredentials,
+    forget: forgetDevinOAuthCredentials,
+    begin: beginDevinOAuthLogin,
+    login: loginDevinOAuth,
+  }),
+  Object.freeze({
     id: 'antigravity-oauth',
     name: 'Antigravity OAuth',
     desc: 'Sign in with Google (Gemini + Claude)',
@@ -232,7 +249,7 @@ const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
 const API_PROVIDER_IDS = new Set(API_PROVIDERS.map((p) => p.id));
 const OAUTH_BY_ID = new Map(OAUTH_PROVIDERS.map((p) => [p.id, p]));
 
-// Dev-only entries (cursor-oauth, antigravity-oauth, mimo-oauth) are unknown to
+// Dev-only entries (cursor-oauth, devin-oauth, antigravity-oauth, mimo-oauth) are unknown to
 // settings/login while the Developer → Providers option is off. Filtered per
 // call, so toggling the option takes effect without a restart.
 function availableOAuthProviders() {

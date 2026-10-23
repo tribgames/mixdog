@@ -284,3 +284,18 @@ Full license text: `LICENSES/mago-MIT.txt`
 <https://github.com/posit-dev/air>
 
 Full license text: `LICENSES/air-MIT.txt`
+
+### oh-my-pi — MIT
+
+<https://github.com/can1357/oh-my-pi>
+
+The Devin provider follows its Devin integration. The model-family table in
+`src/runtime/agent/orchestrator/providers/devin-wire-families.mjs` is data
+taken from its model-collapse rules, and these files contain code derived from
+it: `devin-wire-models.mjs` (catalog discovery and family collapsing),
+`devin-wire-session.mjs` (client identity values), `devin-wire-identity.mjs`
+(model classification and thinking rendering), `devin-wire-schema.mjs` (tool
+schema normalization) and `devin-wire-tool-args.mjs` (tool-argument repair),
+all under `src/runtime/agent/orchestrator/providers/`.
+
+Full license text: `LICENSES/oh-my-pi-MIT.txt`

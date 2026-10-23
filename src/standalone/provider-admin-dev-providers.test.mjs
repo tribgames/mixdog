@@ -15,7 +15,7 @@ const { providerSetup, providerStatus, isKnownProvider, listProviderAccounts } =
   '../session-runtime/services/provider-admin.mjs'
 );
 
-const DEV = ['mimo-oauth', 'cursor-oauth', 'antigravity-oauth'];
+const DEV = ['mimo-oauth', 'cursor-oauth', 'devin-oauth', 'antigravity-oauth'];
 const BASE = [
   'openai-oauth',
   'anthropic-oauth',
@@ -53,7 +53,7 @@ test('each provider option exposes and hides only its own dev-only OAuth provide
   assert.equal(isKnownProvider('mimo-oauth'), true);
   assert.equal(isKnownProvider('cursor-oauth'), false);
 
-  setDeveloper({ mimoOAuth: true, cursorOAuth: true, antigravityOAuth: true });
+  setDeveloper({ mimoOAuth: true, cursorOAuth: true, devinOAuth: true, antigravityOAuth: true });
   assert.deepEqual(await oauthIds(), [...BASE, ...DEV]);
   for (const id of DEV) assert.equal(isKnownProvider(id), true, id);
   assert.deepEqual(

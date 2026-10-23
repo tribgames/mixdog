@@ -8,6 +8,7 @@ export const SUBSCRIPTIONS = [
   { key: 'command-code', label: 'Command Code', provider: 'command-code-oauth' },
   { key: 'mimo', label: 'MiMo', provider: 'mimo-oauth' },
   { key: 'cursor', label: 'Cursor', provider: 'cursor-oauth' },
+  { key: 'devin', label: 'Devin', provider: 'devin-oauth' },
   { key: 'antigravity', label: 'Antigravity', provider: 'antigravity-oauth' },
   { key: 'opencode-go-oauth', label: 'OpenCode Go OAuth', provider: 'opencode-go-oauth' },
 ] as const;

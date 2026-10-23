@@ -26,7 +26,9 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
     mock.module('./src/runtime/agent/orchestrator/providers/oauth-credential-probes.mjs', {
       namedExports: {
         oauthCredentialProbeState: () => 'absent',
-        isOAuthProviderAvailable: () => false,
+        // Only the dev-gated providers are unavailable; every other provider stays configured.
+        isOAuthProviderAvailable: (name) =>
+          !['mimo-oauth', 'cursor-oauth', 'devin-oauth', 'antigravity-oauth'].includes(name),
         hasAnthropicOAuthCredentials: () => false,
         hasOpenAIOAuthCredentials: () => false,
         hasGrokOAuthCredentials: () => false,

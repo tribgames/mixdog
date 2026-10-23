@@ -125,6 +125,8 @@ export function buildDefaultConfig(options = {}) {
   // Experimental direct Cursor wire provider. It remains disabled unless a
   // Mixdog-owned login or CURSOR_ACCESS_TOKEN is present.
   if (isOAuthProviderAvailable('cursor-oauth')) providers['cursor-oauth'] = oauthEntry('cursor-oauth');
+  // Experimental Devin provider: gated by the Developer → Providers option.
+  if (isOAuthProviderAvailable('devin-oauth')) providers['devin-oauth'] = oauthEntry('devin-oauth');
   // Google Antigravity (Cloud Code Assist). Gemini and Claude behind one
   // Google login; enabled only once a login has stored tokens + project.
   if (isOAuthProviderAvailable('antigravity-oauth')) providers['antigravity-oauth'] = oauthEntry('antigravity-oauth');

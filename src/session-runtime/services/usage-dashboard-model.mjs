@@ -348,6 +348,7 @@ const PROVIDER_RANKS = {
   'command-code-oauth': 33.5,
   'mimo-oauth': 34,
   'cursor-oauth': 35,
+  'devin-oauth': 35.5,
   'antigravity-oauth': 36,
   'opencode-go-oauth': 38,
   openai: 50,

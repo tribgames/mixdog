@@ -23,6 +23,8 @@ export function createCompatStreamState({
   onToolCall,
   onTextDelta,
   onStreamItemStart,
+  // false: text stays text; only native tool_calls deltas become calls.
+  leakedToolCallRecovery = true,
 }) {
   const toolDedupe = createToolCallDedupe();
   return {
@@ -49,7 +51,7 @@ export function createCompatStreamState({
     rawUsage: null,
     toolAcc: createToolCallAccumulator(),
     streamEmitState: { emittedToolCallKeys: new Set(), emittedToolCall: false, _toolDedupe: toolDedupe },
-    leakGuard: createLeakGuard({ knownToolNames, harmony: true }),
+    leakGuard: createLeakGuard({ knownToolNames: leakedToolCallRecovery ? knownToolNames : [], harmony: true }),
     leakedCalls: [],
     pendingLeakedCalls: [],
   };
