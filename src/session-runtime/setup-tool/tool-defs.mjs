@@ -99,6 +99,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   delete_local_model: 'confirmationToken',
   set_system_shell: 'command',
   set_auto_update: 'enabled',
+  set_heartbeat_enabled: 'enabled',
   forget_provider_auth: 'name accountId?',
   set_provider_account: 'name providerAccount',
   add_mcp_server: 'server',
@@ -254,7 +255,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         enabled: {
           type: 'boolean',
           description:
-            'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_mcp_enabled, set_plugin_enabled).',
+            'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_heartbeat_enabled, set_mcp_enabled, set_plugin_enabled).',
         },
         instructionFiles: {
           type: 'string',

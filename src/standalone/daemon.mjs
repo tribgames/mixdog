@@ -1027,6 +1027,12 @@ async function main() {
       (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,
     abort: (sessionId) => sessionService.abortSession({ sessionId }),
   });
+  // Mixy's 2-hourly heartbeat check (mixy-heartbeat.mjs), on an unref'd timer.
+  import('../session-runtime/mixy-heartbeat.mjs')
+    .then(({ startMixyHeartbeat }) =>
+      startMixyHeartbeat({ getSessionService: () => sessionService, log: (line) => log(`heartbeat: ${line}`) })
+    )
+    .catch((error) => log(`heartbeat start failed: ${error?.message || error}`));
   // Results queued before a restart are posted now; results a finished run
   // could not queue (kept on its routine's record) are queued again.
   recoverScheduleResults().catch((error) => log(`routine results recovery failed: ${error?.message || error}`));

@@ -128,6 +128,12 @@ export function createSessionTurnCalls(ctx) {
     const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, submissionOptions));
     if (accepted === true) {
       entry.reservedOnly = false;
+      if (isUserTurn(submissionOptions)) {
+        // The user is active: Mixy's due heartbeat check waits for quiet.
+        void import('../../../session-runtime/mixy-heartbeat.mjs')
+          .then(({ noteUserTurn }) => noteUserTurn())
+          .catch((error) => log(`heartbeat activity note failed: ${error?.message || error}`));
+      }
       if (isAgentHomeSessionId(id) && isUserTurn(submissionOptions)) {
         // The user spoke in this agent's home: its round trips with other
         // sessions count from zero again, so a capped thread wakes again.

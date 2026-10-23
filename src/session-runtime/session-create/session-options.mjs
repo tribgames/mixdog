@@ -88,17 +88,22 @@ export function sessionOptions(deps, coreMemoryContext) {
     lane: agentOwned ? 'agent' : 'cli',
     // One-shot `mixdog exec` runs carry their own source so session catalogs
     // can keep them out of the user's resumable list.
+    // A hidden run of an agent (Mixy's heartbeat) is an exec run too.
     sourceType: agentOwned
       ? sessionProfile?.sourceType || 'agent'
-      : rt.toolProfile === HEADLESS_TOOL_PROFILE
+      : rt.toolProfile === HEADLESS_TOOL_PROFILE || sessionProfile?.sourceType === 'exec'
         ? 'exec'
         : 'lead',
     sourceName: agentOwned
       ? sessionProfile?.sourceName || sessionProfile?.agent || 'agent'
       : taskOrigin
         ? `agent:${taskOrigin.agentId}${taskOriginSuffix(taskOrigin)}`
-        : 'main',
+        : clean(sessionProfile?.sourceName) || 'main',
     ...(taskOrigin ? { taskOrigin } : {}),
+    // The agent a run acts for (agent mode, its memory; agent-mode.mjs).
+    ...(!agentOwned && clean(sessionProfile?.ownerAgentId)
+      ? { ownerAgentId: clean(sessionProfile.ownerAgentId) }
+      : {}),
     ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
     clientHostPid: sessionProfile?.clientHostPid || process.pid,
     mcpScopeId: rt.mcpScopeId,

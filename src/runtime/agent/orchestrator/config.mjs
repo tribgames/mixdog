@@ -293,6 +293,8 @@ export function loadConfig(options = {}) {
         recap: recapConfig,
         // The model may title the session (session tool, action=rename); default on.
         aiSessionTitles: raw.aiSessionTitles !== false,
+        // Mixy's 2-hourly heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
+        heartbeat: raw.heartbeat !== false,
         worktree: normalizeWorktreeSettings(raw.worktree),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
@@ -470,6 +472,8 @@ function buildAgentSaveBuilder(config) {
     // Default true lives in code: only the opt-out is stored.
     if (config.aiSessionTitles === false) next.aiSessionTitles = false;
     else delete next.aiSessionTitles;
+    if (config.heartbeat === false) next.heartbeat = false;
+    else delete next.heartbeat;
     delete next.instructionFiles;
     Object.assign(next, storedInstructionFiles(config));
     delete next.autoEffortBase;

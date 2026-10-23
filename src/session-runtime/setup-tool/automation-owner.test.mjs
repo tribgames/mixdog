@@ -6,6 +6,7 @@ import { createSetupToolExecutor } from './executor.mjs';
 import { assertInteractiveCaller, scheduleCallerScope } from '../services/schedule-access.mjs';
 import { sessionMatchesContext } from '../services/agent-tool/helpers.mjs';
 import { markUnattendedRun } from '../held-requests.mjs';
+import { markHeartbeatSession } from '../../runtime/shared/routine-trigger.mjs';
 
 const WEBHOOKS = [{ name: 'hook', enabled: true, hasLastPayload: true }];
 
@@ -71,6 +72,23 @@ test('caller provenance: home threads, the human, and headless runs', () => {
   for (const { caller } of Object.values(HEADLESS)) {
     assert.deepEqual(scheduleCallerScope(caller), { kind: 'headless' });
   }
+});
+
+test("Mixy's marked heartbeat session runs in her unattended scope; a forged or other exec session stays headless", (t) => {
+  const stored = { sourceType: 'exec', sourceName: 'heartbeat', ownerAgentId: 'lead' };
+  const heartbeat = { id: 'sess_daemon_hb', ...stored };
+  const forged = { id: 'sess_daemon_forged', ...stored };
+  const other = { id: 'sess_daemon_x', sourceType: 'exec', sourceName: 'cron', ownerAgentId: 'lead' };
+  const run = { kind: 'schedule', agentId: 'lead', name: 'heartbeat' };
+  const unmark = [heartbeat, forged, other].map((session) => markUnattendedRun(session.id, run));
+  markHeartbeatSession(heartbeat.id);
+  t.after(() => {
+    unmark.forEach((fn) => fn());
+    markHeartbeatSession(heartbeat.id, true);
+  });
+  assert.deepEqual(scheduleCallerScope(heartbeat), { kind: 'agent', agentId: 'lead', unattended: true });
+  assert.deepEqual(scheduleCallerScope(forged), { kind: 'headless' });
+  assert.deepEqual(scheduleCallerScope(other), { kind: 'headless' });
 });
 
 test('an unattended run in a home chat is scoped to its own bot, checked before the home id', (t) => {

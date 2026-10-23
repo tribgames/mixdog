@@ -60,6 +60,11 @@ export async function runRoutineTurn(
     cwd = null,
     event = '',
     signal = null,
+    // A session the caller created for this turn and the turn's opening line
+    // (the heartbeat's hidden session and header); default the owner's home
+    // thread and the routine trigger header.
+    sessionId = null,
+    header = null,
   },
   {
     surface = agentHomeLiveSurface(),
@@ -73,8 +78,8 @@ export async function runRoutineTurn(
   if (signal?.aborted) throw abortError(signal);
   if (typeof surface?.submit !== 'function') throw new Error('routine run: the session service is not running');
   const agentId = scheduleOwnerAgentId({ ownerAgentId });
-  const homeId = agentHomeSessionId(agentId);
-  const home = await loadSession(homeId);
+  const homeId = sessionId || agentHomeSessionId(agentId);
+  const home = sessionId ? true : await loadSession(homeId);
   if (!home || home.closed === true) {
     throw new Error(`the bot "${agentId}" has no chat yet: open it once in the app`);
   }
@@ -82,8 +87,8 @@ export async function runRoutineTurn(
   if (queued >= limit) throw new Error(`${limit} routine runs already wait in this bot's chat`);
   waiting.set(homeId, queued + 1);
   const trigger = normalizeRoutineTrigger({ kind, name, event });
-  const header = routineTriggerHeader({ kind, name, project: cwd ? String(cwd) : '' });
-  const content = automationPromptContent(`${header}\n\n${body}`, attachments);
+  const opening = header || routineTriggerHeader({ kind, name, project: cwd ? String(cwd) : '' });
+  const content = automationPromptContent(`${opening}\n\n${body}`, attachments);
   return new Promise((resolve, reject) => {
     let started = false;
     let aborted = false;

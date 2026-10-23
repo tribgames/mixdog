@@ -6,8 +6,13 @@ import { listProjects } from '../../runtime/shared/projects.mjs';
 import { applySessionSidebarChange } from '../../runtime/shared/session-sidebar-host.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
-import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import {
+  MIXY_AGENT_ID,
+  agentHomeSessionId,
+  agentIdOfHomeSession,
+} from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { turnHopOf } from '../../runtime/shared/bot-hops.mjs';
+import { isHeartbeatSession } from '../../runtime/shared/routine-trigger.mjs';
 import { scheduleCallerScope } from '../services/schedule-access.mjs';
 import { worktreeCallerScope } from '../services/worktree-access.mjs';
 import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.mjs';
@@ -53,6 +58,12 @@ export function createWorkspaceToolHandlers({
     return rt.session.id;
   };
 
+  // Mixy's hidden heartbeat session (mixy-heartbeat.mjs), by the in-process
+  // mark on the calling session, never by tool input or stored fields.
+  const callerIsHeartbeat = (callerCtx) => isHeartbeatSession(callerCtx?.callerSessionId || rt.session?.id);
+  const HEARTBEAT_NO_HANDOFF =
+    'a heartbeat turn cannot hand work off: its result would reach nobody. Propose it to the user instead (session action suggest).';
+
   const SIDEBAR_ACTIONS = new Set(['favorite', 'archive']);
 
   // Sidebar flags only (the desktop's favorite/archive metadata).
@@ -76,6 +87,9 @@ export function createWorkspaceToolHandlers({
       (action === 'status' && target)
     ) {
       const callerSessionId = assertLead(action, callerCtx);
+      if ((action === 'create' || action === 'send') && callerIsHeartbeat(callerCtx)) {
+        throw new Error(`session: ${HEARTBEAT_NO_HANDOFF}`);
+      }
       const callerAgentId = attendedAgentOf(rt.session);
       if (action === 'create' && !callerAgentId) {
         throw new Error(
@@ -115,6 +129,16 @@ export function createWorkspaceToolHandlers({
           }
         )
       );
+    }
+    // Mixy's proposals to the user (mixy-heartbeat.mjs): kept so none repeats.
+    if (action === 'suggest') {
+      const sessionId = assertLead(action, callerCtx);
+      if (sessionId !== agentHomeSessionId(MIXY_AGENT_ID) && !callerIsHeartbeat(callerCtx)) {
+        throw new Error("session: suggest belongs to Mixy's chat");
+      }
+      const { recordSuggestion } = await import('../mixy-heartbeat.mjs');
+      const receipt = recordSuggestion({ key: args?.key, text: args?.title, dismissed: args?.value === false });
+      return JSON.stringify({ action, ...receipt }, null, 2);
     }
     if (target && target !== assertLead(action, callerCtx)) {
       throw new Error(`session: action=${action} only applies to the current session`);
@@ -232,12 +256,22 @@ export function createWorkspaceToolHandlers({
 
   return {
     session,
-    goal: async (args, { name, callerCtx }) =>
-      await goalRuntime.executeTool(name, args || {}, {
+    goal: async (args, { name, callerCtx }) => {
+      // A Goal keeps working in its session across turns: a heartbeat's would
+      // run on unseen in the hidden session.
+      if (['create', 'resume'].includes(clean(args?.action).toLowerCase()) && callerIsHeartbeat(callerCtx)) {
+        throw new Error(`goal: ${HEARTBEAT_NO_HANDOFF}`);
+      }
+      return await goalRuntime.executeTool(name, args || {}, {
         callerSessionId: callerCtx?.callerSessionId || rt.session?.id || rt.reservedSessionId || null,
-      }),
+      });
+    },
     agent: async (args, { callerCtx, callerCwd }) => {
       const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
+      // The agent tool's action is `type`, spawn when omitted (agent-tool/execute.mjs).
+      if (['spawn', 'send'].includes((clean(args?.type) || 'spawn').toLowerCase()) && callerIsHeartbeat(callerCtx)) {
+        throw new Error(`agent: ${HEARTBEAT_NO_HANDOFF}`);
+      }
       // `attachmentParts` is never the model's to set: only the resolved
       // `attachments` reach the agent's turn.
       const { attachments, attachmentParts: _ignored, ...rest } = args || {};

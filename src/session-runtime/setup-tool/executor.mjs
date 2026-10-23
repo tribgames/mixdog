@@ -44,6 +44,7 @@ const ACTION_APPLIES_TO = {
     "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
   set_recap_enabled: 'background Memory cycles; no restart required',
   set_auto_update: 'subsequent automatic update checks',
+  set_heartbeat_enabled: "Mixy's next heartbeat check (every 2 hours); no restart required",
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',
   set_system_shell: 'subsequent shell calls',
   save_automation: 'the automation worker; scheduled runs follow the saved timing',
@@ -277,6 +278,7 @@ async function featureStatus(rt, getConfig) {
     browser: { active: builtinFeatureActive(config, 'browser') },
     computer: { active: builtinFeatureActive(config, 'computer') },
     terminal: { active: builtinFeatureActive(config, 'terminal') },
+    heartbeat: { enabled: config?.heartbeat !== false },
     voice: rt.getVoiceStatus ? voiceFeatureStatus(await rt.getVoiceStatus()) : null,
   };
 }
@@ -597,6 +599,7 @@ const SETUP_ACTION_HANDLERS = {
     rt.deleteLocalProviderModel(requireText(args.confirmationToken, 'confirmationToken')),
   set_system_shell: (rt, args) => rt.setSystemShell({ command: clean(args.command) }),
   set_auto_update: (rt, args) => rt.setAutoUpdate(requireBoolean(args.enabled)),
+  set_heartbeat_enabled: (rt, args) => rt.setHeartbeatEnabled(requireBoolean(args.enabled)),
   set_worktree_settings: (rt, args) => rt.setWorktreeSettings(args.worktree),
   forget_provider_auth: async (rt, args) => {
     const name = requireText(args.name, 'name');

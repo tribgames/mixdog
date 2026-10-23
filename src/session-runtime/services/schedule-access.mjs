@@ -21,6 +21,7 @@ import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../runtime/agent/orchest
 import { roomMemberOfSession } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
 import { mixyDisplayName } from '../../runtime/agent/orchestrator/session/mixy-name.mjs';
 import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
+import { isHeartbeatSession } from '../../runtime/shared/routine-trigger.mjs';
 import { unattendedRunOf } from '../held-requests.mjs';
 
 const INTERACTIVE_SOURCE_TYPES = new Set(['', 'lead', 'cli']);
@@ -40,6 +41,8 @@ function provenanceScope(session, id) {
   if (member) return { kind: 'room-member', agentId: member.agentId };
   const homeAgent = agentIdOfHomeSession(id);
   if (homeAgent) return homeAgent === MIXY_AGENT_ID ? { kind: 'human' } : { kind: 'agent', agentId: homeAgent };
+  // Mixy's hidden heartbeat session: her own scope, as her chat's routine turns get.
+  if (isHeartbeatSession(id)) return { kind: 'agent', agentId: MIXY_AGENT_ID };
   const headless =
     !id ||
     isAgentOwner(session) ||

@@ -1,8 +1,9 @@
 /**
  * Rows posted into an agent's home thread (`sess_home_<owner>`) from outside
  * its turns: held requests of unattended runs, reports of task sessions the
- * agent created, and routine results left by runs from before routines ran as
- * turns in the thread itself (routine-home-turn.mjs).
+ * agent created, the agent's own reply of a turn it ran in a hidden session
+ * (Mixy's heartbeat), and routine results left by runs from before routines
+ * ran as turns in the thread itself (routine-home-turn.mjs).
  *
  * Delivery is durable. The finished run is first ENQUEUED in a persisted
  * per-home queue (`routine-results.json`), keyed by the run id, so a retried
@@ -67,6 +68,12 @@ import {
 /** A queued item's stored message and live notice: a routine result, or a
  *  held request of an unattended run (session-runtime/held-requests.mjs). */
 function deliveredRow(item, messageId) {
+  // The agent's own words from a turn it ran elsewhere (mixy-heartbeat.mjs):
+  // one ordinary reply of the agent in its thread.
+  if (item.kind === 'agent-message') {
+    const message = { role: 'assistant', content: item.text, meta: { transcript: { at: item.at, messageId } } };
+    return { message, notice: { text: item.text, tone: 'info', assistant: true } };
+  }
   if (item.kind === 'held-request') {
     const message = heldRequestMessage({ ...item.held, at: item.at, messageId });
     return { message, notice: heldRequestNotice(message) };
@@ -1009,6 +1016,17 @@ export function createAgentHomeDelivery({
     return target;
   }
 
+  /** Persist `text`, the agent's own reply from turn `runId` it ran outside
+   *  its thread, for `agentId`'s home thread, then start draining it. It posts
+   *  once, as the agent's message; no turn follows. */
+  async function enqueueMessage(agentId, { runId, text }) {
+    const homeId = agentHomeSessionId(agentId) || agentHomeSessionId(MIXY_AGENT_ID);
+    if (!runId || !String(text || '').trim()) throw new Error('agent message: runId and text required');
+    await queue.add(homeId, { runId: String(runId), kind: 'agent-message', text: String(text).trim(), at: Date.now() });
+    void drain(homeId);
+    return homeId;
+  }
+
   /** Show `run`'s live-only row (routineRunNotice: `running`, or a result whose
    *  delivery failed) in `row`'s owner home when it is open and idle. Nothing
    *  is stored and no turn or unread mark follows; the posted result (same
@@ -1054,6 +1072,7 @@ export function createAgentHomeDelivery({
     enqueue,
     enqueueHeld,
     enqueueTask,
+    enqueueMessage,
     announce,
     drain,
     recover,
@@ -1126,6 +1145,11 @@ export async function announceRoutineRun(row, run) {
 /** Queue one held-request row for `agentId`'s home thread. */
 export async function deliverHeldRequest(agentId, held) {
   return (await processDelivery()).enqueueHeld(agentId, held);
+}
+
+/** Queue the agent's own reply of a turn it ran outside its home thread. */
+export async function deliverAgentMessage(agentId, message) {
+  return (await processDelivery()).enqueueMessage(agentId, message);
 }
 
 /** Queue one report of a task session for `agentId`'s home thread. */

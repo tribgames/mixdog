@@ -434,7 +434,7 @@ async function configModelRoute(modelRef, byName) {
 
 /** The Lead (Main) route of the config — what a desktop New task starts on.
  *  Null while none is chosen. */
-async function configLeadRoute() {
+export async function configLeadRoute() {
   const [{ modelRouteFields }, { resolveRoute }, { loadConfig }] = await Promise.all([
     import('../runtime/shared/schedule-model-ref.mjs'),
     import('./boot/shared.mjs'),

@@ -97,11 +97,20 @@ export const SESSION_TOOL = {
           'list-projects',
           'favorite',
           'archive',
+          'suggest',
         ],
         description:
-          'status defaults to current; list pages sessions, without sub-agent or archived ones unless include_agents/include_archived; bots shows each bot’s activity, work, approvals, routines and attention flags, or with session_id (a bot id or its chat) its routines and recent sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations) starts a visible agent task session from brief (started, not done yet); unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching.',
+          'status defaults to current; list pages sessions, without sub-agent or archived ones unless include_agents/include_archived; bots shows each bot’s activity, work, approvals, routines and attention flags, or with session_id (a bot id or its chat) its routines and recent sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations) starts a visible agent task session from brief (started, not done yet); unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. suggest (Mixy’s chat only) records a proposal made to the user under key; value false records that the user declined it.',
       },
-      title: { type: 'string', description: 'rename: new current-session title; create: task title.' },
+      title: {
+        type: 'string',
+        description: 'rename: new current-session title; create: task title; suggest: the proposal in one line.',
+      },
+      key: {
+        type: 'string',
+        description:
+          'suggest: stable action:target key, e.g. pause-routine:daily-news; the same key refreshes its proposal.',
+      },
       session_id: {
         type: 'string',
         description:
@@ -150,7 +159,7 @@ export const SESSION_TOOL = {
           'Existing directory; implies set-project. Resolve names with list-projects first. Shell cd does not switch Project.',
       },
       compact: { type: 'boolean', description: 'fork: compact the copy.' },
-      value: { type: 'boolean', description: 'favorite/archive: on or off.' },
+      value: { type: 'boolean', description: 'favorite/archive: on or off; suggest: false = the user declined it.' },
       brief: { type: 'string', description: 'create: self-contained instruction, the first message.' },
       project: { type: 'string', description: 'create: registered Project name or existing directory.' },
       worktree: {

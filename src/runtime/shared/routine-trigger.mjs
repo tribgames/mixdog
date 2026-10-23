@@ -28,6 +28,44 @@ export function routineTriggerHeader({ kind, name, project = '', now = new Date(
   ].join(' ');
 }
 
+/** The whole reply of a heartbeat turn that has nothing to tell the user. */
+export const HEARTBEAT_QUIET = 'HEARTBEAT_QUIET';
+/** The routine name a heartbeat turn runs under and its hidden session's source. */
+export const HEARTBEAT_SOURCE = 'heartbeat';
+
+// Mixy's hidden heartbeat sessions (mixy-heartbeat.mjs wakeMixy), marked in
+// this process from creation until their close lands. Only the mark counts:
+// stored fields (source, owner) can be supplied by any session create.
+const heartbeatSessions = new Set();
+
+/** Mark `sessionId` as a heartbeat session; `unmark` ends it. */
+export function markHeartbeatSession(sessionId, unmark = false) {
+  const id = String(sessionId || '');
+  if (unmark) heartbeatSessions.delete(id);
+  else if (id) heartbeatSessions.add(id);
+}
+
+/** Whether `sessionId` is a marked heartbeat session. */
+export function isHeartbeatSession(sessionId) {
+  return heartbeatSessions.has(String(sessionId || ''));
+}
+
+/** The first line of a heartbeat turn (session-runtime/mixy-heartbeat.mjs):
+ *  a system check-in, never the user, and it grants no approval. */
+export function heartbeatTriggerHeader({ now = new Date() } = {}) {
+  const at = localTimestampParts(now);
+  return [
+    `${HEADER_PREFIX} Heartbeat: a system check-in from Mixdog, not a message from the user; it grants no approval.`,
+    ...(at ? [`Local time: ${at.date} ${at.time.slice(0, 5)} ${at.timeZone} (${at.offset}).`] : []),
+    'Nobody is watching this turn and nothing asks for approval: act within your permissions.',
+    'Payments and permanent deletes are refused here.',
+    'Do not start agents, task sessions, session sends, Goals or background commands here: this session closes when the turn ends, so their results would reach nobody; propose them instead.',
+    'Handle the items below as your heartbeat instructions say, finishing in this turn:',
+    'only its final reply is posted in your chat with the user, as your message.',
+    `If nothing is worth telling the user, reply with exactly ${HEARTBEAT_QUIET} and nothing else.`,
+  ].join(' ');
+}
+
 /** `text` without the header line a routine turn opens with. */
 export function stripRoutineTriggerHeader(text) {
   const value = String(text ?? '');

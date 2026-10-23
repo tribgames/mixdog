@@ -64,8 +64,10 @@ const cut = (text, max) => (text.length > max ? `${text.slice(0, Math.max(0, max
 export const quotedText = (value, max) => cut(escapeHarnessTags(oneLine(value)), max);
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 const outputBytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
-const isWorking = (row) => row?.working === true || row?.agentWorking === true;
-const activityOf = (row) => Number(row?.lastUsedAt) || Number(row?.updatedAt) || 0;
+/** A catalog row whose session runs a turn now. */
+export const isWorking = (row) => row?.working === true || row?.agentWorking === true;
+/** A catalog row's last activity (epoch ms), 0 when unknown. */
+export const activityOf = (row) => Number(row?.lastUsedAt) || Number(row?.updatedAt) || 0;
 
 /** The bot a catalog row belongs to: its home chat, room seat or task origin; '' for none. */
 export function sessionBotOf(row) {

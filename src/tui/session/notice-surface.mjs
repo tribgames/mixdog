@@ -35,10 +35,26 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
     // A routine result is a finished sentence, never a raw error to polish;
     // a group-room row is someone's words, kept verbatim (a pass has none).
     const value =
-      options.routine || options.room || options.heldRequest ? String(text ?? '').trim() : polishNoticeText(text);
+      options.routine || options.room || options.heldRequest || options.assistant
+        ? String(text ?? '').trim()
+        : polishNoticeText(text);
     if (!value && !options.room) return null;
     const forceTranscript = options.transcript === true;
     if (!forceTranscript) return pushToast(value, tone, options.ttlMs, options);
+    // The agent's own message posted outside a turn (agent-home-delivery.mjs):
+    // its reply row, as the stored message restores.
+    if (options.assistant) {
+      const id = options.messageId || nextId();
+      pushItem({
+        kind: 'assistant',
+        id,
+        text: value,
+        streaming: false,
+        at: Date.now(),
+        ...(options.messageId ? { messageId: options.messageId } : {}),
+      });
+      return id;
+    }
     const userRow = options.room?.kind === 'user';
     // A room user row keeps its message id (the sender's submission id), as a
     // turn's own prompt row keeps its submission id.
