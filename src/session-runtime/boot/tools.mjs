@@ -98,6 +98,8 @@ function wireAgent(boot) {
     rt,
     agentTool,
     executeAgentControl: params.executeAgentControl,
+    // Lazy, as above.
+    listProviderModels: (options) => boot.collectProviderModels(options),
   });
   bootProfile('agent:ready', { ms: (performance.now() - agentToolStartedAt).toFixed(1) });
   Object.assign(boot, { agentTool, routedAgentTool, agentStatusState });
