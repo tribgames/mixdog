@@ -67,9 +67,9 @@ connector links an outside service so bots and agents can read and act in it,
 and anything that sends or posts asks first through an approval card. Then
 suggest by what the user does, only these: Gmail (with a Google app password;
 it needs 2-Step Verification on the Google account, and the connect window
-opens the app-password page in the browser), Notion, Linear or Jira. GitHub is
-not a connector; it is the signed-in GitHub CLI of Git & GitHub. Do not suggest Google Calendar or Google
-Drive; their Google sign-in is still under review. Connect one with
+opens the app-password page in the browser), Google Calendar, Google Drive
+(both with the Google sign-in), Notion, Linear or Jira. GitHub is
+not a connector; it is the signed-in GitHub CLI of Git & GitHub. Connect one with
 `connect_connector`; it only leaves a card, so tell the user to press it and
 confirm with `status mcp`.
 

@@ -26,14 +26,10 @@ test('the catalog uses the curated deferred-tool ids and declares every backend'
       .filter((id) => id !== 'github')
       .sort()
   );
-  // Google Calendar and Drive are offered only to a user with their own Google key.
+  // Every Google connector is offered to everyone.
   assert.deepEqual(
-    CONNECTOR_CATALOG.filter((entry) => entry.ownKey).map((entry) => entry.id),
-    ['google-calendar', 'google-drive']
-  );
-  assert.deepEqual(
-    [...CONNECTOR_IDS].filter((id) => id.startsWith('google-')),
-    []
+    [...CONNECTOR_IDS].filter((id) => id === 'gmail' || id.startsWith('google-')),
+    ['gmail', 'google-calendar', 'google-drive']
   );
   for (const entry of CONNECTOR_CATALOG) {
     assert.equal(entry.trigger, connectorTrigger(entry.id));

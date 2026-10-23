@@ -673,7 +673,7 @@ const SETUP_ACTION_HANDLERS = {
   // as Extensions → 커넥터. Nothing is connected here.
   connect_connector: async (rt, args) => {
     const entry = connectorById(requireText(args.connector, 'connector'));
-    if (!entry || entry.ownKey) throw new Error(`connector must be one of ${CONNECTOR_IDS.join(', ')}`);
+    if (!entry) throw new Error(`connector must be one of ${CONNECTOR_IDS.join(', ')}`);
     const server = (rt.mcpStatus?.()?.servers || []).find((row) => row.connector === entry.id) || null;
     const connected = server?.connected === true;
     return {

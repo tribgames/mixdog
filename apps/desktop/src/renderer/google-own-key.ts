@@ -13,8 +13,10 @@ export interface GoogleOwnKey {
 type Invoke = (capability: string, args?: unknown[]) => Promise<unknown>;
 type Row = Record<string, unknown>;
 
-// Calendar and Drive: the services that exist only with the user's own key.
-const GOOGLE_ENTRIES = CONNECTOR_CATALOG.filter((entry: { ownKey?: boolean }) => entry.ownKey === true);
+// Calendar and Drive: the Google sign-in connectors the user's own key covers.
+const GOOGLE_ENTRIES = CONNECTOR_CATALOG.filter((entry: { id: string }) =>
+  ['google-calendar', 'google-drive'].includes(entry.id)
+);
 
 /** The client id and secret of a Google `client_secret_*.json` (Desktop app).
  *  Throws an Error with a user-facing message for anything else. */
@@ -64,7 +66,7 @@ export async function applyGoogleOwnKey(invoke: Invoke, key: GoogleOwnKey): Prom
 }
 
 /** Back to Mixdog's built-in client: the id and the keychain secret go, and a
- *  server that never connected goes with them (nothing offers it without a key). */
+ *  server that never connected goes with them (its catalog row stays). */
 export async function revertGoogleOwnKey(invoke: Invoke): Promise<void> {
   const { servers } = await googleServers(invoke);
   for (const existing of servers) {

@@ -25,8 +25,6 @@ export interface ConnectorCatalogEntry {
   id: string;
   name: string;
   backend: ConnectorBackend;
-  /** Offered only after the user enters their own Google OAuth client. */
-  ownKey?: boolean;
   /** Curated deferred-tool manifest line (connector-triggers.mjs). */
   trigger: string;
 }

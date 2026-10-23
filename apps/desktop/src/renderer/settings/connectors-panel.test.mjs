@@ -90,13 +90,7 @@ const plugins = [
 
 test('every item kind lands in exactly one group', () => {
   const groups = groupConnectors(servers, plugins);
-  assert.equal(groups.catalog.length, 14, 'Google Calendar and Drive are not listed without a server');
-  assert.ok(!groups.catalog.some((row) => row.entry.ownKey));
-  const withCalendar = groupConnectors([{ name: 'google-calendar', connector: 'google-calendar' }], []);
-  assert.deepEqual(
-    withCalendar.catalog.filter((row) => row.entry.ownKey).map((row) => row.entry.id),
-    ['google-calendar']
-  );
+  assert.equal(groups.catalog.length, 16, 'Google Calendar and Drive are listed without a server');
   const names = groups.catalog.map((row) => row.entry.name);
   assert.deepEqual(
     names,
@@ -705,7 +699,7 @@ test('a connected sign-in connector shares the Gmail frame: account row with a â
   await pane.unmount();
 });
 
-test('Google Calendar and Drive are reached only through "Use my Google key" in the add-custom dialog', async () => {
+test('Google Calendar and Drive are catalog rows, and "Use my Google key" stays in the add-custom dialog', async () => {
   handlers = { mcpStatus: () => ({ servers: [] }) };
   const pane = await render(
     React.createElement(CategoryPanel, {
@@ -713,8 +707,8 @@ test('Google Calendar and Drive are reached only through "Use my Google key" in 
       context: panelContext({ data: { mcp: { servers: [] }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
     })
   );
-  assert.equal(rowOf(pane.host, 'google-calendar'), null);
-  assert.equal(rowOf(pane.host, 'google-drive'), null);
+  assert.ok(rowOf(pane.host, 'google-calendar'));
+  assert.ok(rowOf(pane.host, 'google-drive'));
   await click(rowOf(pane.host, 'add-custom-connector').querySelector('button'));
   await click(button(document.body, 'Use my Google key'));
   await settle();

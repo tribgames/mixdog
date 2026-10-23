@@ -54,19 +54,14 @@ export const CONNECTOR_CATALOG = Object.freeze(
       name: 'Gmail',
       backend: google('gmail', GOOGLE_SCOPES.gmail, ['send_email']),
     },
-    // Calendar and Drive are offered only to a user who entered their own
-    // Google OAuth client (Connectors → add custom → 내 Google 키): `ownKey`.
-    // Existing connections keep working; Mixy and the chat cards never offer them.
     {
       id: 'google-calendar',
       name: 'Google Calendar',
-      ownKey: true,
       backend: google('calendar', GOOGLE_SCOPES.calendar, ['delete_event']),
     },
     {
       id: 'google-drive',
       name: 'Google Drive',
-      ownKey: true,
       backend: google('drive', GOOGLE_SCOPES.drive, []),
     },
     {
@@ -113,9 +108,8 @@ export const CONNECTOR_CATALOG = Object.freeze(
   ].map((entry) => Object.freeze({ ...entry, trigger: connectorTrigger(entry.id) }))
 );
 
-/** The ids offered to everyone (the setup tool's `connect_connector`): the
- *  catalog minus the own-key-only Google services. */
-export const CONNECTOR_IDS = Object.freeze(CONNECTOR_CATALOG.filter((entry) => !entry.ownKey).map((entry) => entry.id));
+/** The ids the setup tool's `connect_connector` offers: the whole catalog. */
+export const CONNECTOR_IDS = Object.freeze(CONNECTOR_CATALOG.map((entry) => entry.id));
 
 /** The catalog entry for `id`, or null. */
 export function connectorById(id) {
