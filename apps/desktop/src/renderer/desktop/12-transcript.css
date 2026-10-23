@@ -686,23 +686,27 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
   background: transparent;
   box-shadow: none;
 }
-/* The bots' reactions (message-reactions.tsx): small chips under the bubble,
-   ending on its right edge with it, as a messenger shows them. */
+/* The bots' reactions (message-reactions.tsx): small chips hanging off the
+   bubble's bottom-left corner, as a messenger shows them on its own messages
+   (the article shrink-wraps the bubble in a chat). They stay in flow (negative
+   margins, not absolute), so the row's measured height still holds them. The
+   ring in the sheet colour cuts them out of the bubble. */
 .message.user .message-reactions {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-  margin: 3px 4px 0 0;
+  gap: 2px;
+  margin: -9px 0 0 -14px;
   padding: 0;
-  align-self: flex-end;
+  align-self: flex-start;
   list-style: none;
 }
 .message-reaction {
   display: inline-flex;
   align-items: center;
-  padding: 1px 7px;
-  border: var(--mx-hairline) solid var(--mx-border-muted);
+  padding: 1px 6px;
+  border: 2px solid var(--mx-workspace-sheet);
   border-radius: var(--mx-radius-pill);
   background: var(--mx-bg-layer-1);
   font-size: var(--mx-font-meta);
