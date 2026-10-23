@@ -20,7 +20,8 @@
  * — the human's own sessions (Mixy's home, an ordinary Lead session) see every
  * bot; a bot's chat, a room seat or an unattended run (a routine, even one in
  * Mixy's own chat) only its own bot; a background run none. `session list`
- * follows the same scope.
+ * names every session for every scope, but gives previews and bot details
+ * only for the sessions the scope sees here (a background run none).
  *
  * Titles and previews are other bots' words: tag-shaped text is escaped and
  * the answer says they are data, not instructions (UNTRUSTED_NOTE).

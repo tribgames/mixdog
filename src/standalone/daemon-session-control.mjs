@@ -121,22 +121,25 @@ export function createSessionControl({
         }
       }
       // Scoped like bots (`callerScope`, bot-status.mjs): the human's sessions
-      // list everything, a bot (or its unattended run) only its own sessions,
-      // anything else the plain rows without previews. Sub-agent sessions (a
+      // list everything with previews, a bot (or its unattended run) lists the
+      // same rows (so it can find a session to send to) but only its own carry
+      // the bot, activity, preview and working state, anything else the plain
+      // rows without previews. Sub-agent sessions (a
       // parent finds its own through the agent tool) and archived ones (the
       // desktop's flag) only on request; the scan pages past the rows left
       // out, so a page is never short while more rows match.
       const own = scopedBot(context.callerScope);
       const archived = (await readSessionSidebarState())?.archived ?? {};
       const keep = (row) =>
-        (!own || sessionBotOf(row) === own) &&
         (args.include_agents === true || !isAgentOnlySession(row)) &&
         (args.include_archived === true || !Object.hasOwn(archived, row.id));
       // Bounded: past 10000 rows scanned with fewer than `limit` matching, the
       // page ends (possibly empty) with a nextCursor to continue from.
       const scan = await scanCatalog(service, keep, { cursor: args.cursor || null, want: limit, maxRows: 10_000 });
       const sessions = scan.rows.map((row) => (Object.hasOwn(archived, row.id) ? { ...row, archived: true } : row));
-      return sessionListOutput({ sessions, nextCursor: scan.nextCursor }, limit, { rich: own !== null });
+      return sessionListOutput({ sessions, nextCursor: scan.nextCursor }, limit, {
+        rich: own ? (row) => sessionBotOf(row) === own : own !== null,
+      });
     }
     if (action === 'send') {
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) {

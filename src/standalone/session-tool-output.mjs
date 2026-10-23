@@ -13,7 +13,8 @@ const outputBytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
 /** Keep catalog paging authoritative even when the output budget shortens a page.
  *  `rich` adds the owning bot, last activity, latest line and working state
- *  (never for a background caller: bot-status.mjs scopedBot). */
+ *  (never for a background caller: bot-status.mjs scopedBot). `rich` may be a
+ *  per-row predicate: a bot gets them only for its own sessions. */
 export function sessionListOutput(page, limit, { rich = true } = {}) {
   const raw = page.sessions;
   const sessions = raw.slice(0, limit).map((row) => {
@@ -26,7 +27,7 @@ export function sessionListOutput(page, limit, { rich = true } = {}) {
       ...(row.cwd ? { cwd: row.cwd } : {}),
       ...(row.archived === true ? { archived: true } : {}),
     };
-    if (!rich) return base;
+    if (typeof rich === 'function' ? !rich(row) : !rich) return base;
     // The bot it belongs to: its chat, room seat or the task's creator.
     const bot = sessionBotOf(row);
     const lastUsedAt = Number(row.lastUsedAt) || 0;
