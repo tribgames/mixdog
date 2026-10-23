@@ -154,6 +154,20 @@ test('an empty cached catalog does not leave the agent picker empty when the fre
   assert.equal(document.querySelector('.model-empty'), null);
 });
 
+test('an empty first answer is read again while the editor stays open', async (t) => {
+  // The 30 s empty-answer retry would stall the run: shorten only that timer.
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => realSetTimeout(fn, ms > 20_000 ? 0 : ms, ...rest);
+  t.after(() => {
+    globalThis.setTimeout = realSetTimeout;
+  });
+  const { calls, options, settle } = await openAgentPicker(t, { cached: [], answers: [[], ALL] });
+  await settle(100);
+  assert.equal(calls.models, 2);
+  assert.match(options(), /DeepSeek V4\.1 Flash/);
+  assert.match(options(), /Muse Spark/);
+});
+
 test('a provisional provider setup keeps the picker listed, then filters once the real setup arrives', async (t) => {
   // A complete catalog: nothing but the setup can make this picker change.
   const authoritative = withAuth(SETUP, true);

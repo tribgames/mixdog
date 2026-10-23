@@ -127,6 +127,53 @@ test('a cold selected route never flashes its raw id or Select model while the f
   }
 });
 
+test('a mounted composer keeps its model list through an empty catalog answer until a real one replaces it (#205)', async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const oldList = window.mixdogDesktop.listProviderModels;
+  let answer = [model];
+  window.mixdogDesktop.listProviderModels = async () => answer;
+  const trigger = () => host.querySelector('.model-trigger').textContent;
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(ModelSelector, {
+          provider: model.provider,
+          model: model.model,
+          effort: 'high',
+          fast: false,
+          fastCapable: true,
+          modelDisabled: false,
+          tuningDisabled: false,
+          invokeResult: (work) => work(),
+          applySnapshot() {},
+          onOpenSettings() {},
+        })
+      )
+    );
+    assert.match(trigger(), /Fast handoff test/);
+
+    // The daemon's boot-time miss: nothing listed. The composer keeps what it shows.
+    answer = [];
+    await act(async () => invalidateSharedModelCatalogRequest());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.match(trigger(), /Fast handoff test/);
+    assert.equal(host.querySelector('[role="status"][aria-busy="true"]'), null);
+
+    // The retry brings the real catalog, which replaces the shown list.
+    answer = [{ ...model, display: 'Refilled catalog entry' }];
+    await act(async () => invalidateSharedModelCatalogRequest());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.match(trigger(), /Refilled catalog entry/);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    window.mixdogDesktop.listProviderModels = oldList;
+    invalidateSharedModelCatalogRequest();
+  }
+});
+
 for (const [id, levels] of [
   ['command-code/deepseek/deepseek-v4.1-flash', ['low', 'medium', 'high', 'xhigh', 'max']],
   ['google-antigravity/gemini-3.8-flash', ['low', 'medium', 'high']],

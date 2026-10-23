@@ -15,10 +15,12 @@ globalThis.window = {
 };
 
 const {
+  fetchProviderModels,
   invalidateSharedModelCatalogRequest,
   readCachedModelCatalog,
   requestModelCatalog,
   subscribeModelCatalogInvalidation,
+  writeCachedModelCatalog,
 } = await import('./model-catalog-cache.ts');
 
 const CATALOG = [
@@ -312,6 +314,45 @@ test('one API object cannot share a catalog across device routes', async () => {
   } finally {
     delete window.location;
   }
+});
+
+test('an empty boot catalog is asked again soon and never replaces the stored catalog (#205)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  writeCachedModelCatalog(CATALOG);
+  const api = stubApi();
+  let answers = 0;
+  api.listProviderModels = async () => (answers++ < 2 ? [] : CATALOG); // quick + full of the first request
+  let woken = 0;
+  const unsubscribe = subscribeModelCatalogInvalidation(() => {
+    woken += 1;
+  });
+  t.after(unsubscribe);
+
+  const first = requestModelCatalog(api);
+  assert.deepEqual(await first.full, []);
+  assert.deepEqual(
+    readCachedModelCatalog().models.map((entry) => entry.model),
+    [CATALOG[0].model],
+    'the empty answer did not overwrite the stored catalog'
+  );
+  assert.equal(requestModelCatalog(api), first, 'shared until its retry time');
+
+  t.mock.timers.tick(31_000);
+  await Promise.resolve();
+  assert.equal(woken, 1, 'mounted pickers are woken at the retry time');
+  const retry = requestModelCatalog(api);
+  assert.notEqual(retry, first, 'an empty answer is not held for a day');
+  assert.equal((await retry.full)[0].model, CATALOG[0].model);
+});
+
+test('fetchProviderModels does not memoize an empty answer', async () => {
+  let answers = 0;
+  const api = { listProviderModels: async () => (answers++ === 0 ? [] : CATALOG) };
+  assert.deepEqual(await fetchProviderModels(api, { quick: false }), []);
+  assert.equal((await fetchProviderModels(api, { quick: false }))[0].model, CATALOG[0].model);
+  assert.equal(answers, 2);
+  assert.equal((await fetchProviderModels(api, { quick: false }))[0].model, CATALOG[0].model, 'a real answer is memoized');
+  assert.equal(answers, 2);
 });
 
 test('an unavailable desktop snapshot is retryable even with a warm model catalog', async () => {
