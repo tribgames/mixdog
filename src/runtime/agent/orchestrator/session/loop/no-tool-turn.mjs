@@ -18,6 +18,7 @@ import { resetOutputLimitRecovery, resolveOutputLimit } from './no-tool-turn/out
 import { resolveRefusal } from './no-tool-turn/refusal.mjs';
 import { resumeContinuation } from './no-tool-turn/continuation.mjs';
 import { nudgeEmptyTurn } from './no-tool-turn/empty-nudge.mjs';
+import { isReactionSuccess, reactionCallIds } from '../../runtime-core/reaction-tool-defs.mjs';
 
 // `escalateMaxTokens()` asks the live provider for a higher one-shot max_tokens
 // (number) or reports none (null/undefined) — the loop stays provider-agnostic.
@@ -37,6 +38,8 @@ export function createNoToolTurnResolver({
     outputEscalationUsed: false,
     refusalRetryUsed: false,
     emptyNudgeStreak: 0,
+    // This turn left a reaction on the user's message (react tool).
+    reacted: false,
     // Structured provider continuation signals honored this turn. Diagnostic
     // only: the loop has no iteration cap, so this count bounds nothing. A
     // text-only continuation runaway is bounded by continuationsSinceToolBatch
@@ -101,7 +104,9 @@ export function createNoToolTurnResolver({
       // output, …) and a text-only terminal turn is the correct shape —
       // nudging them produces a contradictory user message that traps the
       // model in a tool-call-blocked vs contract-required oscillation.
-      if (!hasContent && !HIDDEN_AGENT_NAMES.has(sessionAgent)) {
+      // A turn that left a reaction on the user's message may end with no
+      // text: the reaction is its answer (react tool), never an empty turn.
+      if (!hasContent && !HIDDEN_AGENT_NAMES.has(sessionAgent) && !state.reacted) {
         return nudgeEmptyTurn(
           response,
           { stopReason, isIncompleteStop: stopReason && INCOMPLETE_STOP_REASONS.has(stopReason) },
@@ -132,9 +137,13 @@ export function createNoToolTurnResolver({
       state.emptyNudgeStreak = 0;
       resetOutputLimitRecovery(state);
     },
-    noteToolBatchCompleted() {
+    // `results` are the batch's tool result messages: only a react call that
+    // succeeded marks the turn as having reacted.
+    noteToolBatchCompleted(calls = [], results = []) {
       state.continuationsSinceToolBatch = 0;
       segments.clear();
+      const ids = reactionCallIds(calls);
+      if (ids.size && results.some((message) => isReactionSuccess(message, ids))) state.reacted = true;
     },
     get providerContinuations() {
       return state.providerContinuationCount;

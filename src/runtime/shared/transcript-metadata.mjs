@@ -125,6 +125,33 @@ export function transcriptAttachmentFields(value) {
   return attachmentsField(value?.attachments);
 }
 
+const REACTOR_ID = /^[A-Za-z0-9._-]{1,80}$/;
+
+/**
+ * The bots' reactions on a user message (`meta.transcript.reactions`):
+ * `[{ agentId, emoji, at }]`, one per bot, in the order they were left.
+ * Malformed entries and a bot's repeats are dropped.
+ */
+export function normalizeMessageReactions(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const raw of value) {
+    const agentId = typeof raw?.agentId === 'string' ? raw.agentId : '';
+    const emoji = typeof raw?.emoji === 'string' ? raw.emoji : '';
+    if (!REACTOR_ID.test(agentId) || !emoji || emoji.length > 16 || out.some((entry) => entry.agentId === agentId)) {
+      continue;
+    }
+    out.push({ agentId, emoji, ...(Number.isFinite(raw.at) ? { at: raw.at } : {}) });
+  }
+  return out;
+}
+
+/** The `reactions` field of a transcript row (absent when there are none). */
+export function transcriptReactionsField(value) {
+  const reactions = normalizeMessageReactions(value?.reactions);
+  return reactions.length ? { reactions } : {};
+}
+
 export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.now()) {
   if (!value || typeof value !== 'object') return null;
   const candidateAt = Number(value.assistantAt);

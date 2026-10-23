@@ -10,6 +10,9 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
 import { workflowDisallowsAgentTool } from '../../runtime-core/workflow.mjs';
 import { isAgentModeSession } from '../agent-mode.mjs';
+import { agentIdOfHomeSession } from '../agent-home.mjs';
+import { roomMemberOfSession } from '../agent-room.mjs';
+import { REACTION_TOOL_NAME } from '../../runtime-core/reaction-tool-defs.mjs';
 import { finalizeSessionToolList, resolveSessionTools, permissionFromToolSpec } from './tool-resolution.mjs';
 import { unusedModelEditToolName } from '../../../../shared/edit-tool-dialect.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
@@ -22,6 +25,14 @@ export function delegationDisabled(source, ownerIsAgent) {
     !ownerIsAgent &&
     workflowDisallowsAgentTool(source?.workflow, { agentMode: Boolean(source) && isAgentModeSession(source) })
   );
+}
+
+// The react tool belongs to a bot's own chat with the user: its home chat
+// (`sess_home_<id>`) or its seat in a group room (`sess_rmem_…`), decided by the
+// session's id, never a coding session or a delegated worker.
+export function reactionDisabled(source, ownerIsAgent) {
+  const id = String(source?.id || '');
+  return ownerIsAgent || !(agentIdOfHomeSession(id) || roomMemberOfSession(id));
 }
 
 // Exactly two schema surfaces exist: Lead and Agent. Every Agent role gets
@@ -79,6 +90,7 @@ export function resolveSessionToolSurface(opts, { profile, toolPreset, modelName
   const sessionDeny = [
     ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
     ...(delegationDisabled(opts, ownerIsAgent) ? ['agent'] : []),
+    ...(reactionDisabled(opts, ownerIsAgent) ? [REACTION_TOOL_NAME] : []),
   ];
   // Role permission is prompt/diagnostic metadata only. Resolve and persist
   // it without shaping the provider-visible Agent schema.
@@ -144,6 +156,7 @@ export function _prepareResumeTools(session, preset) {
       disallowedTools: [
         ...(Array.isArray(session.disallowedTools) ? session.disallowedTools : []),
         ...(delegationDisabled(session, ownerIsAgent) ? ['agent'] : []),
+        ...(reactionDisabled(session, ownerIsAgent) ? [REACTION_TOOL_NAME] : []),
       ],
       ownerIsAgent,
     }),

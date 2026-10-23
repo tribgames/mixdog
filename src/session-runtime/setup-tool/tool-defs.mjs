@@ -100,6 +100,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_system_shell: 'command',
   set_auto_update: 'enabled',
   set_heartbeat_enabled: 'enabled',
+  set_reactions_enabled: 'enabled',
   forget_provider_auth: 'name accountId?',
   set_provider_account: 'name providerAccount',
   add_mcp_server: 'server',

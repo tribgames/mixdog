@@ -22,6 +22,7 @@ import { TOOL_DEFS as MEDIA_TOOL_DEFS } from '../../runtime/media/tool-defs.mjs'
 import { TOOL_DEFS as TIDY_TOOL_DEFS } from '../../runtime/tidy/tool-defs.mjs';
 import { TOOL_DEFS as VISUALIZE_BRIDGE_TOOL_DEFS } from '../../runtime/visualize-bridge/tool-defs.mjs';
 import { ASK_USER_TOOL_DEFS } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
+import { REACTION_TOOL_DEFS } from '../../runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from '../setup-tool/tool-defs.mjs';
 import { createSetupToolExecutor } from '../setup-tool/executor.mjs';
 import { bootProfile } from '../boot-profile.mjs';
@@ -167,6 +168,7 @@ function wireToolSurface(boot) {
     visualizeToolDefs: VISUALIZE_BRIDGE_TOOL_DEFS,
     setupToolDefs: SETUP_TOOL_DEFS,
     askUserToolDefs: ASK_USER_TOOL_DEFS,
+    reactionToolDefs: REACTION_TOOL_DEFS,
     goalTools: goalRuntime.tools,
     agentTools: agentTool.tools,
     skillToolEnabled: !envFlag('MIXDOG_DISABLE_SKILLS'),

@@ -15,6 +15,7 @@ import { GOAL_TOOL_DEFS } from '../../src/session-runtime/goal-tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.mjs';
 import { SESSION_TOOL, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/session-runtime/tool-defs.mjs';
 import { AGENT_TOOL } from '../../src/standalone/agent-tool/tool-def.mjs';
+import { REACTION_TOOL_DEFS, validateReactionArgs } from '../../src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
 import { COMPUTER_ACTION_CONTRACTS, validateComputerToolArgs, toComputerHostCommand } from '../../src/runtime/computer-bridge/action-schema.mjs';
@@ -46,6 +47,7 @@ const catalog = [
   SKILL_TOOL,
   TOOL_SEARCH_TOOL,
   AGENT_TOOL,
+  ...REACTION_TOOL_DEFS,
 ];
 const schemaFor = (name) => catalog.find((tool) => tool.name === name).inputSchema;
 const accepts = (schema, args) => {
@@ -82,6 +84,18 @@ test('the complete catalog and provider projections remain valid without mutatin
     if (openai.type !== 'custom') assert.deepEqual(openai.parameters, tool.inputSchema);
   }
   assert.equal(JSON.stringify(catalog), original);
+});
+
+test('react first calls that every provider schema accepts agree with runtime validation', () => {
+  for (const args of [{ emoji: '👍' }, { emoji: '❤', messages_back: 3 }, { remove: true }, { remove: true, messages_back: 1 }]) {
+    for (const [provider, schema] of projections(REACTION_TOOL_DEFS[0])) {
+      assert.equal(ajv.validate(schema, args), true, `${provider}: ${JSON.stringify(ajv.errors)}`);
+    }
+    validateReactionArgs(args);
+  }
+  for (const args of [{ emoji: '👍', messages_back: 21 }, { emoji: '👍', messages_back: -1 }, { emoji: '👍', extra: 1 }]) {
+    assert.equal(ajv.validate(schemaFor('react'), args), false, JSON.stringify(args));
+  }
 });
 
 test('Goal boundaries are known before a call and updates do not need a failed addition first', () => {

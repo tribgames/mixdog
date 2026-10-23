@@ -15,6 +15,7 @@ import {
   roomRowItem,
   roomRowMessage,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { reactInSession } from '../runtime/agent/orchestrator/session/message-reactions.mjs';
 import { artifactRecords } from '../runtime/shared/handoff-artifacts.mjs';
 import { collectTurnArtifacts, sessionRoots, turnSlice } from './handoff-attachments.mjs';
 import {
@@ -150,7 +151,28 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
       return commit(sessionId, () => prepared);
     });
   }
-  return { append };
+
+  /** A member's reaction (`change`: message-reactions.mjs reactToMessage's,
+   *  members never repeating one another's emoji) on a user row of the log
+   *  `sessionId`, in line with the posts; a room open in a window shows it at
+   *  once. Resolves reactToMessage's result. */
+  async function react(sessionId, change) {
+    if (!roomIdOfSession(sessionId)) throw new TypeError('not a group-room session');
+    return serialized(sessionId, async () => {
+      const session = loadSession(sessionId);
+      if (!session || session.closed === true) throw new Error(`session ${sessionId} is not available`);
+      const result = reactInSession(session, { ...change, othersKeep: true });
+      if (!result.changed) return result;
+      await saveSession(session);
+      try {
+        live()?.react?.(sessionId, result.messageId, result.reactions);
+      } catch (error) {
+        log(`live reaction in ${sessionId} failed: ${error?.message || error}`);
+      }
+      return result;
+    });
+  }
+  return { append, react };
 }
 
 let processDelivery = null;
@@ -176,4 +198,9 @@ function roomDelivery() {
 /** Daemon entry: post `rows` into the room log `sessionId`. */
 export async function appendRoomRows(sessionId, rows) {
   return (await roomDelivery()).append(sessionId, rows);
+}
+
+/** Daemon entry: a member's reaction on a user row of the room log `sessionId`. */
+export async function reactInRoom(sessionId, change) {
+  return (await roomDelivery()).react(sessionId, change);
 }

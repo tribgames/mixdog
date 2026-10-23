@@ -131,9 +131,11 @@ export function scheduleOwnerAgentId(schedule) {
 }
 
 let liveSurface = null;
-/** `{ busy(sessionId), notice(sessionId, notice), wake(sessionId, prompt, { id }),
- *  submit(sessionId, prompt, options), abort(sessionId) }` from the session
- *  service; `wake` starts one hidden turn with submission `id` (resolves
+/** `{ busy(sessionId), notice(sessionId, notice), react(sessionId, messageId,
+ *  reactions), wake(sessionId, prompt, { id }), submit(sessionId, prompt,
+ *  options), abort(sessionId) }` from the session service; `react` shows a
+ *  message's new reactions in the runtime hosting it (message-reactions.mjs),
+ *  `wake` starts one hidden turn with submission `id` (resolves
  *  false when it was refused, else `{ settled }`: a promise of the turn's end
  *  status, 'done' when it finished), `submit` queues a routine turn
  *  (resolves whether it was accepted), `abort` stops the running turn. */

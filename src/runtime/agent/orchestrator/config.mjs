@@ -295,6 +295,8 @@ export function loadConfig(options = {}) {
         aiSessionTitles: raw.aiSessionTitles !== false,
         // Mixy's 2-hourly heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
         heartbeat: raw.heartbeat !== false,
+        // Bots may leave an emoji reaction on the user's message (react tool); default on.
+        reactions: raw.reactions !== false,
         worktree: normalizeWorktreeSettings(raw.worktree),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
@@ -474,6 +476,8 @@ function buildAgentSaveBuilder(config) {
     else delete next.aiSessionTitles;
     if (config.heartbeat === false) next.heartbeat = false;
     else delete next.heartbeat;
+    if (config.reactions === false) next.reactions = false;
+    else delete next.reactions;
     delete next.instructionFiles;
     Object.assign(next, storedInstructionFiles(config));
     delete next.autoEffortBase;

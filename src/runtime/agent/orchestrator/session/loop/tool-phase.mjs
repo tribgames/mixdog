@@ -17,8 +17,8 @@ function isSleepLikeToolCall(call) {
 
 export async function runToolPhase(state, round, sent, onToolCall) {
   const { opts, messages, tools, sessionId, sessionRef, signal, response } = state;
-  state.noToolTurn.noteToolCallTurn();
   const calls = response.toolCalls;
+  state.noToolTurn.noteToolCallTurn();
   round.resolveToolCallId.all(calls);
   state.toolCallsTotal += calls.length;
   // Surface any mid-turn assistant text (preamble before a tool call) to the
@@ -44,6 +44,7 @@ export async function runToolPhase(state, round, sent, onToolCall) {
     opts.onToolPhaseStarted?.();
   } catch {}
   const toolsT0 = Date.now();
+  const resultsFrom = messages.length;
   ({ dedupStubTotal: state.dedupStubTotal, editCount: state.editCount } = await processToolBatch({
     calls,
     messages,
@@ -91,6 +92,6 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   });
   state.lastToolBatchEndedAt = toolsEndedAt;
   state.toolBatchJustCompleted = true;
-  state.noToolTurn.noteToolBatchCompleted();
+  state.noToolTurn.noteToolBatchCompleted(calls, messages.slice(resultsFrom));
   state.lastToolBatchHadSleep = calls.some(isSleepLikeToolCall);
 }

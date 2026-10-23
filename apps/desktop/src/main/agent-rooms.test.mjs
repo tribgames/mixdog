@@ -2218,3 +2218,39 @@ test('remove surfaces a failed cleanup', async () => {
   await assert.rejects(h.rooms.remove(roomId), /could not be deleted/);
   assert.equal(h.saved.doc.rooms[roomId], undefined);
 });
+
+test("a member whose turn ended in a reaction alone takes its turn quietly: no pass row, the others still speak", async () => {
+  const run = async (reacted) => {
+    const h = harness({
+      script: (agentId) => (agentId === 'rel' ? '' : 'ok'),
+      decide: () => ({ action: 'unmanaged' }),
+      // Rel's turn left a reaction on the user's row and no reply text.
+      snapshotGate: (id, snapshot) => {
+        if (!reacted || !id.endsWith('_rel')) return;
+        const done = snapshot.items.at(-1);
+        snapshot.items = [
+          { id: 'u', kind: 'user', text: 'p' },
+          { id: 'd', kind: 'turndone', at: done.at, status: 'done', reacted: true },
+        ];
+      },
+    });
+    const { sessionId, roomId } = await room(h);
+    await h.rooms.send(sessionId, '고마워');
+    await h.idle(roomId);
+    return h;
+  };
+  const quiet = await run(true);
+  assert.deepEqual(
+    quiet.prompts.map((p) => p.agentId),
+    ['gh', 'rel', 'bench'],
+    'the reaction counted as its turn'
+  );
+  assert.equal(quiet.log.some((row) => row.speaker === 'rel'), false, 'no pass row, no empty row');
+  assert.deepEqual(
+    quiet.log.filter((row) => row.kind === 'speech').map((row) => row.speaker),
+    ['gh', 'bench']
+  );
+  // The same empty answer without a reaction is a pass row, as before.
+  const passed = await run(false);
+  assert.ok(passed.log.some((row) => row.speaker === 'rel' && row.kind === 'pass'));
+});

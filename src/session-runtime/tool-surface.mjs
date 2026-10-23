@@ -18,6 +18,9 @@ import { workflowDisallowsAgentTool } from '../runtime/agent/orchestrator/runtim
 import { promptWorkflowOf } from '../runtime/agent/orchestrator/session/manager/workflow-switch-notice.mjs';
 import { configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
 import { isAgentModeSession } from '../runtime/agent/orchestrator/session/agent-mode.mjs';
+import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
+import { reactionDisabled } from '../runtime/agent/orchestrator/session/manager/session-tool-surface.mjs';
+import { REACTION_TOOL_NAME } from '../runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 
 export function createToolSurface({
   mgr,
@@ -78,6 +81,7 @@ export function createToolSurface({
       ...disallowedModelToolNamesForProfile(profileCandidates, getToolProfile()),
       ...getFeatureDisallowedTools(),
       ...(workflowAllowsAgents() ? [] : [...agentToolNames]),
+      ...(reactionDisabled(session, isAgentOwner(session)) ? [REACTION_TOOL_NAME] : []),
     ];
   }
 

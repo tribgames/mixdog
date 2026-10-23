@@ -19,6 +19,7 @@ import { PATCH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/patc
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../../src/runtime/memory/tool-defs.mjs';
 import { TOOL_DEFS as WEB_SEARCH_TOOL_DEFS } from '../../src/runtime/web-search/tool-defs.mjs';
 import { assertCodeGraphDescriptionContract } from '../code-graph-description-contract.mjs';
+import { REACTION_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 
 function assertHas(set, name) {
   if (!set.has(name)) throw new Error(`default tool surface missing ${name}: ${[...set].join(', ')}`);
@@ -194,6 +195,33 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   for (const name of ['apply_patch', 'agent', 'shell', 'git']) {
     assertLacks(readonlyDefaults, name);
   }
+});
+
+test('react stays a small bot-only Lead default with its usage guidance in the description', () => {
+  const [react] = REACTION_TOOL_DEFS;
+  const props = react.inputSchema.properties;
+  if (
+    react.name !== 'react' ||
+    Object.keys(props).join(',') !== 'emoji,messages_back,remove' ||
+    react.inputSchema.additionalProperties !== false ||
+    react.inputSchema.required !== undefined ||
+    react.annotations?.agentHidden !== true ||
+    !/❤️ 👍 ✔️ 😆 😮 😢 🙏/.test(props.emoji.description) ||
+    !/no reply text, when the reaction fully answers/.test(react.description) ||
+    !/never as a status signal/.test(react.description) ||
+    !/never mention or explain a reaction/.test(react.description) ||
+    !/never repeating one another member left/.test(react.description) ||
+    !/❤️ warmth or good news, 👍 agreement or ok, ✔️ done or noted, 😆 funny, 😮 surprising, 😢 sad, 🙏 thanks\./.test(
+      react.description
+    ) ||
+    toolSchemaSize(react) > 1200
+  ) {
+    throw new Error(`react schema/description drifted (${toolSchemaSize(react)} chars): ${JSON.stringify(react)}`);
+  }
+  const leadDefaults = defaultDeferredToolNames([...smokeCatalog, react], 'lead');
+  assertHas(leadDefaults, 'react');
+  assertLacks(defaultDeferredToolNames([...smokeCatalog, react], 'full'), 'react');
+  assertLacks(defaultDeferredToolNames([...smokeCatalog, react], 'readonly'), 'react');
 });
 
 test('agent schema hides execution controls and rejects hidden fields', () => {

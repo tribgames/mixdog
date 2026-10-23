@@ -263,6 +263,7 @@ export function collectStandaloneToolDefs({
   visualizeToolDefs = [],
   setupToolDefs = [],
   askUserToolDefs = [],
+  reactionToolDefs = [],
   goalTools = [],
   agentTools = [],
   skillToolEnabled = true,
@@ -284,6 +285,7 @@ export function collectStandaloneToolDefs({
     ...admitted(visualizeToolDefs, VISUALIZE_RUNTIME_TOOLS),
     ...setupToolDefs,
     ...askUserToolDefs,
+    ...reactionToolDefs,
     ...goalTools,
     ...agentTools,
   ];

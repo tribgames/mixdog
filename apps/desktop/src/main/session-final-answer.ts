@@ -5,6 +5,8 @@ export interface SessionFinalAnswer {
   at: number;
   status: 'done' | 'failed' | 'cancelled';
   text: string;
+  /** The turn answered with a reaction on the user's message alone: done, with no text. */
+  reacted?: boolean;
 }
 
 /** `Error.code` of a read whose session record is gone (deleted, never
@@ -45,6 +47,10 @@ export function sessionFinalAnswer(snapshot: SessionSnapshot, startedAt: number)
   if (items.slice(doneIndex + 1).some((item) => item.kind === 'user' || item.kind === 'assistant')) return null;
   if (done.status === 'failed' || done.status === 'cancelled') {
     return { id: done.id, at: done.at, status: done.status, text: '' };
+  }
+  // A reaction alone answered the turn: nothing to read, and nothing more comes.
+  if (done.status === 'done' && done.finalAssistantId == null && done.reacted === true) {
+    return { id: done.id, at: done.at, status: 'done', text: '', reacted: true };
   }
   if (done.status !== 'done' || done.finalAssistantId == null) return null;
   let answerIndex = doneIndex - 1;

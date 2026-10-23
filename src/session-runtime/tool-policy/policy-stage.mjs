@@ -18,7 +18,9 @@ import { sessionRolePromptFields } from '../../runtime/agent/orchestrator/sessio
 import {
   delegationDisabled,
   honoredSchemaAllowlist,
+  reactionDisabled,
 } from '../../runtime/agent/orchestrator/session/manager/session-tool-surface.mjs';
+import { REACTION_TOOL_NAME } from '../../runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 import { finalizeSessionToolList } from '../../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
 import { AGENT_MODE, sessionModeOf } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
@@ -40,14 +42,15 @@ export function createPolicyStage({
   activeWorkflowContext,
 }) {
   // The tools `session` is denied now: its caller's denials, the feature gates
-  // as they stand, and an agent-mode Lead's agent tool when its workflow
+  // as they stand, an agent-mode Lead's agent tool when its workflow
   // delegates to no one (a coding Lead keeps it: workflow.mjs
-  // workflowDisallowsAgentTool).
+  // workflowDisallowsAgentTool), and react outside a bot's chat with the user.
   function liveDeniedTools(session, workflow) {
     return [
       ...session.callerDisallowedTools,
       ...featureDisallowedTools(),
       ...(workflowDisallowsAgentTool(workflow, { agentMode: sessionModeOf(session) === AGENT_MODE }) ? ['agent'] : []),
+      ...(reactionDisabled(session, isAgentOwner(session)) ? [REACTION_TOOL_NAME] : []),
     ]
       .map((name) => String(name || ''))
       .filter(Boolean);

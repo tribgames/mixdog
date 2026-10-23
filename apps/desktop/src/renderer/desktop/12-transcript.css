@@ -686,6 +686,29 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
   background: transparent;
   box-shadow: none;
 }
+/* The bots' reactions (message-reactions.tsx): small chips under the bubble,
+   ending on its right edge with it, as a messenger shows them. */
+.message.user .message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 3px 4px 0 0;
+  padding: 0;
+  align-self: flex-end;
+  list-style: none;
+}
+.message-reaction {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-1);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  cursor: default;
+}
 .message.user .message-device {
   margin: 3px 6px 0 0;
   align-self: flex-end;

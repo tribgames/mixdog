@@ -386,6 +386,9 @@ async function memberTurn(
   }
   // A relay of the member's own work is no turn to pass either.
   const text = spokenText(answer, waiting || Boolean(call?.relay));
+  // A member whose answer was a reaction on the user's row alone has taken
+  // its turn: the reaction shows under that row, and no pass row is posted.
+  if (!text && answer.reacted === true) return 'pass';
   if (!text) {
     outcome.failed = answer.status !== 'done';
     await host.post([passRow(outcome.failed)]);

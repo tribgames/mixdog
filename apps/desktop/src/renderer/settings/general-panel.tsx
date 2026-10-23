@@ -289,6 +289,13 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           onChange={(enabled) => void run('setHeartbeatEnabled', [enabled])}
         />
         <ToggleRow
+          title={t('Reactions')}
+          description={t('Bots can react to your messages with an emoji when it fits.')}
+          checked={record(data.reactions).reactions !== false}
+          disabled={busy}
+          onChange={(enabled) => void run('setReactionsEnabled', [enabled])}
+        />
+        <ToggleRow
           title={t('Web search')}
           description={t('Expose web search and web fetch tools to new sessions.')}
           checked={webSearchModule.enabled !== false}

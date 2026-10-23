@@ -41,6 +41,7 @@ import { routineNoticeText } from './routine-notice';
 import { RoomAddressChip, RoomTranscriptRow } from './agent-room-transcript';
 import { HeldRequestCard } from './ApprovalCard';
 import { AgentTaskLine } from './agent-task-line';
+import { MessageReactions, messageReactionsOf } from './message-reactions';
 import { asRecord } from './text-format';
 
 export { routineNoticeText };
@@ -478,6 +479,7 @@ export const TranscriptRow = memo(
     // The runtime reports which `$name` mentions it applied; only those are
     // marked, so `$HOME` or a skill that was off stays prose.
     const appliedSkills = user ? appliedSkillsOf(item) : [];
+    const reactions = user ? messageReactionsOf(item) : [];
     return (
       <>
         <article
@@ -540,6 +542,7 @@ export const TranscriptRow = memo(
               )}
             </div>
           )}
+          {reactions.length > 0 && <MessageReactions reactions={reactions} />}
           {user && <AppliedSkills names={appliedSkills} />}
           {user && multiDevice && isOtherDevice(item.device, viewerDevice) && (
             <small className="message-device">{t('from {{device}}', { device: item.device })}</small>

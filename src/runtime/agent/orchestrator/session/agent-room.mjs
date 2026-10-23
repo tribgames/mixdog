@@ -11,7 +11,11 @@
 // session-runtime/handoff-attachments.mjs): stored references, handed as
 // content to the members the row reaches, once each.
 import { escapeHarnessTags } from '../../../shared/shell-output-summary.mjs';
-import { normalizeMessageAttachments, transcriptAttachmentFields } from '../../../shared/transcript-metadata.mjs';
+import {
+  normalizeMessageAttachments,
+  transcriptAttachmentFields,
+  transcriptReactionsField,
+} from '../../../shared/transcript-metadata.mjs';
 import { AGENT_MESSAGE_NOTE } from '../../../shared/agent-message-envelope.mjs';
 import { agentHomeSessionId } from './agent-home.mjs';
 
@@ -776,6 +780,8 @@ export function roomRowItem(message, id) {
     // A user row's (or member speech's) files, in the fields a chat prompt's row draws them from.
     ...(room.kind === 'user' || room.kind === 'speech' ? transcriptAttachmentFields(message.meta.transcript) : {}),
     ...(room.kind === 'user' && Array.isArray(images) && images.length ? { images } : {}),
+    // The members' emoji reactions on a user row (message-reactions.mjs).
+    ...(room.kind === 'user' ? transcriptReactionsField(message.meta.transcript) : {}),
     ...roomRowSender(room),
   };
 }

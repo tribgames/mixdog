@@ -45,6 +45,8 @@ const ACTION_APPLIES_TO = {
   set_recap_enabled: 'background Memory cycles; no restart required',
   set_auto_update: 'subsequent automatic update checks',
   set_heartbeat_enabled: "Mixy's next heartbeat check (every 2 hours); no restart required",
+  set_reactions_enabled:
+    "bots' chats; while off a reaction is refused at once and new chats are not offered the tool; reactions already left stay visible",
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',
   set_system_shell: 'subsequent shell calls',
   save_automation: 'the automation worker; scheduled runs follow the saved timing',
@@ -279,6 +281,7 @@ async function featureStatus(rt, getConfig) {
     computer: { active: builtinFeatureActive(config, 'computer') },
     terminal: { active: builtinFeatureActive(config, 'terminal') },
     heartbeat: { enabled: config?.heartbeat !== false },
+    reactions: { enabled: config?.reactions !== false },
     voice: rt.getVoiceStatus ? voiceFeatureStatus(await rt.getVoiceStatus()) : null,
   };
 }
@@ -600,6 +603,7 @@ const SETUP_ACTION_HANDLERS = {
   set_system_shell: (rt, args) => rt.setSystemShell({ command: clean(args.command) }),
   set_auto_update: (rt, args) => rt.setAutoUpdate(requireBoolean(args.enabled)),
   set_heartbeat_enabled: (rt, args) => rt.setHeartbeatEnabled(requireBoolean(args.enabled)),
+  set_reactions_enabled: (rt, args) => rt.setReactionsEnabled(requireBoolean(args.enabled)),
   set_worktree_settings: (rt, args) => rt.setWorktreeSettings(args.worktree),
   forget_provider_auth: async (rt, args) => {
     const name = requireText(args.name, 'name');

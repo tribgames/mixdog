@@ -158,6 +158,12 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     // The answer read may cross a new turn, an archive, settings change or
     // disposal. Idleness alone cannot identify the turn that was requested.
     if (!current(entry)) return;
+    // A turn answered by a reaction alone raises no notification.
+    if (answer?.reacted === true && answer.at >= completion.startedAt) {
+      cancel(completion.sessionId);
+      options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: 'reaction' });
+      return;
+    }
     if (!answer || answer.at < completion.startedAt || (answer.status === 'done' && !answer.text.trim())) {
       if (!entry.waitingReported) {
         options.onDiagnostic?.('waiting-answer', { sessionId: completion.sessionId });

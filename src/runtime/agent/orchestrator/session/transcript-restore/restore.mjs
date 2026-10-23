@@ -37,7 +37,11 @@ import {
   isTranscriptCancelledStatusText,
 } from '../../../../shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../../../shared/tool-status.mjs';
-import { transcriptAttachmentFields, transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
+import {
+  transcriptAttachmentFields,
+  transcriptReactionsField,
+  transcriptRouteMetadataFields,
+} from '../../../../shared/transcript-metadata.mjs';
 import { routineTriggerField } from '../../../../shared/routine-trigger.mjs';
 import { isImportedMessage } from '../imported-message.mjs';
 import { isContextAckMessage } from '../compact/user-message-kind.mjs';
@@ -91,6 +95,8 @@ function restoredTranscriptMetadata(message) {
     // The attachments this prompt carried, by content hash: a restored row
     // opens/downloads them by id from the attachment store.
     ...transcriptAttachmentFields(value),
+    // The bots' emoji reactions on a user message (message-reactions.mjs).
+    ...transcriptReactionsField(value),
     // A routine fire this turn delivered: painted as its marker row.
     ...routineTriggerField(value),
     // Skills this user turn explicitly loaded (header selection or `$name`).

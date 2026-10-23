@@ -88,6 +88,24 @@ test('the same wording is still a new answer when another turn produces it', () 
   assert.equal(sessionFinalAnswer(state, 1_000).id, 'new-turn');
 });
 
+test('a turn answered by a reaction alone is done with nothing to read; an unmarked empty turn stays pending', () => {
+  const user = { id: 'user', kind: 'user', text: '고마워' };
+  const reacted = { id: 'turn', kind: 'turndone', at: 2_000, status: 'done', reacted: true };
+  assert.deepEqual(sessionFinalAnswer(snapshot([user, reacted]), 1_000), {
+    id: 'turn',
+    at: 2_000,
+    status: 'done',
+    text: '',
+    reacted: true,
+  });
+  const { reacted: _reacted, ...plain } = reacted;
+  assert.equal(sessionFinalAnswer(snapshot([user, plain]), 1_000), null);
+  // A reaction beside a reply: the reply is the answer, as before.
+  const both = sessionFinalAnswer(snapshot([user, assistant('final', 'Congrats!'), { ...reacted, finalAssistantId: 'final' }]), 1_000);
+  assert.equal(both.text, 'Congrats!');
+  assert.equal(both.reacted, undefined);
+});
+
 test('a stopped turn without a final reply is not announced as an answer', () => {
   const state = snapshot([assistant('progress', 'Checking'), done('failed-turn', null, 2_000, 'failed')]);
   assert.deepEqual(sessionFinalAnswer(state, 1_000), { id: 'failed-turn', at: 2_000, status: 'failed', text: '' });

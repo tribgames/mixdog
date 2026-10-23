@@ -1,4 +1,5 @@
-// Automation worker status, the system shell, self-update and Mixy's heartbeat settings.
+// Automation worker status, the system shell, self-update, Mixy's heartbeat
+// and bots' reactions settings.
 export function createSystemSettings({
   getConfig,
   saveConfigAndAdopt,
@@ -55,6 +56,13 @@ export function createSystemSettings({
     setHeartbeatEnabled(enabled) {
       saveConfigAndAdopt({ ...getConfig(), heartbeat: enabled === true });
       return this.getHeartbeatSettings();
+    },
+    getReactionSettings() {
+      return { reactions: getConfig()?.reactions !== false };
+    },
+    setReactionsEnabled(enabled) {
+      saveConfigAndAdopt({ ...getConfig(), reactions: enabled === true });
+      return this.getReactionSettings();
     },
     async checkForUpdate(options = {}) {
       await checkForUpdateInternal({ force: options?.force === true });

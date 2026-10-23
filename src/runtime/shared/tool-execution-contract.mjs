@@ -195,6 +195,8 @@ const TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES = new Set([
   'update_goal',
   'load_tool',
   'tool_search',
+  // A bot's reaction shows as its emoji under the user's message, not as a card.
+  'react',
 ]);
 // Skill loads are visible cards EXCEPT for built-in skills: those ride a
 // built-in feature whose own card (Browser Use, Document work, ...) follows

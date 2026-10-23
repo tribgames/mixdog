@@ -118,6 +118,12 @@ export function createSessionSettingsApi(bag) {
     setHeartbeatEnabled: withCommandLock(async (enabled) => {
       return await runtime.setHeartbeatEnabled?.(enabled);
     }),
+    getReactionSettings: () => {
+      return runtime.getReactionSettings?.() || { reactions: true };
+    },
+    setReactionsEnabled: withCommandLock(async (enabled) => {
+      return await runtime.setReactionsEnabled?.(enabled);
+    }),
     getLeadAppearance: () => {
       return runtime.getLeadAppearance?.() || { avatar: null };
     },

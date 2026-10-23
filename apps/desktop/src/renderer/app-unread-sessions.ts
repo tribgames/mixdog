@@ -34,6 +34,13 @@ function sharedReadRevision(row: DesktopSessionSummary): number {
   return Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
+/** A bot chat's or room's row lists the messages that arrived (`incomingTail`):
+ *  its growth is unread only when one of them is past the seen count, so the
+ *  user's own words and a turn answered by a reaction alone leave no dot. */
+function noNewIncoming(row: DesktopSessionSummary | undefined, last: number | undefined): boolean {
+  return Array.isArray(row?.incomingTail) && last !== undefined && !row.incomingTail.some((place) => place > last);
+}
+
 export function sharedReadClearsUnread(row: DesktopSessionSummary, previousRevision: number | undefined): boolean {
   const revision = sharedReadRevision(row);
   return (
@@ -196,7 +203,7 @@ export function useUnreadSessions({
           }
           continue;
         }
-        if (count > last) unread.add(row.id);
+        if (count > last && !noNewIncoming(row, last)) unread.add(row.id);
       }
       if (dirty) persistSeen(seen);
       // Preserve completion-only dots across later catalog pushes until the row
@@ -205,7 +212,8 @@ export function useUnreadSessions({
         if (liveIds.has(id) && !remotelyReadIds.has(id) && !viewing(id)) unread.add(id);
       }
       for (const id of completedIds) {
-        if (!remotelyReadIds.has(id) && !viewing(id)) unread.add(id);
+        const row = rows.find((candidate) => candidate.id === id);
+        if (!remotelyReadIds.has(id) && !viewing(id) && !noNewIncoming(row, seen.get(id))) unread.add(id);
       }
       // Work a bot handed off reports back in that bot's chat, which takes the
       // dot: the delegated session's own completion is not a second one.

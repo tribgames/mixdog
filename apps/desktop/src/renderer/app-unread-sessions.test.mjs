@@ -126,6 +126,34 @@ test("a bot's delegated session takes no completion dot; the bot's own chat stil
   }
 });
 
+test("a bot chat's turn answered by a reaction alone leaves no unread dot; its next reply does", async () => {
+  const dom = installDom({ focused: false });
+  const api = {};
+  // Two messages so far: the user's, then the bot's reply (place 2).
+  const home = { ...row, id: 'home-1', messageCount: 2, readMessageCount: 2, incomingTail: [2], working: false };
+  function Harness() {
+    const viewedSessionRef = useRef('');
+    Object.assign(api, useUnreadSessions({ viewedSessionRef }));
+    return React.createElement('div', null, [...api.unreadSessionIds].join(','));
+  }
+  const marks = () => document.querySelector('#root div').textContent;
+  try {
+    await act(async () => dom.root.render(React.createElement(Harness)));
+    await act(async () => api.reconcileUnreadSessions([home]));
+    // The user writes "고마워" from the phone; the bot reacts and says nothing:
+    // the count grows (the prompt, the tool round, the empty end), no message arrived.
+    await act(async () => api.reconcileUnreadSessions([{ ...home, working: true, messageCount: 3 }]));
+    await act(async () => api.reconcileUnreadSessions([{ ...home, messageCount: 5 }]));
+    assert.equal(marks(), '');
+    // A real reply later is unread as ever.
+    await act(async () => api.reconcileUnreadSessions([{ ...home, messageCount: 7, incomingTail: [2, 7] }]));
+    assert.equal(marks(), 'home-1');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 // The split layout of the report: coding sessions in the focused left pane, a
 // bot chat ('비서') open as the right pane's tab.
 function SplitHarness({ api, screen, focusTick, sessions, useScreenSessions, useUnreadViewedSession }) {

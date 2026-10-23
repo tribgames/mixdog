@@ -10,6 +10,7 @@ import { createAskUserToolHandlers } from './internal-tool-executor/ask-user-too
 import { createBridgeToolHandlers } from './internal-tool-executor/bridge-tools.mjs';
 import { createFeatureToolHandlers } from './internal-tool-executor/feature-tools.mjs';
 import { createKnowledgeToolHandlers } from './internal-tool-executor/knowledge-tools.mjs';
+import { createReactionToolHandlers } from './internal-tool-executor/reaction-tool.mjs';
 import { createWorkspaceToolHandlers } from './internal-tool-executor/workspace-tools.mjs';
 
 export function createInternalToolExecutor({
@@ -40,6 +41,7 @@ export function createInternalToolExecutor({
   const handlers = {
     ...createBridgeToolHandlers({ rt }),
     ...createAskUserToolHandlers({ rt }),
+    ...createReactionToolHandlers({ rt }),
     ...createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, mediaToolEnabled, tidyToolEnabled }),
     ...createKnowledgeToolHandlers({
       rt,
@@ -76,6 +78,7 @@ export function createInternalToolExecutor({
         'memory tools are disabled in settings; background memory and manual core memory remain available'
       );
     }
+    if (name === 'react' && rt.config?.reactions === false) throw new Error('reactions are turned off in settings');
   };
 
   return async (name, args, callerCtx = {}) => {

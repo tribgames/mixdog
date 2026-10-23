@@ -274,6 +274,18 @@ export function createSessionService({
     return true;
   }
 
+  /** Show the reactions now on message `messageId` in the hosted runtime of
+   *  `sessionId` and publish them to its views; false when no runtime hosts
+   *  it or its live rows do not hold that message. */
+  function setLiveMessageReactions(sessionId, messageId, reactions) {
+    const owner = projection.sessionOwner(sessionId);
+    if (typeof owner?.runtime?.setMessageReactions !== 'function') return false;
+    if (!owner.runtime.setMessageReactions(messageId, reactions)) return false;
+    const step = projection.advance(owner);
+    if (step.changed) projection.publishStep(owner, step);
+    return true;
+  }
+
   function getStatus() {
     const busy = retention.liveBusyCount();
     let watched = 0;
@@ -322,6 +334,7 @@ export function createSessionService({
       liveSessionBusy,
       liveSessionAwaitingApproval,
       pushLiveSessionNotice,
+      setLiveMessageReactions,
       stop,
       startQuotaResume: () => quotaResume?.start(),
       runDueQuotaResumes: () => quotaResume?.tick() ?? Promise.resolve(),

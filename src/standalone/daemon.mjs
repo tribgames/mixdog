@@ -1001,6 +1001,9 @@ async function main() {
   setAgentHomeLiveSurface({
     busy: (sessionId) => sessionService.liveSessionBusy(sessionId),
     notice: (sessionId, notice) => sessionService.pushLiveSessionNotice(sessionId, notice),
+    // A bot's emoji reaction on a user message (message-reactions.mjs).
+    react: (sessionId, messageId, reactions) =>
+      sessionService.setLiveMessageReactions(sessionId, messageId, reactions),
     // A task session's result (session create): the agent relays it in one
     // turn. Resolves false when the turn was refused, else `{ settled }`, the
     // turn's end status ('done' when it finished).

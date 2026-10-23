@@ -101,12 +101,14 @@ export function stampMessageIds(messages, { sessionId = '' } = {}) {
 
 /** JSON.stringify replacer that leaves stable ids out: hashes and archives
  *  the compactor derives from message JSON describe the conversation, not
- *  its display bookkeeping (a meta that only held the id is left out too). */
+ *  its display bookkeeping (a meta that only held the id is left out too).
+ *  Reactions on a message (message-reactions.mjs) are display bookkeeping of
+ *  the same kind, written in place mid-turn, and are left out with the id. */
 export function withoutMessageIdsReplacer(key, value) {
   if (key !== 'meta' || !value || typeof value !== 'object' || typeof value.transcript?.messageId !== 'string') {
     return value;
   }
-  const { messageId: _id, ...transcript } = value.transcript;
+  const { messageId: _id, reactions: _reactions, ...transcript } = value.transcript;
   const meta = { ...value };
   if (Object.keys(transcript).length) meta.transcript = transcript;
   else delete meta.transcript;

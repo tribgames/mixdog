@@ -77,6 +77,9 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   // Always on the Lead surface (native and bridge alike): a question is an
   // optional move the model skips when it costs a load or call_tool hop.
   'ask_user',
+  // A bot's reaction, likewise: only a bot's chat with the user has it at all
+  // (session-tool-surface.mjs reactionDisabled).
+  'react',
   'Skill',
   'load_tool',
 ]);

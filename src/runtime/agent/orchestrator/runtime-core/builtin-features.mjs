@@ -158,6 +158,8 @@ export function featureDisallowedToolsFor(
     ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
     ...(builtinFeatureActive(configLike, 'tidy') ? [] : ['tidy']),
     ...(builtinFeatureActive(configLike, 'visualize') ? [] : ['visualize']),
+    // Bots' emoji reactions (Settings → General → Reactions); on unless turned off.
+    ...(configLike?.reactions === false ? ['react'] : []),
   ];
   // Headless exec uses the Lead surface and excludes Skill/MCP tools. When
   // only its eager defaults remain, neither schemas nor loader guidance help.

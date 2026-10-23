@@ -81,6 +81,14 @@ export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFl
     pushNotice,
     removeNotice,
     setProgressHint,
+    // A bot's emoji reactions on a user message (message-reactions.mjs): its
+    // live row shows them at once; false when the live rows do not hold it.
+    setMessageReactions: (messageId, reactions) => {
+      const row = bag
+        .getState()
+        .items.findLast((item) => item?.kind === 'user' && messageId && item.messageId === messageId);
+      return row ? bag.patchItem(row.id, { reactions: Array.isArray(reactions) ? reactions : [] }) : false;
+    },
     ...createSessionResetActions(bag),
     listSessions: (options) => {
       return runtime.listSessions(options);

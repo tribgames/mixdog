@@ -23,6 +23,10 @@ import { isRejected429 } from '../../runtime/shared/error-presentation.mjs';
 import { QUOTA_KINDS, providerErrorKind } from '../../runtime/agent/orchestrator/providers/provider-error-kind.mjs';
 import { turnFailureRecord } from '../../runtime/agent/orchestrator/session/turn-failure.mjs';
 import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
+import {
+  isReactionSuccess,
+  reactionCallIds,
+} from '../../runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
 import { archiveItemsForCompaction, compactionArchivedRows } from './compaction-view.mjs';
@@ -153,6 +157,9 @@ function beginTurn({ flags, getState, transcriptRouteMetadata }, options) {
     askResult: null,
     finishedNormally: false,
     transcriptCompacted: false,
+    // Ids of this turn's react calls; `reacted` is set once one succeeds.
+    reactionCallIds: new Set(),
+    reacted: false,
   };
 }
 
@@ -404,10 +411,15 @@ export function toolHandlers(ctx) {
       if (isCurrentTurn()) settleSegmentBeforeToolCall(ctx);
     },
     onToolCall: async (_iter, calls) => {
-      if (isCurrentTurn()) await openToolCalls(ctx, calls);
+      if (!isCurrentTurn()) return;
+      for (const id of reactionCallIds(calls)) ctx.turn.reactionCallIds.add(id);
+      await openToolCalls(ctx, calls);
     },
     onToolResult: (message) => {
       if (!isCurrentTurn()) return;
+      // A reaction that landed on the user's message is this turn's output
+      // even with no reply text; a rejected or failed react call is not.
+      if (isReactionSuccess(message, ctx.turn.reactionCallIds)) ctx.turn.reacted = true;
       try {
         options.onToolResult?.(message);
       } catch {}
@@ -557,6 +569,9 @@ export function turnDoneItem({ turn, stream, cards, getState, nextId }) {
     outputTokens: finalOutputTokens(stream, getState().spinner?.outputTokens),
     thinkingElapsedMs: stream.thinkingStartedAt ? stream.accumulatedThinkingMs : 0,
     toolCount: cards.toolCards.length,
+    // Its answer may be a reaction alone: readers of the turn's final answer
+    // take it as done with nothing to say (session-final-answer.ts).
+    ...(turn.reacted ? { reacted: true } : {}),
     verb: turn.completionVerb,
     at: Date.now(),
     ...(turn.failureDetail ? { detail: turn.failureDetail } : {}),
@@ -580,9 +595,11 @@ function publishTurnClose(ctx, closingItems) {
   const assistantOutput = (stream.currentAssistantText || stream.assistantText || '').trim();
   // Suppress only true pending-resume no-ops: no transcript items added and
   // no model output; cancelled/error turns and any visible turn stay marked.
+  // A turn whose only output was a reaction ends with its turndone row too.
   const isNoOpTurn =
     turn.finishedNormally &&
     !turn.cancelled &&
+    !turn.reacted &&
     cards.toolCards.length === 0 &&
     !resultContent &&
     !assistantOutput &&

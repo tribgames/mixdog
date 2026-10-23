@@ -71,6 +71,19 @@ test('a mid-turn flicker with no new answer keeps polling and stays quiet when t
   assert.deepEqual(delivered, []);
 });
 
+test('a turn answered by a reaction alone raises no notification and stops polling', async (t) => {
+  const { watcher, delivered, answers, reads, diagnostics, tick } = harness(t);
+  answers.read = async () => ({ id: 'turn', at: Date.now(), status: 'done', text: '', reacted: true });
+  watcher.onSessions([session('a', { working: true })]);
+  watcher.onSessions([session('a')]);
+  await tick(300);
+  assert.equal(reads.length, 1);
+  await tick(10_000);
+  assert.equal(reads.length, 1, 'nothing more is read for it');
+  assert.deepEqual(delivered, []);
+  assert.ok(diagnostics.some(([event, id, reason]) => event === 'suppressed' && id === 'a' && reason === 'reaction'));
+});
+
 test('a turn that resumes within the quiet period is not delivered', async (t) => {
   const { watcher, delivered, tick } = harness(t);
   watcher.onSessions([session('a', { working: true })]);
