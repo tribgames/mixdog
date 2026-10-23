@@ -40,6 +40,9 @@ updates:
       # @tiptap/extension-mathematics peers katex up to 0.18 only.
       - dependency-name: "katex"
         versions: [">=0.19.0"]
+      # 0.57 moved the esm paths monaco-setup.ts and monaco-locale.ts import.
+      - dependency-name: "monaco-editor"
+        versions: [">=0.56.0"]
       # Pinned: transcript-list-virtualizer.ts patches virtual-core internals.
       - dependency-name: "@tanstack/virtual-core"
       - dependency-name: "@tanstack/react-virtual"
