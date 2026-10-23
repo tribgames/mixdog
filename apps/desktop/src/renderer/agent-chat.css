@@ -135,7 +135,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   margin: 0 2px;
   align-self: flex-start;
   color: var(--mx-text-time);
-  font-size: calc(11px * var(--mx-content-scale, 1));
+  font-size: var(--mx-font-micro);
   font-variant-numeric: tabular-nums;
   line-height: var(--mx-line-meta);
   white-space: nowrap;
