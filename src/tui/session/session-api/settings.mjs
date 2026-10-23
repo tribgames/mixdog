@@ -112,6 +112,12 @@ export function createSessionSettingsApi(bag) {
     setAiSessionTitles: withCommandLock(async (enabled) => {
       return await runtime.setAiSessionTitles?.(enabled);
     }),
+    getHeartbeatSettings: () => {
+      return runtime.getHeartbeatSettings?.() || { heartbeat: true };
+    },
+    setHeartbeatEnabled: withCommandLock(async (enabled) => {
+      return await runtime.setHeartbeatEnabled?.(enabled);
+    }),
     getLeadAppearance: () => {
       return runtime.getLeadAppearance?.() || { avatar: null };
     },

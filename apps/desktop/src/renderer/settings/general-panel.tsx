@@ -280,6 +280,15 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
       </Group>
       <Group title={t('Features')}>
         <ToggleRow
+          title={t('Mixy check-ins')}
+          description={t(
+            'Every 2 hours, check your bots and sessions; Mixy speaks up only when something needs attention.'
+          )}
+          checked={record(data.heartbeat).heartbeat !== false}
+          disabled={busy}
+          onChange={(enabled) => void run('setHeartbeatEnabled', [enabled])}
+        />
+        <ToggleRow
           title={t('Web search')}
           description={t('Expose web search and web fetch tools to new sessions.')}
           checked={webSearchModule.enabled !== false}

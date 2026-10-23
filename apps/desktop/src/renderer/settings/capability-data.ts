@@ -145,6 +145,7 @@ export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, u
   ['providerSetup', 'getProviderSetup'],
   ['recap', 'getRecapSettings'],
   ['sessionTitles', 'getSessionTitleSettings'],
+  ['heartbeat', 'getHeartbeatSettings'],
   ['toolModules', 'getToolModuleSettings'],
   ['update', 'getUpdateSettings'],
   ['updateStatus', 'getUpdateStatus'],
