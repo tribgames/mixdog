@@ -5,6 +5,18 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se corrigieron el desplazamiento en teléfonos que se detenía o saltaba, las listas de modelos sin modelos de proveedores y el temblor de tablas durante la transmisión de respuestas.
+
+### Correcciones de errores
+
+- Se corrigió que un deslizamiento rápido en Android se detuviera a mitad en la lista de sesiones, también justo después de volver a la aplicación.
+- Se corrigió que el desplazamiento hacia arriba en un chat en Android sufriera tirones o diera saltos a mitad de camino.
+- Se corrigió que las tablas temblaran hacia los lados mientras se transmitía una respuesta en un chat de código.
+- Se corrigió que el Stop de una sala no capturara la respuesta, aprobación o mensaje de un miembro que finalizaba justo después (#201).
+- Se corrigió que las opciones elegidas en una tarjeta de preguntas se perdieran al responder desde el compositor (#202).
+- Se corrigió que un subagente no se iniciara cuando su modelo se indicaba por su nombre visible (#203).
+- Se corrigió que las listas de modelos en el editor de agentes, el perfil del bot y el compositor no incluyeran modelos de OpenCode Go, OpenRouter y otros proveedores (#205).
+
 ## v1.3.3 - 2026-10-22
 
 Se agregaron el ajuste de formato de hora de 12/24 horas, archivos adjuntos de Office en formatos antiguos y el plegado de textos largos pegados, con un desplazamiento más fluido en teléfonos, una compactación más estable y amplias correcciones en salas y bots.

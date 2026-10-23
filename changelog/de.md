@@ -4,6 +4,18 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Scrollen auf dem Smartphone behoben, das stoppte oder sprang, sowie Modelllisten mit fehlenden Anbietermodellen und während des Antwort-Streamings wackelnde Tabellen korrigiert.
+
+### Fehlerbehebungen
+
+- Behoben: Ein schnelles Wischen auf Android stoppte auf halbem Weg in der Sitzungsliste, auch direkt nach der Rückkehr zur App.
+- Behoben: Das Hochscrollen in einem Chat auf Android stockte oder sprang auf halbem Weg.
+- Behoben: Tabellen wackelten seitlich, während in einem Coding-Chat eine Antwort gestreamt wurde.
+- Behoben: Das Stop eines Raums übersah die Antwort, Genehmigung oder Nachricht eines Mitglieds, die kurz danach abgeschlossen wurde (#201).
+- Behoben: Auf einer Fragekarte ausgewählte Optionen gingen verloren, wenn die Antwort über den Composer erfolgte (#202).
+- Behoben: Ein Sub-Agent startete nicht, wenn dessen Modell über seinen Anzeigenamen angegeben wurde (#203).
+- Behoben: Modelllisten im Agenten-Editor, Bot-Profil und Composer zeigten keine Modelle von OpenCode Go, OpenRouter und anderen Anbietern an (#205).
+
 ## v1.3.3 - 2026-10-22
 
 12/24-Stunden-Zeiteinstellung, ältere Office-Anhänge und das Einklappen langer Einfügungen hinzugefügt, mit flüssigerem Scrollen auf dem Smartphone, stabilerer Kompaktierung sowie umfassenden Fehlerbehebungen für Räume und Bots.

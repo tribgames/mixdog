@@ -5,6 +5,18 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Correction du défilement sur téléphone qui s’arrêtait ou sautait, des listes de modèles omettant les modèles des fournisseurs, et des tableaux qui tremblaient lors de la diffusion d’une réponse.
+
+### Corrections de bugs
+
+- Correction d’un balayage rapide sur Android qui s’arrêtait à mi-chemin dans la liste des sessions, y compris juste après être revenu dans l’application.
+- Correction du défilement vers le haut dans une discussion sur Android qui saccadait ou sautait en cours de route.
+- Correction des tableaux qui tremblaient latéralement pendant la diffusion d’une réponse dans une discussion de code.
+- Correction de l’action Stop d’un salon qui manquait la réponse, l’approbation ou le message d’un membre s’étant terminé juste après (#201).
+- Correction des options choisies sur une carte de questions qui étaient perdues lors d’une réponse depuis le compositeur (#202).
+- Correction de l’échec du démarrage d’un sous-agent lorsque son modèle était spécifié par son nom affiché (#203).
+- Correction des listes de modèles dans l’éditeur d’agents, le profil de bot et le compositeur qui n’affichaient pas les modèles d’OpenCode Go, d’OpenRouter et d’autres fournisseurs (#205).
+
 ## v1.3.3 - 2026-10-22
 
 Ajout d’un paramètre d’heure au format 12/24 heures, des pièces jointes Office aux anciens formats et du repli des longs collages, avec un défilement plus fluide sur téléphone, un compactage plus stable et des correctifs étendus pour les salons et les bots.

@@ -4,6 +4,18 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Corrigida a rolagem no celular que parava ou pulava, listas de modelos sem modelos de provedores e tabelas que tremiam durante o streaming de respostas.
+
+### Correções de bugs
+
+- Corrigido o deslizamento rápido no Android que parava no meio na lista de sessões, inclusive logo após retornar ao aplicativo.
+- Corrigida a rolagem para cima em um chat no Android que travava ou pulava no meio do caminho.
+- Corrigidas as tabelas que tremiam lateralmente enquanto uma resposta era transmitida em um chat de código.
+- Corrigido o Stop de uma sala que perdia a resposta, aprovação ou mensagem de um membro terminada logo em seguida (#201).
+- Corrigidas as opções selecionadas em um cartão de perguntas que eram perdidas ao responder pelo campo de mensagem (#202).
+- Corrigida a falha ao iniciar um subagente quando seu modelo era informado pelo nome de exibição (#203).
+- Corrigidas as listas de modelos no editor de agentes, no perfil do bot e no campo de mensagem que não exibiam modelos do OpenCode Go, OpenRouter e outros provedores (#205).
+
 ## v1.3.3 - 2026-10-22
 
 Adicionada a configuração de horário de 12/24 horas, anexos do Office em formatos legados e o recolhimento de colagens longas, com rolagem mais suave no celular, compactação mais estável e amplas correções em salas e bots.

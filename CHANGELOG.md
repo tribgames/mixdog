@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Fixed phone scrolling that stopped or jumped, model lists missing provider models, and tables shaking while a reply streams.
+
+### Bug fixes
+
+- Fixed a fast flick on Android stopping partway in the session list, also right after returning to the app.
+- Fixed scrolling up through a chat on Android stuttering or jumping partway.
+- Fixed tables shaking sideways while a reply streams in a coding chat.
+- Fixed a room's Stop missing a member reply, approval or message that finished just after it (#201).
+- Fixed options picked on a question card being lost when answering from the composer (#202).
+- Fixed a sub-agent failing to start when its model was given by its display name (#203).
+- Fixed model lists in the agent editor, bot profile and composer missing models from OpenCode Go, OpenRouter and other providers (#205).
+
 ## v1.3.3 - 2026-10-22
 
 Added a 12/24-hour time setting, legacy Office attachments and long-paste folding, with smoother phone scrolling, steadier compaction and broad room and bot fixes.

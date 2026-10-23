@@ -4,6 +4,18 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đã sửa lỗi cuộn trên điện thoại bị dừng hoặc giật nhảy, danh sách mô hình thiếu các mô hình từ nhà cung cấp và bảng bị rung lắc khi đang phát trực tuyến phản hồi.
+
+### Sửa lỗi
+
+- Đã sửa lỗi vuốt nhanh trên Android bị dừng giữa chừng trong danh sách phiên, cũng như ngay sau khi quay lại ứng dụng.
+- Đã sửa lỗi cuộn lên trong cuộc trò chuyện trên Android bị giật hoặc nhảy giữa chừng.
+- Đã sửa lỗi các bảng bị rung lắc sang hai bên khi câu trả lời đang phát trực tuyến trong đoạn chat lập trình.
+- Đã sửa lỗi lệnh Stop của phòng bỏ sót phản hồi, phê duyệt hoặc tin nhắn của thành viên kết thúc ngay sau đó (#201).
+- Đã sửa lỗi các tùy chọn đã chọn trên thẻ câu hỏi bị mất khi trả lời từ ô soạn thảo (#202).
+- Đã sửa lỗi sub-agent không khởi động được khi mô hình của nó được cung cấp bằng tên hiển thị (#203).
+- Đã sửa lỗi danh sách mô hình trong trình chỉnh sửa agent, hồ sơ bot và ô soạn thảo thiếu các mô hình từ OpenCode Go, OpenRouter và các nhà cung cấp khác (#205).
+
 ## v1.3.3 - 2026-10-22
 
 Đã thêm cài đặt định dạng giờ 12/24 giờ, tệp đính kèm Office định dạng cũ và tính năng thu gọn nội dung dán dài, đồng thời cuộn mượt hơn trên điện thoại, nén ổn định hơn cùng các bản sửa lỗi toàn diện cho phòng và bot.
