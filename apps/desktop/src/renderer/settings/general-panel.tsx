@@ -280,9 +280,9 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
       </Group>
       <Group title={t('Features')}>
         <ToggleRow
-          title={t('Mixy check-ins')}
+          title={t('Regular check-ins')}
           description={t(
-            'Every 2 hours, check your bots and sessions; Mixy speaks up only when something needs attention.'
+            'Every 2 hours, checks your bots and sessions and lets you know only when something needs attention.'
           )}
           checked={record(data.heartbeat).heartbeat !== false}
           disabled={busy}
