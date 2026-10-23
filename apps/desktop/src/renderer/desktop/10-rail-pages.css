@@ -1135,18 +1135,21 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
      toggle laid over it, or to the plain row (default cursor, no open). */
   pointer-events: none;
 }
-/* A Lead's face is its provider mark alone: no plate, no ring, no tint, in
-   the silver icon ink, centred in the avatar box. */
+/* A Lead's mark sits on a faint plate in full ink; its sub-agents below keep
+   the bare mark, so the plate alone tells the Lead (design/mockups/
+   agent-subtree-distinction). */
 .utility-dock .agent-lead-plate {
-  width: 100%;
-  height: 100%;
+  width: calc(var(--agent-contact-avatar-size) * 0.833);
+  height: calc(var(--agent-contact-avatar-size) * 0.833);
   display: grid;
   place-items: center;
-  color: var(--mx-text-soft);
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-hover);
+  color: var(--mx-text);
 }
 .utility-dock .agent-lead-plate > svg {
-  width: calc(var(--agent-contact-avatar-size) * 0.625);
-  height: calc(var(--agent-contact-avatar-size) * 0.625);
+  width: calc(var(--agent-contact-avatar-size) * 0.54);
+  height: calc(var(--agent-contact-avatar-size) * 0.54);
 }
 /* Work sessions follow the contacts after one hairline, no heading; the same
    hairline sets Mixy (pinned on top) apart from the other bots. */
