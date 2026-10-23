@@ -784,7 +784,8 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // A relay never cuts a member off: while the room talks it waits in the
     // room's queue, which the exchange's end drains.
     if (running.get(member.roomId)?.stop) call.onSettled?.({ status: 'cancelled' });
-    else if (running.has(member.roomId)) relayQueue.set(member.roomId, [...(relayQueue.get(member.roomId) ?? []), call]);
+    else if (running.has(member.roomId))
+      relayQueue.set(member.roomId, [...(relayQueue.get(member.roomId) ?? []), call]);
     else route(member.roomId, { to: [member.agentId], waiting: false, only: true, calls: [call] });
     return { settled };
   }

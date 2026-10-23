@@ -523,7 +523,8 @@ function agentChatRow(
   const group = routine ? routineGroupOf(rows, index, cardKey) : null;
   if (group && group.at(-1) !== index) return null;
   const runs = group?.map((at) => (rows[at] as { item: TranscriptItem }).item) ?? [];
-  const cardPlace = group && place ? { ...place, first: agentChatPlace(rows, group[0], cardKey)?.first ?? place.first } : place;
+  const cardPlace =
+    group && place ? { ...place, first: agentChatPlace(rows, group[0], cardKey)?.first ?? place.first } : place;
   // Another bot's message into this chat, or its answer to this chat's own
   // send, is that bot's bubble (place.bot), never the user's.
   const botMessage = row._tag === 'UserMessage' && place?.bot ? row.item : undefined;

@@ -290,11 +290,7 @@ export function agentReplyUnfinished(live: boolean | undefined, item: Transcript
 /** The routine run `rows[index]` belongs to, as the indexes of its card:
  *  every consecutive result of one routine (rows outside the grouping in
  *  between are skipped), oldest first. null for any other row. */
-export function routineGroupOf(
-  rows: readonly TranscriptRowModel[],
-  index: number,
-  cardKey?: string
-): number[] | null {
+export function routineGroupOf(rows: readonly TranscriptRowModel[], index: number, cardKey?: string): number[] | null {
   const source = rowSender(rows[index], cardKey)?.source;
   if (!source) return null;
   const members = [index];

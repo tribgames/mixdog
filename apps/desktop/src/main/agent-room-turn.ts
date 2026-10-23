@@ -336,7 +336,7 @@ async function memberTurn(
         continue;
       }
       if (state.stop) return 'stopped';
-      const approval =(snapshot?.toolApproval as Record<string, unknown> | null | undefined) ?? null;
+      const approval = (snapshot?.toolApproval as Record<string, unknown> | null | undefined) ?? null;
       if (String(approval?.id ?? '') !== String(state.approval?.id ?? '')) {
         state.approval = approval;
         host.republish();
