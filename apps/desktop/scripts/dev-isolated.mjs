@@ -4,11 +4,11 @@
 // sweep reclaims when the owner died or the TTL ran out. The 9342 dev app, the
 // kept dev profiles and the installed app's ~/.mixdog are never touched.
 //
-//   npm run dev:isolated -- --name <tag> [--copy-auth] [--skip-onboarding] [--ttl-minutes=120]
+//   npm run dev:isolated -- --name <tag> [--copy-auth] [--onboarding] [--ttl-minutes=120]
 //
-// --copy-auth starts signed in and ready: the kept dev profile's sign-ins and
-// model routes, with onboarding and the getting-started guide marked done.
-// --skip-onboarding marks only those done (no sign-ins).
+// An instance starts with onboarding and the getting-started guide marked
+// done; --onboarding keeps the first-run screens instead. --copy-auth also
+// copies the kept dev profile's sign-ins and model routes.
 //   npm run dev:isolated:stop -- --name <tag>
 //   npm run dev:isolated:sweep [-- --all]
 //   npm run dev:isolated:list
@@ -567,7 +567,7 @@ export async function startInstance({
   name,
   ttlMs = DEFAULT_TTL_MS,
   copyAuth = false,
-  skipOnboarding = false,
+  skipOnboarding = true,
   timeoutMs = 300_000,
   root = isolatedRoot(),
   relay = 'off',
@@ -647,7 +647,7 @@ async function main() {
       name: { type: 'string' },
       all: { type: 'boolean', default: false },
       'copy-auth': { type: 'boolean', default: false },
-      'skip-onboarding': { type: 'boolean', default: false },
+      onboarding: { type: 'boolean', default: false },
       'ttl-minutes': { type: 'string', default: String(DEFAULT_TTL_MS / 60_000) },
       'timeout-seconds': { type: 'string', default: '300' },
       relay: { type: 'string', default: 'off' },
@@ -662,7 +662,7 @@ async function main() {
       name: values.name,
       ttlMs,
       copyAuth: values['copy-auth'],
-      skipOnboarding: values['skip-onboarding'],
+      skipOnboarding: !values.onboarding,
       timeoutMs: Number(values['timeout-seconds']) * 1000,
       root,
       relay: values.relay,
