@@ -360,8 +360,9 @@ test('canonical Agent children use ordinary session turns, retain Parent–Child
   const closedIds = events.filter(([kind]) => kind === 'close').map(([, id]) => id);
   assert.equal(closedIds.includes(firstSession.id), true);
   assert.equal(closedIds.includes(nested.session.id), true);
-  assert.equal(service.agentDescriptor(firstSession.id).status, 'cancelled');
-  assert.equal(service.agentDescriptor(nested.session.id).status, 'cancelled');
+  // #216 (cbe93d023): closing finished (idle) agents is no cancellation; they keep their status.
+  assert.equal(service.agentDescriptor(firstSession.id).status, 'idle');
+  assert.equal(service.agentDescriptor(nested.session.id).status, 'idle');
 });
 
 test('turn abort does not hydrate the durable Agent catalog', async (t) => {
@@ -967,8 +968,9 @@ test('public Agent APIs rehydrate and reuse durable canonical ancestry after dae
   const closedIds = events.filter(([kind]) => kind === 'close').map(([, id]) => id);
   assert.equal(closedIds.includes(sessionId), true);
   assert.equal(closedIds.includes(nestedSessionId), true);
-  assert.equal(service.agentDescriptor(sessionId).status, 'cancelled');
-  assert.equal(service.agentDescriptor(nestedSessionId).status, 'cancelled');
+  // #216 (cbe93d023): closing finished (idle) agents is no cancellation; they keep their status.
+  assert.equal(service.agentDescriptor(sessionId).status, 'idle');
+  assert.equal(service.agentDescriptor(nestedSessionId).status, 'idle');
   assert.equal(records.get(sessionId)?.closed, false);
   assert.equal(records.get(nestedSessionId)?.closed, false);
   const resumed = await service.agentSurface.runTurn({ session: { id: sessionId }, prompt: 'resume after cancel' });

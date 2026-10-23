@@ -620,12 +620,16 @@ test('Cursor account usage converts dashboard cents into Mixdog quota windows', 
       source: 'cursor-dashboard',
       usedPct: 20,
       resetAt: 1_789_409_903_000,
+      // #209 (7caaf45d4): each lane gates only the models it meters — the
+      // Auto pool covers auto/default/composer, the API pool everything else.
+      models: ['auto', 'default', 'composer'],
     },
     {
       label: 'API',
       source: 'cursor-dashboard',
       usedPct: 25,
       resetAt: 1_789_409_903_000,
+      except: ['auto', 'default', 'composer'],
     },
   ]);
   assert.deepEqual(snapshot.plan, {

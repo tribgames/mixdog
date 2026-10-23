@@ -61,7 +61,12 @@ test('an upload allow is listed in the profile and revoked back to asking', () =
 });
 
 test('the upload card shows the destination origin, each file with its size, and the outside-project mark', async () => {
-  const { BrowserApprovalHost } = await import('./BrowserApprovalHost.tsx');
+  const { BrowserApprovalHost, BrowserApprovalCard, useBrowserApprovals } = await import('./BrowserApprovalHost.tsx');
+  // The host only queues (b1f10baa3): the card shows where its chat docks it.
+  const Dock = ({ sessionId }) => {
+    const prompts = useBrowserApprovals(sessionId);
+    return prompts[0] ? React.createElement(BrowserApprovalCard, { prompt: prompts[0] }) : null;
+  };
   let listener = null;
   dom.window.mixdogDesktop = {
     onBrowserApproval: (next) => {
@@ -74,6 +79,10 @@ test('the upload card shows the destination origin, each file with its size, and
   dom.window.document.body.append(host);
   const root = createRoot(host);
   await act(async () => root.render(React.createElement(BrowserApprovalHost)));
+  const dock = dom.window.document.createElement('div');
+  dom.window.document.body.append(dock);
+  const chat = createRoot(dock);
+  await act(async () => chat.render(React.createElement(Dock, { sessionId: 'sess_home_marketer' })));
   const prompt = {
     id: 'a1',
     action: 'upload',
@@ -92,7 +101,7 @@ test('the upload card shows the destination origin, each file with its size, and
     remember: { kinds: ['upload'] },
   };
   await act(async () => listener(prompt));
-  const card = host.textContent;
+  const card = dock.textContent;
   assert.match(card, /Upload to/);
   assert.match(card, /https:\/\/pay\.other\.example/);
   assert.match(card, /Frame embedded in https:\/\/app\.example/);
@@ -101,20 +110,22 @@ test('the upload card shows the destination origin, each file with its size, and
   assert.match(card, /C:\\proj\\in\.txt/);
   assert.match(card, /out\.bin/);
   assert.match(card, /3\.0 MB/);
-  const outside = [...host.querySelectorAll('li')].map((li) => li.textContent.includes('Outside the project'));
+  const outside = [...dock.querySelectorAll('li')].map((li) => li.textContent.includes('Outside the project'));
   assert.deepEqual(outside, [false, true]);
   assert.match(card, /Upload files in the browser/);
   // The receiving frame is the page itself: that origin, with no "embedded" line.
   await act(async () => listener({ ...prompt, id: 'a2', receiverOrigin: 'https://app.example' }));
   await act(async () => listener({ id: 'a1', closed: true }));
-  assert.equal(host.querySelector('.browser-approval-destination').textContent, 'https://app.example');
+  assert.equal(dock.querySelector('.browser-approval-destination').textContent, 'https://app.example');
   // Not confirmed: never shown as if the page origin were the destination.
   await act(async () => listener({ ...prompt, id: 'a3', receiverOrigin: '' }));
   await act(async () => listener({ id: 'a2', closed: true }));
   assert.equal(
-    host.querySelector('.browser-approval-destination').textContent,
+    dock.querySelector('.browser-approval-destination').textContent,
     'Receiving site not confirmedPage: https://app.example'
   );
+  await act(async () => listener({ id: 'a3', closed: true }));
+  await act(async () => chat.unmount());
   await act(async () => root.unmount());
 });
 

@@ -92,7 +92,7 @@ async function fakeProcessModule(t, tag, { platform = 'win32', spawnTaskkill } =
   const spawnSync = t.mock.fn(() => {
     throw new Error('synchronous taskkill would block the event loop');
   });
-  t.mock.module('node:child_process', { namedExports: { spawn: fake, spawnSync } });
+  t.mock.module('node:child_process', { namedExports: { spawn: fake, spawnSync, execFile: () => {} } });
   const original = Object.getOwnPropertyDescriptor(process, 'platform');
   Object.defineProperty(process, 'platform', { value: platform });
   t.after(() => Object.defineProperty(process, 'platform', original));

@@ -4,7 +4,9 @@
 // compaction performance work (header hashed once per fit, cached prompt
 // lines, sliced estimate priming, per-message encoding comparison), then
 // recaptured when Compact began keeping opaque replay only on the newest
-// assistant message and when the context ack began carrying its source. Any change to the compacted messages, archive bytes,
+// assistant message and when the context ack began carrying its source, and
+// the summary prompt digests once more when a chunk or tool-outcome cut moved
+// off the middle of an emoji (the transcripts hold 😀). Any change to the compacted messages, archive bytes,
 // token numbers, summary prompts or trace byte counts breaks them. The trace
 // numbers are also checked against an independent JSON.stringify of the
 // transcripts.
@@ -393,7 +395,7 @@ const EXPECTED = {
     recordSha: '5ab36533b09e563dc54dadc23243f1944f55625e138b37dcfbd4966732dd07b5',
     sends: 2,
     // The summary input carries one bounded line per tool call.
-    promptsSha: '8c859542e9cf4d900807bb0f1809f03a47ede3795bb4e0ae950ea4b90b2921ae',
+    promptsSha: '1712f6da12116571e1fa64643d0df972ae82e281307edd94bc017e29504db767',
     archives: archives(1, 712_408, '464b1d3a86d92f8da4a5ed4f643649b6affc8d52b86702c48bf9950288c28a02'),
     traceBytes: [714_283, 12_694],
   },
@@ -411,7 +413,7 @@ const EXPECTED = {
     messagesSha: '20fbb536eb69b0eb7a4170e191c42fbec9657a6dba1e6904fac49fcad461c0ea',
     recordSha: '8ff0ce2f0652109ae6f9a443c3ff9e9738c0f54d24270fdd65c7633cc15f3181',
     sends: 1,
-    promptsSha: '5f8570a037261e645d4d55d65efd99cefac1a98f0e068d1040dfe42fa41e7fb1',
+    promptsSha: '89f22a30d5ab11e34000194b0360e1bc0ab0b9178f340a839bee56ccb11c8469',
     archives: archives(102, 3_402_411, '60bebec70ec783c2861c64afbd14a3f4dc03af2b38497aab7e7c221074c7e809'),
     traceBytes: [3_380_664, 72_692],
   },
