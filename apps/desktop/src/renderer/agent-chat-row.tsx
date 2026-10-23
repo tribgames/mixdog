@@ -441,8 +441,8 @@ export function AgentChatRow({
           )}
           <div className="mx-chat-line">
             {children}
-            {time && <time className="mx-chat-time">{time}</time>}
           </div>
+          {time && <time className="mx-chat-time">{time}</time>}
           {after}
         </div>
       </div>

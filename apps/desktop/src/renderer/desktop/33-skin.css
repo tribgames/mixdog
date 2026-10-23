@@ -83,6 +83,7 @@ html[data-mixdog-skin] {
      again from the plate's ink; otherwise row titles, icons and the rail
      keep the theme's ink (pale text on a light plate). */
   --mx-text-faint: var(--mx-text-muted);
+  --mx-text-time: color-mix(in srgb, var(--mx-text-muted) 70%, var(--mx-accent));
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
   --mx-row-title-ink: var(--mx-text-soft);
   --mx-row-title-ink-active: var(--mx-text);

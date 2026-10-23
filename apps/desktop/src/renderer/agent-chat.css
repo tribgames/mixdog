@@ -126,29 +126,26 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-chat-row[data-side="user"] .mx-chat-line {
   flex-direction: row-reverse;
 }
-/* The steer line (✓, Send now) hangs under the user's bubble inside the
-   message: the time stays level with the bubble's foot, not the line's. */
-.mx-chat-row[data-side="user"] .mx-chat-line:has(.message-steer) > .mx-chat-time {
-  margin-bottom: 24px;
-}
-.mx-chat-row[data-side="user"] .mx-chat-line:has(.message-steer[data-touch]) > .mx-chat-time {
-  margin-bottom: 48px;
-}
 .mx-chat-row:is([data-side="aside"], :not([data-side])) .mx-chat-line {
   display: block;
 }
+/* The time is a caption under the bubble (and its steer line): left under
+   the bot's bubbles, right under the user's. */
 .mx-chat-time {
-  flex: none;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-micro);
+  margin: 0 2px;
+  align-self: flex-start;
+  color: var(--mx-text-time);
+  font-size: calc(11px * var(--mx-content-scale, 1));
   font-variant-numeric: tabular-nums;
   line-height: var(--mx-line-meta);
   white-space: nowrap;
 }
+.mx-chat-row[data-side="user"] .mx-chat-time {
+  align-self: flex-end;
+}
 /* The bubbles: the same message rows, framed. */
-/* The row's wrapper (the live part's box) hugs its bubble, so the time
-   follows the bubble's edge. */
-.mx-chat-row[data-side="agent"] .mx-chat-line > :not(.mx-chat-time) {
+/* The row's wrapper (the live part's box) hugs its bubble. */
+.mx-chat-row[data-side="agent"] .mx-chat-line > * {
   flex: 0 1 auto;
   min-width: 0;
   max-width: min(480px, var(--mx-agent-bubble-max));
@@ -592,7 +589,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
     transform: translateY(-3px);
   }
 }
-/* The time sits outside the bubble, so the reply's footer stays out. */
+/* The time sits under the bubble, so the reply's footer stays out. */
 .mx-chat-row .response-footer {
   display: none;
 }
@@ -603,7 +600,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-chat-row .message.agent-room-speech > .message-body {
   padding-left: 12px;
 }
-html[data-mixdog-mobile-tabs] .mx-chat-row[data-side="agent"] .mx-chat-line > :not(.mx-chat-time) {
+html[data-mixdog-mobile-tabs] .mx-chat-row[data-side="agent"] .mx-chat-line > * {
   max-width: 80%;
 }
 html[data-mixdog-mobile-tabs]

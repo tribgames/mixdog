@@ -249,6 +249,9 @@
   /* ── 3. Ink: text, icons, borders ── */
   --mx-text: #e9e9e9;
   --mx-text-muted: #a8a8a8;
+  /* Message times: the muted ink tinted toward the accent, so a time never
+     reads as the caption or preview text beside it (follows themes/skins). */
+  --mx-text-time: color-mix(in srgb, var(--mx-text-muted) 70%, var(--mx-accent));
   /* Faint IS muted. It was raised for legibility until it sat one shade under
      muted (#9b9b9b against #a8a8a8, 5.8 against 6.9:1) — a step no eye could
      read, which left three near-identical greys on screen and no real third
