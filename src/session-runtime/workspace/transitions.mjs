@@ -426,7 +426,7 @@ export function createWorkspaceTransitions({
    * refuses while a session or worker runs in an affected folder, or a
    * background command does; `removing` refuses while any session still uses
    * one. Then holds the folders — Mixdog checkouts only; an external checkout
-   * is never lock-blocked — so new Mixdog work there waits until `run`
+   * takes no lease from this profile — so new Mixdog work there waits until `run`
    * settles. `actor`: the session acting on its own checkout, whose own turn
    * and workers its caller already checked (assertLeadIdle).
    */

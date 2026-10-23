@@ -13,7 +13,7 @@ import {
 } from '../../agent/orchestrator/tools/builtin/lib/shell-job-records.mjs';
 import { cleanupTempDirs, git, makeRepo, tempDir, useTempDataDir } from './test-support.mjs';
 import { withFileLockSync } from '../atomic-file.mjs';
-import { putRecord } from './registry.mjs';
+import { putRecord, registryPath } from './registry.mjs';
 import { spawnShellChild } from '../../agent/orchestrator/tools/lib/shell-run-spawn.mjs';
 
 beforeEach(useTempDataDir);
@@ -143,7 +143,7 @@ test('a provisioning turn protects its destination before moving, and releases b
   holdWorkspaceActivity([repo, target])();
 });
 
-test('an external checkout is never held, yet its running reader still refuses a writer', () => {
+test('an external checkout admits readers whatever is held outside it, yet its running reader still refuses a writer', () => {
   const repo = makeRepo();
   const external = join(tempDir(), 'external');
   git(repo, 'worktree', 'add', '-q', '-b', 'feature/external', external);
@@ -158,6 +158,81 @@ test('an external checkout is never held, yet its running reader still refuses a
   );
   reader();
   holdWorkspaceActivity([repo, external])();
+});
+
+test('an external checkout nested inside a held main folder stays admitted', () => {
+  const repo = makeRepo();
+  const nested = join(repo, 'nested-checkout');
+  git(repo, 'worktree', 'add', '-q', '-b', 'feature/nested', nested);
+  const writer = holdWorkspaceActivity([repo]);
+  const nestedReader = tryAdmitWorkspaceActivity('nested-turn', nested);
+  assert.ok(nestedReader, 'a lease on the enclosing folder does not hold the nested external checkout');
+  nestedReader();
+  writer();
+});
+
+// Another profile (an empty registry) sees a Mixdog-managed checkout as external.
+function foreignProbe(checkout, sub) {
+  const probe = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import { tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+        const [root, sub] = process.argv.slice(1);
+        const out = {};
+        for (const kind of ['turn', 'command']) {
+          for (const [name, cwd] of [['root', root], ['sub', sub]]) {
+            const leave = tryAdmitWorkspaceActivity('foreign-' + kind, cwd, { kind });
+            out[kind + ':' + name] = leave === null;
+            if (leave) leave();
+          }
+        }
+        console.log(JSON.stringify(out));
+      `,
+      checkout,
+      sub,
+    ],
+    { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+  );
+  assert.equal(probe.error, undefined);
+  assert.equal(probe.status, 0, probe.stderr);
+  return JSON.parse(probe.stdout);
+}
+
+test('a management lease inside an external checkout refuses its readers from another profile', async () => {
+  const repo = makeRepo();
+  const checkout = await managedWorktree(repo);
+  const sub = join(checkout, 'sub');
+  mkdirSync(sub);
+  const release = holdWorkspaceActivity([checkout]);
+  assert.deepEqual(foreignProbe(checkout, sub), {
+    'turn:root': true,
+    'turn:sub': true,
+    'command:root': true,
+    'command:sub': true,
+  });
+  assert.deepEqual(ledgerOf(repo).leases.map((lease) => lease.kind), ['management'], 'no reader lease is left');
+  release();
+  assert.deepEqual(foreignProbe(checkout, sub), {
+    'turn:root': false,
+    'turn:sub': false,
+    'command:root': false,
+    'command:sub': false,
+  });
+});
+
+test('a management lease still refuses readers of its checkout after the registry is recovered empty', async () => {
+  const repo = makeRepo();
+  const checkout = await managedWorktree(repo);
+  const release = holdWorkspaceActivity([checkout]);
+  writeFileSync(registryPath(), JSON.stringify({ version: 1, entries: {} }));
+  assert.equal(tryAdmitWorkspaceActivity('after-recovery', checkout), null);
+  assert.equal(tryAdmitWorkspaceActivity('after-recovery', checkout, { kind: 'command' }), null);
+  assert.deepEqual(ledgerOf(repo).leases.map((lease) => lease.kind), ['management']);
+  release();
+  tryAdmitWorkspaceActivity('after-release', checkout)();
 });
 
 test('a background command retains admission after its parent turn finishes', async () => {

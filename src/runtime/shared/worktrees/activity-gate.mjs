@@ -15,9 +15,11 @@ const overlaps = (a, b) => isWithin(a, b) || isWithin(b, a);
 /**
  * The admission policy's external exception: a linked checkout Mixdog did not
  * create (not a project's main folder, not a registered managed worktree) is
- * never lock-blocked. Management takes no lease on it and its readers are
- * admitted whatever is held elsewhere; its running readers still refuse a
- * management action that touches it.
+ * not lock-blocked by what is held elsewhere. Management takes no lease on it
+ * and its readers are admitted whatever is held outside it; its running
+ * readers still refuse a management action that touches it. A management lease
+ * published inside the checkout itself (another profile, or a registry
+ * recovered empty) still refuses its readers.
  */
 export function isExternalCheckout(folder) {
   const layout = findGitLayout(folder, { strict: true });
@@ -291,7 +293,8 @@ function release(commonDir, token) {
 
 /**
  * Readers share a checkout freely. Null means a management writer currently
- * owns it; a reader in an external checkout is never held back. Throws
+ * owns it; a reader in an external checkout is admitted whatever is held
+ * outside that checkout, but refused by a management lease inside it. Throws
  * `workspace-admission-unreadable` when the ledger cannot be read, was
  * written by a newer build, or the grant could not be made durable in both
  * copies: no work may run unrecorded.
@@ -304,8 +307,12 @@ export function tryAdmitWorkspaceActivity(sessionId, cwd, { pid = process.pid, k
   const path = canonicalPath(cwd);
   const token = randomUUID();
   const lease = { kind, sessionId, pid, token, path };
+  // External is this profile's registry view: management another profile (or
+  // a registry recovered empty) published inside this very checkout still holds.
+  const checkout = canonicalPath(layout.topLevel);
+  const held = (other) => (external ? isWithin(checkout, other.path) : overlaps(other.path, path));
   const admitted = mutate(layout.commonDir, (leases) => {
-    if (!external && leases.some((other) => other.kind === 'management' && overlaps(other.path, path))) return false;
+    if (leases.some((other) => other.kind === 'management' && held(other))) return false;
     leases.push(lease);
     return true;
   });
