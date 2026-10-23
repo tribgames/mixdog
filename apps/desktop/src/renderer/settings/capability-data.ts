@@ -131,7 +131,10 @@ export interface SettingsConfirmation {
   confirmLabel?: string;
   danger?: boolean;
   /** Absent: a notice (a failure to read) with one Close button. */
-  onConfirm?(): void | Promise<void>;
+  onConfirm?(value?: string): void | Promise<void>;
+  /** A text field under the description (a name prompt); Enter confirms, and
+   *  `onConfirm` receives its text. */
+  input?: { value: string; label: string; maxLength?: number };
 }
 
 // Ordered by what the user sees first, cheapest first: the sweep runs in

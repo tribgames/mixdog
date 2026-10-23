@@ -76,6 +76,8 @@ function harness({
   const aborts = [];
   /** Every session a delete was asked for. */
   const deleted = [];
+  /** Every [session, title] a rename was asked for. */
+  const renamed = [];
   /** Every input a supervisor step was given. */
   const decisions = [];
   let failures = appendFails;
@@ -104,7 +106,9 @@ function harness({
       sessions.add(id);
       created.push([id, params]);
     },
-    renameSession: async () => {},
+    renameSession: async (id, title) => {
+      renamed.push([id, title]);
+    },
     appendRows: async (id, rows) => {
       touched.add(id);
       await appendGate(id, rows);
@@ -182,7 +186,7 @@ function harness({
   const idle = async (roomId) => {
     for (let i = 0; i < 2000 && rooms.isRunning(roomId); i += 1) await new Promise((r) => setImmediate(r));
   };
-  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created, aborts, deleted, sessions, createStarted };
+  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created, aborts, deleted, renamed, sessions, createStarted };
 }
 
 /** A supervisor that hands the turn to the member after the last speaker
@@ -326,6 +330,21 @@ test('a message to a room whose last member was removed ends done with no turn a
   );
   assert.deepEqual(h.logs, []);
 });
+test('a room rename (the menu\'s update with only a name) keeps the room and retitles its log session', async () => {
+  const h = harness();
+  const { roomId, sessionId } = await room(h);
+  const before = structuredClone(h.saved.doc.rooms[roomId]);
+  h.renamed.length = 0;
+  const summary = await h.rooms.update(roomId, { name: 'Release crew' });
+  assert.equal(summary.name, 'Release crew');
+  assert.equal(h.saved.doc.rooms[roomId].name, 'Release crew');
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, before.members);
+  assert.deepEqual(h.renamed, [[sessionId, 'Release crew']]);
+  // The same name asks for no session rename.
+  await h.rooms.update(roomId, { name: 'Release crew' });
+  assert.equal(h.renamed.length, 1);
+});
+
 test('a renamed representative is listed in its rooms under its name', async () => {
   const rename = async (leadName) => {
     const h = harness({ leadName });

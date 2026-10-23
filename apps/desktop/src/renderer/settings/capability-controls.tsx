@@ -253,6 +253,8 @@ export function SettingsConfirmDialog({
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState(options.input?.value ?? '');
   const dialogRef = useRef<HTMLElement>(null);
   const opener = useRef<Element | null>(
     returnFocus ?? (typeof document === 'undefined' ? null : document.activeElement)
@@ -265,7 +267,10 @@ export function SettingsConfirmDialog({
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only; the options at open decide the initial focus.
   useEffect(() => {
     const releaseModal = dialogRef.current ? openModal(dialogRef.current) : () => {};
-    (options.danger || !options.onConfirm ? cancelRef : confirmRef).current?.focus();
+    if (inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    } else (options.danger || !options.onConfirm ? cancelRef : confirmRef).current?.focus();
     const from = opener.current;
     return () => {
       releaseModal();
@@ -293,7 +298,7 @@ export function SettingsConfirmDialog({
   useEffect(() => registerMobileBack(() => onCloseRef.current()), []);
   const accept = () => {
     onClose();
-    void options.onConfirm?.();
+    void options.onConfirm?.(options.input ? text : undefined);
   };
   const layer = (
     // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-dismiss; Escape closes it here unless the settings dialog's capture handler already did.
@@ -302,7 +307,9 @@ export function SettingsConfirmDialog({
       {...scrimDismiss(onClose)}
       onKeyDown={(event) => {
         if (event.key === 'Tab') {
-          const stops = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])];
+          const stops = [
+            ...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ?? []),
+          ];
           const first = stops[0];
           const last = stops[stops.length - 1];
           const active = document.activeElement;
@@ -334,6 +341,23 @@ export function SettingsConfirmDialog({
           </button>
         </header>
         <p id={`${id}-description`}>{options.description}</p>
+        {options.input && (
+          <input
+            ref={inputRef}
+            name="confirm-input"
+            className="settings-confirm-input"
+            aria-label={options.input.label}
+            value={text}
+            maxLength={options.input.maxLength}
+            onChange={(event) => setText(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                accept();
+              }
+            }}
+          />
+        )}
         <footer>
           {options.onConfirm ? (
             <>

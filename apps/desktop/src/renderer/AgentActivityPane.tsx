@@ -59,7 +59,7 @@ import { ArrangedSections } from './agent-section-order';
 import { usePaneBotReorder } from './bot-reorder';
 import { type AvatarMotionState, useNewMessagePulse } from './avatar-motion';
 import { openAgentProfile } from './agent-panel-tab';
-import { agentContactMenuItems } from './agent-profile-actions';
+import { afterMenuClose, agentContactMenuItems, renameLeadSession } from './agent-profile-actions';
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { defaultSessionLaneStore } from './session-lane-store';
@@ -959,9 +959,12 @@ export function AgentActivityPane({
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
+  onRenameSession,
   readComposerModel,
 }: {
   active: boolean;
+  /** Renames a session: a Lead row's Rename (its session title). */
+  onRenameSession?(sessionId: string, title: string): Promise<unknown> | void;
   /** The composer's current model, read when "+" opens a new agent. */
   readComposerModel?(): DesktopModelSelection | null;
   /** Retained for callers; the pane's actions show with or without a title. */
@@ -1109,6 +1112,15 @@ export function AgentActivityPane({
           label: row.pinned ? t('Unpin') : t('Pin'),
           onSelect: () => setLeadPinned(row.sessionId, !row.pinned),
         },
+        ...(onRenameSession
+          ? [
+              {
+                id: 'rename-lead',
+                label: t('Rename'),
+                onSelect: afterMenuClose(() => void renameLeadSession(onRenameSession, row.sessionId, row.title)),
+              },
+            ]
+          : []),
         { id: 'lead-appearance', label: t('Appearance'), onSelect: () => setLeadLookOpen(true) },
         { id: 'hide-agent-group', label: t('Hide this group'), onSelect: () => hideGroup(row.sessionId) },
         {

@@ -75,13 +75,13 @@ test('a room row opens its menu on right-click: reset, leave, delete', async (t)
   const items = agentRoomMenuItems({ id: 'abc123' }, { confirm: () => true });
   assert.deepEqual(
     items.map((item) => item.id),
-    ['room-reset', 'room-leave', 'room-delete']
+    ['room-rename', 'room-reset', 'room-leave', 'room-delete']
   );
   const { BOT_DELETED_EVENT } = await import('./agent-profile-actions.ts');
   const closed = [];
   window.addEventListener(BOT_DELETED_EVENT, (event) => closed.push(event.detail.sessionId));
-  items[1].onSelect();
   items[2].onSelect();
+  items[3].onSelect();
   await act(async () => {});
   assert.deepEqual(calls, [
     ['leave', 'abc123'],

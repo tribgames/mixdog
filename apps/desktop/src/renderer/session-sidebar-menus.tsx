@@ -1,5 +1,7 @@
 import { Plus } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
+import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
@@ -44,7 +46,7 @@ interface ProjectMenuActions {
 // that returning focus would blur (and commit) the new editor at once.
 const afterMenu = (action: () => void) => () => window.setTimeout(action, 0);
 
-function sessionMenuItems(
+export function sessionMenuItems(
   session: DesktopSessionSummary,
   rowKey: string,
   actions: SessionMenuActions
@@ -63,12 +65,17 @@ function sessionMenuItems(
       onSelect: () => onOpenSessionInSplit(session.id, label),
     });
   }
-  items.push({
-    id: 'rename',
-    label: t('Rename'),
-    separatorBefore: true,
-    onSelect: afterMenu(() => actions.openSessionEditor(session, rowKey)),
-  });
+  // A bot's home chat and a room's log are named by the bot / room: a session
+  // title edit would be overwritten (and is wrong), so they offer no Rename
+  // here — the bot / room rows rename the real thing. Only archived ones list.
+  if (!agentIdOfHomeSession(session.id) && !roomIdOfSession(session.id)) {
+    items.push({
+      id: 'rename',
+      label: t('Rename'),
+      separatorBefore: true,
+      onSelect: afterMenu(() => actions.openSessionEditor(session, rowKey)),
+    });
+  }
   if (onInheritSession && !archived) {
     items.push({ id: 'inherit', label: t('Fork session'), onSelect: () => onInheritSession(session.id) });
   }

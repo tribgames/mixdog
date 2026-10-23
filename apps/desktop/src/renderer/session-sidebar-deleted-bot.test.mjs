@@ -163,7 +163,7 @@ test('a Sessions 봇 row menu: profile and hide-from-list only; the 봇 page off
   );
   assert.deepEqual(
     items.map((el) => el.textContent),
-    ['View profile', 'Hide from list']
+    ['View profile', 'Rename', 'Hide from list']
   );
   await act(async () => items[0].click());
   await settle();
@@ -173,7 +173,7 @@ test('a Sessions 봇 row menu: profile and hide-from-list only; the 봇 page off
   items = await openMenu(new view.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true }));
   assert.deepEqual(
     items.map((el) => el.textContent),
-    ['View profile', 'Hide from list']
+    ['View profile', 'Rename', 'Hide from list']
   );
 
   // 목록에서 숨기기 drops the row from the sidebar only; the bot is untouched.
@@ -198,7 +198,7 @@ test('a Sessions 봇 row menu: profile and hide-from-list only; the 봇 page off
     );
   assert.deepEqual(
     pageItems().map((item) => item.id),
-    ['agent-profile', 'agent-show-in-sidebar', 'agent-turn-off', 'agent-delete']
+    ['agent-profile', 'agent-rename', 'agent-show-in-sidebar', 'agent-turn-off', 'agent-delete']
   );
   pageItems()
     .find((item) => item.id === 'agent-show-in-sidebar')
@@ -207,7 +207,7 @@ test('a Sessions 봇 row menu: profile and hide-from-list only; the 봇 page off
   assert.ok(document.querySelector('.sidebar-agents [data-agent-contact="watcher"]'), 'shown again');
   assert.deepEqual(
     pageItems().map((item) => item.id),
-    ['agent-profile', 'agent-turn-off', 'agent-delete']
+    ['agent-profile', 'agent-rename', 'agent-turn-off', 'agent-delete']
   );
 });
 

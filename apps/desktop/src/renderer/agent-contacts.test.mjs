@@ -131,7 +131,7 @@ test('a switched-off bot stays on the bot page while hidden from the sidebar, di
     agentContactMenuItems({ agentId: 'off', name: 'Off', mixy: false, disabled: true }, handlers).map(
       (item) => item.id
     ),
-    ['agent-profile', 'agent-show-in-sidebar', 'agent-turn-on', 'agent-delete']
+    ['agent-profile', 'agent-rename', 'agent-show-in-sidebar', 'agent-turn-on', 'agent-delete']
   );
 });
 

@@ -593,10 +593,11 @@ test('a contact row menu: profile, off, delete, and no open in tab; Mixy has no 
   const ids = (contact) => agentContactMenuItems(contact, handlers).map((item) => item.id);
   assert.deepEqual(ids({ agentId: 'github-watcher', name: 'GitHub 감시', mixy: false }), [
     'agent-profile',
+    'agent-rename',
     'agent-turn-off',
     'agent-delete',
   ]);
-  assert.deepEqual(ids({ agentId: 'lead', name: 'Mixy', mixy: true }), ['agent-profile']);
+  assert.deepEqual(ids({ agentId: 'lead', name: 'Mixy', mixy: true }), ['agent-profile', 'agent-rename']);
   const opened = [];
   const [profile] = agentContactMenuItems(
     { agentId: 'lead', name: 'Mixy', mixy: true },

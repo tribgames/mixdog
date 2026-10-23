@@ -434,6 +434,7 @@ export function useAppWorkbenchViews({
         onOpenPullRequest={closingDrawerFirst(closeDrawer, dockOpenPullRequest)}
         onOpenLeadSession={closingDrawerFirst(closeDrawer, dockOpenLeadSession)}
         onOpenAgentSession={closingDrawerFirst(closeDrawer, dockOpenAgentSession)}
+        onRenameSession={renameSession}
       />
     );
   };

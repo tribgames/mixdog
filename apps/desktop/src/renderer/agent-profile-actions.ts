@@ -3,7 +3,8 @@
 import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopApi } from '../shared/contract';
-import { confirmAction } from './app-confirm';
+import { confirmAction, promptAction } from './app-confirm';
+import { publishMixyStatus } from './mixy-identity';
 import type { AgentContact } from './agent-contacts-model';
 import { forgetArchivedBotIdentity } from './archived-bot-identity';
 import { errorMessageText } from './ErrorNotice';
@@ -113,6 +114,98 @@ export async function restoreAgent(deps: AgentActionDeps, agentId: string, name:
   }
 }
 
+/** Name limits of the entities (the profile editor's field; the room dialog's). */
+const BOT_NAME_MAX = 64;
+const ROOM_NAME_MAX = 80;
+
+/** Ask for a new name in the app's prompt dialog. null (cancel, Esc), an empty
+ *  or an unchanged name is a no-op; otherwise the trimmed name. */
+async function askNewName(title: string, current: string, label: string, maxLength: number, key: string) {
+  const answer = await promptAction(title, { value: current, label, maxLength, confirmLabel: t('Rename'), key });
+  const name = (answer ?? '').trim();
+  return name && name !== current.trim() ? name : null;
+}
+
+/** Rename a bot: its display name in its definition, as the profile editor
+ *  saves it (Mixy's through its identity, as the profile does). Other fields
+ *  stay as stored. */
+export async function renameAgent(
+  deps: AgentActionDeps,
+  agentId: string,
+  currentName: string
+): Promise<boolean> {
+  const api = deps.api ?? window.mixdogDesktop;
+  if (!api?.invokeCapability) return false;
+  const name = await askNewName(t('Rename bot'), currentName, t('Bot name'), BOT_NAME_MAX, `agent-rename:${agentId}`);
+  if (!name) return false;
+  try {
+    if (agentId === MIXY_AGENT_ID) {
+      const identity = await api.invokeCapability({ capability: 'saveLeadIdentity', args: [{ name }] });
+      publishMixyStatus(identity?.value);
+    } else {
+      const loaded = await api.invokeCapability<Record<string, unknown>>({
+        capability: 'getAgentDefinition',
+        args: [agentId],
+      });
+      const stored = loaded?.value ?? {};
+      await api.invokeCapability({
+        capability: 'saveAgentDefinition',
+        args: [
+          {
+            id: agentId,
+            expectedRevision: String(stored.revision || ''),
+            name,
+            description: String(stored.description || ''),
+            body: String(stored.body || ''),
+          },
+        ],
+      });
+      invalidateSidebarReferenceForMutation('saveAgentDefinition');
+    }
+    return true;
+  } catch (reason) {
+    showDesktopToast(errorMessageText(reason), 'error', { scope: `agent:rename:${agentId}` });
+    return false;
+  }
+}
+
+/** Rename a group room through the room config update, which also retitles
+ *  its log session (agent-rooms.ts update). */
+export async function renameRoom(roomId: string, currentName: string): Promise<boolean> {
+  const name = await askNewName(t('Rename room'), currentName, t('Room name'), ROOM_NAME_MAX, `room-rename:${roomId}`);
+  if (!name) return false;
+  try {
+    await window.mixdogDesktop?.agentRoomAction?.('update', [roomId, { name }]);
+    return true;
+  } catch (reason) {
+    showDesktopToast(errorMessageText(reason), 'error', { scope: `room:rename:${roomId}` });
+    return false;
+  }
+}
+
+/** Rename a Lead session (an agent with its sub-agent tree): its session title. */
+export async function renameLeadSession(
+  rename: (sessionId: string, title: string) => Promise<unknown> | void,
+  sessionId: string,
+  currentTitle: string
+): Promise<boolean> {
+  const title = await askNewName(t('Rename session'), currentTitle, t('Session name'), 160, `session-rename:${sessionId}`);
+  if (!title) return false;
+  try {
+    await rename(sessionId, title);
+    return true;
+  } catch (reason) {
+    showDesktopToast(errorMessageText(reason), 'error', { scope: `session:rename:${sessionId}` });
+    return false;
+  }
+}
+
+/** Menu items run after the menu closed and returned focus to the row, so a
+ *  dialog that opens at once is not dismissed by that focus return. */
+export const afterMenuClose = (action: () => void) => () => {
+  window.setTimeout(action, 0);
+};
+
 /** Close every open tab of a room's conversation (it was left or deleted). */
 export function closeRoomTabs(roomId: string): void {
   window.dispatchEvent(new CustomEvent(BOT_DELETED_EVENT, { detail: { sessionId: roomSessionId(roomId) } }));
@@ -121,7 +214,7 @@ export function closeRoomTabs(roomId: string): void {
 /** A group room row's menu (봇 page and the Sessions 봇 section): the room
  *  panel's own ⋯ actions — 대화 초기화, 방 나가기 (archives it), 방 삭제. */
 export function agentRoomMenuItems(
-  room: { id: string; running?: unknown },
+  room: { id: string; name?: string; running?: unknown },
   deps: AgentActionDeps = {}
 ): ScmContextMenuItem[] {
   // A room that was left or deleted no longer has a conversation: its open
@@ -132,6 +225,11 @@ export function agentRoomMenuItems(
       (reason) => showDesktopToast(errorMessageText(reason), 'error', { scope: `room:${action}:${room.id}` })
     );
   return [
+    {
+      id: 'room-rename',
+      label: t('Rename'),
+      onSelect: afterMenuClose(() => void renameRoom(room.id, room.name ?? '')),
+    },
     {
       id: 'room-reset',
       label: t('Reset conversation'),
@@ -172,9 +270,15 @@ export function agentContactMenuItems(
 ): ScmContextMenuItem[] {
   const row = contact as AgentContact;
   const profile = { id: 'agent-profile', label: t('View profile'), onSelect: () => handlers.onProfile(row) };
+  const rename = {
+    id: 'agent-rename',
+    label: t('Rename'),
+    onSelect: afterMenuClose(() => void renameAgent(deps, contact.agentId, contact.name)),
+  };
   if (surface === 'sidebar') {
     return [
       profile,
+      rename,
       {
         id: 'agent-hide-from-list',
         label: t('Hide from list'),
@@ -184,6 +288,7 @@ export function agentContactMenuItems(
   }
   return [
     profile,
+    rename,
     ...(sidebarHiddenBots().has(contact.agentId)
       ? [
           {

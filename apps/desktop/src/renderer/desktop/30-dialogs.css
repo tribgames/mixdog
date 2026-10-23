@@ -932,3 +932,10 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
 .route-sheet[data-drilled] > .route-sheet-pane > .model-catalog-list {
   margin-top: 2px;
 }
+
+/* The name field of a prompt (promptAction) under the confirm dialog's text. */
+.settings-confirm-dialog > .settings-confirm-input {
+  margin: 0 16px 12px;
+  width: calc(100% - 32px);
+  box-sizing: border-box;
+}
