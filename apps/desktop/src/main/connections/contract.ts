@@ -1,6 +1,7 @@
 // The connection contract: one desktop process holds this PC's daemon plus any
 // number of SSH servers, each driven from its own window.
 import type { DesktopConnectionIdentity } from '../../shared/contract';
+import type { DesktopSshModelLogin } from '../../shared/contract-ssh';
 
 export type ConnectionKind = DesktopConnectionIdentity['kind'];
 
@@ -40,7 +41,7 @@ export interface ConnectionManager {
   isOpen(id: string): boolean;
   /** The saved model login of an attached server changed: its daemon
    *  restarts in that mode behind the open windows. Nothing when not attached. */
-  applyModelLogin?(id: string, modelLogin: 'pc' | 'server'): Promise<void>;
+  applyModelLogin?(id: string, modelLogin: DesktopSshModelLogin): Promise<void>;
   /** Detaches: closes the window and the tunnel; the remote daemon keeps running. */
   close(id: string): Promise<void>;
 }

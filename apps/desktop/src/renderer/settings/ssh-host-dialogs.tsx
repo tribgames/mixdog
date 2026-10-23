@@ -197,7 +197,7 @@ function ModelLoginSwitchDialog({
   onClose(): void;
 }) {
   const consequence =
-    busySessions && busySessions > 0
+    (busySessions ?? 0) > 0
       ? t('The server’s Mixdog restarts, and {{count}} running sessions stop.', { count: busySessions })
       : t('The server’s Mixdog restarts, and any running sessions stop.');
   return (

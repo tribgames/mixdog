@@ -1,5 +1,6 @@
 import { RemoteBootstrapError } from '../ssh/remote-bootstrap';
 import { SshError, SshTargetError, parseSshTarget } from '../ssh/ssh-command';
+import type { SshModelLogin } from '../ssh/ssh-context';
 import {
   LOCAL_CONNECTION_ID,
   type ConnectionManager,
@@ -18,7 +19,7 @@ export interface ManagedConnection extends PooledConnection {
   /** Opens a stopped connection again behind the same window. */
   reconnect?(): Promise<void>;
   /** Restarts the server's daemon in the saved model login mode. */
-  applyModelLogin?(modelLogin: 'pc' | 'server'): Promise<void>;
+  applyModelLogin?(modelLogin: SshModelLogin): Promise<void>;
 }
 
 export interface ConnectionManagerDependencies<T extends ManagedConnection> {

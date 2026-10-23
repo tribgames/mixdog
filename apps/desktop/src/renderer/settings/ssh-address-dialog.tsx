@@ -94,6 +94,7 @@ function keyFileError(value: string): string {
   if (unusable(text)) return t('The key file is not valid.');
   return text.startsWith('-') ? t('The key file must not start with "-".') : '';
 }
+
 function folderError(value: string): string {
   const text = value.trim();
   if (unusable(text)) return t('The server folder is not valid.');

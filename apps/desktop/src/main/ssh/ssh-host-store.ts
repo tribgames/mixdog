@@ -147,6 +147,7 @@ export function allowedProvidersForHost(hostId: string): string[] | null {
   if (!host) return [];
   return host.settings?.allowedProviders ? [...host.settings.allowedProviders] : null;
 }
+
 /** The saved entry, from the loaded store or else from disk. */
 function savedHostSync(hostId: string): SshHostRecord | undefined {
   if (!configuredPath) return undefined;

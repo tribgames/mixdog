@@ -30,9 +30,10 @@ export function createHostListHandlers(
       const hostId = text(id, 'id');
       const hosts = await store();
       const next = parseHostSettings(settings);
-      const before = hosts.get(hostId)?.settings?.modelLogin === 'server' ? 'server' : 'pc';
+      const savedLogin = (): SshModelLogin => (hosts.get(hostId)?.settings?.modelLogin === 'server' ? 'server' : 'pc');
+      const before = savedLogin();
       await hosts.updateSettings(hostId, next);
-      const after = hosts.get(hostId)?.settings?.modelLogin === 'server' ? 'server' : 'pc';
+      const after = savedLogin();
       // The restart runs behind the server's windows; its progress and any
       // failure show in their link state, not as a failed save.
       if (before !== after) void applyModelLogin?.(hostId, after).catch(() => undefined);

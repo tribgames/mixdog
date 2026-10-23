@@ -4,6 +4,7 @@
 // its countdown, lost, paused for sleep) and nudges both layers so an attempt
 // really happens when the countdown says so.
 import type { DesktopConnectionLinkState, DesktopConnectionLinkView } from '../../shared/contract-connection-link';
+import type { DesktopSshModelLogin } from '../../shared/contract-ssh';
 
 /** App-level health probe through the tunnel while connected. */
 export const LINK_HEALTH_INTERVAL_MS = 15_000;
@@ -131,7 +132,7 @@ export interface ConnectionLinkOptions {
    *  user's Reconnect dials again. */
   autoReconnect?: boolean;
   /** Whose provider logins the server's models run on; 'pc' by default. */
-  modelLogin?: 'pc' | 'server';
+  modelLogin?: DesktopSshModelLogin;
   timers?: LinkTimers;
 }
 
@@ -156,7 +157,7 @@ export class ConnectionLink {
   private failures: number[] = [];
   private rttMs: number | null = null;
   private terminals = true;
-  private modelLogin: 'pc' | 'server';
+  private modelLogin: DesktopSshModelLogin;
   private attemptTimer: unknown = null;
   private healthTimer: unknown = null;
   private probing = false;
@@ -177,7 +178,7 @@ export class ConnectionLink {
     };
   }
 
-  setModelLogin(modelLogin: 'pc' | 'server'): void {
+  setModelLogin(modelLogin: DesktopSshModelLogin): void {
     if (this.modelLogin === modelLogin) return;
     this.modelLogin = modelLogin;
     this.emit();
