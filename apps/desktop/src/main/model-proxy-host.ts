@@ -530,6 +530,8 @@ export const MODEL_PROXY_CALLBACKS: ReadonlyMap<string, (args: unknown[]) => unk
   ['onStreamDelta', ([kind]) => [shortText(kind)]],
   // (text): the model's own output.
   ['onTextDelta', ([text]) => [typeof text === 'string' ? text.slice(0, MAX_CALLBACK_TEXT) : '']],
+  // (text): the model's own thinking summary (Gemini thought text).
+  ['onReasoningDelta', ([text]) => [typeof text === 'string' ? text.slice(0, MAX_CALLBACK_TEXT) : '']],
   // ({ chars, reasoning, reason }): counters and a reason label.
   ['onTextReset', ([info]) => [scalarDetail(info) ?? {}]],
   // ({ kind, phase }): which stream item opened — labels only.
