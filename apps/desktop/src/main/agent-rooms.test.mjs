@@ -51,6 +51,11 @@ function harness({
   presence = undefined,
   // Awaited by every session creation, after it started.
   createGate = () => undefined,
+  // Awaited by every row append before it lands, and by every snapshot read
+  // (given the snapshot, which it may change) and abort.
+  appendGate = () => undefined,
+  snapshotGate = () => undefined,
+  onAbort = () => undefined,
 } = {}) {
   /** Every session whose creation started. */
   const createStarted = [];
@@ -102,6 +107,7 @@ function harness({
     renameSession: async () => {},
     appendRows: async (id, rows) => {
       touched.add(id);
+      await appendGate(id, rows);
       if (failures > 0) {
         failures -= 1;
         throw new Error('daemon unavailable');
@@ -132,7 +138,7 @@ function harness({
     },
     readSnapshot: async (id) => {
       const answer = answers.get(id);
-      return {
+      const snapshot = {
         busy: false,
         items: [
           { id: 'u', kind: 'user', text: 'p' },
@@ -140,9 +146,12 @@ function harness({
           { id: 'd', kind: 'turndone', at: answer.at, status: 'done', finalAssistantId: 'a' },
         ],
       };
+      await snapshotGate(id, snapshot);
+      return snapshot;
     },
     abort: async (id) => {
       aborts.push(id);
+      await onAbort(id);
     },
     approve: async () => true,
     deleteSession: async (id) => {
@@ -1440,6 +1449,178 @@ function gated(agentIds) {
 const until = async (check) => {
   for (let i = 0; i < 2000 && !check(); i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
+
+/** A promise and its resolver. */
+const latch = () => {
+  let open;
+  const closed = new Promise((resolve) => {
+    open = resolve;
+  });
+  return { closed, open };
+};
+
+test('a submission the daemon accepts after Stop is aborted before the room is released', async (t) => {
+  const gate = gated(['rel']);
+  t.after(gate.release);
+  let live = false;
+  const h = harness({
+    script: async (agentId) => {
+      const answer = await gate.script(agentId);
+      live = true;
+      return answer;
+    },
+    onAbort: () => {
+      live = false;
+    },
+  });
+  const { sessionId, roomId } = await room(h);
+  const ends = [];
+  const ask = (id) =>
+    h.rooms.ask(sessionId, {
+      agentId: 'rel',
+      prompt: 'status?',
+      from: { sessionId: 'sess_lead_1' },
+      id,
+      onSettled: (detail) => ends.push(detail),
+    });
+  await ask('atask_late_accept');
+  await until(() => h.prompts.length === 1);
+  h.rooms.stop(sessionId);
+  gate.release();
+  await h.idle(roomId);
+  assert.equal(live, false, 'the late accepted turn was aborted');
+  assert.deepEqual(ends, [{ status: 'cancelled' }]);
+  assert.deepEqual(h.log.map((row) => row.kind), ['user', 'stopped']);
+  await ask('atask_after_stop');
+  await h.idle(roomId);
+  assert.deepEqual(ends.at(-1), { status: 'done', result: { content: 'answer from rel' } });
+});
+
+for (const kind of ['done answer', 'busy approval']) {
+  test(`a ${kind} read as Stop lands is discarded`, async (t) => {
+    const read = latch();
+    const proceed = latch();
+    t.after(() => proceed.open());
+    let stopped = false;
+    const approvals = [];
+    const h = harness({
+      snapshotGate: async (_id, snapshot) => {
+        if (kind === 'busy approval') Object.assign(snapshot, { busy: true, items: [], toolApproval: { id: 'late' } });
+        read.open();
+        await proceed.closed;
+      },
+      onRepublish: (id) => {
+        if (stopped) approvals.push(h.rooms.decorate(id, { items: [] }).toolApproval);
+      },
+    });
+    const { sessionId, roomId } = await room(h);
+    const ends = [];
+    await h.rooms.ask(sessionId, {
+      agentId: 'rel',
+      prompt: 'status?',
+      from: { sessionId: 'sess_lead_1' },
+      id: 'atask_late_snapshot',
+      onSettled: (detail) => ends.push(detail),
+    });
+    await read.closed;
+    stopped = true;
+    h.rooms.stop(sessionId);
+    proceed.open();
+    await h.idle(roomId);
+    assert.deepEqual(approvals.filter(Boolean), [], 'no approval is published after Stop');
+    assert.deepEqual(h.log.map((row) => row.kind), ['user', 'stopped'], 'no speech from the stale snapshot');
+    assert.deepEqual(ends, [{ status: 'cancelled' }]);
+  });
+}
+
+for (const kind of ['send', 'ask']) {
+  test(`Stop cancels a ${kind} whose row is still being posted`, async (t) => {
+    const posting = latch();
+    const append = latch();
+    const turn = gated(['gh']);
+    t.after(() => {
+      append.open();
+      turn.release();
+    });
+    const h = harness({
+      script: turn.script,
+      appendGate: async (_id, rows) => {
+        if (!rows.some((row) => row.kind === 'user' && row.text === 'pending')) return;
+        posting.open();
+        await append.closed;
+      },
+    });
+    const { sessionId, roomId } = await room(h);
+    // A send crosses a running exchange; an ask meets an idle room, so the
+    // pending intake alone must make Stop count.
+    if (kind === 'send') {
+      await h.rooms.send(sessionId, '/ask GitHub first');
+      await until(() => h.prompts.length === 1);
+    }
+    const ends = [];
+    const pending =
+      kind === 'send'
+        ? h.rooms.send(sessionId, '/ask Release pending', 'sub_pending')
+        : h.rooms.ask(sessionId, {
+            agentId: 'rel',
+            prompt: 'pending',
+            from: { sessionId: 'sess_lead_1' },
+            id: 'atask_pending',
+            onSettled: (detail) => ends.push(detail),
+          });
+    await posting.closed;
+    assert.equal(h.rooms.stop(sessionId), true);
+    turn.release();
+    await h.idle(roomId);
+    await h.rooms.send(sessionId, '/ask Bench fresh', 'sub_fresh');
+    await h.idle(roomId);
+    const expected = kind === 'send' ? ['gh', 'bench'] : ['bench'];
+    assert.deepEqual(h.prompts.map((p) => p.agentId), expected, 'a fresh request runs normally');
+    append.open();
+    assert.equal(await pending, true, 'the logged row is still acknowledged');
+    await h.idle(roomId);
+    assert.deepEqual(h.prompts.map((p) => p.agentId), expected, 'the stopped request starts nothing');
+    assert.equal(h.log.filter((row) => row.kind === 'user' && row.text === 'pending').length, 1);
+    if (kind === 'send') {
+      assert.ok(h.saved.doc.rooms[roomId].submissions.includes('sub_pending'));
+      assert.equal(await h.rooms.send(sessionId, '/ask Release pending', 'sub_pending'), true);
+      assert.deepEqual(h.prompts.map((p) => p.agentId), expected, 'the retry is deduplicated');
+    } else assert.deepEqual(ends, [{ status: 'cancelled' }], 'the caller settles once');
+  });
+}
+
+test('Stop cancels an ask still waiting for member names', async (t) => {
+  const listing = latch();
+  const names = latch();
+  t.after(() => names.open());
+  let hold = false;
+  const h = harness({
+    listGate: async () => {
+      if (!hold) return;
+      listing.open();
+      await names.closed;
+    },
+  });
+  const { sessionId, roomId } = await room(h);
+  hold = true;
+  const ends = [];
+  const asked = h.rooms.ask(sessionId, {
+    agentId: 'rel',
+    prompt: 'status?',
+    from: { sessionId: 'sess_lead_1' },
+    id: 'atask_pending_labels',
+    onSettled: (detail) => ends.push(detail),
+  });
+  await listing.closed;
+  assert.equal(h.rooms.stop(sessionId), true);
+  hold = false;
+  names.open();
+  await asked;
+  await h.idle(roomId);
+  assert.deepEqual(h.prompts, []);
+  assert.deepEqual(ends, [{ status: 'cancelled' }]);
+  assert.equal(h.rooms.stop(sessionId), false, 'nothing is left pending');
+});
 
 test('every message waiting on one member is answered by its turn, behind a turn in flight or cutting one short', async () => {
   const gate = gated(['gh', 'rel']);
