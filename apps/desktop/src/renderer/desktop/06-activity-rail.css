@@ -83,6 +83,10 @@
 .activity-rail > .rail-update-slot:focus-visible {
   color: var(--mx-text-accent);
 }
+/* The update arrow is a call to act: heavier than the 1px chrome glyphs. */
+.activity-rail > .rail-update-slot > svg.lucide {
+  stroke-width: 2px;
+}
 .activity-rail > .rail-update-slot::after {
   content: "";
   position: absolute;

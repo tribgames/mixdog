@@ -1073,9 +1073,12 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   .agent-chat-row[data-kind="contact"]
   .agent-contact-aside
   > .agent-chat-status:is([data-kind="attention-mark"], [data-kind="error"]) {
+  /* The running spinner's size (14px): the mark does not outgrow the slot. */
+  min-width: 14px;
+  height: 14px;
+  font-size: 10px;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-bg-base);
-  font-size: var(--mx-font-micro);
   font-weight: var(--mx-weight-strong);
   line-height: 1;
 }
