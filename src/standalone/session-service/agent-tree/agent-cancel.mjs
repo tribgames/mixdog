@@ -64,9 +64,10 @@ export function createAgentCancellation({
         if (typeof closeCanonical !== 'function') {
           throw new TypeError('session runtime must implement closeCanonicalSession');
         }
+        const wasRunning = descriptor.status === 'running';
         // The close clears the transcript: capture a running turn's transcript
         // first so the cancelled turn still hands off its partial output.
-        if (descriptor.status === 'running') {
+        if (wasRunning) {
           try {
             const { messages } = await entry.runtime.readModelMessages(0);
             rememberCancelTranscript(id, messages);
@@ -77,7 +78,10 @@ export function createAgentCancellation({
         const closed = await closeCanonical.call(entry.runtime, reason, { tombstone: options.tombstone === true });
         if (closed !== true) throw new Error(`agent session ${id} could not be durably closed`);
         descriptor.closed = options.tombstone === true;
-        descriptor.status = descriptor.closed ? 'closed' : 'cancelled';
+        // Only a close that stopped a running turn is a cancellation; closing a
+        // finished agent (cleanup after its handoff) keeps its last status.
+        if (descriptor.closed) descriptor.status = 'closed';
+        else if (wasRunning) descriptor.status = 'cancelled';
         descriptor.stage = descriptor.status;
         descriptor.updatedAt = Date.now();
         return true;

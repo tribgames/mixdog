@@ -247,7 +247,7 @@ test('cancelAgentTree closes runtimes descendants-first and allows same-session 
     ['child-2', { tombstone: false }],
     ['child-1', { tombstone: false }],
   ]);
-  assert.equal(h.tree.agentDescriptor('child-1').status, 'cancelled');
+  assert.equal(h.tree.agentDescriptor('child-1').status, 'idle', 'closing an idle child is no cancellation');
   assert.equal(h.tree.agentDescriptor('child-2').closed, false);
   assert.equal(await h.tree.cancelAgentTree('child-1'), true, 'a closed child is already done');
   assert.equal(h.closed.length, 2);
@@ -292,8 +292,26 @@ test('a failing descendant does not stop sibling and parent cancellation, and is
     [sibling.id, 'stop all'],
     [parent.id, 'stop all'],
   ]);
-  assert.equal(h.tree.agentDescriptor(parent.id).status, 'cancelled');
-  assert.equal(h.tree.agentDescriptor(sibling.id).status, 'cancelled');
+  assert.equal(h.tree.agentDescriptor(parent.id).status, 'idle');
+  assert.equal(h.tree.agentDescriptor(sibling.id).status, 'idle');
+});
+
+test('closing a finished child keeps its completed status; closing a running one is a cancellation', async () => {
+  const h = createHarness();
+  const { session: done } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  await h.tree.runAgentTurn({ session: done, prompt: 'review it' });
+  assert.equal(await h.tree.cancelAgentTree(done.id, 'cli-agent-close'), true);
+  const after = h.tree.agentDescriptor(done.id);
+  assert.equal(after.status, 'idle');
+  assert.equal(after.stage, 'idle');
+  assert.equal(after.closed, false);
+  assert.equal(after.lastHandoff, 'echo:review it');
+
+  const { session: running } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  h.tree.linkAgentDescriptor({ ...h.tree.agentDescriptor(running.id), status: 'running', stage: 'running' });
+  assert.equal(await h.tree.cancelAgentTree(running.id, 'cli-agent-close'), true);
+  assert.equal(h.tree.agentDescriptor(running.id).status, 'cancelled');
+  assert.equal(h.tree.agentDescriptor(running.id).stage, 'cancelled');
 });
 
 test('cancellation follows the current runtime after an ordinary session reopen', async () => {
