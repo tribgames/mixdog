@@ -33,7 +33,7 @@ import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.m
 import { collectTurnArtifacts, handoffContent, sessionRoots, turnSlice } from './handoff-attachments.mjs';
 import { roomMemberOfSession } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { wrapAgentMessage } from '../runtime/shared/agent-message-envelope.mjs';
-import { sessionsWithPendingWork } from '../runtime/shared/pending-agent-work.mjs';
+import { hasPendingAgentWork, sessionsWithPendingWork } from '../runtime/shared/pending-agent-work.mjs';
 import { agentTaskIdOfExecution } from './services/agent-tool/restart-notify.mjs';
 import { worktreeError, worktreeNameError } from '../runtime/shared/worktrees/contract.mjs';
 import { samePath } from '../runtime/shared/worktrees/paths.mjs';
@@ -159,10 +159,25 @@ function consumedTaskIds(message) {
  *  submissionOutcome and when its end was recorded (0 when unknown); null
  *  when no turn took runId. */
 export function latestTurnOutcome(messages, runId) {
+  const chain = turnChain(messages, runId);
+  return chain && { id: chain.id, outcome: chain.outcome, at: chain.at, ambiguous: chain.ambiguous };
+}
+
+/** latestTurnOutcome with what a report's wait needs besides: `taskIds`, the
+ *  agent tasks the chain's turns started — the only tasks proven the chain's
+ *  — and `busyIsOthers`: the session's last stored turn is one outside the
+ *  chain that recorded no end yet, and a stored turn took the result of every
+ *  one of `taskIds` (only those make a turn the chain's) — a busy session
+ *  then runs that other turn, and no result of the chain can be on its way
+ *  into a turn (woken by it, or steered into the running one) whose prompt or
+ *  steer is not stored yet. */
+function turnChain(messages, runId) {
   const list = Array.isArray(messages) ? messages : [];
   const start = list.findIndex((message) => submissionIdsOf(message).includes(runId));
   if (start < 0) return null;
   const started = new Set();
+  // The agent tasks whose results a stored turn took (as its prompt or steered in).
+  const taken = new Set();
   const startingCalls = new Set();
   let at = start;
   let id = runId;
@@ -187,6 +202,7 @@ export function latestTurnOutcome(messages, runId) {
       index > start && message?.role === 'user' && message.meta?.source === 'task-notification'
         ? consumedTaskIds(message)
         : null;
+    for (const taskId of delivered || []) if (taskId) taken.add(taskId);
     if (delivered && !inChain) {
       if (delivered.some((taskId) => taskId && started.has(taskId))) {
         inChain = true;
@@ -212,7 +228,32 @@ export function latestTurnOutcome(messages, runId) {
   }
   const turn = list.slice(at);
   const ended = turn.find((message) => message?.meta?.transcript?.completion);
-  return { id, outcome: submissionOutcome(turn, id), at: Number(ended?.meta?.transcript?.at) || 0, ambiguous };
+  const last = turnId === id ? null : submissionOutcome(list.slice(turnAt), turnId);
+  return {
+    id,
+    outcome: submissionOutcome(turn, id),
+    at: Number(ended?.meta?.transcript?.at) || 0,
+    ambiguous,
+    taskIds: started,
+    busyIsOthers: last === 'open' && [...started].every((taskId) => taken.has(taskId)),
+  };
+}
+
+/** The agent task an owed result reports; null when it names none. */
+function owedTaskId(result) {
+  const executionId = result?.meta?.execution_id;
+  return executionId ? agentTaskIdOfExecution(executionId) : null;
+}
+
+/** The `owed` results that may be the chain's of agent tasks `taskIds`: its
+ *  tasks' and those naming no task (their provenance is missing); every one
+ *  for a null `taskIds` (the whole session). */
+function owedOf(owed, taskIds) {
+  if (!taskIds) return owed;
+  return owed.filter((result) => {
+    const taskId = owedTaskId(result);
+    return !taskId || taskIds.has(taskId);
+  });
 }
 
 /** Whether task session `sessionId` still waits on agent work it handed off,
@@ -222,14 +263,70 @@ export function latestTurnOutcome(messages, runId) {
  *  `agentTaskOwners` (the sessions owning a queued, spawning or running agent
  *  task — one still waiting for admission has no turn in flight, and its pool
  *  row reads `unknown`). An agent task owned by an Agent session under it, at
- *  any depth, counts too: every descendant's pool row names the Lead as owner. */
+ *  any depth, counts too: every descendant's pool row names the Lead as owner.
+ *  `taskIds` narrows it to one chain's agent tasks (chainPendingWork). */
 export function pendingWorkOf(
   sessionId,
-  { agentWorking = new Set(), owed = [], pool = [], agentTaskOwners = new Set() }
+  {
+    agentWorking = new Set(),
+    owed = [],
+    pool = [],
+    agentTaskOwners = new Set(),
+    taskIds = null,
+    working = new Set(),
+    agentTasks = [],
+  }
 ) {
+  if (taskIds) return chainPendingWork(sessionId, taskIds, { owed, pool, agentTaskOwners, working, agentTasks });
   if (agentWorking.has(sessionId) || owed.length > 0 || agentTaskOwners.has(sessionId)) return true;
   if (sessionsWithPendingWork(pool).has(sessionId)) return true;
   return pool.some((row) => row?.ownerSessionId === sessionId && agentTaskOwners.has(String(row.sessionId || '')));
+}
+
+/** The agent work of the chain of Lead `sessionId` whose own agent tasks are
+ *  `taskIds`. `taskIds`: those tasks alone, the only ones proven the chain's
+ *  (no record says which task started a child agent). `sessions`: the Agent
+ *  sessions those tasks run in (`agentTasks` `sessionId`, a pool row's
+ *  `taskId`) and every Agent session under one (pool `parentSessionId`),
+ *  never the Lead — work there may be the chain's, so it only holds the
+ *  report (it may be another's: a session the chain's agent ran in can be
+ *  sent another task, which can spawn children of its own). */
+export function chainClosure(sessionId, taskIds, { pool = [], agentTasks = [] } = {}) {
+  const owned = new Set(taskIds);
+  const sessions = new Set();
+  const join = (id) => {
+    if (!id || id === sessionId || sessions.has(id)) return false;
+    sessions.add(id);
+    return true;
+  };
+  for (const task of agentTasks) if (owned.has(task.taskId)) join(task.sessionId);
+  for (const row of pool) if (owned.has(String(row?.taskId || ''))) join(String(row.sessionId || ''));
+  for (let grown = true; grown; ) {
+    grown = false;
+    for (const row of pool) {
+      if (sessions.has(String(row?.parentSessionId || '')) && join(String(row.sessionId || ''))) grown = true;
+    }
+  }
+  return { taskIds: owned, sessions };
+}
+
+/** pendingWorkOf of the chain of agent tasks `taskIds` alone, with all its
+ *  work (chainClosure): a task it owns or one of its Agent sessions runs
+ *  (`agentTasks`: `{ taskId, sessionId, running }` of this process's agent
+ *  tasks; a pool row's `taskId`) still queued or running, or its result owed
+ *  (or an owed result naming no task), or one of those sessions with a turn
+ *  in flight (`working`), owning a queued or running agent task, or pending
+ *  on its pool row. Other work of the session never counts. */
+function chainPendingWork(sessionId, taskIds, { owed, pool, agentTaskOwners, working, agentTasks }) {
+  const chain = chainClosure(sessionId, taskIds, { pool, agentTasks });
+  const sessionOf = new Map();
+  for (const row of pool) if (row?.taskId) sessionOf.set(String(row.taskId), String(row.sessionId || ''));
+  for (const task of agentTasks) if (task.sessionId) sessionOf.set(task.taskId, task.sessionId);
+  const ofChain = (taskId) => chain.taskIds.has(taskId) || chain.sessions.has(sessionOf.get(taskId));
+  if (owed.some((result) => !owedTaskId(result) || ofChain(owedTaskId(result)))) return true;
+  if (agentTasks.some((task) => task.running && ofChain(task.taskId))) return true;
+  for (const id of chain.sessions) if (working.has(id) || agentTaskOwners.has(id)) return true;
+  return pool.some((row) => chain.sessions.has(String(row?.sessionId || '')) && hasPendingAgentWork(row));
 }
 
 /** The agent results queued for `sessionId` that no turn has taken yet (its
@@ -256,21 +353,36 @@ export async function owedAgentResults(sessionId) {
 }
 
 /** pendingWorkOf over this process's state: the in-flight runtimes, the
- *  durable pending queue, the agent pool and the background agent tasks. */
-export async function taskSessionPendingWork(sessionId, { owedResults = owedAgentResults } = {}) {
-  const [{ inFlightSessionActivity }, { listStoredAgentWorkersAsync }, { activeBackgroundTaskSessionIds }] =
-    await Promise.all([
-      import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
-      import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
-      import('../runtime/shared/background-tasks.mjs'),
-    ]);
+ *  durable pending queue, the agent pool and the background agent tasks;
+ *  `taskIds` narrows it to one chain's agent tasks. */
+export async function taskSessionPendingWork(sessionId, { owedResults = owedAgentResults, taskIds = null } = {}) {
+  const [
+    { inFlightSessionActivity },
+    { listStoredAgentWorkersAsync },
+    { activeBackgroundTaskSessionIds, listBackgroundTasks },
+  ] = await Promise.all([
+    import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
+    import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
+    import('../runtime/shared/background-tasks.mjs'),
+  ]);
   const { working, agentWorking } = inFlightSessionActivity();
   const agentTaskOwners = activeBackgroundTaskSessionIds({ surface: 'agent' });
-  if (pendingWorkOf(sessionId, { agentWorking, agentTaskOwners })) return true;
-  if ((await owedResults(sessionId)).length) return true;
+  const agentTasks = taskIds ? agentTaskRows(listBackgroundTasks) : [];
+  const live = { agentWorking, agentTaskOwners, taskIds, working, agentTasks };
+  if (pendingWorkOf(sessionId, live)) return true;
+  const owed = await owedResults(sessionId);
+  if (pendingWorkOf(sessionId, { ...live, owed })) return true;
   const pool = await listStoredAgentWorkersAsync({ runningSessionIds: working });
-  return pendingWorkOf(sessionId, { pool, agentTaskOwners });
+  return pendingWorkOf(sessionId, { ...live, owed, pool });
 }
+
+/** This process's agent tasks as pendingWorkOf reads them. */
+const agentTaskRows = (listBackgroundTasks) =>
+  listBackgroundTasks({ surface: 'agent' }).map((task) => ({
+    taskId: task.task_id,
+    sessionId: task.sessionId || null,
+    running: task.status === 'running',
+  }));
 
 // A task session idle with nothing pending must stay so this long before its
 // latest answer is final: a finished agent's result can start the Lead's next
@@ -353,8 +465,12 @@ async function lastUsedSessionRoute(sessionService) {
 /** Wait for the final answer of the task turn `runId` of `sessionId` ended
  *  completed: the end of the latest turn since it (a Lead that handed work
  *  to agents ends its turn and answers in the turn their results wake),
- *  once the session is idle with no pending agent work (pendingWork) for
- *  `settleMs`. `immediate` is runId's own end, when this process saw it.
+ *  once that chain has no turn running and no pending agent work
+ *  (pendingWork of its agent tasks) for `settleMs`. Work of the session
+ *  outside the chain (a turn the user typed, its agents) never holds it;
+ *  without the provenance to tell (no stored turn, `ambiguous`) the whole
+ *  session must be idle with none pending. `immediate` is runId's own end,
+ *  when this process saw it.
  *  `finish(status, text)` runs once; `check` re-evaluates (call it on every
  *  state change of `runtime`), `stop` ends the wait. */
 function followTaskToFinal(
@@ -365,10 +481,10 @@ function followTaskToFinal(
   let pendingSince = 0;
   // Agent work still pending `pendingCapMs` after the chain's latest turn
   // ended: `progress(text)` reports that answer once, marked still in
-  // progress, and the wait for the final one goes on.
-  async function reportProgress() {
+  // progress, and the wait for the final one goes on. `latest`: the chain's
+  // latest turn (turnChain).
+  async function reportProgress(latest) {
     if (progressed || typeof progress !== 'function') return;
-    const latest = latestTurnOutcome((await loadSession(sessionId))?.messages, runId);
     let end = latest?.outcome && latest.outcome !== 'open' ? latest.outcome : null;
     if (immediate && (!latest || latest.id === runId)) end = immediate;
     if (!end) return;
@@ -384,6 +500,7 @@ function followTaskToFinal(
   let candidateAt = 0;
   let timer = null;
   let wakes = 0;
+  let otherWakes = 0;
   let wokeAt = 0;
   const unwoken = (why) => {
     log(`${sessionId} could not take its agents' results after the restart: ${why}`);
@@ -392,23 +509,32 @@ function followTaskToFinal(
   // `wakeOwed` (a restarted watch): deliver the agent results queued for
   // the idle session through the notification bus so a turn takes them, at
   // most OWED_WAKE_TRIES times, a poll apart; null while that turn is owed.
-  async function wakeForOwed() {
+  // Every owed result is delivered, but only those of the chain's agent tasks
+  // (owedOf `taskIds`) hold the report or fail it; deliveries of the others
+  // alone have a bound of their own (`otherWakes`).
+  async function wakeForOwed(taskIds) {
     const owed = await owedResults(sessionId);
     if (!owed.length) return undefined;
-    if (Date.now() - wokeAt < pollMs) return null;
-    if (wakes >= OWED_WAKE_TRIES) return unwoken(`still not taken after ${wakes} deliveries`);
-    wakes += 1;
-    wokeAt = Date.now();
-    let delivered = false;
-    try {
-      if (typeof deliverCompletion === 'function') {
-        const results = await Promise.all(owed.map(({ text, meta }) => deliverCompletion(sessionId, text, meta)));
-        delivered = results.some((result) => result === true);
-      }
-    } catch (error) {
-      return unwoken(error?.message || error);
+    const chain = new Set(owedOf(owed, taskIds));
+    const hold = chain.size ? null : undefined;
+    if (Date.now() - wokeAt < pollMs) return hold;
+    if (chain.size ? wakes >= OWED_WAKE_TRIES : otherWakes >= OWED_WAKE_TRIES) {
+      return chain.size ? unwoken(`still not taken after ${wakes} deliveries`) : undefined;
     }
-    return delivered ? null : unwoken('no session runtime took the delivery');
+    if (chain.size) wakes += 1;
+    else otherWakes += 1;
+    wokeAt = Date.now();
+    const outcomes = await Promise.allSettled(
+      owed.map(
+        async ({ text, meta }) =>
+          typeof deliverCompletion === 'function' && (await deliverCompletion(sessionId, text, meta)) === true
+      )
+    );
+    if (!chain.size) return undefined;
+    const ofChain = outcomes.filter((_, index) => chain.has(owed[index]));
+    const failure = ofChain.find((outcome) => outcome.status === 'rejected');
+    if (failure) return unwoken(failure.reason?.message || failure.reason);
+    return ofChain.some((outcome) => outcome.value === true) ? null : unwoken('no session runtime took the delivery');
   }
   const arm = (ms) => {
     clearTimeout(timer);
@@ -422,21 +548,25 @@ function followTaskToFinal(
   const failed = (error) => log(`following ${sessionId} to its final answer failed: ${error?.message || error}`);
   // The end to report now, or null while the task still works.
   async function ready() {
-    if (runtime?.getState?.()?.busy) return null;
-    if (wakeOwed) {
-      const woke = await wakeForOwed();
+    const stored = await loadSession(sessionId);
+    const latest = turnChain(stored?.messages, runId);
+    // The chain's agent tasks; null (the whole session) without its provenance.
+    const taskIds = latest && !latest.ambiguous ? latest.taskIds : null;
+    // A busy session may run the chain's turn unless that turn is provably another's.
+    const busy = Boolean(runtime?.getState?.()?.busy);
+    if (busy && !(taskIds && latest.busyIsOthers)) return null;
+    if (wakeOwed && !busy) {
+      const woke = await wakeForOwed(taskIds);
       if (woke !== undefined) return woke;
     }
-    if (await pendingWork(sessionId)) {
-      await reportProgress();
+    if (await pendingWork(sessionId, { taskIds })) {
+      await reportProgress(latest);
       return null;
     }
-    const stored = await loadSession(sessionId);
     if (!stored && !immediate) return { key: 'gone', status: 'cancelled', text: GONE_TEXT };
-    const latest = latestTurnOutcome(stored?.messages, runId);
     // Provenance the chain needs is missing: its answer may not be final.
     if (latest?.ambiguous) {
-      await reportProgress();
+      await reportProgress(latest);
       return null;
     }
     if (immediate && (!latest || latest.id === runId)) return { key: runId, ...immediate };

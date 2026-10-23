@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  chainClosure,
   createAgentTaskSessions,
   latestTurnOutcome,
   pendingWorkOf,
@@ -71,6 +72,8 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   const records = new Map();
   // The agent pool rows (listStoredAgentWorkersAsync shape).
   const pool = [];
+  // This process's agent tasks (`{ taskId, sessionId, running }`).
+  const agentTasks = [];
   const wakes = [];
   const logs = [];
   function boot(overrides = {}) {
@@ -132,8 +135,9 @@ function world(t, { settleMs = 0, wake = null } = {}) {
       turnArtifacts: async () => ({ files: [], omitted: 0 }),
       agentName: async () => 'Bot One',
       retryDelaysMs: [],
-      // The desktop notifier's rule over this world's agent pool.
-      pendingWork: async (sessionId) => sessionsWithPendingWork(pool).has(sessionId),
+      // The desktop notifier's rule over this world's agent pool, narrowed to
+      // the report's chain of agent tasks when it names one.
+      pendingWork: async (sessionId, scope) => pendingWorkOf(sessionId, { pool, agentTasks, ...scope }),
       settleMs,
       pollMs: 60_000,
       owedResults: async () => [],
@@ -150,7 +154,7 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   const reports = () => home.messages.filter((message) => message.meta?.routine?.kind === 'task');
   const ended = () => reports().filter((message) => !['started', 'blocked'].includes(message.meta.routine.status));
   const watchIds = async () => (await createRoutineResultQueue(file).watches()).map((watch) => watch.runId);
-  return { file, home, records, pool, wakes, logs, boot, task, reports, ended, watchIds };
+  return { file, home, records, pool, agentTasks, wakes, logs, boot, task, reports, ended, watchIds };
 }
 
 const worker = (status, extra = {}) => ({
@@ -158,6 +162,7 @@ const worker = (status, extra = {}) => ({
   sessionId: 'sess_agent_worker',
   ownerSessionId: TASK,
   parentSessionId: TASK,
+  taskId: 'task_agent_1',
   status,
   stage: status,
   ...extra,
@@ -420,8 +425,13 @@ test('two watchers of one task session each report their own chain, once', async
   const [, followUp] = p.submits();
   w.task().messages.push(...turnRows(followUp.options.id, 'Docs are next on the list.'));
   followUp.options.onSettled({ status: 'done', result: { content: 'Docs are next on the list.' } });
+  await waitFor(p.delivery, () => w.ended().length);
   await pump(p.delivery);
-  assert.deepEqual(w.ended(), [], 'both wait for the running agent');
+  assert.deepEqual(
+    w.ended().map((message) => message.content.includes('Docs are next')),
+    [true],
+    "the follow-up started no agent: the brief's running agent never holds it"
+  );
   w.pool[0] = worker('completed');
   await wokenTurn(w, p, FINAL);
   await waitFor(p.delivery, () => w.ended().length === 2);
@@ -467,6 +477,465 @@ test('agent work pending past the cap reports the latest answer as still in prog
   );
   assert.match(w.ended()[1].content, new RegExp(FINAL));
   assert.deepEqual(await w.watchIds(), []);
+});
+
+// ---- the report waits on its own chain, never on other work in the session ----
+
+/** The user's own agent in the task session: work outside any bot's chain. */
+const userAgent = (status) => ({
+  tag: 'user-agent',
+  sessionId: 'sess_agent_user',
+  ownerSessionId: TASK,
+  parentSessionId: TASK,
+  taskId: 'task_agent_user',
+  status,
+  stage: status,
+});
+
+/** A bot's send to the plain coding session TASK (not one it created). */
+async function sentRequest(w, p, prompt = 'check the scheduler', agentId = 'bot1', home = HOME) {
+  if (!w.task()) w.records.set(TASK, { id: TASK, title: 'Coding', messages: [] });
+  const before = p.submits().length;
+  const sent = await p.api.send(TASK, prompt, await p.api.reportOrigin(TASK, agentId, home));
+  assert.equal(sent.reportsBack, true);
+  return p.submits()[before];
+}
+
+test("a request answered while the user's own later turns keep agents working reports at once, never in progress", async (t) => {
+  const w = world(t);
+  const p = w.boot({ pendingCapMs: 40 });
+  const request = await sentRequest(w, p);
+  w.task().messages.push(...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  assert.deepEqual(w.ended(), [], "the request's own agent holds it");
+  // The user goes on in the same session: their turn starts an agent of its own.
+  w.task().messages.push(...turnRows('desktop-submit-1', 'My agent is on the other thing.', { spawns: ['task_agent_user'] }));
+  w.pool.push(userAgent('running'));
+  // The request's agent finishes; its woken turn answers.
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, p, FINAL);
+  await waitFor(p.delivery, () => w.ended().length);
+  // Past the progress cap, with the user's agent still running, nothing more.
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  p.emit();
+  await pump(p.delivery);
+  assert.deepEqual(
+    w.ended().map((message) => [message.meta.routine.status, message.content.includes('Still in progress')]),
+    [['completed', false]]
+  );
+  assert.match(w.ended()[0].content, new RegExp(FINAL));
+  assert.equal(w.ended()[0].content.includes('My agent'), false);
+  assert.deepEqual(await w.watchIds(), [], 'the watch closes');
+  assert.equal(p.listeners.size, 0);
+});
+
+test("a chain that ends while the user's own turn runs reports at once, with the chain's answer", async (t) => {
+  // The request's own turn answered with no agent, the user's turn already running.
+  const v = world(t);
+  const q = v.boot();
+  const request = await sentRequest(v, q);
+  v.task().messages.push(
+    ...turnRows(request.options.id, 'The scheduler runs hourly.'),
+    ...turnRows('desktop-submit-1', 'not yet', { spawns: ['task_agent_user'] }).slice(0, -1)
+  );
+  v.pool.push(userAgent('running'));
+  q.state.busy = true;
+  request.options.onSettled({ status: 'done', result: { content: 'The scheduler runs hourly.' } });
+  await waitFor(q.delivery, () => v.ended().length);
+  assert.deepEqual(
+    v.ended().map((message) => message.meta.routine.status),
+    ['completed']
+  );
+  assert.match(v.ended()[0].content, /The scheduler runs hourly\./);
+  assert.deepEqual(await v.watchIds(), []);
+
+  // The chain's woken turn ended just as the user's next turn started.
+  const w = world(t);
+  const p = w.boot();
+  const sent = await sentRequest(w, p);
+  w.task().messages.push(...turnRows(sent.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  sent.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  assert.deepEqual(w.ended(), []);
+  p.state.busy = true;
+  w.pool[0] = worker('completed');
+  w.task().messages.push(
+    ...turnRows('it_wake_1', FINAL, {
+      source: 'task-notification',
+      prompt: notificationPrompt(['task_agent_1']),
+      consumed: ['task_agent_1'],
+    }),
+    ...turnRows('desktop-submit-2', 'the user answer', { spawns: ['task_agent_user'] }).slice(0, -1)
+  );
+  w.pool.push(userAgent('running'));
+  p.emit();
+  await waitFor(p.delivery, () => w.ended().length);
+  assert.equal(p.state.busy, true, "reported while the user's turn still runs");
+  assert.equal(w.ended().length, 1);
+  assert.match(w.ended()[0].content, new RegExp(FINAL));
+  assert.equal(w.ended()[0].content.includes('the user answer'), false);
+  assert.deepEqual(await w.watchIds(), []);
+});
+
+test('a turn the chain woke whose prompt is not stored yet holds the report until it ends', async (t) => {
+  for (const stale of [false, true]) {
+    const w = world(t, { settleMs: 30 });
+    const p = w.boot();
+    const request = await sentRequest(w, p);
+    w.task().messages.push(...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+    w.pool.push(worker('running'));
+    request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+    await pump(p.delivery);
+    // `stale`: a turn of the user's ran meanwhile, its end not stored yet either.
+    const user = turnRows('desktop-submit-1', 'mine');
+    if (stale) w.task().messages.push(...user.slice(0, -1));
+    // The agent finishes; its result wakes the Lead, whose prompt save lags
+    // well past the quiet period.
+    w.pool[0] = worker('completed');
+    p.state.busy = true;
+    p.emit();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    p.emit();
+    await pump(p.delivery);
+    assert.deepEqual(w.ended(), [], `${stale ? 'stale' : 'plain'}: nothing while that turn runs unsaved`);
+    if (stale) w.task().messages.push(...user.slice(-1));
+    w.task().messages.push(
+      ...turnRows('it_wake_1', FINAL, {
+        source: 'task-notification',
+        prompt: notificationPrompt(['task_agent_1']),
+        consumed: ['task_agent_1'],
+      })
+    );
+    p.state.busy = false;
+    p.emit();
+    await waitFor(p.delivery, () => w.ended().length);
+    await pump(p.delivery);
+    assert.deepEqual(
+      w.ended().map((message) => message.meta.routine.status),
+      ['completed']
+    );
+    assert.match(w.ended()[0].content, new RegExp(FINAL));
+  }
+});
+
+test("a chain result steered into the user's running turn, not stored yet, holds the report until it ends", async (t) => {
+  const w = world(t, { settleMs: 30 });
+  const p = w.boot();
+  const request = await sentRequest(w, p);
+  w.task().messages.push(...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  // The user's own turn runs, its prompt stored, when the agent finishes.
+  const [prompt, ...rest] = turnRows('desktop-submit-1', FINAL);
+  w.task().messages.push(prompt);
+  p.state.busy = true;
+  p.emit();
+  // The result is steered into that turn; the steer is not stored yet.
+  w.pool[0] = worker('completed');
+  p.emit();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  p.emit();
+  await pump(p.delivery);
+  assert.deepEqual(w.ended(), [], 'nothing while the steered result is unsaved');
+  w.task().messages.push(...steeredCompletion('task_agent_1'), ...rest);
+  p.state.busy = false;
+  p.emit();
+  await waitFor(p.delivery, () => w.ended().length);
+  await pump(p.delivery);
+  assert.equal(w.ended().length, 1);
+  assert.match(w.ended()[0].content, new RegExp(FINAL));
+  assert.equal(w.ended()[0].content.includes(INTERIM), false);
+});
+
+test('two bots sending to one session each report when their own chain ends', async (t) => {
+  const w = world(t);
+  const sent = [];
+  const p = w.boot({
+    deliver: async (agentId, report) => {
+      sent.push([agentId, report]);
+    },
+  });
+  const first = await sentRequest(w, p, 'refactor the parser', 'bot1', HOME);
+  const second = await sentRequest(w, p, 'what time is it there?', 'bot2', 'sess_home_bot2');
+  w.task().messages.push(
+    ...turnRows(first.options.id, INTERIM, { spawns: ['task_agent_1'] }),
+    ...turnRows(second.options.id, 'It is noon.')
+  );
+  w.pool.push(worker('running'));
+  first.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  second.options.onSettled({ status: 'done', result: { content: 'It is noon.' } });
+  const ends = () => sent.filter(([, report]) => report.runId.endsWith('_end'));
+  for (let i = 0; i < 50 && !ends().length; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(
+    ends().map(([agentId, report]) => [agentId, report.text]),
+    [['bot2', 'It is noon.']],
+    "bot2's chain started no agent: bot1's running agent never holds it"
+  );
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, p, FINAL);
+  for (let i = 0; i < 50 && ends().length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(
+    ends().map(([agentId, report]) => [agentId, report.text]),
+    [
+      ['bot2', 'It is noon.'],
+      ['bot1', FINAL],
+    ]
+  );
+});
+
+test("a chain agent's sub-agents hold the report; the user's agents never do", async (t) => {
+  const w = world(t, { settleMs: 0 });
+  const p = w.boot({ pendingCapMs: 60_000 });
+  const request = await sentRequest(w, p);
+  w.task().messages.push(
+    ...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }),
+    ...turnRows('desktop-submit-1', 'mine', { spawns: ['task_agent_user'] })
+  );
+  // The chain's agent finished, the sub-agent it spawned still runs (its row
+  // names the Lead as owner, the chain agent as parent).
+  const sub = (status) => ({
+    tag: 'sub',
+    sessionId: 'sess_agent_sub',
+    ownerSessionId: TASK,
+    parentSessionId: 'sess_agent_worker',
+    taskId: 'task_agent_sub',
+    status,
+    stage: status,
+  });
+  w.pool.push(worker('completed'), sub('running'), userAgent('running'));
+  request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  assert.deepEqual(w.ended(), [], 'a sub-agent of the chain is chain work');
+  w.pool[1] = sub('completed');
+  await wokenTurn(w, p, FINAL);
+  await waitFor(p.delivery, () => w.ended().length);
+  assert.equal(w.ended().length, 1);
+  assert.match(w.ended()[0].content, new RegExp(FINAL));
+});
+
+/** A child agent the chain's agent spawned: the Lead owns it, the agent is its parent. */
+const child = (status) => ({
+  tag: 'child',
+  sessionId: 'sess_agent_child',
+  ownerSessionId: TASK,
+  parentSessionId: 'sess_agent_worker',
+  taskId: 'task_agent_child',
+  status,
+  stage: status,
+  ...(status === 'failed' ? { failureReason: 'process-restart' } : {}),
+});
+
+test("pendingWorkOf narrowed to a chain counts only the chain's tasks, sessions and results", () => {
+  const chain = new Set(['task_agent_1']);
+  const pool = [worker('completed'), userAgent('running')];
+  const of = (state) => pendingWorkOf(TASK, { pool, taskIds: chain, ...state });
+  assert.equal(of({}), false, "the user's running agent is not the chain's");
+  assert.equal(pendingWorkOf(TASK, { pool }), true, 'the whole session still waits on it');
+  assert.equal(of({ agentTasks: [{ taskId: 'task_agent_1', sessionId: null, running: true }] }), true, 'queued');
+  assert.equal(of({ agentTasks: [{ taskId: 'task_agent_user', sessionId: null, running: true }] }), false);
+  assert.equal(of({ working: new Set(['sess_agent_worker']) }), true, "the chain agent's turn in flight");
+  assert.equal(of({ working: new Set([TASK, 'sess_agent_user']) }), false, "the Lead's or the user's turn");
+  assert.equal(of({ agentTaskOwners: new Set(['sess_agent_worker']) }), true, 'a sub-agent queued by it');
+  assert.equal(of({ agentTaskOwners: new Set([TASK, 'sess_agent_user']) }), false);
+  const owed = (executionId) => [{ text: '', meta: { execution_id: executionId } }];
+  assert.equal(of({ owed: owed('restart:task_agent_1') }), true);
+  assert.equal(of({ owed: owed('task_agent_user') }), false);
+  assert.equal(of({ owed: owed('restart:sess_x:123') }), true, 'a result naming no task may be the chain’s');
+  // A finished chain agent's child, failed by a restart: its result, owed
+  // to the Lead, may be the chain's, so it holds the report — but no record
+  // proves which task spawned the child, so the chain never owns it.
+  const family = [worker('completed'), child('failed'), userAgent('failed')];
+  const ofFamily = (executionId) =>
+    pendingWorkOf(TASK, { pool: family, taskIds: chain, owed: owed(executionId) });
+  assert.equal(ofFamily('restart:task_agent_child'), true, "the chain agent's child result holds it");
+  assert.equal(ofFamily('restart:task_agent_user'), false);
+  const closure = chainClosure(TASK, chain, { pool: family });
+  assert.deepEqual([...closure.taskIds], ['task_agent_1'], 'only the tasks chain turns started are owned');
+  assert.deepEqual([...closure.sessions], ['sess_agent_worker', 'sess_agent_child']);
+});
+
+test("after a restart, a chain agent's child result owed to the Lead holds the report until a turn takes it", async (t) => {
+  const w = await heldAcrossRestart(t);
+  // Before the stop the chain's agent finished and its woken turn answered.
+  w.task().messages.push(
+    ...turnRows('it_wake_1', FINAL, {
+      source: 'task-notification',
+      prompt: notificationPrompt(['task_agent_1']),
+      consumed: ['task_agent_1'],
+    })
+  );
+  const owed = [];
+  const delivered = [];
+  const second = w.boot({
+    // The task session's pending work counts its owed results (taskSessionPendingWork).
+    pendingWork: async (sessionId, scope) => pendingWorkOf(sessionId, { pool: w.pool, owed: [...owed], ...scope }),
+    // The chain's agent finished before the stop; the child it spawned was
+    // killed, and its failure is owed to the Lead (restart-notify).
+    settleAgentResults: async () => {
+      w.pool[0] = worker('completed');
+      w.pool.push(child('failed'));
+      owed.push({ text: 'child failed', meta: { execution_id: 'restart:task_agent_child', status: 'failed' } });
+    },
+    owedResults: async () => [...owed],
+    deliverCompletion: (_sessionId, _text, meta) => {
+      delivered.push(meta.execution_id);
+      return true;
+    },
+  });
+  assert.equal(await second.api.recover(), 1);
+  await pump(second.delivery);
+  assert.deepEqual(delivered, ['restart:task_agent_child']);
+  assert.deepEqual(w.ended(), [], 'nothing while the child result is owed');
+  assert.equal((await w.watchIds()).length, 1);
+  // A turn takes it and answers; no record proves the child the chain's, so
+  // that turn never becomes the report — it only held it.
+  owed.length = 0;
+  await wokenTurn(w, second, 'CHILD ANSWER', { reports: ['restart:task_agent_child'] });
+  await waitFor(second.delivery, () => w.ended().length);
+  await pump(second.delivery);
+  assert.deepEqual(
+    w.ended().map((message) => message.meta.routine.status),
+    ['completed']
+  );
+  assert.match(w.ended()[0].content, new RegExp(FINAL), "the chain's proven answer");
+  assert.equal(w.ended()[0].content.includes('CHILD ANSWER'), false);
+  assert.deepEqual(await w.watchIds(), []);
+});
+
+test("a child spawned by a user task in the chain's reused agent session is never the chain's", async (t) => {
+  const w = world(t);
+  const p = w.boot();
+  const request = await sentRequest(w, p);
+  // The bot's request starts task A in the worker session; A answers.
+  w.task().messages.push(...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  w.agentTasks.push({ taskId: 'task_agent_1', sessionId: 'sess_agent_worker', running: true });
+  request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  // The user sends task B to that worker; B spawns child C, still running.
+  w.agentTasks[0].running = false;
+  w.agentTasks.push({ taskId: 'task_agent_b', sessionId: 'sess_agent_worker', running: false });
+  const c = (status) => ({ ...child(status), sessionId: 'sess_agent_c', taskId: 'task_agent_c' });
+  w.pool[0] = worker('completed', { taskId: 'task_agent_b' });
+  w.pool.push(c('running'));
+  w.task().messages.push(
+    ...turnRows('it_wake_1', FINAL, {
+      source: 'task-notification',
+      prompt: notificationPrompt(['task_agent_1']),
+      consumed: ['task_agent_1'],
+    }),
+    ...turnRows('desktop-submit-1', 'B went to the worker.', { spawns: ['task_agent_b'] })
+  );
+  p.emit();
+  await pump(p.delivery);
+  assert.deepEqual(w.ended(), [], 'a child under the chain agent’s session may be the chain’s: it waits');
+  // C's result reaches the Lead (a restart failure) and wakes a turn.
+  w.pool[1] = c('failed');
+  await wokenTurn(w, p, 'C ANSWER', { reports: ['restart:task_agent_c'] });
+  await waitFor(p.delivery, () => w.ended().length);
+  await pump(p.delivery);
+  assert.equal(w.ended().length, 1);
+  assert.match(w.ended()[0].content, new RegExp(FINAL), "the chain's own answer");
+  assert.equal(w.ended()[0].content.includes('C ANSWER'), false);
+  const closure = chainClosure(TASK, ['task_agent_1'], { pool: w.pool, agentTasks: w.agentTasks });
+  assert.deepEqual([...closure.taskIds], ['task_agent_1'], 'C is not owned');
+  assert.equal(closure.sessions.has('sess_agent_c'), true, 'C only holds the report');
+});
+
+test("a task the user sends to the chain's agent is never the chain's: its woken turn never answers the report", async (t) => {
+  const w = world(t);
+  const p = w.boot();
+  const request = await sentRequest(w, p);
+  // The bot's request starts task A in the worker session.
+  w.task().messages.push(...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  w.agentTasks.push({ taskId: 'task_agent_1', sessionId: 'sess_agent_worker', running: true });
+  request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  // A finishes and its woken turn answers; meanwhile the user's own turn sent
+  // task B to that same worker session, which now runs B.
+  w.agentTasks[0].running = false;
+  w.agentTasks.push({ taskId: 'task_agent_b', sessionId: 'sess_agent_worker', running: true });
+  w.pool[0] = worker('running', { taskId: 'task_agent_b' });
+  w.task().messages.push(
+    ...turnRows('it_wake_1', FINAL, {
+      source: 'task-notification',
+      prompt: notificationPrompt(['task_agent_1']),
+      consumed: ['task_agent_1'],
+    }),
+    { role: 'user', content: 'ask the worker about B', meta: { transcript: { checkpointId: 'desktop-submit-1' } } },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'call_b', name: 'agent', arguments: { type: 'send', tag: 'worker' } }],
+    },
+    { role: 'tool', toolCallId: 'call_b', content: 'sent', agentTaskIds: ['task_agent_b'] },
+    ...turnRows('desktop-submit-1', 'B is with the worker.').slice(-1)
+  );
+  p.emit();
+  await pump(p.delivery);
+  assert.deepEqual(w.ended(), [], 'work running in the chain agent’s session may be the chain’s: it waits');
+  // B finishes; its result wakes a turn of the user's.
+  w.agentTasks[1].running = false;
+  w.pool[0] = worker('completed', { taskId: 'task_agent_b' });
+  await wokenTurn(w, p, 'USER B ANSWER', { reports: ['task_agent_b'] });
+  await waitFor(p.delivery, () => w.ended().length);
+  await pump(p.delivery);
+  assert.equal(w.ended().length, 1);
+  assert.match(w.ended()[0].content, new RegExp(FINAL), "the chain's own answer");
+  assert.equal(w.ended()[0].content.includes('USER B ANSWER'), false);
+  assert.deepEqual(
+    [...chainClosure(TASK, ['task_agent_1'], { pool: w.pool, agentTasks: w.agentTasks }).taskIds],
+    ['task_agent_1'],
+    'B ran in the chain agent’s session, but no chain turn started it'
+  );
+});
+
+test("after a restart, owed results of the user's agents are delivered but neither hold nor fail the chain's report", async (t) => {
+  for (const mode of ['refused', 'throws']) {
+    const w = await heldAcrossRestart(t);
+    // Before the stop the chain's agent finished and its woken turn answered;
+    // the restart killed only the user's own agent, whose failure is owed.
+    w.pool[0] = worker('completed');
+    w.task().messages.push(
+      ...turnRows('it_wake_1', FINAL, {
+        source: 'task-notification',
+        prompt: notificationPrompt(['task_agent_1']),
+        consumed: ['task_agent_1'],
+      }),
+      ...turnRows('desktop-submit-1', 'mine', { spawns: ['task_agent_user'] })
+    );
+    w.pool.push(userAgent('failed'));
+    const delivered = [];
+    const second = w.boot({
+      owedResults: async () => [
+        { text: 'user agent failed', meta: { execution_id: 'restart:task_agent_user', status: 'failed' } },
+      ],
+      // No session runtime takes it: the delivery is refused, or throws.
+      deliverCompletion: (_sessionId, _text, meta) => {
+        delivered.push(meta.execution_id);
+        if (mode === 'throws') throw new Error('bus closed');
+        return false;
+      },
+    });
+    assert.equal(await second.api.recover(), 1);
+    await waitFor(second.delivery, () => w.ended().length);
+    await pump(second.delivery);
+    assert.deepEqual(delivered, ['restart:task_agent_user'], `${mode}: the user's result is still delivered`);
+    assert.deepEqual(
+      w.ended().map((message) => message.meta.routine.status),
+      ['completed'],
+      `${mode}: its failed delivery never fails the chain's report`
+    );
+    assert.match(w.ended()[0].content, new RegExp(FINAL));
+    assert.deepEqual(await w.watchIds(), []);
+  }
 });
 
 test('latestTurnOutcome follows only the turns its own agents woke', () => {
