@@ -329,11 +329,33 @@ test('quota windows map Gemini 5-hour and weekly summary buckets to 5H/7D', () =
       },
     ],
   });
+  // Each group's buckets gate its own models: the 3p pair Claude/GPT, the
+  // Gemini pair every model the 3p pair does not claim.
+  const gemini = { except: ['claude', 'gpt'] };
+  const thirdParty = { models: ['claude', 'gpt'] };
   assert.deepEqual(windows, [
-    { label: '5H', usedPct: 50, resetAt: Date.parse('2026-09-04T12:00:00Z'), source: 'antigravity-quota-summary' },
-    { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
-    { label: '5H Claude/GPT', usedPct: 95, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
-    { label: '7D Claude/GPT', usedPct: 93, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    {
+      label: '5H',
+      usedPct: 50,
+      resetAt: Date.parse('2026-09-04T12:00:00Z'),
+      source: 'antigravity-quota-summary',
+      ...gemini,
+    },
+    { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary', ...gemini },
+    {
+      label: '5H Claude/GPT',
+      usedPct: 95,
+      resetAt: Date.parse(RESET),
+      source: 'antigravity-quota-summary',
+      ...thirdParty,
+    },
+    {
+      label: '7D Claude/GPT',
+      usedPct: 93,
+      resetAt: Date.parse(RESET),
+      source: 'antigravity-quota-summary',
+      ...thirdParty,
+    },
   ]);
 });
 
@@ -345,9 +367,10 @@ test('quota windows show the Claude/GPT buckets by bucket id, even without the G
       { bucketId: '3p-5h', window: '5h', remainingFraction: 0.5, resetTime: RESET },
     ],
   };
+  const thirdParty = { source: 'antigravity-quota-summary', models: ['claude', 'gpt'] };
   assert.deepEqual(antigravityQuotaWindows({ groups: [group] }), [
-    { label: '5H Claude/GPT', usedPct: 50, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
-    { label: '7D Claude/GPT', usedPct: 75, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    { label: '5H Claude/GPT', usedPct: 50, resetAt: Date.parse(RESET), ...thirdParty },
+    { label: '7D Claude/GPT', usedPct: 75, resetAt: Date.parse(RESET), ...thirdParty },
   ]);
   // A group whose text names Claude but whose buckets carry other ids is not mapped.
   assert.deepEqual(
@@ -381,9 +404,11 @@ test('quota windows add the separate Gemini 4 Argon weekly bucket as 7D Argon', 
     usedPct: 25,
     resetAt: Date.parse('2026-10-24T08:11:47Z'),
     source: 'antigravity-quota-summary',
+    models: ['argon'],
   };
+  // Argon draws on its own group's bucket, so the shared Gemini rows leave it out.
   assert.deepEqual(antigravityQuotaWindows({ groups: [gemini, argonGroup] }), [
-    { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary', except: ['argon'] },
     argonRow,
   ]);
   // The Argon limit shows even when the shared Gemini group is absent.
