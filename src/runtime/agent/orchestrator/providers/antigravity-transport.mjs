@@ -24,6 +24,7 @@ import { TIMEOUT_PHASE, isFirstByteTimeout } from '../../../shared/provider-time
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { _scrubTokens } from './antigravity-oauth-tokens.mjs';
 import { applyGeminiErrorContract } from './gemini-error-contract.mjs';
+import { geminiInvalidStreamReask } from './gemini-retry-policy.mjs';
 import { DETERMINISTIC_KINDS, providerErrorKind } from './provider-error-kind.mjs';
 
 // Rate-limit reason: 503/529 are capacity by status; a
@@ -116,6 +117,7 @@ export function antigravityError(res, text, endpoint) {
  * @param {{ beginAttempt: Function, consume: Function }} deps.collector
  * @param {{ timeoutMs: number, maxMs: number, retries: number|null }} [deps.firstByte]
  *   first-byte window per attempt (antigravityFirstBytePolicy)
+ * @param {boolean} [deps.afterToolResult]  the request ends with a tool result (an empty STOP is then a valid answer)
  * @returns {() => Promise<object>} one retried request that resolves the final payload
  */
 export function createAntigravityRequest({
@@ -128,6 +130,7 @@ export function createAntigravityRequest({
   collector,
   sleepFn,
   firstByte = ANTIGRAVITY_UNCLASSED_FIRST_BYTE,
+  afterToolResult = false,
 }) {
   const log = (attempt, lastErr, delayMs) => {
     // A first-byte timeout runs on its own, shorter retry budget.
@@ -240,9 +243,20 @@ export function createAntigravityRequest({
   return async () => {
     const state = { capacityRetries: 0, quickRetried: false };
     const send = { attempts: 0, firstByteTimeouts: 0, firstByteWaitedMs: 0 };
+    let streamAttempt = 0;
     for (let tried = 1; ; tried++) {
       try {
-        return await attemptOnce(send);
+        const response = await attemptOnce(send);
+        // A finished but unusable answer (empty STOP, malformed call) gets
+        // the same bounded re-ask as the API-key transport. The dead
+        // attempt's thinking is retracted when the next attempt begins.
+        if (signal?.aborted) return response;
+        const reask = geminiInvalidStreamReask(response, collector.leakGuard, { afterToolResult, streamAttempt });
+        if (!reask) return response;
+        log(streamAttempt + 1, reask.unusable, reask.waitMs);
+        streamAttempt += 1;
+        await sleepWithAbort(reask.waitMs, signal, sleepFn, 'Antigravity retry wait aborted');
+        continue;
       } catch (err) {
         const waitMs = antigravity429WaitMs(err, state);
         if (waitMs == null) {

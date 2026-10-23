@@ -9,6 +9,7 @@
  * gemini-schema.mjs.
  */
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
+import { geminiMaxOutputTokens } from './gemini-output-limit.mjs';
 import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
 
 // Request pieces shared by the cached REST path and the SDK path.
@@ -16,16 +17,10 @@ import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './ge
 // maxOutputTokens counts thought tokens too (see the thinking docs). Anything
 // invalid is rejected here instead of being dropped. (safetySettings is a
 // request-level field, forwarded separately.)
-function geminiGenerationControls(opts) {
+function geminiGenerationControls(opts, useModel, outputLimit) {
   const controls = {};
-  const maxRaw = opts.maxOutputTokens ?? opts.max_output_tokens;
-  if (maxRaw !== undefined && maxRaw !== null) {
-    const max = Number(maxRaw);
-    if (!Number.isInteger(max) || max <= 0) {
-      throw new TypeError('maxOutputTokens must be a positive integer (it includes thinking tokens).');
-    }
-    controls.maxOutputTokens = max;
-  }
+  const maxOutputTokens = geminiMaxOutputTokens(useModel, opts, outputLimit);
+  if (maxOutputTokens !== undefined) controls.maxOutputTokens = maxOutputTokens;
   if (opts.temperature !== undefined && opts.temperature !== null) {
     const temperature = Number(opts.temperature);
     if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
@@ -36,14 +31,15 @@ function geminiGenerationControls(opts) {
   return controls;
 }
 
-export function buildGeminiRequest(messages, useModel, tools, opts) {
+// `outputLimit` is the provider roster's declared output limit for the model.
+export function buildGeminiRequest(messages, useModel, tools, opts, outputLimit = null) {
   // Gemini returns thought summaries only when the request asks for them.
   // Without this the reasoning channel stays empty for the whole turn and
   // the model's only visible output is the plain pre-tool text, so every
   // round reads as another preamble. On by default for every model; an
   // explicit opts.includeThoughts still wins.
   const thinkingConfig = geminiThinkingConfig(useModel, opts, { includeThoughts: true });
-  const controls = geminiGenerationControls(opts);
+  const controls = geminiGenerationControls(opts, useModel, outputLimit);
   let generationConfig;
   if (thinkingConfig || Object.keys(controls).length) {
     generationConfig = { ...(thinkingConfig ? { thinkingConfig } : {}), ...controls };

@@ -31,6 +31,7 @@ import {
 } from './gemini-retry-policy.mjs';
 import { geminiTextLeakGuardFor, streamGeminiSdkAttempt } from './gemini-sdk-request.mjs';
 import { emitGeminiToolCalls } from './gemini-schema.mjs';
+import { createGeminiReasoningRelay } from './gemini-reasoning-relay.mjs';
 import { buildGeminiRequest, geminiCachedRestBody } from './gemini-request-body.mjs';
 import {
   geminiIncompleteError,
@@ -134,10 +135,14 @@ function geminiRetryLogger(opts, tag) {
 }
 
 function geminiSendCallbacks(opts) {
+  const reasoning = createGeminiReasoningRelay(opts);
   return {
     onStreamDelta: typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null,
     onToolCall: typeof opts.onToolCall === 'function' ? opts.onToolCall : null,
     onTextDelta: typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null,
+    onReasoningDelta: reasoning.onReasoningDelta,
+    // Thinking already shown by a dead or discarded attempt.
+    retractReasoning: reasoning.retract,
   };
 }
 
@@ -220,11 +225,12 @@ export class GeminiProvider {
    * dispatched tool can never run twice. Returns the aggregated response, or
    * null when the failure is ineligible or the fallback itself fails.
    */
-  async _recoverGeminiNonStreaming({ streamErr, signal, opts, model, generate }) {
+  async _recoverGeminiNonStreaming({ streamErr, signal, opts, model, generate, retractReasoning }) {
     if (!canFallbackNonStreaming(streamErr, { signal })) return null;
     noteErrorUsage(streamErr);
     let aggregated;
     try {
+      retractReasoning?.();
       signalRequesting(opts);
       aggregated = await generate(signal || undefined);
     } catch {
@@ -549,6 +555,16 @@ export class GeminiProvider {
     }
   }
 
+  // The output limit the live model roster declared for this model, or null.
+  _rosterOutputLimit(model) {
+    try {
+      const id = geminiBareModelId(model);
+      return this._modelCache.loadSync()?.find?.((entry) => entry?.id === id)?.outputTokens ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async _doSend(messages, model, tools, sendOpts, internal = {}) {
     const opts = sendOpts || {};
     const signal = opts.signal || null;
@@ -556,7 +572,7 @@ export class GeminiProvider {
     throwIfGeminiAborted(signal);
 
     const useModel = model || (await ensureLatestGeminiModel(this));
-    const request = buildGeminiRequest(messages, useModel, tools, opts);
+    const request = buildGeminiRequest(messages, useModel, tools, opts, this._rosterOutputLimit(useModel));
     signalRequesting(opts);
 
     // Explicit cachedContents (system + tools + prior-turn transcript).
@@ -691,6 +707,7 @@ export class GeminiProvider {
         onRetry: geminiRetryLogger(opts, '[gemini-rest]'),
         afterToolResult,
         run: async ({ signal: attemptSignal, connected }) => {
+          callbacks.retractReasoning();
           signalRequesting(opts);
           const res = await this._openRestStream(genUrl, body, attemptSignal);
           connected();
@@ -699,6 +716,7 @@ export class GeminiProvider {
             signal: attemptSignal,
             onStreamDelta: callbacks.onStreamDelta,
             onTextDelta: callbacks.onTextDelta,
+            onReasoningDelta: callbacks.onReasoningDelta,
             textLeakGuard,
             label: 'Gemini REST streamGenerateContent',
             failureUsage: geminiFailureUsage(opts, cachedContent, useModel),
@@ -722,6 +740,7 @@ export class GeminiProvider {
         opts,
         model: useModel,
         generate: (fallbackSignal) => this._restGenerateContent(useModel, apiKey, body, fallbackSignal),
+        retractReasoning: callbacks.retractReasoning,
       });
       if (!recovered) throw err;
       return { response: recovered, textLeakGuard: null };
@@ -761,6 +780,7 @@ export class GeminiProvider {
         onRetry: geminiRetryLogger(opts, '[gemini]'),
         afterToolResult: geminiEndsWithFunctionResponse(contents),
         run: async ({ signal: attemptSignal, connected }) => {
+          stream.callbacks.retractReasoning();
           signalRequesting(opts);
           return await streamGeminiSdkAttempt(genModel, stream, attemptSignal, connected);
         },
@@ -775,6 +795,7 @@ export class GeminiProvider {
           const result = await genModel.generateContent({ contents }, { signal: fallbackSignal });
           return result?.response ?? null;
         },
+        retractReasoning: stream.callbacks.retractReasoning,
       });
       if (!recovered) throw err;
       return { response: recovered, textLeakGuard: null };

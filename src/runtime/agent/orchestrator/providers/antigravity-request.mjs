@@ -3,10 +3,17 @@ import { createProviderReplay, providerReplayItems } from './lib/provider-replay
 import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
 import { isGeminiFamilyModel } from './gemini-family.mjs';
+import { geminiMaxOutputTokens } from './gemini-output-limit.mjs';
 import { splitTailReminder } from './lib/tail-reminder-split.mjs';
 
 const THOUGHT_SIGNATURE_SENTINEL = 'skip_thought_signature_validator';
+// Used only when the gateway declared no output limit for a Claude id (the
+// gateway enforces Claude's limit per model: one token over it is a 400).
 const CLAUDE_MAX_OUTPUT_TOKENS = 64000;
+const claudeMaxOutputTokens = (declared) => {
+  const limit = Math.floor(Number(declared));
+  return limit > 0 ? limit : CLAUDE_MAX_OUTPUT_TOKENS;
+};
 
 // Claude models behind the gateway speak a different thinking/replay dialect
 // (token budgets, anthropic-beta header, their own signatures). The roster
@@ -190,7 +197,7 @@ function claudeGatewayLevel(value) {
 
 // An explicit token budget is sent as-is; otherwise the chosen effort rides
 // on thinkingLevel with the wire id unchanged.
-function claudeThinkingConfig(opts) {
+function claudeThinkingConfig(opts, cap) {
   const budget = opts.thinkingBudget ?? opts.thinkingBudgetTokens;
   const thinkingConfig = { includeThoughts: true };
   if (budget == null) {
@@ -199,8 +206,8 @@ function claudeThinkingConfig(opts) {
     return thinkingConfig;
   }
   const value = Number(budget);
-  if (!Number.isInteger(value) || value < 1024 || value >= CLAUDE_MAX_OUTPUT_TOKENS) {
-    throw new TypeError('Antigravity Claude thinkingBudget must be an integer from 1024 to 63999.');
+  if (!Number.isInteger(value) || value < 1024 || value >= cap) {
+    throw new TypeError(`Antigravity Claude thinkingBudget must be an integer from 1024 to ${cap - 1}.`);
   }
   thinkingConfig.thinkingBudget = value;
   return thinkingConfig;
@@ -220,7 +227,9 @@ function antigravityGeminiThinkingConfig(model, opts) {
   });
 }
 
-export function buildAntigravityRequest(requestMessages, model, tools, opts = {}, projectId) {
+// `outputLimit` is the output-token limit the gateway declared for this wire id
+// (the catalog row's `maxOutputTokens`), or null when it declared none.
+export function buildAntigravityRequest(requestMessages, model, tools, opts = {}, projectId, outputLimit = null) {
   // The tail reminder is not history: the tool-loop closure below must see the
   // real tail, so the reminder is appended to the wire contents last.
   const { messages, reminder } = splitTailReminder(requestMessages);
@@ -232,10 +241,19 @@ export function buildAntigravityRequest(requestMessages, model, tools, opts = {}
   const history = toGeminiContents(signatureSafeMessages(chatMessages, model), model);
   if (!history.length) throw new Error('No messages to send');
   const claude = isAntigravityClaude(model);
-  const thinkingConfig = claude ? claudeThinkingConfig(opts) : antigravityGeminiThinkingConfig(model, opts);
+  const claudeCap = claudeMaxOutputTokens(outputLimit);
+  const thinkingConfig = claude ? claudeThinkingConfig(opts, claudeCap) : antigravityGeminiThinkingConfig(model, opts);
   const contents = claude && claudeThinkingEnabled(model, thinkingConfig) ? closeUnthoughtToolLoop(history) : history;
+  // Gemini wire ids carry the model's output ceiling (thoughts count against
+  // it); Claude is always sent a cap (the declared limit, else a fixed one);
+  // GPT-OSS keeps the plain config its gateway accepts.
+  const maxOutputTokens = claude
+    ? claudeCap
+    : isGeminiFamilyModel(model)
+      ? geminiMaxOutputTokens(model, opts, null, outputLimit)
+      : undefined;
   const generationConfig = {
-    ...(claude ? { maxOutputTokens: CLAUDE_MAX_OUTPUT_TOKENS } : {}),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     ...(thinkingConfig ? { thinkingConfig } : {}),
   };
   const request = { contents: reminder ? [...contents, { role: 'user', parts: [{ text: reminder }] }] : contents };

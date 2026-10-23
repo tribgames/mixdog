@@ -40,6 +40,9 @@ export function createTurnStream(deps) {
     // (`commentary` / `final_answer`), or null; the desktop row carries it.
     phase: null,
     thinkingText: '',
+    // Length of thinkingText when the current provider send began: a
+    // `reasoning` retraction drops only what that send added.
+    thinkingSendMark: 0,
     thinkingStartedAt: 0,
     thinkingSegmentStartedAt: 0,
     accumulatedThinkingMs: 0,
@@ -492,9 +495,20 @@ export function appendReasoningDelta(stream, chunk) {
   scheduleStreamFlush(stream);
 }
 
+// A provider send (one model request of the turn) begins: the thinking so far
+// belongs to earlier sends and survives a retraction of this one.
+export function markThinkingSendStart(stream) {
+  stream.thinkingSendMark = stream.thinkingText.length;
+}
+
 export function resetStreamedText(stream, { chars, reasoning } = {}) {
   const count = Math.max(0, Number(chars) || 0);
-  if (reasoning) endThinkingForText(stream);
+  if (reasoning) {
+    endThinkingForText(stream);
+    // The discarded attempt's thinking must not prefix the next attempt's;
+    // earlier sends' thinking stays.
+    stream.thinkingText = stream.thinkingText.slice(0, stream.thinkingSendMark);
+  }
   if (!count) return reasoning === true;
   flushStreamBatch(stream);
   stream.assistantText = stream.assistantText.slice(0, Math.max(0, stream.assistantText.length - count));
@@ -529,6 +543,8 @@ export function resetStreamedText(stream, { chars, reasoning } = {}) {
 // tool phase (`spinnerMode`: 'task-wait' or 'tool-use').
 export function closeThinkingForToolBatch(stream, spinnerMode) {
   const { getState, set } = stream;
+  // The send that produced this batch is complete; its thinking is kept.
+  markThinkingSendStart(stream);
   if (stream.thinkingText && getState().thinking) {
     const thinkingLastEndedAt = closeThinkingSegment(stream);
     set({

@@ -96,6 +96,7 @@ export async function streamGeminiSdkAttempt(genModel, stream, attemptSignal, on
       signal: attemptSignal,
       onStreamDelta: callbacks.onStreamDelta,
       onTextDelta: callbacks.onTextDelta,
+      onReasoningDelta: callbacks.onReasoningDelta,
       textLeakGuard,
       label: 'Gemini SDK streamGenerateContent',
       failureUsage: geminiFailureUsage(stream.opts, stream.cachedContent, stream.useModel),

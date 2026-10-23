@@ -326,14 +326,38 @@ function mergeStreamMetadata(previous, next) {
 
 // A stream that ends with no finishReason is unfinished, whatever it carried
 // (thoughts only, an empty body, even right after a tool result); only a
-// STOP that carries no text is a completed, empty answer.
-function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label }) {
+// STOP that carries no text is a completed, empty answer. The one exception
+// is a stream that delivered at least one whole functionCall part and no
+// explicitly unfinished one: the gateway ends such a tool-use turn without a
+// finishReason, and every call is intact.
+function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, parts, label }) {
   if (!sawStreamChunk) {
     throw geminiTruncatedStreamError(`${label} truncated: empty stream`);
   }
   if (geminiFinishReasonKind(finishReason) === 'none' && geminiFinishReasonKind(promptBlockReason) === 'none') {
+    if (Array.isArray(parts) && parts.some(isCompleteFunctionCallPart) && !parts.some(isIncompleteFunctionCallPart)) return;
     throw geminiTruncatedStreamError(`${label} truncated: no finishReason`);
   }
+}
+
+// A functionCall part is whole when it names the function and its arguments
+// are not still streaming in pieces.
+function isIncompleteFunctionCallPart(part) {
+  const call = part?.functionCall;
+  if (!call) return false;
+  return (
+    call.willContinue === true ||
+    call.will_continue === true ||
+    call.partialArgs !== undefined ||
+    call.partial_args !== undefined
+  );
+}
+
+function isCompleteFunctionCallPart(part) {
+  const call = part?.functionCall;
+  if (!call || typeof call.name !== 'string' || call.name === '') return false;
+  if (isIncompleteFunctionCallPart(part)) return false;
+  return call.args === undefined || (call.args !== null && typeof call.args === 'object' && !Array.isArray(call.args));
 }
 
 // Concatenate the text parts of a single streamed Gemini chunk. Used to feed
@@ -349,6 +373,27 @@ function geminiChunkText(chunk) {
     if (p && p.thought !== true && typeof p.text === 'string') text += p.text;
   }
   return text;
+}
+
+// The thought-summary text of a streamed chunk, relayed as reasoning and never
+// mixed into the answer text.
+function geminiChunkThoughtText(chunk) {
+  const parts = chunk?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  let text = '';
+  for (const p of parts) {
+    if (p && p.thought === true && typeof p.text === 'string') text += p.text;
+  }
+  return text;
+}
+
+function relayGeminiReasoning(chunk, onReasoningDelta) {
+  if (!onReasoningDelta) return;
+  const thought = geminiChunkThoughtText(chunk);
+  if (!thought) return;
+  try {
+    onReasoningDelta(thought);
+  } catch {}
 }
 
 // Returns the text actually RELAYED to the live sink (''  when it was only
@@ -384,6 +429,9 @@ export function createGeminiTextLeakGuard({
   const _enabled = _knownTools.size > 0;
   const _isKnownTool = (name) => _knownTools.has(name);
   let leakBuffer = '';
+  // Markdown fence / inline-code state carried across chunks: a tag inside a
+  // code fence opened in an earlier chunk is an example, not a call.
+  let fenceState = null;
   let relayedText = '';
   const leakedCalls = [];
   // With `deferToolCalls`, recovered calls wait here until the caller has seen
@@ -425,8 +473,13 @@ export function createGeminiTextLeakGuard({
   const pumpLeakBuffer = (final) => {
     if (!_enabled) return;
     if (!leakBuffer && !final) return;
-    const { emit, calls, rest } = scanLeakedToolCalls(leakBuffer, { isKnownTool: _isKnownTool, final });
+    const { emit, calls, rest, fenceState: nextFence } = scanLeakedToolCalls(leakBuffer, {
+      isKnownTool: _isKnownTool,
+      final,
+      fenceState,
+    });
     leakBuffer = rest;
+    fenceState = nextFence;
     // Only text handed to the live sink counts as relayed/visible. Without
     // an onTextDelta sink the scrubbed text is buffered for the final
     // result and never shown, so it must not deny a replay.
@@ -521,6 +574,7 @@ export async function consumeGeminiRestStreamResponse(
     signal,
     onStreamDelta,
     onTextDelta,
+    onReasoningDelta = null,
     textLeakGuard,
     label,
     unwrapChunk = null,
@@ -568,6 +622,7 @@ export async function consumeGeminiRestStreamResponse(
     try {
       onStreamDelta?.(geminiChunkProgressKind(parsed));
     } catch {}
+    relayGeminiReasoning(parsed, onReasoningDelta);
     if (onTextDelta || textLeakGuard) {
       relayedText += relayGeminiStreamText(geminiChunkText(parsed), { onTextDelta, textLeakGuard });
     }
@@ -665,6 +720,7 @@ export async function consumeGeminiRestStreamResponse(
       sawStreamChunk,
       finishReason,
       promptBlockReason,
+      parts: aggregated.candidates?.[0]?.content?.parts,
       label,
     });
   } catch (err) {
@@ -679,6 +735,7 @@ export async function consumeGeminiSdkStream(
     signal,
     onStreamDelta,
     onTextDelta,
+    onReasoningDelta = null,
     textLeakGuard,
     label,
     cancelGeneration,
@@ -741,6 +798,7 @@ export async function consumeGeminiSdkStream(
       try {
         onStreamDelta?.(geminiChunkProgressKind(step.value));
       } catch {}
+      relayGeminiReasoning(step.value, onReasoningDelta);
       if (onTextDelta || textLeakGuard) {
         const t = geminiChunkText(step.value);
         relayedText += relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
@@ -770,6 +828,7 @@ export async function consumeGeminiSdkStream(
       sawStreamChunk: reader.sawStreamChunk,
       finishReason,
       promptBlockReason,
+      parts: raw?.candidates?.[0]?.content?.parts,
       label,
     });
     return raw;

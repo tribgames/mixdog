@@ -23,10 +23,22 @@ export function normalizeAntigravityUsage(um) {
     (um.promptTokenCount || um.prompt_token_count || 0) +
     (um.toolUsePromptTokenCount || um.tool_use_prompt_token_count || 0);
   const cachedTokens = um.cachedContentTokenCount || um.cached_content_token_count || 0;
+  const thoughtTokens = um.thoughtsTokenCount ?? um.thoughts_token_count;
+  // Thought tokens are billed and capped as output.
   const outputTokens =
-    (um.candidatesTokenCount || um.candidates_token_count || 0) +
-    (um.thoughtsTokenCount || um.thoughts_token_count || 0);
-  return { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens, raw: um };
+    (um.candidatesTokenCount || um.candidates_token_count || 0) + (Number(thoughtTokens) || 0);
+  const reportedTotal = Number(um.totalTokenCount ?? um.total_token_count);
+  return {
+    inputTokens,
+    outputTokens,
+    cachedTokens,
+    promptTokens: inputTokens,
+    // Reasoning is reported only when the gateway reported thoughts (a missing
+    // count is not zero).
+    ...(typeof thoughtTokens === 'number' ? { reasoningTokens: thoughtTokens } : {}),
+    totalTokens: reportedTotal > 0 ? reportedTotal : inputTokens + outputTokens,
+    raw: um,
+  };
 }
 
 /**

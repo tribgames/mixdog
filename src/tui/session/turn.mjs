@@ -35,6 +35,7 @@ import {
   appendTextDelta,
   appendAssistantText,
   appendReasoningDelta,
+  markThinkingSendStart,
   noteAssistantPhase,
   resetStreamedText,
   applyStageChange,
@@ -440,7 +441,9 @@ export function streamHandlers(ctx) {
   const { isCurrentTurn, stream } = ctx;
   return {
     onProviderSendStarted: () => {
-      if (isCurrentTurn()) markLiveCallRequestStart(stream);
+      if (!isCurrentTurn()) return;
+      markThinkingSendStart(stream);
+      markLiveCallRequestStart(stream);
     },
     onStageChange: async (stage, detail = null) => {
       if (!isCurrentTurn()) return;

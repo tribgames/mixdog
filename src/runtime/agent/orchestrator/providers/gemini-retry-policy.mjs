@@ -157,29 +157,41 @@ export async function runGeminiStreamAttempts({ run, signal, onRetry, sleepFn, a
       await sleepWithAbort(waitMs, signal, sleepFn, 'Gemini stream retry wait aborted');
       continue;
     }
-    const invalid = geminiInvalidStreamReason(result.response, result.textLeakGuard, { afterToolResult });
-    if (!invalid || signal?.aborted) return result;
-    const unusable = Object.assign(new Error(`Gemini stream unusable: ${invalid}`), {
-      name: 'InvalidStreamError',
-      code: invalid.toLowerCase(),
-    });
-    if (streamAttempt + 1 >= GEMINI_MIDSTREAM_MAX_ATTEMPTS) {
-      // A spent ladder on an empty answer is a failure, not an answer; a
-      // malformed / unexpected tool call keeps its finish-reason error.
-      if (invalid !== 'NO_RESPONSE_TEXT') return result;
-      throw markProviderRecoveryExhausted(unusable, {
-        owner: 'gemini-stream',
-        attempts: GEMINI_MIDSTREAM_MAX_ATTEMPTS,
-        terminal: true,
-      });
-    }
-    const waitMs = midstreamStepMs(streamAttempt);
+    if (signal?.aborted) return result;
+    const reask = geminiInvalidStreamReask(result.response, result.textLeakGuard, { afterToolResult, streamAttempt });
+    if (!reask) return result;
     onRetry?.({
       attempt: streamAttempt + 1,
       maxAttempts: GEMINI_MIDSTREAM_MAX_ATTEMPTS,
-      lastErr: unusable,
-      delayMs: waitMs,
+      lastErr: reask.unusable,
+      delayMs: reask.waitMs,
     });
-    await sleepWithAbort(waitMs, signal, sleepFn, 'Gemini stream retry wait aborted');
+    await sleepWithAbort(reask.waitMs, signal, sleepFn, 'Gemini stream retry wait aborted');
   }
+}
+
+/**
+ * The bounded re-ask for a finished but unusable response (empty STOP,
+ * malformed / unexpected tool call), shared by every Gemini-shaped transport:
+ * `{ unusable, waitMs }` when the request should be re-issued after `waitMs`,
+ * null when the response stands (usable, or a spent ladder on a malformed
+ * call, which keeps its finish-reason error). A spent ladder on an empty
+ * answer throws: it is a failure, not an answer.
+ */
+export function geminiInvalidStreamReask(response, textLeakGuard, { afterToolResult = false, streamAttempt = 0 } = {}) {
+  const invalid = geminiInvalidStreamReason(response, textLeakGuard, { afterToolResult });
+  if (!invalid) return null;
+  const unusable = Object.assign(new Error(`Gemini stream unusable: ${invalid}`), {
+    name: 'InvalidStreamError',
+    code: invalid.toLowerCase(),
+  });
+  if (streamAttempt + 1 >= GEMINI_MIDSTREAM_MAX_ATTEMPTS) {
+    if (invalid !== 'NO_RESPONSE_TEXT') return null;
+    throw markProviderRecoveryExhausted(unusable, {
+      owner: 'gemini-stream',
+      attempts: GEMINI_MIDSTREAM_MAX_ATTEMPTS,
+      terminal: true,
+    });
+  }
+  return { unusable, waitMs: midstreamStepMs(streamAttempt) };
 }

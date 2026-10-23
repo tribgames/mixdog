@@ -23,7 +23,8 @@ import {
 } from './antigravity-oauth-tokens.mjs';
 
 const ANTIGRAVITY_MODEL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const ANTIGRAVITY_MODEL_CACHE_VERSION = 1;
+// v2: rows keep the gateway-declared per-model `maxOutputTokens`.
+const ANTIGRAVITY_MODEL_CACHE_VERSION = 2;
 const FETCH_MODELS_TIMEOUT_MS = 15_000;
 // Tier labels the gateway puts in parentheses, in effort order.
 const TIER_EFFORTS = { 'extra low': 'minimal', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' };
@@ -145,10 +146,14 @@ export function normalizeAntigravityCatalog(rawModels) {
     const key = familyId(base);
     let family = families.get(key);
     if (!family) {
-      family = { base, contextWindow: 0, supportsVision: false, supportsReasoning: false, wires: new Map() };
+      family = { base, contextWindow: 0, maxOutputTokens: 0, supportsVision: false, supportsReasoning: false, wires: new Map() };
       families.set(key, family);
     }
     family.contextWindow = Math.max(family.contextWindow, contextWindow);
+    // Wire ids sharing one record keep the smallest declared output limit, so
+    // the ceiling holds for every id the record can resolve to.
+    const declaredOutput = Math.floor(Number(entry.maxOutputTokens));
+    if (declaredOutput > 0) family.maxOutputTokens = Math.min(family.maxOutputTokens || declaredOutput, declaredOutput);
     family.supportsVision ||= entry.supportsImages === true;
     family.supportsReasoning ||= entry.supportsThinking === true;
     const slot = effort || '';
@@ -177,6 +182,7 @@ export function normalizeAntigravityCatalog(rawModels) {
       provider: 'antigravity-oauth',
       ...(kind ? { family: kind } : {}),
       contextWindow: family.contextWindow,
+      ...(family.maxOutputTokens ? { maxOutputTokens: family.maxOutputTokens } : {}),
       supportsVision: family.supportsVision,
       supportsReasoning: family.supportsReasoning,
       supportsFunctionCalling: true,
@@ -208,6 +214,19 @@ export function antigravityModelFamily(model, models = antigravityCatalogModels(
   const wires = (entry) => (entry?.wire && typeof entry.wire === 'object' ? Object.values(entry.wire) : [entry?.wire]);
   const record = models.find((entry) => entry?.id === id) || models.find((entry) => wires(entry).includes(id));
   return typeof record?.family === 'string' && record.family ? record.family : null;
+}
+
+/**
+ * The output-token limit the gateway declared for a picker id or one of its
+ * wire ids, or null when the catalog row carries none (the curated fallback
+ * list and caches written before the field existed declare none).
+ */
+export function antigravityOutputLimit(model, models = antigravityCatalogModels()) {
+  const id = String(model || '');
+  const wires = (entry) => (entry?.wire && typeof entry.wire === 'object' ? Object.values(entry.wire) : [entry?.wire]);
+  const record = models.find((entry) => entry?.id === id) || models.find((entry) => wires(entry).includes(id));
+  const limit = Math.floor(Number(record?.maxOutputTokens));
+  return limit > 0 ? limit : null;
 }
 
 /**

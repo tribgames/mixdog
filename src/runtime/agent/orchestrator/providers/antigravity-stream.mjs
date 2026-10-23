@@ -36,8 +36,18 @@ function retiredModelError(err, streamedText, model) {
  * @param {Function|null} deps.onToolCall
  * @param {Function|null} deps.onTextDelta
  * @param {Function|null} deps.onStreamDelta
+ * @param {Function|null} [deps.onReasoningDelta]  receives thought-summary text
+ * @param {Function|null} [deps.retractReasoning]  drops thinking a dead attempt already showed
  */
-export function createAntigravityStreamCollector({ tools, useModel, onToolCall, onTextDelta, onStreamDelta }) {
+export function createAntigravityStreamCollector({
+  tools,
+  useModel,
+  onToolCall,
+  onTextDelta,
+  onStreamDelta,
+  onReasoningDelta = null,
+  retractReasoning = null,
+}) {
   let textLeakGuard = null;
   let terminalFailure = null;
   // Streamed text is kept so a retirement notice can be told apart from
@@ -66,6 +76,7 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
   // Each attempt starts from an empty record: a replayed request must not
   // inherit the dead attempt's text or failure.
   const beginAttempt = () => {
+    retractReasoning?.();
     textLeakGuard = createGeminiTextLeakGuard({
       knownToolNames: tools?.map((t) => t.name).filter(Boolean) ?? [],
       onTextDelta: relayText,
@@ -87,6 +98,7 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
         firstByteTimeoutMs,
         onStreamDelta,
         onTextDelta: relayText,
+        onReasoningDelta,
         onChunk,
         textLeakGuard,
         label: 'Antigravity streamGenerateContent',

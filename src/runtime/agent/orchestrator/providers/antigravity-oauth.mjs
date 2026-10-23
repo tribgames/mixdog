@@ -18,6 +18,8 @@ import { buildAntigravityRequest, isAntigravityClaude as isClaudeModel } from '.
 import { createPassthroughSignal } from '../stall-policy.mjs';
 import { preconnect } from '../../../shared/llm/http-agent.mjs';
 import { createAntigravityStreamCollector } from './antigravity-stream.mjs';
+import { createGeminiReasoningRelay } from './gemini-reasoning-relay.mjs';
+import { splitTailReminder } from './lib/tail-reminder-split.mjs';
 import { createAntigravityRequest } from './antigravity-transport.mjs';
 import { finalizeAntigravityTurn } from './antigravity-response.mjs';
 import {
@@ -41,6 +43,7 @@ import {
   fetchAvailableModels,
   fetchUserQuotaSummary,
   normalizeAntigravityCatalog,
+  antigravityOutputLimit,
   resolveAntigravityWireModel,
 } from './antigravity-oauth-catalog.mjs';
 
@@ -109,7 +112,7 @@ export class AntigravityOAuthProvider {
   }
 
   _buildBody(messages, model, tools, opts) {
-    const body = buildAntigravityRequest(messages, model, tools, opts, this._projectId);
+    const body = buildAntigravityRequest(messages, model, tools, opts, this._projectId, antigravityOutputLimit(model));
     dumpAntigravityRequest(body);
     return body;
   }
@@ -131,6 +134,7 @@ export class AntigravityOAuthProvider {
     // Relayed through opts so the callback keeps its original receiver.
     const onTextDelta = typeof opts.onTextDelta === 'function' ? (text) => opts.onTextDelta(text) : null;
     const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
+    const reasoning = createGeminiReasoningRelay(opts);
     // Per-turn stream record: live text mirror, ordered parts, native/leaked
     // tool calls and the exposure marks a failed attempt carries
     // (antigravity-stream.mjs).
@@ -140,6 +144,8 @@ export class AntigravityOAuthProvider {
       onToolCall,
       onTextDelta,
       onStreamDelta,
+      onReasoningDelta: reasoning.onReasoningDelta,
+      retractReasoning: reasoning.retract,
     });
     if (signal?.aborted) {
       const reason = signal.reason;
@@ -181,6 +187,9 @@ export class AntigravityOAuthProvider {
       collector,
       sleepFn: this.config.sleepFn,
       firstByte: antigravityFirstBytePolicy(useModel),
+      // The tail reminder is not history: an empty answer right after a tool
+      // result is the model's answer, whatever reminder rides behind it.
+      afterToolResult: splitTailReminder(messages).messages.at(-1)?.role === 'tool',
     });
     try {
       try {
