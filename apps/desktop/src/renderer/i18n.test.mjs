@@ -282,3 +282,22 @@ test('counted UI text follows locale plural categories while preserving interpol
     await i18n.changeLanguage('en');
   }
 });
+
+test('Korean sent line: a session target takes 에, a bot keeps 에게', async () => {
+  const { AgentBotSent } = await import('./agent-chat-row');
+  const previousLanguage = i18n.language;
+  await i18n.changeLanguage('ko');
+  try {
+    const { agentAvatar } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
+    const member = { id: 'bot_1', name: '봇', avatar: agentAvatar('bot_1', null) };
+    const markup = (agentId) =>
+      renderToStaticMarkup(
+        React.createElement(AgentBotSent, { send: { agentId, sessionId: 'sess_x', prompt: 'hi', at: 0 }, member })
+      );
+    assert.match(markup(''), /세션에 보냄/);
+    assert.doesNotMatch(markup(''), /에게 보냄/);
+    assert.match(markup('bot_1'), /봇에게 보냄/);
+  } finally {
+    await i18n.changeLanguage(previousLanguage);
+  }
+});

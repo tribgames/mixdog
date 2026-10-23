@@ -161,6 +161,7 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: Approx. cost': 'Approx. cost',
   'Turn changes: {{count}} files changed': '{{count}} files changed',
   'Preview badge: New': 'New',
+  'Session send: Sent to {{name}}': 'Sent to {{name}}',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
 });
 

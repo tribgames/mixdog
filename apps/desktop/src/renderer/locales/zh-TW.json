@@ -4120,6 +4120,7 @@
   "Sent as {{account}}": "以 {{account}} 身分傳送",
   "Sent message": "已傳送的訊息",
   "Sent to {{name}}": "已傳送給{{name}}",
+  "Session send: Sent to {{name}}": "已傳送給{{name}}",
   "Sentry": "Sentry",
   "Server": "伺服器",
   "Server {{name}}": "伺服器 {{name}}",

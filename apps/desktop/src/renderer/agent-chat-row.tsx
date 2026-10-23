@@ -322,7 +322,7 @@ export function AgentBotSent({
           ) : (
             <SessionGlyph className="mx-bot-sent-face" />
           )}
-          <span>{t('Sent to {{name}}', { name })}</span>
+          <span>{send.agentId ? t('Sent to {{name}}', { name }) : t('Session send: Sent to {{name}}', { name })}</span>
         </span>
         {working && (
           <span className="mx-bot-sent-status" role="status">

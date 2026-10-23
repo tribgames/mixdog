@@ -161,6 +161,21 @@ test('rows that render nothing take no step; the band and the reply step from th
   });
 });
 
+// A reaction-only turn (a hidden tool round, no reply) ends at the user row, so
+// it takes the same end-of-turn spacing as any user row without a reply.
+test('a user row followed only by rows that paint nothing ends its turn', async () => {
+  await withList(async ({ render, marks }) => {
+    const gap = { _tag: 'TurnGap', key: 's:gap', turnKey: 't2' };
+    const user2 = { _tag: 'UserMessage', key: 's:u2', turnKey: 't2', item: { kind: 'user', id: 'u2', text: 'next' } };
+    const agentRow = (row) => (row.key === 's:tools' ? null : React.createElement('div', null, row.key));
+    await render([user, tools, gap, user2], agentRow);
+    assert.equal(marks(0), 'turnEnd');
+    // Still streaming: the live band below keeps the turn open.
+    await render([user, tools, thinking], agentRow);
+    assert.equal(marks(0), '');
+  });
+});
+
 // At turn end the band row leaves and the reply above it takes the band's slot
 // (its completion footer) in the same commit. The reply's new size must land
 // in that commit too: left to the ResizeObserver, the total shrank by the band

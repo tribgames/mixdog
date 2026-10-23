@@ -4120,6 +4120,7 @@
   "Sent as {{account}}": "{{account}} 계정으로 보냄",
   "Sent message": "보낸 메시지",
   "Sent to {{name}}": "{{name}}에게 보냄",
+  "Session send: Sent to {{name}}": "{{name}}에 보냄",
   "Sentry": "Sentry",
   "Server": "서버",
   "Server {{name}}": "서버 {{name}}",

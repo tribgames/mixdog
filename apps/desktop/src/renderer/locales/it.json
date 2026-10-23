@@ -4239,6 +4239,7 @@
   "Sent as {{account}}": "Inviato come {{account}}",
   "Sent message": "Messaggio inviato",
   "Sent to {{name}}": "Inviato a {{name}}",
+  "Session send: Sent to {{name}}": "Inviato a {{name}}",
   "Sentry": "Sentry",
   "Server": "Server",
   "Server {{name}}": "Server: {{name}}",

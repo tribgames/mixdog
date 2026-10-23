@@ -4120,6 +4120,7 @@
   "Sent as {{account}}": "Gửi bằng {{account}}",
   "Sent message": "Tin nhắn đã gửi",
   "Sent to {{name}}": "Đã gửi cho {{name}}",
+  "Session send: Sent to {{name}}": "Đã gửi cho {{name}}",
   "Sentry": "Sentry",
   "Server": "Máy chủ",
   "Server {{name}}": "Máy chủ {{name}}",

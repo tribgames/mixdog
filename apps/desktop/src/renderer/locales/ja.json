@@ -4120,6 +4120,7 @@
   "Sent as {{account}}": "{{account}} として送信",
   "Sent message": "送信したメッセージ",
   "Sent to {{name}}": "{{name}}に送信",
+  "Session send: Sent to {{name}}": "{{name}}に送信",
   "Sentry": "Sentry",
   "Server": "サーバー",
   "Server {{name}}": "サーバー {{name}}",

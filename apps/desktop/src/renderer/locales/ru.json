@@ -4300,6 +4300,7 @@
   "Sent as {{account}}": "От имени {{account}}",
   "Sent message": "Отправленное сообщение",
   "Sent to {{name}}": "Отправлено: {{name}}",
+  "Session send: Sent to {{name}}": "Отправлено: {{name}}",
   "Sentry": "Sentry",
   "Server": "Сервер",
   "Server {{name}}": "Сервер {{name}}",

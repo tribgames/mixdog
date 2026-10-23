@@ -284,7 +284,11 @@ function rowSteps(
   const blank = paintsNothing(node);
   let above = index - 1;
   while (above >= 0 && paintsNothing(nodeAt(above))) above -= 1;
-  const next = rows[index + 1];
+  // Rows below that paint nothing (a reaction-only turn's tool round) do not
+  // keep the turn open: the turn ends at the next painted row.
+  let nextIndex = index + 1;
+  while (nextIndex < rows.length && paintsNothing(nodeAt(nextIndex))) nextIndex += 1;
+  const next = rows[nextIndex];
   const before = rows[above];
   const previous = blank ? undefined : before?._tag;
   // The live band under a reply part or tool card is the same 40px status
