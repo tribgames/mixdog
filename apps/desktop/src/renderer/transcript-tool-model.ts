@@ -21,12 +21,13 @@ import {
   desktopToolActivityModeledName,
   desktopToolActivityRowVerb,
   desktopToolActivityUnitLabel,
-  desktopToolDescribeResult,
   desktopToolDisplayIdentity,
+  carriedOutputFacts,
   toolActivityItemTone,
   toolItemDone,
+  toolOutputBasicsOf,
   uiDiffDigest,
-  type ToolCardModel,
+  type ToolOutputBasics,
 } from './transcript-tool-core';
 import {
   TOOL_ACTIVITY_BULK_ARGS,
@@ -55,6 +56,7 @@ import {
   toolActivityOutputText,
   toolActivityResultValue,
   toolActivityLocalizeTaskList,
+  toolActivityShellFailureFacts,
   toolActivityShellFailureLabel,
   toolActivityStripInstructions,
   toolActivityStructuredRows,
@@ -176,13 +178,172 @@ function localizePatchTarget(target: string): string {
   return count ? t('{{count}} files', { count: Number(count[1]) }) : target.toLowerCase();
 }
 
-type PresentationCardModel = ToolCardModel & {
-  resultSummary?: string | null;
-  resultSummaryDisplay?: string | null;
+/** What the presentation reads of the shared card model (tool-card-model.mjs),
+ *  its output-derived parts taken from the row's `toolOutputFacts`. */
+interface PresentationCardModel {
+  pending: boolean;
+  resultSummary: string | null;
+  resultSummaryDisplay: string | null;
+  summaryText: string;
+  failure: string;
+  terminalStatus: string;
+  isAgentResponse: boolean;
   displayedResultBodyText?: string;
-  terminalStatus?: string;
-  isAgentResponse?: boolean;
-};
+}
+
+/** A phrase the extractor leaves for the renderer to put in the active
+ *  language: `text` holds \uE000<n>\uE001 where part n goes, each part the
+ *  catalog key, English original and options the shared summary passed. */
+export interface DeferredText {
+  text: string;
+  parts: [key: string, original: string, options?: Record<string, unknown>][];
+}
+
+/** Everything the collapsed row and its group summary read from a call's
+ *  output, as plain data: numbers, flags, enums, raw output text and deferred
+ *  translations. A phone's copy of a cut row carries the whole output's
+ *  wherever its cut text gives other ones. */
+export interface ToolOutputFacts extends ToolOutputBasics {
+  /** The shared card model's result summary as the runtime writes it, and deferred for display. */
+  summary: string | null;
+  summaryDisplay: DeferredText | null;
+  /** The card model's header summary, terminal status and failure line (header failure, else detail). */
+  summaryText: string;
+  terminalStatus: string;
+  failure: string;
+  agentResponse: boolean;
+  /** An agent call's title as the runtime writes it (localized by `localizeAgentTitle`). */
+  agentTitle: string;
+  /** The displayed output of a call with no `result` (its background body). */
+  bodyFallback?: string;
+  /** Read from the displayed output: a routine "ok", an image marker, its
+   *  error summary, its text on one line (only when that is one of the
+   *  labels it is compared with), a git "staged", and a failed command's
+   *  exit code and reason. */
+  routine: boolean;
+  image: boolean;
+  errorSummary: string;
+  line: string;
+  staged: boolean;
+  shellFailure: { exit: string; reason: string };
+  /** A git command's output that is a whole patch: the lines it adds and removes. */
+  patchCounts: { additions: number; deletions: number } | null;
+}
+
+function deferredTranslation() {
+  const parts: DeferredText['parts'] = [];
+  const translate = (key: string, original: string, options?: Record<string, unknown>) => {
+    parts.push(options ? [key, original, options] : [key, original]);
+    return `\uE000${parts.length - 1}\uE001`;
+  };
+  return { parts, translate };
+}
+
+/** A deferred phrase in the active language (a marker a truncation split is dropped). */
+function formatDeferred(value: DeferredText | null | undefined): string | null {
+  if (!value) return null;
+  return value.text
+    .replace(/\uE000(\d+)\uE001/g, (_match, index: string) => {
+      const [key = '', original = '', options] = value.parts[Number(index)] ?? [];
+      return tExisting(key, original, options);
+    })
+    .replace(/\uE000\d*\uE001?/g, '');
+}
+
+const outputFactsCache = new WeakMap<object, { nowMs: number; facts: ToolOutputFacts }>();
+
+/** The row's output facts: its own (`outputFactsOf`), with the ones a phone's
+ *  cut copy carries in their place. One per row object; a row without a
+ *  finish time is read again at a new `nowMs` (its card model counts elapsed time). */
+export function toolOutputFacts(wireItem: TranscriptItem, nowMs = Date.now()): ToolOutputFacts {
+  const stable = wireItem.completedAt != null || !Number(wireItem.startedAt);
+  const cached = outputFactsCache.get(wireItem);
+  if (cached && (stable || cached.nowMs === nowMs)) return cached.facts;
+  const facts = { ...outputFactsOf(wireItem, nowMs), ...carriedOutputFacts(wireItem) } as ToolOutputFacts;
+  outputFactsCache.set(wireItem, { nowMs, facts });
+  return facts;
+}
+
+/** What a failed command's label reads: its output, or its raw result's when
+ *  only that keeps the `[exit code: N]` marker (the live result drops it). */
+function shellFailureOutput(rawResult: string, outputText: string): string {
+  if (!/^\[exit(?: code)?:\s*-?\d+\]/m.test(rawResult) || /^\[exit(?: code)?:/m.test(outputText)) return outputText;
+  return toolActivityCleanOutput(toolActivityOutputText(rawResult))
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+$/gm, '');
+}
+
+/** The facts of the row's own output alone, read once by the same code
+ *  whichever side runs it (the host compares a cut copy's against the whole one's). */
+export function outputFactsOf(wireItem: TranscriptItem, nowMs = Date.now()): ToolOutputFacts {
+  const identity = desktopToolDisplayIdentity(wireItem.name, wireItem.args);
+  const item: TranscriptItem = identity.via ? { ...wireItem, name: identity.name, args: identity.args } : wireItem;
+  const modeledName = desktopToolActivityModeledName(String(item.name || 'tool'), item.args);
+  const surface = formatToolSurface(modeledName, item.args);
+  const normalizedName = String(surface.normalizedName);
+  const args = asRecord(surface.args) ?? asRecord(item.args) ?? {};
+  const done = toolItemDone(item);
+  const deferred = deferredTranslation();
+  const model = deriveToolCardModel(
+    {
+      name: modeledName,
+      args: item.args,
+      result: item.result,
+      rawResult: item.rawResult,
+      isError: item.isError,
+      errorCount: item.errorCount,
+      callErrorCount: item.callErrorCount,
+      exitErrorCount: item.exitErrorCount,
+      count: 1,
+      completedCount: done ? 1 : 0,
+      startedAt: item.startedAt,
+      completedAt: item.completedAt,
+      headerFinalized: item.headerFinalized,
+      nowMs,
+    },
+    { translate: deferred.translate }
+  ) as Record<string, unknown>;
+  const bodyFallback = String(model.displayedResultBodyText ?? '');
+  const raw = presentationRawOutput(item, bodyFallback, normalizedName, args);
+  const { rawOutputText, backgroundTask, restoredNotice, taskWait } = raw;
+  const body = presentationOutputBody({
+    normalizedName,
+    outputText: rawOutputText,
+    backgroundTask,
+    restoredNotice,
+    taskWait,
+  }).outputText;
+  const text = body.trim();
+  const display = model.resultSummaryDisplay;
+  const summary = model.resultSummary == null ? null : String(model.resultSummary);
+  const failure = oneLine(String(model.headerFailureText || model.detailLine || ''));
+  const errorSummary = toolActivityErrorSummary(body);
+  // The output on one line is only ever compared with a result label, and a
+  // label is one of these: kept only when it is one of them.
+  const line = oneLine(body);
+  const labels = [oneLine(summary ?? ''), errorSummary, failure, 'Failed', 'Staged'];
+  const labelLine = labels.some((label) => label.toLocaleLowerCase() === line.toLocaleLowerCase()) ? line : '';
+  return {
+    ...toolOutputBasicsOf(item),
+    summary,
+    summaryDisplay: display == null ? null : { text: String(display), parts: deferred.parts },
+    summaryText: String(model.summaryText || ''),
+    terminalStatus: String(model.terminalStatus || ''),
+    failure,
+    agentResponse: Boolean(model.isAgentResponse),
+    agentTitle: presentationAgentTitle(normalizedName, args, item, Boolean(model.isAgentResponse)),
+    ...(item.result == null ? { bodyFallback } : {}),
+    routine: TOOL_ACTIVITY_ROUTINE_RESULT.test(text),
+    image: /^\[image:/i.test(text),
+    errorSummary,
+    line: labelLine,
+    staged: /^staged\b/i.test(text),
+    shellFailure: toolActivityShellFailureFacts(
+      shellFailureOutput(typeof item.rawResult === 'string' ? item.rawResult : '', body)
+    ),
+    patchCounts: normalizedName === 'git' && isCompletePatch(body) ? patchLineCounts(body) : null,
+  };
+}
 
 type PresentationBackgroundTask = ReturnType<typeof toolActivityBackgroundTask>;
 
@@ -197,6 +358,8 @@ function toolActivityFailureOutcome(input: {
   rawResult: string;
   outputText: string;
   resultLabel: string;
+  /** The whole output's exit code and reason (`ToolOutputFacts.shellFailure`). */
+  shellFailure: ToolOutputFacts['shellFailure'];
 }): { resultLabel: string; outputText: string; reason: string } {
   const { stopped, backgroundTask, foregroundShellFailure, rawResult } = input;
   let { outputText, resultLabel } = input;
@@ -211,13 +374,8 @@ function toolActivityFailureOutcome(input: {
     reason = backgroundTask.reason;
   } else if (backgroundTask?.running) resultLabel = '';
   if (foregroundShellFailure) {
-    // The live result drops the `[exit code: N]` marker the raw result keeps.
-    if (/^\[exit(?: code)?:\s*-?\d+\]/m.test(rawResult) && !/^\[exit(?: code)?:/m.test(outputText)) {
-      outputText = toolActivityCleanOutput(toolActivityOutputText(rawResult))
-        .replace(/\r\n?/g, '\n')
-        .replace(/[ \t]+$/gm, '');
-    }
-    ({ label: resultLabel, reason } = toolActivityShellFailureLabel(outputText, resultLabel));
+    outputText = shellFailureOutput(rawResult, outputText);
+    ({ label: resultLabel, reason } = toolActivityShellFailureLabel(input.shellFailure, resultLabel));
   }
   return { resultLabel, outputText, reason };
 }
@@ -390,37 +548,28 @@ export function diffTargetPath(diffPatch: string): string {
   return file.status === 'D' ? file.oldFile.fileName : file.newFile.fileName;
 }
 
-/** The call as the shared card model reads it: the tool name it surfaces
- *  under, its normalized arguments and its card model. */
-function presentationCall(item: TranscriptItem, nowMs: number) {
+/** The call as the presentation reads it: the tool name it surfaces under,
+ *  its normalized arguments, its output facts (`toolOutputFacts`, from the
+ *  wire row) and the card model they give. */
+function presentationCall(wireItem: TranscriptItem, item: TranscriptItem, nowMs: number) {
   const name = String(item.name || 'tool');
   const originalSurface = formatToolSurface(name, item.args);
   const originalName = originalSurface.normalizedName;
-  const modeledName = desktopToolActivityModeledName(name, item.args);
-  const surface = formatToolSurface(modeledName, item.args);
+  const surface = formatToolSurface(desktopToolActivityModeledName(name, item.args), item.args);
   const normalizedName = surface.normalizedName;
   const args = asRecord(surface.args) ?? asRecord(item.args) ?? {};
-  const done = toolItemDone(item);
-  const model = deriveToolCardModel(
-    {
-      name: modeledName,
-      args: item.args,
-      result: item.result,
-      rawResult: item.rawResult,
-      isError: item.isError,
-      errorCount: item.errorCount,
-      callErrorCount: item.callErrorCount,
-      exitErrorCount: item.exitErrorCount,
-      count: 1,
-      completedCount: done ? 1 : 0,
-      startedAt: item.startedAt,
-      completedAt: item.completedAt,
-      headerFinalized: item.headerFinalized,
-      nowMs,
-    },
-    { translate: tExisting }
-  ) as PresentationCardModel;
-  return { name, originalName, normalizedName, args, model };
+  const facts = toolOutputFacts(wireItem, nowMs);
+  const model: PresentationCardModel = {
+    pending: !toolItemDone(item),
+    resultSummary: facts.summary,
+    resultSummaryDisplay: formatDeferred(facts.summaryDisplay),
+    summaryText: facts.summaryText,
+    failure: facts.failure,
+    terminalStatus: facts.terminalStatus,
+    isAgentResponse: facts.agentResponse,
+    displayedResultBodyText: facts.bodyFallback,
+  };
+  return { name, originalName, normalizedName, args, model, facts };
 }
 
 /** An agent call's title; empty for every other tool. */
@@ -428,12 +577,12 @@ function presentationAgentTitle(
   normalizedName: string,
   args: Record<string, unknown>,
   item: TranscriptItem,
-  model: PresentationCardModel
+  isAgentResponse: boolean
 ): string {
   if (normalizedName !== 'agent') return '';
   // A response is only a completion notification; status/read are checks.
   const resultText = String(item.result ?? item.rawResult ?? '');
-  return model.isAgentResponse ? agentResponseTitle(args, 1, resultText) : agentActionTitle(args, resultText);
+  return isAgentResponse ? agentResponseTitle(args, 1, resultText) : agentActionTitle(args, resultText);
 }
 
 /** The row subject: an agent call's title, a visualize call's tab, else the
@@ -483,13 +632,14 @@ function presentationEditTexts(
  *  completion notice's raw envelope) reports. */
 function presentationRawOutput(
   item: TranscriptItem,
-  model: PresentationCardModel,
+  /** The card model's displayed body, read when the call has no `result`. */
+  displayedResultBodyText: string | undefined,
   normalizedName: string,
   args: Record<string, unknown>
 ) {
   const rawOutputText = presentationOutputText(
     normalizedName,
-    item.result ?? model.displayedResultBodyText ?? item.rawResult
+    item.result ?? displayedResultBodyText ?? item.rawResult
   );
   // A restored completion notice keeps only its `<result>` guidance as the
   // result; the envelope itself rides in rawResult.
@@ -508,7 +658,9 @@ function presentationTone(
   item: TranscriptItem,
   model: PresentationCardModel,
   normalizedName: string,
-  backgroundTask: PresentationBackgroundTask
+  backgroundTask: PresentationBackgroundTask,
+  /** The status the output states (`ToolOutputFacts.resultStatus`). */
+  resultStatus: string
 ): { tone: string; stopped: boolean; foregroundShellFailure: boolean } {
   const failed =
     item.isError ||
@@ -521,7 +673,7 @@ function presentationTone(
   const stopped =
     !model.pending &&
     /^(?:shell|bash|bash_session|shell_command)$/.test(normalizedName) &&
-    resultTerminalStatus(item.result ?? item.rawResult) === 'cancelled';
+    resultStatus === 'cancelled';
   let tone = stopped ? 'warning' : toolActivityItemTone(item);
   if (tone === 'neutral' && failed) tone = 'error';
   if (backgroundTask?.failed && tone === 'neutral') tone = 'error';
@@ -574,19 +726,18 @@ function suppressRoutineOutput(input: {
   tone: string;
   structuredKind: ToolActivityStructuredKind;
   diffPatch: string;
+  /** Whether the output is a routine "ok" or an image marker. */
+  facts: Pick<ToolOutputFacts, 'routine' | 'image'>;
 }): string {
-  const { normalizedName, outputText, tone, structuredKind, diffPatch } = input;
+  const { normalizedName, outputText, tone, structuredKind, diffPatch, facts } = input;
   const mutation = normalizedName === 'edit' || normalizedName === 'apply_patch';
   const quietSuccessSurface = QUIET_SUCCESS_TOOLS.has(normalizedName);
   const routineSurface = mutation || quietSuccessSurface || ROUTINE_RESULT_TOOLS.has(normalizedName);
-  if (
-    structuredKind ||
-    (tone === 'neutral' && routineSurface && TOOL_ACTIVITY_ROUTINE_RESULT.test(outputText.trim()))
-  ) {
+  if (structuredKind || (tone === 'neutral' && routineSurface && facts.routine)) {
     return '';
   }
   if (tone === 'neutral' && quietSuccessSurface) return '';
-  if (normalizedName === 'view_image' && /^\[image:/i.test(outputText.trim())) return '';
+  if (normalizedName === 'view_image' && facts.image) return '';
   if (tone === 'neutral' && diffPatch && mutation) return '';
   return outputText;
 }
@@ -598,14 +749,19 @@ function presentationBaseResultLabel(input: {
   tone: string;
   normalizedName: string;
   args: Record<string, unknown>;
-  outputText: string;
+  shown: ShownOutputFacts;
   structuredRows: readonly ToolActivityStructuredRow[];
 }): { label: string; localize: (text: string) => string } {
-  const { model, tone, normalizedName, args, outputText, structuredRows } = input;
+  const { model, tone, normalizedName, args, shown, structuredRows } = input;
   let label = '';
   let localize = (text: string): string => text;
   if (!model.pending) {
-    ({ label, localize } = settledResultLabel(model, tone, QUIET_SUCCESS_TOOLS.has(normalizedName), outputText));
+    ({ label, localize } = settledResultLabel(
+      model,
+      tone,
+      QUIET_SUCCESS_TOOLS.has(normalizedName),
+      shown.errorSummary
+    ));
   }
   if (structuredRows.length) {
     const completed = structuredRows.filter((row) => toolActivityIsCompleted(row.status)).length;
@@ -615,7 +771,7 @@ function presentationBaseResultLabel(input: {
   if (
     !label &&
     (normalizedName === 'git_stage' || (normalizedName === 'git' && args.action === 'stage')) &&
-    /^staged\b/i.test(outputText.trim())
+    shown.staged
   ) {
     label = 'Staged';
     localize = () => t('Staged');
@@ -631,16 +787,18 @@ function dedupeOneLineOutcome(input: {
   command: string;
   label: string;
   outputText: string;
+  /** The shown output on one line (`ToolOutputFacts.line`). */
+  line: string;
 }): { label: string; outputText: string } {
-  const { normalizedName, backgroundTask, foregroundShellFailure, command, label, outputText } = input;
+  const { normalizedName, backgroundTask, foregroundShellFailure, command, label, outputText, line } = input;
   if (
     normalizedName !== 'git' &&
     !backgroundTask?.failed &&
     !backgroundTask?.running &&
     !foregroundShellFailure &&
     label &&
-    outputText &&
-    oneLine(outputText).toLocaleLowerCase() === label.toLocaleLowerCase()
+    line &&
+    line.toLocaleLowerCase() === label.toLocaleLowerCase()
   ) {
     // A command's output stays under its command; its header never repeats
     // it. Any other tool's one-line result is the outcome itself.
@@ -703,10 +861,13 @@ function presentationOutcome(input: {
   structuredRows: readonly ToolActivityStructuredRow[];
   rawResult: unknown;
   outputText: string;
+  /** What the label reads of the shown output; blank when none is shown. */
+  shown: ShownOutputFacts;
+  shellFailure: ToolOutputFacts['shellFailure'];
 }): { resultLabel: string; outputText: string; reason: string; patchSummary: RegExpExecArray | null } {
-  const { model, normalizedName, args, category, subject, command, tone, stopped } = input;
+  const { model, normalizedName, args, category, subject, command, tone, stopped, shown } = input;
   const { foregroundShellFailure, backgroundTask, restoredNotice, structuredRows, rawResult, outputText } = input;
-  const base = presentationBaseResultLabel({ model, tone, normalizedName, args, outputText, structuredRows });
+  const base = presentationBaseResultLabel({ model, tone, normalizedName, args, shown, structuredRows });
   const deduped = dedupeOneLineOutcome({
     normalizedName,
     backgroundTask,
@@ -714,6 +875,7 @@ function presentationOutcome(input: {
     command,
     label: base.label,
     outputText,
+    line: shown.line,
   });
   const { resultLabel, patchSummary } = presentationResultLabel({
     label: deduped.label,
@@ -732,9 +894,14 @@ function presentationOutcome(input: {
     rawResult: typeof rawResult === 'string' ? rawResult : '',
     outputText: deduped.outputText,
     resultLabel,
+    shellFailure: input.shellFailure,
   });
   return { ...failure, patchSummary };
 }
+
+/** What the result label reads of the output the row shows. */
+type ShownOutputFacts = Pick<ToolOutputFacts, 'errorSummary' | 'line' | 'staged'>;
+const NO_SHOWN_OUTPUT: ShownOutputFacts = { errorSummary: '', line: '', staged: false };
 
 /** A command's output without its exit marker (a failing code becomes the
  *  note) or the shell's empty placeholder; `git diff` output moves into the
@@ -849,10 +1016,11 @@ function presentationDiffPatch(
 
 /** The result label of a finished call and how to localize it for display. */
 function settledResultLabel(
-  model: { resultSummary?: unknown; resultSummaryDisplay?: unknown; headerFailureText?: unknown; detailLine?: unknown },
+  model: Pick<PresentationCardModel, 'resultSummary' | 'resultSummaryDisplay' | 'failure'>,
   tone: string,
   quietSuccessSurface: boolean,
-  outputText: string
+  /** The shown output's error summary (`ToolOutputFacts.errorSummary`). */
+  errorSummary: string
 ): { label: string; localize: (text: string) => string } {
   let label = '';
   let localize = (text: string): string => text;
@@ -865,10 +1033,8 @@ function settledResultLabel(
   }
   if (tone === 'neutral' && quietSuccessSurface) label = '';
   if (!label && tone === 'error') {
-    const failure = oneLine(String(model.headerFailureText || model.detailLine || ''));
-    const failureText =
-      toolActivityErrorSummary(outputText) ||
-      (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : '');
+    const failure = model.failure;
+    const failureText = errorSummary || (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : '');
     label = failureText || 'Failed';
     localize = failureText ? (text) => text : () => t('Failed');
   }
@@ -934,19 +1100,18 @@ export function desktopToolActivityItemPresentation(
   // A bridged call presents as the tool it runs; the transcript keeps the wire call.
   const identity = desktopToolDisplayIdentity(wireItem.name, wireItem.args);
   const item: TranscriptItem = identity.via ? { ...wireItem, name: identity.name, args: identity.args } : wireItem;
-  const { name, originalName, normalizedName, args, model } = presentationCall(item, nowMs);
-  const resultValue = item.result ?? item.rawResult;
-  const describe = model.pending ? null : desktopToolDescribeResult(name, item.args, resultValue);
+  const { name, originalName, normalizedName, args, model, facts } = presentationCall(wireItem, item, nowMs);
+  const describe = model.pending ? null : facts.described;
   const structured = toolActivityStructuredRows(normalizedName, args, toolActivityResultValue(item));
-  const title = desktopToolActivityUnitLabel(name, item.args, resultValue);
+  const title = desktopToolActivityUnitLabel(name, item.args, Boolean(facts.described));
   const subject = describe?.described.length
     ? describe.described.join(', ')
     : presentationSubject(
         normalizedName,
         args,
         item,
-        presentationAgentTitle(normalizedName, args, item, model),
-        oneLine(String(model.summaryText || '')),
+        facts.agentTitle,
+        oneLine(model.summaryText),
         options.visualizeTabTitle ?? ''
       );
   const targets = toolActivityTargets(normalizedName, args).map((target) =>
@@ -970,11 +1135,17 @@ export function desktopToolActivityItemPresentation(
   const { previewText, beforeText, afterText } = editTexts;
   const { rawOutputText, backgroundTask, restoredNotice, taskWait } = presentationRawOutput(
     item,
-    model,
+    model.displayedResultBodyText,
     normalizedName,
     args
   );
-  const { tone, stopped, foregroundShellFailure } = presentationTone(item, model, normalizedName, backgroundTask);
+  const { tone, stopped, foregroundShellFailure } = presentationTone(
+    item,
+    model,
+    normalizedName,
+    backgroundTask,
+    facts.resultStatus
+  );
   const body = presentationOutputBody({
     normalizedName,
     outputText: rawOutputText,
@@ -988,6 +1159,7 @@ export function desktopToolActivityItemPresentation(
     tone,
     structuredKind: structured.kind,
     diffPatch: callDiffPresence,
+    facts,
   });
   const outcome = presentationOutcome({
     model,
@@ -1004,6 +1176,8 @@ export function desktopToolActivityItemPresentation(
     structuredRows: structured.rows,
     rawResult: item.rawResult,
     outputText: bodyText,
+    shown: bodyText ? facts : NO_SHOWN_OUTPUT,
+    shellFailure: facts.shellFailure,
   });
   const { patchSummary } = outcome;
   // Only text that parses is JSON: a log line opening with "[warn]" is not.
@@ -1027,6 +1201,9 @@ export function desktopToolActivityItemPresentation(
   // A phone's copy of a long edit holds the diff's digest, not its text; the
   // counts, verb and path read from the digest are what the text would give.
   const digest = diffPatch ? null : callDigest;
+  // A git command's patch output turns into the diff card; on a phone's cut
+  // copy the counts are the whole patch's.
+  const gitPatchOutput = normalizedName === 'git' && Boolean(command) && !callDiffPatch;
   const hasDetails = Boolean(
     commandIsDetail ||
       targets.length ||
@@ -1052,7 +1229,7 @@ export function desktopToolActivityItemPresentation(
         tone,
         diffPatch ? parseUnifiedDiff(diffPatch).map((file) => file.status) : (digest?.statuses ?? null),
         originalName
-      ) || desktopToolActivityRowVerb(name, item.args, resultValue),
+      ) || desktopToolActivityRowVerb(name, item.args, Boolean(facts.described)),
     subject,
     targets,
     resultLabel: describe ? describeResultLabel(describe) : outcome.resultLabel,
@@ -1063,7 +1240,11 @@ export function desktopToolActivityItemPresentation(
     diffPatch,
     // The lines the call's diff adds and removes; a failed call claims none.
     diffCounts:
-      tone === 'neutral' && !model.pending ? (diffPatch ? patchLineCounts(diffPatch) : (digest?.counts ?? null)) : null,
+      tone === 'neutral' && !model.pending
+        ? diffPatch
+          ? patchLineCounts(diffPatch)
+          : (digest?.counts ?? (gitPatchOutput ? facts.patchCounts : null))
+        : null,
     diffDigestPath: digest?.targetPath ?? '',
     outputText,
     outputNote,

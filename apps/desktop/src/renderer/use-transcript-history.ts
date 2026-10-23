@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import { noteHistoryPageRequest } from './tool-output-prefetch';
 import {
   nextTranscriptHistoryLimit,
   nextTranscriptTailLimit,
@@ -144,6 +145,8 @@ export function useTranscriptHistory(sessionId: string, itemCount: number, hasOl
       : nextTranscriptHistoryLimit(count, paging.limit);
     if (nextLimit === null) return;
     paging.pending = true;
+    // Background tool-output reads hold off while the page is on its way.
+    const settlePage = noteHistoryPageRequest();
     void Promise.resolve()
       .then(() => prefetch(sessionId, nextLimit))
       .then((accepted) => {
@@ -155,6 +158,7 @@ export function useTranscriptHistory(sessionId: string, itemCount: number, hasOl
         // Read-only failures remain retryable on the next boundary gesture.
       })
       .finally(() => {
+        settlePage();
         if (pagingRef.current === paging) paging.pending = false;
       });
   }, [sessionId]);

@@ -209,11 +209,21 @@ export function transcriptItemsEqual(previous: TranscriptItem | undefined, next:
   return previous === next;
 }
 
+// toLocaleTimeString builds a new Intl formatter on every call; footers mount
+// on every range change of a fling, so one formatter per locale + options.
+let shortTimeFormat: { key: string; format: Intl.DateTimeFormat } | null = null;
+
+export function shortTimeText(at: number): string {
+  const locale = uiFormatLocale();
+  const options: Intl.DateTimeFormatOptions = { timeStyle: 'short', ...timeFormatOptions() };
+  const key = `${locale}|${JSON.stringify(options)}`;
+  if (shortTimeFormat?.key !== key) shortTimeFormat = { key, format: new Intl.DateTimeFormat(locale, options) };
+  return shortTimeFormat.format.format(at);
+}
+
 function messageMetadata(item: TranscriptItem) {
   const shortTime =
-    typeof item.at === 'number' && Number.isFinite(item.at) && item.at > 0
-      ? new Date(item.at).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short', ...timeFormatOptions() })
-      : '';
+    typeof item.at === 'number' && Number.isFinite(item.at) && item.at > 0 ? shortTimeText(item.at) : '';
   return { shortTime };
 }
 

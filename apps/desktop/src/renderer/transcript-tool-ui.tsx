@@ -53,6 +53,7 @@ import { requestSessionDiffFile } from './session-diff-focus';
 import { capPatchLines } from './renderer-logic.mjs';
 import { CopyControl } from './transcript-primitives';
 import { FullToolOutputButton, useFullToolOutput } from './tool-full-output';
+import { useToolOutputPrefetch } from './tool-output-prefetch';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { useBrowserPageIdentity } from './browser-page-identity';
@@ -308,6 +309,10 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   const lineCounts = useMemo(() => groupLineCounts(calls), [calls]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
   const label = summary || t('Tool use');
+  // An older group on a phone holds cut outputs: read them while the reader
+  // rests nearby, so opening a call shows its whole output at once.
+  const groupRef = useRef<HTMLElement | null>(null);
+  useToolOutputPrefetch(groupRef, disclosureScope, calls);
   const pendingStartedAt = useMemo(() => {
     const starts = calls
       .filter((item) => !toolItemDone(item))
@@ -317,7 +322,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   }, [calls]);
 
   return (
-    <article className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
+    <article ref={groupRef} className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
       <button
         type="button"
         className="tool-header tool-activity-header"

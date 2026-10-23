@@ -1,6 +1,10 @@
 import { isAbsolute, resolve } from 'node:path';
 
 import { patchSectionDigests } from '../renderer/renderer-logic.mjs';
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { normalizeToolName } from '../../../../src/runtime/shared/tool-primitives.mjs';
+import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-output-facts.mjs';
+import { REMOTE_TRANSCRIPT_TAIL_ITEMS } from './desktop-support';
 import { DIFF_SECTION, diffSectionPaths, isSensitivePathSync } from './remote-sensitive-paths';
 
 // Provider replay material, not display data: `thinkingBlocks` are Anthropic's
@@ -21,6 +25,23 @@ export const REMOTE_TOOL_OUTPUT_CAP_CHARS = 8_192;
 const REMOTE_TOOL_OUTPUT_HEAD_CHARS = 6_144;
 const REMOTE_TOOL_OUTPUT_TAIL_CHARS = REMOTE_TOOL_OUTPUT_CAP_CHARS - REMOTE_TOOL_OUTPUT_HEAD_CHARS;
 const REMOTE_TOOL_OUTPUT_FIELDS = ['result', 'rawResult'] as const;
+/** Rows older than the newest REMOTE_TRANSCRIPT_TAIL_ITEMS — the history pages
+ *  a phone scrolls into — reach it collapsed-sized: `rawResult` goes when it
+ *  repeats `result` verbatim, and each output keeps its first lines, at most
+ *  this many characters. `remoteOutputTruncated` stays on the row, so opening
+ *  it (or the phone's idle prefetch) reads the whole text (`remoteToolOutput`). */
+export const REMOTE_HISTORY_OUTPUT_CHARS = 600;
+// The phone's 5-line preview (PREVIEW_OUTPUT_LINES); a command keeps one more,
+// the line its open preview shows instead of a count.
+const HISTORY_OUTPUT_LINES = 5;
+const HISTORY_COMMAND_LINES = 6;
+const HISTORY_COMMAND_TOOLS = new Set(['shell', 'bash', 'bash_session', 'shell_command']);
+// Outputs whose open body is parsed from their text as a whole stay as they
+// are (the output facts do not cover those parses): JSON and an ask_user
+// answer (structured rows), a background task's status envelope, an agent's
+// report, a task notification.
+const HISTORY_WHOLE_OUTPUT =
+  /^\s*(?:\{|\[\s*(?:[[{"\]\d-]|true|false|null)|background tasks?\b|agent task:|User (?:has answered|replied in chat))|task-notification>/i;
 /** Set on a capped tool row: the length of its longest output before the cut. */
 export const REMOTE_OUTPUT_TRUNCATED_FIELD = 'remoteOutputTruncated';
 /** Set on a row whose `uiDiff` the phone's copy replaced with per-section digests. */
@@ -51,6 +72,36 @@ function capToolOutput(text: string): { text: string; note: RemoteOutputNote } {
   };
 }
 
+/** A history row's output cut to its first `lines` lines, at most
+ *  REMOTE_HISTORY_OUTPUT_CHARS characters (never splitting a surrogate pair),
+ *  and where the cut is; null when the output keeps its text (see
+ *  HISTORY_WHOLE_OUTPUT) or already fits. */
+function capHistoryOutput(text: string, lines: number): { text: string; note: RemoteOutputNote } | null {
+  if (HISTORY_WHOLE_OUTPUT.test(text)) return null;
+  let end = Math.min(text.length, REMOTE_HISTORY_OUTPUT_CHARS);
+  let newline = -1;
+  for (let line = 0; line < lines; line++) {
+    newline = text.indexOf('\n', newline + 1);
+    if (newline < 0) break;
+  }
+  if (newline >= 0) end = Math.min(end, newline);
+  if (end >= text.length) return null;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return { text: text.slice(0, end), note: { kind: 'omitted', at: end, omitted: text.length - end } };
+}
+
+/** The output facts (`outputFactsOf`, the code the phone reads them with) the
+ *  whole output gives and the cut copy's text does not, or null when the cut
+ *  text gives them all. The facts are plain data, the same in any language. */
+function wholeOutputFacts(whole: Record<string, unknown>, cut: Record<string, unknown>): object | null {
+  const nowMs = Date.now();
+  const before = outputFactsOf(whole, nowMs);
+  const after = outputFactsOf(cut, nowMs);
+  const changed = Object.entries(before).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(after[key]));
+  return changed.length ? Object.fromEntries(changed) : null;
+}
+
 /** Whether a digest can stand in for `diff`: it is git-form, every section
  *  starting at a `diff --git` header. The renderer picks sections by header
  *  name (`patchForTarget`) and the session review joins patches at section
@@ -63,7 +114,7 @@ function isDigestibleDiff(diff: string): boolean {
 /** `record` with its output fields capped, or `record` itself when none is over.
  *  A long edit diff is replaced by its digest (`uiDiffSummary`): what the
  *  transcript row and the turn review read from the diff, without the text. */
-function cappedToolRecord(record: Record<string, unknown>): Record<string, unknown> {
+function cappedToolRecord(record: Record<string, unknown>, history = false): Record<string, unknown> {
   let capped: Record<string, unknown> | null = null;
   let longest = 0;
   const notes: Record<string, RemoteOutputNote> = {};
@@ -73,9 +124,30 @@ function cappedToolRecord(record: Record<string, unknown>): Record<string, unkno
     delete capped.uiDiff;
     capped[REMOTE_DIFF_DIGEST_FIELD] = { sections: patchSectionDigests(diff.trim()) };
   }
+  // Only a verbatim string copy goes: a `rawResult` that differs from a cleaned
+  // `result` is what the exit-marker and restored-notice readers need.
+  const duplicateRaw = history && typeof record.rawResult === 'string' && record.rawResult === record.result;
+  if (duplicateRaw) {
+    capped ??= { ...record };
+    delete capped.rawResult;
+  }
+  const lines =
+    history && HISTORY_COMMAND_TOOLS.has(String(normalizeToolName(record.name ?? '')))
+      ? HISTORY_COMMAND_LINES
+      : HISTORY_OUTPUT_LINES;
   for (const field of REMOTE_TOOL_OUTPUT_FIELDS) {
+    if (duplicateRaw && field === 'rawResult') continue;
     const value = record[field];
-    if (typeof value !== 'string' || value.length <= REMOTE_TOOL_OUTPUT_CAP_CHARS) continue;
+    if (typeof value !== 'string') continue;
+    const head = history ? capHistoryOutput(value, lines) : null;
+    if (head) {
+      capped ??= { ...record };
+      capped[field] = head.text;
+      notes[field] = head.note;
+      longest = Math.max(longest, value.length);
+      continue;
+    }
+    if (value.length <= REMOTE_TOOL_OUTPUT_CAP_CHARS) continue;
     capped ??= { ...record };
     const cut = capToolOutput(value);
     capped[field] = cut.text;
@@ -85,18 +157,22 @@ function cappedToolRecord(record: Record<string, unknown>): Record<string, unkno
   if (capped && longest > 0) {
     capped[REMOTE_OUTPUT_TRUNCATED_FIELD] = longest;
     capped[REMOTE_OUTPUT_NOTES_FIELD] = notes;
+    // An older row's header reads what the whole output gives, wherever its
+    // cut text gives other (the newest rows keep the copy the desktop sends).
+    const facts = history ? wholeOutputFacts(record, capped) : null;
+    if (facts) capped[REMOTE_OUTPUT_FACTS_FIELD] = facts;
   }
   return capped ?? record;
 }
 
 /** A tool row (or an aggregate's members) with its outputs capped. */
-function cappedToolItem(item: Record<string, unknown>): Record<string, unknown> {
-  let capped = cappedToolRecord(item);
+function cappedToolItem(item: Record<string, unknown>, history: boolean): Record<string, unknown> {
+  let capped = cappedToolRecord(item, history);
   if (!Array.isArray(item.toolMembers)) return capped;
   let changed = false;
   const members = item.toolMembers.map((member) => {
     if (!member || typeof member !== 'object' || Array.isArray(member)) return member;
-    const next = cappedToolRecord(member as Record<string, unknown>);
+    const next = cappedToolRecord(member as Record<string, unknown>, history);
     if (next !== member) changed = true;
     return next;
   });
@@ -104,8 +180,10 @@ function cappedToolItem(item: Record<string, unknown>): Record<string, unknown> 
   return capped;
 }
 
-function remoteTranscriptItem(item: unknown, folder: string): unknown {
+function remoteTranscriptItem(item: unknown, folder: string, history: boolean): unknown {
   if (!item || typeof item !== 'object') return item;
+  // A row keeps the copy it was first sent as: a tail row that ages into
+  // history is not re-sent slimmer (no patch, no row that shrinks on screen).
   const cached = projectedTranscriptItems.get(item);
   if (cached?.folder === folder) return cached.result;
   let projected: Record<string, unknown> | null = null;
@@ -115,7 +193,7 @@ function remoteTranscriptItem(item: unknown, folder: string): unknown {
     delete projected[field];
   }
   const base = projected ?? (item as Record<string, unknown>);
-  const result = base.kind === 'tool' ? remoteToolItem(base, folder) : base;
+  const result = base.kind === 'tool' ? remoteToolItem(base, folder, history) : base;
   projectedTranscriptItems.set(item, { folder, result });
   return result;
 }
@@ -328,12 +406,12 @@ function withheldToolRecord(record: Record<string, unknown>): Record<string, unk
 /** A tool row (or an aggregate's members) as the phone may see it: outputs of
  *  anything that touches a secret file replaced, the rest capped. An aggregate
  *  row is withheld when any member is; a member when it or its aggregate is. */
-function remoteToolItem(item: Record<string, unknown>, folder: string): Record<string, unknown> {
+function remoteToolItem(item: Record<string, unknown>, folder: string, history: boolean): Record<string, unknown> {
   const members = Array.isArray(item.toolMembers) ? item.toolMembers : [];
   const records = members.map(asRecord);
   const own = touchesSecretFile([item], folder);
   const denied = records.map((record) => own || (record !== null && touchesSecretFile([record], folder)));
-  if (!own && !denied.some(Boolean)) return cappedToolItem(item);
+  if (!own && !denied.some(Boolean)) return cappedToolItem(item, history);
   const row = withheldToolRecord(item);
   if (!Array.isArray(item.toolMembers)) return row;
   return {
@@ -341,7 +419,7 @@ function remoteToolItem(item: Record<string, unknown>, folder: string): Record<s
     toolMembers: members.map((member, index) => {
       const record = records[index];
       if (!record) return member;
-      return denied[index] ? withheldToolRecord(record) : cappedToolRecord(record);
+      return denied[index] ? withheldToolRecord(record) : cappedToolRecord(record, history);
     }),
   };
 }
@@ -395,8 +473,9 @@ export function remoteTranscriptSnapshot(snapshot: unknown, sessionFolder = ''):
     const workspaceCwd = asRecord(record.workspace)?.cwd;
     const folder = sessionFolder || (typeof workspaceCwd === 'string' ? workspaceCwd : '');
     let dropped = false;
-    const projected = record.items.map((item) => {
-      const next = remoteTranscriptItem(item, folder);
+    const historyEnd = record.items.length - REMOTE_TRANSCRIPT_TAIL_ITEMS;
+    const projected = record.items.map((item, index) => {
+      const next = remoteTranscriptItem(item, folder, index < historyEnd);
       if (next !== item) dropped = true;
       return next;
     });

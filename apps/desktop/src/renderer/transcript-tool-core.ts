@@ -52,12 +52,47 @@ function toolResultText(item: TranscriptItem) {
 }
 
 export function isHookApprovalDenialToolItem(item: TranscriptItem) {
-  if (!item.isError) return false;
-  const text = toolResultText(item);
-  return (
-    /^Error:\s*tool\s*"[^"]*"\s*(?:denied by hook|was not approved)\b/im.test(text) ||
-    /denied by hook:\s*approval required but no approval UI is available/i.test(text)
-  );
+  return Boolean(item.isError) && toolOutputBasics(item).hookDenied;
+}
+
+/** Set on a phone's copy of a row whose output the host cut
+ *  (main/remote-transcript.ts): the facts its whole output gives
+ *  (`toolOutputFacts`, transcript-tool-model.ts) wherever the cut text gives
+ *  others. Plain data: numbers, flags, enums, raw output text and deferred
+ *  translations, never words in a language. */
+export const REMOTE_OUTPUT_FACTS_FIELD = 'remoteOutputFacts';
+
+export function carriedOutputFacts(item: TranscriptItem): Record<string, unknown> | null {
+  return asRecord((item as Record<string, unknown>)[REMOTE_OUTPUT_FACTS_FIELD]);
+}
+
+/** What a row's tone and its group's summary read from the call's output. */
+export interface ToolOutputBasics {
+  /** The status the result itself states (`resultTerminalStatus`). */
+  resultStatus: string;
+  /** The output is a hook's approval denial. */
+  hookDenied: boolean;
+  /** A bridge load_tool's described / missing / blocked names. */
+  described: { described: string[]; missing: string[]; blocked: string[] } | null;
+}
+
+/** The output facts of `toolOutputFacts` that tone and summary read: from the
+ *  row's own output, with the whole output's where a phone's cut copy carries them. */
+export function toolOutputBasics(item: TranscriptItem): ToolOutputBasics {
+  return { ...toolOutputBasicsOf(item), ...(carriedOutputFacts(item) as Partial<ToolOutputBasics> | null) };
+}
+
+/** `toolOutputBasics` of the row's own output alone. */
+export function toolOutputBasicsOf(item: TranscriptItem): ToolOutputBasics {
+  // Only a failed call can be a denial; its text is read only then.
+  const text = item.isError ? toolResultText(item) : '';
+  return {
+    resultStatus: String(resultTerminalStatus(item.result ?? item.rawResult) || ''),
+    hookDenied:
+      /^Error:\s*tool\s*"[^"]*"\s*(?:denied by hook|was not approved)\b/im.test(text) ||
+      /denied by hook:\s*approval required but no approval UI is available/i.test(text),
+    described: desktopToolDescribeResult(item.name, item.args, item.result ?? item.rawResult),
+  };
 }
 
 export function shouldSuppressFullyFailedToolItem(item: TranscriptItem) {
@@ -140,8 +175,9 @@ export function toolActivityItemTone(item: TranscriptItem): 'error' | 'warning' 
   const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
   const partialMutation = callFailedCount > 0 && toolItemHasDiff(item);
   let terminalStatus = '';
-  if (isHookApprovalDenialToolItem(item)) terminalStatus = 'denied';
-  else if (resultTerminalStatus(item.result ?? item.rawResult) === 'cancelled') terminalStatus = 'cancelled';
+  const basics = toolOutputBasics(item);
+  if (item.isError && basics.hookDenied) terminalStatus = 'denied';
+  else if (basics.resultStatus === 'cancelled') terminalStatus = 'cancelled';
   const tone = deriveToolOutcomeTone({
     pending: !toolItemDone(item),
     groupCount: count,
@@ -430,8 +466,8 @@ function mediaGenerateArgs(surface: { normalizedName: string; args: unknown }): 
 function desktopToolActivityUnit(
   rawName: unknown,
   rawArgs: unknown,
-  /** The call's result: a bridge load_tool describes, it never loads. */
-  result?: unknown
+  /** The call's output describes tools (`ToolOutputBasics.described`): a bridge load_tool describes, it never loads. */
+  described = false
 ): {
   category: string;
   done: string;
@@ -450,7 +486,7 @@ function desktopToolActivityUnit(
     noun?: string;
     count?: number;
   } | null;
-  if (category === 'Load' && desktopToolDescribeResult(name, args, result)) {
+  if (category === 'Load' && described) {
     return {
       category,
       done: 'Described',
@@ -530,8 +566,8 @@ function toolActivityRowVerb(category: string, done: string, noun: string): stri
   }
 }
 
-export function desktopToolActivityRowVerb(name: unknown, args: unknown, result?: unknown): string {
-  const unit = desktopToolActivityUnit(name, args, result);
+export function desktopToolActivityRowVerb(name: unknown, args: unknown, described = false): string {
+  const unit = desktopToolActivityUnit(name, args, described);
   return toolActivityRowVerb(unit.category, unit.done, unit.noun) || unit.label;
 }
 
@@ -808,12 +844,13 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[], set
   const calls = flattenedToolActivityItems(items);
   let failedCommands = 0;
   for (const item of calls) {
-    const unit = desktopToolActivityUnit(item.name, item.args, item.result ?? item.rawResult);
+    const basics = toolOutputBasics(item);
+    const unit = desktopToolActivityUnit(item.name, item.args, Boolean(basics.described));
     // A stopped command was not a failure: the stop is its own outcome.
     if (
       unit.category === 'Shell' &&
       toolItemDone(item) &&
-      resultTerminalStatus(item.result ?? item.rawResult) !== 'cancelled' &&
+      basics.resultStatus !== 'cancelled' &&
       toolActivityItemTone(item) !== 'neutral'
     ) {
       failedCommands += 1;
@@ -838,6 +875,6 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[], set
 }
 
 /** The work-unit name a call is counted under. */
-export function desktopToolActivityUnitLabel(name: unknown, args: unknown, result?: unknown): string {
-  return desktopToolActivityUnit(name, args, result).label;
+export function desktopToolActivityUnitLabel(name: unknown, args: unknown, described = false): string {
+  return desktopToolActivityUnit(name, args, described).label;
 }

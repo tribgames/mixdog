@@ -517,17 +517,22 @@ function toolActivityOutcome(status: string, exit: string, signal: string, reaso
   return { label: toolActivityCompact([status, reason ? '' : exit, signal, reason]), reason };
 }
 
-/** A failed foreground command: "실패 · fatal: permission denied", or the exit
- *  when the command said nothing. */
-export function toolActivityShellFailureLabel(output: string, current: string): ToolOutcome {
+/** What a failed foreground command's label reads from its output: its exit
+ *  marker's code and its first line that is not a marker, cut to a short phrase. */
+export function toolActivityShellFailureFacts(output: string): { exit: string; reason: string } {
   const exit = /^\[exit(?: code)?:\s*(-?\d+)\]/im.exec(output);
   const first = output
     .split('\n')
     .map((line) => line.trim())
     .find((line) => line && !/^\[[a-z_ ]+(?::[^\]]*)?\]$/i.test(line));
-  const reason = toolActivityShortError(first ?? '');
-  const code = exit && Number(exit[1]) !== 0 ? t('Exit {{code}}', { code: exit[1] }) : '';
-  return toolActivityOutcome(t('Failed'), code || current, '', reason);
+  return { exit: exit?.[1] ?? '', reason: toolActivityShortError(first ?? '') };
+}
+
+/** A failed foreground command: "실패 · fatal: permission denied", or the exit
+ *  when the command said nothing. */
+export function toolActivityShellFailureLabel(facts: { exit: string; reason: string }, current: string): ToolOutcome {
+  const code = facts.exit && Number(facts.exit) !== 0 ? t('Exit {{code}}', { code: facts.exit }) : '';
+  return toolActivityOutcome(t('Failed'), code || current, '', facts.reason);
 }
 
 /** The closed row's reason: the first line of the error, cut to a short phrase. */
