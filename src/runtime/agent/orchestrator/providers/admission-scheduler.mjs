@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { PRIORITY_RANK, normalizePriority, resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
+import { sanitizeSurrogates } from '../../../shared/llm/well-formed.mjs';
+import {
+  finalizeProviderRequestTools,
+  isFinalizedProviderRequestTools,
+  providerNativeToolPrefixCount,
+} from '../runtime-core/provider-request-tools.mjs';
 
 // Normal provider traffic is not concurrency-gated. Independent sessions and
 // accounts start immediately; a finite limit exists only when an operator
@@ -518,7 +524,18 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
   if (!provider || typeof provider.send !== 'function' || provider[WRAPPED]) return provider;
   const originalSend = provider.send;
   Object.defineProperty(provider, WRAPPED, { value: true });
-  provider.send = function admittedProviderSend(messages, model, tools, sendOpts) {
+  provider.send = function admittedProviderSend(rawMessages, model, rawTools, sendOpts) {
+    // Every registered provider (and its account-pool / proxy / custom variants)
+    // is wrapped here, so this is the one point all model requests pass before
+    // serialization. A lone surrogate would make the API reject the body on
+    // every send; only the outgoing request is rewritten, never the transcript.
+    const messages = sanitizeSurrogates(rawMessages);
+    let tools = sanitizeSurrogates(rawTools);
+    // A finalized tool list is recognised by identity; its sanitized copy must
+    // stay finalized with the same native prefix (the model proxy reads both).
+    if (tools !== rawTools && isFinalizedProviderRequestTools(rawTools)) {
+      tools = finalizeProviderRequestTools(tools, providerNativeToolPrefixCount(rawTools));
+    }
     const opts = sendOpts || {};
     const signal = opts.signal || null;
     const key = providerAdmissionKey(providerName, this);
