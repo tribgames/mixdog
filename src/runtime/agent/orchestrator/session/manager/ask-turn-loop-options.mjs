@@ -9,8 +9,21 @@ import { updateSessionStage, markSessionStreamDelta } from './runtime-liveness.m
 import { codexWireSendOpts } from './session-id.mjs';
 import { persistIterationMetrics } from './usage-metrics.mjs';
 import { isAgentModeSession } from '../agent-mode.mjs';
+import { HEARTBEAT_TURN_LIMITS, isHeartbeatSession } from '../../../../shared/routine-trigger.mjs';
 
 const optionalFn = (value) => (typeof value === 'function' ? value : undefined);
+
+/** Mixy's heartbeat turn is capped (loop/turn-limits.mjs): its tool calls, and
+ *  the time after which it must reply. Keyed by the in-process heartbeat mark. */
+export function heartbeatTurnLimits(sessionId, now = Date.now()) {
+  if (!isHeartbeatSession(sessionId)) return {};
+  return {
+    turnLimits: {
+      maxToolCalls: HEARTBEAT_TURN_LIMITS.maxToolCalls,
+      wrapUpAt: now + HEARTBEAT_TURN_LIMITS.wrapUpMs,
+    },
+  };
+}
 const relay = (fn, ...args) => {
   try {
     fn?.(...args);
@@ -201,6 +214,7 @@ export function buildAgentLoopOptions({
       relay(askOpts?.onSkillsApplied, names, detail);
     },
     notifyFn: optionalFn(askOpts?.notifyFn),
+    ...heartbeatTurnLimits(sessionId),
     ...buildRequestSendOptions({
       sessionId,
       session,

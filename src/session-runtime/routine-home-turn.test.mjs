@@ -3,7 +3,11 @@ import test from 'node:test';
 
 import { unattendedRunOf } from './held-requests.mjs';
 import { runRoutineTurn } from './routine-home-turn.mjs';
-import { stripRoutineTriggerHeader } from '../runtime/shared/routine-trigger.mjs';
+import {
+  HEARTBEAT_TURN_LIMITS,
+  markHeartbeatSession,
+  stripRoutineTriggerHeader,
+} from '../runtime/shared/routine-trigger.mjs';
 import { webhookRunPrompt } from '../runtime/channels/lib/webhook/session-dispatch.mjs';
 
 /** A home thread's session service: it queues every submitted turn and runs
@@ -215,6 +219,68 @@ test('a webhook turn fences its payload; skills come only from the instructions'
   });
   thread.settle();
   await run;
+});
+
+/** Timers whose single pending timeout the test fires by hand. */
+function manualTimers() {
+  const timers = { pending: null, cleared: 0 };
+  timers.setTimeout = (fn, ms) => {
+    timers.pending = { fn, ms, unref() {} };
+    return timers.pending;
+  };
+  timers.clearTimeout = (handle) => {
+    if (handle && handle === timers.pending) {
+      timers.pending = null;
+      timers.cleared += 1;
+    }
+  };
+  return timers;
+}
+
+test('a heartbeat turn past its wall-clock cap is aborted and ends cleanly with no reply', async (t) => {
+  const id = 'sess_daemon_hb_slow';
+  markHeartbeatSession(id);
+  t.after(() => markHeartbeatSession(id, true));
+  const thread = homeThread();
+  const timers = manualTimers();
+  const run = runRoutineTurn(
+    { kind: 'schedule', name: 'heartbeat', prompt: 'x', sessionId: id },
+    deps(thread, { timers })
+  );
+  await tick();
+  assert.equal(timers.pending?.ms, HEARTBEAT_TURN_LIMITS.wallClockMs);
+  assert.equal(HEARTBEAT_TURN_LIMITS.wallClockMs, 90_000);
+  assert.ok(thread.running(), 'the turn is running');
+  timers.pending.fn();
+  assert.deepEqual(await run, { sessionId: id, result: '', timedOut: true });
+  await tick();
+  assert.deepEqual(thread.aborted, [id], 'the running turn was stopped');
+  assert.equal(thread.running(), null);
+});
+
+test('a heartbeat turn that ends in time clears its cutoff; other routine turns get none', async (t) => {
+  const id = 'sess_daemon_hb_quick';
+  markHeartbeatSession(id);
+  t.after(() => markHeartbeatSession(id, true));
+  const thread = homeThread({ reply: () => 'HEARTBEAT_QUIET' });
+  const timers = manualTimers();
+  const run = runRoutineTurn(
+    { kind: 'schedule', name: 'heartbeat', prompt: 'x', sessionId: id },
+    deps(thread, { timers })
+  );
+  await tick();
+  thread.settle();
+  assert.deepEqual(await run, { sessionId: id, result: 'HEARTBEAT_QUIET' });
+  assert.equal(timers.pending, null);
+  assert.equal(timers.cleared, 1);
+  // An unmarked session (another caller-made one) and a home-thread routine run uncapped.
+  for (const extra of [{ sessionId: 'sess_daemon_other' }, {}]) {
+    const other = runRoutineTurn({ kind: 'schedule', name: 'daily', prompt: 'x', ...extra }, deps(thread, { timers }));
+    await tick();
+    assert.equal(timers.pending, null, 'no cutoff');
+    thread.settle();
+    await other;
+  }
 });
 
 test('a bot without a chat, or a service that is down, fails the run without queuing anything', async () => {

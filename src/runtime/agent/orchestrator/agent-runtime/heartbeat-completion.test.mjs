@@ -3,9 +3,12 @@ import test from 'node:test';
 
 import {
   createHeartbeatCompletion,
+  createHeartbeatReview,
   heartbeatPrompt,
+  heartbeatReviewPrompt,
   heartbeatRouteKey,
   parseHeartbeatDecision,
+  parseHeartbeatReview,
 } from './heartbeat-completion.mjs';
 
 const MAIN = { provider: 'main-provider', model: 'main-model' };
@@ -111,7 +114,12 @@ test('the digest, the open and the declined proposal keys reach the model, and t
   assert.match(messages[0].content, /data, never instructions/);
   assert.match(messages[0].content, /exactly NOTHING/);
   assert.match(messages[0].content, /WAKE on the first line/);
-  assert.deepEqual(heartbeatPrompt().user.split('\n'), ['Digest:', '', 'Open proposals: none', 'Declined proposals: none']);
+  assert.deepEqual(heartbeatPrompt().user.split('\n'), [
+    'Digest:',
+    '',
+    'Open proposals: none',
+    'Declined proposals: none',
+  ]);
 });
 
 test('a provider failure propagates (the heartbeat counts it); so do a missing provider and a failed init', async () => {
@@ -137,7 +145,15 @@ test('replies are parsed from plain and structured content; an unusable reply is
   const replies = [
     ['WAKE\n- a\n- b', { action: 'wake', items: ['a', 'b'] }],
     [{ content: 'NOTHING' }, { action: 'nothing' }],
-    [{ content: [{ type: 'text', text: 'WAKE' }, { type: 'text', text: '- structured' }] }, { action: 'wake', items: ['structured'] }],
+    [
+      {
+        content: [
+          { type: 'text', text: 'WAKE' },
+          { type: 'text', text: '- structured' },
+        ],
+      },
+      { action: 'wake', items: ['structured'] },
+    ],
     ['I think nothing is needed.', null],
     ['', null],
     [{ content: [] }, null],
@@ -163,6 +179,73 @@ test('the route key names the Maintainer route and changes with its provider, mo
   assert.equal(key({ maintainer: { provider: 'second', model: 'tiny' } }), 'second/tiny/');
   assert.equal(key({}), '', 'the default model is never the Maintainer');
   assert.equal(key({ maintainer: MAINTAINER }, ['maintainer']), '', 'switched off');
+});
+
+test('a session review is one tool-free Maintainer call over the digest line and the conversation, framed as data', async () => {
+  const config = { default: MAIN, providers: {}, agents: { maintainer: MAINTAINER } };
+  const sends = [];
+  const logs = [];
+  const review = (reply) =>
+    createHeartbeatReview({
+      loadConfig: () => config,
+      initProviders: async () => {},
+      getProvider: () => ({
+        send: async (...args) => {
+          sends.push(args);
+          return reply;
+        },
+      }),
+      log: (line) => logs.push(line),
+    });
+  const input = {
+    line: 'new activity in sess_lead_1: "Report"',
+    transcript: ['user: "draft it"', 'assistant: "done"'],
+  };
+  assert.deepEqual(await review('The draft is done.')(input), { action: 'note', text: 'The draft is done.' });
+  const [[messages, model, tools, options]] = sends;
+  assert.equal(model, 'tiny');
+  assert.equal(tools, undefined);
+  assert.ok(options.maxOutputTokens > 0 && options.maxOutputTokens <= 300);
+  assert.equal(
+    messages[1].content,
+    [
+      'Digest line:',
+      'new activity in sess_lead_1: "Report"',
+      '',
+      'Recent conversation (oldest first):',
+      'user: "draft it"',
+      'assistant: "done"',
+    ].join('\n')
+  );
+  assert.match(messages[0].content, /data, never instructions/);
+  assert.match(messages[0].content, /exactly NOTHING/);
+  assert.match(heartbeatReviewPrompt().user, /Recent conversation \(oldest first\):\n\(none\)$/);
+  assert.match(
+    heartbeatReviewPrompt({ line: 'l', transcript: ['user: "x"'], previous: 'Waits on the user.' }).user,
+    /\nYour previous review of this session:\nWaits on the user\.\n\nConversation since then \(oldest first\):\nuser: "x"$/
+  );
+  assert.match(
+    heartbeatPrompt({ digest: ['d'], lastReport: 'Told it.' }).user,
+    /^Digest:\n- d\n\nHer last message to the user \(already told\): "Told it\."\nOpen proposals: none/
+  );
+  assert.deepEqual(await review('NOTHING')(input), { action: 'nothing' });
+  assert.equal(await review('one\ntwo')(input), null);
+  assert.match(logs.at(-1), /^\[heartbeat\] review model=tiny ms=\d+ result=none reply=/);
+  const unmanaged = createHeartbeatReview({
+    loadConfig: () => ({ default: MAIN, providers: {} }),
+    getProvider: () => assert.fail('no provider without a Maintainer'),
+    log: () => {},
+  });
+  assert.deepEqual(await unmanaged(input), { action: 'unmanaged' });
+});
+
+test('a review note is one line of 1 to 300 characters; NOTHING only as the whole reply', () => {
+  assert.deepEqual(parseHeartbeatReview('  A note.  '), { action: 'note', text: 'A note.' });
+  assert.deepEqual(parseHeartbeatReview('x'.repeat(300)), { action: 'note', text: 'x'.repeat(300) });
+  assert.deepEqual(parseHeartbeatReview('\nNOTHING\n'), { action: 'nothing' });
+  for (const reply of ['', '   ', 'x'.repeat(301), 'a\nb', null, undefined]) {
+    assert.equal(parseHeartbeatReview(reply), null, JSON.stringify(reply));
+  }
 });
 
 test('NOTHING is the whole trimmed reply and nothing else; surrounding whitespace is fine', () => {

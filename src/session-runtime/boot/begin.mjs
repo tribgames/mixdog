@@ -8,7 +8,7 @@ import { createProviderReadiness } from '../provider-readiness.mjs';
 import { createRoutePreparationGate } from '../route-preparation.mjs';
 import { createRuntimeFeatureGates } from '../runtime-feature-gates.mjs';
 import { createLazyRuntimeModules } from '../runtime-modules.mjs';
-import { normalizeToolProfile } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import { sessionToolProfile } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 
 // The boot record: `rt` (shared mutable runtime state, promoted from closure
 // `let`s so extracted modules read/write live values through one reference),
@@ -18,13 +18,14 @@ import { normalizeToolProfile } from '../../runtime/agent/orchestrator/runtime-c
 export function beginBoot(params) {
   const { provider, model, toolMode, cwd, toolProfile, approvalMode, disallowDelegation } = params;
   const rt = {};
-  rt.toolProfile = normalizeToolProfile(toolProfile);
   rt.approvalMode = approvalMode === 'implicit' ? 'implicit' : null;
   rt.disallowDelegation = disallowDelegation === true;
   rt.mcpScopeId = randomUUID();
   rt.desktopSession = params.desktopSession;
   rt.sessionProfile =
     params.sessionProfile && typeof params.sessionProfile === 'object' ? { ...params.sessionProfile } : null;
+  // A heartbeat run's session is fenced to its few tools (tool-profile.mjs).
+  rt.toolProfile = sessionToolProfile({ toolProfile, sessionProfile: rt.sessionProfile });
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   // Last assistant text handed to the transcript writer (via onAssistantText),
   // so the post-turn final-content append can skip an exact duplicate.

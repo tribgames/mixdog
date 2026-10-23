@@ -14,14 +14,21 @@
  * (outbound actions are allowed within the bot's permissions; payments and
  * permanent deletes are refused, human-gate/run-policy.mjs). Resolves with the
  * reply once the turn ends; rejects when the turn fails, is cancelled, or the
- * caller's `signal` aborts (which also aborts the turn once it runs).
+ * caller's `signal` aborts (which also aborts the turn once it runs). A
+ * heartbeat turn past its wall-clock cap is aborted and resolves with no reply
+ * (`timedOut`).
  */
 import { randomUUID } from 'node:crypto';
 import { agentHomeSessionId } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import { routineHumanNeededText } from '../runtime/agent/orchestrator/session/routine-result.mjs';
 import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
-import { normalizeRoutineTrigger, routineTriggerHeader } from '../runtime/shared/routine-trigger.mjs';
+import {
+  HEARTBEAT_TURN_LIMITS,
+  isHeartbeatSession,
+  normalizeRoutineTrigger,
+  routineTriggerHeader,
+} from '../runtime/shared/routine-trigger.mjs';
 import { agentHomeLiveSurface, scheduleOwnerAgentId } from './agent-home-delivery.mjs';
 import { markUnattendedRun, unattendedRunOf } from './held-requests.mjs';
 
@@ -71,6 +78,7 @@ export async function runRoutineTurn(
     loadSession = defaultLoadSession,
     limit = ROUTINE_LIMITS.homeQueueLimit,
     log = (line) => process.stderr.write(`mixdog routines: ${line}\n`),
+    timers = globalThis,
   } = {}
 ) {
   const body = String(prompt || '').trim();
@@ -95,6 +103,7 @@ export async function runRoutineTurn(
     let done = false;
     let unmark = () => {};
     let released = false;
+    let cutoff = null;
     const release = () => {
       if (released) return;
       released = true;
@@ -106,6 +115,7 @@ export async function runRoutineTurn(
     const finish = (fn, value) => {
       if (done) return;
       done = true;
+      if (cutoff) timers.clearTimeout(cutoff);
       fn(value);
     };
     const abortTurn = () =>
@@ -118,6 +128,18 @@ export async function runRoutineTurn(
       finish(reject, abortError(signal));
     }
     signal?.addEventListener?.('abort', onAbort, { once: true });
+    // Mixy's heartbeat turn (by its in-process mark) is cut off at its
+    // wall-clock cap: the turn is aborted and ends cleanly with no reply.
+    if (sessionId && isHeartbeatSession(homeId)) {
+      const ms = HEARTBEAT_TURN_LIMITS.wallClockMs;
+      cutoff = timers.setTimeout(() => {
+        log(`${kind} "${name}" in ${homeId} passed ${ms / 1000}s: ended without a reply`);
+        aborted = true;
+        if (started) void abortTurn();
+        finish(resolve, { sessionId: homeId, result: '', timedOut: true });
+      }, ms);
+      cutoff?.unref?.();
+    }
     const options = {
       id: `routine_${randomUUID()}`,
       mode: 'routine',

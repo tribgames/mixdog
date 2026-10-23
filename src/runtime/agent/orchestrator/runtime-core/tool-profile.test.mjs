@@ -3,10 +3,55 @@ import test from 'node:test';
 
 import {
   HEADLESS_MODEL_TOOL_NAMES,
+  disallowedModelToolNamesForProfile,
   filterModelToolsForProfile,
   modelToolAllowedForProfile,
   modelToolSchemaAllowlist,
+  sessionToolProfile,
 } from './tool-profile.mjs';
+
+test('the heartbeat profile allows only the session and setup tools and their loader', () => {
+  assert.deepEqual(modelToolSchemaAllowlist('heartbeat'), ['session', 'setup', 'load_tool']);
+  const tools = [
+    'session',
+    'setup',
+    'load_tool',
+    'read',
+    'find',
+    'grep',
+    'code_graph',
+    'shell',
+    'edit',
+    'browser',
+    'web_search',
+    'web_fetch',
+    'media',
+    'agent',
+    'goal',
+    'Skill',
+    'memory',
+    'mcp__demo__tool',
+  ].map((name) => ({ name }));
+  assert.deepEqual(
+    filterModelToolsForProfile(tools, 'heartbeat').map((tool) => tool.name),
+    ['session', 'setup', 'load_tool']
+  );
+  assert.deepEqual(
+    disallowedModelToolNamesForProfile(tools, 'heartbeat'),
+    tools.slice(3).map((tool) => tool.name)
+  );
+  assert.equal(modelToolAllowedForProfile('SETUP', 'heartbeat'), true);
+});
+
+test('a session created as a heartbeat run gets the heartbeat profile, whatever profile it asked for', () => {
+  const heartbeat = { ownerAgentId: 'lead', sourceType: 'exec', sourceName: 'heartbeat' };
+  assert.equal(sessionToolProfile({ sessionProfile: heartbeat }), 'heartbeat');
+  assert.equal(sessionToolProfile({ toolProfile: 'interactive', sessionProfile: heartbeat }), 'heartbeat');
+  assert.equal(sessionToolProfile({ toolProfile: 'headless', sessionProfile: heartbeat }), 'heartbeat');
+  assert.equal(sessionToolProfile({ sessionProfile: { ownerAgentId: 'lead', sourceType: 'exec' } }), 'interactive');
+  assert.equal(sessionToolProfile({ toolProfile: 'headless', sessionProfile: null }), 'headless');
+  assert.equal(sessionToolProfile(), 'interactive');
+});
 
 test('headless tool profile is an explicit stable allowlist', () => {
   assert.deepEqual(modelToolSchemaAllowlist('headless'), [

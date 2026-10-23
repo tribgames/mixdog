@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { isHeartbeatSession, markHeartbeatSession } from '../../runtime/shared/routine-trigger.mjs';
 import { wakeMixy } from '../mixy-heartbeat.mjs';
-import { scheduleCallerScope } from '../services/schedule-access.mjs';
+import { assertHeartbeatSetupAction, scheduleCallerScope } from '../services/schedule-access.mjs';
 import { createSetupToolExecutor } from '../setup-tool/executor.mjs';
 import { createWorkspaceToolHandlers } from './workspace-tools.mjs';
 
@@ -132,10 +132,18 @@ test('the hand-off limits hold for any case and spacing of the action, and only 
   marked(t);
   const hb = handlers(HEARTBEAT);
   for (const type of ['SPAWN', ' Spawn ', 'sPaWn', 'SEND', ' send\t']) {
-    await assert.rejects(hb.agent({ type, agent: 'worker', prompt: 'x' }), /agent: a heartbeat turn cannot hand work off/, type);
+    await assert.rejects(
+      hb.agent({ type, agent: 'worker', prompt: 'x' }),
+      /agent: a heartbeat turn cannot hand work off/,
+      type
+    );
   }
   for (const action of ['CREATE', ' Create ', 'SEND', ' send ']) {
-    await assert.rejects(hb.session({ action, agent: 'reviewer', session_id: 'sess_x', prompt: 'x' }), /session: a heartbeat turn cannot hand work off/, action);
+    await assert.rejects(
+      hb.session({ action, agent: 'reviewer', session_id: 'sess_x', prompt: 'x' }),
+      /session: a heartbeat turn cannot hand work off/,
+      action
+    );
   }
   for (const action of ['CREATE', ' Resume ', 'rEsUmE']) {
     await assert.rejects(hb.goal({ action, objective: 'x' }), /goal: a heartbeat turn cannot hand work off/, action);
@@ -149,6 +157,78 @@ test('the hand-off limits hold for any case and spacing of the action, and only 
   assert.equal(hb.agentCalls.length, 2);
   assert.equal(hb.sessionControl.length, 1);
   assert.equal(hb.goalCalls.length, 1);
+});
+
+test('a heartbeat session reads sessions and bots and records proposals; every other session action is refused', async (t) => {
+  dataDir(t);
+  marked(t);
+  const hb = handlers(HEARTBEAT);
+  for (const args of [
+    { action: 'cancel', session_id: 'sess_x' },
+    { action: 'delete', session_id: 'sess_x' },
+    { action: 'rename', title: 'x' },
+    { action: 'compact' },
+    { action: 'fork' },
+    { action: 'favorite', value: true },
+    { action: 'archive', value: true },
+    { action: 'set-project', path: '.' },
+    { action: 'list-projects' },
+  ]) {
+    await assert.rejects(hb.session(args), /session: a heartbeat turn only reads sessions and bots/, args.action);
+  }
+  assert.deepEqual(hb.sessionControl, []);
+  for (const action of ['read', 'list', 'bots'])
+    await hb.session({ action, session_id: action === 'read' ? 'sess_x' : '' });
+  await hb.session({ action: 'status', session_id: 'sess_x' });
+  assert.equal(hb.sessionControl.length, 4);
+  assert.equal(JSON.parse(await hb.session({ action: 'status' })).sessionId, HEARTBEAT);
+  assert.equal(
+    JSON.parse(await hb.session({ action: 'suggest', key: 'pause-routine:news', title: 'x' })).recorded,
+    true
+  );
+  // Any other exec session keeps every action.
+  await handlers(OTHER_EXEC).session({ action: 'cancel', session_id: 'sess_x' });
+});
+
+test('a heartbeat session only pauses a routine or runs one again through setup', async (t) => {
+  marked(t);
+  for (const [action, args] of [
+    ['delete_automation', { enabled: false }],
+    ['save_automation', {}],
+    ['set_agent_route', {}],
+    ['set_automation_enabled', { enabled: true }],
+    ['set_automation_enabled', {}],
+  ]) {
+    assert.throws(
+      () => assertHeartbeatSetupAction(HEARTBEAT, action, args),
+      /heartbeat turn only pauses a routine or runs one again/,
+      `${action} ${JSON.stringify(args)}`
+    );
+  }
+  assertHeartbeatSetupAction(HEARTBEAT, 'set_automation_enabled', { enabled: false });
+  assertHeartbeatSetupAction(HEARTBEAT, 'run_automation', {});
+  // Any other session is not narrowed here.
+  assertHeartbeatSetupAction(OTHER_EXEC, 'delete_automation', {});
+  // The setup tool refuses the rest from a heartbeat session before it touches anything.
+  const touched = [];
+  const setup = createSetupToolExecutor({
+    getApi: () => new Proxy({}, { get: (_target, key) => () => touched.push(key) }),
+    getConfig: () => ({}),
+    getCallerSession: (id) => ({ id, sourceType: 'exec', sourceName: 'heartbeat', ownerAgentId: 'lead' }),
+  });
+  await assert.rejects(
+    setup.execute(
+      { action: 'delete_automation', automationKind: 'schedule', name: 'news' },
+      { callerSessionId: HEARTBEAT }
+    ),
+    /heartbeat turn only pauses a routine or runs one again \(setup delete_automation is refused\)/
+  );
+  // Read-only setup actions are refused too: it reads nothing through setup.
+  await assert.rejects(
+    setup.execute({ action: 'status' }, { callerSessionId: HEARTBEAT }),
+    /heartbeat turn only pauses a routine or runs one again \(setup status is refused\)/
+  );
+  assert.deepEqual(touched, []);
 });
 
 /** What the session `id` can do right now: hand work off, change a setting, and its scope. */
@@ -178,7 +258,9 @@ async function probe(id) {
     agent: await refusal(() => hb.agent({ type: 'spawn', agent: 'worker', prompt: 'x' })),
     session: await refusal(() => hb.session({ action: 'send', session_id: 'sess_home_reviewer', prompt: 'x' })),
     goal: await refusal(() => hb.goal({ action: 'create', objective: 'x' })),
-    setting: await refusal(() => setup.execute({ action: 'set_heartbeat_enabled', enabled: false }, { callerSessionId: id })),
+    setting: await refusal(() =>
+      setup.execute({ action: 'set_heartbeat_enabled', enabled: false }, { callerSessionId: id })
+    ),
     scope: scheduleCallerScope(caller),
     handedOff: hb.agentCalls.length + hb.sessionControl.length + hb.goalCalls.length,
     writes,
@@ -265,9 +347,15 @@ test('a heartbeat turn that fails keeps its limits until its close lands, a clos
     /provider down/
   );
   assert.equal(isHeartbeatSession(id), true, 'the close did not land: still a limited session');
-  await assert.rejects(wake(async () => false), /provider down/);
+  await assert.rejects(
+    wake(async () => false),
+    /provider down/
+  );
   assert.equal(isHeartbeatSession(id), true);
-  await assert.rejects(wake(async () => true), /provider down/);
+  await assert.rejects(
+    wake(async () => true),
+    /provider down/
+  );
   assert.equal(isHeartbeatSession(id), false, 'closed: the mark is gone');
 });
 

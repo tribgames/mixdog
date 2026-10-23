@@ -63,6 +63,8 @@ export function createWorkspaceToolHandlers({
   const callerIsHeartbeat = (callerCtx) => isHeartbeatSession(callerCtx?.callerSessionId || rt.session?.id);
   const HEARTBEAT_NO_HANDOFF =
     'a heartbeat turn cannot hand work off: its result would reach nobody. Propose it to the user instead (session action suggest).';
+  // What a heartbeat turn does with sessions: read them and the bots, and record proposals.
+  const HEARTBEAT_SESSION_ACTIONS = new Set(['read', 'status', 'list', 'bots', 'suggest']);
 
   const SIDEBAR_ACTIONS = new Set(['favorite', 'archive']);
 
@@ -82,14 +84,20 @@ export function createWorkspaceToolHandlers({
   const session = async (args, { callerCtx, callerCwd }) => {
     const action = clean(args?.action || (args?.path ? 'set-project' : 'status')).toLowerCase();
     const target = clean(args?.session_id);
+    if (callerIsHeartbeat(callerCtx) && !HEARTBEAT_SESSION_ACTIONS.has(action)) {
+      throw new Error(
+        `session: ${
+          action === 'create' || action === 'send'
+            ? HEARTBEAT_NO_HANDOFF
+            : `a heartbeat turn only reads sessions and bots and records proposals; action=${action} is refused`
+        }`
+      );
+    }
     if (
       ['list', 'bots', 'read', 'send', 'cancel', 'delete', 'create'].includes(action) ||
       (action === 'status' && target)
     ) {
       const callerSessionId = assertLead(action, callerCtx);
-      if ((action === 'create' || action === 'send') && callerIsHeartbeat(callerCtx)) {
-        throw new Error(`session: ${HEARTBEAT_NO_HANDOFF}`);
-      }
       const callerAgentId = attendedAgentOf(rt.session);
       if (action === 'create' && !callerAgentId) {
         throw new Error(

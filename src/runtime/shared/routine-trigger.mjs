@@ -32,6 +32,10 @@ export function routineTriggerHeader({ kind, name, project = '', now = new Date(
 export const HEARTBEAT_QUIET = 'HEARTBEAT_QUIET';
 /** The routine name a heartbeat turn runs under and its hidden session's source. */
 export const HEARTBEAT_SOURCE = 'heartbeat';
+/** A heartbeat turn's bounds: its tool calls; when it is told to reply with no
+ *  more tools (session/loop/turn-limits.mjs); when it is cut off without a
+ *  reply (session-runtime/routine-home-turn.mjs). */
+export const HEARTBEAT_TURN_LIMITS = Object.freeze({ maxToolCalls: 8, wrapUpMs: 60_000, wallClockMs: 90_000 });
 
 // Mixy's hidden heartbeat sessions (mixy-heartbeat.mjs wakeMixy), marked in
 // this process from creation until their close lands. Only the mark counts:

@@ -55,6 +55,9 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     cwd: resolveLiveToolCwd(cwd, sessionRef),
     iterations: 0,
     toolCallsTotal: 0,
+    // A capped turn (turn-limits.mjs): told to reply, and ended by calling tools anyway.
+    turnLimitNoticed: false,
+    turnLimitEnded: false,
     lastUsage: undefined,
     firstTurnUsage: undefined,
     response: undefined,

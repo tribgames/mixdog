@@ -96,6 +96,9 @@ export async function beginIteration(state) {
   opts.providerState = state.providerState;
   if (state.forcedFirstTool && state.toolCallsTotal === 0) {
     opts.toolChoice = 'required';
+  } else if (state.turnLimitNoticed) {
+    // A capped turn told to reply may only answer (turn-limits.mjs).
+    opts.toolChoice = 'none';
   } else {
     delete opts.toolChoice;
   }

@@ -18,6 +18,7 @@ import { LEAD_DISALLOWED_TOOLS } from '../runtime/agent/orchestrator/runtime-cor
 import { GOAL_TOOL_DEFS } from '../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
 import { finalizeSessionToolList } from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 import { modelToolSchemaAllowlist } from '../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
+import { preDispatchDenyForSession } from '../runtime/agent/orchestrator/session/loop/pre-dispatch-deny.mjs';
 
 const require = createRequire(import.meta.url);
 const {
@@ -507,6 +508,55 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
     assert.equal(catalogNames.has(name), false, `${name} should be absent`);
     assert.equal(activeNames.has(name), false, `${name} should not be active`);
   }
+});
+
+test("the heartbeat profile offers Mixy's hidden session only the session and setup tools", () => {
+  const standalone = [
+    'read',
+    'find',
+    'grep',
+    'code_graph',
+    'shell',
+    'edit',
+    'load_tool',
+    'session',
+    'setup',
+    'agent',
+    'goal',
+    'Skill',
+    'memory',
+    'browser',
+    'web_search',
+    'web_fetch',
+    'media',
+    'mcp__demo__tool',
+  ].map((name) => ({ name }));
+  for (const provider of ['openai-oauth', 'grok-oauth']) {
+    const tools = surfaceFor({ standalone, provider, toolProfile: 'heartbeat' });
+    const surface = tools.activeToolSurface();
+    const offered = new Set(
+      [...(surface.tools || []), ...(surface.deferredToolCatalog || [])].map((tool) => tool.name)
+    );
+    for (const name of standalone.map((tool) => tool.name)) {
+      assert.equal(offered.has(name), ['session', 'setup', 'load_tool'].includes(name), `${provider}: ${name}`);
+    }
+    assert.deepEqual(
+      tools.modelStandaloneTools().map((tool) => tool.name),
+      ['load_tool', 'session', 'setup']
+    );
+  }
+  // The created session's list and its dispatch gate apply the same allowlist.
+  const schemaAllowedTools = modelToolSchemaAllowlist('heartbeat');
+  assert.deepEqual(
+    finalizeSessionToolList(standalone, { schemaAllowedTools }).map((tool) => tool.name),
+    ['load_tool', 'session', 'setup']
+  );
+  const session = { id: 'sess_daemon_hb', schemaAllowedTools };
+  for (const name of ['shell', 'read', 'grep', 'browser', 'web_fetch', 'agent', 'mcp__demo__tool']) {
+    assert.match(String(preDispatchDenyForSession(session, { name })), /not available on this session's schema allowlist/);
+  }
+  assert.equal(preDispatchDenyForSession(session, { name: 'session' }), null);
+  assert.equal(preDispatchDenyForSession(session, { name: 'setup' }), null);
 });
 
 test('Goal stays active while legacy Goal schemas are removed from restored sessions', () => {

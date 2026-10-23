@@ -12,6 +12,7 @@ import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
 import { executeExtendedSetupAction, publicAutomation, publicHookRule, validateMcpInput } from './extended-actions.mjs';
 import {
   assertAgentEditorAccess,
+  assertHeartbeatSetupAction,
   assertInteractiveCaller,
   assertOwnAgentSettings,
   scheduleCallerScope,
@@ -793,6 +794,8 @@ export function createSetupToolExecutor({
       }
       if (action === 'set_agent_route') assertOwnAgentSettings(scope, args.agent, action);
     }
+    // Mixy's heartbeat session takes only its two routine actions, reads included.
+    assertHeartbeatSetupAction(sessionId, action, args);
     const rt = action === 'status' || action === 'open' ? null : api();
     if (!Object.hasOwn(SETUP_ACTION_HANDLERS, action)) {
       return executeExtendedSetupAction(rt, args, requestDesktop, { sessionId, caller });

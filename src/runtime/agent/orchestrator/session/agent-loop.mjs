@@ -12,6 +12,7 @@ import { resetAccountProbePacing } from '../providers/account-pool.mjs';
 import { createLoopState, finishLoop } from './loop/loop-state.mjs';
 import { applyRetryAction, beginIteration, sendProviderRequest, settleSendResult } from './loop/send-phase.mjs';
 import { runToolPhase } from './loop/tool-phase.mjs';
+import { endedWithoutReply } from './loop/turn-limits.mjs';
 
 // Facade re-exports: these symbols live in ./loop/ modules and are part of
 // loop.mjs's public surface (imported by scripts/tests and other runtime
@@ -67,6 +68,12 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
       break;
     }
     await runToolPhase(state, round, sent, onToolCall);
+    // A capped turn that kept calling tools after it was told to reply ends
+    // here with no reply (./loop/turn-limits.mjs).
+    if (state.turnLimitEnded) {
+      state.response = endedWithoutReply(state.response);
+      break;
+    }
   }
   return finishLoop(state);
 }

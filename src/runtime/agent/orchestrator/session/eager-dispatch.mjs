@@ -11,6 +11,7 @@ import { createEagerEntry, runEagerEntry } from './eager-dispatch/entry.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { isParallelDispatchable } from './loop/tool-helpers.mjs';
 import { resolveExecutionToolCall } from './loop/tool-call-resolution.mjs';
+import { turnLimitsOf } from './loop/turn-limits.mjs';
 
 export function createEagerDispatcher({
   tools,
@@ -37,6 +38,9 @@ export function createEagerDispatcher({
     repeatFailLimit,
   });
   const barriers = createEagerBarriers({ cwd });
+  // A capped turn runs its calls in order, so none past its cap starts early
+  // (loop/turn-limits.mjs).
+  const capped = turnLimitsOf(opts) !== null;
   const execute = (call, entry) =>
     executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, {
       toolCallId: call.id,
@@ -52,6 +56,7 @@ export function createEagerDispatcher({
   const startEagerTool = (wireCall) => {
     // Streamed call_tool requests are admitted, ordered and executed as their
     // targets; a projection error is answered by the serial batch instead.
+    if (capped) return null;
     const call = resolveExecutionToolCall(wireCall, sessionRef);
     if (!call?.id || pending.has(call.id) || !isParallelDispatchable(call.name)) return null;
     const admitted = admission.admit(call);

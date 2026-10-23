@@ -111,6 +111,17 @@ export function assertOwnAgentSettings(scope, agentId, action) {
   }
 }
 
+/** Throws unless Mixy's heartbeat session `sessionId` may take setup `action`
+ *  with `args`: on her own she only pauses a routine or runs one again; every
+ *  other change she proposes (MIXY.md). Any other session passes. */
+export function assertHeartbeatSetupAction(sessionId, action, args) {
+  if (!isHeartbeatSession(sessionId)) return;
+  if (action === 'run_automation' || (action === 'set_automation_enabled' && args?.enabled === false)) return;
+  throw new Error(
+    `A heartbeat turn only pauses a routine or runs one again (setup ${action} is refused); propose other changes with session action suggest`
+  );
+}
+
 /** Throws when `scope` is a headless run: it reads settings, never changes
  *  them; an unattended run changes only its own bot's automations and route. */
 export function assertInteractiveCaller(scope, action) {

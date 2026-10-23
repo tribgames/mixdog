@@ -33,6 +33,10 @@ export function createBatchState(ctx) {
     pushToolResultMessage: ctx.pushToolResultMessage,
     throwIfAborted: ctx.throwIfAborted,
     repeatFailLimit: ctx.repeatFailLimit,
+    // Calls of this batch a capped turn may still run (session/loop/turn-limits.mjs).
+    callsAllowed: Number.isFinite(ctx.callsAllowed) ? ctx.callsAllowed : Infinity,
+    // After this time (epoch ms) no call of the batch starts.
+    wrapUpAt: Number.isFinite(ctx.wrapUpAt) ? ctx.wrapUpAt : Infinity,
     toolBatchId: ctx.toolBatchId,
     executeToolFn: typeof ctx.executeToolFn === 'function' ? ctx.executeToolFn : executeTool,
     dedupStubTotal: ctx.dedupStubTotal,

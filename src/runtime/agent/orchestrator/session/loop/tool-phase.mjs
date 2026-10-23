@@ -9,6 +9,7 @@ import { processToolBatch } from '../tool-batch.mjs';
 import { CROSS_TURN_CAP, REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { markStepEffort } from './step-auto-effort.mjs';
 import { resolveExecutionToolCalls } from './tool-call-resolution.mjs';
+import { callsAllowed, settleTurnLimits, turnLimitsOf } from './turn-limits.mjs';
 
 function isSleepLikeToolCall(call) {
   const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
@@ -20,6 +21,10 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   const calls = response.toolCalls;
   state.noToolTurn.noteToolCallTurn();
   round.resolveToolCallId.all(calls);
+  // A capped turn (turn-limits.mjs): calls past its cap are answered unrun,
+  // and a batch after it was told to reply ends it.
+  const allowed = callsAllowed(state);
+  const overrun = state.turnLimitNoticed === true;
   state.toolCallsTotal += calls.length;
   // Surface any mid-turn assistant text (preamble before a tool call) to the
   // UI. Providers that stream via onTextDelta already rendered it; providers
@@ -68,10 +73,13 @@ export async function runToolPhase(state, round, sent, onToolCall) {
     pushToolResultMessage: state.pushToolResultMessage,
     throwIfAborted: state.throwIfAborted,
     repeatFailLimit: REPEAT_FAIL_LIMIT,
+    callsAllowed: allowed,
+    wrapUpAt: turnLimitsOf(state.opts)?.wrapUpAt,
   }));
   // A turn recovered from a stream cut that dropped an in-flight tool call
   // carries a runtime notice for the model, delivered after its results.
   if (response.recoveryNotice) messages.push(response.recoveryNotice);
+  settleTurnLimits(state, overrun);
   const toolsEndedAt = Date.now();
   // Starts the step judgment; the next request uses it if it has resolved by
   // then (send-phase.mjs applyStepEffort), else the one after.
