@@ -457,21 +457,20 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 .markdown.streaming :is(h1, h2, h3, h4, h5, h6):empty {
   display: none;
 }
-/* Words of a streamed reply (markdown-stream-fade.ts). The wrappers are plain
-   inline elements and only opacity animates, so the fade costs no layout.
-   Each fade's duration and its delay on the reply timeline (negative when an
-   element is re-created mid-fade) are set inline when its element is created.
-   A list item fades only its marker (its words fade themselves); table rows,
-   quotes, rules and inline code fade whole with their first word. Backwards
-   fill keeps a word transparent through its delay; once its fade ended the
-   word is unwrapped. */
+/* Phrases of a streamed reply (markdown-stream-fade.ts). The wrappers are
+   plain inline elements and only opacity animates, so the fade costs no
+   layout. Each fade's duration and its offset on the reply timeline (negative
+   when an element is re-created mid-fade) are set inline when its element is
+   created. A list item fades only its marker (its words fade themselves);
+   table rows, quotes, rules and inline code fade whole with their first word.
+   Once its fade ended a phrase is unwrapped. */
 [data-stream-fade],
 [data-stream-fade-box="box"] {
-  animation: markdown-stream-fade var(--mx-fade-ms, 200ms) linear backwards;
+  animation: markdown-stream-fade var(--mx-fade-ms, 400ms) linear backwards;
   animation-delay: var(--mx-fade-delay, 0ms);
 }
 [data-stream-fade-box="marker"]::marker {
-  animation: markdown-stream-fade-marker var(--mx-fade-ms, 200ms) linear backwards;
+  animation: markdown-stream-fade-marker var(--mx-fade-ms, 400ms) linear backwards;
   animation-delay: var(--mx-fade-delay, 0ms);
 }
 @keyframes markdown-stream-fade {

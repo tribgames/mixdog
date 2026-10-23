@@ -1,17 +1,21 @@
 /**
- * Word-by-word fade-in of a streamed reply.
+ * Phrase fade-in of a streamed reply.
  *
  * Text is revealed in steps (use-transcript-text-reveal); new words fade in
- * over STREAM_FADE_DURATION_MS, linear, in chunks on one chain:
- * - A new word joins the open chunk while it has room (STREAM_FADE_PASS_
- *   CHUNK_CHARS within one render pass, STREAM_FADE_CHUNK_CHARS across
- *   passes); else it opens the next chunk, starting STREAM_FADE_MS_PER_CHAR
- *   per character after the chain's last start, at most STREAM_FADE_AHEAD_
- *   MAX_MS ahead of now, so a large step reads top to bottom.
- * - A chunk closes once it stood STREAM_FADE_CHUNK_OPEN_MS and a new word
- *   starts (StreamFadeTimeline.sync, once per render pass).
+ * over STREAM_FADE_DURATION_MS, linear, a phrase at a time:
+ * - Every word revealed while a phrase is open joins it: one start, no delay
+ *   and no stagger. A phrase closes once it stood STREAM_FADE_CHUNK_OPEN_MS
+ *   and the text grew (StreamFadeTimeline.sync, once per render pass); the
+ *   next new word opens the next one.
+ * - Neighbouring words of one phrase share one wrapper element.
  * - Arrivals faster than STREAM_FADE_FAST_CHARS_PER_MS show unfaded.
- * - A word whose chunk ended fading by the latest close shows unwrapped, as
+ * - Settle: the render showing the reply stopped streaming fades the rest
+ *   shown at once as one phrase of STREAM_FADE_SETTLE_FADE_MS (sync's
+ *   `settled`); once that render commits (StreamFadeTimeline.settle), every
+ *   running fade ends within that long, keeping its progress
+ *   (settleStreamFades for elements already on screen, settledStreamFade for
+ *   elements created later).
+ * - A word whose phrase ended fading by the latest close shows unwrapped, as
  *   does every word once the reply settled for STREAM_FADE_SETTLE_MS (until
  *   then what it shows still fades) or was rewritten.
  * Opacity animations live in 22-markdown.css (`[data-stream-fade]`,
@@ -32,7 +36,7 @@
  *   re-parses and remounts find a word's reveal again. A word keeps its start
  *   time, and a freshly created element for it resumes mid-fade, or shows
  *   inked once its fade is over (negative delay).
- * - Stable elements: each wrapper's tag carries its word's id, so the
+ * - Stable elements: each wrapper's tag carries its first word's id, so the
  *   renderer's tag-and-count keys never hand one word's element to another.
  * - No layout: wrappers are unstyled inline elements; only opacity (and a
  *   marker's color) animates. Whitespace-only text is never wrapped; math,
@@ -40,28 +44,24 @@
  */
 import type { MarkdownAstRoot } from './markdown-ast';
 
-/** How long a new word fades in (the default duration in 22-markdown.css). */
-export const STREAM_FADE_DURATION_MS = 200;
-/** Each fade chunk starts this long per character after the last one... */
-export const STREAM_FADE_MS_PER_CHAR = 2.5;
-/** ...at most this far ahead of now. */
-export const STREAM_FADE_AHEAD_MAX_MS = 600;
-/** A chunk takes words up to this many characters within one render pass... */
-export const STREAM_FADE_PASS_CHUNK_CHARS = 16;
-/** ...and up to this many across passes. */
-export const STREAM_FADE_CHUNK_CHARS = 48;
-/** A chunk stays open at least this long; it closes when a new word starts. */
+/** How long a phrase fades in (the default duration in 22-markdown.css). */
+export const STREAM_FADE_DURATION_MS = 400;
+/** A phrase stays open at least this long; it closes when the text grows. */
 export const STREAM_FADE_CHUNK_OPEN_MS = 100;
+/** At settle every running fade ends within this long, and the rest shown at
+ *  once fades over it. */
+export const STREAM_FADE_SETTLE_FADE_MS = 120;
 /** Arrivals faster than this (characters per ms, over windows of at least
  *  STREAM_FADE_SPEED_WINDOW_MS) show unfaded. */
 export const STREAM_FADE_FAST_CHARS_PER_MS = 1.6;
 export const STREAM_FADE_SPEED_WINDOW_MS = 100;
 /** Arrivals stay unfaded this long after the last fast window. */
 const FAST_HOLD_MS = 400;
-/** A reply keeps fading this long after it stops streaming: the rest it then
- *  shows at once still fades in. */
-export const STREAM_FADE_SETTLE_MS = 1000;
-const NEW_WORD = /\s\S/;
+/** A reply keeps its wrappers this long after it stops streaming: the rest it
+ *  then shows at once still fades in, and every fade has ended. */
+export const STREAM_FADE_SETTLE_MS = 700;
+/** CSS animations of the fade (22-markdown.css). */
+const FADE_ANIMATION = /^markdown-stream-fade/;
 /** sync compares this much of the end of the text it last showed. */
 const SYNC_TAIL_CHARS = 16;
 /** Wrapper tags are `${STREAM_FADE_TAG}${id}`. */
@@ -87,17 +87,15 @@ interface FadeWord {
 interface StreamFadeStart {
   at: number;
   ms: number;
+  /** When its reply settled while it still had more than
+   *  STREAM_FADE_SETTLE_FADE_MS to run (settledStreamFade). */
+  settle?: number;
 }
 
-/** Words fading together: one start (`at`) and duration. */
+/** A phrase: words fading together, from one start (`at`) over one duration. */
 interface FadeChunk extends StreamFadeStart {
-  /** Its start after it opened. */
-  delay: number;
-  /** When its last word's fade ends. */
+  /** When its fade ends. */
   endsAt: number;
-  chars: number;
-  /** The render pass it opened in. */
-  pass: number;
   /** Shown unfaded from now on. */
   done: boolean;
 }
@@ -110,16 +108,16 @@ export class StreamFadeTimeline {
   /** Words cut off the end of a chunk by its latest render. */
   private orphans: FadeWord[] = [];
   private nextId = 0;
-  /** How long a word revealed from now on fades (0: not at all). */
+  /** How long a phrase revealed from now on fades while streaming (0: not
+   *  at all). */
   durationMs = STREAM_FADE_DURATION_MS;
 
-  private pass = 0;
   private open: FadeChunk | null = null;
   private openedAt = 0;
-  /** Chunks whose fades ended by this time show unwrapped. */
+  /** Phrases whose fades ended by this time show unwrapped. */
   private horizon = 0;
-  /** Start of the latest chunk on the chain. */
-  private lastAssigned = 0;
+  /** The latest render pass showed the reply settled. */
+  private settling = false;
   private fast = false;
   private speed: { since: number; length: number; fastAt: number };
   /** Length and end of the text the last pass showed. */
@@ -133,12 +131,17 @@ export class StreamFadeTimeline {
   }
 
   /** A render pass shows `text` at `now`: it measures the arrival rate and
-   *  closes the open chunk once it stood its time and a new word starts. A
+   *  closes the open phrase once it stood its time and the text grew. A
    *  rewrite shows every word unfaded: a `revision` above any seen (the
    *  reveal names its rewrites), else text that shrank or whose last
-   *  SYNC_TAIL_CHARS moved. The rest of the prefix is never rescanned. */
-  sync(text: string, now: number, revision = 0): void {
-    this.pass += 1;
+   *  SYNC_TAIL_CHARS moved. The rest of the prefix is never rescanned.
+   *  `settled`: the pass shows the reply stopped streaming, so a phrase it
+   *  opens fades over STREAM_FADE_SETTLE_FADE_MS. Every pass says so anew (a
+   *  pass React discards leaves no lasting state), and a change of mode
+   *  closes the open phrase. */
+  sync(text: string, now: number, revision = 0, settled = false): void {
+    if (settled !== this.settling && this.open) this.close(now);
+    this.settling = settled;
     const { since, length, fastAt } = this.speed;
     if (now - since >= STREAM_FADE_SPEED_WINDOW_MS) {
       const limit = STREAM_FADE_FAST_CHARS_PER_MS * (this.fast ? 0.75 : 1);
@@ -156,9 +159,8 @@ export class StreamFadeTimeline {
     if (rewritten) {
       for (const chunk of this.starts.values()) chunk.done = true;
       this.close(now);
-    } else if (text.length > this.lastLength) {
-      const added = this.lastTail.slice(-1) + text.slice(this.lastLength);
-      if (this.open && now - this.openedAt >= STREAM_FADE_CHUNK_OPEN_MS && NEW_WORD.test(added)) this.close(now);
+    } else if (text.length > this.lastLength && this.open && now - this.openedAt >= STREAM_FADE_CHUNK_OPEN_MS) {
+      this.close(now);
     }
     this.lastLength = text.length;
     this.lastTail = text.slice(-SYNC_TAIL_CHARS);
@@ -169,35 +171,30 @@ export class StreamFadeTimeline {
     this.horizon = now;
   }
 
-  /** A new word of `size` characters revealed at `now`: it joins the open
-   *  chunk while that has room, else opens the next one on the chain. */
-  schedule(now: number, size = 0): string {
+  /** The settled reply committed at `now` (call from the commit, not from
+   *  render): every phrase with more than STREAM_FADE_SETTLE_FADE_MS left
+   *  ends that long from now, for elements created from now on; the ones on
+   *  screen are sped up by settleStreamFades. */
+  settle(now: number): void {
+    for (const chunk of this.starts.values()) {
+      if (chunk.done || chunk.endsAt - now <= STREAM_FADE_SETTLE_FADE_MS) continue;
+      chunk.settle = now;
+      chunk.endsAt = now + STREAM_FADE_SETTLE_FADE_MS;
+    }
+    this.close(now);
+  }
+
+  /** A new word revealed at `now`: it joins the open phrase, else opens the
+   *  next one, starting now. */
+  schedule(now: number): string {
     const id = (this.nextId++).toString(36);
     if (this.durationMs <= 0) return id;
-    let chunk = this.open;
-    const room = chunk?.pass === this.pass ? STREAM_FADE_PASS_CHUNK_CHARS : STREAM_FADE_CHUNK_CHARS;
-    if (!chunk || chunk.chars + size > room) {
-      const step = this.fast ? 0 : size * STREAM_FADE_MS_PER_CHAR;
-      const start = Math.min(Math.max(now, this.lastAssigned) + step, now + STREAM_FADE_AHEAD_MAX_MS);
-      const delay = Math.round(start - now);
-      if (!chunk) this.openedAt = now;
-      chunk = {
-        at: now + delay,
-        ms: this.durationMs,
-        delay,
-        endsAt: 0,
-        chars: 0,
-        pass: this.pass,
-        done: this.fast && delay === 0,
-      };
-      this.open = chunk;
-      this.lastAssigned = start;
-    } else if (!this.fast) {
-      this.lastAssigned = Math.min(this.lastAssigned + size * STREAM_FADE_MS_PER_CHAR, now + STREAM_FADE_AHEAD_MAX_MS);
+    if (!this.open) {
+      const ms = this.settling ? STREAM_FADE_SETTLE_FADE_MS : this.durationMs;
+      this.open = { at: now, ms, endsAt: now + ms, done: this.fast };
+      this.openedAt = now;
     }
-    chunk.endsAt = Math.max(chunk.endsAt, now + chunk.delay + chunk.ms);
-    chunk.chars += size;
-    this.starts.set(id, chunk);
+    this.starts.set(id, this.open);
     return id;
   }
 
@@ -226,7 +223,7 @@ export class StreamFadeTimeline {
       const is = content.trimEnd();
       if (known?.id && (is.startsWith(was) || was.startsWith(is))) return { content, id: known.id };
       aligned = false;
-      return { content, id: this.schedule(now, content.length) };
+      return { content, id: this.schedule(now) };
     });
     if (previous && words.length < previous.length) this.orphans = previous.slice(words.length);
     this.chunks.set(chunk, words);
@@ -260,6 +257,28 @@ export function dropStreamFadeTimeline(key: string): void {
 export function dropStreamFadeTimelines(prefixes: readonly string[]): void {
   for (const key of timelines.keys()) {
     if (prefixes.some((prefix) => key.startsWith(prefix))) timelines.delete(key);
+  }
+}
+
+/** How an element created now fades for a phrase that started at `at` and
+ *  runs `ms`: unchanged, or (`settle` set) from the progress it had when its
+ *  reply settled, ending STREAM_FADE_SETTLE_FADE_MS after that. */
+export function settledStreamFade(at: number, ms: number, settle?: number): { at: number; ms: number } {
+  if (settle === undefined) return { at, ms };
+  const progress = Math.min(1, Math.max(0, (settle - at) / ms));
+  const duration = STREAM_FADE_SETTLE_FADE_MS / (1 - progress);
+  return { at: settle - progress * duration, ms: duration };
+}
+
+/** The reply under `root` settled: each of its running fade animations keeps
+ *  its progress and ends within STREAM_FADE_SETTLE_FADE_MS. */
+export function settleStreamFades(root: Pick<Element, 'getAnimations'>): void {
+  for (const animation of root.getAnimations({ subtree: true })) {
+    if (!FADE_ANIMATION.test((animation as CSSAnimation).animationName ?? '')) continue;
+    const end = Number(animation.effect?.getComputedTiming().endTime ?? 0);
+    const rate = animation.playbackRate;
+    const left = (end - Number(animation.currentTime ?? end)) / rate;
+    if (left > STREAM_FADE_SETTLE_FADE_MS) animation.updatePlaybackRate((rate * left) / STREAM_FADE_SETTLE_FADE_MS);
   }
 }
 
@@ -341,7 +360,7 @@ function sameStart(left: StreamFadeStart | undefined, right: StreamFadeStart | u
 }
 
 function fadeProperties(start: StreamFadeStart): Record<string, unknown> {
-  return { dataFadeAt: start.at, dataFadeMs: start.ms };
+  return { dataFadeAt: start.at, dataFadeMs: start.ms, dataFadeSettle: start.settle };
 }
 
 interface StreamFadeResult {
@@ -383,29 +402,32 @@ export function applyStreamFade(
     return { found: false };
   };
 
-  /** A text unit with its animating words wrapped (null: unchanged).
-   *  Words fading with the enclosing box (`box`) are left to it. */
+  /** A text unit with its animating words wrapped, neighbours of one phrase
+   *  in one element named by the first (null: unchanged). Words fading with
+   *  the enclosing box (`box`) are left to it. */
   const wrapWords = (unit: FadeUnit, box: StreamFadeStart | undefined): FadeNode[] | null => {
     const parts: FadeNode[] = [];
     let plain = '';
     let wrapped = false;
+    let run: { start: StreamFadeStart; text: FadeNode } | null = null;
     unit.words.forEach((word, offset) => {
       const index = unit.from + offset;
       const start = starts[index];
       if (!start || sameStart(start, box)) {
         plain += word;
+        run = null;
+        return;
+      }
+      if (run?.start === start) {
+        run.text.value += word;
         return;
       }
       if (plain) parts.push({ type: 'text', value: plain });
       plain = '';
       const tag = `${STREAM_FADE_TAG}${ids[index]}`;
       tags.push(tag);
-      parts.push({
-        type: 'element',
-        tagName: tag,
-        properties: fadeProperties(start),
-        children: [{ type: 'text', value: word }],
-      });
+      run = { start, text: { type: 'text', value: word } };
+      parts.push({ type: 'element', tagName: tag, properties: fadeProperties(start), children: [run.text] });
       wrapped = true;
     });
     if (!wrapped) return null;
