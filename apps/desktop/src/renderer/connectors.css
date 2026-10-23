@@ -70,29 +70,77 @@
 }
 /* The live step of a sign-in: the shared row spinner before its words. */
 .connectors-row-step {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+/* The full step (chat card, detail note) wraps; only the sidebar row is one line. */
+.connectors-row-step:not([data-compact]) {
+  white-space: normal;
+}
+/* Sidebar row: spinner and one ellipsized line. */
+.connectors-row-step[data-compact] {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.connectors-row-step[data-compact] > .schedules-row-spinner {
+  flex: none;
+}
+.connectors-row-step-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connectors-row-step-line {
+  display: flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
 }
-.connectors-row-step > .schedules-row-spinner {
+.connectors-row-step-line > .schedules-row-spinner {
   flex: none;
+}
+.connectors-row-hint {
+  display: block;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+/* Sidebar rule: every text element of a connector row is one line: the name
+   (ellipsis if it overflows) and one status line — the badge first, then the
+   text, ellipsized. */
+.session-sidebar-panels .connectors-row .sidebar-resource-title > b {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-sidebar-panels .extensions-pane .connectors-row .extensions-row .utilities-row-copy > small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.session-sidebar-panels .connectors-row .utilities-row-copy > small > .sidebar-resource-tag {
+  flex: none;
+}
+.connectors-row-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connectors-row-scope {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .connectors-row[data-row-status="failed"] .utilities-row-copy > small {
   color: var(--mx-danger);
-}
-/* A step or a failure is read in full: up to two lines instead of an ellipsis. */
-.session-sidebar-panels
-  .extensions-pane
-  .connectors-row:is([data-row-status="pending"], [data-row-status="failed"])
-  .extensions-row
-  .utilities-row-copy
-  > small {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  white-space: normal;
 }
 /* Just connected: the row's surface flashes once in the ok tone. */
 .connectors-row[data-just-connected="true"] {

@@ -48,6 +48,12 @@ on:
         required: false
       AZURE_CLIENT_SECRET:
         required: false
+      # Mixdog's Google OAuth desktop client, embedded into runtime.asar on
+      # every platform; the job fails without it.
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID:
+        required: true
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET:
+        required: true
 
 permissions:
   contents: read
@@ -77,6 +83,15 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+      # Written into src/ before anything reads the tree: prepare-runtime packs
+      # runtime.asar from the `npm pack` file list, which includes this
+      # gitignored file, and the prepared-runtime cache key below hashes src/**,
+      # so a restored archive always embeds the current client.
+      - name: Embed the Google OAuth client
+        env:
+          MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+          MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
+        run: node scripts/embed-google-oauth-client.mjs --require
       - name: Resolve package and runtime cache keys
         id: runtime-dependencies
         shell: bash
@@ -386,7 +401,12 @@ jobs:
         working-directory: apps/desktop
       # Source-shape packaging invariants (packaging.test.mjs) run in the
       # release gate on every push; only the built artifact is checked here.
+      # The same step proves runtime.asar carries the Google OAuth client the
+      # job embedded (packaging-artifact.live.test.mjs reads the two values).
       - name: Verify this platform's packaged runtime layout
+        env:
+          MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+          MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
         run: npm run verify:packaging-artifact
         working-directory: apps/desktop
       - name: Smoke packaged desktop memory runtime

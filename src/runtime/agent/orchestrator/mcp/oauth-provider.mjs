@@ -1,6 +1,6 @@
 import { normalizeMcpTransportUrl } from './client-config.mjs';
 import { withAccountParams } from './oauth-account.mjs';
-import { loginFailed, reauthenticationRequired } from './oauth-shared.mjs';
+import { loginFailed, missingScopes, reauthenticationRequired, scopeNotGranted } from './oauth-shared.mjs';
 
 /**
  * The SDK's OAuth client provider over one connection's credential `cache`
@@ -61,6 +61,13 @@ export function createOAuthProvider({ cache, flow, lifetimeSignal, client = null
     },
     saveTokens: async (value) => {
       lifetimeSignal.throwIfAborted();
+      // A browser sign-in of a client with its own scopes must be granted all
+      // of them (a granular consent screen lets the user uncheck some): nothing
+      // is stored, so the next connect asks again. A refresh is not checked.
+      if (flow.browserOpened && client?.scopes) {
+        const missing = missingScopes(client.scopes, value.scope);
+        if (missing.length) throw scopeNotGranted(missing);
+      }
       await save(() => {
         creds.tokens = value;
         // A browser sign-in may be another account: its identity replaces the

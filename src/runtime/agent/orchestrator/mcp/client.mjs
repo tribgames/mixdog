@@ -35,13 +35,14 @@ import { createLazyOutputValidator } from './lazy-output-validator.mjs';
 import { appendMcpStderrTail, createMcpTransport, hasConfiguredMcpAuth } from './client-transport.mjs';
 import { listAllMcpTools, MCP_CONNECT_CANCELLED, runBoundedHandshake } from './client-handshake.mjs';
 import { rememberServerConnector } from './server-connectors.mjs';
-import { mcpOAuthClientFor } from './oauth-client.mjs';
+import { mcpOAuthClientFor, mcpOAuthDisplayName } from './oauth-client.mjs';
 import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
 import {
   clearMcpOAuth,
   commitMcpOAuthSwitch,
   hasStoredMcpOAuthTokens,
   isMcpOAuthReauthenticationRequired,
+  isMcpOAuthScopeNotGranted,
   MCP_OAUTH_CALLBACK_NOT_PENDING,
   startMcpOAuthSwitch,
   storedMcpOAuthIdentity,
@@ -1279,7 +1280,7 @@ export function startMcpServerOAuthSwitch(cfg, launch, serverName) {
   return startMcpOAuthSwitch({
     url,
     launch,
-    serverName,
+    serverName: mcpOAuthDisplayName(cfg, serverName),
     oauthClient: mcpOAuthClientFor(cfg, url),
     ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp() } : {}),
   });
@@ -1464,8 +1465,11 @@ async function connectServer(
     // sign-in was required, or an explicit one did not complete (cancelled,
     // denied, timed out or a failed exchange after it started, or cancelled
     // before it could). A failure after the sign-in obtained tokens is real.
+    // A sign-in Google (or another provider) answered without a requested
+    // scope is reported as its own error: the status row carries the message.
     const signInIncomplete =
       transport.oauth &&
+      !isMcpOAuthScopeNotGranted(error) &&
       (isMcpOAuthReauthenticationRequired(error) ||
         (transport.oauth.loginStarted && !transport.oauth.loginCompleted) ||
         (transport.oauth.interactive && error?.code === MCP_CONNECT_CANCELLED));

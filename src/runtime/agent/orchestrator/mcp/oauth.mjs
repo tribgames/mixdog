@@ -21,7 +21,7 @@ import {
 import { createLoginFlow } from './oauth-login.mjs';
 import { createOAuthProvider } from './oauth-provider.mjs';
 import { createAuthorizedFetch } from './oauth-request.mjs';
-import { REAUTHENTICATION_REQUIRED_MESSAGE, anySignal } from './oauth-shared.mjs';
+import { REAUTHENTICATION_REQUIRED_MESSAGE, SCOPE_NOT_GRANTED_MARKER, anySignal } from './oauth-shared.mjs';
 
 export { MCP_OAUTH_CALLBACK_MAX_BYTES, MCP_OAUTH_CALLBACK_NOT_PENDING, parsePastedMcpOAuthCallback };
 
@@ -36,6 +36,16 @@ export function isMcpOAuthReauthenticationRequired(error) {
   for (let current = error, depth = 0; current && depth < 5; current = current.cause, depth++) {
     if (current.code === 'reauthenticationRequired') return true;
     if (String(current.message ?? current).includes(REAUTHENTICATION_REQUIRED_MESSAGE)) return true;
+  }
+  return false;
+}
+
+/** Whether a sign-in failed because the provider did not grant a requested
+ *  scope (a real failure with its own message, not a plain "sign in"). */
+export function isMcpOAuthScopeNotGranted(error) {
+  for (let current = error, depth = 0; current && depth < 5; current = current.cause, depth++) {
+    if (current.code === 'scopeNotGranted') return true;
+    if (String(current.message ?? current).includes(SCOPE_NOT_GRANTED_MARKER)) return true;
   }
   return false;
 }

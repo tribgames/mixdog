@@ -339,6 +339,22 @@ test('an explicit sign-in that times out, is denied or is cancelled is flagged a
   }
 });
 
+test('a sign-in the provider granted without a requested scope fails with its message, not as authRequired', async () => {
+  const scopeId = freshScope();
+  const cfg = { type: 'http', url: 'https://mcp.example/mcp' };
+  const { scopeNotGranted } = await import('./oauth-shared.mjs');
+  behavior = {
+    connect: (client) => {
+      Object.defineProperty(client.transport.oauth, 'loginStarted', { get: () => true });
+      throw scopeNotGranted(['https://www.googleapis.com/auth/calendar.events']);
+    },
+  };
+  await assert.rejects(reconnectSingleMcpServer(scopeId, 'scoped', cfg, { interactive: true }), (error) => {
+    assert.match(error.message, /scopeNotGranted.*calendar\.events/);
+    return error.authRequired === undefined;
+  });
+});
+
 test('a connect that needs an OAuth sign-in is flagged authRequired for both connect paths', async () => {
   const scopeId = freshScope();
   behavior = {

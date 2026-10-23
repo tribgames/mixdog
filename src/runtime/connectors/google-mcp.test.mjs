@@ -5,12 +5,14 @@
 import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { GOOGLE_SCOPES } from '../shared/connector-catalog.mjs';
 import { createMcpOAuth, mcpOAuthAccount } from '../agent/orchestrator/mcp/oauth.mjs';
 import { mcpOAuthClientFor, mcpOAuthClientSecretAccount } from '../agent/orchestrator/mcp/oauth-client.mjs';
+import { GOOGLE_OAUTH_CLIENT_FILE } from '../shared/google-oauth-client.mjs';
 import { googleMcpService, googleMcpUrl, withGoogleMcp } from './google-mcp.mjs';
 
 function memoryStore(values = new Map()) {
@@ -83,7 +85,8 @@ function fakeGoogle() {
     const back = new URL(target.searchParams.get('redirect_uri'));
     back.searchParams.set('code', code);
     back.searchParams.set('state', target.searchParams.get('state'));
-    await fetch(back);
+    // The page answers after the code exchange, which starts once this returns.
+    fetch(back).catch(() => {});
   };
   return { google, browser, seen };
 }
@@ -161,7 +164,11 @@ test('Mixdog’s Google client, or the user’s own, replaces client registratio
   try {
     delete process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID;
     delete process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET;
-    assert.equal(mcpOAuthClientFor(gmail, gmail.url), null, 'the source ships no Google client');
+    // Without an embedded client file (google-oauth-client.test.mjs covers the
+    // file itself), the environment is the only source.
+    if (!existsSync(GOOGLE_OAUTH_CLIENT_FILE)) {
+      assert.equal(mcpOAuthClientFor(gmail, gmail.url), null, 'the source ships no Google client');
+    }
     process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID = 'mixdog.apps.googleusercontent.com';
     process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET = 'GOCSPX-public';
     assert.deepEqual(mcpOAuthClientFor(gmail, gmail.url), {

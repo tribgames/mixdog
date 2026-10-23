@@ -23,7 +23,7 @@ import {
   PENDING_LOGIN_PHASES,
   uniqueServerName,
 } from './connectors-model';
-import { mcpErrorSummary } from './settings/mcp-editor-dialog';
+import { isScopeNotGrantedError, mcpErrorSummary } from './settings/mcp-editor-dialog';
 import { friendlyCapabilityError } from './settings/remote-capability-guard';
 
 type Row = Record<string, unknown>;
@@ -54,7 +54,9 @@ export interface ConnectorLoginState {
   remote: boolean;
   /** Why it failed, already in the user's language. */
   error: string;
-  /** `timeout` when nobody finished the sign-in page in time. */
+  /** What kind of failure, from the host's raw error: `timeout` when nobody
+   *  finished the sign-in page in time, `scopeNotGranted` when the provider
+   *  left a requested access out. */
   reason: string;
 }
 
@@ -149,9 +151,10 @@ export async function readMcpServers(): Promise<Row[]> {
 }
 
 const HOST_LOGIN_FAILED = /MCP OAuth (login failed|sign-in was not completed)|sign-in is no longer pending/i;
-
 /** A failure in the user's language: the timeout and an unfinished browser
- *  sign-in get their own sentences; a server error keeps its summary. */
+ *  sign-in get their own sentences; a server error keeps its summary (a
+ *  sign-in Google granted without a requested access reads as mcpErrorSummary
+ *  says, here and on the server's own row). */
 export function connectorLoginErrorText(error: unknown, reason = ''): string {
   if (reason === 'timeout') return t('The sign-in timed out. Try again.');
   const message = typeof error === 'string' ? error : errorMessage(error);
@@ -282,7 +285,8 @@ function follow(key: string, flowId: string): void {
     } else {
       // A failed sign-in leaves the server and its id in place; 다시 시도
       // retries under the same id.
-      fail(key, connectorLoginErrorText(next.error, String(next.reason || '')), String(next.reason || ''));
+      const reason = isScopeNotGrantedError(next.error) ? 'scopeNotGranted' : String(next.reason || '');
+      fail(key, connectorLoginErrorText(next.error, reason), reason);
     }
   };
   void step();

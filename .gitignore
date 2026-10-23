@@ -46,6 +46,11 @@ kiwi-model/
 .env
 .env.*
 !.env.example
+# Mixdog's Google OAuth desktop client, written at release packaging by
+# scripts/embed-google-oauth-client.mjs from the repository secrets. It ships
+# in the npm package and runtime.asar (package.json `files` includes src/) but
+# is never committed.
+src/runtime/shared/google-oauth-client.generated.json
 # Apple code-signing material: exported certificates and API keys stay out of
 # the public tree; CI reads them from repository secrets.
 *.p12

@@ -4,9 +4,14 @@
 # to one hidden GitHub draft. The draft becomes public only after the exact
 # four-platform asset set succeeds. Deploy is the only release entry point;
 # there is no direct tag-push trigger.
-# Requires the NPM_TOKEN repo secret (npm automation token). The optional
-# MAC_CERTIFICATE_* and APPLE_API_* secrets sign and notarize the macOS app;
-# the optional AZURE_* secrets sign the Windows installer.
+# Requires the NPM_TOKEN repo secret (npm automation token) and the
+# MIXDOG_GOOGLE_OAUTH_CLIENT_ID / MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET repo
+# secrets: Mixdog's Google OAuth desktop client, which every shipped build (the
+# npm package and each desktop runtime.asar) embeds through
+# scripts/embed-google-oauth-client.mjs. The release fails up front without
+# them. The optional MAC_CERTIFICATE_* and APPLE_API_* secrets sign and
+# notarize the macOS app; the optional AZURE_* secrets sign the Windows
+# installer.
 
 name: Release
 
@@ -37,6 +42,11 @@ on:
       RELAY_SSH_KEY:
         required: true
       RELAY_KNOWN_HOSTS:
+        required: true
+      # Mixdog's Google OAuth desktop client; embedded into every shipped build.
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID:
+        required: true
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET:
         required: true
       # Developer ID signing and notarization for the macOS package; without
       # them the app is packaged unsigned.
@@ -97,6 +107,16 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+
+      # Fail before any package work (and before the hidden draft exists) when
+      # the Google OAuth client secrets are missing. The npm and desktop jobs
+      # each embed the client again and fail the same way; the file written
+      # here is never packaged.
+      - name: Require the Google OAuth client secrets
+        env:
+          MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+          MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
+        run: node scripts/embed-google-oauth-client.mjs --require
 
       - name: Verify release tag matches package version
         env:
@@ -221,6 +241,15 @@ jobs:
       - name: Verify shipped definition history is current
         run: node scripts/build-shipped-history.mjs --check
 
+      # The gitignored client file ships through package.json `files` (src/),
+      # so it is written after the tests (google-mcp.test.mjs expects a source
+      # tree without one) and before the pack below.
+      - name: Embed the Google OAuth client
+        env:
+          MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+          MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
+        run: node scripts/embed-google-oauth-client.mjs --require
+
       - name: Pack staged npm release
         id: pack
         shell: bash
@@ -228,6 +257,8 @@ jobs:
           set -euo pipefail
           PACKAGE=$(npm pack --silent --ignore-scripts | tail -n 1)
           test -n "$PACKAGE"
+          # Extracting a missing member fails; nothing of the file is printed.
+          tar -xzOf "$PACKAGE" package/src/runtime/shared/google-oauth-client.generated.json > /dev/null
           echo "file=$PACKAGE" >> "$GITHUB_OUTPUT"
 
       - name: Stage npm package
@@ -384,6 +415,8 @@ jobs:
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-darwin-arm64:
     needs: [desktop-build, prepare-github-release]
@@ -405,6 +438,8 @@ jobs:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-darwin-x64:
     needs: [desktop-build, prepare-github-release]
@@ -426,6 +461,8 @@ jobs:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   # mixdog-computer/-graph/-patch built in manylinux_2_28 (glibc 2.28), so the
   # native tools do not follow the package runner's glibc. The shipped Linux
@@ -455,6 +492,9 @@ jobs:
       arch: x64
       artifact_arch: x86_64
       target: linux
+    secrets:
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-linux-arm64:
     needs: [desktop-build, prepare-github-release, linux-native-tools]
@@ -470,6 +510,9 @@ jobs:
       arch: arm64
       artifact_arch: arm64
       target: linux
+    secrets:
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   # Full Linux verification (update proof, sandbox .deb, distro containers,
   # native-tool exec matrix) gates publication.

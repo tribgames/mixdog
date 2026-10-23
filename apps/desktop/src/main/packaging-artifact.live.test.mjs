@@ -9,7 +9,7 @@ import { access, open, readdir, readFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { listPackage, statFile } from '@electron/asar';
+import { extractFile, listPackage, statFile } from '@electron/asar';
 import { onnxRuntimeSupported } from '../../../../src/runtime/shared/onnx-runtime-support.mjs';
 
 async function findRuntimeArchives(directory, depth = 0) {
@@ -118,6 +118,26 @@ async function emittedFileIdentity(path) {
   }
   return streamingFileIdentity(path);
 }
+
+// Release packaging embeds Mixdog's Google OAuth client before prepare-runtime
+// (desktop-package.yml, "Embed the Google OAuth client") and passes the same two
+// secrets here. A local or non-release build configures none: nothing to compare.
+test('packaged runtime archive embeds the configured Google OAuth client', async (t) => {
+  const clientId = String(process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
+  if (!clientId || !clientSecret) return t.skip('no Google OAuth client is configured for this build');
+  const archives = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
+  assert.ok(archives.length > 0, 'dist holds no packaged runtime.asar');
+  const generatedFile = ['node_modules', 'mixdog', 'src', 'runtime', 'shared', 'google-oauth-client.generated.json'];
+  for (const archive of archives) {
+    const embedded = JSON.parse(extractFile(archive, generatedFile.join(sep)).toString('utf8'));
+    // Both values are secrets: compare without echoing either side.
+    assert.ok(
+      embedded.clientId === clientId && embedded.clientSecret === clientSecret,
+      `${archive} does not embed the configured Google OAuth client`
+    );
+  }
+});
 
 test('electron-vite emitted the preload entry the main process loads', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));

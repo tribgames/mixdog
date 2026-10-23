@@ -19,6 +19,7 @@ import {
   createMcpOAuth as buildOAuth,
   hasStoredMcpOAuthTokens,
   isMcpOAuthReauthenticationRequired,
+  isMcpOAuthScopeNotGranted,
   commitMcpOAuthSwitch,
   MCP_OAUTH_CALLBACK_MAX_BYTES,
   mcpOAuthAccount,
@@ -27,6 +28,9 @@ import {
   storedMcpOAuthIdentity,
 } from './oauth.mjs';
 import { canForceAccountChoice, identityFromTokenResponse, withAccountParams } from './oauth-account.mjs';
+import { mcpOAuthDisplayName } from './oauth-client.mjs';
+import { createOAuthProvider } from './oauth-provider.mjs';
+import { missingScopes } from './oauth-shared.mjs';
 import { createMcpOAuthLogins } from '../../../../session-runtime/mcp-oauth-login.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE } from '../providers/lib/oauth-page.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
@@ -135,6 +139,7 @@ async function fixture(
   let authorization;
   let exchanges = 0;
   let refreshes = 0;
+  let lastPage;
   let validToken = 'fixture-token';
   let refreshToken = 'fixture-refresh';
   let revoked = false;
@@ -308,10 +313,13 @@ async function fixture(
       const callback = new URL(authorization.searchParams.get('redirect_uri'));
       callback.searchParams.set('state', authorization.searchParams.get('state'));
       callback.searchParams.set('code', 'fixture-code');
-      const result = await fetch(callback);
-      assert.equal(result.status, 200);
-      return result;
+      // The callback page answers only after the code exchange, which starts
+      // once this browser step returns: never wait for it here (`page()`).
+      lastPage = fetch(callback);
+      lastPage.catch(() => {});
     },
+    /** The callback page of the last `approve`. */
+    page: () => lastPage,
   };
 }
 
@@ -416,7 +424,7 @@ test('callback pages: success names the MCP server; a denied sign-in gets the er
       openBrowser: async (href) => {
         assert.equal(transport.oauth.loginStarted, true);
         assert.equal(transport.oauth.loginCompleted, false);
-        page = await server.approve(href);
+        await server.approve(href);
       },
     },
   });
@@ -424,6 +432,7 @@ test('callback pages: success names the MCP server; a denied sign-in gets the er
   assert.equal(transport.oauth.loginStarted, false);
   assert.equal((await transport.oauth.fetch(server.url)).status, 405);
   assert.equal(transport.oauth.loginCompleted, true);
+  page = await server.page();
   assert.equal(page.status, 200);
   assertCallbackPage(page);
   const html = await page.text();
@@ -1542,6 +1551,303 @@ test('계정 바꾸기 is transactional: a cancel changes nothing; a commit can 
   await rollback();
   assert.equal(JSON.parse([...store.values.values()][0]).identity.account, 'first@example.com');
   assert.equal(storedMcpOAuthIdentity(server.url).account, 'first@example.com');
+});
+
+// A pre-registered client with its own scopes (Google's): the token endpoint is
+// answered here, with `scope` as given (undefined: the field is absent).
+const CALENDAR = 'https://www.googleapis.com/auth/calendar.events';
+const scopedClient = { clientId: 'scoped-client', scopes: ['openid', 'email', CALENDAR] };
+function scopedTokenFetch(grantedScope) {
+  const fetchImpl = async (input, init = {}) => {
+    if (!String(input).endsWith('/token')) return fetch(input, init);
+    return Response.json({
+      access_token: 'fixture-token',
+      refresh_token: 'fixture-refresh',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      ...(grantedScope === undefined ? {} : { scope: grantedScope }),
+    });
+  };
+  return fetchImpl;
+}
+// The callback page answers after the exchange (which starts when this step
+// returns): its response is collected in `pages`, never awaited here.
+function approvingBrowser(opened, pages = []) {
+  return async (href) => {
+    opened.push(href);
+    const authorization = new URL(href);
+    const callback = new URL(authorization.searchParams.get('redirect_uri'));
+    callback.searchParams.set('state', authorization.searchParams.get('state'));
+    callback.searchParams.set('code', 'fixture-code');
+    const page = fetch(callback);
+    page.catch(() => {});
+    pages.push(page);
+  };
+}
+
+test('a sign-in whose token response lacks a requested scope fails, stores no tokens and asks again next time', async (t) => {
+  const server = await fixture(t);
+  const store = memoryStore();
+  const opened = [];
+  t.after(() => clearMcpOAuth({ url: server.url, credentialStore: store }));
+  const pages = [];
+  const connect = (granted) =>
+    buildOAuth({
+      url: server.url,
+      credentialStore: store,
+      interactive: true,
+      serverName: 'Google Drive',
+      oauthClient: scopedClient,
+      fetchImpl: scopedTokenFetch(granted),
+      openBrowser: approvingBrowser(opened, pages),
+    });
+  // Google's granular consent: the Calendar box left unchecked.
+  const denied = connect('https://www.googleapis.com/auth/userinfo.email openid');
+  await assert.rejects(denied.fetch(server.url), (error) => {
+    assert.equal(error.code, 'scopeNotGranted');
+    assert.match(error.message, /calendar\.events/);
+    assert.doesNotMatch(error.message, /fixture-token|fixture-refresh|fixture-code/);
+    assert.deepEqual(error.missingScopes, [CALENDAR]);
+    return true;
+  });
+  denied.close();
+  // The browser page reports the real outcome, not the arrival of the code.
+  const failure = await pages[0];
+  assert.equal(failure.status, 400);
+  assertCallbackPage(failure);
+  const failureHtml = await failure.text();
+  assert.match(failureHtml, /로그인 실패[\s\S]*Sign-in failed/);
+  assert.match(failureHtml, /Google Drive 접근 권한이 허용되지 않았습니다\. Mixdog로 돌아가 다시 연결하고, 권한 확인란을 체크해 주세요/);
+  assert.match(failureHtml, /Access to Google Drive was not granted\. Return to Mixdog and connect again with the access box checked/);
+  assert.doesNotMatch(failureHtml, /로그인 완료|Sign-in complete|fixture-token|fixture-refresh|fixture-code|calendar\.events/);
+  assert.equal(hasStoredMcpOAuthTokens(server.url), false);
+  for (const saved of store.values.values()) assert.equal(JSON.parse(saved).tokens, undefined);
+  assert.equal(opened.length, 1);
+  // The next connect opens the consent screen again; this time it is granted.
+  const granted = connect(`openid https://www.googleapis.com/auth/userinfo.email ${CALENDAR}`);
+  t.after(() => granted.close());
+  assert.equal((await granted.fetch(server.url)).status, 405);
+  assert.equal(opened.length, 2);
+  assert.equal(hasStoredMcpOAuthTokens(server.url), true);
+  const success = await pages[1];
+  assert.equal(success.status, 200);
+  assert.match(await success.text(), /Google Drive 로그인이 완료되었습니다\./);
+});
+
+test('a sign-in whose code exchange fails gets a generic failure page that echoes nothing from the server', async (t) => {
+  const server = await fixture(t);
+  const pages = [];
+  const oauth = buildOAuth({
+    url: server.url,
+    credentialStore: memoryStore(),
+    interactive: true,
+    serverName: 'Fixture',
+    fetchImpl: async (input, init = {}) =>
+      String(input).endsWith('/token')
+        ? Response.json(
+            { error: 'server_error', error_description: 'leak-sdk-detail fixture-refresh' },
+            { status: 500 }
+          )
+        : fetch(input, init),
+    openBrowser: approvingBrowser([], pages),
+  });
+  t.after(() => oauth.close());
+  await assert.rejects(oauth.fetch(server.url), /MCP OAuth login failed, cancelled, or timed out/);
+  const page = await pages[0];
+  assert.equal(page.status, 400);
+  assertCallbackPage(page);
+  const html = await page.text();
+  assert.match(html, /Fixture 로그인을 완료하지 못했습니다\./);
+  assert.match(html, /Sign-in to Fixture could not be completed\./);
+  assert.doesNotMatch(html, /leak-sdk-detail|fixture-refresh|fixture-code|로그인 완료|Sign-in complete|server_error/);
+  assert.doesNotMatch(html, /connect again with the access box/);
+});
+
+// A credential store whose write of the signed-in tokens waits on a gate:
+// `stalled` resolves when the write starts, `fail()` makes it fail (the write
+// is a stand-in for a store that errors out after the deadline).
+function stallingStore() {
+  const store = memoryStore();
+  let started;
+  let fail;
+  const stalled = new Promise((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise((_, reject) => {
+    fail = () => reject(new Error('credential store unavailable'));
+  });
+  gate.catch(() => {});
+  const write = store.setSecretAsync;
+  store.setSecretAsync = async (key, value) => {
+    if (!String(value).includes('"tokens":{')) return write(key, value);
+    started();
+    await gate;
+    return write(key, value);
+  };
+  return { store, stalled, fail };
+}
+
+for (const mode of ['deadline', 'cancel']) {
+  test(`${mode} while the token write stalls: the held callback page gets the failure page and the listener closes`, async (t) => {
+    const server = await fixture(t);
+    const { store, stalled, fail } = stallingStore();
+    const pages = [];
+    let callback;
+    const browser = approvingBrowser([], pages);
+    const oauth = buildOAuth({
+      url: server.url,
+      credentialStore: store,
+      interactive: true,
+      serverName: 'Fixture',
+      timeoutMs: 3000,
+      openBrowser: async (href) => {
+        callback = new URL(new URL(href).searchParams.get('redirect_uri'));
+        server.callbackFor(href); // the fixture checks the exchange against this authorization
+        await browser(href);
+      },
+    });
+    t.after(() => oauth.close());
+    const login = oauth.fetch(server.url);
+    const settled = login.then(
+      () => undefined,
+      (error) => error
+    );
+    try {
+      await stalled;
+      // The exchange is done and the page is held; only persistence is stuck.
+      assert.equal(server.exchanges(), 1);
+      if (mode === 'cancel') oauth.close();
+      const page = await pages[0];
+      assert.equal(page.status, 400);
+      assertCallbackPage(page);
+      const html = await page.text();
+      assert.match(html, /Fixture 로그인을 완료하지 못했습니다\./);
+      assert.match(html, /Sign-in to Fixture could not be completed\./);
+      assert.doesNotMatch(html, /로그인 완료|Sign-in complete|fixture-code|fixture-token/);
+      await assert.rejects(fetch(callback));
+    } finally {
+      // End the stalled write so the login finishes and frees its lock.
+      fail();
+    }
+    const error = await settled;
+    assert.ok(error, 'the login that outlived its deadline or cancel fails');
+    for (const saved of store.values.values()) assert.equal(JSON.parse(saved).tokens, undefined);
+  });
+}
+
+test('the callback page names a catalog connector by its display name and a custom server by its own name', async (t) => {
+  assert.equal(mcpOAuthDisplayName({ connector: 'google-drive' }, 'google-drive'), 'Google Drive');
+  assert.equal(mcpOAuthDisplayName({ connector: 'no-such-connector' }, 'mine'), 'mine');
+  assert.equal(mcpOAuthDisplayName({ type: 'http' }, 'mine'), 'mine');
+  const pageOf = async (name, cfg) => {
+    const server = await fixture(t);
+    const { transport } = createMcpTransport({
+      name,
+      cfg: { type: 'http', url: server.url, ...cfg },
+      sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+      log: () => {},
+      oauthOptions: { openBrowser: (href) => server.approve(href) },
+    });
+    t.after(() => transport.close());
+    assert.equal((await transport.oauth.fetch(server.url)).status, 405);
+    return (await server.page()).text();
+  };
+  const catalog = await pageOf('notion-2', { connector: 'notion' });
+  assert.match(catalog, /Notion 로그인이 완료되었습니다\./);
+  assert.doesNotMatch(catalog, /notion-2/);
+  assert.match(await pageOf('my-docs', {}), /my-docs 로그인이 완료되었습니다\./);
+});
+
+test('email vs userinfo.email and an absent scope field do not fail a sign-in', async (t) => {
+  for (const granted of [
+    `openid email ${CALENDAR}`,
+    `https://www.googleapis.com/auth/userinfo.email openid ${CALENDAR}`,
+    undefined,
+  ]) {
+    const server = await fixture(t);
+    const store = memoryStore();
+    t.after(() => clearMcpOAuth({ url: server.url, credentialStore: store }));
+    const oauth = buildOAuth({
+      url: server.url,
+      credentialStore: store,
+      interactive: true,
+      oauthClient: scopedClient,
+      fetchImpl: scopedTokenFetch(granted),
+      openBrowser: approvingBrowser([]),
+    });
+    t.after(() => oauth.close());
+    assert.equal((await oauth.fetch(server.url)).status, 405, String(granted));
+    assert.equal(hasStoredMcpOAuthTokens(server.url), true);
+  }
+});
+
+test('the scope check applies to browser sign-ins only: a refresh response is stored as it is', async () => {
+  const stored = {};
+  const cache = {
+    creds: stored,
+    ready: async () => {},
+    update: async (change) => {
+      change();
+      return true;
+    },
+  };
+  const provider = (browserOpened) =>
+    createOAuthProvider({
+      cache,
+      flow: { browserOpened },
+      lifetimeSignal: new AbortController().signal,
+      client: scopedClient,
+    });
+  const refreshed = { access_token: 'a', token_type: 'Bearer', scope: 'openid' };
+  await provider(false).saveTokens(refreshed);
+  assert.equal(stored.tokens, refreshed);
+  stored.tokens = undefined;
+  await assert.rejects(provider(true).saveTokens(refreshed), { code: 'scopeNotGranted' });
+  assert.equal(stored.tokens, undefined);
+  // Only a client with its own scopes is checked.
+  await createOAuthProvider({
+    cache,
+    flow: { browserOpened: true },
+    lifetimeSignal: new AbortController().signal,
+    client: { clientId: 'plain' },
+  }).saveTokens(refreshed);
+  assert.equal(stored.tokens, refreshed);
+});
+
+test('missingScopes ignores the basic identity scopes and a response without a scope field', () => {
+  const requested = ['openid', 'email', 'profile', CALENDAR];
+  assert.deepEqual(missingScopes(requested, 'https://www.googleapis.com/auth/userinfo.email openid'), [CALENDAR]);
+  assert.deepEqual(missingScopes(requested, CALENDAR), []);
+  assert.deepEqual(missingScopes(requested, undefined), []);
+  assert.deepEqual(missingScopes(['openid', 'email'], 'openid'), []);
+});
+
+test('the scope error reaches the connect failure with its message and is not a plain sign-in-required', async (t) => {
+  process.env.MIXDOG_QUIET_MCP_LOG = '1';
+  const server = await fixture(t);
+  const { transport } = createMcpTransport({
+    name: 'fixture',
+    cfg: { type: 'http', url: server.url },
+    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    log: () => {},
+    oauthOptions: {
+      oauthClient: scopedClient,
+      fetchImpl: scopedTokenFetch('openid'),
+      openBrowser: approvingBrowser([]),
+    },
+  });
+  t.after(() => transport.close());
+  await assert.rejects(
+    runBoundedHandshake({
+      name: 'fixture',
+      cfg: {},
+      client: new Client({ name: 'test', version: '1' }),
+      transport,
+      closeServer: () => transport.close(),
+    }),
+    (error) => isMcpOAuthScopeNotGranted(error) && /calendar\.events/.test(error.message)
+  );
+  assert.equal(hasStoredMcpOAuthTokens(server.url), false);
 });
 
 test('disconnect revokes the grant only through an advertised revocation endpoint', async () => {

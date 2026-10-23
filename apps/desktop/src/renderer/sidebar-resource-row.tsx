@@ -23,7 +23,7 @@ function SidebarResourceTagBadge({ tag }: { tag?: SidebarResourceTag | null }) {
 export function SidebarResourceTitle({ label, tag }: { label: ReactNode; tag?: SidebarResourceTag | null }) {
   return (
     <span className="sidebar-resource-title">
-      <b>{label}</b>
+      <b title={typeof label === 'string' ? label : undefined}>{label}</b>
       <SidebarResourceTagBadge tag={tag} />
     </span>
   );

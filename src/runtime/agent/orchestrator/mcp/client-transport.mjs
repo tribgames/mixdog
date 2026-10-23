@@ -5,7 +5,7 @@
  */
 import { readServicePort } from '../../../shared/service-discovery.mjs';
 import { createMcpOAuth } from './oauth.mjs';
-import { mcpOAuthClientFor } from './oauth-client.mjs';
+import { mcpOAuthClientFor, mcpOAuthDisplayName } from './oauth-client.mjs';
 import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
 import { gmailAppPasswordService, withGmailAppPasswordMcp } from '../../../connectors/gmail-app-password.mjs';
 import {
@@ -140,7 +140,7 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
       ? null
       : createMcpOAuth({
           url,
-          serverName: name,
+          serverName: mcpOAuthDisplayName(cfg, name),
           oauthClient: mcpOAuthClientFor(cfg, url),
           ...oauthOptions,
           // A built-in Google connector is answered in-process.

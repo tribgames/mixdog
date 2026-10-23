@@ -45,7 +45,8 @@ const { connectCatalogConnector, connectorLoginState, cancelConnectorLogin, star
 );
 const { connectorById } = await import('../../../../../src/runtime/shared/connector-catalog.mjs');
 const { CategoryPanel } = await import('./capability-panels.tsx');
-const { McpEditorDialog } = await import('./mcp-editor-dialog.tsx');
+const { ConnectorStep } = await import('../connector-step.tsx');
+const { McpEditorDialog, mcpErrorSummary } = await import('./mcp-editor-dialog.tsx');
 
 const SKILL = 'secret-skill-name';
 const servers = [
@@ -715,4 +716,140 @@ test('Google Calendar and Drive are catalog rows, and "Use my Google key" stays 
   assert.ok(document.body.querySelector('#connectors-google-key-title'), 'the own-key dialog opens');
   assert.match(document.body.textContent, /enable the Calendar and Drive APIs/);
   await pane.unmount();
+});
+
+test('Google Calendar and Drive sign-ins tell the user to check every box; other connectors do not', async () => {
+  for (const id of ['google-calendar', 'google-drive', 'notion']) {
+    let live = [];
+    calls.length = 0;
+    handlers = {
+      mcpStatus: () => ({ servers: live }),
+      addMcpServer: (input) => {
+        live = [...live, { name: input.name, connector: input.connector, enabled: true, authRequired: true }];
+        return { name: input.name };
+      },
+      beginMcpOAuthLogin: () => ({ flowId: `f-${id}`, state: 'pending', url: 'https://accounts.google.com/auth' }),
+      getMcpOAuthLoginStatus: () => ({ flowId: `f-${id}`, state: 'pending', step: 'browser' }),
+      cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
+    };
+    await connectCatalogConnector(connectorById(id));
+    const pane = await render(
+      React.createElement(CategoryPanel, {
+        category: 'connectors',
+        context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+      })
+    );
+    const text = rowOf(pane.host, id).textContent;
+    const step = rowOf(pane.host, id).querySelector('.connectors-row-step');
+    assert.equal(step.querySelectorAll('.connectors-row-step-text').length, 1, 'one line');
+    assert.equal(step.querySelector('.connectors-row-hint'), null);
+    if (id === 'notion') {
+      assert.match(text, /Sign in in your browser…/);
+    } else {
+      assert.match(text, /Check access, then Continue/);
+      assert.doesNotMatch(text, /Sign in in your browser…/);
+      assert.equal(
+        step.title,
+        'If Google shows a checkbox for the access, check it before Continue — it starts unchecked.'
+      );
+    }
+    cancelConnectorLogin(id);
+    await pane.unmount();
+  }
+});
+
+test('a scopeNotGranted failure row shows the short instruction whole, with the full sentence as its tooltip', async () => {
+  let live = [];
+  handlers = {
+    mcpStatus: () => ({ servers: live }),
+    addMcpServer: (input) => {
+      live = [{ name: input.name, connector: input.connector, enabled: true, authRequired: true }];
+      return { name: input.name };
+    },
+    beginMcpOAuthLogin: () => ({ flowId: 'g1', state: 'pending', url: 'https://accounts.google.com/o/oauth2/auth' }),
+    getMcpOAuthLoginStatus: () => ({
+      flowId: 'g1',
+      state: 'failed',
+      error: 'MCP OAuth scopeNotGranted: access not granted for https://www.googleapis.com/auth/calendar.events',
+    }),
+    cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
+  };
+  await connectCatalogConnector(connectorById('google-calendar'));
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const pane = await render(
+    React.createElement(CategoryPanel, {
+      category: 'connectors',
+      context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+    })
+  );
+  const row = pane.host.querySelector('[data-connector-row="google-calendar"]');
+  assert.equal(row.dataset.rowStatus, 'failed');
+  const scope = row.querySelector('.connectors-row-scope');
+  assert.equal(scope.textContent, 'More access needed');
+  assert.match(scope.title, /check the access box on the Google screen before Continue\.$/);
+  assert.equal(row.querySelector('.sidebar-resource-title > b').title, 'Google Calendar', 'the full name is the tooltip');
+  await pane.unmount();
+
+  // Sidebar rule (structure the CSS keys on): the name is one <b> with its
+  // full text as title; the status is ONE <small> holding the badge and one
+  // text span, with the full text as its title.
+  const status = row.querySelector('.utilities-row-copy > small');
+  assert.equal(row.querySelectorAll('.utilities-row-copy > small').length, 1);
+  assert.equal(status.firstElementChild.className, 'sidebar-resource-tag');
+  assert.equal(status.querySelectorAll('.connectors-row-line').length, 1);
+  assert.equal(row.querySelector('.sidebar-resource-title .sidebar-resource-tag'), null, 'badge is not on the name line');
+
+  // The row keys on the failure kind, not on the summary text: after the UI
+  // language changes, the stored (English) summary no longer equals the
+  // translated sentence, and the short text still appears.
+  const { initUiLanguage, setUiLanguagePreference } = await import('../i18n.ts');
+  setUiLanguagePreference('ko');
+  await initUiLanguage();
+  try {
+    const korean = await render(
+      React.createElement(CategoryPanel, {
+        category: 'connectors',
+        context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+      })
+    );
+    const koScope = korean.host.querySelector('[data-connector-row="google-calendar"] .connectors-row-scope');
+    assert.ok(koScope, 'the short text shows although the stored summary text differs from the Korean sentence');
+    assert.notEqual(koScope.title, mcpErrorSummary('MCP OAuth scopeNotGranted'));
+    assert.equal(koScope.textContent, '권한 추가 필요');
+    await korean.unmount();
+  } finally {
+    setUiLanguagePreference('en');
+    await initUiLanguage();
+  }
+});
+
+test('a sign-in Google granted without a requested access reads as the check-every-box sentence', async () => {
+  const { connectorLoginErrorText } = await import('../connector-connect.ts');
+  const sentence =
+    "Google didn't grant the access Mixdog needs. Connect again and check the access box on the Google screen before Continue.";
+  const coded = 'MCP OAuth scopeNotGranted: access not granted for https://www.googleapis.com/auth/calendar.events';
+  assert.equal(connectorLoginErrorText(coded), sentence);
+  assert.equal(connectorLoginErrorText(new Error(coded)), sentence);
+  // The plain unfinished sign-in keeps its own sentence.
+  assert.equal(
+    connectorLoginErrorText('MCP OAuth login failed, cancelled, or timed out'),
+    'The browser sign-in was not completed.'
+  );
+});
+
+test('the full step (chat card, detail note) carries the whole Google notice; only the compact row is one line', async () => {
+  const view = { step: 'browser', status: 'pending' };
+  const notice = 'If Google shows a checkbox for the access, check it before Continue — it starts unchecked.';
+  const full = await render(React.createElement(ConnectorStep, { view, connector: 'google-calendar' }));
+  const step = full.host.querySelector('.connectors-row-step');
+  assert.equal(step.dataset.compact, undefined, 'no one-line marker, so it wraps');
+  assert.equal(step.querySelector('.connectors-row-hint').textContent, notice);
+  assert.match(step.textContent, /Sign in in your browser…/);
+  await full.unmount();
+  const compact = await render(React.createElement(ConnectorStep, { view, connector: 'google-calendar', compact: true }));
+  const one = compact.host.querySelector('.connectors-row-step');
+  assert.equal(one.dataset.compact, 'true');
+  assert.equal(one.querySelectorAll('.connectors-row-step-text').length, 1);
+  assert.equal(one.title, notice);
+  await compact.unmount();
 });

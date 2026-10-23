@@ -674,8 +674,20 @@ export function mcpStatus(server: RecordValue): { label: string; tone: SidebarRe
   return { label: t('Not connected'), tone: 'warn', connected: false };
 }
 
+/** The host's error for a sign-in the provider granted without a requested access. */
+export function isScopeNotGrantedError(error: unknown): boolean {
+  return /MCP OAuth scopeNotGranted/.test(error instanceof Error ? error.message : String(error ?? ''));
+}
+
 /** A failure on an MCP row. The shared transport wording names "the provider",
  *  which is wrong for an MCP server, so a connection failure gets a neutral line. */
 export function mcpErrorSummary(error: unknown): string {
+  // The sign-in succeeded but the provider left a requested access out (an
+  // unchecked box on Google's consent screen): oauth-shared.mjs scopeNotGranted.
+  if (isScopeNotGrantedError(error)) {
+    return t(
+      "Google didn't grant the access Mixdog needs. Connect again and check the access box on the Google screen before Continue."
+    );
+  }
   return describeError(error).kind === 'connection' ? t('Connection failed') : errorSummary(error);
 }

@@ -31,6 +31,12 @@ export async function saveMcpOAuthClientSecret(url, secret, credentialStore = ke
   else await credentialStore.deleteSecretAsync(account);
 }
 
+/** What the sign-in page calls server `name` configured as `cfg`: a catalog
+ *  connector's display name ("Google Drive"), else the server name. */
+export function mcpOAuthDisplayName(cfg, name) {
+  return connectorById(connectorOfServer(cfg))?.name || name;
+}
+
 /**
  * `{ clientId, clientSecret?, secretAccount?, scopes?, authParams? }` for
  * server config `cfg` at `url`, or null to register a client dynamically.

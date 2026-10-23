@@ -5,12 +5,14 @@ import type { ConnectorRowView } from './connectors-model';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 
-// Mixdog's Google client is published without Google's verification, so its
-// sign-in page warns first; the way past it, while that page is open.
+// Google's first-time consent screen starts with its access box unchecked, and
+// what is unchecked is not granted (a repeat consent shows no box): said
+// before and while the page is open.
 function browserHint(view: ConnectorRowView, connector: string): string {
   const backend = connectorById(connector)?.backend;
-  if (view.step !== 'browser' || backend?.kind !== 'oauth' || backend.oauthClient !== 'google') return '';
-  return t('If Google shows “Google hasn’t verified this app”, choose Advanced → Continue.');
+  const google = backend?.kind === 'oauth' && backend.oauthClient === 'google';
+  if (!google || (view.step !== 'starting' && view.step !== 'browser')) return '';
+  return t('If Google shows a checkbox for the access, check it before Continue — it starts unchecked.');
 }
 
 function stepText(view: ConnectorRowView): string {
@@ -20,13 +22,34 @@ function stepText(view: ConnectorRowView): string {
   return t('Loading tools…');
 }
 
-export function ConnectorStep({ view, connector = '' }: { view: ConnectorRowView; connector?: string }) {
+// The narrow sidebar row: one line; for Google's browser steps the short
+// checkbox hint replaces the step text, with the full notice as its tooltip.
+export function ConnectorStep({
+  view,
+  connector = '',
+  compact = false,
+}: {
+  view: ConnectorRowView;
+  connector?: string;
+  compact?: boolean;
+}) {
   const hint = browserHint(view, connector);
+  if (compact) {
+    const text = hint ? t('Check access, then Continue') : stepText(view);
+    return (
+      <span className="connectors-row-step" data-compact="true" role="status" title={hint || text}>
+        <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
+        <span className="connectors-row-step-text">{text}</span>
+      </span>
+    );
+  }
   return (
     <span className="connectors-row-step" role="status">
-      <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
-      {stepText(view)}
-      {hint && <span className="connectors-row-hint"> · {hint}</span>}
+      <span className="connectors-row-step-line">
+        <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
+        {stepText(view)}
+      </span>
+      {hint && <span className="connectors-row-hint">{hint}</span>}
     </span>
   );
 }

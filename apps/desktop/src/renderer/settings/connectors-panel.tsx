@@ -60,7 +60,12 @@ import {
   ExtensionNote,
   ExtensionSection,
 } from './extension-detail';
-import { McpEditorDialog, mcpErrorSummary, mcpRowDescription, mcpStatus } from './mcp-editor-dialog';
+import {
+  McpEditorDialog,
+  mcpErrorSummary,
+  mcpRowDescription,
+  mcpStatus,
+} from './mcp-editor-dialog';
 import { PluginInfo } from './plugin-info';
 import { capabilityBlockedRemotely, manageOnHostNote } from './remote-capability-guard';
 
@@ -116,8 +121,18 @@ function ConnectorRow({
           {icon}
         </span>
         <span className="schedules-row-copy utilities-row-copy">
-          <SidebarResourceTitle label={title} tag={tag} />
-          {line ? <small>{line}</small> : null}
+          <SidebarResourceTitle label={title} />
+          {/* One status line: the badge first, then the text. */}
+          {tag?.label || line ? (
+            <small title={typeof line === 'string' ? [tag?.label, line].filter(Boolean).join(' · ') : undefined}>
+              {tag?.label ? (
+                <span className="sidebar-resource-tag" data-tone={tag.tone || 'muted'}>
+                  {tag.label}
+                </span>
+              ) : null}
+              {line ? <span className="connectors-row-line">{line}</span> : null}
+            </small>
+          ) : null}
         </span>
         {!action && <Chevron className="utilities-row-chevron" size={16} aria-hidden="true" />}
       </button>
@@ -207,7 +222,7 @@ function useRowState({
       return {
         view,
         tag: null,
-        line: <ConnectorStep view={view} connector={connector} />,
+        line: <ConnectorStep view={view} connector={connector} compact />,
         action: (
           <ExtensionAction onClick={() => cancelConnectorLogin(serverName, connector)}>{t('Cancel')}</ExtensionAction>
         ),
@@ -224,7 +239,16 @@ function useRowState({
         view,
         // A short chip; the line says what happened and why.
         tag: { label: t('Failed'), tone: 'danger' as const },
-        line: [t("Couldn't connect"), view.error].filter(Boolean).join(' · '),
+        // A sign-in Google granted without the access: the row's instruction
+        // is the short form, shown whole; the full sentence is its tooltip.
+        line:
+          view.reason === 'scopeNotGranted' ? (
+            <span className="connectors-row-scope" title={view.error}>
+              {t('More access needed')}
+            </span>
+          ) : (
+            [t("Couldn't connect"), view.error].filter(Boolean).join(' · ')
+          ),
         action: button(t('Try again'), retryOf(view, actions, null)),
       };
     case 'disabled':

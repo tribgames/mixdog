@@ -97,6 +97,35 @@ export function answerOAuthCallback(req, res, { redirectUrl, state, finish, serv
     finish(undefined);
     return;
   }
-  page(200, oauthSuccessHtml(server));
-  finish(target.searchParams.get('code'));
+  // The code is only the start: the page stays open until the login reports
+  // its outcome through `respond` (after the code exchange and scope check).
+  finish(target.searchParams.get('code'), (failure) => {
+    // Resolves once the page is flushed (bounded), so the caller may close the listener.
+    const flushed = new Promise((resolve) => {
+      const timer = setTimeout(resolve, 1000);
+      timer.unref?.();
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      res.once('finish', done);
+      res.once('close', done);
+    });
+    if (!failure) page(200, oauthSuccessHtml(server));
+    else if (failure.stale) invalid();
+    else page(400, oauthErrorHtml(failurePageReason(server, failure.code)));
+    return flushed;
+  });
+}
+
+// Fixed bilingual texts by error code: SDK/server error text and tokens are
+// never put on the page.
+function failurePageReason(server, code) {
+  if (code === 'scopeNotGranted') {
+    return (
+      `${server} 접근 권한이 허용되지 않았습니다. Mixdog로 돌아가 다시 연결하고, 권한 확인란을 체크해 주세요. (Google은 확인란이 처음에 해제되어 있습니다.)\n` +
+      `Access to ${server} was not granted. Return to Mixdog and connect again with the access box checked (Google starts it unchecked).`
+    );
+  }
+  return `${server} 로그인을 완료하지 못했습니다.\nSign-in to ${server} could not be completed.`;
 }
