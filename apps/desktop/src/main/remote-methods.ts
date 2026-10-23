@@ -112,6 +112,10 @@ export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = REMOTE_BLOCKED_C
 const VALUE_ONLY_SESSION_CAPABILITIES: ReadonlySet<string> = new Set([
   'getTurnReviewDiff',
   'getTurnReviewFilePatch',
+  // The session diff read (session-diff-cache.ts takes `.value` only) is
+  // re-run by the scheduler; with the snapshot each answer queued the whole
+  // transcript ahead of the next history page.
+  'getSessionReviewDiff',
   'getSessionReviewFilePatch',
   'getTurnChanges',
   'skillsStatus',
