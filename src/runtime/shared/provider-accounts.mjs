@@ -256,19 +256,46 @@ export async function recordProviderAccountUsage(provider, id, snapshot) {
     label: String(row.label || '').slice(0, 40),
     usedPct: typeof row.usedPct === 'number' && Number.isFinite(row.usedPct) ? row.usedPct : null,
     resetAt: typeof row.resetAt === 'number' && Number.isFinite(row.resetAt) ? row.resetAt : null,
+    ...windowScopeFields(row),
   }));
   if (!readProviderAccountPool(provider).accounts.some((row) => row.id === id)) return;
   await update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
     row.usage = { windows, checkedAt: Date.now() };
-    // A fresh observation of available quota releases a prior typed refusal.
-    // Only a MEASURED window can testify: a provider that reports a window
-    // without a percentage says nothing about that meter, and requiring a
-    // number from it kept accounts refused that every real reading had freed.
-    const measured = windows.filter((window) => window.usedPct !== null);
+    // A fresh observation of available quota releases a prior refusal. Only
+    // the meters the refusal drew on testify (a full Claude/GPT bucket says
+    // nothing about a Gemini refusal), and only a MEASURED window: a provider
+    // that reports a window without a percentage says nothing about that
+    // meter, and requiring a number from it kept accounts refused that every
+    // real reading had freed.
+    const measured = blockEvidenceWindows(row).filter((window) => window.usedPct !== null);
     if (measured.length && measured.every((window) => window.usedPct < 100)) clearAccountBlock(row);
   });
+}
+
+// The model-id tokens a window's gate names, as recorded: lowercased and bounded.
+function modelTokens(value) {
+  if (!Array.isArray(value)) return null;
+  return value
+    .slice(0, 12)
+    .map((token) =>
+      String(token || '')
+        .trim()
+        .toLowerCase()
+        .slice(0, 80)
+    )
+    .filter(Boolean);
+}
+
+function windowScopeFields(row) {
+  const models = modelTokens(row.models);
+  const except = modelTokens(row.except);
+  const limit = typeof row.limit === 'string' ? row.limit.trim().slice(0, 80) : '';
+  return {
+    ...(models ? { models } : except?.length ? { except } : {}),
+    ...(limit ? { limit } : {}),
+  };
 }
 
 // A refusal window is an AVOIDANCE hint for the roster, not the retry schedule —
@@ -283,14 +310,21 @@ const MAX_BLOCK_MS = 6 * 60 * 60_000;
 // early can tell us anything.
 // `options.quota` records that the block came from a typed quota refusal or an
 // exhausted usage window, so later sends still count it as quota evidence.
+// `options.limit` is the server's id of the limit the refusal named; the block
+// then covers that limit's windows. `options.reset` marks `until` as the
+// quota reset the server named: it is kept as given (a fresh reading showing
+// room still lifts it early), while advice and inferred delays stay capped.
 export async function blockProviderAccount(provider, id, until, model = '', source = 'inferred', options = {}) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
-    row.blockedUntil = Math.min(until, Date.now() + MAX_BLOCK_MS);
+    row.blockedUntil = options.reset === true ? until : Math.min(until, Date.now() + MAX_BLOCK_MS);
     const scope = String(model || '').trim();
     if (scope) row.blockedModel = scope;
     else delete row.blockedModel;
+    const limit = String(options.limit || '').trim();
+    if (limit) row.blockedLimit = limit;
+    else delete row.blockedLimit;
     if (source === 'retry-after') row.blockedSource = source;
     else delete row.blockedSource;
     if (options.quota === true) row.blockedQuota = true;
@@ -315,38 +349,77 @@ export async function clearProviderAccountQuotaState(provider, id) {
 function clearAccountBlock(row) {
   delete row.blockedUntil;
   delete row.blockedModel;
+  delete row.blockedLimit;
   delete row.blockedSource;
   delete row.blockedQuota;
 }
 
-// Single-token weekly labels ("7D Fable", "7D Opus") belong to that Claude
-// family only. A full Fable window must not idle an Opus request. Unscoped
-// 5H/7D meters and multi-word surfaces ("7D OAuth apps") still apply to every
-// model.
+// Which models one quota window gates — the single rule every window and every
+// block follows. The usage reading scopes a window to the server's quota
+// bucket: `models` gates only model ids naming one of those tokens (an empty
+// list gates nothing: a display-only meter such as paid extra usage), `except`
+// gates every model but those. A window without either keeps the older label
+// rule: a single-token weekly label ("7D Fable", "7D Opus") belongs to that
+// family only, and every other window (5H/7D, multi-word surfaces such as
+// "7D OAuth apps") gates every model.
 const FAMILY_QUOTA_WINDOW = /^7D\s+([A-Za-z][A-Za-z0-9]*)$/i;
 
+function windowScope(window) {
+  if (Array.isArray(window?.models)) return { models: window.models };
+  if (Array.isArray(window?.except) && window.except.length) return { except: window.except };
+  const family = FAMILY_QUOTA_WINDOW.exec(String(window?.label || '').trim())?.[1];
+  return family ? { models: [family.toLowerCase()] } : null;
+}
+
+const displayOnly = (window) => Array.isArray(window?.models) && window.models.length === 0;
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function namesModel(model, tokens) {
+  const id = String(model).toLowerCase();
+  return tokens.some((token) => new RegExp(`(?:^|[-_/.@])${escapeRegExp(token)}(?:[-_/.@]|$)`).test(id));
+}
+
 export function quotaWindowAppliesToModel(window, model) {
-  const match = FAMILY_QUOTA_WINDOW.exec(String(window?.label || '').trim());
-  if (!match) return true;
-  const family = match[1].toLowerCase();
-  const id = String(model || '').toLowerCase();
-  if (!id) return false;
-  return new RegExp(`(?:^|[-_/.@])${family}(?:[-_/.@]|$)`).test(id);
+  const scope = windowScope(window);
+  if (!scope) return true;
+  if (!model) return false;
+  return scope.models ? namesModel(model, scope.models) : !namesModel(model, scope.except);
+}
+
+// The meters a block stands for: the windows of the limit the refusal named,
+// else the scoped windows that gate the model that earned it.
+function blockWindows(row) {
+  const windows = row?.usage?.windows || [];
+  const limit = String(row?.blockedLimit || '');
+  const named = limit ? windows.filter((window) => window.limit === limit) : [];
+  if (named.length) return named;
+  const earned = String(row?.blockedModel || '').trim();
+  return earned ? windows.filter((window) => windowScope(window) && quotaWindowAppliesToModel(window, earned)) : [];
+}
+
+// The windows a fresh reading must show below 100% to lift a block: the
+// block's own meters plus every meter, scoped or shared, the model that earned
+// it (or, for an account-wide block, any model) draws on.
+function blockEvidenceWindows(row) {
+  const earned = String(row?.blockedModel || '').trim();
+  const gating = (row?.usage?.windows || []).filter((window) =>
+    earned ? quotaWindowAppliesToModel(window, earned) : !displayOnly(window)
+  );
+  return [...new Set([...blockWindows(row), ...gating])];
 }
 
 // A refusal earned by one model must not idle a model that draws on a
-// different meter — the same rule the usage windows already follow. Two models
-// share a block when one scoped window covers both; when the account exposes no
-// scoped meter at all (a plain 5H/7D subscription) the block stays account-wide,
-// because there is no narrower category to attribute it to.
+// different meter — the same rule the usage windows follow. Two models share a
+// block when one of the block's windows gates both; when the account exposes
+// no scoped meter for the model (a plain 5H/7D subscription) the block stays
+// account-wide, because there is no narrower category to attribute it to.
 function blockAppliesToModel(row, model) {
-  const scope = String(row?.blockedModel || '').trim();
-  if (!scope || !model || scope === String(model)) return true;
-  const scoped = (row?.usage?.windows || []).filter((window) =>
-    FAMILY_QUOTA_WINDOW.test(String(window?.label || '').trim())
-  );
-  if (!scoped.length) return true;
-  return scoped.some((window) => quotaWindowAppliesToModel(window, scope) && quotaWindowAppliesToModel(window, model));
+  const earned = String(row?.blockedModel || '').trim();
+  if (!earned || !model || earned === String(model)) return true;
+  const windows = blockWindows(row);
+  if (!windows.length) return true;
+  return windows.some((window) => quotaWindowAppliesToModel(window, model));
 }
 
 // Earliest moment any of the given exhausted accounts can serve `model` again,
@@ -388,32 +461,37 @@ export function providerAccountExhausted(row, now = Date.now(), model = '', opti
   );
 }
 
+// The display name of a scoped limit: the family of a legacy "7D Fable" label,
+// else the label without its window prefix ("5H Claude/GPT" → "Claude/GPT").
 function quotaWindowFamily(window) {
-  return FAMILY_QUOTA_WINDOW.exec(String(window?.label || '').trim())?.[1] || '';
+  const label = String(window?.label || '').trim();
+  return FAMILY_QUOTA_WINDOW.exec(label)?.[1] || label.replace(/^(?:5H|7D)\s+/i, '') || label;
 }
 
 // Which limit currently holds the account, independent of any one model:
 // `{ scope: 'account' }` when every request is refused (an unscoped window is
 // full, or a block with no narrower meter to attribute it to), `{ scope:
-// 'model', families }` when only model-family meters ("7D Fable") or a block
-// attributed to one are spent, so other models still run — else null.
+// 'model', families }` when only scoped meters ("7D Fable", "5H Claude/GPT")
+// or a block attributed to one are spent, so other models still run — else null.
 export function providerAccountLimit(row, now = Date.now(), options = {}) {
   if (!row) return null;
   const windows = row.usage?.windows || [];
   const blocked = row.blockedUntil > now;
-  const scope = String(row.blockedModel || '').trim();
-  const scopedWindows = windows.filter((window) => quotaWindowFamily(window));
-  // A block counts as family-scoped only when a family meter covers the model
-  // that earned it; any other refusal is treated as the account's.
-  const covering = scope ? scopedWindows.filter((window) => quotaWindowAppliesToModel(window, scope)) : [];
-  if (blocked && !covering.length) return { scope: 'account' };
+  // A block counts as scoped only when scoped meters cover it; any other
+  // refusal is treated as the account's.
+  const covering = blocked ? blockWindows(row) : [];
+  if (blocked && (!covering.length || covering.some((window) => !windowScope(window)))) return { scope: 'account' };
   const credits = options.useCredits === true;
-  if (!credits && windows.some((window) => !quotaWindowFamily(window) && windowFull(row, window, now))) {
+  if (!credits && windows.some((window) => !windowScope(window) && windowFull(row, window, now))) {
     return { scope: 'account' };
   }
-  const families = new Set(blocked ? covering.map(quotaWindowFamily) : []);
+  const families = new Set(covering.map(quotaWindowFamily));
   if (!credits) {
-    for (const window of scopedWindows) if (windowFull(row, window, now)) families.add(quotaWindowFamily(window));
+    for (const window of windows) {
+      if (windowScope(window) && !displayOnly(window) && windowFull(row, window, now)) {
+        families.add(quotaWindowFamily(window));
+      }
+    }
   }
   return families.size ? { scope: 'model', families: [...families] } : null;
 }

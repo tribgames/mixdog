@@ -197,19 +197,25 @@ function usagePercent(value) {
   return Math.round(normalized * 10_000) / 10_000;
 }
 
+// The models the Auto pool (`autoPercentUsed`) meters: Auto under both of its
+// ids and the Composer family. Every other model draws on the API pool.
+const AUTO_POOL_MODELS = Object.freeze(['auto', 'default', 'composer']);
+
 // The included-plan windows: per-lane progress percentages when the dashboard
-// reports them, else one dollar window over the included balance.
+// reports them, else one dollar window over the included balance. Each lane
+// gates only the models it meters.
 function includedUsageWindows(included, plan, includedBalance, resetAt) {
   const progressWindows = [
-    ['Basic', included.autoPercentUsed],
-    ['API', included.apiPercentUsed],
+    ['Basic', included.autoPercentUsed, { models: [...AUTO_POOL_MODELS] }],
+    ['API', included.apiPercentUsed, { except: [...AUTO_POOL_MODELS] }],
   ].filter(([, value]) => Number.isFinite(Number(value)));
   if (progressWindows.length) {
-    return progressWindows.map(([label, value]) => ({
+    return progressWindows.map(([label, value, scope]) => ({
       label,
       source: 'cursor-dashboard',
       usedPct: usagePercent(value),
       ...(resetAt ? { resetAt } : {}),
+      ...scope,
     }));
   }
   if (!includedBalance) return [];

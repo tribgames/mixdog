@@ -13,7 +13,7 @@ import {
 import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
 import { isExplicitUserAbortError, markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import { sleepWithAbort } from './retry-backoff.mjs';
-import { QUOTA_KINDS, providerErrorKind } from './provider-error-kind.mjs';
+import { QUOTA_KINDS, boundedCauseChain, providerErrorKind } from './provider-error-kind.mjs';
 import { fetchOAuthUsageSnapshot, readCachedOAuthUsageSnapshot } from './oauth-usage.mjs';
 
 // Only an explicit quota / plan / billing refusal advances the roster as
@@ -258,6 +258,36 @@ function recordServingAccount(providerName, result, id, bindingId) {
   };
 }
 
+// A block covers the quota bucket of the model that failed, which only a usage
+// reading names. An account without a recorded reading is measured once before
+// it is blocked — once per account for this process, whatever the outcome,
+// through the ordinary cache (a fresh failed reading is not repeated) — and
+// again only after a reading has recorded windows and they were dropped.
+// Without a reading the block stays account-wide.
+const measureAttempted = new Set();
+
+async function measureOnce(providerName, row, account) {
+  const key = `${providerName}:${row.id}`;
+  if (row.usage?.windows?.length) {
+    measureAttempted.delete(key);
+    return;
+  }
+  if (measureAttempted.has(key)) return;
+  measureAttempted.add(key);
+  await fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}).catch(
+    () => null
+  );
+}
+
+// The server's id of the limit a refusal names (a Codex model-specific limit),
+// stamped on the error by the provider boundary.
+function quotaLimitOf(error) {
+  for (const item of boundedCauseChain(error)) {
+    if (typeof item?.quotaLimit === 'string' && item.quotaLimit) return item.quotaLimit;
+  }
+  return '';
+}
+
 // Whether the failed account's quota window is exhausted, plus the server's
 // retry delay. Anthropic and other subscriptions may use the same 429 code
 // for burst throttling and exhausted subscription windows, so the native
@@ -272,7 +302,7 @@ async function accountQuotaExhausted(providerName, row, model, error, account) {
   const policy = cooldownPolicyOf(account(row.id));
   const floorMs = policy ? finiteMs(policy.floorMs, 0) : 0;
   const blockUntil = (withReset, reason = 'unknown') => {
-    if (withReset && resetAt > now) return { until: resetAt, source: 'retry-after' };
+    if (withReset && resetAt > now) return { until: resetAt, source: 'retry-after', reset: true };
     if (delay > 0) return { until: now + Math.max(delay, floorMs), source: 'retry-after' };
     if (policy) {
       const ms = policyCooldownMs(policy, `${providerName}:${row.id}`, reason);
@@ -298,10 +328,14 @@ async function accountQuotaExhausted(providerName, row, model, error, account) {
     };
   }
   const typed = isAccountQuotaError(error);
-  if (typed) return { exhausted: true, delay, evidence: true, ...blockUntil(true, 'quota') };
+  if (typed) {
+    await measureOnce(providerName, row, account);
+    return { exhausted: true, delay, evidence: true, ...blockUntil(true, 'quota') };
+  }
   // A policy with rotateOnRateLimit rotates on a plain rate limit too (the
   // advice as its cooldown, else rateLimitedMs); never quota evidence.
   if (policy?.rotateOnRateLimit === true && kind === 'rate_limited' && status === 429) {
+    await measureOnce(providerName, row, account);
     return { exhausted: true, delay, evidence: false, ...blockUntil(false, 'rate_limited') };
   }
   let exhausted = status === 429 && delay > QUOTA_WINDOW_RETRY_AFTER_MS;
@@ -480,7 +514,7 @@ function poolSend(providerName, account) {
           options.onStageChange?.('reconnecting', { message: 'Sign-in expired — switching to the next account' });
           continue;
         }
-        const { exhausted, evidence, until, source, accountBlocked } = await accountQuotaExhausted(
+        const { exhausted, evidence, until, source, reset, accountBlocked } = await accountQuotaExhausted(
           providerName,
           row,
           model,
@@ -490,7 +524,11 @@ function poolSend(providerName, account) {
         if (options.signal?.aborted || !exhausted) throw error;
         if (evidence) evidenced.add(row.id);
         else cooled.add(row.id);
-        await blockProviderAccount(providerName, row.id, until, model, source, { quota: evidence === true });
+        await blockProviderAccount(providerName, row.id, until, model, source, {
+          quota: evidence === true,
+          reset: reset === true,
+          limit: quotaLimitOf(error),
+        });
         // An account block is unsafe to re-issue on THAT account only; with no
         // output emitted, the next account may serve the same request.
         if (

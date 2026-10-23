@@ -609,14 +609,47 @@ function balanceFromAnthropicSpend(spend) {
   return null;
 }
 
+// The server's limit id, in the one spelling headers and the usage payload share.
+const codexLimitId = (value) => (cleanString(value) || '').toLowerCase().replace(/-/g, '_');
+
+// Model-specific limits beside the plan's own: one per server limit id
+// (`metered_feature`), whose `limit_name` names the model it meters. Each
+// window gates that model alone.
+function codexAdditionalLimits(list) {
+  return (Array.isArray(list) ? list : []).flatMap((entry) => {
+    const limit = codexLimitId(entry?.metered_feature || entry?.limit_name);
+    if (!limit) return [];
+    const name = cleanString(entry.limit_name) || limit;
+    const rate = entry.rate_limit && typeof entry.rate_limit === 'object' ? entry.rate_limit : {};
+    const windows = [
+      windowFromPercent('5H', rate.primary_window || rate.primary, 'openai-codex-oauth'),
+      windowFromPercent('7D', rate.secondary_window || rate.secondary, 'openai-codex-oauth'),
+    ]
+      .filter(Boolean)
+      .map((window) => ({ ...window, label: `${window.label} ${name}`, limit, models: [name.toLowerCase()] }));
+    // A limit without a usable window meters nothing we can read: its model
+    // stays under the plan's windows.
+    return windows.length ? [{ model: name.toLowerCase(), windows }] : [];
+  });
+}
+
 export function normalizeOpenAIWhamUsage(data) {
   const rate = data?.rate_limit && typeof data.rate_limit === 'object' ? data.rate_limit : null;
   if (!rate) return null;
+  const additional = codexAdditionalLimits(data.additional_rate_limits);
+  // The plan's windows gate every model that no model-specific limit meters.
+  const plan = {
+    limit: 'codex',
+    ...(additional.length ? { except: additional.map((entry) => entry.model) } : {}),
+  };
   const windows = [
     windowFromPercent('5H', rate.primary_window || rate.primary, 'openai-codex-oauth'),
     windowFromPercent('7D', rate.secondary_window || rate.secondary, 'openai-codex-oauth'),
-  ].filter(Boolean);
+  ]
+    .filter(Boolean)
+    .map((window) => ({ ...window, ...plan }));
   if (!windows.length) return null;
+  windows.push(...additional.flatMap((entry) => entry.windows));
   return {
     provider: 'openai-oauth',
     source: 'openai-codex-wham',
@@ -687,12 +720,14 @@ function anthropicLimitWindows(limits, source) {
     .filter(Boolean);
 }
 
-// The extra-usage (pay-as-you-go) window when it is enabled, else null.
+// The extra-usage (pay-as-you-go) window when it is enabled, else null. It is
+// shown, never a limit: paid overage spent to its cap leaves the plan's own
+// windows serving, so it gates no model (`models: []`).
 function anthropicExtraUsageWindow(extraUsage) {
   if (extraUsage?.is_enabled !== true) return null;
   const limitUsd = num(extraUsage.monthly_limit, 0) / 100;
   const usedUsd = num(extraUsage.used_credits, 0) / 100;
-  return windowFromPercent(
+  const window = windowFromPercent(
     'EXTRA',
     {
       utilization: extraUsage.utilization,
@@ -702,6 +737,7 @@ function anthropicExtraUsageWindow(extraUsage) {
     },
     'anthropic-oauth-extra'
   );
+  return window ? { ...window, models: [] } : null;
 }
 
 export function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {

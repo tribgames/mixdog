@@ -7,6 +7,7 @@
  *   headers              response headers (HTTP, WS handshake, nested error.headers)
  *   retryAfterMs         server advice, uncapped (Retry-After / Retry-After-Ms)
  *   resetAt              epoch ms from quota reset fields (resets_at, resets_in_seconds)
+ *   quotaLimit           limit id from x-codex-active-limit, `-` normalized to `_`
  *
  * Pure: no I/O. Message text is never parsed for status or code.
  */
@@ -206,6 +207,10 @@ export function applyErrorContract(err, { status, headers, code, error, event } 
     const wireHeaders =
       headers ?? error?.headers ?? event?.error?.headers ?? event?.response?.error?.headers ?? event?.headers;
     if (wireHeaders && typeof wireHeaders === 'object') err.headers = wireHeaders;
+    // The limit a refusal hit, by the server's limit id (`codex` is the plan's
+    // own; others are model-specific), so the account pool blocks only it.
+    const activeLimit = headerValue(err.headers, 'x-codex-active-limit').toLowerCase().replace(/-/g, '_');
+    if (activeLimit) err.quotaLimit = activeLimit;
     const rawCode = code ?? error?.code ?? error?.type ?? null;
     if (typeof rawCode === 'string' && rawCode.trim()) err.code = rawCode.trim().toLowerCase();
     const resetAt = resetAtFrom(error, event?.error, event?.response?.error, event);

@@ -251,7 +251,7 @@ export function resolveAntigravityWireModel(model, effort, models = antigravityC
   return { model: wire, effort: record.reasoningLevels?.length ? effort : null };
 }
 
-function quotaRow(label, bucket) {
+function quotaRow(label, bucket, scope) {
   if (!bucket || typeof bucket !== 'object') return null;
   if (typeof bucket.remainingFraction !== 'number' || !Number.isFinite(bucket.remainingFraction)) return null;
   const usedPct = Math.round(Math.max(0, Math.min(100, (1 - bucket.remainingFraction) * 100)) * 100) / 100;
@@ -261,6 +261,7 @@ function quotaRow(label, bucket) {
     usedPct,
     ...(Number.isFinite(resetAt) && resetAt > 0 ? { resetAt } : {}),
     source: 'antigravity-quota-summary',
+    ...scope,
   };
 }
 
@@ -273,11 +274,21 @@ const ARGON_WEEKLY_BUCKET_ID = 'gemini-argon-wtu-weekly';
 const THIRD_PARTY_5H_BUCKET_ID = '3p-5h';
 const THIRD_PARTY_WEEKLY_BUCKET_ID = '3p-weekly';
 
+// The model ids each separate bucket meters: the "Claude and GPT models"
+// group (Claude Opus, Claude Sonnet, GPT-OSS) and the Gemini 4 Argon group.
+const THIRD_PARTY_MODELS = Object.freeze(['claude', 'gpt']);
+const ARGON_MODELS = Object.freeze(['argon']);
+
 /**
  * Gemini 5H/7D rows from retrieveUserQuotaSummary, the separate weekly limit
  * of the Gemini 4 Argon group (its own group with only a weekly bucket), and
  * the Claude/GPT-OSS 5H/7D pair. Rows are selected by bucket id and window.
  * Missing fields stay omitted.
+ *
+ * Each group's buckets gate its own models only: the 3p pair gates Claude and
+ * GPT-OSS, the Argon bucket gates Argon, and the shared Gemini pair gates every
+ * model no other bucket in this summary claims, so a full Claude/GPT window
+ * leaves Gemini serving and the reverse.
  */
 export function antigravityQuotaWindows(summary) {
   const groups = (Array.isArray(summary?.groups) ? summary.groups : []).filter(
@@ -287,11 +298,18 @@ export function antigravityQuotaWindows(summary) {
   const bucket = (id, window) =>
     buckets.find((entry) => entry && typeof entry === 'object' && entry.bucketId === id && entry.window === window) ??
     null;
+  const reported = (...ids) => buckets.some((entry) => ids.includes(entry?.bucketId));
+  const claimed = [
+    ...(reported(THIRD_PARTY_5H_BUCKET_ID, THIRD_PARTY_WEEKLY_BUCKET_ID) ? THIRD_PARTY_MODELS : []),
+    ...(reported(ARGON_WEEKLY_BUCKET_ID) ? ARGON_MODELS : []),
+  ];
+  const gemini = claimed.length ? { except: claimed } : {};
+  const thirdParty = { models: [...THIRD_PARTY_MODELS] };
   return [
-    quotaRow('5H', bucket(GEMINI_5H_BUCKET_ID, '5h')),
-    quotaRow('7D', bucket(GEMINI_WEEKLY_BUCKET_ID, 'weekly')),
-    quotaRow('7D Argon', bucket(ARGON_WEEKLY_BUCKET_ID, 'weekly')),
-    quotaRow('5H Claude/GPT', bucket(THIRD_PARTY_5H_BUCKET_ID, '5h')),
-    quotaRow('7D Claude/GPT', bucket(THIRD_PARTY_WEEKLY_BUCKET_ID, 'weekly')),
+    quotaRow('5H', bucket(GEMINI_5H_BUCKET_ID, '5h'), gemini),
+    quotaRow('7D', bucket(GEMINI_WEEKLY_BUCKET_ID, 'weekly'), gemini),
+    quotaRow('7D Argon', bucket(ARGON_WEEKLY_BUCKET_ID, 'weekly'), { models: [...ARGON_MODELS] }),
+    quotaRow('5H Claude/GPT', bucket(THIRD_PARTY_5H_BUCKET_ID, '5h'), thirdParty),
+    quotaRow('7D Claude/GPT', bucket(THIRD_PARTY_WEEKLY_BUCKET_ID, 'weekly'), thirdParty),
   ].filter(Boolean);
 }
