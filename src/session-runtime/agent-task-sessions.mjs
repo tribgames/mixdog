@@ -37,6 +37,7 @@ import { sessionsWithPendingWork } from '../runtime/shared/pending-agent-work.mj
 import { agentTaskIdOfExecution } from './services/agent-tool/restart-notify.mjs';
 import { worktreeError, worktreeNameError } from '../runtime/shared/worktrees/contract.mjs';
 import { samePath } from '../runtime/shared/worktrees/paths.mjs';
+import { readModelCatalog, routeByDisplayName, withEffort } from './task-session-route.mjs';
 import { assertWorktreeMutationAllowed } from './services/worktree-access.mjs';
 
 const TITLE_LIMIT = 60;
@@ -305,8 +306,9 @@ const LAST_USED_ROUTE_MAX_PAGES = 20;
 const roomFrom = (originSessionId) => (roomMemberOfSession(originSessionId) ? { from: originSessionId } : {});
 
 /** The route of `modelRef`: a provider/model[@effort…] ref (a superseded
- *  model runs on its successor) or a preset name. */
-async function configModelRoute(modelRef) {
+ *  model runs on its successor), a preset name, else whatever `byName` makes
+ *  of it (a catalog display name; it throws when it names none). */
+async function configModelRoute(modelRef, byName) {
   const [{ modelRouteFields, parseScheduleModelRef }, { migrateCodexRoute }, { loadConfig }] = await Promise.all([
     import('../runtime/shared/schedule-model-ref.mjs'),
     import('../runtime/agent/orchestrator/providers/openai-oauth-catalog-store.mjs'),
@@ -315,8 +317,7 @@ async function configModelRoute(modelRef) {
   const ref = parseScheduleModelRef(modelRef);
   if (ref && typeof ref === 'object') return modelRouteFields(migrateCodexRoute(ref));
   const preset = loadConfig({ secrets: false }).presets?.find((p) => p.id === ref || p.name === ref);
-  if (!preset) throw new Error(`model "${ref}" is neither a provider/model route nor a known preset name`);
-  return modelRouteFields(preset);
+  return preset ? modelRouteFields(preset) : byName(ref);
 }
 
 /** The Lead (Main) route of the config — what a desktop New task starts on.
@@ -737,6 +738,8 @@ export function createAgentTaskSessions({
   newTaskDefault = async () =>
     (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).worktree?.newTaskDefault,
   modelRoute = configModelRoute,
+  // The model menu's catalog rows, read through the calling session's runtime.
+  modelCatalog = (sessionId) => readModelCatalog(service(), sessionId),
   // The Lead (Main) route of the config — what a desktop New task starts on.
   leadRoute = configLeadRoute,
   // The model the user last used in a coding session.
@@ -984,10 +987,16 @@ export function createAgentTaskSessions({
     // A task session runs in coding mode under Lead: an explicit model wins,
     // else the Lead route, else the last-used model. Never a model-less
     // session — the composer would show no model and its first turn would fail.
-    const route = clean(args.model)
-      ? await modelRoute(clean(args.model))
+    // The catalog is read only when a display name or an effort needs it.
+    let catalog = null;
+    const catalogRows = async () => (catalog ??= await modelCatalog(callerSessionId));
+    let route = clean(args.model)
+      ? await modelRoute(clean(args.model), async (text) => routeByDisplayName(text, await catalogRows(), args.effort !== undefined))
       : (await leadRoute()) || (await lastUsedRoute(service()));
     if (!route) throw new Error('session: no model to start the task session on. Choose a Lead model first.');
+    // An explicit effort is the setting the menu's effort pick makes (session.effort,
+    // Auto effort off); it wins over one a model ref or name carried.
+    if (args.effort !== undefined) route = withEffort(route, args.effort, await catalogRows());
     const sessions = service();
     // Where it starts: the `worktree` option, else the user's New task default
     // for a caller that may provision one. Decided before the session exists,

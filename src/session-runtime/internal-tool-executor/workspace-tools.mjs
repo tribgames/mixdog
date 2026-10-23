@@ -184,6 +184,9 @@ export function createWorkspaceToolHandlers({
           project: current?.workspace?.projectPath || current?.desktopSession?.projectPath || currentCwd,
           provider: current?.provider || null,
           model: current?.model || null,
+          effort: current?.effort || null,
+          autoEffort: current?.autoEffort !== false,
+          fast: current?.fast === true,
         },
         null,
         2

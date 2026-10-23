@@ -171,7 +171,13 @@ export const SESSION_TOOL = {
       },
       model: {
         type: 'string',
-        description: 'create: provider/model or preset; default is the Lead model (else the last-used one).',
+        description:
+          'create: provider/model, preset, or a model menu display name (e.g. "Claude Opus 5.5", case-insensitive; a trailing effort word is read as effort); default is the Lead model (else the last-used one).',
+      },
+      effort: {
+        type: 'string',
+        description:
+          'create/send: reasoning effort setting of the session (auto, or a level its model supports, e.g. low, medium, high, xhigh, max); wins over one in model. send: bots may change only task sessions they created. status shows effort and fast.',
       },
       notify: { type: 'boolean', description: 'create: report results back, default true.' },
       attachments: {

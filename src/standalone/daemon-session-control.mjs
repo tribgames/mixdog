@@ -4,6 +4,7 @@ import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.
 import { assertWorktreeMutationAllowed } from '../session-runtime/services/worktree-access.mjs';
 import { createBotStatus, scanCatalog, scopedBot, sessionBotOf } from '../session-runtime/bot-status.mjs';
 import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
+import { checkEffort, readModelCatalog } from '../session-runtime/task-session-route.mjs';
 import { BOT_HOP_LIMIT_ERROR, MAX_BOT_HOPS } from '../runtime/shared/bot-hops.mjs';
 import { rebindDelegation } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import { isAgentOnlySession } from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
@@ -178,6 +179,28 @@ export function createSessionControl({
         : null;
       const addressed = room ? { to: room.agentId } : {};
       let origin = await agentTasks.reportOrigin(turnSessionId, context.callerAgentId, caller);
+      // `effort` is the menu's effort pick on the target: checked now against the
+      // levels of its model, applied just before the prompt is queued.
+      let applyEffort = async () => {};
+      if (args.effort !== undefined) {
+        if (room) throw new Error('session: effort applies to a session, not a group room');
+        if (context.callerAgentId && origin?.target === 'session') {
+          throw new Error('session: a bot may set the effort only of the task sessions it created');
+        }
+        const target = (await service.readSession({ sessionId, transcriptItemLimit: 1 })).full;
+        if (!target) throw new Error(`session: ${sessionId} is unavailable`);
+        const level = checkEffort(args.effort, target, await readModelCatalog(service, caller));
+        // sessionOnly: the session's route changes, never the user's saved model settings.
+        applyEffort = async () => {
+          const applied = await service.configureSession(
+            { sessionId, action: 'setEffort', args: [level, { sessionOnly: true }] },
+            { revision: 1 }
+          );
+          if (applied?.value === false) {
+            throw new Error(`session: ${sessionId} is busy with another command; effort not changed`);
+          }
+        };
+      }
       // A send made in a bot-descended turn (`callerHop` > 0), or by a bot to
       // another session, extends the chain by one; a bot's own task session
       // only continues it. Refused past the limit, whatever the target.
@@ -192,10 +215,12 @@ export function createSessionControl({
         // The task session a bot created acts as the sending conversation does
         // from now on (attended chat or run); another's session keeps its own.
         if (origin.target !== 'session') await rebindDelegation(sessionId, caller);
+        await applyEffort();
         const sent = await agentTasks.send(turnSessionId, prompt, origin, submit);
         return { sessionId, ...addressed, ...sent, ...(hop > 0 ? { hop } : {}) };
       }
       const hop = turnHop > 0 ? chained(turnHop + 1) : 0;
+      await applyEffort();
       let accepted;
       if (submit) accepted = (await submit(hop > 0 ? { transcriptMeta: { hop } } : {})).accepted;
       else {
@@ -256,6 +281,9 @@ export function createSessionControl({
       cwd: snapshot.cwd ?? null,
       provider: snapshot.provider ?? null,
       model: snapshot.model ?? null,
+      effort: snapshot.effort ?? null,
+      autoEffort: snapshot.autoEffort ?? null,
+      fast: snapshot.fast ?? null,
       busy: snapshot.busy === true,
       quotaResume: snapshot.quotaResume ?? null,
     };

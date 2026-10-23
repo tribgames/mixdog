@@ -34,8 +34,8 @@ export function createSessionSettingsApi(bag) {
     // refused: another command's lock does not block a selection.
     setModel: async (m) => (await bag.setSessionRoute({ model: m })) !== false,
     setEffort: withCommandLock(
-      async (value) => {
-        await runtime.setEffort(value);
+      async (value, options) => {
+        await runtime.setEffort(value, options);
         set({ ...routeState() });
         return runtime.effort || 'auto';
       },

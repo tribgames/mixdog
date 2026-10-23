@@ -17,10 +17,14 @@ export function createRouteTuning(deps, persist) {
    *  is already the Main model (persistAdoptedModelSettings: tunesNonMainModel),
    *  so the lead preset's model is rewritten with itself and never changes. A
    *  live route without a model normalizes to nothing and writes no preset. */
-  async function commitRouteTuning(fastCapable, modelMeta) {
-    persist.saveRouteModelSettings(getRoute(), fastCapable);
-    const leadRoute = persist.persistAdoptedModelSettings(getRoute());
-    if (leadRoute) setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
+  async function commitRouteTuning(fastCapable, modelMeta, { sessionOnly = false } = {}) {
+    // sessionOnly: the live route and session change; the saved model
+    // settings and the config stay as the user left them.
+    if (!sessionOnly) {
+      persist.saveRouteModelSettings(getRoute(), fastCapable);
+      const leadRoute = persist.persistAdoptedModelSettings(getRoute());
+      if (leadRoute) setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
+    }
     await refreshRouteEffort(modelMeta);
     persist.applySessionTuning();
   }
@@ -65,7 +69,7 @@ export function createRouteTuning(deps, persist) {
     async toggleFast() {
       return await setFast(!(getRoute().fast === true));
     },
-    async setEffort(value) {
+    async setEffort(value, { sessionOnly = false } = {}) {
       const normalized = normalizeEffortInput(value);
       // An explicit level is the user's choice for this route: Auto effort
       // would replace it on the next turn (its base is fixed), so the pick
@@ -73,7 +77,7 @@ export function createRouteTuning(deps, persist) {
       setRouteState({ ...getRoute(), effort: normalized, ...(normalized ? { autoEffort: false } : {}) });
       const modelMeta = await lookupModelMeta(getRoute().provider, getRoute().model);
       const fastCapable = selectionFastCapable(getRoute().provider, modelMeta, normalized, getRoute().modelParameters);
-      await commitRouteTuning(fastCapable, modelMeta);
+      await commitRouteTuning(fastCapable, modelMeta, { sessionOnly });
       return getRoute();
     },
   };
