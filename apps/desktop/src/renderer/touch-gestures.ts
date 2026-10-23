@@ -206,11 +206,13 @@ export function installTouchGestures(
 }
 
 // ── Edge swipes ─────────────────────────────────────────────────────────────
-// One openness value per drawer (0 closed … 1 open) follows the finger; the
-// release snaps it to open or closed by fling velocity, else by distance.
-// Everything that scrolls or selects on its own keeps its horizontal drags.
+// A horizontal swipe from anywhere opens the drawer it moves toward: rightward
+// the left one, leftward the right one. One openness value per drawer
+// (0 closed … 1 open) follows the finger; the release snaps it to open or
+// closed by fling velocity, else by distance. Everything that scrolls,
+// selects or pages on its own keeps its horizontal drags.
 
-/** Width of the screen-edge band where an opening swipe may begin. */
+/** Width of the left-edge band that pulls the open right sheet shut. */
 const EDGE_ZONE_PX = 24;
 /** Travel before a drag commits to horizontal (or is given up as vertical). */
 const LOCK_PX = 10;
@@ -220,13 +222,16 @@ const SAMPLE_WINDOW_MS = 100;
 /** Inline end-state hold, so the snap animates before the class takes over. */
 const SETTLE_HOLD_MS = 400;
 const PHONE_MARKER = 'data-mixdog-mobile-tabs';
-/** Surfaces that own horizontal drags: terminals and the browser pane. */
+/** Surfaces that own horizontal drags: terminals, the browser pane, and
+ *  dialogs over the page (the media viewer pages by swipe). */
 const OWN_DRAG_SELECTOR = [
   '.dock-terminal',
   '.xterm',
   '.session-terminal-tab-panel',
   '.browser-remote-stage',
   '.browser-pane-content',
+  '.studio-detail',
+  '[role="dialog"]',
   '[data-no-edge-swipe]',
 ].join(', ');
 
@@ -279,8 +284,9 @@ interface Drag {
   id: number;
   x: number;
   y: number;
-  drawer: DrawerControl;
-  element: HTMLElement;
+  /** Both null until a swipe with every drawer closed shows its direction. */
+  drawer: DrawerControl | null;
+  element: HTMLElement | null;
   /** 1 when the drag began on an open drawer. */
   base: number;
   width: number;
@@ -288,6 +294,10 @@ interface Drag {
   position: number;
   samples: Sample[];
 }
+
+/** A drag that has its drawer and sheet. */
+type BoundDrag = Drag & { drawer: DrawerControl; element: HTMLElement };
+const isBound = (drag: Drag): drag is BoundDrag => drag.drawer !== null && drag.element !== null;
 
 export interface EdgeSwipeOptions {
   now?: () => number;
@@ -311,7 +321,7 @@ export function installEdgeSwipe(
   let painted: { element: HTMLElement; scrim: HTMLElement | null | undefined } | null = null;
 
   const sign = (drawer: DrawerControl): number => (drawer.side === 'left' ? 1 : -1);
-  const paint = (current: Drag, position: number, animate: boolean): void => {
+  const paint = (current: BoundDrag, position: number, animate: boolean): void => {
     painted = { element: current.element, scrim: current.drawer.backdrop?.() };
     const shift = (1 - position) * 100 * -sign(current.drawer);
     const hidden = position <= 0;
@@ -339,7 +349,7 @@ export function installEdgeSwipe(
     if (painted) clearPaint(painted.element, painted.scrim);
     painted = null;
   };
-  const settle = (current: Drag, open: boolean): void => {
+  const settle = (current: BoundDrag, open: boolean): void => {
     paint(current, open ? 1 : 0, true);
     if (open !== current.drawer.isOpen()) current.drawer.setOpen(open);
     win.clearTimeout(settleTimer);
@@ -351,16 +361,31 @@ export function installEdgeSwipe(
     return x <= win.innerWidth - edgeInset && x >= win.innerWidth - edgeInset - EDGE_ZONE_PX ? 'right' : null;
   };
 
-  const pick = (x: number): { drawer: DrawerControl; base: number } | null => {
+  /** The open drawer a drag may close, or (null) one it opens once its
+   *  direction shows; null itself when the drag is not ours. */
+  const pick = (x: number): { drawer: DrawerControl | null; base: number } | null => {
     const openDrawer = drawers.find((drawer) => drawer.isOpen());
     if (openDrawer) {
       // The right sheet covers the screen: only its left edge can pull it shut.
       if (openDrawer.side === 'right' && zoneSide(x) !== 'left') return null;
       return { drawer: openDrawer, base: 1 };
     }
-    const side = zoneSide(x);
-    const drawer = drawers.find((candidate) => candidate.side === side);
-    return drawer ? { drawer, base: 0 } : null;
+    // The dead band at each edge stays the browser's.
+    if (x < edgeInset || x > win.innerWidth - edgeInset) return null;
+    return { drawer: null, base: 0 };
+  };
+
+  /** Give an unbound drag the drawer its direction `dx` moves toward; false
+   *  when there is none to slide. */
+  const bind = (current: Drag, dx: number): current is BoundDrag => {
+    if (isBound(current)) return true;
+    const drawer = drawers.find((candidate) => candidate.side === (dx > 0 ? 'left' : 'right'));
+    const element = drawer?.element();
+    if (!drawer || !element) return false;
+    current.drawer = drawer;
+    current.element = element;
+    current.width = element.getBoundingClientRect().width || win.innerWidth;
+    return true;
   };
 
   // Touch events, not pointer events: when the browser claims a touch for a
@@ -376,13 +401,14 @@ export function installEdgeSwipe(
     // A second finger ends the drag: the sheet goes back where it started.
     const previous = drag;
     drag = null;
-    if (previous?.locked) settle(previous, previous.base === 1);
+    if (previous?.locked && isBound(previous)) settle(previous, previous.base === 1);
     const touch = event.touches[0];
     if (!touch || event.touches.length > 1) return;
     if (!doc.documentElement.hasAttribute(PHONE_MARKER)) return;
     const picked = pick(touch.clientX);
-    const element = picked?.drawer.element();
-    if (!picked || !element) return;
+    if (!picked) return;
+    const element = picked.drawer ? picked.drawer.element() : null;
+    if (picked.drawer && !element) return;
     const start = event.target instanceof win.Element ? event.target : null;
     if (!start || ownsHorizontalDrag(win, start)) return;
     win.clearTimeout(settleTimer);
@@ -394,7 +420,7 @@ export function installEdgeSwipe(
       drawer: picked.drawer,
       element,
       base: picked.base,
-      width: element.getBoundingClientRect().width || win.innerWidth,
+      width: element?.getBoundingClientRect().width || win.innerWidth,
       locked: false,
       position: picked.base,
       samples: [{ v: touch.clientX, t: now() }],
@@ -405,26 +431,30 @@ export function installEdgeSwipe(
     if (!drag || !touch) return;
     const dx = touch.clientX - drag.x;
     const dy = touch.clientY - drag.y;
-    const delta = (dx * sign(drag.drawer)) / drag.width;
-    if (!drag.locked) {
+    const current = drag;
+    if (!current.locked) {
       if (Math.abs(dx) < LOCK_PX && Math.abs(dy) < LOCK_PX) return;
-      // Vertical, or against the sheet's direction: not ours.
-      if (Math.abs(dy) * 1.5 > Math.abs(dx) || (drag.base === 0 ? delta <= 0 : delta >= 0)) {
+      // Vertical, nothing to slide that way, or against the sheet's direction: not ours.
+      const toward =
+        bind(current, dx) && (current.base === 0 ? dx * sign(current.drawer) > 0 : dx * sign(current.drawer) < 0);
+      if (Math.abs(dy) * 1.5 > Math.abs(dx) || !toward) {
         drag = null;
         return;
       }
-      drag.locked = true;
+      current.locked = true;
     }
-    drag.position = Math.min(1, Math.max(0, drag.base + delta));
-    pushSample(drag.samples, touch.clientX, now());
-    paint(drag, drag.position, false);
+    if (!isBound(current)) return;
+    const delta = (dx * sign(current.drawer)) / current.width;
+    current.position = Math.min(1, Math.max(0, current.base + delta));
+    pushSample(current.samples, touch.clientX, now());
+    paint(current, current.position, false);
   };
   const onUp = (event: TouchEvent): void => {
     const current = drag;
     const touch = tracked(event);
     if (!current || !touch) return;
     drag = null;
-    if (!current.locked) return;
+    if (!current.locked || !isBound(current)) return;
     // The release is a sample too: a finger held still has no speed left.
     pushSample(current.samples, touch.clientX, now());
     const speed = velocityOf(current.samples) * sign(current.drawer);
@@ -435,7 +465,7 @@ export function installEdgeSwipe(
     const current = drag;
     if (!current || !tracked(event)) return;
     drag = null;
-    if (current.locked) settle(current, current.base === 1);
+    if (current.locked && isBound(current)) settle(current, current.base === 1);
   };
 
   const listeners: Array<[string, EventListener]> = [

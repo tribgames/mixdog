@@ -98,10 +98,32 @@ test('the right edge opens the files dock', () => {
   env.dispose();
 });
 
-test('a swipe that does not start at an edge is ignored', () => {
+test('a swipe from the middle opens the drawer it moves toward', () => {
   const env = setup();
-  drag(env, env.doc.getElementById('text'), 200, 300, 50);
+  const text = env.doc.getElementById('text');
+  drag(env, text, 200, 250, 50);
+  assert.deepEqual(env.calls, ['left:true'], 'rightward opens the session drawer');
+  drag(env, text, 250, -200, 50);
+  assert.deepEqual(env.calls, ['left:true', 'left:false']);
+  drag(env, text, 600, -400, 50);
+  assert.deepEqual(env.calls, ['left:true', 'left:false', 'right:true'], 'leftward opens the files dock');
+  env.dispose();
+});
+
+test('a middle swipe backs off in a code block, a terminal, a dialog, and toward a missing sheet', () => {
+  const env = setup();
+  const dialog = env.doc.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  const inside = env.doc.createElement('p');
+  dialog.appendChild(inside);
+  env.doc.body.appendChild(dialog);
+  for (const id of ['code', 'term']) drag(env, env.doc.getElementById(id), 200, 300, 50);
+  drag(env, inside, 200, 300, 50);
   assert.deepEqual(env.calls, []);
+  env.doc.getElementById('dock').remove();
+  drag(env, env.doc.getElementById('text'), 600, -400, 50);
+  assert.deepEqual(env.calls, [], 'no files dock on this screen: nothing slides');
+  assert.equal(env.frame.getAttribute('style') ?? '', '', 'the session drawer was never painted');
   env.dispose();
 });
 
