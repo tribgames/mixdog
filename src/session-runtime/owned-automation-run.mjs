@@ -138,17 +138,20 @@ export async function runOwnedAutomation(kind, row, run, deps = {}) {
       .catch((error) => log(`${kind} "${name}": skip record failed: ${errorText(error)}`));
     return { name, skipped: true, reason, sessionId: null, result: '', ...extra };
   };
-  // A routine runs only in its own bot's thread: without that bot it waits.
-  const problem = await Promise.resolve()
-    .then(() => ownerProblem(row.ownerAgentId))
-    .catch(() => '');
-  if (problem) {
-    log(`${kind} "${name}": paused, ${ROUTINE_OWNER_PROBLEMS[problem]}`);
-    return skip('owner', { ownerProblem: problem, message: ROUTINE_OWNER_PROBLEMS[problem] });
-  }
-  if (active.has(key)) return skip('overlap');
-  active.add(key);
+  // The name is reserved before the owner check, so a rename can neither
+  // complete while it waits nor leave this run to start under the old name.
+  const overlap = active.has(key);
+  if (!overlap) active.add(key);
   try {
+    // A routine runs only in its own bot's thread: without that bot it waits.
+    const problem = await Promise.resolve()
+      .then(() => ownerProblem(row.ownerAgentId))
+      .catch(() => '');
+    if (problem) {
+      log(`${kind} "${name}": paused, ${ROUTINE_OWNER_PROBLEMS[problem]}`);
+      return await skip('owner', { ownerProblem: problem, message: ROUTINE_OWNER_PROBLEMS[problem] });
+    }
+    if (overlap) return await skip('overlap');
     if (!attended) {
       const record = await withRecord(kind, deps);
       const state = await Promise.resolve()
@@ -169,7 +172,7 @@ export async function runOwnedAutomation(kind, row, run, deps = {}) {
     }
     return await run({ signal });
   } finally {
-    active.delete(key);
+    if (!overlap) active.delete(key);
   }
 }
 

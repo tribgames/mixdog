@@ -417,6 +417,12 @@ ${prompt}`;
       }
       return;
     }
+    // The name is held in `running` from before the claim until the completion
+    // stamps are written, so a rename can neither complete meanwhile nor leave
+    // this fire to run under the old name. A fire refused here still claims its
+    // slot and is recorded as a skip, never run.
+    const refusal = this.fireRefusal(schedule.name);
+    if (!refusal) this.running.add(schedule.name);
     try {
       const claimed = await claimScheduleRun(schedule.name, scheduledAt, startedAt, nextFireAt);
       if (!claimed) {
@@ -427,7 +433,11 @@ ${prompt}`;
       schedule.lastStartedAt = startedAt.toISOString();
       schedule.lastFiredAt = startedAt.toISOString();
       this.lastFired.set(schedule.name, startedAt.toISOString());
-      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true });
+      if (refusal) {
+        this.recordRefusal(schedule, refusal);
+        return;
+      }
+      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true, reserved: true });
       // An overlap skip is recorded as a skip, never as a failed run.
       if (!fired && skippedSince(schedule, startedAt)) return;
       if (!fired) {
@@ -445,6 +455,8 @@ ${prompt}`;
       } catch {}
       process.stderr.write(`mixdog scheduler: ${schedule.name} failed: ${err}\n`);
       this.notifyFailure(schedule, `run failed: ${err?.message || err}`);
+    } finally {
+      if (!refusal) this.running.delete(schedule.name);
     }
   }
   stop() {
@@ -523,12 +535,17 @@ ${prompt}`;
     // Mark done ONLY after a successful fire. A false/throwing fireTimed
     // (missing prompt, running guard, paused owner, dispatch error) must leave the
     // one-shot pending so a reload/restart can retry it — never retire it.
+    // The name stays in `running` until the fired/done stamps are written, so
+    // a rename cannot move the row before they land (onCronFire). A refused
+    // fire is left to fireTimedPrompt, which records the skip.
+    const reserved = !this.fireRefusal(schedule.name);
+    if (reserved) this.running.add(schedule.name);
     try {
       // awaitDispatch: for a one-shot we must wait for the actual LLM/relay
       // dispatch outcome — a truthy fireTimed alone (cron's fire-and-forget
       // contract) would retire the entry even when schedulerLlm() later
       // rejects. Only a resolved dispatch counts as a real fire here.
-      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true });
+      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true, reserved });
       if (!fired && skippedSince(schedule, now)) {
         logSchedule(`one-shot "${schedule.name}" skipped (previous run in progress) — leaving pending for retry\n`);
         return;
@@ -544,6 +561,8 @@ ${prompt}`;
       await markOneShotFailed(schedule);
       process.stderr.write(`mixdog scheduler: ${schedule.name} one-shot failed: ${err} — leaving pending for retry\n`);
       this.notifyFailure(schedule, `one-shot failed: ${err?.message || err} — left pending for retry`);
+    } finally {
+      if (reserved) this.running.delete(schedule.name);
     }
   }
   /** when_at one-shots must honor deferred_until / skipped_until just like
@@ -581,9 +600,10 @@ ${prompt}`;
   }
   /** Run `rename` (which moves schedule `name`'s row) while no run of `name`
    *  can start or be in flight. The check and the reservation are one
-   *  synchronous step, and fireTimedPrompt refuses a reserved name before it
-   *  adds the name to `running`, so a fire either is already in `running`
-   *  (refused here) or finds the reservation (not fired). */
+   *  synchronous step, and a fire checks for the reservation (fireRefusal)
+   *  in the same step that adds the name to `running`, which it holds until
+   *  its completion stamps are written, so a fire either is already in
+   *  `running` (refused here) or finds the reservation (not fired). */
   async renameLocked(name, rename, { newName = name, reload = async () => {} } = {}) {
     if (this.running.has(name) || this.renaming.has(name)) {
       throw new Error(`Schedule "${name}" is running. Rename it after the run finishes.`);
@@ -701,29 +721,42 @@ ${prompt}`;
     }
     return await this.fireTimedPrompt(schedule, type, prompt, opts);
   }
-  /** Fire a timed schedule with the given prompt content */
-  async fireTimedPrompt(schedule, type, prompt, { awaitDispatch = false } = {}) {
-    logSchedule(`firing ${schedule.name} (${type})\n`);
-    if (this.renaming.has(schedule.name)) {
-      logSchedule(`${schedule.name}: not fired — being renamed\n`);
-      // A skip, not a failure: a one-shot stays pending (fireOneShot) and
-      // renameLocked re-arms it if the rename does not go through.
-      schedule.lastSkippedAt = new Date().toISOString();
-      // Per name: another rename settling meanwhile must not hide this one.
-      (this.renameBlocked ??= new Set()).add(schedule.name);
-      return false;
-    }
-    if (this.running.has(schedule.name)) {
+  /** Why a fire of `name` may not start now: 'renaming', 'running' or null. */
+  fireRefusal(name) {
+    if (this.renaming.has(name)) return 'renaming';
+    return this.running.has(name) ? 'running' : null;
+  }
+  /** Record a fire refused for `reason` (fireRefusal) as a skip. */
+  recordRefusal(schedule, reason) {
+    if (reason === 'running') {
       this.recordSkip(schedule);
+      return;
+    }
+    logSchedule(`${schedule.name}: not fired — being renamed\n`);
+    // A skip, not a failure: a one-shot stays pending (fireOneShot) and
+    // renameLocked re-arms it if the rename does not go through.
+    schedule.lastSkippedAt = new Date().toISOString();
+    // Per name: another rename settling meanwhile must not hide this one.
+    this.renameBlocked ??= new Set();
+    this.renameBlocked.add(schedule.name);
+  }
+  /** Fire a timed schedule with the given prompt content. `reserved`: the
+   *  caller already holds the name in `running` and releases it itself. */
+  async fireTimedPrompt(schedule, type, prompt, { awaitDispatch = false, reserved = false } = {}) {
+    logSchedule(`firing ${schedule.name} (${type})\n`);
+    const refusal = reserved ? null : this.fireRefusal(schedule.name);
+    if (refusal) {
+      this.recordRefusal(schedule, refusal);
       return false;
     }
     if (type === 'interactive' && this.injectIntoLead(schedule, type, prompt)) return true;
-    this.running.add(schedule.name);
+    if (!reserved) this.running.add(schedule.name);
     // Cron (recurring) keeps the fire-and-forget contract: return truthy now
     // and swallow async failures. A one-shot (awaitDispatch) instead awaits
     // the dispatch so a rejected run propagates and the caller leaves the
     // entry pending for retry instead of retiring it.
-    const dispatch = this.dispatchScheduleRun(schedule, prompt, awaitDispatch);
+    const run = this.dispatchScheduleRun(schedule, prompt, awaitDispatch);
+    const dispatch = reserved ? run : run.finally(() => this.running.delete(schedule.name));
     if (awaitDispatch) return await dispatch;
     return true;
   }
@@ -752,12 +785,14 @@ ${prompt}`;
    *  callers and resolves false (after a logged notice) for fire-and-forget
    *  cron fires. */
   dispatchScheduleRun(schedule, prompt, awaitDispatch) {
-    const run = this.scheduleRunner
-      ? this.scheduleRunner(schedule, { prompt })
-      : Promise.reject(new Error('schedule runner not configured'));
-    return run
+    // Called inside a then, so a runner that throws synchronously rejects
+    // like one that rejects, and the caller's cleanup still runs.
+    return Promise.resolve()
+      .then(() => {
+        if (!this.scheduleRunner) throw new Error('schedule runner not configured');
+        return this.scheduleRunner(schedule, { prompt });
+      })
       .then((outcome) => {
-        this.running.delete(schedule.name);
         // The run path found this schedule's previous run still going (a
         // "run now" from the app) or backing off after failures in a row; it
         // already persisted the skip.
@@ -770,7 +805,6 @@ ${prompt}`;
         return true;
       })
       .catch((err) => {
-        this.running.delete(schedule.name);
         logSchedule(`${schedule.name} LLM error: ${err.message}\n`);
         // The cron fire-and-forget contract swallowed failures entirely;
         // log them so a failed scheduled run is never
