@@ -2,7 +2,7 @@
 // grammar shared by changed-file rows and commit
 // context menus: ONE flat menu of labelled actions, opened by the right
 // button or by the keyboard (Menu / Shift+F10), dismissed by Escape, an
-// outside click, a resize or a scroll. The per-row "…" trigger buttons the
+// outside click, a resize or a user scroll. The per-row "…" trigger buttons the
 // dock used to carry are gone; this menu replaces them.
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import type React from 'react';
@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
+import { closeOnUserScroll } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { RailPinIcon } from './RailPinIcon';
 
@@ -202,8 +203,14 @@ export function ScmContextMenu({
     setStyle(menuPosition(panel.current, x, y, state?.alignEnd, state?.flipY));
   }, [open, x, y, submenuId, state]);
 
+  // Owners may pass a fresh onClose on every render (a live agent update
+  // re-renders them): read it through a ref, so only the open transition
+  // re-arms the listeners and moves focus, never a re-render.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return undefined;
+    const onClose = () => closeRef.current();
     // Keyboard users land ON the menu; closing hands focus back to the row.
     const previous = document.activeElement as HTMLElement | null;
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR)?.focus());
@@ -222,15 +229,15 @@ export function ScmContextMenu({
     document.addEventListener('pointerdown', dismiss, true);
     document.addEventListener('keydown', keydown, true);
     window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true);
+    const stopScrollDismiss = closeOnUserScroll(close, (target) => Boolean(panel.current?.contains(target)));
     return () => {
       document.removeEventListener('pointerdown', dismiss, true);
       document.removeEventListener('keydown', keydown, true);
       window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
+      stopScrollDismiss();
       if (previous?.isConnected) previous.focus?.();
     };
-  }, [onClose, open, anchorRef]);
+  }, [open, anchorRef]);
 
   // ABB: hardware back closes the menu instead of leaving the PWA.
   useMobileBack(open, onClose);

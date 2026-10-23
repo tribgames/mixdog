@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { t } from './i18n';
-import { useMenuDismiss } from './menu-dismiss';
+import { closeOnUserScroll, useMenuDismiss } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
 import { captureRowMenuAnchor, positionRowMenu, useRowMenuClamp } from './row-menu-geometry';
@@ -67,7 +67,7 @@ export function rowOverflowHostProps() {
 
 /** An open menu closes on an outside pointer, on Escape (which returns focus
  *  to the trigger), on Tab (menu-dismiss.ts) and on anything that moves it:
- *  resize or scroll. */
+ *  resize or a user scroll (closeOnUserScroll). */
 function useRowOverflowDismiss({
   menuOpen,
   path,
@@ -88,10 +88,10 @@ function useRowOverflowDismiss({
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(MENU_ENTRY)?.focus());
     const close = () => setOpen(false);
     window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true);
+    const stopScrollDismiss = closeOnUserScroll(close, (target) => Boolean(panel.current?.contains(target)));
     return () => {
       window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
+      stopScrollDismiss();
     };
   }, [menuOpen, path]);
 }

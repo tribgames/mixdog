@@ -166,6 +166,98 @@ test('⋯ row menu: after a pointer open, Tab closes it and Escape returns focus
   await view.cleanup();
 });
 
+test('⋯ row menu: a programmatic scroll elsewhere leaves it open; a user wheel outside closes it', async () => {
+  const view = await mount(
+    React.createElement(RowOverflowMenu, { label: 'Row', items: [{ id: 'a', label: 'Alpha', onSelect() {} }] })
+  );
+  const transcript = document.createElement('div');
+  document.body.append(transcript);
+  const trigger = view.host.querySelector('.row-overflow-trigger');
+  await pointerOpen(trigger);
+  // An agent turn pins the transcript to its end on every streamed token.
+  await act(async () => transcript.dispatchEvent(new window.Event('scroll')));
+  assert.ok(document.querySelector('.row-overflow-menu'), 'a live programmatic scroll closed the menu');
+  await act(async () =>
+    document.querySelector('.row-overflow-menu').dispatchEvent(new window.WheelEvent('wheel', { bubbles: true }))
+  );
+  assert.ok(document.querySelector('.row-overflow-menu'), 'a wheel over the menu itself closed it');
+  await act(async () => transcript.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true })));
+  assert.equal(document.querySelector('.row-overflow-menu'), null, 'a user scroll outside left the menu open');
+  transcript.remove();
+  await view.cleanup();
+});
+
+test('⋯ row menu: a scrolling key from the trigger closes it; the menu keys and Space on the trigger do not', async () => {
+  const view = await mount(
+    React.createElement(RowOverflowMenu, {
+      label: 'Row',
+      items: [
+        { id: 'a', label: 'Alpha', onSelect() {} },
+        { id: 'b', label: 'Beta', onSelect() {} },
+      ],
+    })
+  );
+  const trigger = view.host.querySelector('.row-overflow-trigger');
+  const entry = (id) => document.querySelector(`.row-overflow-menu [data-action-id="${id}"]`);
+  await pointerOpen(trigger);
+  await press(' ');
+  assert.ok(document.querySelector('.row-overflow-menu'), 'Space activates the trigger, it scrolls nothing');
+  entry('a').focus();
+  await press('ArrowDown');
+  assert.ok(document.querySelector('.row-overflow-menu'), "the menu's own arrow key closed it");
+  assert.equal(document.activeElement, entry('b'), 'arrow navigation inside the menu still works');
+  await press('End');
+  assert.ok(document.querySelector('.row-overflow-menu'), "the menu's own End key closed it");
+  trigger.focus();
+  await press('PageDown');
+  assert.equal(document.querySelector('.row-overflow-menu'), null, 'PageDown from the trigger scrolled the list under it');
+
+  for (const key of ['ArrowDown', 'Home', 'PageUp']) {
+    await pointerOpen(trigger);
+    await press(key);
+    assert.equal(document.querySelector('.row-overflow-menu'), null, `${key} from the trigger left the menu open`);
+  }
+  await view.cleanup();
+});
+
+test('⋯ row menu: a touch drag that starts on the trigger closes it; the opening tap and a held finger do not', async () => {
+  const view = await mount(
+    React.createElement(RowOverflowMenu, { label: 'Row', items: [{ id: 'a', label: 'Alpha', onSelect() {} }] })
+  );
+  const trigger = view.host.querySelector('.row-overflow-trigger');
+  const touch = (type, target, x, y, { prevent = false } = {}) =>
+    act(async () => {
+      const event = new window.Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'changedTouches', { value: [{ identifier: 1, clientX: x, clientY: y }] });
+      if (prevent) event.preventDefault();
+      target.dispatchEvent(event);
+      await Promise.resolve();
+    });
+  // The tap that opens it: pointerdown opens, the touch lands and lifts in place.
+  await pointerDown(trigger);
+  await touch('touchstart', trigger, 20, 20);
+  await touch('touchmove', trigger, 23, 22);
+  await touch('touchend', trigger, 23, 22);
+  await click(trigger);
+  assert.ok(document.querySelector('.row-overflow-menu'), 'the opening tap closed the menu');
+
+  await pointerDown(document.body);
+  assert.equal(document.querySelector('.row-overflow-menu'), null);
+
+  // A press that opens it and stays down: moves within the slop, or held still by a guard.
+  await pointerDown(trigger);
+  await touch('touchstart', trigger, 20, 20);
+  assert.ok(document.querySelector('.row-overflow-menu'));
+  await touch('touchmove', trigger, 25, 24);
+  await touch('touchmove', trigger, 20, 80, { prevent: true });
+  assert.ok(document.querySelector('.row-overflow-menu'), 'a move that scrolled nothing closed the menu');
+  // The drag goes on and scrolls the list under the menu.
+  await touch('touchmove', trigger, 20, 60);
+  assert.equal(document.querySelector('.row-overflow-menu'), null, 'a touch drag from the trigger left the menu open');
+  await touch('touchend', trigger, 20, 60);
+  await view.cleanup();
+});
+
 test('usage menu: after a pointer open, Tab closes it and Escape returns focus to the trigger', async () => {
   const view = await mount(
     React.createElement(SidebarUsageMenu, {
