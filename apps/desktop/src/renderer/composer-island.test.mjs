@@ -2665,7 +2665,7 @@ test('an in-use branch row reads Worktree, carries no explanatory tooltip and sh
   assert.equal(row.querySelector('small').textContent, 'Worktree');
   assert.equal(row.dataset.tooltip, undefined);
 });
-test('first frame: a snapshot workspace paints the branch segment at once while the list is read ahead', async (t) => {
+test('first frame: a snapshot workspace paints the branch segment at once and the menu is not read until used', async (t) => {
   const { root, document, window } = mount(t);
   const reads = [];
   window.mixdogDesktop.invokeCapability = async (request) => {
@@ -2673,8 +2673,40 @@ test('first frame: a snapshot workspace paints the branch segment at once while 
     return new Promise(() => {});
   };
   await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: projectWorkspace() }))));
+  await tick();
   assert.equal(document.querySelector('.composer-island-seg-branch .composer-island-seg-label').textContent, 'main');
-  assert.deepEqual(reads, ['getBranchMenu'], 'the list is read when the island mounts, before any click');
+  assert.deepEqual(reads, [], 'booting reads no branch menu (it is large over the relay)');
+  await act(async () => document.querySelector('.composer-island-seg-branch').click());
+  assert.deepEqual(reads, ['getBranchMenu'], 'opening the tab reads it');
+});
+
+test('a turn transition re-reads the menu while the tab is open, and not while it is closed', async (t) => {
+  const { root, document, window } = mount(t);
+  let reads = 0;
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability !== 'getBranchMenu') return { value: null };
+    reads += 1;
+    return { value: projectMenu() };
+  };
+  const render = (reviewBusy) =>
+    act(async () =>
+      root.render(React.createElement(ComposerDock, dockProps({ workspace: projectWorkspace(), reviewBusy })))
+    );
+  await render(false);
+  await tick();
+  // Closed: a turn starting and ending reads nothing.
+  await render(true);
+  await render(false);
+  await tick();
+  assert.equal(reads, 0);
+  // Open: the next transition keeps the rows current.
+  await act(async () => document.querySelector('.composer-island-seg-branch').click());
+  await tick();
+  const opened = reads;
+  assert.ok(opened > 0);
+  await render(true);
+  await tick();
+  assert.ok(reads > opened, 'the open tab follows the turn');
 });
 
 test('the branch list is ready before the tab opens: its rows render in the first frame', async (t) => {
@@ -2689,17 +2721,17 @@ test('the branch list is ready before the tab opens: its rows render in the firs
   };
   await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: projectWorkspace() }))));
   await tick();
-  assert.equal(reads, 1, 'read ahead at mount');
+  assert.equal(reads, 0, 'nothing is read at mount');
   const segment = () => document.querySelector('.composer-island-seg-branch');
-  // Hover and focus refresh it ahead too.
+  // Hover and focus read it ahead of the click.
   await act(async () =>
     segment().dispatchEvent(new window.MouseEvent('pointerover', { bubbles: true, relatedTarget: document.body }))
   );
   await tick();
-  assert.equal(reads, 2, 'hover reads ahead');
+  assert.equal(reads, 1, 'hover reads ahead');
   await act(async () => segment().focus());
   await tick();
-  assert.equal(reads, 3, 'focus reads ahead');
+  assert.equal(reads, 2, 'focus reads ahead');
   // Opening while a re-read is outstanding: the rows are there in the very first frame.
   gate = Promise.withResolvers();
   const frames = [];

@@ -7,7 +7,7 @@ import { SidebarUsage } from './SidebarUsage.tsx';
 import { peekQuotaFocus, clearQuotaFocus } from './usage-surface-mode.ts';
 import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { useUsageAccountPools } from './usage-account-pools.ts';
+import { ACCOUNT_REREAD_WINDOW_MS, useUsageAccountPools } from './usage-account-pools.ts';
 import { publishUsageDashboard } from './usage-dashboard-store.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -151,6 +151,9 @@ test('expanded: one block per account with index, name fallbacks, in-use dot and
 });
 
 const roster = (accounts) => ({ selectedId: accounts[0]?.id ?? null, auto: true, accounts });
+const oauthDashboard = (id, usedPct) => ({
+  rows: [{ id, group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct }] }],
+});
 
 // An account the runtime does not hold under a limit (credit-enabled, `limit: null`)
 // is not red at 100%; one whose block and reset have both passed shows no reset.
@@ -249,17 +252,17 @@ test('account reads: users share one request per provider and only account provi
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(asked, ['mimo-oauth']);
   assert.deepEqual([...document.querySelectorAll('[data-probe]')].map(text), ['mimo-oauth#1|', 'mimo-oauth#1|']);
-  // A new quota result rereads once for everyone.
+  // A new quota result for the provider rereads once for everyone.
   await new Promise((resolve) => setTimeout(resolve, 5));
   await act(async () => {
-    publishUsageDashboard(dashboard);
+    publishUsageDashboard(oauthDashboard('mimo-oauth', 10));
   });
   assert.deepEqual(asked, ['mimo-oauth', 'mimo-oauth']);
   await act(async () => release());
   assert.deepEqual([...document.querySelectorAll('[data-probe]')].map(text), ['mimo-oauth#2|', 'mimo-oauth#2|']);
 });
 
-test('account reads: every publication rereads once, even two within the same millisecond', async (t) => {
+test("account reads: each new quota result of the provider rereads once, even two within the same millisecond", async (t) => {
   const { root } = installTestDom(t, { expose: ['HTMLElement', 'Node', 'Element'], rootId: 'root' });
   const asked = [];
   const api = {
@@ -276,16 +279,67 @@ test('account reads: every publication rereads once, even two within the same mi
   });
   Date.now = () => now() + 1000;
   await act(async () => {
-    publishUsageDashboard(dashboard);
+    publishUsageDashboard(oauthDashboard('antigravity-oauth', 10));
   });
   await waitFor(() => asked.length === 2);
-  // Same millisecond, new publication.
+  // Same millisecond, new quota result.
   await act(async () => {
-    publishUsageDashboard(dashboard);
+    publishUsageDashboard(oauthDashboard('antigravity-oauth', 20));
   });
   await waitFor(() => asked.length === 3);
   await waitFor(() => text(document.querySelector('[data-probe]')) === 'n3');
   assert.equal(asked.length, 3);
+});
+
+test("account reads: a dashboard publication that leaves the provider's own row alone does not reread", async (t) => {
+  const { root } = installTestDom(t, { expose: ['HTMLElement', 'Node', 'Element'], rootId: 'root' });
+  const asked = [];
+  const api = {
+    invokeCapability: async ({ args }) => {
+      asked.push(args[0]);
+      return { value: roster([{ id: `n${asked.length}` }]) };
+    },
+  };
+  const both = (otherPct) => ({
+    rows: [
+      ...oauthDashboard('antigravity-oauth', 10).rows,
+      ...oauthDashboard('other-oauth', otherPct).rows,
+    ],
+  });
+  await act(async () => {
+    publishUsageDashboard(both(1));
+  });
+  await act(async () => root.render(React.createElement(Probe, { api, providers: ['antigravity-oauth'], label: 'a' })));
+  await waitFor(() => asked.length === 1);
+  // Publications about other providers (a phone's boot makes many) cost no roster read.
+  for (const pct of [2, 3, 4, 5]) {
+    await act(async () => {
+      publishUsageDashboard(both(pct));
+    });
+  }
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  assert.equal(asked.length, 1);
+  // A window later the next publication rereads even with its row unchanged:
+  // accounts changed on another device show up only in the roster.
+  const now = Date.now;
+  t.after(() => {
+    Date.now = now;
+  });
+  Date.now = () => now() + ACCOUNT_REREAD_WINDOW_MS + 1000;
+  await act(async () => {
+    publishUsageDashboard(both(6));
+  });
+  await waitFor(() => asked.length === 2);
+  await act(async () => {
+    publishUsageDashboard(both(7));
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  assert.equal(asked.length, 2, 'once per window');
+  // Its own row changing still rereads.
+  await act(async () => {
+    publishUsageDashboard({ rows: [...oauthDashboard('antigravity-oauth', 11).rows, ...oauthDashboard('other-oauth', 5).rows] });
+  });
+  await waitFor(() => asked.length === 3);
 });
 
 test("an account name opens that account's usage chart", async (t) => {

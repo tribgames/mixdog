@@ -7,6 +7,7 @@ import { ProviderAccountsList } from './ProviderAccountsList.tsx';
 import { OAuthControl, ProvidersPanel } from './settings/provider-panel.tsx';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
 import { getUsageDashboardSnapshot, publishUsageDashboard } from './usage-dashboard-store.ts';
+import { useUsageAccountPools } from './usage-account-pools.ts';
 import { filterConfiguredModels } from './model-catalog.tsx';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -662,6 +663,43 @@ test('refreshing usage re-measures through the dashboard; a single account keeps
   dashboardArgs.length = 0;
   await act(async () => button.click());
   assert.deepEqual(dashboardArgs, [{ refresh: true, refreshSetup: false, refreshProviders: ['openai-oauth'] }]);
+});
+
+test('refreshing usage also refreshes the rosters the sidebar and rail show under Expand all accounts', async (t) => {
+  const render = harness(t);
+  let measured = false;
+  const pool = () => ({
+    selectedId: 'a',
+    auto: true,
+    accounts: [
+      { id: 'a', label: 'a', authenticated: true },
+      { id: 'b', label: 'b', authenticated: true, usage: { windows: [{ label: '7D', usedPct: measured ? 70 : 10 }] } },
+    ],
+  });
+  const api = {
+    async invokeCapability({ capability, args }) {
+      if (capability === 'getUsageDashboard') return { value: { rows: [] } };
+      if (capability === 'updateProviderAccounts' && args[1].refreshUsage) measured = true;
+      return { value: pool() };
+    },
+  };
+  function Sidebar() {
+    const accounts = useUsageAccountPools(api, ['openai-oauth'], true).get('openai-oauth')?.accounts ?? [];
+    return React.createElement('output', { 'data-sidebar': '' }, accounts[1]?.windows[0]?.usedPct ?? '');
+  }
+  await render(
+    React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(Sidebar),
+      React.createElement(ProviderAccountsList, { api, provider: 'openai-oauth', title: 'OpenAI' })
+    )
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  assert.equal(document.querySelector('[data-sidebar]').textContent, '10');
+  await act(async () => document.querySelector('.provider-accounts-refresh').click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  assert.equal(document.querySelector('[data-sidebar]').textContent, '70');
 });
 
 test('a roster saved before switching policies shows auto off as Manual', async (t) => {
