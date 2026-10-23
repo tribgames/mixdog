@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { actionLabel, actionQuestion, alwaysAllowScope } from './ApprovalCard';
 import { type ApprovalButton, ApprovalPrompt } from './approval-prompt';
+import { setBrowserApprovalSessionIds } from './browser-approval-marks';
 import { showDesktopToast } from './desktop-toasts';
 import { t } from './i18n';
 import { PixelIcon } from './pixel-icon';
@@ -43,14 +44,15 @@ export function alwaysAllowNote(requester: string, kinds: string[]): string {
 }
 
 // The waiting browser approvals, oldest first, and which chats dock them: a
-// conversation showing a prompt's top-level chat claims it; an unclaimed one
-// floats above the app so it is never missed.
+// conversation showing a prompt's top-level chat claims it and docks it. An
+// unclaimed one stays queued and marks its session in the session list.
 let queue: BrowserApprovalPrompt[] = [];
 const claims = new Map<string, number>();
 const listeners = new Set<() => void>();
 let version = 0;
 const notify = () => {
   version += 1;
+  setBrowserApprovalSessionIds(queue.flatMap((prompt) => [surfaceOf(prompt), prompt.sessionId]));
   for (const listener of listeners) listener();
 };
 const subscribe = (listener: () => void) => {
@@ -105,12 +107,9 @@ function answer(prompt: BrowserApprovalPrompt, decision: 'once' | 'always' | 'de
 export function BrowserApprovalCard({
   prompt,
   queueLabel,
-  floating = false,
 }: {
   prompt: BrowserApprovalPrompt;
   queueLabel?: string;
-  /** No open chat docks it: its link opens the chat it belongs to. */
-  floating?: boolean;
 }) {
   const requester = prompt.requester || prompt.sessionId;
   const files = prompt.files ?? [];
@@ -209,11 +208,9 @@ export function BrowserApprovalCard({
       requester={requester}
       service={t('Browser')}
       sessionLink={
-        floating && surface
-          ? { sessionId: surface, label: t('Open session') }
-          : prompt.sessionId && prompt.sessionId !== surface
-            ? { sessionId: prompt.sessionId, label: t('Open session') }
-            : null
+        prompt.sessionId && prompt.sessionId !== surface
+          ? { sessionId: prompt.sessionId, label: t('Open session') }
+          : null
       }
       queue={queueLabel}
       preview={preview}
@@ -228,9 +225,9 @@ export function BrowserApprovalCard({
 
 /** Receives the browser approvals for this window: keeps the queue (each one
  *  leaves when answered, closed or expired), tells a failed "always allow"
- *  save, and floats a prompt no open chat docks. */
+ *  save. It renders nothing: a prompt docks in its own chat when that chat is
+ *  open, and otherwise only marks its session (see browser-approval-marks). */
 export function BrowserApprovalHost() {
-  useStoreVersion();
   useEffect(
     () =>
       window.mixdogDesktop?.onBrowserApproval?.((prompt) => {
@@ -244,17 +241,5 @@ export function BrowserApprovalHost() {
       }),
     []
   );
-  const floating = queue.filter((prompt) => !claims.has(surfaceOf(prompt)));
-  const prompt = floating[0];
-  if (!prompt) return null;
-  return (
-    <div className="browser-approval-float">
-      <BrowserApprovalCard
-        key={prompt.id}
-        prompt={prompt}
-        queueLabel={floating.length > 1 ? `1/${floating.length}` : undefined}
-        floating
-      />
-    </div>
-  );
+  return null;
 }

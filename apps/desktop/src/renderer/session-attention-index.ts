@@ -8,6 +8,7 @@ import { sessionAttention, type SessionAttention } from '../shared/session-atten
 import { agentPoolStore, startAgentPool } from './agent-activity-model';
 import { withoutDismissedAgentRows } from './agent-dismiss';
 import { dismissedJobsRevision, subscribeDismissedJobs } from './background-jobs-dismissed-store';
+import { browserApprovalSessionIds, subscribeBrowserApprovalSessions } from './browser-approval-marks';
 import { defaultSessionLaneStore } from './session-lane-store';
 
 interface SessionAttentionIndex {
@@ -30,9 +31,10 @@ function agentSessionChain(agent: DesktopAgentPoolRow): string[] {
 
 export function sessionAttentionIndex(
   pool: readonly DesktopAgentPoolRow[] | null | undefined,
-  approvalSessionIds: ReadonlySet<string>
+  approvalSessionIds: ReadonlySet<string>,
+  browserApprovalSessionIds: ReadonlySet<string> = new Set()
 ): SessionAttentionIndex {
-  const needsUser = new Set(approvalSessionIds);
+  const needsUser = new Set([...approvalSessionIds, ...browserApprovalSessionIds]);
   const failed = new Set<string>();
   const waiting = new Set<string>();
   for (const agent of pool || []) {
@@ -81,6 +83,7 @@ type AttentionPoolStore = ReturnType<typeof agentPoolStore>;
 interface AttentionSelection {
   rows: readonly DesktopAgentPoolRow[] | null;
   approvals: ReadonlySet<string>;
+  browserApprovals: ReadonlySet<string>;
   dismissedRevision: number;
   index: SessionAttentionIndex;
 }
@@ -92,17 +95,19 @@ const selections = new WeakMap<AttentionPoolStore, AttentionSelection>();
 function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentionIndex {
   const rows = store.getSnapshot();
   const approvals = defaultSessionLaneStore.approvalSessionIds();
+  const browserApprovals = browserApprovalSessionIds();
   const dismissedRevision = dismissedJobsRevision();
   const cached = selections.get(store);
   if (
     cached &&
     cached.rows === rows &&
     cached.approvals === approvals &&
+    cached.browserApprovals === browserApprovals &&
     cached.dismissedRevision === dismissedRevision
   ) {
     return cached.index;
   }
-  const next = sessionAttentionIndex(withoutDismissedAgentRows(rows), approvals);
+  const next = sessionAttentionIndex(withoutDismissedAgentRows(rows), approvals, browserApprovals);
   const index =
     cached &&
     sameIds(cached.index.needsUser, next.needsUser) &&
@@ -110,7 +115,7 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
     sameIds(cached.index.waiting, next.waiting)
       ? cached.index
       : next;
-  selections.set(store, { rows, approvals, dismissedRevision, index });
+  selections.set(store, { rows, approvals, browserApprovals, dismissedRevision, index });
   return index;
 }
 
@@ -122,6 +127,7 @@ export function useSessionAttentionIndex(): SessionAttentionIndex {
       const releases = [
         poolStore.subscribe(listener),
         defaultSessionLaneStore.subscribeApprovals(listener),
+        subscribeBrowserApprovalSessions(listener),
         subscribeDismissedJobs(listener),
       ];
       return () => {

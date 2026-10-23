@@ -18,7 +18,12 @@ import {
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
-import { dropStreamFadeTimeline, STREAM_FADE_SETTLE_MS, streamFadeTimeline } from './markdown-stream-fade';
+import {
+  dropStreamFadeTimeline,
+  STREAM_FADE_SETTLE_MS,
+  settleStreamFades,
+  streamFadeTimeline,
+} from './markdown-stream-fade';
 import { preloadSyncMarkdownParser } from './markdown-worker-client';
 import { CopyControl } from './transcript-primitives';
 import { noteStreamCommit } from './transcript-stream-metrics';
@@ -114,12 +119,23 @@ const MarkdownResponse = memo(function MarkdownResponse({
 }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
   const workerPipeline = useRef(streaming);
-  // Every chunk, frozen ones included, fades on the reply's one timeline. A
-  // settled reply keeps it STREAM_FADE_SETTLE_MS, so the rest it then shows
-  // at once still fades; after that its words show unwrapped.
+  // Every chunk, frozen ones included, fades on the reply's one timeline. As
+  // the reply settles its running fades speed up to end within
+  // STREAM_FADE_SETTLE_FADE_MS and the rest it then shows at once fades as one
+  // phrase; STREAM_FADE_SETTLE_MS later its words show unwrapped.
   const [fadeSettled, setFadeSettled] = useState(false);
   const fadeTimeline = fadeKey && !fadeSettled ? streamFadeTimeline(fadeKey, streaming) : null;
-  fadeTimeline?.sync(text, performance.now(), fadeRevision);
+  fadeTimeline?.sync(text, performance.now(), fadeRevision, !streaming);
+  const markdownRef = useRef<HTMLDivElement>(null);
+  // The settle commits before paint: phrases still running end within
+  // STREAM_FADE_SETTLE_FADE_MS, on screen and in elements created later.
+  useLayoutEffect(() => {
+    if (streaming || !fadeTimeline) return;
+    fadeTimeline.settle(performance.now());
+    const node = markdownRef.current;
+    // getAnimations is missing only in test DOMs.
+    if (node?.getAnimations) settleStreamFades(node);
+  }, [streaming, fadeTimeline]);
   useEffect(() => {
     if (streaming || !fadeTimeline) return;
     const timer = setTimeout(() => {
@@ -178,7 +194,10 @@ const MarkdownResponse = memo(function MarkdownResponse({
   // `streamed`: this mount watched the reply arrive (22-markdown.css keeps its
   // line breaks greedy, also once it settles).
   return (
-    <div className={`markdown ${streaming ? 'streaming' : ''}${workerPipeline.current ? ' streamed' : ''}`}>
+    <div
+      ref={markdownRef}
+      className={`markdown ${streaming ? 'streaming' : ''}${workerPipeline.current ? ' streamed' : ''}`}
+    >
       {renderedChunks}
     </div>
   );

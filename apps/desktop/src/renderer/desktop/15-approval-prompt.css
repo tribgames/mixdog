@@ -662,18 +662,6 @@ html[data-mixdog-mobile-tabs] .approval-button-label {
 .composer-island-slot[data-approval-fit~="scroll"] .composer-island-approval > .approval-prompt > .approval-preview {
   max-height: var(--approval-preview-min, 48px);
 }
-/* A browser prompt whose chat is not open: it floats above the composer
-   area so it is never missed. */
-.browser-approval-float {
-  position: fixed;
-  z-index: 40;
-  bottom: 96px;
-  left: 50%;
-  width: min(560px, calc(100vw - 24px));
-  max-height: calc(100vh - 140px);
-  overflow: auto;
-  transform: translateX(-50%);
-}
 /* A short pane holding a docked approval: the composer's input gives up its
    draft lines for its one-line minimum (the text keeps scrolling inside it)
    so the card gets the room; it grows back when the approval leaves. */

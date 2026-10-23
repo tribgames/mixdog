@@ -24,7 +24,7 @@ export function useConversationApprovals(
   snapshot: Snapshot,
   routeSessionIdRef: RefObject<string>,
   /** `docked`: this view renders the composer dock (a read-only view does
-   *  not, so it claims no browser approval and those float instead). */
+   *  not, so it claims no browser approval and those only mark the session). */
   { docked = true }: { docked?: boolean } = {}
 ) {
   // Bounded to this session, and to the ids the retired-approval check can

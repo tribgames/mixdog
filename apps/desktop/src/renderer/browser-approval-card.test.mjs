@@ -30,6 +30,8 @@ const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { BrowserApprovalHost, BrowserApprovalCard, useBrowserApprovals } = await import('./BrowserApprovalHost.tsx');
 const { useConversationApprovals } = await import('./use-conversation-approvals.tsx');
+const { browserApprovalSessionIds } = await import('./browser-approval-marks.ts');
+const { sessionAttentionIndex, sessionAttentionOf } = await import('./session-attention-index.ts');
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 450));
 const doc = dom.window.document;
@@ -85,7 +87,7 @@ function Dock({ sessionId }) {
     : null;
 }
 
-test('a browser approval docks in its top-level chat; with no such chat open it floats instead', async () => {
+test('a browser approval docks in its top-level chat; with no such chat open it floats nowhere and marks its session', async () => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
   const chat = createRoot(doc.getElementById('chat'));
@@ -110,30 +112,22 @@ test('a browser approval docks in its top-level chat; with no such chat open it 
     assert.equal(docked.querySelector('.approval-queue').textContent, '1/2');
     await api.send({ id: 'b1', closed: true });
     assert.equal(docked.querySelector('.approval-queue').textContent, '');
-    // Another chat's approval: no open chat docks it, so it floats.
+    // Another chat's approval: no open chat docks it, and nothing floats.
     await api.send(prompt({ id: 'b3', surfaceSessionId: 'sess_other', sessionId: 'sess_other' }));
-    assert.ok(doc.querySelector('#host .browser-approval-float .approval-prompt'));
-    // Floating, it links to the chat it belongs to, where it docks.
-    const opened = [];
-    const onOpen = (event) => opened.push(event.detail.sessionId);
-    dom.window.addEventListener('mixdog:open-task-session', onOpen);
-    // The app's event is dispatched on the jsdom window: its own CustomEvent.
-    const NodeCustomEvent = globalThis.CustomEvent;
-    globalThis.CustomEvent = dom.window.CustomEvent;
-    try {
-      const link = doc.querySelector('#host .browser-approval-float .approval-who .approval-link');
-      assert.equal(link?.textContent, 'Open session', 'the floating card offers 세션 열기');
-      await click(link);
-      assert.deepEqual(opened, ['sess_other']);
-    } finally {
-      globalThis.CustomEvent = NodeCustomEvent;
-      dom.window.removeEventListener('mixdog:open-task-session', onOpen);
-    }
+    assert.equal(doc.getElementById('host').querySelector('*'), null, 'nothing floats');
+    assert.equal(doc.querySelectorAll('#chat .approval-prompt').length, 1, 'the open chat docks only its own card');
+    // It only marks its session, until that chat opens and docks it.
+    assert.ok(browserApprovalSessionIds().has('sess_other'));
+    const index = sessionAttentionIndex([], new Set(), browserApprovalSessionIds());
+    assert.equal(sessionAttentionOf(index, 'sess_other'), 'needs-you', 'the session list marks it');
+    assert.equal(sessionAttentionOf(index, 'sess_unrelated'), '');
+    // Closing the open chat releases its card: still nothing floats.
     await act(async () => chat.unmount());
-    assert.equal(doc.querySelectorAll('#host .approval-prompt').length, 1, 'one floating card at a time');
-    assert.equal(doc.querySelector('#host .approval-queue').textContent, '1/2');
+    assert.equal(doc.querySelector('.approval-prompt'), null, 'released, not floated');
+    assert.ok(browserApprovalSessionIds().has('sess_home_marketer'), 'both sessions stay marked');
     await api.send({ id: 'b2', closed: true });
     await api.send({ id: 'b3', closed: true });
+    assert.equal(browserApprovalSessionIds().size, 0, 'answered prompts clear the marks');
   } finally {
     await act(async () => host.unmount());
   }
@@ -142,11 +136,13 @@ test('a browser approval docks in its top-level chat; with no such chat open it 
 test('a prompt waits for the person: no timer drops it, no countdown', async (t) => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
+  const chat = createRoot(doc.getElementById('chat'));
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.now() });
   await act(async () => host.render(React.createElement(BrowserApprovalHost)));
+  await act(async () => chat.render(React.createElement(Dock, { sessionId: 'nowhere' })));
   try {
     await api.send(prompt({ id: 'n1', surfaceSessionId: 'nowhere' }));
-    const root = doc.getElementById('host');
+    const root = doc.getElementById('chat');
     assert.ok(root.querySelector('.approval-prompt'), 'the card shows');
     await act(async () => t.mock.timers.tick(31_000));
     await act(async () => t.mock.timers.tick(5 * 60_000));
@@ -157,6 +153,7 @@ test('a prompt waits for the person: no timer drops it, no countdown', async (t)
     assert.equal(root.querySelector('.approval-prompt'), null);
   } finally {
     t.mock.timers.reset();
+    await act(async () => chat.unmount());
     await act(async () => host.unmount());
   }
 });
@@ -164,10 +161,12 @@ test('a prompt waits for the person: no timer drops it, no countdown', async (t)
 test('one click on deny sends the denial with no reason; Enter allows once', async () => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
+  const chat = createRoot(doc.getElementById('chat'));
   await act(async () => host.render(React.createElement(BrowserApprovalHost)));
+  await act(async () => chat.render(React.createElement(Dock, { sessionId: 'nowhere' })));
   try {
     await api.send(prompt({ id: 'c1', surfaceSessionId: 'nowhere' }));
-    const root = doc.getElementById('host');
+    const root = doc.getElementById('chat');
     await click(button(root, 'Deny'));
     assert.equal(root.querySelector('.approval-deny'), null, 'no reason screen');
     assert.deepEqual(api.decisions, [['c1', 'deny', undefined]]);
@@ -181,6 +180,7 @@ test('one click on deny sends the denial with no reason; Enter allows once', asy
     await key('Enter', section);
     assert.deepEqual(api.decisions.at(-1), ['c2', 'once', undefined]);
   } finally {
+    await act(async () => chat.unmount());
     await act(async () => host.unmount());
   }
 });
@@ -188,7 +188,9 @@ test('one click on deny sends the denial with no reason; Enter allows once', asy
 test('an unconfirmed receiver or an outside file: focus on 거절, Enter never allows; the allow says why in its tooltip', async () => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
+  const chat = createRoot(doc.getElementById('chat'));
   await act(async () => host.render(React.createElement(BrowserApprovalHost)));
+  await act(async () => chat.render(React.createElement(Dock, { sessionId: 'nowhere' })));
   try {
     await api.send(
       prompt({
@@ -201,7 +203,7 @@ test('an unconfirmed receiver or an outside file: focus on 거절, Enter never a
         remember: null,
       })
     );
-    const root = doc.getElementById('host');
+    const root = doc.getElementById('chat');
     assert.equal(root.querySelector('.approval-title').textContent, 'Upload these files?');
     assert.deepEqual(labels(root), ['Deny', 'Allow just once']);
     assert.equal(doc.activeElement, button(root, 'Deny'));
@@ -240,6 +242,7 @@ test('an unconfirmed receiver or an outside file: focus on 거절, Enter never a
     await act(async () => allow.click());
     assert.deepEqual(api.decisions, [['r1', 'once', undefined]], 'a click with no key before it does');
   } finally {
+    await act(async () => chat.unmount());
     await act(async () => host.unmount());
   }
 });
@@ -267,7 +270,7 @@ function ConversationApprovals({ sessionId, docked }) {
   return docked ? approvals.approvalDock : null;
 }
 
-test('a read-only (deleted bot) or parked chat does not hide a browser approval: it floats', async () => {
+test('a read-only (deleted bot) or parked chat docks no browser approval and nothing floats; the session is marked', async () => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
   const chat = createRoot(doc.getElementById('chat'));
@@ -277,18 +280,19 @@ test('a read-only (deleted bot) or parked chat does not hide a browser approval:
   );
   try {
     await api.send(prompt({ id: 'ro1' }));
-    assert.ok(doc.querySelector('#host .browser-approval-float .approval-prompt'), 'shown, floating');
+    assert.equal(doc.querySelector('.approval-prompt'), null, 'not shown anywhere');
+    assert.ok(browserApprovalSessionIds().has('sess_home_marketer'), 'marked in the session list');
     // The same chat with its dock: the card docks there instead.
     await act(async () =>
       chat.render(React.createElement(ConversationApprovals, { sessionId: 'sess_home_marketer', docked: true }))
     );
     assert.equal(doc.querySelector('#host .approval-prompt'), null);
     assert.ok(doc.querySelector('#chat .approval-prompt'));
-    // Parked again (behind a file tab): released, it floats.
+    // Parked again (behind a file tab): released, nothing floats.
     await act(async () =>
       chat.render(React.createElement(ConversationApprovals, { sessionId: 'sess_home_marketer', docked: false }))
     );
-    assert.ok(doc.querySelector('#host .browser-approval-float .approval-prompt'), 'released when hidden');
+    assert.equal(doc.querySelector('.approval-prompt'), null, 'released when hidden');
     await api.send({ id: 'ro1', closed: true });
   } finally {
     await act(async () => chat.unmount());
