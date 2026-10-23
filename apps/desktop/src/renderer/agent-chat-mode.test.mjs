@@ -174,6 +174,8 @@ test('bubble runs: face and name on the first bubble, the time on the last, a da
   assert.doesNotMatch(row(1), /mx-chat-time/);
   assert.doesNotMatch(row(5), /mx-chat-face|mx-chat-name/);
   assert.match(row(5), /<time class="mx-chat-time">/);
+  // The time is a caption after the bubble's line, not inside it.
+  assert.match(row(5), /<\/p><\/div><time class="mx-chat-time">/);
   assert.match(row(0), /mx-chat-day/);
   assert.equal(row(4), '');
 
