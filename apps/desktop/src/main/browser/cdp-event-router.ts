@@ -19,6 +19,7 @@ import { onRequestPaused, type RequestPauseHost } from './cdp-events-fetch';
 import { onAttachedToTarget, type TargetAttachHost } from './cdp-events-target';
 import { parseDialogBridgeNotice } from './dialog-bridge';
 import type { BrowserGuestStateStore } from './guest-state';
+import { reportPageFault } from './page-fault-diagnostics';
 import { recordWindowOpen } from './popup-focus';
 import { redactBrowserText } from './redaction';
 
@@ -81,15 +82,34 @@ function freshEntry(diagnostics: GuestRecord, key: string, timestamp: unknown): 
 
 export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
   const { state } = host;
-  const markCrashed: Route = ({ guest }) => state.markCrashed(guest, 'page target crashed');
+  const endChildSession = (guest: WebContents, ended: string) => {
+    state.endTargetSession(guest, ended);
+    host.targetDetached(guest, ended);
+  };
+  // Only the page's own session crashing is a page crash. A child target
+  // (ad iframe, worker) that dies leaves the page alive: its session ends and
+  // the page keeps its state.
+  const targetCrashed: Route = ({ guest, sessionId, diagnostics }) => {
+    if (!sessionId) {
+      reportPageFault(guest, { source: 'inspector', scope: 'root', reason: 'page target crashed' });
+      state.markCrashed(guest, 'page target crashed');
+      return;
+    }
+    const childType = diagnostics.cdpSessions.get(sessionId)?.type;
+    reportPageFault(guest, {
+      source: 'inspector',
+      scope: 'child',
+      ...(childType ? { childType } : {}),
+      reason: 'child target crashed',
+    });
+    diagnostics.console.recordInternal(`CDP child target crashed (${childType ?? 'unknown'}); page unaffected`);
+    endChildSession(guest, sessionId);
+  };
   const routes: Record<string, Route> = {
     'Target.attachedToTarget': ({ guest, cdp, params, sessionId }) =>
       onAttachedToTarget(host, guest, cdp, params, sessionId),
-    'Target.detachedFromTarget': ({ guest, params, sessionId }) => {
-      const ended = String(params.sessionId || sessionId || '');
-      state.endTargetSession(guest, ended);
-      host.targetDetached(guest, ended);
-    },
+    'Target.detachedFromTarget': ({ guest, params, sessionId }) =>
+      endChildSession(guest, String(params.sessionId || sessionId || '')),
     'Fetch.requestPaused': ({ guest, cdp, params, sessionId }) => onRequestPaused(host, guest, cdp, params, sessionId),
     // The page answered a press-and-move with its own HTML5 drag, so
     // Chromium hands the payload over rather than running the drag. The
@@ -162,8 +182,9 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     'Tracing.tracingComplete': ({ diagnostics }) => {
       diagnostics.performanceTrace?.resolveComplete();
     },
-    'Inspector.targetCrashed': markCrashed,
-    'Target.targetCrashed': markCrashed,
+    // Target.targetCrashed is not routed: it is browser-level and only sent
+    // for discovered targets, and nothing here enables Target.setDiscoverTargets.
+    'Inspector.targetCrashed': targetCrashed,
   };
 
   /** Route one CDP event into the guest's state record. */

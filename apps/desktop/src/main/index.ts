@@ -74,6 +74,7 @@ import { boundedNotification } from './connections/server-notifier';
 import type { RemoteHostWindows } from './remote-host-windows';
 import { createIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
 import { watchCrashHandler } from './crash-handler-watch';
+import { setPageFaultDiagnosticSink } from './browser/page-fault-diagnostics';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
 import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './deferred-desktop-services';
 import { installViewportGuard } from './viewport-guard';
@@ -2382,6 +2383,7 @@ if (!app.requestSingleInstanceLock()) {
       setTranscriptReadDiagnosticSink((entry) => {
         diagnostics?.write('transcript-read', { ...entry });
       });
+      setPageFaultDiagnosticSink((entry) => diagnostics?.write('browser-page-fault', { ...entry }));
       diagnostics.write('process-entry', {
         occurredAt: new Date(desktopProcessStartedAt).toISOString(),
         totalMs: 0,

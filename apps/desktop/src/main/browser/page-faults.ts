@@ -6,6 +6,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserGuestStateStore } from './guest-state';
+import { reportPageFault } from './page-fault-diagnostics';
 import { redactBrowserUrl } from './redaction';
 
 /** Prefix of a fault set by a failed main-frame load; a new load clears it. */
@@ -13,6 +14,12 @@ const LOAD_FAULT = 'page failed to load: ';
 
 export function watchPageFaults(state: BrowserGuestStateStore, guest: WebContents): void {
   guest.on('render-process-gone', (_event, details) => {
+    reportPageFault(guest, {
+      source: 'render-process-gone',
+      scope: 'root',
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
     state.markCrashed(guest, `renderer ${details.reason}${details.exitCode ? ` (exit ${details.exitCode})` : ''}`);
   });
   guest.on('unresponsive', () => {
@@ -26,6 +33,9 @@ export function watchPageFaults(state: BrowserGuestStateStore, guest: WebContent
     // The error document of a failed load also finishes loading; only the
     // next navigation clears that failure.
     if (!record.fault.startsWith(LOAD_FAULT)) record.fault = '';
+    // A main-frame load after a crash is a live page again; leaving the flag
+    // would reload it once more on the next command and reject remote input.
+    record.crashed = false;
     record.network.finishDocument(guest.getURL());
   });
   // A page that never arrived (refused, unreachable, bad certificate) is a
