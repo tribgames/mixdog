@@ -318,6 +318,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           },
           viewedSessionIds: () => [...state.visibleSessionIds],
           heldTranscript: (sessionId) => state.sessionStateEncoders.get(sessionId)?.resumePoint()?.held ?? null,
+          requestRead: (sessionId) => {
+            state.requestedReads ??= new Set();
+            state.requestedReads.add(sessionId);
+          },
+          releaseRead: (sessionId) => state.requestedReads?.delete(sessionId),
         }
       );
       clientMethods.set(state, table);

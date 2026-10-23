@@ -31,6 +31,18 @@ export function encodeRelayClientSessionState(
   return encoder.encode(remoteTranscriptSnapshot(snapshot, sessionFolder));
 }
 
+/** A client receives a session's frames while it shows the session, and the
+ *  answer to a read it asked for before its visible set named the session —
+ *  the desktop transport's rule (state-delta.ts: shouldPublishSessionState).
+ *  Dropping that answer left a phone's opened chat on its loading skeleton
+ *  until a later visibility sync re-sent the baseline. */
+export function relayClientAwaitsSession(
+  state: Pick<RelayClientState, 'visibleSessionIds' | 'requestedReads'>,
+  sessionId: string
+): boolean {
+  return state.visibleSessionIds.has(sessionId) || state.requestedReads?.has(sessionId) === true;
+}
+
 export interface RelaySessionStateFanoutDeps {
   clients: ReadonlyMap<string, RelayClientState>;
   sendEncryptedFrame(clientId: string, payload: unknown, droppable: boolean): Promise<void>;
@@ -64,9 +76,19 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
       const perfProbe = paintProbes.issue(sessionId);
       void Promise.all(
         [...deps.clients].map(([clientId, state]) => {
-          if (!state.channel || state.syncing || !state.visibleSessionIds.has(sessionId)) {
+          if (!state.channel || state.syncing || !relayClientAwaitsSession(state, sessionId)) {
             return Promise.resolve();
           }
+          // A marked read is answered by a replay frame: a live frame racing it
+          // leaves the mark, and frames to the asker are never dropped while it
+          // waits. The mark goes once the answer is sent (or already held);
+          // later frames follow the visible set.
+          const awaitingRead = state.requestedReads?.has(sessionId) === true;
+          const answersRead = awaitingRead && Boolean(update.snapshot) && update.frameSource !== 'live';
+          const consume = (): void => {
+            if (answersRead) state.requestedReads?.delete(sessionId);
+          };
+          const droppable = !critical && !awaitingRead;
           const wire = encodeRelayClientSessionState(
             state.sessionStateEncoders,
             sessionId,
@@ -78,7 +100,10 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
           );
           // This client's baseline already matches the snapshot: the frame would
           // carry a revision number and nothing else.
-          if (isNoDelta(wire)) return Promise.resolve();
+          if (isNoDelta(wire)) {
+            consume();
+            return Promise.resolve();
+          }
           if (!state.firstTranscriptReported) {
             state.firstTranscriptReported = true;
             // Sized once, on the frame that ends the wait — never on the stream
@@ -87,21 +112,23 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
             reportRemoteFirstTranscript(Date.now() - state.openedAt, bytes);
           }
           if (!state.compactWire) {
-            return deps.sendEncryptedFrame(
-              clientId,
-              {
-                event: 'sessionState',
-                payload: {
-                  sessionId,
-                  wire,
-                  frameSource: update.frameSource,
-                  ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
-                  ...(perfProbe ? { perfProbe } : {}),
-                  ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
+            return deps
+              .sendEncryptedFrame(
+                clientId,
+                {
+                  event: 'sessionState',
+                  payload: {
+                    sessionId,
+                    wire,
+                    frameSource: update.frameSource,
+                    ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
+                    ...(perfProbe ? { perfProbe } : {}),
+                    ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
+                  },
                 },
-              },
-              !critical
-            );
+                droppable
+              )
+              .then(consume);
           }
           // Compact envelope. The nested event/payload/sessionId trio costs
           // ~110 bytes on a frame whose new content is often ~30, so the keys
@@ -113,22 +140,24 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
             handle = state.sessionHandles.size + 1;
             state.sessionHandles.set(sessionId, handle);
           }
-          return deps.sendEncryptedFrame(
-            clientId,
-            {
-              e: 'T',
-              s: handle,
-              ...(firstUse ? { n: sessionId } : {}),
-              w: wire,
-              // 'live' is the overwhelming default; only a replay announces itself.
-              ...(update.frameSource && update.frameSource !== 'live' ? { f: update.frameSource } : {}),
-              // Only a null frame carries it, so the key never rides a streaming one.
-              ...(update.laneEnd ? { le: update.laneEnd } : {}),
-              ...(perfProbe ? { pp: perfProbe } : {}),
-              ...(typeof update.contentRevision === 'number' ? { cr: update.contentRevision } : {}),
-            },
-            !critical
-          );
+          return deps
+            .sendEncryptedFrame(
+              clientId,
+              {
+                e: 'T',
+                s: handle,
+                ...(firstUse ? { n: sessionId } : {}),
+                w: wire,
+                // 'live' is the overwhelming default; only a replay announces itself.
+                ...(update.frameSource && update.frameSource !== 'live' ? { f: update.frameSource } : {}),
+                // Only a null frame carries it, so the key never rides a streaming one.
+                ...(update.laneEnd ? { le: update.laneEnd } : {}),
+                ...(perfProbe ? { pp: perfProbe } : {}),
+                ...(typeof update.contentRevision === 'number' ? { cr: update.contentRevision } : {}),
+              },
+              droppable
+            )
+            .then(consume);
         })
       ).finally(() => mailbox.acknowledge(sequence));
     });

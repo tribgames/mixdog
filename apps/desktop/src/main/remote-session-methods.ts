@@ -127,13 +127,28 @@ export function sessionRemoteMethods(
       return snapshot;
     },
     // Cold-lane fill for the remote surface: a canonical session.read whose
-    // replay frame returns through the broadcast sessionState lane.
-    prefetchSession: ([sessionId, itemLimit, readTraceId]) =>
-      host.prefetchSession?.(
-        requiredSessionId(sessionId),
-        requiredTranscriptItemLimit(itemLimit),
-        typeof readTraceId === 'string' && readTraceId ? readTraceId : undefined
-      ) ?? false,
+    // replay frame returns through the broadcast sessionState lane. An open
+    // reads before the phone registers the session as visible, so the read is
+    // marked for this connection: the relay fan-out delivers its answer
+    // anyway, as the desktop transport does (shouldPublishSessionState).
+    prefetchSession: async ([sessionId, itemLimit, readTraceId]) => {
+      const session = requiredSessionId(sessionId);
+      const limit = requiredTranscriptItemLimit(itemLimit);
+      client?.requestRead?.(session);
+      try {
+        const accepted =
+          (await host.prefetchSession?.(
+            session,
+            limit,
+            typeof readTraceId === 'string' && readTraceId ? readTraceId : undefined
+          )) ?? false;
+        if (accepted !== true) client?.releaseRead?.(session);
+        return accepted;
+      } catch (error) {
+        client?.releaseRead?.(session);
+        throw error;
+      }
+    },
     submitNewTask: async ([prompt, options, draft]) =>
       host.submitNewTask(
         requiredPromptContent(prompt),

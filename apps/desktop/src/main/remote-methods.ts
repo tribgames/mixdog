@@ -178,6 +178,11 @@ export interface RemoteMethodClient {
   /** The transcript the host last sent this connection for a session (the
    *  copy its delta baseline holds), or null when it sent none. */
   heldTranscript?(sessionId: string): unknown;
+  /** Marks a read this connection asked for: its answer reaches this
+   *  connection although the session is not in its visible set yet. */
+  requestRead?(sessionId: string): void;
+  /** The read failed: its answer is no longer awaited. */
+  releaseRead?(sessionId: string): void;
 }
 
 export { STALE_SESSION_VIEW_MESSAGE } from './remote-session-methods';

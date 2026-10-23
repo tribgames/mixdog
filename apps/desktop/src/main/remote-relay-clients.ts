@@ -49,6 +49,10 @@ export interface RelayClientState {
    *  each leg with a fresh id, while a push subscription names the browser. */
   browserId: string;
   visibleSessionIds: Set<string>;
+  /** Sessions this client asked to read and has not yet been sent a frame
+   *  for: an open reads before its visible set names the session, and the
+   *  answer must still reach it (remote-relay-session-state.ts). */
+  requestedReads?: Set<string>;
   /** Transcript delta baselines are receiver-specific. A shared encoder
    *  advances even for clients filtered out of a session, so their first
    *  later frame would otherwise be an undecodable patch. */
@@ -259,6 +263,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         background: false,
         browserId: '',
         visibleSessionIds: new Set(),
+        requestedReads: new Set(),
         sessionStateEncoders: new Map(),
         binaryFrames: false,
         listDelta: false,
