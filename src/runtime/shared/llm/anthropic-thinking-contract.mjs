@@ -63,3 +63,15 @@ export function emitsAnthropicProgressUpdates(model) {
   const id = normalizeClaudeModelId(model);
   return /^claude-(?:opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1|fable-5)(?:-\d{8})?$/.test(id);
 }
+
+// Models that accept turn-scoped mid-conversation system messages
+// ({role:'system', clear_at:'next_user_message'}, beta
+// mid-conversation-system-clear-at-2026-08-21). An id list for the same
+// reason as above: a wrong "yes" is a 400 on every request, a wrong "no" only
+// keeps the legacy tail-reminder layout — so unknown ids stay off.
+export function supportsAnthropicTurnScopedSystemMessages(model) {
+  const id = normalizeClaudeModelId(model);
+  return /^claude-(?:fable-5-1|mythos-5-1|fable-5|mythos-5|opus-5-5|opus-5|opus-4-8|sonnet-5-5|haiku-5-5)(?:-\d{8})?$/.test(
+    id
+  );
+}

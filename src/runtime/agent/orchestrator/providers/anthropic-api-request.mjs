@@ -18,13 +18,17 @@ import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 import {
   anthropicThinkingActive,
+  anthropicTurnScopedReminders,
   appendAnthropicTailReminder,
+  appendAnthropicTurnReminder,
   applyAnthropicCacheMarkers,
   clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
+  hasAnthropicTurnScopedMessages,
   resolveAnthropicCacheTtls as resolveCacheTtls,
   resolveAnthropicMessageCacheSlots,
   sharedCachePrefixBoundary,
   toAnthropicToolChoice,
+  withAnthropicTurnReminders,
 } from './lib/anthropic-request-utils.mjs';
 import { splitTailReminder } from './lib/tail-reminder-split.mjs';
 import {
@@ -97,12 +101,17 @@ export async function buildAnthropicApiRequest({
   // are applied to the FINAL sanitized array by invariant, so block
   // drops / inserts / reorders performed by the sanitizer can never move
   // or delete a marked block. NEVER sanitize again after this.
-  const lowerHistory = (history, projection) =>
-    lowerAnthropicEffortHistory(
+  // Turn-scoped tail reminders (tail-reminder-split.mjs): stored reminders are
+  // re-sent before their assistant turns, the current one ends the request.
+  const turnScoped = anthropicTurnScopedReminders(name, useModel, config);
+  const lowerHistory = (history, projection) => {
+    const lowered = lowerAnthropicEffortHistory(
       history.filter((m) => m.role !== 'system'),
       (segment) => toAnthropicMessages(segment, requestTools, name),
       projection
     );
+    return turnScoped ? withAnthropicTurnReminders(lowered) : lowered;
+  };
   const anthropicMessages = applyAnthropicCacheMarkers(
     lowerHistory(chatMsgs, effortProjection),
     messageCacheSlots,
@@ -115,9 +124,12 @@ export async function buildAnthropicApiRequest({
     model: useModel,
     max_tokens: maxTokens,
     system: systemBlocks.length ? systemBlocks : undefined,
-    messages: await prepareAnthropicImages(appendAnthropicTailReminder(anthropicMessages, reminder), {
-      signal: opts.signal,
-    }),
+    messages: await prepareAnthropicImages(
+      turnScoped
+        ? appendAnthropicTurnReminder(anthropicMessages, reminder)
+        : appendAnthropicTailReminder(anthropicMessages, reminder),
+      { signal: opts.signal }
+    ),
   };
   // Server-side fallback and fast mode are decided from Claude model ids:
   // first-party knowledge, never applied to a custom endpoint.
@@ -255,6 +267,7 @@ function requestHeadersFor(
         effort: isCustom ? Boolean(params.output_config?.effort) : shouldIncludeEffortBeta(capabilityModel, opts),
         serverFallback: params.fallbacks === 'default',
         thinkingDisplayUpdates: params.thinking?.display === 'updates',
+        turnScopedSystem: hasAnthropicTurnScopedMessages(params.messages),
       }),
       ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
     ].filter(Boolean);

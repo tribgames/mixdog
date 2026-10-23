@@ -11,6 +11,7 @@ import { reportedCostUsd } from './usage-primitives.mjs';
 import { reportInvalidTool, wireInputSchema } from './claude-bridge-schema.mjs';
 import { normalizeServerToolUse } from './anthropic-server-tool-usage.mjs';
 import { ANTHROPIC_TOOL_CALL_IDS, withWireToolCallIds } from './tool-call-wire-ids.mjs';
+import { supportsAnthropicTurnScopedSystemMessages } from '../../../../shared/llm/anthropic-thinking-contract.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
@@ -95,6 +96,84 @@ export function appendAnthropicTailReminder(anthropicMessages, reminder) {
   } else {
     anthropicMessages.push({ role: 'user', content: [block] });
   }
+  return anthropicMessages;
+}
+
+// Turn-scoped tail reminders (see tail-reminder-split.mjs). The capability:
+// the first-party Messages routes (no gateway base URL, beta headers allowed)
+// on a model that takes clear_at system messages. Everything else keeps the
+// legacy appendAnthropicTailReminder layout.
+// Server-side fallback needs no exclusion: live-checked on the OAuth route,
+// a trailing clear_at message is accepted with `fallbacks: "default"` (Opus
+// 5.5, Sonnet 5.5) and with explicit lists naming Sonnet 5 or Opus 4.8, and
+// fallback runs only on a safety-classifier refusal.
+export function anthropicTurnScopedReminders(provider, model, config = {}) {
+  return (
+    ANTHROPIC_NATIVE_PROVIDERS.has(provider) &&
+    config?.disableBetaHeaders !== true &&
+    (!config?.baseURL || /^https:\/\/api\.anthropic\.com(?:\/|$)/.test(config.baseURL)) &&
+    supportsAnthropicTurnScopedSystemMessages(model)
+  );
+}
+
+// The stored reminder of a lowered assistant turn (toAnthropicMessages). A
+// symbol key: JSON serialization never puts it on the wire.
+const TURN_REMINDER = Symbol('turnReminder');
+
+function assistantWireMessage(message, content) {
+  const wire = { role: 'assistant', content };
+  if (typeof message.turnReminder === 'string' && message.turnReminder) wire[TURN_REMINDER] = message.turnReminder;
+  return wire;
+}
+
+// Derived only from the stored text, so a replay is byte-identical to the
+// request that first sent it. Text only, never a cache_control (both 400).
+function turnReminderMessage(text) {
+  return { role: 'system', clear_at: 'next_user_message', content: [{ type: 'text', text }] };
+}
+
+export function hasAnthropicTurnScopedMessages(messages) {
+  return Array.isArray(messages) && messages.some((m) => m?.role === 'system' && m.clear_at);
+}
+
+// A turn-scoped message must follow a user turn; an effort control (empty
+// system message, lowerAnthropicEffortHistory) may sit between them. Creation
+// (appendAnthropicTurnReminder) and replay (withAnthropicTurnReminders) both
+// decide by this one rule on the lowered array, so a turn whose request carried
+// no reminder never gets one on replay.
+function followsUserTurn(messages) {
+  let index = messages.length - 1;
+  const last = messages[index];
+  if (last?.role === 'system' && Array.isArray(last.content) && last.content.length === 0) index--;
+  return messages[index]?.role === 'user';
+}
+
+/** The lowered history with each stored reminder re-sent right before the
+ *  assistant turn generated under it (after any effort control), exactly where
+ *  that turn's own request carried it as its last message. String contents
+ *  become one text block, so a cache marker (which turns a string into a block
+ *  list on the turn it lands) never changes a message's shape between
+ *  requests: the wire stays append-only. */
+export function withAnthropicTurnReminders(anthropicMessages) {
+  const out = [];
+  for (const message of anthropicMessages) {
+    const text = message?.role === 'assistant' ? message[TURN_REMINDER] : '';
+    if (text && followsUserTurn(out)) out.push(turnReminderMessage(text));
+    out.push(
+      typeof message?.content === 'string' && message.content.trim()
+        ? { ...message, content: [{ type: 'text', text: message.content }] }
+        : message
+    );
+  }
+  return out;
+}
+
+/** The current reminder as a turn-scoped system message ending the request.
+ *  A tail that is not a user turn (an assistant continuation) cannot take one
+ *  and gets no reminder at all: anything else would be missing from the next
+ *  request, which replays that turn without one. */
+export function appendAnthropicTurnReminder(anthropicMessages, reminder) {
+  if (reminder && followsUserTurn(anthropicMessages)) anthropicMessages.push(turnReminderMessage(reminder));
   return anthropicMessages;
 }
 
@@ -278,7 +357,8 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
             if (tb && typeof tb === 'object') content.push(tb);
           }
         }
-        if (m.content) content.push({ type: 'text', text: m.content });
+        // A blank text block is a hard 400 on every request that replays it.
+        if (!isBlankText(m.content)) content.push({ type: 'text', text: m.content });
         for (const tc of m.toolCalls || []) {
           content.push({
             type: 'tool_use',
@@ -288,7 +368,7 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
           });
         }
       }
-      result.push({ role: 'assistant', content });
+      result.push(assistantWireMessage(m, content));
       continue;
     }
     if (m.role === 'tool') {
@@ -346,9 +426,18 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
     ) {
       continue;
     }
-    result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
+    // An assistant turn with no text and no blocks (a refused or empty final
+    // kept in the transcript for diagnosis) has nothing to replay; sending it
+    // would be a blank text block the API rejects on every later request.
+    if (m.role === 'assistant' && isBlankText(m.content)) continue;
+    const content = normalizeContentForAnthropic(m.content);
+    result.push(m.role === 'assistant' ? assistantWireMessage(m, content) : { role: m.role, content });
   }
   return sanitizeAnthropicContentPairs(result);
+}
+
+function isBlankText(content) {
+  return content == null || (typeof content === 'string' && !content.trim());
 }
 
 export function clampAnthropicThinkingBudget(value, maxTokens) {
@@ -702,9 +791,11 @@ export function applyAnthropicCacheMarkers(
 
 // The breakpoint goes on the last message that has an eligible block: a
 // trailing effort control (empty system message) or a thinking-only tail has
-// nothing to mark. -1 when no message does.
+// nothing to mark, and a turn-scoped system message rejects cache_control.
+// -1 when no message does.
 function lastMarkableMessageIndex(messages) {
   for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].role === 'system') continue;
     if (lastEligibleBlockIndex(messages[index].content) >= 0) return index;
   }
   return -1;

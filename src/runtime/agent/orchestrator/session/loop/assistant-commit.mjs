@@ -62,6 +62,12 @@ function assistantEchoFields(payloads) {
   };
 }
 
+// The tail reminder the response was generated under (send-with-recovery.mjs),
+// kept verbatim so a turn-scoped provider replays it byte-identically.
+export function turnReminderField(resp) {
+  return typeof resp?.turnReminder === 'string' && resp.turnReminder ? { turnReminder: resp.turnReminder } : {};
+}
+
 // Intermediate (non-tool) assistant turn: max-output partials, refusal
 // narration, provider continuations, and the terminal turn committed before a
 // steering drain. Returns null when the turn carries nothing committable — a
@@ -89,6 +95,7 @@ export function buildIntermediateAssistantMessage(resp, opts) {
       role: 'assistant',
       content,
       ...assistantEchoFields(payloads),
+      ...turnReminderField(resp),
       ...(stopReason ? { stopReason } : {}),
       ...(terminationReason ? { terminationReason } : {}),
     },
@@ -108,6 +115,7 @@ export function buildToolCallAssistantMessage(response, { calls, opts }) {
       content: response.content || '',
       toolCalls: compactToolCallsForHistory(calls, { deferBodies: true }),
       ...assistantEchoFields(assistantEchoPayloads(response, { keepAssistantBlocks: true })),
+      ...turnReminderField(response),
     },
     opts
   );

@@ -61,10 +61,13 @@ import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-r
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
   anthropicThinkingActive,
+  anthropicTurnScopedReminders,
   appendAnthropicTailReminder,
+  appendAnthropicTurnReminder,
   applyAnthropicCacheMarkers,
   clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
   deferredAnthropicTools as sharedDeferredAnthropicTools,
+  hasAnthropicTurnScopedMessages,
   requestAnthropicTools as sharedRequestAnthropicTools,
   resolveAnthropicCacheTtls as resolveCacheTtls,
   resolveAnthropicMessageCacheSlots,
@@ -72,6 +75,7 @@ import {
   sharedCachePrefixBoundary,
   toAnthropicMessages,
   toAnthropicToolChoice,
+  withAnthropicTurnReminders,
 } from './lib/anthropic-request-utils.mjs';
 import { splitTailReminder } from './lib/tail-reminder-split.mjs';
 import {
@@ -111,6 +115,7 @@ function buildOAuthBetaHeaders(body, { fastMode = false, toolSearch = false, mod
     effort: shouldIncludeEffortBeta(model, opts),
     serverFallback: body?.fallbacks === 'default',
     thinkingDisplayUpdates: body?.thinking?.display === 'updates',
+    turnScopedSystem: hasAnthropicTurnScopedMessages(body?.messages),
   });
 }
 
@@ -223,12 +228,17 @@ function buildRequestBody(requestMessages, model, tools, sendOpts) {
   // applied to the FINAL sanitized array by invariant, so block drops /
   // inserts / reorders performed by the sanitizer can never move or delete a
   // marked block. NEVER sanitize again after this (see send path).
-  const lowerHistory = (history, projection) =>
-    lowerAnthropicEffortHistory(
+  // Turn-scoped tail reminders (tail-reminder-split.mjs): stored reminders are
+  // re-sent before their assistant turns, the current one ends the request.
+  const turnScoped = anthropicTurnScopedReminders('anthropic-oauth', model);
+  const lowerHistory = (history, projection) => {
+    const lowered = lowerAnthropicEffortHistory(
       history.filter((m) => m.role !== 'system'),
       (segment) => toAnthropicMessages(segment, requestTools),
       projection
     );
+    return turnScoped ? withAnthropicTurnReminders(lowered) : lowered;
+  };
   const anthropicMessages = applyAnthropicCacheMarkers(
     lowerHistory(chatMsgs, effortProjection),
     messageCacheSlots,
@@ -240,7 +250,9 @@ function buildRequestBody(requestMessages, model, tools, sendOpts) {
   const body = {
     model,
     max_tokens: maxTokens,
-    messages: appendAnthropicTailReminder(anthropicMessages, reminder),
+    messages: turnScoped
+      ? appendAnthropicTurnReminder(anthropicMessages, reminder)
+      : appendAnthropicTailReminder(anthropicMessages, reminder),
     stream: true,
   };
   applyAnthropicServerFallback(body, model, {

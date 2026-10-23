@@ -58,6 +58,9 @@ export function markEffortConfigurationUnsupported(provider, model) {
 export function isEffortConfigurationRejection(status, text) {
   const message = String(text || '');
   if (status !== 400) return false;
+  // A turn-scoped system message (tail reminder) error is not about the effort
+  // update, even when it names output_config or the mid-conversation beta.
+  if (/clear[_-]at|turn-scoped/i.test(message)) return false;
   if (/mid-conversation|configuration_update|reasoning_effort_update/i.test(message)) return true;
   // A rejected `output_config.effort` VALUE (the error quotes a level) belongs
   // to the effort-rejection fallback (effort-rejection.mjs); a rejected field

@@ -1,8 +1,14 @@
 // Tail reminders: short per-model/per-language nudges appended to the very end
 // of an outgoing request (after the last tool result), fresh on every request.
-// They are never stored in session history or transcripts, and the Anthropic
-// builders place their last cache breakpoint BEFORE them, so the cached prefix
-// stays byte-identical from one request to the next.
+// They are never stored as messages of their own; the Anthropic builders place
+// their last cache breakpoint BEFORE them. The assistant turn a request produces
+// keeps that request's reminder text (`turnReminder`, send-with-recovery.mjs).
+// How each provider places them (providers/lib/tail-reminder-split.mjs):
+//   - legacy: the reminder ends this request only and is gone from the next;
+//   - turn-scoped (first-party Anthropic on a supported model, opt-in per
+//     provider): a clear_at system message that every later request re-sends
+//     verbatim before its assistant turn, so the wire is append-only and the
+//     model's earlier thinking stays bound to an unchanged prefix.
 //
 // HOW TO ADD A RULE (a new per-model/per-language fix needs nothing else):
 //   1. Append {id, when, text} to TAIL_REMINDER_RULES. `when` holds any of

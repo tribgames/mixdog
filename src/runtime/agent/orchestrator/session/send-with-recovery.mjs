@@ -252,6 +252,10 @@ export async function sendWithRecovery(ctx) {
     retryAttemptNumber: Math.max(0, Number(transportRetriesUsed) || 0),
     retryMaxForDisplay,
   });
+  // The tail reminder this request carries; every assistant turn committed from
+  // its response stores it (turnReminder) so a provider in turn-scoped mode can
+  // re-send it verbatim before that turn (tail-reminder-split.mjs).
+  let turnReminder = '';
   try {
     let response;
     try {
@@ -266,20 +270,34 @@ export async function sendWithRecovery(ctx) {
       // Ephemeral tail reminder (tail-reminder-rules.mjs): added to this request's
       // copy only, never to the stored transcript.
       const requestMessages = withTailReminder(messages, { session: ctx.sessionRef, provider, model });
+      if (requestMessages !== messages) turnReminder = String(requestMessages.at(-1).content);
       response = await provider.send(requestMessages, model, sendTools.length ? sendTools : undefined, admittedOpts);
       hooks.logTurnTiming('ok');
     } catch (sendErr) {
       hooks.logTurnTiming(`err:${sendErr?.code || sendErr?.name || 'unknown'}`);
       stampStreamOutcome(sendErr, hooks.relayWitness);
-      return await recoverFromSendError(sendErr, { ...ctx, relayWitness: hooks.relayWitness });
+      return withTurnReminder(
+        await recoverFromSendError(sendErr, { ...ctx, relayWitness: hooks.relayWitness }),
+        turnReminder
+      );
     }
     // streamedChars: what this send put on screen through onTextDelta (net of
     // acknowledged retractions), so the loop can withdraw it if it discards
     // the response and re-sends.
-    return { action: 'proceed', response, streamedChars: hooks.relayWitness.text.length };
+    return withTurnReminder(
+      { action: 'proceed', response, streamedChars: hooks.relayWitness.text.length },
+      turnReminder
+    );
   } finally {
     hooks.restore();
   }
+}
+
+// A proceeding response — complete, promoted incomplete, recovered tool calls
+// or a cut kept as shown — was generated under this request's reminder.
+function withTurnReminder(result, turnReminder) {
+  if (turnReminder && result?.action === 'proceed' && result.response) result.response.turnReminder = turnReminder;
+  return result;
 }
 
 function loopTag({ sessionId, nextIteration }) {

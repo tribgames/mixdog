@@ -3,6 +3,7 @@
 // its empty-final forensic record), the usage/cost ledger row, and the
 // opaque provider continuation state.
 import { cloneProviderReplay } from '../../providers/lib/provider-replay.mjs';
+import { turnReminderField } from '../loop/assistant-commit.mjs';
 import { logLlmCall } from '../../usage-log.mjs';
 import { runAbortable } from '../../../../shared/abort-race.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
@@ -31,6 +32,7 @@ export function appendAssistantTurnMessage({ session, sessionId, result, transcr
       ...(result.providerMetadata && typeof result.providerMetadata === 'object'
         ? { providerMetadata: result.providerMetadata }
         : {}),
+      ...turnReminderField(result),
       // Keep terminal provider evidence for non-empty turns too. A safety
       // classifier can emit narration and then refuse; omitting this
       // metadata made that shape indistinguishable from an ordinary
