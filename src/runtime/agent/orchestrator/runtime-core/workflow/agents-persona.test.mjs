@@ -52,6 +52,28 @@ test('a NUL-filled AGENT.md is no agent and a NUL-filled PERSONA.md is no person
   }
 });
 
+test('a direct edit of AGENT.md, agent.json or PERSONA.md is seen without clearing the cache', async () => {
+  const { base, dataDir, agents } = setup();
+  try {
+    const dir = join(dataDir, 'agents', 'poet');
+    assert.equal(agents.loadAgentDefinition(dataDir, 'poet').body, 'Write poems.');
+    writeFileSync(join(dir, 'AGENT.md'), 'Write long poems now.');
+    assert.equal(agents.loadAgentDefinition(dataDir, 'poet').body, 'Write long poems now.');
+    writeFileSync(join(dir, 'PERSONA.md'), 'Warm.');
+    assert.equal(agents.loadAgentDefinition(dataDir, 'poet').persona, 'Warm.');
+    writeFileSync(join(dir, 'agent.json'), JSON.stringify({ name: 'Bard' }));
+    assert.equal(agents.loadAgentDefinition(dataDir, 'poet').name, 'Bard');
+    // A previously absent agent appearing on disk is found too.
+    assert.equal(agents.loadAgentDefinition(dataDir, 'late'), null);
+    mkdirSync(join(dataDir, 'agents', 'late'), { recursive: true });
+    writeFileSync(join(dataDir, 'agents', 'late', 'AGENT.md'), 'Arrive late.');
+    assert.equal(agents.loadAgentDefinition(dataDir, 'late').body, 'Arrive late.');
+  } finally {
+    clearAgentDefinitionCache();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('an edited PERSONA.md is picked up once the definition cache is cleared, like AGENT.md', () => {
   const { base, dataDir, agents } = setup();
   try {

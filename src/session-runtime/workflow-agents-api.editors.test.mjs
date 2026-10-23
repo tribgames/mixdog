@@ -470,6 +470,18 @@ test('saveAgentDefinition creates a custom agent (id from name, AGENT.md + manif
   assert.ok(api.getAgentDefinition(again.id));
 });
 
+test('getAgentDefinition returns the user copy path only; a direct AGENT.md edit shows on the next read', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const created = await api.saveAgentDefinition({ name: 'Path Agent', description: 'd', body: 'First body.' });
+  const file = join(dataDir, 'agents', created.id, 'AGENT.md');
+  assert.equal(api.getAgentDefinition(created.id).path, file);
+  writeFileSync(file, 'Second body, edited on disk.');
+  assert.equal(api.getAgentDefinition(created.id).body, 'Second body, edited on disk.');
+  const shipped = api.listAgents().find((agent) => !agent.userOverride && agent.custom);
+  if (shipped) assert.equal('path' in api.getAgentDefinition(shipped.id), false);
+  assert.equal('path' in api.getAgentDefinition('worker'), false);
+});
+
 test('a deleted bot restores exactly under its own id, even after a new bot took its name', async (t) => {
   const { dataDir, state, api } = fixture(t);
   const bot = await api.saveAgentDefinition({
@@ -985,6 +997,7 @@ test('workflow packs: create derives a free id, save/list/set round-trip, delete
     source: 'user',
     body: 'Review first.',
     userOverride: true,
+    path: join(dataDir, 'workflows', first.id, 'WORKFLOW.md'),
   });
   const second = await api.createWorkflow({ name: 'Review Flow', body: 'Again.' });
   assert.notEqual(second.id, first.id, 'a taken id yields the next available one');
@@ -1019,8 +1032,12 @@ test('a built-in workflow cannot be deleted until a user override exists; deleti
   await assert.rejects(api.deleteWorkflow('default'), /built-in and cannot be deleted/);
   const builtIn = api.getWorkflowPack('default');
   assert.equal(builtIn.userOverride, false);
+  assert.equal(builtIn.path, undefined, 'a shipped-only pack exposes no file to edit');
   const saved = await api.saveWorkflowPack({ id: 'default', body: 'Overridden default.' });
   assert.equal(saved.userOverride, true);
+  // An in-place edit of the user copy is what the next read returns.
+  writeFileSync(saved.path, readFileSync(saved.path, 'utf8').replace('Overridden default.', 'Edited in place.'));
+  assert.equal(api.getWorkflowPack('default').body, 'Edited in place.');
   assert.equal(saved.name, 'default', 'a missing name falls back to the id');
   assert.match(
     readFileSync(join(dataDir, 'workflows', 'default', 'WORKFLOW.md'), 'utf8'),

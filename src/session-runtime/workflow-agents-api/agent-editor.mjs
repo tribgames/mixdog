@@ -795,13 +795,19 @@ export function createAgentEditorApi(deps) {
     const dataDir = resolveDataDir(deps);
     const definition = loadAgentDefinition(dataDir, id);
     if (!definition) throw new Error(`agent "${agentId}" not found`);
+    const userOverride = hasUserAgentFile(dataDir, id);
     return {
       id,
       name: definition.name,
       description: definition.description,
       body: definition.body,
       custom: !isFixedAgent(id),
-      userOverride: hasUserAgentFile(dataDir, id),
+      userOverride,
+      // The user copy's entry file, editable in place; a shipped-only agent has
+      // none (an install-dir edit would be lost on update).
+      ...(userOverride
+        ? { path: join(userDir(dataDir, id), String(readManifest(userDir(dataDir, id)).entry || '').trim() || 'AGENT.md') }
+        : {}),
       route: routeFor(getConfig(), id),
       routeConfigured: routeConfigured(getConfig(), id),
       kind: kindOf(definition),

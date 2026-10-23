@@ -3,7 +3,7 @@
 // shipped starter after the user deletes it, so package updates do not
 // silently resurrect the role.
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { clean } from '../session-text.mjs';
 import { defaultDirResolver, readJsonSafe, readTextSafe } from '../fs-utils.mjs';
 import { SHARED_SCAN_REVALIDATE_MS, createSharedScanCache } from './shared-scan-cache.mjs';
@@ -69,6 +69,21 @@ function* scanCustomAgentIds(userRoot, shippedRoot, botsRoot = null, migrated = 
 export const AGENT_LIST_REVALIDATE_MS = SHARED_SCAN_REVALIDATE_MS;
 const agentListCache = createSharedScanCache();
 
+// mtime+size of each file ("-" when absent). loadAgentDefinition runs per
+// agent on every status pulse and prompt build; a handful of stats is cheap.
+function fileSignature(files) {
+  return files
+    .map((file) => {
+      try {
+        const st = statSync(file);
+        return `${st.mtimeMs}:${st.size}`;
+      } catch {
+        return '-';
+      }
+    })
+    .join('|');
+}
+
 export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, normalizeAgentPermissionOrNone }) {
   const defaultDir = defaultDirResolver(dataDir);
   function agentSourceDirs(dir, id) {
@@ -111,11 +126,23 @@ export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, n
     const agentId = normalizeAgentId(id) || normalizeWorkflowId(id);
     if (!agentId) return null;
     const cacheKey = `${dir || defaultDir()}\n${agentId}`;
-    if (agentDefinitionCache.has(cacheKey)) return agentDefinitionCache.get(cacheKey);
+    const cached = agentDefinitionCache.get(cacheKey);
+    // A hit is trusted only while the files it was built from are unchanged,
+    // so a direct edit of AGENT.md/agent.json/PERSONA.md shows without a restart.
+    if (cached && fileSignature(cached.files) === cached.signature) return cached.definition;
     const slot = FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId);
+    const files = [];
+    const remember = (definition) => {
+      setAgentDefinitionCache(cacheKey, { definition, files, signature: fileSignature(files) });
+      return definition;
+    };
     for (const d of agentSourceDirs(dir, agentId)) {
       const manifest = readJsonSafe(join(d, 'agent.json')) || {};
       const entry = clean(manifest.entry) || 'AGENT.md';
+      // Shipped files change only with an install update (a restart).
+      if (d !== join(rootDir, 'agents', agentId)) {
+        files.push(join(d, 'agent.json'), join(d, entry), join(d, 'PERSONA.md'), join(d, AGENT_DELETED_MARKER));
+      }
       const doc = readMarkdownDocument(readTextSafe(join(d, entry)));
       const body = doc.body;
       if (!body) continue;
@@ -136,13 +163,11 @@ export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, n
         // Optional PERSONA.md beside AGENT.md (same dir, same cache entry).
         persona: (readTextSafe(join(d, 'PERSONA.md')) || '').trim(),
       };
-      setAgentDefinitionCache(cacheKey, definition);
-      return definition;
+      return remember(definition);
     }
     // Every shipped and user role lives at agents/<id>/AGENT.md; there is no
     // flat agents/<id>.md layout left to fall back to.
-    setAgentDefinitionCache(cacheKey, null);
-    return null;
+    return remember(null);
   }
 
   return { listCustomAgentIds, delegatableAgentIds, loadAgentDefinition };

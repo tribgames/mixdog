@@ -109,6 +109,11 @@ workflow` before changing the corresponding domain.
 - A Web Search route must support native web search; tool exposure is changed
   separately.
 - Definition actions use `definitionKind` (workflow, agent, skill).
+  A workflow or agent `read_definition` returns `path` when a user copy exists:
+  to change part of its body, edit that file with the ordinary file edit tool
+  instead of re-sending the whole body; keep its frontmatter as it is. Without
+  `path` (a shipped-only definition), make the change with `save_definition`:
+  a save equal to the shipped copy keeps no user file.
   Workflow/agent ids cannot be renamed through
   a save; change their display name instead. User skills may be renamed with
   `originalName` and `name`. A user skill's trigger line (`when_to_use`) is

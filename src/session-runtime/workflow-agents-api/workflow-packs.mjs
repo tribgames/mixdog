@@ -77,13 +77,18 @@ export function createWorkflowPacksApi(deps) {
     const dataDir = resolveDataDir(deps);
     const pack = loadWorkflowPack(dataDir, id);
     if (!pack || pack.id !== id) throw new Error(`workflow "${workflowId}" not found`);
+    // The user copy's file, so a part of a long body can be edited in place;
+    // a shipped-only pack has none (its install copy is replaced on update).
+    const file = join(dataDir, 'workflows', id, 'WORKFLOW.md');
+    const userOverride = existsSync(file);
     return {
       id: pack.id,
       name: pack.name,
       description: pack.description,
       source: pack.source,
       body: pack.body,
-      userOverride: existsSync(join(dataDir, 'workflows', id, 'WORKFLOW.md')),
+      userOverride,
+      ...(userOverride ? { path: file } : {}),
     };
   }
 

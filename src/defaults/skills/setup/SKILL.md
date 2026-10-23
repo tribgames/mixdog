@@ -20,7 +20,8 @@ supported `setup` action, and read its result as the change receipt.
 
 - Use the `setup` tool for persisted Mixdog configuration. Never edit
   `mixdog-config.json` or internal stores directly; if the tool and UI expose no
-  supported path, report that limitation.
+  supported path, report that limitation. The one exception is the definition
+  file a workflow or agent `read_definition` returns as `path`.
 - API keys, OAuth credentials, tokens, and usage sign-ins stay out of tool
   arguments and the transcript. Open the Providers surface and let the user
   enter them.
