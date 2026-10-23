@@ -226,6 +226,11 @@ const COMPOSER_SELECTOR = '.pane-cell.is-focused form.composer';
 const FLOATING_SELECTOR =
   '[role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"], [role="tooltip"], .mx-menu, .mx-dialog-layer';
 
+/** The side panels (visualize/file/browser panes, the pane dock): docked, not
+ *  floating, yet the bot's window is above the whole app, so they are cut out
+ *  of it like a menu: the bot stays on the conversation's side of them. */
+const SIDE_PANEL_SELECTOR = '.workbench-side-panel, .pane-side-dock';
+
 const roundedRect = (box: DOMRect): DesktopPetRect => ({
   x: Math.round(box.left),
   y: Math.round(box.top),
@@ -258,9 +263,12 @@ function subscribeModalBackdrop(listener: () => void): () => void {
  *  page) and have a size (cut out of the pet, which shows behind them). */
 export function floatingLayers(): DesktopPetLayers {
   const rects: DesktopPetRect[] = [];
-  for (const element of document.querySelectorAll(FLOATING_SELECTOR)) {
+  for (const element of document.querySelectorAll(`${FLOATING_SELECTOR}, ${SIDE_PANEL_SELECTOR}`)) {
     const style = window.getComputedStyle(element);
-    const floats = style.position === 'fixed' || (style.position === 'absolute' && style.zIndex !== 'auto');
+    const floats =
+      element.matches(SIDE_PANEL_SELECTOR) ||
+      style.position === 'fixed' ||
+      (style.position === 'absolute' && style.zIndex !== 'auto');
     if (!floats || style.visibility === 'hidden' || style.display === 'none') continue;
     const box = element.getBoundingClientRect();
     if (box.width <= 0 || box.height <= 0) continue;
@@ -481,6 +489,8 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     });
     // Such a popover turns visible or hidden only when its fade ends.
     document.addEventListener('transitionend', scheduleLayers, true);
+    // A side panel resized by hand changes its rect, not the DOM.
+    document.addEventListener('pointerup', scheduleLayers, true);
     // Theme, skin or accent changes land on <html> (attributes, inline tokens).
     const looks = new MutationObserver(publishTheme);
     looks.observe(document.documentElement, { attributes: true });
@@ -499,6 +509,7 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
       setPetIslandReserve(null, 0);
       mutations.disconnect();
       document.removeEventListener('transitionend', scheduleLayers, true);
+      document.removeEventListener('pointerup', scheduleLayers, true);
       looks.disconnect();
       layersWatch.dispose();
       scheme?.removeEventListener?.('change', publishTheme);
