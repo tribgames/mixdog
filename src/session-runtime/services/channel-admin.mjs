@@ -11,6 +11,7 @@ import {
   listSchedules as dbListSchedules,
   getSchedule as dbGetSchedule,
   upsertSchedule,
+  renameSchedule as dbRenameSchedule,
   deleteSchedule as dbDeleteSchedule,
   setEnabled as dbSetEnabled,
 } from '../../runtime/channels/lib/schedules-db.mjs';
@@ -270,6 +271,26 @@ export async function listSchedules() {
   return Promise.all(rows.map(async (row) => scheduleToDisplay(row, await problemOf(row.ownerAgentId))));
 }
 
+/**
+ * Run `step` (the move of schedule `name`'s row) with `name` reserved against
+ * runs in this process (the app's "Run now"). Refused when one is in flight.
+ */
+export async function withScheduleRenameReserved(name, step) {
+  const { beginAutomationRename } = await import('../owned-automation-run.mjs');
+  const release = beginAutomationRename('schedule', name);
+  if (!release) throw new Error(`Schedule "${name}" is running. Rename it after the run finishes.`);
+  try {
+    return await step();
+  } finally {
+    release();
+  }
+}
+
+// The rename when no channels worker owns the scheduler: this process's runs
+// are the only ones there are.
+export const renameScheduleHere = (oldName, def, opts) =>
+  withScheduleRenameReserved(oldName, () => dbRenameSchedule(oldName, def, opts));
+
 // Register or update a schedule in the PG store. Recurring input maps `time`
 // (+ optional `days`) to a cron; one-shot input maps an `at` datetime; the two
 // are mutually exclusive (also enforced by the store's when_at/when_cron XOR).
@@ -288,8 +309,11 @@ export async function saveSchedule({
   instructions,
   owner,
   overwrite = false,
-} = {}) {
+  newName,
+} = {}, { rename = renameScheduleHere } = {}) {
   const id = assertScheduleName(name);
+  const renameTo = newName != null && String(newName).trim() !== '' ? assertScheduleName(newName) : id;
+  const renaming = renameTo !== id;
   const body = String(instructions || '').trim();
   if (!body) throw new Error('schedule instructions are required');
   const hasTime = time != null && String(time).trim() !== '';
@@ -297,6 +321,7 @@ export async function saveSchedule({
   if (hasTime && hasAt) throw new Error('provide either `time` (recurring) or `at` (one-shot), not both');
   if (!hasTime && !hasAt) throw new Error('either `time` (recurring cron) or `at` (one-shot datetime) is required');
   const existing = await dbGetSchedule(id);
+  if (renaming && !existing) throw new Error(`schedule "${id}" does not exist`);
   if (overwrite !== true && existing) {
     throw new Error(`schedule "${id}" already exists`);
   }
@@ -305,8 +330,8 @@ export async function saveSchedule({
   const whenCron = hasTime ? validateScheduleCron(foldDaysIntoCron(normalizeCron(time), days)) : null;
   const whenAt = hasAt ? parseAtDatetime(at) : null;
   const scheduleTimezone = hasTime ? resolveScheduleTimezone(timezone) : null;
-  const saved = await upsertSchedule({
-    name: id,
+  const def = {
+    name: renameTo,
     description: String(description || '').trim(),
     whenCron,
     whenAt,
@@ -320,7 +345,17 @@ export async function saveSchedule({
     enabled: enabled !== false,
     nextFireAt: whenAt,
     ownerAgentId,
-  });
+  };
+  let saved;
+  if (renaming) {
+    if (await dbGetSchedule(renameTo)) throw new Error(`A schedule named "${renameTo}" already exists.`);
+    const sameInstant = (a, b) => (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
+    const timingChanged = (existing.whenCron || null) !== whenCron || !sameInstant(existing.whenAt, whenAt);
+    saved = await rename(id, def, { timingChanged });
+    if (!saved) throw new Error(`schedule "${id}" does not exist`);
+  } else {
+    saved = await upsertSchedule(def);
+  }
   automationProbe.invalidate();
   return scheduleToDisplay(saved);
 }

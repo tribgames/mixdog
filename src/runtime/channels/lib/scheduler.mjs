@@ -121,6 +121,8 @@ class Scheduler {
   lastFired = /* @__PURE__ */ new Map();
   // name -> "YYYY-MM-DDTHH:MM"
   running = /* @__PURE__ */ new Set();
+  // Names whose row is being renamed: no fire starts under them meanwhile.
+  renaming = /* @__PURE__ */ new Set();
   injectFn = null;
   injectReadyFn = null;
   pendingCheck = null;
@@ -577,10 +579,63 @@ ${prompt}`;
     releaseSchedulerRuntime(this);
     this.start();
   }
+  /** Run `rename` (which moves schedule `name`'s row) while no run of `name`
+   *  can start or be in flight. The check and the reservation are one
+   *  synchronous step, and fireTimedPrompt refuses a reserved name before it
+   *  adds the name to `running`, so a fire either is already in `running`
+   *  (refused here) or finds the reservation (not fired). */
+  async renameLocked(name, rename, { newName = name, reload = async () => {} } = {}) {
+    if (this.running.has(name) || this.renaming.has(name)) {
+      throw new Error(`Schedule "${name}" is running. Rename it after the run finishes.`);
+    }
+    this.renaming.add(name);
+    this.renameBlocked?.delete(name);
+    try {
+      const saved = await rename();
+      if (!saved) return saved;
+      try {
+        await reload();
+      } catch (error) {
+        // The row has moved but the reload that arms the new name failed:
+        // nothing may keep running under the old one, and the call reports it.
+        this.dropSchedule(name);
+        throw new Error(
+          `Renamed to "${newName}", but reloading the scheduler failed (${error?.message || error}); it is armed on the next reload.`
+        );
+      }
+      return saved;
+    } catch (error) {
+      // A one-shot whose timer a blocked fire consumed is armed again from the
+      // loaded schedules, so it fires once (after a failed rename the old
+      // entry is still loaded; after a dropped one only the others re-arm).
+      if (this.renameBlocked?.has(name) && this.tickTimer) this.restart();
+      throw error;
+    } finally {
+      this.renaming.delete(name);
+      this.renameBlocked?.delete(name);
+    }
+  }
+  /** Forget `name` entirely: its cron job, one-shot timer, stamps and loaded
+   *  entries. Used when its row moved but the reload that re-arms it failed. */
+  dropSchedule(name) {
+    try {
+      this.cronJobs.get(name)?.destroy();
+    } catch {}
+    this.cronJobs.delete(name);
+    clearTimeout(this.oneShotTimers.get(name));
+    this.oneShotTimers.delete(name);
+    this.lastFired.delete(name);
+    this.deferred.delete(name);
+    this.nonInteractive = this.nonInteractive.filter((s) => s.name !== name);
+    this.interactive = this.interactive.filter((s) => s.name !== name);
+  }
   reloadConfig(nonInteractive, interactive, options = {}) {
     this.nonInteractive = nonInteractive.filter((s) => s.enabled !== false);
     this.interactive = interactive.filter((s) => s.enabled !== false);
     this.promptsDir = join(DATA_DIR, 'prompts');
+    // A name that no longer exists must not keep (or later regain) a stamp.
+    const live = new Set([...this.nonInteractive, ...this.interactive].map((s) => s.name));
+    for (const name of this.lastFired.keys()) if (!live.has(name)) this.lastFired.delete(name);
     // Defer/skip state is persisted (deferred_until / skipped_until) and
     // re-read from the reloaded rows, so a reload no longer drops it.
     this.refreshSkipCache();
@@ -649,6 +704,15 @@ ${prompt}`;
   /** Fire a timed schedule with the given prompt content */
   async fireTimedPrompt(schedule, type, prompt, { awaitDispatch = false } = {}) {
     logSchedule(`firing ${schedule.name} (${type})\n`);
+    if (this.renaming.has(schedule.name)) {
+      logSchedule(`${schedule.name}: not fired — being renamed\n`);
+      // A skip, not a failure: a one-shot stays pending (fireOneShot) and
+      // renameLocked re-arms it if the rename does not go through.
+      schedule.lastSkippedAt = new Date().toISOString();
+      // Per name: another rename settling meanwhile must not hide this one.
+      (this.renameBlocked ??= new Set()).add(schedule.name);
+      return false;
+    }
     if (this.running.has(schedule.name)) {
       this.recordSkip(schedule);
       return false;

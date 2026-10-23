@@ -283,6 +283,7 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
     if (kind === 'webhook' && ['time', 'at', 'timezone', 'days'].some((key) => own(input, key))) {
       throw new Error('Schedule fields (timing) are not accepted for webhooks');
     }
+    if (kind === 'webhook' && own(input, 'newName')) throw new Error('newName (rename) is schedule-only');
     if (kind === 'schedule' && own(input, 'parser')) throw new Error('parser is a webhook-only field');
     let previous = {};
     if (input.overwrite) {

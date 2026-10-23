@@ -3,12 +3,14 @@ import {
   deleteSchedule,
   deleteWebhook,
   getWebhookSecret,
+  renameScheduleHere,
   saveSchedule,
   saveWebhook,
   setScheduleEnabled,
   setWebhookEnabled,
   setWebhookConfigAsync,
   testWebhook,
+  withScheduleRenameReserved,
 } from './services/channel-admin.mjs';
 import { getSchedule, markScheduleFailure, markScheduleSuccess } from '../runtime/channels/lib/schedules-db.mjs';
 import { loadEndpointConfig, readEndpointLastPayload } from '../runtime/channels/lib/webhooks-db.mjs';
@@ -27,6 +29,33 @@ function skippedRunMessage(name, outcome) {
 // directly here and the runtime injects only the closure-owned callbacks
 // (channel worker handle, soft reload).
 export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAutomationRuntime = () => {} }) {
+  // The channels worker owns the scheduler and the runs it fires, so while it
+  // is up it performs the run check and the row move in one step
+  // (rename_schedule); this process's own runs ("Run now") are reserved around
+  // that call. Without a worker, the check and the move happen here.
+  async function renameSchedule(oldName, def, opts) {
+    if (!channels.status().running) return renameScheduleHere(oldName, def, opts);
+    return withScheduleRenameReserved(oldName, async () => {
+      try {
+        const reply = await channels.execute('rename_schedule', { name: oldName, def, ...opts });
+        const text = reply?.content?.[0]?.text ?? '';
+        if (reply?.isError === true) throw new Error(text.replace(/^rename_schedule failed: /, ''));
+        return text ? JSON.parse(text) : null;
+      } catch (error) {
+        // Whatever the worker did, have it re-read the schedules.
+        reloadChannelsSoon();
+        // execute() already retried a transport failure (call timeout 120 s,
+        // same callId so the daemon runs the request once); what is left is
+        // an unanswered request.
+        if (error?.daemonTransportError) {
+          throw new Error(
+            `The rename may or may not have applied (the scheduler did not answer: ${error.message}). Check the schedule list.`
+          );
+        }
+        throw error;
+      }
+    });
+  }
   return {
     async getChannelSetup() {
       return channelSetup();
@@ -40,7 +69,7 @@ export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAut
       return result;
     },
     async saveSchedule(entry) {
-      const result = await saveSchedule(entry);
+      const result = await saveSchedule(entry, { rename: renameSchedule });
       reloadChannelsSoon();
       // First automation created while the app is already running: the boot-
       // time autostart check has passed, so kick the worker start path now

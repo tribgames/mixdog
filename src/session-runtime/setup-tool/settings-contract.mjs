@@ -177,6 +177,7 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
   entry: object(
     {
       name: text,
+      newName: { ...text, description: 'Schedule only, with overwrite: rename the schedule `name` to this; its history is kept.' },
       description: text,
       instructions: text,
       time: { ...text, description: 'Schedule cron expression. Mutually exclusive with at.' },

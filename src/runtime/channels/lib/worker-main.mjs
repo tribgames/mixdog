@@ -264,6 +264,18 @@ const { handleToolCall } = createToolDispatch({
     startChannelBridge: () => start({ messaging: true }),
     stopOwnedRuntime,
     reloadRuntimeConfig,
+    // Rename and re-arm under one reservation: the scheduler is reloaded from
+    // the renamed row (timers and one-shots of the old name cleared) before
+    // the name is released for fires.
+    renameSchedule: (name, def, opts) =>
+      scheduler.renameLocked(
+        name,
+        async () => {
+          const { renameSchedule } = await import('./schedules-db.mjs');
+          return renameSchedule(name, def, opts);
+        },
+        { newName: def.name, reload: reloadRuntimeConfig }
+      ),
   },
 });
 function ensureConfigWatcher() {

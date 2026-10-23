@@ -195,6 +195,53 @@ export async function upsertSchedule(def, { dataDir } = {}) {
   return rowToDef(rows[0]);
 }
 
+/**
+ * Rename schedule `oldName` to `def.name` in one UPDATE of the primary key,
+ * applying the edited settings. Run history (last_* stamps, failure streak,
+ * undelivered results), status and next_fire_at stay on the row. When
+ * `timingChanged`, the row is re-armed the way `upsertSchedule` re-arms a
+ * redefinition. Resolves null when `oldName` is gone; an occupied `def.name`
+ * rejects and changes nothing.
+ */
+export async function renameSchedule(oldName, def, { timingChanged = false, dataDir } = {}) {
+  const db = await getDb(dataDir);
+  try {
+    const { rows } = await db.query(
+      `UPDATE scheduler.schedules SET
+         name = $2, description = $3, when_at = $4, when_cron = $5, timezone = $6, cwd = $7,
+         attachments = $8, prompt = $9, enabled = $10, owner_agent_id = $11,
+         next_fire_at = CASE WHEN $4::timestamptz IS NOT NULL THEN $4::timestamptz
+                             WHEN $12::boolean THEN NULL ELSE next_fire_at END,
+         status = CASE WHEN $12::boolean THEN 'active' ELSE status END,
+         deferred_until = CASE WHEN $12::boolean THEN NULL ELSE deferred_until END,
+         skipped_until = CASE WHEN $12::boolean THEN NULL ELSE skipped_until END,
+         last_fired_at = CASE WHEN $12::boolean THEN NULL ELSE last_fired_at END,
+         last_scheduled_at = CASE WHEN $12::boolean THEN NULL ELSE last_scheduled_at END,
+         updated_at = now()
+       WHERE name = $1
+       RETURNING ${COLS}`,
+      [
+        oldName,
+        def.name,
+        def.description ?? '',
+        def.whenAt ?? null,
+        def.whenCron ?? null,
+        def.timezone ?? null,
+        def.cwd ?? null,
+        def.attachments ? JSON.stringify(def.attachments) : null,
+        def.prompt,
+        def.enabled ?? true,
+        def.ownerAgentId || 'lead',
+        timingChanged === true,
+      ]
+    );
+    return rowToDef(rows[0]);
+  } catch (error) {
+    if (error?.code === '23505') throw new Error(`A schedule named "${def.name}" already exists.`);
+    throw error;
+  }
+}
+
 export async function deleteSchedule(name, { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rowCount } = await db.query(`DELETE FROM scheduler.schedules WHERE name = $1`, [name]);

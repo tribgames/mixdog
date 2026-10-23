@@ -27,6 +27,19 @@ const defaultLog = (line) => process.stderr.write(`mixdog routines: ${line}\n`);
 // received webhooks and the app's "Run now" all come through here.
 const activeRuns = new Set();
 
+/**
+ * Reserve `kind:name` against runs in this process for a rename. Null when a
+ * run is in flight; otherwise a release function. The check and the reservation
+ * are one synchronous step, and a run that finds the reservation is skipped as
+ * an overlap (runOwnedAutomation), so none can start under the name meanwhile.
+ */
+export function beginAutomationRename(kind, name, active = activeRuns) {
+  const key = `${kind}:${name}`;
+  if (active.has(key)) return null;
+  active.add(key);
+  return () => active.delete(key);
+}
+
 // The PG record of each kind, imported on first use.
 const RECORDS = {
   schedule: () =>

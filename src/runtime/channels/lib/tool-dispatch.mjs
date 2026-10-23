@@ -13,6 +13,7 @@ function createToolDispatch({ isChannelsDegraded, lifecycle }) {
     startChannelBridge,
     stopOwnedRuntime,
     reloadRuntimeConfig,
+    renameSchedule,
   } = lifecycle;
 
   async function handleToolCall(name, args, _signal) {
@@ -80,6 +81,14 @@ function createToolDispatch({ isChannelsDegraded, lifecycle }) {
               { type: 'text', text: `config reloaded — schedules, webhooks, events${agentReloadMsg} re-registered` },
             ],
           };
+          break;
+        }
+        // The scheduler's owner moves a schedule row only while no run of it
+        // can start or be in flight (Scheduler.renameLocked). Resolves the
+        // renamed row as JSON text; a refusal is an isError result.
+        case 'rename_schedule': {
+          const saved = await renameSchedule(args.name, args.def, { timingChanged: args.timingChanged === true });
+          result = { content: [{ type: 'text', text: JSON.stringify(saved) }] };
           break;
         }
         // memory — handled by memory-service.mjs MCP

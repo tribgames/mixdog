@@ -262,6 +262,7 @@ function ScheduleEditor({
             setFormError('');
             onSave({
               name: editing ? draft.name : text('schedule-name'),
+              ...(editing && text('schedule-name') !== draft.name ? { newName: text('schedule-name') } : {}),
               description: draft.description,
               ...(frequency === 'once'
                 ? { at: text('schedule-at') }
@@ -285,7 +286,7 @@ function ScheduleEditor({
               required
               // biome-ignore lint/a11y/noAutofocus: the schedule name field is the first input of a freshly opened editor form
               autoFocus
-              disabled={busy || editing}
+              disabled={busy}
               maxLength={64}
             />
           </label>
