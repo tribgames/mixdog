@@ -26,15 +26,19 @@
  * characters after the cut serve as lookahead. Settled text (`live` false) is
  * never held at its end.
  *
- * A paced reveal (coding transcript) holds less: only a line that is only a
- * list or heading marker, and a closing fence still being typed
- * (pacedRevealCeiling, pacedRevealStep).
+ * A paced reveal (coding transcript) holds less: a line that is only a list
+ * or heading marker, a closing fence still being typed, and a table row until
+ * its newline arrives (a half row makes the columns jitter sideways);
+ * everything else reveals word by word (pacedRevealCeiling, pacedRevealStep).
  */
 
 /** A line longer than this is prose, not a row or heading worth holding. */
 const LINE_HOLD_MAX = 400;
 const HEADING = /^ {0,3}(?:>[ \t]*)*#{1,6}(?:[ \t]|$)/;
 const LIST_MARKER_ONLY = /^[ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)]?)(?:[ \t]+(?:\[(?:[ xX](?:\][ \t]*)?)?)?)?$/;
+const LIST_START = /^[ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)])[ \t]/;
+const THEMATIC_BREAK = /^[ \t>]*(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/;
+const HTML_BLOCK = /^[ \t>]*<[A-Za-z/!?]/;
 const QUOTE_MARKER_ONLY = /^[ \t]*(?:>[ \t]*)+$/;
 const FENCE_LINE = /^[ \t>]*(?:`{3,}|~{3,})/;
 const FENCE_OPEN = /^[ \t>]*(?:(`{3,})[^`]*|(~{3,}).*)$/;
@@ -98,14 +102,31 @@ function isDelimiterRow(line: string): boolean {
   return body.includes('|') && body.includes('-') && DELIMITER_BODY.test(body);
 }
 
-/** A delimiter row sits among the non-blank lines right above `lineStart`. */
+/** A line that starts another block (heading, list item, fence): it ends a
+ *  table instead of continuing it. */
+function startsBlock(line: string): boolean {
+  return (
+    HEADING.test(line) || LIST_START.test(line) || FENCE_LINE.test(line) || THEMATIC_BREAK.test(line) || HTML_BLOCK.test(line)
+  );
+}
+
+/** Nesting depth of the blockquote a line sits in (its leading `>` markers). */
+function quoteDepth(line: string): number {
+  return CONTAINER_PREFIX.exec(line)![0].split('>').length - 1;
+}
+
+/** A delimiter row sits among the non-blank lines right above `lineStart`
+ *  with no other block start between, and in the same quote container. */
 function tableAbove(text: string, lineStart: number): boolean {
+  const depth = quoteDepth(text.slice(lineStart, lineEndOf(text, lineStart)));
   let end = lineStart - 1;
   for (let count = 0; end > 0 && count < TABLE_LOOKBACK_LINES; count += 1) {
     const start = text.lastIndexOf('\n', end - 1) + 1;
     const line = text.slice(start, end);
     if (!line.trim()) return false;
+    if (quoteDepth(line) !== depth) return false;
     if (isDelimiterRow(line)) return true;
+    if (startsBlock(line)) return false;
     end = start - 1;
   }
   return false;
@@ -116,6 +137,7 @@ function tableRow(text: string, lineStart: number, line: string): boolean {
   const body = line.replace(CONTAINER_PREFIX, '');
   if (body.startsWith('|')) return true;
   if (!body.trim()) return false;
+  if (startsBlock(line)) return false;
   if (tableAbove(text, lineStart)) return true;
   if (!body.includes('|')) return false;
   const next = lineEndOf(text, lineStart) + 1;
@@ -228,7 +250,14 @@ export function pacedHoldStart(text: string, at: number): number {
   if (start === at) return -1;
   const line = text.slice(start, at);
   if (BARE_LIST_MARKER.test(line) || BARE_HEADING_MARKER.test(line)) return start;
-  return FENCE_BEING_TYPED.test(line) && insideCode(fencedRanges(text), start) ? start : -1;
+  const code = insideCode(fencedRanges(text), start);
+  if (code) return FENCE_BEING_TYPED.test(line) ? start : -1;
+  const lineEnd = lineEndOf(text, start);
+  if (at < lineEnd || lineEnd >= text.length) {
+    const whole = text.slice(start, lineEnd);
+    if (whole.length <= LINE_HOLD_MAX && tableRow(text, start, whole)) return start;
+  }
+  return -1;
 }
 
 /** Never end inside a surrogate pair. */
@@ -237,9 +266,9 @@ function wholeChar(text: string, at: number): number {
 }
 
 /** How far the paced reveal of live `text` may go: everything but a last
- *  line that is only a marker or a closing fence being typed. Code lines,
- *  table rows and heading text stream within their line; the streaming
- *  healer closes their inline syntax. */
+ *  line that is only a marker, a closing fence being typed or a table row
+ *  without its newline. Code lines and heading text stream within their
+ *  line; the streaming healer closes their inline syntax. */
 export function pacedRevealCeiling(text: string): number {
   const held = pacedHoldStart(text, text.length);
   return wholeChar(text, held === -1 ? text.length : held);
