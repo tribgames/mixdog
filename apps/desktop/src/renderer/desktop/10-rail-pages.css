@@ -1288,8 +1288,8 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   z-index: 3;
   top: 50%;
   transform: translateY(-50%);
-  /* The hover action replaces the unread dot on the shared trailing
-     centerline: the 24px button's center lands exactly where the dot sat. */
+  /* The 24px button's center sits on the shared trailing centerline; a row
+     with a dot or status moves the cluster left of it (11-sidebar-usage.css). */
   right: calc(var(--mx-rail-trailing-center, 20px) - 12px);
   height: 24px;
   padding-left: 12px;
@@ -2045,15 +2045,6 @@ html:not([data-mixdog-mobile-tabs]) .session-sidebar .task-link.session-launcher
 .session-agent-avatar > .agent-contact-badge > svg {
   width: 7px;
   height: 7px;
-}
-/* No action cluster here, so the dot stays visible on hover. */
-.agent-session-row:hover .session-row-unread-dot,
-.agent-session-row:has(:focus-visible) .session-row-unread-dot {
-  visibility: visible;
-}
-.session-row.agent-session-row:hover .session-row-status,
-.session-row.agent-session-row:has(:focus-visible) .session-row-status {
-  visibility: visible;
 }
 .session-sidebar .recent-session-list .sidebar-section-empty {
   padding-left: 8px;

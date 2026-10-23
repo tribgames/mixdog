@@ -712,6 +712,14 @@
   .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 52px;
 }
+.session-sidebar
+  .session-row:hover:has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+  .session-row-main:has(.session-row-fork-toggle),
+.session-sidebar
+  .session-row:has(:focus-visible):has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+  .session-row-main:has(.session-row-fork-toggle) {
+  padding-right: 72px;
+}
 /* Unread activity dot: the session gained messages while it
    was not the viewed conversation. */
 .session-row-unread-dot {
@@ -733,13 +741,14 @@
 .session-row:has(.session-row-unread-dot) .session-row-copy {
   padding-right: 18px;
 }
-/* Hovered rows swap the dot for the action cluster: the archive button
-   rises exactly where the dot sat, so the two never fight for the edge. */
-.session-row:hover .session-row-unread-dot,
-.session-row:has(:focus-visible) .session-row-unread-dot {
-  visibility: hidden;
+/* A row with a dot or status keeps it on hover: the action cluster steps
+   left of the trailing centerline instead of covering it. */
+.session-row:has(.session-row-unread-dot, .session-row-status:not(:empty)) .session-row-actions {
+  right: calc(var(--mx-rail-trailing-center, 20px) + 8px);
 }
-.session-row:hover .session-row-status,
-.session-row:has(:focus-visible) .session-row-status {
-  visibility: hidden;
+.session-row:hover:has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+  .session-row-copy,
+.session-row:has(:focus-visible):has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+  .session-row-copy {
+  padding-right: 72px;
 }
