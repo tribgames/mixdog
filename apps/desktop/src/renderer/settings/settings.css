@@ -1610,3 +1610,47 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+/* Connect dialog: collapsed "Advanced options" and the key file row. */
+.ssh-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.ssh-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.ssh-advanced > summary::before {
+  content: "›";
+  display: inline-block;
+  transition: transform 0.12s;
+}
+.ssh-advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+.ssh-advanced > summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px var(--mx-text);
+  border-radius: 4px;
+}
+.ssh-advanced > .conn-stack {
+  margin-top: 12px;
+  gap: 12px;
+}
+.ssh-key-row {
+  display: flex;
+  gap: 8px;
+}
+.ssh-key-row > .conn-input {
+  flex: 1;
+  min-width: 0;
+}
+.ssh-key-row > .conn-btn {
+  flex: none;
+  height: 40px;
+}

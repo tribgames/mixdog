@@ -31,6 +31,7 @@ export function SshConnectDialog({
   const field = useSshAddressField(attempt.configHosts, host?.target ?? '');
   const [logOpen, setLogOpen] = useState(false);
   const { view, shown, summary, question } = attempt;
+  const { chooseFile } = api;
 
   const editAddress = (): void => {
     attempt.editAddress();
@@ -100,7 +101,8 @@ export function SshConnectDialog({
       return (
         <SshAddressDialog
           field={field}
-          onConnect={(target, name) => void attempt.run(target, name)}
+          chooseKeyFile={chooseFile ? () => chooseFile().then((file) => file?.absolutePath ?? null) : undefined}
+          onConnect={(target, name, settings) => void attempt.run(target, name, settings)}
           onClose={onClose}
         />
       );

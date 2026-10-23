@@ -189,6 +189,30 @@ test('B2/B3: a valid address shows the port hint and connects on Enter; a malfor
   assert.deepEqual(calls[0], ['inspect', 'root@123.45.67.89']);
 });
 
+test('Advanced options: an invalid key file shows inline, disables Connect and keeps the section open until fixed', async (t) => {
+  const { document, window, calls } = await mountDialog(t, { sshConfigHosts: () => Promise.resolve([]) });
+  await typeInto(document.querySelector('input.conn-input'), 'root@123.45.67.89');
+  const details = document.querySelector('details.ssh-advanced');
+  assert.equal(details.open, false, 'starts collapsed');
+  await act(async () => {
+    details.open = true;
+    details.dispatchEvent(new window.Event('toggle'));
+  });
+  const keyInput = details.querySelector('.ssh-key-row input');
+  await typeInto(keyInput, '-oProxyCommand=x');
+  assert.equal(details.querySelector('.conn-field-msg--error').textContent, 'The key file must not start with "-".');
+  assert.equal(buttonNamed(document, 'Connect').disabled, true);
+  const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+  await act(async () => {
+    details.querySelector('summary').dispatchEvent(click);
+  });
+  assert.equal(click.defaultPrevented, true, 'the summary does not collapse it while a field is invalid');
+  assert.equal(details.open, true);
+  await typeInto(keyInput, '~/.ssh/id_ed25519');
+  assert.equal(buttonNamed(document, 'Connect').disabled, false);
+  assert.deepEqual(calls, []);
+});
+
 test('C1: progress steps follow the phases; the install step appears only when the server installs', async (t) => {
   const pending = Promise.withResolvers();
   const { document, calls, progress, api } = await mountDialog(t, { sshConfigHosts: () => Promise.resolve([]) });

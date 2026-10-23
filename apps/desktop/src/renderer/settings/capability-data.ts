@@ -49,6 +49,7 @@ export type CapabilityApi = Partial<
     | 'sshConfigHosts'
     | 'sshInspectHostKey'
     | 'sshConnect'
+    | 'chooseFile'
     | 'sshCancel'
     | 'sshAskpassReply'
     | 'sshCleanupHost'

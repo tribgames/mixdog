@@ -201,6 +201,8 @@ export interface DesktopApi {
   /** Fires with each changed conversation-import job snapshot while a job is active. */
   subscribeConversationImportProgress?(listener: (job: ConversationImportJob) => void): () => void;
   chooseFile?(defaultPath?: string | null): Promise<{
+    /** The file's path on this PC. */
+    absolutePath?: string;
     projectPath: string;
     relPath: string;
     accessToken?: string;

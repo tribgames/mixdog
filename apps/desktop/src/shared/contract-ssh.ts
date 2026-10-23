@@ -138,6 +138,8 @@ export interface DesktopSshConnectRequest {
   replaceHostKey?: string;
   /** The user accepted the forwards listed in the inspection summary. */
   acceptForwards?: boolean;
+  /** Entered in the connect dialog's advanced options: used for this attempt and saved with the server. Validated like the per-server settings. */
+  settings?: Pick<DesktopSshHostSettings, 'identityFile' | 'remoteCwd'>;
   /** Stop whatever daemon runs on the server and start this app's (after the user confirmed). */
   forceRestart?: boolean;
 }

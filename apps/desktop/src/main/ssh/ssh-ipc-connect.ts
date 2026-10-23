@@ -17,7 +17,7 @@ import type { HostKeyInspection, pinHostKey, replaceHostKey } from './host-key';
 import { parseSshTarget, sshTargetKey, sshTargetLabel, type SshTarget } from './ssh-command';
 import { runWithSshContext, type SshRunContext } from './ssh-context';
 import { appendDiagnostic, diagnosticsKeyFor } from './ssh-diagnostics';
-import type { SshHostRecord, SshHostStore } from './ssh-host-store';
+import { parseHostSettings, type SshHostRecord, type SshHostStore } from './ssh-host-store';
 import type { Attempt, AttemptRegistry } from './ssh-ipc-attempts';
 import { text } from './ssh-ipc-input';
 import { cancelledResult, type createLoginRetry } from './ssh-ipc-login';
@@ -192,6 +192,11 @@ export function createConnectHandlers(deps: ConnectHandlerDeps): {
     await deps.configured;
     const restart = attempt.state === 'restartable';
     assertCanConnect(attempt, request);
+    // Same validation as the per-server settings; a bad value is refused before anything is pinned or opened.
+    const entered = parseHostSettings({
+      identityFile: request?.settings?.identityFile,
+      remoteCwd: request?.settings?.remoteCwd,
+    });
     const decision: HostKeyDecision = attempt.keyHandled ? {} : decideHostKey(attempt.inspection, request);
     if ('refused' in decision) {
       attempts.drop(attempt);
@@ -203,9 +208,21 @@ export function createConnectHandlers(deps: ConnectHandlerDeps): {
       const { target } = attempt;
       const reservation = reserveHost(await deps.store(), target);
       releaseHost = reservation.release;
-      const { record } = reservation;
+      // The entered settings ride the record: contextFor puts the key file on this attempt's ssh argv, and open() saves them.
+      const record: SshHostRecord = Object.keys(entered).length
+        ? { ...reservation.record, settings: { ...reservation.record.settings, ...entered } }
+        : reservation.record;
       attempt.recordId = record.id;
       attempt.wasOpen = connections.isOpen(record.id);
+      // A live connection is reused without logging in again, so a new key or folder would be saved untested.
+      if (
+        attempt.wasOpen &&
+        (Object.keys(entered) as Array<keyof typeof entered>).some(
+          (key) => entered[key] !== reservation.record.settings?.[key]
+        )
+      ) {
+        throw new Error('This server is already connected. Disconnect it first to change its login key or folder.');
+      }
       if (decision.replace) await deps.replaceKey(decision.replace);
       else if (decision.pin) await deps.pin(decision.pin);
       attempt.keyHandled = true;

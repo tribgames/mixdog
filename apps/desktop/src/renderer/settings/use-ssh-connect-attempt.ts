@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   DesktopSshConfigHost,
   DesktopSshConfigSummary,
+  DesktopSshConnectRequest,
   DesktopSshHost,
   DesktopSshHostKeyCheck,
   DesktopSshProgress,
@@ -51,6 +52,8 @@ export function useSshConnectAttempt({
   // The inspection waiting for the user's answer to the forwards notice, and whether they accepted it.
   const pendingInspection = useRef<{ attemptId: string; check: DesktopSshHostKeyCheck } | null>(null);
   const acceptForwards = useRef(false);
+  // From the advanced options; kept across retries and the jump chain's re-runs of the same address.
+  const enteredSettings = useRef<DesktopSshConnectRequest['settings']>(undefined);
   const shownRef = useRef(shown);
   shownRef.current = shown;
   // The attempt main opened for the address being connected ('' when none). It
@@ -87,6 +90,7 @@ export function useSshConnectAttempt({
         ...(options.replace ? { replaceHostKey: options.replace } : {}),
         ...(options.restart ? { forceRestart: true } : {}),
         ...(acceptForwards.current ? { acceptForwards: true } : {}),
+        ...(enteredSettings.current ? { settings: enteredSettings.current } : {}),
       });
       if (!live() || !result) return;
       // Main keeps the attempt only for a daemon it may be asked to restart.
@@ -126,7 +130,9 @@ export function useSshConnectAttempt({
     void proceed(++attempt.current, inspection);
   };
 
-  const run = async (target: string, name: string): Promise<void> => {
+  const run = async (target: string, name: string, settings?: DesktopSshConnectRequest['settings']): Promise<void> => {
+    if (settings)
+      enteredSettings.current = settings.identityFile?.trim() || settings.remoteCwd?.trim() ? settings : undefined;
     const mine = ++attempt.current;
     const live = () => mine === attempt.current;
     releaseAttempt();

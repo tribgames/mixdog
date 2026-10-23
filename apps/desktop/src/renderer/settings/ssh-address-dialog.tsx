@@ -20,6 +20,8 @@ export function useSshAddressField(configHosts: DesktopSshConfigHost[], initialT
   const [text, setText] = useState(initialText);
   const [menuOpen, setMenuOpen] = useState(true);
   const [active, setActive] = useState(0);
+  const [identityFile, setIdentityFile] = useState('');
+  const [remoteCwd, setRemoteCwd] = useState('');
 
   const target = text.trim();
   const valid = target.length > 0 && validTarget(target);
@@ -39,6 +41,10 @@ export function useSshAddressField(configHosts: DesktopSshConfigHost[], initialT
     suggestions,
     showMenu,
     activeIndex,
+    identityFile,
+    remoteCwd,
+    setIdentityFile,
+    setRemoteCwd,
     change: (value: string): void => {
       setText(value);
       setMenuOpen(true);
@@ -75,14 +81,120 @@ function AddressHint({ target, valid }: { target: string; valid: boolean }) {
   );
 }
 
+export const KEY_FILE_EXAMPLE = '~/.ssh/id_ed25519';
+
+const MAX_PATH_LENGTH = 512;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is refused.
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
+const unusable = (value: string): boolean => value.length > MAX_PATH_LENGTH || CONTROL_CHARACTERS.test(value);
+
+/** The same rules as main's parseHostSettings; '' when the value can be used. */
+function keyFileError(value: string): string {
+  const text = value.trim();
+  if (unusable(text)) return t('The key file is not valid.');
+  return text.startsWith('-') ? t('The key file must not start with "-".') : '';
+}
+function folderError(value: string): string {
+  const text = value.trim();
+  if (unusable(text)) return t('The server folder is not valid.');
+  if (text && text !== '~' && !text.startsWith('~/') && !text.startsWith('/'))
+    return t('The server folder must be an absolute server path or start with ~.');
+  return '';
+}
+
+/** The collapsed "Advanced options": the login key file (typed or browsed) and the default server folder. */
+function AdvancedOptions({
+  field,
+  chooseKeyFile,
+}: {
+  field: AddressField;
+  chooseKeyFile?: () => Promise<string | null>;
+}) {
+  const browse = (): void => {
+    void chooseKeyFile?.()
+      .then((path) => path && field.setIdentityFile(path))
+      .catch(() => undefined);
+  };
+  const keyError = keyFileError(field.identityFile);
+  const folderMsg = folderError(field.remoteCwd);
+  // While a field here is invalid (Connect is disabled) the section stays
+  // open, so the reason stays in view; otherwise the user opens and closes it.
+  const [expanded, setExpanded] = useState(false);
+  const hasError = Boolean(keyError || folderMsg);
+  return (
+    <details
+      className="ssh-advanced"
+      open={expanded || hasError}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is the native disclosure control; the handler only holds it open while a field is invalid. */}
+      <summary
+        onClick={(event) => {
+          if (hasError) event.preventDefault();
+        }}
+      >
+        {t('Advanced options')}
+      </summary>
+      <div className="conn-stack">
+        <label className="conn-field">
+          <span>{t('Login key file')}</span>
+          <span className="ssh-key-row">
+            <input
+              type="text"
+              className="conn-input"
+              placeholder={KEY_FILE_EXAMPLE}
+              autoComplete="off"
+              spellCheck={false}
+              aria-invalid={keyError !== ''}
+              value={field.identityFile}
+              onChange={(event) => field.setIdentityFile(event.currentTarget.value)}
+            />
+            {chooseKeyFile && (
+              <button type="button" className="conn-btn" onClick={browse}>
+                {t('Browse')}
+              </button>
+            )}
+          </span>
+          {keyError && (
+            <span className="conn-field-msg conn-field-msg--error" role="alert">
+              {keyError}
+            </span>
+          )}
+        </label>
+        <label className="conn-field">
+          <span>{t('Default server folder')}</span>
+          <input
+            type="text"
+            className="conn-input"
+            placeholder="~"
+            autoComplete="off"
+            spellCheck={false}
+            aria-invalid={folderMsg !== ''}
+            value={field.remoteCwd}
+            onChange={(event) => field.setRemoteCwd(event.currentTarget.value)}
+          />
+          {folderMsg && (
+            <span className="conn-field-msg conn-field-msg--error" role="alert">
+              {folderMsg}
+            </span>
+          )}
+        </label>
+      </div>
+    </details>
+  );
+}
+
 /** "Connect SSH server" (B1): one address field with the ssh config hosts as suggestions. */
 export function SshAddressDialog({
   field,
+  chooseKeyFile,
   onConnect,
   onClose,
 }: {
   field: AddressField;
-  onConnect(target: string, name: string): void;
+  /** Native file picker on this PC; absent: no Browse button. */
+  chooseKeyFile?: () => Promise<string | null>;
+  onConnect(target: string, name: string, settings: { identityFile: string; remoteCwd: string }): void;
   onClose(): void;
 }) {
   const listId = useId();
@@ -91,9 +203,13 @@ export function SshAddressDialog({
   // suggestion list first (same order as Escape).
   useMobileBack(showMenu, field.closeMenu);
 
+  const optionsValid = keyFileError(field.identityFile) === '' && folderError(field.remoteCwd) === '';
   const connect = (): void => {
-    if (!valid) return;
-    onConnect(target, sshTargetLabel(parseSshTarget(target)));
+    if (!valid || !optionsValid) return;
+    onConnect(target, sshTargetLabel(parseSshTarget(target)), {
+      identityFile: field.identityFile,
+      remoteCwd: field.remoteCwd,
+    });
   };
   const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -120,7 +236,12 @@ export function SshAddressDialog({
           <button type="button" className="conn-btn" onClick={onClose}>
             {t('Cancel')}
           </button>
-          <button type="button" className="conn-btn conn-btn--primary" disabled={!valid} onClick={connect}>
+          <button
+            type="button"
+            className="conn-btn conn-btn--primary"
+            disabled={!valid || !optionsValid}
+            onClick={connect}
+          >
             {t('Connect')}
           </button>
         </>
@@ -168,6 +289,7 @@ export function SshAddressDialog({
         )}
         <AddressHint target={target} valid={valid} />
       </div>
+      <AdvancedOptions field={field} chooseKeyFile={chooseKeyFile} />
     </ConnDialog>
   );
 }

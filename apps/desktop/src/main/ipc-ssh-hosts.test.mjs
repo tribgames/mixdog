@@ -128,10 +128,11 @@ async function setup({
   const invokeFrom = (window, channel, ...args) => handlers.get(DESKTOP_IPC[channel])(window.event, ...args);
   const invoke = (channel, ...args) => invokeFrom(win, channel, ...args);
   /** Inspects `target` and, unless told otherwise, connects the attempt. */
-  const connectTo = async (target, { window = win, trustHostKey } = {}) => {
+  const connectTo = async (target, { window = win, trustHostKey, settings } = {}) => {
     const { attemptId } = await invokeFrom(window, 'sshInspectHostKey', target);
     const result = await invokeFrom(window, 'sshConnect', {
       attemptId,
+      ...(settings ? { settings } : {}),
       ...(trustHostKey === undefined ? {} : { trustHostKey }),
     });
     return { attemptId, result };
@@ -175,6 +176,47 @@ test('connecting saves the server under its alias or host and reports progress t
   // The same target connects as the same server.
   const again = await s.connectTo('root@vps.example.com:2202');
   assert.equal(again.result.host.id, result.host.id);
+});
+
+test("a key file and folder entered with the address reach the first attempt's ssh context and are saved with the server", async () => {
+  const s = await setup();
+  const { result } = await s.connectTo('root@new.example.com', {
+    settings: { identityFile: ' ~/.ssh/id_work ', remoteCwd: '~/work' },
+  });
+  assert.equal(result.ok, true);
+  // defaultSshSpawn turns context.settings.identityFile into `-i <key> -o IdentitiesOnly=yes` (ssh-auth.ts).
+  assert.equal(s.contexts[0].settings.identityFile, '~/.ssh/id_work');
+  assert.equal(s.contexts[0].settings.remoteCwd, '~/work');
+  assert.deepEqual(result.host.settings, { identityFile: '~/.ssh/id_work', remoteCwd: '~/work' });
+  const stored = JSON.parse(await readFile(join(s.userDataPath, 'ssh-hosts.json'), 'utf8'));
+  assert.deepEqual(stored.hosts[0].settings, { identityFile: '~/.ssh/id_work', remoteCwd: '~/work' });
+});
+
+test('entered settings that change an already-open server are refused, so a wrong key never replaces the saved one', async () => {
+  const s = await setup();
+  const first = await s.connectTo('root@open.example.com', { settings: { identityFile: '~/.ssh/good' } });
+  assert.equal(first.result.ok, true);
+  const opensBefore = opens(s).length;
+  await assert.rejects(
+    s.connectTo('root@open.example.com', { settings: { identityFile: '~/.ssh/wrong' } }),
+    /Disconnect it first/
+  );
+  assert.equal(opens(s).length, opensBefore);
+  assert.equal((await s.invoke('sshListHosts'))[0].settings.identityFile, '~/.ssh/good');
+  // The same values (or none) simply reuse the live connection.
+  const same = await s.connectTo('root@open.example.com', { settings: { identityFile: '~/.ssh/good' } });
+  assert.equal(same.result.ok, true);
+});
+
+test('a key file starting with "-" in the connect request is refused before anything connects', async () => {
+  const s = await setup();
+  const { attemptId } = await s.invoke('sshInspectHostKey', 'root@bad.example.com');
+  await assert.rejects(
+    s.invoke('sshConnect', { attemptId, settings: { identityFile: '-oProxyCommand=x' } }),
+    /must not start with "-"/
+  );
+  assert.deepEqual(opens(s), []);
+  assert.deepEqual(await s.invoke('sshListHosts'), []);
 });
 
 test('nothing is saved when the connection fails; the failure comes back as a guidance kind', async () => {
