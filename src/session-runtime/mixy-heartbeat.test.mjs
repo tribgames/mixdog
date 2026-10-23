@@ -1148,6 +1148,39 @@ test('digest bounds: sessions and finished tasks past the bounds wait in a backl
     'new activity in sess_new: "New", last: "n"',
   ]);
   assert.deepEqual(next.backlog, { tasks: [], sessions: [] });
+  // A backlogged task that works again is not reported finished, and leaves the backlog.
+  const resumed = composeDigest(
+    facts({ working: ['sess_t8'] }),
+    { routines: {}, taskBacklog: first.backlog.tasks },
+    T0 + HOUR
+  );
+  assert.deepEqual(resumed.lines, ['task session sess_t9 of bot reviewer finished: "Task 9", last: "done"']);
+  assert.deepEqual(resumed.backlog.tasks, []);
+});
+
+test('collection keeps a recovered root Lead with agent ownership and reports working task sessions', async () => {
+  const since = T0;
+  const now = T0 + INTERVAL;
+  const rows = [
+    { id: 'sess_lead_r', agent: 'lead', owner: 'agent', ownerSessionId: 'sess_lead_r', lastUsedAt: now - MINUTE, title: 'Recovered' },
+    { id: 'sess_child', agent: 'worker', owner: 'agent', ownerSessionId: 'sess_lead_r', lastUsedAt: now - MINUTE, title: 'Worker' },
+    { id: 'sess_mem', sourceType: 'memory-cycle', owner: 'agent', lastUsedAt: now - MINUTE, title: 'Length target' },
+    { id: 'sess_t_busy', sourceName: 'agent:reviewer', working: true, lastUsedAt: now - MINUTE, title: 'Busy' },
+  ];
+  const collected = await collectHeartbeatFacts({
+    since,
+    now,
+    getSessionService: () => ({ listSessionCatalog: async () => ({ sessions: rows, nextCursor: null }) }),
+    routines: async () => [],
+    heldRequests: async () => [],
+    taskWatches: async () => [],
+  });
+  assert.deepEqual(
+    collected.sessions.map((row) => row.id),
+    ['sess_lead_r']
+  );
+  assert.deepEqual(collected.working, ['sess_t_busy']);
+  assert.deepEqual(collected.tasks, []);
 });
 
 test('a handled check keeps the backlog; the next check reports it', async (t) => {

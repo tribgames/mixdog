@@ -50,6 +50,7 @@ import {
   agentIdOfHomeSession,
 } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomMemberOfSession } from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { isRootLeadSession } from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
@@ -227,6 +228,8 @@ export async function collectHeartbeatFacts({
   );
   const sessions = [];
   const tasks = [];
+  // Task sessions working (not stalled): a backlogged "finished" of theirs is stale.
+  const working = [];
   for (const row of scan.rows) {
     const bot = sessionBotOf(row);
     const at = activityOf(row);
@@ -239,6 +242,7 @@ export async function collectHeartbeatFacts({
       if (at > since && userFacing(row)) sessions.push({ ...entry, ...turns });
     } else if (busy(row)) {
       if (at && at < now - HEARTBEAT_LIMITS.stallMs) tasks.push({ ...entry, state: 'stalled' });
+      else working.push(row.id);
     } else if (at > since) tasks.push({ ...entry, state: 'finished' });
   }
   const held = await heldRequests();
@@ -251,15 +255,16 @@ export async function collectHeartbeatFacts({
     enabled: row.enabled !== false,
     failures: Number(row.consecutiveFailures) || 0,
   }));
-  return { sessions, tasks, approvals, routines: routineRows };
+  return { sessions, tasks, working, approvals, routines: routineRows };
 }
 
 /** A session the user talks in: a Lead session or a bot's chat; never an exec
- *  run (a heartbeat's included), a delegated agent, a task session or a room seat. */
+ *  run (a heartbeat's included), a delegated agent, a task session or a room seat.
+ *  A root Lead stays one even with the agent ownership a recovery may leave. */
 const userFacing = (row) =>
   row?.sourceName !== HEARTBEAT_RUN &&
   String(row?.sourceType || '').toLowerCase() !== 'exec' &&
-  row?.owner !== 'agent' &&
+  (row?.owner !== 'agent' || isRootLeadSession(row)) &&
   row?.visibility !== 'agent-only' &&
   (!sessionBotOf(row) || Boolean(agentIdOfHomeSession(row.id)));
 
@@ -326,7 +331,10 @@ export function composeDigest(facts, state, at) {
     }
     return left;
   };
-  const tasksLeft = show(withBacklog(facts.tasks || [], state.taskBacklog), MAX_LINES.task, (task) => {
+  // A backlogged task that works again is no longer finished.
+  const working = new Set(facts.working || []);
+  const taskBacklog = (state.taskBacklog || []).filter((task) => !working.has(task.id));
+  const tasksLeft = show(withBacklog(facts.tasks || [], taskBacklog), MAX_LINES.task, (task) => {
     const what =
       task.state === 'stalled' ? 'has shown no activity for over an hour while working' : 'finished';
     const preview = task.state === 'finished' && task.preview ? `, last: "${quotedText(task.preview, TEXT_LIMIT)}"` : '';
