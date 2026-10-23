@@ -99,6 +99,33 @@ test('a turn that completes behind another app stays unread until focus returns'
   }
 });
 
+test("a bot's delegated session takes no completion dot; the bot's own chat still does", async () => {
+  const dom = installDom({ focused: false });
+  const api = {};
+  const task = { ...row, id: 'task-a', messageCount: 1, readMessageCount: 0, working: true, taskAgent: 'agent-1' };
+  const home = { ...row, id: 'home-1', messageCount: 1, readMessageCount: 0, working: true };
+  function Harness() {
+    const viewedSessionRef = useRef('');
+    Object.assign(api, useUnreadSessions({ viewedSessionRef }));
+    return React.createElement('div', null, [...api.unreadSessionIds].join(','));
+  }
+  const marks = () => document.querySelector('#root div').textContent;
+  try {
+    await act(async () => dom.root.render(React.createElement(Harness)));
+    await act(async () => api.reconcileUnreadSessions([task, home]));
+    await act(async () =>
+      api.reconcileUnreadSessions([
+        { ...task, working: false, messageCount: 3 },
+        { ...home, working: false, messageCount: 3 },
+      ])
+    );
+    assert.equal(marks(), 'home-1');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 // The split layout of the report: coding sessions in the focused left pane, a
 // bot chat ('비서') open as the right pane's tab.
 function SplitHarness({ api, screen, focusTick, sessions, useScreenSessions, useUnreadViewedSession }) {

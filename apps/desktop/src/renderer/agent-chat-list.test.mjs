@@ -63,8 +63,10 @@ test("a home thread's work gives its contact exactly one status: approval > fail
   assert.deepEqual(indicator([lead(), busy], ['lead-a']), { kind: 'running' });
   // The Lead's own work runs the spinner too.
   assert.deepEqual(indicator([lead(running)]), { kind: 'running' });
-  // Unread counts every unseen session of the group, the Lead's included.
-  assert.deepEqual(indicator([lead(), worker('done')], ['lead-a', 's-done']), { kind: 'unread', count: 2 });
+  // Only the owner's own unread reply marks the row: a finished member's
+  // result reaches the user through the owner, never as a second dot.
+  assert.deepEqual(indicator([lead(), worker('done')], ['lead-a', 's-done']), { kind: 'unread', count: 1 });
+  assert.equal(indicator([lead(), worker('done')], ['s-done']), null);
   assert.equal(indicator([lead(), worker('done')]), null);
 });
 

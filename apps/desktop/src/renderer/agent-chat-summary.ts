@@ -38,7 +38,8 @@ export function agentRowName(agent: DesktopAgentPoolRow, lead: boolean): string 
 }
 
 /** A Lead group's ONE status for the contact row that owns it: a member
- *  blocked on the user, then a failure, then work in progress, then unread. */
+ *  blocked on the user, then a failure, then work in progress, then the
+ *  owner's own unread reply (a member's result reaches the user through it). */
 export function agentGroupIndicator(
   ownerId: string,
   nodes: readonly AgentActivityNode[],
@@ -50,9 +51,7 @@ export function agentGroupIndicator(
   if (states.some(([, state]) => state === 'needs-user')) return { kind: 'attention' };
   if (states.some(([, state]) => state === 'failed')) return { kind: 'error' };
   if (states.some(([, state]) => WORKING_STATES.has(state))) return { kind: 'running' };
-  const ids = new Set([ownerId, ...states.map(([node]) => node.sessionId)]);
-  const count = [...ids].filter((id) => unreadSessionIds?.has(id)).length;
-  return count > 0 ? { kind: 'unread', count } : null;
+  return unreadSessionIds?.has(ownerId) ? { kind: 'unread', count: 1 } : null;
 }
 
 /** The compact labels a row's time column must hold in `locale`, widest
