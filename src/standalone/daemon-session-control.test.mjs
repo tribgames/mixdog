@@ -691,3 +691,99 @@ test('current-session status stays local and service refusal is not reported as 
   const unavailable = createWorkspaceToolHandlers({ rt: { session: { id: 'caller' } } }).session;
   await assert.rejects(unavailable({ action: 'list' }, h.context), /unavailable/);
 });
+
+/** A service over sessions whose effort `setEffort` changes, and a model menu catalog. */
+function effortFixture(sessions = { sess_task_1: { effort: 'high' }, sess_user_1: { effort: 'low' } }) {
+  const calls = [];
+  const levels = ['low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({ value, label: value }));
+  const catalog = [{ provider: 'anthropic', id: 'claude-opus-5-5', display: 'Claude Opus 5.5', effortOptions: levels }];
+  const state = (id) => ({ ...sessions[id], provider: 'anthropic', model: 'claude-opus-5-5', fast: false, autoEffort: true });
+  const service = {
+    readSession: async (params) => {
+      calls.push(['read', params.action || 'state']);
+      if (params.action === 'listProviderModels') return { value: catalog };
+      return { full: state(params.sessionId) };
+    },
+    configureSession: async (params) => {
+      calls.push(['configure', params.action, params.sessionId, params.args]);
+      sessions[params.sessionId].effort = params.args[0];
+      return { value: {} };
+    },
+    materializeSession: async () => ({ getState: () => ({}), subscribe: () => () => {} }),
+    submitSession: async (params) => {
+      calls.push(['submit', params.sessionId]);
+      return { accepted: true };
+    },
+  };
+  const tasks = (agentId) =>
+    createAgentTaskSessions({
+      getSessionService: () => service,
+      deliver: async () => {},
+      watches: { add: async () => {}, list: async () => [], remove: async () => {} },
+      loadSession: async (id) =>
+        id === 'sess_task_1' ? { id, taskOrigin: { agentId, sessionId: 'sess_home_a' } } : { id, title: 'Coding' },
+      agentName: async () => 'A',
+      pendingWork: async () => false,
+      settleMs: 0,
+      log: () => {},
+    });
+  return { calls, sessions, run: createSessionControl({ getSessionService: () => service, agentTasks: tasks('a') }) };
+}
+
+test('status shows the effort, Auto effort and Fast of a session', async () => {
+  const f = effortFixture();
+  const status = await f.run({ action: 'status', session_id: 'sess_task_1' }, { callerSessionId: 'sess_home_a' });
+  assert.deepEqual([status.effort, status.autoEffort, status.fast], ['high', true, false]);
+});
+
+test('send with effort sets it on the session before the prompt is queued; a bad effort changes nothing', async () => {
+  const f = effortFixture();
+  const context = { callerSessionId: 'sess_home_a' };
+  await f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'go', effort: 'max' }, context);
+  assert.equal(f.sessions.sess_user_1.effort, 'max');
+  const steps = f.calls.map(([kind, what]) => `${kind}:${what}`);
+  assert.ok(steps.indexOf('configure:setEffort') < steps.indexOf('submit:sess_user_1'));
+  // Session only: the user's saved model settings are not the tool's to change.
+  assert.deepEqual(f.calls.find(([kind]) => kind === 'configure').slice(1), [
+    'setEffort',
+    'sess_user_1',
+    ['max', { sessionOnly: true }],
+  ]);
+  f.calls.length = 0;
+  await assert.rejects(
+    f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'go', effort: 'turbo' }, context),
+    /effort must be one of auto, .*supports: auto, low, medium, high, xhigh, max/
+  );
+  assert.equal(f.sessions.sess_user_1.effort, 'max');
+  assert.equal(f.calls.some(([kind]) => kind === 'configure' || kind === 'submit'), false);
+  const none = await f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'go', effort: 'auto' }, context);
+  assert.equal(none.accepted, true);
+  assert.equal(f.sessions.sess_user_1.effort, null);
+});
+
+test('current-session status shows effort, Auto effort and Fast like remote status', async () => {
+  const handler = createWorkspaceToolHandlers({
+    rt: { session: { id: 'caller', title: 'Current', effort: 'max', autoEffort: false, fast: true }, config: {} },
+  }).session;
+  const local = JSON.parse(await handler({ action: 'status' }, { callerCtx: { callerSessionId: 'caller' }, callerCwd: '/p' }));
+  assert.deepEqual([local.effort, local.autoEffort, local.fast], ['max', false, true]);
+  const plain = createWorkspaceToolHandlers({ rt: { session: { id: 'caller' }, config: {} } }).session;
+  const other = JSON.parse(await plain({ action: 'status' }, { callerCtx: { callerSessionId: 'caller' }, callerCwd: '/p' }));
+  assert.deepEqual([other.effort, other.autoEffort, other.fast], [null, true, false]);
+});
+
+test("a bot sets the effort only of the task sessions it created; a coding session's effort stays", async () => {
+  const f = effortFixture();
+  const bot = { callerSessionId: 'sess_home_a', callerAgentId: 'a' };
+  await f.run({ action: 'send', session_id: 'sess_task_1', prompt: 'more', effort: 'max' }, bot);
+  assert.equal(f.sessions.sess_task_1.effort, 'max');
+  f.calls.length = 0;
+  await assert.rejects(
+    f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'more', effort: 'max' }, bot),
+    /only of the task sessions it created/
+  );
+  assert.equal(f.sessions.sess_user_1.effort, 'low');
+  assert.equal(f.calls.some(([kind]) => kind === 'submit'), false);
+  // The same send without an effort stays allowed.
+  assert.equal((await f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'more' }, bot)).accepted, true);
+});

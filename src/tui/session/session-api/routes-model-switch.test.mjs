@@ -70,6 +70,18 @@ test('a session-only selection is forwarded as an option, never as part of the r
   assert.equal(Object.hasOwn(h.calls[1].options, 'sessionOnly'), false);
 });
 
+test('a session-only effort keeps its option on the way to the runtime', async () => {
+  const h = harness();
+  const seen = [];
+  h.runtime.setEffort = async (value, options) => seen.push([value, options]);
+  await h.api.setEffort('max', { sessionOnly: true });
+  await h.api.setEffort('low');
+  assert.deepEqual(seen, [
+    ['max', { sessionOnly: true }],
+    ['low', undefined],
+  ]);
+});
+
 test('repeated selections retain the latest choice, including returning to the original', async () => {
   const h = harness();
   await Promise.all([

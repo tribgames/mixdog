@@ -468,7 +468,8 @@ test('session and memory schemas stay minimal and direct', () => {
     !/git tool’s action:"worktree"/.test(SESSION_TOOL.description || '') ||
     !/Shell cd does not switch Project/i.test(sessionProps.path?.description || '') ||
     Object.keys(sessionProps).join(',') !==
-      'action,title,session_id,prompt,to,limit,cursor,include_agents,include_archived,offset,text_offset,item_id,path,compact,value,brief,project,worktree,confirm_large,model,notify,attachments' ||
+      'action,title,session_id,prompt,to,limit,cursor,include_agents,include_archived,offset,text_offset,item_id,path,compact,value,brief,project,worktree,confirm_large,model,effort,notify,attachments' ||
+    sessionProps.effort?.type !== 'string' ||
     sessionProps.worktree?.type !== 'object' ||
     sessionProps.worktree?.additionalProperties !== false ||
     sessionProps.worktree?.required?.join(',') !== 'mode' ||

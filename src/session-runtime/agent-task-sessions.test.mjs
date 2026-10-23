@@ -252,6 +252,106 @@ test('a created task session starts on the Lead route; an explicit model wins', 
   assert.deepEqual([explicit.provider, explicit.model], ['test', 'test/fast']);
 });
 
+const LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({ value, label: value }));
+const CATALOG = [
+  { provider: 'anthropic', id: 'claude-opus-5-5', display: 'Claude Opus 5.5', effortOptions: LEVELS },
+  { provider: 'anthropic', id: 'claude-haiku-5', display: 'Claude Haiku 5', effortOptions: [] },
+  { provider: 'openai', id: 'gpt-twin', display: 'Twin', effortOptions: LEVELS },
+  { provider: 'azure', id: 'gpt-twin', display: 'Twin', effortOptions: LEVELS },
+];
+/** Task sessions over the real model resolver and a fixed model menu catalog. */
+const withCatalog = (h) => tasks(h, { modelRoute: undefined, modelCatalog: async () => CATALOG });
+const createdOf = (h) => h.calls.filter(([name]) => name === 'create').map(([, params]) => params);
+
+test('create with effort stores it on the new session as the menu does', async () => {
+  const h = fakeService();
+  const { api } = withCatalog(h);
+  await api.create({ brief: 'x', model: 'anthropic/claude-opus-5-5', effort: 'MAX' }, CALLER);
+  const [created] = createdOf(h);
+  assert.deepEqual(
+    [created.provider, created.model, created.effort, created.autoEffort],
+    ['anthropic', 'claude-opus-5-5', 'max', false]
+  );
+  // The default (Lead) model takes the effort too; "auto" leaves the model's own.
+  const lead = tasks(h, { modelCatalog: async () => [] });
+  await lead.api.create({ brief: 'y', effort: 'high' }, CALLER);
+  assert.deepEqual([createdOf(h)[1].model, createdOf(h)[1].effort], ['lead-model', 'high']);
+  await api.create({ brief: 'z', model: 'anthropic/claude-opus-5-5@high', effort: 'auto' }, CALLER);
+  assert.equal(createdOf(h)[2].effort, undefined);
+});
+
+test('create resolves a model display name, case-insensitively, with an optional trailing effort word', async () => {
+  const h = fakeService();
+  const { api } = withCatalog(h);
+  await api.create({ brief: 'a', model: 'claude OPUS 5.5' }, CALLER);
+  await api.create({ brief: 'b', model: 'Claude Opus 5.5 max' }, CALLER);
+  await api.create({ brief: 'c', model: 'Claude Opus 5.5', effort: 'xhigh' }, CALLER);
+  const [plain, suffixed, explicit] = createdOf(h);
+  assert.deepEqual([plain.provider, plain.model, plain.effort], ['anthropic', 'claude-opus-5-5', undefined]);
+  assert.deepEqual([suffixed.model, suffixed.effort, suffixed.autoEffort], ['claude-opus-5-5', 'max', false]);
+  assert.equal(explicit.effort, 'xhigh');
+});
+
+test('an explicit effort wins over a trailing effort word, which then only selects the name', async () => {
+  const h = fakeService();
+  const { api } = withCatalog(h);
+  // "max" is not a level of this model, but the explicit field decides.
+  await api.create({ brief: 'a', model: 'Claude Haiku 5 max', effort: 'auto' }, CALLER);
+  await api.create({ brief: 'b', model: 'Claude Opus 5.5 low', effort: 'high' }, CALLER);
+  const [cleared, chosen] = createdOf(h);
+  assert.deepEqual([cleared.model, cleared.effort], ['claude-haiku-5', undefined]);
+  assert.deepEqual([chosen.model, chosen.effort, chosen.autoEffort], ['claude-opus-5-5', 'high', false]);
+  await assert.rejects(
+    api.create({ brief: 'c', model: 'Claude Haiku 5 max', effort: 'turbo' }, CALLER),
+    /effort must be one of/
+  );
+});
+
+test('a trailing auto selects the model and clears the effort', async () => {
+  const h = fakeService();
+  const { api } = withCatalog(h);
+  await api.create({ brief: 'a', model: 'Claude Opus 5.5 auto' }, CALLER);
+  const [created] = createdOf(h);
+  assert.deepEqual([created.provider, created.model, created.effort], ['anthropic', 'claude-opus-5-5', undefined]);
+  assert.equal(Object.hasOwn(created, 'autoEffort'), false);
+});
+
+test('a display name resolves only against the catalog rows, which hold connected providers alone', async () => {
+  const h = fakeService();
+  // A signed-out or disabled provider has no rows, so its model names nothing.
+  const { api } = tasks(h, { modelRoute: undefined, modelCatalog: async () => CATALOG.slice(0, 1) });
+  await assert.rejects(api.create({ brief: 'x', model: 'Twin' }, CALLER), /Choices: Claude Opus 5\.5/);
+  assert.deepEqual(createdOf(h), []);
+});
+
+test('an unknown or ambiguous model or effort is refused with the choices, and no session is created', async () => {
+  const h = fakeService();
+  const { api } = withCatalog(h);
+  const refused = (args, pattern) => assert.rejects(api.create({ brief: 'x', ...args }, CALLER), pattern);
+  await refused({ model: 'Claude Opus 9' }, /neither a provider\/model route.*Choices: Claude Opus 5\.5 \(anthropic\/claude-opus-5-5\)/s);
+  await refused({ model: 'Mystery' }, /Choices: .*Twin/s);
+  await refused({ model: 'Mystery max' }, /effort field/);
+  await refused({ model: 'Twin' }, /ambiguous.*openai\/gpt-twin.*azure\/gpt-twin/s);
+  await refused({ model: 'Claude Opus 5.5', effort: 'turbo' }, /effort must be one of auto, .*supports: auto, low, medium, high, xhigh, max/);
+  await refused({ model: 'Claude Haiku 5 max' }, /effort "max" is not supported/);
+  await refused({ model: 'Claude Haiku 5', effort: 'high' }, /effort "high" is not supported/);
+  assert.deepEqual(createdOf(h), []);
+});
+
+test('create with a model or effort is refused from a conversation that is no bot', async () => {
+  const handler = createWorkspaceToolHandlers({
+    rt: { session: { id: 'sess_coding', owner: 'cli', agent: 'lead', sourceType: 'lead' }, config: {} },
+    executeSessionControl: async () => assert.fail('a refused create never reaches the service'),
+  }).session;
+  await assert.rejects(
+    handler(
+      { action: 'create', brief: 'x', model: 'Claude Opus 5.5', effort: 'max' },
+      { callerCtx: { callerSessionId: 'sess_coding' }, callerCwd: '/home' }
+    ),
+    /create belongs to a bot conversation/
+  );
+});
+
 test('without a Lead route the last-used model starts the task session', async () => {
   const h = fakeService();
   const { api } = tasks(h, {
