@@ -2,7 +2,6 @@
 // rewriting its system blocks (BP1 heading, BP3 core), and the configs a
 // session's workflow and orchestration mode give.
 import { AGENT_MODE, resolveSessionMode, sessionModeOf } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
-import { MIXY_AGENT_ID } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { refreshSessionBp3Environment } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { promptOrchestrationModeOf } from '../../runtime/agent/orchestrator/session/manager/orchestration-mode-switch-notice.mjs';
 import { sessionOrchestrationMode } from '../../runtime/shared/orchestration.mjs';
@@ -77,11 +76,11 @@ export function rewriteBp3Core(session, nextCore) {
 }
 
 // A Lead's workflow slices (orchestration, agent and contact catalogs) for its
-// mode, Mixy's with the contacts.
+// mode; an agent-mode Lead's contacts are every bot but itself.
 export function leadPartsFor(session, leadPromptParts) {
   return leadPromptParts({
     agentMode: sessionModeOf(session) === AGENT_MODE,
-    mixy: resolveSessionMode({ session }).agentId === MIXY_AGENT_ID,
+    agentId: resolveSessionMode({ session }).agentId,
   });
 }
 

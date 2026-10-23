@@ -27,7 +27,7 @@ substantial coding to a new agent task session (\`session create\`) with
 a self-contained brief: start it when already requested, otherwise suggest it. Then relay the
 result in your own words. Promise a follow-up only when the session result allows it.`;
 
-/** Mixy only: the user's other bots, its contact catalog's intro. */
+/** An agent-mode Lead's contact catalog intro: the user's other bots. */
 export const MIXY_CONTACTS_INTRO = `The user's other bots. Hand one a request with \`session send\` to its chat and a
 self-contained brief.`;
 

@@ -20,9 +20,7 @@ import { resolveAgentSpawnPreset } from '../spawn-preset.mjs';
 import { AGENT_OWNER } from '../../../../runtime/agent/orchestrator/agent-owner.mjs';
 import { workspaceCwdLock } from '../../../workspace/admission-gate.mjs';
 import { isContactAgentId } from '../../../../runtime/agent/orchestrator/runtime-core/workflow-ids.mjs';
-import { AGENT_MODE, resolveSessionMode } from '../../../../runtime/agent/orchestrator/session/agent-mode.mjs';
-import { MIXY_AGENT_ID } from '../../../../runtime/agent/orchestrator/session/agent-home.mjs';
-import { mixyDisplayName } from '../../../../runtime/agent/orchestrator/session/mixy-name.mjs';
+import { resolveSessionMode } from '../../../../runtime/agent/orchestrator/session/agent-mode.mjs';
 
 export function createSpawnPlanner({
   mgr = null,
@@ -35,6 +33,25 @@ export function createSpawnPlanner({
   resolveTag,
   wantsSessionScan,
 }) {
+  /** The agents from the chain's origin down to the caller, walking
+   *  parentSessionId/ownerSessionId up from the caller session (a Lead acts as
+   *  its agent-mode agent, a delegated worker as its role). The visited set
+   *  ends a malformed cycle; chain length is bounded by the existing limit
+   *  that workers have no `agent` tool, so only Leads delegate. */
+  function delegationChainOf(callerId) {
+    const chain = [];
+    const seen = new Set();
+    for (let id = callerId; id && !seen.has(id); ) {
+      seen.add(id);
+      const session = mgr?.getSession?.(id) || null;
+      const { agentId } = resolveSessionMode({ session, sessionId: id });
+      const acting = clean(agentId || session?.agent);
+      if (acting) chain.unshift(acting);
+      id = clean(session?.parentSessionId || session?.ownerSessionId);
+    }
+    return chain;
+  }
+
   /** Shared spawn-prep validations (agent/preset/tag/cwd/prompt). */
   async function resolveSpawnPlan(args, callerCwd, context, prepState) {
     const config = cfgMod.loadConfig();
@@ -50,15 +67,18 @@ export function createSpawnPlanner({
     if (isAgentDisabled(config, agent)) {
       throw new Error(`agent spawn: agent "${agent}" is turned off`);
     }
-    // Only Mixy hands work to a contact agent; any other agent-mode Lead
-    // delegates to sub-agents alone (its catalog lists no contact either).
+    // Any agent-mode Lead (Mixy or a bot) may hand work to a contact agent,
+    // never to one already in its delegation chain (itself included).
     if (isContactAgentId(agent, readAgentFrontmatterKind(agent, dataDir, STANDALONE_SOURCE_ROOT))) {
-      const callerId = clean(context?.callerSessionId || context?.sessionId);
-      const caller = (callerId && mgr?.getSession?.(callerId)) || null;
-      const { mode, agentId } = resolveSessionMode({ session: caller, sessionId: callerId });
-      if (mode === AGENT_MODE && agentId !== MIXY_AGENT_ID) {
+      const chain = delegationChainOf(clean(context?.callerSessionId || context?.sessionId));
+      if (chain.at(-1) === agent) {
         throw new Error(
-          `agent spawn: only ${mixyDisplayName()} (the representative agent) can hand work to the contact agent "${agent}"; delegate to a sub-agent instead`
+          `agent spawn: the contact agent "${agent}" cannot hand work to itself; do it yourself or delegate to a sub-agent`
+        );
+      }
+      if (chain.includes(agent)) {
+        throw new Error(
+          `agent spawn: the contact agent "${agent}" is already in this delegation chain (${[...chain, agent].join(' → ')}); do not hand the work back, answer or delegate to a sub-agent instead`
         );
       }
     }

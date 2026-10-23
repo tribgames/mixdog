@@ -9,7 +9,7 @@ import { readAgentFrontmatterPermission } from '../services/agent-tool/helpers.m
 import { LEAD_DISALLOWED_TOOLS } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { HEADLESS_TOOL_PROFILE } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { AGENT_MODE, resolveSessionMode } from '../../runtime/agent/orchestrator/session/agent-mode.mjs';
-import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomMemberOfSession } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
 import { unattendedApprovalPort } from '../../runtime/agent/orchestrator/session/human-gate/gate.mjs';
 
@@ -70,7 +70,7 @@ export function sessionOptions(deps, coreMemoryContext) {
   const workflowContext = packContext;
   const leadWorkflowParts = agentOwned
     ? undefined
-    : leadPromptParts({ agentMode: sessionMode === AGENT_MODE, mixy: actingAgent === MIXY_AGENT_ID });
+    : leadPromptParts({ agentMode: sessionMode === AGENT_MODE, agentId: actingAgent });
   const callerDisallowedTools = [
     ...(agentOwned ? [] : LEAD_DISALLOWED_TOOLS),
     ...(!agentOwned && rt.disallowDelegation ? ['agent'] : []),

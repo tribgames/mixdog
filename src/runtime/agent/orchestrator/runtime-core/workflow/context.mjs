@@ -59,13 +59,13 @@ export function createWorkflowContext({ packs, agents }) {
   // - coding: the orchestration mode block and the full agent catalog;
   // - agent mode: the fixed delegation block (no per-agent setting) and the
   //   sub-agent catalog — identical for every agent, so their prompts share
-  //   it — plus, for Mixy only, the contact-agent catalog.
-  function leadPromptParts(config, dir, { agentMode = false, mixy = false } = {}) {
+  //   it — plus the contact-agent catalog: every bot but `agentId` itself.
+  function leadPromptParts(config, dir, { agentMode = false, agentId = '' } = {}) {
     const mode = configuredOrchestrationMode(config);
     const ids = agents.delegatableAgentIds(config, dir);
     const isContact = (id) => isContactAgentId(id, agents.loadAgentDefinition(dir, id)?.kind);
     if (!agentMode) {
-      // Bots are never a coding Lead's agents: only Mixy hands them work.
+      // Bots are never a coding Lead's agents: only agent-mode Leads hand them work.
       const workflowIds = ids.filter((id) => !isContact(id));
       const catalog = agentCatalog(dir, workflowIds);
       return {
@@ -79,7 +79,10 @@ export function createWorkflowContext({ packs, agents }) {
       dir,
       ids.filter((id) => !isContact(id))
     );
-    const contacts = mixy ? agentCatalog(dir, ids.filter(isContact)) : '';
+    const contacts = agentCatalog(
+      dir,
+      ids.filter((id) => isContact(id) && id !== agentId)
+    );
     return {
       // An agent-mode Lead without agents has no one to delegate to at all.
       orchestrationContext: subAgents || contacts ? AGENT_MODE_DELEGATION : '',
@@ -110,8 +113,8 @@ export function createWorkflowContext({ packs, agents }) {
       // orchestration instructions / agent catalog.
       packContext,
       context: [packContext, orchestrationContextBlock(config, dir)].filter(Boolean).join('\n\n'),
-      // A Lead's BP3 slices beside the pack: `{ agentMode, mixy }` picks the
-      // coding, agent or Mixy variant (session/agent-mode.mjs).
+      // A Lead's BP3 slices beside the pack: `{ agentMode, agentId }` picks the
+      // coding variant, or the agent variant of the agent `agentId` (session/agent-mode.mjs).
       leadPromptParts: (options) => leadPromptParts(config, dir, options),
     };
   }
