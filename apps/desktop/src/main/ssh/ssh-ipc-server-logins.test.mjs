@@ -8,7 +8,8 @@ const AUTH_URL =
   'https://auth.openai.com/oauth/authorize?client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=s1';
 
 /** One attached server whose daemon answers the scripted capabilities. */
-function setup({ modelLogin = 'server', answers = {}, attached = true, forward, maxForwardMs } = {}) {
+function setup({ modelLogin = 'server', answers = {}, attached = true, forward, maxForwardMs, maxQueuedCancels } = {}) {
+  const clock = { now: 1_000_000 };
   const calls = [];
   const opened = [];
   const forwards = [];
@@ -16,6 +17,7 @@ function setup({ modelLogin = 'server', answers = {}, attached = true, forward, 
   const server = {
     modelLogin,
     async invoke(capability, args) {
+      if (!link.reachable) throw new Error('ssh link is down');
       calls.push([capability, args]);
       const answer = answers[capability];
       if (answer instanceof Error) throw answer;
@@ -27,18 +29,36 @@ function setup({ modelLogin = 'server', answers = {}, attached = true, forward, 
       return () => endListeners.delete(listener);
     },
   };
-  const link = { attached };
-  /** The attachment ends (disconnect, quit, a changed model login). */
-  const end = () => {
+  const link = { attached, reachable: true };
+  const attachListeners = new Set();
+  /** The attachment ends (disconnect, quit, a changed model login); settles
+   *  once the watchers' work has, as the connection's dispose waits for it. */
+  const end = async () => {
     link.attached = false;
+    const ended = [];
     for (const listener of [...endListeners]) {
       endListeners.delete(listener);
-      listener();
+      ended.push(listener());
     }
+    await Promise.all(ended);
+  };
+  /** The server's connection is attached again (`reachable`: and its link carries calls). */
+  const reattach = async (reachable = true) => {
+    link.attached = true;
+    link.reachable = reachable;
+    for (const listener of [...attachListeners]) listener(HOST.id);
+    await new Promise((resolve) => setImmediate(resolve));
   };
   const handlers = createServerLoginHandlers({
     store: async () => ({ get: (id) => (id === HOST.id ? HOST : undefined) }),
     connection: (id) => (link.attached && id === HOST.id ? server : null),
+    onAttach: (listener) => {
+      attachListeners.add(listener);
+      return () => attachListeners.delete(listener);
+    },
+    cancelTimeoutMs: 50,
+    now: () => clock.now,
+    ...(maxQueuedCancels ? { maxQueuedCancels } : {}),
     openExternal: async (url) => {
       opened.push(url);
     },
@@ -55,8 +75,10 @@ function setup({ modelLogin = 'server', answers = {}, attached = true, forward, 
       }),
     ...(maxForwardMs ? { maxForwardMs } : {}),
   });
-  return { handlers, calls, opened, forwards, server, end, endListeners, link };
+  return { handlers, calls, opened, forwards, server, end, reattach, endListeners, attachListeners, link, clock };
 }
+
+const cancelCalls = (s) => s.calls.filter(([capability]) => capability === 'cancelOAuthProviderLogin');
 
 const pending = (extra = {}) => ({ flowId: 'f1', provider: 'openai-oauth', state: 'pending', url: AUTH_URL, ...extra });
 
@@ -151,7 +173,7 @@ test('cancel, a failed browser open, the time cap and dispose all close the forw
     answers: { beginOAuthProviderLogin: pending(), cancelOAuthProviderLogin: new Error('gone') },
   });
   await cancelled.handlers.begin('h1', 'openai-oauth');
-  await assert.rejects(cancelled.handlers.cancel('h1', 'f1'), /gone/);
+  await cancelled.handlers.cancel('h1', 'f1');
   assert.equal(cancelled.forwards[0].closed, 1, 'closed even when the server call failed');
 
   const noBrowser = setup({ answers: { beginOAuthProviderLogin: pending() } });
@@ -190,12 +212,358 @@ test('a disconnect or a changed model login closes the forward at once, without 
   await s.handlers.begin('h1', 'openai-oauth');
   assert.equal(s.forwards[0].closed, 0);
   assert.equal(s.endListeners.size, 1, 'the forward watches the attachment that started it');
-  s.end();
-  await new Promise((resolve) => setImmediate(resolve));
+  await s.end();
   assert.equal(s.forwards[0].closed, 1, 'closed when the attachment ended');
   await assert.rejects(s.handlers.status('h1', 'f1'), /Connect to build-box/);
   await s.handlers.dispose();
   assert.equal(s.forwards[0].closed, 1, 'closed only once');
+});
+
+test('a disconnect, dispose or mode change cancels the pending login on a reachable server, forwarded or not', async () => {
+  const forwarded = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await forwarded.handlers.begin('h1', 'openai-oauth');
+  await forwarded.end();
+  assert.deepEqual(cancelCalls(forwarded), [['cancelOAuthProviderLogin', ['f1']]]);
+
+  // No forward (the port is taken here): the server still listens, so it is cancelled too.
+  const unforwarded = setup({
+    forward: async () => {
+      throw new Error('port in use');
+    },
+    answers: { beginOAuthProviderLogin: pending() },
+  });
+  await unforwarded.handlers.begin('h1', 'openai-oauth');
+  await unforwarded.end();
+  assert.deepEqual(cancelCalls(unforwarded), [['cancelOAuthProviderLogin', ['f1']]]);
+
+  const disposed = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await disposed.handlers.begin('h1', 'openai-oauth');
+  await disposed.handlers.dispose();
+  assert.deepEqual(cancelCalls(disposed), [['cancelOAuthProviderLogin', ['f1']]]);
+  assert.equal(disposed.forwards[0].closed, 1);
+
+  // A login that finished is not cancelled when the attachment ends later.
+  const done = setup({
+    answers: { beginOAuthProviderLogin: pending(), getOAuthProviderLoginStatus: () => pending({ state: 'complete' }) },
+  });
+  await done.handlers.begin('h1', 'openai-oauth');
+  await done.handlers.status('h1', 'f1');
+  await done.end();
+  assert.deepEqual(cancelCalls(done), []);
+});
+
+test('a cancel the connection could not carry is sent once it is attached again', async () => {
+  const s = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await s.handlers.begin('h1', 'openai-oauth');
+  s.link.reachable = false;
+  await s.end();
+  assert.equal(s.forwards[0].closed, 1, 'the forward closes whatever the link');
+  assert.deepEqual(cancelCalls(s), [], 'nothing could be sent yet');
+  await s.reattach();
+  assert.deepEqual(cancelCalls(s), [['cancelOAuthProviderLogin', ['f1']]]);
+  await s.reattach();
+  assert.equal(cancelCalls(s).length, 1, 'sent once');
+
+  // The dialog's own cancel after a failed status read, with the server gone, is kept the same way.
+  const gone = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await gone.handlers.begin('h1', 'openai-oauth');
+  gone.link.attached = false;
+  await gone.handlers.cancel('h1', 'f1');
+  await gone.reattach();
+  assert.deepEqual(cancelCalls(gone), [['cancelOAuthProviderLogin', ['f1']]]);
+});
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('a disconnect while the callback forward is being made closes that forward and opens no browser', async () => {
+  const closed = [];
+  let release;
+  const slow = setup({
+    answers: { beginOAuthProviderLogin: pending() },
+    forward: () =>
+      new Promise((resolve) => {
+        release = () => resolve({ close: async () => closed.push('closed') });
+      }),
+  });
+  const begun = slow.handlers.begin('h1', 'openai-oauth');
+  await tick();
+  assert.equal(typeof release, 'function', 'the forward is still being made');
+  await slow.end();
+  assert.deepEqual(cancelCalls(slow), [['cancelOAuthProviderLogin', ['f1']]], 'the server drops it at once');
+  release();
+  const flow = await begun;
+  assert.deepEqual(closed, ['closed'], 'the late forward is closed, not installed');
+  assert.deepEqual(slow.opened, [], 'no browser opens for an ended login');
+  assert.equal(flow.state, 'cancelled');
+  assert.equal(flow.forwarded, false);
+  await slow.handlers.dispose();
+  assert.deepEqual(closed, ['closed'], 'nothing unwatched is left behind');
+
+  // The same when the forward fails after the disconnect.
+  let fail;
+  const failing = setup({
+    answers: { beginOAuthProviderLogin: pending({ manualUrl: 'https://x.example/manual' }) },
+    forward: () =>
+      new Promise((_, reject) => {
+        fail = () => reject(new Error('ssh refused'));
+      }),
+  });
+  const failed = failing.handlers.begin('h1', 'openai-oauth');
+  await tick();
+  await failing.end();
+  fail();
+  assert.equal((await failed).state, 'cancelled');
+  assert.deepEqual(failing.opened, []);
+});
+
+test('a queued cancel expires with the server flow, and is sent before that', async () => {
+  const lifetime = 10 * 60_000;
+  const expired = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await expired.handlers.begin('h1', 'openai-oauth');
+  expired.link.reachable = false;
+  await expired.end();
+  expired.clock.now += lifetime;
+  await expired.reattach();
+  assert.deepEqual(cancelCalls(expired), [], 'the server dropped that login itself by now');
+  await expired.reattach();
+  assert.deepEqual(cancelCalls(expired), [], 'and it is forgotten');
+
+  const fresh = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await fresh.handlers.begin('h1', 'openai-oauth');
+  fresh.link.reachable = false;
+  await fresh.end();
+  fresh.clock.now += lifetime - 1;
+  await fresh.reattach();
+  assert.deepEqual(cancelCalls(fresh), [['cancelOAuthProviderLogin', ['f1']]]);
+
+  // A login that already outlived the server's lifetime is not queued at all.
+  const old = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await old.handlers.begin('h1', 'openai-oauth');
+  old.clock.now += lifetime;
+  old.link.reachable = false;
+  await old.end();
+  await old.reattach();
+  assert.deepEqual(cancelCalls(old), []);
+});
+
+test('the queued cancels are capped, dropping the oldest', async () => {
+  const ids = ['f1', 'f2', 'f3'];
+  const s = setup({
+    maxQueuedCancels: 2,
+    answers: { beginOAuthProviderLogin: () => pending({ flowId: ids.shift() }) },
+  });
+  for (let index = 0; index < 3; index += 1) await s.handlers.begin('h1', 'openai-oauth');
+  s.link.reachable = false;
+  await s.end();
+  await s.reattach();
+  assert.deepEqual(
+    cancelCalls(s).map(([, args]) => args[0]),
+    ['f2', 'f3']
+  );
+});
+
+test('a removed server and a disposed manager drop the cancels still waiting', async () => {
+  const removed = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await removed.handlers.begin('h1', 'openai-oauth');
+  removed.link.reachable = false;
+  await removed.end();
+  removed.handlers.forgetHost('h1');
+  await removed.reattach();
+  assert.deepEqual(cancelCalls(removed), []);
+
+  const disposed = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await disposed.handlers.begin('h1', 'openai-oauth');
+  const [attached] = [...disposed.attachListeners];
+  disposed.link.reachable = false;
+  await disposed.handlers.dispose();
+  assert.equal(disposed.attachListeners.size, 0, 'it no longer listens for attaches');
+  // Even an attach signal that still reaches it finds nothing to send.
+  disposed.link.attached = true;
+  disposed.link.reachable = true;
+  attached('h1');
+  await tick();
+  assert.deepEqual(cancelCalls(disposed), []);
+});
+
+test('a cancel the server did not take on replay stays for the next attach', async () => {
+  const s = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await s.handlers.begin('h1', 'openai-oauth');
+  s.link.reachable = false;
+  await s.end();
+  await s.reattach(false);
+  assert.deepEqual(cancelCalls(s), [], 'attached, but the link carried nothing');
+  await s.reattach(true);
+  assert.deepEqual(cancelCalls(s), [['cancelOAuthProviderLogin', ['f1']]]);
+  await s.reattach(true);
+  assert.equal(cancelCalls(s).length, 1, 'taken once, then forgotten');
+});
+
+test('a stale queued cancel never ends a newer login that reuses the flow id', async () => {
+  // The older login is queued; a new one gets the same id before the attach.
+  const reused = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  await reused.handlers.begin('h1', 'openai-oauth');
+  reused.link.reachable = false;
+  await reused.end();
+  reused.link.attached = true;
+  reused.link.reachable = true;
+  await reused.handlers.begin('h1', 'openai-oauth');
+  await reused.reattach();
+  assert.deepEqual(cancelCalls(reused), [], 'the live login keeps its flow');
+  assert.equal(reused.endListeners.size, 1, 'and is still watched');
+
+  // The older login's cancel fails only after the newer one has started.
+  let failCancel;
+  const gate = new Promise((_, reject) => {
+    failCancel = reject;
+  });
+  const late = setup({ answers: { beginOAuthProviderLogin: pending(), cancelOAuthProviderLogin: () => gate } });
+  await late.handlers.begin('h1', 'openai-oauth');
+  const ending = late.end();
+  await tick();
+  late.link.attached = true;
+  await late.handlers.begin('h1', 'openai-oauth');
+  failCancel(new Error('ssh link is down'));
+  await ending;
+  await late.reattach();
+  assert.equal(cancelCalls(late).length, 1, 'only the first, failed attempt: the stale cancel is not replayed');
+});
+
+/** A cancel the test settles later: `fail()` makes it reject. */
+const deferredCancel = () => {
+  let fail;
+  const gate = new Promise((_, reject) => {
+    fail = () => reject(new Error('ssh link is down'));
+  });
+  return { answer: () => gate, fail };
+};
+
+test('a cancel still in flight when its server is removed is not queued when it fails', async () => {
+  // A disconnect's cancel.
+  const ended = deferredCancel();
+  const s = setup({ answers: { beginOAuthProviderLogin: pending(), cancelOAuthProviderLogin: ended.answer } });
+  await s.handlers.begin('h1', 'openai-oauth');
+  const ending = s.end();
+  await tick();
+  s.handlers.forgetHost('h1');
+  ended.fail();
+  await ending;
+  await s.reattach();
+  assert.equal(cancelCalls(s).length, 1, 'the failed attempt is not replayed for a removed server');
+
+  // The dialog's own cancel.
+  const explicit = deferredCancel();
+  const e = setup({ answers: { beginOAuthProviderLogin: pending(), cancelOAuthProviderLogin: explicit.answer } });
+  await e.handlers.begin('h1', 'openai-oauth');
+  const cancelling = e.handlers.cancel('h1', 'f1');
+  await tick();
+  e.handlers.forgetHost('h1');
+  explicit.fail();
+  await cancelling;
+  await e.reattach();
+  assert.equal(cancelCalls(e).length, 1);
+
+  // A server removed and saved again is a new one: its cancels queue as usual.
+  const again = setup({ answers: { beginOAuthProviderLogin: pending() } });
+  again.handlers.forgetHost('h1');
+  await again.handlers.begin('h1', 'openai-oauth');
+  again.link.reachable = false;
+  await again.end();
+  await again.reattach();
+  assert.equal(cancelCalls(again).length, 1);
+});
+
+test('a cancel still in flight when the manager is disposed is not queued when it fails', async () => {
+  // The status error's background cancel.
+  const status = deferredCancel();
+  const s = setup({
+    answers: {
+      beginOAuthProviderLogin: pending(),
+      getOAuthProviderLoginStatus: new Error('boom'),
+      cancelOAuthProviderLogin: status.answer,
+    },
+  });
+  await s.handlers.begin('h1', 'openai-oauth');
+  const [attached] = [...s.attachListeners];
+  await assert.rejects(s.handlers.status('h1', 'f1'), /boom/);
+  await tick();
+  await s.handlers.dispose();
+  status.fail();
+  await tick();
+  // An attach signal that still reaches the disposed manager finds nothing to send.
+  attached('h1');
+  await tick();
+  assert.equal(cancelCalls(s).length, 1);
+
+  // A disconnect's cancel that is still in flight when dispose runs.
+  const ended = deferredCancel();
+  const d = setup({ answers: { beginOAuthProviderLogin: pending(), cancelOAuthProviderLogin: ended.answer } });
+  await d.handlers.begin('h1', 'openai-oauth');
+  const [reattached] = [...d.attachListeners];
+  const ending = d.end();
+  await tick();
+  const disposing = d.handlers.dispose();
+  ended.fail();
+  await Promise.all([ending, disposing]);
+  d.link.attached = true;
+  reattached('h1');
+  await tick();
+  assert.equal(cancelCalls(d).length, 1);
+});
+
+/** Whether `promise` settles within a second (a hung call never does). */
+const settlesSoon = async (promise) => {
+  let timer;
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, 1_000, false);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+test("the dialog's own cancel is bounded and kept for the next attach when the server fails it", async () => {
+  let mode = 'fail';
+  const s = setup({
+    answers: {
+      beginOAuthProviderLogin: pending(),
+      cancelOAuthProviderLogin: () => {
+        if (mode === 'fail') throw new Error('gone');
+        if (mode === 'hang') return new Promise(() => undefined);
+        return undefined;
+      },
+    },
+  });
+
+  // A rejection: the dialog's call settles, the forward is closed, the cancel is kept.
+  await s.handlers.begin('h1', 'openai-oauth');
+  await s.handlers.cancel('h1', 'f1');
+  assert.equal(s.forwards[0].closed, 1, 'closed even when the server call failed');
+  mode = 'ok';
+  await s.reattach();
+  assert.equal(cancelCalls(s).length, 2, 'the failed cancel is sent again on the next attach');
+  await s.reattach();
+  assert.equal(cancelCalls(s).length, 2, 'and then forgotten');
+
+  // A call that never answers: the forward closes at once and the call is bounded.
+  mode = 'hang';
+  await s.handlers.begin('h1', 'openai-oauth');
+  const cancelling = s.handlers.cancel('h1', 'f1');
+  await tick();
+  assert.equal(s.forwards[1].closed, 1, 'closed while the server still has not answered');
+  assert.equal(await settlesSoon(cancelling), true, 'the call does not wait for the server for ever');
+  mode = 'ok';
+  await s.reattach();
+  assert.equal(cancelCalls(s).length, 4, 'the unanswered cancel is sent again on the next attach');
+  await s.reattach();
+  assert.equal(cancelCalls(s).length, 4);
+
+  // A login the PC does not track is still bounded.
+  mode = 'hang';
+  assert.equal(await settlesSoon(s.handlers.cancel('h1', 'other')), true);
 });
 
 test('a rejected status closes the forward: the server went, or its call failed', async () => {
@@ -255,7 +623,7 @@ test("the server's own logins are listed, signed-in first, and keys and log-outs
           { id: 'anthropic-oauth', name: 'Claude', authenticated: true },
         ],
         api: [
-          { id: 'openai', name: 'OpenAI', authenticated: true, stored: true },
+          { id: 'openai', name: 'OpenAI', authenticated: true, stored: true, detail: 'stored in private file' },
           { id: 'xai', name: 'xAI', authenticated: true, env: true, stored: false },
         ],
         local: [{ id: 'local', name: 'Local' }],
@@ -274,7 +642,7 @@ test("the server's own logins are listed, signed-in first, and keys and log-outs
   assert.equal(logins.busySessions, 1);
   assert.deepEqual(logins.providers, [
     { id: 'anthropic-oauth', name: 'Claude', kind: 'oauth', signedIn: true, identity: 'you@example.com' },
-    { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true },
+    { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true, storedInPrivateFile: true },
     { id: 'xai', name: 'xAI', kind: 'api', signedIn: true, fromEnvironment: true },
     { id: 'gemini-oauth', name: 'Gemini', kind: 'oauth', signedIn: false },
   ]);

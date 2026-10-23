@@ -63,7 +63,7 @@ export interface DesktopConnection extends ConnectionIdentity {
   /** Calls `listener` once when the connection stops running models with
    *  `modelLogin`: it is disposed (disconnect, quit) or its model login
    *  changes; at once when it already has. Returns the unsubscribe. */
-  onModelLoginEnd(modelLogin: SshModelLogin, listener: () => void): () => void;
+  onModelLoginEnd(modelLogin: SshModelLogin, listener: () => void | Promise<void>): () => void;
   /** The transport generation the client is attached through, if any. */
   transport(): SessionTransport | null;
   /** Notices for the connection's windows (re-attach report, sign-in). */
@@ -415,13 +415,17 @@ export function createDesktopConnection(
   let disposal: Promise<void> | null = null;
   // Watchers of one model login: each is called once, when the connection is
   // disposed or its model login is no longer the one watched.
-  const loginWatchers = new Set<{ modelLogin: SshModelLogin; listener: () => void }>();
-  const endLogins = (all: boolean): void => {
+  const loginWatchers = new Set<{ modelLogin: SshModelLogin; listener: () => void | Promise<void> }>();
+  /** Calls the ended watchers; settles once their work (a cancel sent to the
+   *  server) has, while the client is still attached. */
+  const endLogins = async (all: boolean): Promise<void> => {
+    const ended: Array<void | Promise<void>> = [];
     for (const watcher of [...loginWatchers]) {
       if (!all && bindingModelLogin(binding) === watcher.modelLogin) continue;
       loginWatchers.delete(watcher);
-      watcher.listener();
+      ended.push(watcher.listener());
     }
+    await Promise.allSettled(ended);
   };
   return {
     ...identity,
@@ -441,7 +445,7 @@ export function createDesktopConnection(
       // Proxy work the old mode took up ends here: none of it reads or
       // answers anything of this PC's after the switch.
       modelProxy.revoke();
-      endLogins(false);
+      await endLogins(false);
       panels.link.setModelLogin(modelLogin);
       // The user confirmed that the server's running turns stop: the new
       // session's bootstrap replaces the daemon of the other mode even while
@@ -493,7 +497,7 @@ export function createDesktopConnection(
     },
     dispose() {
       disposal ??= (async () => {
-        endLogins(true);
+        await endLogins(true);
         panels?.link.dispose();
         panels?.reattach.dispose();
         await panels?.ports?.dispose().catch(() => undefined);

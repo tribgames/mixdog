@@ -70,6 +70,7 @@ function classifyConnectFailure(error: unknown, target: SshTarget, platform: Nod
       case 'unsupported-platform':
         return { kind: 'unsupported-platform', message: boundedMessage(message) };
       case 'install-failed':
+      case 'local-payload':
         return { kind: 'install-failed', message: boundedMessage(message) };
       case 'protocol-mismatch':
         return { kind: 'protocol-mismatch', message: boundedMessage(message) };

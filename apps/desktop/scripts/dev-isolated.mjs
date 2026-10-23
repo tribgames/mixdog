@@ -499,10 +499,14 @@ export async function seedReadyConfig(
 // instance mirrors that layout with links into the working tree, so its main,
 // preload and daemon bundle build into the instance and the shared out/ stays
 // untouched.
-async function prepareAppDir(instanceDir) {
+// The SSH server payload (main/ssh/remote-install-payload.ts) also reads the
+// runtime's package.json from the instance root; a file link needs elevation on
+// Windows, so it is copied.
+export async function prepareAppDir(instanceDir) {
   const appDir = join(instanceDir, 'app', 'desktop');
   await mkdir(appDir, { recursive: true });
   const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+  await copyFile(join(repoDir, 'package.json'), join(instanceDir, 'package.json'));
   await symlink(join(repoDir, 'src'), join(instanceDir, 'src'), linkType);
   await symlink(join(repoDir, 'native'), join(instanceDir, 'native'), linkType);
   await symlink(join(desktopDir, 'node_modules'), join(appDir, 'node_modules'), linkType);

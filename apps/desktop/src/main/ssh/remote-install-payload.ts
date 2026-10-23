@@ -64,7 +64,7 @@ export function localPayloadLayout(
     }
     if (dirname(dir) === dir) {
       throw new RemoteBootstrapError(
-        'install-failed',
+        'local-payload',
         `The Mixdog runtime to install on the server was not found above ${moduleDir}.`
       );
     }
@@ -159,7 +159,7 @@ export function runtimeSources(layout: LocalPayloadLayout): PayloadSource[] {
   const deps = SERVER_DEPS_FILES.map(({ local }) => join(layout.serverDepsDir, local));
   if (!deps.every((path) => existsSync(path))) {
     throw new RemoteBootstrapError(
-      'install-failed',
+      'local-payload',
       `The server module lockfile is missing (${layout.serverDepsDir}); build the desktop (scripts/build-daemon.mjs) first.`
     );
   }

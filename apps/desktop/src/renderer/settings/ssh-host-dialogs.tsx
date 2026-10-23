@@ -8,12 +8,12 @@ import type {
   DesktopSshModelLogin,
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
-import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import { providerLabel, rows, type CapabilityApi } from './capability-data';
 import { ConfirmDialog, ConnDialog } from './connection-dialogs';
 import { SshAskpassPrompt, useSshAskpass } from './ssh-askpass-prompt';
+import { sshErrorText } from './ssh-error-text';
 import { guidance, toGuidance } from './ssh-guidance';
 import { SshServerLoginsDialog, useServerLogins } from './ssh-server-logins-dialog';
 
@@ -281,7 +281,7 @@ export function SshHostSettingsDialog({
         onClose();
       })
       .catch((reason: unknown) => {
-        setError(errorMessage(reason));
+        setError(sshErrorText(reason));
         setSaving(false);
       });
   };
@@ -315,7 +315,7 @@ export function SshHostSettingsDialog({
   return (
     <ConnDialog
       title={t('{{name}} settings', { name: host.name })}
-      description={t('Changes apply from the next connection.')}
+      description={t('Model logins apply when you save; other changes apply from the next connection.')}
       onEscape={onClose}
       footer={
         <>
@@ -549,7 +549,7 @@ export function SshCleanupDialog({
           setPhase({ failure: result.failure });
         }
       })
-      .catch((reason: unknown) => setPhase({ failure: { kind: 'failed', message: errorMessage(reason) } }));
+      .catch((reason: unknown) => setPhase({ failure: { kind: 'failed', message: sshErrorText(reason) } }));
   };
 
   if (phase === 'confirm') {

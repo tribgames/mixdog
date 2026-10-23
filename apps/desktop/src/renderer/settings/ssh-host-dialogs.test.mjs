@@ -283,13 +283,21 @@ test('server logins: a login whose start answers after the dialog closed is canc
   assert.deepEqual(cancelled, [['h1', 'f7']], 'the late login and its forward are cancelled');
 });
 
-test('server logins: a status that cannot be read ends the login and says why', async (t) => {
+const IPC = (channel, message) => new Error(`Error invoking remote method '${channel}': Error: ${message}`);
+
+test('server logins: a server that disconnects mid-login closes the steps and shows the connect-first note, not the list', async (t) => {
   const cancelled = [];
+  let connected = true;
   const { document } = await mount(t, {
     host: { ...HOST, settings: { modelLogin: 'server' } },
+    sshServerLogins: async () =>
+      connected ? SERVER_LOGINS : { connected: false, modelLogin: null, busySessions: null, providers: null },
     sshServerLoginBegin: (_id, provider) =>
       Promise.resolve({ flowId: 'f5', provider, state: 'pending', url: 'https://x', error: null, forwarded: true }),
-    sshServerLoginStatus: () => Promise.reject(new Error('Connect to build-box to manage its logins.')),
+    sshServerLoginStatus: () => {
+      connected = false;
+      return Promise.reject(IPC('mixdog:ssh-server-login-status', 'Connect to build-box to manage its logins.'));
+    },
     sshServerLoginCancel: async (id, flowId) => {
       cancelled.push([id, flowId]);
     },
@@ -303,6 +311,51 @@ test('server logins: a status that cannot be read ends the login and says why', 
   await act(async () => new Promise((done) => setTimeout(done, 1_100)));
   await settle();
   assert.equal(document.querySelector('.ssh-login-codebox'), null, 'the steps close');
-  assert.match(document.querySelector('[role="alert"]').textContent, /Connect to build-box/);
+  assert.equal(document.querySelector('.ssh-login-list'), null, 'no provider list or Log in buttons');
+  assert.equal(buttonNamed(document, 'Log in'), undefined);
+  assert.equal(document.querySelector('[role="alert"]'), null, 'the note replaces the raw error');
+  assert.ok(
+    [...document.querySelectorAll('.conn-note')].some(
+      (note) => note.textContent === 'Connect to build-box to manage its logins.'
+    )
+  );
   assert.deepEqual(cancelled, [['h1', 'f5']]);
+});
+
+test('server logins: a refusal shows without the IPC envelope', async (t) => {
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    sshServerLoginBegin: () =>
+      Promise.reject(
+        IPC(
+          'mixdog:ssh-server-login-begin',
+          "build-box uses this PC's accounts. Switch it to server accounts to manage its logins."
+        )
+      ),
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
+  await settle();
+  assert.equal(
+    document.querySelector('[role="alert"]').textContent,
+    'build-box uses this PC’s accounts. Switch it to server accounts to manage its logins.'
+  );
+});
+
+test('server logins: an API key kept in the server’s private file says so', async (t) => {
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    sshServerLogins: async () => ({
+      ...SERVER_LOGINS,
+      providers: [
+        { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true, storedInPrivateFile: true },
+        { id: 'xai', name: 'xAI', kind: 'api', signedIn: true },
+      ],
+    }),
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  const rows = [...document.querySelectorAll('.ssh-login-row small')].map((small) => small.textContent);
+  assert.deepEqual(rows, ['API key · stored in a private file', 'API key']);
 });

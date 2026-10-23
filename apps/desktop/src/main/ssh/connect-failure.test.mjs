@@ -110,6 +110,10 @@ test('the server install’s error codes each get their own view', () => {
     kind: 'install-failed',
     message: 'npm exited with 1',
   });
+  assert.deepEqual(view('local-payload', 'The server module lockfile is missing'), {
+    kind: 'install-failed',
+    message: 'The server module lockfile is missing',
+  });
   assert.deepEqual(view('install-locked'), { kind: 'install-locked' });
   assert.deepEqual(view('daemon-busy-other-version', 'busy on 1.0.0'), {
     kind: 'daemon-busy',

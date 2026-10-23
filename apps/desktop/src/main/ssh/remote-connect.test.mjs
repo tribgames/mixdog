@@ -346,6 +346,16 @@ test('terminal classification covers setup failures, mismatches and ssh auth, no
   assert.ok(!isTerminalRemoteError(new Error('ECONNRESET')));
 });
 
+test('a local file error before ssh runs is terminal; network and ssh-spawn errors keep retrying', () => {
+  const errno = (code, syscall) => Object.assign(new Error(`${code}: ${syscall}`), { code, syscall });
+  assert.ok(isTerminalRemoteError(errno('ENOENT', 'open')), 'missing payload file');
+  assert.ok(isTerminalRemoteError(errno('ENOENT', 'stat')), 'missing payload file');
+  assert.ok(isTerminalRemoteError(errno('EACCES', 'open')));
+  assert.ok(isTerminalRemoteError(new RemoteBootstrapError('local-payload', 'runtime not found')));
+  assert.ok(!isTerminalRemoteError(errno('ECONNRESET', 'read')));
+  assert.ok(!isTerminalRemoteError(errno('ENOENT', 'spawn ssh')));
+});
+
 async function remoteSession(ssh, extra = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-remote-connect-'));
   const bundlePath = join(dir, 'daemon.cjs');

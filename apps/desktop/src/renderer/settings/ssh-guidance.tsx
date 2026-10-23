@@ -202,6 +202,12 @@ export function guidance(failure: GuidanceFailure, name: string): Guidance {
         ),
         body: null,
       };
+    case 'already-connected':
+      return {
+        title: t('This server is already connected'),
+        description: t('Disconnect it first to change its login key or folder.'),
+        body: null,
+      };
     case 'install-locked':
       return {
         title: t('Another installation is running'),

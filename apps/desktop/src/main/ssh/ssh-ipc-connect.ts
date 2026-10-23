@@ -221,7 +221,7 @@ export function createConnectHandlers(deps: ConnectHandlerDeps): {
           (key) => entered[key] !== reservation.record.settings?.[key]
         )
       ) {
-        throw new Error('This server is already connected. Disconnect it first to change its login key or folder.');
+        return { ok: false, failure: { kind: 'already-connected' } };
       }
       if (decision.replace) await deps.replaceKey(decision.replace);
       else if (decision.pin) await deps.pin(decision.pin);

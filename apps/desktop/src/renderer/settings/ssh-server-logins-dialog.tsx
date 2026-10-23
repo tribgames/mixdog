@@ -11,10 +11,10 @@ import type {
   DesktopSshServerLoginFlow,
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
-import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
 import type { CapabilityApi } from './capability-data';
 import { ConnDialog } from './connection-dialogs';
+import { isConnectFirstError, sshErrorText } from './ssh-error-text';
 
 const NO_SERVER_LOGINS: DesktopSshServerLogins = {
   connected: false,
@@ -46,7 +46,9 @@ export function useServerLogins(api: CapabilityApi, hostId: string) {
 function loginDetail(provider: DesktopSshServerLogin): string {
   if (!provider.signedIn) return t('Not signed in');
   if (provider.fromEnvironment) return t('API key · from the server’s environment');
-  if (provider.kind === 'api') return t('API key');
+  if (provider.kind === 'api') {
+    return provider.storedInPrivateFile ? t('API key · stored in a private file') : t('API key');
+  }
   return provider.identity ? `${t('Subscription')} · ${provider.identity}` : t('Subscription');
 }
 
@@ -234,6 +236,18 @@ export function SshServerLoginsDialog({
     };
   }, []);
 
+  /** A failed call says why. A server that disconnected meanwhile is not an
+   *  error to read: the list is read again and shows the connect-first note,
+   *  as when the dialog opens with the server disconnected. */
+  const report = (reason: unknown): void => {
+    if (isConnectFirstError(reason)) {
+      setKeyFor(null);
+      refresh();
+      return;
+    }
+    setError(sshErrorText(reason));
+  };
+
   /** A status answer: done refreshes the list, a failure says why. */
   const settle = (next: DesktopSshServerLoginFlow): void => {
     if (next.state === 'pending') {
@@ -266,7 +280,7 @@ export function SshServerLoginsDialog({
           cancelPending();
           setFlow(null);
           setPasteError('');
-          setError(errorMessage(reason));
+          report(reason);
         });
     };
     timer = window.setTimeout(poll, STATUS_POLL_MS);
@@ -284,7 +298,7 @@ export function SshServerLoginsDialog({
         after?.();
         refresh();
       })
-      .catch((reason: unknown) => setError(errorMessage(reason)))
+      .catch(report)
       .finally(() => setBusy(false));
   };
 
@@ -310,7 +324,7 @@ export function SshServerLoginsDialog({
         if (started.state === 'pending') setFlow(started);
         else settle(started);
       })
-      .catch((reason: unknown) => setError(errorMessage(reason)))
+      .catch(report)
       .finally(() => setBusy(false));
   };
 
@@ -324,7 +338,7 @@ export function SshServerLoginsDialog({
         form.reset();
         settle(next);
       })
-      .catch((reason: unknown) => setPasteError(errorMessage(reason)));
+      .catch((reason: unknown) => setPasteError(sshErrorText(reason)));
   };
 
   let body = <p className="conn-note">{t('Loading…')}</p>;

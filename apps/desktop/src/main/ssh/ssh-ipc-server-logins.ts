@@ -24,8 +24,10 @@ export interface ServerLoginConnection {
   busySessions(): Promise<number | null>;
   /** Calls `listener` once when this attachment stops running models with
    *  the server's logins: it is disconnected (or the app quits) or its model
-   *  login changes; at once when it already has. Returns the unsubscribe. */
-  onEnd(listener: () => void): () => void;
+   *  login changes; at once when it already has. Returns the unsubscribe.
+   *  The attachment waits for a returned promise before it closes, so a call
+   *  to the server made here still reaches it. */
+  onEnd(listener: () => void | Promise<void>): () => void;
 }
 
 /** A forward of one callback port; closing it stops its ssh child. */
@@ -42,11 +44,47 @@ export interface ServerLoginDeps {
    *  resolves once this PC listens there, rejects when the port is taken here
    *  (a login of this PC's own may hold it). */
   forwardCallback(record: SshHostRecord, port: number): Promise<CallbackForward>;
+  /** Calls `listener` with a saved server's id each time its connection is
+   *  attached (reachable) again. Returns the unsubscribe. */
+  onAttach?(listener: (id: string) => void): () => void;
   /** Longest a pending login keeps its forward; 15 minutes by default. */
   maxForwardMs?: number;
+  /** Longest an ending login waits for the server to take its cancel; 3 seconds by default. */
+  cancelTimeoutMs?: number;
+  /** Most cancels kept for a server that cannot be reached yet; 32 by default (the oldest go first). */
+  maxQueuedCancels?: number;
+  /** The clock, in ms (a test seam). */
+  now?(): number;
 }
 
 const DEFAULT_MAX_FORWARD_MS = 15 * 60_000;
+const DEFAULT_CANCEL_TIMEOUT_MS = 3_000;
+const DEFAULT_MAX_QUEUED_CANCELS = 32;
+/** How long the server keeps a login before it drops it itself
+ *  (DEFAULT_FLOW_TTL_MS in src/tui/session/oauth-flows.mjs): a cancel for an
+ *  older login has nothing left to do. */
+const SERVER_FLOW_LIFETIME_MS = 10 * 60_000;
+
+/** A login pending on the server (forwarded or not), with the watch on the
+ *  attachment that started it. */
+interface PendingLogin {
+  hostId: string;
+  flowId: string;
+  /** When the login started, on this PC's clock. */
+  startedAt: number;
+  /** The saved server's removal count when the login started: once the server
+   *  is removed, no cancel for this login is kept for later. */
+  generation: number;
+  server: ServerLoginConnection;
+  unwatch(): void;
+}
+
+/** A cancel the server has not taken yet; `startedAt` tells which login it is for. */
+interface QueuedCancel {
+  hostId: string;
+  flowId: string;
+  startedAt: number;
+}
 const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_KEY_LENGTH = 8_192;
 const MAX_URL_LENGTH = 16_384;
@@ -100,6 +138,7 @@ function loginRows(setup: unknown): DesktopSshServerLogin[] {
       kind,
       signedIn: entry.authenticated === true,
       ...(fromEnvironment ? { fromEnvironment: true } : {}),
+      ...(kind === 'api' && entry.detail === 'stored in private file' ? { storedInPrivateFile: true } : {}),
     };
   };
   const rows = [
@@ -153,23 +192,129 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
   cancel(id: unknown, flowId: unknown): Promise<void>;
   saveKey(id: unknown, provider: unknown, key: unknown): Promise<void>;
   logout(id: unknown, provider: unknown): Promise<void>;
-  /** Closes every callback forward still open. */
+  /** A saved server was removed: the cancels still waiting for it are dropped. */
+  forgetHost(id: unknown): void;
+  /** Closes every callback forward still open and cancels the logins pending. */
   dispose(): Promise<void>;
 } {
   const maxForwardMs = deps.maxForwardMs ?? DEFAULT_MAX_FORWARD_MS;
   /** `<host id>\0<flow id>` → the callback forward of a pending login. Each
    *  lives no longer than the login, the 15-minute cap and the attachment
    *  that started it. */
-  const forwards = new Map<string, { forward: CallbackForward; timer: NodeJS.Timeout; unwatch(): void }>();
+  const forwards = new Map<string, { forward: CallbackForward; timer: NodeJS.Timeout }>();
+  /** `<host id>\0<flow id>` → a login pending on the server. The server's own
+   *  listener lives until the login ends or its 10-minute expiry. */
+  const pendingLogins = new Map<string, PendingLogin>();
+  /** `<host id>\0<flow id>` → a cancel to send once that server is reachable
+   *  again: the PC side of the login ended while the connection could not
+   *  carry it. Kept only for the server's flow lifetime, at most
+   *  `maxQueuedCancels` of them, oldest dropped first. */
+  const queuedCancels = new Map<string, QueuedCancel>();
+  /** Queued cancels being sent now, so two attaches never send one twice. */
+  const replaying = new Set<string>();
+  /** Host id → how many times that saved server was removed. A cancel still in
+   *  flight when its server is removed (or this manager disposed) must not
+   *  queue itself afterwards. */
+  const removals = new Map<string, number>();
+  let disposed = false;
+  const now = (): number => deps.now?.() ?? Date.now();
 
   const closeForward = async (key: string): Promise<void> => {
     const open = forwards.get(key);
     if (!open) return;
     forwards.delete(key);
     clearTimeout(open.timer);
-    open.unwatch();
     await open.forward.close().catch(() => undefined);
   };
+  /** The login is over on the server too (or being cancelled separately). */
+  const forgetLogin = (key: string): PendingLogin | null => {
+    const login = pendingLogins.get(key);
+    if (!login) return null;
+    pendingLogins.delete(key);
+    login.unwatch();
+    return login;
+  };
+  const pruneQueuedCancels = (): void => {
+    for (const [key, queued] of queuedCancels) {
+      if (now() - queued.startedAt >= SERVER_FLOW_LIFETIME_MS) queuedCancels.delete(key);
+    }
+  };
+  const queueCancel = (login: PendingLogin): void => {
+    if (disposed || login.generation !== (removals.get(login.hostId) ?? 0)) return;
+    const key = `${login.hostId}\0${login.flowId}`;
+    pruneQueuedCancels();
+    if (now() - login.startedAt >= SERVER_FLOW_LIFETIME_MS) return;
+    queuedCancels.delete(key);
+    queuedCancels.set(key, { hostId: login.hostId, flowId: login.flowId, startedAt: login.startedAt });
+    const most = deps.maxQueuedCancels ?? DEFAULT_MAX_QUEUED_CANCELS;
+    for (const oldest of queuedCancels.keys()) {
+      if (queuedCancels.size <= most) break;
+      queuedCancels.delete(oldest);
+    }
+  };
+  /** True when the server took the cancel (a flow it no longer knows is refused: false). */
+  const cancelOnServer = async (server: ServerLoginConnection, flowId: string): Promise<boolean> => {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        server.invoke('cancelOAuthProviderLogin', [flowId]),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('The server did not answer.')),
+            deps.cancelTimeoutMs ?? DEFAULT_CANCEL_TIMEOUT_MS
+          );
+          timer.unref?.();
+        }),
+      ]);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  /** The PC side of a pending login ends without the user finishing it (a
+   *  disconnect, a quit, a changed model login): the forward closes and the
+   *  server drops its listener, now when it can be reached, else once it can. */
+  const cancelOrQueue = async (login: PendingLogin, server = login.server): Promise<void> => {
+    if (!(await cancelOnServer(server, login.flowId))) queueCancel(login);
+  };
+  /** Ends a login (`only`: that very login, not a later one reusing its id). */
+  const endLogin = async (key: string, only?: PendingLogin): Promise<void> => {
+    if (only && pendingLogins.get(key) !== only) return;
+    const login = forgetLogin(key);
+    await closeForward(key);
+    if (login) await cancelOrQueue(login);
+  };
+  /** Sends the cancels queued for a server that is reachable again. One the
+   *  server did not take stays for the next attach until it expires. */
+  const flushQueuedCancels = async (hostId: string): Promise<void> => {
+    const server = deps.connection(hostId);
+    if (!server) return;
+    pruneQueuedCancels();
+    const due = [...queuedCancels].filter(([, queued]) => queued.hostId === hostId);
+    await Promise.all(
+      due.map(async ([key, queued]) => {
+        // A server back on this PC's logins runs no login of its own; a live
+        // login that owns the id now is a newer one, which a stale cancel
+        // must never end.
+        if (server.modelLogin !== 'server' || pendingLogins.has(key)) {
+          if (queuedCancels.get(key) === queued) queuedCancels.delete(key);
+          return;
+        }
+        if (replaying.has(key)) return;
+        replaying.add(key);
+        try {
+          if ((await cancelOnServer(server, queued.flowId)) && queuedCancels.get(key) === queued) {
+            queuedCancels.delete(key);
+          }
+        } finally {
+          replaying.delete(key);
+        }
+      })
+    );
+  };
+  const unsubscribeAttach = deps.onAttach?.((hostId) => void flushQueuedCancels(hostId));
   const flowKey = (id: unknown, flowId: unknown): string => `${text(id, 'id')}\0${text(flowId, 'flowId')}`;
 
   const savedHost = async (id: unknown): Promise<SshHostRecord> => {
@@ -194,6 +339,7 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
   const settle = async (key: string, value: unknown): Promise<DesktopSshServerLoginFlow> => {
     const flow = publicFlow(flowOf(value, forwards.has(key)));
     if (flow.state !== 'pending') {
+      forgetLogin(key);
       await closeForward(key);
       return { ...flow, forwarded: false };
     }
@@ -229,21 +375,45 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
       );
       const key = `${host.id}\0${started.flowId}`;
       const port = started.state === 'pending' ? callbackPortOf(started.url) : null;
-      let forwarded = false;
+      // A disconnect, a quit or a changed model login ends the login on this
+      // PC: its forward closes and the server is told to drop it.
+      let login: PendingLogin | null = null;
+      if (started.state === 'pending') {
+        const own: PendingLogin = {
+          hostId: host.id,
+          flowId: started.flowId,
+          startedAt: now(),
+          generation: removals.get(host.id) ?? 0,
+          server,
+          unwatch: () => undefined,
+        };
+        login = own;
+        // A cancel queued for an older login that had this id is stale now.
+        queuedCancels.delete(key);
+        pendingLogins.set(key, own);
+        own.unwatch = server.onEnd(() => endLogin(key, own));
+      }
+      let forward: CallbackForward | null = null;
       if (port !== null) {
         try {
-          const forward = await deps.forwardCallback(host, port);
-          const timer = setTimeout(() => void closeForward(key), maxForwardMs);
-          timer.unref?.();
-          const open = { forward, timer, unwatch: (): void => undefined };
-          forwards.set(key, open);
-          // A disconnect, a quit or a changed model login ends it too.
-          open.unwatch = server.onEnd(() => void closeForward(key));
-          forwarded = true;
+          forward = await deps.forwardCallback(host, port);
         } catch {
           // The port is taken here or ssh refused the forward: the pasted
           // redirect address completes the login instead.
         }
+      }
+      // The login ended while the forward was being made (a disconnect, a
+      // quit): that forward is closed at once, and no browser opens for it.
+      if (login && pendingLogins.get(key) !== login) {
+        await forward?.close().catch(() => undefined);
+        return { ...publicFlow(started), state: 'cancelled', url: null, forwarded: false };
+      }
+      let forwarded = false;
+      if (forward) {
+        const timer = setTimeout(() => void closeForward(key), maxForwardMs);
+        timer.unref?.();
+        forwards.set(key, { forward, timer });
+        forwarded = true;
       }
       // Without the forward the browser cannot reach the server's listener: a
       // provider's manual page (it shows a code to paste) serves better.
@@ -252,7 +422,7 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
         try {
           await deps.openExternal(opened);
         } catch (error) {
-          await closeForward(key);
+          await endLogin(key);
           throw error;
         }
       }
@@ -266,8 +436,11 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
         return await settle(key, await server.invoke('getOAuthProviderLoginStatus', [text(flowId, 'flowId')]));
       } catch (error) {
         // A status nobody can read (the server went, the call failed) ends the
-        // dialog's polling: the forward goes with it.
+        // dialog's polling: the forward goes with it, and the server is told
+        // to drop the login (not awaited: the error must not wait for a dead link).
+        const login = forgetLogin(key);
         await closeForward(key);
+        if (login) void cancelOrQueue(login);
         throw error;
       }
     },
@@ -285,12 +458,20 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
     async cancel(id, flowId) {
       const host = await savedHost(id);
       const flow = text(flowId, 'flowId');
-      try {
-        const server = deps.connection(host.id);
-        if (server?.modelLogin === 'server') await server.invoke('cancelOAuthProviderLogin', [flow]);
-      } finally {
-        await closeForward(`${host.id}\0${flow}`);
+      const key = `${host.id}\0${flow}`;
+      const pending = forgetLogin(key);
+      // The forward closes at once, whatever the server answers or when.
+      const closing = closeForward(key);
+      const server = deps.connection(host.id);
+      if (server?.modelLogin === 'server') {
+        // Bounded, and kept for the next attach when the server did not take it.
+        if (pending) await cancelOrQueue(pending, server);
+        else await cancelOnServer(server, flow);
+      } else if (!server && pending) {
+        // Not attached: the dialog's last read failed, and the server still holds it.
+        queueCancel(pending);
       }
+      await closing;
     },
 
     async saveKey(id, provider, key) {
@@ -307,8 +488,18 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
       await server.invoke('forgetProviderAuth', [providerId(provider)]);
     },
 
+    forgetHost(id) {
+      if (typeof id !== 'string') return;
+      removals.set(id, (removals.get(id) ?? 0) + 1);
+      for (const [key, queued] of queuedCancels) if (queued.hostId === id) queuedCancels.delete(key);
+    },
+
     async dispose() {
-      await Promise.all([...forwards.keys()].map((key) => closeForward(key)));
+      disposed = true;
+      unsubscribeAttach?.();
+      await Promise.all([...new Set([...pendingLogins.keys(), ...forwards.keys()])].map((key) => endLogin(key)));
+      // Nothing is left to attach to: what could not be sent is dropped.
+      queuedCancels.clear();
     },
   };
 }

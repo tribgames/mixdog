@@ -1374,6 +1374,33 @@ test('a failed connection offers "View log": the connection log, Copy and Copy d
   assert.equal(document.querySelector('h3').textContent, 'Couldn’t connect', 'closing the log returns to the failure');
 });
 
+test('an already-connected refusal explains itself and offers no "Try again"', async (t) => {
+  const { document } = await mountDialog(t, {
+    ...NO_CONFIG,
+    sshConnect: () => Promise.resolve({ ok: false, failure: { kind: 'already-connected' } }),
+  });
+  await startConnect(document, 'root@vps.example.com');
+  assert.equal(document.querySelector('h3').textContent, 'This server is already connected');
+  assert.match(
+    document.querySelector('.conn-dialog').textContent,
+    /Disconnect it first to change its login key or folder\./
+  );
+  assert.ok(!footerButtons(document).includes('Try again'));
+  assert.ok(footerButtons(document).includes('Close'));
+});
+
+test('a connect call that throws shows its message without the Electron IPC envelope', async (t) => {
+  const { document } = await mountDialog(t, {
+    ...NO_CONFIG,
+    sshConnect: () =>
+      Promise.reject(new Error("Error invoking remote method 'mixdog:ssh-connect': Error: The server said no.")),
+  });
+  await startConnect(document, 'root@vps.example.com');
+  const text = document.querySelector('.conn-dialog').textContent;
+  assert.match(text, /The server said no\./);
+  assert.doesNotMatch(text, /Error invoking remote method/);
+});
+
 test('a server log that cannot be read shows why instead of an empty box', async (t) => {
   stubClipboard(t);
   const { document } = await mountDialog(t, {

@@ -208,10 +208,9 @@ test('entered settings that change an already-open server are refused, so a wron
   const first = await s.connectTo('root@open.example.com', { settings: { identityFile: '~/.ssh/good' } });
   assert.equal(first.result.ok, true);
   const opensBefore = opens(s).length;
-  await assert.rejects(
-    s.connectTo('root@open.example.com', { settings: { identityFile: '~/.ssh/wrong' } }),
-    /Disconnect it first/
-  );
+  // A guidance kind with no retry, not an error thrown across IPC.
+  const refused = await s.connectTo('root@open.example.com', { settings: { identityFile: '~/.ssh/wrong' } });
+  assert.deepEqual(refused.result, { ok: false, failure: { kind: 'already-connected' } });
   assert.equal(opens(s).length, opensBefore);
   assert.equal((await s.invoke('sshListHosts'))[0].settings.identityFile, '~/.ssh/good');
   // The same values (or none) simply reuse the live connection.
@@ -570,6 +569,51 @@ test('rename and forget touch only the saved entry; forgetting never closes the 
   assert.deepEqual(await s.invoke('sshForgetHost', host.id), []);
   assert.equal(s.calls.length, callsBefore, 'no close call');
   assert.equal(s.opened.has(host.id), true);
+});
+
+test('forgetting a server drops the login cancels still waiting for it', async () => {
+  const invoked = [];
+  const ends = [];
+  const attaches = [];
+  const link = { attached: true, reachable: true };
+  const server = {
+    modelLogin: 'server',
+    busySessions: async () => 0,
+    onEnd: (listener) => {
+      ends.push(listener);
+      return () => undefined;
+    },
+    invoke: async (capability) => {
+      if (!link.reachable) throw new Error('ssh link is down');
+      invoked.push(capability);
+      return { flowId: 'f1', provider: 'openai-oauth', state: 'pending', url: null };
+    },
+  };
+  const s = await setup({
+    extra: {
+      serverLogins: {
+        connection: () => (link.attached ? server : null),
+        onAttach: (listener) => {
+          attaches.push(listener);
+          return () => undefined;
+        },
+        openExternal: async () => undefined,
+        forwardCallback: async () => {
+          throw new Error('no forward');
+        },
+        cancelTimeoutMs: 20,
+      },
+    },
+  });
+  const { host } = (await s.connectTo('gpu-box')).result;
+  await s.invoke('sshServerLoginBegin', host.id, 'openai-oauth');
+  link.reachable = false;
+  await Promise.all(ends.map((end) => end()));
+  await s.invoke('sshForgetHost', host.id);
+  link.reachable = true;
+  for (const attached of attaches) attached(host.id);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(invoked, ['beginOAuthProviderLogin'], 'the cancel of a forgotten server is never sent');
 });
 
 test('aliases are listed, an address that could be read as an option is refused, and dispose removes the handlers', async () => {

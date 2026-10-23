@@ -115,6 +115,8 @@ type DesktopSshFailureKind =
   | { kind: 'daemon-busy'; message: string }
   | { kind: 'port-unavailable'; message: string }
   | { kind: 'cancelled' }
+  /** The server is connected already, so a new login key or folder cannot be tested: disconnecting first is the only way, and trying again changes nothing. */
+  | { kind: 'already-connected' }
   | { kind: 'node'; reason: 'missing' | 'too-old'; found: string | null; required: number; command: string }
   | { kind: 'npm-missing'; command: string }
   | { kind: 'deps-install'; message: string }
@@ -209,6 +211,8 @@ export interface DesktopSshServerLogin {
   signedIn: boolean;
   /** The key comes from the server's environment: it cannot be changed or removed here. */
   fromEnvironment?: boolean;
+  /** The key is kept in the server's private secrets file (the server has no OS keychain). */
+  storedInPrivateFile?: boolean;
   /** A signed-in subscription's account as the server knows it (its email). */
   identity?: string;
 }

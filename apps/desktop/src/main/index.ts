@@ -2527,6 +2527,10 @@ if (!app.requestSingleInstanceLock()) {
               onEnd: (listener) => connection.onModelLoginEnd(modelLogin, listener),
             };
           },
+          onAttach: (listener) =>
+            connectionPool.onAdd((connection) => {
+              if (connection.kind === 'ssh') listener(connection.id);
+            }),
           openExternal: (url) => shell.openExternal(url),
           // The provider's callback port, the same on both ends, while one
           // server login is pending: this PC's own bind of it is the check,

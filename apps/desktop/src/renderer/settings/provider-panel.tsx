@@ -59,6 +59,9 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       key={String(provider.id)}
       title={providerLabel(provider)}
       description={String(provider.detail || provider.envName || '')}
+      // ResourceRow drops `description`; where the key is kept (a private file when
+      // there is no OS keychain) is shown as the row's secondary text.
+      meta={provider.detail === 'stored in private file' ? t('Stored in a private file') : undefined}
       status={providerStatus(provider)}
       actions={
         <>

@@ -6,7 +6,7 @@
 import { posix } from 'node:path';
 
 import type { ConnectionProgress } from '../connections/contract';
-import { RemoteBootstrapError, TERMINAL_BOOTSTRAP_CODES } from './remote-install-errors';
+import { isLocalFilesystemError, RemoteBootstrapError, TERMINAL_BOOTSTRAP_CODES } from './remote-install-errors';
 import { REMOTE_INSTALL_LOCK_STALE_MS, REMOTE_INSTALL_LOCK_WAIT_MS } from './remote-install-lock';
 import { resolveServerPayload, type RemoteServerPayload } from './remote-install-payload';
 import {
@@ -99,10 +99,12 @@ export interface RemoteReport {
   gcRemoved: string[];
 }
 
-/** Terminal ssh failures (host key, auth) and terminal setup failures. */
+/** Terminal ssh failures (host key, auth), terminal setup failures and local file errors. */
 export function isTerminalRemoteError(error: unknown): boolean {
   return (
-    isTerminalSshError(error) || (error instanceof RemoteBootstrapError && TERMINAL_BOOTSTRAP_CODES.has(error.code))
+    isTerminalSshError(error) ||
+    isLocalFilesystemError(error) ||
+    (error instanceof RemoteBootstrapError && TERMINAL_BOOTSTRAP_CODES.has(error.code))
   );
 }
 

@@ -8,15 +8,15 @@ import type {
   DesktopSshHostKeyCheck,
   DesktopSshProgress,
 } from '../../shared/contract-ssh';
-import { errorMessage } from '../editor-pane-session-errors';
 import type { CapabilityApi } from './capability-data';
 import type { SshHostRequest } from './connection-intent';
 import { useSshAskpass } from './ssh-askpass-prompt';
 import { START_VIEW, type View, viewForFailure, viewForHostKey } from './ssh-connect-view';
+import { sshErrorText } from './ssh-error-text';
 
 const failed = (reason: unknown): View => ({
   kind: 'failure',
-  failure: { kind: 'failed', message: errorMessage(reason) },
+  failure: { kind: 'failed', message: sshErrorText(reason) },
 });
 
 /** The progress list moves on only while the steps are showing. */

@@ -898,7 +898,7 @@ test('the built server lockfile survives packaging and ships as server-deps/pack
     writeFileSync(join(layout.serverDepsDir, 'package.json'), '{}');
     assert.throws(
       () => runtimeSources(layout),
-      (error) => error.code === 'install-failed' && /lockfile is missing/.test(error.message)
+      (error) => error.code === 'local-payload' && /lockfile is missing/.test(error.message)
     );
     writeFileSync(join(layout.serverDepsDir, REMOTE_SERVER_LOCKFILE), '{}');
     const lock = runtimeSources(layout).find((entry) => entry.path === 'server-deps/package-lock.json');

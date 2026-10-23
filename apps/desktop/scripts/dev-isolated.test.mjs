@@ -16,6 +16,7 @@ import {
   instanceProcessIds,
   isPidAlive,
   leaseIsStale,
+  prepareAppDir,
   seedReadyConfig,
   startInstance,
   stopInstance,
@@ -62,6 +63,17 @@ test('concurrent starters in separate processes never share a port, and never ge
     assert.equal(rendererPort, devRendererPortFor(cdpPort));
   }
   assert.equal((await readdir(join(root, 'ports'))).length, 8);
+});
+
+test('the instance root carries the runtime package.json the SSH server payload reads', async (t) => {
+  const root = await tempRoot(t);
+  const instanceDir = join(root, 'instances', 'payload-000000');
+  await mkdir(instanceDir, { recursive: true });
+  await prepareAppDir(instanceDir);
+  const repoPackage = await readFile(new URL('../../../package.json', import.meta.url), 'utf8');
+  assert.equal(await readFile(join(instanceDir, 'package.json'), 'utf8'), repoPackage);
+  assert.ok(existsSync(join(instanceDir, 'src', 'standalone', 'daemon.mjs')));
+  assert.ok(existsSync(join(instanceDir, 'app', 'desktop', 'package.json')));
 });
 
 test('a port in use is skipped and its reservation released', async (t) => {

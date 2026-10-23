@@ -259,9 +259,11 @@ export function SshFailureDialog({
           <button type="button" className="conn-btn" onClick={onClose}>
             {t('Close')}
           </button>
-          <button type="button" className="conn-btn conn-btn--primary" onClick={onRetry}>
-            {t('Try again')}
-          </button>
+          {view.failure.kind !== 'already-connected' && (
+            <button type="button" className="conn-btn conn-btn--primary" onClick={onRetry}>
+              {t('Try again')}
+            </button>
+          )}
         </>
       }
     >
