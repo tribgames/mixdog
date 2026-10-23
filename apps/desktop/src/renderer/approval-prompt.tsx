@@ -30,6 +30,7 @@ import { mixyAvatar } from './mixy-identity';
 import { bindCardKeys, isTypingTarget } from './question-card-keys';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { touchPrimaryPointer } from './surface-input-focus';
+import { isComposerComposing } from './use-composer-ime';
 
 /** Opens a sub-agent's session from the card ("세션 열기"); provided by the dock. */
 export const ApprovalOpenSessionContext = createContext<((sessionId: string) => void) | null>(null);
@@ -185,7 +186,7 @@ export function releaseIdleComposer(scope: Element | null): HTMLElement | null {
   }
   const draft =
     active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement ? active.value : active.textContent;
-  if (draft?.trim()) return null;
+  if (draft?.trim() || isComposerComposing(active)) return null;
   active.blur();
   return active;
 }

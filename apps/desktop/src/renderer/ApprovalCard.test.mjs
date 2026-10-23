@@ -841,6 +841,47 @@ test('desktop: a card arriving while the composer is empty takes focus (chips sh
   }
 });
 
+test('desktop: a card arriving mid-IME-composition on an empty composer does not steal focus', async () => {
+  const { useComposerIme } = await import('./use-composer-ime.ts');
+  const doc = dom.window.document;
+  const row = doc.createElement('div');
+  row.className = 'composer-input-row';
+  doc.querySelector('.conversation').append(row);
+  const host = doc.createElement('div');
+  row.append(host);
+  dom.window.cancelAnimationFrame ??= () => {};
+  dom.window.requestAnimationFrame ??= (fn) => setTimeout(fn, 0);
+  const composerRoot = createRoot(host);
+  function Composer() {
+    const textarea = React.useRef(null);
+    useComposerIme({
+      textarea,
+      composingRef: React.useRef(false),
+      suppressImeLineBreakRef: React.useRef(false),
+      draftRef: React.useRef(''),
+      setDraft: () => {},
+      setCaretOffset: () => {},
+    });
+    return React.createElement('textarea', { ref: textarea });
+  }
+  try {
+    await act(async () => composerRoot.render(React.createElement(Composer)));
+    const input = host.querySelector('textarea');
+    input.focus();
+    await act(async () => input.dispatchEvent(new dom.window.Event('compositionstart', { bubbles: true })));
+    const c = card({ ...comment, id: 'ime1' });
+    const ui = await mount(c.element);
+    try {
+      assert.equal(doc.activeElement, input, 'the composing composer keeps focus');
+    } finally {
+      await ui.done();
+    }
+  } finally {
+    await act(async () => composerRoot.unmount());
+    row.remove();
+  }
+});
+
 test('desktop: a composer holding a draft keeps focus and the card answers no key', async () => {
   const doc = dom.window.document;
   const { row, input } = composerRow(doc);

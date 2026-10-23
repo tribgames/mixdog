@@ -4,6 +4,13 @@
 import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
 import { isMobileRemoteSurface } from './mobile-surface';
 
+const composingElements = new WeakSet<Element>();
+
+/** True while an IME composition is open in this composer textarea. */
+export function isComposerComposing(element: Element): boolean {
+  return composingElements.has(element);
+}
+
 export function useComposerIme({
   textarea,
   composingRef,
@@ -26,6 +33,10 @@ export function useComposerIme({
     let reconcileFrame = 0;
     const onCompositionStart = () => {
       composingRef.current = true;
+      composingElements.add(element);
+    };
+    const onBlur = () => {
+      composingElements.delete(element);
     };
     const onCompositionEnd = () => {
       // Match the reference composer: a keydown delivered after compositionend
@@ -33,6 +44,7 @@ export function useComposerIme({
       // same task. The separate beforeinput guard below still blocks the stray
       // insertLineBreak emitted by engines that end composition after keydown.
       composingRef.current = false;
+      composingElements.delete(element);
       const committed = element.value;
       draftRef.current = committed;
       setDraft((current) => (current === committed ? current : committed));
@@ -64,7 +76,10 @@ export function useComposerIme({
     element.addEventListener('compositionstart', onCompositionStart);
     element.addEventListener('compositionend', onCompositionEnd);
     element.addEventListener('beforeinput', onBeforeInput);
+    element.addEventListener('blur', onBlur);
     return () => {
+      composingElements.delete(element);
+      element.removeEventListener('blur', onBlur);
       window.cancelAnimationFrame(reconcileFrame);
       element.removeEventListener('compositionstart', onCompositionStart);
       element.removeEventListener('compositionend', onCompositionEnd);
