@@ -74,9 +74,11 @@ export function catalogWithRooms(
     const room = roomId ? rooms[roomId] : undefined;
     if (!room) return roomId ? [] : [row];
     listed.add(roomId);
-    // The log's own catalog time stays at its last save; the room's latest
-    // speech (`lastAt`) is what the list shows, as a bot row shows its last chat.
-    const lastAt = Math.max(room.lastAt ?? 0, Number(row.activityAt) || 0, row.updatedAt || 0);
+    // The room's latest message (`lastAt`) is what the list shows. The log
+    // session's own catalog time moves whenever it is loaded, saved or disposed
+    // (a room opened, a member reading it), so it is only the fallback for a
+    // room that has no `lastAt` yet.
+    const lastAt = room.lastAt ?? Math.max(Number(row.activityAt) || 0, row.updatedAt || 0);
     return [{ ...row, title: room.name, updatedAt: lastAt, activityAt: lastAt, agentRoom: summaryOf(room) }];
   });
   const unlisted = Object.values(rooms)
