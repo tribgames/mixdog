@@ -161,6 +161,7 @@ bench-results/
 /.runtime/
 /deliverables/
 /design/mockups/
+/design/promo/*/
 /design/skin-loops/
 /dist/
 /output/
