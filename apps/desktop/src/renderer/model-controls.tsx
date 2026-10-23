@@ -572,7 +572,9 @@ export const ModelSelector = memo(function ModelSelector({
         .then((full) => {
           if (!shared.isCurrent() || !Array.isArray(full)) return;
           fullApplied = true;
-          setModels(full);
+          // An empty answer is a retryable boot miss: keep the list on screen
+          // until the retry brings a real one.
+          setModels((current) => (full.length === 0 && current.length > 0 ? current : full));
           setCatalogError('');
         })
         .catch((reason) => {

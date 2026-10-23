@@ -16,7 +16,11 @@ import {
   requireDesktopProviders,
   useDesktopProvidersRetry,
 } from './desktop-provider-retry';
-import { fetchProviderModels, invalidateSharedModelCatalogRequest } from './model-catalog-cache';
+import {
+  fetchProviderModels,
+  invalidateSharedModelCatalogRequest,
+  partialModelCatalogExpiry,
+} from './model-catalog-cache';
 import { invalidateWorkflowOptions } from './workflow-options-cache';
 
 import type {
@@ -199,6 +203,9 @@ interface CacheEntry {
   /** Set by an explicit invalidation: the value stays readable (no blanking)
    *  but the next read-through refetches it. */
   invalid: boolean;
+  /** A partial or empty model catalog goes stale at its retry time instead of
+   *  after the TTL. */
+  expiresAt?: number;
 }
 
 /** Failures live OUTSIDE the snapshot map so a cold (never-loaded) key can
@@ -284,6 +291,7 @@ export function adoptSidebarReferenceHost(api: SidebarReferenceApi | undefined):
   if (!rebind) return false;
   const affected = [...new Set([...entries.keys(), ...failures.keys(), ...inflight.keys()])];
   entries.clear();
+  clearExpiryTimers();
   forcedKeys.clear();
   failures.clear();
   for (const key of SIDEBAR_REFERENCE_KEYS) bumpGeneration(key);
@@ -309,7 +317,39 @@ function isSidebarReferenceStale(key: SidebarReferenceKey): boolean {
   const entry = entries.get(key);
   if (!entry) return true;
   if (entry.invalid) return true;
+  if (entry.expiresAt !== undefined && clock() >= entry.expiresAt) return true;
   return clock() - entry.updatedAt >= TTL_MS[key];
+}
+
+const expiryTimers = new Map<SidebarReferenceKey, ReturnType<typeof setTimeout>>();
+
+function clearExpiryTimers(): void {
+  for (const timer of expiryTimers.values()) clearTimeout(timer);
+  expiryTimers.clear();
+}
+
+/** The one place a snapshot is stored. The daemon refills a partial catalog in
+ *  the background and nothing announces it, so the entry carries its own retry
+ *  time and wakes the mounted pickers when that passes: they revalidate
+ *  without the user reopening anything. */
+function storeSidebarReference(key: SidebarReferenceKey, value: unknown): void {
+  const now = clock();
+  const expiresAt =
+    key === 'quickProviderModels' && Array.isArray(value) ? (partialModelCatalogExpiry(value, now) ?? undefined) : undefined;
+  entries.set(key, { value, updatedAt: now, invalid: false, expiresAt });
+  clearTimeout(expiryTimers.get(key));
+  expiryTimers.delete(key);
+  if (expiresAt === undefined) return;
+  const timer = setTimeout(
+    () => {
+      expiryTimers.delete(key);
+      notify(key);
+    },
+    Math.max(0, expiresAt - now) + 1
+  );
+  // A pending retry must never keep a process (or a test run) alive.
+  (timer as unknown as { unref?: () => void }).unref?.();
+  expiryTimers.set(key, timer);
 }
 
 export function readSidebarReference<K extends SidebarReferenceKey>(key: K): SidebarReferenceValues[K] {
@@ -328,7 +368,7 @@ function readSidebarReferenceValues<K extends SidebarReferenceKey>(
 /** Publish a known-good value without a round trip (post-mutation update). */
 export function updateSidebarReference<K extends SidebarReferenceKey>(key: K, value: SidebarReferenceValues[K]): void {
   bumpGeneration(key);
-  entries.set(key, { value, updatedAt: clock(), invalid: false });
+  storeSidebarReference(key, value);
   failures.delete(key);
   notify(key);
 }
@@ -436,7 +476,7 @@ function ensureSidebarReference(api: SidebarReferenceApi, key: SidebarReferenceK
       const loader = LOADERS[key] as Loader<SidebarReferenceKey>;
       const value = await loader(api, force || forcedKeys.has(key));
       if ((generations.get(key) ?? 0) !== generation) return;
-      entries.set(key, { value, updatedAt: clock(), invalid: false });
+      storeSidebarReference(key, value);
       forcedKeys.delete(key);
       failures.delete(key);
     } catch (reason) {
@@ -502,6 +542,7 @@ function subscribeSidebarReferences(keys: readonly SidebarReferenceKey[], listen
 /** Test seam only: drops every snapshot and (optionally) installs a clock. */
 export function resetSidebarReferenceCache(options: { now?: () => number } = {}): void {
   entries.clear();
+  clearExpiryTimers();
   forcedKeys.clear();
   inflight.clear();
   failures.clear();

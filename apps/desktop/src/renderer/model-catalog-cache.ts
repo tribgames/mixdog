@@ -178,8 +178,13 @@ export const PROVIDER_MODELS_FRESH_MS = 30_000;
 const PARTIAL_MODEL_CATALOG_MIN_MS = 1_000;
 const PARTIAL_MODEL_CATALOG_MAX_MS = 60_000;
 
-/** When a partial answer must be refetched, or null for a complete one. */
+/** An EMPTY answer is a boot-time miss as often as it is a real "nothing
+ *  connected": it is asked again soon instead of being held. */
+const EMPTY_MODEL_CATALOG_RETRY_MS = 30_000;
+
+/** When a partial or empty answer must be refetched, or null for a usable one. */
 export function partialModelCatalogExpiry(models: readonly unknown[], now = Date.now()): number | null {
+  if (models.length === 0) return now + EMPTY_MODEL_CATALOG_RETRY_MS;
   const partial = models.find(
     (row): row is DesktopModelOption => Boolean(row) && (row as { catalogPartial?: unknown }).catalogPartial === true
   );
@@ -244,6 +249,7 @@ export function fetchProviderModels(
     if (
       PROVIDER_MODEL_FETCHES.get(api) === state &&
       state.requestId === requestId &&
+      models.length > 0 &&
       (!quick || completeQuickAnswer(models))
     ) {
       const now = Date.now();
@@ -380,7 +386,9 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
       if (!isCurrent()) return normalizeModelCatalog(models);
       const rows = Array.isArray(models) ? models : [];
       expirePartialModelCatalog(request, rows);
-      return writeCachedModelCatalog(rows, scope).models;
+      // An empty answer must not replace the last good catalog on disk.
+      // An empty answer must not replace the last good catalog on disk.
+      return rows.length ? writeCachedModelCatalog(rows, scope).models : [];
     });
   const setup = api.invokeCapability
     ? quickSettled
