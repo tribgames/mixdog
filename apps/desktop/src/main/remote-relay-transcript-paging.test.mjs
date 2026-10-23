@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { startRemoteRelay } from './remote-relay.ts';
+import { remotePromptHistory } from './remote-transcript.ts';
 import { createRelayE2EEClientHandshake } from '../shared/remote-e2ee.ts';
 import { createSnapshotDeltaDecoder, markCompactWire } from './state-delta.ts';
 
@@ -154,15 +155,18 @@ test('a paging phone opens tail windows and receives older pages and submits as 
     const submitted = ['submitted prompt', ...history].slice(0, 50);
     publishSessionState({ sessionId: 'session', snapshot: withHistory(submitted), frameSource: 'live' });
     for (const peer of [newPhone, oldPhone]) await waitFor(peer, () => frames(peer).length === 4);
+    // Phones hold the bounded copy (remotePromptHistory), not all 50 prompts.
+    const phoneHistory = remotePromptHistory(submitted);
+    assert.ok(phoneHistory.length > 1 && phoneHistory.length < submitted.length);
     const submitFrame = frames(newPhone)[3].w;
-    assert.deepEqual(submitFrame.sl, { promptHistoryList: { h: ['submitted prompt'], k: 49 } });
+    assert.deepEqual(submitFrame.sl, { promptHistoryList: { h: ['submitted prompt'], k: phoneHistory.length - 1 } });
     assert.equal(Object.hasOwn(submitFrame, 'sc'), false, 'the announcing phone gets the new prompt only');
     const legacySubmit = frames(oldPhone)[3].w;
     assert.equal(Object.hasOwn(legacySubmit, 'sl'), false, 'an older build is never sent a history patch');
-    assert.deepEqual(legacySubmit.sc.promptHistoryList, submitted);
+    assert.deepEqual(legacySubmit.sc.promptHistoryList, phoneHistory);
     for (const peer of [newPhone, oldPhone]) {
       for (const index of [2, 3]) decode(peer, frames(peer)[index]);
-      assert.deepEqual(decoders.get(peer).resumePoint().held.fields.promptHistoryList, submitted);
+      assert.deepEqual(decoders.get(peer).resumePoint().held.fields.promptHistoryList, phoneHistory);
     }
   } finally {
     await handle?.close();

@@ -8,11 +8,15 @@ import { createRemoteMethods } from './remote-methods.ts';
 import { encodeRelayClientSessionState } from './remote-relay-session-state.ts';
 import {
   REMOTE_OUTPUT_TRUNCATED_FIELD,
+  REMOTE_PROMPT_HISTORY_BUDGET_CHARS,
+  REMOTE_PROMPT_HISTORY_ENTRY_MAX_CHARS,
   REMOTE_TOOL_OUTPUT_CAP_CHARS,
+  remotePromptHistory,
   remoteToolOutput,
   remoteTranscriptSnapshot,
   toolRecordPaths,
 } from './remote-transcript.ts';
+import { createSnapshotDeltaDecoder } from './state-delta.ts';
 import { READ_NOT_HELD, READ_NOT_VIEWED } from './remote-session-methods.ts';
 
 const SESSION = `sess_desktop_${'b'.repeat(64)}`;
@@ -80,6 +84,44 @@ test('the cut never splits a surrogate pair and is stable for an unchanged row',
   assert.doesNotMatch(result, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u);
   const snapshot = toolSnapshot();
   assert.equal(remoteTranscriptSnapshot(snapshot).items[1], remoteTranscriptSnapshot(snapshot).items[1]);
+});
+
+test("a phone's session baseline carries a bounded prompt history, and a submit still patches it", () => {
+  // Pasted briefs: 48 prompts of ~24 KB behind two typed ones, newest first.
+  const pasted = Array.from({ length: 48 }, (_, index) => `brief ${index} ${'z'.repeat(24_000)}`);
+  const history = ['typed newest', ...pasted.slice(0, 20), 'typed older', ...pasted.slice(20)];
+  const snapshot = { sessionId: SESSION, items: [{ id: 'u1', kind: 'user', text: 'hi' }], promptHistoryList: history };
+  const encoders = new Map();
+  const baseline = encodeRelayClientSessionState(encoders, SESSION, snapshot, false, true, true);
+  const baselineBytes = JSON.stringify(baseline).length;
+  assert.ok(
+    baselineBytes < REMOTE_PROMPT_HISTORY_BUDGET_CHARS + 4_096,
+    `baseline ${baselineBytes} bytes (whole history ${JSON.stringify(history).length})`
+  );
+  const decoder = createSnapshotDeltaDecoder();
+  const first = decoder.decode(JSON.parse(JSON.stringify(baseline)));
+  assert.equal(first.ok, true);
+  // Newest first, oversized entries skipped: what a phone keyboard recalls.
+  assert.deepEqual(first.snapshot.promptHistoryList, ['typed newest', 'typed older']);
+  assert.equal(snapshot.promptHistoryList, history, 'the host copy is never modified');
+
+  // A budget cut keeps the newest entries that fit.
+  const typed = Array.from({ length: 50 }, (_, index) => `typed ${index} ${'y'.repeat(1_300)}`);
+  const kept = remotePromptHistory(typed);
+  assert.deepEqual(kept, typed.slice(0, kept.length));
+  assert.ok(kept.length >= 20 && JSON.stringify(kept).length <= REMOTE_PROMPT_HISTORY_BUDGET_CHARS + 4 * kept.length);
+  assert.ok(kept.every((entry) => entry.length <= REMOTE_PROMPT_HISTORY_ENTRY_MAX_CHARS));
+  assert.equal(remotePromptHistory(typed), kept, 'the same projection for the same list');
+  const short = ['b', 'a'];
+  assert.equal(remotePromptHistory(short), short, 'a list within the bounds is sent as it is');
+
+  // A short submit travels as a head patch against the bounded copy.
+  const next = { ...snapshot, promptHistoryList: ['typed submit', ...history].slice(0, 50) };
+  const patch = encodeRelayClientSessionState(encoders, SESSION, next, false, true, true);
+  assert.ok(JSON.stringify(patch).length < 1_024, `submit frame ${JSON.stringify(patch).length} bytes`);
+  const decoded = decoder.decode(JSON.parse(JSON.stringify(patch)));
+  assert.equal(decoded.ok, true);
+  assert.deepEqual(decoded.snapshot.promptHistoryList, ['typed submit', 'typed newest', 'typed older']);
 });
 
 test('the full output is found by row id, member id or the renderer member name', () => {
