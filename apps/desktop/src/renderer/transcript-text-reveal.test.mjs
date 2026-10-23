@@ -123,13 +123,15 @@ test('coding: the part ending shows the rest at once, still fading; settled, its
   await view.cleanup();
 });
 
-test('coding: a table row and a code line stream within their line', async (t) => {
+test('coding: a table row waits for its newline, a code line streams within its line', async (t) => {
   const { view } = await pane(t, 'rows');
   const table = '| a | b |\n| - | - |\n| c | d';
   // Over 400 characters: the first text shows at once.
   const lead = `${'x'.repeat(400)}\n\n`;
   await view.render([prompt('u1'), live('rows', 'b1', `${lead}${table}`)]);
-  assert.equal(view.host.querySelectorAll('tr').length, 2, 'the row being typed shows');
+  assert.equal(view.host.querySelectorAll('tr').length, 1, 'the row being typed waits');
+  await view.render([prompt('u1'), live('rows', 'b3', `${lead}${table} |\n`)]);
+  assert.equal(view.host.querySelectorAll('tr').length, 2, 'the row shows with its newline');
   await view.render([prompt('u1'), live('rows', 'b2', `${lead}\`\`\`ts\nconst a = 1;\nconst b`)]);
   assert.match(view.host.textContent, /const b/, 'the code line being typed shows');
   await view.cleanup();

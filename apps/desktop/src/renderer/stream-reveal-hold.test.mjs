@@ -4,6 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { parseMarkdownToHast } from './markdown-ast.ts';
 import { pacedRevealCeiling, pacedRevealStep, revealHold } from './stream-reveal-hold.ts';
 
 /** What paints of `text` cut at `cut` (the reveal) while it streams. */
@@ -99,7 +100,7 @@ test('paced: only a bare list or heading marker and a closing fence being typed 
   assert.equal(paced('```ts\nconst a = 1;\nconst b'), '```ts\nconst a = 1;\nconst b', 'code lines stream');
   assert.equal(paced('```ts\nconst a = 1;\n``'), '```ts\nconst a = 1;\n', 'a closing fence being typed waits');
   assert.equal(paced('```ts\nconst a = 1;\n```'), '```ts\nconst a = 1;\n```', 'a whole closing fence shows');
-  assert.equal(paced('| a | b'), '| a | b', 'a table row streams within its line');
+  assert.equal(paced('| a | b'), '', 'a table row waits for its newline');
   assert.equal(paced('An ![ima'), 'An ![ima', 'images are not held');
   assert.equal(paced('a <'), 'a <');
   assert.equal(paced('Use **bo'), 'Use **bo');
@@ -121,4 +122,57 @@ test('paced step: cut back to the last space past half a step; never stop on a b
     'stops before the marker line'
   );
   assert.equal(list.slice(13, pacedRevealStep(list, 13, list.length, 2)), '- fi', 'steps on past the marker');
+});
+
+test('paced: a streaming table never paints a partial row; prose stays word by word', () => {
+  const full = 'Intro words here\n\n| a | b |\n|---|---|\n| one | two |\n| three | four |\nAfter the table words.';
+  for (let at = 1; at <= full.length; at += 1) {
+    const shown = paced(full.slice(0, at));
+    const tail = shown.slice(shown.lastIndexOf('\n') + 1);
+    assert.ok(!tail.includes('|'), `partial row at ${at}: ${JSON.stringify(tail)}`);
+  }
+  assert.equal(paced('Intro\n\n| a | b |\n|---|---|\n| one | tw'), 'Intro\n\n| a | b |\n|---|---|\n');
+  assert.equal(paced('Intro\n\n| a | b |\n|---|---|\n| one | two |'), 'Intro\n\n| a | b |\n|---|---|\n');
+  assert.equal(
+    paced('Intro\n\n| a | b |\n|---|---|\n| one | two |\n'),
+    'Intro\n\n| a | b |\n|---|---|\n| one | two |\n',
+    'the row appears with its newline'
+  );
+  assert.equal(paced('Some prose wor'), 'Some prose wor', 'prose streams');
+  const table = 'Intro\n\n| a | b |\n|---|---|\n| one | two |\n';
+  // (a) The parser renders a line directly under a body row as a table row,
+  // so it waits for its newline like one.
+  assert.equal(paced(`${table}After the table wor`), table, 'a line right under a row is a row');
+  assert.equal(paced(`${table}After the table words.\n`), `${table}After the table words.\n`);
+  // (b) Prose after a blank line streams word by word.
+  assert.equal(paced(`${table}\nAfter the table wor`), `${table}\nAfter the table wor`);
+  // (c) A heading, list item, quote or fence after the table is no row.
+  assert.equal(paced(`${table}## Head wor`), `${table}## Head wor`);
+  assert.equal(paced(`${table}- item wor`), `${table}- item wor`);
+  assert.equal(paced(`${table}> quote wor`), `${table}> quote wor`);
+  assert.equal(paced(`${table}\`\`\`ts\ncode wor`), `${table}\`\`\`ts\ncode wor`);
+  assert.equal(paced(`${table}## Head\nprose wor`), `${table}## Head\nprose wor`, 'prose after a heading');
+  // Held iff the real parser renders the line as a table row.
+  const isRow = (node, word) =>
+    node.tagName === 'tr' ? JSON.stringify(node).includes(word) : (node.children ?? []).some((child) => isRow(child, word));
+  for (const [source, word] of [
+    ['| a | b |\n| - | - |\n| c | d |\n---\nprose wor', 'prose'],
+    ['| a | b |\n| - | - |\n| c | d |\n> q\nprose wor', 'prose'],
+    ['> | a | b |\n> | - | - |\n> | c | d |\n>> nested prose wor', 'nested'],
+    ['| a | b |\n| - | - |\n| c | d |\n<div>html wor', 'html'],
+    ['| a | b |\n| - | - |\n| c | d |\nplain row wor', 'plain'],
+  ]) {
+    const parsed = isRow(parseMarkdownToHast(`${source}\n`), word);
+    assert.equal(paced(source) !== source, parsed, `${JSON.stringify(source)} held iff a row (parser: ${parsed})`);
+  }
+  // A step through a table never ends mid-row.
+  const text = 'Intro\n\n| a | b |\n|---|---|\n| one | two |\n\nTail words';
+  let from = 0;
+  while (from < text.length) {
+    const end = pacedRevealStep(text, from, pacedRevealCeiling(text), 4);
+    assert.ok(end > from, 'progress');
+    const shown = text.slice(0, end);
+    assert.ok(!shown.slice(shown.lastIndexOf('\n') + 1).includes('|'), JSON.stringify(shown));
+    from = end;
+  }
 });
