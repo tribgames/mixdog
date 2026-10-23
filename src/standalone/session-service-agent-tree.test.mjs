@@ -735,7 +735,8 @@ test('live Agent cancel survives canonical close and a late cancelled turn rejec
   assert.equal(task.status, 'running');
 
   const cancelled = await agent.execute({ type: 'cancel', task_id: taskId }, context);
-  assert.match(cancelled, new RegExp(`agent task:\\s*${taskId}`));
+  assert.match(cancelled, /^agent close: ok/m);
+  assert.match(cancelled, new RegExp(`task_id:\\s*${taskId}`));
   assert.match(cancelled, new RegExp(sessionId));
   assert.equal(controls.closedWhileTurnPending, true);
   assert.equal(controls.turnPending, true);
