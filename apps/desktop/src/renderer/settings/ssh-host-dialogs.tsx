@@ -5,6 +5,8 @@ import type {
   DesktopSshFailure,
   DesktopSshHost,
   DesktopSshHostSettings,
+  DesktopSshModelLogin,
+  DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
 import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
@@ -13,6 +15,7 @@ import { providerLabel, rows, type CapabilityApi } from './capability-data';
 import { ConfirmDialog, ConnDialog } from './connection-dialogs';
 import { SshAskpassPrompt, useSshAskpass } from './ssh-askpass-prompt';
 import { guidance, toGuidance } from './ssh-guidance';
+import { SshServerLoginsDialog, useServerLogins } from './ssh-server-logins-dialog';
 
 const KEY_FILE_EXAMPLE = '~/.ssh/id_ed25519';
 
@@ -104,8 +107,136 @@ function ModelAccessFieldset({ access }: { access: ModelAccess }) {
   );
 }
 
-/** Per-server settings: the folder the session opens in, the login key file and
- *  whether a dropped connection is re-dialed. They apply from the next connection. */
+/** "2 server logins · Claude, OpenAI", or why the logins cannot be shown yet. */
+function serverLoginsNote(host: DesktopSshHost, logins: DesktopSshServerLogins | null): string {
+  if (!logins) return t('Loading…');
+  if (logins.providers) {
+    const signedIn = logins.providers.filter((provider) => provider.signedIn);
+    if (!signedIn.length) return t('No server logins yet.');
+    return t('{{count}} server logins · {{names}}', {
+      count: signedIn.length,
+      names: signedIn.map((provider) => provider.name).join(', '),
+    });
+  }
+  if (logins.connected)
+    return t('After saving, the server restarts with its own accounts and its logins can be managed here.');
+  return t('Connect to {{name}} to manage its logins.', { name: host.name });
+}
+
+/** "Model login": this PC's accounts (the default, with the provider list
+ *  this server may use) or the accounts signed in on the server. */
+function ModelLoginFieldset({
+  host,
+  value,
+  onChange,
+  access,
+  logins,
+  onManage,
+}: {
+  host: DesktopSshHost;
+  value: DesktopSshModelLogin;
+  onChange(value: DesktopSshModelLogin): void;
+  access: ModelAccess;
+  logins: DesktopSshServerLogins | null;
+  onManage(): void;
+}) {
+  const name = `ssh-model-login-${host.id}`;
+  return (
+    <fieldset className="ssh-login-choice">
+      <legend>{t('Model login')}</legend>
+      <label className="ssh-choice">
+        <input type="radio" name={name} value="pc" checked={value === 'pc'} onChange={() => onChange('pc')} />
+        <b>{t('This PC’s accounts')}</b>
+        <small>{t('Model requests go out through this PC. They work only while it is connected.')}</small>
+      </label>
+      {value === 'pc' && (
+        <div className="ssh-choice-sub">
+          <ModelAccessFieldset access={access} />
+        </div>
+      )}
+      <label className="ssh-choice">
+        <input
+          type="radio"
+          name={name}
+          value="server"
+          checked={value === 'server'}
+          onChange={() => onChange('server')}
+        />
+        <b>{t('Server accounts')}</b>
+        <small>
+          {t('Requests go straight out with the accounts signed in on the server. This PC needs no account.')}
+        </small>
+      </label>
+      {value === 'server' && (
+        <div className="ssh-choice-sub">
+          <p className="conn-note">{serverLoginsNote(host, logins)}</p>
+          <div>
+            <button type="button" className="conn-btn conn-btn--sm" disabled={!logins?.providers} onClick={onManage}>
+              {t('Manage server logins')}
+            </button>
+          </div>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+/** Asked once when a save changes the model login: the server's Mixdog
+ *  restarts in the other mode and its running sessions stop. */
+function ModelLoginSwitchDialog({
+  host,
+  to,
+  busySessions,
+  onConfirm,
+  onClose,
+}: {
+  host: DesktopSshHost;
+  to: DesktopSshModelLogin;
+  busySessions: number | null;
+  onConfirm(): void;
+  onClose(): void;
+}) {
+  const consequence =
+    busySessions && busySessions > 0
+      ? t('The server’s Mixdog restarts, and {{count}} running sessions stop.', { count: busySessions })
+      : t('The server’s Mixdog restarts, and any running sessions stop.');
+  return (
+    <ConnDialog
+      title={to === 'server' ? t('Switch to server accounts?') : t('Switch to this PC’s accounts?')}
+      description={
+        to === 'server'
+          ? t('Sessions on {{name}} use the accounts signed in on the server for models.', { name: host.name })
+          : t('Sessions on {{name}} use this PC’s accounts for models.', { name: host.name })
+      }
+      viewKey="model-login-switch"
+      role="alertdialog"
+      onEscape={onClose}
+      footer={
+        <>
+          <span className="conn-grow" />
+          <button type="button" className="conn-btn" onClick={onClose}>
+            {t('Cancel')}
+          </button>
+          <button type="button" className="conn-btn conn-btn--primary" onClick={onConfirm}>
+            {t('Change')}
+          </button>
+        </>
+      }
+    >
+      <p className="ssh-warn">
+        <b>{t('Running work stops.')}</b> {consequence}
+      </p>
+    </ConnDialog>
+  );
+}
+
+const savedModelLogin = (host: DesktopSshHost): DesktopSshModelLogin =>
+  host.settings?.modelLogin === 'server' ? 'server' : 'pc';
+
+/** Per-server settings: the folder the session opens in, the login key file,
+ *  whether a dropped connection is re-dialed, and whose accounts its models
+ *  run on. They apply from the next connection; a changed model login
+ *  restarts an attached server's Mixdog after one confirmation. */
 export function SshHostSettingsDialog({
   api,
   host,
@@ -121,10 +252,14 @@ export function SshHostSettingsDialog({
   const [identityFile, setIdentityFile] = useState(host.settings?.identityFile ?? '');
   const [autoReconnect, setAutoReconnect] = useState(host.settings?.autoReconnect !== false);
   const [graceMinutes, setGraceMinutes] = useState(String(host.settings?.graceMinutes ?? 30));
+  const [modelLogin, setModelLogin] = useState<DesktopSshModelLogin>(savedModelLogin(host));
   const access = useModelAccess(api, host.settings);
+  const { logins, refresh: refreshLogins } = useServerLogins(api, host.id);
+  const [view, setView] = useState<'settings' | 'confirm' | 'logins'>('settings');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const save = (): void => {
+    setView('settings');
     setSaving(true);
     setError('');
     const { providers } = access;
@@ -138,6 +273,7 @@ export function SshHostSettingsDialog({
         allowedProviders: access.allowAll
           ? null
           : [...access.allowed].filter((id) => !providers || providers.some((provider) => provider.id === id)),
+        modelLogin,
       })
     )
       .then(() => {
@@ -149,6 +285,33 @@ export function SshHostSettingsDialog({
         setSaving(false);
       });
   };
+  const requestSave = (): void => {
+    if (modelLogin !== savedModelLogin(host)) setView('confirm');
+    else save();
+  };
+  if (view === 'confirm') {
+    return (
+      <ModelLoginSwitchDialog
+        host={host}
+        to={modelLogin}
+        busySessions={logins?.busySessions ?? null}
+        onConfirm={save}
+        onClose={() => setView('settings')}
+      />
+    );
+  }
+  if (view === 'logins') {
+    return (
+      <SshServerLoginsDialog
+        api={api}
+        host={host}
+        onClose={() => {
+          refreshLogins();
+          setView('settings');
+        }}
+      />
+    );
+  }
   return (
     <ConnDialog
       title={t('{{name}} settings', { name: host.name })}
@@ -160,7 +323,7 @@ export function SshHostSettingsDialog({
           <button type="button" className="conn-btn" onClick={onClose}>
             {t('Cancel')}
           </button>
-          <button type="button" className="conn-btn conn-btn--primary" disabled={saving} onClick={save}>
+          <button type="button" className="conn-btn conn-btn--primary" disabled={saving} onClick={requestSave}>
             {t('Save')}
           </button>
         </>
@@ -208,7 +371,14 @@ export function SshHostSettingsDialog({
             onChange={(event) => setGraceMinutes(event.currentTarget.value)}
           />
         </label>
-        <ModelAccessFieldset access={access} />
+        <ModelLoginFieldset
+          host={host}
+          value={modelLogin}
+          onChange={setModelLogin}
+          access={access}
+          logins={logins}
+          onManage={() => setView('logins')}
+        />
         <div className="conn-field-msg conn-field-msg--error" role={error ? 'alert' : undefined}>
           {error || '\u00a0'}
         </div>

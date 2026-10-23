@@ -14,6 +14,7 @@ import {
   RemoteBootstrapError,
   sshHostGraceMs,
 } from './remote-bootstrap.ts';
+import { describeConnectFailure } from './connect-failure.ts';
 import { runWithSshContext } from './ssh-context.ts';
 import { createServerPayload, setServerPayloadResolver } from './remote-install-payload.ts';
 import { RemoteSession } from './remote-session.ts';
@@ -255,6 +256,55 @@ test('a daemon outside proxy mode after ensure is refused with its pid', async (
   });
 });
 
+const serverLogins = { args: { version: '1.1.2', graceMs: '', modelLogin: 'server' } };
+
+test("this PC's logins (the default): the server program arguments carry no model login", async () => {
+  const ssh = scriptedSsh([result({ ...stale }), result({ started: true })]);
+  await bootstrap(ssh);
+  assert.deepEqual(
+    ssh.calls.map((call) => 'modelLogin' in programArgs(call)),
+    [false, false]
+  );
+});
+
+test('server logins: a current daemon without the model proxy is reused after one probe', async () => {
+  const ssh = scriptedSsh([result({ modelProxy: null })]);
+  const state = await bootstrap(ssh, serverLogins);
+  assert.equal(ssh.calls.length, 1);
+  assert.equal(programArgs(ssh.calls[0]).modelLogin, 'server');
+  assert.equal(state.discovery.pid, 4242);
+});
+
+test('server logins: a proxy-mode daemon is replaced through ensure, never attached', async () => {
+  const ssh = scriptedSsh([
+    // Even a probe that calls it current is not trusted while its mode differs.
+    result(),
+    result({ modelProxy: null, started: true, replaced: { pid: 4000, version: '1.1.2' } }),
+  ]);
+  const state = await bootstrap(ssh, { ...serverLogins, forceRestart: true });
+  assert.equal(ssh.calls.length, 2);
+  const ensure = programArgs(ssh.calls[1]);
+  assert.equal(ensure.mode, 'ensure');
+  assert.equal(ensure.modelLogin, 'server');
+  assert.equal(ensure.forceRestart, true);
+  assert.equal(state.report.replaced.pid, 4000);
+});
+
+test('server logins: a daemon still in proxy mode after ensure is refused with its pid', async () => {
+  const ssh = scriptedSsh([result({ ...stale }), result({ started: true })]);
+  await assert.rejects(bootstrap(ssh, serverLogins), (error) => {
+    assert.equal(error.code, 'daemon-model-login');
+    assert.match(error.message, /kill 4242/);
+    assert.ok(isTerminalRemoteError(error));
+    assert.deepEqual(describeConnectFailure(error, parseSshTarget('devbox'), 'linux'), {
+      kind: 'daemon-running',
+      pid: 4242,
+      code: 'daemon-model-login',
+    });
+    return true;
+  });
+});
+
 test('a Windows server is an unsupported platform', async () => {
   const ssh = scriptedSsh([
     { stdout: '', stderr: "'sh' is not recognized as an internal or external command,", code: 1 },
@@ -271,6 +321,7 @@ test('terminal classification covers setup failures, mismatches and ssh auth, no
     'node-too-old',
     'npm-missing',
     'daemon-not-proxy',
+    'daemon-model-login',
     'protocol-mismatch',
     'unsupported-platform',
     'daemon-busy-other-version',
@@ -362,7 +413,7 @@ test('fail() latches a mismatch found after connecting', async () => {
 
 const phases = (events) => events.map((event) => event.phase);
 
-function liveTunnel() {
+function liveTunnel(health = {}) {
   const spawnImpl = () => {
     const child = new EventEmitter();
     child.exitCode = null;
@@ -378,7 +429,7 @@ function liveTunnel() {
   };
   // The forwarded port answers /health as the probed daemon (pid and build).
   const daemon = createServer((_req, res) =>
-    res.end(JSON.stringify({ status: 'ok', pid: 4242, buildHash: PAYLOAD.buildHash }))
+    res.end(JSON.stringify({ status: 'ok', pid: 4242, buildHash: PAYLOAD.buildHash, ...health }))
   );
   daemon.listen(0, '127.0.0.1');
   daemon.unref();
@@ -417,6 +468,34 @@ test('a server without the install reports install before start', async () => {
   const session = await remoteSession(ssh, { onProgress: (event) => events.push(event), tunnel: liveTunnel() });
   await session.connect(() => {});
   assert.deepEqual(phases(events), ['connect', 'check', 'install', 'start', 'ready']);
+  await session.close();
+});
+
+test("a server session on the server's logins bootstraps in that mode and reads the running sessions", async () => {
+  const ssh = scriptedSsh([result({ modelProxy: null })]);
+  const session = await remoteSession(ssh, {
+    modelLogin: 'server',
+    tunnel: liveTunnel({ busySessions: 2, idle: false }),
+  });
+  assert.equal(await session.busySessions(2_000), null, 'nothing attached yet');
+  await session.connect(() => {});
+  assert.equal(programArgs(ssh.calls[0]).modelLogin, 'server');
+  assert.equal(await session.busySessions(2_000), 2);
+  await session.close();
+});
+
+test("a server session on the server's logins stops for good at a daemon in proxy mode", async () => {
+  const ssh = scriptedSsh([result({ ...stale }), result({ started: true })]);
+  const session = await remoteSession(ssh, { modelLogin: 'server', tunnel: liveTunnel() });
+  await assert.rejects(
+    session.connect(() => {}),
+    (error) => error.code === 'daemon-model-login'
+  );
+  await assert.rejects(
+    session.connect(() => {}),
+    (error) => error.code === 'daemon-model-login'
+  );
+  assert.equal(ssh.calls.length, 2, 'no further ssh run');
   await session.close();
 });
 

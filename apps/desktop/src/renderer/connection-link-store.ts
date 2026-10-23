@@ -9,6 +9,7 @@ import type {
   DesktopServerRestoreProgress,
 } from '../shared/contract';
 import { isSshConnectionWindow } from './desktop-connection';
+import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
 /** Fired on window when a server window is attached again after an outage:
  *  terminals re-attach and replay what they missed. */
@@ -27,10 +28,19 @@ export function isConnectionDown(current: DesktopConnectionLinkView | null): boo
   return current?.state.status === 'reconnecting' || current?.state.status === 'lost';
 }
 
+/** The model login changed: the provider status and model lists re-read
+ *  once the restarted daemon is attached. */
+let modelLoginChanged = false;
+
 function apply(next: DesktopConnectionLinkView | null): void {
   const wasDown = isConnectionDown(view);
+  if (view && next && view.modelLogin !== next.modelLogin) modelLoginChanged = true;
   view = next;
   for (const listener of listeners) listener();
+  if (next?.state.status === 'connected' && modelLoginChanged) {
+    modelLoginChanged = false;
+    invalidateSidebarReferenceForMutation('completeOAuthProviderLogin');
+  }
   if (wasDown && next?.state.status === 'connected') window.dispatchEvent(new Event(CONNECTION_REATTACHED_EVENT));
 }
 

@@ -568,6 +568,22 @@ export interface DesktopApi {
   sshServerLog?(ref: string): Promise<DesktopSshServerLog>;
   subscribeSshCleanupProgress?(listener: (progress: DesktopSshCleanupProgress) => void): () => void;
   subscribeSshProgress?(listener: (progress: DesktopSshProgress) => void): () => void;
+  /** The provider logins stored on a saved server (its window must be attached with server accounts). */
+  sshServerLogins?(id: string): Promise<import('./contract-ssh').DesktopSshServerLogins>;
+  /** Starts a subscription login on the server and opens it in this PC's browser. */
+  sshServerLoginBegin?(id: string, provider: string): Promise<import('./contract-ssh').DesktopSshServerLoginFlow>;
+  sshServerLoginStatus?(id: string, flowId: string): Promise<import('./contract-ssh').DesktopSshServerLoginFlow>;
+  /** Completes a pending login with the address the browser was redirected to. */
+  sshServerLoginComplete?(
+    id: string,
+    flowId: string,
+    redirectUrl: string
+  ): Promise<import('./contract-ssh').DesktopSshServerLoginFlow>;
+  sshServerLoginCancel?(id: string, flowId: string): Promise<void>;
+  /** Stores an API key on the server. */
+  sshServerLoginSaveKey?(id: string, provider: string, key: string): Promise<void>;
+  /** Removes a provider login from the server. */
+  sshServerLoginLogout?(id: string, provider: string): Promise<void>;
   /** A server window's link to its daemon; null in this PC's window. */
   getConnectionLink?(): Promise<import('./contract-connection-link').DesktopConnectionLinkView | null>;
   subscribeConnectionLink?(

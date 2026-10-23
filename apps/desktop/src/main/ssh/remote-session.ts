@@ -7,6 +7,7 @@ import type { SerializableDesktopServiceOptions } from '../desktop-service-contr
 import type { ConnectionProgress } from '../connections/contract';
 import { bootstrapRemoteDaemon, isTerminalRemoteError, remoteFileUrl, type RemoteLayout } from './remote-bootstrap';
 import { parseSshTarget, SshError, type SshTarget } from './ssh-command';
+import type { SshModelLogin } from './ssh-context';
 import type { SshSpawn } from './ssh-exec';
 import { SshTunnel, type TunnelDependencies } from './tunnel';
 
@@ -67,6 +68,9 @@ export interface RemoteSessionConfig {
   /** The host's "reconnect automatically" setting; off, a dropped link stays
    *  down until the user reconnects. */
   autoReconnect?: boolean;
+  /** Whose provider logins the daemon runs models on; this PC's by default.
+   *  The bootstrap attaches only to a daemon in exactly this mode. */
+  modelLogin?: SshModelLogin;
 }
 
 const DEFAULT_TUNNEL_READY_TIMEOUT_MS = 90_000;
@@ -120,6 +124,8 @@ export interface DaemonHealth {
   pid: number;
   buildHash: string | null;
   rttMs: number;
+  /** Sessions running a turn (`busySessions`, at least 1 while not idle). */
+  busySessions: number;
 }
 
 /** The daemon the bootstrap probe found: what the tunnel must lead to. */
@@ -139,12 +145,20 @@ export function readDaemonHealth(port: number, timeoutMs: number): Promise<Daemo
       });
       response.on('end', () => {
         try {
-          const health = JSON.parse(body) as { status?: unknown; pid?: unknown; buildHash?: unknown };
+          const health = JSON.parse(body) as {
+            status?: unknown;
+            pid?: unknown;
+            buildHash?: unknown;
+            busySessions?: unknown;
+            idle?: unknown;
+          };
           if (health.status !== 'ok') return resolve(null);
+          const busy = Math.max(0, Number(health.busySessions) || 0);
           resolve({
             pid: Number(health.pid) || 0,
             buildHash: typeof health.buildHash === 'string' && health.buildHash ? health.buildHash : null,
             rttMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            busySessions: health.idle === false ? Math.max(1, busy) : busy,
           });
         } catch {
           resolve(null);
@@ -262,6 +276,16 @@ export class RemoteSession implements RemoteDaemonConnector {
     return health && isExpectedDaemon(health, identity) ? health.rttMs : null;
   }
 
+  /** The attached daemon's running sessions, read from its /health through
+   *  the tunnel; null when there is no attachment or another process answers. */
+  async busySessions(timeoutMs: number): Promise<number | null> {
+    const discovery = this.discovery;
+    const identity = this.identity;
+    if (!discovery || !identity) return null;
+    const health = await readDaemonHealth(discovery.port, timeoutMs);
+    return health && isExpectedDaemon(health, identity) ? health.busySessions : null;
+  }
+
   /** Refuses dials (without touching the network) until release(): the
    *  host does not reconnect on its own. */
   hold(): void {
@@ -292,7 +316,11 @@ export class RemoteSession implements RemoteDaemonConnector {
       const bundleSha256 = createHash('sha256').update(bundle).digest('hex');
       const state = await bootstrapRemoteDaemon({
         target,
-        args: { version: this.config.appVersion, graceMs: this.config.graceMs },
+        args: {
+          version: this.config.appVersion,
+          graceMs: this.config.graceMs,
+          ...(this.config.modelLogin === 'server' ? { modelLogin: 'server' as const } : {}),
+        },
         bundle,
         bundleSha256,
         ...(this.forceRestart ? { forceRestart: true } : {}),

@@ -1560,6 +1560,130 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   padding: 0 0 6px;
   color: var(--mx-text-muted);
 }
+/* Model login: two cards as one radio group, the chosen one's options under it. */
+.ssh-login-choice {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ssh-login-choice > legend {
+  padding: 0 0 6px;
+  color: var(--mx-text-muted);
+}
+.ssh-choice {
+  display: grid;
+  grid-template-columns: 21px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 12px;
+  border-radius: var(--mx-radius-lg, 8px);
+  box-shadow: var(--mx-card-outline);
+  cursor: pointer;
+}
+.ssh-choice:has(input:checked) {
+  box-shadow: inset 0 0 0 1.5px var(--mx-text);
+}
+.ssh-choice:has(input:focus-visible) {
+  outline: 2px solid var(--mx-text);
+  outline-offset: 2px;
+}
+.ssh-choice input {
+  grid-row: span 2;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--mx-text);
+  cursor: pointer;
+}
+.ssh-choice input:focus-visible {
+  outline: none;
+}
+.ssh-choice b {
+  font-weight: var(--mx-weight-semibold);
+}
+.ssh-choice small {
+  grid-column: 2;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.ssh-choice-sub {
+  display: grid;
+  gap: 8px;
+  padding-left: 28px;
+}
+.ssh-warn {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--mx-radius-lg, 8px);
+  background: color-mix(in srgb, var(--mx-warning, #e0b34a) 12%, transparent);
+  font-size: var(--mx-font-meta);
+}
+.ssh-warn b {
+  color: var(--mx-warning, #e0b34a);
+  font-weight: var(--mx-weight-semibold);
+}
+/* Server logins: one row per provider, then the steps of a pending login. */
+.ssh-login-list {
+  max-height: 264px;
+  overflow-y: auto;
+  border-radius: var(--mx-radius-lg, 8px);
+  box-shadow: var(--mx-card-outline);
+}
+.ssh-login-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px;
+}
+.ssh-login-row + .ssh-login-row {
+  box-shadow: inset 0 1px 0 var(--mx-border-muted);
+}
+.ssh-login-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mx-text-muted);
+  opacity: 0.6;
+}
+.ssh-login-dot[data-on] {
+  background: var(--mx-success);
+  opacity: 1;
+}
+.ssh-login-who {
+  flex: 1;
+  min-width: 0;
+}
+.ssh-login-who b {
+  display: block;
+  font-weight: var(--mx-weight-semibold);
+}
+.ssh-login-who small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.ssh-login-codebox {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--mx-radius-lg, 8px);
+  box-shadow: var(--mx-card-outline);
+}
+.ssh-login-codebox ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.ssh-login-key-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .ssh-forwards {
   list-style: none;
   margin: 0;

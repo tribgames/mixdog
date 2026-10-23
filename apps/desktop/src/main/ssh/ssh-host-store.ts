@@ -92,6 +92,11 @@ export function parseHostSettings(raw: unknown): SshHostSettings {
     if (ids.size > MAX_ALLOWED_PROVIDERS) throw new Error('Too many providers.');
     settings.allowedProviders = [...ids];
   }
+  // Only the opt-in is stored: absent is this PC's logins.
+  if (input.modelLogin !== undefined && input.modelLogin !== null && input.modelLogin !== 'pc') {
+    if (input.modelLogin !== 'server') throw new Error('The model login is not valid.');
+    settings.modelLogin = 'server';
+  }
   return settings;
 }
 
@@ -142,7 +147,6 @@ export function allowedProvidersForHost(hostId: string): string[] | null {
   if (!host) return [];
   return host.settings?.allowedProviders ? [...host.settings.allowedProviders] : null;
 }
-
 /** The saved entry, from the loaded store or else from disk. */
 function savedHostSync(hostId: string): SshHostRecord | undefined {
   if (!configuredPath) return undefined;

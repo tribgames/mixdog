@@ -43,8 +43,17 @@ async function readDaemonState(p) {
 function daemonVersionOf(health) {
   return String((health && (health.packageVersion || health.version)) || '');
 }
+/** The /health modelProxy the desktop wants: 'client' (model calls come back
+ *  to the PC) unless the saved server chose its own logins (null). */
+function wantedModelProxy(want) {
+  return want.modelLogin === 'server' ? null : 'client';
+}
 function daemonIsCurrent(health, want) {
-  return Boolean(health) && health.modelProxy === 'client' && health.buildHash === want.buildHash && daemonVersionOf(health) === want.version;
+  return Boolean(health) && (health.modelProxy || null) === wantedModelProxy(want) && health.buildHash === want.buildHash && daemonVersionOf(health) === want.version;
+}
+/** Same build, other model login mode: the only reason it is not current. */
+function daemonModeDiffers(health, want) {
+  return Boolean(health) && (health.modelProxy || null) !== wantedModelProxy(want) && health.buildHash === want.buildHash && daemonVersionOf(health) === want.version;
 }
 function daemonBusyCount(health) {
   const count = Number(health.busySessions != null ? health.busySessions : health.busy) || 0;
@@ -73,10 +82,12 @@ function managedInstallOf(p, state) {
   return marker && marker.buildHash === buildHash ? installId : null;
 }
 /** spawn: nothing runs; wait: a live pid not answering yet; reuse: current
- *  build in proxy mode; unmanaged: not proven desktop-installed, never
- *  stopped; busy: another build with running turns; attached: no turns but
- *  attached views (the desktop waits for their leases, then re-checks);
- *  replace: another desktop-installed build, idle (or forced). */
+ *  build in the wanted model login mode; unmanaged: not proven
+ *  desktop-installed, never stopped; busy: another build (or the other mode)
+ *  with running turns; attached: no turns but attached views (the desktop
+ *  waits for their leases, then re-checks); replace: another
+ *  desktop-installed build or mode, idle (or forced). Never attached to:
+ *  a daemon whose mode differs from the saved choice. */
 function decideDaemonAction(state, want, forceRestart, managed) {
   if (!state.pidAlive) return 'spawn';
   if (!state.health) return 'wait';
@@ -87,14 +98,17 @@ function decideDaemonAction(state, want, forceRestart, managed) {
   if (daemonClientCount(state.health) > 0) return 'attached';
   return 'replace';
 }
-function busyDaemonMessage(state) {
+function busyDaemonMessage(state, want) {
   const health = state.health || {};
   const count = daemonBusyCount(health);
   const clients = daemonClientCount(health);
   const doing = [];
   if (count > 0) doing.push('is running ' + count + ' turn' + (count === 1 ? '' : 's'));
   if (clients > 0) doing.push('has ' + clients + ' attached client' + (clients === 1 ? '' : 's'));
-  return 'A Mixdog daemon of another version (mixdog ' + (daemonVersionOf(health) || 'unknown') +
+  const which = want && daemonModeDiffers(health, want)
+    ? 'A Mixdog daemon using ' + (health.modelProxy === 'client' ? "this PC's" : "the server's") + ' model logins'
+    : 'A Mixdog daemon of another version';
+  return which + ' (mixdog ' + (daemonVersionOf(health) || 'unknown') +
     (health.buildHash ? ' build ' + health.buildHash : '') + ', pid ' + state.pid + ') ' + (doing.join(' and ') || 'is in use') +
     ' on the server. Wait for it to finish, or restart it anyway (its running turns stop and attached clients disconnect).';
 }
@@ -134,7 +148,7 @@ async function stopDaemon(state, options) {
   const force = options.force === true;
   const graceMs = Number(options.graceMs) || 20000;
   const reply = await daemonRequest(state.port, state.token, 'POST', '/stop', { force, reason: options.reason || 'replaced by the desktop' }, 3000);
-  if (reply && reply.status === 409 && !force) fail('daemon-busy-other-version', busyDaemonMessage(state));
+  if (reply && reply.status === 409 && !force) fail('daemon-busy-other-version', busyDaemonMessage(state, options.want));
   const accepted = Boolean(reply && reply.status === 200);
   if (accepted && await waitForExit(state.pid, graceMs)) return { pid: state.pid, graceful: true, killed: false };
   const result = await terminateProcess(state.pid, accepted ? 2000 : graceMs);
@@ -200,6 +214,9 @@ function spawnDaemon(p, args, versionDir, port) {
     MIXDOG_CONFIG_DIR: p.mixdogHome,
     MIXDOG_DATA_DIR: p.dataDir,
   });
+  // The server's own logins (the saved server's opt-in): no model proxy, not
+  // even one the ssh session's environment would pass on.
+  if (args.modelLogin === 'server') delete env.MIXDOG_MODEL_PROXY;
   // Read by the daemon at start only: a changed per-server grace setting
   // applies from the next daemon start.
   if (args.graceMs) env.MIXDOG_REMOTE_CLIENT_GRACE_MS = String(args.graceMs);
@@ -212,7 +229,7 @@ function spawnDaemon(p, args, versionDir, port) {
   return record;
 }
 async function ensureDaemon(p, args, versionDir, uid) {
-  const want = { version: args.version, buildHash: args.buildHash };
+  const want = { version: args.version, buildHash: args.buildHash, modelLogin: args.modelLogin };
   const forceRestart = args.forceRestart === true;
   const preferred = 41000 + (uid % 20000);
   const triedPorts = new Set();
@@ -226,12 +243,12 @@ async function ensureDaemon(p, args, versionDir, uid) {
     const action = decideDaemonAction(state, want, forceRestart, managed);
     if (action === 'reuse') return { state, started: Boolean(candidate), replaced };
     if (action === 'unmanaged') fail('daemon-unmanaged', unmanagedDaemonMessage(state));
-    if (action === 'busy') fail('daemon-busy-other-version', busyDaemonMessage(state));
-    if (action === 'attached') fail('daemon-clients-attached', busyDaemonMessage(state));
+    if (action === 'busy') fail('daemon-busy-other-version', busyDaemonMessage(state, want));
+    if (action === 'attached') fail('daemon-clients-attached', busyDaemonMessage(state, want));
     if (action === 'replace') {
       if (replacements >= 2) fail('daemon-replace', 'Another Mixdog daemon (pid ' + state.pid + ', mixdog ' + daemonVersionOf(state.health) + ') keeps taking the session service on the server.');
       replacements += 1;
-      const stopped = await stopDaemon(state, { force: forceRestart });
+      const stopped = await stopDaemon(state, { force: forceRestart, want });
       replaced = { pid: state.pid, version: daemonVersionOf(state.health), buildHash: state.health.buildHash || null, modelProxy: state.health.modelProxy || null, graceful: stopped.graceful };
       continue;
     }

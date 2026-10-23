@@ -969,6 +969,7 @@ test('per-server settings: folder, key file and auto-reconnect are saved for the
         autoReconnect: true,
         graceMinutes: 30,
         allowedProviders: null,
+        modelLogin: 'pc',
       },
     ],
   ]);
@@ -994,7 +995,7 @@ test('per-server settings: the models this server can use list the providers ena
   await click(rowButton('Settings'));
   await settle();
   const dialog = document.querySelector('.conn-dialog');
-  assert.equal(dialog.querySelector('legend').textContent, 'Models this server can use');
+  assert.equal(dialog.querySelector('.ssh-providers legend').textContent, 'Models this server can use');
   const all = () => dialog.querySelector('.ssh-providers input[type="checkbox"]');
   assert.equal(all().checked, true, 'every provider enabled on this PC until restricted');
   const providerLabels = () => [...dialog.querySelectorAll('.ssh-providers label.ssh-check')];

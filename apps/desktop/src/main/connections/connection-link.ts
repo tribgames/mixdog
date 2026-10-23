@@ -130,6 +130,8 @@ export interface ConnectionLinkOptions {
   /** The host's setting; false: a drop goes straight to lost, and only the
    *  user's Reconnect dials again. */
   autoReconnect?: boolean;
+  /** Whose provider logins the server's models run on; 'pc' by default. */
+  modelLogin?: 'pc' | 'server';
   timers?: LinkTimers;
 }
 
@@ -154,6 +156,7 @@ export class ConnectionLink {
   private failures: number[] = [];
   private rttMs: number | null = null;
   private terminals = true;
+  private modelLogin: 'pc' | 'server';
   private attemptTimer: unknown = null;
   private healthTimer: unknown = null;
   private probing = false;
@@ -161,6 +164,7 @@ export class ConnectionLink {
   constructor(private readonly options: ConnectionLinkOptions) {
     this.timers = options.timers ?? systemTimers;
     this.ladder = new ReconnectLadder(reconnectDelayCapMs(options.graceMs));
+    this.modelLogin = options.modelLogin ?? 'pc';
   }
 
   view(): DesktopConnectionLinkView {
@@ -169,7 +173,14 @@ export class ConnectionLink {
       state: this.state,
       rttMs: this.rttMs,
       terminalsAvailable: this.terminals,
+      modelLogin: this.modelLogin,
     };
+  }
+
+  setModelLogin(modelLogin: 'pc' | 'server'): void {
+    if (this.modelLogin === modelLogin) return;
+    this.modelLogin = modelLogin;
+    this.emit();
   }
 
   subscribe(listener: (view: DesktopConnectionLinkView) => void): () => void {

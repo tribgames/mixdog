@@ -8,6 +8,8 @@ import { persistAgentChatRoute } from './agent-chat-route';
 import { errorMessageText } from './ErrorNotice';
 import { showDesktopToast } from './notifications';
 import { DictationButton, SendButton } from './composer-surfaces';
+import { useConnectionLink } from './connection-link-store';
+import { t } from './i18n';
 import type { ComposerAttachment } from './composer-support';
 import type { useComposerDictation } from './use-composer-dictation';
 import type { useComposerSkill } from './composer-skill';
@@ -43,6 +45,14 @@ export type ComposerModelControlProps = ModelProps & {
   sheetAlign?: 'start' | 'end';
 };
 
+/** A server window whose models run with the server's own logins says so
+ *  beside the model name: its sessions use none of this PC's accounts. */
+export function ServerAccountBadge() {
+  const link = useConnectionLink();
+  if (link?.modelLogin !== 'server') return null;
+  return <span className="composer-server-account">{t('Server account')}</span>;
+}
+
 /** The model picker and the context gauge beside it. In an agent chat every
  *  route change also lands on the agent itself (agent-chat-route.ts), so the
  *  chip and the agent's profile pane stay one setting. */
@@ -58,6 +68,7 @@ export function ComposerModelControls({
 }: ComposerModelControlProps) {
   return (
     <span className="composer-model-line-controls">
+      <ServerAccountBadge />
       <ModelSelector
         {...modelProps}
         sheetAlign={sheetAlign}

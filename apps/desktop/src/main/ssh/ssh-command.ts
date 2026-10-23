@@ -141,6 +141,13 @@ export function sshTunnelArgs(target: SshTarget, localPort: number, remotePort: 
   ];
 }
 
+/** One connection carried to 127.0.0.1:`remotePort` on the server over the
+ *  child's stdin/stdout (`-W` implies -N, -T, ExitOnForwardFailure and
+ *  ClearAllForwardings). */
+export function sshStdioForwardArgs(target: SshTarget, remotePort: number): string[] {
+  return [...baseArgs(target), '-W', `127.0.0.1:${remotePort}`, '--', target.destination];
+}
+
 export type SshFailureKind = 'terminal' | 'transient';
 
 const TERMINAL_SSH_FAILURES: readonly RegExp[] = [

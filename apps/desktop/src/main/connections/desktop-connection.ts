@@ -19,7 +19,7 @@ import { describeConnectFailure } from '../ssh/connect-failure';
 import { REMOTE_INSTALL_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS } from '../ssh/remote-bootstrap';
 import { RemoteSession, type RemoteDaemonConnector, type RemoteSessionConfig } from '../ssh/remote-session';
 import { parseSshTarget } from '../ssh/ssh-command';
-import { currentSshContext } from '../ssh/ssh-context';
+import { currentSshContext, type SshModelLogin } from '../ssh/ssh-context';
 import {
   ConnectionLink,
   LINK_STABLE_RESET_MS,
@@ -54,6 +54,16 @@ export interface DesktopConnection extends ConnectionIdentity {
   readonly terminals: DesktopTerminalHost;
   /** The server's Ports panel (listening ports, forwards); null for this PC. */
   readonly ports: ServerPortForwards | null;
+  /** Whose provider logins the server's models run on now: 'pc' (this PC's,
+   *  through the model proxy) unless the server uses its own. Always 'pc' for this PC. */
+  readonly modelLogin: SshModelLogin;
+  /** The saved choice changed while attached: the server's daemon restarts
+   *  (running turns stop) in that mode and the windows attach to it again. */
+  applyModelLogin(modelLogin: SshModelLogin): Promise<void>;
+  /** Calls `listener` once when the connection stops running models with
+   *  `modelLogin`: it is disposed (disconnect, quit) or its model login
+   *  changes; at once when it already has. Returns the unsubscribe. */
+  onModelLoginEnd(modelLogin: SshModelLogin, listener: () => void): () => void;
   /** The transport generation the client is attached through, if any. */
   transport(): SessionTransport | null;
   /** Notices for the connection's windows (re-attach report, sign-in). */
@@ -104,6 +114,8 @@ export interface DesktopConnectionSpec extends ConnectionIdentity {
   /** The host's grace (how long the server keeps its daemon for this PC
    *  while away); the server default when absent. */
   graceMs?: number;
+  /** The host's model login; this PC's unless 'server'. */
+  modelLogin?: SshModelLogin;
 }
 
 interface DesktopConnectionOptions {
@@ -115,7 +127,8 @@ interface DesktopConnectionOptions {
  *  after a terminal failure replaces it), the connector transports dial
  *  through, and where the server keeps the service's user data. */
 interface RemoteBinding {
-  readonly config: RemoteSessionConfig;
+  /** Replaced (never mutated) when the model login changes in place. */
+  config: RemoteSessionConfig;
   session: RemoteSession;
   readonly connector: RemoteDaemonConnector;
   userDataPath: string | null;
@@ -137,6 +150,7 @@ function bindRemote(
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),
     ...(options.forceRestart ? { forceRestart: true } : {}),
     ...(spec.autoReconnect === false ? { autoReconnect: false } : {}),
+    ...(spec.modelLogin === 'server' ? { modelLogin: 'server' as const } : {}),
   };
   const first = new RemoteSession(config);
   // Every transport generation goes through the current RemoteSession (and
@@ -164,16 +178,23 @@ function bindRemote(
 }
 
 /** A stopped connection refuses every dial: open it again from scratch
- *  (bootstrap, tunnel, attach) behind the same window. */
-async function reopenRemote(binding: RemoteBinding): Promise<void> {
+ *  (bootstrap, tunnel, attach) behind the same window. `forceRestart`: the
+ *  user's confirmation covers stopping the server's daemon. */
+async function reopenRemote(
+  binding: RemoteBinding,
+  forceRestart = currentSshContext()?.forceRestart === true
+): Promise<void> {
   const stopped = binding.session;
   binding.session = new RemoteSession({
     ...binding.config,
     onProgress: undefined,
-    forceRestart: currentSshContext()?.forceRestart === true,
+    forceRestart,
   });
   await stopped.close();
 }
+
+const bindingModelLogin = (binding: RemoteBinding | null): SshModelLogin =>
+  binding?.config.modelLogin === 'server' ? 'server' : 'pc';
 
 /** What the server window shows about its link, driven by the service client's
  *  diagnostics and by the ssh session's own actions. */
@@ -188,6 +209,7 @@ function createConnectionLink(
     connectionId: spec.id,
     graceMs,
     ...(spec.autoReconnect === false ? { autoReconnect: false } : {}),
+    modelLogin: bindingModelLogin(binding),
     actions: {
       hold: () => session().hold(),
       release: () => session().release(),
@@ -325,6 +347,7 @@ function createConnectionModelProxy({
   client,
   reattach,
   emitNotice,
+  serverLogins,
 }: {
   spec: DesktopConnectionSpec;
   deps: DesktopConnectionDependencies;
@@ -332,10 +355,15 @@ function createConnectionModelProxy({
   client: DesktopServiceClient;
   reattach: ReturnType<typeof createReattachReport> | null;
   emitNotice(notice: DesktopConnectionNotice): void;
+  /** The server runs models with its own logins now. */
+  serverLogins(): boolean;
 }): ModelProxyHost {
   const proxyOptions: ModelProxyHostOptions = {
     invoke: (operation, args) => client.invokeDesktopOperation(operation, args),
     loadRuntime: () => deps.loadModelProxyRuntime(),
+    // A server on its own logins is never served from this PC: nothing of
+    // this PC's providers is described to it and no call runs on its sign-ins.
+    serving: () => !serverLogins(),
   };
   // Server connections only: this PC's own daemon uses its own sign-ins.
   if (spec.kind === 'ssh') {
@@ -371,6 +399,7 @@ export function createDesktopConnection(
   };
   const panels = binding ? createServerPanels({ spec, deps, identity, graceMs, binding, client, emitNotice }) : null;
   live.panels = panels;
+  const serverLogins = (): boolean => bindingModelLogin(binding) === 'server';
   const modelProxy = createConnectionModelProxy({
     spec,
     deps,
@@ -378,11 +407,22 @@ export function createDesktopConnection(
     client,
     reattach: panels?.reattach ?? null,
     emitNotice,
+    serverLogins,
   });
   const unsubscribeModelProxy = client.subscribeDesktopEvents(({ name, value }) => {
     modelProxy.handleDesktopEvent(name, value);
   });
   let disposal: Promise<void> | null = null;
+  // Watchers of one model login: each is called once, when the connection is
+  // disposed or its model login is no longer the one watched.
+  const loginWatchers = new Set<{ modelLogin: SshModelLogin; listener: () => void }>();
+  const endLogins = (all: boolean): void => {
+    for (const watcher of [...loginWatchers]) {
+      if (!all && bindingModelLogin(binding) === watcher.modelLogin) continue;
+      loginWatchers.delete(watcher);
+      watcher.listener();
+    }
+  };
   return {
     ...identity,
     target: spec.kind === 'ssh' ? (spec.target ?? null) : null,
@@ -392,12 +432,39 @@ export function createDesktopConnection(
     },
     link: panels?.link ?? null,
     modelProxy,
+    get modelLogin() {
+      return bindingModelLogin(binding);
+    },
+    async applyModelLogin(modelLogin) {
+      if (!panels || !binding || disposal || bindingModelLogin(binding) === modelLogin) return;
+      binding.config = { ...binding.config, modelLogin };
+      // Proxy work the old mode took up ends here: none of it reads or
+      // answers anything of this PC's after the switch.
+      modelProxy.revoke();
+      endLogins(false);
+      panels.link.setModelLogin(modelLogin);
+      // The user confirmed that the server's running turns stop: the new
+      // session's bootstrap replaces the daemon of the other mode even while
+      // it is busy, and every window attaches to the new one.
+      await reopenRemote(binding, true);
+      panels.link.reopening();
+      await client.reattach();
+    },
     terminals: createServiceTerminalHost(client),
     ports: panels?.ports ?? null,
     transport: () => live.transport,
     subscribeNotices(listener) {
       notices.add(listener);
       return () => notices.delete(listener);
+    },
+    onModelLoginEnd(modelLogin, listener) {
+      if (disposal || bindingModelLogin(binding) !== modelLogin) {
+        queueMicrotask(listener);
+        return () => undefined;
+      }
+      const watcher = { modelLogin, listener };
+      loginWatchers.add(watcher);
+      return () => loginWatchers.delete(watcher);
     },
     serviceUserDataPath() {
       if (spec.kind === 'local') return deps.sessionOptions().userDataPath;
@@ -426,6 +493,7 @@ export function createDesktopConnection(
     },
     dispose() {
       disposal ??= (async () => {
+        endLogins(true);
         panels?.link.dispose();
         panels?.reattach.dispose();
         await panels?.ports?.dispose().catch(() => undefined);

@@ -17,6 +17,8 @@ export interface ManagedConnection extends PooledConnection {
   stopped?(): boolean;
   /** Opens a stopped connection again behind the same window. */
   reconnect?(): Promise<void>;
+  /** Restarts the server's daemon in the saved model login mode. */
+  applyModelLogin?(modelLogin: 'pc' | 'server'): Promise<void>;
 }
 
 export interface ConnectionManagerDependencies<T extends ManagedConnection> {
@@ -192,6 +194,10 @@ export function createConnectionManager<T extends ManagedConnection>(
       return run;
     },
     isOpen: (id) => id !== LOCAL_CONNECTION_ID && deps.pool.has(id),
+    async applyModelLogin(id, modelLogin) {
+      if (id === LOCAL_CONNECTION_ID) return;
+      await deps.pool.get(id)?.applyModelLogin?.(modelLogin);
+    },
     close,
     async closeAll() {
       // Queued opens too: they are cancelled before they attach.

@@ -23,6 +23,13 @@ const CHANNELS = [
   'sshAskpassReply',
   'sshCleanupHost',
   'sshUpdateHostSettings',
+  'sshServerLogins',
+  'sshServerLoginBegin',
+  'sshServerLoginStatus',
+  'sshServerLoginComplete',
+  'sshServerLoginCancel',
+  'sshServerLoginSaveKey',
+  'sshServerLoginLogout',
 ];
 /** Answered in a server window too (about its own server only). */
 const DIAGNOSTICS_CHANNELS = ['sshDiagnosticsLog', 'sshDiagnosticsCopy', 'sshServerLog'];
@@ -88,6 +95,10 @@ async function setup({
     close: async (id) => {
       calls.push(['close', id]);
       opened.delete(id);
+    },
+    applyModelLogin: async (id, modelLogin) => {
+      calls.push(['applyModelLogin', id, modelLogin]);
+      contexts.push({ applyModelLogin: currentSshContext()?.settings ?? null });
     },
   };
   const pins = [];
@@ -959,6 +970,36 @@ test('the providers a server may use are saved per server and looked up by id', 
   await s.invoke('sshUpdateHostSettings', id, { remoteCwd: '~' });
   assert.equal(allowedProvidersForHost(id), null, 'saving without the field lifts the restriction');
   assert.deepEqual(allowedProvidersForHost('unknown-id'), [], 'a server that is not saved gets none');
+});
+
+test('a changed model login is saved and restarts the attached server in it; the same choice restarts nothing', async () => {
+  const s = await setup();
+  const { result } = await s.connectTo('root@10.0.0.1');
+  const id = result.host.id;
+  const restarts = () => s.calls.filter((call) => call[0] === 'applyModelLogin');
+  const update = async (settings) => {
+    const listed = await s.invoke('sshUpdateHostSettings', id, settings);
+    await new Promise((resolve) => setImmediate(resolve));
+    return listed;
+  };
+  const listed = await update({ remoteCwd: '~', identityFile: '~/.ssh/id_box', modelLogin: 'server' });
+  assert.deepEqual(listed[0].settings, { remoteCwd: '~', identityFile: '~/.ssh/id_box', modelLogin: 'server' });
+  assert.deepEqual(restarts(), [['applyModelLogin', id, 'server']]);
+  // The restart dials under the server's saved settings (its key file).
+  assert.equal(s.contexts.at(-1).applyModelLogin.identityFile, '~/.ssh/id_box');
+  await update({ remoteCwd: '~/app', modelLogin: 'server' });
+  assert.equal(restarts().length, 1, 'other settings alone restart nothing');
+  await update({ remoteCwd: '~/app' });
+  assert.deepEqual(restarts().at(-1), ['applyModelLogin', id, 'pc'], "leaving it out is this PC's logins again");
+  await assert.rejects(update({ modelLogin: 'cloud' }), /model login is not valid/);
+  assert.equal(restarts().length, 2);
+  // No attached server answers for its logins here.
+  assert.deepEqual(await s.invoke('sshServerLogins', id), {
+    connected: false,
+    modelLogin: null,
+    busySessions: null,
+    providers: null,
+  });
 });
 
 const TOKEN = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';

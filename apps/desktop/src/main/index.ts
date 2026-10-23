@@ -32,6 +32,7 @@ import { allowedProvidersForHost, loadSshHostStore } from './ssh/ssh-host-store'
 import { currentSshContext, runWithSshContext } from './ssh/ssh-context';
 import { parseSshTarget } from './ssh/ssh-command';
 import { SshTunnel } from './ssh/tunnel';
+import { openCallbackForward } from './ssh/callback-forward';
 import {
   ConnectionPool,
   LOCAL_CONNECTION_ID,
@@ -593,6 +594,10 @@ const sshConnections = createConnectionManager<DesktopConnection>({
         remoteCwd:
           spec.id === ENV_SSH_CONNECTION_ID ? (envSshConfig?.remoteCwd ?? null) : settings?.remoteCwd?.trim() || null,
         ...(settings?.autoReconnect === false ? { autoReconnect: false } : {}),
+        // The host's opt-in: its daemon runs models with the server's own logins.
+        ...(spec.id !== ENV_SSH_CONNECTION_ID && settings?.modelLogin === 'server'
+          ? { modelLogin: 'server' as const }
+          : {}),
         // The host's grace (minutes) caps the reconnect backoff and tells the
         // server how long to keep its daemon for this PC.
         ...withGrace(hostGraceMs((settings as { graceMinutes?: unknown } | undefined)?.graceMinutes)),
@@ -2229,6 +2234,8 @@ function installWindowIpc(
     pcHost: {
       invokeCapability: (capability, args, sessionId) => localService.invokeCapability(capability, args, sessionId),
       readCapabilities: (requests) => localService.readCapabilities(requests),
+      // A server on its own logins reads its own quota.
+      inUse: () => connection.modelLogin !== 'server',
       isProviderAllowed: (provider) => {
         const allowed = allowedProvidersForHost(connection.id);
         return allowed === null || allowed.includes(provider);
@@ -2508,6 +2515,33 @@ if (!app.requestSingleInstanceLock()) {
         routes: windowRoutes,
         userDataPath: desktopUserData,
         connections: sshConnections,
+        serverLogins: {
+          connection: (id) => {
+            const connection = id === LOCAL_CONNECTION_ID ? undefined : connectionPool.get(id);
+            if (connection?.kind !== 'ssh') return null;
+            const modelLogin = connection.modelLogin;
+            return {
+              modelLogin,
+              invoke: async (capability, args) => (await connection.client.invokeCapability(capability, args)).value,
+              busySessions: async () => (await connection.remote?.busySessions(3_000)) ?? null,
+              onEnd: (listener) => connection.onModelLoginEnd(modelLogin, listener),
+            };
+          },
+          openExternal: (url) => shell.openExternal(url),
+          // The provider's callback port, the same on both ends, while one
+          // server login is pending: this PC's own bind of it is the check,
+          // so a port taken here is never forwarded. Its ssh runs under the
+          // server's saved settings (its key file).
+          forwardCallback: (host, port) =>
+            runWithHostSettings(host.id, () =>
+              openCallbackForward({
+                target: parseSshTarget(host.target),
+                port,
+                log: (line) =>
+                  diagnostics?.write('ssh-login-forward', { connection: 'ssh', detail: line.slice(0, 300) }),
+              })
+            ),
+        },
       });
       registerServerPortsIpc({
         ipcMain,

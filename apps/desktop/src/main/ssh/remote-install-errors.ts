@@ -18,6 +18,7 @@ export const TERMINAL_BOOTSTRAP_CODES: ReadonlySet<string> = new Set([
   'npm-missing',
   'mixdog-missing',
   'daemon-not-proxy',
+  'daemon-model-login',
   'protocol-mismatch',
   'unsupported-platform',
   'daemon-busy-other-version',

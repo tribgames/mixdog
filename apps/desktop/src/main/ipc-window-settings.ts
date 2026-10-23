@@ -53,6 +53,9 @@ export interface PcQuotaHost extends Pick<DesktopService, 'invokeCapability' | '
   /** The model proxy's own consent (the server's per-host provider list): a
    *  provider the server may not use runs no call on this PC's sign-in for it. */
   isProviderAllowed?(provider: string): boolean;
+  /** False while the server runs models with its own logins: its quota reads
+   *  are the server's then. True when absent. */
+  inUse?(): boolean;
 }
 
 const PC_QUOTA_CAPABILITIES: ReadonlySet<string> = new Set([
@@ -73,7 +76,9 @@ function readsPcQuota(
   pc: PcQuotaHost | undefined,
   request: { capability: string; args?: unknown[]; sessionId?: string }
 ): boolean {
-  if (!pc || request.sessionId || !PC_QUOTA_CAPABILITIES.has(request.capability)) return false;
+  if (!pc || pc.inUse?.() === false || request.sessionId || !PC_QUOTA_CAPABILITIES.has(request.capability)) {
+    return false;
+  }
   let named: unknown;
   if (request.capability === 'consumeCodexRateLimitResetCredit') named = CODEX_RESET_PROVIDER;
   else if (request.capability === 'getQuotaHistory') named = firstArg(request.args).provider;

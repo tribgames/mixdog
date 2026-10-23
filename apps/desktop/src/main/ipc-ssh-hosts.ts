@@ -26,7 +26,7 @@ import { detectSshAgent } from './ssh/ssh-agent';
 import { startAskpassSession } from './ssh/ssh-auth';
 import { configureMixdogSsh } from './ssh/mixdog-ssh-config';
 import { prepareTargetSshConfig } from './ssh/ssh-resolved-config';
-import type { SshRunContext } from './ssh/ssh-context';
+import { runWithSshContext, type SshRunContext } from './ssh/ssh-context';
 import { inspectHostKey, pinHostKey, replaceHostKey, runTool, type HostKeyInspection } from './ssh/host-key';
 import { parseSshTarget, type SshTarget } from './ssh/ssh-command';
 import { readSshConfigHosts } from './ssh/ssh-config';
@@ -44,6 +44,7 @@ import { createCleanupHandler } from './ssh/ssh-ipc-cleanup';
 import { createLoginRetry } from './ssh/ssh-ipc-login';
 import { createDiagnosticsHandlers } from './ssh/ssh-ipc-diagnostics';
 import { createHostListHandlers } from './ssh/ssh-ipc-host-list';
+import { createServerLoginHandlers, type ServerLoginDeps } from './ssh/ssh-ipc-server-logins';
 import { text } from './ssh/ssh-ipc-input';
 
 export interface SshHostIpcDeps {
@@ -78,7 +79,20 @@ export interface SshHostIpcDeps {
   readServerLog?: (target: SshTarget) => Promise<string>;
   /** Test seam for `ssh -V` / `ssh -G` in the copied diagnostics. */
   diagnosticsRun?: typeof runTool;
+  /** The attached servers whose provider logins the settings manage, this
+   *  PC's browser and the callback forward; without it no server is attached. */
+  serverLogins?: Omit<ServerLoginDeps, 'store'>;
 }
+
+const NO_SERVER_LOGINS: Omit<ServerLoginDeps, 'store'> = {
+  connection: () => null,
+  openExternal: async () => {
+    throw new Error('No browser is available.');
+  },
+  forwardCallback: async () => {
+    throw new Error('No callback forward is available.');
+  },
+};
 
 async function inspectWithForwards(target: SshTarget): Promise<HostKeyInspection> {
   const inspection = await inspectHostKey(target);
@@ -159,7 +173,13 @@ export function registerSshHostIpc(deps: SshHostIpcDeps): () => void {
   const cleanup = createCleanupHandler({ connections, store, views, contextFor, withLogin, cleanupServer, platform });
 
   const inspectHostKeyHandler = createInspectHandler({ attempts, configured, inspect });
-  const hostList = createHostListHandlers(store, views);
+  // The restart dials the server again: under the server's saved settings
+  // (its key file), in batch mode like any automatic reconnect.
+  const hostList = createHostListHandlers(store, views, async (id, modelLogin) => {
+    const record = (await store()).get(id);
+    if (record) await runWithSshContext(contextFor(record), () => connections.applyModelLogin?.(id, modelLogin));
+  });
+  const serverLogins = createServerLoginHandlers({ ...(deps.serverLogins ?? NO_SERVER_LOGINS), store });
   const diagnostics = createDiagnosticsHandlers({
     senderRoute,
     store,
@@ -174,6 +194,16 @@ export function registerSshHostIpc(deps: SshHostIpcDeps): () => void {
     [DESKTOP_IPC.sshListHosts, () => views()],
     [DESKTOP_IPC.sshRenameHost, (_event, id, name) => hostList.rename(id, name)],
     [DESKTOP_IPC.sshUpdateHostSettings, (_event, id, settings) => hostList.updateSettings(id, settings)],
+    [DESKTOP_IPC.sshServerLogins, (_event, id) => serverLogins.logins(id)],
+    [DESKTOP_IPC.sshServerLoginBegin, (_event, id, provider) => serverLogins.begin(id, provider)],
+    [DESKTOP_IPC.sshServerLoginStatus, (_event, id, flowId) => serverLogins.status(id, flowId)],
+    [
+      DESKTOP_IPC.sshServerLoginComplete,
+      (_event, id, flowId, redirectUrl) => serverLogins.complete(id, flowId, redirectUrl),
+    ],
+    [DESKTOP_IPC.sshServerLoginCancel, (_event, id, flowId) => serverLogins.cancel(id, flowId)],
+    [DESKTOP_IPC.sshServerLoginSaveKey, (_event, id, provider, key) => serverLogins.saveKey(id, provider, key)],
+    [DESKTOP_IPC.sshServerLoginLogout, (_event, id, provider) => serverLogins.logout(id, provider)],
     [DESKTOP_IPC.sshForgetHost, (_event, id) => hostList.forget(id)],
     [DESKTOP_IPC.sshConfigHosts, () => readConfig()],
     [DESKTOP_IPC.sshInspectHostKey, (event, rawTarget) => inspectHostKeyHandler(event, rawTarget)],
@@ -210,5 +240,6 @@ export function registerSshHostIpc(deps: SshHostIpcDeps): () => void {
   }
   return () => {
     for (const [channel] of handlers) ipcMain.removeHandler(channel);
+    void serverLogins.dispose();
   };
 }

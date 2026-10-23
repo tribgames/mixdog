@@ -28,6 +28,9 @@ export interface RemoteProgramArgs {
   upload?: boolean;
   /** ensure: stop another build's daemon even while it runs turns. */
   forceRestart?: boolean;
+  /** probe/ensure: 'server' wants a daemon that runs models with the server's
+   *  own logins (no model proxy); absent: one in client proxy mode. */
+  modelLogin?: 'server';
   /** cleanup: 'stop' stops the daemon only; 'remove' also deletes files. */
   phase?: 'stop' | 'remove';
   removeUserData?: boolean;

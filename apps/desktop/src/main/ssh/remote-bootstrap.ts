@@ -23,7 +23,7 @@ import {
 } from './remote-install-program';
 import { REMOTE_PTY_PACKAGE } from './remote-install-versioned';
 import { isTerminalSshError, type SshTarget } from './ssh-command';
-import { currentSshContext } from './ssh-context';
+import { currentSshContext, type SshModelLogin } from './ssh-context';
 import { sshExec, type SshSpawn } from './ssh-exec';
 
 export { RemoteBootstrapError } from './remote-install-errors';
@@ -89,7 +89,7 @@ export interface RemoteReport {
   daemonBuildHash: string | null;
   /** Running turns of the daemon (0 when idle or not healthy). */
   daemonBusy: number;
-  /** The healthy daemon runs exactly this build in proxy mode. */
+  /** The healthy daemon runs exactly this build in the model login mode asked for. */
   daemonCurrent: boolean;
   /** This bootstrap run started the daemon (ensure mode only). */
   started: boolean;
@@ -106,14 +106,28 @@ export function isTerminalRemoteError(error: unknown): boolean {
   );
 }
 
-/** The desktop attaches only to a daemon that sends its model calls back to
- *  this PC; any other daemon would run models with the server's credentials. */
-export function assertClientModelProxy(report: RemoteReport): void {
-  if (!report.healthy || !report.discovery || report.modelProxy === 'client') return;
+/** The desktop attaches only to a daemon whose model login matches the saved
+ *  server's choice. With this PC's logins (the default) that is a daemon that
+ *  sends its model calls back to this PC; any other would run models with the
+ *  server's credentials. With the server's own logins it is a daemon without
+ *  the model proxy; one in proxy mode would run them on this PC's. */
+export function assertModelLoginMode(report: RemoteReport, modelLogin: SshModelLogin = 'pc'): void {
+  if (!report.healthy || !report.discovery) return;
   const pid = report.discovery.pid;
+  const version = report.packageVersion || 'unknown';
+  if (modelLogin === 'server') {
+    if (report.modelProxy === null) return;
+    throw new RemoteBootstrapError(
+      'daemon-model-login',
+      `The Mixdog daemon on the server (pid ${pid}, mixdog ${version}) sends its model calls to this PC, ` +
+        "but this server is set to use the server's own logins. " +
+        `Stop it on the server (kill ${pid}), then reconnect.`
+    );
+  }
+  if (report.modelProxy === 'client') return;
   throw new RemoteBootstrapError(
     'daemon-not-proxy',
-    `The Mixdog daemon on the server (pid ${pid}, mixdog ${report.packageVersion || 'unknown'}) ` +
+    `The Mixdog daemon on the server (pid ${pid}, mixdog ${version}) ` +
       "is not in desktop model proxy mode; attaching would run models with the server's credentials. " +
       `Stop it on the server (kill ${pid}), then reconnect.`
   );
@@ -240,6 +254,8 @@ export interface RemoteScriptArgs {
   /** Developer override (the desktop's own MIXDOG_REMOTE_CLIENT_GRACE_MS);
    *  empty: the saved server's grace setting. */
   graceMs: string;
+  /** Whose provider logins the daemon runs models on; this PC's by default. */
+  modelLogin?: SshModelLogin;
 }
 
 /** How long a daemon outlives its last desktop (per saved server). */
@@ -334,6 +350,7 @@ async function runBootstrapStep(
  *  returned discovery (and its token) only lives in memory. */
 export async function bootstrapRemoteDaemon(options: BootstrapOptions): Promise<RemoteDaemonState> {
   const log = options.log ?? (() => {});
+  const modelLogin: SshModelLogin = options.args.modelLogin === 'server' ? 'server' : 'pc';
   const payload = options.payload ?? (await resolveServerPayload(options.bundle));
   const base: RemoteProgramArgs = {
     mode: 'probe',
@@ -343,13 +360,16 @@ export async function bootstrapRemoteDaemon(options: BootstrapOptions): Promise<
     graceMs: daemonGraceMs(options.args.graceMs),
     lockWaitMs: REMOTE_INSTALL_LOCK_WAIT_MS,
     lockStaleMs: REMOTE_INSTALL_LOCK_STALE_MS,
+    // Only the opt-in travels: a server on this PC's logins gets exactly the
+    // arguments it always did.
+    ...(modelLogin === 'server' ? { modelLogin: 'server' as const } : {}),
   };
   const probe = await runBootstrapStep(options, base, REMOTE_PROBE_TIMEOUT_MS);
   const layout = remoteLayout(probe.home, payload.installId);
   log(
     `remote probe node=${probe.nodeVersion} install=${payload.installId} installed=${probe.installed}` +
       ` healthy=${probe.healthy} daemon=${probe.daemonVersion ?? 'none'}/${probe.daemonBuildHash ?? '-'}` +
-      ` modelProxy=${probe.modelProxy ?? 'none'} busy=${probe.daemonBusy}`
+      ` modelProxy=${probe.modelProxy ?? 'none'} modelLogin=${modelLogin} busy=${probe.daemonBusy}`
   );
   options.onProgress?.({ phase: 'check', detail: probe.nodeVersion });
   const ready = (report: RemoteReport, discovery: RemoteDiscovery): RemoteDaemonState => {
@@ -357,7 +377,10 @@ export async function bootstrapRemoteDaemon(options: BootstrapOptions): Promise<
       log(`remote terminals unavailable: ${report.terminalsError}`);
     return { report, layout, discovery, terminalsAvailable: report.terminalsAvailable === true };
   };
-  if (probe.installed && probe.daemonCurrent && probe.discovery) return ready(probe, probe.discovery);
+  // A daemon in the other model login mode is never attached to: ensure
+  // replaces it (busy and attached daemons as for another build).
+  const modeMatches = probe.modelProxy === (modelLogin === 'server' ? null : 'client');
+  if (probe.installed && probe.daemonCurrent && modeMatches && probe.discovery) return ready(probe, probe.discovery);
 
   // While waiting for an old client's lease the re-checks keep the waiting
   // detail on screen instead of flipping back to a bare phase.
@@ -418,7 +441,7 @@ export async function bootstrapRemoteDaemon(options: BootstrapOptions): Promise<
     );
   }
   if (ensured.gcRemoved.length) log(`remote gc removed ${ensured.gcRemoved.join(', ')}`);
-  assertClientModelProxy(ensured);
+  assertModelLoginMode(ensured, modelLogin);
   if (!ensured.healthy || !ensured.discovery || !ensured.daemonCurrent) {
     throw new RemoteBootstrapError('daemon-unhealthy', 'The Mixdog daemon on the server is not answering.');
   }

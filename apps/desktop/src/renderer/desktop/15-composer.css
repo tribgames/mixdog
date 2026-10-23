@@ -1840,6 +1840,21 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   min-width: 0;
   margin-left: auto;
 }
+/* A server window on the server's own logins: the pill before the model name. */
+.composer-server-account {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--mx-hover);
+  color: var(--mx-text);
+  font-size: 12px;
+  font-weight: var(--mx-weight-semibold);
+  white-space: nowrap;
+}
 /* In the card the selector kept 56px of the footer for the actions beside it;
    here it shares only with the gauge, and a percentage of this shrink-to-fit
    group would cut its own label. It keeps its natural width and gives way only

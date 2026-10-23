@@ -58,7 +58,8 @@ function classifyConnectFailure(error: unknown, target: SshTarget, platform: Nod
       }
       case 'npm-missing':
         return { kind: 'npm-missing', command: NODE_INSTALL_COMMAND };
-      case 'daemon-not-proxy': {
+      case 'daemon-not-proxy':
+      case 'daemon-model-login': {
         const pid = Number(/\bpid (\d+)/.exec(error.message)?.[1]);
         if (Number.isInteger(pid) && pid > 0) return { kind: 'daemon-running', pid };
         break;

@@ -3,8 +3,14 @@
 
 export type DesktopSshPhase = 'connect' | 'check' | 'install' | 'start' | 'ready';
 
+/** Whose provider logins a server's models run on: this PC's (its model calls
+ *  come back here, the default) or the server's own, stored on the server. */
+export type DesktopSshModelLogin = 'pc' | 'server';
+
 /** What a saved server remembers besides its name and address. */
 export interface DesktopSshHostSettings {
+  /** 'server': the server's daemon runs models with the logins stored on the server; absent or 'pc': with this PC's. */
+  modelLogin?: DesktopSshModelLogin;
   /** Server folder the session opens in: `~`, `~/x` or an absolute server path. */
   remoteCwd?: string;
   /** Private key file on this PC (passed to ssh with `-i`). */
@@ -192,4 +198,39 @@ export interface DesktopSshProgress {
   attemptId: string;
   phase: DesktopSshPhase;
   detail?: string;
+}
+
+/** One provider login stored on a server (its daemon's own config). */
+export interface DesktopSshServerLogin {
+  id: string;
+  name: string;
+  /** 'oauth': a subscription login; 'api': an API key. */
+  kind: 'oauth' | 'api';
+  signedIn: boolean;
+  /** The key comes from the server's environment: it cannot be changed or removed here. */
+  fromEnvironment?: boolean;
+  /** A signed-in subscription's account as the server knows it (its email). */
+  identity?: string;
+}
+
+/** The server's logins as the settings dialog shows them. `connected`: the
+ *  server's window is attached; `modelLogin`: the mode its daemon runs in now.
+ *  `providers` only when it runs with the server's own logins. */
+export interface DesktopSshServerLogins {
+  connected: boolean;
+  modelLogin: DesktopSshModelLogin | null;
+  /** Running sessions on the server (null when unknown). */
+  busySessions: number | null;
+  providers: DesktopSshServerLogin[] | null;
+}
+
+/** A subscription login running on the server; `forwarded`: the provider's
+ *  localhost callback port is forwarded from this PC while it is pending. */
+export interface DesktopSshServerLoginFlow {
+  flowId: string;
+  provider: string;
+  state: 'pending' | 'complete' | 'failed' | 'cancelled' | 'expired';
+  url: string | null;
+  error: string | null;
+  forwarded: boolean;
 }

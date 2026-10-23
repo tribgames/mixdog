@@ -9,10 +9,11 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { DesktopSshHostSettings } from '../../shared/contract-ssh';
+import type { DesktopSshHostSettings, DesktopSshModelLogin } from '../../shared/contract-ssh';
 import type { AskpassSession } from './ssh-auth';
 
 export type SshHostSettings = DesktopSshHostSettings;
+export type SshModelLogin = DesktopSshModelLogin;
 
 export interface SshRunContext {
   settings?: SshHostSettings;

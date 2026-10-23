@@ -20,6 +20,9 @@ export interface DesktopConnectionLinkView {
   rttMs: number | null;
   /** False when the server cannot run terminals; everything else still works. */
   terminalsAvailable: boolean;
+  /** Whose provider logins the server's models run on: 'server' shows the
+   *  "Server account" badge beside the model name. */
+  modelLogin: 'pc' | 'server';
 }
 
 export type DesktopConnectionNotice =

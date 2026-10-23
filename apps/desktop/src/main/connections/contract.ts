@@ -38,6 +38,9 @@ export interface ConnectionManager {
   ): Promise<void>;
   /** The server's connection is attached (its window is open or opening). */
   isOpen(id: string): boolean;
+  /** The saved model login of an attached server changed: its daemon
+   *  restarts in that mode behind the open windows. Nothing when not attached. */
+  applyModelLogin?(id: string, modelLogin: 'pc' | 'server'): Promise<void>;
   /** Detaches: closes the window and the tunnel; the remote daemon keeps running. */
   close(id: string): Promise<void>;
 }

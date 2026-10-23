@@ -153,6 +153,32 @@ test('the provider lookup honors a saved server’s list even before any store w
   assert.deepEqual(allowedProvidersForHost('restricted'), []);
 });
 
+test('the model login is this PC’s unless the server’s own is chosen; only the opt-in is stored', async () => {
+  assert.deepEqual(parseHostSettings({ modelLogin: 'server' }), { modelLogin: 'server' });
+  assert.deepEqual(parseHostSettings({ modelLogin: 'pc' }), {});
+  assert.deepEqual(parseHostSettings({ modelLogin: null }), {});
+  assert.deepEqual(parseHostSettings({}), {});
+  for (const bad of ['cloud', true, 1, 'Server']) {
+    assert.throws(() => parseHostSettings({ modelLogin: bad }), /model login is not valid/);
+  }
+  const dir = await tempDir();
+  await writeFile(
+    join(dir, 'ssh-hosts.json'),
+    JSON.stringify({
+      version: 1,
+      hosts: [
+        { id: 'own', name: 'a', target: 'root@10.0.0.1', lastConnectedAt: 1, settings: { modelLogin: 'server' } },
+        { id: 'odd', name: 'c', target: 'root@10.0.0.3', lastConnectedAt: 1, settings: { modelLogin: 'cloud' } },
+      ],
+    })
+  );
+  const store = await loadSshHostStore(dir);
+  assert.deepEqual(store.get('own').settings, { modelLogin: 'server' });
+  assert.equal(store.get('odd').settings, undefined, 'a damaged setting falls back to this PC’s logins');
+  await store.updateSettings('own', { modelLogin: 'pc', remoteCwd: '~' });
+  assert.deepEqual((await loadSshHostStore(dir)).get('own').settings, { remoteCwd: '~' });
+});
+
 test('the grace period is a whole number of minutes from 1 to 10080', () => {
   assert.equal(parseHostSettings({ graceMinutes: 45 }).graceMinutes, 45);
   assert.equal(parseHostSettings({ graceMinutes: '' }).graceMinutes, undefined);

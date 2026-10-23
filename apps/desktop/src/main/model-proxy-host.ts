@@ -85,6 +85,10 @@ export interface ModelProxyHostOptions {
   /** Which of this PC's providers the server may use (the per-host setting);
    *  every provider when absent. */
   isProviderAllowed?: (provider: string) => boolean;
+  /** False while the server runs models with its own logins: this PC takes up
+   *  none of its requests (not even its provider list) and runs nothing on
+   *  its credentials. Serving when absent. */
+  serving?: () => boolean;
   maxRequestBytes?: number;
   maxInflightBytes?: number;
   maxSnapshotEntries?: number;
@@ -109,6 +113,10 @@ export interface ModelProxyHost {
   /** Feed one desktop event; true when it was the model-proxy lane. */
   handleDesktopEvent(name: string, value: unknown): boolean;
   readonly running: number;
+  /** The server's model login changed: every claim still waiting and every
+   *  running call is given up, and none of them reads or sends anything of
+   *  this PC's from now on. */
+  revoke(): void;
   dispose(): void;
 }
 
@@ -142,6 +150,14 @@ function cancelledError(): Error {
   const error = new Error('The remote session cancelled the model call.');
   error.name = 'AbortError';
   return error;
+}
+
+/** A call of a model login that is no longer the server's: abandoned, unanswered. */
+function revokedError(): Error {
+  return Object.assign(new Error("The server's model login changed; the model call was abandoned."), {
+    name: 'AbortError',
+    code: 'MODEL_PROXY_UNAVAILABLE',
+  });
 }
 
 function providerUnavailable(name: string): Error {
@@ -680,6 +696,8 @@ async function execute(
 ): Promise<unknown> {
   const method = String(call.method || '') as ModelProxyMethod;
   if (!ALLOWED_METHODS.has(method)) throw new Error(`Model proxy method "${method}" is not allowed.`);
+  // A call given up (revoked, cancelled, abandoned) reads nothing of this PC's.
+  signal.throwIfAborted();
   if (method === 'providerConfig') {
     const answer = await runtime.providerConfig();
     return { providers: publicProviderConfig(answer.providers, isProviderAllowed), ready: answer.ready !== false };
@@ -688,6 +706,7 @@ async function execute(
   const name = String(call.provider || '');
   if (name && !isProviderAllowed(name)) throw providerNotAllowed(name);
   const provider = name ? await runtime.provider(name) : undefined;
+  signal.throwIfAborted();
   if (!provider || typeof provider.send !== 'function') throw providerUnavailable(name);
   if (method === 'listModels') return catalog(provider, false);
   if (method === 'refreshModels') return catalog(provider, true);
@@ -834,8 +853,9 @@ function createClaims({
   };
 
   /** The claim, given up after `claimTimeoutMs`; a payload that still arrives
-   *  later is refused so the daemon is not left waiting on it. */
-  const claim = (id: string): Promise<Record<string, unknown>> =>
+   *  later is refused so the daemon is not left waiting on it (unless the
+   *  claim was revoked meanwhile: then nothing is sent). */
+  const claim = (id: string, isLive: () => boolean): Promise<Record<string, unknown>> =>
     new Promise((resolveClaim, rejectClaim) => {
       let late = false;
       const timer = setTimeout(() => {
@@ -847,7 +867,7 @@ function createClaims({
         (value) => {
           clearTimeout(timer);
           if (!late) return resolveClaim(record(value));
-          if (typeof record(value).payload === 'string' && !isDisposed()) {
+          if (typeof record(value).payload === 'string' && !isDisposed() && isLive()) {
             void refuse(id, refusal('This PC gave up waiting for the model call.', 'MODEL_PROXY_UNAVAILABLE', 503));
           }
         },
@@ -898,6 +918,7 @@ async function serveCall(
     loadRuntime,
     isProviderAllowed,
     onCallSettled,
+    isLive,
   }: {
     running: Map<string, AbortController>;
     inflight: { bytes: number };
@@ -906,22 +927,27 @@ async function serveCall(
     loadRuntime: ModelProxyHostOptions['loadRuntime'];
     isProviderAllowed: (provider: string) => boolean;
     onCallSettled: ModelProxyHostOptions['onCallSettled'];
+    /** False once the claim was revoked (the model login changed). */
+    isLive: () => boolean;
   }
 ): Promise<void> {
+  // Every event and answer of a revoked call stays on this PC.
+  const reply: ModelProxyHostOptions['invoke'] = (operation, args) =>
+    isLive() ? invoke(operation, args) : Promise.reject(revokedError());
   const controller = new AbortController();
   running.set(id, controller);
   inflight.bytes += payload.length;
   liveness.ensure();
-  const lane = createEventLane(id, invoke, controller);
+  const lane = createEventLane(id, reply, controller);
   const provider = String(call.provider || '');
   let settled: ModelProxyCallSettled['outcome'] = 'answered';
   let failure: unknown;
   try {
     const value = await execute(await loadRuntime(), call, controller.signal, lane.emit, isProviderAllowed);
     await lane.flush();
-    await invoke(MODEL_PROXY_OPERATIONS.resolve, [id, true, encodeModelProxyWire(value), null]);
+    await reply(MODEL_PROXY_OPERATIONS.resolve, [id, true, encodeModelProxyWire(value), null]);
   } catch (error) {
-    ({ failure, outcome: settled } = await failCall(invoke, id, lane, controller, error));
+    ({ failure, outcome: settled } = await failCall(reply, id, lane, controller, error));
   } finally {
     inflight.bytes -= payload.length;
     running.delete(id);
@@ -974,6 +1000,7 @@ export function createModelProxyHost({
   invoke: invokeOperation,
   loadRuntime,
   isProviderAllowed = () => true,
+  serving = () => true,
   maxRequestBytes = MODEL_PROXY_MAX_REQUEST_BYTES,
   maxInflightBytes = MODEL_PROXY_MAX_INFLIGHT_BYTES,
   maxSnapshotEntries = MODEL_PROXY_MAX_SNAPSHOT_ENTRIES,
@@ -989,6 +1016,10 @@ export function createModelProxyHost({
   let advertised = new Set<string>();
   const inflight = { bytes: 0 };
   let disposed = false;
+  /** Raised by `revoke`: a claim or call taken under an older generation is
+   *  no longer this PC's to run or answer. */
+  let generation = 0;
+  const liveAt = (taken: number) => (): boolean => taken === generation && serving();
   const liveness = createDaemonLiveness({
     invoke: invokeOperation,
     running,
@@ -1005,7 +1036,7 @@ export function createModelProxyHost({
   const admit = (payload: string): ProxyCall | Error =>
     admitPayload(payload, inflight.bytes, { maxRequestBytes, maxInflightBytes });
 
-  const serve = (id: string, payload: string, call: ProxyCall): Promise<void> =>
+  const serve = (id: string, payload: string, call: ProxyCall, isLive: () => boolean): Promise<void> =>
     serveCall(id, payload, call, {
       running,
       inflight,
@@ -1014,24 +1045,27 @@ export function createModelProxyHost({
       loadRuntime,
       isProviderAllowed,
       onCallSettled,
+      isLive,
     });
 
   const run = async (id: string): Promise<void> => {
+    const isLive = liveAt(generation);
     claiming.add(id);
     let claimed: Record<string, unknown>;
     try {
-      claimed = await claim(id);
+      claimed = await claim(id, isLive);
     } catch {
       return;
     } finally {
       claiming.delete(id);
     }
-    // Another client claimed it, or the daemon already gave up.
-    if (disposed || typeof claimed.payload !== 'string') return;
+    // Another client claimed it, the daemon already gave up, or the model
+    // login changed while the claim was out: nothing runs and nothing is sent.
+    if (disposed || !isLive() || typeof claimed.payload !== 'string') return;
     const payload = claimed.payload;
     const admitted = admit(payload);
     if (admitted instanceof Error) await refuse(id, admitted);
-    else await serve(id, payload, admitted);
+    else await serve(id, payload, admitted, isLive);
   };
 
   /** Takes up every advertised request not already in progress. */
@@ -1046,7 +1080,7 @@ export function createModelProxyHost({
   return {
     handleDesktopEvent(name: string, value: unknown): boolean {
       if (name !== MODEL_PROXY_REQUEST_EVENT) return false;
-      if (disposed) return true;
+      if (disposed || !serving()) return true;
       const snapshot = record(value);
       // A snapshot is bounded before it is looked at: only its first entries count.
       abortCancelled(running, snapshot.cancelled, maxSnapshotEntries);
@@ -1060,6 +1094,11 @@ export function createModelProxyHost({
     },
     get running() {
       return running.size;
+    },
+    revoke(): void {
+      generation += 1;
+      advertised.clear();
+      liveness.abandonAll(revokedError());
     },
     dispose(): void {
       disposed = true;

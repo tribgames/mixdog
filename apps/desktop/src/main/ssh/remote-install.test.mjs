@@ -24,7 +24,12 @@ import { fileURLToPath } from 'node:url';
 import { REMOTE_SERVER_LOCKFILE, remoteServerDependencies } from '../../../scripts/remote-server-deps.mjs';
 import { RemoteBootstrapError } from './remote-install-errors.ts';
 import { encodePayloadArchive, manifestBuildHash, sha256Hex } from './remote-install-manifest.ts';
-import { createServerPayload, localPayloadLayout, runtimeSources, SERVER_DEPS_FILES } from './remote-install-payload.ts';
+import {
+  createServerPayload,
+  localPayloadLayout,
+  runtimeSources,
+  SERVER_DEPS_FILES,
+} from './remote-install-payload.ts';
 import { classifyRemotePlatform, isWindowsShellFailure, parsePlatformLine } from './remote-install-platform.ts';
 import { REMOTE_SERVER_LIBRARY } from './remote-install-program.ts';
 import { REMOTE_PTY_PACKAGE } from './remote-install-versioned.ts';
@@ -306,6 +311,37 @@ test('the daemon decision: reuse the current build, replace only a managed idle 
   assert.match(attached, /pid 7\) has 1 attached client on the server/);
 });
 
+test('the daemon decision follows the saved model login: the other mode is replaced, never reused', () => {
+  const state = (h) => ({ pid: 10, pidAlive: true, health: h });
+  const server = { ...want, modelLogin: 'server' };
+  const decide = (h, wanted, { force = false, managed = '1.1.2-aaaaaaaaaaaaaaaa' } = {}) =>
+    library.decideDaemonAction(state(h), wanted, force, managed);
+  // Server logins: only a daemon without the model proxy is current.
+  assert.equal(decide(health({ modelProxy: null }), server, { managed: null }), 'reuse');
+  assert.equal(decide(health({ modelProxy: undefined }), server, { managed: null }), 'reuse');
+  assert.equal(decide(health(), server), 'replace');
+  // This PC's logins (the default): exactly as before, a proxy daemon only.
+  assert.equal(decide(health(), want, { managed: null }), 'reuse');
+  assert.equal(decide(health({ modelProxy: null }), want), 'replace');
+  // The same build in the other mode keeps the busy and attached handling.
+  assert.equal(decide(health({ busy: 2 }), server), 'busy');
+  assert.equal(decide(health({ clients: 1 }), server), 'attached');
+  assert.equal(decide(health({ busy: 2, clients: 1 }), server, { force: true }), 'replace');
+  assert.equal(decide(health(), server, { managed: null }), 'unmanaged');
+  assert.match(
+    library.busyDaemonMessage({ pid: 4242, health: health({ busy: 1 }) }, server),
+    /^A Mixdog daemon using this PC's model logins \(mixdog 1\.1\.2 build a{16}, pid 4242\) is running 1 turn/
+  );
+  assert.match(
+    library.busyDaemonMessage({ pid: 4242, health: health({ modelProxy: null, busy: 1 }) }, want),
+    /^A Mixdog daemon using the server's model logins/
+  );
+  assert.match(
+    library.busyDaemonMessage({ pid: 7, health: health({ buildHash: 'b'.repeat(16), busy: 1 }) }, server),
+    /^A Mixdog daemon of another version/
+  );
+});
+
 test('the desktop daemon has its own runtime root and Mixdog home under ~/.mixdog-remote', () => {
   const home = scratch();
   const p = library.remotePaths(home);
@@ -460,6 +496,74 @@ test('a busy daemon of another build is refused unless forced', async () => {
   children.push(forced.state.pid);
   assert.equal(forced.replaced.pid, old.pid);
   assert.equal(alive(old.pid), false);
+});
+
+test('the daemon env follows the saved model login, and a daemon of the other mode is restarted, never attached', async () => {
+  const { p } = serverHome();
+  const versionDir = fakeVersion(p, '1.1.2-aaaaaaaaaaaaaaaa', { version: '1.1.2', buildHash: want.buildHash });
+  const args = { ...want, installId: '1.1.2-aaaaaaaaaaaaaaaa' };
+  // This PC's logins: the daemon starts in client proxy mode.
+  const pc = await library.ensureDaemon(p, args, versionDir, 0);
+  children.push(pc.state.pid);
+  assert.equal(pc.started, true);
+  assert.equal(pc.state.health.modelProxy, 'client');
+  // Server logins: the same build in proxy mode is stopped and a daemon
+  // without MIXDOG_MODEL_PROXY starts, even when the ssh session's own
+  // environment names it.
+  const inherited = process.env.MIXDOG_MODEL_PROXY;
+  process.env.MIXDOG_MODEL_PROXY = 'client';
+  let server;
+  try {
+    server = await library.ensureDaemon(p, { ...args, modelLogin: 'server' }, versionDir, 0);
+  } finally {
+    if (inherited === undefined) delete process.env.MIXDOG_MODEL_PROXY;
+    else process.env.MIXDOG_MODEL_PROXY = inherited;
+  }
+  children.push(server.state.pid);
+  assert.equal(server.started, true);
+  assert.equal(server.replaced.pid, pc.state.pid);
+  assert.equal(server.replaced.modelProxy, 'client');
+  assert.equal(alive(pc.state.pid), false);
+  assert.equal(server.state.health.modelProxy, null);
+  // The same mode again: reused, nothing restarts.
+  const again = await library.ensureDaemon(p, { ...args, modelLogin: 'server' }, versionDir, 0);
+  assert.equal(again.started, false);
+  assert.equal(again.state.pid, server.state.pid);
+  // Back to this PC's logins: the server-login daemon is replaced in turn.
+  const back = await library.ensureDaemon(p, args, versionDir, 0);
+  children.push(back.state.pid);
+  assert.equal(back.replaced.pid, server.state.pid);
+  assert.equal(back.state.health.modelProxy, 'client');
+});
+
+test('a busy daemon of the other model login is refused with its mode unless forced', async () => {
+  const { p } = serverHome();
+  const versionDir = fakeVersion(p, '1.1.2-aaaaaaaaaaaaaaaa', { version: '1.1.2', buildHash: want.buildHash });
+  const script = join(versionDir, 'src', 'standalone', 'daemon.mjs');
+  const busy = spawn(process.execPath, [script], {
+    env: { ...process.env, MIXDOG_RUNTIME_ROOT: p.runtimeRoot, MIXDOG_MODEL_PROXY: 'client', FAKE_BUSY: '1' },
+    stdio: 'ignore',
+  });
+  children.push(busy.pid);
+  for (let i = 0; i < 100; i += 1) {
+    try {
+      if (JSON.parse(readFileSync(p.discovery, 'utf8')).pid === busy.pid) break;
+    } catch {
+      // Not written yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const args = { ...want, installId: '1.1.2-aaaaaaaaaaaaaaaa', modelLogin: 'server' };
+  await rejectsWith(
+    library.ensureDaemon(p, args, versionDir, 0),
+    'daemon-busy-other-version',
+    new RegExp(`using this PC's model logins \\(mixdog 1\\.1\\.2 build a{16}, pid ${busy.pid}\\) is running 1 turn`)
+  );
+  assert.equal(alive(busy.pid), true);
+  const forced = await library.ensureDaemon(p, { ...args, forceRestart: true }, versionDir, 0);
+  children.push(forced.state.pid);
+  assert.equal(forced.replaced.pid, busy.pid);
+  assert.equal(forced.state.health.modelProxy, null);
 });
 
 test('an idle daemon of another build with an attached client is not replaced automatically', async () => {
