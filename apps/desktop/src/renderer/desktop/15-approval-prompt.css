@@ -499,8 +499,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The shortcut chips show only while focus is inside the card: with the
-   composer focused, Enter and Esc belong to the composer. */
+/* The shortcut chips show exactly while Enter and Esc answer the card
+   (data-keys, set by ApprovalPrompt): focus anywhere in its conversation on
+   something that is not a typing target, or nowhere. With the composer
+   focused, or focus in another pane, they belong to that surface. */
 .approval-kbd {
   display: none;
   flex: none;
@@ -511,7 +513,7 @@
   color: var(--mx-text-muted);
   font: 11px / 17px var(--mx-font-mono);
 }
-.approval-prompt:focus-within .approval-kbd {
+.approval-prompt[data-keys] .approval-kbd {
   display: inline-block;
 }
 .approval-button[data-tone="primary"] .approval-kbd {
@@ -568,7 +570,7 @@
   .approval-button[data-tone] {
     order: -1;
   }
-  .approval-prompt:focus-within .approval-kbd {
+  .approval-prompt[data-keys] .approval-kbd {
     display: none;
   }
 }
@@ -606,7 +608,7 @@ html[data-mixdog-mobile-tabs] .approval-button {
 html[data-mixdog-mobile-tabs] .approval-button[data-tone] {
   order: -1;
 }
-html[data-mixdog-mobile-tabs] .approval-prompt:focus-within .approval-kbd {
+html[data-mixdog-mobile-tabs] .approval-prompt[data-keys] .approval-kbd {
   display: none;
 }
 /* A docked card short of room, before its preview gets smaller than

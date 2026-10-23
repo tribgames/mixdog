@@ -172,9 +172,12 @@ test('one click on deny sends the denial with no reason; Enter allows once', asy
     assert.deepEqual(api.decisions, [['c1', 'deny', undefined]]);
     await api.send(prompt({ id: 'c2', surfaceSessionId: 'nowhere' }));
     await settle();
-    doc.activeElement?.blur();
-    await key('Enter', doc.body);
-    assert.deepEqual(api.decisions.at(-1), ['c1', 'deny', undefined], 'Enter with focus outside the card does nothing');
+    const outside = doc.createElement('button');
+    doc.body.append(outside);
+    outside.focus();
+    await key('Enter', outside);
+    outside.remove();
+    assert.deepEqual(api.decisions.at(-1), ['c1', 'deny', undefined], 'Enter with focus outside the conversation does nothing');
     const section = root.querySelector('.approval-prompt');
     section.focus();
     await key('Enter', section);

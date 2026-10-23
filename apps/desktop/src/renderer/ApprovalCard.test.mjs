@@ -706,12 +706,6 @@ test('keys: Enter allows once and Esc denies, never while typing, never a held o
     assert.deepEqual(c.decisions, [], 'shortcuts are off while typing');
     assert.equal(ui.doc.querySelector('.approval-deny'), null);
     box.blur();
-    await ui.key('Escape', {}, ui.doc.body);
-    assert.equal(ui.doc.querySelector('.approval-deny'), null, 'Esc with focus outside the card does nothing');
-    assert.deepEqual(c.decisions, [], 'Esc with focus outside the card does nothing');
-    ui.doc.activeElement?.blur();
-    await ui.key('Enter', {}, ui.doc.body);
-    assert.deepEqual(c.decisions, [], 'Enter with focus outside the card does nothing');
     ui.doc.querySelector('.approval-prompt').focus();
     await ui.key('Enter', {}, ui.doc.querySelector('.approval-prompt'));
     assert.deepEqual(c.decisions, [{ approved: true }], 'Enter inside the card allows once');
@@ -753,6 +747,374 @@ test('the composer caret is never taken: a card that appears while typing leaves
   } finally {
     await ui.done();
     input.remove();
+  }
+});
+
+// Focus on a stray, non-editable element of the card's own conversation (a
+// transcript row), or of another pane; `act` flushes the card's chip state.
+function strayElement(parent) {
+  const node = dom.window.document.createElement('div');
+  node.tabIndex = 0;
+  parent.append(node);
+  return node;
+}
+const focusOn = (node) => act(async () => node.focus());
+const blurAll = () => act(async () => dom.window.document.activeElement?.blur());
+
+test('keys answer, and the chips show, while focus is on a non-editable element of the same conversation; Esc denies', async () => {
+  const doc = dom.window.document;
+  const stray = strayElement(doc.querySelector('.conversation'));
+  const c = card({ ...comment, id: 'sk1' });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    const section = doc.querySelector('.approval-prompt');
+    await focusOn(stray);
+    assert.ok(section.dataset.keys, 'the chips show with focus on a transcript element');
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event('blur')));
+    assert.ok(!section.dataset.keys, 'a window that lost focus shows no chips');
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+    assert.ok(section.dataset.keys, 'and again when it is back');
+    await ui.key('Escape', {}, stray);
+    assert.deepEqual(c.decisions, [{ approved: false }], 'Esc denies once');
+  } finally {
+    await ui.done();
+    stray.remove();
+  }
+});
+
+test('Enter allows from a non-editable element of the same conversation, and when nothing holds focus', async () => {
+  const doc = dom.window.document;
+  const stray = strayElement(doc.querySelector('.conversation'));
+  try {
+    for (const focusFirst of [true, false]) {
+      const c = card({ ...comment, id: `se${focusFirst}` });
+      const ui = await mount(c.element);
+      try {
+        await settle();
+        if (focusFirst) await focusOn(stray);
+        else await blurAll();
+        assert.ok(doc.querySelector('.approval-prompt').dataset.keys, 'chips on');
+        await ui.key('Enter', {}, focusFirst ? stray : doc.body);
+        assert.deepEqual(c.decisions, [{ approved: true }]);
+      } finally {
+        await ui.done();
+      }
+    }
+  } finally {
+    stray.remove();
+  }
+});
+
+test("a focused button, link or widget elsewhere in the pane keeps its own Enter: no approval, its click runs, no chips", async () => {
+  const doc = dom.window.document;
+  const pane = doc.querySelector('.conversation');
+  const make = (tag, attrs = {}) => {
+    const node = doc.createElement(tag);
+    for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+    pane.append(node);
+    return node;
+  };
+  const controls = [
+    make('button', { type: 'button' }),
+    make('a', { href: '#row' }),
+    make('div', { role: 'button', tabindex: '0' }),
+    make('div', { role: 'menuitem', tabindex: '0' }),
+    make('span', { role: 'tab', tabindex: '0' }),
+  ];
+  const plain = [
+    make('div', { role: 'log', tabindex: '0' }),
+    make('div', { tabindex: '0' }),
+  ];
+  const c = card({ ...comment, id: 'ctl1' });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    const section = doc.querySelector('.approval-prompt');
+    for (const control of controls) {
+      let clicks = 0;
+      control.addEventListener('click', () => clicks++);
+      control.addEventListener('keydown', (event) => {
+        // What the browser does for Enter on a button or link, unless the keydown was cancelled.
+        if (!event.defaultPrevented && event.key === 'Enter') control.click();
+      });
+      await focusOn(control);
+      assert.ok(!section.dataset.keys, `no chips on a focused ${control.outerHTML}`);
+      await ui.key('Enter', {}, control);
+      assert.deepEqual(c.decisions, [], 'Enter does not approve');
+      assert.equal(clicks, 1, 'the control still gets its Enter');
+    }
+    await focusOn(controls[0]);
+    await ui.key('Escape', {}, controls[0]);
+    assert.deepEqual(c.decisions, [], 'nor does Esc deny');
+    for (const element of plain) {
+      await focusOn(element);
+      assert.ok(section.dataset.keys, `chips on a focused ${element.outerHTML}`);
+    }
+    await ui.key('Enter', {}, plain[0]);
+    assert.deepEqual(c.decisions, [{ approved: true }], 'a non-interactive element still hands Enter to the card');
+  } finally {
+    await ui.done();
+    for (const node of [...controls, ...plain]) node.remove();
+  }
+});
+
+test('the chips follow focus when the focused element is removed from the pane', async () => {
+  const doc = dom.window.document;
+  const control = doc.createElement('button');
+  doc.querySelector('.conversation').append(control);
+  const ui = await mount(card({ ...comment, id: 'rm1' }).element);
+  try {
+    await settle();
+    await focusOn(control);
+    const section = doc.querySelector('.approval-prompt');
+    assert.ok(!section.dataset.keys);
+    await act(async () => {
+      control.remove();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    assert.equal(doc.activeElement, doc.body);
+    // jsdom fires no focusout for a removed element; a browser's arrives with no relatedTarget.
+    await act(async () => doc.body.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true })));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    assert.ok(section.dataset.keys, 'nothing holds focus any more, so the keys are back');
+  } finally {
+    await ui.done();
+  }
+});
+
+test('Shift+Enter and Shift+Esc are not Enter and Esc: no approval from the body or a plain pane element', async () => {
+  const doc = dom.window.document;
+  const stray = strayElement(doc.querySelector('.conversation'));
+  const c = card({ ...comment, id: 'sh1' });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    await focusOn(stray);
+    await ui.key('Enter', { shiftKey: true }, stray);
+    await ui.key('Escape', { shiftKey: true }, stray);
+    await blurAll();
+    await ui.key('Enter', { shiftKey: true }, doc.body);
+    await ui.key('Escape', { shiftKey: true }, doc.body);
+    assert.deepEqual(c.decisions, []);
+    await ui.key('Enter', {}, doc.body);
+    assert.deepEqual(c.decisions, [{ approved: true }], 'plain Enter still allows');
+  } finally {
+    await ui.done();
+    stray.remove();
+  }
+});
+
+test('the chips wait out the settle window after mount and after any decision, then show', async () => {
+  const { noteApprovalDecision } = await import('./approval-prompt.tsx');
+  const doc = dom.window.document;
+  const ui = await mount(card({ ...comment, id: 'st1' }).element);
+  try {
+    const section = doc.querySelector('.approval-prompt');
+    assert.equal(doc.activeElement, ui.row(2), 'focus is in the card');
+    assert.ok(!section.dataset.keys, 'no chips right after mount');
+    await act(async () => settle());
+    assert.ok(section.dataset.keys, 'chips once settled');
+    await act(async () => noteApprovalDecision());
+    assert.ok(!section.dataset.keys, 'another card was decided: settling again');
+    await ui.key('Escape', {}, doc.activeElement);
+    assert.ok(doc.querySelector('.approval-prompt'), 'and Esc is not answered either');
+    await act(async () => settle());
+    assert.ok(section.dataset.keys, 'chips again once it ends');
+  } finally {
+    await ui.done();
+  }
+});
+
+test('an open modal dialog takes the keys and the chips away; a parked one does not', async () => {
+  const doc = dom.window.document;
+  const c = card({ ...comment, id: 'md1' });
+  const ui = await mount(c.element);
+  const pause = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  const dialog = doc.createElement('section');
+  dialog.setAttribute('role', 'dialog');
+  try {
+    await act(async () => settle());
+    const section = doc.querySelector('.approval-prompt');
+    assert.ok(section.dataset.keys);
+    // Parked (static aria-modal inside an inert / hidden layer): no effect.
+    const parked = doc.createElement('div');
+    parked.setAttribute('aria-hidden', 'true');
+    dialog.setAttribute('aria-modal', 'true');
+    parked.append(dialog);
+    doc.body.append(parked);
+    await pause();
+    assert.ok(section.dataset.keys, 'a parked dialog does not count');
+    // It opens without any focus change.
+    parked.removeAttribute('aria-hidden');
+    await pause();
+    assert.ok(!section.dataset.keys, 'a presented modal: no chips');
+    await ui.key('Escape', {}, doc.activeElement);
+    assert.deepEqual(c.decisions, []);
+    dialog.setAttribute('aria-modal', 'false');
+    await pause();
+    assert.ok(section.dataset.keys, 'closed again: chips back');
+    // A modal layer mounted and removed with no attribute change or focus move.
+    const portal = doc.createElement('div');
+    const modal = doc.createElement('section');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    portal.append(modal);
+    doc.body.append(portal);
+    await pause();
+    assert.ok(!section.dataset.keys, 'a mounted modal layer: no chips');
+    portal.remove();
+    await pause();
+    assert.ok(section.dataset.keys, 'the layer removed: chips back');
+  } finally {
+    dialog.parentElement?.remove();
+    await ui.done();
+  }
+});
+
+test('a card mounting while the window is blurred shows no chips until the window has focus', async () => {
+  const doc = dom.window.document;
+  doc.hasFocus = () => false;
+  const ui = await mount(card({ ...comment, id: 'wb1' }).element);
+  try {
+    await act(async () => settle());
+    const section = doc.querySelector('.approval-prompt');
+    assert.ok(!section.dataset.keys);
+    doc.hasFocus = () => true;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+    assert.ok(section.dataset.keys);
+  } finally {
+    delete doc.hasFocus;
+    await ui.done();
+  }
+});
+
+test('a settling card takes no Enter from the pane either', async () => {
+  const doc = dom.window.document;
+  const stray = strayElement(doc.querySelector('.conversation'));
+  const c = card({ ...comment, id: 'ss1' });
+  const ui = await mount(c.element);
+  try {
+    await focusOn(stray);
+    await ui.key('Enter', {}, stray);
+    assert.deepEqual(c.decisions, [], 'right after the card appears');
+  } finally {
+    await ui.done();
+    stray.remove();
+  }
+});
+
+test('the composer keeps Enter: a draft there turns the keys and chips off', async () => {
+  const doc = dom.window.document;
+  const { row, input } = composerRow(doc);
+  const stray = strayElement(doc.querySelector('.conversation'));
+  const c = card({ ...comment, id: 'sc1' });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    const section = doc.querySelector('.approval-prompt');
+    await focusOn(stray);
+    assert.ok(section.dataset.keys);
+    input.value = 'half a thought';
+    await focusOn(input);
+    assert.ok(!section.dataset.keys, 'no chips in the composer');
+    await ui.key('Enter', {}, input);
+    await ui.key('Escape', {}, input);
+    assert.deepEqual(c.decisions, []);
+  } finally {
+    await ui.done();
+    row.remove();
+    stray.remove();
+  }
+});
+
+test('focus in another pane gives this pane no key and no chips', async () => {
+  const doc = dom.window.document;
+  const paneA = doc.createElement('section');
+  paneA.className = 'pane-leaf conversation';
+  const elsewhere = strayElement(paneA);
+  doc.body.append(paneA);
+  const c = card({ ...comment, id: 'sp1' });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    await focusOn(elsewhere);
+    assert.ok(!doc.querySelector('.approval-prompt').dataset.keys);
+    await ui.key('Enter', {}, elsewhere);
+    await ui.key('Escape', {}, elsewhere);
+    assert.deepEqual(c.decisions, []);
+    const sidebar = strayElement(doc.body);
+    await focusOn(sidebar);
+    assert.ok(!doc.querySelector('.approval-prompt').dataset.keys, 'nor with focus outside every pane');
+    await ui.key('Escape', {}, sidebar);
+    assert.deepEqual(c.decisions, []);
+    sidebar.remove();
+  } finally {
+    await ui.done();
+    paneA.remove();
+  }
+});
+
+test('Enter never allows a payment from the pane; Esc still denies it', async () => {
+  const doc = dom.window.document;
+  const stray = strayElement(doc.querySelector('.conversation'));
+  const pay = card({
+    ...comment,
+    id: 'sy1',
+    remember: ['once'],
+    outbound: {
+      category: 'payment',
+      target: 'Notion Labs',
+      payload: '',
+      editable: [],
+      details: { merchant: 'Notion Labs', amount: '12900', currency: 'KRW' },
+    },
+  });
+  const ui = await mount(pay.element);
+  try {
+    await settle();
+    await focusOn(stray);
+    await ui.key('Enter', {}, stray);
+    assert.deepEqual(pay.decisions, []);
+    await ui.key('Escape', {}, stray);
+    assert.deepEqual(pay.decisions, [{ approved: false }]);
+  } finally {
+    await ui.done();
+    stray.remove();
+  }
+});
+
+test('two undecided cards in one pane: one key makes one decision, by the newest card, and only it shows chips', async () => {
+  const doc = dom.window.document;
+  const stray = strayElement(doc.querySelector('.conversation'));
+  const first = card({ ...comment, id: 'tw1' });
+  const second = card({ ...comment, id: 'tw2' });
+  const ui = await mount(React.createElement(React.Fragment, null, first.element, second.element));
+  try {
+    await settle();
+    await focusOn(stray);
+    const [one, two] = doc.querySelectorAll('.approval-prompt');
+    assert.ok(!one.dataset.keys, 'the older card shows no chips');
+    assert.ok(two.dataset.keys, 'the newest card shows them');
+    await ui.key('Enter', {}, stray);
+    assert.equal(first.decisions.length + second.decisions.length, 1, 'one decision from one key');
+    assert.deepEqual(second.decisions, [{ approved: true }]);
+  } finally {
+    await ui.done();
+    stray.remove();
+  }
+  const a = card({ ...comment, id: 'tw3' });
+  const b = card({ ...comment, id: 'tw4' });
+  const both = await mount(React.createElement(React.Fragment, null, a.element, b.element));
+  const stray2 = strayElement(doc.querySelector('.conversation'));
+  try {
+    await settle();
+    await focusOn(stray2);
+    await both.key('Escape', {}, stray2);
+    assert.equal(a.decisions.length + b.decisions.length, 1, 'Esc decides once as well');
+  } finally {
+    await both.done();
+    stray2.remove();
   }
 });
 
@@ -819,9 +1181,10 @@ test('desktop: a card arriving while the composer is empty takes focus (chips sh
     try {
       const section = doc.querySelector('.approval-prompt');
       assert.equal(doc.activeElement, ui.button('Allow just once'), 'the empty composer let go; the allow has focus');
-      assert.ok(section.matches(':focus-within'), 'focus is inside the card, so the Enter / Esc chips are shown');
+      assert.ok(!section.dataset.keys, 'still settling: no chips yet');
       assert.ok(ui.row(0).querySelector('.approval-kbd'), 'the Esc chip is there');
-      await settle();
+      await act(async () => settle());
+      assert.ok(section.dataset.keys, 'focus is inside the card, so the Enter / Esc chips are shown');
       await ui.key('Escape');
       assert.deepEqual(c.decisions, [{ approved: false }], 'Esc answers the card');
     } finally {
@@ -892,7 +1255,7 @@ test('desktop: a composer holding a draft keeps focus and the card answers no ke
     const ui = await mount(c.element);
     try {
       assert.equal(doc.activeElement, input, 'the draft keeps the caret');
-      assert.ok(!doc.querySelector('.approval-prompt').matches(':focus-within'), 'chips stay hidden');
+      assert.ok(!doc.querySelector('.approval-prompt').dataset.keys, 'chips stay hidden');
       await settle();
       await ui.key('Escape', {}, input);
       assert.deepEqual(c.decisions, []);
@@ -922,7 +1285,7 @@ test('desktop: a card in another pane leaves the focused empty composer of the t
     const ui = await mount(c.element);
     try {
       assert.equal(doc.activeElement, input, 'pane A keeps the caret');
-      assert.ok(!doc.querySelector('.approval-prompt').matches(':focus-within'), 'the chips stay hidden');
+      assert.ok(!doc.querySelector('.approval-prompt').dataset.keys, 'the chips stay hidden');
     } finally {
       await ui.done();
     }

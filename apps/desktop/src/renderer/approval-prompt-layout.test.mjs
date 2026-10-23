@@ -468,7 +468,9 @@ test('a click-only allow (payment, delete, unconfirmed receiver, outside file) i
       allows.slice(-1),
       `${scenario}: element.click() allows`
     );
-    // 거절 keeps its keyboard access: Enter on it denies at once, no reason screen.
+    // 거절 keeps its keyboard access: Enter on it denies at once, no reason
+    // screen (once the card has settled after the decisions above).
+    await new Promise((resolve) => setTimeout(resolve, 450));
     await tab.evaluate(() => {
       window.__pressed = [];
       document.querySelector('.approval-button[data-deny]').focus();
@@ -500,7 +502,7 @@ test('the trimmed card: the neutral island edge, no text lines under it, the sco
     for (const scenario of ['standard', 'danger', 'risky']) {
       await tab.evaluate((name) => window.__render(name), scenario);
       await new Promise((resolve) => setTimeout(resolve, 450));
-      const m = await tab.evaluate(() => {
+      const m = await tab.evaluate(async () => {
         const island = document.querySelector('.composer-island');
         const prompt = document.querySelector('.approval-prompt');
         const probe = document.createElement('div');
@@ -511,8 +513,13 @@ test('the trimmed card: the neutral island edge, no text lines under it, the sco
         const chips = () =>
           [...prompt.querySelectorAll('.approval-kbd')].filter((chip) => chip.getClientRects().length > 0).length;
         const withFocus = chips();
-        document.activeElement?.blur();
+        // Focus outside the card's conversation (here: a stray button) takes the chips away.
+        const outside = document.createElement('button');
+        document.body.append(outside);
+        outside.focus();
+        await new Promise((resolve) => setTimeout(resolve, 50));
         const blurred = chips();
+        outside.remove();
         return {
           mode: island.dataset.mode,
           edge: getComputedStyle(island).boxShadow,
@@ -559,7 +566,7 @@ test('the trimmed card: the neutral island edge, no text lines under it, the sco
         );
       }
       assert.ok(m.withFocus > 0, `${at}: chips show while focus is inside the card`);
-      assert.equal(m.blurred, 0, `${at}: chips hide when focus is outside the card`);
+      assert.equal(m.blurred, 0, `${at}: chips hide when focus is outside the card's conversation`);
     }
   }
   // Off the dock (a floating or held card) the frame is the neutral border.

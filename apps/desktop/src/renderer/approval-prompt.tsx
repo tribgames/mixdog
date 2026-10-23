@@ -6,7 +6,10 @@
 // ends the request in one click (onDeny with no reason).
 // Keys follow question-card-keys.ts: Esc denies, Enter allows
 // only where the card says so; never while typing, never right after a card
-// appears or another one was decided.
+// appears or another one was decided. They answer while focus is anywhere in
+// the card's own conversation on something that is neither a typing target nor
+// a control with keys of its own (a button, a link), or nowhere; the chips
+// (data-keys) show on exactly that condition.
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -27,7 +30,7 @@ import { OPEN_TASK_SESSION_EVENT } from './agent-task-events';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { mixyAvatar } from './mixy-identity';
-import { bindCardKeys, isTypingTarget } from './question-card-keys';
+import { bindCardKeys, cardKeysChanged, isTypingTarget, ownsKeyboard, watchCardKeyOwner } from './question-card-keys';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { touchPrimaryPointer } from './surface-input-focus';
 import { isComposerComposing } from './use-composer-ime';
@@ -41,7 +44,11 @@ const KEY_SETTLE_MS = 400;
 let lastDecisionAt = 0;
 export const noteApprovalDecision = () => {
   lastDecisionAt = Date.now();
+  // Every other card settles again: its chips go off for the window.
+  cardKeysChanged();
 };
+/** Milliseconds left of a card's settling since it mounted at `mountedAt`. */
+const settleLeft = (mountedAt: number) => Math.max(0, KEY_SETTLE_MS - (Date.now() - Math.max(mountedAt, lastDecisionAt)));
 
 // The asking sessions whose request is docked as a card right now, per chat:
 // a task session's "waiting for approval" line in that chat gives way to it.
@@ -170,6 +177,41 @@ const idle = () => {
   return !active || active === document.body;
 };
 
+// Controls that act on Enter (or Esc) themselves: the app's buttons and links,
+// disclosure summaries, selects, and the ARIA widgets it builds on other tags
+// (menu items, tabs, tree rows, options, comboboxes, toggles). Scrollers and
+// rows that merely take focus (the transcript's role="log", regions, row
+// containers) are not on the list.
+const OWN_KEY_CONTROLS = [
+  'button',
+  'a[href]',
+  'summary',
+  'select',
+  '[role="button"]',
+  '[role="link"]',
+  '[role^="menuitem"]',
+  '[role="tab"]',
+  '[role="treeitem"]',
+  '[role="option"]',
+  '[role="combobox"]',
+  '[role="checkbox"]',
+  '[role="switch"]',
+  '[role="radio"]',
+].join(',');
+
+/** Where focus lets the card answer Enter / Esc: nowhere (`active` null or the
+ *  body), anywhere in the card (a typing target aside), or in the card's own
+ *  conversation (the enclosing `.conversation`; the card itself when it sits
+ *  in none) on something that is neither a typing target nor a control of its
+ *  own (a button or link there keeps its Enter). Focus in another pane, the
+ *  sidebar or settings, or in the composer, is not. */
+function keysOpen(card: HTMLElement, active: Element | null): boolean {
+  if (!active || active === document.body) return true;
+  if (isTypingTarget(active)) return false;
+  if (card.contains(active)) return true;
+  return Boolean((card.closest('.conversation') ?? card).contains(active)) && !active.closest(OWN_KEY_CONTROLS);
+}
+
 const phoneSurface = () => document.documentElement.hasAttribute('data-mixdog-mobile-tabs');
 
 /** A composer holding no unsent text gives up focus, so the card takes it and
@@ -261,23 +303,41 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
     return giveBack;
   }, [decided]);
 
+  // Whether Enter / Esc answer this card right now; the chips show on exactly
+  // this (`data-keys`), both read from `keysOpen`.
+  const [keys, setKeys] = useState(false);
   useEffect(() => {
     const node = ref.current;
     if (!node || decided) return;
-    return bindCardKeys(node, (event) => {
+    let windowFocused = document.hasFocus();
+    let settleEnd = 0;
+    // The chips follow exactly what the handler below answers: not while the
+    // card settles (re-evaluated when that ends), not with the window blurred,
+    // focus elsewhere, a modal open or another card owning the pane's keys.
+    const refresh = (active: Element | null = document.activeElement) => {
+      const wait = settleLeft(mountedAt.current);
+      window.clearTimeout(settleEnd);
+      if (wait > 0) settleEnd = window.setTimeout(() => refresh(), wait);
+      setKeys(wait === 0 && windowFocused && keysOpen(node, active) && ownsKeyboard(node, active));
+    };
+    const unbind = bindCardKeys(node, (event) => {
       if (isTypingTarget(event.target)) return;
       const target = event.target instanceof Node ? event.target : null;
       const inside = Boolean(target && node.contains(target));
-      // Enter / Esc belong to the card only while focus is inside it; a card
-      // that appears while someone types elsewhere takes no key until focused.
-      if (!inside) return;
+      // Enter / Esc belong to the card while focus is in its conversation on
+      // something that is not a typing target, or nowhere (see keysOpen); a
+      // card that appears while someone types takes no key until then. Of
+      // several cards in one pane only the newest hears the key (bindCardKeys).
+      if (!keysOpen(node, document.activeElement)) return;
       const state = live.current;
-      const settling = Date.now() - Math.max(mountedAt.current, lastDecisionAt) < KEY_SETTLE_MS;
+      const settling = settleLeft(mountedAt.current) > 0;
       const handled = () => {
         event.preventDefault();
         event.stopPropagation();
       };
       if (event.key === 'Escape') {
+        // Like Enter, a key meant for the previous card never lands here.
+        if (settling) return handled();
         handled();
         if (state.onClose) state.onClose();
         else if (state.denyIndex >= 0) state.press(state.buttons[state.denyIndex]);
@@ -293,6 +353,41 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       handled();
       state.press(state.buttons[state.primaryIndex]);
     });
+    const onFocusIn = () => refresh();
+    // During focusout the focus is already gone; the element it goes to is the
+    // relatedTarget (none: nothing holds focus).
+    // A removed focused element ends in a focusout too (no relatedTarget); the
+    // deferred pass reads where focus really settled.
+    let settleTimer = 0;
+    const onFocusOut = (event: FocusEvent) => {
+      refresh(event.relatedTarget instanceof Element ? event.relatedTarget : null);
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => refresh(), 0);
+    };
+    const onWindowBlur = () => {
+      windowFocused = false;
+      refresh();
+    };
+    const onWindowFocus = () => {
+      windowFocused = true;
+      refresh();
+    };
+    document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('focusout', onFocusOut, true);
+    window.addEventListener('blur', onWindowBlur);
+    window.addEventListener('focus', onWindowFocus);
+    const unwatch = watchCardKeyOwner(refresh);
+    refresh();
+    return () => {
+      unwatch();
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(settleEnd);
+      document.removeEventListener('focusin', onFocusIn, true);
+      document.removeEventListener('focusout', onFocusOut, true);
+      window.removeEventListener('blur', onWindowBlur);
+      window.removeEventListener('focus', onWindowFocus);
+      unbind();
+    };
   }, [decided]);
 
   const left = expiresAt && !status ? t('{{left}} left', { left: clock(expiresAt - now) }) : '';
@@ -308,6 +403,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       data-approval={kind}
       data-agent-mode={agentMode || undefined}
       data-settled={decided || undefined}
+      data-keys={(keys && !decided) || undefined}
       aria-busy={busy || undefined}
       {...data}
     >
