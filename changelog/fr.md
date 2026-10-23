@@ -15,6 +15,7 @@ Correction du défilement sur téléphone qui s’arrêtait ou sautait, des list
 - Correction de l’action Stop d’un salon qui manquait la réponse, l’approbation ou le message d’un membre s’étant terminé juste après (#201).
 - Correction des options choisies sur une carte de questions qui étaient perdues lors d’une réponse depuis le compositeur (#202).
 - Correction de l’échec du démarrage d’un sous-agent lorsque son modèle était spécifié par son nom affiché (#203).
+- Correction des agents qui demandaient de fermer leurs sous-agents terminés au lieu de les fermer eux-mêmes.
 - Correction des listes de modèles dans l’éditeur d’agents, le profil de bot et le compositeur qui n’affichaient pas les modèles d’OpenCode Go, d’OpenRouter et d’autres fournisseurs (#205).
 
 ## v1.3.3 - 2026-10-22

@@ -14,6 +14,7 @@ Scrollen auf dem Smartphone behoben, das stoppte oder sprang, sowie Modelllisten
 - Behoben: Das Stop eines Raums übersah die Antwort, Genehmigung oder Nachricht eines Mitglieds, die kurz danach abgeschlossen wurde (#201).
 - Behoben: Auf einer Fragekarte ausgewählte Optionen gingen verloren, wenn die Antwort über den Composer erfolgte (#202).
 - Behoben: Ein Sub-Agent startete nicht, wenn dessen Modell über seinen Anzeigenamen angegeben wurde (#203).
+- Behoben: Agenten forderten Sie auf, ihre beendeten Sub-Agenten zu schließen, anstatt sie selbst zu schließen.
 - Behoben: Modelllisten im Agenten-Editor, Bot-Profil und Composer zeigten keine Modelle von OpenCode Go, OpenRouter und anderen Anbietern an (#205).
 
 ## v1.3.3 - 2026-10-22

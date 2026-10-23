@@ -14,6 +14,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 - Đã sửa lỗi lệnh Stop của phòng bỏ sót phản hồi, phê duyệt hoặc tin nhắn của thành viên kết thúc ngay sau đó (#201).
 - Đã sửa lỗi các tùy chọn đã chọn trên thẻ câu hỏi bị mất khi trả lời từ ô soạn thảo (#202).
 - Đã sửa lỗi sub-agent không khởi động được khi mô hình của nó được cung cấp bằng tên hiển thị (#203).
+- Đã sửa lỗi các agent yêu cầu bạn đóng các sub-agent đã hoàn thành thay vì tự đóng chúng.
 - Đã sửa lỗi danh sách mô hình trong trình chỉnh sửa agent, hồ sơ bot và ô soạn thảo thiếu các mô hình từ OpenCode Go, OpenRouter và các nhà cung cấp khác (#205).
 
 ## v1.3.3 - 2026-10-22

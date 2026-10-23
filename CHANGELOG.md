@@ -15,6 +15,7 @@ Fixed phone scrolling that stopped or jumped, model lists missing provider model
 - Fixed a room's Stop missing a member reply, approval or message that finished just after it (#201).
 - Fixed options picked on a question card being lost when answering from the composer (#202).
 - Fixed a sub-agent failing to start when its model was given by its display name (#203).
+- Fixed agents asking you to close their finished sub-agents instead of closing them themselves.
 - Fixed model lists in the agent editor, bot profile and composer missing models from OpenCode Go, OpenRouter and other providers (#205).
 
 ## v1.3.3 - 2026-10-22

@@ -15,6 +15,7 @@ Se corrigieron el desplazamiento en teléfonos que se detenía o saltaba, las li
 - Se corrigió que el Stop de una sala no capturara la respuesta, aprobación o mensaje de un miembro que finalizaba justo después (#201).
 - Se corrigió que las opciones elegidas en una tarjeta de preguntas se perdieran al responder desde el compositor (#202).
 - Se corrigió que un subagente no se iniciara cuando su modelo se indicaba por su nombre visible (#203).
+- Se corrigió que los agentes pidieran cerrar sus subagentes finalizados en lugar de cerrarlos ellos mismos.
 - Se corrigió que las listas de modelos en el editor de agentes, el perfil del bot y el compositor no incluyeran modelos de OpenCode Go, OpenRouter y otros proveedores (#205).
 
 ## v1.3.3 - 2026-10-22

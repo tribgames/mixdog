@@ -14,6 +14,7 @@ Corrigida a rolagem no celular que parava ou pulava, listas de modelos sem model
 - Corrigido o Stop de uma sala que perdia a resposta, aprovação ou mensagem de um membro terminada logo em seguida (#201).
 - Corrigidas as opções selecionadas em um cartão de perguntas que eram perdidas ao responder pelo campo de mensagem (#202).
 - Corrigida a falha ao iniciar um subagente quando seu modelo era informado pelo nome de exibição (#203).
+- Corrigidos os agentes que pediam para fechar seus subagentes finalizados em vez de fechá-los eles mesmos.
 - Corrigidas as listas de modelos no editor de agentes, no perfil do bot e no campo de mensagem que não exibiam modelos do OpenCode Go, OpenRouter e outros provedores (#205).
 
 ## v1.3.3 - 2026-10-22

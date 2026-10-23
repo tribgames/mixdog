@@ -14,6 +14,7 @@ Corretti lo scorrimento su smartphone che si interrompeva o saltava, gli elenchi
 - Corretto lo Stop di una stanza che perdeva la risposta, l’approvazione o il messaggio di un membro terminati subito dopo (#201).
 - Corrette le opzioni selezionate su una scheda delle domande che andavano perse rispondendo dal campo di input (#202).
 - Corretto il mancato avvio di un sub-agente quando il relativo modello veniva indicato tramite il nome visualizzato (#203).
+- Corretti gli agenti che chiedevano di chiudere i propri sub-agenti completati anziché chiuderli autonomamente.
 - Corretto l’elenco dei modelli nell’editor agenti, nel profilo del bot e nel campo di input che ometteva i modelli da OpenCode Go, OpenRouter e altri provider (#205).
 
 ## v1.3.3 - 2026-10-22
