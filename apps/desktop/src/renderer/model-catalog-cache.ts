@@ -179,7 +179,7 @@ const PARTIAL_MODEL_CATALOG_MIN_MS = 1_000;
 const PARTIAL_MODEL_CATALOG_MAX_MS = 60_000;
 
 /** When a partial answer must be refetched, or null for a complete one. */
-function partialModelCatalogExpiry(models: readonly unknown[], now = Date.now()): number | null {
+export function partialModelCatalogExpiry(models: readonly unknown[], now = Date.now()): number | null {
   const partial = models.find(
     (row): row is DesktopModelOption => Boolean(row) && (row as { catalogPartial?: unknown }).catalogPartial === true
   );

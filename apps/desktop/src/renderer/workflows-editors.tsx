@@ -12,6 +12,7 @@ import { record } from './record-utils';
 import { announceSetupChange } from './setup-change-refresh';
 import { SidebarLoadingDialog } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
+import { useEditorModelCatalog } from './use-editor-model-catalog';
 import type { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { AgentEditorDialog, RouteEditorDialog, type RouteEditorTarget, WorkflowEditorDialog } from './workflow-dialogs';
 import { ownRoute } from './workflows-agent-rows';
@@ -194,21 +195,33 @@ export function useWorkflowEditors({
 
 /** The open editor dialogs (only while the panel is active). */
 export function WorkflowEditorDialogs({
+  api,
   editors,
-  models,
+  models: panelModels,
+  providerSetup,
   webSearchModels,
-  providerNames,
+  providerNames: panelProviderNames,
   busy,
   error,
 }: {
+  api?: Parameters<typeof useEditorModelCatalog>[0];
   editors: ReturnType<typeof useWorkflowEditors>;
   models: DesktopModelOption[];
+  providerSetup?: unknown;
   providerNames?: Record<string, string>;
   webSearchModels: DesktopModelOption[];
   busy: boolean;
   error: string;
 }) {
   const { editor, agentEditor, routeEditor, loadingEditor } = editors;
+  // Opening a model editor reads the current catalog, as Settings does.
+  const { models, providerNames } = useEditorModelCatalog(
+    api,
+    Boolean(agentEditor || routeEditor),
+    panelModels,
+    providerSetup,
+    panelProviderNames
+  );
   return (
     <>
       {loadingEditor && (

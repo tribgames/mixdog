@@ -190,8 +190,10 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     <>
       {active && (
         <WorkflowEditorDialogs
+          api={api}
           editors={editors}
           models={models}
+          providerSetup={providerSetup}
           webSearchModels={webSearchModels}
           providerNames={providerNames}
           busy={busy}
