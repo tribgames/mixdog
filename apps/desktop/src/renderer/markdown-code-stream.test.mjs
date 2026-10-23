@@ -56,7 +56,7 @@ test('prose around a code block still fades', () => {
   const timeline = new StreamFadeTimeline();
   const markup = markupOf(REPLY, timeline);
   assert.match(markup, /<mx-fade[^>]*>Run /);
-  assert.match(markup, /<mx-fade[^>]*>finish/);
+  assert.match(markup, /<mx-fade[^>]*>[^<]*finish/);
 });
 
 test('an opening fence is held back until its first code character', () => {

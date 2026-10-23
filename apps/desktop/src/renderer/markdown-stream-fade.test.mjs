@@ -4,15 +4,14 @@ import test from 'node:test';
 import {
   applyStreamFade,
   dropStreamFadeTimeline,
-  STREAM_FADE_AHEAD_MAX_MS,
-  STREAM_FADE_CHUNK_CHARS,
   STREAM_FADE_CHUNK_OPEN_MS,
   STREAM_FADE_DURATION_MS,
   STREAM_FADE_FAST_CHARS_PER_MS,
-  STREAM_FADE_MS_PER_CHAR,
-  STREAM_FADE_PASS_CHUNK_CHARS,
+  STREAM_FADE_SETTLE_FADE_MS,
   STREAM_FADE_SETTLE_MS,
   StreamFadeTimeline,
+  settledStreamFade,
+  settleStreamFades,
   streamFadeTimeline,
   streamFadeWords,
 } from './markdown-stream-fade.ts';
@@ -45,65 +44,49 @@ function wrapped(root) {
 /** `count` words of four characters ("w00 "). */
 const fours = (count) => Array.from({ length: count }, (_, index) => `w${String(index).padStart(2, '0')} `).join('');
 
-test('the fade: 200 ms linear, chained 2.5 ms per character up to 600 ms ahead, chunks of 16/48 characters', () => {
-  assert.equal(STREAM_FADE_DURATION_MS, 200);
-  assert.equal(STREAM_FADE_MS_PER_CHAR, 2.5);
-  assert.equal(STREAM_FADE_AHEAD_MAX_MS, 600);
-  assert.equal(STREAM_FADE_PASS_CHUNK_CHARS, 16);
-  assert.equal(STREAM_FADE_CHUNK_CHARS, 48);
+test('the fade: 400 ms linear phrases of at least 100 ms; settle ends fades within 120 ms, unwraps by 700 ms', () => {
+  assert.equal(STREAM_FADE_DURATION_MS, 400);
   assert.equal(STREAM_FADE_CHUNK_OPEN_MS, 100);
   assert.equal(STREAM_FADE_FAST_CHARS_PER_MS, 1.6);
-  assert.equal(STREAM_FADE_SETTLE_MS, 1000);
+  assert.equal(STREAM_FADE_SETTLE_FADE_MS, 120);
+  assert.equal(STREAM_FADE_SETTLE_MS, 700);
 });
 
-test('words of one pass share a chunk up to 16 characters; each chunk starts 2.5 ms per character later', () => {
+test('a large step fades as one phrase in one element: it starts now, with no stagger, over 400 ms', () => {
   assert.deepEqual(streamFadeWords('Hello, big world!'), ['Hello, ', 'big ', 'world!']);
   const timeline = new StreamFadeTimeline(0);
-  const out = wrapped(applyStreamFade(paragraph(text(fours(10))), 'c0', timeline, 1000).root);
-  assert.equal(out.length, 10);
-  // Four words of four characters fill a chunk; the chain moves 10 ms a word.
+  const out = wrapped(applyStreamFade(paragraph(text(fours(100))), 'c0', timeline, 1000).root);
   assert.deepEqual(
-    out.map((word) => word.at),
-    [1010, 1010, 1010, 1010, 1050, 1050, 1050, 1050, 1090, 1090]
+    out.map((phrase) => [phrase.text, phrase.at, phrase.ms]),
+    [[fours(100), 1000, 400]]
   );
-  assert.deepEqual(new Set(out.map((word) => word.ms)), new Set([200]));
-  assert.equal(new Set(out.map((word) => word.tag)).size, 10, 'every word has its own element');
+  // Another chunk of the same pass shares the phrase; re-renders reschedule nothing.
+  const two = wrapped(applyStreamFade(paragraph(text(fours(3))), 'c1', timeline, 1000).root);
+  assert.deepEqual(
+    two.map((phrase) => phrase.at),
+    [1000]
+  );
+  const again = wrapped(applyStreamFade(paragraph(text(fours(100))), 'c0', timeline, 1090).root);
+  assert.deepEqual(again, out);
 });
 
-test('the chain never runs more than 600 ms ahead; re-renders reschedule nothing', () => {
-  const timeline = new StreamFadeTimeline(0);
-  const words = fours(100);
-  const one = wrapped(applyStreamFade(paragraph(text(words)), 'c0', timeline, 1000).root);
-  const two = wrapped(applyStreamFade(paragraph(text(words)), 'c1', timeline, 1000).root);
-  const starts = [...one, ...two].map((word) => word.at);
-  assert.ok(
-    starts.every((at, index) => index === 0 || at >= starts[index - 1]),
-    'top to bottom, across chunks'
-  );
-  assert.equal(Math.max(...starts), 1600, 'capped 600 ms ahead');
-  const again = wrapped(applyStreamFade(paragraph(text(words)), 'c0', timeline, 1100).root);
-  assert.deepEqual(
-    again.map((word) => word.at),
-    one.map((word) => word.at)
-  );
-});
-
-test('across passes a chunk takes up to 48 characters; it closes after 100 ms when a new word starts', () => {
+test('text revealed within 100 ms shares one phrase; the next growth after that opens the next', () => {
   const timeline = new StreamFadeTimeline(0);
   timeline.sync('One ', 0);
   applyStreamFade(paragraph(text('One ')), 'c0', timeline, 0);
   timeline.sync('One two ', 50);
   applyStreamFade(paragraph(text('One two ')), 'c0', timeline, 50);
-  timeline.sync('One two three ', 120);
-  const out = wrapped(applyStreamFade(paragraph(text('One two three ')), 'c0', timeline, 120).root);
-  // "two" joined the open chunk of the pass before; 120 ms on, "three" starts
-  // a new one: 6 characters after the chain's last start (20) or now.
+  timeline.sync('One two thr', 99);
+  applyStreamFade(paragraph(text('One two thr')), 'c0', timeline, 99);
+  timeline.sync('One two three four ', 120);
+  const out = wrapped(applyStreamFade(paragraph(text('One two three four ')), 'c0', timeline, 120).root);
+  // "two" and "thr" joined the phrase opened at 0, "thr" growing into "three"
+  // stays in it; 120 ms on, "four" starts a new one, at once.
   assert.deepEqual(
-    out.map((word) => [word.text, word.at]),
+    out.map((phrase) => [phrase.text, phrase.at]),
     [
-      ['One ', 10],
-      ['two ', 10],
-      ['three ', 135],
+      ['One two three ', 0],
+      ['four ', 120],
     ]
   );
 });
@@ -134,10 +117,7 @@ test('a word is unwrapped once a later close finds its fade ended; until then it
   const first = wrapped(applyStreamFade(paragraph(text('Hello wor')), 'c0', timeline, 0).root);
   assert.deepEqual(
     first.map((word) => [word.text, word.at]),
-    [
-      ['Hello ', 15],
-      ['wor', 15],
-    ]
+    [['Hello wor', 0]]
   );
   // "wor" grew into "world" in place: the same word, the same element.
   timeline.sync('Hello world', 40);
@@ -156,7 +136,7 @@ test('a word is unwrapped once a later close finds its fade ended; until then it
   const later = wrapped(applyStreamFade(paragraph(text('Hello world again')), 'c0', timeline, 900).root);
   assert.deepEqual(
     later.map((word) => [word.text, word.at]),
-    [['again', 913]],
+    [['again', 900]],
     'the settled words unwrapped; the new one fades'
   );
 });
@@ -164,7 +144,7 @@ test('a word is unwrapped once a later close finds its fade ended; until then it
 test('a rewrite shows every word unwrapped', () => {
   const timeline = new StreamFadeTimeline(0);
   timeline.sync('Hello there', 0);
-  assert.equal(wrapped(applyStreamFade(paragraph(text('Hello there')), 'c0', timeline, 0).root).length, 2);
+  assert.equal(wrapped(applyStreamFade(paragraph(text('Hello there')), 'c0', timeline, 0).root).length, 1);
   timeline.sync('Bye', 10);
   assert.deepEqual(wrapped(applyStreamFade(paragraph(text('Hello there')), 'c0', timeline, 10).root), []);
 });
@@ -174,10 +154,10 @@ test('sync takes a rewrite from the reveal; a step never rescans the shown prefi
   const shown = 'Hello there, my good friend';
   const render = (value, now) => wrapped(applyStreamFade(paragraph(text(value)), 'c0', timeline, now).root);
   timeline.sync(shown, 0, 0);
-  assert.equal(render(shown, 0).length, 5);
+  assert.equal(render(shown, 0)[0].text, shown);
   // The text grew and its end is where it was: an append, whatever lies before.
   timeline.sync('Jello there, my good friend again', 10, 0);
-  assert.equal(render(shown, 10).length, 5, 'still fading');
+  assert.equal(render(shown, 10)[0]?.text, shown, 'still fading');
   // The reveal names a rewrite: everything shows unfaded.
   timeline.sync('Jello there, my good friend again', 20, 7);
   assert.deepEqual(render(shown, 20), []);
@@ -220,10 +200,14 @@ test("a list item's marker fades with its first word; once settled the item drop
   const out = applyStreamFade(root, 'c0', timeline, 300).root;
   const li = out.children[0].children[0];
   assert.equal(li.properties.dataStreamFadeBox, 'marker');
-  assert.equal(li.properties.dataFadeAt, 320);
-  assert.equal(wrapped(out).length, 2, 'its words fade themselves');
-  timeline.sync('Runtime drives more', 600);
-  const later = applyStreamFade(root, 'c0', timeline, 600).root;
+  assert.equal(li.properties.dataFadeAt, 300);
+  assert.deepEqual(
+    wrapped(out).map((phrase) => phrase.text),
+    ['Runtime drives'],
+    'its words fade themselves'
+  );
+  timeline.sync('Runtime drives more', 700);
+  const later = applyStreamFade(root, 'c0', timeline, 700).root;
   assert.equal(later.children[0].children[0].properties.dataStreamFadeBox, undefined);
   assert.deepEqual(wrapped(later), []);
 });
@@ -240,7 +224,7 @@ test('a table row fades whole with its first word; words of the same chunk are n
   const out = applyStreamFade(first, 'c0', timeline, 100).root;
   const tr = out.children[0].children[0].children[0];
   assert.equal(tr.properties.dataStreamFadeBox, 'box');
-  assert.equal(tr.properties.dataFadeAt, 118);
+  assert.equal(tr.properties.dataFadeAt, 100);
   assert.deepEqual(wrapped(out), [], '"JS" fades with its row');
   timeline.sync('Runtime JS TUI JS', 250);
   const grown = {
@@ -248,8 +232,8 @@ test('a table row fades whole with its first word; words of the same chunk are n
     children: [element('table', [element('tbody', [row('Runtime', 'JS'), row('TUI', 'JS')])])],
   };
   const rows = applyStreamFade(grown, 'c0', timeline, 250).root.children[0].children[0].children;
-  assert.equal(rows[0].properties.dataFadeAt, 118, 'still fading');
-  assert.equal(rows[1].properties.dataFadeAt, 258);
+  assert.equal(rows[0].properties.dataFadeAt, 100, 'still fading');
+  assert.equal(rows[1].properties.dataFadeAt, 250);
 });
 
 test('an inline code chip fades as one word with its box; code blocks stay whole', () => {
@@ -265,7 +249,7 @@ test('an inline code chip fades as one word with its box; code blocks stay whole
   const out = applyStreamFade(root, 'c0', timeline, 40).root;
   const chip = out.children[0].children[1];
   assert.equal(chip.properties.dataStreamFadeBox, 'box');
-  assert.equal(chip.properties.dataFadeAt, 50);
+  assert.equal(chip.properties.dataFadeAt, 40);
   assert.equal(chip.children[0].value, 'npm install');
   assert.equal(out.children[1], root.children[1]);
   assert.equal(out.children[2].properties.dataStreamFadeBox, 'box');
@@ -286,14 +270,111 @@ test('a re-parse into new elements keeps word identity', () => {
 
 test('a new chunk inherits the words cut off the chunk it split from', () => {
   const timeline = new StreamFadeTimeline(0);
-  const tail = wrapped(applyStreamFade(paragraph(text('One two. Three')), 'chunk-0', timeline, 0).root);
-  applyStreamFade(paragraph(text('One two.')), 'chunk-0', timeline, 20);
-  const next = wrapped(applyStreamFade(paragraph(text('Three four')), 'chunk-9', timeline, 20).root);
-  assert.equal(next[0].tag, tail[2].tag);
-  assert.equal(next[0].at, tail[2].at);
-  // The open chunk is full (14 + 4 > 16): "four" opens the next, 10 ms after
-  // the chain's last start (35).
-  assert.equal(next[1].at, 45);
+  timeline.sync('One two. ', 0);
+  applyStreamFade(paragraph(text('One two. ')), 'chunk-0', timeline, 0);
+  timeline.sync('One two. Three', 200);
+  const tail = wrapped(applyStreamFade(paragraph(text('One two. Three')), 'chunk-0', timeline, 200).root);
+  assert.deepEqual(
+    tail.map((phrase) => [phrase.text, phrase.at]),
+    [
+      ['One two. ', 0],
+      ['Three', 200],
+    ]
+  );
+  applyStreamFade(paragraph(text('One two.')), 'chunk-0', timeline, 220);
+  const next = wrapped(applyStreamFade(paragraph(text('Three four')), 'chunk-9', timeline, 220).root);
+  // "Three" keeps its element and start; "four" joins its open phrase.
+  assert.deepEqual(next, [{ ...tail[1], text: 'Three four' }]);
+});
+
+test('settle: running phrases end within 120 ms from their progress; the rest fades as one 120 ms phrase', () => {
+  const timeline = new StreamFadeTimeline(0);
+  timeline.sync('Old words here ', 0);
+  applyStreamFade(paragraph(text('Old words here ')), 'c0', timeline, 0);
+  // The settled render, then its commit.
+  timeline.sync('Old words here and the tail', 100, 0, true);
+  const out = wrapped(applyStreamFade(paragraph(text('Old words here and the tail')), 'c0', timeline, 100).root);
+  timeline.settle(100);
+  assert.deepEqual(
+    out.map((phrase) => [phrase.text, phrase.at, phrase.ms]),
+    [
+      ['Old words here ', 0, 400],
+      ['and the tail', 100, 120],
+    ]
+  );
+  const [old] = applyStreamFade(paragraph(text('Old words here ')), 'c0', timeline, 100).root.children[0].children;
+  assert.equal(old.properties.dataFadeSettle, 100, 'marked settled');
+  // An element created for it later runs the rest of its fade, ending 120 ms
+  // after the settle, from the progress it had then (a quarter).
+  const placed = settledStreamFade(0, 400, 100);
+  assert.equal(placed.at + placed.ms, 100 + STREAM_FADE_SETTLE_FADE_MS);
+  assert.equal((100 - placed.at) / placed.ms, 0.25);
+  assert.deepEqual(settledStreamFade(0, 400), { at: 0, ms: 400 }, 'unsettled: unchanged');
+  // A phrase that ends within 120 ms anyway is left alone.
+  const late = new StreamFadeTimeline(0);
+  applyStreamFade(paragraph(text('nearly done')), 'c0', late, 0);
+  late.settle(300);
+  const [nearly] = wrapped(applyStreamFade(paragraph(text('nearly done')), 'c0', late, 300).root);
+  assert.equal(nearly.ms, 400);
+  const nearlyNode = applyStreamFade(paragraph(text('nearly done')), 'c0', late, 300).root.children[0].children[0];
+  assert.equal(nearlyNode.properties.dataFadeSettle, undefined);
+});
+
+test('a settled render that never commits leaves no settled state: streaming phrases stay 400 ms', () => {
+  const timeline = new StreamFadeTimeline(0);
+  timeline.sync('Hi ', 0);
+  applyStreamFade(paragraph(text('Hi ')), 'c0', timeline, 0);
+  // Discarded: it rendered settled, but settle() (its commit) never ran.
+  timeline.sync('Hi there', 50, 0, true);
+  applyStreamFade(paragraph(text('Hi there')), 'c0', timeline, 50);
+  timeline.sync('Hi there friend', 200);
+  const out = wrapped(applyStreamFade(paragraph(text('Hi there friend')), 'c0', timeline, 200).root);
+  assert.deepEqual(out.map((phrase) => [phrase.text, phrase.ms]).at(-1), ['friend', 400]);
+  assert.ok(
+    out.every((phrase) => phrase.ms === 400 || phrase.text === 'there '),
+    'only the discarded pass phrase is short'
+  );
+  const [first] = applyStreamFade(paragraph(text('Hi ')), 'c0', timeline, 200).root.children[0].children;
+  assert.equal(first.properties.dataFadeSettle, undefined, 'nothing marked settled');
+});
+
+test('settle speeds up the running fade animations on screen to end within 120 ms, keeping their progress', () => {
+  const animation = (animationName, currentTime, endTime, playbackRate = 1) => ({
+    animationName,
+    currentTime,
+    playbackRate,
+    effect: { getComputedTiming: () => ({ endTime }) },
+    rates: [],
+    updatePlaybackRate(rate) {
+      this.rates.push(rate);
+    },
+  });
+  const running = animation('markdown-stream-fade', 100, 400);
+  const marker = animation('markdown-stream-fade-marker', 0, 400);
+  const nearlyDone = animation('markdown-stream-fade', 300, 400);
+  const other = animation('composer-slide', 0, 1000);
+  let options;
+  settleStreamFades({
+    getAnimations(given) {
+      options = given;
+      return [running, marker, nearlyDone, other];
+    },
+  });
+  assert.deepEqual(options, { subtree: true });
+  assert.deepEqual(running.rates, [300 / 120], '300 ms left run in 120');
+  assert.deepEqual(marker.rates, [400 / 120]);
+  assert.deepEqual(nearlyDone.rates, [], '100 ms left: untouched');
+  assert.deepEqual(other.rates, [], 'not a fade');
+});
+
+test('reduced motion: a reply gets no timeline, so nothing fades', () => {
+  const original = globalThis.matchMedia;
+  globalThis.matchMedia = (query) => ({ matches: /reduce/.test(query) });
+  try {
+    assert.equal(streamFadeTimeline('row:reduced', true), null);
+  } finally {
+    globalThis.matchMedia = original;
+  }
 });
 
 test('blank text, math and svg are left whole', () => {

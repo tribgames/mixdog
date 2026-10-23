@@ -91,7 +91,15 @@ test('coding: the first text shows as a step and its words fade in', async (t) =
   const { view } = await pane(t, 'fade');
   await view.render([prompt('u1'), live('fade', 'f1', 'Hello there friend, here we go again')]);
   assert.match(view.host.querySelector('.markdown').textContent, /^Hello there friend,\s*$/, 'a first step');
-  assert.ok(fading(view.host).length > 0, 'its words fade');
+  assert.deepEqual(
+    fading(view.host).map((phrase) => [
+      phrase.textContent,
+      phrase.style.getPropertyValue('--mx-fade-ms'),
+      phrase.style.getPropertyValue('--mx-fade-delay'),
+    ]),
+    [['Hello there friend,', '400ms', '0ms']],
+    'its words fade as one phrase, 400 ms, at once'
+  );
   await view.cleanup();
 });
 
@@ -108,18 +116,63 @@ test('coding: later text reveals in steps, each fading in', async (t) => {
   await view.cleanup();
 });
 
-test('coding: the part ending shows the rest at once, still fading; settled, its words unwrap', async (t) => {
+test('coding: the part ending shows the rest at once as one 120 ms phrase; settled, its words unwrap', async (t) => {
   const { view, tick } = await pane(t, 'end');
   await view.render([prompt('u1'), live('end', 'e1', 'Hi ')]);
   await step(view, tick, 5);
   await view.render([prompt('u1'), live('end', 'e1', `Hi ${'word '.repeat(40)}`)]);
   await view.render([prompt('u1'), live('end', 'e1', `Hi ${'word '.repeat(40)}`, false)]);
   assert.equal(view.host.querySelector('.markdown').textContent, `Hi ${'word '.repeat(40)}`.trim());
-  assert.ok(fading(view.host).length > 10, 'the rest fades in');
+  const tail = fading(view.host).at(-1);
+  assert.equal(tail.textContent, 'word '.repeat(40).trim(), 'the rest fades in as one unit');
+  assert.equal(tail.style.getPropertyValue('--mx-fade-ms'), '120ms');
+  assert.equal(tail.style.getPropertyValue('--mx-fade-delay'), '0ms', 'with no delay');
+  assert.ok(STREAM_FADE_SETTLE_MS <= 700);
   tick(STREAM_FADE_SETTLE_MS);
   await act(async () => sleep(STREAM_FADE_SETTLE_MS + 100));
   assert.deepEqual(fading(view.host), [], 'settled: unwrapped');
   assert.equal(view.host.querySelector('.markdown').textContent, `Hi ${'word '.repeat(40)}`.trim());
+  await view.cleanup();
+});
+
+class DiscardOnError extends React.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+function Throws() {
+  throw new Error('discarded render');
+}
+
+test('coding: a settled render React never commits leaves the next phrases at 400 ms', async (t) => {
+  const { view, tick } = await pane(t, 'abandon');
+  await view.render([prompt('u1'), live('abandon', 'a1', 'Hi ')]);
+  await step(view, tick, 5);
+  // The same reply renders settled, but a sibling throws: React discards
+  // that render, so it never commits and none of its effects run.
+  t.mock.method(console, 'error', () => {});
+  const host = document.createElement('div');
+  const discarded = createRoot(host, { onCaughtError() {} });
+  await act(async () =>
+    discarded.render(
+      React.createElement(
+        DiscardOnError,
+        null,
+        React.createElement(TranscriptRow, live('abandon', 'a1', 'Hi there', false)),
+        React.createElement(Throws)
+      )
+    )
+  );
+  await act(async () => discarded.unmount());
+  tick(200);
+  await view.render([prompt('u1'), live('abandon', 'a1', 'Hi there friend, here we go again')]);
+  const phrase = fading(view.host).at(-1);
+  assert.match(phrase.textContent, /friend/);
+  assert.equal(phrase.style.getPropertyValue('--mx-fade-ms'), '400ms', 'still streaming: not settled');
   await view.cleanup();
 });
 
