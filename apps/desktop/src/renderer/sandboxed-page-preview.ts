@@ -13,7 +13,10 @@ const PREVIEW_FRAME_PATH = '/preview-frame';
 const PREVIEW_READY = 'mixdog-preview-ready';
 const PREVIEW_DOCUMENT = 'mixdog-preview-document';
 export const PREVIEW_LINK = 'mixdog-preview-link';
+const PREVIEW_PAINTED = 'mixdog-preview-painted';
 const PREVIEW_READY_TIMEOUT_MS = 3000;
+/** The longest a frame stays hidden waiting for its page to paint or load. */
+const PREVIEW_REVEAL_TIMEOUT_MS = 8000;
 const MAX_LINK_LENGTH = 8192;
 /** Frames loadSandboxedPage navigated once already. */
 const loadedFrames = new WeakSet<HTMLIFrameElement>();
@@ -47,6 +50,17 @@ const PREVIEW_LINK_SCRIPT = `(function () {
     try { href = new URL(raw, document.baseURI).href; } catch (error) { return; }
     parentWindow.postMessage({ type: ${JSON.stringify(PREVIEW_LINK)}, href: href }, '*');
   });
+  // The page has painted once (two frames after its DOM is ready): the app
+  // shows the frame then, without waiting for slow images or fonts.
+  function painted() {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        parentWindow.postMessage({ type: ${JSON.stringify(PREVIEW_PAINTED)} }, '*');
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', painted);
+  else painted();
 })();`;
 
 /** `html` as the sandboxed frame receives it: the storage shim first (the
@@ -85,6 +99,10 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
       openPageLink(data.href);
       return;
     }
+    if (data.type === PREVIEW_PAINTED) {
+      if (sent) reveal();
+      return;
+    }
     if (sent || data.type !== PREVIEW_READY) return;
     sent = true;
     clearTimeout(fallbackTimer);
@@ -96,8 +114,30 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
     sent = true;
     frame.removeAttribute('src');
     frame.srcdoc = srcdoc;
+    loadsToReveal = loads + 1;
   }, PREVIEW_READY_TIMEOUT_MS);
   window.addEventListener('message', onMessage);
+  // The frame stays hidden (the panel's own background shows) until the page
+  // itself has painted: the relay's blank /preview-frame page and a page not
+  // yet painted are an opaque light canvas under the dark shell, one white
+  // flash. The page's script reports its first paint; a srcdoc fallback runs
+  // no script, so its load event reveals it. Load 1 is /preview-frame, load 2
+  // the document written into it (a srcdoc fallback has just the one).
+  let loads = 0;
+  let loadsToReveal = 2;
+  const priorVisibility = frame.style.visibility;
+  const reveal = (): void => {
+    clearTimeout(revealTimer);
+    frame.removeEventListener('load', onLoad);
+    frame.style.visibility = priorVisibility;
+  };
+  const onLoad = (): void => {
+    loads += 1;
+    if (loads >= loadsToReveal) reveal();
+  };
+  const revealTimer = setTimeout(reveal, PREVIEW_REVEAL_TIMEOUT_MS);
+  frame.style.visibility = 'hidden';
+  frame.addEventListener('load', onLoad);
   // A frame that already shows a page reloads in place by replacing its
   // entry: a pushed in-frame entry would take the phone's next Back press
   // meant for the panel (the top window sees no popstate for it).
@@ -107,6 +147,7 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
   else frame.src = PREVIEW_FRAME_PATH;
   return () => {
     clearTimeout(fallbackTimer);
+    reveal();
     window.removeEventListener('message', onMessage);
   };
 }
