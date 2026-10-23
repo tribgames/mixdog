@@ -29,6 +29,7 @@ import { t } from './i18n';
 import { mixyAvatar } from './mixy-identity';
 import { bindCardKeys, isTypingTarget } from './question-card-keys';
 import { useSidebarReferences } from './sidebar-reference-cache';
+import { touchPrimaryPointer } from './surface-input-focus';
 
 /** Opens a sub-agent's session from the card ("세션 열기"); provided by the dock. */
 export const ApprovalOpenSessionContext = createContext<((sessionId: string) => void) | null>(null);
@@ -170,16 +171,23 @@ const idle = () => {
 
 const phoneSurface = () => document.documentElement.hasAttribute('data-mixdog-mobile-tabs');
 
-/** Phone: a composer holding no unsent text gives up focus (and the soft
- *  keyboard), so the card has the screen; that includes the moment right
- *  after Send, when a tool call usually lands. A draft keeps the caret. */
-export function releaseIdleComposer(): void {
+/** A composer holding no unsent text gives up focus, so the card takes it and
+ *  its Enter / Esc answer (and show their chips); that includes the moment
+ *  right after Send, when a tool call usually lands. On a phone it also
+ *  closes the soft keyboard. A draft keeps the caret (Enter sends it).
+ *  Only the composer of the card's own conversation (`scope`, the enclosing
+ *  `.conversation`): a card in another pane leaves the typing pane alone.
+ *  Returns the released composer so the card can hand focus back. */
+export function releaseIdleComposer(scope: Element | null): HTMLElement | null {
   const active = document.activeElement;
-  if (!phoneSurface() || !(active instanceof HTMLElement) || !active.closest('.composer-input-row')) return;
+  if (!(active instanceof HTMLElement) || !scope?.contains(active) || !active.closest('.composer-input-row')) {
+    return null;
+  }
   const draft =
     active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement ? active.value : active.textContent;
-  if (draft?.trim()) return;
+  if (draft?.trim()) return null;
   active.blur();
+  return active;
 }
 
 export function ApprovalPrompt(props: ApprovalPromptProps) {
@@ -232,15 +240,24 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   live.current = { press, buttons, primaryIndex, denyIndex, enterAllows, onClose };
 
   // The designated button takes focus when nothing else holds it (a person
-  // typing in the composer keeps the caret).
+  // typing in the composer keeps the caret; an empty composer lets go). Once
+  // the card is decided or gone, an idle focus (or one left inside the card)
+  // goes back to the composer it was taken from, so typing goes on. Not on a
+  // phone or touch screen: that would raise the keyboard.
   useEffect(() => {
     const node = ref.current;
     if (!node || decided) return;
-    releaseIdleComposer();
+    const released = releaseIdleComposer(node.closest('.conversation'));
+    const giveBack = () => {
+      if (!released?.isConnected || phoneSurface() || touchPrimaryPointer()) return;
+      if (!idle() && !node.contains(document.activeElement)) return;
+      released.focus({ preventScroll: true });
+    };
     if (!idle() && !node.contains(document.activeElement)) return;
     const target = node.querySelector<HTMLElement>('[data-initial]') ?? node;
     target.focus({ preventScroll: true });
     node.scrollIntoView?.({ block: 'nearest' });
+    return giveBack;
   }, [decided]);
 
   useEffect(() => {

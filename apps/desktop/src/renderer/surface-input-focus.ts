@@ -13,6 +13,9 @@ const SURFACE_INTERACTIVE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
   "[role='button']",
   "[role='dialog']",
+  // An approval card: a press on its body keeps focus there (its Enter / Esc
+  // chips show only while focus is inside), not pulled to the composer.
+  "[role='alertdialog']",
   "[role='link']",
   "[role='listbox']",
   "[role='menu']",
