@@ -90,14 +90,24 @@ function splitFreshSource(messages) {
   };
 }
 
+// A cut at `end` that would split a surrogate pair (an emoji) moves back one
+// unit: a lone surrogate serializes as an escape providers reject as invalid
+// JSON, failing every Compact of the session.
+function codePointEnd(text, end) {
+  const code = text.charCodeAt(end - 1);
+  return end < text.length && code >= 0xd800 && code <= 0xdbff ? end - 1 : end;
+}
+
 function chunkConversationMessage(role, content, source = {}) {
   const text = String(content || '');
   const out = [];
-  for (let offset = 0; offset < text.length; offset += HANDOFF_SOURCE_CHUNK_CHARS) {
+  for (let offset = 0; offset < text.length; ) {
+    const end = codePointEnd(text, offset + HANDOFF_SOURCE_CHUNK_CHARS);
     const next = {
       role,
-      content: text.slice(offset, offset + HANDOFF_SOURCE_CHUNK_CHARS),
+      content: text.slice(offset, end),
     };
+    offset = end;
     if (Object.hasOwn(source, 'ts')) next.ts = source.ts;
     if (Object.hasOwn(source, 'timestamp')) next.timestamp = source.timestamp;
     out.push(next);
@@ -113,7 +123,9 @@ const SUMMARY_TOOL_ARGS_CHARS = 200;
 const SUMMARY_TOOL_OUTCOME_CHARS = 300;
 
 function boundedSummaryText(text, limit) {
-  return text.length > limit ? `${text.slice(0, limit)}… [${text.length - limit} more chars]` : text;
+  if (text.length <= limit) return text;
+  const end = codePointEnd(text, limit);
+  return `${text.slice(0, end)}… [${text.length - end} more chars]`;
 }
 
 function toolCallSummaryLine(call, result) {
