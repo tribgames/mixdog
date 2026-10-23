@@ -60,7 +60,7 @@ jobs:
         with:
           ref: refs/tags/${{ needs.gate.outputs.tag }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - run: cargo test --locked --manifest-path native/mixdog-spawn/Cargo.toml
@@ -90,7 +90,7 @@ jobs:
         with:
           ref: refs/tags/${{ needs.gate.outputs.tag }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
@@ -128,7 +128,7 @@ jobs:
         with:
           ref: refs/tags/${{ needs.gate.outputs.tag }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
