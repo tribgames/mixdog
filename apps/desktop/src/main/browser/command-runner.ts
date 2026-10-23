@@ -128,13 +128,18 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     if (!target && !previousGuest && action !== 'navigate' && action !== 'open') {
       throw new Error('No browser page is open; navigate or use background:true.');
     }
-    const guest = target?.guest ?? (await lifecycle.ensureGuest(ownerSessionId, { reveal: false }));
+    const guest = target?.guest ?? (await lifecycle.ensureGuest(ownerSessionId, { reveal: false, adopt: false }));
     drive(guest);
     const backgroundPage = browserSessions.backgroundPageForGuest(ownerSessionId, guest);
     // The pane follows the page the agent works in; a hidden helper page it
-    // created with background:true is not one the user is meant to watch.
-    if (backgroundPage?.kind !== 'agent') {
+    // created with background:true is not one the user is meant to watch, but
+    // one it revealed (`open`, background:false) is shown, so it is followed.
+    if (backgroundPage?.kind !== 'agent' || !targetIsBackground) {
       browserSessions.setAgentPage(ownerSessionId, guest, turnId);
+      lifecycle.discardUntouchedBlank(ownerSessionId, guest);
+    } else {
+      // A hidden helper never takes the selection from a page the person is
+      // on; it only replaces the pane's untouched blank, which is no page.
       lifecycle.discardUntouchedBlank(ownerSessionId, guest);
     }
     taskLifecycle.use(

@@ -163,6 +163,22 @@ export class BrowserSessionRegistry {
     return this.currentGuest(sessionId) ?? this.visibleGuests(sessionId)[0] ?? null;
   }
 
+  /** The page a pane shows for the session: its live page, else the most
+   *  recently used background page (selected, so the pane keeps it) — a pane
+   *  opened after the agent made its page shows that page, not a new blank. */
+  paneGuest(sessionId: string): WebContents | null {
+    const live = this.liveGuest(sessionId);
+    if (live) return live;
+    let best: BackgroundPage | undefined;
+    for (const page of this.backgroundPages(sessionId).values()) {
+      if (page.window.isDestroyed() || page.guest.isDestroyed()) continue;
+      if (!best || page.lastUsedAt >= best.lastUsedAt) best = page;
+    }
+    if (!best) return null;
+    this.selectGuest(sessionId, best.guest);
+    return best.guest;
+  }
+
   visibleGuests(sessionId?: string): WebContents[] {
     return this.visibleOrder.filter(
       (guest) => !guest.isDestroyed() && (sessionId === undefined || this.sessionByGuest.get(guest) === sessionId)

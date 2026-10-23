@@ -481,12 +481,18 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
 
   /** Visibility requests only affect the display client, never page ownership
    * or OS focus. Creation works even when the owning session is not mounted. */
-  async function ensureGuest(sessionId: string, options: { reveal?: boolean } = {}): Promise<WebContents> {
+  async function ensureGuest(
+    sessionId: string,
+    options: { reveal?: boolean; adopt?: boolean } = {}
+  ): Promise<WebContents> {
     await restoreSession(sessionId);
     // A page another caller is still creating is registered before its
     // initial document commits; wait for it instead of driving it early.
     await primaryPages.settled(sessionId);
-    const guest = sessions.liveGuest(sessionId) ?? (await primaryPages.ensure(sessionId));
+    // `adopt: false` (an agent command with no tab) wants a visible page of
+    // its own; a pane shows whichever page the session already has.
+    const existing = options.adopt === false ? sessions.liveGuest(sessionId) : sessions.paneGuest(sessionId);
+    const guest = existing ?? (await primaryPages.ensure(sessionId));
     if (options.reveal !== false) requestBrowserSurface(sessionId, true);
     return guest;
   }
