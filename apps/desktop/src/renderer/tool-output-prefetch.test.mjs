@@ -188,6 +188,8 @@ test('failed reads are bounded and prefetched again only after a while', async (
   try {
     await act(async () => prefetchToolOutputs('session-1', [rows.at(-1)], owner));
     assert.equal(asked.length, rows.length, 'a fresh failure is not read again');
+    await act(async () => prefetchToolOutputs('session-1', [rows[0]], owner));
+    assert.equal(asked.length, rows.length, 'a fresh failure dropped from the held reads keeps its wait');
     Date.now = () => realNow() + TOOL_OUTPUT_PREFETCH_RETRY_MS;
     await act(async () => prefetchToolOutputs('session-1', [rows.at(-1)], owner));
     assert.equal(asked.length, rows.length + 1, 'an old failure is read again');

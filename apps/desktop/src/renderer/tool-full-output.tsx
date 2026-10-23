@@ -22,6 +22,12 @@ export const TOOL_OUTPUT_PREFETCH_RETRY_MS = 60_000;
  *  so a row the virtual list remounts keeps its full text. The settled ones,
  *  done or failed, are kept to FULL_TOOL_OUTPUT_LIMIT. */
 const reads = new Map<string, ReadState>();
+/** When each key's last read settled and whether it failed, remembered well
+ *  past the held reads (to SETTLED_MEMORY_LIMIT, oldest dropped first): an
+ *  output dropped from `reads` is not prefetched again, and a failure keeps
+ *  its wait. */
+const settledReads = new Map<string, { failed: boolean; at: number }>();
+const SETTLED_MEMORY_LIMIT = 1024;
 /** Rows waiting on a read, by its key: a read wakes only its own row. */
 const listeners = new Map<string, Set<() => void>>();
 /** Prefetches waiting for a slot, oldest first, by the element that asked. */
@@ -46,6 +52,7 @@ function subscribeKey(key: string, listener: () => void): () => void {
 
 export function resetFullToolOutputs(): void {
   reads.clear();
+  settledReads.clear();
   queued.length = 0;
   prefetching = 0;
   historyPagesPending = 0;
@@ -75,6 +82,12 @@ function startRead(key: string, sessionId: string, id: string, prefetch: boolean
     if (reads.get(key)?.status !== 'loading') return;
     reads.delete(key);
     reads.set(key, state);
+    settledReads.delete(key);
+    settledReads.set(key, { failed: state.status === 'failed', at: Date.now() });
+    if (settledReads.size > SETTLED_MEMORY_LIMIT) {
+      const oldest = settledReads.keys().next().value;
+      if (oldest !== undefined) settledReads.delete(oldest);
+    }
     let settled = 0;
     for (const [entry, value] of [...reads].reverse()) {
       if (value.status !== 'loading' && ++settled > FULL_TOOL_OUTPUT_LIMIT) reads.delete(entry);
@@ -97,10 +110,13 @@ function startRead(key: string, sessionId: string, id: string, prefetch: boolean
     .catch(() => settle({ status: 'failed', at: Date.now() }));
 }
 
-/** Whether a background read of `key` is due: never read, or failed long enough ago. */
+/** Whether a background read of `key` is due: never read, or failed long
+ *  enough ago (also once its held read was dropped). */
 function prefetchDue(key: string): boolean {
   const state = reads.get(key);
-  return !state || (state.status === 'failed' && Date.now() - state.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS);
+  if (state) return state.status === 'failed' && Date.now() - state.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS;
+  const last = settledReads.get(key);
+  return !last || (last.failed && Date.now() - last.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS);
 }
 
 /** The phone's link to the host is up (a desktop window has no remote state). */
