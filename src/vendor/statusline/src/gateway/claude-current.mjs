@@ -5,7 +5,6 @@ import { getModelMetadataSync } from '../../../../runtime/shared/llm/model-catal
 import { providerCachedModelsSync } from '../../../../runtime/shared/llm/provider-catalog-cache.mjs';
 
 export const CLAUDE_CURRENT_MODE = 'claude-current';
-export const CLAUDE_CURRENT_CHOICE_ID = 'claude-current';
 
 const DEFAULT_FAMILY_MODEL = Object.freeze({
   opus: 'claude-opus-4-8',
@@ -20,7 +19,6 @@ const EFFORT_BUDGET = Object.freeze({
   xhigh: 32768,
   max: 32768,
 });
-const SNAPSHOT_REFRESH_MS = 30_000;
 
 function cleanString(v) {
   return typeof v === 'string' && v.trim() ? v.trim() : '';
@@ -31,15 +29,6 @@ export function isMixdogModelSelection(value) {
     ? value
     : value?.requestedModel || value?.model || '';
   return cleanString(raw).toLowerCase().startsWith('mixdog/');
-}
-
-export function isClaudeNativeModelSelection(route) {
-  return !!(
-    route &&
-    route.provider === 'anthropic-oauth' &&
-    cleanString(route.model) &&
-    !isMixdogModelSelection(route)
-  );
 }
 
 function num(v, fallback = null) {
@@ -78,23 +67,6 @@ function readFreshJsonFile(file, maxAgeMs) {
   } catch {
     return null;
   }
-}
-
-function snapshotEquivalent(a, b) {
-  if (!a || !b) return false;
-  const keys = [
-    'mode',
-    'source',
-    'provider',
-    'model',
-    'requestedModel',
-    'modelDisplay',
-    'effort',
-    'fast',
-    'thinkingBudgetTokens',
-    'contextWindow',
-  ];
-  return keys.every(k => (a[k] ?? null) === (b[k] ?? null));
 }
 
 // The newest roster model of a family, by the roster's own release stamps.
@@ -297,34 +269,4 @@ export function readClaudeCodeCurrentRoute({ request = null, maxAgeMs = 10 * 60 
   route.contextWindow = route.contextWindow || contextWindowFromRawModel(route.requestedModel || route.model, route.model);
   if (route.fast === null || route.fast === undefined) route.fast = false;
   return route;
-}
-
-export function writeClaudeCodeCurrentSnapshot(ccJsonInput) {
-  if (!ccJsonInput) return null;
-  let payload = null;
-  try { payload = JSON.parse(String(ccJsonInput)); } catch { return null; }
-  const route = routeFromPayload(payload, 'statusline');
-  if (!route || (!route.model && !route.requestedModel)) return null;
-  const file = path.join(pluginDataDir(), 'claude-current-model.json');
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const st = fs.existsSync(file) ? fs.statSync(file) : null;
-    const current = st ? readJsonFile(file) : null;
-    if (
-      st &&
-      Date.now() - st.mtimeMs < SNAPSHOT_REFRESH_MS &&
-      snapshotEquivalent(current, route)
-    ) {
-      return route;
-    }
-    fs.writeFileSync(file, JSON.stringify(route, null, 2) + '\n');
-  } catch { /* best-effort statusline cache */ }
-  return route;
-}
-
-export function formatClaudeCurrentChoiceLabel(route = readClaudeCodeCurrentRoute()) {
-  const parts = [`Current selection: ${route.modelDisplay || route.model || 'current model'}`];
-  if (route.effort) parts.push(String(route.effort).toUpperCase());
-  if (route.fast === true) parts.push('fast');
-  return parts.join(' · ');
 }

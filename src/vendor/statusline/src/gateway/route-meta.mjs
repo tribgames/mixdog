@@ -9,12 +9,6 @@ import { resolvePluginData } from '../../../../runtime/shared/plugin-paths.mjs';
 import { readSection } from '../../../../runtime/shared/config.mjs';
 import { withFileLock, withFileLockSync } from '../../../../runtime/shared/file-lock.mjs';
 import { computeCostUsd, isInclusiveProvider } from '../../../../runtime/shared/llm/cost.mjs';
-import { getModelMetadataSync } from '../../../../runtime/agent/orchestrator/providers/model-catalog.mjs';
-import {
-  estimateMessagesTokens,
-  estimateRequestReserveTokens,
-} from '../../../../runtime/agent/orchestrator/session/context-utils.mjs';
-import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 
 // Legacy store: one JSON document rewritten on every flush. Current store: an
 // append-only JSONL (one event per line) compacted off the hot path.
@@ -49,10 +43,6 @@ function round(value, digits = 6) {
   return Math.round(n * scale) / scale;
 }
 
-function hasOwn(obj, key) {
-  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
-}
-
 function readJsonFile(file) {
   try {
     if (!existsSync(file)) return null;
@@ -78,25 +68,9 @@ function providerSection(provider) {
     : {};
 }
 
-function gatewayPresets() {
-  const agent = agentConfigSection();
-  return Array.isArray(agent?.presets) ? agent.presets : [];
-}
-
 function cleanString(value) {
   const s = typeof value === 'string' ? value.trim() : '';
   return s || null;
-}
-
-function cleanBool(value) {
-  if (value === true) return true;
-  if (value === false) return false;
-  if (typeof value === 'string') {
-    const s = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on', 'fast', 'priority', 'ultrafast'].includes(s)) return true;
-    if (['0', 'false', 'no', 'off', 'none'].includes(s)) return false;
-  }
-  return null;
 }
 
 function providerKind(provider) {
@@ -107,72 +81,12 @@ function providerKind(provider) {
   return 'api';
 }
 
-function boundedPercent(value, fallback = null) {
-  const n = Number(value);
-  if (Number.isFinite(n) && n > 0 && n <= 100) return n;
-  return fallback;
-}
-
 export function defaultEffectiveContextWindowPercent(_provider) {
   // Gateway/statusline reports the full model boundary. Trigger headroom is a
   // Compact policy concern and must not shrink the displayed denominator.
   void _provider;
   return 100;
 }
-
-function effectiveContextWindowPercent(provider, info = {}, seed = {}) {
-  return boundedPercent(
-    seed.effectiveContextWindowPercent
-      ?? seed.effective_context_window_percent
-      ?? info.effectiveContextWindowPercent
-      ?? info.effective_context_window_percent,
-    defaultEffectiveContextWindowPercent(provider),
-  );
-}
-
-function effectiveContextWindow(rawContextWindow, percent) {
-  const raw = num(rawContextWindow, 0);
-  if (!(raw > 0)) return null;
-  const pct = boundedPercent(percent, 100);
-  return Math.max(1, Math.floor(raw * pct / 100));
-}
-
-function autoCompactTokenLimit(provider, rawContextWindow, contextWindow, info = {}, seed = {}) {
-  // routeInfo.autoCompactTokenLimit is an EXPLICIT auto-compaction limit only.
-  // It must NOT be derived from the effective/raw context window: the runtime
-  // (manager.mjs resolveSessionContextMeta / loop.mjs resolveWorkerCompactPolicy)
-  // treats autoCompactTokenLimit as the compaction trigger. Deriving it from the
-  // full boundary makes autoTriggerTokens == boundary, collapses the compaction
-  // buffer to 0, and auto-compaction only fires once the window is already full
-  // (where semantic compact overflows and the turn is lost). The boundary/window
-  // fallback that status + gateway env still need lives in compactBoundaryForRoute
-  // / autoCompactWindowForRoute, which read contextWindow/rawContextWindow
-  // directly. Return null when there is no explicit provider/catalog/seed limit.
-  const explicit = num(
-    seed.autoCompactTokenLimit
-      ?? seed.auto_compact_token_limit
-      ?? info.autoCompactTokenLimit
-      ?? info.auto_compact_token_limit,
-    0,
-  );
-  if (!(explicit > 0)) return null;
-  // An explicit limit is only a real auto-compaction trigger when it sits
-  // STRICTLY BELOW the boundary/window. A legacy seed/info value equal to or
-  // above the boundary is a derived full-window artifact — returning
-  // Math.min(explicit, derived) would still surface the boundary, which the
-  // runtime then treats as the trigger and collapses the compaction buffer.
-  // Drop those to null so display + downstream fall back to the default
-  // boundary trigger.
-  const derived = num(contextWindow, 0) || num(rawContextWindow, 0);
-  if (derived > 0) return explicit < derived ? explicit : null;
-  // No boundary known: keep the positive explicit value (cannot be proven to
-  // be a full-window artifact), but never derive one.
-  return explicit;
-}
-
-// Test-only export of the explicit-vs-derived auto-compact-limit resolver
-// (see scripts/compact-trigger-migration-smoke.mjs).
-export const _autoCompactTokenLimit = autoCompactTokenLimit;
 
 function routeIdentityKey(routeInfo = {}) {
   return [
@@ -198,196 +112,7 @@ function shouldTrackDollarSpend(routeInfo = {}) {
   return kind === 'api' || kind === 'quota-api';
 }
 
-function presetLabel(p) {
-  return cleanString(p?.name) || cleanString(p?.id) || null;
-}
-
-function findPresetForRoute(provider, model, gateway) {
-  const presets = gatewayPresets().filter(p => p?.provider === provider && p?.model === model);
-  if (!presets.length) return null;
-  if (cleanString(gateway?.mode) === CLAUDE_CURRENT_MODE) {
-    const effort = cleanString(gateway?.effort ?? gateway?.displayEffort);
-    const fast = cleanBool(gateway?.fast);
-    if (effort || fast !== null) {
-      const exact = presets.find(p =>
-        (!effort || cleanString(p.effort) === effort) &&
-        (fast === null || cleanBool(p.fast) === fast)
-      );
-      if (exact) return exact;
-    }
-    return presets.length === 1 ? presets[0] : null;
-  }
-  const presetId = cleanString(gateway?.presetId);
-  const presetName = cleanString(gateway?.presetName);
-  if (presetId || presetName) {
-    const exact = presets.find(p =>
-      (presetId && p.id === presetId) ||
-      (presetName && (p.name === presetName || p.id === presetName))
-    );
-    if (exact) return exact;
-  }
-  const effort = cleanString(gateway?.effort ?? gateway?.displayEffort);
-  const fast = cleanBool(gateway?.fast);
-  if (effort || fast !== null) {
-    const exact = presets.find(p =>
-      (!effort || cleanString(p.effort) === effort) &&
-      (fast === null || cleanBool(p.fast) === fast)
-    );
-    if (exact) return exact;
-  }
-  return presets.length === 1 ? presets[0] : null;
-}
-
-function loadCachedModel(provider, model) {
-  const files = [
-    `${provider}-models.json`,
-    provider === 'openai-oauth' ? 'openai-oauth-models.json' : null,
-    provider === 'anthropic-oauth' ? 'anthropic-oauth-models.json' : null,
-    provider === 'grok-oauth' ? 'grok-oauth-models.json' : null,
-  ].filter(Boolean);
-  const dataDir = resolvePluginData();
-  for (const name of files) {
-    const raw = readJsonFile(join(dataDir, name));
-    const models = Array.isArray(raw?.models) ? raw.models : Array.isArray(raw) ? raw : [];
-    const found = models.find(m => (m?.id || m?.name || m?.slug) === model);
-    if (found) return found;
-  }
-  return null;
-}
-
-function modelInfoFromProvider(providerObj, model) {
-  try {
-    const info = providerObj?.getCachedModelInfo?.(model);
-    return info && typeof info === 'object' ? info : null;
-  } catch {
-    return null;
-  }
-}
-
-function displayForModel(provider, model, info) {
-  const display = cleanString(info?.display) || cleanString(info?.displayName) || cleanString(info?.name);
-  if (display) return display;
-  if (provider === 'anthropic-oauth') {
-    const m = String(model || '').match(/^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i);
-    if (m) return `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()} ${m[2]}${m[3] ? `.${m[3]}` : ''}`;
-  }
-  return model || '';
-}
-
-function mergeModelInfo(provider, model, providerObj) {
-  const fromProvider = modelInfoFromProvider(providerObj, model);
-  const fromCache = loadCachedModel(provider, model);
-  const fromCatalog = getModelMetadataSync(model, provider);
-  const merged = {
-    ...(fromCatalog || {}),
-    ...(fromCache || {}),
-    ...(fromProvider || {}),
-  };
-  // Catalog/known metadata is authoritative for the context window. Spreading
-  // fromCache after fromCatalog otherwise lets a STALE cached window (e.g. Opus
-  // 4.8 cached at 272k after its window grew to the catalog's 1M) override the
-  // catalog. Only a live provider API window (context_window / max_context_window)
-  // outranks the catalog; when the provider info supplies no such window and the
-  // catalog disagrees with the merged (cached) window, prefer the catalog.
-  const providerApiWindow = num(
-    fromProvider?.context_window ?? fromProvider?.max_context_window,
-    0,
-  );
-  const catalogWindow = num(
-    fromCatalog?.contextWindow
-      ?? fromCatalog?.maxContextWindow
-      ?? fromCatalog?.context_window
-      ?? fromCatalog?.max_context_window,
-    0,
-  );
-  const mergedWindow = num(merged?.contextWindow ?? merged?.maxContextWindow, 0);
-  if (!providerApiWindow && catalogWindow > 0 && mergedWindow !== catalogWindow) {
-    merged.contextWindow = catalogWindow;
-    merged.maxContextWindow = catalogWindow;
-  }
-  return merged;
-}
-
-export function readGatewayRouteInfo(seed = {}, providerObj = null) {
-  let gateway = {};
-  try { gateway = gatewaySection(); } catch { gateway = {}; }
-  const mode = cleanString(seed.mode) || cleanString(gateway.mode);
-  const inheritClaudeCurrent = mode === CLAUDE_CURRENT_MODE;
-  const seedProvider = cleanString(seed.provider ?? seed.defaultProvider);
-  const seedModel = cleanString(seed.model ?? seed.defaultModel);
-  const provider = cleanString(process.env.MIXDOG_GATEWAY_PROVIDER)
-    || seedProvider
-    || cleanString(gateway.defaultProvider);
-  const model = cleanString(process.env.MIXDOG_GATEWAY_MODEL)
-    || seedModel
-    || cleanString(gateway.defaultModel);
-  if (!provider || !model) return { provider, model, mode };
-
-  const routeGateway = {
-    ...gateway,
-    ...(seed?.presetId ? { presetId: seed.presetId } : {}),
-    ...(seed?.presetName ? { presetName: seed.presetName } : {}),
-    ...(seed?.effort || seed?.displayEffort ? { effort: seed.effort ?? seed.displayEffort } : {}),
-    ...(hasOwn(seed, 'fast') ? { fast: seed.fast } : {}),
-  };
-  const seedGateway = inheritClaudeCurrent
-    ? {
-      mode,
-      effort: seed.effort ?? seed.displayEffort ?? gateway.effort ?? gateway.displayEffort,
-      fast: seed.fast ?? gateway.fast,
-    }
-    : routeGateway;
-  const preset = findPresetForRoute(provider, model, seedGateway);
-  const effort = cleanString(process.env.MIXDOG_GATEWAY_EFFORT)
-    || cleanString(seed.effort ?? seed.displayEffort)
-    || cleanString(gateway.effort ?? gateway.displayEffort)
-    || cleanString(preset?.effort);
-  const fast = cleanBool(process.env.MIXDOG_GATEWAY_FAST)
-    ?? cleanBool(seed.fast)
-    ?? cleanBool(gateway.fast)
-    ?? cleanBool(preset?.fast)
-    ?? false;
-  const info = mergeModelInfo(provider, model, providerObj);
-  const rawContextWindow = num(
-    info?.context_window
-      ?? info?.max_context_window
-      ?? info?.contextWindow
-      ?? info?.maxContextWindow
-      ?? info?.max_input_tokens,
-    0,
-  )
-    || num(seed.contextWindow, 0);
-  const effectivePercent = effectiveContextWindowPercent(provider, info, seed);
-  const contextWindow = effectiveContextWindow(rawContextWindow, effectivePercent);
-  const compactLimit = autoCompactTokenLimit(provider, rawContextWindow, contextWindow, info, seed);
-  const outputTokens = num(info?.outputTokens ?? info?.maxOutputTokens ?? info?.max_output_tokens, 0);
-
-  return {
-    mode,
-    provider,
-    model,
-    requestedModel: cleanString(seed.requestedModel) || null,
-    providerKind: providerKind(provider),
-    modelDisplay: cleanString(seed.modelDisplay) || displayForModel(provider, model, info),
-    presetId: inheritClaudeCurrent ? cleanString(preset?.id) : cleanString(seed.presetId) || cleanString(gateway.presetId) || cleanString(preset?.id),
-    presetName: inheritClaudeCurrent ? presetLabel(preset) : cleanString(seed.presetName) || cleanString(gateway.presetName) || presetLabel(preset),
-    effort,
-    fast,
-    thinkingBudgetTokens: num(seed.thinkingBudgetTokens, null),
-    contextWindow: contextWindow > 0 ? contextWindow : null,
-    rawContextWindow: rawContextWindow > 0 ? rawContextWindow : null,
-    effectiveContextWindowPercent: effectivePercent,
-    autoCompactTokenLimit: compactLimit,
-    outputTokens: outputTokens > 0 ? outputTokens : null,
-    inputCostPerM: info?.inputCostPerM ?? null,
-    outputCostPerM: info?.outputCostPerM ?? null,
-    cacheReadCostPerM: info?.cacheReadCostPerM ?? null,
-    cacheWriteCostPerM: info?.cacheWriteCostPerM ?? null,
-    serviceTier: cleanString(info?.defaultServiceTier) || null,
-  };
-}
-
-// Boundary denominator for status %, overflow checks, and gateway env window.
+// Boundary denominator for status percentages and usage telemetry.
 // Order: explicit boundary (routeInfo or compact) → contextWindow → budgetWindow
 // → rawContextWindow. autoCompactTokenLimit / compactLimitTokens are triggers
 // only and are never read here.
@@ -412,62 +137,6 @@ export function compactBoundaryDenominator(routeInfo = {}, compact = null) {
   if (contextWindow > 0) return contextWindow;
   if (budgetWindow > 0) return budgetWindow;
   return rawContextWindow > 0 ? rawContextWindow : 0;
-}
-
-function compactBoundaryForRoute(routeInfo = {}, compact = null) {
-  return compactBoundaryDenominator(routeInfo, compact);
-}
-
-// Single source of truth for the value synced to host env
-// CLAUDE_CODE_AUTO_COMPACT_WINDOW. BOTH the --enable-time write
-// (scripts/gateway-model.mjs) and the runtime sync (src/gateway/server.mjs)
-// must derive the window the SAME way, or they disagree on the value written to
-// settings.json. Denominator order: compactBoundaryTokens / boundaryTokens (route
-// or compact) → contextWindow → budgetWindow → rawContextWindow. Never
-// autoCompactTokenLimit or compactLimitTokens (trigger-only). Returns a positive
-// integer, or null when unknown.
-export function autoCompactWindowForRoute(routeInfo) {
-  const n = compactBoundaryForRoute(routeInfo);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
-}
-
-export function gatewaySendOptions(routeInfo, extra = {}) {
-  const opts = {};
-  if (routeInfo?.thinkingBudgetTokens) opts.thinkingBudgetTokens = routeInfo.thinkingBudgetTokens;
-  if (routeInfo?.effort) opts.effort = routeInfo.effort;
-  if (routeInfo?.fast === true) opts.fast = true;
-  if (routeInfo?.outputTokens) opts.maxOutputTokens = routeInfo.outputTokens;
-  if (extra?.sessionId) opts.sessionId = extra.sessionId;
-  return opts;
-}
-
-export function prepareGatewayMessages(messages, tools, routeInfo, _log = () => {}, opts = {}) {
-  const working = messages;
-  const contextWindow = num(routeInfo?.contextWindow, 0);
-  const compactLimit = num(routeInfo?.autoCompactTokenLimit, 0);
-  const budgetWindow = compactBoundaryForRoute(routeInfo);
-  const reserveTokens = estimateRequestReserveTokens(tools);
-  const beforeTokens = estimateMessagesTokens(working) + reserveTokens;
-  const lastPromptTokens = num(opts?.lastPromptTokens, 0);
-  const cacheCold = opts?.cacheCold === true;
-  const afterTokens = estimateMessagesTokens(working) + reserveTokens;
-  const compact = {
-    contextWindow: contextWindow > 0 ? contextWindow : null,
-    compactLimitTokens: compactLimit > 0 ? compactLimit : null,
-    budgetWindow: budgetWindow > 0 ? budgetWindow : null,
-    beforeTokens,
-    afterTokens,
-    reserveTokens,
-    lastPromptTokens: lastPromptTokens || null,
-    cacheCold,
-    method: 'none',
-    compacted: false,
-  };
-  if (budgetWindow > 0 && afterTokens > budgetWindow) compact.overflow = true;
-  return {
-    messages: working,
-    compact,
-  };
 }
 
 function promptFootprintTokens(provider, usage) {
@@ -996,33 +665,4 @@ export function buildGatewayLimits(routeInfo, providerOut = null, usageSnapshot 
     balance: usageSnapshot?.balance || configuredBalance(routeInfo),
     routeSpend: localRouteSpend(routeInfo),
   };
-}
-
-export function gatewayAdvertFields(routeInfo, usageSummary = null, limits = null) {
-  ensureRouteSection(routeInfo);
-  const fields = {
-    gateway_route_mode: routeInfo?.mode || null,
-    gateway_provider: routeInfo?.provider || null,
-    gateway_provider_kind: routeInfo?.providerKind || providerKind(routeInfo?.provider),
-    gateway_model: routeInfo?.model || null,
-    gateway_model_display: routeInfo?.modelDisplay || routeInfo?.model || null,
-    gateway_context_window: routeInfo?.contextWindow || null,
-    gateway_raw_context_window: routeInfo?.rawContextWindow || routeInfo?.contextWindow || null,
-    gateway_effective_context_window_percent: routeInfo?.effectiveContextWindowPercent || null,
-    gateway_auto_compact_token_limit: routeInfo?.autoCompactTokenLimit || null,
-    gateway_output_tokens: routeInfo?.outputTokens || null,
-    gateway_preset_id: routeInfo?.presetId || null,
-    gateway_preset_name: routeInfo?.presetName || null,
-    gateway_effort: routeInfo?.effort || null,
-    gateway_fast: routeInfo?.fast === true,
-    gateway_updated_at: Date.now(),
-  };
-  if (usageSummary) {
-    fields.gateway_context_used_pct = usageSummary.contextUsedPct;
-    fields.gateway_last_usage = usageSummary;
-  }
-  if (limits?.quotaWindows?.length) fields.gateway_quota_windows = limits.quotaWindows;
-  if (limits?.balance) fields.gateway_balance = limits.balance;
-  if (limits?.routeSpend) fields.gateway_route_spend = limits.routeSpend;
-  return fields;
 }
