@@ -13,6 +13,7 @@ test('wrapPrompt takes hour and minute from one time snapshot', () => {
 test('schedule log lines are not double-terminated on stderr', async () => {
   const scheduler = Object.create(Scheduler.prototype);
   scheduler.running = new Set(['daily']);
+  scheduler.renaming = new Set();
   const writes = [];
   const original = process.stderr.write;
   process.stderr.write = (chunk) => {

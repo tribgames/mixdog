@@ -13,6 +13,7 @@ mock.module('../../runtime/channels/lib/schedules-db.mjs', {
       rows.set(def.name, row);
       return row;
     },
+    renameSchedule: async () => null,
     deleteSchedule: async () => true,
     setEnabled: async () => null,
   },

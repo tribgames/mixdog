@@ -11,6 +11,7 @@ function bareScheduler(overrides = {}) {
     scheduler,
     {
       running: new Set(),
+      renaming: new Set(),
       oneShotTimers: new Map(),
       lastFired: new Map(),
       injectFn: null,
@@ -143,4 +144,57 @@ test('a fire whose bot is missing is a paused skip, never a failed run', async (
   assert.equal(fired, false);
   assert.ok(schedule.lastSkippedAt);
   assert.equal(schedule.lastFailedAt, undefined);
+});
+
+test('renameLocked refuses a schedule that is running or already being renamed, and releases the name after', async () => {
+  const scheduler = bareScheduler({ running: new Set(['busy']) });
+  let moved = 0;
+  await assert.rejects(
+    scheduler.renameLocked('busy', async () => moved++),
+    /"busy" is running/
+  );
+  assert.equal(moved, 0, 'the row is never moved under a running schedule');
+  let inner;
+  await scheduler.renameLocked('idle', async () => {
+    inner = scheduler.renameLocked('idle', async () => moved++).catch((error) => error.message);
+    await inner;
+  });
+  assert.match(await inner, /is running/);
+  assert.equal(scheduler.renaming.has('idle'), false, 'released once the rename settles');
+  await scheduler.renameLocked('idle', async () => moved++);
+  assert.equal(moved, 1);
+});
+
+test('a fire of a schedule being renamed does not start a run, and one that started is seen by the rename', async () => {
+  const runs = [];
+  const scheduler = bareScheduler({
+    scheduleRunner: async (schedule) => runs.push(schedule.name) && { sessionId: 's', result: '' },
+  });
+  let fireDuring;
+  await scheduler.renameLocked('daily', async () => {
+    fireDuring = await scheduler.fireTimedPrompt({ name: 'daily' }, 'non-interactive', 'p');
+  });
+  assert.equal(fireDuring, false);
+  assert.deepEqual(runs, []);
+  assert.equal(scheduler.running.has('daily'), false);
+  // The other order: the fire is already running when the rename asks.
+  const release = Promise.withResolvers();
+  const slow = bareScheduler({ scheduleRunner: () => release.promise });
+  await slow.fireTimedPrompt({ name: 'daily' }, 'non-interactive', 'p');
+  await assert.rejects(slow.renameLocked('daily', async () => {}), /is running/);
+  release.resolve({ sessionId: 's', result: '' });
+});
+
+test('reloadConfig drops lastFired for names that no longer exist, so a reused name starts clean', () => {
+  const scheduler = new Scheduler([{ name: 'old', whenCron: '0 3 * * *', lastFiredAt: '2030-01-01T00:00:00.000Z' }], []);
+  scheduler.lastFired.set('old', '2030-01-02T00:00:00.000Z');
+  scheduler.lastFired.set('kept', '2030-01-03T00:00:00.000Z');
+  scheduler.reloadConfig([{ name: 'kept', whenCron: '0 4 * * *' }], [], { restart: false });
+  assert.equal(scheduler.lastFired.has('old'), false);
+  assert.equal(scheduler.lastFired.get('kept'), '2030-01-03T00:00:00.000Z');
+  scheduler.reloadConfig([{ name: 'old', whenCron: '0 5 * * *' }, { name: 'kept', whenCron: '0 4 * * *' }], [], {
+    restart: false,
+  });
+  assert.equal(scheduler.lastFired.has('old'), false, 'a reused name does not inherit the stale stamp');
+  assert.equal(scheduler.getStatus().find((row) => row.name === 'old').lastFired, null);
 });
