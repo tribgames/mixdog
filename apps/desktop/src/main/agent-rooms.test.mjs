@@ -630,6 +630,27 @@ test('a member switched off while an exchange runs gets no turn in it', async ()
   assert.equal(h.log.some((row) => row.speaker === 'rel'), false, 'nothing is posted for it');
 });
 
+test('a member switched off while its turn is being prepared is not submitted', async () => {
+  const agents = AGENTS.map((row) => ({ ...row }));
+  const h = harness({
+    agents,
+    decide: () => ({ action: 'unmanaged' }),
+    // The bot is switched off while its member session is being created,
+    // after the turn's first switched-off check.
+    createGate: (id) => {
+      if (id.endsWith('_rel')) agents[1].disabled = true;
+    },
+  });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, '얘들아');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'bench']
+  );
+  assert.equal(h.log.some((row) => row.speaker === 'rel'), false, 'nothing is posted for it');
+});
+
 test('/ask gives only the addressed member a turn', async () => {
   const h = harness();
   const { sessionId, roomId } = await room(h);

@@ -317,6 +317,14 @@ async function memberTurn(
     if (state.stop) return 'stopped';
     if (gone()) return await left();
     if (interrupted()) return await cutShort();
+    // Switched off while its session, the room history or the call records
+    // were awaited: still no turn, and the rows it was not handed stay new.
+    if (await host.switchedOff(agentId)) {
+      if (cursorBefore === undefined) delete room.cursors[agentId];
+      else room.cursors[agentId] = cursorBefore;
+      outcome.removed = true;
+      return 'pass';
+    }
     startedAt = now();
     // From here the submission id counts as used, even when the call throws.
     outcome.submitted = true;
