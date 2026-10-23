@@ -39,6 +39,22 @@ test('a failed main-frame load is a fault until the next main-frame navigation',
   assert.equal(state.for(guest).fault, '');
 });
 
+test('a main-frame load after a crash clears the fault and the crash flag', () => {
+  const state = new BrowserGuestStateStore();
+  const guest = fakeGuest();
+  watchPageFaults(state, guest);
+  guest.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+  assert.equal(state.for(guest).crashed, true);
+  assert.equal(state.for(guest).fault, 'renderer crashed (exit 5)');
+  // Not recovered yet: the next command still reloads it.
+  guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+  assert.equal(state.for(guest).crashed, true);
+  guest.emit('did-finish-load');
+  assert.equal(state.for(guest).fault, '');
+  assert.equal(state.for(guest).crashed, false);
+  assert.equal(state.takeCrashed(guest), false);
+});
+
 const openingHost = (state, overrides = {}) => {
   const adopted = [];
   return {

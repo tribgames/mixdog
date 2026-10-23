@@ -600,6 +600,33 @@ test("a blank first page keeps the engine's identity; the first secure document 
   await f.cdp.detach(f.guest);
 });
 
+for (const event of ['Inspector.targetCrashed', 'Target.targetCrashed']) {
+  test(`a child session's ${event} ends that session and leaves the page alone`, async () => {
+    const f = fixture();
+    await f.cdp.guestDebugger(f.guest);
+    f.attachChild('ad-frame');
+    const record = f.state.for(f.guest);
+    assert.equal(record.cdpSessions.has('ad-frame'), true);
+    f.debug.emit('message', {}, event, { targetId: 'ad-frame' }, 'ad-frame');
+    assert.equal(record.crashed, false);
+    assert.equal(record.fault, '');
+    assert.equal(f.state.takeCrashed(f.guest), false);
+    if (event === 'Inspector.targetCrashed') assert.equal(record.cdpSessions.has('ad-frame'), false);
+    await f.cdp.detach(f.guest);
+  });
+}
+
+test("the page session's Inspector.targetCrashed still marks the page crashed", async () => {
+  const f = fixture();
+  await f.cdp.guestDebugger(f.guest);
+  f.debug.emit('message', {}, 'Inspector.targetCrashed', {});
+  const record = f.state.for(f.guest);
+  assert.equal(record.crashed, true);
+  assert.equal(record.fault, 'page target crashed');
+  assert.equal(f.state.takeCrashed(f.guest), true);
+  await f.cdp.detach(f.guest);
+});
+
 test('an unexpected debugger detach settles the prompts it held instead of leaving them pending', async () => {
   const f = fixture();
   await f.cdp.guestDebugger(f.guest);
