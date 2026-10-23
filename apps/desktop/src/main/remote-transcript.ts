@@ -346,21 +346,66 @@ function remoteToolItem(item: Record<string, unknown>, folder: string): Record<s
   };
 }
 
+// `promptHistoryList` is the composer's Up-arrow recall: up to 50 whole
+// prompts (PROMPT_HISTORY_LIMIT), merged across the Project's sessions, and it
+// rides every session baseline. Pasted briefs made it the largest part of a
+// phone boot — 1.19 MB of a 1.45 MB session frame for 50 prompts of ~24 KB —
+// for a list a phone keyboard recalls only short prompts from. The phone's
+// copy keeps the newest entries of at most ENTRY chars, within BUDGET chars
+// (about 25 typed prompts of the ~1.3 KB the relay meter measured).
+export const REMOTE_PROMPT_HISTORY_ENTRY_MAX_CHARS = 4_096;
+export const REMOTE_PROMPT_HISTORY_BUDGET_CHARS = 32_768;
+const projectedPromptHistories = new WeakMap<readonly unknown[], readonly unknown[]>();
+
+/** The phone's Up-arrow history: `list` (newest first) without entries over
+ *  the entry cap, cut where the budget runs out. The list itself when nothing
+ *  is cut, and the same array for the same source, so the delta encoder's
+ *  head patches keep comparing like with like. */
+export function remotePromptHistory(list: readonly unknown[]): readonly unknown[] {
+  const cached = projectedPromptHistories.get(list);
+  if (cached) return cached;
+  const kept: unknown[] = [];
+  let chars = 0;
+  for (const entry of list) {
+    const length = typeof entry === 'string' ? entry.length : (JSON.stringify(entry ?? null)?.length ?? 0);
+    if (length > REMOTE_PROMPT_HISTORY_ENTRY_MAX_CHARS) continue;
+    if (chars + length > REMOTE_PROMPT_HISTORY_BUDGET_CHARS) break;
+    chars += length;
+    kept.push(entry);
+  }
+  const result = kept.length === list.length ? list : kept;
+  projectedPromptHistories.set(list, result);
+  return result;
+}
+
 /** Keep item identity and the host's full history page across both ordinary
- * deltas and recovery baselines; omit only provider-private replay material.
+ * deltas and recovery baselines; omit only provider-private replay material
+ * and bound the prompt history (remotePromptHistory).
  * `sessionFolder` is where the session's relative paths lead from; absent, the
  * snapshot's own workspace is used, else the process folder. */
 export function remoteTranscriptSnapshot(snapshot: unknown, sessionFolder = ''): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot;
   const record = snapshot as Record<string, unknown>;
-  if (!Array.isArray(record.items)) return snapshot;
-  const workspaceCwd = asRecord(record.workspace)?.cwd;
-  const folder = sessionFolder || (typeof workspaceCwd === 'string' ? workspaceCwd : '');
-  let dropped = false;
-  const items = record.items.map((item) => {
-    const projected = remoteTranscriptItem(item, folder);
-    if (projected !== item) dropped = true;
-    return projected;
-  });
-  return dropped ? { ...record, items } : snapshot;
+  const history = Array.isArray(record.promptHistoryList)
+    ? remotePromptHistory(record.promptHistoryList)
+    : record.promptHistoryList;
+  const historyCut = history !== record.promptHistoryList;
+  let items = record.items;
+  if (Array.isArray(record.items)) {
+    const workspaceCwd = asRecord(record.workspace)?.cwd;
+    const folder = sessionFolder || (typeof workspaceCwd === 'string' ? workspaceCwd : '');
+    let dropped = false;
+    const projected = record.items.map((item) => {
+      const next = remoteTranscriptItem(item, folder);
+      if (next !== item) dropped = true;
+      return next;
+    });
+    if (dropped) items = projected;
+  }
+  if (items === record.items && !historyCut) return snapshot;
+  return {
+    ...record,
+    ...(items !== record.items ? { items } : {}),
+    ...(historyCut ? { promptHistoryList: history } : {}),
+  };
 }

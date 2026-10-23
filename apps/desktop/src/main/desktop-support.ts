@@ -116,6 +116,11 @@ export const DESKTOP_TRANSCRIPT_TAIL_ITEMS = 32;
  *  relay and fewer rows mount before the first paint. */
 export const REMOTE_TRANSCRIPT_TAIL_ITEMS = 20;
 export const DESKTOP_TRANSCRIPT_TAIL_BYTES = 1_000_000;
+/** Serialized bytes of that remote first-open tail. A phone link uploads at
+ *  22–93 KB/s (relay meter), so a 1 MB tail held the first paint 10–40 s and
+ *  past the phone's 20 s call deadline; the daemon still keeps at least 8
+ *  rows, and a viewport they do not fill pages older rows on its own. */
+export const REMOTE_TRANSCRIPT_TAIL_BYTES = 128_000;
 /** Serialized bytes of the older rows one history page reveals (the page adds
  *  up to 64 items, the renderer's TRANSCRIPT_TAIL_PAGE_ITEMS); the daemon
  *  always reveals at least 8 (TRANSCRIPT_WINDOW_MIN_ITEMS) so paging progresses. */

@@ -3,6 +3,7 @@ import {
   DESKTOP_TRANSCRIPT_PAGE_BYTES,
   DESKTOP_TRANSCRIPT_TAIL_BYTES,
   DESKTOP_TRANSCRIPT_TAIL_ITEMS,
+  REMOTE_TRANSCRIPT_TAIL_BYTES,
   REMOTE_TRANSCRIPT_TAIL_ITEMS,
 } from './desktop-support';
 
@@ -54,7 +55,8 @@ export class SessionTranscriptWindows {
     if (legacy) return { transcriptItemLimit: Math.max(grown?.limit ?? 0, DESKTOP_TRANSCRIPT_ITEM_LIMIT) };
     // Shown by remote (relay) views only: the shorter tail crosses the relay
     // and paints first, and older rows page in as the reader scrolls up.
-    const tail = remoteView && !localView ? REMOTE_TRANSCRIPT_TAIL_ITEMS : DESKTOP_TRANSCRIPT_TAIL_ITEMS;
+    const remoteOnly = remoteView && !localView;
+    const tail = remoteOnly ? REMOTE_TRANSCRIPT_TAIL_ITEMS : DESKTOP_TRANSCRIPT_TAIL_ITEMS;
     if (grown && grown.limit > tail) {
       return {
         transcriptItemLimit: grown.limit,
@@ -62,7 +64,10 @@ export class SessionTranscriptWindows {
         transcriptPageBase: grown.held,
       };
     }
-    return { transcriptItemLimit: tail, transcriptByteBudget: DESKTOP_TRANSCRIPT_TAIL_BYTES };
+    return {
+      transcriptItemLimit: tail,
+      transcriptByteBudget: remoteOnly ? REMOTE_TRANSCRIPT_TAIL_BYTES : DESKTOP_TRANSCRIPT_TAIL_BYTES,
+    };
   }
 
   /** A reader holding `held` items reached the top: widen the window to
