@@ -341,12 +341,81 @@ function keychainDebug(what, detail) {
   if (process.env.MIXDOG_KEYCHAIN_DEBUG) console.error(`[keychain:debug] ${what}: ${String(detail).slice(0, 500)}`);
 }
 
+// A keychain failure that POSITIVELY means "this host has no usable provider"
+// (secret-tool or libsecret missing, no Secret Service on the bus) as opposed to
+// a keyring that exists but is locked, or any failure nobody recognises. Only
+// the former is served by the private secrets file (see "Linux fallback file");
+// a locked keyring must be unlocked, and an unknown error fails closed.
+const KEYRING_UNAVAILABLE = 'KEYRING_UNAVAILABLE';
+
+function keyringUnavailable(message) {
+  return Object.assign(new Error(message), { code: KEYRING_UNAVAILABLE });
+}
+
+// What secret-tool/libsecret/D-Bus print when there is no provider at all:
+// libsecret missing from the loader, no D-Bus session bus to talk to, or no
+// service owning org.freedesktop.secrets. Anything else is NOT matched.
+const NO_PROVIDER_STDERR = new RegExp(
+  [
+    'error while loading shared libraries: libsecret',
+    'libsecret-1\\.so[^\\n]*cannot open shared object',
+    'org\\.freedesktop\\.DBus\\.Error\\.ServiceUnknown',
+    'org\\.freedesktop\\.DBus\\.Error\\.NameHasNoOwner',
+    'org\\.freedesktop\\.DBus\\.Error\\.NoServer',
+    'org\\.freedesktop\\.secrets was not provided by any \\.service files',
+    'name org\\.freedesktop\\.secrets (?:is not|has no owner)',
+    'Cannot autolaunch D-Bus without X11',
+    'Unable to autolaunch a dbus-daemon without a \\$DISPLAY',
+    'Failed to execute child process .{0,6}dbus-launch',
+    'Could not connect: (?:No such file or directory|Connection refused)',
+    'Failed to connect to (?:socket|bus)[^\\n]*(?:No such file or directory|Connection refused)',
+    'Error (?:connecting|spawning command line)[^\\n]*dbus',
+    'Cannot spawn a message bus',
+  ].join('|'),
+  'i'
+);
+
+const SECRET_TOOL_MISSING_MESSAGE =
+  '[keychain] secret-tool is not installed — install libsecret-tools (sudo apt install libsecret-tools), ' +
+  'or set the relevant MIXDOG_*/PROVIDER_API_KEY environment variable instead';
+
+// Bounded, non-prompting availability probe: `secret-tool --version` never
+// touches the keyring. Resolves true only when the spawn itself reports ENOENT;
+// an existing tool, a timeout or any other failure is "not confirmed missing".
+function secretToolMissing() {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn('secret-tool', ['--version'], {
+        env: secretToolEnv(),
+        stdio: ['ignore', 'ignore', 'ignore'],
+        shell: false,
+        windowsHide: true,
+      });
+    } catch (error) {
+      resolve(error?.code === 'ENOENT');
+      return;
+    }
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      resolve(false);
+    }, 2000);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      resolve(error?.code === 'ENOENT');
+    });
+    child.once('close', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}
+
 function secretToolCheck(r) {
   if (r.error?.code === 'ENOENT') {
-    throw new Error(
-      '[keychain] secret-tool is not installed — install libsecret-tools (sudo apt install libsecret-tools), ' +
-        'or set the relevant MIXDOG_*/PROVIDER_API_KEY environment variable instead'
-    );
+    throw keyringUnavailable(SECRET_TOOL_MISSING_MESSAGE);
   }
   if (r.error?.code === 'ETIMEDOUT') {
     throw new Error(
@@ -355,6 +424,8 @@ function secretToolCheck(r) {
     );
   }
   if (r.error) {
+    // Not ENOENT: an unknown start failure (EACCES, resource limits) is not
+    // proof that no provider exists, so it fails closed instead of falling back.
     keychainDebug('secret-tool failed to start', r.error.message);
     throw new Error(
       '[keychain] secret-tool could not be started — check that libsecret-tools is installed and a Secret Service is running'
@@ -439,13 +510,16 @@ function secretToolFailure(action, r) {
   const detail = (r.stderr || '').trim() || `exit ${r.status}`;
   // User-facing text is fixed; the raw tool output only goes to the debug log.
   keychainDebug(`secret-tool ${action} failed`, detail);
-  if (/locked|denied|dismissed|cancel|not authori[sz]ed|IsLocked/i.test(detail)) {
+  if (/locked|unlock|denied|dismissed|cancel|not authori[sz]ed|IsLocked/i.test(detail)) {
     return new Error(
       `[keychain] secret-tool ${action} failed: the keyring is locked or the unlock prompt was declined. ` +
         'Unlock your keyring and retry.'
     );
   }
-  return new Error(`[keychain] secret-tool ${action} failed — ${secretToolHint()}`);
+  const message = `[keychain] secret-tool ${action} failed — ${secretToolHint()}`;
+  // Only a recognised "no provider" report may fall back to the secrets file.
+  // Anything else (storage error, unknown output) fails closed with this error.
+  return NO_PROVIDER_STDERR.test(detail) ? keyringUnavailable(message) : new Error(message);
 }
 
 function linuxGetBlocking(account) {
@@ -604,12 +678,27 @@ function _noteKeychainFailure(error) {
   if (error?.code === 'KEYRING_UNREACHABLE') state = 'unreachable';
   else if (/not installed/.test(message)) state = 'missing';
   else if (/locked|timed out/.test(message)) state = 'locked';
-  _keychainStatus = { state, message };
+  // Only a confirmed missing provider counts. A failed passive probe
+  // (KEYRING_UNREACHABLE: gdbus missing, unparsable reply) proves nothing, so
+  // it keeps its warning and recovery action.
+  _keychainStatus = { state, message, unavailable: error?.code === KEYRING_UNAVAILABLE };
 }
 
-/** Linux keyring health for the UI: ok | locked | missing | error | unknown. */
+// Sync entry points feed the same health the async ones do (Linux only).
+function _noteSyncOutcome(error) {
+  if (platform() !== 'linux') return;
+  if (error) _noteKeychainFailure(error);
+  else _noteKeychainOk();
+}
+
+/** Linux keyring health for the UI: ok | locked | missing | unreachable | error |
+ *  unknown. `fallback` is true only when a keychain write/read confirmed that
+ *  this host has no provider, so secrets live in the private secrets file
+ *  instead: a working store, not a failure to report. A locked or unreachable
+ *  keyring is never a fallback. */
 function keychainStatus() {
-  return { ..._keychainStatus };
+  const { unavailable, ...status } = _keychainStatus;
+  return { ...status, fallback: unavailable === true && platform() === 'linux' };
 }
 
 function _linuxLoaded() {
@@ -668,6 +757,10 @@ function parseSecretToolSearchAccounts(stdout, stderr) {
 async function _linuxAccountsToRead(interactive, remaining) {
   let found = await searchMixdogItems();
   if (found === null && !interactive) {
+    // An inconclusive passive probe is "unreachable" only while a provider may
+    // exist. If secret-tool itself is not installed (headless host without
+    // gdbus either) that is a confirmed missing provider, not a warning.
+    if (await secretToolMissing()) throw keyringUnavailable(SECRET_TOOL_MISSING_MESSAGE);
     const error = new Error(LINUX_UNREACHABLE_MESSAGE);
     error.code = 'KEYRING_UNREACHABLE';
     throw error;
@@ -997,6 +1090,128 @@ function win32Delete(account) {
 }
 
 // ---------------------------------------------------------------------------
+// Linux fallback file — headless hosts without a usable keychain provider
+// ---------------------------------------------------------------------------
+// When secret-tool/libsecret is missing or no Secret Service is running (a
+// headless SSH server, WSL), a secret is kept in `<dataDir>/secrets/
+// <account>.secret`: one owner-only (0600) file per account in an owner-only
+// (0700) directory, written atomically. Never in mixdog-config.json. A locked
+// keyring is NOT such a host — it fails with its unlock message instead.
+// Order: the keychain is always tried first and wins when it has the account;
+// the file is read only when the keychain has nothing (or cannot be read), so a
+// value saved here stays readable after a keychain becomes available, and a
+// later save into an available keychain supersedes (and removes) the file value.
+
+function usesFallback(error) {
+  return platform() === 'linux' && error?.code === KEYRING_UNAVAILABLE;
+}
+
+function fallbackFile(account) {
+  return path.join(secretsDir(), `${encodeURIComponent(account)}.secret`);
+}
+
+// The verified secrets directory, or null when absent and not `create`d. A
+// pre-existing symlink, a non-directory, or a directory owned by someone else is
+// refused: following it would chmod and write outside the data dir. lstat does
+// not follow links, so a symlink never passes isDirectory().
+function fallbackDir({ create = false } = {}) {
+  const dir = secretsDir();
+  let before;
+  try {
+    before = fs.lstatSync(dir);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    if (!create) return null;
+    fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
+    fs.mkdirSync(dir, { mode: 0o700 });
+    before = fs.lstatSync(dir);
+  }
+  const owned = typeof process.getuid !== 'function' || before.uid === process.getuid();
+  if (!before.isDirectory() || !owned) {
+    throw Object.assign(new Error('the secrets directory is not a private directory owned by this user'), {
+      code: 'EUNSAFE',
+    });
+  }
+  if (create) {
+    fs.chmodSync(dir, 0o700);
+    // The chmod must have hit the directory that was verified, not a swapped-in link.
+    const after = fs.lstatSync(dir);
+    if (!after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
+      throw Object.assign(new Error('the secrets directory changed while it was being secured'), {
+        code: 'EUNSAFE',
+      });
+    }
+  }
+  return dir;
+}
+
+function fallbackGet(account) {
+  if (platform() !== 'linux') return null;
+  if (fallbackDir() === null) return null;
+  try {
+    return fs.readFileSync(fallbackFile(account), 'utf8') || null;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+/** Whether a read of `account` would be served by the Linux fallback file: the
+ *  file exists and the keychain does not hold the account. */
+function hasFallbackSecret(account) {
+  // A read prefers the keychain: a value it holds (cached) wins over the file.
+  if (_cacheGet(account) != null) return false;
+  try {
+    return fallbackGet(account) != null;
+  } catch {
+    return false;
+  }
+}
+
+// For a keychain that threw: an unreadable fallback must not mask that error.
+function fallbackGetQuiet(account) {
+  try {
+    return fallbackGet(account);
+  } catch {
+    return null;
+  }
+}
+
+function fallbackSet(account, value, keychainError) {
+  try {
+    const dir = fallbackDir({ create: true });
+    writeOwnerOnlyAtomicSync(path.join(dir, path.basename(fallbackFile(account))), value);
+  } catch (error) {
+    // The message carries the filesystem error only, never the value.
+    const reason = error?.code || 'unknown error';
+    throw Object.assign(
+      new Error(`${keychainError.message}\n  The private secrets file could not be written either: ${reason}`),
+      { cause: error }
+    );
+  }
+}
+
+function fallbackRemove(account) {
+  if (platform() !== 'linux') return;
+  if (fallbackDir() === null) return;
+  try {
+    fs.unlinkSync(fallbackFile(account));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+// After a save into the keychain: the file value is now stale. Best effort —
+// the keychain write already succeeded.
+function fallbackSupersede(account) {
+  try {
+    fallbackRemove(account);
+  } catch (error) {
+    keychainDebug('could not remove superseded fallback secret', error?.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -1022,9 +1237,18 @@ function backend() {
 function getSecret(account) {
   const cached = _cacheGet(account);
   if (cached !== undefined) return cached;
-  const value = backend().get(account);
+  let value;
+  try {
+    value = backend().get(account);
+  } catch (error) {
+    // Unreadable keychain (no provider, locked, not read yet): a secret saved
+    // to the fallback file is still there; otherwise the keychain error stands.
+    const stored = fallbackGetQuiet(account);
+    if (stored == null) throw error;
+    return stored;
+  }
   _cacheSet(account, value);
-  return value;
+  return value ?? fallbackGet(account);
 }
 
 function hasSecret(account) {
@@ -1040,19 +1264,39 @@ function hasSecret(account) {
 
 function setSecret(account, value) {
   let stored = false;
+  let viaFile = false;
   try {
-    backend().set(account, value);
+    try {
+      backend().set(account, value);
+      _noteSyncOutcome(null);
+      fallbackSupersede(account);
+    } catch (error) {
+      _noteSyncOutcome(error);
+      if (!usesFallback(error)) throw error;
+      fallbackSet(account, value, error);
+      viaFile = true;
+    }
     stored = true;
   } finally {
     _cacheInvalidate(account);
-    // Linux reads are cache-only, so a fresh write must stay readable.
-    if (stored && platform() === 'linux') _cacheSet(account, value);
+    // Linux reads are cache-only, so a fresh keychain write must stay readable.
+    // A file-only value is not cached: reads reach it through the file, and the
+    // cache then means "the keychain holds this".
+    if (stored && !viaFile && platform() === 'linux') _cacheSet(account, value);
   }
 }
 
 function deleteSecret(account) {
   try {
-    backend().delete(account);
+    fallbackRemove(account);
+    try {
+      backend().delete(account);
+      _noteSyncOutcome(null);
+    } catch (error) {
+      _noteSyncOutcome(error);
+      // No keychain provider here: nothing can be stored in it to delete.
+      if (!usesFallback(error)) throw error;
+    }
   } finally {
     _cacheInvalidate(account);
   }
@@ -1065,34 +1309,42 @@ async function getSecretAsync(account) {
   if (cached !== undefined) return cached;
   const b = backend();
   if (!b.getAsync) return getSecret(account);
-  if (_linuxLoaded()) return null;
+  if (_linuxLoaded()) return fallbackGet(account);
   const generation = _cacheGenerations.get(account) || 0;
   let value;
   try {
     value = await b.getAsync(account);
   } catch (error) {
     _noteKeychainFailure(error);
-    throw error;
+    const stored = fallbackGetQuiet(account);
+    if (stored == null) throw error;
+    return stored;
   }
   _noteKeychainOk();
   if ((_cacheGenerations.get(account) || 0) === generation) _cacheSet(account, value);
-  return value;
+  return value ?? fallbackGet(account);
 }
 
 async function setSecretAsync(account, value) {
   const b = backend();
   if (!b.setAsync) return setSecret(account, value);
   let stored = false;
+  let viaFile = false;
   try {
-    await b.setAsync(account, value);
+    try {
+      await b.setAsync(account, value);
+      _noteKeychainOk();
+      fallbackSupersede(account);
+    } catch (error) {
+      _noteKeychainFailure(error);
+      if (!usesFallback(error)) throw error;
+      fallbackSet(account, value, error);
+      viaFile = true;
+    }
     stored = true;
-    _noteKeychainOk();
-  } catch (error) {
-    _noteKeychainFailure(error);
-    throw error;
   } finally {
     _cacheInvalidate(account);
-    if (stored) _cacheSet(account, value);
+    if (stored && !viaFile) _cacheSet(account, value);
   }
 }
 
@@ -1100,11 +1352,15 @@ async function deleteSecretAsync(account) {
   const b = backend();
   if (!b.deleteAsync) return deleteSecret(account);
   try {
-    await b.deleteAsync(account);
-    _noteKeychainOk();
-  } catch (error) {
-    _noteKeychainFailure(error);
-    throw error;
+    fallbackRemove(account);
+    try {
+      await b.deleteAsync(account);
+      _noteKeychainOk();
+    } catch (error) {
+      _noteKeychainFailure(error);
+      // No keychain provider here: nothing can be stored in it to delete.
+      if (!usesFallback(error)) throw error;
+    }
   } finally {
     _cacheInvalidate(account);
   }
@@ -1118,6 +1374,7 @@ module.exports = {
   setSecretAsync,
   deleteSecretAsync,
   hasSecret,
+  hasFallbackSecret,
   keychainStatus,
   invalidateSecretCache,
   prewarmSecrets,

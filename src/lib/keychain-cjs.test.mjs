@@ -6,9 +6,19 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
 const require = createRequire(import.meta.url);
+// Captured before any test overrides process.platform.
+const HOST_PLATFORM = process.platform;
+// Every test runs against a throwaway data dir: the Linux fallback file is looked
+// up (and a superseded one removed) under `<dataDir>/secrets` even when the
+// keychain works, and must never touch the real profile.
+const FILE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-file-'));
+process.env.MIXDOG_DATA_DIR = FILE_DATA_DIR;
+after(() => {
+  fs.rmSync(FILE_DATA_DIR, { recursive: true, force: true });
+});
 
 test('win32 setSecret passes the secret via stdin with a minimal env', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-'));
@@ -80,11 +90,14 @@ test('win32 deleteSecret is idempotent for a missing secret but surfaces real fa
   }
 });
 
-test('linux setSecretAsync rejects with an install hint when secret-tool is missing, without blocking', async () => {
+test('linux setSecretAsync without secret-tool stores into the private file, without blocking', async () => {
   const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
   const oldPath = process.env.PATH;
+  const oldData = process.env.MIXDOG_DATA_DIR;
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-empty-'));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-data-'));
   process.env.PATH = emptyDir;
+  process.env.MIXDOG_DATA_DIR = dataDir;
   Object.defineProperty(process, 'platform', { value: 'linux' });
   try {
     delete require.cache[require.resolve('./keychain-cjs.cjs')];
@@ -95,12 +108,20 @@ test('linux setSecretAsync rejects with an install hint when secret-tool is miss
     });
     const pending = keychain.setSecretAsync('acct', 'v');
     assert.equal(ticked, false, 'call returns a promise instead of blocking');
-    await assert.rejects(pending, /libsecret-tools/);
+    await pending;
+    assert.equal(fs.readFileSync(path.join(dataDir, 'secrets', 'acct.secret'), 'utf8'), 'v');
+    // The install hint is still the keychain status; the fallback is not a failure to report.
+    assert.equal(keychain.keychainStatus().state, 'missing');
+    assert.match(keychain.keychainStatus().message, /libsecret-tools/);
+    assert.equal(keychain.keychainStatus().fallback, true);
   } finally {
     Object.defineProperty(process, 'platform', realPlatform);
     process.env.PATH = oldPath;
+    if (oldData === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = oldData;
     delete require.cache[require.resolve('./keychain-cjs.cjs')];
     fs.rmSync(emptyDir, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
@@ -152,7 +173,8 @@ function fakeSpawn(behavior) {
       return probe;
     }
     assert.equal(cmd, 'secret-tool');
-    secretToolCalls++;
+    // The availability probe never touches the keyring; it is not a keyring call.
+    if (args[0] !== '--version') secretToolCalls++;
     const child = new EventEmitter();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
@@ -174,7 +196,7 @@ function fakeSpawn(behavior) {
   };
 }
 
-async function withLinuxKeychain(behavior, env, fn) {
+async function withLinuxKeychain(behavior, env, fn, syncSpawn) {
   const realSpawn = childProcess.spawn;
   const realSpawnSync = childProcess.spawnSync;
   const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -184,7 +206,7 @@ async function withLinuxKeychain(behavior, env, fn) {
     process.env[k] = v;
   }
   childProcess.spawn = fakeSpawn(behavior);
-  childProcess.spawnSync = () => assert.fail('sync secret-tool must never run on the daemon path');
+  childProcess.spawnSync = syncSpawn || (() => assert.fail('sync secret-tool must never run on the daemon path'));
   Object.defineProperty(process, 'platform', { value: 'linux' });
   try {
     delete require.cache[require.resolve('./keychain-cjs.cjs')];
@@ -252,12 +274,460 @@ test('linux: prewarm snapshot serves sync reads; absent accounts read as null; a
 });
 
 test('linux: missing secret-tool reports the libsecret-tools hint', async () => {
-  await withLinuxKeychain(() => ({ enoent: true }), {}, async (keychain) => {
-    await keychain.prewarmSecrets();
-    assert.equal(keychain.keychainStatus().state, 'missing');
-    assert.match(keychain.keychainStatus().message, /libsecret-tools/);
-    assert.throws(() => keychain.getSecret('acct'), /libsecret-tools/);
-    await assert.rejects(keychain.deleteSecretAsync('acct'), /libsecret-tools/);
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(() => ({ enoent: true }), { MIXDOG_DATA_DIR: dataDir }, async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'missing');
+      assert.match(keychain.keychainStatus().message, /libsecret-tools/);
+      // Nothing in the fallback file: the keychain error stands for a read.
+      assert.throws(() => keychain.getSecret('acct'), /libsecret-tools/);
+      assert.equal(keychain.hasSecret('acct'), false);
+      // No keychain provider, so there is nothing in it to delete.
+      await keychain.deleteSecretAsync('acct');
+    });
+  });
+});
+
+async function withTempDataDir(fn) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-fallback-'));
+  try {
+    return await fn(dataDir);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+const SECRETS_FILE_MODE_CHECKABLE = HOST_PLATFORM !== 'win32';
+const modeOf = (file) => fs.statSync(file).mode & 0o777;
+const SECRET = 'sk-test-fallback-secret-0123456789';
+
+test('linux fallback: with no secret-tool, save / read / delete work through an owner-only file', async () => {
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(() => ({ enoent: true }), { MIXDOG_DATA_DIR: dataDir }, async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'missing');
+      await keychain.setSecretAsync('agent.openai.apiKey', SECRET);
+
+      const file = path.join(dataDir, 'secrets', 'agent.openai.apiKey.secret');
+      assert.equal(fs.readFileSync(file, 'utf8'), SECRET);
+      if (SECRETS_FILE_MODE_CHECKABLE) {
+        assert.equal(modeOf(file), 0o600);
+        assert.equal(modeOf(path.dirname(file)), 0o700);
+      }
+      assert.deepEqual(
+        fs.readdirSync(path.dirname(file)),
+        ['agent.openai.apiKey.secret'],
+        'no temporary file is left behind'
+      );
+
+      // A cold read (cache dropped, e.g. after a restart) comes from the file.
+      keychain.invalidateSecretCache();
+      assert.equal(keychain.getSecret('agent.openai.apiKey'), SECRET);
+      assert.equal(keychain.hasSecret('agent.openai.apiKey'), true);
+      assert.equal(await keychain.getSecretAsync('agent.openai.apiKey'), SECRET);
+      assert.equal(keychain.hasSecret('agent.other.apiKey'), false);
+
+      // The fallback is a working store, not a failure.
+      assert.equal(keychain.keychainStatus().fallback, true);
+
+      // Replacing keeps one file; deleting removes it, and reads see nothing.
+      await keychain.setSecretAsync('agent.openai.apiKey', `${SECRET}-2`);
+      keychain.invalidateSecretCache();
+      assert.equal(keychain.getSecret('agent.openai.apiKey'), `${SECRET}-2`);
+      await keychain.deleteSecretAsync('agent.openai.apiKey');
+      assert.equal(fs.existsSync(file), false);
+      keychain.invalidateSecretCache();
+      assert.equal(keychain.hasSecret('agent.openai.apiKey'), false);
+      assert.throws(() => keychain.getSecret('agent.openai.apiKey'), /libsecret-tools/);
+    });
+  });
+});
+
+test('linux fallback: sync setSecret / getSecret / deleteSecret use the file when secret-tool is missing', async () => {
+  const missing = () => ({ error: Object.assign(new Error('spawn secret-tool ENOENT'), { code: 'ENOENT' }), status: null });
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(
+      () => ({ enoent: true }),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        keychain.setSecret('acct', SECRET);
+        const file = path.join(dataDir, 'secrets', 'acct.secret');
+        assert.equal(fs.readFileSync(file, 'utf8'), SECRET);
+        if (SECRETS_FILE_MODE_CHECKABLE) assert.equal(modeOf(file), 0o600);
+        keychain.invalidateSecretCache();
+        assert.equal(keychain.getSecret('acct'), SECRET);
+        keychain.deleteSecret('acct');
+        assert.equal(fs.existsSync(file), false);
+        keychain.invalidateSecretCache();
+        assert.equal(keychain.hasSecret('acct'), false);
+      },
+      missing
+    );
+  });
+});
+
+test('linux fallback: an account name cannot escape the secrets directory', async () => {
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(() => ({ enoent: true }), { MIXDOG_DATA_DIR: dataDir }, async (keychain) => {
+      await keychain.setSecretAsync('../../escape/acct', SECRET);
+      const names = fs.readdirSync(path.join(dataDir, 'secrets'));
+      assert.equal(names.length, 1);
+      assert.ok(!names[0].includes('/') && !names[0].includes('\\'));
+      assert.deepEqual(fs.readdirSync(dataDir), ['secrets']);
+      keychain.invalidateSecretCache();
+      assert.equal(keychain.getSecret('../../escape/acct'), SECRET);
+    });
+  });
+});
+
+test('linux fallback: an available keychain is preferred and supersedes a fallback value', async () => {
+  await withTempDataDir(async (dataDir) => {
+    const stores = [];
+    const file = path.join(dataDir, 'secrets', 'acct.secret');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'old-fallback');
+    await withLinuxKeychain(
+      (args) => {
+        if (args[0] === 'store') stores.push(args);
+        return { code: 0 };
+      },
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        await keychain.setSecretAsync('acct', SECRET);
+        assert.equal(stores.length, 1, 'the keychain was written');
+        assert.equal(fs.existsSync(file), false, 'the stale fallback value is gone');
+        assert.equal(keychain.keychainStatus().fallback, false);
+        assert.equal(keychain.getSecret('acct'), SECRET);
+      }
+    );
+  });
+});
+
+test('linux fallback: a value saved without a keychain stays readable once a keychain exists; the keychain wins when it has the account', async () => {
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(() => ({ enoent: true }), { MIXDOG_DATA_DIR: dataDir }, async (keychain) => {
+      await keychain.setSecretAsync('only-file', 'from-file');
+      await keychain.setSecretAsync('both', 'file-value');
+    });
+    // "Restart" with a reachable, unlocked keychain that holds only `both`.
+    await withLinuxKeychain(
+      (args) =>
+        args[0] === '__probe'
+          ? { items: [{ account: 'both' }] }
+          : args[0] === 'lookup'
+            ? args[4] === 'both'
+              ? { stdout: 'keychain-value' }
+              : { code: 1 }
+            : { code: 0 },
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        await keychain.prewarmSecrets();
+        assert.equal(keychain.keychainStatus().state, 'ok');
+        assert.equal(keychain.keychainStatus().fallback, false);
+        // The label follows the source a read uses: the keychain wins for `both`.
+        assert.equal(keychain.hasFallbackSecret('both'), false);
+        assert.equal(keychain.hasFallbackSecret('only-file'), true);
+        assert.equal(keychain.getSecret('only-file'), 'from-file');
+        assert.equal(keychain.hasSecret('only-file'), true);
+        assert.equal(await keychain.getSecretAsync('only-file'), 'from-file');
+        assert.equal(keychain.getSecret('both'), 'keychain-value');
+        assert.equal(keychain.getSecret('nowhere'), null);
+        // Deleting clears both stores.
+        await keychain.deleteSecretAsync('only-file');
+        assert.equal(fs.existsSync(path.join(dataDir, 'secrets', 'only-file.secret')), false);
+        assert.equal(keychain.getSecret('only-file'), null);
+      }
+    );
+  });
+});
+
+test('linux fallback: no running Secret Service (secret-tool fails) uses the file; a locked keyring does not', async () => {
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(
+      (args) =>
+        args[0] === 'store'
+          ? { code: 1, stderr: 'secret-tool: Cannot autolaunch D-Bus without X11 $DISPLAY' }
+          : { code: 0 },
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        await keychain.setSecretAsync('acct', SECRET);
+        assert.equal(fs.readFileSync(path.join(dataDir, 'secrets', 'acct.secret'), 'utf8'), SECRET);
+        assert.equal(keychain.keychainStatus().fallback, true);
+        assert.doesNotMatch(keychain.keychainStatus().message, /autolaunch|DISPLAY/);
+      }
+    );
+  });
+  for (const locked of [
+    { code: 1, stderr: 'secret-tool: Cannot create an item in a locked collection' },
+    { code: 1, stderr: 'secret-tool: Failed to unlock collection' },
+    { code: 1, stderr: 'secret-tool: prompt dismissed' },
+    { hang: true },
+  ]) {
+    await withTempDataDir(async (dataDir) => {
+      await withLinuxKeychain(
+        (args) => (args[0] === 'store' ? locked : { code: 0 }),
+        { MIXDOG_DATA_DIR: dataDir, MIXDOG_KEYCHAIN_TIMEOUT_MS: '80' },
+        async (keychain) => {
+          await assert.rejects(keychain.setSecretAsync('acct', SECRET), /locked|unlock/i);
+          assert.equal(fs.existsSync(path.join(dataDir, 'secrets')), false, `no secret written: ${JSON.stringify(locked)}`);
+          assert.equal(keychain.keychainStatus().state, 'locked');
+          assert.equal(keychain.keychainStatus().fallback, false);
+        }
+      );
+    });
+  }
+});
+
+test('linux fallback: an unwritable secrets directory fails the save and never reports the value', async () => {
+  await withTempDataDir(async (dataDir) => {
+    // A regular file where the secrets directory must go.
+    fs.writeFileSync(path.join(dataDir, 'secrets'), 'not a directory');
+    await withLinuxKeychain(() => ({ enoent: true }), { MIXDOG_DATA_DIR: dataDir }, async (keychain) => {
+      await assert.rejects(keychain.setSecretAsync('acct', SECRET), (error) => {
+        assert.match(error.message, /libsecret-tools/);
+        assert.match(error.message, /could not be written/);
+        assert.ok(!error.message.includes(SECRET));
+        return true;
+      });
+    });
+  });
+});
+
+test('linux fallback: only a recognised missing provider falls back; every unknown error fails closed and writes no file', async () => {
+  const unknown = [
+    'secret-tool: database disk image is malformed',
+    'secret-tool: No space left on device',
+    'secret-tool: something nobody has seen before',
+    'secret-tool: Cannot create an item in the collection',
+  ];
+  for (const stderr of unknown) {
+    await withTempDataDir(async (dataDir) => {
+      await withLinuxKeychain(
+        (args) => (args[0] === 'store' ? { code: 1, stderr } : { code: 0 }),
+        { MIXDOG_DATA_DIR: dataDir },
+        async (keychain) => {
+          await assert.rejects(keychain.setSecretAsync('acct', SECRET), (error) => {
+            assert.ok(!error.message.includes(SECRET));
+            return true;
+          });
+          assert.equal(fs.existsSync(path.join(dataDir, 'secrets')), false, `no file for: ${stderr}`);
+          assert.equal(keychain.keychainStatus().fallback, false);
+        }
+      );
+      // The sync path fails closed the same way.
+      await withLinuxKeychain(
+        () => ({ code: 0 }),
+        { MIXDOG_DATA_DIR: dataDir },
+        async (keychain) => {
+          assert.throws(() => keychain.setSecret('acct', SECRET), /secret-tool store failed/);
+          assert.equal(fs.existsSync(path.join(dataDir, 'secrets')), false, `no file (sync) for: ${stderr}`);
+        },
+        () => ({ status: 1, stdout: '', stderr })
+      );
+    });
+  }
+  // A secret-tool that exists but cannot be started is not a missing provider.
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(
+      () => ({ code: 0 }),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        assert.throws(() => keychain.setSecret('acct', SECRET), /could not be started/);
+        assert.equal(fs.existsSync(path.join(dataDir, 'secrets')), false);
+        assert.equal(keychain.keychainStatus().fallback, false);
+      },
+      () => ({ error: Object.assign(new Error('spawn secret-tool EACCES'), { code: 'EACCES' }), status: null })
+    );
+  });
+  // Recognised "no provider" reports do fall back.
+  for (const stderr of [
+    'Cannot autolaunch D-Bus without X11 $DISPLAY',
+    'GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.secrets was not provided by any .service files',
+    'secret-tool: error while loading shared libraries: libsecret-1.so.0: cannot open shared object file',
+  ]) {
+    await withTempDataDir(async (dataDir) => {
+      await withLinuxKeychain(
+        (args) => (args[0] === 'store' ? { code: 1, stderr } : { code: 0 }),
+        { MIXDOG_DATA_DIR: dataDir },
+        async (keychain) => {
+          await keychain.setSecretAsync('acct', SECRET);
+          assert.equal(fs.readFileSync(path.join(dataDir, 'secrets', 'acct.secret'), 'utf8'), SECRET);
+        }
+      );
+    });
+  }
+});
+
+test('linux status: an unreachable keyring (failed passive probe) is never reported as the fallback', async () => {
+  for (const probe of [{ missing: true }, { unreachable: true }]) {
+    await withTempDataDir(async (dataDir) => {
+      await withLinuxKeychain(
+        (args) => (args[0] === '__probe' ? probe : { code: 1 }),
+        { MIXDOG_DATA_DIR: dataDir, MIXDOG_KEYCHAIN_RETRY_MS: '30000' },
+        async (keychain) => {
+          await keychain.prewarmSecrets();
+          assert.equal(keychain.keychainStatus().state, 'unreachable');
+          assert.equal(keychain.keychainStatus().fallback, false);
+        }
+      );
+    });
+  }
+});
+
+test('linux status: headless host (no gdbus, no secret-tool) is a confirmed missing provider at startup and after a save', async () => {
+  const headless = (args) => (args[0] === '__probe' ? { missing: true } : { enoent: true });
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(headless, { MIXDOG_DATA_DIR: dataDir, MIXDOG_KEYCHAIN_RETRY_MS: '30000' }, async (keychain) => {
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'missing');
+      assert.equal(keychain.keychainStatus().fallback, true);
+    });
+    await withLinuxKeychain(headless, { MIXDOG_DATA_DIR: dataDir, MIXDOG_KEYCHAIN_RETRY_MS: '30000' }, async (keychain) => {
+      await keychain.setSecretAsync('acct', SECRET);
+      assert.equal(keychain.keychainStatus().fallback, true);
+      assert.equal(await keychain.retryKeychain(), false);
+      await keychain.prewarmSecrets();
+      assert.equal(keychain.keychainStatus().state, 'missing');
+      assert.equal(keychain.keychainStatus().fallback, true);
+      keychain.invalidateSecretCache();
+      assert.equal(keychain.getSecret('acct'), SECRET);
+    });
+  });
+});
+
+test('linux fallback: a symlinked secrets directory is refused; nothing is written or chmodded outside', async () => {
+  await withTempDataDir(async (dataDir) => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-outside-'));
+    try {
+      if (SECRETS_FILE_MODE_CHECKABLE) fs.chmodSync(outside, 0o755);
+      try {
+        fs.symlinkSync(outside, path.join(dataDir, 'secrets'), 'dir');
+      } catch {
+        return; // the platform does not allow creating the link
+      }
+      await withLinuxKeychain(
+        () => ({ enoent: true }),
+        { MIXDOG_DATA_DIR: dataDir },
+        async (keychain) => {
+          await assert.rejects(keychain.setSecretAsync('acct', SECRET), (error) => {
+            assert.match(error.message, /could not be written/);
+            assert.ok(!error.message.includes(SECRET));
+            return true;
+          });
+          assert.throws(() => keychain.setSecret('acct', SECRET), /could not be written/);
+          assert.deepEqual(fs.readdirSync(outside), []);
+          if (SECRETS_FILE_MODE_CHECKABLE) assert.equal(modeOf(outside), 0o755);
+          // Reads and deletes do not follow the link either.
+          fs.writeFileSync(path.join(outside, 'acct.secret'), 'planted');
+          keychain.invalidateSecretCache();
+          assert.equal(keychain.hasFallbackSecret('acct'), false);
+          await assert.rejects(keychain.deleteSecretAsync('acct'));
+          assert.equal(fs.existsSync(path.join(outside, 'acct.secret')), true);
+        },
+        () => ({ error: Object.assign(new Error('spawn secret-tool ENOENT'), { code: 'ENOENT' }), status: null })
+      );
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test('linux status: the sync paths update the keyring health like the async ones', async () => {
+  await withTempDataDir(async (dataDir) => {
+    // Sync fallback: missing tool -> health says missing + fallback, not unknown.
+    await withLinuxKeychain(
+      () => ({ code: 0 }),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        assert.equal(keychain.keychainStatus().state, 'unknown');
+        keychain.setSecret('acct', SECRET);
+        assert.equal(keychain.keychainStatus().state, 'missing');
+        assert.equal(keychain.keychainStatus().fallback, true);
+        keychain.deleteSecret('acct');
+        assert.equal(keychain.keychainStatus().fallback, true);
+      },
+      () => ({ error: Object.assign(new Error('spawn secret-tool ENOENT'), { code: 'ENOENT' }), status: null })
+    );
+    // Sync success clears a stale failure.
+    await withLinuxKeychain(
+      () => ({ code: 0 }),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        assert.throws(() => keychain.setSecret('a', SECRET), /locked/);
+        assert.equal(keychain.keychainStatus().state, 'locked');
+        assert.equal(keychain.keychainStatus().fallback, false);
+        keychain.setSecret('b', SECRET);
+        assert.equal(keychain.keychainStatus().state, 'ok');
+        assert.equal(keychain.keychainStatus().fallback, false);
+      },
+      (() => {
+        let calls = 0;
+        return () => (++calls === 1 ? { status: 1, stdout: '', stderr: 'collection is locked' } : { status: 0, stdout: '', stderr: '' });
+      })()
+    );
+  });
+});
+
+test('linux fallback: hasFallbackSecret tells per account where the value lives', async () => {
+  await withTempDataDir(async (dataDir) => {
+    await withLinuxKeychain(() => ({ enoent: true }), { MIXDOG_DATA_DIR: dataDir }, async (keychain) => {
+      await keychain.setSecretAsync('file-only', SECRET);
+      assert.equal(keychain.hasFallbackSecret('file-only'), true);
+      assert.equal(keychain.hasFallbackSecret('other'), false);
+    });
+    // The keychain recovered: the file-only account still says so, a keychain save does not.
+    await withLinuxKeychain(
+      (args) => (args[0] === '__probe' ? { items: [] } : { code: 0 }),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        assert.equal(keychain.hasFallbackSecret('file-only'), true);
+        await keychain.setSecretAsync('in-keychain', SECRET);
+        assert.equal(keychain.hasFallbackSecret('in-keychain'), false);
+        await keychain.setSecretAsync('file-only', SECRET);
+        assert.equal(keychain.hasFallbackSecret('file-only'), false);
+      }
+    );
+  });
+});
+
+test('fallback file is Linux only: win32 and darwin keep their own backends', async () => {
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const realSpawnSync = childProcess.spawnSync;
+  const oldData = process.env.MIXDOG_DATA_DIR;
+  const oldSysRoot = process.env.SystemRoot;
+  await withTempDataDir(async (dataDir) => {
+    process.env.MIXDOG_DATA_DIR = dataDir;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'darwin' });
+      const calls = [];
+      childProcess.spawnSync = (cmd, args) => {
+        calls.push([cmd, args[0]]);
+        return args[0] === 'find-generic-password' ? { status: 44, stdout: '', stderr: '' } : { status: 1, stdout: '', stderr: 'denied' };
+      };
+      delete require.cache[require.resolve('./keychain-cjs.cjs')];
+      const mac = require('./keychain-cjs.cjs');
+      assert.throws(() => mac.setSecret('acct', SECRET), /security set failed/);
+      assert.equal(mac.getSecret('acct'), null);
+      assert.equal(mac.keychainStatus().fallback, false);
+      assert.equal(fs.existsSync(path.join(dataDir, 'secrets')), false, 'macOS never writes the fallback file');
+
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      process.env.SystemRoot ||= 'C:\\Windows';
+      childProcess.spawnSync = () => ({ status: 1, stdout: '', stderr: 'dpapi down' });
+      delete require.cache[require.resolve('./keychain-cjs.cjs')];
+      const win = require('./keychain-cjs.cjs');
+      assert.throws(() => win.setSecret('acct', SECRET), /DPAPI encrypt failed/);
+      assert.equal(fs.existsSync(path.join(dataDir, 'secrets', 'acct.secret')), false);
+      assert.equal(win.keychainStatus().fallback, false);
+    } finally {
+      Object.defineProperty(process, 'platform', realPlatform);
+      childProcess.spawnSync = realSpawnSync;
+      if (oldData === undefined) delete process.env.MIXDOG_DATA_DIR;
+      else process.env.MIXDOG_DATA_DIR = oldData;
+      if (oldSysRoot === undefined) delete process.env.SystemRoot;
+      else process.env.SystemRoot = oldSysRoot;
+      delete require.cache[require.resolve('./keychain-cjs.cjs')];
+    }
   });
 });
 
@@ -544,16 +1014,41 @@ test('linux snapshot never overwrites a newer same-process set / delete', async 
 });
 
 test('linux: raw secret-tool stderr never reaches user-facing errors', async () => {
-  await withLinuxKeychain(
-    (args) => (args[0] === 'store' ? { code: 1, stderr: 'secret-tool: /home/u/.secret-detail DBUS_X boom' } : {}),
-    {},
-    async (keychain) => {
-      await assert.rejects(keychain.setSecretAsync('acct', 'v'), (error) => {
-        assert.doesNotMatch(error.message, /home\/u|DBUS_X|boom/);
-        return true;
-      });
-    }
-  );
+  await withTempDataDir(async (dataDir) => {
+    const detail = 'secret-tool: /home/u/.secret-detail DBUS_X boom';
+    // An unrecognised failure fails closed with the clean error.
+    await withLinuxKeychain(
+      (args) => (args[0] === 'store' ? { code: 1, stderr: detail } : {}),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        await assert.rejects(keychain.setSecretAsync('acct', 'v'), (error) => {
+          assert.doesNotMatch(error.message, /home\/u|DBUS_X|boom/);
+          return true;
+        });
+        assert.doesNotMatch(keychain.keychainStatus().message, /home\/u|DBUS_X|boom/);
+      }
+    );
+    // A recognised missing provider falls back; the status text stays clean.
+    await withLinuxKeychain(
+      (args) => (args[0] === 'store' ? { code: 1, stderr: `${detail} Cannot autolaunch D-Bus without X11` } : {}),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        await keychain.setSecretAsync('acct', 'v');
+        assert.doesNotMatch(keychain.keychainStatus().message, /home\/u|DBUS_X|boom/);
+      }
+    );
+    // Locked keyring: the save is refused, with a clean error.
+    await withLinuxKeychain(
+      (args) => (args[0] === 'store' ? { code: 1, stderr: `${detail} locked` } : {}),
+      { MIXDOG_DATA_DIR: dataDir },
+      async (keychain) => {
+        await assert.rejects(keychain.setSecretAsync('acct', 'v'), (error) => {
+          assert.doesNotMatch(error.message, /home\/u|DBUS_X|boom/);
+          return true;
+        });
+      }
+    );
+  });
 });
 test('linux: Unlock keyring raises exactly one prompt, also while a passive retry is in flight or clicked twice', async () => {
   let searches = 0;

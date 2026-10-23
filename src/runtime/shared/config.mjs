@@ -35,6 +35,7 @@ const {
   setSecret: _setSecret,
   deleteSecret: _deleteSecret,
   hasSecret: _hasSecret,
+  hasFallbackSecret: _hasFallbackSecret,
   setSecretAsync: _setSecretAsyncImpl,
   deleteSecretAsync: _deleteSecretAsyncImpl,
   keychainStatus: _keychainStatus,
@@ -653,14 +654,17 @@ export function updateSectionAsync(section, updater) {
 }
 
 // ── Secret account names ─────────────────────────────────────────────────────
-// Canonical account strings stored in the OS keychain.
+// Canonical account strings stored in the OS keychain (or, on a Linux host with
+// no usable keychain provider, in the private secrets file behind the same
+// get/set/delete calls: keychain-cjs.cjs "Linux fallback file").
 export const SECRET_ACCOUNTS = Object.freeze({
   agentApiKey: (provider) => `agent.${provider}.apiKey`,
   openaiUsageSessionKey: 'agent.openai.usageSessionKey',
 });
 
 // ── Secret-aware getters ─────────────────────────────────────────────────────
-// Read order: ENV MIXDOG_<UPPER_SNAKE> → OS keychain → null.
+// Read order: ENV MIXDOG_<UPPER_SNAKE> → OS keychain → Linux fallback secrets
+// file (read by _getSecret when the keychain has nothing) → null.
 
 function _envKey(account) {
   // 'agent.openai.apiKey' → 'MIXDOG_AGENT_OPENAI_APIKEY'
@@ -688,7 +692,9 @@ export function getOpenAIUsageSessionKey() {
 }
 
 /**
- * Persist a secret to the OS keychain. Throws on failure.
+ * Persist a secret to the OS keychain; on a Linux host with no keychain provider
+ * (secret-tool/libsecret missing, no Secret Service) to the owner-only secrets
+ * file in the data dir instead. Throws on failure.
  * Never writes to mixdog-config.json.
  */
 export function saveSecret(account, value) {
@@ -710,11 +716,12 @@ export async function saveSecretAsync(account, value) {
 
 function saveSecretError(account, err) {
   {
-    // On WSL/headless Linux (and any host missing a usable keychain provider,
-    // e.g. secret-tool/libsecret not installed or no running Secret Service) the OS
-    // write throws a cryptic provider error. Surface an actionable message that
-    // points at the env-var read path the getters already honor, instead of
-    // silently writing the plaintext secret to mixdog-config.json.
+    // Reached for a locked keyring, a non-Linux keychain failure, or a Linux host
+    // with no keychain provider whose fallback secrets file could not be written
+    // (keychain-cjs.cjs). Surface an actionable message that points at the
+    // env-var read path the getters already honor, instead of silently writing
+    // the plaintext secret to mixdog-config.json. The fallback is a separate
+    // owner-only file, never the config.
     const envKey = _envKey(account);
     const agentMatch = String(account || '').match(/^agent\.([^.]+)\.apiKey$/);
     const stdEnv = agentMatch ? AGENT_PROVIDER_ENV[agentMatch[1]] : null;
@@ -728,6 +735,7 @@ function saveSecretError(account, err) {
   }
 }
 
+/** Remove a secret from the OS keychain (if present) and the Linux fallback file. */
 export function deleteSecret(account) {
   _deleteSecret(account);
 }
@@ -753,13 +761,16 @@ export function onKeychainRecovered(listener) {
   return typeof _onKeychainRecovered === 'function' ? _onKeychainRecovered(listener) : () => {};
 }
 
-/** Keyring health for the UI: { state: ok|locked|missing|error|unknown, message }. */
+/** Keyring health for the UI: { state: ok|locked|missing|unreachable|error|unknown, message, fallback }.
+ *  `fallback` is true when no keychain provider exists on this Linux host and
+ *  secrets live in the private secrets file: working storage, not a failure. */
 export function getKeychainStatus() {
   return typeof _keychainStatus === 'function' ? _keychainStatus() : { state: 'unknown', message: '' };
 }
 
 /**
- * Whether a secret is stored in the OS keychain for `account` (ignores env).
+ * Whether a secret is stored in the OS keychain (or Linux fallback file) for
+ * `account` (ignores env).
  * Lets the setup UI show "Set" WITHOUT ever sending the secret value to the
  * browser.
  */
@@ -770,6 +781,12 @@ export function hasStoredSecret(account) {
   } catch {
     return false;
   }
+}
+
+/** Whether `account`'s stored secret currently lives in the Linux fallback file
+ *  (never true on Windows/macOS). Lets the UI label where a key is kept. */
+export function isFallbackSecret(account) {
+  return typeof _hasFallbackSecret === 'function' ? !!_hasFallbackSecret(account) : false;
 }
 
 export { configPath };

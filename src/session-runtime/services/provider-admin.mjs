@@ -9,6 +9,7 @@ import {
   getAgentApiKey,
   getKeychainStatus,
   hasStoredSecret,
+  isFallbackSecret,
   saveSecretAsync,
 } from '../../runtime/shared/config.mjs';
 import {
@@ -340,9 +341,20 @@ const KEYCHAIN_HINTS = Object.freeze({
 
 export function keychainIssueFor(checkSecrets) {
   if (!checkSecrets) return null;
-  const { state } = getKeychainStatus();
+  // A host with no keychain provider keeps its keys in the private secrets
+  // file (keychain-cjs.cjs "Linux fallback file"): that works, so nothing to
+  // report. A locked keyring is still an issue.
+  const { state, fallback } = getKeychainStatus();
+  if (fallback) return null;
   const message = KEYCHAIN_HINTS[state];
   return message ? { state, message } : null;
+}
+
+// Where a stored key lives, for a row's detail line: decided per account, so a
+// key that is still only in the fallback file reads as such after the keychain
+// recovers.
+function storedSecretDetail(account) {
+  return isFallbackSecret(account) ? 'stored in private file' : 'stored in keychain';
 }
 
 function apiProviderSetup(p, providers, checkSecrets) {
@@ -357,7 +369,7 @@ function apiProviderSetup(p, providers, checkSecrets) {
   else if (env) status = 'Env';
   else if (authenticated) status = 'Set';
   let detail = envName;
-  if (stored) detail = 'stored in keychain';
+  if (stored) detail = storedSecretDetail(SECRET_ACCOUNTS.agentApiKey(p.id));
   else if (env) detail = envName;
   else if (authenticated) detail = 'runtime credential';
   const keychainIssue = authenticated ? null : keychainIssueFor(checkSecrets);
@@ -487,7 +499,7 @@ function customProviderRow(id, entry, checkSecrets = true) {
   const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(id)) : false;
   const unstoredStatus = configuredEnabled ? 'No Key' : 'Off';
   let status = stored ? 'Set' : unstoredStatus;
-  let detail = stored ? 'stored in keychain' : 'custom endpoint';
+  let detail = stored ? storedSecretDetail(SECRET_ACCOUNTS.agentApiKey(id)) : 'custom endpoint';
   if (apiKeyEnv) {
     status = envSet ? 'Env' : unstoredStatus;
     detail = apiKeyEnv;
