@@ -39,6 +39,12 @@ export function isRememberableAction(kind) {
   return ACTION_KINDS.includes(kind) && !UNREMEMBERED_ACTIONS.has(kind);
 }
 
+/** Whether `kind` is a payment or permanent delete: it asks every time,
+ *  whatever else is allowed (also by the "Allow all actions" developer option). */
+export function isAlwaysAskAction(kind) {
+  return UNREMEMBERED_ACTIONS.has(kind);
+}
+
 const GITHUB_OUTBOUND = new Map([
   ['issue.comment', 'comment'],
   ['pr.comment', 'comment'],

@@ -39,6 +39,7 @@ test('registry: Gemini (Antigravity), Cursor and MiMo are separate provider opti
       section.options.map((option) => [option.id, option.label, option.provider]),
     ]),
     [
+      ['approvals', [['allowAllActions', 'Allow all actions', undefined]]],
       [
         'providers',
         [
@@ -49,7 +50,7 @@ test('registry: Gemini (Antigravity), Cursor and MiMo are separate provider opti
       ],
     ]
   );
-  for (const option of DEVELOPER_SECTIONS[0].options) {
+  for (const option of DEVELOPER_SECTIONS.find((section) => section.id === 'providers').options) {
     assert.match(option.warning, /OAuth carries a high risk of penalties such as account restrictions/);
   }
   assert.equal(developerOptionForProvider('antigravity-oauth').id, 'antigravityOAuth');
@@ -68,6 +69,20 @@ test('default off: no stored value', () => {
   const warning = 'Using this provider through OAuth carries a high risk of penalties such as account restrictions.';
   assert.deepEqual(developerSettingsView(), {
     sections: [
+      {
+        id: 'approvals',
+        label: 'Approvals',
+        options: [
+          {
+            id: 'allowAllActions',
+            label: 'Allow all actions',
+            description: 'Skips the approval cards for every action except payments and permanent deletes.',
+            warning:
+              'Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk.',
+            enabled: false,
+          },
+        ],
+      },
       {
         id: 'providers',
         label: 'Providers',
@@ -103,12 +118,29 @@ test('default off: no stored value', () => {
   });
 });
 
+test('Allow all actions is a warned, provider-less option that is on only while stored true', () => {
+  assert.equal(developerOptionEnabled('allowAllActions'), false);
+  storeDeveloper({ allowAllActions: true });
+  assert.equal(developerOptionEnabled('allowAllActions'), true);
+  assert.equal(developerOptionEnabled('cursorOAuth'), false);
+  const approvals = developerSettingsView().sections.find((section) => section.id === 'approvals');
+  const [option] = approvals.options;
+  assert.equal(option.id, 'allowAllActions');
+  assert.equal(option.enabled, true);
+  assert.match(option.warning, /payments and permanent deletes/);
+  assert.equal('provider' in option, false);
+  storeDeveloper({ allowAllActions: 'yes' });
+  assert.equal(developerOptionEnabled('allowAllActions'), false, 'only a stored boolean true turns it on');
+});
+
 test('each stored value turns only its own option on', () => {
   storeDeveloper({ cursorOAuth: true });
   assert.equal(developerOptionEnabled('cursorOAuth'), true);
   assert.equal(developerOptionEnabled('antigravityOAuth'), false);
   assert.deepEqual(
-    developerSettingsView().sections[0].options.map((option) => [option.id, option.enabled]),
+    developerSettingsView()
+      .sections.find((section) => section.id === 'providers')
+      .options.map((option) => [option.id, option.enabled]),
     [
       ['antigravityOAuth', false],
       ['cursorOAuth', true],

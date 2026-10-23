@@ -523,6 +523,18 @@ export function readSection(section) {
   return stripGeneratedMarker(readAll()[section] ?? null) ?? {};
 }
 
+/**
+ * One section straight from the file, read-only: never served from the read
+ * cache, restored from a backup, quarantined or written. A missing, unreadable
+ * or malformed config throws. For checks that must fail closed, where a stale
+ * value restored from a backup must not count (developerOptionEnabledStrict).
+ */
+export function readSectionStrict(section) {
+  const parsed = parseJsonText(readFileSync(configPath(), 'utf8'));
+  if (!isPlainObject(parsed)) throw new SyntaxError('config root must be a JSON object');
+  return stripGeneratedMarker(parsed[section] ?? null) ?? {};
+}
+
 export function readConfig() {
   return stripGeneratedMarker(readAll()) ?? {};
 }

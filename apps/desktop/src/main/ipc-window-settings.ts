@@ -2,6 +2,7 @@
 import type { App, BrowserWindow } from 'electron';
 import { DESKTOP_IPC, type DesktopSettings } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
+import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { raiseDesktopWindow } from './notification-window';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
 import { createSignInFocus } from './sign-in-focus';
@@ -42,6 +43,9 @@ interface WindowSettingsIpcOptions {
    *  the provider quota reads belong to this PC's daemon, not the server's
    *  (which holds no credentials and would report nothing). */
   pcHost?: PcQuotaHost;
+  /** The person's human-only confirmation to turn on "Allow all actions"
+   *  (developer-risk-confirm.ts). Without it that call is refused. */
+  confirmAllowAllActions?: () => Promise<boolean>;
 }
 
 /** This PC's daemon as the owner of a server window's provider quota. */
@@ -189,6 +193,7 @@ export function registerWindowSettingsIpc({
   readsLocalOnboardingStatus = true,
   raiseOnSignIn = false,
   pcHost,
+  confirmAllowAllActions,
 }: WindowSettingsIpcOptions): void {
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
@@ -289,6 +294,12 @@ export function registerWindowSettingsIpc({
       return constrainedQuota(pcHost!, request.capability, request.args, (args) =>
         pcHost!.invokeCapability(request.capability, args, request.sessionId)
       );
+    }
+    // Turning on "Allow all actions" is the person's, answered in the main
+    // process under the human-only lock; a click an agent made in this window
+    // (Computer Use) cannot also confirm it. Not confirmed: nothing changes.
+    if (isAllowAllActionsEnable(request.capability, request.args) && (await confirmAllowAllActions?.()) !== true) {
+      return host.invokeCapability('getDeveloperSettings', [], request.sessionId);
     }
     const result = await host.invokeCapability(request.capability, request.args, request.sessionId);
     signInFocus?.observe(request.capability, request.args ?? [], result?.value);

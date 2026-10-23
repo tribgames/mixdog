@@ -537,6 +537,34 @@ test('developer options with a warning turn on only with explicit risk acceptanc
   ]);
 });
 
+test('an agent cannot turn on Allow all actions, even with riskAccepted; it may turn it off', async () => {
+  const calls = [];
+  const view = {
+    sections: [
+      {
+        id: 'approvals',
+        options: [{ id: 'allowAllActions', label: 'Allow all actions', warning: 'Skips approvals.' }],
+      },
+    ],
+  };
+  const api = {
+    getDeveloperSettings: () => view,
+    setDeveloperOption: async (id, enabled) => {
+      calls.push([id, enabled]);
+      return view;
+    },
+  };
+  for (const extra of [{ riskAccepted: true }, { riskAccepted: false }, {}]) {
+    await assert.rejects(
+      run(api, { action: 'set_developer_option', name: 'allowAllActions', enabled: true, ...extra }),
+      /only the person can turn it on in Settings → Developer options/
+    );
+  }
+  assert.deepEqual(calls, []);
+  await run(api, { action: 'set_developer_option', name: 'allowAllActions', enabled: false });
+  assert.deepEqual(calls, [['allowAllActions', false]]);
+});
+
 test('profile edits reject unknown language or experience ids instead of silently resetting them', async () => {
   const saved = [];
   const api = {

@@ -173,12 +173,24 @@ export async function setAgentPermission(agentId, action, mode, options) {
   return store.permissions(agent);
 }
 
-const BROWSER_AUDIT_DECISIONS = Object.freeze(['approve', 'deny', 'granted', 'remembered', 'run-allowed', 'blocked']);
+/** The audit decision of a call the "Allow all actions" developer option let through unasked. */
+export const DEV_ALLOW_ALL_DECISION = 'dev-allow-all';
+
+const BROWSER_AUDIT_DECISIONS = Object.freeze([
+  'approve',
+  'deny',
+  'granted',
+  'remembered',
+  'run-allowed',
+  'blocked',
+  DEV_ALLOW_ALL_DECISION,
+]);
 
 /** Audit one Browser Use approval of a bot (capability recordAgentApprovalAudit):
  *  the bot, the action kind and what happened — `approve` / `deny` for the card,
  *  `granted` when "always allow" was saved, `remembered` when a saved allow let
- *  a step run unasked. Never a page address, target or value. */
+ *  a step run unasked, `dev-allow-all` when the developer option did. Never a
+ *  page address, target or value. */
 export async function recordAgentApprovalAudit(agentId, action, decision) {
   const agent = requiredAgentId(agentId);
   if (!ACTION_KINDS.includes(action)) throw new Error(`action must be one of ${ACTION_KINDS.join(', ')}`);

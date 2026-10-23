@@ -5,12 +5,25 @@
 // `developer.<optionId>` is true. Default off. An option with a `warning`
 // turns on only after the user confirms that warning; an option with a
 // `provider` gates that dev-only OAuth provider.
-import { readSection } from './config.mjs';
+import { readSection, readSectionStrict } from './config.mjs';
 
 const OAUTH_RISK_WARNING =
   'Using this provider through OAuth carries a high risk of penalties such as account restrictions.';
 
 export const DEVELOPER_SECTIONS = Object.freeze([
+  Object.freeze({
+    id: 'approvals',
+    label: 'Approvals',
+    options: Object.freeze([
+      Object.freeze({
+        id: 'allowAllActions',
+        label: 'Allow all actions',
+        description: 'Skips the approval cards for every action except payments and permanent deletes.',
+        warning:
+          'Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk.',
+      }),
+    ]),
+  }),
   Object.freeze({
     id: 'providers',
     label: 'Providers',
@@ -72,6 +85,17 @@ function storedDeveloperConfig() {
 /** True when the option exists and its stored value is true. */
 export function developerOptionEnabled(id, stored = storedDeveloperConfig()) {
   return developerOption(id) !== null && normalizeDeveloperConfig(stored)[id] === true;
+}
+
+/** `developerOptionEnabled` for a safety bypass: fail-closed. Read straight
+ *  from the config file, so a missing or malformed config is never restored
+ *  from a backup (which may hold a stale `true`); any error means off. */
+export function developerOptionEnabledStrict(id) {
+  try {
+    return developerOption(id) !== null && normalizeDeveloperConfig(readSectionStrict('agent').developer)[id] === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Settings view of every section; `stored` defaults to the on-disk values. */

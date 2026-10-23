@@ -33,6 +33,7 @@ import { registerSourceControlIpc } from './ipc-source-control';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
 import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
 import { registerWindowSettingsIpc, type PcQuotaHost } from './ipc-window-settings';
+import { createAllowAllActionsConfirm } from './developer-risk-confirm';
 import { SelectedFileAccess } from './selected-file-access';
 import { registerScreenSessions } from './screen-sessions';
 import type { ConnectionKind } from './connections/contract';
@@ -370,6 +371,7 @@ export function registerDesktopIpc(
     settingsStore,
     onDesktopSettingsChanged,
     previewNotificationSound,
+    confirmAllowAllActions: createAllowAllActionsConfirm({ dialog, window, nativeT }),
   });
 
   const stateBridge = new DesktopStateBridge({

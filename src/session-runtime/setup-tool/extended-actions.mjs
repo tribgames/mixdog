@@ -364,6 +364,12 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
       .sections.flatMap((section) => section.options)
       .find((row) => row.id === args.name);
     if (!option) throw new Error(`Unknown developer option "${args.name}"; read status developer`);
+    // An agent must never remove its own approval cards: only the person turns this on.
+    if (args.enabled && option.id === 'allowAllActions') {
+      throw new Error(
+        `"${option.label}" cannot be turned on by an agent; only the person can turn it on in Settings → Developer options.`
+      );
+    }
     if (args.enabled && option.warning && !args.riskAccepted) {
       throw new Error(
         `Enabling ${option.label} requires riskAccepted:true after the user explicitly accepts: ${option.warning}`

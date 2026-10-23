@@ -56,6 +56,27 @@ test('audit writes bot, action and decision only, one line per action, and never
   await broken.audit('marketer', ['browser_submit'], 'approve');
 });
 
+test('Allow all actions is read from the runtime developer settings view', async () => {
+  const view = (enabled) => ({
+    sections: [
+      { id: 'providers', options: [{ id: 'cursorOAuth', enabled: true }] },
+      { id: 'approvals', options: [{ id: 'allowAllActions', enabled }] },
+    ],
+  });
+  const host = service(view(true));
+  assert.equal(await createBrowserApprovalGrants(host).allowsAllActions(), true);
+  assert.deepEqual(host.calls[0], ['read', 'getDeveloperSettings', []]);
+  assert.equal(await createBrowserApprovalGrants(service(view(false))).allowsAllActions(), false);
+  // Only that option counts: another enabled option, or no view, is off.
+  assert.equal(
+    await createBrowserApprovalGrants(
+      service({ sections: [{ options: [{ id: 'cursorOAuth', enabled: true }] }] })
+    ).allowsAllActions(),
+    false
+  );
+  assert.equal(await createBrowserApprovalGrants(service(null)).allowsAllActions(), false);
+});
+
 test('a failing capability read is an error, never an allow', async () => {
   const grants = createBrowserApprovalGrants({
     readCapabilities: async () => [{ ok: false, error: 'daemon down' }],

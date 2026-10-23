@@ -28,6 +28,7 @@ import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
 import { readHostDisplayPreferences } from '../shared/host-display-preferences';
 import { browserParityRemoteMethods, type BrowserRemoteMethod } from './remote-browser-methods';
 import { remoteCapabilityArgs } from './remote-authority';
+import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { pushRemoteMethods } from './remote-push-methods';
 import { validatedHostDirectoryPath } from './host-directories';
 import { sessionFolder, sessionRemoteMethods } from './remote-session-methods';
@@ -148,6 +149,12 @@ export function assertRemoteCapabilityCall(capability: string, args: readonly un
   }
   if (capability === 'setAgentPermission' && args[2] === 'allow') {
     throw new TypeError(`${capability} cannot create a standing allow over remote access; use the desktop.`);
+  }
+  // Turning on "Allow all actions" is confirmed by the person at this PC under the
+  // human-only lock (developer-risk-confirm.ts); a paired browser on this PC could
+  // be driven by Computer Use, so remote clients may only turn it off.
+  if (isAllowAllActionsEnable(capability, args)) {
+    throw new TypeError(`${capability} cannot turn on Allow all actions over remote access; use the desktop.`);
   }
 }
 

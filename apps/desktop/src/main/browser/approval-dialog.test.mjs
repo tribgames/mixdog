@@ -487,6 +487,89 @@ test('a run whose owning bot cannot be established, or whose permission cannot b
   setBrowserApprovalHooks({});
 });
 
+test('Allow all actions: a bot submits, posts and uploads without a card, audited; off it asks as before', async () => {
+  const audits = [];
+  let allowAll = false;
+  const grants = {
+    ...memoryGrants(),
+    allowAllActions: async () => allowAll,
+    audit: async (agent, actions, decision) => audits.push([agent, actions, decision]),
+  };
+  for (const kinds of [['submit'], ['post'], ['upload'], ['submit', 'post', 'upload']]) {
+    const off = await ask(grants, 'sess_home_marketer', kinds, 'deny');
+    assert.deepEqual({ shown: off.shown, outcome: off.outcome }, { shown: true, outcome: false }, `off ${kinds}`);
+  }
+  allowAll = true;
+  audits.length = 0;
+  for (const kinds of [['submit'], ['post'], ['upload'], ['submit', 'post', 'upload']]) {
+    const on = await ask(grants, 'sess_home_marketer', kinds, 'deny');
+    assert.deepEqual({ shown: on.shown, outcome: on.outcome }, { shown: false, outcome: true }, `on ${kinds}`);
+    assert.equal(on.window.sent.length, 0);
+  }
+  assert.deepEqual(audits.at(-1), ['marketer', ['browser_submit', 'browser_post', 'browser_upload'], 'dev-allow-all']);
+  assert.equal(audits.length, 4);
+  assert.ok(audits.every((row) => row[2] === 'dev-allow-all'));
+  // An aborted command is still not allowed, and a failing read of the option asks.
+  const controller = new AbortController();
+  controller.abort();
+  setBrowserApprovalHooks(grants);
+  assert.equal(await requestBrowserApproval(fakeWindow(true), request(), controller.signal), false);
+  const unreadable = await ask(
+    { ...grants, allowAllActions: async () => Promise.reject(new Error('down')) },
+    'sess_home_marketer',
+    ['submit'],
+    'deny'
+  );
+  assert.equal(unreadable.shown, true);
+  setBrowserApprovalHooks({});
+});
+
+test('Allow all actions: an operator confirm still asks, the bot block still blocks, a schedule run is unchanged', async () => {
+  const audits = [];
+  const blocked = new Set();
+  const grants = {
+    ...memoryGrants(),
+    allowAllActions: async () => true,
+    isBlocked: async (agentId, actions) => actions.some((action) => blocked.has(`${agentId}\n${action}`)),
+    audit: async (agent, actions, decision) => audits.push([agent, actions, decision]),
+  };
+  // An operator-confirmed action (alone or inside a submit) always asks.
+  for (const kinds of [['confirm'], ['submit', 'confirm']]) {
+    const confirm = await ask(grants, 'sess_home_marketer', kinds, 'deny');
+    assert.deepEqual({ shown: confirm.shown, outcome: confirm.outcome }, { shown: true, outcome: false }, `${kinds}`);
+  }
+  assert.deepEqual(audits, [], 'nothing was let through unasked');
+  // The bot's own block refuses the step, with no card.
+  blocked.add('marketer\nbrowser_upload');
+  const window = fakeWindow(true);
+  setBrowserApprovalHooks(grants);
+  await assert.rejects(
+    requestBrowserApproval(window, asRequest('sess_home_marketer', ['upload'])),
+    /blocked by this bot's permission/
+  );
+  assert.equal(window.sent.length, 0);
+  assert.equal(audits.at(-1)[2], 'blocked');
+  // A block it cannot read refuses too.
+  setBrowserApprovalHooks({ ...grants, isBlocked: async () => Promise.reject(new Error('store down')) });
+  await assert.rejects(
+    requestBrowserApproval(fakeWindow(true), asRequest('sess_home_marketer', ['submit'])),
+    /blocked by this bot's permission/
+  );
+  // A schedule run keeps its own rule (run-allowed), and a coding session still never asks.
+  blocked.clear();
+  setBrowserApprovalHooks(grants);
+  assert.equal(
+    await requestBrowserApproval(fakeWindow(true), {
+      ...asRequest('sess_home_marketer', ['submit']),
+      unattended: true,
+      unattendedAgent: 'marketer',
+    }),
+    true
+  );
+  assert.equal(audits.at(-1)[2], 'run-allowed');
+  setBrowserApprovalHooks({});
+});
+
 test('an allow that cannot be saved still runs this once, tells the person, and asks again next time', async () => {
   const grants = {
     ...memoryGrants(),

@@ -1,6 +1,9 @@
 [
   "A tool is waiting for your approval.",
+  "Accept risk and turn on",
+  "Allow all actions",
   "Browser Use approval",
+  "Cancel",
   "Choose a Mixdog project folder",
   "Choose a conversation file",
   "Close",
@@ -54,6 +57,7 @@
   "The server window is working again.",
   "This page was not opened: sign-in pages must use HTTPS.",
   "Toggle Full Screen",
+  "Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk.",
   "Undo",
   "Video",
   "View",

@@ -830,6 +830,7 @@ setBrowserApprovalHooks({
   }),
   isAllowed: browserApprovalGrants.isAllowed,
   isBlocked: browserApprovalGrants.isBlocked,
+  allowAllActions: browserApprovalGrants.allowsAllActions,
   remember: async (agentId, actions) => {
     await browserApprovalGrants.remember(agentId, actions);
     void localService.invokeDesktopOperation('notifySettingsChanged', ['permissions']).catch(() => {});

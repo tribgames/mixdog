@@ -3,6 +3,11 @@ import type { DesktopService } from '../desktop-service-contract';
 import { MIXY_AGENT_ID } from '../../shared/agent-contacts';
 import { agentHomeName } from './approval-requester';
 
+/** The part of the runtime's getDeveloperSettings() payload read here. */
+interface DesktopDeveloperSettingsView {
+  sections?: Array<{ options?: Array<{ id?: string; enabled?: boolean }> }>;
+}
+
 /** Standing "always allow" grants for Browser Use steps, kept where every
  *  other per-bot action permission lives (the host's human-gate store: agent +
  *  action kind, shown and revoked in the bot's profile). Nothing is stored here. */
@@ -29,6 +34,14 @@ export function createBrowserApprovalGrants(service: Pick<DesktopService, 'readC
     async isBlocked(agentId: string, actions: string[]): Promise<boolean> {
       const rows = (await read('getAgentPermissions', [agentId])) as DesktopAgentPermission[];
       return actions.some((action) => rows.some((row) => row.action === action && row.mode === 'block'));
+    },
+    /** Whether the "Allow all actions" developer option is on: read from the
+     *  runtime's own developer settings view, the one Settings → Developer shows. */
+    async allowsAllActions(): Promise<boolean> {
+      const view = (await read('getDeveloperSettings', [])) as DesktopDeveloperSettingsView | null;
+      return (view?.sections ?? []).some((section) =>
+        (section.options ?? []).some((option) => option.id === 'allowAllActions' && option.enabled === true)
+      );
     },
     async remember(agentId: string, actions: string[]): Promise<void> {
       for (const action of actions) await service.invokeCapability('setAgentPermission', [agentId, action, 'allow']);

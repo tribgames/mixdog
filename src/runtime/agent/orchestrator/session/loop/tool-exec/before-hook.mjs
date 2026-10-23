@@ -7,7 +7,13 @@ import { runAbortable, throwIfAborted } from '../../../../../shared/abort-race.m
 import { evaluateExecPolicy } from '../../../tools/bash-policy-scan.mjs';
 import { beginSessionApprovalWait } from '../../manager/runtime-liveness.mjs';
 import { agentMcpToolPermission, writeAgentMcpToolPermission } from '../../../mcp/agent-connectors.mjs';
-import { actingBotId, actingContactBotId, humanGateDecision, recordHumanDecision } from '../../human-gate/gate.mjs';
+import {
+  actingBotId,
+  actingContactBotId,
+  allowAllActionsEnabled,
+  humanGateDecision,
+  recordHumanDecision,
+} from '../../human-gate/gate.mjs';
 import { applyEditedArgs } from '../../human-gate/requests.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
@@ -62,13 +68,16 @@ export const CONNECTOR_APPROVAL_REASON = 'This connector tool is set to ask befo
  * coding Lead, a task session, a workflow agent, a sub-agent) runs it unasked.
  * Run after the hooks, on the final call: a renamed call is judged under its
  * final name. A call the outbound gate owns (its card approved it, or a
- * remembered outbound grant answered it) is not asked a second time.
+ * remembered outbound grant answered it) is not asked a second time. With the
+ * "Allow all actions" developer option on, `needs_approval` is not asked
+ * either (a payment or permanent delete was asked by the outbound gate above).
  * @returns {Promise<{ denial: string } | null>} the denial, or null to run
  */
 export function applyConnectorApproval(call, { agentId, callerSessionId, executeOpts, toolApprovalHook }) {
   if (call.outboundApproved) return null;
   if (!actingBotId(callerSessionId)) return null;
   if (agentMcpToolPermission(agentId, call.name) !== 'needs_approval') return null;
+  if (allowAllActionsEnabled()) return null;
   // "Always allow" is offered only to the contact bot that is acting, for its
   // own policy entry for this one tool: never another bot or Mixy.
   const botId = actingContactBotId(callerSessionId);

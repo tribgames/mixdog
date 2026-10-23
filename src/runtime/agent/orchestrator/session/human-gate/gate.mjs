@@ -14,17 +14,22 @@
 // allowed, payments and permanent deletes denied. Group-room members register
 // a port here (session-runtime/held-requests.mjs) that turns their asks into
 // held requests when no approval card is attached.
+// The "Allow all actions" developer option (shared/developer-options.mjs)
+// skips every ask below, the bot's per-action `ask` mode and a hook `ask`
+// included, except a payment or permanent delete; a `block` and a hook `deny`
+// still deny.
 import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../agent-home.mjs';
 import { serverConnector } from '../../mcp/server-connectors.mjs';
 import { readAgentDefinitionKind } from '../../../../shared/agent-kind.mjs';
 import { isContactAgentId } from '../../../../shared/agent-route-config.mjs';
+import { developerOptionEnabledStrict } from '../../../../shared/developer-options.mjs';
 import { mixdogRoot, resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { roomMemberOfSession } from '../agent-room.mjs';
 import { agentDisplayName } from '../../context/role-instructions.mjs';
 import { delegationOf } from './delegation.mjs';
 import { setUnattendedApprovalPort, unattendedApprovalPort } from './unattended-port.mjs';
-import { classifyAsDelete, classifyOutboundCall, isRememberableAction } from './outbound-policy.mjs';
-import { humanGateStore } from './store.mjs';
+import { classifyAsDelete, classifyOutboundCall, isAlwaysAskAction, isRememberableAction } from './outbound-policy.mjs';
+import { DEV_ALLOW_ALL_DECISION, humanGateStore } from './store.mjs';
 import {
   AUTOMATION_GRANT_REASON,
   RUN_FORBIDDEN_REASON,
@@ -104,6 +109,29 @@ export function approvalSurface(sessionId) {
 }
 
 const actionOf = (decision) => String(decision?.action || decision?.decision || '').toLowerCase();
+
+/** Whether the "Allow all actions" developer option is on (default off).
+ *  Fail-closed: an unreadable, missing or malformed config is off (the call
+ *  asks), and a value restored from a backup never counts. */
+export const allowAllActionsEnabled = () => developerOptionEnabledStrict('allowAllActions');
+
+/** Built-in tools that can delete files outright: a shell (any command), the
+ *  terminal, git (clean, branch -D…) and apply_patch (`*** Delete File`).
+ *  Nothing classifies WHICH of their calls delete (destructive-warning.mjs is
+ *  an informational detector that misses plain `rm`/`del`/`Remove-Item`), so
+ *  their plain asks stay while "Allow all actions" is on. */
+export const DELETE_CAPABLE_TOOLS = Object.freeze(new Set(['shell', 'terminal', 'git', 'apply_patch']));
+
+/** Whether the option lets a call of this classification (or none) run without
+ *  a card: never a payment or permanent delete. */
+const skipsApproval = (classified) => !isAlwaysAskAction(classified?.category) && allowAllActionsEnabled();
+
+/** The hook decision once its card is skipped: an `ask` runs as an allow,
+ *  keeping any rewrite it carried. */
+function withoutAsk(decision) {
+  if (actionOf(decision) !== 'ask') return decision;
+  return { ...decision, action: decision.name || decision.args ? 'modify' : 'allow' };
+}
 
 async function mcpAnnotations(name, scopeId) {
   if (!String(name).startsWith('mcp__')) return undefined;
@@ -185,11 +213,17 @@ export async function humanGateDecision(call, decision, ctx = {}) {
   const outbound = classified && actingBotId(ctx.sessionId) ? classified : null;
   if (!outbound) {
     if (action !== 'ask') return { decision, request: null, gate: null };
+    const gate = { agentId, kind: 'approval', tool: String(call?.name || ''), target: '' };
+    if (!DELETE_CAPABLE_TOOLS.has(String(call?.name || '')) && skipsApproval(classified)) {
+      const store = ctx.store || (await humanGateStore());
+      await store.recordAudit({ ...gate, decision: DEV_ALLOW_ALL_DECISION, device: '' });
+      return { decision: withoutAsk(decision), request: null, gate: null };
+    }
     return {
       // Saving a schedule or webhook says plainly what the approval grants.
       decision: savesAutomation(call) ? { ...decision, reason: AUTOMATION_GRANT_REASON } : decision,
       request: { kind: 'approval', agentId, remember: ['once'] },
-      gate: { agentId, kind: 'approval', tool: String(call?.name || ''), target: '' },
+      gate,
     };
   }
   const gate = { agentId, kind: 'outbound', action: outbound.category, tool: outbound.tool, target: outbound.target };
@@ -214,6 +248,11 @@ export async function humanGateDecision(call, decision, ctx = {}) {
   if (mode === 'block') {
     await store.recordAudit({ ...gate, decision: 'blocked', device: '' });
     return { decision: { ...base, action: 'deny', reason: BLOCKED_ACTION_REASON }, request: null, gate: null };
+  }
+  // The bot's `ask` mode (and a hook's `ask`) is bypassed; a payment or delete is not.
+  if (skipsApproval(outbound)) {
+    await store.recordAudit({ ...gate, decision: DEV_ALLOW_ALL_DECISION, device: '' });
+    return { decision: withoutAsk(decision), request: null, gate: null };
   }
   if (action !== 'ask' && mode === 'allow') {
     await store.recordAudit({ ...gate, decision: 'remembered', device: '' });

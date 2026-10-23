@@ -61,9 +61,13 @@ export interface BrowserApprovalHooks {
   isBlocked?(agentId: string, actions: string[]): Promise<boolean>;
   /** Record a standing allow for `agentId` for each of `actions`. */
   remember?(agentId: string, actions: string[]): Promise<void>;
+  /** Whether the "Allow all actions" developer option is on (Settings →
+   *  Developer; the runtime's `developer.allowAllActions`). */
+  allowAllActions?(): Promise<boolean>;
   /** Audit line: `approve` / `deny` (the card), `granted` (always allow saved),
    *  `remembered` (a saved allow let it run unasked), `run-allowed` (a
-   *  schedule/webhook run did it unasked), `blocked` (the bot's block stopped a run). */
+   *  schedule/webhook run did it unasked), `dev-allow-all` (the developer
+   *  option did), `blocked` (the bot's block stopped a step). */
   audit?(agentId: string, actions: string[], decision: string): Promise<void>;
   /** The user's Downloads folder: an upload from it is not marked "outside the project". */
   downloadsDir?(): string;
@@ -133,6 +137,17 @@ async function blockedBy(agentId: string, actions: string[]): Promise<boolean> {
   }
 }
 
+/** Whether the "Allow all actions" option is on; a store that cannot answer means "ask". */
+async function allowsAllActions(): Promise<boolean> {
+  try {
+    return (await hooks.allowAllActions?.()) === true;
+  } catch {
+    return false;
+  }
+}
+
+const BLOCKED_BY_PERMISSION = "Browser Use step blocked by this bot's permission; nothing was dispatched";
+
 export async function requestBrowserApproval(
   window: BrowserWindow,
   request: BrowserApprovalRequest,
@@ -171,9 +186,20 @@ export async function requestBrowserApproval(
     }
     if (actions && (!hooks.isBlocked || (await blockedBy(owner, actions)))) {
       runAudit('blocked');
-      throw new Error("Browser Use step blocked by this bot's permission; nothing was dispatched");
+      throw new Error(BLOCKED_BY_PERMISSION);
     }
     runAudit('run-allowed');
+    return !signal?.aborted;
+  }
+  // "Allow all actions": the bot's own submits, posts and uploads run unasked.
+  // `actions` is null when the command holds an operator `confirm`, which
+  // always asks; the bot's `block` still stops the step.
+  if (bot && actions && (await allowsAllActions())) {
+    if (await blockedBy(bot, actions)) {
+      audit('blocked');
+      throw new Error(BLOCKED_BY_PERMISSION);
+    }
+    audit('dev-allow-all');
     return !signal?.aborted;
   }
   if (bot && actions && (await standingAllow(bot, actions))) {
