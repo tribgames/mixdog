@@ -1953,3 +1953,51 @@ test('a bot message shows its name and its words, never the envelope or LEAD, in
     if (!agentMode) assert.match(await show([lead]), /LEAD/, 'a lead brief keeps its label');
   }
 });
+
+test('agent chat: an older ask_user left waiting keeps its round content; only the approval\'s call holds the card', async (t) => {
+  const render = rowHarness(t);
+  const signIn = {
+    kind: 'tool',
+    id: 'browser-1',
+    name: 'browser',
+    args: { action: 'open', url: 'https://example.com' },
+    result: 'Saved sign-in: signed in to example.com with its saved login',
+    status: 'done',
+    at: DAY1,
+  };
+  const questions = [{ question: 'Which?', header: 'W', options: [{ label: 'A', description: '' }] }];
+  const ask = (callId) => ({ kind: 'tool', id: `item-${callId}`, callId, name: 'ask_user', args: { questions }, result: null });
+  const rows = [
+    { _tag: 'ToolActivity', key: 'tools-old', turnKey: 's', items: [signIn, ask('call-old')] },
+    { _tag: 'ToolActivity', key: 'tools-new', turnKey: 's', items: [ask('call-new')] },
+  ];
+  const items = rows.flatMap((row) => row.items);
+  const options = {
+    snapshot: { sessionId: HOME, toolApproval: { id: 'ap-1', kind: 'question', toolCallId: 'call-new' } },
+    disclosureScope: HOME,
+    readOnly: false,
+    transitioning: false,
+    renderAssistantRow: undefined,
+    onOpenSettings() {},
+    settledItems: items,
+    settledTurnKeys: [],
+    optimisticActivityStartedAt: 0,
+    submit: async () => true,
+    questionCard: React.createElement('div', { className: 'stub-question-card' }),
+    agentMode: true,
+  };
+  function Rows() {
+    const { renderTranscriptRow } = useConversationRowRenderer(options);
+    return React.createElement(
+      React.Fragment,
+      null,
+      rows.map((row, index) => React.createElement('div', { key: row.key, 'data-row': row.key }, renderTranscriptRow(row, index, rows)))
+    );
+  }
+  await render(React.createElement(Rows));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  const row = (key) => document.querySelector(`main [data-row="${key}"]`);
+  assert.equal(document.querySelectorAll('main .stub-question-card').length, 1);
+  assert.equal(row('tools-new').querySelectorAll('.stub-question-card').length, 1, 'the card sits at the approval\'s call');
+  assert.equal(row('tools-old').querySelectorAll('.transcript-saved-sign-in').length, 1, 'the older waiting round keeps its sign-in line');
+});
