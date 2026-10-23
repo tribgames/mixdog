@@ -295,6 +295,53 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   width: 18px;
   height: 18px;
 }
+/* Another bot's words (AgentBotFolded): one bordered line with the start of
+   the text; opened, the words are a quote (a rule, no bubble) so they never
+   read as this chat's own bot. */
+.mx-bot-fold {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+.mx-bot-fold-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 10px;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-pill);
+}
+.mx-bot-fold-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-bot-fold-pill > .mx-routine-more {
+  flex: none;
+  margin-top: 0;
+}
+.mx-chat-row[data-side="agent"] .mx-bot-fold .message.assistant.mx-bot-fold-body > .message-body {
+  padding: 4px 12px;
+  border-left: 2px solid var(--mx-border-muted);
+  border-radius: 0;
+  color: var(--mx-text-soft);
+  background: none;
+  font-size: var(--mx-font-meta);
+}
+.mx-chat-row[data-first] .mx-bot-fold .message.assistant.mx-bot-fold-body > .message-body::before {
+  content: none;
+}
 .mx-routine-trigger-body {
   margin-top: 6px;
   padding: 8px 12px;
@@ -411,12 +458,6 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-routine-chip[data-status="delivery"] {
   color: var(--mx-warning, #e0b34a);
   background: color-mix(in srgb, var(--mx-warning, #e0b34a) 14%, transparent);
-}
-/* A bot reply's "View full reply" beside its bubble shrank to one syllable per
-   line ("전체 보 / 기"): it keeps its one line, the bubble gives way. */
-.mx-chat-row[data-side="agent"] .mx-chat-line > .mx-routine-more {
-  flex: none;
-  min-width: auto;
 }
 .mx-routine-more {
   white-space: nowrap;

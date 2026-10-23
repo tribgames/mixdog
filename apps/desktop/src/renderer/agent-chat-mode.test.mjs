@@ -1799,9 +1799,17 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   assert.doesNotMatch(main().textContent, /LEAD/);
   assert.match(main().textContent, /Hello from the marketer/);
 
+  // Another bot's words are one folded line: the start of the text, the words behind the disclosure.
+  assert.equal(main().querySelector('.mx-bot-fold-body'), null, 'a bot message is folded by default');
+  await act(async () => main().querySelector('.mx-bot-fold-pill .mx-routine-more').click());
+  assert.match(main().querySelector('.mx-bot-fold-body').textContent, /Hello from the marketer/);
+
   await show(replies.slice(0, 1));
   assert.ok(main().querySelector('.mx-chat-bot-tag'));
-  assert.match(main().textContent, /Got it/);
+  assert.match(main().querySelector('.mx-bot-fold-preview').textContent, /Got it/);
+  assert.equal(main().querySelector('.mx-bot-fold-body'), null, 'a reply is folded by default');
+  await act(async () => main().querySelector('.mx-bot-fold-pill .mx-routine-more').click());
+  assert.match(main().querySelector('.mx-bot-fold-body').textContent, /Got it/);
   const full = [...main().querySelectorAll('button.mx-routine-more')].find((b) => b.textContent === 'View full reply');
   assert.ok(full, 'the reply links to the whole session');
   const before = opened.length;

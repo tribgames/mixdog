@@ -19,6 +19,7 @@ import { t, uiFormatLocale } from './i18n';
 import { timeFormatOptions } from './time-format-preference';
 import MarkdownBody from './MarkdownBody';
 import { CopyControl } from './transcript-primitives';
+import { oneLine } from './text-format';
 import { ChromeReimportButton, routineLoginRequiredSite, signInAgainOn } from './browser-login-recovery';
 import { routineFailureLine, routineHumanNeededLine } from './routine-notice';
 import './agent-chat.css';
@@ -330,13 +331,32 @@ export function AgentBotSent({
   );
 }
 
-/** A bot's answer to this chat's send: its bubble, with a link to the whole
- *  reply in the answering session (the summary is cut). */
-export function AgentBotReplyBody({ item, sessionId }: { item: TranscriptItem; sessionId: string }) {
+/** Another bot's words in this chat (its message, or its answer to this chat's
+ *  send): one folded line with the start of the text, the words behind a
+ *  disclosure as a quote, and for an answer a link to the whole reply in the
+ *  answering session (the summary is cut). */
+export function AgentBotFolded({ text, sessionId }: { text: string; sessionId?: string }) {
+  const [open, setOpen] = useState(false);
+  const preview = oneLine(
+    text.replace(/^\s*(?:#{1,6}|>|[-*+]|\d+\.)\s+/gm, '').replace(/\*\*|__|`/g, ''),
+    200
+  );
   return (
-    <>
-      <AgentRoutineBody item={item} />
-      {sessionId && (
+    <div className="mx-bot-fold">
+      <div className="mx-bot-fold-pill">
+        <span className="mx-bot-fold-preview">{preview}</span>
+        <button type="button" className="mx-routine-more" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? t('Show less') : t('View message')}
+        </button>
+      </div>
+      {open && (
+        <article className="message assistant settled mx-bot-fold-body">
+          <div className="message-body">
+            <MarkdownBody text={text} copyControl={CopyControl} />
+          </div>
+        </article>
+      )}
+      {open && sessionId && (
         <button
           type="button"
           className="mx-routine-more"
@@ -345,7 +365,7 @@ export function AgentBotReplyBody({ item, sessionId }: { item: TranscriptItem; s
           {t('View full reply')}
         </button>
       )}
-    </>
+    </div>
   );
 }
 

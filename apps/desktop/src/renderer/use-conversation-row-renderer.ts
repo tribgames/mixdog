@@ -23,7 +23,7 @@ import {
   turnEndToolItems,
 } from './agent-chat-place';
 import {
-  AgentBotReplyBody,
+  AgentBotFolded,
   AgentBotSent,
   AgentChatRow,
   AgentRoutineBody,
@@ -296,14 +296,8 @@ function chatRowBody({
   plain: () => ReactNode;
 }): ReactNode {
   if (routine) return createElement(AgentRoutineCard, { runs, sessionId: disclosureScope });
-  if (botMessage) {
-    return createElement(AgentRoutineBody, {
-      item: { ...botMessage, text: stripAgentMessageEnvelope(botMessage.text) },
-    });
-  }
-  if (botReply && item) {
-    return createElement(AgentBotReplyBody, { item: { ...item, text: botReply.text }, sessionId: botReply.sessionId });
-  }
+  if (botMessage) return createElement(AgentBotFolded, { text: stripAgentMessageEnvelope(botMessage.text) });
+  if (botReply && item) return createElement(AgentBotFolded, { text: botReply.text, sessionId: botReply.sessionId });
   if (item && agentPlaced && item.kind === 'notice' && !item.room) return createElement(AgentRoutineBody, { item });
   return plain();
 }
