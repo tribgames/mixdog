@@ -36,7 +36,7 @@ test('a media-session change refreshes an SVG preview URL without touching its u
   let dirty = false;
   let previewState = null;
   const noop = () => undefined;
-  const stable = { notifyReady: noop, readModel: () => model, markDirty: (d) => { dirty = d; }, deleteBackup: async () => undefined, resetDocument: () => 0, setError: noop, setSaveError: noop, setRevertError: noop, setPreviewLoaded: noop, setPreviewError: noop, setRecovery: noop, setDiskChanged: noop, setContentRevision: noop, setDocumentPreview: noop, setDocumentError: noop };
+  const stable = { notifyReady: noop, readModel: () => model, markDirty: (d) => { dirty = d; }, deleteBackup: async () => undefined, resetDocument: () => 0, setError: noop, setSaveError: noop, setRevertError: noop, setPreviewLoaded: noop, setPreviewError: noop, setRecovery: noop, setDiskChanged: noop, setContentRevision: noop, setDocumentPreview: noop, setDocumentError: noop, setDocumentOfficeMissing: noop };
   function Probe() {
     const [preview, setPreview] = React.useState(null);
     previewState = preview;

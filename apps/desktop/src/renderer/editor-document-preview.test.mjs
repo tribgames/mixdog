@@ -345,3 +345,194 @@ test('a failed batch keeps the pages that arrived and Retry re-requests just tha
     await act(async () => root.unmount());
   }
 });
+
+// ---- Office preview: "Install LibreOffice" in the failure note ----
+const { EditorPaneFileFallback } = await import('./editor-pane-surfaces.tsx');
+const { resetOfficeInstall } = await import('./editor-office-install.ts');
+const { storeDesktopStatus } = await import('./settings/desktop-status-cache.ts');
+
+async function mountFallback(api, relPath) {
+  window.mixdogDesktop = api;
+  function Harness() {
+    const editorRef = useRef(null);
+    const syncLspRef = useRef(async () => false);
+    const session = useEditorFileSession({
+      editorRef,
+      projectPath: 'C:/Project/demo',
+      relPath,
+      active: true,
+      editorSettings: {},
+      notifyReady() {},
+      onDirty() {},
+      syncLspRef,
+    });
+    if (session.documentPreview) return React.createElement('p', { id: 'pages' }, 'pages');
+    if (!session.load) return null;
+    return React.createElement(EditorPaneFileFallback, {
+      breadcrumbs: null,
+      load: session.load,
+      note: session.documentError,
+      officeMissing: session.documentOfficeMissing,
+      onRetry: session.documentError ? session.reload : undefined,
+      onOpen() {},
+    });
+  }
+  const host = document.createElement('div');
+  document.querySelector('main').append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(React.createElement(Harness)));
+  return { root, host };
+}
+
+function officeApi({ failure, install }) {
+  const calls = { previews: 0, installs: 0 };
+  let installed = false;
+  const api = {
+    previewDocumentPages: async (_p, _r, _a, options) => {
+      calls.previews += 1;
+      if (!installed) throw new Error(failure);
+      return { format: 'docx', mtimeMs: 1, size: 1, pageCount: 1, pages: options.pages.map(renderedPage) };
+    },
+    installLibreOffice: async () => {
+      calls.installs += 1;
+      const result = await install();
+      installed = result.installed;
+      return result;
+    },
+    libreOfficeStatus: async () => ({ installed }),
+    readProjectFile: async () => ({ content: '', mtimeMs: 11, binary: true, tooLarge: false, encoding: 'utf8' }),
+    readEditorBackup: async () => null,
+  };
+  return { api, calls };
+}
+
+const buttons = (host) => [...host.querySelectorAll('.editor-pane-notice-actions button')];
+const installButton = (host) => host.querySelector('.editor-pane-notice button.primary');
+
+test('Install LibreOffice shows only when no Office engine was found', async (t) => {
+  surface(t, true);
+  resetOfficeInstall();
+  const missing = officeApi({
+    failure: 'OFFICE_PREVIEW_UNAVAILABLE: no engine',
+    install: async () => ({ installed: true }),
+  });
+  const first = await mountFallback(missing.api, 'docs/a.docx');
+  const other = officeApi({ failure: 'converter missing', install: async () => ({ installed: true }) });
+  const second = await mountFallback(other.api, 'docs/b.docx');
+  try {
+    assert.match(installButton(first.host).textContent, /Install LibreOffice/);
+    assert.match(first.host.textContent, /Microsoft Office works too/);
+    assert.equal(installButton(second.host), null, 'another failure offers no install');
+    assert.equal(buttons(second.host).length, 2);
+  } finally {
+    await act(async () => first.root.unmount());
+    await act(async () => second.root.unmount());
+  }
+});
+
+test('Install LibreOffice runs the guided install, then retries the preview', async (t) => {
+  surface(t, true);
+  resetOfficeInstall();
+  let finish;
+  const { api, calls } = officeApi({
+    failure: 'OFFICE_PREVIEW_UNAVAILABLE: no engine',
+    install: () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ installed: true, version: '25.2' });
+      }),
+  });
+  const { root, host } = await mountFallback(api, 'docs/a.docx');
+  try {
+    await act(async () => installButton(host).click());
+    assert.equal(calls.installs, 1);
+    assert.match(installButton(host).textContent, /Installing…/);
+    assert.equal(installButton(host).disabled, true);
+    assert.ok(
+      buttons(host).every((button) => button.disabled),
+      'every button waits for the install'
+    );
+    assert.match(host.textContent, /few minutes/);
+    const previewsBefore = calls.previews;
+    await act(async () => finish());
+    assert.equal(calls.previews, previewsBefore + 1, 'success retries the preview');
+    assert.ok(host.querySelector('#pages'), 'the retried preview renders');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('a failed install shows the error and offers Install again', async (t) => {
+  surface(t, true);
+  resetOfficeInstall();
+  const { api, calls } = officeApi({
+    failure: 'OFFICE_PREVIEW_UNAVAILABLE: no engine',
+    install: async () => {
+      throw new Error('winget exited with 1');
+    },
+  });
+  const { root, host } = await mountFallback(api, 'docs/a.docx');
+  try {
+    await act(async () => installButton(host).click());
+    assert.match(host.textContent, /winget exited with 1/);
+    assert.match(host.textContent, /Extensions → Built-in → Office/);
+    assert.match(installButton(host).textContent, /Install again/);
+    assert.equal(installButton(host).disabled, false);
+    assert.equal(calls.previews, 1, 'a failed install does not retry the preview');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('the phone surface hides the install button', async (t) => {
+  surface(t);
+  resetOfficeInstall();
+  const { api } = officeApi({
+    failure: 'OFFICE_PREVIEW_UNAVAILABLE: no engine',
+    install: async () => ({ installed: true }),
+  });
+  const desktop = await mountFallback(api, 'docs/a.docx');
+  document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
+  t.after(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
+  const phone = await mountFallback(api, 'docs/b.docx');
+  try {
+    assert.ok(installButton(desktop.host), 'the same failure offers the button without the phone marker');
+    assert.equal(installButton(phone.host), null);
+    assert.ok(phone.host.querySelector('.editor-pane-notice'), 'the note itself stays');
+  } finally {
+    await act(async () => desktop.root.unmount());
+    await act(async () => phone.root.unmount());
+  }
+});
+
+test('an install done elsewhere clears the failure and retries the failed pane', async (t) => {
+  surface(t, true);
+  resetOfficeInstall();
+  const { api, calls } = officeApi({
+    failure: 'OFFICE_PREVIEW_UNAVAILABLE: no engine',
+    install: async () => {
+      throw new Error('winget exited with 1');
+    },
+  });
+  const { root, host } = await mountFallback(api, 'docs/a.docx');
+  try {
+    await act(async () => installButton(host).click());
+    assert.match(installButton(host).textContent, /Install again/);
+    const previewsBefore = calls.previews;
+    // Settings (or a fresh status read) records LibreOffice as installed.
+    api.previewDocumentPages = async (_p, _r, _a, options) => ({
+      format: 'docx',
+      mtimeMs: 1,
+      size: 1,
+      pageCount: 1,
+      pages: options.pages.map(renderedPage),
+    });
+    await act(async () => {
+      storeDesktopStatus(api, 'libreOffice', { installed: true });
+    });
+    assert.equal(calls.installs, 1, 'the pane did not install again');
+    assert.ok(host.querySelector('#pages'), 'the failed pane retried and now renders');
+    assert.equal(calls.previews, previewsBefore, 'the retry used the replaced reader');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
