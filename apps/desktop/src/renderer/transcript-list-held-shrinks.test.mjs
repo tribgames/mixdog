@@ -285,6 +285,46 @@ test('a followed pending row that outgrows its estimate takes its box in the sam
   assert.equal(frames.length > 0, true, 'the parse still settles the real box');
 });
 
+test("a followed settled row's pending box lands as it is; only a reader's row keeps its estimate", async (t) => {
+  const { root, document, window } = installTestDom(t, { rootId: 'root' });
+  window.requestAnimationFrame = () => 1;
+  window.cancelAnimationFrame = () => {};
+  const { useProvisionalRowResize } = await import('./transcript-list-provisional-resize.ts');
+  // A finished reply mounted while its markdown parses (opening a chat): no
+  // streaming message, the fallback already at the parsed height.
+  const reply = pendingReplyElement(document);
+  reply.element.querySelector('.message').classList.remove('streaming');
+  const keys = ['prompt', 'reply'];
+  const core = (anchorTo) => ({
+    options: { anchorTo, followOnAppend: false, count: 2, getItemKey: (index) => keys[index] },
+    elementsCache: new Map([['reply', reply.element]]),
+    itemSizeCache: new Map([['prompt', 66]]),
+    resizeItem(index, size) {
+      this.itemSizeCache.set(keys[index], size);
+    },
+  });
+  const followed = core('end');
+  const reading = core('start');
+  function Harness({ virtualizer }) {
+    const virtualizerRef = useRef(virtualizer);
+    // A shape median learned from a taller reply of the same shape.
+    const heldEstimates = useRef(new Map([['reply', 119]]));
+    const fallbackEstimates = useRef(new Set());
+    useProvisionalRowResize({ virtualizer, virtualizerRef, heldEstimates, fallbackEstimates });
+    return null;
+  }
+  for (const virtualizer of [followed, reading]) {
+    virtualizer.resizeItem = virtualizer.resizeItem.bind(virtualizer);
+    await act(async () =>
+      root.render(React.createElement(Harness, { virtualizer, key: virtualizer.options.anchorTo }))
+    );
+  }
+  followed.resizeItem(1, 79);
+  reading.resizeItem(1, 79);
+  assert.equal(followed.itemSizeCache.get('reply'), 79, 'the pinned tail never paints the row at its estimate');
+  assert.equal(reading.itemSizeCache.get('reply'), 119, 'a row above a reader keeps its estimate until parsed');
+});
+
 function fakeVirtualizer(log) {
   return {
     options: { anchorTo: 'end', followOnAppend: true, scrollEndThreshold: SCROLL_END_THRESHOLD_PX },

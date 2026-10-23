@@ -70,7 +70,8 @@ export function useMountedRowMeasurement({
       // All rects are read before any row's held height is written: writing
       // inside the read loop invalidated style, so every next read forced
       // another style/layout pass (one per mounted row).
-      const sizes = mounted.map((row) => Math.round(row.getBoundingClientRect().height));
+      const boxes = mounted.map((row) => row.getBoundingClientRect());
+      const sizes = boxes.map((box) => Math.round(box.height));
       mounted.forEach((row, position) => {
         rememberRowHeight(row, sizes[position] ?? 0);
       });
@@ -79,7 +80,18 @@ export function useMountedRowMeasurement({
         const size = sizes[position] ?? 0;
         const key = row.dataset.timelineKey as string;
         const at = indexForPendingKey(key, Number(row.dataset.index));
-        if (size <= 0 || at < 0 || instance.itemSizeCache.get(key) === size) return;
+        // A laid-out row (it has a width) that paints nothing is 0px: an
+        // agent chat's reaction-only reply renders null below its row div.
+        // Its ResizeObserver never reports that box (a row that mounts at
+        // zero height has no size change to deliver), so skipping it here
+        // left the row at its estimate for good: a 60px blank gap under the
+        // reacted prompt. That holds while it is pending too (its turn's
+        // changes card unread): the card resolves to nothing without
+        // changing the box, so nothing would measure it again, and one that
+        // does paint is a box change its observer reports. Only a hidden
+        // pane (no width) keeps the size the timeline holds.
+        const collapsed = size === 0 && Number(boxes[position]?.width) > 0;
+        if ((size <= 0 && !collapsed) || at < 0 || instance.itemSizeCache.get(key) === size) return;
         // A row whose height its estimate already had (the learned shape is
         // often exact) changes no geometry, and virtual-core's resize records
         // no size for a zero delta: the row stayed unmeasured, so every later

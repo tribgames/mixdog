@@ -32,10 +32,14 @@ function installLayout(dom, heights) {
   viewport.scrollTo = ({ top: next }) => {
     viewport.scrollTop = next;
   };
-  // A row's box, for the landing's synchronous measurement.
+  // A row's box, for the landing's synchronous measurement. A row without a
+  // height has no box yet (no width either); a laid-out row that paints
+  // nothing is one set to 0.
   dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    const known = this === viewport || heights.has(this.dataset?.timelineKey);
     const height = this === viewport ? VIEWPORT : (heights.get(this.dataset?.timelineKey) ?? 0);
-    return { top: 0, bottom: height, height, left: 0, right: 600, width: 600, x: 0, y: 0 };
+    const width = known ? 600 : 0;
+    return { top: 0, bottom: height, height, left: 0, right: width, width, x: 0, y: 0 };
   };
   const observers = new Set();
   class FakeResizeObserver {

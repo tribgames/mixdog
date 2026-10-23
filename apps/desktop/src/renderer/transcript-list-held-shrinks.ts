@@ -19,6 +19,11 @@ type HeldShrinkHost = Pick<
  *  provisional resize writes into the size cache while markdown is pending
  *  is no measurement either: only a slot the core took from an observed size
  *  (`measured`) is held. */
+/** Whether a mounted row element holds a reply that is still streaming. */
+export function rowIsStreaming(element: Element | undefined): boolean {
+  return Boolean(element?.isConnected && element.querySelector('.message.streaming'));
+}
+
 export function createHeldRowShrinks() {
   /** Held row key → its latest actual size. */
   const latest = new Map<unknown, number>();
@@ -26,10 +31,7 @@ export function createHeldRowShrinks() {
   const real = new Map<unknown, number>();
   // A size being landed by settle() goes straight through the resize path.
   let landing = false;
-  const streaming = (host: HeldShrinkHost, key: unknown) => {
-    const element = host.elementsCache.get(key as never);
-    return Boolean(element?.isConnected && element.querySelector('.message.streaming'));
-  };
+  const streaming = (host: HeldShrinkHost, key: unknown) => rowIsStreaming(host.elementsCache.get(key as never));
   return {
     get size() {
       return latest.size;
