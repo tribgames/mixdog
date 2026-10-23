@@ -24,7 +24,7 @@ import { showsResponseFooter, TranscriptResponseFooter, TranscriptRow } from './
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
-import { AskUserRecord, splitAskUser } from './ask-user-record';
+import { AskUserRecord, askUserCardKey, splitAskUser } from './ask-user-record';
 import { PreviewedTurnChangesCard } from './transcript-visualize-card';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
@@ -477,7 +477,11 @@ export function transcriptRowNode(
   if (row._tag === 'ToolActivity') {
     // Questions leave the tool roll-up: a waiting one is the live card, an
     // answered one stays as its summary.
-    const { rest, asked, waiting } = splitAskUser(row.items, Boolean(questionCard));
+    // Exactly one call holds the card (askUserCardKey).
+    const cardKey = questionCard
+      ? askUserCardKey(settledItems, String(snapshot.toolApproval?.toolCallId ?? ''))
+      : undefined;
+    const { rest, asked, waiting } = splitAskUser(row.items, cardKey !== undefined, cardKey);
     if (!asked.length && !waiting) {
       return quietTools ? null : (
         <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />

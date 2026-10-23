@@ -31,7 +31,7 @@ import {
   AgentRoutineTrigger,
   AgentTypingRow,
 } from './agent-chat-row';
-import { splitAskUser } from './ask-user-record';
+import { askUserCardKey, splitAskUser } from './ask-user-record';
 import { BrowserPeekLine, SavedSignInLines, lastBrowserRoundOfTurn, savedSignInSites } from './browser-peek-line';
 import { ConnectorChatCard, connectorCardIds } from './connector-card';
 import { useRoomContacts } from './agent-room-parts';
@@ -194,17 +194,18 @@ function toolRoundAside(
     connectorCards,
     sentLines,
     asideRow,
-    asking,
+    cardKey,
     disclosureScope,
   }: {
     connectorCards: ReactNode;
     sentLines: ReactNode;
     asideRow: (children: ReactNode) => ReactNode;
-    asking: boolean;
+    /** The call holding the live card (askUserCardKey); undefined: no card. */
+    cardKey: string | undefined;
     disclosureScope: string;
   }
 ): ReactNode | undefined {
-  const { asked, waiting } = splitAskUser(items, asking);
+  const { asked, waiting } = splitAskUser(items, cardKey !== undefined, cardKey);
   if (asked.length || waiting) return undefined;
   const withSent = (node: ReactNode): ReactNode => (sentLines ? createElement(Fragment, null, sentLines, node) : node);
   if (connectorCards) return withSent(asideRow(connectorCards));
@@ -346,6 +347,10 @@ export function useConversationRowRenderer({
   }, [settledItems]);
   const retryDisabled = Boolean(snapshot.busy) || transitioning;
   const { label } = useRoomContacts(agentMode);
+  // The one call the live card sits at; every placement decision shares it.
+  const cardKey = questionCard
+    ? askUserCardKey(settledItems, String(snapshot.toolApproval?.toolCallId ?? ''))
+    : undefined;
   const homeAgent = agentIdOfHomeSession(disclosureScope) || MIXY_AGENT_ID;
   // A room's members type through its own typing rows.
   const inRoom = Boolean(roomIdOfSession(disclosureScope));
@@ -412,6 +417,7 @@ export function useConversationRowRenderer({
       inRoom,
       roomTyping,
       questionCard,
+      cardKey,
       disclosureScope,
       connectorCards,
     });
@@ -434,6 +440,7 @@ function agentChatRow(
     inRoom,
     roomTyping,
     questionCard,
+    cardKey,
     disclosureScope,
     connectorCards,
   }: {
@@ -444,6 +451,7 @@ function agentChatRow(
     inRoom: boolean;
     roomTyping: ReturnType<typeof useRoomTyping>;
     questionCard: ReactNode;
+    cardKey: string | undefined;
     disclosureScope: string;
     connectorCards: ReactNode;
   }
@@ -462,7 +470,7 @@ function agentChatRow(
     const member = label(speaker);
     return createElement(AgentTypingRow, {
       member: item.room.name ? { ...member, name: item.room.name } : member,
-      lead: agentTypingLead(rows, index, speaker),
+      lead: agentTypingLead(rows, index, speaker, cardKey),
     });
   }
   // A quiet pass paints nothing: no empty bubble row (its gap shook the
@@ -491,7 +499,7 @@ function agentChatRow(
       connectorCards,
       sentLines,
       asideRow,
-      asking: Boolean(questionCard),
+      cardKey,
       disclosureScope,
     });
     if (aside !== undefined) return aside;
@@ -500,7 +508,7 @@ function agentChatRow(
   if (row._tag === 'UserMessage' && chatRoutineTriggerOf(row.item)) {
     return asideRow(createElement(AgentRoutineTrigger, { item: row.item, sessionId: disclosureScope }));
   }
-  const place = agentChatPlace(rows, index);
+  const place = agentChatPlace(rows, index, cardKey);
   const speaker = place?.side === 'agent' ? place.speaker || homeAgent : '';
   const member = speaker ? label(speaker) : null;
   const named = member && item?.room?.name ? { ...member, name: item.room.name } : member;
@@ -512,10 +520,10 @@ function agentChatRow(
   // latest result (the earlier rows fold into it); an old result row
   // without its marker reads as the agent's own words.
   const routine = chatRoutineOf(item);
-  const group = routine ? routineGroupOf(rows, index) : null;
+  const group = routine ? routineGroupOf(rows, index, cardKey) : null;
   if (group && group.at(-1) !== index) return null;
   const runs = group?.map((at) => (rows[at] as { item: TranscriptItem }).item) ?? [];
-  const cardPlace = group && place ? { ...place, first: agentChatPlace(rows, group[0])?.first ?? place.first } : place;
+  const cardPlace = group && place ? { ...place, first: agentChatPlace(rows, group[0], cardKey)?.first ?? place.first } : place;
   // Another bot's message into this chat, or its answer to this chat's own
   // send, is that bot's bubble (place.bot), never the user's.
   const botMessage = row._tag === 'UserMessage' && place?.bot ? row.item : undefined;

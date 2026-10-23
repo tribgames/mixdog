@@ -40,7 +40,13 @@ export function QuestionCard({
    *  stays disabled until the approval leaves the snapshot). */
   resolve: (decision: QuestionDecision) => Promise<unknown>;
 }) {
-  const [state, setState] = useState<QuestionState>(() => initQuestionState(questions));
+  // A remounted card (its row moved, the list re-keyed) resumes from the
+  // parent's drafts, which belong to this approval alone.
+  const [state, setState] = useState<QuestionState>(() => {
+    const fresh = initQuestionState(questions);
+    const kept = draftsRef?.current;
+    return kept?.length === fresh.drafts.length ? { ...fresh, drafts: kept } : fresh;
+  });
   // The ref is advanced with the same transition as the state, so a second
   // click or key before React re-renders still builds on the first one.
   const stateRef = useRef(state);

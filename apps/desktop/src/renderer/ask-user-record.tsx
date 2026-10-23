@@ -27,17 +27,44 @@ export function holdsWaitingAskUser(item: TranscriptItem): boolean {
   return members.some(isWaitingAskUser);
 }
 
+/** The tool call an ask_user item stands for: a standalone row's `callId`, a
+ *  roll-up member's `id`. */
+const askUserKey = (item: TranscriptItem): string => String(item.callId ?? item.id ?? '');
+
+/** The one ask_user call the live card belongs to, shared by every place that
+ *  decides where the card sits: the call the pending approval names (the card
+ *  waits for its row even if it has not arrived yet, instead of landing on
+ *  another call), else, only for an approval that names none, the newest
+ *  waiting call. An older call left without a result never gets a second
+ *  card. Undefined when no card has a place. */
+export function askUserCardKey(items: readonly TranscriptItem[], callId: string): string | undefined {
+  if (callId) return callId;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    const members =
+      item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
+    for (let at = members.length - 1; at >= 0; at -= 1) {
+      if (isWaitingAskUser(members[at])) return askUserKey(members[at]);
+    }
+  }
+  return undefined;
+}
+
 /** A tool row's items with its questions taken out (also from inside a
  *  roll-up): answered ones render as summaries after what is left, and a
- *  waiting one as the live card when `hasCard`. */
+ *  waiting one as the live card when `hasCard` (only the one keyed `cardKey`
+ *  when given). */
 export function splitAskUser(
   items: readonly TranscriptItem[],
-  hasCard: boolean
+  hasCard: boolean,
+  cardKey?: string
 ): { rest: TranscriptItem[]; asked: TranscriptItem[]; waiting: boolean } {
   const rest: TranscriptItem[] = [];
   const asked: TranscriptItem[] = [];
   let waiting = false;
-  const taken = (item: TranscriptItem) => isAnsweredAskUser(item) || (hasCard && isWaitingAskUser(item));
+  const taken = (item: TranscriptItem) =>
+    isAnsweredAskUser(item) ||
+    (hasCard && isWaitingAskUser(item) && (cardKey === undefined || askUserKey(item) === cardKey));
   for (const item of items) {
     const members =
       item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];

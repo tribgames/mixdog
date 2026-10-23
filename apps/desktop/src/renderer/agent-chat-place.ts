@@ -198,12 +198,13 @@ type Sender = { side: AgentChatSide; speaker: string; source?: string; bot?: boo
 
 /** null: a row that neither groups nor breaks a group (tool rounds, the live
  *  band, turn gaps). */
-function rowSender(row: TranscriptRowModel | undefined): Sender | null {
+function rowSender(row: TranscriptRowModel | undefined, cardKey?: string): Sender | null {
   if (!row || row._tag === 'TurnGap' || row._tag === 'Thinking') return null;
   // Tool rounds stay out of a chat; a question card among them is a card
-  // between the runs.
+  // between the runs. Only the call holding the live card (`cardKey`,
+  // askUserCardKey) is one; any other waiting call paints nothing.
   if (row._tag === 'ToolActivity') {
-    const { asked, waiting } = splitAskUser(row.items, true);
+    const { asked, waiting } = splitAskUser(row.items, cardKey !== undefined, cardKey);
     return asked.length || waiting ? { side: 'aside', speaker: '' } : null;
   }
   // A routine fire's turn opens with its marker row, not a user bubble; a
@@ -251,9 +252,14 @@ const dayOf = (at: number) => new Date(at).toDateString();
 /** Whether the typing bubble at `rows[index]` (the live band, or a room's
  *  typing row) opens its own run under `speaker`'s face and name: it does
  *  unless that agent's words are right above it. */
-export function agentTypingLead(rows: readonly TranscriptRowModel[], index: number, speaker: string): boolean {
+export function agentTypingLead(
+  rows: readonly TranscriptRowModel[],
+  index: number,
+  speaker: string,
+  cardKey?: string
+): boolean {
   for (let back = index - 1; back >= 0; back -= 1) {
-    const sender = rowSender(rows[back]);
+    const sender = rowSender(rows[back], cardKey);
     if (!sender || sender.side === 'hidden') continue;
     return !(sender.side === 'agent' && sender.speaker === speaker && !sender.source);
   }
@@ -284,13 +290,17 @@ export function agentReplyUnfinished(live: boolean | undefined, item: Transcript
 /** The routine run `rows[index]` belongs to, as the indexes of its card:
  *  every consecutive result of one routine (rows outside the grouping in
  *  between are skipped), oldest first. null for any other row. */
-export function routineGroupOf(rows: readonly TranscriptRowModel[], index: number): number[] | null {
-  const source = rowSender(rows[index])?.source;
+export function routineGroupOf(
+  rows: readonly TranscriptRowModel[],
+  index: number,
+  cardKey?: string
+): number[] | null {
+  const source = rowSender(rows[index], cardKey)?.source;
   if (!source) return null;
   const members = [index];
   for (const step of [-1, 1]) {
     for (let next = index + step; next >= 0 && next < rows.length; next += step) {
-      const sender = rowSender(rows[next]);
+      const sender = rowSender(rows[next], cardKey);
       if (!sender || sender.side === 'hidden') continue;
       if (sender.source !== source) break;
       members.push(next);
@@ -330,13 +340,17 @@ export function turnEndToolItems(rows: readonly TranscriptRowModel[], index: num
 }
 
 /** The chat place of `rows[index]`; null for a row outside the grouping. */
-export function agentChatPlace(rows: readonly TranscriptRowModel[], index: number): AgentChatPlace | null {
-  const own = rowSender(rows[index]);
+export function agentChatPlace(
+  rows: readonly TranscriptRowModel[],
+  index: number,
+  cardKey?: string
+): AgentChatPlace | null {
+  const own = rowSender(rows[index], cardKey);
   if (!own) return null;
   const at = rowTime(rows[index]);
   const neighbour = (step: number) => {
     for (let next = index + step; next >= 0 && next < rows.length; next += step) {
-      const sender = rowSender(rows[next]);
+      const sender = rowSender(rows[next], cardKey);
       if (sender && sender.side !== 'hidden') return sender;
     }
     return null;
