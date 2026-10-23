@@ -482,7 +482,14 @@ function selectParameterizedCursorVariant(group, requested, sendOpts = {}) {
   const parameters = { ...(defaultVariant?.parameters || {}), ...aliasParameters };
   const routeParameters =
     sendOpts.modelParameters && typeof sendOpts.modelParameters === 'object' ? sendOpts.modelParameters : {};
+  // The window picked the mode above: a stored `context` no variant of that
+  // mode offers (a 256k left beside a raised 500K window) is a stale value and
+  // yields to the mode's own; one the mode offers stays the user's choice.
+  const staleContext =
+    Object.hasOwn(routeParameters, 'context') &&
+    !availableVariants.some((variant) => String(variant.parameters?.context ?? '') === String(routeParameters.context));
   for (const definition of group.definitions) {
+    if (staleContext && definition.id === 'context') continue;
     if (Object.hasOwn(routeParameters, definition.id)) {
       parameters[definition.id] = String(routeParameters[definition.id]);
     }

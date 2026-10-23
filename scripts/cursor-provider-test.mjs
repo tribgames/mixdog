@@ -296,7 +296,8 @@ test('Cursor parameterized catalog preserves model options and sends RequestedMo
   const selection = __cursorModelInternals.selectParameterizedCursorVariant(
     catalog.parameterGroups.get('claude-opus-5'),
     { baseId: 'claude-opus-5' },
-    { effort: 'low', fast: false, modelParameters: { thinking: 'true', context: '1m' } }
+    // A served window (no Max mode here) never drops a deliberately chosen non-default context.
+    { effort: 'low', fast: false, selectedContextWindow: 300_000, modelParameters: { thinking: 'true', context: '1m' } }
   );
   assert.deepEqual(selection, {
     modelId: 'claude-opus-5',
@@ -470,6 +471,15 @@ test('Cursor Max mode selects its mode-specific default variant', async () => {
     parameters: [{ id: 'context', value: '1m' }],
     maxMode: true,
   });
+  // A stale smaller `context` left on the route yields to the selected window.
+  assert.deepEqual(
+    __cursorModelInternals.selectParameterizedCursorVariant(
+      catalog.parameterGroups.get('mode-specific'),
+      { baseId: 'mode-specific' },
+      { selectedContextWindow: 1_000_000, modelParameters: { context: '200k' } }
+    ),
+    selection
+  );
   let body = null;
   const provider = new CursorOAuthProvider({
     accessToken: 'cursor-oauth-access',
