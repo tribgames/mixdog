@@ -411,14 +411,11 @@ test('linux fallback: a value saved without a keychain stays readable once a key
     });
     // "Restart" with a reachable, unlocked keychain that holds only `both`.
     await withLinuxKeychain(
-      (args) =>
-        args[0] === '__probe'
-          ? { items: [{ account: 'both' }] }
-          : args[0] === 'lookup'
-            ? args[4] === 'both'
-              ? { stdout: 'keychain-value' }
-              : { code: 1 }
-            : { code: 0 },
+      (args) => {
+        if (args[0] === '__probe') return { items: [{ account: 'both' }] };
+        if (args[0] === 'lookup') return args[4] === 'both' ? { stdout: 'keychain-value' } : { code: 1 };
+        return { code: 0 };
+      },
       { MIXDOG_DATA_DIR: dataDir },
       async (keychain) => {
         await keychain.prewarmSecrets();
