@@ -177,6 +177,7 @@ function handleComposerPaste(
 function switchComposerIdentity({
   identityScope,
   previousScope,
+  switchingSessions,
   textarea,
   draftRef,
   composingRef,
@@ -194,6 +195,7 @@ function switchComposerIdentity({
 }: {
   identityScope: string;
   previousScope: string;
+  switchingSessions: boolean;
   textarea: { current: HTMLTextAreaElement | null };
   draftRef: { current: string };
   composingRef: { current: boolean };
@@ -252,6 +254,7 @@ function switchComposerIdentity({
       freshDraft,
       typingLive,
       stashedDraft: stashedComposerDraft(identityScope),
+      switchingSessions,
     });
     draftRef.current = next;
     return next;
@@ -410,6 +413,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   }, []);
   const [composerFocused, setComposerFocused] = useState(false);
   const activeIdentityScope = useRef(identityScope);
+  // The session the current identity belongs to ('' for a New Task or a
+  // session not resolved yet), read when the identity next moves.
+  const activeSessionId = useRef(sessionId || '');
   const recoveryScopeRef = useRef(recoveryScope);
   recoveryScopeRef.current = recoveryScope;
   const skillSelection = useComposerSkill(identityScope);
@@ -663,9 +669,12 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     if (activeIdentityScope.current === identityScope) return;
     const previousScope = activeIdentityScope.current;
     activeIdentityScope.current = identityScope;
+    const leavingSessionId = activeSessionId.current;
+    activeSessionId.current = sessionId || '';
     switchComposerIdentity({
       identityScope,
       previousScope,
+      switchingSessions: Boolean(leavingSessionId && sessionId && leavingSessionId !== sessionId),
       textarea,
       draftRef,
       composingRef,

@@ -29,6 +29,32 @@ test('focused web composer keeps the native value across a scope snapshot', () =
   );
 });
 
+test('a focused composer leaves its text behind when switching to another existing session', () => {
+  assert.equal(
+    composerDraftAfterScopeChange({
+      currentDraft: 'A-only draft',
+      liveDomDraft: 'A-only draft',
+      freshDraft: false,
+      typingLive: true,
+      switchingSessions: true,
+    }),
+    ''
+  );
+  stashComposerDraft('session-b', 'B draft');
+  assert.equal(
+    composerDraftAfterScopeChange({
+      currentDraft: 'A-only draft',
+      liveDomDraft: 'A-only draft',
+      freshDraft: false,
+      typingLive: true,
+      switchingSessions: true,
+      stashedDraft: stashedComposerDraft('session-b'),
+    }),
+    'B draft'
+  );
+  stashComposerDraft('session-b', '');
+});
+
 test('inactive composer still clears a draft when its scope changes', () => {
   assert.equal(
     composerDraftAfterScopeChange({

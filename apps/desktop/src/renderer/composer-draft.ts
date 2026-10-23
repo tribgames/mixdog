@@ -201,6 +201,7 @@ export function composerDraftAfterScopeChange({
   freshDraft,
   typingLive,
   stashedDraft = '',
+  switchingSessions = false,
 }: {
   currentDraft: string;
   liveDomDraft: string;
@@ -209,9 +210,12 @@ export function composerDraftAfterScopeChange({
   /** Text the target tab parked when the user left it; it wins because the
    *  user is RETURNING to that tab, not opening a new one. */
   stashedDraft?: string;
+  /** One existing session to another: the text typed in the first stays
+   *  parked with it, even with the textarea focused across the switch. */
+  switchingSessions?: boolean;
 }): string {
   if (stashedDraft.trim()) return stashedDraft;
-  if (freshDraft) return '';
+  if (freshDraft || switchingSessions) return '';
   const candidate = typingLive ? liveDomDraft : currentDraft;
   return typingLive && candidate.trim() ? candidate : '';
 }
