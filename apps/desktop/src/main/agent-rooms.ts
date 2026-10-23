@@ -229,9 +229,32 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   const records = createRoomRecords(deps);
   const { loadRecords, ready: recordsReady, refreshNames, memberLabels, persist, roomOf, names } = records;
   const running = new Map<string, RunState>();
+  /** Per room, the send/ask requests still on their way to route(): Stop
+   *  cancels them even when no exchange runs yet. */
+  type IntakeRequest = { stopped: boolean; release(): void };
+  const intakes = new Map<string, Set<IntakeRequest>>();
   const roomLog = createRoomLog(deps, records.rooms);
   const post = roomLog.post;
   const roomRows = roomLog.rows;
+
+  /** Runs one send/ask with its own cancellation latch, registered before the
+   *  first await; it is released when the request reaches route() or fails. */
+  async function intake<T>(roomId: string, run: (request: IntakeRequest) => Promise<T>): Promise<T> {
+    const pending = intakes.get(roomId) ?? new Set<IntakeRequest>();
+    const request: IntakeRequest = {
+      stopped: false,
+      release() {
+        if (pending.delete(request) && !pending.size) intakes.delete(roomId);
+      },
+    };
+    pending.add(request);
+    intakes.set(roomId, pending);
+    try {
+      return await run(request);
+    } finally {
+      request.release();
+    }
+  }
 
   /** The member's own session in the room, created on first use. Whether the
    *  member still belongs is checked in the room writes' queue, the one a
@@ -594,11 +617,20 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   /** A message the user sent into the room (any surface's composer), with the
    *  files it carries: image and file parts, and the pasted / attached texts
    *  its tokens name (`pasted`, the submit options' side tables). */
-  async function send(
+  const send = (
     sessionId: string,
     prompt: DesktopPromptContent,
     submissionId = '',
     pasted: Pick<DesktopSubmitOptions, 'pastedImages' | 'pastedTexts'> = {}
+  ): Promise<boolean> =>
+    intake(roomIdOfSession(sessionId), (request) => acceptSend(request, sessionId, prompt, submissionId, pasted));
+
+  async function acceptSend(
+    request: IntakeRequest,
+    sessionId: string,
+    prompt: DesktopPromptContent,
+    submissionId: string,
+    pasted: Pick<DesktopSubmitOptions, 'pastedImages' | 'pastedTexts'>
   ): Promise<boolean> {
     await ready();
     const roomId = roomIdOfSession(sessionId);
@@ -632,7 +664,8 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // Taken up as soon as the row is in the log, before the save yields: a
     // member's older answer cannot land meanwhile, and a second message never
     // starts an exchange of its own beside this one.
-    route(roomId, { to: parsed.to, waiting: true });
+    if (!request.stopped) route(roomId, { to: parsed.to, waiting: true });
+    request.release();
     await persist();
     deps.republishCatalog();
     return true;
@@ -673,7 +706,11 @@ export function createAgentRooms(deps: AgentRoomDeps) {
    *  `agentId` alone: posted as a user-kind row naming its real sender, then
    *  routed like a user message to that member, and no other member follows
    *  up. `id` / `onSettled`: the member's turn's submission id and end. */
-  async function ask(
+  const ask = (sessionId: string, options: Parameters<AgentRoomHost['ask']>[1]): Promise<boolean> =>
+    intake(roomIdOfSession(sessionId), (request) => acceptAsk(request, sessionId, options));
+
+  async function acceptAsk(
+    request: IntakeRequest,
     sessionId: string,
     { agentId, prompt, from, id = '', hop = 0, onSettled, follow }: Parameters<AgentRoomHost['ask']>[1]
   ): Promise<boolean> {
@@ -710,7 +747,9 @@ export function createAgentRooms(deps: AgentRoomDeps) {
       ...(onSettled ? { onSettled } : {}),
       ...(follow ? { follow } : {}),
     };
-    route(roomId, { to: [agentId], waiting: true, only: true, calls: [call] });
+    if (request.stopped) onSettled?.({ status: 'cancelled' });
+    else route(roomId, { to: [agentId], waiting: true, only: true, calls: [call] });
+    request.release();
     await persist();
     deps.republishCatalog();
     return true;
@@ -766,9 +805,12 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   /** The stop button: the speaking member's turn is cancelled and no one
    *  else gets a turn, not even a relay held back. */
   function stop(sessionId: string): boolean {
-    dropRelays(roomIdOfSession(sessionId));
-    const state = running.get(roomIdOfSession(sessionId));
-    if (!state) return false;
+    const roomId = roomIdOfSession(sessionId);
+    dropRelays(roomId);
+    const incoming = intakes.get(roomId);
+    for (const request of incoming ?? []) request.stopped = true;
+    const state = running.get(roomId);
+    if (!state) return Boolean(incoming?.size);
     state.stop = true;
     for (const call of state.pending?.calls ?? []) call.onSettled?.({ status: 'cancelled' });
     state.pending = null;

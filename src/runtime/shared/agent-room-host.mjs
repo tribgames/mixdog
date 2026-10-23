@@ -30,7 +30,7 @@ function hosts() {
  *   resolves the turn's end status ('done' when it finished).
  * - `stop(roomSessionId)` → boolean: the room's stop button: the speaking
  *   member's turn is cancelled, queued calls settle cancelled, and no one else
- *   gets a turn; true when an exchange was running.
+ *   gets a turn; true when an exchange or incoming request was cancelled.
  * `hop`: the send's or report's place in a bot-to-bot chain (bot-hops.mjs);
  * the member's turn carries it, so the sends it makes count on from there.
  * `follow(submissionId)` (both): the turn that answers is submitted under
