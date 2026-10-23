@@ -40,6 +40,9 @@ updates:
       # @tiptap/extension-mathematics peers katex up to 0.18 only.
       - dependency-name: "katex"
         versions: [">=0.19.0"]
+      # Native: the SSH server install pins it (remote-bootstrap.ts) and the
+      # runtime ships its prebuilt; bumped by hand with both.
+      - dependency-name: "@homebridge/node-pty-prebuilt-multiarch"
       # 0.57 moved the esm paths monaco-setup.ts and monaco-locale.ts import.
       - dependency-name: "monaco-editor"
         versions: [">=0.56.0"]

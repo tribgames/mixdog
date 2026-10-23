@@ -67,7 +67,7 @@
     "i18n:check": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
-    "@homebridge/node-pty-prebuilt-multiarch": "^0.14.1",
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "electron-updater": "^6.8.9",
     "koffi": "^3.3.3",
     "vscode-jsonrpc": "8.2.1",
