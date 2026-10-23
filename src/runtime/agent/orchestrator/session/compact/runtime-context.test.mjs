@@ -26,6 +26,25 @@ test('in-turn Compact keeps an agent told when the latest turn keeps its agent l
   assert.deepEqual(announcedAgents({ messages: result.messages }), [{ id: 'agent_w', name: 'worker' }]);
 });
 
+test('the summary input never splits an emoji at a chunk or outcome cut (a lone surrogate is invalid request JSON)', () => {
+  const messages = [
+    { role: 'user', content: `${'a'.repeat(1599)}🙏${'b'.repeat(10)}` },
+    { role: 'assistant', content: 'Ran it.', toolCalls: [{ id: 'c1', name: 'shell', arguments: '{}' }] },
+    { role: 'tool', toolCallId: 'c1', content: `${'x'.repeat(299)}🙏${'y'.repeat(50)}` },
+    { role: 'user', content: 'Latest request.' },
+  ];
+  const rows = conversationCompactionInput(messages, { summary: true });
+  for (const row of rows) assert.ok(String(row.content).isWellFormed(), JSON.stringify(row.content).slice(-40));
+  // Nothing is lost: the chunks still join back to the original text.
+  assert.equal(
+    rows
+      .filter((row) => row.role === 'user')
+      .map((row) => row.content)
+      .join(''),
+    messages[0].content
+  );
+});
+
 const literal = 'Keep this XML:\n```xml\n<system-reminder>USER_XML</system-reminder>\n```\n';
 const suffix = '\n\n<system-reminder>\nOLD_RUNTIME_NOISE\n</system-reminder>';
 
