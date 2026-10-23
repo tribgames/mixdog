@@ -591,6 +591,25 @@ test('reset is refused while members are speaking', async () => {
   await h.idle(roomId);
 });
 
+test('a switched-off member stays in the room but takes no new turn; switched back on it is called again', async () => {
+  const agents = AGENTS.map((row) => ({ ...row }));
+  const h = harness({ agents, decide: () => ({ action: 'unmanaged' }) });
+  const { sessionId, roomId } = await room(h);
+  agents[1].disabled = true;
+  await h.rooms.send(sessionId, '얘들아');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'bench']
+  );
+  await assert.rejects(h.rooms.send(sessionId, '/ask rel only you'), /No member of this room has that name/);
+  assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'rel', 'bench'], 'membership is kept');
+  agents[1].disabled = false;
+  await h.rooms.send(sessionId, '/ask rel back?');
+  await h.idle(roomId);
+  assert.equal(h.prompts.at(-1).agentId, 'rel');
+});
+
 test('/ask gives only the addressed member a turn', async () => {
   const h = harness();
   const { sessionId, roomId } = await room(h);

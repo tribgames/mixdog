@@ -68,7 +68,7 @@ export function createRoomRecords(deps: Pick<AgentRoomDeps, 'store' | 'listAgent
   const mixyName = async () => (await deps.leadName?.().catch(() => '')) || 'Mixy';
 
   async function memberLabels(room: AgentRoomRecord): Promise<Map<string, MemberLabel>> {
-    const rows = contactAgentRows(await deps.listAgents().catch(() => []));
+    const rows = contactAgentRows(await deps.listAgents().catch(() => []), { includeDisabled: true });
     const labels = new Map<string, MemberLabel>();
     const lead = room.members.includes(MIXY_AGENT_ID) ? await mixyName() : '';
     for (const id of room.members) {
@@ -79,10 +79,14 @@ export function createRoomRecords(deps: Pick<AgentRoomDeps, 'store' | 'listAgent
       if (row) names.set(id, name);
       const rowDescription = row ? agentDescription(row) : '';
       const description = isLead ? "The user's main assistant." : rowDescription;
-      labels.set(id, { id, name, route: row?.route, description });
+      labels.set(id, { id, name, route: row?.route, description, ...(row?.disabled === true ? { disabled: true } : {}) });
     }
     return labels;
   }
+
+  /** The members that may take a new turn: switched-off bots stay members but never speak. */
+  const speakingMembers = (labels: Map<string, MemberLabel>): MemberLabel[] =>
+    [...labels.values()].filter((member) => !member.disabled);
 
   return {
     /** The loaded rooms by id (the live map: changes are saved by `persist`). */
@@ -92,6 +96,7 @@ export function createRoomRecords(deps: Pick<AgentRoomDeps, 'store' | 'listAgent
     ready,
     refreshNames,
     memberLabels,
+    speakingMembers,
     persist: () => deps.store.save(doc),
     roomOf(roomId: string): AgentRoomRecord {
       const room = doc.rooms[roomId];

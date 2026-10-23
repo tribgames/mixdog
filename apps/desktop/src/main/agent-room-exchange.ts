@@ -178,14 +178,16 @@ async function exchangeTurns(
   try {
     if (waiting === undefined) state.waiting = roomUserWaiting(await host.rows());
     const labels = await host.labels(room);
-    const members = room.members.map((id) => labels.get(id) ?? { id, name: id, route: undefined, description: '' });
+    // A switched-off bot stays a member but takes no new turn.
+    const speaking = room.members.filter((id) => labels.get(id)?.disabled !== true);
+    const members = speaking.map((id) => labels.get(id) ?? { id, name: id, route: undefined, description: '' });
     const result = await runRoomExchange({
-      members: room.members,
+      members: speaking,
       to,
       maxRounds: room.maxRounds,
       // A user-addressed set keeps the full cap; a free exchange stops at a
       // budget drawn each time, so it does not always end at the same count.
-      maxMessages: to.length ? room.maxMessages : roomMessageBudget(room.members.length, room.maxMessages, host.random),
+      maxMessages: to.length ? room.maxMessages : roomMessageBudget(speaking.length, room.maxMessages, host.random),
       // A member's turn answers every call waiting on it; a turn a newer
       // message cut short hands them back, for the next exchange.
       speak: async (agentId, turn) => {

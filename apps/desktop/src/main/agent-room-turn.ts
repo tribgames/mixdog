@@ -77,6 +77,8 @@ export interface MemberLabel {
   name: string;
   route: unknown;
   description: string;
+  /** Switched off: still a member (name, session, history), but never a new speaker. */
+  disabled?: boolean;
 }
 
 /** What a member's turn needs from the room host, bound to one room. */

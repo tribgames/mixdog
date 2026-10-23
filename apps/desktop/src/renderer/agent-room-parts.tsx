@@ -2,6 +2,7 @@
 // face from the contacts), the tiled room face, and one member's face.
 import { useMemo } from 'react';
 import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { contactAgentRows } from '../shared/agent-contacts';
 import { AgentAvatar } from './agent-avatar';
 import type { AvatarMotionState } from './avatar-motion';
 import { type AgentContact, agentContacts } from './agent-contacts-model';
@@ -25,7 +26,7 @@ export function useRoomContacts(
   active = true,
   /** The room's own name map (host-resolved), for an agent the contacts cache has not caught up with. */
   memberNames?: Readonly<Record<string, string>>
-): { contacts: AgentContact[]; label(id: string): RoomMemberLabel } {
+): { contacts: AgentContact[]; label(id: string): RoomMemberLabel; disabled: ReadonlySet<string> } {
   // Outside a room (a composer, a coding transcript) nothing loads.
   const { values } = useSidebarReferences(window.mixdogDesktop, CONTACT_KEYS, active, false);
   // A deleted bot (its read-only chat) keeps the name and face it left.
@@ -33,8 +34,15 @@ export function useRoomContacts(
   return useMemo(() => {
     const contacts = agentContacts(values.agents, NO_SESSIONS, NO_GROUPS);
     const byId = new Map(contacts.map((contact) => [contact.agentId, contact]));
+    // Switched-off bots: still room members, never a new message's target.
+    const disabled = new Set(
+      contactAgentRows(values.agents, { includeDisabled: true })
+        .filter((row) => row.disabled === true)
+        .map((row) => row.id)
+    );
     return {
       contacts,
+      disabled,
       label: (id: string): RoomMemberLabel => {
         const contact = byId.get(id) ?? archived.get(id);
         return contact

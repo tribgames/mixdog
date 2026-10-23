@@ -227,7 +227,8 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   const pollMs = deps.pollMs ?? 500;
   const log = deps.log ?? ((line: string) => console.warn(`[mixdog-rooms] ${line}`));
   const records = createRoomRecords(deps);
-  const { loadRecords, ready: recordsReady, refreshNames, memberLabels, persist, roomOf, names } = records;
+  const { loadRecords, ready: recordsReady, refreshNames, memberLabels, speakingMembers, persist, roomOf, names } =
+    records;
   const running = new Map<string, RunState>();
   /** Per room, the send/ask requests still on their way to route(): Stop
    *  cancels them even when no exchange runs yet. */
@@ -639,7 +640,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // accepted before — this process or an earlier one — is acknowledged once.
     if (submissionId && room.submissions?.includes(submissionId)) return true;
     const labels = await memberLabels(room);
-    const parsed = parseRoomAsk(promptText(prompt), [...labels.values()]);
+    const parsed = parseRoomAsk(promptText(prompt), speakingMembers(labels));
     if (parsed.error === 'member') throw new Error('No member of this room has that name.');
     // The files go up with the row: the log's intake stores them as a chat
     // prompt's are (agent-room-delivery.mjs), and the members the message
@@ -682,7 +683,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const roomId = roomIdOfSession(sessionId);
     const room = roomOf(roomId);
     const labels = await memberLabels(room);
-    const members = [...labels.values()];
+    const members = speakingMembers(labels);
     const named = typeof to === 'string' ? to.trim() : '';
     let text = typeof prompt === 'string' ? prompt.trim() : '';
     let agentId = roomMemberNamed(named, members);
@@ -719,6 +720,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const room = roomOf(roomId);
     if (!room.members.includes(agentId)) throw new Error(`"${agentId}" is not a member of room "${room.name}".`);
     const labels = await memberLabels(room);
+    if (labels.get(agentId)?.disabled) throw new Error(`"${labels.get(agentId)?.name ?? agentId}" is switched off.`);
     const content = prompt as DesktopPromptContent;
     const upload = roomUpload(content, {});
     const text = promptText(content);

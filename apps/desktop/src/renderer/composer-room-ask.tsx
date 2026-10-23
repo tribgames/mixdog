@@ -10,11 +10,15 @@ import { ComposerPalette } from './ComposerPalette';
 import { t } from './i18n';
 import type { DesktopPromptContent } from '../shared/contract';
 
-/** The members of the room `sessionId` is the log of; null elsewhere. */
+/** The members of the room `sessionId` is the log of that a new message can
+ *  address (switched-off bots left out); null elsewhere. */
 export function useComposerRoomMembers(sessionId?: string): RoomMemberLabel[] | null {
   const room = useAgentRoom(sessionId);
-  const { label } = useRoomContacts(Boolean(room), room?.memberNames);
-  return useMemo(() => (room ? room.members.map(label) : null), [room, label]);
+  const { label, disabled } = useRoomContacts(Boolean(room), room?.memberNames);
+  return useMemo(
+    () => (room ? room.members.filter((id) => !disabled.has(id)).map(label) : null),
+    [room, label, disabled]
+  );
 }
 
 /** The members a draft's `/ask <agent>[, <agent>…]` already names, in order. */
