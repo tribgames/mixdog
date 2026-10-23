@@ -1743,7 +1743,7 @@
   "Evaporating": "蒸發",
   "Even pace": "均勻節奏",
   "Every {{day}} at {{time}}": "每個 {{day}} 在 {{time}}",
-  "Every 2 hours, checks your bots and sessions and lets you know only when something needs attention.": "每 2 小時檢查機器人和工作階段，只有需要注意時才會提醒。",
+  "Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.": "每 30 分鐘檢查機器人和工作階段，只有需要注意時才會提醒。",
   "Every defined agent is available to this workflow.": "此工作流程可使用所有已定義的代理。",
   "Every device approved so far loses access and must be approved again.": "迄今為止核准的所有裝置都將失去存取權，必須重新核准。",
   "Every provider enabled on this PC": "此電腦上已啟用的所有供應商",

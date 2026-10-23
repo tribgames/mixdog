@@ -1,11 +1,13 @@
 /**
- * Mixy's heartbeat: every 2 hours, one check of what changed since the last
- * one, in three stages that each stop as early as they can.
- *  1. Collect (no model): a bounded digest of sessions with new activity
- *     (Mixy's own chat only for turns the user sent there; never the
- *     heartbeat's hidden sessions, which start no work of their own), agent
- *     task sessions that finished or stalled, approvals waiting and routines
- *     that keep failing. A failing routine is reported once, then at most
+ * Mixy's heartbeat: every 30 minutes, one check of what changed since the
+ * last one, in three stages that each stop as early as they can.
+ *  1. Collect (no model): a bounded digest of sessions the user talks in with
+ *     new activity (Mixy's own chat only for turns the user sent there; never
+ *     the heartbeat's hidden sessions, exec or memory runs, or a Lead's
+ *     delegated agents), agent task sessions that finished or stalled,
+ *     approvals waiting and routines that keep failing. Sessions and finished
+ *     tasks past the digest's bounds wait in a backlog and come first in the
+ *     next check. A failing routine is reported once, then at most
  *     every 6 hours while it still fails (once when it switched itself off);
  *     a success closes it.
  *  2. Gate: a digest equal to the last check's, or an empty one, ends the
@@ -61,7 +63,7 @@ import { activityOf, isWorking, quotedText, scanCatalog, sessionBotOf } from './
 
 const HOUR = 60 * 60_000;
 export const HEARTBEAT_LIMITS = Object.freeze({
-  intervalMs: 2 * HOUR,
+  intervalMs: 30 * 60_000,
   firstTickMs: 60_000,
   tickMs: 5 * 60_000,
   idleMs: 10 * 60_000,
@@ -76,6 +78,8 @@ export const HEARTBEAT_LIMITS = Object.freeze({
 const SCAN_ROWS = 400;
 const MAX_UNRELEASED = 20;
 const MAX_LINES = { routine: 10, task: 8, session: 8 };
+/** Sessions and finished tasks kept for later checks, each list. */
+const MAX_BACKLOG = 40;
 const TEXT_LIMIT = 120;
 const DIGEST_LIMIT = 4000;
 const SUGGESTION_LIMIT = 300;
@@ -115,7 +119,14 @@ function readState(path) {
     dismissed: Array.isArray(value.dismissed) ? value.dismissed.filter((key) => typeof key === 'string') : [],
     // Hidden sessions whose close did not land; each tick closes them again.
     unreleased: Array.isArray(value.unreleased) ? value.unreleased.filter((id) => typeof id === 'string') : [],
+    // Sessions and finished tasks a handled check had no room for.
+    sessionBacklog: backlogRows(value.sessionBacklog),
+    taskBacklog: backlogRows(value.taskBacklog),
   };
+}
+
+function backlogRows(value) {
+  return Array.isArray(value) ? value.filter((row) => typeof row?.id === 'string').slice(0, MAX_BACKLOG) : [];
 }
 
 /** One synchronous read-modify-write of the state file: Mixy's proposals land
@@ -222,9 +233,10 @@ export async function collectHeartbeatFacts({
     const entry = { id: row.id, bot, title: row.title, preview: row.lastMessagePreview || row.preview };
     if (!bot || agentIdOfHomeSession(row.id)) {
       // Mixy's chat counts by the user's turns there (composeDigest): her
-      // posted heartbeat replies are no activity.
+      // posted heartbeat replies are no activity. Only a session the user
+      // talks in: never an exec or memory run or a Lead's delegated agent.
       const turns = row.id === MIXY_HOME && Number.isInteger(row.realTurnCount) ? { userTurns: row.realTurnCount } : {};
-      if (at > since) sessions.push({ ...entry, ...turns });
+      if (at > since && userFacing(row)) sessions.push({ ...entry, ...turns });
     } else if (busy(row)) {
       if (at && at < now - HEARTBEAT_LIMITS.stallMs) tasks.push({ ...entry, state: 'stalled' });
     } else if (at > since) tasks.push({ ...entry, state: 'finished' });
@@ -261,8 +273,11 @@ export async function latestUserActivityAt(service) {
 
 /**
  * The digest lines of `facts` (bounded) over `state` (read only), the
- * routine items among them, the routines to close (a success, or gone) and
- * the user's turn count in Mixy's chat to keep (`mixyTurns`, when known).
+ * routine items among them, the routines to close (a success, or gone), the
+ * user's turn count in Mixy's chat to keep (`mixyTurns`, when known) and the
+ * sessions and finished tasks it had no room for (`backlog`): a handled check
+ * keeps them, and the next one shows them before what is newer, so none is
+ * skipped for good.
  */
 export function composeDigest(facts, state, at) {
   const routines = [];
@@ -301,24 +316,63 @@ export function composeDigest(facts, state, at) {
   const reported = routines.slice(0, MAX_LINES.routine).filter((routine) => add(routine.text));
   const approvals = Number(facts.approvals) || 0;
   if (approvals > 0) add(`${approvals} approval${approvals === 1 ? '' : 's'} waiting for the user`);
-  for (const task of (facts.tasks || []).slice(0, MAX_LINES.task)) {
+  // Up to `limit` rows get a line (while the size bound allows); the others are left.
+  const show = (rows, limit, line) => {
+    const left = [];
+    let shown = 0;
+    for (const row of rows) {
+      if (shown < limit && add(line(row))) shown += 1;
+      else left.push(row);
+    }
+    return left;
+  };
+  const tasksLeft = show(withBacklog(facts.tasks || [], state.taskBacklog), MAX_LINES.task, (task) => {
     const what =
       task.state === 'stalled' ? 'has shown no activity for over an hour while working' : 'finished';
     const preview = task.state === 'finished' && task.preview ? `, last: "${quotedText(task.preview, TEXT_LIMIT)}"` : '';
-    add(`task session ${task.id} of bot ${task.bot} ${what}: "${quotedText(task.title, TEXT_LIMIT)}"${preview}`);
-  }
+    return `task session ${task.id} of bot ${task.bot} ${what}: "${quotedText(task.title, TEXT_LIMIT)}"${preview}`;
+  });
   let mixyTurns;
   const sessions = (facts.sessions || []).filter((session) => {
     if (!Number.isInteger(session.userTurns)) return true;
     mixyTurns = session.userTurns;
     return session.userTurns > (state.mixyTurns ?? -1);
   });
-  for (const session of sessions.slice(0, MAX_LINES.session)) {
+  const sessionsLeft = show(withBacklog(sessions, state.sessionBacklog), MAX_LINES.session, (session) => {
     const owner = session.bot ? ` (bot ${session.bot})` : '';
     const preview = session.preview ? `, last: "${quotedText(session.preview, TEXT_LIMIT)}"` : '';
-    add(`new activity in ${session.id}${owner}: "${quotedText(session.title, TEXT_LIMIT)}"${preview}`);
-  }
-  return { lines, routines: reported, closed, ...(mixyTurns === undefined ? {} : { mixyTurns }) };
+    return `new activity in ${session.id}${owner}: "${quotedText(session.title, TEXT_LIMIT)}"${preview}`;
+  });
+  return {
+    lines,
+    routines: reported,
+    closed,
+    ...(mixyTurns === undefined ? {} : { mixyTurns }),
+    backlog: {
+      // A stalled task is collected again while it still works.
+      tasks: backlogEntries(tasksLeft.filter((task) => task.state === 'finished')),
+      sessions: backlogEntries(sessionsLeft),
+    },
+  };
+}
+
+/** The backlog's rows first (in the newest form `fresh` has of them), then
+ *  the fresh rows it does not hold. */
+function withBacklog(fresh, backlog = []) {
+  const current = new Map(fresh.map((row) => [row.id, row]));
+  const rows = backlog.map((row) => current.get(row.id) ?? row);
+  const held = new Set(rows.map((row) => row.id));
+  return [...rows, ...fresh.filter((row) => !held.has(row.id))];
+}
+
+function backlogEntries(rows) {
+  return rows.slice(0, MAX_BACKLOG).map(({ id, bot, title, preview, state }) => ({
+    id,
+    bot,
+    title,
+    preview,
+    ...(state ? { state } : {}),
+  }));
 }
 
 /** Whether a heartbeat turn's reply is exactly the quiet sentinel. */
@@ -514,6 +568,8 @@ export function createMixyHeartbeat({
           next.lastBeatAt = at;
           next.lastHash = hash;
           if (digest.mixyTurns !== undefined) next.mixyTurns = digest.mixyTurns;
+          next.sessionBacklog = digest.backlog.sessions;
+          next.taskBacklog = digest.backlog.tasks;
         }
         for (const key of digest.closed) delete next.routines[key];
         for (const routine of reported) next.routines[routine.key] = { at, paused: routine.paused };

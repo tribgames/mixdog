@@ -1743,7 +1743,7 @@
   "Evaporating": "Bay hơi",
   "Even pace": "Nhịp đều",
   "Every {{day}} at {{time}}": "Mọi {{day}} tại {{time}}",
-  "Every 2 hours, checks your bots and sessions and lets you know only when something needs attention.": "Cứ 2 giờ kiểm tra bot và phiên; chỉ báo khi có việc cần chú ý.",
+  "Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.": "Cứ 30 phút kiểm tra bot và phiên; chỉ báo khi có việc cần chú ý.",
   "Every defined agent is available to this workflow.": "Mọi agent đã định nghĩa đều khả dụng cho quy trình này.",
   "Every device approved so far loses access and must be approved again.": "Tất cả các thiết bị đã được phê duyệt cho đến nay sẽ mất quyền truy cập và phải được phê duyệt lại.",
   "Every provider enabled on this PC": "Tất cả nhà cung cấp đã bật trên PC này",

@@ -44,8 +44,12 @@ const failing = (failures, enabled = true) =>
   facts({ routines: [{ kind: 'schedule', name: 'daily-news', enabled, failures }] });
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
+/** A cadence of 2 hours: the scripted timelines below are written in it. */
+const TWO_HOURLY = Object.freeze({ ...HEARTBEAT_LIMITS, intervalMs: 2 * HOUR });
+
 /** A heartbeat over fakes: clock, stores, Maintainer and Mixy's wake. */
-function harness(t, { state: initial = {}, decide = () => ({ action: 'nothing' }), wake = null } = {}) {
+function harness(t, { state: initial = {}, decide = () => ({ action: 'nothing' }), wake = null, limits } = {}) {
+  const interval = limits?.intervalMs ?? INTERVAL;
   const path = join(tempDir(t), 'heartbeat.json');
   let clock = T0;
   const state = { facts: activity, routeKey: 'fake/tiny/', enabled: true, userTurnAt: 0, ...initial };
@@ -72,6 +76,7 @@ function harness(t, { state: initial = {}, decide = () => ({ action: 'nothing' }
       },
       notify: async (text) => calls.notify.push(text),
       log: (line) => calls.logs.push(line),
+      ...(limits ? { limits } : {}),
       ...overrides,
     });
   let heartbeat = build();
@@ -85,14 +90,25 @@ function harness(t, { state: initial = {}, decide = () => ({ action: 'nothing' }
     state,
     path,
     at: () => clock,
-    advance: (ms = INTERVAL) => (clock += ms),
+    advance: (ms = interval) => (clock += ms),
     /** Arm at T0 and move to the first due check. */
     async arm() {
       assert.equal(await heartbeat.tick(), 'armed');
-      clock += INTERVAL;
+      clock += interval;
     },
   };
 }
+
+test('checks run every 30 minutes by default, never sooner', async (t) => {
+  assert.equal(INTERVAL, 30 * MINUTE);
+  const h = harness(t);
+  await h.arm();
+  assert.equal(await h.tick(), 'nothing');
+  h.advance(INTERVAL - MINUTE);
+  assert.equal(await h.tick(), 'waiting');
+  h.advance(MINUTE);
+  assert.equal(await h.tick(), 'unchanged');
+});
 
 test('an unchanged digest makes no Maintainer call; its "nothing" wakes no one; an empty digest stops too', async (t) => {
   const h = harness(t);
@@ -628,6 +644,10 @@ test("collection counts the user's turns in Mixy's chat but never the heartbeat'
     { id: 'sess_t1', sourceName: 'agent:reviewer@home', lastUsedAt: since + MINUTE, title: 'Fix', preview: 'Done' },
     { id: 'sess_t2', sourceName: 'agent:reviewer', working: true, lastUsedAt: now - 2 * HOUR, title: 'Long' },
     { id: 'sess_old', lastUsedAt: since - HOUR, title: 'Old' },
+    // Internal runs and a Lead's delegated agent are no session the user talks in.
+    { id: 'sess_mem', sourceType: 'memory-cycle', owner: 'agent', lastUsedAt: now - MINUTE, title: 'Length target' },
+    { id: 'sess_exec', sourceType: 'exec', sourceName: 'cli', lastUsedAt: now - MINUTE, title: 'Run' },
+    { id: 'sess_worker', owner: 'agent', visibility: 'agent-only', lastUsedAt: now - MINUTE, title: 'Worker' },
   ];
   const service = {
     listSessionCatalog: async () => ({ sessions: rows, nextCursor: null }),
@@ -774,6 +794,8 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
       },
       notify: async (text) => notices.push(text),
       log: () => {},
+      // The week's script is written in 2-hour checks.
+      limits: TWO_HOURLY,
     });
   let heartbeat = build();
   const wakeReply = () => 'WAKE\n- daily-news keeps failing';
@@ -848,7 +870,10 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
 
   // Pacing: no two checks closer than 2 hours, none begun while the user was active or away.
   for (let index = 1; index < collects.length; index += 1) {
-    assert.ok(collects[index].now - collects[index - 1].now >= INTERVAL, `checks ${index - 1} and ${index} are 2 hours apart`);
+    assert.ok(
+      collects[index].now - collects[index - 1].now >= TWO_HOURLY.intervalMs,
+      `checks ${index - 1} and ${index} are 2 hours apart`
+    );
   }
   assert.equal(collects.filter((c) => c.minute > at(48) && c.minute < at(58, 10)).length, 0, 'none while the user chatted');
   assert.equal(collects.filter((c) => c.minute > at(60, 10) && c.minute < at(98)).length, 0, 'none while no process ran');
@@ -912,7 +937,7 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
 });
 
 test('with the Maintainer off a failing routine is told once, again only after 6 hours, closed by a success; a pause is told once', async (t) => {
-  const h = harness(t, { state: { routeKey: '', facts: failing(3) } });
+  const h = harness(t, { state: { routeKey: '', facts: failing(3) }, limits: TWO_HOURLY });
   await h.arm();
   const step = async (next, outcome) => {
     h.state.facts = next;
@@ -1040,7 +1065,7 @@ test('proposals are kept one line and bounded, and a malformed key changes nothi
 test('open proposals reach the Maintainer and Mixy, expired ones do not; declined ones reach both after a restart', async (t) => {
   const h = harness(t, { decide: () => ({ action: 'wake', items: ['look at the proposals'] }) });
   const record = (input, now) => recordSuggestion(input, { path: h.path, now: () => now });
-  record({ key: 'pause-routine:expired', text: 'old' }, T0 - 71 * HOUR); // 73 hours old at the first check
+  record({ key: 'pause-routine:expired', text: 'old' }, T0 + INTERVAL - 73 * HOUR); // 73 hours old at the first check
   record({ key: 'create-routine:weekly', text: 'A weekly review' }, T0);
   record({ key: 'create-skill:notes', text: 'Notes' }, T0);
   record({ key: 'create-skill:notes', dismissed: true }, T0);
@@ -1085,6 +1110,65 @@ test('digest bounds: 10 routine, 8 task and 8 session lines, approvals counted, 
     next.routines.map((routine) => routine.key),
     many(10, (i) => `schedule:r${i + 10}`)
   );
+});
+
+test('digest bounds: sessions and finished tasks past the bounds wait in a backlog and come first next time', () => {
+  const many = (count, make) => Array.from({ length: count }, (_, index) => make(index));
+  const crowd = facts({
+    tasks: many(10, (i) => ({ id: `sess_t${i}`, bot: 'reviewer', title: `Task ${i}`, preview: 'done', state: 'finished' })),
+    sessions: many(10, (i) => ({ id: `sess_s${i}`, bot: '', title: `Session ${i}`, preview: 'p' })),
+  });
+  const first = composeDigest(crowd, { routines: {} }, T0);
+  assert.deepEqual(
+    first.backlog.sessions.map((row) => row.id),
+    ['sess_s8', 'sess_s9']
+  );
+  assert.deepEqual(
+    first.backlog.tasks.map((row) => row.id),
+    ['sess_t8', 'sess_t9']
+  );
+  // The next check collects only what changed since: one new session, a newer
+  // preview of a waiting one. The waiting ones come first, in their newest form.
+  const later = facts({
+    sessions: [
+      { id: 'sess_new', bot: '', title: 'New', preview: 'n' },
+      { id: 'sess_s9', bot: '', title: 'Session 9', preview: 'newer' },
+    ],
+  });
+  const next = composeDigest(
+    later,
+    { routines: {}, sessionBacklog: first.backlog.sessions, taskBacklog: first.backlog.tasks },
+    T0 + HOUR
+  );
+  assert.deepEqual(next.lines, [
+    'task session sess_t8 of bot reviewer finished: "Task 8", last: "done"',
+    'task session sess_t9 of bot reviewer finished: "Task 9", last: "done"',
+    'new activity in sess_s8: "Session 8", last: "p"',
+    'new activity in sess_s9: "Session 9", last: "newer"',
+    'new activity in sess_new: "New", last: "n"',
+  ]);
+  assert.deepEqual(next.backlog, { tasks: [], sessions: [] });
+});
+
+test('a handled check keeps the backlog; the next check reports it', async (t) => {
+  const many = (count, make) => Array.from({ length: count }, (_, index) => make(index));
+  const sessions = many(10, (i) => ({ id: `sess_s${i}`, bot: '', title: `Session ${i}`, preview: 'p' }));
+  const h = harness(t, { state: { facts: facts({ sessions }) } });
+  await h.arm();
+  assert.equal(await h.tick(), 'nothing');
+  assert.deepEqual(
+    readJson(h.path).sessionBacklog.map((row) => row.id),
+    ['sess_s8', 'sess_s9']
+  );
+  // Nothing new since: the backlog alone makes the next digest.
+  h.state.facts = facts();
+  h.advance();
+  assert.equal(await h.tick(), 'nothing');
+  assert.deepEqual(h.calls.decide.at(-1).digest, [
+    'new activity in sess_s8: "Session 8", last: "p"',
+    'new activity in sess_s9: "Session 9", last: "p"',
+  ]);
+  assert.deepEqual(readJson(h.path).sessionBacklog, []);
 });
 
 test('digest bounds: 4000 characters in all, the most urgent lines first', () => {

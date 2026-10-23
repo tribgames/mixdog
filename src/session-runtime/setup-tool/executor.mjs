@@ -44,7 +44,7 @@ const ACTION_APPLIES_TO = {
     "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
   set_recap_enabled: 'background Memory cycles; no restart required',
   set_auto_update: 'subsequent automatic update checks',
-  set_heartbeat_enabled: "Mixy's next heartbeat check (every 2 hours); no restart required",
+  set_heartbeat_enabled: "Mixy's next heartbeat check (every 30 minutes); no restart required",
   set_reactions_enabled:
     "bots' chats; while off a reaction is refused at once and new chats are not offered the tool; reactions already left stay visible",
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',

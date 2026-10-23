@@ -1843,7 +1843,7 @@
   "Evaporating": "Évaporation",
   "Even pace": "Rythme régulier",
   "Every {{day}} at {{time}}": "Tous les {{day}} à {{time}}",
-  "Every 2 hours, checks your bots and sessions and lets you know only when something needs attention.": "Toutes les 2 heures, vérifie vos bots et sessions et ne vous prévient que si quelque chose demande votre attention.",
+  "Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.": "Toutes les 30 minutes, vérifie vos bots et sessions et ne vous prévient que si quelque chose demande votre attention.",
   "Every defined agent is available to this workflow.": "Chaque agent défini est disponible pour ce workflow.",
   "Every device approved so far loses access and must be approved again.": "Tous les appareils approuvés jusqu'à présent perdent leur accès et doivent être approuvés à nouveau.",
   "Every provider enabled on this PC": "Tous les fournisseurs activés sur ce PC",

@@ -1743,7 +1743,7 @@
   "Evaporating": "날아가는 중",
   "Even pace": "적정 속도",
   "Every {{day}} at {{time}}": "매주 {{day}} {{time}}",
-  "Every 2 hours, checks your bots and sessions and lets you know only when something needs attention.": "2시간마다 봇과 세션을 확인하고, 살펴볼 일이 있을 때만 알려 줍니다.",
+  "Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.": "30분마다 봇과 세션을 확인하고, 살펴볼 일이 있을 때만 알려 줍니다.",
   "Every defined agent is available to this workflow.": "정의된 모든 에이전트를 이 워크플로우에서 사용할 수 있습니다.",
   "Every device approved so far loses access and must be approved again.": "지금까지 승인한 모든 기기의 접근 권한이 사라지며, 다시 승인해야 합니다.",
   "Every provider enabled on this PC": "이 PC에서 사용 설정된 모든 제공자",

@@ -282,7 +282,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
         <ToggleRow
           title={t('Regular check-ins')}
           description={t(
-            'Every 2 hours, checks your bots and sessions and lets you know only when something needs attention.'
+            'Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.'
           )}
           checked={record(data.heartbeat).heartbeat !== false}
           disabled={busy}

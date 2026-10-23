@@ -49,7 +49,7 @@ Read this when choosing a `setup` mutation.
 | Permanently delete confirmed, unchanged, unused model files | `delete_local_model` |
 | TUI system shell | `set_system_shell` |
 | Automatic updates | `set_auto_update` |
-| Mixy's heartbeat: a check every 2 hours that wakes her only when something needs attention (on by default; `status features` reports `heartbeat.enabled`) | `set_heartbeat_enabled` |
+| Mixy's heartbeat: a check every 30 minutes that wakes her only when something needs attention (on by default; `status features` reports `heartbeat.enabled`) | `set_heartbeat_enabled` |
 | Bots' emoji reactions on the user's messages (on by default; `status features` reports `reactions.enabled`) | `set_reactions_enabled` |
 | Worktree defaults: new tasks on the current branch or a new worktree, branch prefix, large-repository warning size, automatic cleanup | `set_worktree_settings` |
 | Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
