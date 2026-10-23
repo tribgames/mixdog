@@ -126,6 +126,7 @@ export function transcriptAttachmentFields(value) {
 }
 
 const REACTOR_ID = /^[A-Za-z0-9._-]{1,80}$/;
+const REACTION_EMOJI_MAX_LENGTH = 16;
 
 /**
  * The bots' reactions on a user message (`meta.transcript.reactions`):
@@ -138,9 +139,8 @@ export function normalizeMessageReactions(value) {
   for (const raw of value) {
     const agentId = typeof raw?.agentId === 'string' ? raw.agentId : '';
     const emoji = typeof raw?.emoji === 'string' ? raw.emoji : '';
-    if (!REACTOR_ID.test(agentId) || !emoji || emoji.length > 16 || out.some((entry) => entry.agentId === agentId)) {
-      continue;
-    }
+    if (!REACTOR_ID.test(agentId) || !emoji || emoji.length > REACTION_EMOJI_MAX_LENGTH) continue;
+    if (out.some((entry) => entry.agentId === agentId)) continue;
     out.push({ agentId, emoji, ...(Number.isFinite(raw.at) ? { at: raw.at } : {}) });
   }
   return out;

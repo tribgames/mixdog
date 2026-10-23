@@ -16,7 +16,12 @@ test('the reactions getter is a read capability and the setter a configure one, 
   assert.equal(SESSION_READ_ACTIONS.includes('setReactionsEnabled'), false);
   assert.equal(SESSION_CONFIGURE_ACTIONS.includes('setReactionsEnabled'), true);
   assert.equal(SESSION_CONFIGURE_ACTIONS.includes('getReactionSettings'), false);
-  for (const list of [DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES, SESSION_READ_ACTIONS, SESSION_CONFIGURE_ACTIONS]) {
+  for (const list of [
+    DESKTOP_CAPABILITIES,
+    DESKTOP_READ_CAPABILITIES,
+    SESSION_READ_ACTIONS,
+    SESSION_CONFIGURE_ACTIONS,
+  ]) {
     for (const name of ['getReactionSettings', 'setReactionsEnabled']) {
       assert.ok(list.filter((entry) => entry === name).length <= 1, name);
     }
@@ -44,7 +49,9 @@ test('getReactionSettings takes no argument; setReactionsEnabled takes exactly o
   });
   assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'getReactionSettings', args: [true] }), TypeError);
   for (const value of [true, false]) {
-    assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setReactionsEnabled', args: [value] }).args, [value]);
+    assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setReactionsEnabled', args: [value] }).args, [
+      value,
+    ]);
   }
   for (const args of [[], [true, true], ['true'], [1], [null], [{}]]) {
     assert.throws(

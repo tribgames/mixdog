@@ -62,11 +62,10 @@ export function reactToMessage(messages, { agentId, emoji, messagesBack = 0, oth
     return { previous, message: previous, messageId, reactions: current, changed: false };
   }
   const entry = { agentId, emoji, at };
-  const reactions = emoji
-    ? own
-      ? current.map((each) => (each.agentId === agentId ? entry : each))
-      : [...current, entry]
-    : current.filter((each) => each.agentId !== agentId);
+  let reactions;
+  if (!emoji) reactions = current.filter((each) => each.agentId !== agentId);
+  else if (own) reactions = current.map((each) => (each.agentId === agentId ? entry : each));
+  else reactions = [...current, entry];
   const { reactions: _old, ...rest } = transcript;
   const message = {
     ...previous,

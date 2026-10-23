@@ -5,6 +5,11 @@ type HeldShrinkHost = Pick<
   'elementsCache' | 'itemSizeCache' | 'measurementsCache' | 'options' | 'indexFromElement'
 >;
 
+/** Whether a mounted row element holds a reply that is still streaming. */
+export function rowIsStreaming(element: Element | undefined): boolean {
+  return Boolean(element?.isConnected && element.querySelector('.message.streaming'));
+}
+
 /** A streaming reply reflows shorter for a moment (a table or list re-laying
  *  out mid-stream) and grows back a few chunks later. While the tail is
  *  followed, applying that dip pulled the whole transcript DOWN and then up
@@ -19,11 +24,6 @@ type HeldShrinkHost = Pick<
  *  provisional resize writes into the size cache while markdown is pending
  *  is no measurement either: only a slot the core took from an observed size
  *  (`measured`) is held. */
-/** Whether a mounted row element holds a reply that is still streaming. */
-export function rowIsStreaming(element: Element | undefined): boolean {
-  return Boolean(element?.isConnected && element.querySelector('.message.streaming'));
-}
-
 export function createHeldRowShrinks() {
   /** Held row key → its latest actual size. */
   const latest = new Map<unknown, number>();

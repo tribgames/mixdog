@@ -27,7 +27,7 @@ function boot(sessionId, answer) {
     id: sessionId,
     session: { id: sessionId, messages: [] },
     toolMode: 'auto',
-    async ask(content, options) {
+    async ask(_content, options) {
       const run = await answer(options);
       return { result: { content: run?.result?.content || '' }, session: runtime.session };
     },
@@ -43,7 +43,7 @@ function boot(sessionId, answer) {
     nextId: () => `${sessionId}-item-${++sequence}`,
     appendItems: (items, extra) => Object.assign(state, { items: [...state.items, ...items] }, extra),
     pushItem: (item) => state.items.push(item),
-    pushUserOrSyntheticItem: (text, id, kind, extra) => state.items.push({ text, id, kind: 'user', ...extra }),
+    pushUserOrSyntheticItem: (text, id, _kind, extra) => state.items.push({ text, id, kind: 'user', ...extra }),
     patchItem: (id, patch) => Object.assign(state.items.find((item) => item.id === id) || {}, patch),
     replaceItems: (items) => items,
     tuiDebug() {},
@@ -87,7 +87,7 @@ test('a turn that only reacted ends with a reacted turndone: no reply row, no no
   assert.equal(f.state.busy, false);
 });
 
-test("a reaction reaches the live user row by its message id, so the open chat shows it without a reload", () => {
+test('a reaction reaches the live user row by its message id, so the open chat shows it without a reload', () => {
   let state = {
     items: [
       { kind: 'user', id: 'row-1', messageId: 'msg_1', text: '고마워' },
