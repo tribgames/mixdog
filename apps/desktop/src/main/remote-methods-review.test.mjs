@@ -32,6 +32,36 @@ test('a remote turn review answers its value without the session snapshot', asyn
   ]);
 });
 
+// The phone's session diff read is re-run by the scheduler; its only reader
+// (session-diff-cache) takes `.value`, so the transcript must not ride along
+// and queue ahead of the next history page.
+test('a remote session diff answers its value without the session snapshot', async (t) => {
+  const transcript = {
+    sessionId: SESSION,
+    items: Array.from({ length: 600 }, (_, index) => ({
+      kind: index % 2 ? 'assistant' : 'user',
+      id: `item-${index}`,
+      text: `${index} ${'line of a long conversation '.repeat(22)}`,
+    })),
+  };
+  const value = { supported: true, files: [{ id: 'src/a.ts', status: 'M' }], patch: '' };
+  const methods = createRemoteMethods({
+    host: {
+      async invokeCapability() {
+        return { value, snapshot: transcript };
+      },
+    },
+  });
+  const reply = await methods.invokeCapability([{ capability: 'getSessionReviewDiff', args: [], sessionId: SESSION }]);
+  assert.deepEqual(reply, { value });
+  assert.equal('snapshot' in reply, false);
+  const unshaped = JSON.stringify({ value, snapshot: transcript }).length;
+  const shaped = JSON.stringify(reply).length;
+  t.diagnostic(`getSessionReviewDiff reply: ${unshaped} bytes with snapshot, ${shaped} bytes value-only`);
+  assert.ok(unshaped > 300_000);
+  assert.ok(shaped < 500);
+});
+
 // The composer re-reads its session's skills on focus and on every skill
 // change signal; on a phone each of those would otherwise ship the transcript.
 test('a remote session skill status answers its value without the session snapshot', async () => {
