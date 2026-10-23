@@ -312,7 +312,7 @@ export function createBotStatus({
     const parts = [`${quotedText(bot.name, 40)} (${bot.id})`, `chat ${state.homeId}`];
     if (bot.self) parts.push('you');
     parts.push(state.working ? 'working' : 'idle');
-    if (state.flags.length) parts.push(`⚠ ${state.flags.join('; ')}`);
+    if (state.flags.length) parts.push(`attention: ${state.flags.join('; ')}`);
     parts.push(state.lastAt ? `last ${ago(state.lastAt, now)}` : 'no chat yet');
     if (state.running.length) {
       const [first] = state.running;

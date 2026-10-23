@@ -129,7 +129,7 @@ test('one call lists every bot in a deterministic order, the deleted one exclude
     'Mailer (mailer)',
     'chat sess_home_mailer',
     'working',
-    '⚠ 2 approvals waiting',
+    'attention: 2 approvals waiting',
     'last 5m ago',
     'task "Fix CI" 12m',
     '1 routine, next digest in 3h',
@@ -138,7 +138,7 @@ test('one call lists every bot in a deterministic order, the deleted one exclude
   assert.ok(mailer.length <= BOT_LINE_LIMIT);
   assert.equal(
     reviewer,
-    'Reviewer (reviewer) · chat sess_home_reviewer · idle · ⚠ nightly failed 3x, 2 undelivered · last 2h ago · 1 routine, next nightly in 10h · "Review done"'
+    'Reviewer (reviewer) · chat sess_home_reviewer · idle · attention: nightly failed 3x, 2 undelivered · last 2h ago · 1 routine, next nightly in 10h · "Review done"'
   );
   assert.equal(idle, 'Idle (idle) · chat sess_home_idle · idle · no chat yet');
   // Mixy shows herself only for what she has besides her chat (a routine here).
