@@ -1346,7 +1346,20 @@ test("a listed room's row time follows its latest speech, not the log's older ca
   assert.equal(row.activityAt, lastAt);
   assert.equal(row.updatedAt, lastAt);
   const newer = { ...catalogRow, updatedAt: lastAt + 50, activityAt: lastAt + 50 };
-  assert.equal(h.rooms.withRooms([newer])[0].activityAt, lastAt + 50, 'a newer catalog time is kept');
+  assert.equal(h.rooms.withRooms([newer])[0].activityAt, lastAt, 'a newer log catalog time does not move the room');
+  assert.equal(h.rooms.withRooms([newer])[0].updatedAt, lastAt);
+});
+
+test("a room lists its latest message time even when the log's catalog row is newer (housekeeping saves)", async () => {
+  const h = harness();
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, 'hello');
+  await h.idle(roomId);
+  const lastAt = h.saved.doc.rooms[roomId].lastAt;
+  const touched = { id: sessionId, title: 'x', preview: '', updatedAt: lastAt + 5000, activityAt: lastAt + 9000, messageCount: 1 };
+  const [row] = h.rooms.withRooms([touched]);
+  assert.equal(row.updatedAt, lastAt);
+  assert.equal(row.activityAt, lastAt);
 });
 
 test('a message from another session must name a member of the room: by `to`, or a leading @name', async () => {
