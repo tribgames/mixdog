@@ -18,17 +18,16 @@ const positiveInt = (value) => {
 
 /**
  * The per-model ceiling: the declared catalog limit (`outputLimit` from a
- * provider roster first, then the shared catalog, then `gatewayLimit` — the
- * limit a relay gateway declared for the model), else null (nothing known,
- * nothing imposed).
+ * provider roster first, then the shared catalog), clamped to `gatewayLimit` —
+ * the limit a relay gateway declared for the model — when both exist; else
+ * whichever is known, else null (nothing known, nothing imposed).
  */
 export function geminiOutputCeiling(model, outputLimit = null, gatewayLimit = null) {
   const id = String(model || '').replace(/^models\//, '');
-  return (
-    positiveInt(outputLimit) ??
-    positiveInt(getModelMetadataSync(id, 'gemini')?.outputTokens) ??
-    positiveInt(gatewayLimit)
-  );
+  const declared = positiveInt(outputLimit) ?? positiveInt(getModelMetadataSync(id, 'gemini')?.outputTokens);
+  const gateway = positiveInt(gatewayLimit);
+  if (declared == null) return gateway;
+  return gateway == null ? declared : Math.min(declared, gateway);
 }
 
 /**

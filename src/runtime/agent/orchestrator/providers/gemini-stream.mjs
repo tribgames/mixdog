@@ -335,7 +335,10 @@ function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlock
     throw geminiTruncatedStreamError(`${label} truncated: empty stream`);
   }
   if (geminiFinishReasonKind(finishReason) === 'none' && geminiFinishReasonKind(promptBlockReason) === 'none') {
-    if (Array.isArray(parts) && parts.some(isCompleteFunctionCallPart) && !parts.some(isIncompleteFunctionCallPart)) return;
+    if (Array.isArray(parts)) {
+      const calls = parts.filter((part) => part?.functionCall);
+      if (calls.length > 0 && calls.every(isCompleteFunctionCallPart)) return;
+    }
     throw geminiTruncatedStreamError(`${label} truncated: no finishReason`);
   }
 }

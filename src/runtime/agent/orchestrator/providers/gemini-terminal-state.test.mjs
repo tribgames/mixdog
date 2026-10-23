@@ -100,6 +100,21 @@ for (const [name, consume] of transports) {
     assert.equal(empty.candidates[0].finishReason, 'STOP');
   });
 
+  test(`${name}: a finishReason-less tool turn needs every functionCall part complete`, async () => {
+    const callPart = (functionCall) => cand({ content: { role: 'model', parts: [{ functionCall }] } });
+    const good = { name: 'read', args: { path: 'a.txt' } };
+    const done = await consume([callPart(good)]);
+    assert.equal(done.candidates[0].content.parts.length, 1);
+    await assert.rejects(
+      consume([callPart(good), callPart({ name: 'read', args: 'unfinished' })]),
+      (error) => error.code === 'TRUNCATED_STREAM' && /no finishReason/.test(error.message)
+    );
+    await assert.rejects(
+      consume([callPart({ name: 'read', args: 'unfinished' }), callPart(good)]),
+      /no finishReason/
+    );
+  });
+
   test(`${name}: continuationToken is preserved`, async () => {
     const response = await consume([cand({ finishReason: 'CONTINUATION', continuationToken: 'dG9rZW4=' })]);
     assert.equal(response.candidates[0].continuationToken, 'dG9rZW4=');

@@ -256,7 +256,6 @@ export function createAntigravityRequest({
         log(streamAttempt + 1, reask.unusable, reask.waitMs);
         streamAttempt += 1;
         await sleepWithAbort(reask.waitMs, signal, sleepFn, 'Antigravity retry wait aborted');
-        continue;
       } catch (err) {
         const waitMs = antigravity429WaitMs(err, state);
         if (waitMs == null) {

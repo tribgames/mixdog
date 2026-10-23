@@ -263,6 +263,20 @@ test('the gateway-declared limit is the Antigravity Gemini ceiling: sent by defa
   declaredOutput.clear();
 });
 
+test('a catalog/roster limit above the gateway-declared limit is clamped to the gateway limit', () => {
+  declaredOutput.clear();
+  const model = 'gemini-9.9-flash-fixture';
+  declaredOutput.set(model, 65536);
+  const sent = (opts, limit) =>
+    buildAntigravityRequest(HELLO, model, [], opts, 'p', limit).request.generationConfig.maxOutputTokens;
+  assert.equal(sent({}, 65535), 65535);
+  assert.equal(sent({ maxOutputTokens: 65536 }, 65535), 65535);
+  // A catalog limit below the gateway's still wins, and without a gateway limit it applies alone.
+  assert.equal(sent({}, 100000), 65536);
+  assert.equal(sent({}, null), 65536);
+  declaredOutput.clear();
+});
+
 test('a declared Claude limit replaces the fixed cap and bounds the thinking budget', () => {
   const claude = 'claude-opus-5-5';
   const body = (opts, limit) => buildAntigravityRequest(HELLO, claude, [], opts, 'p', limit).request.generationConfig;
