@@ -12,7 +12,7 @@ const { DisplayOption } = DEVIN_ENUMS;
 // Requested for completeness, never surfaced.
 const INTERNAL_DISPLAYS = new Set([DisplayOption.QUICK_REVIEW, DisplayOption.INTERNAL_DEFAULT]);
 // These lanes advertise images but their backend drops them silently.
-const IMAGE_BLIND_UIDS = new Set(['swe-1-6', 'swe-1-6-fast']);
+const IMAGE_BLIND_UIDS = new Set(['swe-1-6', 'swe-1-6-fast', 'swe-1-6-slow']);
 
 const REASONING_LABEL_RE = /think|thinking|minimal|high|medium|low|xhigh|max|reasoning/i;
 const NO_REASONING_LABEL_RE = /\bno thinking\b/i;
@@ -100,30 +100,10 @@ function modelSpec(config, uid, assignModelRouter) {
   };
 }
 
-// Lead chat uid of a Fusion pairing `fusion-<lead>[-fast]-sidekick-<sidekick>`:
-// an exact live lead wins, else `-fast` prefers the `-priority` lane, then the
-// standard lane. undefined = not a pairing; null = pairing with no live lead.
-function fusionLeadUid(uid, liveConfigs) {
-  if (!uid.startsWith('fusion-')) return undefined;
-  const cut = uid.indexOf('-sidekick-');
-  if (cut <= 'fusion-'.length) return undefined;
-  const lead = uid.slice('fusion-'.length, cut);
-  if (liveConfigs.has(lead)) return lead;
-  if (lead.endsWith('-fast')) {
-    const base = lead.slice(0, -'-fast'.length);
-    if (liveConfigs.has(`${base}-priority`)) return `${base}-priority`;
-    if (liveConfigs.has(base)) return base;
-  }
-  return null;
-}
-
-// Only the lead runs a Fusion pairing, so the row budgets against the lead.
-function routeFusionLead(spec, lead) {
-  spec.requestModelId = lead.id;
-  for (const key of ['reasoning', 'input', 'supportsTools', 'supportsParallelToolCalls', 'cost', 'contextWindow']) {
-    spec[key] = lead[key];
-  }
-  spec.maxTokens = lead.maxTokens;
+// A Fusion pairing `fusion-<lead>-sidekick-<sidekick>` is paired by the native
+// client; served here it would run only its lead, so it is not listed.
+function isFusionPairing(uid) {
+  return uid.startsWith('fusion-') && uid.indexOf('-sidekick-') > 'fusion-'.length;
 }
 
 const FAMILY_EFFORT_KEYS = new Set(['effort', 'reasoning effort']);
@@ -455,11 +435,6 @@ function toRow(spec) {
 // one effort tier of a family, that family's default effort and uid.
 export function normalizeDevinModels(configs, { defaultModelUid = configs?.defaultModelUid } = {}) {
   const accountDefaultUid = String(defaultModelUid || '').trim();
-  const liveConfigs = new Map();
-  for (const config of configs || []) {
-    const uid = String(config?.modelUid || '').trim();
-    if (config && config.disabled !== true && uid && !liveConfigs.has(uid)) liveConfigs.set(uid, config);
-  }
   const specs = [];
   const seen = new Set();
   const lanes = new Map();
@@ -468,17 +443,13 @@ export function normalizeDevinModels(configs, { defaultModelUid = configs?.defau
     const displayOption = config.modelInfo?.displayOption ?? DisplayOption.UNSPECIFIED;
     if (INTERNAL_DISPLAYS.has(displayOption)) continue;
     const uid = String(config.modelUid || '').trim();
-    if (!uid || seen.has(uid)) continue;
+    if (!uid || seen.has(uid) || isFusionPairing(uid)) continue;
     seen.add(uid);
     const router = isRouter(config);
     // Harness-less routers (`adaptive`) need AssignModel; harness-backed
     // composites (`fusion`) are themselves chat uids.
     const assignModelRouter = router && (config.modelInfo?.harnessUids?.length ?? 0) === 0;
-    // A Fusion pairing chats on its lead uid; without a live lead it is unservable.
-    const lead = fusionLeadUid(uid, liveConfigs);
-    if (lead === null) continue;
     const spec = modelSpec(config, uid, assignModelRouter);
-    if (lead !== undefined) routeFusionLead(spec, modelSpec(liveConfigs.get(lead), lead, false));
     if (uid === accountDefaultUid) spec.isProviderDefault = true;
     specs.push(spec);
     // A router dispatches; it is never an effort tier of a family.

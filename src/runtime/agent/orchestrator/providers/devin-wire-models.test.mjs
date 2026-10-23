@@ -50,6 +50,7 @@ const fixtures = wireConfigs([
   config('labelled-off', { label: 'Claude High (No Thinking)' }),
   config('features-say-no', { label: 'Max Reasoning', features: { supportsThinking: false } }),
   config('swe-1-6', { label: 'SWE-1.6', features: { supportsImages: true, supportsToolCalls: true } }),
+  config('swe-1-6-slow', { label: 'SWE-1.6 Slow', features: { supportsImages: true, supportsToolCalls: true } }),
   config('', { label: 'no uid' }),
 ]);
 
@@ -62,12 +63,12 @@ test('normalization keeps each enabled, visible uid, routers included', () => {
       'arena-visible',
       'features-say-no',
       'fusion',
-      'fusion-gpt-x-high-sidekick-swe-2',
       'gpt-x-high',
       'gpt-x-low',
       'labelled-off',
       'labelled-thinking',
       'swe-1-6',
+      'swe-1-6-slow',
     ]
   );
   const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
@@ -115,13 +116,8 @@ test('normalization keeps each enabled, visible uid, routers included', () => {
   // A harness-backed composite chats on its own uid.
   assert.equal(byId.fusion.router, undefined);
   assert.equal(byId.fusion.uid, 'fusion');
-  // A Fusion pairing chats on its live lead and budgets against it.
-  const pairing = byId['fusion-gpt-x-high-sidekick-swe-2'];
-  assert.equal(pairing.router, undefined);
-  assert.equal(pairing.uid, 'gpt-x-high');
-  assert.equal(pairing.contextWindow, 400_000);
-  assert.equal(pairing.maxOutputTokens, 128_000);
-  assert.equal(pairing.supportsVision, true);
+  // A Fusion pairing would run only its lead, so it is not listed.
+  assert.equal(byId['fusion-gpt-x-high-sidekick-swe-2'], undefined);
   // No features: label heuristic for reasoning, top-level image flag, tools assumed.
   assert.equal(byId['labelled-thinking'].reasoning, true);
   assert.equal(byId['labelled-thinking'].supportsVision, true);
@@ -132,6 +128,7 @@ test('normalization keeps each enabled, visible uid, routers included', () => {
   assert.equal(byId['features-say-no'].supportsTools, false);
   // Backend drops images for this lane despite the flag.
   assert.equal(byId['swe-1-6'].supportsVision, false);
+  assert.equal(byId['swe-1-6-slow'].supportsVision, false);
 });
 
 function discoveryServer(handler) {
