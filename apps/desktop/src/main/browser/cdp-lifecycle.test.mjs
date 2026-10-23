@@ -3,7 +3,6 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { createBrowserGuestCdp } from './cdp.ts';
-import { browserIdentityNeedsEngineFacts, rememberBrowserIdentity } from './browser-identity.ts';
 import { CHROME_LIKENESS_SCRIPT } from './chrome-likeness.ts';
 import { DIALOG_BRIDGE_SCRIPT } from './dialog-bridge.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
@@ -558,43 +557,15 @@ test("a bridge request the page's policy refused becomes a dismissed notice, not
   await f.cdp.detach(f.guest);
 });
 
-// Last in this file: the engine's facts are process-wide once learned.
-test("a page keeps the engine's identity: no override at any session, and the first secure document teaches the engine's hints", async () => {
-  rememberBrowserIdentity({ userAgent: 'Fixture/1.0' });
-  let secure = false;
-  const f = fixture(async (method) => {
-    if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } };
-    if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
-    if (method === 'Runtime.evaluate') {
-      return {
-        result: {
-          value: secure
-            ? {
-                brands: [{ brand: 'Chromium', version: '146' }],
-                platform: 'Windows',
-                platformVersion: '19.0.0',
-                architecture: 'x86',
-                model: '',
-                mobile: false,
-              }
-            : null,
-        },
-      };
-    }
-    return {};
-  });
+test('a page keeps the engine identity: no user agent override at any session, no probe on navigation', async () => {
+  const f = fixture();
   await f.cdp.guestDebugger(f.guest);
   f.attachChild('frame-1');
   await f.state.for(f.guest).cdpSessions.get('frame-1').ready;
-  const overrides = () => f.calls.filter((call) => call.method === 'Network.setUserAgentOverride');
-  const probes = () => f.calls.filter((call) => call.method === 'Runtime.evaluate');
-  assert.equal(overrides().length, 0, 'an override without metadata would empty the brand list');
-  secure = true;
   f.debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', url: 'https://site.test/' } });
-  await waitUntil(() => probes().length >= 1, { message: 'the engine hints are read' });
-  assert.equal(probes()[0].params.contextId, 7, 'read in a world no page script shares');
-  await waitUntil(() => !browserIdentityNeedsEngineFacts(), { message: 'the engine hints are learned' });
-  assert.equal(overrides().length, 0, 'learning them overrides nothing');
+  const methods = f.calls.map((call) => call.method);
+  assert.equal(methods.includes('Network.setUserAgentOverride'), false);
+  assert.equal(methods.includes('Runtime.evaluate'), false);
   await f.cdp.detach(f.guest);
 });
 

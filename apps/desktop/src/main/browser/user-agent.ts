@@ -14,47 +14,6 @@ export function browserPartitionUserAgent(defaultAgent: string): string {
     .trim();
 }
 
-export interface BrowserBrandVersion {
-  brand: string;
-  version: string;
-}
-
-/** The engine's own client-hint values, read once from a page of this
- *  partition while none of its overrides applies. The brand lists are the
- *  engine's own too (Chromium and the GREASE brand): the partition never
- *  claims another browser's brand. */
-export interface BrowserUserAgentBase {
-  brands: BrowserBrandVersion[];
-  fullVersionList: BrowserBrandVersion[];
-  platform: string;
-  platformVersion: string;
-  architecture: string;
-  model: string;
-  mobile: boolean;
-  bitness?: string;
-  wow64?: boolean;
-  formFactors?: string[];
-}
-
-/** `Network.setUserAgentOverride` metadata restating the engine's own client
- *  hints, for an override that only changes the language: without metadata
- *  an override would empty the page's brand list. */
-export function browserUserAgentMetadata(base: BrowserUserAgentBase, fullVersion: string): Record<string, unknown> {
-  return {
-    brands: base.brands,
-    fullVersionList: base.fullVersionList,
-    fullVersion,
-    platform: base.platform,
-    platformVersion: base.platformVersion,
-    architecture: base.architecture,
-    model: base.model,
-    mobile: base.mobile,
-    ...(base.bitness !== undefined ? { bitness: base.bitness } : {}),
-    ...(base.wow64 !== undefined ? { wow64: base.wow64 } : {}),
-    ...(base.formFactors ? { formFactors: base.formFactors } : {}),
-  };
-}
-
 /** Chrome's default Accept-Language for a system language list: each regional
  *  tag followed by its base language, as Chrome seeds a new profile
  *  ("ko-KR,ko,en-US,en"). */

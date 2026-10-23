@@ -27,8 +27,6 @@ type CdpParams = Record<string, unknown>;
 type GuestRecord = ReturnType<BrowserGuestStateStore['for']>;
 
 interface BrowserCdpEventRouterHost extends RequestPauseHost, TargetAttachHost {
-  /** The page's top-level document committed (see cdp-session-init). */
-  onTopDocument?(guest: WebContents, cdp: Electron.Debugger): void;
   /** A child target's session ended; commands still in flight on it settle. */
   targetDetached(guest: WebContents, sessionId: string): void;
 }
@@ -134,10 +132,6 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     // Only the native dialog of the closing session: a bridged one is
     // answered through its held request, never by this event.
     'Page.javascriptDialogClosed': ({ guest, sessionId }) => state.nativeDialogClosed(guest, sessionId),
-    'Page.frameNavigated': ({ guest, cdp, params, sessionId }) => {
-      const frame = params.frame as { parentId?: string } | undefined;
-      if (!sessionId && frame && !frame.parentId) host.onTopDocument?.(guest, cdp);
-    },
     'Page.fileChooserOpened': ({ diagnostics, params, sessionId }) => {
       const backendNodeId = Number(params.backendNodeId);
       diagnostics.pendingFileChooser = {

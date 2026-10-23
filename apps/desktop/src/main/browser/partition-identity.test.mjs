@@ -127,7 +127,8 @@ test('the partition and the process fallback present Chrome while app-owned sess
 test("the partition's own string needs no per-page override and never names Google Chrome", () => {
   assert.deepEqual(browserUserAgentOverride(CHROME), { userAgent: '' });
   const withLocale = browserUserAgentOverride(CHROME, 'fr-FR');
-  assert.equal(withLocale.userAgent, CHROME);
-  assert.equal(withLocale.acceptLanguage, 'fr-FR');
+  // Restating the string without client-hint metadata would empty the page's
+  // brands, so only the language is overridden.
+  assert.deepEqual(withLocale, { userAgent: '', acceptLanguage: 'fr-FR' });
   assert.doesNotMatch(JSON.stringify(withLocale), /Google Chrome/);
 });

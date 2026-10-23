@@ -11,11 +11,6 @@
  */
 import type { WebContents } from 'electron';
 
-import {
-  browserIdentityNeedsEngineFacts,
-  ENGINE_FACTS_EXPRESSION,
-  rememberEngineFacts,
-} from './browser-identity';
 import { CHROME_LIKENESS_SCRIPT, PERMISSION_STATE_PATTERN } from './chrome-likeness';
 import { CDP_REQUEST_TIMEOUT_MS } from './command';
 import { DIALOG_BRIDGE_PATTERN, DIALOG_BRIDGE_SCRIPT } from './dialog-bridge';
@@ -124,39 +119,6 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     };
   }
 
-  /** The engine's own client-hint facts, read once per process in a world of
-   *  a page that no page script shares, while no override of the page applies.
-   *  Only a secure document has them; a blank first page does not. */
-  async function learnEngineFacts(send: (method: string, params?: Record<string, unknown>) => Promise<unknown>) {
-    if (!browserIdentityNeedsEngineFacts()) return;
-    try {
-      const { frameTree } = (await send('Page.getFrameTree')) as { frameTree: { frame: { id: string } } };
-      const { executionContextId } = (await send('Page.createIsolatedWorld', {
-        frameId: frameTree.frame.id,
-        worldName: 'mixdog-identity',
-      })) as { executionContextId: number };
-      const read = (await send('Runtime.evaluate', {
-        expression: ENGINE_FACTS_EXPRESSION,
-        contextId: executionContextId,
-        awaitPromise: true,
-        returnByValue: true,
-      })) as { result?: { value?: unknown } };
-      rememberEngineFacts(read?.result?.value);
-    } catch {
-      /* the next document tries again */
-    }
-  }
-
-  /** A top-level document committed. The partition's identity needs no
-   *  per-page override; the first secure document only teaches the engine's
-   *  client hints, which a locale emulation restates. */
-  function onTopDocument(guest: WebContents, cdp: Electron.Debugger): void {
-    if (!browserIdentityNeedsEngineFacts()) return;
-    const send = (method: string, params: Record<string, unknown> = {}) =>
-      sendCdp(guest, cdp, method, params, CDP_REQUEST_TIMEOUT_MS);
-    void learnEngineFacts(send).catch(() => undefined);
-  }
-
   /** Chromium pauses exactly what these patterns name. The dialog bridge is
    *  always one of them; interception contributes the rest. */
   function fetchPatternsFor(guest: WebContents) {
@@ -231,5 +193,5 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     ]);
   }
 
-  return { applyFetchPatterns, initializeTargetSession, drive, onTopDocument };
+  return { applyFetchPatterns, initializeTargetSession, drive };
 }

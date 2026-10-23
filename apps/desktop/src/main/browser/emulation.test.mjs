@@ -114,7 +114,10 @@ test("emulation leaves the partition's own agent string to the session and still
   const configure = (command) => f.emulation.configureEmulation(f.guest, command);
   const last = () => f.calls.filter((call) => call.method === 'Network.setUserAgentOverride').at(-1).params;
   await configure({ locale: 'ko-KR' });
-  assert.deepEqual(last(), { userAgent: 'Fixture/1.0', acceptLanguage: 'ko-KR' });
+  // Locale emulated before any engine fact is known: the partition's own
+  // string is not restated (that would drop the client-hint brands, with no
+  // later re-send); only the language is overridden.
+  assert.deepEqual(last(), { userAgent: '', acceptLanguage: 'ko-KR' });
   assert.doesNotMatch(JSON.stringify(f.calls), /Google Chrome/);
   await configure({ locale: '' });
   assert.deepEqual(last(), { userAgent: '' }, 'the session sends its own string and languages again');

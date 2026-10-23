@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { browserUserAgentOverride, rememberBrowserIdentity, rememberEngineFacts } from './browser-identity.ts';
+import { browserUserAgentOverride, rememberBrowserIdentity } from './browser-identity.ts';
 import { browserAcceptLanguages, browserPartitionUserAgent } from './user-agent.ts';
 
 const ELECTRON_DEFAULT =
@@ -16,54 +16,14 @@ test('the language list is the one Chrome seeds from the system languages', () =
   assert.equal(browserAcceptLanguages([]), '');
 });
 
-test("the partition's own agent string is never overridden per page; a locale restates the engine's own hints", () => {
-  const engineBrands = [
-    { brand: 'Not-A.Brand', version: '24' },
-    { brand: 'Chromium', version: '146' },
-  ];
+test("the partition's own agent string is never overridden per page; a locale changes only the language", () => {
   rememberBrowserIdentity({ userAgent: CHROME });
   assert.deepEqual(browserUserAgentOverride(CHROME), { userAgent: '' }, 'the session already sends it');
-  assert.deepEqual(
-    browserUserAgentOverride(CHROME, 'fr-FR'),
-    { userAgent: CHROME, acceptLanguage: 'fr-FR' },
-    'no facts yet: nothing to restate'
-  );
-  rememberEngineFacts({ platform: '', platformVersion: '', architecture: '', model: '', mobile: false });
-  rememberEngineFacts({
-    brands: [],
-    platform: 'Windows',
-    platformVersion: '19.0.0',
-    architecture: 'x86',
-    model: '',
-    mobile: false,
-  });
-  assert.equal(
-    Object.hasOwn(browserUserAgentOverride(CHROME, 'fr-FR'), 'userAgentMetadata'),
-    false,
-    'an overridden page (empty brands) teaches nothing'
-  );
-  rememberEngineFacts({
-    brands: engineBrands,
-    fullVersionList: [
-      { brand: 'Not-A.Brand', version: '24.0.0.0' },
-      { brand: 'Chromium', version: '146.0.7680.216' },
-    ],
-    platform: 'Windows',
-    platformVersion: '19.0.0',
-    architecture: 'x86',
-    bitness: '64',
-    model: '',
-    mobile: false,
-    wow64: false,
-    formFactors: ['Desktop'],
-  });
-  assert.deepEqual(browserUserAgentOverride(CHROME), { userAgent: '' }, 'still no per-page override');
+  // An override restating the string without metadata would empty the page's
+  // brands (no client hints); the empty string leaves the engine's own.
   const own = browserUserAgentOverride(CHROME, 'fr-FR');
-  assert.equal(own.acceptLanguage, 'fr-FR');
-  assert.equal(own.userAgentMetadata.platformVersion, '19.0.0');
-  assert.deepEqual(own.userAgentMetadata.brands, engineBrands, "the engine's own brands, no Google Chrome");
+  assert.deepEqual(own, { userAgent: '', acceptLanguage: 'fr-FR' });
   assert.doesNotMatch(JSON.stringify(own), /Google Chrome/);
-  assert.equal(own.userAgentMetadata.fullVersion, process.versions.chrome ?? own.userAgentMetadata.fullVersion);
   assert.deepEqual(browserUserAgentOverride('Custom/2.0', 'fr-FR'), {
     userAgent: 'Custom/2.0',
     acceptLanguage: 'fr-FR',

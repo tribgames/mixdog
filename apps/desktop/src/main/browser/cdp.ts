@@ -123,7 +123,6 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     permissionRefused: host.permissionRefused,
     initializeTargetSession: sessions.initializeTargetSession,
     lifetimeSignal: attachment.lifetimeSignal,
-    onTopDocument: sessions.onTopDocument,
   });
   const calls = createBrowserCdpCalls({ state, sendCdp, guestDebugger: attachment.guestDebugger });
 
