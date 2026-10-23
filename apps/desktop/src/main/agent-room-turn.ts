@@ -93,6 +93,8 @@ export interface RoomTurnHost {
   republish(): void;
   /** The member's own session in this room, created on first use. */
   memberSession(member: { id: string; route: unknown }): Promise<string>;
+  /** Whether the member's bot is switched off now (it may be turned off mid-exchange). */
+  switchedOff(agentId: string): Promise<boolean>;
   submit(
     sessionId: string,
     prompt: ReturnType<typeof roomTurnPrompt>,
@@ -236,6 +238,12 @@ async function memberTurn(
     return 'pass';
   };
   if (gone()) return await left();
+  // A bot switched off since the exchange began stays a member (cursors,
+  // session, history) but takes no turn; the calls waiting on it end cancelled.
+  if (await host.switchedOff(agentId)) {
+    outcome.removed = true;
+    return 'pass';
+  }
   // Whether the user's newest message still has no answer in the room.
   const waiting = state.waiting;
   const rows = await host.rows();

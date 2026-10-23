@@ -287,6 +287,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     post: (rows) => post(roomId, rows),
     republish: () => deps.republish(roomSessionId(roomId)),
     memberSession: (member) => ensureMemberSession(roomId, member),
+    switchedOff: async (agentId) => (await memberLabels(roomOf(roomId))).get(agentId)?.disabled === true,
     submit: (sessionId, prompt, options) => deps.submit(sessionId, prompt, options),
     readSnapshot: (sessionId) => deps.readSnapshot(sessionId),
     abort: (sessionId) => deps.abort(sessionId),
@@ -641,7 +642,10 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     if (submissionId && room.submissions?.includes(submissionId)) return true;
     const labels = await memberLabels(room);
     const parsed = parseRoomAsk(promptText(prompt), speakingMembers(labels));
-    if (parsed.error === 'member') throw new Error('No member of this room has that name.');
+    if (parsed.error === 'member') {
+      const off = parseRoomAsk(promptText(prompt), [...labels.values()]).to.find((id) => labels.get(id)?.disabled);
+      throw new Error(off ? `"${labels.get(off)?.name ?? off}" is switched off.` : 'No member of this room has that name.');
+    }
     // The files go up with the row: the log's intake stores them as a chat
     // prompt's are (agent-room-delivery.mjs), and the members the message
     // reaches get them on their next turn.
@@ -685,14 +689,24 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const labels = await memberLabels(room);
     const members = speakingMembers(labels);
     const named = typeof to === 'string' ? to.trim() : '';
-    let text = typeof prompt === 'string' ? prompt.trim() : '';
-    let agentId = roomMemberNamed(named, members);
-    if (!named && text.startsWith('@')) {
-      const parsed = parseRoomAsk(`/ask ${text.slice(1)}`, members);
-      if (parsed.to.length === 1 && parsed.text) [agentId, text] = [parsed.to[0], parsed.text];
-    }
+    const asked = typeof prompt === 'string' ? prompt.trim() : '';
+    // `to`, else a leading `@name`, resolved against `list`.
+    const resolveIn = (list: MemberLabel[]) => {
+      let id = roomMemberNamed(named, list);
+      let body = asked;
+      if (!named && asked.startsWith('@')) {
+        const parsed = parseRoomAsk(`/ask ${asked.slice(1)}`, list);
+        if (parsed.to.length === 1 && parsed.text) [id, body] = [parsed.to[0], parsed.text];
+      }
+      return { id, body };
+    };
+    const { id: agentId, body: text } = resolveIn(members);
     const roster = members.map((member) => `${member.name} (${member.id})`).join(', ');
     if (!agentId) {
+      const off = resolveIn([...labels.values()]).id;
+      if (off && labels.get(off)?.disabled) {
+        throw new Error(`"${labels.get(off)?.name ?? off}" in room "${room.name}" is switched off.`);
+      }
       throw new Error(
         named
           ? `"${named}" is not a member of room "${room.name}"; its members are ${roster}.`

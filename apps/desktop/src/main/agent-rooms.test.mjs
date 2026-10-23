@@ -602,12 +602,32 @@ test('a switched-off member stays in the room but takes no new turn; switched ba
     h.prompts.map((p) => p.agentId),
     ['gh', 'bench']
   );
-  await assert.rejects(h.rooms.send(sessionId, '/ask rel only you'), /No member of this room has that name/);
+  await assert.rejects(h.rooms.send(sessionId, '/ask rel only you'), /"Release" is switched off/);
   assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'rel', 'bench'], 'membership is kept');
   agents[1].disabled = false;
   await h.rooms.send(sessionId, '/ask rel back?');
   await h.idle(roomId);
   assert.equal(h.prompts.at(-1).agentId, 'rel');
+});
+
+test('a member switched off while an exchange runs gets no turn in it', async () => {
+  const agents = AGENTS.map((row) => ({ ...row }));
+  const h = harness({
+    agents,
+    decide: () => ({ action: 'unmanaged' }),
+    script: (agentId) => {
+      if (agentId === 'gh') agents[1].disabled = true;
+      return 'ok';
+    },
+  });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, '얘들아');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'bench']
+  );
+  assert.equal(h.log.some((row) => row.speaker === 'rel'), false, 'nothing is posted for it');
 });
 
 test('/ask gives only the addressed member a turn', async () => {
@@ -1391,6 +1411,15 @@ test('a message from another session must name a member of the room: by `to`, or
   assert.equal(byName.sessionId, roomMemberSessionId(sessionId.slice('sess_room_'.length), 'rel'));
   const mention = await h.rooms.member(sessionId, { prompt: '@GitHub check the PR' });
   assert.deepEqual([mention.agentId, mention.text], ['gh', 'check the PR']);
+});
+
+test('a message from another session to a switched-off member says so, by `to` or by @name', async () => {
+  const agents = AGENTS.map((row) => ({ ...row }));
+  const h = harness({ agents });
+  const { sessionId } = await room(h);
+  agents[1].disabled = true;
+  await assert.rejects(h.rooms.member(sessionId, { to: 'release', prompt: 'status?' }), /"Release" .*is switched off/);
+  await assert.rejects(h.rooms.member(sessionId, { prompt: '@Release status?' }), /"Release" .*is switched off/);
 });
 
 test('a message from another session is its sender’s row, and only the named member answers it', async () => {
