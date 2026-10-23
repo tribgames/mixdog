@@ -242,6 +242,35 @@ test('a blank the agent navigates, or that is still loading, is kept', async () 
   assert.equal(blank.destroyed, false);
 });
 
+test('empty pane + a hidden background:true page: the blank goes and the helper is the one selected tab', async () => {
+  const f = fixture();
+  const blank = await f.owner.ensure('s');
+  const helper = f.popup('helper');
+  assert.equal(f.owner.discardUntouchedBlank('s', helper), true);
+  assert.equal(blank.destroyed, true);
+  assert.deepEqual(f.sessions.visibleGuests('s'), []);
+  assert.equal(f.sessions.currentGuest('s'), helper);
+});
+
+test('a real page the person is on keeps the selection when a hidden helper opens', async () => {
+  const f = fixture();
+  const real = await f.owner.ensure('s');
+  real.navigate('https://example.test/'); // claimed: no longer a placeholder
+  const helper = f.popup('helper');
+  assert.equal(f.owner.discardUntouchedBlank('s', helper), false);
+  assert.equal(real.destroyed, false);
+  assert.equal(f.sessions.currentGuest('s'), real);
+});
+
+test('a pane opened after the agent made its page shows that page and creates no blank', async () => {
+  const f = fixture();
+  const page = f.popup('helper');
+  assert.equal(f.sessions.paneGuest('s'), page);
+  assert.equal(f.sessions.currentGuest('s'), page, 'selected, so the pane keeps it');
+  assert.deepEqual(f.sessions.visibleGuests('s'), []);
+  assert.equal(f.sessions.paneGuest('empty'), null, 'a blank is made only when there is no page');
+});
+
 test('a blank with history of its own is kept even though it shows about:blank', async () => {
   const f = fixture();
   const blank = await f.agentCreates();

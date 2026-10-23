@@ -80,15 +80,28 @@ test('a command records the page it drove with the turn it ran in', async () => 
   assert.deepEqual(f.sessions.agentPage('s'), { guest: f.popup, turn: 4, paused: false });
 });
 
-test('moving to another page offers the blank for closing; a hidden helper does not', async () => {
+test('moving to another page offers the blank for closing; a hidden helper offers it too, without being followed', async () => {
   const f = fixture();
   await f.drive(2, { guest: f.popup, background: false, tabName: 'popup-1' }, { tab: 'popup-1' });
   assert.deepEqual(
     f.lifecycleCalls.filter(([kind]) => kind === 'discard'),
     [['discard', 's', 2]]
   );
+  // The lifecycle closes only an untouched blank, and selects the helper only
+  // when that blank was the shown page.
   await f.drive(3, { guest: f.helper, background: true, tabName: 'bg' }, { background: true, tab: 'bg' });
-  assert.equal(f.lifecycleCalls.filter(([kind]) => kind === 'discard').length, 1);
+  assert.equal(f.lifecycleCalls.filter(([kind]) => kind === 'discard').length, 2);
+  assert.equal(f.sessions.agentPage('s').guest, f.popup);
+});
+
+test('an agent page revealed with background:false is followed, and offers the blank for closing', async () => {
+  const f = fixture();
+  await f.drive(7, { guest: f.helper, background: false, tabName: 'bg' }, { tab: 'bg' });
+  assert.deepEqual(f.sessions.agentPage('s'), { guest: f.helper, turn: 7, paused: false });
+  assert.deepEqual(
+    f.lifecycleCalls.filter(([kind]) => kind === 'discard'),
+    [['discard', 's', 3]]
+  );
 });
 
 test('a hidden background:true helper page is not the page the panel follows', async () => {
