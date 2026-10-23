@@ -82,7 +82,7 @@ const SEP = '\n\n---\n\n';
 
 function compose({ agent = 'lead', sessionMode, legacy = false, sourceType } = {}) {
   const agentMode = sessionMode === 'agent';
-  const leadWorkflowParts = workflow.leadPromptParts({ agentMode, mixy: agent === 'lead' });
+  const leadWorkflowParts = workflow.leadPromptParts({ agentMode, agentId: agent });
   const surface = {
     ownerIsAgent: false,
     resolvedAgent: agent,
@@ -237,9 +237,10 @@ test('BP3 prefixes: every Lead shares the pack and LEAD.md; agents share through
   const mixy = compose({ agent: 'lead', sessionMode: 'agent' }).sessionMarkerCore;
   const step1 = `${workflow.packContext}${SEP}${_buildLeadRules()}${SEP}`;
   for (const core of [coding, sample, other, mixy]) assert.ok(core.startsWith(step1));
-  // Through step 2 (the mode block) every agent but Mixy is byte-identical.
-  const step2 = sample.slice(0, sample.indexOf('# Identity'));
-  assert.equal(other.slice(0, other.indexOf('# Identity')), step2);
+  // Through step 2 (the mode block) every agent but Mixy is byte-identical;
+  // each agent's contact catalog (every bot but itself) follows it.
+  const step2 = sample.slice(0, sample.indexOf('# Bots'));
+  assert.equal(other.slice(0, other.indexOf('# Bots')), step2);
   assert.ok(step2.includes('# Bot Mode') && step2.includes('# Available Agents'));
   assert.ok(mixy.startsWith(step2.slice(0, -SEP.length)), 'Mixy shares it and adds its own section');
   t.diagnostic(
@@ -269,7 +270,7 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
   );
   assert.equal(agent.sessionEnvironment, coding.sessionEnvironment);
   const core = agent.sessionMarkerCore;
-  const parts = workflow.leadPromptParts({ agentMode: true, mixy: false });
+  const parts = workflow.leadPromptParts({ agentMode: true, agentId: 'sample' });
   assert.equal(
     core,
     [
@@ -279,6 +280,7 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
       _buildLeadRules({ part: 'agent' }),
       readFileSync(join(process.cwd(), 'src', 'rules', 'agent-mode', 'AGENT_MODE.md'), 'utf8').trim(),
       parts.agentCatalogContext,
+      parts.contactCatalogContext,
       '# Identity\n\nYou are Sample. Your role: reads the news for the user.',
       '# Agent Role Catalog\n\n## sample\n\n# Sample\n\nSAMPLE_ROLE_BODY',
       core.slice(core.indexOf('## Persona'), core.indexOf(`${SEP}# Core Memory`)),
@@ -287,14 +289,16 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
   );
   assert.match(parts.orchestrationContext, /^# Delegation\n\nHandle conversation yourself\./);
   assert.match(_buildLeadRules({ part: 'agent' }), /- Just answer conversation\.[\s\S]*- On an agent report, check/);
-  // Sub-agents only: no contact, itself included.
+  // Sub-agent catalog: no contact. Contact catalog: the other bots, never itself.
   assert.match(parts.agentCatalogContext, /\(worker\)/);
   assert.doesNotMatch(parts.agentCatalogContext, /\(sample\)|\(other\)/);
+  assert.match(parts.contactCatalogContext, /^# Bots\n[\s\S]*- Other \(other\): plans trips\./);
+  assert.doesNotMatch(parts.contactCatalogContext, /\(sample\)/);
   assert.doesNotMatch(core, /You are Mixdog|# Orchestration Mode|INSTRUCTION_FILE_SENTINEL|# Instruction Files/);
-  assert.doesNotMatch(core, /# Your Role|# Bots\n|setup APIs|# Routine Run/);
+  assert.doesNotMatch(core, /# Your Role|setup APIs|# Routine Run/);
 
   const mixy = compose({ agent: 'lead', sessionMode: 'agent' }).sessionMarkerCore;
-  const mixyParts = workflow.leadPromptParts({ agentMode: true, mixy: true });
+  const mixyParts = workflow.leadPromptParts({ agentMode: true, agentId: 'lead' });
   assert.equal(mixyParts.agentCatalogContext, parts.agentCatalogContext);
   assertInOrder(mixy, [
     '# Bot Mode',
@@ -324,15 +328,19 @@ test('a kind: agent or unmarked (pre-bot) agent is a sub-agent, never a contact;
   });
   helpers.listCustomAgentIds(dataDir);
   const context = helpers.activeWorkflowContext(config, dataDir);
-  for (const mixy of [false, true]) {
-    const parts = context.leadPromptParts({ agentMode: true, mixy });
+  for (const agentId of ['sample', 'lead']) {
+    const parts = context.leadPromptParts({ agentMode: true, agentId });
     assert.match(parts.agentCatalogContext, /- helper \(helper\): helper drafts replies\./);
     assert.match(parts.agentCatalogContext, /- legacy \(legacy\): legacy drafts replies\./);
     assert.doesNotMatch(parts.agentCatalogContext, /\(sample\)|\(other\)/);
     assert.doesNotMatch(parts.contactCatalogContext, /\(helper\)|\(legacy\)/);
   }
-  const mixyParts = context.leadPromptParts({ agentMode: true, mixy: true });
+  const mixyParts = context.leadPromptParts({ agentMode: true, agentId: 'lead' });
   assert.match(mixyParts.contactCatalogContext, /\(other\)[\s\S]*\(sample\)/);
+  // A bot sees the other contacts but not itself.
+  const botParts = context.leadPromptParts({ agentMode: true, agentId: 'other' });
+  assert.match(botParts.contactCatalogContext, /\(sample\)/);
+  assert.doesNotMatch(botParts.contactCatalogContext, /\(other\)/);
   // The coding catalog lists it with every other delegatable agent.
   assert.match(context.leadPromptParts({ agentMode: false }).agentCatalogContext, /\(helper\)/);
 });

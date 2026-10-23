@@ -494,12 +494,12 @@ function botCatalog(dataDir) {
     invalidateContextStatusCache() {},
   });
   /** A Lead thread as creation builds it, listing the current roster. */
-  const thread = (agentId, { mixy = agentId === 'lead' } = {}) => {
+  const thread = (agentId) => {
     const context = helpers.activeWorkflowContext(CONFIG, dataDir);
     return agentThread(agentId, {
       pack: context,
       workflow: context.summary,
-      leadWorkflowParts: context.leadPromptParts({ agentMode: true, mixy }),
+      leadWorkflowParts: context.leadPromptParts({ agentMode: true, agentId }),
     });
   };
   const refresherFor = (session) =>
@@ -517,7 +517,7 @@ test("a bot created, renamed, archived or restored reaches the roster in Mixy's 
   const mixyApplied = subscribe(t, refresherFor(mixy));
   const poetApplied = subscribe(t, refresherFor(poet));
   assert.match(tier3(mixy), /- Watcher \(watcher\): Watches the repo/);
-  const poetBefore = JSON.stringify(poet);
+  assert.match(tier3(poet), /- Watcher \(watcher\): Watches the repo/, 'a bot lists the other bots too');
 
   // Renamed: the id stays, the name in the roster follows.
   await api.saveAgentDefinition({ id: 'watcher', name: 'Sentinel', description: 'Watches the repo', body: 'Watch.' });
@@ -526,9 +526,9 @@ test("a bot created, renamed, archived or restored reaches the roster in Mixy's 
   assert.doesNotMatch(tier3(mixy), /Watcher \(/);
   assert.equal(mixy.pendingCacheBreakIntent, 'agent_profile');
   assert.equal(mixy.providerState, undefined, 'one cache break');
-  // A contact bot is in Mixy's roster only: another bot's thread lists none.
-  assert.deepEqual(poetApplied, []);
-  assert.equal(JSON.stringify(poet), poetBefore);
+  // A contact bot is in every other agent-mode Lead's roster: poet's follows.
+  assert.deepEqual(poetApplied, ['rebuilt']);
+  assert.match(tier3(poet), /- Sentinel \(watcher\)/);
 
   // Archived, then restored.
   delete mixy.pendingCacheBreakIntent;

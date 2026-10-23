@@ -406,7 +406,7 @@ test('7: a bot archived in bots/ stays archived across restarts; its agents/ ori
   assert.equal(api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'deleted');
 });
 
-test('delegation catalogs list only workflow agents; only Mixy sees the bots', (t) => {
+test('delegation catalogs list only workflow agents; agent-mode Leads see the bots but not themselves', (t) => {
   const { dataDir, helpers, state, api } = fixture(t);
   seed(dataDir);
   api.migrateBotStore();
@@ -414,10 +414,11 @@ test('delegation catalogs list only workflow agents; only Mixy sees the bots', (
   const coding = context.leadPromptParts({ agentMode: false }).agentCatalogContext;
   assert.match(coding, /\(old-helper\)|old-helper/);
   assert.doesNotMatch(coding, /dialog-bot|tool-bot/);
-  const lead = context.leadPromptParts({ agentMode: true, mixy: false });
+  const lead = context.leadPromptParts({ agentMode: true, agentId: 'dialog-bot' });
   assert.doesNotMatch(lead.agentCatalogContext, /dialog-bot|tool-bot/);
-  assert.equal(lead.contactCatalogContext, '');
-  const mixy = context.leadPromptParts({ agentMode: true, mixy: true });
+  assert.match(lead.contactCatalogContext, /tool-bot/);
+  assert.doesNotMatch(lead.contactCatalogContext, /dialog-bot/);
+  const mixy = context.leadPromptParts({ agentMode: true, agentId: 'lead' });
   assert.match(mixy.contactCatalogContext, /dialog-bot/);
   assert.match(mixy.contactCatalogContext, /tool-bot/);
   assert.doesNotMatch(mixy.agentCatalogContext, /dialog-bot|tool-bot/);

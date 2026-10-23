@@ -1,5 +1,6 @@
-// Agent mode's two access rules: only Mixy hands work to a contact agent, and
-// only Mixy (or the user's own UI) creates, edits or deletes agents.
+// Agent mode's access rules: every agent-mode Lead hands work to a contact
+// agent (never itself, never one already in its chain), and only Mixy (or the
+// user's own UI) creates, edits or deletes agents.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,6 +33,14 @@ const SESSIONS = new Map(
     { id: 'sess_home_lead' },
     { id: 'sess_home_sample', agent: 'sample' },
     { id: 'sess_task', owner: 'user', sourceType: 'lead', agent: 'lead' },
+    // Bot "sample" handed work to bot "other": a delegated worker under sample's chat.
+    {
+      id: 'sess_worker_other',
+      owner: 'agent',
+      visibility: 'agent-only',
+      agent: 'other',
+      parentSessionId: 'sess_home_sample',
+    },
     { id: 'sess_run', owner: 'user', sourceType: 'schedule', ownerAgentId: 'sample', agent: 'sample' },
   ].map((session) => [session.id, session])
 );
@@ -42,6 +51,7 @@ function contactSpawner(t) {
   mkdirSync(join(root, 'agents'), { recursive: true });
   writeFileSync(join(root, 'agents', 'worker.md'), '---\ndescription: worker\n---\nWork.\n');
   writeFileSync(join(root, 'agents', 'other.md'), '---\ndescription: a contact\nkind: bot\n---\nPlan trips.\n');
+  writeFileSync(join(root, 'agents', 'sample.md'), '---\ndescription: a contact\nkind: bot\n---\nRead news.\n');
   // Made on the Workflows page: a sub-agent every Lead may delegate to.
   writeFileSync(join(root, 'agents', 'triage.md'), '---\ndescription: sorts issues\nkind: agent\n---\nSort.\n');
   // Made before bots existed: no marker, a sub-agent as in v1.2.6.
@@ -60,18 +70,32 @@ function contactSpawner(t) {
     resolveSpawnPlan({ agent, provider: 'p', model: 'm', prompt: 'do it' }, root, { callerSessionId });
 }
 
-test('only Mixy delegates to a contact agent; every Lead may use the sub-agents', async (t) => {
+test('every agent-mode Lead delegates to a contact agent and to the sub-agents', async (t) => {
   const spawn = contactSpawner(t);
   for (const caller of ['sess_home_sample', 'sess_run']) {
-    await assert.rejects(
-      spawn('other', caller),
-      /only Mixy \(the representative agent\) can hand work to the contact agent "other"/
-    );
+    assert.equal((await spawn('other', caller)).agent, 'other', 'a bot hands work to another bot');
     assert.equal((await spawn('worker', caller)).agent, 'worker');
     assert.equal((await spawn('triage', caller)).agent, 'triage', 'a kind: agent role is no contact');
     assert.equal((await spawn('legacy', caller)).agent, 'legacy', 'an unmarked role is no contact');
   }
   for (const caller of ['sess_home_lead', 'sess_task']) assert.equal((await spawn('other', caller)).agent, 'other');
+});
+
+test('a bot cannot hand work to itself', async (t) => {
+  const spawn = contactSpawner(t);
+  await assert.rejects(spawn('sample', 'sess_home_sample'), /contact agent "sample" cannot hand work to itself/);
+  await assert.rejects(spawn('sample', 'sess_run'), /cannot hand work to itself/);
+  assert.equal((await spawn('worker', 'sess_home_sample')).agent, 'worker', 'sub-agents are unaffected');
+});
+
+test('a delegation chain cannot revisit a bot already in it (A → B → A)', async (t) => {
+  const spawn = contactSpawner(t);
+  await assert.rejects(
+    spawn('sample', 'sess_worker_other'),
+    /contact agent "sample" is already in this delegation chain \(sample → other → sample\)/
+  );
+  assert.equal((await spawn('worker', 'sess_worker_other')).agent, 'worker');
+  assert.equal((await spawn('other', 'sess_home_sample')).agent, 'other', 'A → B itself is allowed');
 });
 
 function editorExecutor() {
@@ -156,9 +180,9 @@ test('renamed to Momo, no model-facing string names Mixy', async (t) => {
   rename('Momo');
   assert.equal(mixyDisplayName(), 'Momo');
   const said = [];
-  const spawnError = await contactSpawner(t)('other', 'sess_home_sample').catch((error) => error.message);
+  const spawnError = await contactSpawner(t)('sample', 'sess_home_sample').catch((error) => error.message);
   said.push(spawnError);
-  assert.match(spawnError, /only Momo \(the representative agent\) can hand work/);
+  assert.match(spawnError, /cannot hand work to itself/);
   const editorError = await editorExecutor()
     .executor.execute(create, { callerSessionId: 'sess_home_sample' })
     .catch((error) => error.message);
