@@ -31,6 +31,8 @@ function publish(next: readonly string[]): void {
 /** Tests: back to no stored order, as a fresh window. */
 export function resetBotOrder(): void {
   generation += 1;
+  loaded = false;
+  loading = null;
   publish(EMPTY);
 }
 
@@ -79,6 +81,11 @@ const hostApi = (): OrderApi | undefined => {
   return typeof api?.invokeCapability === 'function' ? (api as OrderApi) : undefined;
 };
 
+/** The host's order has been read and nothing since announced a change. */
+let loaded = false;
+/** The one read in flight, shared by every hook that mounts meanwhile. */
+let loading: Promise<void> | null = null;
+
 /** Read the host's order. An older host has none: keep what is shown. */
 export async function readBotOrder(api: OrderApi): Promise<void> {
   generation += 1;
@@ -89,9 +96,23 @@ export async function readBotOrder(api: OrderApi): Promise<void> {
       | undefined;
     if (mine !== generation) return;
     publish(parseBotOrder(reply?.value?.order));
+    loaded = true;
   } catch {
     // No such capability, or the link lapsed.
   }
+}
+
+/** The order for a hook that mounts: the cached read, or the one in flight,
+ *  else a single new read. Every mounting list shares it (a phone paid one
+ *  ~8 KB relay round trip per list). */
+function loadBotOrder(api: OrderApi): Promise<void> {
+  if (loaded) return Promise.resolve();
+  if (loading) return loading;
+  const mine: Promise<void> = readBotOrder(api).finally(() => {
+    if (loading === mine) loading = null;
+  });
+  loading = mine;
+  return mine;
 }
 
 /** The Bots page's three sections. Their order rides in the SAME stored list
@@ -227,14 +248,36 @@ export function useBotOrder(): readonly string[] {
   useEffect(() => {
     const api = hostApi();
     if (!api) return undefined;
+    return watchBotOrder(api);
+  }, []);
+  return order;
+}
+
+// One shared watch for however many lists use the order: a change event or a
+// returning link rereads once for all of them, and with no list left the cached
+// read is dropped (changes would go unheard) so the next list reads afresh.
+let watchers = 0;
+let detachWatch: (() => void) | null = null;
+
+function watchBotOrder(api: OrderApi): () => void {
+  if (watchers++ === 0) {
     const reread = () => void readBotOrder(api);
-    reread();
     const unsubscribe = globalThis.window.mixdogDesktop?.subscribeSettingsChanged?.(reread);
     globalThis.window.addEventListener(REMOTE_CONNECTION_READY_EVENT, reread);
-    return () => {
+    detachWatch = () => {
       unsubscribe?.();
       globalThis.window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reread);
     };
-  }, []);
-  return order;
+  }
+  void loadBotOrder(api);
+  return () => {
+    if (--watchers > 0) return;
+    detachWatch?.();
+    detachWatch = null;
+    // A read still pending is retired with the last list: its late answer must
+    // neither publish nor mark the cache loaded, and a remount reads afresh.
+    generation += 1;
+    loaded = false;
+    loading = null;
+  };
 }

@@ -27,7 +27,7 @@ import {
   type UsageApi,
 } from './usage-dashboard-store';
 import { ProviderIcon } from './provider-display';
-import { PROVIDER_ACCOUNTS_CHANGED } from './usage-account-pools';
+import { PROVIDER_ACCOUNTS_CHANGED, readAll as readAllUsageAccountPools } from './usage-account-pools';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 import './provider-accounts.css';
 
@@ -505,6 +505,8 @@ export function ProviderAccountsList({
       const next = await invoke('updateProviderAccounts', [provider, { refreshUsage: true }]);
       if (generation.current !== stamp) return;
       setPool(next);
+      // Every account was re-measured: the sidebar and rail rosters follow.
+      readAllUsageAccountPools();
       // The selection is unchanged, so the sidebar keeps its metadata (credits,
       // reset credits) and the shared dashboard re-measures to settle `checking`.
       void refreshUsageDashboard(api, { force: true, providers: [provider] });

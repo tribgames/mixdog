@@ -134,16 +134,20 @@ export function BranchIslandSegment({
   // A session that never left its project folder publishes no workspace in
   // its snapshot: its branch menu's workspace stands in, re-read whenever
   // the session's work settles.
+  // The island owns the open tab (one at a time).
+  const [open, setOpen] = useComposerIslandTab('branch');
   const { menu, loading, notice, setNotice, load } = useBranchMenuData({
     draft: false,
     projectPath,
     sessionId,
     intentKey: sessionId,
     refreshKey: String(locked),
-    // The list is read ahead (on mount and whenever the session's work
-    // settles, and again on hover or focus of the segment), so the tab opens
-    // with its rows instead of growing when they arrive.
-    eager: Boolean(sessionId),
+    // The menu is large (a phone pulls it over the relay), so a snapshot that
+    // already names the branch reads it only when it is used: on hover or
+    // focus of the segment, or when the tab opens, and then it follows the
+    // session's work (refreshKey) while the tab stays open. Only a stub
+    // snapshot needs it at once, for the workspace the segment is drawn from.
+    eager: Boolean(sessionId) && (open || !(live && showsBranch(live))),
   });
   // While a move is pending or refused, the snapshot's workspace and the menu
   // re-read can both be momentarily absent (and so can they right after a
@@ -159,8 +163,6 @@ export function BranchIslandSegment({
   const shown = Boolean(sessionId && workspace && showsBranch(workspace));
   const detached = shown && !worktree && !recovery && !workspace?.branch;
   const commit = useDetachedCommit(workspace, detached);
-  // The island owns the open tab (one at a time).
-  const [open, setOpen] = useComposerIslandTab('branch');
   const panel = useRef<HTMLElement>(null);
   // The checkout's status beside the open tab's chip (the Git segment's own read).
   const gitStatus = useIslandGitStatus(open ? (workspace?.cwd ?? '') : '');

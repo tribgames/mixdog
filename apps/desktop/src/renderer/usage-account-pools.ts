@@ -72,7 +72,17 @@ interface Watch {
   count: number;
   inflight: boolean;
   dirty: boolean;
+  /** The provider's own dashboard row when its roster was last asked for. */
+  row: string;
+  /** When its roster was last asked for. */
+  readAt: number;
 }
+
+/** A publication that leaves a provider's own row alone still rereads its
+ *  roster once this long after the last read: the dashboard row shows only the
+ *  account in use, while accounts added, removed or measured elsewhere (another
+ *  device, a refresh of every account) show up only in the roster. */
+export const ACCOUNT_REREAD_WINDOW_MS = 30_000;
 const watches = new Map<string, Watch>();
 const generations = new Map<string, number>();
 let watchApi: UsageApi | undefined;
@@ -93,6 +103,7 @@ function read(provider: string): void {
     return;
   }
   watch.inflight = true;
+  watch.readAt = Date.now();
   const generation = bumpGeneration(provider);
   void Promise.resolve(api.invokeCapability({ capability: 'getProviderAccounts', args: [provider] }))
     .then((response) => {
@@ -109,21 +120,30 @@ function read(provider: string): void {
     });
 }
 
-function readAll(): void {
+/** The rosters changed or were re-measured outside the dashboard (another
+ *  list's refresh of every account): reread every watched provider now. */
+export function readAll(): void {
   for (const provider of watches.keys()) read(provider);
 }
 
+/** The provider's own row of the usage dashboard, as text. */
+function dashboardRow(provider: string): string {
+  const rows = getUsageDashboardSnapshot().dashboard.rows;
+  return JSON.stringify((Array.isArray(rows) ? rows : []).find((row) => record(row).id === provider) ?? null);
+}
+
 function attachShared(): void {
-  // Account switches, sign-ins and removals announce themselves; the dashboard
-  // notifies on every status change, so only a new quota result rereads.
-  // `refreshedAt` is a millisecond clock, not a revision: two publications can
-  // share it, so the dashboard object (new for every publication) counts too.
-  let seen = getUsageDashboardSnapshot();
+  // Account switches, sign-ins and removals announce themselves. The dashboard
+  // notifies on every publication (a phone's boot makes many, each carrying
+  // every provider), so a provider rereads when its OWN row changed, else at
+  // most once per window.
   const unsubscribe = subscribeUsageDashboard(() => {
-    const next = getUsageDashboardSnapshot();
-    if (next.refreshedAt === seen.refreshedAt && next.dashboard === seen.dashboard) return;
-    seen = next;
-    readAll();
+    for (const [provider, watch] of watches) {
+      const row = dashboardRow(provider);
+      if (row === watch.row && Date.now() - watch.readAt < ACCOUNT_REREAD_WINDOW_MS) continue;
+      watch.row = row;
+      read(provider);
+    }
   });
   window.addEventListener(PROVIDER_ACCOUNTS_CHANGED, readAll);
   detachShared = () => {
@@ -140,7 +160,7 @@ function watchProviders(api: UsageApi, providers: readonly string[]): () => void
   for (const provider of providers) {
     let watch = watches.get(provider);
     if (!watch) {
-      watch = { count: 0, inflight: false, dirty: false };
+      watch = { count: 0, inflight: false, dirty: false, row: dashboardRow(provider), readAt: 0 };
       watches.set(provider, watch);
       created.push(provider);
     }
