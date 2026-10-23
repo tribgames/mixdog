@@ -21,6 +21,7 @@ const {
   newProviderAccountId,
   recordProviderAccountUsage,
   blockProviderAccount,
+  clearProviderAccountQuotaState,
   removeProviderAccount,
 } = await import('../../../shared/provider-accounts.mjs');
 const { createAccountPoolProvider, resetAccountProbePacing, resetSessionAccountBindings } = await import(
@@ -241,7 +242,7 @@ test('a provider-supplied accountCooldownPolicy sets reason-based cooldowns when
   for (const expected of [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 2 * 60 * 60_000]) {
     await assert.rejects(gateway(quota).send([], 'm', [], {}));
     assert.ok(near(blockedFor(ids[0]), Math.min(expected, 6 * 60 * 60_000)), `quota step ${expected}`);
-    await blockProviderAccount(ag, ids[0], 0);
+    await clearProviderAccountQuotaState(ag, ids[0]);
   }
   assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.waitForCooldownMs, 300_000);
   assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.rotateOnRateLimit, true);
@@ -257,17 +258,17 @@ test('a provider-supplied accountCooldownPolicy sets reason-based cooldowns when
   });
   await assert.rejects(waited, /cancelled/);
   assert.ok(near(blockedFor(ids[0]), 30_000), 'rate limit 30s');
-  await blockProviderAccount(ag, ids[0], 0);
+  await clearProviderAccountQuotaState(ag, ids[0]);
   const advised = () =>
     Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 100 });
   await assert.rejects(gateway(advised).send([], 'm', [], {}));
   assert.ok(near(blockedFor(ids[0]), 2_000), 'advised rate limit rotates; the advice (floored) is the cooldown');
-  await blockProviderAccount(ag, ids[0], 0);
+  await clearProviderAccountQuotaState(ag, ids[0]);
   const longAdvice = () =>
     Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 400_000 });
   await assert.rejects(gateway(longAdvice).send([], 'm', [], {}));
   assert.ok(near(blockedFor(ids[0]), 400_000), 'advice beyond the wait bound blocks for the advice');
-  await blockProviderAccount(ag, ids[0], 0);
+  await clearProviderAccountQuotaState(ag, ids[0]);
   const capacity = () => Object.assign(new Error('busy'), { status: 503, code: 'model_capacity_exceeded' });
   await assert.rejects(gateway(capacity).send([], 'm', [], {}));
   assert.equal(readProviderAccountPool(ag).accounts.find((row) => row.id === ids[0]).blockedUntil > Date.now(), false);

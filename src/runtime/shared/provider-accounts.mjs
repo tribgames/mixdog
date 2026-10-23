@@ -95,16 +95,32 @@ export function providerAccountPolicy(pool) {
   return pool?.policy === 'headroom' ? 'headroom' : 'limit';
 }
 
-function normalizePool(pool) {
+// A reading stored before per-model gating is stale: it is dropped on read so
+// it steers nothing until the account is measured again.
+function dropStaleUsage(provider, row) {
+  if (!staleQuotaWindows(provider, row.usage?.windows)) return row;
+  const fresh = { ...row };
+  delete fresh.usage;
+  return fresh;
+}
+
+function normalizePool(provider, pool) {
   if (!pool) return pool;
   const policy = providerAccountPolicy(pool);
-  return { ...normalizeLabels(pool), policy, auto: policy !== 'manual' };
+  const labelled = normalizeLabels(pool);
+  const accounts = labelled.accounts.map((row) => dropStaleUsage(provider, row));
+  return { ...labelled, accounts, policy, auto: policy !== 'manual' };
 }
 
 export function readProviderAccountPool(provider, dataDir = resolvePluginData()) {
   requireAccountProvider(provider);
   return (
-    normalizePool(read(dataDir).providers[provider]) || { accounts: [], selectedId: null, auto: true, policy: 'limit' }
+    normalizePool(provider, read(dataDir).providers[provider]) || {
+      accounts: [],
+      selectedId: null,
+      auto: true,
+      policy: 'limit',
+    }
   );
 }
 
@@ -124,7 +140,7 @@ async function update(provider, mutate) {
     },
     { mode: 0o600, secret: true, fsyncDir: true, backup: true }
   );
-  return normalizePool(result.providers[provider]);
+  return normalizePool(provider, result.providers[provider]);
 }
 
 /**
@@ -268,9 +284,15 @@ export async function recordProviderAccountUsage(provider, id, snapshot) {
     // nothing about a Gemini refusal), and only a MEASURED window: a provider
     // that reports a window without a percentage says nothing about that
     // meter, and requiring a number from it kept accounts refused that every
-    // real reading had freed.
-    const measured = blockEvidenceWindows(row).filter((window) => window.usedPct !== null);
-    if (measured.length && measured.every((window) => window.usedPct < 100)) clearAccountBlock(row);
+    // real reading had freed. Each bucket's block is weighed on its own.
+    const lifted = (block) => {
+      const measured = blockEvidenceWindows(block).filter((window) => window.usedPct !== null);
+      return measured.length > 0 && measured.every((window) => window.usedPct < 100);
+    };
+    setAccountBlocks(
+      row,
+      accountBlocks(row).filter((block) => !lifted(block))
+    );
   });
 }
 
@@ -314,21 +336,25 @@ const MAX_BLOCK_MS = 6 * 60 * 60_000;
 // then covers that limit's windows. `options.reset` marks `until` as the
 // quota reset the server named: it is kept as given (a fresh reading showing
 // room still lifts it early), while advice and inferred delays stay capped.
+// A new refusal of the same model replaces that model's block; every other
+// block still running keeps its own deadline, so refusing one bucket never
+// frees another.
 export async function blockProviderAccount(provider, id, until, model = '', source = 'inferred', options = {}) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
-    row.blockedUntil = options.reset === true ? until : Math.min(until, Date.now() + MAX_BLOCK_MS);
+    const now = Date.now();
+    const block = { blockedUntil: options.reset === true ? until : Math.min(until, now + MAX_BLOCK_MS) };
     const scope = String(model || '').trim();
-    if (scope) row.blockedModel = scope;
-    else delete row.blockedModel;
+    if (scope) block.blockedModel = scope;
     const limit = String(options.limit || '').trim();
-    if (limit) row.blockedLimit = limit;
-    else delete row.blockedLimit;
-    if (source === 'retry-after') row.blockedSource = source;
-    else delete row.blockedSource;
-    if (options.quota === true) row.blockedQuota = true;
-    else delete row.blockedQuota;
+    if (limit) block.blockedLimit = limit;
+    if (source === 'retry-after') block.blockedSource = source;
+    if (options.quota === true) block.blockedQuota = true;
+    const running = accountBlocks(row).filter(
+      (entry) => entry.blockedUntil > now && String(entry.blockedModel || '') !== scope
+    );
+    setAccountBlocks(row, [...running, block]);
   });
 }
 
@@ -346,12 +372,57 @@ export async function clearProviderAccountQuotaState(provider, id) {
   });
 }
 
+const BLOCK_FIELDS = Object.freeze(['blockedUntil', 'blockedModel', 'blockedLimit', 'blockedSource', 'blockedQuota']);
+
 function clearAccountBlock(row) {
-  delete row.blockedUntil;
-  delete row.blockedModel;
-  delete row.blockedLimit;
-  delete row.blockedSource;
-  delete row.blockedQuota;
+  for (const key of BLOCK_FIELDS) delete row[key];
+  delete row.blockedBuckets;
+}
+
+const blockOf = (source) =>
+  Object.fromEntries(BLOCK_FIELDS.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+
+// Every block the account holds, oldest first, each read beside the account's
+// usage. The row's own fields carry the latest; earlier blocks of other
+// buckets still running sit in `blockedBuckets`.
+function accountBlocks(row) {
+  const blocks = [
+    ...(Array.isArray(row?.blockedBuckets) ? row.blockedBuckets : []),
+    ...(row?.blockedUntil === undefined ? [] : [blockOf(row)]),
+  ];
+  return blocks.map((block) => ({ ...block, usage: row.usage }));
+}
+
+function setAccountBlocks(row, blocks) {
+  clearAccountBlock(row);
+  if (blocks.length) Object.assign(row, blockOf(blocks.at(-1)));
+  if (blocks.length > 1) row.blockedBuckets = blocks.slice(0, -1).map(blockOf);
+  return row;
+}
+
+// The row holding only the blocks `keep` accepts (none by default), so a check
+// can weigh the usage windows, or only the quota refusals, on their own.
+export function providerAccountWithBlocks(row, keep = () => false) {
+  return row && setAccountBlocks({ ...row }, accountBlocks(row).filter(keep));
+}
+
+// Labels every current reading scopes with `models`/`except`. A stored window
+// carrying one of them without a scope predates per-model gating and would
+// read as account-wide, so its whole reading is stale.
+const SCOPED_WINDOW_LABELS = Object.freeze({
+  'anthropic-oauth': ['EXTRA'],
+  'antigravity-oauth': ['7D Argon', '5H Claude/GPT', '7D Claude/GPT'],
+  'cursor-oauth': ['Basic', 'API'],
+});
+
+export function staleQuotaWindows(provider, windows) {
+  const labels = SCOPED_WINDOW_LABELS[provider] || [];
+  return (Array.isArray(windows) ? windows : []).some(
+    (window) =>
+      labels.includes(String(window?.label || '').trim()) &&
+      !Array.isArray(window.models) &&
+      !Array.isArray(window.except)
+  );
 }
 
 // Which models one quota window gates — the single rule every window and every
@@ -422,6 +493,17 @@ function blockAppliesToModel(row, model) {
   return windows.some((window) => quotaWindowAppliesToModel(window, model));
 }
 
+// When the blocks holding `model` lift (every block when no model is named):
+// the latest of their deadlines, or null when none holds it. Past deadlines
+// are returned as they are, so a caller compares the result with its clock.
+export function providerAccountBlockedUntil(row, model = '') {
+  const ends = accountBlocks(row)
+    .filter((block) => blockAppliesToModel(block, model))
+    .map((block) => Number(block.blockedUntil))
+    .filter(Number.isFinite);
+  return ends.length ? Math.max(...ends) : null;
+}
+
 // Earliest moment any of the given exhausted accounts can serve `model` again,
 // or null when unknown. Per account the LATEST blocking reset counts (every
 // blocking window must clear); across accounts the EARLIEST account does. A
@@ -433,8 +515,9 @@ export function providerAccountsResetAt(rows, now = Date.now(), model = '', opti
     if (!providerAccountExhausted(row, now, model, options)) continue;
     const times = [];
     let unknown = false;
-    if (row.blockedUntil > now && blockAppliesToModel(row, model)) {
-      if (row.blockedSource === 'retry-after') times.push(row.blockedUntil);
+    for (const block of accountBlocks(row)) {
+      if (!(block.blockedUntil > now) || !blockAppliesToModel(block, model)) continue;
+      if (block.blockedSource === 'retry-after') times.push(block.blockedUntil);
       else unknown = true;
     }
     if (options.useCredits !== true) {
@@ -454,7 +537,7 @@ function windowFull(row, window, now) {
 }
 
 export function providerAccountExhausted(row, now = Date.now(), model = '', options = {}) {
-  if (row?.blockedUntil > now && blockAppliesToModel(row, model)) return true;
+  if (accountBlocks(row).some((block) => block.blockedUntil > now && blockAppliesToModel(block, model))) return true;
   if (options.useCredits === true) return false;
   return (row?.usage?.windows || []).some(
     (window) => quotaWindowAppliesToModel(window, model) && windowFull(row, window, now)
@@ -476,16 +559,19 @@ function quotaWindowFamily(window) {
 export function providerAccountLimit(row, now = Date.now(), options = {}) {
   if (!row) return null;
   const windows = row.usage?.windows || [];
-  const blocked = row.blockedUntil > now;
   // A block counts as scoped only when scoped meters cover it; any other
   // refusal is treated as the account's.
-  const covering = blocked ? blockWindows(row) : [];
-  if (blocked && (!covering.length || covering.some((window) => !windowScope(window)))) return { scope: 'account' };
+  const covering = accountBlocks(row)
+    .filter((block) => block.blockedUntil > now)
+    .map(blockWindows);
+  if (covering.some((meters) => !meters.length || meters.some((window) => !windowScope(window)))) {
+    return { scope: 'account' };
+  }
   const credits = options.useCredits === true;
   if (!credits && windows.some((window) => !windowScope(window) && windowFull(row, window, now))) {
     return { scope: 'account' };
   }
-  const families = new Set(covering.map(quotaWindowFamily));
+  const families = new Set(covering.flat().map(quotaWindowFamily));
   if (!credits) {
     for (const window of windows) {
       if (windowScope(window) && !displayOnly(window) && windowFull(row, window, now)) {

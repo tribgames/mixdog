@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, after, mock } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,6 +21,7 @@ const {
   chooseProviderAccount,
   providerAccountLimit,
   blockProviderAccount,
+  clearProviderAccountQuotaState,
   removeProviderAccount,
 } = await import('../../../shared/provider-accounts.mjs');
 const { createAccountPoolProvider, resetAccountProbePacing } = await import('./account-pool.mjs');
@@ -212,7 +213,7 @@ test('an account whose reading comes back empty is measured once, not on every r
     },
   }));
   for (let refusal = 0; refusal < 2; refusal += 1) {
-    await blockProviderAccount(ag, refusing, 0);
+    await clearProviderAccountQuotaState(ag, refusing);
     await changeProviderAccounts(ag, { selectedId: refusing });
     assert.equal((await gateway.send([], 'gemini-3.8-flash-high', [], {})).content, 'ok');
   }
@@ -273,4 +274,218 @@ test('Cursor: a full API pool leaves Auto and Composer usable, and the reverse',
   assert.equal(pick(cursor, 'auto'), null);
   assert.equal(pick(cursor, 'composer-2.5'), null);
   assert.equal(pick(cursor, 'claude-opus-5-high')?.id, id);
+});
+
+test('two buckets refused in turn each stay blocked until their own deadline', async () => {
+  const ag = 'antigravity-oauth';
+  const id = await single(ag);
+  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary()) });
+  const gateway = createAccountPoolProvider(ag, () => ({
+    accountCooldownPolicy: { ...ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY, waitForCooldownMs: 0 },
+    async send(_messages, model) {
+      throw Object.assign(new Error('rate limited'), {
+        status: 429,
+        code: 'rate_limit_exceeded',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+            retryDelay: model.startsWith('gemini') ? '45s' : '90s',
+          },
+        ],
+      });
+    },
+  }));
+  await assert.rejects(gateway.send([], 'gemini-3.8-flash-high', [], {}), /rate limited/);
+  const geminiUntil = accountRow(ag, id).blockedUntil;
+  await assert.rejects(gateway.send([], 'claude-sonnet-4-6', [], {}), /rate limited/);
+  const claudeUntil = accountRow(ag, id).blockedUntil;
+  assert.ok(claudeUntil > geminiUntil);
+  const at = (now, model) => chooseProviderAccount(readProviderAccountPool(ag), new Set(), now, model)?.id ?? null;
+  assert.equal(at(Date.now(), 'gemini-3.1-pro-high'), null, 'the Claude refusal keeps the Gemini block');
+  assert.equal(at(Date.now(), 'claude-sonnet-4-6'), null);
+  assert.equal(at(geminiUntil + 1, 'gemini-3.1-pro-high'), id, 'the Gemini block ends at its own deadline');
+  assert.equal(at(geminiUntil + 1, 'gpt-oss-120b-medium'), null, 'while the Claude/GPT block runs on');
+  assert.equal(at(claudeUntil + 1, 'claude-sonnet-4-6'), id);
+  assert.equal(providerAccountLimit(accountRow(ag, id))?.scope, 'model');
+});
+
+test('a request waits for, and is advised, the deadline of the block holding its own model', async () => {
+  const ag = 'antigravity-oauth';
+  const id = await single(ag);
+  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary()) });
+  const gateway = (waitForCooldownMs) =>
+    createAccountPoolProvider(ag, () => ({
+      accountCooldownPolicy: { ...ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY, waitForCooldownMs },
+      async send(_messages, model) {
+        throw Object.assign(new Error('rate limited'), {
+          status: 429,
+          code: 'rate_limit_exceeded',
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+              retryDelay: model.startsWith('gemini') ? '45s' : '90s',
+            },
+          ],
+        });
+      },
+    }));
+  await assert.rejects(gateway(0).send([], 'gemini-3.8-flash-high', [], {}), /rate limited/);
+  const geminiUntil = accountRow(ag, id).blockedUntil;
+  await assert.rejects(gateway(0).send([], 'claude-sonnet-4-6', [], {}), /rate limited/);
+  const near = (ms, until) => Math.abs(ms - (until - Date.now())) < 2_000;
+  await assert.rejects(gateway(0).send([], 'gemini-3.1-pro-high', [], {}), (error) => {
+    assert.equal(error.code, 'rate_limited');
+    assert.ok(near(error.retryAfterMs, geminiUntil), `advice ${error.retryAfterMs} is the Gemini deadline`);
+    return true;
+  });
+  resetAccountProbePacing();
+  const stop = new AbortController();
+  let waitMs = null;
+  await assert.rejects(
+    gateway(60_000).send([], 'gemini-3.1-pro-high', [], {
+      signal: stop.signal,
+      onStageChange: (stage, detail) => {
+        if (stage !== 'reconnecting' || !(detail?.waitMs > 0)) return;
+        waitMs = detail.waitMs;
+        stop.abort(new Error('cancelled'));
+      },
+    }),
+    /cancelled/
+  );
+  assert.ok(waitMs !== null && near(waitMs, geminiUntil), `waits ${waitMs} for the Gemini deadline`);
+});
+
+test('a usage reading lifts each bucket block on its own meters', async () => {
+  const ag = 'antigravity-oauth';
+  const id = await single(ag);
+  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary()) });
+  const until = Date.now() + 3_600_000;
+  await blockProviderAccount(ag, id, until, 'gemini-3.8-flash-high', 'retry-after');
+  await blockProviderAccount(ag, id, until, 'claude-sonnet-4-6', 'retry-after');
+  await recordProviderAccountUsage(ag, id, {
+    quotaWindows: antigravityQuotaWindows(antigravitySummary({ thirdParty: 0 })),
+  });
+  assert.equal(pick(ag, 'claude-sonnet-4-6'), null, 'the full Claude/GPT meter keeps its block');
+  await recordProviderAccountUsage(ag, id, {
+    quotaWindows: antigravityQuotaWindows(antigravitySummary({ gemini: 0 })),
+  });
+  assert.equal(pick(ag, 'claude-sonnet-4-6')?.id, id, 'Claude/GPT room lifts its block');
+  assert.equal(pick(ag, 'gemini-3.8-flash-high'), null, 'the Gemini block is lifted only by Gemini room');
+  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary()) });
+  assert.equal(pick(ag, 'gemini-3.8-flash-high')?.id, id);
+  assert.equal(accountRow(ag, id).blockedUntil, undefined);
+});
+
+test('a new block drops expired predecessors and replaces its own model', async () => {
+  const ag = 'antigravity-oauth';
+  const id = await single(ag);
+  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary()) });
+  const later = Date.now() + 3_600_000;
+  await blockProviderAccount(ag, id, Date.now() - 1, 'gemini-3.8-flash-high');
+  await blockProviderAccount(ag, id, later, 'claude-sonnet-4-6');
+  assert.equal(accountRow(ag, id).blockedBuckets, undefined, 'the expired Gemini block is dropped');
+  await blockProviderAccount(ag, id, later, 'claude-sonnet-4-6');
+  assert.equal(accountRow(ag, id).blockedBuckets, undefined, 'a second Claude refusal replaces its own block');
+  await blockProviderAccount(ag, id, later, 'gemini-3.8-flash-high');
+  assert.deepEqual(
+    accountRow(ag, id).blockedBuckets.map((block) => block.blockedModel),
+    ['claude-sonnet-4-6']
+  );
+});
+
+test('an accountBlocked refusal keeps every model off the account', async () => {
+  const ag = 'antigravity-oauth';
+  const id = await single(ag);
+  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary()) });
+  const gateway = createAccountPoolProvider(ag, () => ({
+    accountCooldownPolicy: { ...ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY, waitForCooldownMs: 0 },
+    async send() {
+      throw Object.assign(new Error('verify'), {
+        status: 403,
+        code: 'validation_required',
+        accountBlocked: true,
+        unsafeToRetry: true,
+      });
+    },
+  }));
+  await assert.rejects(gateway.send([], 'gemini-3.8-flash-high', [], {}), /verify/);
+  assert.equal(pick(ag, 'gemini-3.1-pro-high'), null);
+  assert.equal(pick(ag, 'claude-sonnet-4-6'), null);
+  assert.equal(pick(ag, 'gpt-oss-120b-medium'), null);
+  assert.deepEqual(providerAccountLimit(accountRow(ag, id)), { scope: 'account' });
+});
+
+// Windows as a build before per-model gating stored them: labels only.
+const LEGACY_UNTIL = Date.now() + 3 * 3_600_000;
+const legacy = (rows) => rows.map(([label, usedPct]) => ({ label, usedPct, resetAt: LEGACY_UNTIL }));
+const LEGACY_READINGS = {
+  'antigravity-oauth': [
+    legacy([
+      ['5H', 50],
+      ['7D', 50],
+      ['5H Claude/GPT', 100],
+      ['7D Claude/GPT', 50],
+    ]),
+    'gemini-3.8-flash-high',
+  ],
+  'anthropic-oauth': [
+    legacy([
+      ['5H', 40],
+      ['7D', 10],
+      ['EXTRA', 100],
+    ]),
+    'claude-sonnet-4-6',
+  ],
+  'cursor-oauth': [
+    legacy([
+      ['Basic', 20],
+      ['API', 100],
+    ]),
+    'auto',
+  ],
+};
+
+test('upgrade: a roster reading stored before per-model gating does not hold unrelated models', async () => {
+  const ids = {};
+  for (const provider of Object.keys(LEGACY_READINGS)) ids[provider] = await single(provider);
+  const path = join(dir, 'provider-accounts.json');
+  const stored = JSON.parse(readFileSync(path, 'utf8'));
+  for (const [provider, [windows]] of Object.entries(LEGACY_READINGS)) {
+    stored.providers[provider].accounts[0].usage = { windows, checkedAt: Date.now() };
+  }
+  writeFileSync(path, JSON.stringify(stored));
+  for (const [provider, [, model]] of Object.entries(LEGACY_READINGS)) {
+    assert.equal(pick(provider, model)?.id, ids[provider], `${provider}: ${model} stays selectable`);
+    assert.equal(providerAccountLimit(accountRow(provider, ids[provider])), null);
+  }
+});
+
+test('upgrade: a cached snapshot stored before per-model gating does not hold unrelated models', async () => {
+  const served = [];
+  const cache = (provider, quotaWindows) =>
+    writeFileSync(
+      join(dir, 'gateway-oauth-usage-cache.json'),
+      JSON.stringify({ version: 1, routes: { [provider]: { provider, quotaWindows, cachedAt: Date.now() } } })
+    );
+  for (const [provider, [windows, model]] of Object.entries(LEGACY_READINGS)) {
+    for (const row of readProviderAccountPool(provider).accounts) await removeProviderAccount(provider, row.id);
+    cache(provider, windows);
+    const gateway = createAccountPoolProvider(provider, () => ({
+      async send(_messages, requested) {
+        served.push(requested);
+        return { content: 'ok' };
+      },
+    }));
+    assert.equal((await gateway.send([], model, [], {})).content, 'ok', `${provider}: ${model} is served`);
+  }
+  assert.deepEqual(
+    served,
+    Object.values(LEGACY_READINGS).map(([, model]) => model)
+  );
+  // A current reading still holds the models its full window gates.
+  const ag = 'antigravity-oauth';
+  cache(ag, antigravityQuotaWindows(antigravitySummary({ thirdParty: 0 })));
+  const gateway = createAccountPoolProvider(ag, () => ({ send: async () => ({ content: 'ok' }) }));
+  await assert.rejects(gateway.send([], 'claude-sonnet-4-6', [], {}), (error) => Boolean(error.quotaExhausted));
+  assert.equal((await gateway.send([], 'gemini-3.8-flash-high', [], {})).content, 'ok');
 });

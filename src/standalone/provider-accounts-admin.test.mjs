@@ -12,6 +12,9 @@ const {
   registerProviderAccount,
   readProviderAccountPool,
   changeProviderAccounts,
+  recordProviderAccountUsage,
+  blockProviderAccount,
+  removeProviderAccount,
 } = await import('../runtime/shared/provider-accounts.mjs');
 const { writeJsonAtomicSync } = await import('../runtime/shared/atomic-file.mjs');
 const { forgetProviderAuth, beginOAuthProviderLogin, listProviderAccounts } = await import(
@@ -66,6 +69,32 @@ test('disconnect removes only the requested account, without selecting it or dis
     () => changeProviderAccounts(provider, { rename: { id: ids[0], label: '  ' } }),
     /Invalid account name/
   );
+});
+
+test('a listed account reports the deadline of the longest block holding it', async (t) => {
+  const provider = 'anthropic-oauth';
+  const id = newProviderAccountId();
+  await registerProviderAccount(provider, id);
+  t.after(() => removeProviderAccount(provider, id));
+  // A controlled clock: the shorter block expires exactly when the test says.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const now = Date.now();
+  await recordProviderAccountUsage(provider, id, {
+    quotaWindows: [
+      { label: '5H', usedPct: 10, resetAt: now + 3_600_000 },
+      { label: '7D Opus', usedPct: 50, resetAt: now + 3_600_000 },
+      { label: '7D Fable', usedPct: 50, resetAt: now + 3_600_000 },
+    ],
+  });
+  const opusUntil = now + 3 * 3_600_000;
+  await blockProviderAccount(provider, id, opusUntil, 'claude-opus-4-1', 'retry-after');
+  await blockProviderAccount(provider, id, now + 60_000, 'claude-fable-5', 'retry-after');
+  const listed = () => listProviderAccounts(provider).accounts.find((account) => account.id === id);
+  assert.equal(listed().blockedUntil, opusUntil, 'the older, longer block decides');
+  assert.deepEqual(listed().limit, { scope: 'model', families: ['Opus', 'Fable'] });
+  t.mock.timers.tick(120_000);
+  assert.equal(listed().blockedUntil, opusUntil, 'the remaining block still counts down');
+  assert.deepEqual(listed().limit, { scope: 'model', families: ['Opus'] });
 });
 
 test('adding a second Anthropic account writes its own credential file and leaves the first untouched', async (t) => {

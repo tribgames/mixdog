@@ -100,6 +100,7 @@ import {
   removeProviderAccount,
   clearProviderAccountQuotaState,
   providerAccountLimit,
+  providerAccountBlockedUntil,
   ACCOUNT_PROVIDERS,
 } from '../../runtime/shared/provider-accounts.mjs';
 import { currentProviderAccountId, withProviderAccount } from '../../runtime/shared/provider-auth-binding.mjs';
@@ -885,7 +886,8 @@ export function listProviderAccounts(provider) {
         authenticated: auth.authenticated === true,
         reauthRequired: auth.reauthRequired === true,
         usage: row.usage || null,
-        blockedUntil: row.blockedUntil || null,
+        // When the limit shown lifts: the latest deadline of every block.
+        blockedUntil: providerAccountBlockedUntil(row) || null,
         // The limit holding the account now: account-wide, or only for one
         // model family ("7D Fable") while other models still run.
         limit: providerAccountLimit(row, now, { useCredits: pool.useCredits === true }),

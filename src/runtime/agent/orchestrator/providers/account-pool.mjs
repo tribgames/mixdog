@@ -9,6 +9,9 @@ import {
   providerAccountExhaustedForModelOnly,
   providerAccountPolicy,
   providerAccountsResetAt,
+  providerAccountWithBlocks,
+  providerAccountBlockedUntil,
+  staleQuotaWindows,
 } from '../../../shared/provider-accounts.mjs';
 import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
 import { isExplicitUserAbortError, markProviderRecoveryExhausted } from './retry-classifier.mjs';
@@ -124,15 +127,18 @@ function accountsExhaustedError(useCredits) {
 // evidence): a rate limit, advising the earliest cooldown end as the wait.
 // The pool already spent its cooldown wait, so this is a terminal verdict for
 // the loop, not an unclassified failure.
-function earliestCooldownMs(rows, now) {
-  const ends = rows.map((row) => Number(row.blockedUntil)).filter((until) => Number.isFinite(until) && until > now);
+// A row's cooldown for `model` ends when every block holding that model lifts.
+const coolingUntil = (row, model) => providerAccountBlockedUntil(row, model) ?? 0;
+
+function earliestCooldownMs(rows, now, model) {
+  const ends = rows.map((row) => coolingUntil(row, model)).filter((until) => until > now);
   return ends.length ? Math.min(...ends) - now : null;
 }
 
-function accountsCoolingDownError(rows, now) {
+function accountsCoolingDownError(rows, now, model) {
   const error = new Error('Every connected account is cooling down after a rate limit. Try again shortly.');
   error.code = 'rate_limited';
-  const wait = earliestCooldownMs(rows, now);
+  const wait = earliestCooldownMs(rows, now, model);
   if (wait != null) error.retryAfterMs = wait;
   return markProviderRecoveryExhausted(error, { owner: 'account-pool', terminal: true });
 }
@@ -349,7 +355,7 @@ async function accountQuotaExhausted(providerName, row, model, error, account) {
     const pool = readProviderAccountPool(providerName);
     const entry = pool.accounts.find((item) => item.id === row.id);
     const options = { useCredits: pool.useCredits === true };
-    evidence = providerAccountExhausted({ ...entry, blockedUntil: 0 }, Date.now(), model, options);
+    evidence = providerAccountExhausted(providerAccountWithBlocks(entry), Date.now(), model, options);
     exhausted = exhausted || evidence || providerAccountExhausted(entry, Date.now(), model, options);
   }
   return { exhausted, delay, evidence, ...(exhausted ? blockUntil(evidence, evidence ? 'quota' : 'unknown') : {}) };
@@ -384,7 +390,7 @@ function poolSend(providerName, account) {
         rows.length > 0 &&
         rows.every((entry) =>
           providerAccountExhausted(
-            evidenced.has(entry.id) || entry.blockedQuota === true ? entry : { ...entry, blockedUntil: 0 },
+            evidenced.has(entry.id) ? entry : providerAccountWithBlocks(entry, (block) => block.blockedQuota === true),
             now,
             model,
             opts
@@ -397,7 +403,7 @@ function poolSend(providerName, account) {
       if (all) {
         return quotaExhausted(error || accountsExhaustedError(opts.useCredits), providerName, model, rows, opts);
       }
-      return error || accountsCoolingDownError(rows, now);
+      return error || accountsCoolingDownError(rows, now, model);
     };
     // Accounts this send blocked on a rate-limit cooldown, the time it spent
     // waiting for cooldowns, and the provider's wait bound.
@@ -415,8 +421,8 @@ function poolSend(providerName, account) {
       const bound = waitBoundMs(ids);
       // Persisting a short cooldown can outlast its deadline. Release only
       // attempts cooled by this send, and only under an enabled wait policy.
-      const expired = bound > 0 && rows.some((row) => cooled.has(row.id) && !(Number(row.blockedUntil) > now));
-      const wait = all ? null : expired ? 0 : earliestCooldownMs(rows, now);
+      const expired = bound > 0 && rows.some((row) => cooled.has(row.id) && !(coolingUntil(row, model) > now));
+      const wait = all ? null : expired ? 0 : earliestCooldownMs(rows, now, model);
       if (wait == null || waitedMs + wait > bound) throw markExhausted(error, ids);
       options.onStageChange?.('reconnecting', {
         message: `Rate limited — every account is cooling down; retrying in ${Math.ceil(wait / 1000)}s`,
@@ -431,7 +437,7 @@ function poolSend(providerName, account) {
       waitedMs += wait;
       const lifted = Date.now();
       for (const row of readProviderAccountPool(providerName).accounts) {
-        if (cooled.has(row.id) && !(Number(row.blockedUntil) > lifted)) {
+        if (cooled.has(row.id) && !(coolingUntil(row, model) > lifted)) {
           cooled.delete(row.id);
           attempted.delete(row.id);
         }
@@ -443,7 +449,8 @@ function poolSend(providerName, account) {
       if (!pool.accounts.length) {
         if (pool.useCredits !== true) {
           const stored = readCachedOAuthUsageSnapshot({ provider: providerName, model: '' });
-          if (stored?.quotaWindows?.length) {
+          // A snapshot cached before per-model gating is stale evidence.
+          if (stored?.quotaWindows?.length && !staleQuotaWindows(providerName, stored.quotaWindows)) {
             const row = { usage: { windows: stored.quotaWindows, checkedAt: stored.cachedAt } };
             if (providerAccountExhausted(row, Date.now(), model)) {
               throw quotaExhausted(accountsExhaustedError(false), providerName, model, [row]);
@@ -524,10 +531,12 @@ function poolSend(providerName, account) {
         if (options.signal?.aborted || !exhausted) throw error;
         if (evidence) evidenced.add(row.id);
         else cooled.add(row.id);
-        await blockProviderAccount(providerName, row.id, until, model, source, {
+        // An account-level block holds every model, so it carries no model or
+        // limit scope.
+        await blockProviderAccount(providerName, row.id, until, accountBlocked ? '' : model, source, {
           quota: evidence === true,
           reset: reset === true,
-          limit: quotaLimitOf(error),
+          limit: accountBlocked ? '' : quotaLimitOf(error),
         });
         // An account block is unsafe to re-issue on THAT account only; with no
         // output emitted, the next account may serve the same request.
