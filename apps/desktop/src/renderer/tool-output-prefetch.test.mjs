@@ -198,6 +198,42 @@ test('failed reads are bounded and prefetched again only after a while', async (
   }
 });
 
+test('a read dropped from the held ones is not prefetched again, and its button still loads it', async () => {
+  resetFullToolOutputs();
+  resetToolOutputPrefetch();
+  const asked = [];
+  window.mixdogDesktop = {
+    readTranscriptItem: async (_session, id) => {
+      asked.push(id);
+      return { id, result: `full ${id}` };
+    },
+  };
+  const owner = {};
+  const rows = Array.from({ length: 80 }, (_, n) => cutRow(`d${n}`));
+  await act(async () => {
+    prefetchToolOutputs('session-1', rows, owner);
+    for (let n = 0; n < 200 && asked.length < rows.length; n += 1)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(asked.length, rows.length);
+  await act(async () => prefetchToolOutputs('session-1', [rows[0]], owner));
+  assert.equal(asked.length, rows.length, 'a done read dropped from the held reads is not prefetched again');
+  let output;
+  function Row() {
+    output = useFullToolOutput('session-1', rows[0], false);
+    return null;
+  }
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  await act(async () => root.render(React.createElement(Row)));
+  assert.equal(output.item.result, rows[0].result, 'dropped: the cut copy shows');
+  await act(async () => output.load());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(asked.length, rows.length + 1, 'the press reads it again');
+  assert.equal(output.item.result, 'full d0');
+  await act(async () => root.unmount());
+});
+
 test('nothing is prefetched while the link to the host is down', async () => {
   resetFullToolOutputs();
   resetToolOutputPrefetch();
