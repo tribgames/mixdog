@@ -496,6 +496,7 @@ function framedPage(body) {
   const page = new JSDOM(sandboxedPageDocument(body), {
     url: 'https://relay.test/preview-frame',
     runScripts: 'dangerously',
+    pretendToBeVisual: true,
     beforeParse(window) {
       Object.defineProperty(window, 'parent', {
         value: { postMessage: (message, target) => sent.push([message, target]) },

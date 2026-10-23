@@ -18,9 +18,16 @@ const { loadSandboxedPage, sandboxedPageDocument } = await import('./sandboxed-p
 function fakeFrame() {
   const replaced = [];
   const srcs = [];
+  const listeners = new Set();
   return {
     replaced,
     srcs,
+    style: { visibility: '' },
+    addEventListener: (type, listener) => type === 'load' && listeners.add(listener),
+    removeEventListener: (type, listener) => type === 'load' && listeners.delete(listener),
+    fireLoad: () => {
+      for (const listener of [...listeners]) listener();
+    },
     contentWindow: { location: { replace: (url) => replaced.push(url) }, postMessage() {} },
     set src(value) {
       srcs.push(value);
@@ -44,12 +51,43 @@ test('a frame that shows a page reloads by replacing its entry, never by a pushe
   assert.deepEqual(other.srcs, ['/preview-frame']);
 });
 
+test("the frame stays hidden (the panel's background shows) until the page itself has loaded, never the blank white /preview-frame", () => {
+  const frame = fakeFrame();
+  const unload = loadSandboxedPage(frame, '<p>a</p>');
+  assert.equal(frame.style.visibility, 'hidden');
+  frame.fireLoad(); // /preview-frame itself
+  assert.equal(frame.style.visibility, 'hidden', 'the blank relay page is not shown');
+  frame.fireLoad(); // the document written into it
+  assert.equal(frame.style.visibility, '');
+  unload();
+
+  // The page's first paint shows it before a slow image ends its load; the
+  // blank /preview-frame's own messages do not.
+  const slow = fakeFrame();
+  const unloadSlow = loadSandboxedPage(slow, '<img src="https://slow.test/x.png">');
+  const fromFrame = (type) =>
+    window.dispatchEvent(new window.MessageEvent('message', { data: { type }, source: slow.contentWindow }));
+  fromFrame('mixdog-preview-painted');
+  assert.equal(slow.style.visibility, 'hidden', 'nothing is posted into the frame yet');
+  fromFrame('mixdog-preview-ready');
+  slow.fireLoad(); // /preview-frame itself
+  fromFrame('mixdog-preview-painted');
+  assert.equal(slow.style.visibility, '');
+  unloadSlow();
+
+  // A frame cleaned up before its page loaded is not left hidden.
+  const early = fakeFrame();
+  loadSandboxedPage(early, '<p>b</p>')();
+  assert.equal(early.style.visibility, '');
+});
+
 test("a page's #anchor links replace the frame's entry; its own pushState is untouched", () => {
   const html = sandboxedPageDocument('<html><head></head><body><a id="go" href="#part">part</a></body></html>');
   // Inside a frame: the page script does nothing in a top window.
   const inner = new JSDOM('<!doctype html><body></body>', {
     url: 'https://relay.test/',
     runScripts: 'dangerously',
+    pretendToBeVisual: true,
   });
   const frame = inner.window.document.createElement('iframe');
   inner.window.document.body.append(frame);
