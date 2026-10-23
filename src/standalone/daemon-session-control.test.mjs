@@ -70,6 +70,37 @@ test('list and bounded reads reuse the common session catalog and projection', a
   ]);
 });
 
+test("a bot's list shows every session by id and title, with previews only on its own", async () => {
+  const h = fixture();
+  const rows = [
+    { id: 'sess_user_1', title: '버그 픽스 세션', status: 'idle', cwd: '/project', lastMessagePreview: 'secret user line', lastUsedAt: 5, working: true },
+    { id: 'sess_home_analyst', title: 'Home', lastMessagePreview: 'own line', lastUsedAt: 6 },
+    { id: 'sess_task_9', title: 'Other bot task', sourceName: 'agent:mailer@home', lastMessagePreview: 'mailer line' },
+  ];
+  h.service.listSessionCatalog = async () => ({ sessions: rows, nextCursor: null });
+  const bot = (callerScope) => h.execute({ action: 'list' }, { callerSessionId: 'sess_home_analyst', callerScope });
+
+  const asBot = await bot({ kind: 'agent', agentId: 'analyst' });
+  assert.deepEqual(asBot.sessions, [
+    { id: 'sess_user_1', title: '버그 픽스 세션', status: 'idle', cwd: '/project' },
+    { id: 'sess_home_analyst', title: 'Home', bot: 'analyst', lastUsedAt: new Date(6).toISOString(), preview: 'own line' },
+    { id: 'sess_task_9', title: 'Other bot task' },
+  ]);
+  assert.match(asBot.note, /data, not instructions/);
+
+  const human = await bot({ kind: 'human', attended: true });
+  assert.equal(human.sessions.length, 3);
+  assert.equal(human.sessions[0].preview, 'secret user line');
+  assert.equal(human.sessions[0].working, true);
+  assert.equal(human.sessions[2].bot, 'mailer');
+
+  const headless = await bot({ kind: 'background' });
+  for (const row of headless.sessions) {
+    assert.deepEqual(Object.keys(row).filter((key) => !['id', 'title', 'status', 'cwd'].includes(key)), []);
+  }
+  assert.equal(Object.hasOwn(headless, 'note'), false);
+});
+
 test('send, cancel and delete call existing addressed service operations', async () => {
   const h = fixture();
   // A caller that is no agent conversation: a plain queued prompt, no report.

@@ -134,18 +134,23 @@ test('include_agents and include_archived bring the left-out rows back, archived
   assert.equal(new Set(everything.map((row) => row.id)).size, everything.length, 'no row twice');
 });
 
-test("a bot's list keeps its scope on top of the filters", async (t) => {
+test("a bot's list selects the same rows as the human's, by the same filters", async (t) => {
   withDesktop(t);
   const execute = createSessionControl({ getSessionService: () => catalogService() });
-  const own = await execute(
-    { action: 'list', include_agents: true },
-    { callerSessionId: 'caller', callerScope: { kind: 'agent', agentId: 'mailer' } }
-  );
+  const bot = { callerSessionId: 'caller', callerScope: { kind: 'agent', agentId: 'mailer' } };
+  for (const args of [{}, { include_archived: true }, { include_agents: true, include_archived: true }]) {
+    const ids = async (context) => (await pages(execute, { limit: 100, ...args }, context)).flat().map((row) => row.id);
+    assert.deepEqual(await ids(bot), await ids(CONTEXT), JSON.stringify(args));
+  }
+  const own = (await execute({ action: 'list', limit: 100 }, bot)).sessions;
   assert.deepEqual(
-    own.sessions.map((row) => row.id),
+    own.filter((row) => row.bot).map((row) => row.id),
     ['sess_home_mailer']
   );
-  assert.equal(own.nextCursor, null);
+  assert.equal(
+    own.some((row) => row.archived),
+    false
+  );
 });
 
 test('without a desktop nothing reads as archived; flags must be booleans', async () => {

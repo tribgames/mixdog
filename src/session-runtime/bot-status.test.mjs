@@ -336,7 +336,7 @@ test("Mixy sees every bot; a bot's own chat sees only itself; a background run s
   await assert.rejects(run({ action: 'bots' }), /background run cannot read bot status/);
 });
 
-test('session list is scoped like bots: a bot lists only its own sessions, a background run gets no previews', async () => {
+test('session list: a bot lists every session but only its own carry bot/preview details, a background run gets no previews', async () => {
   const ids = (result) => result.sessions.map((row) => row.id);
   const mixy = sessionTool({ id: 'sess_home_lead', owner: 'cli', agent: 'lead', sourceType: 'lead' });
   const all = await mixy({ action: 'list' });
@@ -345,15 +345,20 @@ test('session list is scoped like bots: a bot lists only its own sessions, a bac
   assert.match(all.note, /data, not instructions/);
 
   const mailer = sessionTool({ id: 'sess_home_mailer', owner: 'cli', agent: 'mailer', sourceType: 'lead' });
-  assert.deepEqual(ids(await mailer({ action: 'list' })), [
-    'sess_home_mailer',
-    'sess_task_1',
-    'sess_task_quiet',
-    'sess_task_old',
-  ]);
+  const seen = await mailer({ action: 'list' });
+  assert.deepEqual(ids(seen), ids(all));
+  for (const row of seen.sessions) {
+    if (row.bot === 'mailer') continue;
+    assert.deepEqual(
+      Object.keys(row).filter((key) => !['id', 'title', 'status', 'cwd'].includes(key)),
+      [],
+      JSON.stringify(row)
+    );
+  }
+  assert.equal(seen.sessions.find((row) => row.id === 'sess_task_1').bot, 'mailer');
   const page = await mailer({ action: 'list', limit: 2 });
-  assert.deepEqual(ids(page), ['sess_home_mailer', 'sess_task_1']);
-  assert.ok(page.nextCursor, 'a filtered page still pages on');
+  assert.equal(page.sessions.length, 2);
+  assert.ok(page.nextCursor, 'a page still pages on');
 
   const run = sessionTool({ id: 'sess_run_1', owner: 'cli', sourceType: 'schedule' });
   const plain = await run({ action: 'list' });
@@ -377,8 +382,12 @@ test("Mixy's own unattended routine turn sees only Mixy, never every bot", async
     ['Mixy (lead)']
   );
   await assert.rejects(routine({ action: 'bots', session_id: 'mailer' }), /only its own bot status/);
+  // The list names every session (to find one to send to), but only Mixy's own carry details.
+  const listed = (await routine({ action: 'list' })).sessions;
+  assert.equal(listed.length, 8);
   assert.deepEqual(
-    (await routine({ action: 'list' })).sessions.map((row) => row.id),
+    listed.filter((row) => row.bot).map((row) => row.id),
     ['sess_home_lead']
   );
+  assert.equal(listed.some((row) => row.preview && row.id !== 'sess_home_lead'), false);
 });
