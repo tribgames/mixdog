@@ -246,7 +246,13 @@ export function FullToolOutputButton({ output }: { output: FullToolOutput }) {
       onPointerDown={(event) => event.stopPropagation()}
       onClick={output.load}
     >
-      {output.loading ? t('Loading…') : output.failed ? t('Retry') : t('Show full output')}
+      {fullOutputButtonLabel(output)}
     </button>
   );
+}
+
+function fullOutputButtonLabel(output: FullToolOutput): string {
+  if (output.loading) return t('Loading…');
+  if (output.failed) return t('Retry');
+  return t('Show full output');
 }

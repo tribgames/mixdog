@@ -76,10 +76,7 @@ function SentPasteBlock({ text }: { text?: string }) {
   const collapsed = long && !expanded;
   return (
     <>
-      <p
-        id={id}
-        className={collapsed ? 'message-pasted-text message-pasted-text-collapsed' : 'message-pasted-text'}
-      >
+      <p id={id} className={collapsed ? 'message-pasted-text message-pasted-text-collapsed' : 'message-pasted-text'}>
         {collapsed ? lines.slice(0, SENT_PASTE_PREVIEW_LINES).join('\n') : full}
       </p>
       {long && (
@@ -219,6 +216,24 @@ export function shortTimeText(at: number): string {
   const key = `${locale}|${JSON.stringify(options)}`;
   if (shortTimeFormat?.key !== key) shortTimeFormat = { key, format: new Intl.DateTimeFormat(locale, options) };
   return shortTimeFormat.format.format(at);
+}
+
+/** A runtime notice in the reader's language: the fixed notices by their
+ *  English text, a route fallback by its pattern, anything else as sent. */
+function noticeText(text: string | undefined) {
+  if (text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.') {
+    return t('The model refused to respond (safety refusal) — retry or rephrase your prompt.');
+  }
+  if (text === 'Allowed this once. The setting could not be saved.') {
+    return t('Allowed this once. The setting could not be saved.');
+  }
+  return localizeRouteFallbackNotice(String(text || '')) ?? text;
+}
+
+function gitRequestIcon(action: string) {
+  if (action === 'pr') return GitPullRequest;
+  if (action === 'commit-push') return Upload;
+  return GitCommitHorizontal;
 }
 
 function messageMetadata(item: TranscriptItem) {
@@ -423,12 +438,7 @@ export const TranscriptRow = memo(
       const routine = routineNoticeText(item.routine);
       return (
         <div className={`notice ${tone}`} role={item.tone === 'error' ? 'alert' : 'status'}>
-          {routine ??
-            (item.text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.'
-              ? t('The model refused to respond (safety refusal) — retry or rephrase your prompt.')
-              : item.text === 'Allowed this once. The setting could not be saved.'
-                ? t('Allowed this once. The setting could not be saved.')
-                : (localizeRouteFallbackNotice(String(item.text || '')) ?? item.text))}
+          {routine ?? noticeText(item.text)}
         </div>
       );
     }
@@ -442,12 +452,7 @@ export const TranscriptRow = memo(
     if (!isVisibleTranscriptItem(item)) return null;
     const gitRequest = user ? parseIslandGitRequestText(text) : null;
     if (gitRequest) {
-      const RequestIcon =
-        gitRequest.action === 'pr'
-          ? GitPullRequest
-          : gitRequest.action === 'commit-push'
-            ? Upload
-            : GitCommitHorizontal;
+      const RequestIcon = gitRequestIcon(gitRequest.action);
       return (
         <article className={`message user ${item.pending ? 'pending' : ''}`}>
           <div className="message-body island-git-request">
@@ -503,19 +508,19 @@ export const TranscriptRow = memo(
           {(!user || tweaksFold.text || tweaksFold.lines.length > 0) && (
             // biome-ignore lint/a11y/noStaticElementInteractions: only suppresses native drag; the body is not an interactive control.
             <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-              {user && tweaksFold.text
-                ? splitInlinePastes(tweaksFold.text).map((part, index) =>
-                    'paste' in part ? (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
-                      <SentPasteBlock key={`paste-${index}`} text={pastedTexts[part.paste]} />
-                    ) : (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
-                      <p key={`text-${index}`}>
-                        <SkillMentionText text={part.text.trim()} isSkill={(name) => appliedSkills.includes(name)} />
-                      </p>
-                    )
+              {user &&
+                Boolean(tweaksFold.text) &&
+                splitInlinePastes(tweaksFold.text).map((part, index) =>
+                  'paste' in part ? (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
+                    <SentPasteBlock key={`paste-${index}`} text={pastedTexts[part.paste]} />
+                  ) : (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: parts are parsed from a sent message and never reorder.
+                    <p key={`text-${index}`}>
+                      <SkillMentionText text={part.text.trim()} isSkill={(name) => appliedSkills.includes(name)} />
+                    </p>
                   )
-                : null}
+                )}
               {tweaksFold.lines.map((line, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: lines are parsed from a sent message and never reorder.
                 <p key={`tweaks-${index}`} className="message-tweaks-line">

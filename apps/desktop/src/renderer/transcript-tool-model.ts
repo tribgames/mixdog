@@ -1204,6 +1204,12 @@ export function desktopToolActivityItemPresentation(
   // A git command's patch output turns into the diff card; on a phone's cut
   // copy the counts are the whole patch's.
   const gitPatchOutput = normalizedName === 'git' && Boolean(command) && !callDiffPatch;
+  // The lines the call's diff adds and removes; a failed call claims none.
+  let diffCounts: DesktopToolActivityItemPresentation['diffCounts'] = null;
+  if (tone === 'neutral' && !model.pending) {
+    if (diffPatch) diffCounts = patchLineCounts(diffPatch);
+    else diffCounts = digest?.counts ?? (gitPatchOutput ? facts.patchCounts : null);
+  }
   const hasDetails = Boolean(
     commandIsDetail ||
       targets.length ||
@@ -1238,13 +1244,7 @@ export function desktopToolActivityItemPresentation(
     command,
     fields,
     diffPatch,
-    // The lines the call's diff adds and removes; a failed call claims none.
-    diffCounts:
-      tone === 'neutral' && !model.pending
-        ? diffPatch
-          ? patchLineCounts(diffPatch)
-          : (digest?.counts ?? (gitPatchOutput ? facts.patchCounts : null))
-        : null,
+    diffCounts,
     diffDigestPath: digest?.targetPath ?? '',
     outputText,
     outputNote,

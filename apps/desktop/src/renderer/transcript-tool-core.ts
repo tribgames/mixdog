@@ -715,45 +715,20 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
     case 'Read|Read|resource':
       return count === 1 ? t('Read file') : t('Read {{count}} files', { count });
     case 'Search|Searched|pattern':
-      return count === 1
-        ? past
-          ? t('Searched code')
-          : t('Search code')
-        : past
-          ? t('Searched {{count}} patterns', { count })
-          : t('Search {{count}} patterns', { count });
+      if (count === 1) return past ? t('Searched code') : t('Search code');
+      return past ? t('Searched {{count}} patterns', { count }) : t('Search {{count}} patterns', { count });
     case 'Search|Found|glob':
-      return count === 1
-        ? past
-          ? t('Found files')
-          : t('Find files')
-        : past
-          ? t('Found {{count}} files', { count })
-          : t('Find {{count}} files', { count });
+      if (count === 1) return past ? t('Found files') : t('Find files');
+      return past ? t('Found {{count}} files', { count }) : t('Find {{count}} files', { count });
     case 'Search|Found|query':
-      return count === 1
-        ? past
-          ? t('Found path')
-          : t('Find path')
-        : past
-          ? t('Found {{count}} paths', { count })
-          : t('Find {{count}} paths', { count });
+      if (count === 1) return past ? t('Found path') : t('Find path');
+      return past ? t('Found {{count}} paths', { count }) : t('Find {{count}} paths', { count });
     case 'Search|Listed|directory':
-      return count === 1
-        ? past
-          ? t('Listed directory')
-          : t('List directory')
-        : past
-          ? t('Listed {{count}} directories', { count })
-          : t('List {{count}} directories', { count });
+      if (count === 1) return past ? t('Listed directory') : t('List directory');
+      return past ? t('Listed {{count}} directories', { count }) : t('List {{count}} directories', { count });
     case 'Search|Mapped|symbol':
-      return count === 1
-        ? past
-          ? t('Found symbol')
-          : t('Find symbol')
-        : past
-          ? t('Found {{count}} symbols', { count })
-          : t('Find {{count}} symbols', { count });
+      if (count === 1) return past ? t('Found symbol') : t('Find symbol');
+      return past ? t('Found {{count}} symbols', { count }) : t('Find {{count}} symbols', { count });
     // File changes always carry their count ("파일 1개 수정"), as commands do.
     case 'Patch|Created|file':
       return past ? t('Created {{count}} files', { count }) : t('Create {{count}} files', { count });
@@ -764,47 +739,22 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
     case 'Patch|Deleted|file':
       return past ? t('Deleted {{count}} files', { count }) : t('Delete {{count}} files', { count });
     case 'Web Research|Researched|query':
-      return count === 1
-        ? past
-          ? t('Searched web')
-          : t('Search web')
-        : past
-          ? t('Searched web {{count}} times', { count })
-          : t('Search web {{count}} times', { count });
+      if (count === 1) return past ? t('Searched web') : t('Search web');
+      return past ? t('Searched web {{count}} times', { count }) : t('Search web {{count}} times', { count });
     case 'Web Research|Fetched|URL':
-      return count === 1
-        ? past
-          ? t('Fetched page')
-          : t('Fetch page')
-        : past
-          ? t('Fetched {{count}} pages', { count })
-          : t('Fetch {{count}} pages', { count });
+      if (count === 1) return past ? t('Fetched page') : t('Fetch page');
+      return past ? t('Fetched {{count}} pages', { count }) : t('Fetch {{count}} pages', { count });
     case 'Web Research|Fetched|message':
-      return count === 1
-        ? past
-          ? t('Fetched message')
-          : t('Fetch message')
-        : past
-          ? t('Fetched {{count}} messages', { count })
-          : t('Fetch {{count}} messages', { count });
+      if (count === 1) return past ? t('Fetched message') : t('Fetch message');
+      return past ? t('Fetched {{count}} messages', { count }) : t('Fetch {{count}} messages', { count });
     case 'Shell|Ran|command':
       return past ? t('Ran {{count}} commands', { count }) : t('Run {{count}} commands', { count });
     case 'Git|Ran|Git command':
-      return count === 1
-        ? past
-          ? t('Ran Git command')
-          : t('Run Git command')
-        : past
-          ? t('Ran {{count}} Git commands', { count })
-          : t('Run {{count}} Git commands', { count });
+      if (count === 1) return past ? t('Ran Git command') : t('Run Git command');
+      return past ? t('Ran {{count}} Git commands', { count }) : t('Run {{count}} Git commands', { count });
     case 'Git|Staged|change':
-      return count === 1
-        ? past
-          ? t('Staged changes')
-          : t('Stage changes')
-        : past
-          ? t('Staged {{count}} changes', { count })
-          : t('Stage {{count}} changes', { count });
+      if (count === 1) return past ? t('Staged changes') : t('Stage changes');
+      return past ? t('Staged {{count}} changes', { count }) : t('Stage {{count}} changes', { count });
     // Browser and Computer calls are one unit keyed by the category itself
     // (namedToolActivityUnit).
     case 'Browser':
