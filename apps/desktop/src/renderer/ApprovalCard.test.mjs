@@ -800,6 +800,111 @@ test('phone: a card arriving while the composer holds no draft closes the keyboa
   }
 });
 
+function composerRow(doc) {
+  const row = doc.createElement('div');
+  row.className = 'composer-input-row';
+  const input = doc.createElement('textarea');
+  row.append(input);
+  doc.querySelector('.conversation').append(row);
+  return { row, input };
+}
+
+test('desktop: a card arriving while the composer is empty takes focus (chips show, keys answer) and gives it back once decided', async () => {
+  const doc = dom.window.document;
+  const { row, input } = composerRow(doc);
+  try {
+    input.focus();
+    const c = card({ ...comment, id: 'df1' });
+    const ui = await mount(c.element);
+    try {
+      const section = doc.querySelector('.approval-prompt');
+      assert.equal(doc.activeElement, ui.button('Allow just once'), 'the empty composer let go; the allow has focus');
+      assert.ok(section.matches(':focus-within'), 'focus is inside the card, so the Enter / Esc chips are shown');
+      assert.ok(ui.row(0).querySelector('.approval-kbd'), 'the Esc chip is there');
+      await settle();
+      await ui.key('Escape');
+      assert.deepEqual(c.decisions, [{ approved: false }], 'Esc answers the card');
+    } finally {
+      await ui.done();
+    }
+    assert.equal(doc.activeElement, input, 'the composer has focus again for typing');
+    const again = card({ ...comment, id: 'df2' });
+    const ui2 = await mount(again.element);
+    await settle();
+    await ui2.click(ui2.button('Allow just once'));
+    assert.deepEqual(again.decisions, [{ approved: true }]);
+    // The host drops the answered card.
+    await ui2.done();
+    assert.equal(doc.activeElement, input, 'after a click decision the composer has focus again');
+  } finally {
+    row.remove();
+  }
+});
+
+test('desktop: a composer holding a draft keeps focus and the card answers no key', async () => {
+  const doc = dom.window.document;
+  const { row, input } = composerRow(doc);
+  try {
+    input.focus();
+    input.value = 'half a thought';
+    const c = card({ ...comment, id: 'df3' });
+    const ui = await mount(c.element);
+    try {
+      assert.equal(doc.activeElement, input, 'the draft keeps the caret');
+      assert.ok(!doc.querySelector('.approval-prompt').matches(':focus-within'), 'chips stay hidden');
+      await settle();
+      await ui.key('Escape', {}, input);
+      assert.deepEqual(c.decisions, []);
+    } finally {
+      await ui.done();
+    }
+    assert.equal(doc.activeElement, input);
+  } finally {
+    row.remove();
+  }
+});
+
+test('desktop: a card in another pane leaves the focused empty composer of the typing pane alone', async () => {
+  const doc = dom.window.document;
+  const paneA = doc.createElement('section');
+  paneA.className = 'pane-leaf conversation';
+  const row = doc.createElement('div');
+  row.className = 'composer-input-row';
+  const input = doc.createElement('textarea');
+  row.append(input);
+  paneA.append(row);
+  doc.body.append(paneA);
+  try {
+    input.focus();
+    // The card mounts in the harness root, inside pane B's .conversation.
+    const c = card({ ...comment, id: 'tp1' });
+    const ui = await mount(c.element);
+    try {
+      assert.equal(doc.activeElement, input, 'pane A keeps the caret');
+      assert.ok(!doc.querySelector('.approval-prompt').matches(':focus-within'), 'the chips stay hidden');
+    } finally {
+      await ui.done();
+    }
+    assert.equal(doc.activeElement, input);
+  } finally {
+    paneA.remove();
+  }
+});
+
+test('a press on the card body does not pull focus to the composer (which hid the chips right after the click)', async () => {
+  const { shouldFocusSurfaceInput } = await import('./surface-input-focus.ts');
+  const doc = dom.window.document;
+  const ui = await mount(card({ ...comment, id: 'fl1' }).element);
+  try {
+    const press = (target) => shouldFocusSurfaceInput({ button: 0, defaultPrevented: false, target }, '.transcript');
+    assert.equal(press(doc.querySelector('.approval-title')), false, 'the title text keeps focus on the card');
+    assert.equal(press(doc.querySelector('.approval-prompt')), false, 'the card itself too');
+    assert.equal(press(doc.querySelector('.conversation')), true, 'the empty pane still focuses the composer');
+  } finally {
+    await ui.done();
+  }
+});
+
 test('the requester chip names the connector, not the raw tool id (kept as the tooltip)', async () => {
   let ui = await mount(card({ ...comment, id: 'cn1', name: 'mcp__gmail__send_email' }).element);
   try {
