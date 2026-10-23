@@ -1119,8 +1119,9 @@ async function run(): Promise<void> {
       tab: 'beta',
     });
     assert.doesNotMatch(defaultLanguage.text, /missing/, 'the browser still negotiates a language by default');
-    // The brands a page reads and the ones its requests send name the same
-    // Chrome; what a page can read of the host's own scripts looks native.
+    // The brands a page reads and the ones its requests send are the engine's
+    // own (Chromium, never "Google Chrome"); what a page can read of the
+    // host's own scripts looks native.
     const identity = await command({
       action: 'evaluate',
       script: `Promise.all([
@@ -1139,7 +1140,7 @@ async function run(): Promise<void> {
     });
     assert.match(
       identity.text,
-      /header=true brands=true chrome=loadTimes\+csi\+app alert=true globals=0 notifications=prompt notification=default/
+      /header=false brands=false chrome=loadTimes\+csi\+app alert=true globals=0 notifications=prompt notification=default/
     );
     progress('pages are told the Chrome build that renders them');
     await command({

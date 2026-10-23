@@ -1,7 +1,7 @@
 /**
  * Bringing one CDP session (root document or child frame) up: the safety
- * boundary first (dialog bridge, page guards, Fetch patterns) and the page's
- * browser identity, then the quiet domains in the background. Also the Fetch
+ * boundary first (dialog bridge, page guards, Fetch patterns), then the quiet
+ * domains in the background. Also the Fetch
  * pattern refresh that has to reach every attached session.
  *
  * A page someone is only browsing sees no more of the debugger than Chrome
@@ -13,7 +13,6 @@ import type { WebContents } from 'electron';
 
 import {
   browserIdentityNeedsEngineFacts,
-  browserUserAgentOverride,
   ENGINE_FACTS_EXPRESSION,
   rememberEngineFacts,
 } from './browser-identity';
@@ -125,12 +124,9 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     };
   }
 
-  /** Guests whose sessions already carry the identity with its metadata. */
-  const identified = new WeakSet<WebContents>();
-
   /** The engine's own client-hint facts, read once per process in a world of
-   *  a page that no page script shares, before any override. Only a secure
-   *  document has them; a blank first page does not. */
+   *  a page that no page script shares, while no override of the page applies.
+   *  Only a secure document has them; a blank first page does not. */
   async function learnEngineFacts(send: (method: string, params?: Record<string, unknown>) => Promise<unknown>) {
     if (!browserIdentityNeedsEngineFacts()) return;
     try {
@@ -147,27 +143,18 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
       })) as { result?: { value?: unknown } };
       rememberEngineFacts(read?.result?.value);
     } catch {
-      /* the next document tries again; until then pages keep the engine's identity */
+      /* the next document tries again */
     }
   }
 
-  /** A top-level document committed. Until the engine's facts are known, a
-   *  page keeps the engine's own identity; the first secure document teaches
-   *  them, and from then on every session of the page carries Chrome's. */
+  /** A top-level document committed. The partition's identity needs no
+   *  per-page override; the first secure document only teaches the engine's
+   *  client hints, which a locale emulation restates. */
   function onTopDocument(guest: WebContents, cdp: Electron.Debugger): void {
-    if (identified.has(guest)) return;
-    const send = (method: string, params: Record<string, unknown> = {}, sessionId?: string) =>
-      sendCdp(guest, cdp, method, params, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId);
-    void (async () => {
-      await learnEngineFacts(send);
-      if (browserIdentityNeedsEngineFacts() || identified.has(guest) || guest.isDestroyed()) return;
-      identified.add(guest);
-      const override = browserUserAgentOverride(guest.getUserAgent());
-      const sessionIds: Array<string | undefined> = [undefined, ...state.for(guest).cdpSessions.keys()];
-      await Promise.allSettled(
-        sessionIds.map((sessionId) => send('Network.setUserAgentOverride', override, sessionId))
-      );
-    })().catch(() => undefined);
+    if (!browserIdentityNeedsEngineFacts()) return;
+    const send = (method: string, params: Record<string, unknown> = {}) =>
+      sendCdp(guest, cdp, method, params, CDP_REQUEST_TIMEOUT_MS);
+    void learnEngineFacts(send).catch(() => undefined);
   }
 
   /** Chromium pauses exactly what these patterns name. The dialog bridge is
@@ -203,12 +190,7 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
       sendCdp(guest, cdp, method, params, CDP_REQUEST_TIMEOUT_MS, signal, sessionId);
     const newDocumentScript = (source: string) =>
       send('Page.addScriptToEvaluateOnNewDocument', { source, runImmediately: true });
-    if (!sessionId) {
-      await learnEngineFacts(send);
-      if (!browserIdentityNeedsEngineFacts()) identified.add(guest);
-    }
-    // Dialog interception is the startup safety boundary, and the identity
-    // has to be in place before the first document reads it. Do not make
+    // Dialog interception is the startup safety boundary. Do not make
     // first navigation wait for anything else. A frame removed meanwhile ends
     // its commands (cdp-execution endSession); that is not a failure.
     const ended = () => (sessionId ? !state.for(guest).cdpSessions.has(sessionId) : false);
@@ -217,7 +199,6 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
       // Pages live in hidden windows that never hold the OS focus; the pane
       // shows them as the focused page a person is using.
       ...(!sessionId ? [send('Emulation.setFocusEmulationEnabled', { enabled: true })] : []),
-      send('Network.setUserAgentOverride', browserUserAgentOverride(guest.getUserAgent())),
       newDocumentScript(DIALOG_BRIDGE_SCRIPT),
       newDocumentScript(CHROME_LIKENESS_SCRIPT),
       // Child frames run their own realm, so a guard installed only on the root

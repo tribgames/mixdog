@@ -15,9 +15,26 @@ import { createBrowserDownloadLedger } from './downloads';
 import { clearBrowserPermissionHandlers, createBrowserPermissions } from './permissions';
 import { redactBrowserText } from './redaction';
 import { browserRequestDisposition } from './request-scheme';
-import { browserAcceptLanguages, browserBrandRequestHeaders, browserPartitionUserAgent } from './user-agent';
+import { browserAcceptLanguages, browserPartitionUserAgent } from './user-agent';
+
+/** The app's own agent string (Electron and the app name in it), read once,
+ *  before the fallback names Chrome. */
+let appUserAgent: string | undefined;
+/** The browser partition's session, the one session that presents Chrome. */
+let browserSession: Session | undefined;
+
+/** Gives an app-owned session the app's own agent string. Installed on
+ *  `session-created` once per process and never removed: the fallback stays
+ *  Chrome for the rest of the process, so a session created after a host is
+ *  disposed (a window opened later) must still keep Electron. */
+function keepAppUserAgent(owned: Session): void {
+  if (owned !== browserSession) owned.setUserAgent(appUserAgent as string);
+}
 
 interface BrowserPartitionHost {
+  /** The session of the app window that hosts the browser; it keeps the app's
+   *  own agent string. */
+  windowSession: Session;
   /** Policy check for a page-generated request, DNS answer included. */
   assertResolvedResourceUrlAllowed(url: string): Promise<void>;
   downloadsDirectory(): string;
@@ -34,24 +51,28 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
   const permissions = createBrowserPermissions();
   permissions.install(partitionSession);
   // Pages see the Chrome build that renders them, with the language list a
-  // Chrome profile seeds from the system's own languages.
-  const userAgent = browserPartitionUserAgent(partitionSession.getUserAgent());
+  // Chrome profile seeds from the system's own languages. The string is the
+  // process-wide fallback too, so workers, service workers and out-of-process
+  // frames (which the session's string does not reach) send the same one;
+  // the brands stay the engine's own, and no request is rewritten. A site
+  // compares all of these, and Turnstile refuses a mixed identity.
+  if (appUserAgent === undefined) {
+    appUserAgent = app.userAgentFallback;
+    app.on('session-created', keepAppUserAgent);
+  }
+  browserSession = partitionSession;
+  const userAgent = browserPartitionUserAgent(appUserAgent);
   const acceptLanguages =
     browserAcceptLanguages([app.getSystemLocale(), ...app.getPreferredSystemLanguages()]) || undefined;
+  app.userAgentFallback = userAgent;
   partitionSession.setUserAgent(userAgent, acceptLanguages);
-  rememberBrowserIdentity({ userAgent, acceptLanguages });
-  // Requests no page override covers (a service worker's, for one) leave
-  // with the engine's own agent string and brand list; both are rewritten
-  // here so every request of the partition names the same browser.
-  partitionSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
-    const headers = browserBrandRequestHeaders(details.requestHeaders, process.versions.chrome);
-    for (const name of Object.keys(headers)) {
-      if (name.toLowerCase() === 'user-agent' && /\b(?:Electron|mixdog[\w-]*)\//i.test(headers[name])) {
-        headers[name] = browserPartitionUserAgent(headers[name]);
-      }
-    }
-    callback({ requestHeaders: headers });
-  });
+  rememberBrowserIdentity({ userAgent });
+  // Every other session of the app keeps the app's own agent string: the
+  // shell detects Electron by it. The default session and the window's own
+  // exist already; a session created later (a snapshot, an export, a remote
+  // window's) is covered when it appears.
+  keepAppUserAgent(session.defaultSession);
+  keepAppUserAgent(host.windowSession);
   partitionSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
     const disposition = browserRequestDisposition(details.url, details.resourceType);
     if (disposition !== 'web') {
@@ -85,7 +106,6 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
       partitionSession.removeListener('will-download', downloadLedger.onWillDownload);
       clearBrowserPermissionHandlers(partitionSession);
       partitionSession.webRequest.onBeforeRequest(null);
-      partitionSession.webRequest.onBeforeSendHeaders(null);
     },
   };
 }

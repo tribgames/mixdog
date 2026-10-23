@@ -102,12 +102,14 @@ function sameProcessGuests(guest: WebContents): WebContents[] {
 
 /** The persistent partition and what lives on it across restarts. */
 function createBrowserHostStorage(
+  windowSession: Electron.Session,
   state: BrowserGuestStateStore,
   sessions: BrowserSessionRegistry,
   urls: ReturnType<typeof createBrowserUrlAdmission>,
   onDiagnostic?: Diagnostic
 ) {
   const partition = createBrowserPartition({
+    windowSession,
     assertResolvedResourceUrlAllowed: urls.assertResolvedResourceUrlAllowed,
     downloadsDirectory: () => app.getPath('downloads'),
     sessionIdForGuest: (guest) => sessions.sessionIdForGuest(guest),
@@ -222,7 +224,7 @@ export function createBrowserHostFoundation(
   const urlPolicy = browserUrlPolicyFromEnvironment({ remote: options.remoteSession });
   const urls = createBrowserUrlAdmission({ policy: urlPolicy });
   const nativeView = /^(?:1|true|yes)$/i.test(String(process.env.MIXDOG_BROWSER_NATIVE_VIEW || ''));
-  const storage = createBrowserHostStorage(state, sessions, urls, options.onDiagnostic);
+  const storage = createBrowserHostStorage(window.webContents.session, state, sessions, urls, options.onDiagnostic);
   const devtools = createBrowserHostDevtools(state, urlPolicy, storage.partition.permissions.refused);
   const displayTextures = createBrowserHostTextures(window, state);
   const display = createBrowserDisplayTracking(sessions);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { rememberBrowserIdentity } from './browser-identity.ts';
 import { createBrowserEmulation } from './emulation.ts';
 
 function recordingEmulation() {
@@ -98,4 +99,25 @@ test('partial emulation preserves group siblings, isolates guests and forgets ov
   await configure({ locale: 'ko-KR', reducedMotion: true });
   assert.deepEqual(last('Network.setUserAgentOverride'), { userAgent: 'Fixture/1.0', acceptLanguage: 'ko-KR' });
   assert.deepEqual(last('Emulation.setEmulatedMedia').features, [{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+});
+
+// Last in this file: the partition's identity is process-wide once remembered.
+test("emulation leaves the partition's own agent string to the session and still applies a custom agent and locale", async () => {
+  rememberBrowserIdentity({ userAgent: 'Fixture/1.0' });
+  const custom = recordingEmulation();
+  await custom.emulation.configureEmulation(custom.guest, { userAgent: 'Custom/2.0', locale: 'fr-FR' });
+  assert.deepEqual(custom.calls.filter((call) => call.method === 'Network.setUserAgentOverride').at(-1).params, {
+    userAgent: 'Custom/2.0',
+    acceptLanguage: 'fr-FR',
+  });
+  const f = recordingEmulation();
+  const configure = (command) => f.emulation.configureEmulation(f.guest, command);
+  const last = () => f.calls.filter((call) => call.method === 'Network.setUserAgentOverride').at(-1).params;
+  await configure({ locale: 'ko-KR' });
+  assert.deepEqual(last(), { userAgent: 'Fixture/1.0', acceptLanguage: 'ko-KR' });
+  assert.doesNotMatch(JSON.stringify(f.calls), /Google Chrome/);
+  await configure({ locale: '' });
+  assert.deepEqual(last(), { userAgent: '' }, 'the session sends its own string and languages again');
+  await configure({ reset: true });
+  assert.deepEqual(last(), { userAgent: '' });
 });

@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { createBrowserGuestCdp } from './cdp.ts';
-import { rememberBrowserIdentity } from './browser-identity.ts';
+import { browserIdentityNeedsEngineFacts, rememberBrowserIdentity } from './browser-identity.ts';
 import { CHROME_LIKENESS_SCRIPT } from './chrome-likeness.ts';
 import { DIALOG_BRIDGE_SCRIPT } from './dialog-bridge.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
@@ -149,8 +149,11 @@ test('a page only browsed shows no script, log or accessibility observation; dri
   const calls = (methods, sessionId) =>
     f.calls.filter((call) => methods.includes(call.method) && call.sessionId === sessionId).map((call) => call.method);
   assert.deepEqual(calls(driven, undefined), [], 'nothing a page could notice while a person browses');
-  assert.ok(f.calls.some((call) => call.method === 'Network.setUserAgentOverride' && call.sessionId === undefined));
-  assert.ok(f.calls.some((call) => call.method === 'Network.setUserAgentOverride' && call.sessionId === 'frame-1'));
+  assert.equal(
+    f.calls.some((call) => call.method === 'Network.setUserAgentOverride'),
+    false,
+    "the partition's identity is the session's own: no per-page override"
+  );
 
   const release = f.cdp.drive(f.guest);
   await waitUntil(() => calls(driven, 'frame-1').length === 3, { message: 'child frame driven' });
@@ -556,7 +559,7 @@ test("a bridge request the page's policy refused becomes a dismissed notice, not
 });
 
 // Last in this file: the engine's facts are process-wide once learned.
-test("a blank first page keeps the engine's identity; the first secure document brings Chrome's to every session", async () => {
+test("a page keeps the engine's identity: no override at any session, and the first secure document teaches the engine's hints", async () => {
   rememberBrowserIdentity({ userAgent: 'Fixture/1.0' });
   let secure = false;
   const f = fixture(async (method) => {
@@ -566,7 +569,14 @@ test("a blank first page keeps the engine's identity; the first secure document 
       return {
         result: {
           value: secure
-            ? { platform: 'Windows', platformVersion: '19.0.0', architecture: 'x86', model: '', mobile: false }
+            ? {
+                brands: [{ brand: 'Chromium', version: '146' }],
+                platform: 'Windows',
+                platformVersion: '19.0.0',
+                architecture: 'x86',
+                model: '',
+                mobile: false,
+              }
             : null,
         },
       };
@@ -577,26 +587,14 @@ test("a blank first page keeps the engine's identity; the first secure document 
   f.attachChild('frame-1');
   await f.state.for(f.guest).cdpSessions.get('frame-1').ready;
   const overrides = () => f.calls.filter((call) => call.method === 'Network.setUserAgentOverride');
-  assert.deepEqual(
-    overrides().map((call) => call.params),
-    [{ userAgent: '' }, { userAgent: '' }],
-    'an override without metadata would empty the brand list'
-  );
-  const probe = f.calls.find((call) => call.method === 'Runtime.evaluate');
-  assert.equal(probe.params.contextId, 7, 'read in a world no page script shares');
+  const probes = () => f.calls.filter((call) => call.method === 'Runtime.evaluate');
+  assert.equal(overrides().length, 0, 'an override without metadata would empty the brand list');
   secure = true;
   f.debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', url: 'https://site.test/' } });
-  await waitUntil(() => overrides().length === 4, { message: 'root and child re-identified' });
-  for (const call of overrides().slice(2)) {
-    assert.equal(call.params.userAgent, 'Fixture/1.0');
-    assert.ok(call.params.userAgentMetadata.brands.some((entry) => entry.brand === 'Google Chrome'));
-  }
-  assert.deepEqual(
-    overrides()
-      .slice(2)
-      .map((call) => call.sessionId),
-    [undefined, 'frame-1']
-  );
+  await waitUntil(() => probes().length >= 1, { message: 'the engine hints are read' });
+  assert.equal(probes()[0].params.contextId, 7, 'read in a world no page script shares');
+  await waitUntil(() => !browserIdentityNeedsEngineFacts(), { message: 'the engine hints are learned' });
+  assert.equal(overrides().length, 0, 'learning them overrides nothing');
   await f.cdp.detach(f.guest);
 });
 
