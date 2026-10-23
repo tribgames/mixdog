@@ -28,8 +28,9 @@ export function useDeferredResizes({
     },
     [rowsRef]
   );
-  // A deferred size changed while its row was out of view: applied, it grows
-  // upward from the viewport top (see shouldAdjustScrollPositionOnItemSizeChange).
+  // A deferred size changed while its row was above the reader: applied, it
+  // grows upward wherever the row is by then, in view included (see
+  // shouldAdjustScrollPositionOnItemSizeChange).
   const applyingDeferred = useRef(false);
   const applyDeferred = useCallback((index: number, size: number) => {
     applyingDeferred.current = true;

@@ -321,6 +321,14 @@ export function useVirtualizerResizePatch({
       if (pendingAnchor.current) return false;
       if (readingAnchorHeld() && item.index < (anchorHold.current?.index ?? -1)) return false;
     }
+    // A size deferred while its row was above the reader grows upward wherever
+    // the row is when it lands. An upward fling carries a short row from
+    // wholly above to wholly in view between two frames (an Android fling
+    // moves 100+ px a frame), so the row is often already below the visible
+    // top when the pump applies it. Left uncompensated there, every row under
+    // it jumped by the row's estimate error against the fling (Android: 위로
+    // 스크롤하면 턱턱 막히거나 튄다).
+    if (applyingDeferred.current) return true;
     // A row wholly above the visible top keeps the reader's content still.
     // During reader motion such a row only gets here once its new box
     // reaches into view (smaller changes are deferred above); left
@@ -329,10 +337,9 @@ export function useVirtualizerResizePatch({
     if (item.end <= top) return true;
     // A row crossing the visible top grows upward instead when the size is
     // its FIRST measurement (mounted at the estimate while scrolling toward
-    // older rows) or was deferred while it was out of view: uncompensated,
-    // the rows in view jumped by the difference (18/40 px and more) against
-    // the finger.
-    return item.start < top && (applyingDeferred.current || !instance.itemSizeCache.has(item.key));
+    // older rows): uncompensated, the rows in view jumped by the difference
+    // (18/40 px and more) against the finger.
+    return item.start < top && !instance.itemSizeCache.has(item.key);
   };
   return { settleHeldShrinks };
 }
