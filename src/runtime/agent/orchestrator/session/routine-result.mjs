@@ -207,6 +207,7 @@ export function agentTaskMessage({
   omitted = 0,
   hop = 0,
   sendId = '',
+  sendIds = [],
   at = Date.now(),
   messageId,
 }) {
@@ -263,6 +264,9 @@ export function agentTaskMessage({
         ...(hop > 0 ? { hop } : {}),
         // The send this report answers (the send result's `sendId`).
         ...(sendId ? { sendId } : {}),
+        // Every send of a turn that answered several (folded into one turn):
+        // the one report ends all of them, `sendId` being the first.
+        ...(sendIds.length > 1 ? { sendIds } : {}),
         ...(produced.length ? { files: produced } : {}),
       },
       transcript: { at, ...(messageId ? { messageId } : {}), ...(attachments.length ? { attachments } : {}) },
@@ -389,6 +393,7 @@ export function routineResultNotice(message) {
         ...(session ? { target: 'session' } : {}),
         ...(agentId ? { agentId } : {}),
         ...(routine.sendId ? { sendId: routine.sendId } : {}),
+        ...(routine.sendIds?.length > 1 ? { sendIds: routine.sendIds } : {}),
         ...(files.length ? { files } : {}),
       },
       // The stored files, in the field a prompt row draws its attachments from.

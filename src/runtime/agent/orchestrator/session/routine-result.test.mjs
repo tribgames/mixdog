@@ -40,3 +40,16 @@ test('a task report carries the id of the send it answers into its notice; none 
   assert.equal('sendId' in without.meta.routine, false);
   assert.equal('sendId' in routineResultNotice(without).routine, false);
 });
+
+test('a report that ends several sends folded into one turn lists them all, `sendId` being the first', async () => {
+  const { agentTaskMessage } = await import('./routine-result.mjs');
+  const base = { title: 'Dev', status: 'completed', text: 'done', taskSessionId: 'sess_dev', target: 'session' };
+  const folded = agentTaskMessage({ ...base, sendId: 'atask_1', sendIds: ['atask_1', 'atask_2'] });
+  assert.equal(folded.meta.routine.sendId, 'atask_1');
+  assert.deepEqual(folded.meta.routine.sendIds, ['atask_1', 'atask_2']);
+  assert.deepEqual(routineResultNotice(folded).routine.sendIds, ['atask_1', 'atask_2']);
+  // A report of one send carries none.
+  const single = agentTaskMessage({ ...base, sendId: 'atask_1', sendIds: ['atask_1'] });
+  assert.equal('sendIds' in single.meta.routine, false);
+  assert.equal('sendIds' in routineResultNotice(single).routine, false);
+});

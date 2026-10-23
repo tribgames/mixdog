@@ -766,9 +766,7 @@ async function rearmTaskWatch(
       ...(watch.hop > 0 ? { hop: watch.hop } : {}),
       ...roomFrom(watch.homeSessionId),
       watchId: watch.runId,
-      ...(watch.textOnly || text === GONE_TEXT || text === LOST_TEXT
-        ? {}
-        : await artifactFields(sessionId, turnId)),
+      ...(watch.textOnly || text === GONE_TEXT || text === LOST_TEXT ? {} : await artifactFields(sessionId, turnId)),
     });
   if (!(await loadSession(sessionId))) return finish('cancelled', GONE_TEXT);
   let runtime;
@@ -929,18 +927,63 @@ export function createAgentTaskSessions({
       follow
     );
 
+  // Sends one turn answers settle together with the same `detail` object: a
+  // send steered into the turn while it ran, or queued and taken as one batch.
+  // That turn reports once, closing every one of them.
+  const settledTurns = new WeakMap();
+  let sendCount = 0;
+
+  /** Add send `member` (`{ seq, id, unwatch, settle }`) to the settlement
+   *  `detail` of its turn, per reporting conversation. The sends of one turn
+   *  settle in the same tick; after it the earliest (the turn's own, whose
+   *  record holds the whole turn) settles with all their ids and the others
+   *  stand down. */
+  function joinSettlement(detail, origin, member) {
+    const key = `${origin.agentId}\0${origin.sessionId}`;
+    let groups = settledTurns.get(detail);
+    if (!groups) {
+      groups = new Map();
+      settledTurns.set(detail, groups);
+    }
+    let members = groups.get(key);
+    if (!members) {
+      members = [];
+      groups.set(key, members);
+      const settling = members;
+      void Promise.resolve()
+        .then(() => {
+          settling.sort((a, b) => a.seq - b.seq);
+          const [first, ...others] = settling;
+          for (const other of others) other.unwatch();
+          first.settle(settling.map((entry) => entry.id));
+        })
+        .catch((error) => log(`settling the sends of one turn failed: ${error?.message || error}`));
+    }
+    members.push(member);
+  }
+
   /** Submit `prompt` as the origin agent's turn; its end (and a wait for the
    *  user in it) reports to the agent's home. Resolves on intake. `submit`
    *  takes the turn in another way than a prompt to `sessionId` (a message
    *  into a group room, whose member answers in `sessionId`): given `{ id,
    *  onSettled }`, it resolves `{ accepted }`. */
-  async function agentTurn(sessionId, prompt, origin, id = `atask_${randomUUID()}`, beforeReport = null, submit = null) {
+  async function agentTurn(
+    sessionId,
+    prompt,
+    origin,
+    id = `atask_${randomUUID()}`,
+    beforeReport = null,
+    submit = null
+  ) {
     const sessions = service();
     const target = origin.target === 'session' ? { target: 'session' } : {};
     const { notify, noReport } = await watchTurn({ watches, owner: processToken, log }, sessionId, origin, id);
     const dropWatch = () =>
       watches.remove(id).catch((error) => log(`dropping the watch of ${sessionId} failed: ${error?.message || error}`));
     let runtime = null;
+    // The sends this turn's end closes: this one, plus any that its turn
+    // answered too (joinSettlement).
+    let sendIds = [id];
     // A report that cannot be queued is retried in this process; when every try
     // fails the durable watch stays and restart recovery delivers it (the queue
     // dedupes by runId, so a retry never posts twice).
@@ -961,7 +1004,11 @@ export function createAgentTaskSessions({
             // may receive them (reportOrigin `textOnly`).
             ...(status === 'blocked' || status === 'working'
               ? {}
-              : { watchId: id, ...(origin.textOnly ? {} : await artifactFields(sessionId, id, runtime)) }),
+              : {
+                  watchId: id,
+                  ...(sendIds.length > 1 ? { watchIds: sendIds } : {}),
+                  ...(origin.textOnly ? {} : await artifactFields(sessionId, id, runtime)),
+                }),
           })
         )
         .catch((error) => log(`report of ${sessionId} failed: ${error?.message || error}`));
@@ -987,6 +1034,9 @@ export function createAgentTaskSessions({
         ? wrapAgentMessage(prompt, { name: origin.envelopeName, agentId: origin.agentId })
         : prompt;
       const take = submit ?? ((options) => sessions.submitSession({ sessionId, prompt: sent, options }));
+      // Submission order: the earliest of the sends one turn answers reports for them.
+      sendCount += 1;
+      const seq = sendCount;
       result = await take({
         id,
         mode: 'prompt',
@@ -1004,29 +1054,36 @@ export function createAgentTaskSessions({
               // id (one turn for several sends, or a fresh turn for one cut
               // short): the watch follows that turn, recorded before it runs.
               follow: (submissionId) => watches.follow?.(id, submissionId),
-              onSettled: (detail) => {
-                const status = turnStatus(detail);
-                const text = detail?.result?.content || detail?.error || '';
-                // A failed or cancelled turn reports at once; a completed one
-                // reports the task's final answer (followToFinal).
-                if (status !== 'completed') {
-                  unwatch();
-                  void report(status, text);
-                  return;
-                }
-                follow = followToFinal({
-                  sessionId,
-                  runId: id,
-                  runtime,
-                  immediate: { status, text },
-                  finish: async (endStatus, endText) => {
-                    unwatch();
-                    await report(endStatus, endText);
+              onSettled: (detail) =>
+                joinSettlement(detail, origin, {
+                  seq,
+                  id,
+                  unwatch: () => unwatch(),
+                  settle: (answered) => {
+                    sendIds = answered;
+                    const status = turnStatus(detail);
+                    const text = detail?.result?.content || detail?.error || '';
+                    // A failed or cancelled turn reports at once; a completed one
+                    // reports the task's final answer (followToFinal).
+                    if (status !== 'completed') {
+                      unwatch();
+                      void report(status, text);
+                      return;
+                    }
+                    follow = followToFinal({
+                      sessionId,
+                      runId: id,
+                      runtime,
+                      immediate: { status, text },
+                      finish: async (endStatus, endText) => {
+                        unwatch();
+                        await report(endStatus, endText);
+                      },
+                      progress: (progressText) => report('working', progressText),
+                    });
+                    follow.check();
                   },
-                  progress: (progressText) => report('working', progressText),
-                });
-                follow.check();
-              },
+                }),
             }
           : {}),
       });
@@ -1123,7 +1180,9 @@ export function createAgentTaskSessions({
     let catalog = null;
     const catalogRows = async () => (catalog ??= await modelCatalog(callerSessionId));
     let route = clean(args.model)
-      ? await modelRoute(clean(args.model), async (text) => routeByDisplayName(text, await catalogRows(), args.effort !== undefined))
+      ? await modelRoute(clean(args.model), async (text) =>
+          routeByDisplayName(text, await catalogRows(), args.effort !== undefined)
+        )
       : (await leadRoute()) || (await lastUsedRoute(service()));
     if (!route) throw new Error('session: no model to start the task session on. Choose a Lead model first.');
     // An explicit effort is the setting the menu's effort pick makes (session.effort,

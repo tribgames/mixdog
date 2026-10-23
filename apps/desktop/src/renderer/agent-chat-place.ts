@@ -177,14 +177,17 @@ const TASK_REPORT_ENDED = new Set(['completed', 'failed', 'cancelled']);
 
 /** Whether `item` (a task report row) reports the end of the turn `send`
  *  started: from its session, ending a turn, and (when both name one) for the
- *  same send. A report or a send without `sendId` (an older one) matches by
- *  session alone. */
+ *  same send. One turn can answer several sends folded into it: its report
+ *  lists them all (`sendIds`, with `sendId` the first). A report or a send
+ *  without `sendId` (an older one) matches by session alone. */
 function reportsEndOf(item: TranscriptItem, send: { sessionId: string; sendId: string }): boolean {
   const record = item.kind === 'notice' ? asRecord(item.routine) : null;
   if (record?.kind !== 'task' || record.sessionId !== send.sessionId) return false;
   if (!TASK_REPORT_ENDED.has(String(record.status))) return false;
-  const answered = typeof record.sendId === 'string' ? record.sendId : '';
-  return !answered || !send.sendId || answered === send.sendId;
+  const answered = [record.sendId, ...(Array.isArray(record.sendIds) ? record.sendIds : [])].filter(
+    (id): id is string => typeof id === 'string' && id !== ''
+  );
+  return !answered.length || !send.sendId || answered.includes(send.sendId);
 }
 
 /** The sends of the tool round at `rows[index]`, each with whether it is the

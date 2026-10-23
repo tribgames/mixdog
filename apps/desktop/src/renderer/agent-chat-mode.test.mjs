@@ -1917,7 +1917,7 @@ test('the working dot follows the session that still owes an answer, per send', 
     startedAt: DAY1,
   });
   const round = (key, items) => ({ _tag: 'ToolActivity', key, turnKey: key, items });
-  const answer = (key, sessionId, sendId, status = 'completed') => ({
+  const answer = (key, sessionId, sendId, status = 'completed', sendIds = undefined) => ({
     _tag: 'AssistantPart',
     key,
     turnKey: key,
@@ -1934,6 +1934,7 @@ test('the working dot follows the session that still owes an answer, per send', 
         sessionId,
         target: 'session',
         ...(sendId ? { sendId } : {}),
+        ...(sendIds ? { sendIds } : {}),
       },
     },
   });
@@ -2001,6 +2002,12 @@ test('the working dot follows the session that still owes an answer, per send', 
   assert.deepEqual(working(), [false, false]);
   await show([...rounds, answer('s', DEV, 'atask_2', 'started')]);
   assert.deepEqual(working(), [false, true]);
+  // Sends folded into one running turn get one report that lists them all: it
+  // closes each of them, never a send it does not list.
+  await show([...rounds, answer('one', DEV, 'atask_1', 'completed', ['atask_1', 'atask_2'])]);
+  assert.deepEqual(working(), [false, false], 'the one report closes both sends');
+  await show([...rounds, answer('one', DEV, 'atask_1', 'completed', ['atask_1', 'atask_3'])]);
+  assert.deepEqual(working(), [false, true], "a report that does not list B leaves B's own turn working");
 });
 test('bot-to-bot: only an accepted send draws the sent line; only a completed reply becomes the bot bubble', async (t) => {
   const render = rowHarness(t);

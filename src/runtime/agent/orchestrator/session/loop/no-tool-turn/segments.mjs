@@ -20,8 +20,11 @@ export function createTurnSegments({ messages, opts }) {
     // Record a mid-turn segment for the caller-facing aggregate and surface it
     // live for every session.
     // `committed: true` marks text that is the just-committed message's own.
+    // A committed message is whole, so the text after it is another message
+    // and a break keeps the aggregate from running the two together; a part
+    // that was cut off (max-output recovery) resumes right where it stopped.
     record(text, { committed = false } = {}) {
-      parts.push(text);
+      parts.push(committed ? `${text.trimEnd()}\n\n` : text);
       try {
         opts.onAssistantText?.(text, { committed });
       } catch {

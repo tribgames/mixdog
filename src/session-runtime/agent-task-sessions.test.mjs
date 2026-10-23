@@ -328,11 +328,17 @@ test('an unknown or ambiguous model or effort is refused with the choices, and n
   const h = fakeService();
   const { api } = withCatalog(h);
   const refused = (args, pattern) => assert.rejects(api.create({ brief: 'x', ...args }, CALLER), pattern);
-  await refused({ model: 'Claude Opus 9' }, /neither a provider\/model route.*Choices: Claude Opus 5\.5 \(anthropic\/claude-opus-5-5\)/s);
+  await refused(
+    { model: 'Claude Opus 9' },
+    /neither a provider\/model route.*Choices: Claude Opus 5\.5 \(anthropic\/claude-opus-5-5\)/s
+  );
   await refused({ model: 'Mystery' }, /Choices: .*Twin/s);
   await refused({ model: 'Mystery max' }, /effort field/);
   await refused({ model: 'Twin' }, /ambiguous.*openai\/gpt-twin.*azure\/gpt-twin/s);
-  await refused({ model: 'Claude Opus 5.5', effort: 'turbo' }, /effort must be one of auto, .*supports: auto, low, medium, high, xhigh, max/);
+  await refused(
+    { model: 'Claude Opus 5.5', effort: 'turbo' },
+    /effort must be one of auto, .*supports: auto, low, medium, high, xhigh, max/
+  );
   await refused({ model: 'Claude Haiku 5 max' }, /effort "max" is not supported/);
   await refused({ model: 'Claude Haiku 5', effort: 'high' }, /effort "high" is not supported/);
   assert.deepEqual(createdOf(h), []);
@@ -591,12 +597,12 @@ test('the session tool hands create its worktree option and confirm_large throug
   assert.equal(seen[0].confirm_large, true);
 });
 
-test('the session tool gives create the calling session\'s trusted worktree scope, never the model\'s', async () => {
+test("the session tool gives create the calling session's trusted worktree scope, never the model's", async () => {
   const seen = [];
   const scopeOf = async (session, extra = {}) => {
     const handler = createWorkspaceToolHandlers({
       rt: { session, config: {} },
-      executeSessionControl: async (args, context) => seen.push(context.callerScope),
+      executeSessionControl: async (_args, context) => seen.push(context.callerScope),
     }).session;
     await handler(
       { action: 'create', brief: 'x', worktree: { mode: 'worktree' }, ...extra },
@@ -708,7 +714,10 @@ test('a task session that could not be dropped after a provisioning failure is n
       assert.deepEqual(error.details, { projectPath: '/repo/mixdog' });
       assert.equal(error.cause.code, 'WORKTREE_UNSUPPORTED_REPO');
       assert.equal(error.orphanSessionId, 'sess_task_1');
-      assert.match(error.message, /sess_task_1 could not be deleted either \(the session service refused the deletion\)/);
+      assert.match(
+        error.message,
+        /sess_task_1 could not be deleted either \(the session service refused the deletion\)/
+      );
       return true;
     }
   );
@@ -1122,6 +1131,76 @@ test('a restart while the target turn runs reports it once that turn ends', asyn
   assert.equal(second.h.listeners.size, 0, 'the re-attached watch ends with the report');
   assert.equal(await w.boot().api.recover(), 0, 'a later start has nothing to re-attach');
   assert.equal(Object.hasOwn(w.target(), 'taskOrigin'), false, 'the target never gets an origin stored');
+});
+
+test('sends folded into one running turn report once, closing every one of them', async (t) => {
+  const w = restartWorld(t);
+  const { h, api, posted } = w.boot();
+  const origin = await api.reportOrigin(TARGET, 'lead', HOME);
+  const first = await api.send(TARGET, 'run the simulation', origin);
+  const second = await api.send(TARGET, 'and print the total', origin);
+  const [a, b] = submitted(h);
+  assert.deepEqual(await w.watchIds(), [first.sendId, second.sendId], 'each send is watched durably');
+  // The target ran one turn for both: the steered send settles before the
+  // turn's own, both with the turn's one `detail`.
+  const detail = { status: 'done', result: { content: 'result of 12 s' } };
+  b.options.onSettled(detail);
+  a.options.onSettled(detail);
+  await posted();
+  assert.equal(w.home.messages.length, 1, 'one report for the one turn');
+  const { routine } = w.home.messages[0].meta;
+  assert.equal(routine.sendId, first.sendId, 'the first send names the report');
+  assert.deepEqual(routine.sendIds, [first.sendId, second.sendId], 'and it closes both sends');
+  assert.equal(w.wakes.length, 1, 'the bot is woken once');
+  assert.deepEqual(await w.watchIds(), [], 'neither watch is left open');
+  assert.equal(h.listeners.size, 0);
+});
+
+test('sends that each ran their own turn report separately; a folded pair still reports once', async (t) => {
+  const w = restartWorld(t);
+  const { h, api, posted } = w.boot();
+  const origin = await api.reportOrigin(TARGET, 'lead', HOME);
+  const ids = [];
+  for (const prompt of ['one', 'two', 'three']) ids.push((await api.send(TARGET, prompt, origin)).sendId);
+  const [a, b, c] = submitted(h);
+  // `one` and `two` were folded into one turn; `three` ran a later turn of its own.
+  const folded = { status: 'done', result: { content: 'answer of the first turn' } };
+  a.options.onSettled(folded);
+  b.options.onSettled(folded);
+  await posted();
+  assert.deepEqual(await w.watchIds(), [ids[2]], 'only the later send is still open');
+  c.options.onSettled({ status: 'done', result: { content: 'answer of the second turn' } });
+  await posted();
+  const routines = w.home.messages.map((message) => message.meta.routine);
+  assert.equal(routines.length, 2);
+  assert.deepEqual([routines[0].sendId, routines[0].sendIds], [ids[0], [ids[0], ids[1]]]);
+  assert.deepEqual(
+    [routines[1].sendId, 'sendIds' in routines[1]],
+    [ids[2], false],
+    "the older answer never lists a newer send's id"
+  );
+  assert.deepEqual(await w.watchIds(), []);
+});
+
+test('a failed turn reports once for its folded sends; another conversation’s send reports to its own', async () => {
+  const h = fakeService();
+  const { api, delivered } = tasks(h);
+  const lead = await api.reportOrigin('sess_user_1', 'lead', 'sess_home_lead');
+  const reviewer = await api.reportOrigin('sess_user_1', 'reviewer', 'sess_home_reviewer');
+  await api.send('sess_user_1', 'first', lead);
+  await api.send('sess_user_1', 'second', lead);
+  await api.send('sess_user_1', 'from the reviewer', reviewer);
+  const [a, b, c] = submitted(h);
+  const detail = { status: 'failed', error: 'provider down' };
+  for (const send of [a, b, c]) send.options.onSettled(detail);
+  await settle();
+  assert.deepEqual(
+    delivered.map(([agentId, report]) => [agentId, report.status, report.watchId, report.watchIds ?? null]),
+    [
+      ['lead', 'failed', a.options.id, [a.options.id, b.options.id]],
+      ['reviewer', 'failed', c.options.id, null],
+    ]
+  );
 });
 
 test("sends a room answered under another turn's submission id recover that turn's answer after a restart", async (t) => {

@@ -422,9 +422,9 @@ export function createRoutineResultQueue(
     async omitted(homeId) {
       return (await read()).omitted[homeId] || null;
     },
-    /** Queue `item` for `homeId`; `unwatch` drops that watch in the same write,
-     *  also when the item was queued or posted before. */
-    async add(homeId, item, { unwatch = '' } = {}) {
+    /** Queue `item` for `homeId`; `unwatch` (run ids) drops those watches in the
+     *  same write, also when the item was queued or posted before. */
+    async add(homeId, item, { unwatch = [] } = {}) {
       await update((doc) => {
         let next = null;
         if (item.roundTrip !== true) next = appended(doc, homeId, [item]);
@@ -443,9 +443,10 @@ export function createRoutineResultQueue(
             next = { ...next, rounds: { ...doc.rounds, [homeId]: counted } };
           }
         }
-        if (!unwatch || !doc.watches[unwatch]) return next ?? undefined;
+        const dropped = unwatch.filter((runId) => doc.watches[runId]);
+        if (!dropped.length) return next ?? undefined;
         const watches = { ...doc.watches };
-        delete watches[unwatch];
+        for (const runId of dropped) delete watches[runId];
         return { ...(next || doc), watches };
       });
     },
@@ -605,6 +606,7 @@ function taskReportItem({
   omitted = 0,
   hop = 0,
   watchId = '',
+  watchIds = [],
 }) {
   // The model-facing reply keeps its lines up to REPLY_LIMIT; the row's
   // one-line summary is derived from it (agentTaskMessage).
@@ -623,6 +625,9 @@ function taskReportItem({
     ...(target === 'session' ? { target } : {}),
     // The send this report ends (the `sendId` the send's result named).
     ...(watchId ? { sendId: String(watchId) } : {}),
+    // Every send this one turn answered (sends folded into a running turn
+    // report once); `sendId` is the first of them.
+    ...(watchIds.length > 1 ? { sendIds: watchIds.map(String) } : {}),
     // The files the turn produced (handoff-attachments.mjs collectTurnArtifacts).
     ...(Array.isArray(files) && files.length ? { files, ...(omitted > 0 ? { omitted } : {}) } : {}),
     roundTrip: status !== 'started' && status !== 'blocked',
@@ -1019,11 +1024,11 @@ export function createAgentHomeDelivery({
    *  create) for its home thread, then start draining it. `status` 'started'
    *  and 'blocked' only post a line; a turn's end also wakes the agent. */
   async function enqueueTask(agentId, report) {
-    const { runId, taskSessionId, watchId = '', from = '' } = report;
+    const { runId, taskSessionId, watchId = '', watchIds = [], from = '' } = report;
     const homeId = agentHomeSessionId(agentId) || agentHomeSessionId(MIXY_AGENT_ID);
     if (!runId || !taskSessionId) throw new Error('task report: runId and taskSessionId required');
     const item = taskReportItem(report);
-    const unwatch = watchId ? String(watchId) : '';
+    const unwatch = [...new Set([watchId, ...watchIds].filter(Boolean).map(String))];
     // A room member's own work reports to its member session, never its home.
     const target = roomMemberOfSession(from)?.agentId === agentId ? from : homeId;
     await queue.add(target, item, { unwatch });

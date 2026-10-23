@@ -180,7 +180,7 @@ test('one refusal is retried with a policy reminder and its partial text is pres
   ]);
   const result = await run(provider, messages);
   assert.equal(provider.state.sends, 2);
-  assert.equal(result.content, 'partial narrationsafe answer');
+  assert.equal(result.content, 'partial narration\n\nsafe answer');
   assert.equal(result.historyContent, 'safe answer');
   assert.equal(result.terminationReason, undefined);
   const recovery = messages.filter((message) => message.meta?.source === 'refusal-recovery');
@@ -201,7 +201,7 @@ test('text-only provider continuations are capped and the last text becomes the 
   const result = await run(provider, messages);
   assert.equal(provider.state.sends, 9);
   assert.equal(result.providerContinuations, 8);
-  assert.equal(result.content, 'seg'.repeat(9));
+  assert.equal(result.content, `${'seg\n\n'.repeat(8)}seg`);
   assert.equal(result.historyContent, 'seg');
   assert.equal(messages.filter((message) => message.role === 'assistant').length, 8);
 });
@@ -265,7 +265,9 @@ test('a message sent while the final text streams is read right after it, inside
     ['user', 'steering', 'add a one-line summary'],
   ]);
   assert.deepEqual(messages[2].meta.submissionIds, ['sub-1']);
-  assert.equal(result.historyContent ?? result.content, 'summary added');
+  assert.equal(result.historyContent, 'summary added');
+  // The caller's aggregate keeps the two messages apart, never run together.
+  assert.equal(result.content, 'first answer\n\nsummary added');
 });
 
 test('tool-call and continuation turns echo provider replay payloads under one precedence rule', async () => {
