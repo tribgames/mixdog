@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.3.4 - 2026-10-23
+
 Correction du défilement sur téléphone qui s’arrêtait ou sautait, des listes de modèles omettant les modèles des fournisseurs, et des tableaux qui tremblaient lors de la diffusion d’une réponse.
 
 ### Corrections de bugs

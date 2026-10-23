@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.3.4 - 2026-10-23
+
 Đã sửa lỗi cuộn trên điện thoại bị dừng hoặc giật nhảy, danh sách mô hình thiếu các mô hình từ nhà cung cấp và bảng bị rung lắc khi đang phát trực tuyến phản hồi.
 
 ### Sửa lỗi

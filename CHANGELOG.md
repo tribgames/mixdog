@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.3.4 - 2026-10-23
+
 Fixed phone scrolling that stopped or jumped, model lists missing provider models, and tables shaking while a reply streams.
 
 ### Bug fixes

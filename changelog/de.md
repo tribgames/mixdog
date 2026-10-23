@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.3.4 - 2026-10-23
+
 Scrollen auf dem Smartphone behoben, das stoppte oder sprang, sowie Modelllisten mit fehlenden Anbietermodellen und während des Antwort-Streamings wackelnde Tabellen korrigiert.
 
 ### Fehlerbehebungen

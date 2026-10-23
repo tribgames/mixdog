@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.3.4 - 2026-10-23
+
 Se corrigieron el desplazamiento en teléfonos que se detenía o saltaba, las listas de modelos sin modelos de proveedores y el temblor de tablas durante la transmisión de respuestas.
 
 ### Correcciones de errores

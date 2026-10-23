@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.3.4 - 2026-10-23
+
 Corretti lo scorrimento su smartphone che si interrompeva o saltava, gli elenchi dei modelli privi dei modelli dei provider e il tremolio delle tabelle durante lo streaming delle risposte.
 
 ### Correzioni di bug

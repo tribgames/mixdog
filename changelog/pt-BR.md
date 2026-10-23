@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.3.4 - 2026-10-23
+
 Corrigida a rolagem no celular que parava ou pulava, listas de modelos sem modelos de provedores e tabelas que tremiam durante o streaming de respostas.
 
 ### Correções de bugs
