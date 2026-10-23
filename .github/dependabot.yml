@@ -37,6 +37,9 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      # @tiptap/extension-mathematics peers katex up to 0.18 only.
+      - dependency-name: "katex"
+        versions: [">=0.19.0"]
 
   - package-ecosystem: github-actions
     directory: /
