@@ -24,18 +24,21 @@ Read this when choosing a `setup` mutation.
 |---|---|
 | Main model route | `set_route` |
 | Agent-specific route or inheritance | `set_agent_route` |
-| Web Search model route | `set_web_search_route` |
+| Web Search model route (and its `route.fallbacks`) | `set_web_search_route` |
 | Active workflow pack | `set_workflow` |
 | Output style | `set_output_style` |
 | User title, language, or experience level | `set_profile` |
 | Idle session clearing, per provider, including `unlimited` | `set_autoclear` |
-| Automatic context compaction | `set_compaction` |
+| Automatic context compaction, compaction on model change, summary model | `set_compaction` |
+| Context → Let AI rename sessions | `set_ai_session_titles` |
+| Providers → Usage limits → Resume automatically when the limit resets | `set_quota_auto_resume` |
+| Model management: "Show in /model" and favorites, per provider model | `set_model_preferences` |
 | Memory capability | `set_memory_enabled` |
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
 | Which user instruction files (AGENTS.md / CLAUDE.md) new sessions load: all, agents, claude, or off | `set_instruction_files` |
 | The reasoning effort Auto works around: low, medium (default), or high | `set_auto_effort_base` |
-| Git, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, voice, or Visualize enabled state | `set_builtin_enabled` |
+| Git, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, voice, Visualize, or Media generation enabled state | `set_builtin_enabled` |
 | Git, Memory, Office, Code Tidy, Local Provider, Auto Effort, Browser, Computer, or voice preparation | `install_builtin` |
 | Managed local model installation | `install_local_model` |
 | Start or resume a background runtime/model download | `start_local_installation` |
@@ -52,10 +55,10 @@ Read this when choosing a `setup` mutation.
 | Mixy's heartbeat: a check every 30 minutes that wakes her only when something needs attention (on by default; `status features` reports `heartbeat.enabled`) | `set_heartbeat_enabled` |
 | Bots' emoji reactions on the user's messages (on by default; `status features` reports `reactions.enabled`) | `set_reactions_enabled` |
 | Worktree defaults: new tasks on the current branch or a new worktree, branch prefix, large-repository warning size, automatic cleanup | `set_worktree_settings` |
-| Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
-| Select, rename, or reorder OAuth accounts, set the switching policy, or allow paid credits | `set_provider_account` |
-| Developer options such as risk-gated OAuth providers | `set_developer_option` |
-| Connect a catalog service (Notion, Linear, Gmail, …; not GitHub, which is the GitHub CLI) for the user: shows a one-click connect card | `connect_connector` |
+| Remove stored provider authentication (one OAuth account at a time, or an API-key provider's key) | `forget_provider_auth` |
+| Select, rename, or reorder OAuth accounts, set automatic switching or the switching policy, or allow paid credits | `set_provider_account` |
+| Developer options (approvals, risk-gated providers); `allowAllActions` can only be turned off | `set_developer_option` |
+| Connect a catalog service (Notion, Linear, Gmail, …; not GitHub, which is the GitHub CLI) for the user: shows a connect card (sign-in, key sheet, or app-password dialog) | `connect_connector` |
 | Add an MCP server | `add_mcp_server` |
 | Edit or rename an MCP server | `save_mcp_server` |
 | Remove an MCP server | `remove_mcp_server` |
@@ -80,12 +83,12 @@ Read this when choosing a `setup` mutation.
 | Enable/disable (pause/resume) a schedule/webhook | `set_automation_enabled` |
 | Run a schedule once now, or re-run a webhook on its latest received payload; the result posts into the owning agent's thread | `run_automation` |
 | Webhook listener enabled state, port, or domain | `set_webhook_config` |
-| Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, usage rail short + long bars, or Computer observe-only state | `set_desktop_settings` |
-| Desktop theme, imported color theme, UI/code font, skin transparency (outer or main panels), display language, side panels, markdown default view, link previews, or tool activity expansion | `set_appearance` |
+| Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, usage rail short + long bars, expanded usage accounts, usage rail slots (three / all), Computer observe-only, Browser auto sign-in, or the representative bot overlay (`desktop.botOverlay`) | `set_desktop_settings` |
+| Desktop theme, imported color theme, UI/code font, UI scale, code size and ligatures, chat text size, skin transparency (outer or main panels), display language, time format, side panels and their position, markdown default view, link previews, or tool activity expansion | `set_appearance` |
 | Add a before-tool hook rule | `add_hook_rule` |
 | Enable or disable a hook rule by its `status hooks` index | `set_hook_rule_enabled` |
 | Delete a hook rule by its `status hooks` index | `delete_hook_rule` |
-| Remembered image/video lane and model used when a generation omits them | `set_media_default` |
+| Settings "Default generator" pin per kind (image/video): lane, model, account; `lane: ""` clears it (Auto) | `set_media_default` |
 | Which activity rail items are pinned, in order (current list in `status desktop`) | `set_activity_rail_pins` |
 | Register a Project and optionally set its display alias | `save_project` |
 | Unregister a Project without deleting its files | `remove_project` |
@@ -129,7 +132,9 @@ workflow` before changing the corresponding domain.
 - `set_route` is the Lead default for new sessions. A model chosen in New Task
   changes that default only when the user actually picks one there.
   `route.fallbacks` (ordered models on other providers; `[]` clears) works the
-  same on `set_route` (Lead), `set_agent_route` (agents and bots, Mixy included).
+  same on `set_route` (Lead), `set_agent_route` (agents and bots, Mixy included)
+  and `set_web_search_route`. `status model` returns `route.autoEffort` and
+  `route.fallbacks`.
 - A workflow switch reaches a running conversation as a reminder on its next
   turn (the cached prompt is not swapped). A bot definition's instruction,
   persona or name applies when the user presses 적용, with one cache break.
@@ -145,7 +150,8 @@ key's source.
 
 - API-key and OAuth providers: `open providers`, then the user completes
   authentication in the visible UI.
-- Custom providers are registered, tested, and removed in the Providers UI;
+- Custom providers are registered, edited (non-secret fields too), tested, and
+  removed in the Providers UI; no setup action exists yet;
   `status providers` with `detail: true` lists them as API rows with `custom: true`.
   Their model list (Nano-GPT included) loads there with up to a 60 s wait; the
   user can skip it and type model ids by hand.
@@ -155,9 +161,11 @@ key's source.
   and recovery. Its narrow status domain exposes installed models and progress;
   the detail dialog lists installed models rather than the download catalog.
 - Forgetting authentication is destructive and requires explicit approval.
-  It removes one OAuth account; a provider with several accounts requires
-  `accountId` from the account list in `status providers` with `detail: true`.
-- `set_provider_account` changes the selected account, paid-credit use after
+  It removes one OAuth account (a provider with several accounts requires
+  `accountId` from the account list in `status providers` with `detail: true`)
+  or an API-key provider's key (no `accountId`).
+- `set_provider_account` changes the selected account, automatic switching
+  when one is exhausted (`auto`), paid-credit use after
   plan limits (`useCredits`), account order (every account id exactly once),
   an account label, or the switching `policy`: `manual` stays on the selected
   account, `limit` switches when it hits a limit, `headroom` starts each new
@@ -166,7 +174,14 @@ key's source.
   happens in the Providers UI.
 - `status developer` lists developer options. An option with a `warning` is
   enabled only after the user explicitly accepts that warning, passed as
-  `riskAccepted:true`; never assume acceptance.
+  `riskAccepted:true`; never assume acceptance. `allowAllActions` ("Allow all
+  actions") can be turned off here, but turning it on is refused even then:
+  only the person turns it on, so `open developer`.
+- `set_quota_auto_resume` is read back as `quotaAutoResume` in `status
+  providers`; turning it off cancels pending resumes.
+- `set_model_preferences` (`hidden`, `favorite`; omitted = unchanged) matches
+  Model management. `list_models` rows show `hidden` / `favorite`; a hidden
+  custom-provider model no longer appears in `list_models`.
 
 ## Profile, session, and Memory
 
@@ -191,7 +206,11 @@ key's source.
   window, e.g. DeepSeek 24h; 1h for Codex/ChatGPT logins); unlimited does not
   disable it.
 - Compaction supports `enabled` and a `compaction` object with either
-  `mainBufferTokens` or `mainBufferPercent`. Changing representation replaces the previous budget.
+  `mainBufferTokens` or `mainBufferPercent` (changing representation replaces
+  the previous budget), `onModelChange` (compact before switching models) and
+  `summaryMode`: `smart`, `maintainer`, or `self` (Conversation model).
+  `status compaction` returns them plus `aiSessionTitles`
+  (`set_ai_session_titles`).
 - If no supported action exposes a requested Memory interval, report it as
   unavailable rather than editing configuration.
 
@@ -216,8 +235,8 @@ markers are read with `status desktop`.
   reasoning effort with a local judge model downloaded in the background.
   Enabling or installing it fails on unsupported machines; `status features`
   reports `supported`, `installing` (judge download running) and `ready`.
-- Visualize is toggle-only through `set_builtin_enabled` (on by default);
-  `install_builtin` does not accept it.
+- Visualize (on by default) and Media generation are toggle-only through
+  `set_builtin_enabled`; `install_builtin` does not accept them.
 - Terminal follows the live Desktop terminal bridge and has no toggle.
 - Environment feature overrides (`MIXDOG_FEATURE_*`) win over these toggles;
   they are diagnostics for headless or benchmark environments, not user
@@ -244,9 +263,13 @@ markers are read with `status desktop`.
   named rule; disabling with `set_hook_rule_enabled` preserves it.
 - Hook rule changes apply to open sessions and their sub-agents on the next
   tool call; no new session or restart is needed.
-- `status media` shows the remembered lane/model per kind. `set_media_default`
-  accepts only a signed-in lane that offers the kind (and the model, when
-  given) in the live media catalog; the media tool's `list` reads that catalog.
+- `status media` returns `pinned` and `remembered` ({image, video} each). The
+  pin is the Settings "Default generator"; the remembered entry is the last-used
+  generator, and the pin wins over it. A generation naming no lane/model uses
+  the pin, else the remembered one. `set_media_default` takes
+  `{kind, lane, model?, accountId?}` and accepts only a signed-in lane that
+  offers the kind (and the model, when given) in the live media catalog; the
+  media tool's `list` reads that catalog. `lane: ""` clears the pin (Auto).
 
 ## Skills, MCP, and plugins
 
@@ -279,8 +302,8 @@ markers are read with `status desktop`.
   `declarationErrors` and `warnings`.
 - `connect_connector` is how to connect a catalog service the user asks for
   ("Slack 연결해 줘"): it leaves a connect card in the conversation whose
-  press runs the browser sign-in (or the key sheet) in Desktop; nothing
-  connects until the user presses it, so tell them to press the card and read
+  press runs the service's sign-in, key sheet or (Gmail: app password only)
+  dialog in Desktop; nothing connects until the user presses it, so tell them to press the card and read
   `status mcp` afterwards. `add_mcp_server` with the service URL is not the
   sign-in flow; never use it for a catalog service.
 - `enable_plugin_mcp` turns every server the plugin declares back on and
@@ -292,7 +315,9 @@ markers are read with `status desktop`.
 - `status capabilities` lists supported actions and deliberate handoffs.
 - Desktop-only operations require the owning conversation visible in the local
   Desktop app. Never claim a persisted change from merely delivering a request.
-- A display-language change returns `requiresReload`.
+- A display-language change returns `requiresReload`; so does a changed
+  `timeFormat` (already-shown times update after the window reloads, which is
+  never automatic).
 - `set_appearance` also takes `uiFont` / `codeFont` (a family name, `""` =
   built-in; text it lacks falls back to the built-in fonts), skin transparency
   (0–100, defaults outer 20 / main 40; higher shows more of the skin picture):
@@ -300,8 +325,18 @@ markers are read with `status desktop`.
   `skinMainTransparency` (conversation area and its cards), or `skinTransparency`
   to set both; and `colorTheme`
   (an imported theme id from `status appearance` `colorThemes`, or `"builtin"`).
-  All are stored on that Desktop device only. Importing a theme file and
-  choosing a skin or custom picture stay in the UI.
+  Also `timeFormat` (system|12h|24h), `sidePanelPosition` (right|bottom|auto),
+  `uiScale` (0.85–1.2, step 0.05), `codeSize` (10–20), `codeLigatures`
+  (bool) and `chatTextSize` (small|default|large|extra-large). The UI label
+  "Light" is `theme: "white"`.
+  Importing, exporting or removing a theme file and choosing a skin picture
+  or its plate/accent/photo stay in the UI.
+- `set_desktop_settings` `desktop.botOverlay` takes `enabled`, `position`
+  (`pinned` above the message box, `pinnedHere`, `free` in the app window,
+  `onScreen` free on screen), `keepAbove`, `collapsed`, `autoAdvance`,
+  `autoClose` and `scale` (50–200, step 10). Enabling needs the
+  representative bot; `status desktop` returns `botOverlay`. Reset position
+  stays in the UI.
 - A Project removal unregisters it only.
 - Inspect schedules/webhooks before editing. `overwrite:true` updates an
   existing named entry and preserves omitted fields; a new schedule needs

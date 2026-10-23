@@ -1,6 +1,7 @@
 import type { DesktopApi, DesktopSettingKey, DesktopCapability, DesktopRemoteAccessInfo } from '../shared/contract';
 import { NOTIFICATION_VOLUME_MAX } from '../shared/contract-settings';
 import { normalizeActivityRailPins } from '../shared/activity-rail-pins';
+import { DESKTOP_PET_SCALES, type DesktopPetConfig, type DesktopPetOption } from '../shared/desktop-pet';
 
 type Values = Record<string, unknown>;
 export interface SetupPreferences {
@@ -37,6 +38,95 @@ const clientsOnly = (info: DesktopRemoteAccessInfo | null) => ({
   pairing: 'Pairing URLs and credentials remain in Settings → Connection.',
 });
 
+// The representative bot overlay (Settings → Bots, desktop-pet-toggle.tsx): the
+// same Desktop API calls, with the Position select's mapping onto the options.
+const BOT_OVERLAY_POSITIONS = ['pinned', 'pinnedHere', 'free', 'onScreen'] as const;
+type BotOverlayPosition = (typeof BOT_OVERLAY_POSITIONS)[number];
+const BOT_OVERLAY_BOOLEANS = ['enabled', 'keepAbove', 'collapsed', 'autoAdvance', 'autoClose'] as const;
+const BOT_OVERLAY_FIELDS = [...BOT_OVERLAY_BOOLEANS, 'position', 'scale'];
+
+const botOverlayPosition = (config: DesktopPetConfig): BotOverlayPosition =>
+  config.pinned ? 'pinned' : config.pinnedHere ? 'pinnedHere' : config.onScreen ? 'onScreen' : 'free';
+
+const botOverlayView = (config: DesktopPetConfig) => ({
+  enabled: config.enabled,
+  position: botOverlayPosition(config),
+  keepAbove: config.keepAbove,
+  collapsed: config.collapsed,
+  autoAdvance: config.autoAdvance,
+  autoClose: config.autoClose,
+  scale: config.scale,
+});
+
+/** The overlay cannot appear without the representative bot (the Settings toggle is disabled then). */
+async function representativeBotExists(api: DesktopApi): Promise<boolean> {
+  const status = await api.invokeCapability({ capability: 'getLeadStatus', args: [] });
+  return record(status.value).created !== false;
+}
+
+function assertBotOverlayInput(value: unknown): Values {
+  const input = record(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.keys(input).length) {
+    throw new Error('botOverlay must be an object with at least one field');
+  }
+  for (const [key, field] of Object.entries(input)) {
+    if (!BOT_OVERLAY_FIELDS.includes(key)) throw new Error(`Unsupported botOverlay field: ${key}`);
+    if (key === 'position') {
+      if (!BOT_OVERLAY_POSITIONS.includes(field as BotOverlayPosition)) {
+        throw new Error(`botOverlay.position must be ${BOT_OVERLAY_POSITIONS.join(', ')}`);
+      }
+    } else if (key === 'scale') {
+      if (!DESKTOP_PET_SCALES.includes(field as number)) {
+        throw new Error(`botOverlay.scale must be one of ${DESKTOP_PET_SCALES.join(', ')}`);
+      }
+    } else if (typeof field !== 'boolean') {
+      throw new Error(`botOverlay.${key} must be true or false`);
+    }
+  }
+  return input;
+}
+
+async function applyBotOverlay(api: DesktopApi, input: Values, mutate: SetupActionContext['mutate']): Promise<Values> {
+  const read = hostMethod(api, 'getDesktopPetConfig');
+  const saved: string[] = [];
+  try {
+    if (input.enabled !== undefined) {
+      await mutate(() => hostMethod(api, 'setDesktopPetEnabled')(input.enabled as boolean));
+      saved.push('enabled');
+    }
+    if (input.position !== undefined) {
+      const position = botOverlayPosition(await read());
+      if (input.position !== position) {
+        // Exactly the Position select: "free" turns the current placement off, any other turns itself on.
+        const free = input.position === 'free';
+        const name = (free ? position : input.position) as DesktopPetOption;
+        await mutate(() => hostMethod(api, 'setDesktopPetOption')(name, !free));
+      }
+      saved.push('position');
+    }
+    for (const name of ['keepAbove', 'collapsed', 'autoAdvance', 'autoClose'] as const) {
+      if (input[name] === undefined) continue;
+      await mutate(() => hostMethod(api, 'setDesktopPetOption')(name, input[name] as boolean));
+      saved.push(name);
+    }
+    if (input.scale !== undefined) {
+      await mutate(() => hostMethod(api, 'setDesktopPetScale')(input.scale as number));
+      saved.push('scale');
+    }
+    const view: Values = botOverlayView(await read());
+    for (const [key, value] of Object.entries(input)) {
+      if (view[key] !== value) throw new Error(`${key} was not persisted`);
+    }
+    return view;
+  } catch (error) {
+    // Earlier subfields stay applied: report them and the state actually in effect.
+    const state = await read().then(botOverlayView, () => null);
+    throw Object.assign(new Error(`${String(error)} Current botOverlay: ${JSON.stringify(state)}`), {
+      saved: saved.map((field) => `botOverlay.${field}`),
+    });
+  }
+}
+
 // What every action handler works with: the request, the Desktop API and the
 // helpers that gate mutations behind the claimant check.
 type SetupActionContext = {
@@ -60,6 +150,13 @@ async function statusAction({ args, api, preferences, invoke, projects }: SetupA
         notificationVolume: settings.notificationVolume,
         voice: await invoke('getVoiceStatus'),
         activityRailPins: (await api.readActivityRailPins())?.pins ?? null,
+        botOverlay: api.getDesktopPetConfig
+          ? {
+              ...botOverlayView(await api.getDesktopPetConfig()),
+              scales: DESKTOP_PET_SCALES,
+              representativeBot: await representativeBotExists(api),
+            }
+          : null,
         scope: 'desktop-host',
       };
     }
@@ -84,7 +181,16 @@ async function statusAction({ args, api, preferences, invoke, projects }: SetupA
 async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActionContext): Promise<Values> {
   const input = record(args.desktop);
   const applied: string[] = [];
+  let botOverlay: Values | undefined;
   for (const [key, value] of Object.entries(input)) {
+    if (key === 'botOverlay') {
+      const overlay = assertBotOverlayInput(value);
+      hostMethod(api, 'getDesktopPetConfig');
+      if (overlay.enabled === true && !(await representativeBotExists(api))) {
+        throw new Error('Create the representative bot before enabling the overlay');
+      }
+      continue;
+    }
     if (key === 'notificationVolume') {
       if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > NOTIFICATION_VOLUME_MAX) {
         throw new Error(`notificationVolume must be an integer from 0 to ${NOTIFICATION_VOLUME_MAX}`);
@@ -114,6 +220,11 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
   }
   for (const [key, value] of Object.entries(input)) {
     try {
+      if (key === 'botOverlay') {
+        botOverlay = await applyBotOverlay(api, value as Values, mutate);
+        applied.push(key);
+        continue;
+      }
       const result =
         key === 'notificationVolume'
           ? await mutate(() => hostMethod(api, 'setNotificationVolume')(value as number))
@@ -121,10 +232,13 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
       if ((result as unknown as Values)[key] !== value) throw new Error('Persisted value differs');
       applied.push(key);
     } catch (error) {
-      throw new Error(`Could not save ${key}. Already saved: ${applied.join(', ') || 'none'}. ${String(error)}`);
+      const partial = (error as { saved?: string[] }).saved ?? [];
+      throw new Error(
+        `Could not save ${key}. Already saved: ${[...applied, ...partial].join(', ') || 'none'}. ${String(error)}`
+      );
     }
   }
-  return saved({ settings: await api.readSettings() });
+  return saved({ settings: await api.readSettings(), ...(botOverlay ? { botOverlay } : {}) });
 }
 
 async function builtinAction(

@@ -578,6 +578,8 @@ test('mutations go through the runtime facade with validated input', async () =>
   assert.equal(installed.saved, true);
   await run(executor, { action: 'set_builtin_enabled', name: 'tidy', enabled: false });
   assert.deepEqual(calls.at(-1), ['setBuiltinToolEnabled', 'tidy', false]);
+  await run(executor, { action: 'set_builtin_enabled', name: 'media', enabled: false });
+  assert.deepEqual(calls.at(-1), ['setBuiltinToolEnabled', 'media', false]);
   await assert.rejects(
     run(executor, { action: 'install_builtin', name: 'shell' }),
     /name must be one of git, memory, office, tidy, localProvider/

@@ -25,6 +25,10 @@ supported `setup` action, and read its result as the change receipt.
 - API keys, OAuth credentials, tokens, and usage sign-ins stay out of tool
   arguments and the transcript. Open the Providers surface and let the user
   enter them.
+- Developer option "Allow all actions" (`allowAllActions`) can only be turned
+  on by the person in the desktop app; the tool refuses it even with
+  `riskAccepted:true`, and remote enablement is refused too. Open `developer`
+  instead.
 - A mutation follows the active workflow's approval rules. Status, catalog,
   definition and MCP-config reads do not change persisted settings.
 - Most changes affect new sessions. Report `appliedToCurrentSession` and
@@ -71,7 +75,7 @@ that a call returned without transport error.
   background cycles. Core Memory entries
   are read and changed with the `memory` tool, not setup.
 - Built-ins have installation state separate from enabled state; Visualize
-  is toggle-only (on by default, no install step). Browser Use,
+  (on by default) and Media generation are toggle-only (no install step). Browser Use,
   Computer Use actions require this conversation open in the local Desktop
   window; voice runs on the runtime and needs no Desktop.
 - Hook rules are before-tool policy, separate from MCP and plugins. Deleting a

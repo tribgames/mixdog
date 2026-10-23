@@ -815,28 +815,51 @@ test('hook rule argument edits never reach setup output; only their presence is 
   assert.notEqual(bus.status().rules[0].patch, null);
 });
 
-test('media defaults: status per kind; set_media_default validates kind, lane and model against the catalog', async () => {
+test('media defaults: status reports the pin; set_media_default pins, clears and validates against the catalog', async () => {
   const calls = [];
+  const pins = { image: null, video: null };
   const lanes = [
     { id: 'gemini', label: 'Gemini', authenticated: true, image: { models: [{ id: 'nano' }] }, video: null },
+    {
+      id: 'oa',
+      label: 'OpenAI',
+      authType: 'oauth',
+      authProvider: 'openai-oauth',
+      authenticated: true,
+      image: { models: [{ id: 'gpt-image-2' }] },
+      video: null,
+    },
     { id: 'grok', label: 'Grok', authenticated: false, image: null, video: null },
   ];
   const api = {
     getMediaDefault: async (kind) => (kind === 'image' ? { kind, lane: 'gemini', model: 'nano' } : null),
+    getMediaPins: async () => ({ ...pins }),
+    getProviderAccounts: (id) => ({ accounts: id === 'openai-oauth' ? [{ id: 'a1' }, { id: 'a2' }] : [] }),
     listMediaLanes: async () => lanes,
-    setMediaDefault: async (input) => {
+    setMediaPin: async (input) => {
       calls.push(input);
-      return { model: '', ...input };
+      pins[input.kind] = input.lane
+        ? { kind: input.kind, lane: input.lane, model: input.model ?? '', account: input.account ?? '' }
+        : null;
+      return pins[input.kind];
     },
   };
-  const status = await run(api, { action: 'status', domain: 'media' });
-  assert.deepEqual(status.defaults, { image: { lane: 'gemini', model: 'nano' }, video: null });
+  let status = await run(api, { action: 'status', domain: 'media' });
+  assert.deepEqual(status.pinned, { image: null, video: null });
+  assert.deepEqual(status.remembered, { image: { lane: 'gemini', model: 'nano' }, video: null });
   const saved = await run(api, { action: 'set_media_default', kind: 'image', lane: 'gemini', model: 'nano' });
-  assert.deepEqual(saved.media, { kind: 'image', lane: 'gemini', model: 'nano' });
-  await run(api, { action: 'set_media_default', kind: 'image', lane: 'gemini' });
+  assert.equal(saved.media.lane, 'gemini');
+  assert.equal(saved.media.model, 'nano');
+  await run(api, { action: 'set_media_default', kind: 'image', lane: 'oa', accountId: 'a2' });
+  status = await run(api, { action: 'status', domain: 'media' });
+  assert.deepEqual(status.pinned.image, { lane: 'oa', model: '', account: 'a2' });
+  const cleared = await run(api, { action: 'set_media_default', kind: 'image', lane: '' });
+  assert.equal(cleared.media, null);
+  assert.deepEqual((await run(api, { action: 'status', domain: 'media' })).pinned, { image: null, video: null });
   assert.deepEqual(calls, [
-    { kind: 'image', lane: 'gemini', model: 'nano' },
-    { kind: 'image', lane: 'gemini' },
+    { kind: 'image', lane: 'gemini', model: 'nano', account: undefined },
+    { kind: 'image', lane: 'oa', model: undefined, account: 'a2' },
+    { kind: 'image', lane: '' },
   ]);
   for (const [args, pattern] of [
     [{ kind: 'skills', lane: 'gemini' }, /kind must be one of image, video/],
@@ -845,10 +868,12 @@ test('media defaults: status per kind; set_media_default validates kind, lane an
     [{ kind: 'image', lane: 'grok' }, /not signed in/],
     [{ kind: 'video', lane: 'gemini' }, /no video models/],
     [{ kind: 'image', lane: 'gemini', model: 'other' }, /not available/],
-    [{ kind: 'image', lane: ' ' }, /lane/],
+    [{ kind: 'image', lane: '', model: 'nano' }, /need a lane/],
+    [{ kind: 'image', lane: 'gemini', accountId: 'a1' }, /no accounts/],
+    [{ kind: 'image', lane: 'oa', accountId: 'zz' }, /Unknown openai-oauth account/],
   ])
     await assert.rejects(run(api, { action: 'set_media_default', ...args }), pattern);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
 });
 
 test('worktree settings: status reads defaults, set_worktree_settings patches and rejects invalid values', async () => {
@@ -929,6 +954,40 @@ test('Desktop schema accepts font, skin transparency and color theme options', (
   assert.match(schemaValueError({ uiFont: 3 }, appearance, 'appearance'), /string/);
 });
 
+test('Desktop schema accepts the device appearance and bot overlay options within their bounds', () => {
+  const { appearance, desktop } = SETUP_TOOL_DEFS[0].inputSchema.properties;
+  const valid = {
+    timeFormat: '24h',
+    sidePanelPosition: 'auto',
+    uiScale: 0.85,
+    codeSize: 20,
+    codeLigatures: false,
+    chatTextSize: 'extra-large',
+  };
+  assert.equal(schemaValueError(valid, appearance, 'appearance'), null);
+  assert.match(schemaValueError({ timeFormat: '36h' }, appearance, 'appearance'), /must be one of/);
+  assert.match(schemaValueError({ sidePanelPosition: 'left' }, appearance, 'appearance'), /must be one of/);
+  assert.match(schemaValueError({ chatTextSize: 'huge' }, appearance, 'appearance'), /must be one of/);
+  assert.match(schemaValueError({ uiScale: 1.3 }, appearance, 'appearance'), /at most 1.2/);
+  assert.match(schemaValueError({ uiScale: 0.5 }, appearance, 'appearance'), /at least 0.85/);
+  assert.match(schemaValueError({ codeSize: 9 }, appearance, 'appearance'), /at least 10/);
+  assert.match(schemaValueError({ codeSize: 12.5 }, appearance, 'appearance'), /integer/);
+  assert.match(schemaValueError({ codeLigatures: 'no' }, appearance, 'appearance'), /boolean/);
+  const botOverlay = {
+    enabled: true,
+    position: 'pinnedHere',
+    keepAbove: true,
+    collapsed: false,
+    autoAdvance: false,
+    autoClose: true,
+    scale: 200,
+  };
+  assert.equal(schemaValueError({ botOverlay }, desktop, 'desktop'), null);
+  assert.match(schemaValueError({ botOverlay: { position: 'left' } }, desktop, 'desktop'), /must be one of/);
+  assert.match(schemaValueError({ botOverlay: { scale: 105 } }, desktop, 'desktop'), /must be one of/);
+  assert.match(schemaValueError({ botOverlay: { pinned: true } }, desktop, 'desktop'), /does not accept/);
+});
+
 test('auto-clear unlimited reaches the provider window; a bare unlimited means the current route provider', async () => {
   let config = { autoClear: { enabled: true, idleMs: null, providerIdleMs: {}, minContextPercent: 10 } };
   const api = createSettingsApi({
@@ -961,4 +1020,83 @@ test('auto-clear unlimited reaches the provider window; a bare unlimited means t
   const codex = api.getAutoClear.call(api);
   assert.equal(codex.provider, 'openai');
   assert.equal(autoClearProviderDefaults(null).find((row) => row.provider === 'openai-oauth').unlimited, true);
+});
+
+test('context settings round-trip: compaction onModelChange/summaryMode and AI session titles through status compaction', async () => {
+  let config = { compaction: { auto: true }, aiSessionTitles: true };
+  const session = { compaction: {} };
+  const api = createSettingsApi({
+    getConfig: () => config,
+    getSession: () => session,
+    getSessionGeneration: () => 0,
+    hasOwn: (value, key) => Object.hasOwn(value, key),
+    normalizeAutoClearConfig,
+    normalizeCompactionConfig,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+    formatDurationMs: (value) => String(value),
+    invalidateContextStatusCache: () => {},
+  });
+  let status = await run(api, { action: 'status', domain: 'compaction' });
+  assert.equal(status.onModelChange, true);
+  assert.equal(status.summaryMode, 'smart');
+  assert.equal(status.aiSessionTitles, true);
+  await run(api, { action: 'set_compaction', compaction: { onModelChange: false, summaryMode: 'self' } });
+  await run(api, { action: 'set_ai_session_titles', enabled: false });
+  status = await run(api, { action: 'status', domain: 'compaction' });
+  assert.equal(status.onModelChange, false);
+  assert.equal(status.summaryMode, 'self');
+  assert.equal(status.aiSessionTitles, false);
+  assert.equal(config.aiSessionTitles, false);
+  await assert.rejects(run(api, { action: 'set_compaction', compaction: { summaryMode: 'bogus' } }), /summaryMode/);
+  await assert.rejects(run(api, { action: 'set_ai_session_titles', enabled: 'no' }), /enabled/);
+});
+
+test('quota auto-resume, model preferences and the Lead route fallbacks round-trip', async () => {
+  let autoResume = true;
+  const prefs = {};
+  const calls = [];
+  const fallbacks = [{ provider: 'anthropic', model: 'backup' }];
+  const api = {
+    getQuotaAutoResume: () => autoResume,
+    setQuotaAutoResume: (value) => (autoResume = value),
+    getProviderSetup: async () => ({ api: [], oauth: [], local: [] }),
+    setModelPreferences: (provider, changes) => {
+      calls.push([provider, changes]);
+      Object.assign(prefs, changes[0]);
+      return { provider, changed: 1 };
+    },
+    listProviderModels: async () => [
+      {
+        provider: 'openai',
+        id: 'm1',
+        ...(typeof prefs.hidden === 'boolean' ? { savedHidden: prefs.hidden } : {}),
+        ...(prefs.favorite ? { favorite: true } : {}),
+      },
+    ],
+    listPresets: () => [{ id: 'workflow-lead', provider: 'openai', model: 'm1', fallbacks }],
+    autoEffort: false,
+    provider: 'openai',
+    model: 'm1',
+  };
+  assert.equal((await run(api, { action: 'status', domain: 'providers' })).quotaAutoResume, true);
+  await run(api, { action: 'set_quota_auto_resume', enabled: false });
+  assert.equal((await run(api, { action: 'status', domain: 'providers' })).quotaAutoResume, false);
+  await run(api, { action: 'set_model_preferences', provider: 'openai', model: 'm1', hidden: true, favorite: true });
+  assert.deepEqual(calls, [['openai', [{ model: 'm1', hidden: true, favorite: true }]]]);
+  const row = (await run(api, { action: 'list_models', catalog: { provider: 'openai' } })).models[0];
+  assert.equal(row.hidden, true);
+  assert.equal(row.favorite, true);
+  const detail = (await run(api, { action: 'list_models', catalog: { provider: 'openai', model: 'm1' } })).model;
+  assert.equal(detail.hidden, true);
+  await run(api, { action: 'set_model_preferences', provider: 'openai', model: 'm1', hidden: false });
+  assert.equal(
+    (await run(api, { action: 'list_models', catalog: { provider: 'openai', model: 'm1' } })).model.hidden,
+    false
+  );
+  await assert.rejects(run(api, { action: 'set_model_preferences', provider: 'openai', model: 'm1' }), /hidden or favorite/);
+  const model = await run(api, { action: 'status', domain: 'model' });
+  assert.equal(model.route.autoEffort, false);
+  assert.deepEqual(model.route.fallbacks, fallbacks);
 });

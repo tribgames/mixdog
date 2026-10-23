@@ -33,8 +33,15 @@ function compactModelRow(row) {
     efforts: (row.effortOptions || []).map((option) => option.value),
     ...(row.fastCapable === true ? { fast: true } : {}),
     ...(row.supportsVision === true ? { vision: true } : {}),
+    ...modelPreferenceFields(row),
   };
 }
+
+/** The model-management choices, only when set (savedHidden is an explicit /model visibility choice). */
+const modelPreferenceFields = (row) => ({
+  ...(typeof row.savedHidden === 'boolean' ? { hidden: row.savedHidden } : {}),
+  ...(row.favorite === true ? { favorite: true } : {}),
+});
 
 const isPresent = (value) =>
   value != null && value !== '' && value !== false && !(typeof value === 'object' && !Object.keys(value).length);
@@ -64,7 +71,7 @@ function modelDetail(row) {
     defaultModelParameters: row.defaultModelParameters,
     supportsMaxMode: row.supportsMaxMode,
   };
-  return Object.fromEntries(Object.entries(detail).filter(([, value]) => isPresent(value)));
+  return { ...Object.fromEntries(Object.entries(detail).filter(([, value]) => isPresent(value))), ...modelPreferenceFields(row) };
 }
 
 function findModel(rows, id, provider) {
@@ -408,7 +415,12 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
   },
   async set_media_default(rt, args) {
     if (!MEDIA_KINDS.includes(args.kind)) throw new Error(`kind must be one of ${MEDIA_KINDS.join(', ')}`);
-    const lane = (await rt.listMediaLanes()).find((row) => row.id === args.lane);
+    // A blank lane returns the kind to Auto, as the Settings control does.
+    if (!String(args.lane).trim()) {
+      if (own(args, 'model') || own(args, 'accountId')) throw new Error('model and accountId need a lane');
+      return { kind: args.kind, media: await rt.setMediaPin({ kind: args.kind, lane: '' }) };
+    }
+    const lane =(await rt.listMediaLanes()).find((row) => row.id === args.lane);
     if (!lane) throw new Error(`Unknown media lane "${args.lane}"; list lanes with the media tool`);
     if (!lane.authenticated) throw new Error(`${lane.label} is not signed in; open providers first`);
     const spec = lane[args.kind];
@@ -416,7 +428,14 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
     if (own(args, 'model') && !spec.models.some((model) => model.id === args.model)) {
       throw new Error(`model "${args.model}" is not available on ${lane.id}/${args.kind}`);
     }
-    return { media: await rt.setMediaDefault(pick(args, ['kind', 'lane', 'model'])) };
+    if (own(args, 'accountId')) {
+      if (lane.authType !== 'oauth') throw new Error(`${lane.id} signs in with an API key; it has no accounts`);
+      if (!rt.getProviderAccounts(lane.authProvider).accounts.some((row) => row.id === args.accountId)) {
+        throw new Error(`Unknown ${lane.authProvider} account "${args.accountId}"; list accounts with status providers`);
+      }
+    }
+    const pin = await rt.setMediaPin({ kind: args.kind, lane: args.lane, model: args.model, account: args.accountId });
+    return { kind: args.kind, media: pin };
   },
 });
 

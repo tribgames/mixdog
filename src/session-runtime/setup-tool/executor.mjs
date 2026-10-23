@@ -45,6 +45,9 @@ const ACTION_APPLIES_TO = {
     "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
   set_recap_enabled: 'background Memory cycles; no restart required',
   set_auto_update: 'subsequent automatic update checks',
+  set_ai_session_titles: 'titles generated from now on; existing titles are unchanged',
+  set_quota_auto_resume: 'subsequent usage-limit stops; turning it off cancels pending resumes',
+  set_model_preferences: 'the /model picker and model management lists',
   set_heartbeat_enabled: "Mixy's next heartbeat check (every 30 minutes); no restart required",
   set_reactions_enabled:
     "bots' chats; while off a reaction is refused at once and new chats are not offered the tool; reactions already left stay visible",
@@ -58,7 +61,7 @@ const ACTION_APPLIES_TO = {
   add_hook_rule: 'subsequent tool calls; no restart required',
   set_hook_rule_enabled: 'subsequent tool calls; no restart required',
   delete_hook_rule: 'subsequent tool calls; no restart required',
-  set_media_default: 'media generations that omit lane/model, and the Studio selection',
+  set_media_default: 'media generations that name no lane/model; lane "" returns the kind to Auto',
 };
 
 const OPEN_TARGET_HINTS = Object.freeze({
@@ -69,11 +72,11 @@ const OPEN_TARGET_HINTS = Object.freeze({
   workflow: 'Desktop: Workflows · TUI: /workflow',
   agents: 'Desktop: Workflows → Agents · TUI: /agents',
   outputstyle: 'Desktop: Settings → Output style · TUI: /OutputStyle',
-  theme: 'Desktop: Settings → General → Theme · TUI: /theme',
+  theme: 'Desktop: Settings → Theme · TUI: /theme',
   profile: 'Desktop: Settings → General → Profile · TUI: /profile',
   autoclear: 'Desktop: Settings → Context · TUI: /autoclear',
   memory:
-    'Desktop: Extensions → Plugin → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory',
+    'Desktop: Extensions tab → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory',
   mcp: 'Desktop: Extensions → Connectors tab · TUI: /mcp',
   skills: 'Desktop: Skills (activity rail) · TUI: /skills',
   plugins:
@@ -83,7 +86,7 @@ const OPEN_TARGET_HINTS = Object.freeze({
   doctor: 'Desktop: Settings → System → Doctor, or /doctor in the composer · TUI: /doctor',
   context: 'Desktop: /context in the composer · TUI: /context',
   developer: 'Desktop: Settings → Developer options · TUI: /setting → Developer',
-  voice: 'Desktop: Extensions → Plugin → Built-in (Voice) · TUI: /setting → Voice',
+  voice: 'Desktop: Extensions tab → Built-in (Voice) · TUI: /setting → Voice',
   connection: 'Desktop only: Settings → Connection',
 });
 
@@ -288,11 +291,13 @@ async function featureStatus(rt, getConfig) {
 }
 
 async function mediaDefaults(rt) {
-  const rows = await Promise.all(MEDIA_KINDS.map((kind) => rt.getMediaDefault(kind)));
+  const [pins, ...rows] = await Promise.all([rt.getMediaPins(), ...MEDIA_KINDS.map((kind) => rt.getMediaDefault(kind))]);
+  const fieldsOf = (row, fields) => (row ? Object.fromEntries(fields.map((field) => [field, row[field]])) : null);
   return {
-    defaults: Object.fromEntries(
-      MEDIA_KINDS.map((kind, i) => [kind, rows[i] ? { lane: rows[i].lane, model: rows[i].model } : null])
-    ),
+    // The default generator (Settings → Built-in → Media generation); null = Auto.
+    pinned: Object.fromEntries(MEDIA_KINDS.map((kind) => [kind, fieldsOf(pins[kind], ['lane', 'model', 'account'])])),
+    // The last generator used; applies only to a kind that is on Auto.
+    remembered: Object.fromEntries(MEDIA_KINDS.map((kind, i) => [kind, fieldsOf(rows[i], ['lane', 'model'])])),
   };
 }
 
@@ -330,7 +335,15 @@ const SETUP_STATUS_READERS = {
     features: await featureStatus(rt, getConfig),
     onboarding: rt.getOnboardingStatus?.() || null,
   }),
-  model: (rt) => ({ route: mainRoute(rt), effortOptions: rt.effortOptions || [] }),
+  model: (rt) => ({
+    route: {
+      ...mainRoute(rt),
+      autoEffort: rt.autoEffort !== false,
+      // The Lead preset (workflow-lead) holds the Lead route's fallback chain, as the Workflows page reads it.
+      fallbacks: (rt.listPresets?.() || []).find((preset) => preset?.id === 'workflow-lead')?.fallbacks || [],
+    },
+    effortOptions: rt.effortOptions || [],
+  }),
   agents: (rt) => ({
     agents: rt.listAgents?.() || [],
     orchestrationMode: rt.getOrchestrationMode(),
@@ -353,19 +366,23 @@ const SETUP_STATUS_READERS = {
     };
   },
   autoclear: (rt) => rt.getAutoClear?.() || {},
-  compaction: (rt) => rt.getCompactionSettings?.() || {},
+  compaction: (rt) => ({ ...(rt.getCompactionSettings?.() || {}), ...(rt.getSessionTitleSettings?.() || {}) }),
   memory: (rt) => ({ ...(rt.getToolModuleSettings?.()?.memory || {}), recap: rt.getRecapSettings?.() || null }),
   'local-provider': (rt) => rt.getToolModuleSettings().localProvider,
   features: (rt, { getConfig }) => featureStatus(rt, getConfig),
   shell: (rt) => rt.getSystemShell?.() || {},
   providers: async (rt, { detail }) => {
     const rows = publicProviderRows(await rt.getProviderSetup?.({}));
+    const quotaResume = rt.getQuotaAutoResume ? { quotaAutoResume: rt.getQuotaAutoResume() } : {};
     // Client mode: the desktop owns accounts, so the server roster is never read.
     if (rows.managedByClient) {
-      if (detail) return rows;
-      return { managedByClient: true, unavailable: rows.unavailable, ...configuredProviderRows(rows) };
+      if (detail) return { ...rows, ...quotaResume };
+      return { managedByClient: true, unavailable: rows.unavailable, ...configuredProviderRows(rows), ...quotaResume };
     }
-    if (!detail) return configuredProviderRows(rows, (id) => rt.getProviderAccounts(id).accounts.length);
+    if (!detail) {
+      return { ...configuredProviderRows(rows, (id) => rt.getProviderAccounts(id).accounts.length), ...quotaResume };
+    }
+    Object.assign(rows, quotaResume);
     rows.oauth = rows.oauth.map((row) =>
       row.authenticated ? { ...row, accounts: publicAccounts(rt.getProviderAccounts(row.id)) } : row
     );
@@ -603,6 +620,14 @@ const SETUP_ACTION_HANDLERS = {
     rt.deleteLocalProviderModel(requireText(args.confirmationToken, 'confirmationToken')),
   set_system_shell: (rt, args) => rt.setSystemShell({ command: clean(args.command) }),
   set_auto_update: (rt, args) => rt.setAutoUpdate(requireBoolean(args.enabled)),
+  set_ai_session_titles: (rt, args) => rt.setAiSessionTitles(requireBoolean(args.enabled)),
+  set_quota_auto_resume: async (rt, args) => ({ quotaAutoResume: await rt.setQuotaAutoResume(requireBoolean(args.enabled)) }),
+  set_model_preferences: async (rt, args) => {
+    const change = { model: requireText(args.model, 'model') };
+    for (const key of ['hidden', 'favorite']) if (Object.hasOwn(args, key)) change[key] = requireBoolean(args[key], key);
+    if (Object.keys(change).length === 1) throw new Error('hidden or favorite is required');
+    return rt.setModelPreferences(requireText(args.provider, 'provider'), [change]);
+  },
   set_heartbeat_enabled: (rt, args) => rt.setHeartbeatEnabled(requireBoolean(args.enabled)),
   set_reactions_enabled: (rt, args) => rt.setReactionsEnabled(requireBoolean(args.enabled)),
   set_worktree_settings: (rt, args) => rt.setWorktreeSettings(args.worktree),

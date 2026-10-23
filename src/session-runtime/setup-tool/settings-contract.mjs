@@ -38,7 +38,7 @@ export const SETUP_EXTENDED_ACTION_FIELDS = Object.freeze({
   add_hook_rule: 'hookRule',
   set_hook_rule_enabled: 'ruleIndex enabled',
   delete_hook_rule: 'ruleIndex',
-  set_media_default: 'kind lane model?',
+  set_media_default: 'kind lane model? accountId?',
 });
 
 /** Mirrors RULE_ACTIONS in services/hook-bus/rule-store.mjs. */
@@ -235,6 +235,30 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       maximum: 400,
       description: 'Windows only: notification sound volume percent.',
     },
+    botOverlay: object(
+      {
+        enabled: {
+          ...boolean,
+          description: 'Show the representative bot overlay; refused while no representative bot exists.',
+        },
+        position: {
+          type: 'string',
+          enum: ['pinned', 'pinnedHere', 'free', 'onScreen'],
+          description:
+            'pinned = pin above the message box (default); pinnedHere = pin here; free = free in the app window; onScreen = free on screen.',
+        },
+        keepAbove: { ...boolean, description: 'Keep above other windows (default off).' },
+        collapsed: { ...boolean, description: 'Collapse the bubble so only the bot shows (default off).' },
+        autoAdvance: { ...boolean, description: 'Auto-advance long replies (default on).' },
+        autoClose: { ...boolean, description: 'Close replies automatically once read (default on).' },
+        scale: {
+          type: 'integer',
+          enum: [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200],
+          description: 'Bot size in percent (default 100).',
+        },
+      },
+      []
+    ),
   }),
   appearance: object({
     theme: { type: 'string', enum: ['system', 'dark', 'white'] },
@@ -243,6 +267,34 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       description: 'Desktop UI language id from status appearance; independent of profile language.',
     },
     sidePanels: { type: 'string', enum: ['close-left', 'close-right', 'close-both', 'keep-open'] },
+    sidePanelPosition: {
+      type: 'string',
+      enum: ['right', 'bottom', 'auto'],
+      description: 'Where the side dock sits on desktop: beside the chat, below it, or by window shape (default right).',
+    },
+    timeFormat: {
+      type: 'string',
+      enum: ['system', '12h', '24h'],
+      description: 'Clock style for every time of day shown (default system = the UI language own clock).',
+    },
+    uiScale: {
+      type: 'number',
+      minimum: 0.85,
+      maximum: 1.2,
+      description: 'UI size multiplier, 0.85-1.2 in steps of 0.05 (default 1).',
+    },
+    codeSize: {
+      type: 'integer',
+      minimum: 10,
+      maximum: 20,
+      description: 'Code text size in px, 10-20 (default 13).',
+    },
+    codeLigatures: { ...boolean, description: 'Join symbols such as => into one glyph in code (default on).' },
+    chatTextSize: {
+      type: 'string',
+      enum: ['small', 'default', 'large', 'extra-large'],
+      description: 'Conversation and composer text size (default default).',
+    },
     markdownDefaultView: { type: 'string', enum: ['preview', 'rich', 'source'] },
     linkPreview: boolean,
     toolActivityExpansion: { type: 'string', enum: ['collapsed', 'commands', 'all'] },
@@ -291,10 +343,15 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     minimum: 0,
     description: 'set_hook_rule_enabled/delete_hook_rule: rule index from status hooks.',
   },
-  lane: { ...nonBlank, description: 'set_media_default: lane id from the media catalog.' },
+  lane: {
+    ...text,
+    description:
+      'set_media_default: lane id from the media catalog to pin as the default generator for the kind; "" clears the pin (back to Auto).',
+  },
   model: {
     ...nonBlank,
-    description: 'set_media_default: model id offered by the lane for the kind; omitted = the lane default.',
+    description:
+      'set_media_default: model id offered by the lane for the kind; omitted = the lane default. set_model_preferences: model id of the provider.',
   },
   project: object({ path: text, alias: text }, ['path']),
   projectPath: { ...text, description: 'Exact registered Project root.' },

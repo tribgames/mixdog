@@ -8,7 +8,7 @@ or requests a setting with no mutation action.
 | Target | Destination |
 |---|---|
 | `settings` | Settings home |
-| `providers` | Provider authentication and local providers |
+| `providers` | Provider authentication |
 | `model` | Main model selection |
 | `websearch` | Web Search route |
 | `workflow` | Workflow packs |
@@ -17,51 +17,65 @@ or requests a setting with no mutation action.
 | `theme` | Theme surface where supported |
 | `profile` | User profile |
 | `autoclear` | Session lifecycle controls |
-| `memory` | Memory capability surface |
-| `mcp` | Extensions → Skill → MCP, including OAuth Connect/Reconnect/Disconnect |
-| `skills` | Extensions → Skill → Skills |
-| `plugins` | Extensions → Plugin |
+| `memory` | Memory capability surface (Built-in card on the Extensions tab) |
+| `mcp` | Extensions → Connectors tab, including OAuth Connect/Reconnect/Disconnect |
+| `skills` | Skills (activity rail destination) |
+| `plugins` | Extensions → Extensions tab (plugins that bring MCP servers: Connectors → Custom connectors) |
 | `update` | Update surface |
-| `usage` | Provider usage sign-in |
+| `usage` | The /usage surface (provider usage); no sign-in |
 | `doctor` | Runtime diagnostics |
 | `context` | Context and compaction |
 | `developer` | Developer options (TUI: Developer picker) |
-| `voice` | Voice built-in (TUI: Settings hub) |
+| `voice` | Voice Built-in card on the Extensions tab (TUI: Settings hub) |
 | `connection` | Web-app pairing; Desktop only, the TUI shows guidance |
 
 An attached Desktop or TUI may navigate and return `opened:true`.
 
 ## Desktop map
 
-- Settings → General: profile, Web Search exposure, display language,
-  side panels, and notifications.
-- Settings → Context: auto-compact and auto-clear.
+- Settings → General: profile; Features (Regular check-ins, Reactions, Web
+  search, import conversations from other apps (UI-only), Load instruction
+  files, Auto reasoning base, link preview); notifications; worktree
+  defaults; display language, time format, side panels and their position;
+  markdown default view.
+- Settings → Context: Let AI rename sessions, auto-compact (also on model
+  change, summary model) and auto-clear.
+- Settings → Model management: "Show in /model" and favorites per model.
 - Settings → Output style: output style selection, plus the desktop-only
   "Expand tool activity" choice (collapsed / commands and edits / everything),
   saved per device; Ctrl+O toggles everything open for the current window.
-- Settings → Theme (one page): System / Dark / Light or a skin picture
-  (plate, accent, transparency), imported JSON color themes (about 26 color
-  roles), installed fonts, font sizes and chat text size. Saved on this device
-  only. First-run setup has a Theme step with the same System / Dark /
-  Light / skin choice.
+- Settings → Theme (one page): System / Dark / Light (`theme: "white"`) or a
+  skin picture (plate, accent, photo, transparency), imported JSON color
+  themes (about 26 color roles; import/export/remove are UI-only), installed
+  fonts, font sizes and chat text size. Saved on this device only. First-run
+  setup has a Theme step with the same System / Dark / Light / skin choice.
 - Settings → Bots (desktop only): the representative bot overlay, a small
   window with the representative bot that opens a quick message to it. On
-  by default; options to pin it above the message box (default on), keep it
-  above other windows (default off: it follows the app window's layer),
-  collapse its bubble and reset its position. The overlay's right-click
-  menu has the same options. Saved on this PC.
-- Settings → Providers: API-key, OAuth, custom provider registration, local
-  providers, and usage sign-in. A custom provider's model list waits up to
-  60 s, can be skipped, and then takes model ids typed by hand.
-- Extensions → Plugin → Git & GitHub: Git/GitHub CLI installation and connection.
-- Settings → Connection: web-app pairing and linked devices.
+  by default; options: enable, Position (4-way: pinned above the message box
+  (default), pinned here, free in the app window, free on screen), keep above
+  other windows (default off), collapse bubble, auto-advance long replies,
+  close replies automatically, size, and reset position (UI-only). The
+  overlay's right-click menu has the same options. Saved on this PC.
+- Settings → Providers: API-key and OAuth authentication, custom provider
+  registration, and Usage limits (resume automatically). A custom provider's
+  model list waits up to 60 s, can be skipped, and then takes model ids typed
+  by hand. Local models are managed in the Local Provider Built-in detail.
+- Settings → Connection (desktop only): web-app pairing, this PC's name and
+  the remote-access switch, connected devices (rename, Disconnect all), "PCs
+  I opened", SSH servers (per-server settings, server logins, cleanup), and
+  "Reopen server windows". Only `revoke_linked_device` has a tool action.
 - Settings → System: update, keep-awake, run in background after the window
   closes, and Doctor.
-- Settings → Developer options: risk-gated OAuth providers.
+- Settings → Developer options: data-driven sections (approvals, risk-gated
+  providers); read them with `status developer`.
 - Projects: Project registration, name, Project Memories, and Common Memory.
 - Workflows: workflow packs, Main and Web Search defaults, and agent editing.
-- Extensions → Plugin: Built-in cards and plugins.
-- Extensions → Skill: skills and MCP servers.
+- Extensions → Extensions tab: Built-in cards (including Git & GitHub, Media
+  generation and its Default generator) and plugins.
+- Extensions → Connectors tab: MCP servers and catalog connectors (Gmail
+  connects only with an app password; Calendar and Drive offer "Use my
+  Google key"), plus Custom connectors (including plugin MCP servers).
+- Skills (activity rail): skills.
 
 Provider authentication is intentionally hidden from the remote web app; guide
 the user to Desktop.
@@ -75,8 +89,8 @@ install or toggles run through the attached Desktop; the receipt identifies
 
 Computer observe-only and background Memory cycles (`set_recap_enabled`)
 have no settings control in either app; setup is their only supported route.
-Usage pin and the short + long rail bars live in the usage card's flyout menu
-on the activity rail.
+Usage pin, the short + long rail bars, expanded accounts and rail slots live
+in the usage card's flyout menu on the activity rail.
 
 Schedules/webhooks and workflow/agent/skill definitions use their runtime
 actions directly. These do not require clicking their Desktop rails.
@@ -85,16 +99,23 @@ actions directly. These do not require clicking their Desktop rails.
 
 The setup tool does not mutate:
 
-- API keys, OAuth, usage sign-in, and GitHub CLI connection;
+- API keys, OAuth, and GitHub CLI connection;
+- turning on the developer option "Allow all actions" (only the person turns
+  it on; `set_developer_option` can turn it off);
+- custom provider registration and edits (non-secret fields included), group
+  room options, bot persona and avatar, import conversations, reset overlay
+  position, SSH and remote-access settings, sidebar/list ordering and other
+  per-device view state;
 - MCP server OAuth sign-in and sign-out (Desktop MCP list/editor, TUI
   `/mcp login` and `/mcp logout`; remote windows paste the redirect address);
 - notification permission and subscription on the receiving device;
 - web-app pairing credentials and OS permission dialogs;
 - TUI-local theme palettes (use `/theme`; Desktop themes are separate);
-- importing or exporting a JSON color theme file, choosing a skin or custom
-  skin picture, and the Lead's pixel face (stored on the host as `leadAvatar`,
-  edited from the Desktop or a paired client, and shared by all of them; every
-  Lead-class row and agent wears it, and the agent edit dialog has no avatar);
+- importing, exporting or removing a JSON color theme file, choosing a skin or
+  custom skin picture (plate, accent, photo), and the Lead's pixel face
+  (stored on the host as `leadAvatar`, edited from the Desktop or a paired
+  client, and shared by all of them; bots and Mixy have per-bot avatars in
+  the bot profile editor; only the Workflows agent editor has none);
 - approval grants ("항상 허용" is per feature and per bot, never for payment,
   permanent delete, Lead, workflow, Mixy link, group rooms or schedules) and
   browser action confirmations (`MIXDOG_BROWSER_CONFIRM_ACTIONS`,

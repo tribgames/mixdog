@@ -7,9 +7,25 @@ import {
   SUPPORTED_UI_LANGUAGES,
   type UiLanguagePreference,
 } from './i18n';
-import { getSidePanelMode, setSidePanelMode, type SidePanelMode } from './side-panel-preferences';
+import {
+  getSidePanelMode,
+  getSidePanelPosition,
+  setSidePanelMode,
+  setSidePanelPosition,
+  type SidePanelMode,
+  type SidePanelPosition,
+} from './side-panel-preferences';
 import { getLinkPreview, setLinkPreview } from './link-preview-preference';
-import { getFontSettings, sanitizeFontFamily, setFontSettings } from './appearance/font-settings';
+import { getTimeFormat, setTimeFormat, type TimeFormat } from './time-format-preference';
+import { CHAT_TEXT_SCALES, getChatTextSize, setChatTextSize, type ChatTextSize } from './chat-text-size-preference';
+import {
+  CODE_SIZE_RANGE,
+  getFontSettings,
+  normalizeFontSettings,
+  sanitizeFontFamily,
+  setFontSettings,
+  UI_SCALE_RANGE,
+} from './appearance/font-settings';
 import { getActiveUserThemeId, listUserThemes, setActiveUserTheme } from './appearance/user-theme';
 import {
   getSkinMainTransparency,
@@ -28,6 +44,8 @@ import type { SetupLaneSource } from './app-shell-ui-open-request';
 
 const MARKDOWN_DEFAULT_VIEWS = ['preview', 'rich', 'source'];
 const TOOL_ACTIVITY_EXPANSIONS = ['collapsed', 'commands', 'all'];
+const SIDE_PANEL_POSITIONS = ['right', 'bottom', 'auto'];
+const TIME_FORMATS = ['system', '12h', '24h'];
 const BUILTIN_COLOR_THEME = 'builtin';
 
 async function readDesktopAppearance(api: DesktopApi) {
@@ -40,8 +58,14 @@ async function readDesktopAppearance(api: DesktopApi) {
     displayLanguage: getUiLanguagePreference(),
     languages: [{ value: 'system', label: 'System' }, ...SUPPORTED_UI_LANGUAGES],
     sidePanels: getSidePanelMode(),
+    sidePanelPosition: getSidePanelPosition(),
+    timeFormat: getTimeFormat(),
+    chatTextSize: getChatTextSize(),
     uiFont: getFontSettings().ui,
     codeFont: getFontSettings().mono,
+    uiScale: getFontSettings().uiScale,
+    codeSize: getFontSettings().codeSize,
+    codeLigatures: getFontSettings().ligatures,
     skinOuterTransparency: getSkinOuterTransparency(),
     skinMainTransparency: getSkinMainTransparency(),
     colorTheme: getActiveUserThemeId() ?? BUILTIN_COLOR_THEME,
@@ -95,6 +119,20 @@ function assertAppearanceInput(
     !['close-left', 'close-right', 'close-both', 'keep-open'].includes(String(input.sidePanels))
   )
     throw new Error('Unknown side-panel mode');
+  if (input.sidePanelPosition !== undefined && !SIDE_PANEL_POSITIONS.includes(String(input.sidePanelPosition)))
+    throw new Error('sidePanelPosition must be right, bottom or auto');
+  if (input.timeFormat !== undefined && !TIME_FORMATS.includes(String(input.timeFormat)))
+    throw new Error('timeFormat must be system, 12h or 24h');
+  if (input.chatTextSize !== undefined && !Object.hasOwn(CHAT_TEXT_SCALES, String(input.chatTextSize)))
+    throw new Error(`chatTextSize must be one of ${Object.keys(CHAT_TEXT_SCALES).join(', ')}`);
+  if (input.uiScale !== undefined && normalizeFontSettings({ uiScale: input.uiScale }).uiScale !== input.uiScale)
+    throw new Error(
+      `uiScale must be a multiple of ${UI_SCALE_RANGE.step} from ${UI_SCALE_RANGE.min} to ${UI_SCALE_RANGE.max}`
+    );
+  if (input.codeSize !== undefined && normalizeFontSettings({ codeSize: input.codeSize }).codeSize !== input.codeSize)
+    throw new Error(`codeSize must be a whole number from ${CODE_SIZE_RANGE.min} to ${CODE_SIZE_RANGE.max}`);
+  if (input.codeLigatures !== undefined && typeof input.codeLigatures !== 'boolean')
+    throw new Error('codeLigatures must be true or false');
 }
 
 export function desktopSetupPreferences(
@@ -134,6 +172,31 @@ export function desktopSetupPreferences(
         setFontSettings({ [key]: family });
         if (getFontSettings()[key] !== family) throw new Error('Desktop font was not persisted');
       }
+      const fontPatch: Partial<ReturnType<typeof getFontSettings>> = {};
+      if (input.uiScale !== undefined) fontPatch.uiScale = input.uiScale as number;
+      if (input.codeSize !== undefined) fontPatch.codeSize = input.codeSize as number;
+      if (input.codeLigatures !== undefined) fontPatch.ligatures = input.codeLigatures as boolean;
+      if (Object.keys(fontPatch).length) {
+        setFontSettings(fontPatch);
+        const fonts = getFontSettings();
+        if (Object.entries(fontPatch).some(([key, value]) => fonts[key as keyof typeof fonts] !== value))
+          throw new Error('Desktop font size or ligature setting was not persisted');
+      }
+      if (input.timeFormat !== undefined) {
+        if (!setTimeFormat(input.timeFormat as TimeFormat) || getTimeFormat() !== input.timeFormat)
+          throw new Error('Time format was not persisted');
+      }
+      if (input.chatTextSize !== undefined) {
+        if (!setChatTextSize(input.chatTextSize as ChatTextSize) || getChatTextSize() !== input.chatTextSize)
+          throw new Error('Chat text size was not persisted');
+      }
+      if (input.sidePanelPosition !== undefined) {
+        if (
+          !setSidePanelPosition(input.sidePanelPosition as SidePanelPosition) ||
+          getSidePanelPosition() !== input.sidePanelPosition
+        )
+          throw new Error('Side-panel position was not persisted');
+      }
       // skinTransparency sets both sliders; a per-slider field then overrides its own.
       if (input.skinTransparency !== undefined) setSkinTransparency(input.skinTransparency as number);
       if (input.skinOuterTransparency !== undefined) setSkinOuterTransparency(input.skinOuterTransparency as number);
@@ -159,12 +222,16 @@ export function desktopSetupPreferences(
       if (input.sidePanels !== undefined && !setSidePanelMode(input.sidePanels as SidePanelMode)) {
         throw new Error('Side-panel preference was not persisted');
       }
+      // Times are formatted where they render: a reload is reported, never performed.
+      const timeFormatChanged = input.timeFormat !== undefined && input.timeFormat !== before.timeFormat;
       return {
         ...(await read()),
         saved: true,
-        requiresReload: input.displayLanguage !== undefined && input.displayLanguage !== before.displayLanguage,
+        requiresReload:
+          timeFormatChanged ||
+          (input.displayLanguage !== undefined && input.displayLanguage !== before.displayLanguage),
         appliesTo:
-          'Desktop host now; a changed display language applies on the next window reload. No reload was performed.',
+          'Desktop host now; a changed display language applies on the next window reload, and already-shown times update with a changed time format after the window reloads. No reload was performed.',
       };
     },
   };

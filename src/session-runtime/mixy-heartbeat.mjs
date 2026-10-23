@@ -3,9 +3,9 @@
  * last one, in three stages that each stop as early as they can.
  *  1. Collect (no model): a bounded digest of what happened in the interval:
  *     sessions the user talks in with new activity (Lead sessions, bot chats,
- *     group rooms; Mixy's own chat only for turns the user sent there; never
- *     the heartbeat's hidden sessions, exec or memory runs, room seats or a
- *     Lead's delegated agents), agent task sessions that finished, approvals
+ *     group rooms; never Mixy's own chat, the heartbeat's hidden sessions,
+ *     exec or memory runs, room seats or a Lead's delegated agents), agent
+ *     task sessions that finished, approvals
  *     waiting (only when more wait than at the last handled check) and
  *     routines that keep failing. Sessions and tasks past the digest's bounds
  *     are counted in one line; nothing carries over to the next check. A
@@ -41,8 +41,8 @@
  * source), Maintainer call or wake leaves them for the next check, and a
  * routine-only wake after a failed Maintainer call commits just its routine
  * warnings. A due check waits while the user is active (a turn they sent in
- * the last 10 minutes, as this process saw it or the session store shows
- * it); missed checks run as one; two never run at once; the first one after
+ * the last 10 minutes, as this process saw it or the state file kept it;
+ * routine and other runtime-made turns are no user activity); missed checks run as one; two never run at once; the first one after
  * a start is looked at after a minute. The setting `heartbeat: false` (setup
  * set_heartbeat_enabled) stops it.
  *
@@ -117,10 +117,17 @@ const defaultLog = (line) => process.stderr.write(`mixdog heartbeat: ${line}\n`)
 const errorText = (error) => error?.message || String(error);
 
 let lastUserTurnAt = 0;
-/** A turn the user sent (session service submit): a due check waits for quiet.
- *  Memory only; after a restart the session store's activity stands in. */
-export function noteUserTurn(at = Date.now()) {
-  lastUserTurnAt = Math.max(lastUserTurnAt, Number(at) || 0);
+/** A turn the user sent (session service submit, session-turns.mjs
+ *  isUserTurn): a due check waits for quiet. Kept in memory and in the state
+ *  file (`lastUserInputAt`) so a restart still sees it; routine, heartbeat and
+ *  delivered turns never move it (a session's `lastUsedAt` moves with every
+ *  completed turn). */
+export function noteUserTurn(at = Date.now(), { path = defaultStatePath() } = {}) {
+  const time = Number(at) || 0;
+  lastUserTurnAt = Math.max(lastUserTurnAt, time);
+  updateState(path, (next) => {
+    next.lastUserInputAt = Math.max(next.lastUserInputAt, time);
+  });
 }
 
 const defaultStatePath = () => join(resolvePluginData(), 'heartbeat.json');
@@ -135,8 +142,8 @@ function readState(path) {
     // The collection watermark (the last handled check) and the last check begun.
     lastBeatAt: Number(value.lastBeatAt) || 0,
     lastAttemptAt: Number(value.lastAttemptAt) || 0,
-    // The user's turns in Mixy's chat at the last handled check.
-    ...(Number.isInteger(value.mixyTurns) ? { mixyTurns: value.mixyTurns } : {}),
+    // The user's latest accepted turn (noteUserTurn), for the idle check.
+    lastUserInputAt: Number(value.lastUserInputAt) || 0,
     // Approvals waiting at the last handled check.
     approvals: Number.isInteger(value.approvals) && value.approvals > 0 ? value.approvals : 0,
     lastHash: typeof value.lastHash === 'string' ? value.lastHash : '',
@@ -278,12 +285,11 @@ export async function collectHeartbeatFacts({
     const bot = sessionBotOf(row);
     const entry = { id: row.id, bot, title: row.title, preview: row.lastMessagePreview || row.preview };
     if (!bot || agentIdOfHomeSession(row.id)) {
-      // Mixy's chat counts by the user's turns there (composeDigest): her
-      // posted heartbeat replies are no activity. Only a session the user
-      // talks in: never an exec or memory run or a Lead's delegated agent.
-      const turns = row.id === MIXY_HOME && Number.isInteger(row.realTurnCount) ? { userTurns: row.realTurnCount } : {};
+      // Only a session the user talks in: never an exec or memory run or a
+      // Lead's delegated agent. Mixy's own chat is hers and the user's: it is
+      // never news to her.
       const room = roomIdOfSession(row.id) ? { room: true } : {};
-      if (userFacing(row)) sessions.push({ ...entry, ...turns, ...room });
+      if (row.id !== MIXY_HOME && userFacing(row)) sessions.push({ ...entry, ...room });
     } else if (!busy(row)) tasks.push(entry);
     // A task session still working is told once it finishes.
   }
@@ -310,18 +316,9 @@ const userFacing = (row) =>
   row?.visibility !== 'agent-only' &&
   (!sessionBotOf(row) || Boolean(agentIdOfHomeSession(row.id)));
 
-/** The newest stored `lastUsedAt` of a user-facing session (the newest catalog
- *  rows); 0 without a session service. */
-export async function latestUserActivityAt(service) {
-  if (!service) return 0;
-  const { rows } = await scanCatalog(service, userFacing, { maxRows: SCAN_ROWS });
-  return Math.max(0, ...rows.map((row) => Number(row.lastUsedAt) || 0));
-}
-
 /**
  * The digest lines of `facts` (bounded) over `state` (read only), the
- * routine items among them, the routines to close (a success, or gone) and
- * the user's turn count in Mixy's chat to keep (`mixyTurns`, when known).
+ * routine items among them and the routines to close (a success, or gone).
  * Sessions and tasks past the bounds are counted in one line each.
  */
 export function composeDigest(facts, state, at) {
@@ -350,10 +347,18 @@ export function composeDigest(facts, state, at) {
     });
   }
   for (const key of Object.keys(state.routines)) if (!known.has(key)) closed.push(key);
+  const tasks = facts.tasks || [];
+  const sessions = facts.sessions || [];
+  const moreTasks = (count) => `${count} more task session${count === 1 ? '' : 's'} finished`;
+  const moreSessions = (count) => `${count} more session${count === 1 ? '' : 's'} had new activity`;
   const lines = [];
   let size = 0;
+  // Room for both overflow lines (at their longest) is held back from every
+  // detailed line: rows left out are always counted.
+  const room = (rows, more) => (rows.length ? more(rows.length).length + 1 : 0);
+  let reserved = room(tasks, moreTasks) + room(sessions, moreSessions);
   const add = (text) => {
-    if (size + text.length + 1 > DIGEST_LIMIT) return false;
+    if (size + text.length + 1 + reserved > DIGEST_LIMIT) return false;
     size += text.length + 1;
     lines.push(text);
     return true;
@@ -367,7 +372,7 @@ export function composeDigest(facts, state, at) {
   // The session and task lines by their line index, for the reviews.
   const subjects = [];
   // Up to `limit` rows get a line (while the size bound allows); the rest
-  // are counted in one line.
+  // are counted in one line, in the room held back for it.
   const show = (rows, limit, line, more) => {
     let shown = 0;
     for (const row of rows) {
@@ -375,23 +380,18 @@ export function composeDigest(facts, state, at) {
       shown += 1;
       subjects.push({ index: lines.length - 1, id: row.id });
     }
+    reserved -= room(rows, more);
     if (rows.length > shown) add(more(rows.length - shown));
   };
   show(
-    facts.tasks || [],
+    tasks,
     MAX_LINES.task,
     (task) => {
       const preview = task.preview ? `, last: "${quotedText(task.preview, TEXT_LIMIT)}"` : '';
       return `task session ${task.id} of bot ${task.bot} finished: "${quotedText(task.title, TEXT_LIMIT)}"${preview}`;
     },
-    (count) => `${count} more task session${count === 1 ? '' : 's'} finished`
+    moreTasks
   );
-  let mixyTurns;
-  const sessions = (facts.sessions || []).filter((session) => {
-    if (!Number.isInteger(session.userTurns)) return true;
-    mixyTurns = session.userTurns;
-    return session.userTurns > (state.mixyTurns ?? -1);
-  });
   show(
     sessions,
     MAX_LINES.session,
@@ -401,7 +401,7 @@ export function composeDigest(facts, state, at) {
       const where = session.room ? 'group room ' : '';
       return `new activity in ${where}${session.id}${owner}: "${quotedText(session.title, TEXT_LIMIT)}"${preview}`;
     },
-    (count) => `${count} more session${count === 1 ? '' : 's'} had new activity`
+    moreSessions
   );
   return {
     lines,
@@ -409,7 +409,6 @@ export function composeDigest(facts, state, at) {
     routines: reported,
     closed,
     approvals,
-    ...(mixyTurns === undefined ? {} : { mixyTurns }),
   };
 }
 
@@ -554,8 +553,6 @@ export function createMixyHeartbeat({
   getSessionService = () => null,
   log = defaultLog,
   collect = (input) => collectHeartbeatFacts({ ...input, getSessionService }),
-  // The user's latest activity the session store shows (restarts included).
-  storedUserActivityAt = () => latestUserActivityAt(getSessionService()),
   routeKey = async () =>
     (await import('../runtime/agent/orchestrator/agent-runtime/heartbeat-completion.mjs')).heartbeatRouteKey(),
   decide = async (input) =>
@@ -604,6 +601,8 @@ export function createMixyHeartbeat({
     breaker.tripped = true;
     const why = kind === 'parse' ? 'unusable replies' : 'failed calls';
     log(`Maintainer gate off after ${breaker[kind]} ${why} in a row, until a restart or a Maintainer model change`);
+    // The app translates this exact text by its pattern
+    // (apps/desktop/src/renderer/error-notice-copy.ts localizeHeartbeatBreakerNotice).
     void Promise.resolve()
       .then(() =>
         notify(
@@ -689,7 +688,6 @@ export function createMixyHeartbeat({
         if (seen) {
           next.lastBeatAt = at;
           next.lastHash = hash;
-          if (digest.mixyTurns !== undefined) next.mixyTurns = digest.mixyTurns;
           next.approvals = digest.approvals;
           for (const [id, row] of Object.entries(cursors)) next.reviews[id] = { at, ...row };
         }
@@ -772,9 +770,9 @@ export function createMixyHeartbeat({
       // Checks are due by the last one begun; a check left unhandled keeps
       // its watermark, so the next one collects its changes again.
       if (at - Math.max(state.lastBeatAt, state.lastAttemptAt) < limits.intervalMs) return 'waiting';
-      // The user's latest turn: one this process saw, or the session store's
+      // The user's latest turn: one this process saw, or the state file's
       // record of it (it survives a crash or restart).
-      const userAt = Math.max(Number(userTurnAt()) || 0, Number(await storedUserActivityAt()) || 0);
+      const userAt = Math.max(Number(userTurnAt()) || 0, state.lastUserInputAt);
       if (at - userAt < limits.idleMs) return 'deferred';
       updateState(path, (next) => {
         next.lastAttemptAt = at;

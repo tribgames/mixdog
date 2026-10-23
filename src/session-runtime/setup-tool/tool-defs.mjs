@@ -9,6 +9,7 @@ import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-
 import { AUTO_EFFORT_BASES } from '../../runtime/agent/orchestrator/providers/auto-effort.mjs';
 import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
 import { CONNECTOR_IDS } from '../../runtime/shared/connector-catalog.mjs';
+import { COMPACTION_SUMMARY_MODES } from '../../runtime/agent/orchestrator/session/compact/summary-mode.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
@@ -99,6 +100,9 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   delete_local_model: 'confirmationToken',
   set_system_shell: 'command',
   set_auto_update: 'enabled',
+  set_ai_session_titles: 'enabled',
+  set_quota_auto_resume: 'enabled',
+  set_model_preferences: 'provider model hidden? favorite?',
   set_heartbeat_enabled: 'enabled',
   set_reactions_enabled: 'enabled',
   forget_provider_auth: 'name accountId?',
@@ -132,6 +136,7 @@ export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze([
   'computer',
   'voice',
   'visualize',
+  'media',
 ]);
 
 const ROUTE_SCHEMA = {
@@ -250,13 +255,33 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           properties: {
             mainBufferTokens: { type: 'integer', minimum: 0 },
             mainBufferPercent: { type: 'number', minimum: 0, maximum: 100 },
+            onModelChange: {
+              type: 'boolean',
+              description: 'Auto-compact a conversation on its current model before it switches to another one.',
+            },
+            summaryMode: {
+              type: 'string',
+              enum: [...COMPACTION_SUMMARY_MODES],
+              description:
+                'Which model writes compaction summaries: smart (default), maintainer (the Maintainer), self (the conversation model).',
+            },
           },
-          description: 'set_compaction: reserved Main context budget. Give tokens OR percent, not both.',
+          description:
+            'set_compaction: reserved Main context budget (give tokens OR percent, not both), onModelChange and summaryMode; read back with status compaction.',
         },
         enabled: {
           type: 'boolean',
           description:
-            'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_heartbeat_enabled, set_mcp_enabled, set_plugin_enabled).',
+            'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_ai_session_titles, set_quota_auto_resume, set_heartbeat_enabled, set_mcp_enabled, set_plugin_enabled).',
+        },
+        provider: { type: 'string', description: 'set_model_preferences: provider id.' },
+        hidden: {
+          type: 'boolean',
+          description: 'set_model_preferences: false lists the model in /model, true hides it; omitted = unchanged.',
+        },
+        favorite: {
+          type: 'boolean',
+          description: 'set_model_preferences: favorite star on or off; omitted = unchanged.',
         },
         instructionFiles: {
           type: 'string',
@@ -277,7 +302,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         accountId: {
           type: 'string',
           description:
-            'forget_provider_auth: OAuth account id from status providers with detail:true; required when the provider has several accounts.',
+            'forget_provider_auth: OAuth account id from status providers with detail:true; required when the provider has several accounts. set_media_default: optional account of the OAuth lane to pin; omitted = the lane provider\'s selected account.',
         },
         providerAccount: {
           type: 'object',
