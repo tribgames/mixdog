@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { foldUsageRollup, freezeRestoredDays, usageRollupDayKey } from '../../runtime/shared/llm/usage-rollup.mjs';
+import { billableInputTokensForProvider } from '../../runtime/shared/llm/cost.mjs';
+import { isConversationUsageSource, usageRollupDayKey } from '../../runtime/shared/llm/usage-rollup.mjs';
 import { usageStatsSnapshot } from './usage-stats-model.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -25,8 +26,91 @@ function turn(overrides = {}) {
   };
 }
 
+function amount(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function round6(value) {
+  return Math.round(value * 1e6) / 1e6;
+}
+
+function emptyTotals() {
+  return {
+    turns: 0,
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    costUsd: 0,
+    costBilled: 0,
+    costEstimated: 0,
+    costKnownTurns: 0,
+  };
+}
+
+function addTurn(totals, slice, { priced, billed }) {
+  totals.turns += 1;
+  totals.input += slice.input;
+  totals.output += slice.output;
+  totals.cacheRead += slice.cacheRead;
+  totals.cacheWrite += slice.cacheWrite;
+  totals.costUsd = round6(totals.costUsd + slice.costUsd);
+  if (!priced) return;
+  totals.costKnownTurns += 1;
+  if (billed) totals.costBilled = round6(totals.costBilled + slice.costUsd);
+  else totals.costEstimated = round6(totals.costEstimated + slice.costUsd);
+}
+
+/** The day documents the stats model reads, built directly from turn-shaped fixtures. */
 function rollupOf(turns) {
-  return turns.reduce((document, entry) => foldUsageRollup(document, entry, NOW), null);
+  const days = {};
+  for (const entry of turns) {
+    const at = amount(entry.ts) || NOW;
+    const cacheRead = amount(entry.cacheReadTokens);
+    const cacheWrite = amount(entry.cacheWriteTokens);
+    const slice = {
+      input: billableInputTokensForProvider(entry.provider, amount(entry.inputTokens), cacheRead, cacheWrite),
+      output: amount(entry.outputTokens),
+      cacheRead,
+      cacheWrite,
+      costUsd: amount(entry.costUsd),
+    };
+    const pricing = {
+      priced: !['', 'none', 'unpriced'].includes(entry.costSource ?? ''),
+      billed: entry.costSource === 'provider',
+    };
+    const conversation = isConversationUsageSource(entry.sourceType);
+    const key = usageRollupDayKey(at);
+    const day = (days[key] ||= {
+      ...emptyTotals(),
+      firstTs: at,
+      lastTs: at,
+      conversation: emptyTotals(),
+      models: {},
+      sessions: {},
+    });
+    day.firstTs = Math.min(day.firstTs, at);
+    day.lastTs = Math.max(day.lastTs, at);
+    addTurn(day, slice, pricing);
+    if (conversation) addTurn(day.conversation, slice, pricing);
+
+    const route = (day.models[`${entry.provider}/${entry.model}`] ||= {
+      provider: entry.provider,
+      model: entry.model,
+      kind: entry.providerKind,
+      ...emptyTotals(),
+      conversation: emptyTotals(),
+    });
+    addTurn(route, slice, pricing);
+    if (conversation) addTurn(route.conversation, slice, pricing);
+
+    if (conversation && entry.sessionId) {
+      const tokens = slice.input + slice.output + slice.cacheRead + slice.cacheWrite;
+      day.sessions[entry.sessionId] = (day.sessions[entry.sessionId] || 0) + tokens;
+    }
+  }
+  return { days };
 }
 
 /** One transcript-rebuilt day, the shape the stats model folds. */
@@ -268,34 +352,38 @@ test('a day recorded before turns carried a source is reported as a gap', () => 
 
 test('a day straddling the change does not report background ids as sessions', () => {
   const key = usageRollupDayKey(NOW);
-  // Written while background cycles still contributed session ids: most of
-  // these are cycles, and each cycle mints a fresh one.
-  const legacy = {
-    days: {
-      [key]: {
-        turns: 3,
-        input: 3000,
-        output: 300,
-        costUsd: 1,
-        sessions: { 'cycle-1': 500, 'cycle-2': 500, 'cycle-3': 500 },
-        models: {
-          'openai-oauth/gpt-5.6': {
-            provider: 'openai-oauth',
-            model: 'gpt-5.6',
-            turns: 3,
-            input: 3000,
-            output: 300,
-            costUsd: 1,
-          },
-        },
+  // A day whose unclassified turns were followed by one classified conversation
+  // turn: its old cycle ids were cleared, so only that session remains.
+  const day = {
+    turns: 4,
+    input: 4000,
+    output: 500,
+    cacheRead: 5000,
+    cacheWrite: 300,
+    costUsd: 1.25,
+    conversationPartial: true,
+    sessionsPurged: true,
+    conversation: {
+      turns: 1,
+      input: 1000,
+      output: 200,
+      cacheRead: 5000,
+      cacheWrite: 300,
+      costUsd: 0.25,
+    },
+    sessions: { 'session-a': 6500 },
+    models: {
+      'anthropic-oauth/claude-sonnet-4-5': {
+        provider: 'anthropic-oauth',
+        model: 'claude-sonnet-4-5',
+        turns: 4,
+        input: 4000,
+        output: 500,
+        costUsd: 1.25,
       },
     },
   };
-
-  const upgraded = foldUsageRollup(legacy, turn(), NOW);
-  const day = upgraded.days[key];
-  assert.equal(day.conversationPartial, true);
-  assert.deepEqual(Object.keys(day.sessions), ['session-a']);
+  const upgraded = { days: { [key]: day } };
   assert.equal(usageStatsSnapshot({ rollup: upgraded, now: NOW }).totals.sessions, 1);
 
   // A day already upgraded before the ids were being cleared still holds them,
@@ -510,10 +598,10 @@ test('the day the event cap truncated is taken back from the transcripts', () =>
   assert.equal(recorded.coverage.historyDays, 0);
 });
 
-test('a frozen rebuild survives the transcripts it was derived from', () => {
+test('a restored day held by the rollup survives the transcripts it was derived from', () => {
   const older = NOW - 30 * DAY_MS;
   const key = usageRollupDayKey(older);
-  const history = restoredDay({
+  const days = restoredDay({
     provider: 'grok-oauth',
     model: 'grok-4.6',
     sessionId: 'session-old',
@@ -528,66 +616,12 @@ test('a frozen rebuild survives the transcripts it was derived from', () => {
     costUsd: 0.5,
   });
 
-  const { rollup, frozen } = freezeRestoredDays(null, history, NOW);
-  assert.equal(frozen, 1);
-
   // The sessions are gone; the day is not.
-  const stats = usageStatsSnapshot({ rollup, history: null, now: NOW });
+  const stats = usageStatsSnapshot({ rollup: { days }, history: null, now: NOW });
   assert.equal(stats.totals.turns, 4);
   assert.equal(stats.totals.tokens, 1700);
   // And it still reports itself as a rebuild rather than a recording.
   assert.equal(stats.coverage.historyDays, 1);
-});
-
-test('freezing never overwrites a recorded day, and never repeats itself', () => {
-  const key = usageRollupDayKey(NOW - DAY_MS);
-  const recorded = rollupOf([turn({ ts: NOW - DAY_MS })]);
-  const history = restoredDay({
-    provider: 'anthropic-oauth',
-    model: 'claude-sonnet-4-5',
-    sessionId: 'session-a',
-    conversation: true,
-    firstTs: NOW - DAY_MS,
-    lastTs: NOW - DAY_MS,
-    day: key,
-    turns: 99,
-    input: 9,
-    output: 9,
-    costUsd: 9,
-  });
-
-  const first = freezeRestoredDays(recorded, history, NOW);
-  assert.equal(first.frozen, 0);
-  assert.equal(first.rollup.days[key].turns, 1);
-
-  // A second pass over an already-frozen day changes nothing, so a half-pruned
-  // store can never shrink what was written.
-  const fresh = freezeRestoredDays(null, history, NOW);
-  assert.equal(fresh.frozen, 1);
-  const again = freezeRestoredDays(fresh.rollup, history, NOW);
-  assert.equal(again.frozen, 0);
-  assert.equal(again.rollup.days[key].turns, 99);
-});
-
-test('today is left to the live recording rather than frozen mid-day', () => {
-  const key = usageRollupDayKey(NOW);
-  const history = restoredDay({
-    provider: 'anthropic-oauth',
-    model: 'claude-sonnet-4-5',
-    sessionId: 'session-a',
-    conversation: true,
-    firstTs: NOW,
-    lastTs: NOW,
-    day: key,
-    turns: 2,
-    input: 10,
-    output: 5,
-    costUsd: 0.1,
-  });
-
-  const { frozen, rollup } = freezeRestoredDays(null, history, NOW);
-  assert.equal(frozen, 0);
-  assert.equal(Object.hasOwn(rollup.days, key), false);
 });
 
 test('a route reports its own cache hit rate and price per million tokens', () => {

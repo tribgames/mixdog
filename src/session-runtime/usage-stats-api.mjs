@@ -203,7 +203,7 @@ export function createUsageStatsApi({
       // beyond a clock captured before the import started.
       const now = Date.now();
       const period = usagePeriodFor(options, now);
-      // The rollup query runs off the event loop (usage-rollup-worker.mjs).
+      // The rollup query runs off the event loop (usage-ledger-worker.mjs).
       const rollup = await store.rollupAsync(usageRollupQuery(period));
       // The ledger returns the same rollup object while nothing was committed
       // (and while a rolling window lost no record), so identical back-to-back
