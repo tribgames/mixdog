@@ -5505,5 +5505,13 @@
   "{{n}} accounts": "Аккаунтов: {{n}}",
   "Show earlier slots": "Показать предыдущие слоты",
   "Show more slots": "Показать ещё слоты",
-  "Open usage for {{name}}": "Открыть использование {{name}}"
+  "Open usage for {{name}}": "Открыть использование {{name}}",
+  "Install LibreOffice": "Установить LibreOffice",
+  "Install again": "Установить снова",
+  "Previewing Office files needs LibreOffice or Microsoft Office, and neither was found.": "Для предпросмотра файлов Office нужен LibreOffice или Microsoft Office, но ни один не найден.",
+  "Microsoft Office works too if it is installed.": "Microsoft Office тоже подойдёт, если он установлен.",
+  "Installing LibreOffice… this can take a few minutes.": "Установка LibreOffice… Это может занять несколько минут.",
+  "The install keeps going if you leave this pane.": "Установка продолжится, даже если вы покинете эту панель.",
+  "LibreOffice could not be installed: {{error}}": "Не удалось установить LibreOffice: {{error}}",
+  "Try again from Extensions → Built-in → Office, or download LibreOffice from libreoffice.org.": "Повторите попытку в разделе «Расширения → Встроенные → Office» или скачайте LibreOffice с libreoffice.org."
 }

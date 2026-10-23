@@ -5313,5 +5313,13 @@
   "{{n}} accounts": "{{n}} tài khoản",
   "Show earlier slots": "Hiện các ô trước",
   "Show more slots": "Hiện thêm ô",
-  "Open usage for {{name}}": "Mở mức dùng của {{name}}"
+  "Open usage for {{name}}": "Mở mức dùng của {{name}}",
+  "Install LibreOffice": "Cài đặt LibreOffice",
+  "Install again": "Cài đặt lại",
+  "Previewing Office files needs LibreOffice or Microsoft Office, and neither was found.": "Xem trước tệp Office cần LibreOffice hoặc Microsoft Office, nhưng không tìm thấy cái nào.",
+  "Microsoft Office works too if it is installed.": "Microsoft Office cũng dùng được nếu đã cài đặt.",
+  "Installing LibreOffice… this can take a few minutes.": "Đang cài đặt LibreOffice… Có thể mất vài phút.",
+  "The install keeps going if you leave this pane.": "Quá trình cài đặt vẫn tiếp tục nếu bạn rời khỏi ngăn này.",
+  "LibreOffice could not be installed: {{error}}": "Không thể cài đặt LibreOffice: {{error}}",
+  "Try again from Extensions → Built-in → Office, or download LibreOffice from libreoffice.org.": "Hãy thử lại từ Tiện ích mở rộng → Tích hợp sẵn → Office hoặc tải LibreOffice từ libreoffice.org."
 }

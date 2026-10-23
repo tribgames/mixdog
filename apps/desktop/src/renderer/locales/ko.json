@@ -5313,5 +5313,13 @@
   "{{n}} accounts": "{{n}}개 계정",
   "Show earlier slots": "이전 칸 보기",
   "Show more slots": "다음 칸 보기",
-  "Open usage for {{name}}": "{{name}} 사용량 열기"
+  "Open usage for {{name}}": "{{name}} 사용량 열기",
+  "Install LibreOffice": "LibreOffice 설치",
+  "Install again": "다시 설치",
+  "Previewing Office files needs LibreOffice or Microsoft Office, and neither was found.": "Office 파일을 미리 보려면 LibreOffice 또는 Microsoft Office가 필요하지만 둘 다 찾지 못했습니다.",
+  "Microsoft Office works too if it is installed.": "Microsoft Office가 설치되어 있어도 미리보기가 동작합니다.",
+  "Installing LibreOffice… this can take a few minutes.": "LibreOffice 설치 중… 몇 분 걸릴 수 있습니다.",
+  "The install keeps going if you leave this pane.": "이 창을 닫아도 설치는 계속됩니다.",
+  "LibreOffice could not be installed: {{error}}": "LibreOffice를 설치하지 못했습니다: {{error}}",
+  "Try again from Extensions → Built-in → Office, or download LibreOffice from libreoffice.org.": "익스텐션 → 빌트인 → Office에서 다시 시도하거나 libreoffice.org에서 직접 내려받아 설치하세요."
 }

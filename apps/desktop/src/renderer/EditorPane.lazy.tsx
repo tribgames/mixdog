@@ -228,6 +228,7 @@ export default function EditorPane({
     previewError,
     documentPreview,
     documentError,
+    documentOfficeMissing,
     documentPageErrors,
     documentPagesLoading,
     loadDocumentPages,
@@ -590,6 +591,7 @@ export default function EditorPane({
         breadcrumbs={editorBreadcrumbs}
         load={load}
         note={documentError}
+        officeMissing={documentOfficeMissing}
         onRetry={documentError ? reload : undefined}
         onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken, downloadSessionId)}
       />

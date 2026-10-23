@@ -5313,5 +5313,13 @@
   "{{n}} accounts": "{{n}}アカウント",
   "Show earlier slots": "前の枠を表示",
   "Show more slots": "次の枠を表示",
-  "Open usage for {{name}}": "{{name}}の使用量を開く"
+  "Open usage for {{name}}": "{{name}}の使用量を開く",
+  "Install LibreOffice": "LibreOfficeをインストール",
+  "Install again": "もう一度インストール",
+  "Previewing Office files needs LibreOffice or Microsoft Office, and neither was found.": "Office ファイルをプレビューするには LibreOffice または Microsoft Office が必要ですが、どちらも見つかりませんでした。",
+  "Microsoft Office works too if it is installed.": "Microsoft Office がインストールされていてもプレビューできます。",
+  "Installing LibreOffice… this can take a few minutes.": "LibreOfficeをインストール中… 数分かかることがあります。",
+  "The install keeps going if you leave this pane.": "このペインを離れてもインストールは続行されます。",
+  "LibreOffice could not be installed: {{error}}": "LibreOfficeをインストールできませんでした: {{error}}",
+  "Try again from Extensions → Built-in → Office, or download LibreOffice from libreoffice.org.": "拡張機能 → 組み込み → Office からもう一度お試しいただくか、libreoffice.org からダウンロードしてインストールしてください。"
 }

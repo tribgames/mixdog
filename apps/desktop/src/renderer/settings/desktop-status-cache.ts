@@ -36,8 +36,25 @@ function nextRevision(api: object, key: StatusKey): number {
   return next;
 }
 
+type StatusListener = (
+  key: StatusKey,
+  value: DesktopStatus[StatusKey],
+  previous: DesktopStatus[StatusKey] | undefined
+) => void;
+const statusListeners = new Set<StatusListener>();
+
+/** Every value the cache records (writes and fresh reads alike), with the one it replaced. */
+export function subscribeDesktopStatus(listener: StatusListener): () => void {
+  statusListeners.add(listener);
+  return () => {
+    statusListeners.delete(listener);
+  };
+}
+
 function setCached<K extends StatusKey>(api: object, key: K, value: DesktopStatus[K]): void {
+  const previous = statusCache.get(api)?.[key];
   statusCache.set(api, { ...statusCache.get(api), [key]: value });
+  for (const listener of [...statusListeners]) listener(key, value, previous);
 }
 
 export function getCachedDesktopStatus<K extends StatusKey>(

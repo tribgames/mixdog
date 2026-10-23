@@ -1054,6 +1054,24 @@
   border-radius: var(--mx-radius-md);
   cursor: pointer;
 }
+.editor-pane-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.editor-pane-notice button.primary {
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  font-weight: var(--mx-weight-semibold);
+}
+.editor-pane-notice button.primary:hover:not(:disabled) {
+  background: var(--mx-flat-hover-contrast);
+}
+.editor-pane-notice button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .editor-pane-spinner {
   animation: var(--mx-motion-spin);
 }

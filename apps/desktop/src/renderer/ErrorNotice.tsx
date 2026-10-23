@@ -41,6 +41,7 @@ export function ErrorNotice({
   count,
   title,
   summary: summaryOverride,
+  recovery: recoveryOverride,
   className = '',
   onRetry,
   retryDisabled = false,
@@ -55,6 +56,8 @@ export function ErrorNotice({
   /** Caller-classified headline (e.g. Git failures); replaces the generic
    *  summary and recovery while the raw error still backs "Show details". */
   summary?: string;
+  /** Caller-worded hint shown under a `summary` override. */
+  recovery?: string;
   className?: string;
   onRetry?: () => void;
   retryDisabled?: boolean;
@@ -71,7 +74,7 @@ export function ErrorNotice({
   // written, in the UI language, never as a generic "too large".
   const toolSurface = localizeToolSurfaceError(latest.details);
   const summary = summaryOverride || toolSurface?.summary || localizeErrorCopy(latest.summary);
-  const recovery = summaryOverride ? '' : toolSurface?.recovery || localizeErrorRecovery(latest);
+  const recovery = summaryOverride ? (recoveryOverride ?? '') : toolSurface?.recovery || localizeErrorRecovery(latest);
   const details = reasons
     .slice(-50)
     .map((reason) => {

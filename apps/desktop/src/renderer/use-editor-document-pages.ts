@@ -23,6 +23,9 @@ export function useEditorDocumentPages({
 }) {
   const [documentPreview, setDocumentPreview] = useState<DocumentPreview | null>(null);
   const [documentError, setDocumentError] = useState('');
+  // The failure was "no LibreOffice or Microsoft Office": the one preview error
+  // the pane can offer to fix.
+  const [documentOfficeMissing, setDocumentOfficeMissing] = useState(false);
   const [documentPagesLoading, setDocumentPagesLoading] = useState(false);
   const [documentPageErrors, setDocumentPageErrors] = useState<Record<number, DocumentPageError>>({});
   const documentPagesInFlight = useRef(false);
@@ -38,6 +41,7 @@ export function useEditorDocumentPages({
   const resetDocument = useCallback((): number => {
     setDocumentPreview(null);
     setDocumentError('');
+    setDocumentOfficeMissing(false);
     setDocumentPageErrors({});
     documentGeneration.current += 1;
     documentPagesInFlight.current = false;
@@ -100,6 +104,8 @@ export function useEditorDocumentPages({
     setDocumentPreview,
     documentError,
     setDocumentError,
+    documentOfficeMissing,
+    setDocumentOfficeMissing,
     documentPagesLoading,
     documentPageErrors,
     documentGeneration,

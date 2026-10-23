@@ -59,6 +59,8 @@ export function useEditorFileSession({
     setDocumentPreview,
     documentError,
     setDocumentError,
+    documentOfficeMissing,
+    setDocumentOfficeMissing,
     documentPagesLoading,
     documentPageErrors,
     documentGeneration,
@@ -183,6 +185,7 @@ export function useEditorFileSession({
     documentGeneration,
     setDocumentPreview,
     setDocumentError,
+    setDocumentOfficeMissing,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge, re-read each render and kept as a dependency so a re-installed bridge re-creates this callback.
@@ -479,6 +482,7 @@ export function useEditorFileSession({
     previewError,
     documentPreview,
     documentError,
+    documentOfficeMissing,
     documentPageErrors,
     documentPagesLoading,
     loadDocumentPages,

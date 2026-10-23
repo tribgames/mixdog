@@ -4,6 +4,11 @@ export function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
 
+/** The preview found neither LibreOffice nor Microsoft Office. */
+export function isOfficePreviewUnavailable(reason: unknown): boolean {
+  return errorMessage(reason).includes('OFFICE_PREVIEW_UNAVAILABLE');
+}
+
 /** Why a document preview failed, in the UI language. The runtime words the
  *  "no LibreOffice or Microsoft Office" failure in English with a stable code;
  *  every other failure keeps the text it carried. */
@@ -12,7 +17,7 @@ export function documentPreviewError(reason: unknown): string {
   if (message.includes('OFFICE_PREVIEW_PASSWORD_PROTECTED')) {
     return t("This file is password-protected and can't be previewed.");
   }
-  return message.includes('OFFICE_PREVIEW_UNAVAILABLE')
+  return isOfficePreviewUnavailable(reason)
     ? t(
         'Previewing Office files needs LibreOffice or Microsoft Office, and neither was found. To install LibreOffice, open Extensions → Built-in → Office and choose Install, then try again.'
       )

@@ -5313,5 +5313,13 @@
   "{{n}} accounts": "{{n}} 个账号",
   "Show earlier slots": "显示上一格",
   "Show more slots": "显示更多格",
-  "Open usage for {{name}}": "打开 {{name}} 的用量"
+  "Open usage for {{name}}": "打开 {{name}} 的用量",
+  "Install LibreOffice": "安装 LibreOffice",
+  "Install again": "重新安装",
+  "Previewing Office files needs LibreOffice or Microsoft Office, and neither was found.": "预览 Office 文件需要 LibreOffice 或 Microsoft Office，但两者都未找到。",
+  "Microsoft Office works too if it is installed.": "如果已安装 Microsoft Office，同样可以预览。",
+  "Installing LibreOffice… this can take a few minutes.": "正在安装 LibreOffice… 可能需要几分钟。",
+  "The install keeps going if you leave this pane.": "离开此面板后，安装仍会继续。",
+  "LibreOffice could not be installed: {{error}}": "无法安装 LibreOffice：{{error}}",
+  "Try again from Extensions → Built-in → Office, or download LibreOffice from libreoffice.org.": "请在 扩展 → 内置 → Office 中重试，或从 libreoffice.org 下载安装。"
 }

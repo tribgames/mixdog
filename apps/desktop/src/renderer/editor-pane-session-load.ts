@@ -8,7 +8,7 @@ import {
 } from './editor-file-loader';
 import { documentPreviewFromResult, type DocumentPreview } from './editor-document-model';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
-import { documentPreviewError, fileAccessError } from './editor-pane-session-errors';
+import { documentPreviewError, fileAccessError, isOfficePreviewUnavailable } from './editor-pane-session-errors';
 import { useMediaSessionEpoch } from './remote-file-preview';
 import { reportEditorLoadStage } from './renderer-load-metrics';
 import { t } from './i18n';
@@ -49,6 +49,7 @@ export function useEditorSessionLoad({
   documentGeneration,
   setDocumentPreview,
   setDocumentError,
+  setDocumentOfficeMissing,
 }: {
   api: typeof window.mixdogDesktop;
   projectPath: string;
@@ -81,6 +82,7 @@ export function useEditorSessionLoad({
   documentGeneration: RefObject<number>;
   setDocumentPreview: (preview: DocumentPreview | null) => void;
   setDocumentError: (message: string) => void;
+  setDocumentOfficeMissing: (missing: boolean) => void;
 }) {
   // The ordinary text/binary read, extracted so a document whose conversion
   // fails still lands on the binary notice — with its "open in the default
@@ -196,6 +198,7 @@ export function useEditorSessionLoad({
     const documentFormat = nativeKind === 'pdf' ? 'pdf' : documentPreviewFormatForPath(relPath);
     const documentFailed = (reason: unknown): void => {
       setDocumentError(documentPreviewError(reason));
+      setDocumentOfficeMissing(isOfficePreviewUnavailable(reason));
       readFileContents();
     };
     if (documentFormat && api?.previewDocumentPages) {
@@ -222,6 +225,7 @@ export function useEditorSessionLoad({
     relPath,
     resetDocument,
     setDocumentError,
+    setDocumentOfficeMissing,
     setDocumentPreview,
     loadedRef,
     savedMtime,

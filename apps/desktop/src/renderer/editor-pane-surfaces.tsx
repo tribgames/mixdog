@@ -1,7 +1,9 @@
 import { Download, ExternalLink } from 'lucide-react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { isPhoneSurfaceMarked } from './mobile-surface';
 import { ErrorNotice } from './ErrorNotice';
-import type { ReactNode, RefObject } from 'react';
+import { installOfficeForPreview, subscribeOfficeInstalled, useOfficeInstall } from './editor-office-install';
 import type { EditorFileLoad } from './editor-file-loader';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -10,11 +12,11 @@ import { ZoomFrame, ZoomImage, useImageSize } from './ZoomFrame';
 
 /** The host's OS app on the desktop; on a paired device the file downloads
  *  (openEditorFileExternally routes it) under the Download / Share label. */
-export function OpenExternallyLabel({ onOpen }: { onOpen(): void }) {
+export function OpenExternallyLabel({ onOpen, disabled }: { onOpen(): void; disabled?: boolean }) {
   const remote = isRemoteHostRenderer();
   const Icon = remote ? Download : ExternalLink;
   return (
-    <button type="button" onClick={onOpen}>
+    <button type="button" disabled={disabled} onClick={onOpen}>
       <Icon size={14} aria-hidden="true" /> {remote ? t('Download / Share') : t('Open in default app')}
     </button>
   );
@@ -42,6 +44,7 @@ export function EditorPaneFileFallback({
   breadcrumbs,
   load,
   note,
+  officeMissing,
   onRetry,
   onOpen,
 }: {
@@ -50,24 +53,87 @@ export function EditorPaneFileFallback({
   /** Why a viewer that WAS attempted could not show this file — a failed
    *  document conversion. Absent for files that never had one. */
   note?: string;
+  /** The conversion failed because neither LibreOffice nor Microsoft Office
+   *  was found: the note offers to install LibreOffice. */
+  officeMissing?: boolean;
   /** Tries the viewer again (a failed conversion may have been transient). */
   onRetry?(): void;
   onOpen(): void;
 }) {
+  const install = useOfficeInstall();
+  // Installing happens on the PC: a paired device or the phone layout only reads.
+  const installable = Boolean(officeMissing && !isRemoteHostRenderer() && !isPhoneSurfaceMarked());
+  const installing = installable && install.phase === 'installing';
+  const failed = installable && install.phase === 'failed';
+  const retryRef = useRef(onRetry);
+  retryRef.current = onRetry;
+  // The install may finish after this pane was left and reopened: whichever
+  // pane is open then retries its own preview.
+  useEffect(() => (installable ? subscribeOfficeInstalled(() => retryRef.current?.()) : undefined), [installable]);
+  const noteSurface = (() => {
+    if (!note) return null;
+    if (!installable) return <ErrorNotice error={note} role="status" />;
+    if (installing) {
+      return (
+        <ErrorNotice
+          error={note}
+          role="status"
+          summary={t('Installing LibreOffice… this can take a few minutes.')}
+          recovery={t('The install keeps going if you leave this pane.')}
+        />
+      );
+    }
+    if (failed) {
+      return (
+        <ErrorNotice
+          error={install.error}
+          role="alert"
+          className="is-danger"
+          summary={t('LibreOffice could not be installed: {{error}}', { error: install.error })}
+          recovery={t('Try again from Extensions → Built-in → Office, or download LibreOffice from libreoffice.org.')}
+        />
+      );
+    }
+    return (
+      <ErrorNotice
+        error={note}
+        role="status"
+        summary={t('Previewing Office files needs LibreOffice or Microsoft Office, and neither was found.')}
+        recovery={t('Microsoft Office works too if it is installed.')}
+      />
+    );
+  })();
   return (
     <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
-      {note && <ErrorNotice error={note} role="status" />}
+      {noteSurface}
       <p>
         {load.binary
           ? t('Binary file — in-app editing is unavailable.')
           : t('File exceeds the 10 MB in-app viewing cap.')}
       </p>
-      <OpenExternallyLabel onOpen={onOpen} />
-      {onRetry && (
-        <button type="button" onClick={onRetry}>
-          {t('Retry')}
-        </button>
-      )}
+      <div className="editor-pane-notice-actions">
+        {installable && (
+          <button
+            type="button"
+            className="primary"
+            disabled={installing}
+            onClick={() => void installOfficeForPreview(window.mixdogDesktop)}
+          >
+            {installing ? (
+              <ProgressSpinner size={14} className="editor-pane-spinner" aria-hidden="true" />
+            ) : (
+              <Download size={14} aria-hidden="true" />
+            )}{' '}
+            {installing ? t('Installing…') : failed ? t('Install again') : t('Install LibreOffice')}
+          </button>
+        )}
+        <OpenExternallyLabel onOpen={onOpen} disabled={installing} />
+        {onRetry && (
+          <button type="button" disabled={installing} onClick={onRetry}>
+            {t('Retry')}
+          </button>
+        )}
+      </div>
     </EditorPaneNoticeSurface>
   );
 }

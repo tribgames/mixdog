@@ -5441,5 +5441,13 @@
   "{{n}} accounts": "{{n}} comptes",
   "Show earlier slots": "Afficher les emplacements précédents",
   "Show more slots": "Afficher plus d’emplacements",
-  "Open usage for {{name}}": "Ouvrir l’utilisation de {{name}}"
+  "Open usage for {{name}}": "Ouvrir l’utilisation de {{name}}",
+  "Install LibreOffice": "Installer LibreOffice",
+  "Install again": "Réinstaller",
+  "Previewing Office files needs LibreOffice or Microsoft Office, and neither was found.": "L’aperçu des fichiers Office nécessite LibreOffice ou Microsoft Office, et aucun des deux n’a été trouvé.",
+  "Microsoft Office works too if it is installed.": "Microsoft Office fonctionne aussi s’il est installé.",
+  "Installing LibreOffice… this can take a few minutes.": "Installation de LibreOffice… Cela peut prendre quelques minutes.",
+  "The install keeps going if you leave this pane.": "L’installation continue si vous quittez ce volet.",
+  "LibreOffice could not be installed: {{error}}": "Impossible d’installer LibreOffice : {{error}}",
+  "Try again from Extensions → Built-in → Office, or download LibreOffice from libreoffice.org.": "Réessayez depuis Extensions → Intégré → Office, ou téléchargez LibreOffice sur libreoffice.org."
 }
