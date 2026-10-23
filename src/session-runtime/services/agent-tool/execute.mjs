@@ -67,7 +67,12 @@ export function createAgentExecute({
           }
           // Targetless status is the same compact overview as list.
           return renderResult({
-            workers: views.list({ scanSessions: registry.wantsSessionScan(args), context: scopedContext }),
+            // Idle workers stay open for follow-ups; the model must see them to close them.
+            workers: views.list({
+              scanSessions: registry.wantsSessionScan(args),
+              context: scopedContext,
+              includeIdle: true,
+            }),
             jobs: views.listJobs(scopedContext),
           });
         case 'read':

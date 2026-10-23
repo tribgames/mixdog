@@ -5,7 +5,7 @@ import {
   listBackgroundTasks,
   taskIdFromArgs,
 } from '../../../runtime/shared/background-tasks.mjs';
-import { agentScope, clean, clearAgentStatuslineRoute } from './helpers.mjs';
+import { agentScope, clean, clearAgentStatuslineRoute, sessionMatchesContext } from './helpers.mjs';
 import { isLeadPoolAgent } from './worker-rows.mjs';
 import { createCloseAll } from './close-flow/close-all.mjs';
 import { closeManagedSession } from '../../lifecycle/shared.mjs';
@@ -20,6 +20,16 @@ export function createCloseFlow({ mgr, registry, views }) {
   // Stale local metadata only: resolveTag found no session in this
   // terminal/scope, so there is no sessionId-safe worker row to delete. Never
   // turn it into a tag-wide persisted-row removal.
+  // `tags`/`tagAgents` are shared by every caller on the canonical agent, so a
+  // binding alone does not prove the caller owns it: only a live session or a
+  // persisted row inside the caller's scope does. Another session's tag must
+  // stay untouched.
+  function tagBoundByCaller(target, scopedContext) {
+    const live = registry.getLiveSession(tags.get(target));
+    if (live) return sessionMatchesContext(live, scopedContext);
+    return registry.readWorkerRows(scopedContext).some((row) => clean(row.tag) === target);
+  }
+
   function forgetStaleLocalTag(target, task) {
     registry.unbindTag(target);
     if (task?.taskId) cancelBackgroundTask(task.taskId, CLOSE_REASON);
@@ -55,7 +65,9 @@ export function createCloseFlow({ mgr, registry, views }) {
     }
     const sessionId = registry.resolveTag(target, scopedContext, { scanSessions: registry.wantsSessionScan(args) });
     if (!sessionId) {
-      if (!target.startsWith('sess_') && tagAgents.has(target)) return forgetStaleLocalTag(target, task);
+      if (!target.startsWith('sess_') && tagAgents.has(target) && tagBoundByCaller(target, scopedContext)) {
+        return forgetStaleLocalTag(target, task);
+      }
       throw new Error(`agent close: target "${target}" not found`);
     }
     if (isLeadPoolAgent(registry.getLiveSession(sessionId)?.agent)) {

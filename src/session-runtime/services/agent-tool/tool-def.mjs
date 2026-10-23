@@ -28,7 +28,7 @@ export const AGENT_TOOL = {
     agentHidden: false,
   },
   description:
-    'Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Wait for completion notifications; use status/read only for manual recovery.',
+    'Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Wait for completion notifications; use status/read only for manual recovery. A finished agent stays open (idle) for follow-ups and appears in list with its tag; when its scope is done, close it yourself with its tag (or sessionId/task_id) without asking the user.',
   inputSchema: {
     type: 'object',
     properties: {

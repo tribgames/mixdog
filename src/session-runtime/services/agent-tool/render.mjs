@@ -156,9 +156,11 @@ export function renderResult(value, { includeDiagnostics = false } = {}) {
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
     if (Array.isArray(value.workers) || Array.isArray(value.jobs)) return renderRoster(value);
+    // close-flow results carry `closed` plus task_id: render the close outcome.
+    // close-flow results carry `closed` plus task_id: render the close outcome.
+    if (value.closed !== undefined) return renderClosed(value);
     if (value.task_id) return renderTask(value, includeDiagnostics);
     if (value.queued) return renderQueued(value);
-    if (value.closed !== undefined) return renderClosed(value);
     if (value.content !== undefined) return renderContent(value);
   }
   return JSON.stringify(value, null, 2);

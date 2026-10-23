@@ -25,6 +25,14 @@ export function isActiveWorkerRow(row = {}) {
   return !isTerminalWorkerStatus(effective);
 }
 
+// A finished worker that is still open: it takes follow-ups and can be closed.
+function isOpenIdleRow(row = {}) {
+  const status = String(row.status ?? '').trim().toLowerCase();
+  const stage = String(row.stage ?? '').trim().toLowerCase();
+  if (CANCELLED_WORKER_STATUS.test(stage) || CANCELLED_WORKER_STATUS.test(status)) return false;
+  return (status || stage) === 'idle';
+}
+
 function rowState(session, runtime) {
   const status = session.closed === true ? 'closed' : session.status || 'idle';
   const stage =
@@ -78,7 +86,7 @@ function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
 }
 
 export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntries, progress }) {
-  return function list({ scanSessions = false, context = {}, includeTerminal = false } = {}) {
+  return function list({ scanSessions = false, context = {}, includeTerminal = false, includeIdle = false } = {}) {
     refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
     const rows = [];
@@ -89,7 +97,8 @@ export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntr
       // loads the worker's stored session, and a Lead's status pulse (every
       // 2 s) would otherwise read every worker it ever ran, whole transcripts
       // on first sight, synchronously on the daemon loop.
-      if (!includeTerminal && !isActiveWorkerRow(rowState(session, runtime))) continue;
+      const state = rowState(session, runtime);
+      if (!includeTerminal && !isActiveWorkerRow(state) && !(includeIdle && isOpenIdleRow(state))) continue;
       rows.push(
         agentRow({
           tag,
