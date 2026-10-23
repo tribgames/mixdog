@@ -844,7 +844,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .utility-dock .agent-chat-time {
   flex: none;
   margin-left: auto;
-  color: var(--mx-text-faint);
+  color: var(--mx-text-time);
   font-size: var(--mx-font-micro);
   font-weight: var(--mx-weight-regular);
   font-variant-numeric: tabular-nums;
@@ -930,7 +930,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   --agent-contact-name-line: var(--mx-line-ui);
   --agent-contact-preview: var(--mx-font-micro);
   --agent-contact-preview-line: var(--mx-line-micro);
-  --agent-contact-time: var(--mx-font-meta);
+  --agent-contact-time: var(--mx-font-micro);
   /* Fits the widest COMPACT time label of the locale ("오후 12:59", "어제",
      "12월 28일"), measured once in em of the time size with tabular figures
      (agent-chat-summary.ts); an older numeric date wraps inside it. */
@@ -984,9 +984,16 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 }
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-chat-time {
   margin: 0;
-  color: var(--mx-text-muted);
+  color: var(--mx-text-time);
   font-size: var(--agent-contact-time);
   line-height: var(--agent-contact-name-line);
+}
+/* Unread: the time takes the accent, as a messenger marks a new message. */
+.utility-dock
+  .agent-chat-row[data-kind="contact"]
+  .agent-contact-aside:has(> .agent-chat-status[data-kind="unread"])
+  > .agent-chat-time {
+  color: var(--mx-accent);
 }
 /* A pinned Lead's mark: a quiet pin under the time (and status). */
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-lead-pin {
