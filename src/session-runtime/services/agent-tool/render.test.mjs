@@ -130,7 +130,7 @@ test('list and targetless status use the same compact scoped overview', async ()
   const context = { callerSessionId: 'lead' };
   const execute = executeWithViews({
     list: (options) => {
-      assert.deepEqual(options, { scanSessions: false, context });
+      assert.deepEqual(options, { scanSessions: false, context, includeIdle: true });
       return workers;
     },
     listJobs: (scope) => {
@@ -220,6 +220,17 @@ test('spawn/send acknowledgements and read results retain their existing envelop
   assert.equal(
     renderResult({ queued: true, tag: 'alpha', sessionId: 'sess_alpha', agent: 'worker', queueDepth: 2 }),
     'agent message queued\ntarget: alpha sess_alpha\nagent: worker\nqueueDepth: 2'
+  );
+});
+
+test('a close result carrying task_id renders as a close outcome, not a task header', () => {
+  assert.equal(
+    renderResult({ closed: true, tag: 'alpha', sessionId: 'sess_alpha', task_id: 'task_alpha' }),
+    'agent close: ok\ntag: alpha\nsessionId: sess_alpha\ntask_id: task_alpha'
+  );
+  assert.equal(
+    renderResult({ closed: false, tag: 'alpha', sessionId: 'sess_alpha', task_id: 'task_alpha' }),
+    'agent close: not closed\ntag: alpha\nsessionId: sess_alpha\ntask_id: task_alpha'
   );
 });
 
