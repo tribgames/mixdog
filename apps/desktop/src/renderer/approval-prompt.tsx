@@ -177,27 +177,92 @@ const idle = () => {
   return !active || active === document.body;
 };
 
-// Controls that act on Enter (or Esc) themselves: the app's buttons and links,
-// disclosure summaries, selects, and the ARIA widgets it builds on other tags
-// (menu items, tabs, tree rows, options, comboboxes, toggles). Scrollers and
-// rows that merely take focus (the transcript's role="log", regions, row
-// containers) are not on the list.
+// Anything with key semantics of its own is not the card's. This fails closed
+// in two ways: (1) the focused element, or any ancestor of it, is a control or
+// a keyboard-owning widget/surface from the list below (native controls, the
+// ARIA widget and composite roles, an element driving an active descendant, a
+// contenteditable, embedded documents and the editor / terminal hosts), and
+// (2) the focused element or any ancestor of it within the card's pane that
+// declares an ARIA role outside PASSIVE_ROLES is treated as a widget, so a
+// role the list does not know about (an `application`, say) still wins over
+// the card. What is left is the transcript's role="log" scroller, regions,
+// row containers and the pane background. A role-less tabindex div with its own
+// onKeyDown cannot be told from a scroller; the app has none in a conversation.
 const OWN_KEY_CONTROLS = [
   'button',
   'a[href]',
   'summary',
   'select',
+  'input',
+  'textarea',
+  'iframe',
+  'webview',
+  'embed',
+  'object',
+  'video[controls]',
+  'audio[controls]',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[aria-activedescendant]',
+  '.monaco-editor',
+  '.xterm',
   '[role="button"]',
   '[role="link"]',
-  '[role^="menuitem"]',
+  '[role^="menu"]',
   '[role="tab"]',
+  '[role="tablist"]',
+  '[role="tree"]',
   '[role="treeitem"]',
+  '[role="treegrid"]',
+  '[role="grid"]',
+  '[role="gridcell"]',
+  '[role="listbox"]',
   '[role="option"]',
   '[role="combobox"]',
   '[role="checkbox"]',
   '[role="switch"]',
   '[role="radio"]',
+  '[role="radiogroup"]',
+  '[role="toolbar"]',
+  '[role="spinbutton"]',
+  '[role="slider"]',
+  '[role="scrollbar"]',
+  '[role="textbox"]',
+  '[role="searchbox"]',
 ].join(',');
+const PASSIVE_ROLES = new Set([
+  'log',
+  'region',
+  'article',
+  'group',
+  'document',
+  'list',
+  'listitem',
+  'presentation',
+  'none',
+  'status',
+  'feed',
+  'main',
+  'complementary',
+  'generic',
+  'figure',
+  // Roles the conversation itself renders around its rows.
+  'alert',
+  'img',
+  'tooltip',
+  'note',
+  'heading',
+  'paragraph',
+  'tabpanel',
+]);
+/** `active` or an ancestor up to `scope` (the card's pane) has key semantics of its own. */
+const ownsItsKeys = (active: Element, scope: Element): boolean => {
+  if (active.closest(OWN_KEY_CONTROLS)) return true;
+  for (let node: Element | null = active; node && node !== scope; node = node.parentElement) {
+    const role = node.getAttribute('role')?.trim().split(/\s+/)[0];
+    if (role && !PASSIVE_ROLES.has(role)) return true;
+  }
+  return false;
+};
 
 /** Where focus lets the card answer Enter / Esc: nowhere (`active` null or the
  *  body), anywhere in the card (a typing target aside), or in the card's own
@@ -209,7 +274,8 @@ function keysOpen(card: HTMLElement, active: Element | null): boolean {
   if (!active || active === document.body) return true;
   if (isTypingTarget(active)) return false;
   if (card.contains(active)) return true;
-  return Boolean((card.closest('.conversation') ?? card).contains(active)) && !active.closest(OWN_KEY_CONTROLS);
+  const scope = card.closest('.conversation') ?? card;
+  return scope.contains(active) && !ownsItsKeys(active, scope);
 }
 
 const phoneSurface = () => document.documentElement.hasAttribute('data-mixdog-mobile-tabs');
@@ -309,7 +375,6 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   useEffect(() => {
     const node = ref.current;
     if (!node || decided) return;
-    let windowFocused = document.hasFocus();
     let settleEnd = 0;
     // The chips follow exactly what the handler below answers: not while the
     // card settles (re-evaluated when that ends), not with the window blurred,
@@ -318,7 +383,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       const wait = settleLeft(mountedAt.current);
       window.clearTimeout(settleEnd);
       if (wait > 0) settleEnd = window.setTimeout(() => refresh(), wait);
-      setKeys(wait === 0 && windowFocused && keysOpen(node, active) && ownsKeyboard(node, active));
+      setKeys(wait === 0 && document.hasFocus() && keysOpen(node, active) && ownsKeyboard(node, active));
     };
     const unbind = bindCardKeys(node, (event) => {
       if (isTypingTarget(event.target)) return;
@@ -328,7 +393,8 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       // something that is not a typing target, or nowhere (see keysOpen); a
       // card that appears while someone types takes no key until then. Of
       // several cards in one pane only the newest hears the key (bindCardKeys).
-      if (!keysOpen(node, document.activeElement)) return;
+      // A window without focus answers nothing (the chips are off then too).
+      if (!document.hasFocus() || !keysOpen(node, document.activeElement)) return;
       const state = live.current;
       const settling = settleLeft(mountedAt.current) > 0;
       const handled = () => {
@@ -364,14 +430,8 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       window.clearTimeout(settleTimer);
       settleTimer = window.setTimeout(() => refresh(), 0);
     };
-    const onWindowBlur = () => {
-      windowFocused = false;
-      refresh();
-    };
-    const onWindowFocus = () => {
-      windowFocused = true;
-      refresh();
-    };
+    const onWindowBlur = () => refresh();
+    const onWindowFocus = () => refresh();
     document.addEventListener('focusin', onFocusIn, true);
     document.addEventListener('focusout', onFocusOut, true);
     window.addEventListener('blur', onWindowBlur);

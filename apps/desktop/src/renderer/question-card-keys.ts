@@ -22,13 +22,28 @@ const ownerChanged = () => {
 export const cardKeysChanged = ownerChanged;
 
 // A modal dialog opening or closing takes the keys away or gives them back
-// without necessarily moving focus. The watch costs little: the body's direct
-// children (portalled dialogs, as desktop-toasts watches them) and the
-// attributes that make a mounted dialog modal or parked, nothing deeper.
-// Two observers: one target takes one set of options, and the layers are
-// body's direct children while the attributes may sit deeper.
+// without necessarily moving focus. Two observers (one target takes one set of
+// options): mounts and unmounts anywhere under the body (a dialog can sit in a
+// nested portal), and the attributes that make a mounted dialog modal or
+// parked. Transcript streaming inserts many nodes, so the mount callback only
+// does work for a record whose added/removed node is or contains a modal: the
+// common record is one `nodeType` / `matches` test per node, and a subtree
+// scan runs only for nodes that are not themselves a modal (the first hit ends
+// the whole callback).
 let modalWatch: MutationObserver[] | null = null;
 const MODAL_ATTRIBUTES = ['aria-modal', 'aria-hidden', 'inert', 'open', 'data-surface-active'];
+const MODAL_NODE = '[aria-modal], dialog';
+const isModalNode = (node: Node): boolean =>
+  node.nodeType === 1 && ((node as Element).matches(MODAL_NODE) || (node as Element).querySelector(MODAL_NODE) !== null);
+function modalNodesChanged(records: MutationRecord[]) {
+  for (const record of records) {
+    for (const list of [record.addedNodes, record.removedNodes]) {
+      for (const node of list) {
+        if (isModalNode(node)) return ownerChanged();
+      }
+    }
+  }
+}
 const rememberPane = (event: Event) => {
   lastPane = paneOf(event.target) ?? lastPane;
   ownerChanged();
@@ -84,9 +99,9 @@ export function bindCardKeys(card: HTMLElement, onKeyDown: (event: globalThis.Ke
   };
   document.addEventListener('keydown', listener, true);
   if (!modalWatch) {
-    const layers = new window.MutationObserver(ownerChanged);
+    const layers = new window.MutationObserver(modalNodesChanged);
     const attributes = new window.MutationObserver(ownerChanged);
-    layers.observe(document.body, { childList: true });
+    layers.observe(document.body, { childList: true, subtree: true });
     attributes.observe(document.body, { subtree: true, attributes: true, attributeFilter: MODAL_ATTRIBUTES });
     modalWatch = [layers, attributes];
   }

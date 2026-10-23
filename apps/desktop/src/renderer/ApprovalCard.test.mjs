@@ -7,6 +7,15 @@ const dom = new JSDOM('<!doctype html><section class="conversation"><div id="roo
   url: 'https://mixdog.test/',
 });
 dom.window.Element.prototype.scrollIntoView = () => {};
+// jsdom's hasFocus() is true only while an element holds focus; a window with
+// the keyboard focus but nothing focused is the real browser's usual state.
+let windowHasFocus = true;
+dom.window.document.hasFocus = () => windowHasFocus;
+const setWindowFocus = (on) =>
+  act(async () => {
+    windowHasFocus = on;
+    dom.window.dispatchEvent(new dom.window.Event(on ? 'focus' : 'blur'));
+  });
 for (const key of [
   'window',
   'document',
@@ -771,9 +780,12 @@ test('keys answer, and the chips show, while focus is on a non-editable element 
     const section = doc.querySelector('.approval-prompt');
     await focusOn(stray);
     assert.ok(section.dataset.keys, 'the chips show with focus on a transcript element');
-    await act(async () => dom.window.dispatchEvent(new dom.window.Event('blur')));
+    await setWindowFocus(false);
     assert.ok(!section.dataset.keys, 'a window that lost focus shows no chips');
-    await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+    await ui.key('Enter', {}, stray);
+    await ui.key('Escape', {}, stray);
+    assert.deepEqual(c.decisions, [], 'and answers no key: a dispatched Enter / Esc does nothing');
+    await setWindowFocus(true);
     assert.ok(section.dataset.keys, 'and again when it is back');
     await ui.key('Escape', {}, stray);
     assert.deepEqual(c.decisions, [{ approved: false }], 'Esc denies once');
@@ -856,6 +868,105 @@ test("a focused button, link or widget elsewhere in the pane keeps its own Enter
   } finally {
     await ui.done();
     for (const node of [...controls, ...plain]) node.remove();
+  }
+});
+
+test('a focused keyboard-owning composite widget or embedded surface keeps its keys: no approval, no chips', async () => {
+  const doc = dom.window.document;
+  const pane = doc.querySelector('.conversation');
+  const make = (tag, attrs = {}, parent = pane) => {
+    const node = doc.createElement(tag);
+    for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+    parent.append(node);
+    return node;
+  };
+  const inner = (host) => make('span', { tabindex: '0' }, host);
+  const widgets = [
+    make('div', { role: 'listbox', tabindex: '0' }),
+    make('div', { role: 'menu', tabindex: '0' }),
+    make('div', { role: 'menubar', tabindex: '0' }),
+    make('div', { role: 'tablist', tabindex: '0' }),
+    make('div', { role: 'tree', tabindex: '0' }),
+    make('div', { role: 'treegrid', tabindex: '0' }),
+    make('div', { role: 'grid', tabindex: '0' }),
+    make('div', { role: 'radiogroup', tabindex: '0' }),
+    make('div', { role: 'toolbar', tabindex: '0' }),
+    make('div', { role: 'spinbutton', tabindex: '0' }),
+    make('div', { role: 'slider', tabindex: '0' }),
+    make('div', { role: 'textbox', tabindex: '0' }),
+    make('div', { role: 'searchbox', tabindex: '0' }),
+    make('div', { role: 'someFutureWidget', tabindex: '0' }),
+    make('div', { 'aria-activedescendant': 'x', tabindex: '0' }),
+    make('div', { contenteditable: 'true', tabindex: '0' }),
+    make('iframe', { tabindex: '0' }),
+    inner(make('div', { class: 'monaco-editor' })),
+    inner(make('div', { class: 'xterm' })),
+    inner(make('div', { role: 'listbox' })),
+    // A role-less focusable child of a keyboard-owning role the list does not name.
+    inner(make('div', { role: 'application' })),
+    inner(make('div', { role: 'someFutureWidget' })),
+  ];
+  const c = card({ ...comment, id: 'cw1' });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    const section = doc.querySelector('.approval-prompt');
+    for (const widget of widgets) {
+      await focusOn(widget);
+      assert.equal(doc.activeElement, widget, `${widget.outerHTML} takes focus`);
+      assert.ok(!section.dataset.keys, `no chips on ${widget.outerHTML}`);
+      await ui.key('Enter', {}, widget);
+      await ui.key('Escape', {}, widget);
+      assert.deepEqual(c.decisions, [], `no decision from ${widget.outerHTML}`);
+    }
+  } finally {
+    await ui.done();
+    for (const node of pane.querySelectorAll('[role], [aria-activedescendant], [contenteditable], iframe, .monaco-editor, .xterm')) {
+      if (!node.closest('.approval-prompt')) node.remove();
+    }
+  }
+});
+
+test('a modal inserted or removed in a nested portal, with no focus change, moves the chips', async () => {
+  const doc = dom.window.document;
+  const c = card({ ...comment, id: 'np1' });
+  const ui = await mount(c.element);
+  const pause = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  const host = doc.createElement('div');
+  const layer = doc.createElement('div');
+  const dialog = doc.createElement('section');
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  doc.body.append(host);
+  try {
+    await act(async () => settle());
+    const section = doc.querySelector('.approval-prompt');
+    assert.ok(section.dataset.keys);
+    // Unrelated streaming inserts under the body's subtree change nothing.
+    host.append(doc.createElement('p'));
+    await pause();
+    assert.ok(section.dataset.keys);
+    // A dialog three levels down, inside a wrapper that is itself inserted.
+    layer.append(doc.createElement('div'));
+    layer.firstChild.append(dialog);
+    host.append(layer);
+    await pause();
+    assert.ok(!section.dataset.keys, 'a nested modal arrived: chips off');
+    await ui.key('Escape', {}, doc.activeElement);
+    assert.deepEqual(c.decisions, []);
+    layer.remove();
+    await pause();
+    assert.ok(section.dataset.keys, 'the nested modal is gone: chips back');
+    // A dialog node nested directly under an existing element.
+    host.append(dialog);
+    await pause();
+    assert.ok(!section.dataset.keys);
+    dialog.remove();
+    await pause();
+    assert.ok(section.dataset.keys);
+  } finally {
+    host.remove();
+    await ui.done();
   }
 });
 
@@ -974,17 +1085,16 @@ test('an open modal dialog takes the keys and the chips away; a parked one does 
 
 test('a card mounting while the window is blurred shows no chips until the window has focus', async () => {
   const doc = dom.window.document;
-  doc.hasFocus = () => false;
+  windowHasFocus = false;
   const ui = await mount(card({ ...comment, id: 'wb1' }).element);
   try {
     await act(async () => settle());
     const section = doc.querySelector('.approval-prompt');
     assert.ok(!section.dataset.keys);
-    doc.hasFocus = () => true;
-    await act(async () => dom.window.dispatchEvent(new dom.window.Event('focus')));
+    await setWindowFocus(true);
     assert.ok(section.dataset.keys);
   } finally {
-    delete doc.hasFocus;
+    windowHasFocus = true;
     await ui.done();
   }
 });

@@ -10,6 +10,8 @@ const dom = new JSDOM(
   }
 );
 dom.window.Element.prototype.scrollIntoView = () => {};
+// jsdom's hasFocus() is false with nothing focused; a real focused window is true.
+dom.window.document.hasFocus = () => true;
 for (const key of [
   'window',
   'document',
