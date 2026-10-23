@@ -37,11 +37,65 @@ const nativePart = {
   thoughtSignature: 'native-signature',
 };
 
+// A call whose arguments are still streaming in pieces is not a whole call.
+const partialPart = {
+  functionCall: { id: 'partial-id', name: 'read', args: { path: 'frag' }, willContinue: true },
+};
+
 for (const { name, consume } of protocols) {
+  test(`Gemini ${name} stream without finishReason that delivered a whole functionCall ends normally`, async () => {
+    const progress = [];
+    const response = await consume([{ candidates: [{ content: { role: 'model', parts: [nativePart] } }] }], {
+      label: 'fixture',
+      onStreamDelta: (kind) => progress.push(kind),
+    });
+    assert.deepEqual(response.candidates[0].content.parts, [nativePart]);
+    assert.equal(response.candidates[0].finishReason, undefined);
+    assert.deepEqual(progress, ['tool']);
+  });
+
+  test(`Gemini ${name} stream without finishReason with parallel calls, one complete and one unfinished, stays TRUNCATED_STREAM`, async () => {
+    for (const parts of [
+      [nativePart, partialPart],
+      [partialPart, nativePart],
+      [nativePart, { functionCall: { name: 'read', partialArgs: [{ jsonPath: '$.path', stringValue: 'f' }] } }],
+    ]) {
+      await assert.rejects(
+        consume([{ candidates: [{ content: { role: 'model', parts } }] }], { label: 'fixture' }),
+        (error) => {
+          assert.equal(error.code, 'TRUNCATED_STREAM');
+          return true;
+        }
+      );
+    }
+  });
+
+  test(`Gemini ${name} stream without finishReason with several complete parallel calls ends normally`, async () => {
+    const second = { functionCall: { name: 'read', args: { path: 'second' } } };
+    const response = await consume([{ candidates: [{ content: { role: 'model', parts: [nativePart, second] } }] }], {
+      label: 'fixture',
+    });
+    assert.equal(response.candidates[0].content.parts.length, 2);
+  });
+
+  for (const [label, chunks] of [
+    ['text only', [{ candidates: [{ content: { parts: [{ text: 'half an answer' }] } }] }]],
+    ['thoughts only', [{ candidates: [{ content: { parts: [{ text: 'hmm', thought: true }] } }] }]],
+    ['a partial functionCall', [{ candidates: [{ content: { parts: [partialPart] } }] }]],
+    ['an empty candidate', [{ candidates: [{ content: { parts: [] } }] }]],
+  ]) {
+    test(`Gemini ${name} stream without finishReason and with ${label} stays TRUNCATED_STREAM`, async () => {
+      await assert.rejects(consume(chunks, { label: 'fixture' }), (error) => {
+        assert.equal(error.code, 'TRUNCATED_STREAM');
+        return true;
+      });
+    });
+  }
+
   test(`Gemini ${name} native tool chunks remain replayable until stream completion`, async () => {
     const progress = [];
     await assert.rejects(
-      consume([{ candidates: [{ content: { parts: [nativePart] } }] }], {
+      consume([{ candidates: [{ content: { parts: [partialPart] } }] }], {
         label: 'fixture',
         onStreamDelta: (kind) => progress.push(kind),
       }),
@@ -61,7 +115,7 @@ for (const { name, consume } of protocols) {
       consume(
         [
           { candidates: [{ content: { parts: [{ text: 'visible' }] } }] },
-          { candidates: [{ content: { parts: [nativePart] } }] },
+          { candidates: [{ content: { parts: [partialPart] } }] },
         ],
         { label: 'fixture', onTextDelta: (delta) => text.push(delta) }
       ),

@@ -95,6 +95,43 @@ function liveStream() {
   return { stream, settled, handlers, state: () => state };
 }
 
+test('a reasoning retraction clears the discarded attempt thinking so a retry shows only its own', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { stream, handlers, state } = liveStream();
+  handlers.onReasoningDelta('attempt one thinking');
+  flushStreamBatch(stream);
+  assert.equal(state().thinking, 'attempt one thinking');
+  // The provider re-issues the request: it retracts thinking only, no answer text.
+  assert.equal(handlers.onTextReset({ chars: 0, reasoning: true, reason: 'gemini-stream-retry' }), true);
+  assert.equal(state().thinking, null);
+  handlers.onReasoningDelta('attempt two thinking');
+  flushStreamBatch(stream);
+  assert.equal(stream.thinkingText, 'attempt two thinking');
+  assert.equal(state().thinking, 'attempt two thinking');
+});
+
+test('a reasoning retraction drops only the failed attempt, keeping earlier sends thinking', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { stream, handlers } = liveStream();
+  // Send 1 thinks and settles.
+  handlers.onProviderSendStarted();
+  handlers.onReasoningDelta('first send thinking. ');
+  flushStreamBatch(stream);
+  // Send 2: attempt A thinks, is retracted, attempt B thinks.
+  handlers.onProviderSendStarted();
+  handlers.onReasoningDelta('attempt A thinking. ');
+  flushStreamBatch(stream);
+  assert.equal(stream.thinkingText, 'first send thinking. attempt A thinking. ');
+  assert.equal(handlers.onTextReset({ chars: 0, reasoning: true, reason: 'gemini-stream-retry' }), true);
+  assert.equal(stream.thinkingText, 'first send thinking. ');
+  handlers.onReasoningDelta('attempt B thinking.');
+  flushStreamBatch(stream);
+  assert.equal(stream.thinkingText, 'first send thinking. attempt B thinking.');
+  // A second retraction of the same send still keeps send 1.
+  handlers.onTextReset({ chars: 0, reasoning: true });
+  assert.equal(stream.thinkingText, 'first send thinking. ');
+});
+
 test("a tool call's start settles the preamble before its arguments stream", () => {
   const { stream, settled, handlers } = liveStream();
   appendTextDelta(stream, 'Let me check the layout');

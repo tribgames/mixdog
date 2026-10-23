@@ -996,7 +996,7 @@ test('a later failed finish dispatches none of the turn calls', async () => {
 
 test('truncation after a native call dispatches nothing', async () => {
   const part = {
-    functionCall: { id: 'already-ran', name: 'read', args: { path: 'a.txt' } },
+    functionCall: { id: 'already-ran', name: 'read', args: { path: 'a.txt' }, willContinue: true },
     thoughtSignature: 'signed-call',
   };
   let requests = 0;

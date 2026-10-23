@@ -15,6 +15,7 @@ const effortRow = (...values) => ({ supportsReasoning: true, reasoningOptions: [
 
 const {
   antigravityModelFamily,
+  antigravityOutputLimit,
   antigravityQuotaWindows,
   fetchAvailableModels,
   fetchUserQuotaSummary,
@@ -71,6 +72,35 @@ const RAW = {
   chat_23310: { maxTokens: 32768, quotaInfo: { remainingFraction: 1 } },
   tab_flash_lite_preview: { maxTokens: 16384, quotaInfo: { remainingFraction: 1 } },
 };
+
+test('catalog rows keep the gateway-declared maxOutputTokens, the smallest across a record\'s wire ids', () => {
+  catalogRows.clear();
+  const models = normalizeAntigravityCatalog({
+    'gemini-3.8-flash-high': gemini('Gemini 3.8 Flash (High)', { maxOutputTokens: 65536 }),
+    'gemini-3.8-flash-low': gemini('Gemini 3.8 Flash (Low)', { maxOutputTokens: 65535 }),
+    'gemini-2.5-flash': gemini('Gemini 2.5 Flash', { maxOutputTokens: 65535 }),
+    'gemini-3-flash': gemini('Gemini 3 Flash'),
+    'claude-opus-5-5': {
+      displayName: 'Claude Opus 5.5',
+      maxTokens: 250000,
+      maxOutputTokens: 128000,
+      supportsThinking: true,
+      modelProvider: 'MODEL_PROVIDER_ANTHROPIC',
+      quotaInfo: { resetTime: RESET },
+    },
+  });
+  const byId = Object.fromEntries(models.map((m) => [m.id, m]));
+  assert.equal(byId['gemini-3.8-flash'].maxOutputTokens, 65535);
+  assert.equal(byId['gemini-2.5-flash'].maxOutputTokens, 65535);
+  assert.equal('maxOutputTokens' in byId['gemini-3-flash'], false);
+  assert.equal(antigravityOutputLimit('gemini-3.8-flash-high', models), 65535);
+  assert.equal(antigravityOutputLimit('gemini-3.8-flash', models), 65535);
+  assert.equal(antigravityOutputLimit('claude-opus-5-5', models), 128000);
+  assert.equal(antigravityOutputLimit('gemini-3-flash', models), null);
+  assert.equal(antigravityOutputLimit('never-listed', models), null);
+  // The curated offline list declares nothing.
+  assert.equal(antigravityOutputLimit('gemini-3.8-flash-high', ANTIGRAVITY_MODELS), null);
+});
 
 test('tiered wire ids collapse into one picker model per label', () => {
   catalogRows.clear();
@@ -246,7 +276,7 @@ test('sends resolve against the last live catalog even after its TTL, before the
   try {
     const live = [{ id: 'gemini-9-live', provider: 'antigravity-oauth', wire: { high: 'gemini-9-live-high' } }];
     const fetchedAt = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    writeFileSync(join(dir, 'antigravity-oauth-models.json'), JSON.stringify({ version: 1, fetchedAt, models: live }));
+    writeFileSync(join(dir, 'antigravity-oauth-models.json'), JSON.stringify({ version: 2, fetchedAt, models: live }));
     const fresh = await import(`./antigravity-oauth-catalog.mjs?stale=${Date.now()}`);
     assert.deepEqual(fresh.resolveAntigravityWireModel('gemini-9-live', 'low'), {
       model: 'gemini-9-live-high',

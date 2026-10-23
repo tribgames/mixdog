@@ -22,13 +22,22 @@ test('Gemini 2.5 maps effort to thinkingBudget and rejects thinkingLevel and out
 
 test('buildGeminiRequest forwards supported controls, rejects the rest, and is unchanged without them', () => {
   const messages = [{ role: 'user', content: 'hi' }];
-  assert.deepEqual(buildGeminiRequest(messages, 'gemini-3.1-pro', [], {}).generationConfig, {
+  // The roster-declared output limit (5th argument) is the default cap.
+  assert.deepEqual(buildGeminiRequest(messages, 'gemini-3.1-pro', [], {}, 65536).generationConfig, {
     thinkingConfig: { includeThoughts: true },
+    maxOutputTokens: 65536,
   });
-  assert.deepEqual(buildGeminiRequest(messages, 'gemini-3.1-pro', [], { effort: 'low' }).generationConfig, {
+  assert.deepEqual(buildGeminiRequest(messages, 'gemini-3.1-pro', [], { effort: 'low' }, 65536).generationConfig, {
     thinkingConfig: { includeThoughts: true, thinkingLevel: 'low' },
+    maxOutputTokens: 65536,
   });
-  const withControls = buildGeminiRequest(messages, 'gemini-3.1-pro', [], { maxOutputTokens: 2048, temperature: 0.3 });
+  const withControls = buildGeminiRequest(
+    messages,
+    'gemini-3.1-pro',
+    [],
+    { maxOutputTokens: 2048, temperature: 0.3 },
+    65536
+  );
   assert.deepEqual(withControls.generationConfig, {
     thinkingConfig: { includeThoughts: true },
     maxOutputTokens: 2048,
