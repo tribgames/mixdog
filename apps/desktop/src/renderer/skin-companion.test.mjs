@@ -223,7 +223,8 @@ test('each busy state is a comic symbol in a polite live region with a spoken la
   assert.equal(bubble.querySelector('svg, .skin-companion-mark, .skin-companion-check'), null, 'no decoration');
   await act(async () => bubble.click());
   assert.equal(calls.open, 0, 'a bubble click never opens the chat');
-  assert.ok($('.skin-companion-quick'), 'it opens the quick message');
+  assert.equal($('.skin-companion-quick'), null, 'nor the quick message');
+  assert.deepEqual(calls.dismiss, ['d1'], 'it closes the reply');
   // Collapsed: only the pet.
   await render({ collapsed: true });
   assert.equal($('.skin-companion-bubble'), null);
@@ -541,7 +542,7 @@ test('a span narrower than the bubble caps its width (shared with the page measu
   assert.deepEqual(bubbleEdges($, head, 368), { left: 16, right: 384 });
 });
 
-test('a long reply shows page by page: dots, click and arrows turn, the last page opens the quick message', async (t) => {
+test('a long reply shows page by page: dots, click and arrows turn, the last page closes it', async (t) => {
   const { $, render, page, dots, key, calls, window } = await mountPaged(t, { name: 'Mixy' });
   await render({ bubble: { kind: 'reply', key: 'p1', text: PAGED } });
   const bubble = $('.skin-companion-bubble');
@@ -569,21 +570,22 @@ test('a long reply shows page by page: dots, click and arrows turn, the last pag
   await key(bubble, { key: 'ArrowRight' });
   assert.equal(page(), 'Third page.', 'the last page stays');
   assert.equal($('.skin-companion-quick'), null);
+  assert.deepEqual(calls.dismiss, [], 'turning pages never closes it');
   await key(bubble, { key: 'Enter' });
-  assert.ok($('.skin-companion-quick input'), 'Enter on the last page: the quick message');
-  // It keeps the reply and its page; Esc in the input closes it (as today).
-  assert.equal(page(), 'Third page.');
-  assert.deepEqual(calls.dismiss, []);
-  await key($('.skin-companion-quick input'), { key: 'Escape' });
-  // A click on the last page opens it too.
+  assert.deepEqual(calls.dismiss, ['p1'], 'Enter on the last page closes it');
+  assert.equal($('.skin-companion-quick'), null, 'never the quick message');
+  // A click on the last page closes it too; before it, a click only turns.
   await render({ bubble: { kind: 'reply', key: 'p2', text: 'Only.|Last.' } });
   await act(async () => $('.skin-companion-bubble').click());
-  await act(async () => $('.skin-companion-bubble').click());
-  assert.ok($('.skin-companion-quick input'));
-  // Copy: the whole reply (main writes it); the click turns no page.
+  assert.deepEqual(calls.dismiss, ['p1']);
+  // Copy: the whole reply (main writes it); the click turns no page and closes nothing.
   await act(async () => $('.skin-companion-reply-copy').click());
   assert.deepEqual(calls.copy, ['p2']);
   assert.equal(page(), 'Last.');
+  assert.deepEqual(calls.dismiss, ['p1']);
+  await act(async () => $('.skin-companion-bubble').click());
+  assert.deepEqual(calls.dismiss, ['p1', 'p2']);
+  assert.equal($('.skin-companion-quick'), null);
   // ✕ and Esc close.
   await act(async () => $('.skin-companion-reply-close').click());
   assert.deepEqual(calls.dismiss.at(-1), 'p2');
@@ -596,7 +598,7 @@ test('a long reply shows page by page: dots, click and arrows turn, the last pag
   assert.equal(calls.dismiss.at(-1), 'p3');
 });
 
-test('a short reply: a click or Enter opens the quick message (never the chat), no bar or dots', async (t) => {
+test('a short reply: a click closes it (never the chat or the quick message), no bar or dots', async (t) => {
   const { $, render, calls } = await mountPet(t, { measurePages: () => assert.fail('a short reply is not paged') });
   await render({ bubble: { kind: 'reply', key: 's1', text: 'Done.' } });
   assert.equal($('.skin-companion-bubble').getAttribute('role'), null);
@@ -605,13 +607,14 @@ test('a short reply: a click or Enter opens the quick message (never the chat), 
   assert.deepEqual(calls.read, ['s1'], 'read on display, as before');
   await act(async () => $('.skin-companion-bubble').click());
   assert.equal(calls.open, 0);
-  assert.ok($('.skin-companion-quick'), 'a click opens the quick message');
+  assert.equal($('.skin-companion-quick'), null);
+  assert.deepEqual(calls.dismiss, ['s1'], 'a click closes it');
 });
 
 test('hidden under an app modal (paused) and back, the quick message and the reply keep their state', async (t) => {
-  const { $, render, calls } = await mountPet(t);
+  const { $, mascot, render, calls } = await mountPet(t);
   await render({ bubble: { kind: 'reply', key: 'h1', text: 'Done.' } });
-  await act(async () => $('.skin-companion-bubble').click());
+  await act(async () => mascot().click());
   const field = $('.skin-companion-quick textarea, .skin-companion-quick input');
   assert.ok(field);
   await render({ bubble: { kind: 'reply', key: 'h1', text: 'Done.' }, paused: true });
@@ -621,7 +624,7 @@ test('hidden under an app modal (paused) and back, the quick message and the rep
   assert.deepEqual(calls.dismiss, []);
 });
 
-test('a short reply: Enter on the focused bubble opens the quick message', async (t) => {
+test('a short reply: Enter on the focused bubble closes it', async (t) => {
   const { $, render, calls } = await mountPet(t);
   await render({ bubble: { kind: 'reply', key: 'k1', text: 'Done.' } });
   await act(async () =>
@@ -630,7 +633,8 @@ test('a short reply: Enter on the focused bubble opens the quick message', async
     )
   );
   assert.equal(calls.open, 0);
-  assert.ok($('.skin-companion-quick'));
+  assert.equal($('.skin-companion-quick'), null);
+  assert.deepEqual(calls.dismiss, ['k1']);
 });
 
 test('pages turn at reading pace, pause under the pointer, restart on a turn by hand, and stop at the last', async (t) => {

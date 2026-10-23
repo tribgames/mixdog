@@ -441,10 +441,10 @@ const BUBBLE_EDGE = 16;
 
 /** One bubble element for every state: the reply grows out of the same
  *  anchored bubble the typing dots were in. Pointer and focus are held
- *  through `setHovered` / `setFocusWithin`. A short reply is one button
- *  that opens the chat. A long one is read page by page: a click or →
- *  turns to the next page (← back), and on the last page a click or Enter
- *  opens the quick message. Esc closes a reply. */
+ *  through `setHovered` / `setFocusWithin`. A click or Enter closes a short
+ *  reply. A long one is read page by page: a click or → turns to the next
+ *  page (← back), and on the last page a click or Enter closes it. Esc
+ *  closes a reply. The quick message opens from the pet, not the bubble. */
 function CompanionBubbleView({
   bubble,
   name,
@@ -453,7 +453,6 @@ function CompanionBubbleView({
   paging,
   timed,
   onMeasured,
-  onReply,
   onCopy,
   onClose,
   setHovered,
@@ -468,7 +467,6 @@ function CompanionBubbleView({
   paging: ReplyPaging | null;
   timed: boolean;
   onMeasured: ReplyMeasured;
-  onReply: (keyboard: boolean) => void;
   onCopy: () => void;
   onClose: () => void;
   setHovered: (hovered: boolean) => void;
@@ -477,7 +475,7 @@ function CompanionBubbleView({
 }) {
   const finished = bubble.kind === 'reply';
   const paged = finished && paging !== null;
-  // A short reply: a click (Enter/Space) opens the quick message, never the chat.
+  // A short reply: a click (Enter/Space) closes it.
   const short = finished && !paged;
   const ref = useRef<HTMLDivElement | null>(null);
   // Kept 16px inside both edges of its span (the app window's content or
@@ -496,10 +494,10 @@ function CompanionBubbleView({
     if (shift !== 0) node.style.setProperty('--bubble-shift', `${Math.round(shift)}px`);
     else node.style.removeProperty('--bubble-shift');
   });
-  const turn = (keyboard: boolean) => {
+  const turn = () => {
     if (!paging) return;
     if (paging.index < paging.pages.length - 1) paging.go(paging.index + 1);
-    else onReply(keyboard);
+    else onClose();
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
@@ -511,14 +509,14 @@ function CompanionBubbleView({
       const last = paging.index === paging.pages.length - 1;
       if (event.key === 'ArrowRight' && !last) paging.go(paging.index + 1);
       else if (event.key === 'ArrowLeft' && paging.index > 0) paging.go(paging.index - 1);
-      else if (event.key === 'Enter' && last) onReply(true);
+      else if (event.key === 'Enter' && last) onClose();
       else return;
       event.preventDefault();
       return;
     }
     if (!short || (event.key !== 'Enter' && event.key !== ' ')) return;
     event.preventDefault();
-    onReply(true);
+    onClose();
   };
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a button or a focusable group whenever it has a handler
@@ -538,7 +536,7 @@ function CompanionBubbleView({
       }}
       role={paged ? 'group' : undefined}
       tabIndex={finished ? 0 : undefined}
-      onClick={short ? (event) => onReply(event.detail === 0) : paged ? (event) => turn(event.detail === 0) : undefined}
+      onClick={short ? onClose : paged ? turn : undefined}
       onKeyDown={finished ? onKeyDown : undefined}
     >
       {paging && finished ? (
@@ -821,11 +819,6 @@ export function CompanionPet({
     readKeyRef.current = replyKey;
     onReadRef.current?.(replyKey);
   }, [readToEnd, replyKey]);
-  const reply = (keyboard: boolean) => {
-    if (!canSend || quiet) return;
-    notePetOpenedBy(keyboard);
-    quick.open();
-  };
 
   const onMascotClick = (event: MouseEvent<HTMLButtonElement>) => {
     // Enter/Space (detail 0) always toggles; a pointer click that ended a drag does not.
@@ -886,7 +879,6 @@ export function CompanionPet({
                 paging={reading.paging}
                 timed={autoAdvance}
                 onMeasured={reading.onMeasured}
-                onReply={reply}
                 onCopy={() => onCopy?.(replyKey)}
                 onClose={closeReply}
                 setHovered={setHovered}
