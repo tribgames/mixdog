@@ -161,7 +161,7 @@ test('on: a plain ask (hook rule, saving an automation, a non-bot session) passe
   assert.equal(result.denial, undefined);
 });
 
-test('on: a hook ask on a tool that can delete files (shell, terminal, git, apply_patch) still asks', async (t) => {
+test('on: a hook ask on shell, terminal, git and apply_patch passes too (truly all actions)', async (t) => {
   const store = tempStore(t);
   setAllowAll(true);
   const deleters = [
@@ -175,13 +175,13 @@ test('on: a hook ask on a tool that can delete files (shell, terminal, git, appl
   for (const call of deleters) {
     for (const sessionId of [CODING, MAILER]) {
       const out = await decide(call, HOOK_ASK, sessionId, store);
-      assert.equal(out.decision.action, 'ask', `${sessionId} ${call.name} ${call.args.command ?? ''}`);
-      assert.equal(out.request.kind, 'approval');
+      const label = `${sessionId} ${call.name} ${call.args.command ?? ''}`;
+      assert.equal(out.request, null, label);
+      assert.notEqual(out.decision.action, 'ask', label);
     }
   }
-  assert.deepEqual(await store.readAudit(), [], 'nothing was let through');
-  // End to end: the card is raised for the shell ask.
-  const asked = [];
+  assert.equal((await store.readAudit()).length, deleters.length * 2);
+  // End to end: the approval hook is never reached.
   const result = await applyBeforeToolHook({
     name: 'shell',
     args: SHELL.args,
@@ -189,13 +189,13 @@ test('on: a hook ask on a tool that can delete files (shell, terminal, git, appl
     callerSessionId: CODING,
     executeOpts: {},
     beforeToolHook: async () => HOOK_ASK,
-    toolApprovalHook: async (request) => {
-      asked.push(request);
-      return { approved: false, response: 'deny' };
-    },
+    toolApprovalHook: noCard,
   });
-  assert.equal(asked.length, 1);
-  assert.match(result.denial, /was not approved/);
+  assert.equal(result.denial, undefined);
+  assert.deepEqual(result.args, SHELL.args);
+  // Off: the same asks still ask.
+  setAllowAll(false);
+  for (const call of deleters) assert.equal((await decide(call, HOOK_ASK, CODING, store)).decision.action, 'ask');
 });
 
 test('an unreadable option asks instead of denying (fail-closed read)', async (t) => {

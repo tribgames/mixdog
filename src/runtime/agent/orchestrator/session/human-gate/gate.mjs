@@ -115,15 +115,8 @@ const actionOf = (decision) => String(decision?.action || decision?.decision || 
  *  asks), and a value restored from a backup never counts. */
 export const allowAllActionsEnabled = () => developerOptionEnabledStrict('allowAllActions');
 
-/** Built-in tools that can delete files outright: a shell (any command), the
- *  terminal, git (clean, branch -D…) and apply_patch (`*** Delete File`).
- *  Nothing classifies WHICH of their calls delete (destructive-warning.mjs is
- *  an informational detector that misses plain `rm`/`del`/`Remove-Item`), so
- *  their plain asks stay while "Allow all actions" is on. */
-export const DELETE_CAPABLE_TOOLS = Object.freeze(new Set(['shell', 'terminal', 'git', 'apply_patch']));
-
 /** Whether the option lets a call of this classification (or none) run without
- *  a card: never a payment or permanent delete. */
+ *  a card: every ask, never a classified payment or permanent delete. */
 const skipsApproval = (classified) => !isAlwaysAskAction(classified?.category) && allowAllActionsEnabled();
 
 /** The hook decision once its card is skipped: an `ask` runs as an allow,
@@ -214,7 +207,7 @@ export async function humanGateDecision(call, decision, ctx = {}) {
   if (!outbound) {
     if (action !== 'ask') return { decision, request: null, gate: null };
     const gate = { agentId, kind: 'approval', tool: String(call?.name || ''), target: '' };
-    if (!DELETE_CAPABLE_TOOLS.has(String(call?.name || '')) && skipsApproval(classified)) {
+    if (skipsApproval(classified)) {
       const store = ctx.store || (await humanGateStore());
       await store.recordAudit({ ...gate, decision: DEV_ALLOW_ALL_DECISION, device: '' });
       return { decision: withoutAsk(decision), request: null, gate: null };

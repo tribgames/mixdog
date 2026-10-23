@@ -9,6 +9,11 @@ import { rows, sectionError, sectionLoaded, type PanelContext } from './capabili
 // sub-categories and options appear here without desktop changes. An option
 // carrying a `warning` turns on only after the user confirms that warning; one
 // carrying a `provider` re-reads that provider's usage meter once it changes.
+// The exception is an option the desktop host confirms itself: main shows the
+// human-only native warning (main/developer-risk-confirm.ts), so no second,
+// in-page confirmation is asked here.
+const HOST_CONFIRMED_OPTIONS: ReadonlySet<string> = new Set(['allowAllActions']);
+
 export function DeveloperPanel({ api, data, pending, run, confirm }: PanelContext) {
   const failure = sectionError(data, 'developer');
   if (failure) return <ErrorNotice error={failure} role="status" />;
@@ -48,7 +53,7 @@ export function DeveloperPanel({ api, data, pending, run, confirm }: PanelContex
                 disabled={Boolean(pending)}
                 optimistic={!warning}
                 onChange={(enabled) => {
-                  if (!enabled || !warning) {
+                  if (!enabled || !warning || HOST_CONFIRMED_OPTIONS.has(id)) {
                     set(enabled);
                     return;
                   }
