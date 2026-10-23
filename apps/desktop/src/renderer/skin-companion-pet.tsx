@@ -326,12 +326,13 @@ export interface CompanionPetProps {
   canSend: boolean;
   /** Drag and arrow keys move it (off while pinned above the message box). */
   movable?: boolean;
-  /** The reply bubble was clicked: open Mixy's chat in the app at that reply. */
+  /** The quiet pet was clicked: open (focus) Mixy's chat in the app. */
   onOpen: () => void;
   /** Mixy's chat's send path (main → the composer's own route). */
   onSend: (text: string) => Promise<unknown>;
-  /** The shown reply is seen: its bubble timed out, or the user left the
-   *  quick message (Esc, blur, sent). Only the pet's display clears. */
+  /** The shown reply is seen: its bubble timed out or was closed (a click,
+   *  Enter, ✕ or Esc), or the user left the quick message (Esc, blur, sent).
+   *  Only the pet's display clears. */
   onDismiss: (key: string) => void;
   /** Right-click, Shift+F10 or the ContextMenu key. */
   onMenu: () => void;
@@ -534,7 +535,7 @@ function CompanionBubbleView({
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false);
       }}
-      role={paged ? 'group' : undefined}
+      role={paged ? 'group' : short ? 'button' : undefined}
       tabIndex={finished ? 0 : undefined}
       onClick={short ? onClose : paged ? turn : undefined}
       onKeyDown={finished ? onKeyDown : undefined}
@@ -657,7 +658,6 @@ function useQuickMessage({
     inputRef,
     composingRef,
     toggle: () => setInputOpen((open) => !open),
-    open: () => setInputOpen(true),
     closeInput,
     send,
   };

@@ -211,7 +211,7 @@ test('each busy state is a comic symbol in a polite live region with a spoken la
   await render({ bubble: { kind: 'reply', key: 'd1', text: 'Fixed the build.\nAll tests pass.' } });
   const bubble = $('.skin-companion-bubble');
   assert.equal(bubble, dots, 'the same anchored bubble takes over');
-  assert.equal(bubble.getAttribute('role'), null, 'not a button that opens the chat');
+  assert.equal(bubble.getAttribute('role'), 'button', 'a button that closes the reply');
   assert.equal(bubble.getAttribute('title'), null);
   assert.equal(bubble.dataset.state, 'reply');
   assert.equal(status.querySelector('.sr-only').textContent, 'Companion: Mixy replied');
@@ -601,7 +601,7 @@ test('a long reply shows page by page: dots, click and arrows turn, the last pag
 test('a short reply: a click closes it (never the chat or the quick message), no bar or dots', async (t) => {
   const { $, render, calls } = await mountPet(t, { measurePages: () => assert.fail('a short reply is not paged') });
   await render({ bubble: { kind: 'reply', key: 's1', text: 'Done.' } });
-  assert.equal($('.skin-companion-bubble').getAttribute('role'), null);
+  assert.equal($('.skin-companion-bubble').getAttribute('role'), 'button');
   assert.equal($('.skin-companion-reply-bar'), null);
   assert.equal($('.skin-companion-pages'), null);
   assert.deepEqual(calls.read, ['s1'], 'read on display, as before');
