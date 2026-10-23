@@ -12,11 +12,13 @@
 // removal instead of a filename convention that has to stay in sync with
 // whatever the renderer happens to write.
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join, resolve } from 'node:path';
 
 import { renderPdfPages } from './pdf-render.mjs';
-import { renderPortableOoxml } from '../portable/portable-soffice.mjs';
+import { callMicrosoftOffice, detectMicrosoftOffice } from '../com/com-adapter.mjs';
+import { libreOfficeAvailable, renderPortableOoxml } from '../portable/portable-soffice.mjs';
 
 // What LibreOffice converts faithfully enough to READ. PDF is absent on
 // purpose: it is already viewable and never needs the conversion pass.
@@ -49,6 +51,100 @@ const PAGE_CACHE_DIR_NAME = 'document-preview-pages';
 const MAX_CACHED_PAGE_REVISIONS = 48;
 const MAX_MEMORY_PAGES = 32;
 const MAX_MEMORY_PAGE_BYTES = 48 * 1024 * 1024;
+
+// The Office application family that opens each previewable extension.
+const OFFICE_FAMILY = {
+  docx: 'docx',
+  doc: 'docx',
+  docm: 'docx',
+  dotx: 'docx',
+  rtf: 'docx',
+  odt: 'docx',
+  xlsx: 'xlsx',
+  xls: 'xlsx',
+  xlsm: 'xlsx',
+  ods: 'xlsx',
+  pptx: 'pptx',
+  ppt: 'pptx',
+  pptm: 'pptx',
+  odp: 'pptx',
+};
+
+/** Marks the "no converter installed" failure; the desktop shows it in the UI language. */
+export const OFFICE_PREVIEW_UNAVAILABLE = 'OFFICE_PREVIEW_UNAVAILABLE';
+
+/** Marks a password-protected document; the host reports it and the desktop words it. */
+export const OFFICE_PREVIEW_PASSWORD_PROTECTED = 'OFFICE_PREVIEW_PASSWORD_PROTECTED';
+
+const OFFICE_PREVIEW_RENDER_TIMEOUT_MS = 300_000;
+
+const defaultEngines = {
+  libreOfficeAvailable,
+  renderLibreOffice: renderPortableOoxml,
+  detectOffice: detectMicrosoftOffice,
+  callOffice: callMicrosoftOffice,
+};
+
+function passwordProtectedError() {
+  const error = new Error(`This file is password-protected and can't be previewed. (${OFFICE_PREVIEW_PASSWORD_PROTECTED})`);
+  error.code = OFFICE_PREVIEW_PASSWORD_PROTECTED;
+  return error;
+}
+
+// A binary (.ppt) presentation has no password argument to open it with: PowerPoint would wait on a hidden
+// prompt. MS-PPT marks an encrypted one in its "Current User" stream: a CurrentUserAtom (record type 0x0FF6)
+// whose headerToken is 0xF3D1C4DF, where an unencrypted file has 0xE391C05F. The token follows the record
+// header and size, so a match must sit 10 bytes after the record type.
+const ENCRYPTED_PRESENTATION_TOKEN = Buffer.from([0xdf, 0xc4, 0xd1, 0xf3]);
+
+async function legacyPresentationEncrypted(path) {
+  const bytes = await readFile(path);
+  for (let at = bytes.indexOf(ENCRYPTED_PRESENTATION_TOKEN); at >= 0; at = bytes.indexOf(ENCRYPTED_PRESENTATION_TOKEN, at + 1)) {
+    if (at >= 10 && bytes[at - 10] === 0xf6 && bytes[at - 9] === 0x0f) return true;
+  }
+  return false;
+}
+
+// Microsoft Office renders a private COPY of the document, read-only: the host
+// opens it read-only (no recalculation, no link updates, macros off), exports the
+// PDF, then closes the document without saving and quits the application
+// instance it started. The copy keeps the source unlocked and unreachable.
+async function renderWithMicrosoftOffice(path, output, family, { signal, callOffice }) {
+  if (/\.ppt$/i.test(path) && (await legacyPresentationEncrypted(path))) throw passwordProtectedError();
+  const scratch = await mkdtemp(join(tmpdir(), 'mixdog-preview-'));
+  try {
+    const copy = join(scratch, basename(path));
+    await copyFile(path, copy);
+    const result = await callOffice(
+      { action: 'render', format: family, mode: 'background', readOnly: true, path: copy, output },
+      { signal, timeoutMs: OFFICE_PREVIEW_RENDER_TIMEOUT_MS }
+    );
+    signal?.throwIfAborted();
+    if (!result.ok) {
+      if (String(result.error).includes(OFFICE_PREVIEW_PASSWORD_PROTECTED)) throw passwordProtectedError();
+      throw new Error(result.error || 'Microsoft Office could not render this document.');
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function renderPreviewPdf(path, output, format, { signal, engines }) {
+  if (await engines.libreOfficeAvailable()) {
+    await engines.renderLibreOffice(path, output, { signal });
+    return;
+  }
+  const family = OFFICE_FAMILY[format];
+  const detected = await engines.detectOffice({ format: family });
+  if (!detected?.applications?.some((application) => application.format === family && application.installed)) {
+    const error = new Error(
+      `Previewing Office files needs LibreOffice or Microsoft Office, and neither was found. To install LibreOffice, open Extensions → Built-in → Office and choose Install, then try again. (${OFFICE_PREVIEW_UNAVAILABLE})`
+    );
+    error.code = OFFICE_PREVIEW_UNAVAILABLE;
+    throw error;
+  }
+  await renderWithMicrosoftOffice(path, output, family, { signal, callOffice: engines.callOffice });
+}
 
 /** The convertible format for this filename, or '' when there is none. */
 export function documentPreviewFormat(path) {
@@ -96,7 +192,7 @@ const conversions = new Map();
  * The cached PDF rendition of one document, converting it when needed.
  * @returns {Promise<{ path: string; format: string; mtimeMs: number; size: number; cached: boolean }>}
  */
-export async function documentPreviewPdf(path, { cacheRoot, signal = null } = {}) {
+export async function documentPreviewPdf(path, { cacheRoot, signal = null, engines = defaultEngines } = {}) {
   const format = documentPreviewFormat(path);
   if (!format) throw new Error('This file type has no built-in document preview.');
   if (!cacheRoot) throw new Error('Document preview storage is unavailable.');
@@ -118,7 +214,7 @@ export async function documentPreviewPdf(path, { cacheRoot, signal = null } = {}
   const conversion = (async () => {
     await mkdir(directory, { recursive: true });
     try {
-      await renderPortableOoxml(path, output, { signal });
+      await renderPreviewPdf(path, output, format, { signal, engines });
     } catch (error) {
       await rm(directory, { recursive: true, force: true }).catch(() => {});
       throw error;

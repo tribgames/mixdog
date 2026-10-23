@@ -1,6 +1,6 @@
 import { basename, dirname, extname, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { redactDirectories } from '../../shared/redact-directories.mjs';
 import { removeDirectoryWithRetry } from '../../shared/remove-directory.mjs';
 import { constants as fsConstants, rmSync } from 'node:fs';
@@ -146,8 +146,16 @@ function libreOfficeCandidates() {
       // exits once the conversion finishes. soffice.exe returns early or never,
       // so a caller awaiting its exit cannot tell when output is ready.
       'soffice.com',
-      'C:\\Program Files\\LibreOffice\\program\\soffice.com',
-      'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com',
+      ...new Set([
+        join(process.env.ProgramFiles || 'C:\\Program Files', 'LibreOffice', 'program', 'soffice.com'),
+        join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'LibreOffice', 'program', 'soffice.com'),
+        'C:\\Program Files\\LibreOffice\\program\\soffice.com',
+        'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com',
+        // A per-user install (the MSI's "just for me" choice).
+        ...(process.env.LOCALAPPDATA
+          ? [join(process.env.LOCALAPPDATA, 'Programs', 'LibreOffice', 'program', 'soffice.com')]
+          : []),
+      ]),
     ];
   }
   if (process.platform === 'darwin') {
@@ -169,10 +177,42 @@ function libreOfficeCandidates() {
   ];
 }
 
+// The LibreOffice installer records its `program` folder as the default value
+// of SOFTWARE\LibreOffice\UNO\InstallPath, in HKLM (all users, 64- or 32-bit
+// view) or HKCU (per-user). This covers installs on another drive or in a
+// custom folder. The value's display name is localized, so only the REG_SZ
+// data is read.
+const LIBREOFFICE_REGISTRY_QUERIES = [
+  ['HKLM', '/reg:64'],
+  ['HKLM', '/reg:32'],
+  ['HKCU', '/reg:64'],
+];
+
+/** The `soffice.com` paths named by `reg query ... /ve` output. */
+export function registrySofficePrograms(output) {
+  return String(output || '')
+    .split(/\r?\n/)
+    .map((line) => /REG_(?:EXPAND_)?SZ\s+(.+?)\s*$/.exec(line)?.[1])
+    .filter(Boolean)
+    .map((directory) => join(directory, 'soffice.com'));
+}
+
+function queryRegistry(args) {
+  return new Promise((resolve) => {
+    execFile('reg.exe', args, { windowsHide: true, timeout: 5000 }, (error, stdout) => resolve(error ? '' : stdout));
+  });
+}
+
 async function findLibreOfficeProgram() {
-  const candidates = libreOfficeCandidates();
-  for (const candidate of candidates) {
+  for (const candidate of libreOfficeCandidates()) {
     if (await commandExists(candidate)) return candidate;
+  }
+  if (process.platform !== 'win32') return '';
+  for (const [hive, view] of LIBREOFFICE_REGISTRY_QUERIES) {
+    const output = await queryRegistry(['query', `${hive}\\SOFTWARE\\LibreOffice\\UNO\\InstallPath`, '/ve', view]);
+    for (const candidate of registrySofficePrograms(output)) {
+      if (await commandExists(candidate)) return candidate;
+    }
   }
   return '';
 }

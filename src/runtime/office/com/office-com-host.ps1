@@ -7545,6 +7545,44 @@ function Open-ValidationDocument($app, [string]$format, [string]$path) {
     }
 }
 
+$script:PreviewPasswordMessage = 'This file is password-protected. (OFFICE_PREVIEW_PASSWORD_PROTECTED)'
+
+# An encrypted Office Open XML package is an OLE container (D0 CF 11 E0), not a ZIP. Office would stop to ask
+# for the password, and a hidden application cannot show the question, so the request is refused up front.
+function Assert-PreviewNotEncrypted([string]$path) {
+    $extension = [System.IO.Path]::GetExtension($path).TrimStart('.').ToLowerInvariant()
+    if (@('docx', 'docm', 'dotx', 'xlsx', 'xlsm', 'pptx', 'pptm') -notcontains $extension) { return }
+    $header = New-Object byte[] 4
+    $stream = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+    try { $read = $stream.Read($header, 0, 4) } finally { $stream.Dispose() }
+    if ($read -eq 4 -and $header[0] -eq 0xD0 -and $header[1] -eq 0xCF -and $header[2] -eq 0x11 -and $header[3] -eq 0xE0) {
+        throw $script:PreviewPasswordMessage
+    }
+}
+
+# The read-only open of the file preview. Word and Excel get a placeholder password, so a protected legacy file
+# fails at once instead of waiting on a prompt nobody can see; Word's "password is incorrect" (0x800A1520)
+# becomes the plain message. Links are not updated, macros stay off and DisplayAlerts is
+# off (New-HiddenApplication). Automation opens do not go through Protected View.
+function Open-PreviewDocument($app, [string]$format, [string]$path) {
+    $placeholder = 'mixdog-preview-no-password'
+    try {
+        switch ($format) {
+            'docx' { return $app.Documents.Open($path, $false, $true, $false, $placeholder, $placeholder, $false, $placeholder, $placeholder) }
+            # No WriteResPassword: Excel rejects one for a workbook without write reservation (0x800A03EC), and a
+            # read-only open never asks for it.
+            'xlsx' { return $app.Workbooks.Open($path, 0, $true, [Type]::Missing, $placeholder, [Type]::Missing, $true) }
+            'pptx' { return $app.Presentations.Open($path, $true, $true, $false) }
+        }
+    }
+    catch {
+        $inner = $_.Exception
+        while ($null -ne $inner.InnerException) { $inner = $inner.InnerException }
+        if ($format -eq 'docx' -and $inner.HResult -eq 0x800A1520) { throw $script:PreviewPasswordMessage }
+        throw
+    }
+}
+
 function Validate-NativeDocument([string]$path, [string]$format) {
     $validationApp = $null
     $validationDocument = $null
@@ -7757,9 +7795,13 @@ try {
         $live = $true
     }
     else {
+        if ($payload.readOnly -eq $true) { Assert-PreviewNotEncrypted $path }
         $app = New-HiddenApplication $format $progId
         $createdApp = $true
-        $document = Open-BackgroundDocument $app $format $path
+        # A read-only request (the file preview) opens the document read-only, with no link updates and no
+        # recalculation, and never waits on a password prompt. The close below discards, so nothing can be
+        # written back.
+        $document = if ($payload.readOnly -eq $true) { Open-PreviewDocument $app $format $path } else { Open-BackgroundDocument $app $format $path }
     }
 
     switch ([string]$payload.action) {

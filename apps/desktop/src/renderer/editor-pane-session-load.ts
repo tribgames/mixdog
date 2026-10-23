@@ -8,7 +8,7 @@ import {
 } from './editor-file-loader';
 import { documentPreviewFromResult, type DocumentPreview } from './editor-document-model';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
-import { errorMessage, fileAccessError } from './editor-pane-session-errors';
+import { documentPreviewError, fileAccessError } from './editor-pane-session-errors';
 import { useMediaSessionEpoch } from './remote-file-preview';
 import { reportEditorLoadStage } from './renderer-load-metrics';
 import { t } from './i18n';
@@ -195,7 +195,7 @@ export function useEditorSessionLoad({
     // app" escape; opening or restoring a tab never launches an OS program.
     const documentFormat = nativeKind === 'pdf' ? 'pdf' : documentPreviewFormatForPath(relPath);
     const documentFailed = (reason: unknown): void => {
-      setDocumentError(errorMessage(reason));
+      setDocumentError(documentPreviewError(reason));
       readFileContents();
     };
     if (documentFormat && api?.previewDocumentPages) {
