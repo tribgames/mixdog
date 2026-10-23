@@ -1903,6 +1903,7 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   await show([round([send('s4')])], false);
   assert.equal(main().querySelector('.mx-bot-sent'), null);
 });
+
 test('the working dot follows the session that still owes an answer, per send', async (t) => {
   const render = rowHarness(t);
   const CLERK_HOME = 'sess_home_agent-a70d746b04';
@@ -1917,7 +1918,7 @@ test('the working dot follows the session that still owes an answer, per send', 
     startedAt: DAY1,
   });
   const round = (key, items) => ({ _tag: 'ToolActivity', key, turnKey: key, items });
-  const answer = (key, sessionId, sendId, status = 'completed', sendIds = undefined) => ({
+  const answer = (key, sessionId, sendId, status = 'completed', sendIds) => ({
     _tag: 'AssistantPart',
     key,
     turnKey: key,
@@ -2009,6 +2010,7 @@ test('the working dot follows the session that still owes an answer, per send', 
   await show([...rounds, answer('one', DEV, 'atask_1', 'completed', ['atask_1', 'atask_3'])]);
   assert.deepEqual(working(), [false, true], "a report that does not list B leaves B's own turn working");
 });
+
 test('bot-to-bot: only an accepted send draws the sent line; only a completed reply becomes the bot bubble', async (t) => {
   const render = rowHarness(t);
   const CLERK_HOME = 'sess_home_agent-a70d746b04';

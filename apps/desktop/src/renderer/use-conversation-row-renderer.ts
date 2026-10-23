@@ -472,18 +472,14 @@ function agentChatRow(
   // Tool rounds stay out (the typing bubble covers them); only a question
   // that needs the user shows, and a turn that drove the browser leaves one
   // "브라우저 · 보기" line (browser-peek-line.tsx).
-  // A send to another bot's chat leaves one "sent to" line per message
+  // A send to another session leaves one "sent to" line per message
   // (derived from the stored call), above whatever else the round shows.
   // Under the turn's reply bubble when it has one (carriedBotSends).
   const sends = row._tag === 'ToolActivity' ? asideBotSends(rows, index) : [];
+  const sentLine = (send: (typeof sends)[number]) =>
+    createElement(AgentBotSent, { key: send.id, send, member: label(send.agentId) });
   const sentLines = sends.length
-    ? createElement(
-        Fragment,
-        null,
-        ...sends.map((send) =>
-          asideRow(createElement(AgentBotSent, { key: send.id, send, member: label(send.agentId) }))
-        )
-      )
+    ? createElement(Fragment, null, ...sends.map((send) => asideRow(sentLine(send))))
     : null;
   const withSent = (node: ReactNode): ReactNode => (sentLines ? createElement(Fragment, null, sentLines, node) : node);
   if (row._tag === 'ToolActivity') {
@@ -532,13 +528,7 @@ function agentChatRow(
     plain: () => rowNode(shown),
   });
   const carried = carriedBotSends(rows, index);
-  const after = carried.length
-    ? createElement(
-        Fragment,
-        null,
-        ...carried.map((send) => createElement(AgentBotSent, { key: send.id, send, member: label(send.agentId) }))
-      )
-    : undefined;
+  const after = carried.length ? createElement(Fragment, null, ...carried.map(sentLine)) : undefined;
   const bubble = createElement(
     AgentChatRow,
     { place: cardPlace, member: named, card: Boolean(routine), after, replyName: botReply?.name },

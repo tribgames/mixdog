@@ -335,7 +335,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--mx-accent, #5bb0ff);
+  background: var(--mx-accent);
   animation: mx-bot-sent-pulse 1.4s ease-in-out infinite;
 }
 @keyframes mx-bot-sent-pulse {

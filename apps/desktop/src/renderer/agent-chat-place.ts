@@ -133,13 +133,13 @@ function sendAccepted(item: TranscriptItem): boolean {
   return asRecord(toolActivityResultValue(item))?.accepted === true;
 }
 
+type BotSendCall = { id: string; agentId: string; sessionId: string; prompt: string; at: number; sendId: string };
+
 /** The sends to another session among a tool round's calls (`session` action
  *  `send`), from the stored calls: the recipient session, the bot whose home
  *  chat it is ('' for an ordinary session), the message and when. */
-export function chatBotSendsOf(
-  items: readonly TranscriptItem[]
-): { id: string; agentId: string; sessionId: string; prompt: string; at: number; sendId: string }[] {
-  const sends: { id: string; agentId: string; sessionId: string; prompt: string; at: number; sendId: string }[] = [];
+export function chatBotSendsOf(items: readonly TranscriptItem[]): BotSendCall[] {
+  const sends: BotSendCall[] = [];
   for (const item of items) {
     const members =
       item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
@@ -167,7 +167,7 @@ export function chatBotSendsOf(
   return sends;
 }
 
-type BotSend = ReturnType<typeof chatBotSendsOf>[number] & {
+type BotSend = BotSendCall & {
   /** No answer came back since and no later send went to the same session:
    *  while that session works, it works on this one. */
   pending: boolean;
@@ -200,7 +200,9 @@ function botSendsOfRound(rows: readonly TranscriptRowModel[], index: number): Bo
     const settled =
       sends.slice(at + 1).some((other) => other.sessionId === send.sessionId) ||
       rows.slice(index + 1).some((next) => {
-        if (next._tag === 'ToolActivity') return chatBotSendsOf(next.items).some((o) => o.sessionId === send.sessionId);
+        if (next._tag === 'ToolActivity') {
+          return chatBotSendsOf(next.items).some((other) => other.sessionId === send.sessionId);
+        }
         return next._tag === 'AssistantPart' && reportsEndOf(next.item, send);
       });
     return { ...send, pending: !settled };

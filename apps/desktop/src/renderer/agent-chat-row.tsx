@@ -4,12 +4,12 @@
 // the run's last bubble, a date pill where the day changes. Tool rounds and
 // notices stay compact rows in the bubble column.
 import { Link2, SquareTerminal, Timer } from 'lucide-react';
-import { useSessionGlance, useSessionTitle } from './session-glance-store';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import type { RoomMemberLabel } from './agent-room-parts';
 import { RoomMemberFace } from './agent-room-parts';
 import type { AvatarMotionState } from './avatar-motion';
 import { type AgentChatPlace, chatRoutineOf, chatRoutineTriggerOf } from './agent-chat-place';
+import { useSessionGlance, useSessionTitle } from './session-glance-store';
 import { stripRoutineTriggerHeader } from '../../../../src/runtime/shared/routine-trigger.mjs';
 import { OPEN_AGENT_PANEL_EVENT, setAgentPanelTab } from './agent-panel-tab';
 import { OPEN_TASK_SESSION_EVENT } from './agent-task-events';
@@ -295,10 +295,11 @@ export function AgentRoutineTrigger({ item, sessionId }: { item: TranscriptItem;
   );
 }
 
-/** A message this chat's bot sent to another bot's home chat (a `session`
- *  send in the stored tool call): one compact line in the routine trigger's
- *  grammar — the recipient's face and name (opens its chat), the time, and
- *  the message as plain text behind a disclosure, folded by default. */
+/** A message this chat's bot sent to another session (a `session` send in the
+ *  stored tool call): one compact line in the routine trigger's grammar — the
+ *  recipient's face (a bot's, else a session glyph) and name, "Working" while
+ *  it still owes the answer, the message as plain text behind a disclosure
+ *  (folded by default), and an Open action for the recipient session. */
 export function AgentBotSent({
   send,
   member,
@@ -311,18 +312,19 @@ export function AgentBotSent({
   // An ordinary session shows its current title and a session glyph for the face.
   const title = useSessionTitle(send.sessionId, t('Session'));
   const glance = useSessionGlance(send.sessionId);
-  const name = send.agentId ? member.name : title;
+  const toBot = Boolean(send.agentId);
+  const name = toBot ? member.name : title;
   const working = send.pending === true && glance?.working === true;
   return (
     <div className="mx-routine-trigger mx-bot-sent">
       <div className="mx-routine-trigger-head mx-bot-sent-pill">
         <span className="mx-routine-trigger-name mx-bot-sent-to">
-          {send.agentId ? (
+          {toBot ? (
             <RoomMemberFace member={member} className="mx-bot-sent-face" />
           ) : (
             <SessionGlyph className="mx-bot-sent-face" />
           )}
-          <span>{send.agentId ? t('Sent to {{name}}', { name }) : t('Session send: Sent to {{name}}', { name })}</span>
+          <span>{toBot ? t('Sent to {{name}}', { name }) : t('Session send: Sent to {{name}}', { name })}</span>
         </span>
         {working && (
           <span className="mx-bot-sent-status" role="status">

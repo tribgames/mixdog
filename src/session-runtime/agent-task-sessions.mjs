@@ -952,8 +952,7 @@ export function createAgentTaskSessions({
       const settling = members;
       void Promise.resolve()
         .then(() => {
-          settling.sort((a, b) => a.seq - b.seq);
-          const [first, ...others] = settling;
+          const [first, ...others] = settling.sort((a, b) => a.seq - b.seq);
           for (const other of others) other.unwatch();
           first.settle(settling.map((entry) => entry.id));
         })
@@ -1016,6 +1015,31 @@ export function createAgentTaskSessions({
     // Set once the turn ended completed: the report waits for the final answer.
     let follow = null;
     let result;
+    /** This send ends the turn `detail` for the sends `answered` (joinSettlement). */
+    const settleTurn = (detail, answered) => {
+      sendIds = answered;
+      const status = turnStatus(detail);
+      const text = detail?.result?.content || detail?.error || '';
+      // A failed or cancelled turn reports at once; a completed one
+      // reports the task's final answer (followToFinal).
+      if (status !== 'completed') {
+        unwatch();
+        void report(status, text);
+        return;
+      }
+      follow = followToFinal({
+        sessionId,
+        runId: id,
+        runtime,
+        immediate: { status, text },
+        finish: async (endStatus, endText) => {
+          unwatch();
+          await report(endStatus, endText);
+        },
+        progress: (progressText) => report('working', progressText),
+      });
+      follow.check();
+    };
     try {
       if (notify) {
         runtime = await sessions.materializeSession(sessionId);
@@ -1059,30 +1083,7 @@ export function createAgentTaskSessions({
                   seq,
                   id,
                   unwatch: () => unwatch(),
-                  settle: (answered) => {
-                    sendIds = answered;
-                    const status = turnStatus(detail);
-                    const text = detail?.result?.content || detail?.error || '';
-                    // A failed or cancelled turn reports at once; a completed one
-                    // reports the task's final answer (followToFinal).
-                    if (status !== 'completed') {
-                      unwatch();
-                      void report(status, text);
-                      return;
-                    }
-                    follow = followToFinal({
-                      sessionId,
-                      runId: id,
-                      runtime,
-                      immediate: { status, text },
-                      finish: async (endStatus, endText) => {
-                        unwatch();
-                        await report(endStatus, endText);
-                      },
-                      progress: (progressText) => report('working', progressText),
-                    });
-                    follow.check();
-                  },
+                  settle: (answered) => settleTurn(detail, answered),
                 }),
             }
           : {}),
