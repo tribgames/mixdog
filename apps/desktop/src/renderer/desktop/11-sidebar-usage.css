@@ -706,17 +706,29 @@
 .session-sidebar .session-row:has(.session-row-unread-dot) .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 18px;
 }
-.session-sidebar .session-row:hover:has(.session-row-favorite) .session-row-main:has(.session-row-fork-toggle),
+.session-sidebar .session-row:hover:has(.session-row-action) .session-row-main:has(.session-row-fork-toggle),
 .session-sidebar
-  .session-row:has(:focus-visible):has(.session-row-favorite)
+  .session-row:has(:focus-visible):has(.session-row-action)
+  .session-row-main:has(.session-row-fork-toggle),
+.session-sidebar
+  .session-row.confirming-delete:has(.session-row-action)
   .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 52px;
 }
 .session-sidebar
-  .session-row:hover:has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+  .session-row:hover:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
   .session-row-main:has(.session-row-fork-toggle),
 .session-sidebar
-  .session-row:has(:focus-visible):has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+  .session-row:has(:focus-visible):has(.session-row-action):has(
+    .session-row-unread-dot,
+    .session-row-status:not(:empty)
+  )
+  .session-row-main:has(.session-row-fork-toggle),
+.session-sidebar
+  .session-row.confirming-delete:has(.session-row-action):has(
+    .session-row-unread-dot,
+    .session-row-status:not(:empty)
+  )
   .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 72px;
 }
@@ -746,9 +758,17 @@
 .session-row:has(.session-row-unread-dot, .session-row-status:not(:empty)) .session-row-actions {
   right: calc(var(--mx-rail-trailing-center, 20px) + 8px);
 }
-.session-row:hover:has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+.session-row:hover:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
   .session-row-copy,
-.session-row:has(:focus-visible):has(.session-row-favorite):has(.session-row-unread-dot, .session-row-status:not(:empty))
+.session-row:has(:focus-visible):has(.session-row-action):has(
+    .session-row-unread-dot,
+    .session-row-status:not(:empty)
+  )
+  .session-row-copy,
+.session-row.confirming-delete:has(.session-row-action):has(
+    .session-row-unread-dot,
+    .session-row-status:not(:empty)
+  )
   .session-row-copy {
   padding-right: 72px;
 }

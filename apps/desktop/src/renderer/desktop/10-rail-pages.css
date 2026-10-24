@@ -1393,14 +1393,17 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   height: 14px;
   flex: 0 0 14px;
 }
-/* While the action cluster is revealed the title ends before the star and
-   archive buttons with a real ellipsis. At rest the row is untouched. */
-.session-row:hover:has(.session-row-favorite) .session-row-copy,
-.session-row:has(:focus-visible):has(.session-row-favorite) .session-row-copy {
+/* While an action cluster is revealed (star+archive, restore+delete, or the
+   delete confirmation, which is always shown) the title ends before its
+   buttons with a real ellipsis. At rest the row is untouched. */
+.session-row:hover:has(.session-row-action) .session-row-copy,
+.session-row:has(:focus-visible):has(.session-row-action) .session-row-copy,
+.session-row.confirming-delete:has(.session-row-action) .session-row-copy {
   padding-right: 52px;
 }
-.session-row:hover:has(.session-row-favorite) .session-row-copy b,
-.session-row:has(:focus-visible):has(.session-row-favorite) .session-row-copy b {
+.session-row:hover:has(.session-row-action) .session-row-copy b,
+.session-row:has(:focus-visible):has(.session-row-action) .session-row-copy b,
+.session-row.confirming-delete:has(.session-row-action) .session-row-copy b {
   text-overflow: ellipsis;
   -webkit-mask-image: none;
   mask-image: none;
