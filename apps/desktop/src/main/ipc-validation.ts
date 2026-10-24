@@ -400,6 +400,7 @@ const CAPABILITY_ARITY = {
   setAiSessionTitles: [1, 1],
   getHeartbeatSettings: [0, 0],
   setHeartbeatEnabled: [1, 1],
+  noteUserInput: [1, 1],
   getReactionSettings: [0, 0],
   setReactionsEnabled: [1, 1],
   getToolModuleSettings: [0, 0],
@@ -1296,6 +1297,9 @@ function validateSessionUsageArgs(options: unknown): void {
 function validateSettingCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
   if (BOOLEAN_FIRST_CAPABILITIES.has(capability) && typeof args[0] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
+  }
+  if (capability === 'noteUserInput' && (typeof args[0] !== 'number' || !Number.isFinite(args[0]) || args[0] <= 0)) {
+    throw new TypeError('noteUserInput requires a positive time in milliseconds.');
   }
   if (capability === 'setInstructionFiles' && !['all', 'agents', 'claude', 'off'].includes(args[0] as string)) {
     throw new TypeError('setInstructionFiles requires all, agents, claude, or off.');

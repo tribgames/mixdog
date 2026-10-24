@@ -85,6 +85,7 @@ export function createBrowserHostPages(options: {
     | 'sendToRenderer'
   >;
   onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
+  onGuest?: (guest: WebContents) => void;
   /** Cancel the agent on a page a person took over natively. */
   interruptForLocal: (command: BrowserCommand) => void;
 }) {
@@ -109,7 +110,7 @@ export function createBrowserHostPages(options: {
       taskLifecycle.inherit(opener, popup);
       if (selected) retainGuest(popup);
     },
-    onGuest: (guest) =>
+    onGuest: (guest) => {
       watchBrowserGuest(guest, {
         display: base.display,
         displayTextures: base.displayTextures,
@@ -117,7 +118,9 @@ export function createBrowserHostPages(options: {
         fullscreen,
         leave: base.leave,
         pageIdentity: base.pageIdentity.store,
-      }),
+      });
+      options.onGuest?.(guest);
+    },
     onSurfaceRequest: (request) => {
       if (request.hide || request.reveal === true) options.onSurfaceRequest?.(request);
     },

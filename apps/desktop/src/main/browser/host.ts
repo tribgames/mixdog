@@ -16,7 +16,7 @@
  * SAME partition (named through `tab` for parallel pages), so the agent can
  * work invisibly while staying logged in.
  */
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, WebContents } from 'electron';
 
 import type {
   DesktopBrowserImportProgress,
@@ -135,6 +135,8 @@ export function createBrowserHost(
     chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
     /** An explicit reveal or hide of a session's surface, for paired clients. */
     onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
+    /** Every page (guest) the host creates, as it appears. */
+    onGuest?: (guest: WebContents) => void;
     /** One live frame of a remotely streamed session, handed to the service. */
     publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
     /** The main-workspace tab list changed, for watching paired clients. */
@@ -155,6 +157,7 @@ export function createBrowserHost(
     window,
     base,
     onSurfaceRequest: options.onSurfaceRequest,
+    onGuest: options.onGuest,
     interruptForLocal: (command) => agent.interruptForLocal(command),
   });
   const tools = createBrowserCommandToolkit({

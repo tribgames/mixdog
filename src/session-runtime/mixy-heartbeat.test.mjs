@@ -20,6 +20,7 @@ import {
   composeDigest,
   createMixyHeartbeat,
   isQuietReply,
+  noteUserInput,
   noteUserTurn,
   readSessionTail,
   recordSuggestion,
@@ -72,6 +73,8 @@ function harness(
       path,
       isEnabled: async () => state.enabled,
       userTurnAt: () => state.userTurnAt,
+      // The module's process-wide app input time stays out of every harness.
+      appInputAt: () => 0,
       collect: async (input) => {
         calls.collect.push(input);
         if (typeof state.facts === 'function') return state.facts(input);
@@ -704,6 +707,8 @@ test('a due check waits while the user is active; missed checks run as one; two 
   assert.equal(await h.tick(), 'deferred');
   assert.equal(h.calls.collect.length, 0);
   h.state.userTurnAt = h.at() - 11 * MINUTE;
+  assert.equal(await h.tick(), 'deferred', 'a turn 11 minutes ago is still active');
+  h.state.userTurnAt = h.at() - 31 * MINUTE;
   h.advance(10 * INTERVAL);
   const [first, second] = await Promise.all([h.tick(), h.tick()]);
   assert.deepEqual([first, second], ['nothing', 'running']);
@@ -738,7 +743,86 @@ test("the idle gate: recurring routine turns in bots' chats never defer a check;
   noteUserTurn(h.at() - HOUR, { path: h.path });
   assert.equal(readJson(h.path).lastUserInputAt, h.at() - 3 * MINUTE);
   h.advance(7 * MINUTE);
-  assert.equal(await h.tick(), 'unchanged', 'quiet for 10 minutes: the check runs');
+  assert.equal(await h.tick(), 'deferred', 'quiet for only 10 minutes: still active');
+  h.advance(23 * MINUTE);
+  assert.equal(await h.tick(), 'unchanged', 'quiet for 30 minutes: the check runs');
+});
+
+test('the idle gate: input in the desktop app defers a due check with no user turn, until 30 quiet minutes; it survives a reload', async (t) => {
+  const h = harness(t);
+  await h.arm();
+  h.advance();
+  const dayAgo = h.at() - 24 * HOUR;
+  h.restart({ userTurnAt: () => 0, appInputAt: () => 0 });
+  // The desktop app reports its latest in-app input; no user turn was sent.
+  noteUserInput(h.at() - 40 * MINUTE, { path: h.path, now: h.at });
+  assert.equal(readJson(h.path).lastAppInputAt, h.at() - 40 * MINUTE);
+  assert.equal(readJson(h.path).lastUserInputAt ?? 0, 0, 'app input is no user turn');
+  // Within a minute of that write the file is not rewritten (memory still moves).
+  const written = readFileSync(h.path, 'utf8');
+  noteUserInput(h.at() - 10 * MINUTE, {
+    path: h.path,
+    now: () => h.at() + 30_000,
+    schedule: () => ({ unref() {} }),
+  });
+  assert.equal(readFileSync(h.path, 'utf8'), written, 'at most one write a minute');
+  // A minute on, a newer time is written; an older or equal one is never.
+  const later = () => h.at() + 61_000;
+  noteUserInput(h.at() - 11 * MINUTE, { path: h.path, now: later });
+  assert.equal(readJson(h.path).lastAppInputAt, h.at() - 10 * MINUTE, 'the latest time held in memory is written');
+  // Blank the field by hand: a rewrite would bring it back.
+  writeFileSync(h.path, JSON.stringify({ ...readJson(h.path), lastAppInputAt: 0 }));
+  const afterMinute = () => h.at() + 130_000;
+  noteUserInput(dayAgo, { path: h.path, now: afterMinute });
+  noteUserInput(h.at() - 10 * MINUTE, { path: h.path, now: afterMinute });
+  assert.equal(readJson(h.path).lastAppInputAt, 0, 'an older or duplicate time does not rewrite the file');
+  noteUserInput(h.at() - 9 * MINUTE, { path: h.path, now: afterMinute });
+  assert.equal(readJson(h.path).lastAppInputAt, h.at() - 9 * MINUTE, 'a newer time is written');
+  // A new process: nothing in memory, the state file holds the input time.
+  h.restart({ userTurnAt: () => 0, appInputAt: () => 0 });
+  assert.equal(await h.tick(), 'deferred', 'in-app input 9 minutes ago, no turns');
+  h.advance(20 * MINUTE);
+  assert.equal(await h.tick(), 'deferred', 'in-app input 29 minutes ago');
+  h.advance(MINUTE);
+  assert.equal(await h.tick(), 'nothing', 'both older than 30 minutes: the check runs');
+  noteUserInput(h.at() + HOUR, { path: h.path, now: h.at });
+  assert.equal(readJson(h.path).lastAppInputAt, h.at(), 'a time in the future counts as now');
+});
+
+test('a throttled final in-app input is written by one trailing write at the end of the minute, and a reload sees it', async (t) => {
+  const h = harness(t);
+  await h.arm();
+  h.advance();
+  const timers = [];
+  const schedule = (run, ms) => {
+    const timer = { run, ms, unrefCalled: false, unref() { this.unrefCalled = true; } };
+    timers.push(timer);
+    return timer;
+  };
+  // Later than any time the module saw in earlier tests (its memory is process-wide).
+  h.advance(48 * HOUR);
+  const c0 = h.at();
+  // The first note writes at once.
+  noteUserInput(c0 - 20 * MINUTE, { path: h.path, now: () => c0, schedule });
+  assert.equal(readJson(h.path).lastAppInputAt, c0 - 20 * MINUTE);
+  assert.equal(timers.length, 0);
+  // The last input of a burst lands inside the window: held, one trailing write is scheduled.
+  noteUserInput(c0 - 15 * MINUTE, { path: h.path, now: () => c0 + 20_000, schedule });
+  noteUserInput(c0 - 10 * MINUTE, { path: h.path, now: () => c0 + 40_000, schedule });
+  assert.equal(readJson(h.path).lastAppInputAt, c0 - 20 * MINUTE, 'not written inside the window');
+  assert.equal(timers.length, 1, 'one trailing write per state file');
+  assert.equal(timers[0].ms, 40_000, 'it fires when the window ends');
+  assert.equal(timers[0].unrefCalled, true);
+  // Silence: the timer fires at the end of the window and writes the newest value.
+  timers[0].run();
+  assert.equal(readJson(h.path).lastAppInputAt, c0 - 10 * MINUTE, 'the final value is persisted');
+  // A reload sees it: 10 minutes of quiet is still active.
+  h.restart({ userTurnAt: () => 0, appInputAt: () => 0 });
+  assert.equal(await h.tick(), 'deferred');
+  // A write already made leaves nothing pending: a later timer run changes nothing.
+  const written = readFileSync(h.path, 'utf8');
+  timers[0].run();
+  assert.equal(readFileSync(h.path, 'utf8'), written);
 });
 
 test('the first check after a start is looked at after a minute, then every tick', (t) => {
@@ -1013,6 +1097,7 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
       path,
       isEnabled: async () => true,
       userTurnAt: () => 0,
+      appInputAt: () => 0,
       getSessionService: () => mixy.service,
       collect: (input) => {
         collects.push({ ...input, now: clock, minute: minute() });
@@ -1099,8 +1184,8 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
     [at(30), 'woke'], // 6 hours after the first report: told again (Mixy's reply is the quiet sentinel)
     [at(32), 'empty'], // the routine succeeded: closed
     ...every2h(34, 48, 'unchanged'),
-    [at(58, 10), 'nothing'], // the user chatted from 50h to 58h: one check, 10 minutes after the last turn
-    [at(60, 10), 'empty'],
+    [at(58, 30), 'nothing'], // the user chatted from 50h to 58h: one check, 30 minutes after the last turn
+    [at(60, 30), 'empty'],
     [at(98), 'nothing'], // the restarted process: one check for everything while it was away
     ...every2h(100, 108, 'retry'), // 5 provider failures in a row
     [at(110), 'quiet'], // the gate is off now
@@ -1124,19 +1209,19 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
     );
   }
   assert.equal(
-    collects.filter((c) => c.minute > at(48) && c.minute < at(58, 10)).length,
+    collects.filter((c) => c.minute > at(48) && c.minute < at(58, 30)).length,
     0,
     'none while the user chatted'
   );
   assert.equal(
-    collects.filter((c) => c.minute > at(60, 10) && c.minute < at(98)).length,
+    collects.filter((c) => c.minute > at(60, 30) &&c.minute < at(98)).length,
     0,
     'none while no process ran'
   );
   // Coalescing: one check each, covering everything since the last handled one.
   const since = (minuteOfCheck) => collects.find((c) => c.minute === minuteOfCheck).since;
-  assert.equal(since(at(58, 10)), T0 + 48 * HOUR);
-  assert.equal(since(at(98)), T0 + 60 * HOUR + 10 * MINUTE);
+  assert.equal(since(at(58, 30)), T0 + 48 * HOUR);
+  assert.equal(since(at(98)), T0 + 60 * HOUR + 30 * MINUTE);
   // A failed Maintainer call keeps the watermark: the retries and the gate-off check cover the same span.
   for (const hour of [100, 102, 104, 106, 108, 110]) assert.equal(since(at(hour)), T0 + 98 * HOUR, `hour ${hour}`);
   assert.equal(since(at(112)), T0 + 110 * HOUR);
@@ -1148,7 +1233,7 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
       [at(2), 'tiny'],
       [at(24), 'tiny'],
       [at(30), 'tiny'],
-      [at(58, 10), 'tiny'],
+      [at(58, 30), 'tiny'],
       [at(98), 'tiny'],
       ...[100, 102, 104, 106, 108].map((hour) => [at(hour), 'tiny']),
       [at(114), 'tiny2'],

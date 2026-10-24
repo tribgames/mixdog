@@ -36,6 +36,24 @@ test('different target windows can be leased concurrently by different sessions'
   }
 });
 
+test('windowIdsWithActiveCommand names the leased windows of sessions with a command executing', async () => {
+  const coordinator = new ComputerUseCoordinator();
+  try {
+    await coordinator.acquireTargets('session-a', ['window-a']);
+    await coordinator.acquireTargets('session-b', ['window-b']);
+    assert.deepEqual(coordinator.windowIdsWithActiveCommand(), [], 'leases alone are no command');
+    begin(coordinator, 'session-a');
+    begin(coordinator, 'session-a');
+    assert.deepEqual(coordinator.windowIdsWithActiveCommand(), ['window-a']);
+    coordinator.finishCommand('session-a');
+    assert.deepEqual(coordinator.windowIdsWithActiveCommand(), ['window-a'], 'one of two commands still runs');
+    coordinator.finishCommand('session-a');
+    assert.deepEqual(coordinator.windowIdsWithActiveCommand(), [], 'finished: the grace lease is no command');
+  } finally {
+    coordinator.reset();
+  }
+});
+
 test('same-target contention queues the lease and requires a fresh action after grant', async () => {
   const coordinator = new ComputerUseCoordinator({ targetLeaseWaitMs: 1_000 });
   try {

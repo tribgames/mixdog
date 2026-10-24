@@ -79,6 +79,10 @@ import { setPageFaultDiagnosticSink } from './browser/page-fault-diagnostics';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
 import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './deferred-desktop-services';
 import { installViewportGuard } from './viewport-guard';
+import { computerUseOperates, createUserInputReporter, type UserInputReporter } from './user-input-report';
+import { agentInputInFlight } from './browser/agent-input';
+import { computerUseCoordinator } from './computer/session/coordinator';
+import { electronWindowForNativeId } from './computer/observation/window-handles';
 import {
   gpuFallbackDecision,
   readActiveGpuFallbackMarker,
@@ -694,6 +698,9 @@ let computerControlApplied = false;
 let computerObserveOnly = false;
 // Each window's IPC registration, removed when it closes or the app quits.
 const windowIpcDisposers = new Map<BrowserWindow, () => void>();
+// Each window's in-app input reporter (Mixy's heartbeat idle rule), stopped
+// when the window closes or the app quits.
+const userInputReporters = new Set<UserInputReporter>();
 let pendingPrimaryActivation = false;
 function activatePrimaryWindow(): void {
   pendingPrimaryActivation = !activateDesktopWindow(mainWindow);
@@ -1968,7 +1975,7 @@ function createDesktopPetController(): DesktopPet {
 /** This PC's window carries the machine's single instances: Computer Use and
  *  its overlay, the Browser Use pane host, taskbar attention, idle reclaim and
  *  the close-to-background behavior. Returns its Browser Use host. */
-function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
+function installLocalWindowFeatures(window: BrowserWindow, onGuest: (guest: Electron.WebContents) => void): BrowserHost {
   mainWindow = window;
   desktopPet?.attachAppWindow(window);
   if (!computerHost) {
@@ -2009,6 +2016,7 @@ function installLocalWindowFeatures(window: BrowserWindow): BrowserHost {
     // Only this PC's own window has a browser host (server windows refuse the
     // browser pane and agent bridge), so its sessions always work locally.
     remoteSession: false,
+    onGuest,
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     autoSignIn: () => browserAutoSignIn,
     // Live frames and explicit reveal/hide requests reach paired clients
@@ -2125,10 +2133,31 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   windowRoutes.register(window.webContents, connection.id);
   connectionWindows.set(connection.id, window);
   installDesktopWindowMaterial(window);
+  // The user's operations in this window reach its connection's runtime.
+  const inputReporter = createUserInputReporter({
+    report: (at) => connection.client.invokeCapability('noteUserInput', [at]),
+  });
+  // Not while Computer Use is executing a command against this window (its
+  // Browser Use pages, which live inside it, follow the same rule).
+  const computerUseOnWindow = () => computerUseOperates(computerUseCoordinator, electronWindowForNativeId, window);
+  inputReporter.watch(window.webContents, computerUseOnWindow);
+  userInputReporters.add(inputReporter);
+  window.once('closed', () => {
+    inputReporter.stop();
+    userInputReporters.delete(inputReporter);
+  });
   if (savedState?.maximized) window.maximize();
   const windowState = persistWindowState(window, statePath);
   windowStates.set(window, windowState);
-  const windowBrowserHost = local ? installLocalWindowFeatures(window) : null;
+  // A person's input on a Browser Use page counts; the agent's (and a paired
+  // phone's) CDP input raises the same events and is excluded while in flight,
+  // as the pane's own takeover rule does (browser/native-view.ts watch).
+  const windowBrowserHost = local
+    ? installLocalWindowFeatures(window, (guest) => {
+        const unwatch = inputReporter.watch(guest, () => agentInputInFlight(guest) || computerUseOnWindow());
+        guest.once('destroyed', unwatch);
+      })
+    : null;
   if (!local) window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   // A dead capture/automation CDP client can leave the renderer frozen at a
   // synthetic viewport (observed 800x600) while the native window resizes —
@@ -2627,6 +2656,8 @@ app.on('before-quit', (event) => {
   // The handler outlives a quitting main process; its normal exit is not a loss.
   stopCrashHandlerWatch?.();
   stopCrashHandlerWatch = null;
+  for (const reporter of userInputReporters) reporter.stop();
+  userInputReporters.clear();
   desktopTray?.dispose();
   desktopTray = null;
   if (quitAfterDispose) return;

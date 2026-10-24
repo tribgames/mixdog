@@ -40,10 +40,14 @@
  * for, or a wake whose reply was delivered); a failed collection (any
  * source), Maintainer call or wake leaves them for the next check, and a
  * routine-only wake after a failed Maintainer call commits just its routine
- * warnings. A due check waits while the user is active (a turn they sent in
- * the last 10 minutes, as this process saw it or the state file kept it;
- * routine and other runtime-made turns are no user activity); missed checks run as one; two never run at once; the first one after
- * a start is looked at after a minute. The setting `heartbeat: false` (setup
+ * warnings. A due check waits while the user is active: the user is idle only
+ * after 30 minutes with no operation, an operation being a turn they sent or
+ * an input (keyboard, mouse buttons, wheel, mouse movement) in the desktop
+ * app's own windows, which the app reports (noteUserInput), as this process
+ * saw it or the state file kept it. Input elsewhere on the machine, and
+ * routine and other runtime-made turns, are no user activity; without the
+ * desktop app only sent turns count. Missed checks run as one; two never run
+ * at once; the first one after a start is looked at after a minute. The setting `heartbeat: false` (setup
  * set_heartbeat_enabled) stops it.
  *
  * Proposals Mixy makes (session action suggest) live in the same state file
@@ -77,7 +81,7 @@ export const HEARTBEAT_LIMITS = Object.freeze({
   intervalMs: 30 * 60_000,
   firstTickMs: 60_000,
   tickMs: 5 * 60_000,
-  idleMs: 10 * 60_000,
+  idleMs: 30 * 60_000,
   repeatMs: 6 * HOUR,
   suggestionTtlMs: 72 * HOUR,
   maxPending: 5,
@@ -130,6 +134,55 @@ export function noteUserTurn(at = Date.now(), { path = defaultStatePath() } = {}
   });
 }
 
+let lastAppInputAt = 0;
+/** Per state file: the app input time last written, when it was written and
+ *  the trailing write waiting for the end of the window (if any). */
+const appInputWrites = new Map();
+const APP_INPUT_WRITE_MS = 60_000;
+function writeAppInput(path, entry, current) {
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = null;
+  const value = lastAppInputAt;
+  updateState(path, (next) => {
+    next.lastAppInputAt = Math.max(next.lastAppInputAt, value);
+  });
+  entry.at = value;
+  entry.wroteAt = current;
+}
+/** The latest time the user operated the desktop app (keyboard, mouse buttons,
+ *  wheel or mouse movement over its windows), as the app reports it (session
+ *  action noteUserInput). Memory always takes the max (a time in the future
+ *  counts as now). The state file (`lastAppInputAt`) is written only when the
+ *  value advanced and at most once a minute, whoever calls. A note inside the
+ *  window schedules one trailing write (an unref'd timer) of the newest value
+ *  at the window's end, so after input stops the file is at most a minute
+ *  behind: a crash loses at most the last minute of input, and a restart may
+ *  see it up to a minute older than it was. The first note of a process
+ *  writes at once. */
+export function noteUserInput(
+  at = Date.now(),
+  { path = defaultStatePath(), now = Date.now, schedule = setTimeout } = {}
+) {
+  const current = now();
+  const time = Math.min(Number(at) || 0, current);
+  lastAppInputAt = Math.max(lastAppInputAt, time);
+  let entry = appInputWrites.get(path);
+  if (!entry) appInputWrites.set(path, (entry = { at: 0, wroteAt: 0, timer: null }));
+  if (lastAppInputAt <= entry.at) return;
+  const waited = current - entry.wroteAt;
+  if (entry.wroteAt && waited < APP_INPUT_WRITE_MS) {
+    if (entry.timer) return;
+    const held = entry;
+    held.timer = schedule(() => {
+      held.timer = null;
+      if (lastAppInputAt > held.at) writeAppInput(path, held, now());
+    }, Math.min(APP_INPUT_WRITE_MS, APP_INPUT_WRITE_MS - waited));
+    held.timer?.unref?.();
+    return;
+  }
+  writeAppInput(path, entry, current);
+}
+
 const defaultStatePath = () => join(resolvePluginData(), 'heartbeat.json');
 
 function readState(path) {
@@ -144,6 +197,8 @@ function readState(path) {
     lastAttemptAt: Number(value.lastAttemptAt) || 0,
     // The user's latest accepted turn (noteUserTurn), for the idle check.
     lastUserInputAt: Number(value.lastUserInputAt) || 0,
+    // The user's latest operation inside the desktop app (noteUserInput).
+    lastAppInputAt: Number(value.lastAppInputAt) || 0,
     // Approvals waiting at the last handled check.
     approvals: Number.isInteger(value.approvals) && value.approvals > 0 ? value.approvals : 0,
     lastHash: typeof value.lastHash === 'string' ? value.lastHash : '',
@@ -550,6 +605,7 @@ export function createMixyHeartbeat({
   isEnabled = async () =>
     (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeat !== false,
   userTurnAt = () => lastUserTurnAt,
+  appInputAt = () => lastAppInputAt,
   getSessionService = () => null,
   log = defaultLog,
   collect = (input) => collectHeartbeatFacts({ ...input, getSessionService }),
@@ -770,9 +826,15 @@ export function createMixyHeartbeat({
       // Checks are due by the last one begun; a check left unhandled keeps
       // its watermark, so the next one collects its changes again.
       if (at - Math.max(state.lastBeatAt, state.lastAttemptAt) < limits.intervalMs) return 'waiting';
-      // The user's latest turn: one this process saw, or the state file's
-      // record of it (it survives a crash or restart).
-      const userAt = Math.max(Number(userTurnAt()) || 0, state.lastUserInputAt);
+      // The user's latest operation: a turn they sent or an input in the
+      // desktop app, as this process saw it or the state file kept it (it
+      // survives a crash or restart).
+      const userAt = Math.max(
+        Number(userTurnAt()) || 0,
+        Number(appInputAt()) || 0,
+        state.lastUserInputAt,
+        state.lastAppInputAt
+      );
       if (at - userAt < limits.idleMs) return 'deferred';
       updateState(path, (next) => {
         next.lastAttemptAt = at;

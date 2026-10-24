@@ -222,10 +222,14 @@ test('the daemon timers run the check: first tick after a minute arms, a turn th
   every();
   await settle();
   assert.equal(collects, 0, 'a turn 5 minutes ago: the check waits');
+  clock += 20 * MINUTE;
+  every();
+  await settle();
+  assert.equal(collects, 0, 'a turn 25 minutes ago: the check still waits');
   clock += 5 * MINUTE;
   every();
   await settle();
-  assert.equal(collects, 1, 'the user has been quiet for 10 minutes: the check runs');
+  assert.equal(collects, 1, 'the user has been quiet for 30 minutes: the check runs');
   stop();
   `
   );

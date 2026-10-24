@@ -507,6 +507,16 @@ export class ComputerUseCoordinator {
     return false;
   }
 
+  /** The windows leased by sessions with a command executing now
+   *  (beginCommand not yet matched by finishCommand). */
+  windowIdsWithActiveCommand(): string[] {
+    const windowIds: string[] = [];
+    for (const [windowId, lease] of this.targetLeases) {
+      if ((this.activeCounts.get(lease.sessionId) || 0) > 0) windowIds.push(windowId);
+    }
+    return windowIds;
+  }
+
   releaseTargets(sessionId: string): void {
     for (const [windowId, lease] of this.targetLeases) {
       if (lease.sessionId !== sessionId) continue;

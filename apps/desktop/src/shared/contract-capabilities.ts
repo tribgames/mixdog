@@ -31,6 +31,7 @@ export const DESKTOP_CAPABILITIES = [
   'setAiSessionTitles',
   'getHeartbeatSettings',
   'setHeartbeatEnabled',
+  'noteUserInput',
   'getReactionSettings',
   'setReactionsEnabled',
   'getToolModuleSettings',
