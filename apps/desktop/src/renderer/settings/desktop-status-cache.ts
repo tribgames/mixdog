@@ -17,11 +17,13 @@ interface DesktopStatus {
 }
 type StatusKey = keyof DesktopStatus;
 
-const readers: { [K in StatusKey]: (api: StatusApi) => Promise<DesktopStatus[K]> | undefined } = {
+// `refresh` asks the host to re-probe instead of answering from its cache; only
+// the LibreOffice probe has one (an install done outside Mixdog).
+const readers: { [K in StatusKey]: (api: StatusApi, refresh: boolean) => Promise<DesktopStatus[K]> | undefined } = {
   settings: (api) => api.readSettings?.(),
   quotaAutoResume: (api) => api.getQuotaAutoResume?.(),
   gitCli: (api) => api.gitCliStatus?.(),
-  libreOffice: (api) => api.libreOfficeStatus?.(),
+  libreOffice: (api, refresh) => (refresh ? api.libreOfficeStatus?.(true) : api.libreOfficeStatus?.()),
 };
 
 const statusCache = new WeakMap<object, Partial<DesktopStatus>>();
@@ -80,10 +82,11 @@ export function storeDesktopStatus<K extends StatusKey>(
  *  A read superseded by a write or a newer read resolves to the cached value instead. */
 export function readDesktopStatus<K extends StatusKey>(
   api: StatusApi | undefined,
-  key: K
+  key: K,
+  refresh = false
 ): Promise<DesktopStatus[K]> | undefined {
   if (!api) return undefined;
-  const pending = readers[key](api);
+  const pending = readers[key](api, refresh);
   if (!pending) return undefined;
   const revision = nextRevision(api, key);
   return pending.then((value) => {

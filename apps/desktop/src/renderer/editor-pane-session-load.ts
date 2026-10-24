@@ -8,7 +8,14 @@ import {
 } from './editor-file-loader';
 import { documentPreviewFromResult, type DocumentPreview } from './editor-document-model';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
-import { documentPreviewError, fileAccessError, isOfficePreviewUnavailable } from './editor-pane-session-errors';
+import {
+  documentPreviewError,
+  fileAccessError,
+  isDocumentPasswordRequired,
+  isDocumentWrongPassword,
+  isOfficePreviewUnavailable,
+} from './editor-pane-session-errors';
+import type { DocumentPasswordPrompt } from './use-editor-document-pages';
 import { useMediaSessionEpoch } from './remote-file-preview';
 import { reportEditorLoadStage } from './renderer-load-metrics';
 import { t } from './i18n';
@@ -50,6 +57,7 @@ export function useEditorSessionLoad({
   setDocumentPreview,
   setDocumentError,
   setDocumentOfficeMissing,
+  setDocumentPassword,
 }: {
   api: typeof window.mixdogDesktop;
   projectPath: string;
@@ -83,6 +91,7 @@ export function useEditorSessionLoad({
   setDocumentPreview: (preview: DocumentPreview | null) => void;
   setDocumentError: (message: string) => void;
   setDocumentOfficeMissing: (missing: boolean) => void;
+  setDocumentPassword: (prompt: DocumentPasswordPrompt | null) => void;
 }) {
   // The ordinary text/binary read, extracted so a document whose conversion
   // fails still lands on the binary notice — with its "open in the default
@@ -146,15 +155,8 @@ export function useEditorSessionLoad({
     setContentRevision,
   ]);
 
-  const reload = useCallback(() => {
-    setError('');
-    setSaveError('');
-    setRevertError('');
-    setPreviewError('');
-    setPreviewLoaded(false);
-    setPreview(null);
-    const generation = resetDocument();
-    const previewOpened = (result: { mtimeMs: number }): void => {
+  const previewOpened = useCallback(
+    (result: { mtimeMs: number }): void => {
       loadedRef.current = true;
       savedMtime.current = result.mtimeMs;
       savedDiskText.current = '';
@@ -169,7 +171,70 @@ export function useEditorSessionLoad({
       setRecovery(null);
       setDiskChanged(false);
       markDirty(false);
-    };
+    },
+    [loadedRef, markDirty, savedDiskText, savedMtime, savedText, setDiskChanged, setLoad, setRecovery]
+  );
+
+  // Bumped by every password try and by Cancel: only the latest try may open
+  // the preview or change the question.
+  const passwordAttempt = useRef(0);
+  /** Re-requests the protected document's first page with `password`. The
+   *  password lives only in this call; a wrong one keeps the question open. */
+  const unlockDocument = useCallback(
+    (password: string) => {
+      const reader = api?.previewDocumentPages;
+      if (!reader || !password) return;
+      const generation = documentGeneration.current;
+      const attempt = ++passwordAttempt.current;
+      const current = () => generation === documentGeneration.current && attempt === passwordAttempt.current;
+      setDocumentPassword({ wrong: false, busy: true });
+      void reader(projectPath, relPath, accessToken, { pages: [1], password })
+        .then((result) => {
+          if (!current()) return;
+          setDocumentPassword(null);
+          setDocumentError('');
+          setDocumentPreview(documentPreviewFromResult(result));
+          previewOpened(result);
+        })
+        .catch((reason) => {
+          if (!current()) return;
+          if (isDocumentWrongPassword(reason)) {
+            setDocumentPassword({ wrong: true, busy: false });
+            return;
+          }
+          setDocumentPassword(isDocumentPasswordRequired(reason) ? { wrong: false, busy: false } : null);
+          setDocumentError(documentPreviewError(reason));
+          setDocumentOfficeMissing(isOfficePreviewUnavailable(reason));
+        });
+    },
+    [
+      accessToken,
+      api,
+      documentGeneration,
+      previewOpened,
+      projectPath,
+      relPath,
+      setDocumentError,
+      setDocumentOfficeMissing,
+      setDocumentPassword,
+      setDocumentPreview,
+    ]
+  );
+  /** Closes the question; the pane keeps the "password-protected" notice. */
+  const cancelDocumentPassword = useCallback(() => {
+    passwordAttempt.current += 1;
+    setDocumentPassword(null);
+  }, [setDocumentPassword]);
+
+  const reload = useCallback(() => {
+    setError('');
+    setSaveError('');
+    setRevertError('');
+    setPreviewError('');
+    setPreviewLoaded(false);
+    setPreview(null);
+    passwordAttempt.current += 1;
+    const generation = resetDocument();
     // PDFs go through the page viewer below (our scroller, scrollbars and
     // zoom) instead of the browser's PDF viewer; without that API the binary
     // notice offers "Open in default app".
@@ -199,6 +264,7 @@ export function useEditorSessionLoad({
     const documentFailed = (reason: unknown): void => {
       setDocumentError(documentPreviewError(reason));
       setDocumentOfficeMissing(isOfficePreviewUnavailable(reason));
+      setDocumentPassword(isDocumentPasswordRequired(reason) ? { wrong: false, busy: false } : null);
       readFileContents();
     };
     if (documentFormat && api?.previewDocumentPages) {
@@ -219,18 +285,15 @@ export function useEditorSessionLoad({
     accessToken,
     api,
     documentGeneration,
-    markDirty,
+    previewOpened,
     projectPath,
     readFileContents,
     relPath,
     resetDocument,
     setDocumentError,
     setDocumentOfficeMissing,
+    setDocumentPassword,
     setDocumentPreview,
-    loadedRef,
-    savedMtime,
-    savedDiskText,
-    savedText,
     setLoad,
     setError,
     setSaveError,
@@ -238,8 +301,6 @@ export function useEditorSessionLoad({
     setPreview,
     setPreviewLoaded,
     setPreviewError,
-    setRecovery,
-    setDiskChanged,
   ]);
 
   useEffect(() => {
@@ -269,5 +330,5 @@ export function useEditorSessionLoad({
     }
   }, [accessToken, error, load, notifyReady, preview, projectPath, relPath]);
 
-  return reload;
+  return { reload, unlockDocument, cancelDocumentPassword };
 }

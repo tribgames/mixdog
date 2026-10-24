@@ -39,6 +39,15 @@ function spawnPowerShell(script) {
   );
 }
 
+// Resolves once the host process is gone. A signal-terminated child has exitCode null but signalCode set,
+// and its 'close' may already have been emitted, so both are checked before waiting for the event.
+export function hostExitSignal(child) {
+  return new Promise((done) => {
+    if (child.exitCode !== null || child.signalCode !== null) done();
+    else child.once('close', () => done());
+  });
+}
+
 async function callMicrosoftOfficeOnce(payload, { timeoutMs = DEFAULT_TIMEOUT_MS, signal = null } = {}) {
   return await new Promise((resolve) => {
     const child = spawnPowerShell(HOST_SCRIPT);
@@ -65,13 +74,20 @@ async function callMicrosoftOfficeOnce(payload, { timeoutMs = DEFAULT_TIMEOUT_MS
         },
       };
       void drainSessionClient(client, error).then((cleanup) => {
-        finish({
+        const result = {
           ok: false,
           cancelled,
           error: officeCleanupError(error, cleanup),
           operationMayHaveCompleted: true,
           cleanup,
+        };
+        // Settles when the host process is gone, which may be after this result when the
+        // grace period lapsed: callers that own files the host holds open wait on it.
+        // Non-enumerable so the result still serializes unchanged.
+        Object.defineProperty(result, 'hostExit', {
+          value: hostExitSignal(child),
         });
+        finish(result);
       });
     };
     const onAbort = () => beginCleanup('Microsoft Office operation was cancelled', true);

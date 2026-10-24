@@ -75,9 +75,18 @@ function sofficeCandidates(): string[] {
   ];
 }
 
+let candidateSource: () => string[] = sofficeCandidates;
+
+/** Test seam: replaces the probe's candidate list (and drops the cached answer);
+ *  no argument restores the platform candidates. */
+export function setLibreOfficeCandidatesForTest(candidates?: string[]): void {
+  candidateSource = candidates ? () => candidates : sofficeCandidates;
+  cached = undefined;
+}
+
 async function resolveSoffice(refresh = false): Promise<{ path: string; version: string } | null> {
   if (!refresh && cached !== undefined) return cached;
-  for (const candidate of sofficeCandidates()) {
+  for (const candidate of candidateSource()) {
     if (/[\\/]/.test(candidate) && !existsSync(candidate)) continue;
     const probe = await run(candidate, ['--version'], PROBE_TIMEOUT_MS);
     if (probe.code === 0) {
@@ -92,10 +101,25 @@ async function resolveSoffice(refresh = false): Promise<{ path: string; version:
   return null;
 }
 
-export async function libreOfficeStatus(refresh = false): Promise<DesktopLibreOfficeStatus> {
+// Renderer-requested re-probes (a failed Office preview regaining focus) share
+// one probe at a time: concurrent refreshes join the probe already running.
+let refreshing: Promise<unknown> | null = null;
+
+async function statusOf(refresh: boolean): Promise<DesktopLibreOfficeStatus> {
   const soffice = await resolveSoffice(refresh);
   if (!soffice) return { installed: false };
   return { installed: true, ...(soffice.version ? { version: soffice.version } : {}) };
+}
+
+/** Cached answer; `refresh` first re-probes the backend (concurrent refreshes share one probe) so an install done outside Mixdog is seen. */
+export async function libreOfficeStatus(refresh = false): Promise<DesktopLibreOfficeStatus> {
+  if (refresh) {
+    refreshing ??= resolveSoffice(true).finally(() => {
+      refreshing = null;
+    });
+    await refreshing;
+  }
+  return statusOf(false);
 }
 
 export async function installLibreOffice({
@@ -106,7 +130,7 @@ export async function installLibreOffice({
   // The install click may race a probe that never ran (or ran before a manual
   // install), and winget treats "already installed" as a failure — so a fresh
   // probe answers first.
-  const existing = await libreOfficeStatus(true);
+  const existing = await statusOf(true);
   if (existing.installed) return existing;
   await installWithPackageManager({
     label: 'LibreOffice',
@@ -118,7 +142,7 @@ export async function installLibreOffice({
       'Automatic LibreOffice installation is not supported on Linux. Install it with your package manager ' +
       '(for example `sudo apt install libreoffice` or `sudo dnf install libreoffice`) or from https://www.libreoffice.org.',
   });
-  const status = await libreOfficeStatus(true);
+  const status = await statusOf(true);
   if (!status.installed) {
     throw new Error(
       'LibreOffice installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.'

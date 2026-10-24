@@ -251,7 +251,7 @@ export interface DesktopApi {
   gitCliStatus?(): Promise<DesktopGitCliStatus>;
   installGitCli?(): Promise<DesktopGitCliStatus>;
   /** Extensions → Office: LibreOffice dependency probe + guided install. */
-  libreOfficeStatus?(): Promise<DesktopLibreOfficeStatus>;
+  libreOfficeStatus?(refresh?: boolean): Promise<DesktopLibreOfficeStatus>;
   installLibreOffice?(): Promise<DesktopLibreOfficeStatus>;
   /** Extensions → Computer Use: what this OS still needs before the tool runs
    *  fully (Linux capabilities, macOS grants). Desktop-only. */
@@ -359,12 +359,13 @@ export interface DesktopApi {
   }>;
   /** Rasterized pages of the same conversion, for a surface that cannot
    *  display a PDF at all. The reply carries the page count so the viewer can
-   *  ask for the rest as it scrolls. */
+   *  ask for the rest as it scrolls. `password` opens a password-protected
+   *  document for this one request; later page requests need none. */
   previewDocumentPages?(
     projectPath: string,
     relPath: string,
     accessToken?: string,
-    options?: { pages?: number[]; maxWidth?: number }
+    options?: { pages?: number[]; maxWidth?: number; password?: string }
   ): Promise<DesktopDocumentPreviewPages>;
   writeProjectFile?(
     projectPath: string,

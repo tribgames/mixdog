@@ -229,6 +229,9 @@ export default function EditorPane({
     documentPreview,
     documentError,
     documentOfficeMissing,
+    documentPassword,
+    unlockDocument,
+    cancelDocumentPassword,
     documentPageErrors,
     documentPagesLoading,
     loadDocumentPages,
@@ -592,6 +595,12 @@ export default function EditorPane({
         load={load}
         note={documentError}
         officeMissing={documentOfficeMissing}
+        password={
+          documentPassword
+            ? { ...documentPassword, onSubmit: unlockDocument, onCancel: cancelDocumentPassword }
+            : undefined
+        }
+        active={active}
         onRetry={documentError ? reload : undefined}
         onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken, downloadSessionId)}
       />

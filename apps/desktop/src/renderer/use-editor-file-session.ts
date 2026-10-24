@@ -61,6 +61,8 @@ export function useEditorFileSession({
     setDocumentError,
     documentOfficeMissing,
     setDocumentOfficeMissing,
+    documentPassword,
+    setDocumentPassword,
     documentPagesLoading,
     documentPageErrors,
     documentGeneration,
@@ -153,7 +155,7 @@ export function useEditorFileSession({
     [deleteBackup, heldBackupBase, heldBackupText, writeBackupNow]
   );
 
-  const reload = useEditorSessionLoad({
+  const { reload, unlockDocument, cancelDocumentPassword } = useEditorSessionLoad({
     api,
     projectPath,
     relPath,
@@ -186,6 +188,7 @@ export function useEditorFileSession({
     setDocumentPreview,
     setDocumentError,
     setDocumentOfficeMissing,
+    setDocumentPassword,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge, re-read each render and kept as a dependency so a re-installed bridge re-creates this callback.
@@ -483,6 +486,9 @@ export function useEditorFileSession({
     documentPreview,
     documentError,
     documentOfficeMissing,
+    documentPassword,
+    unlockDocument,
+    cancelDocumentPassword,
     documentPageErrors,
     documentPagesLoading,
     loadDocumentPages,

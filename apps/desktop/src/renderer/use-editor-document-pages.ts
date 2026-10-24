@@ -10,6 +10,14 @@ import {
 } from './editor-document-model';
 import { startEditorDiskWatch } from './editor-disk-watch';
 
+/** The pane's password question for a protected document. */
+export interface DocumentPasswordPrompt {
+  /** The last password given did not open it. */
+  wrong: boolean;
+  /** A password is being tried. */
+  busy: boolean;
+}
+
 export function useEditorDocumentPages({
   api,
   projectPath,
@@ -26,6 +34,10 @@ export function useEditorDocumentPages({
   // The failure was "no LibreOffice or Microsoft Office": the one preview error
   // the pane can offer to fix.
   const [documentOfficeMissing, setDocumentOfficeMissing] = useState(false);
+  // The failure was "password-protected" and a password can open it: the pane
+  // asks for one. Only whether the last try was wrong and whether one is in
+  // flight are kept, never the password.
+  const [documentPassword, setDocumentPassword] = useState<DocumentPasswordPrompt | null>(null);
   const [documentPagesLoading, setDocumentPagesLoading] = useState(false);
   const [documentPageErrors, setDocumentPageErrors] = useState<Record<number, DocumentPageError>>({});
   const documentPagesInFlight = useRef(false);
@@ -42,6 +54,7 @@ export function useEditorDocumentPages({
     setDocumentPreview(null);
     setDocumentError('');
     setDocumentOfficeMissing(false);
+    setDocumentPassword(null);
     setDocumentPageErrors({});
     documentGeneration.current += 1;
     documentPagesInFlight.current = false;
@@ -106,6 +119,8 @@ export function useEditorDocumentPages({
     setDocumentError,
     documentOfficeMissing,
     setDocumentOfficeMissing,
+    documentPassword,
+    setDocumentPassword,
     documentPagesLoading,
     documentPageErrors,
     documentGeneration,

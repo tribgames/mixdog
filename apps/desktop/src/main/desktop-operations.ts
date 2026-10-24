@@ -402,7 +402,7 @@ export function createDesktopOperations({
       return documentPreviews.documentPreviewPagesIn(
         String(args[0] || ''),
         String(args[1] || ''),
-        (args[2] ?? {}) as { pages?: unknown; maxWidth?: unknown }
+        (args[2] ?? {}) as { pages?: unknown; maxWidth?: unknown; password?: unknown }
       );
     }
     if (name === 'readSettings') return settingsStore.read();

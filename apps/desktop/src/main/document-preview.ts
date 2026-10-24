@@ -35,7 +35,7 @@ interface DocumentPreviewPages {
 
 export interface DocumentPreviewModule {
   documentPreviewFormat(path: string): string;
-  documentPreviewPdf(path: string, options: { cacheRoot: string }): Promise<DocumentPreviewPdf>;
+  documentPreviewPdf(path: string, options: { cacheRoot: string; password?: string }): Promise<DocumentPreviewPdf>;
   documentPreviewPages(
     pdfPath: string,
     options: { pages: number[]; maxWidth: number; cacheRoot: string }
@@ -69,6 +69,18 @@ function requestedWidth(value: unknown): number {
   return Math.min(MAX_PAGE_WIDTH, Math.max(MIN_PAGE_WIDTH, width));
 }
 
+// An Office password is at most 255 characters ([MS-OFFCRYPTO] 2.3.4). It is
+// handed to the conversion for this request only, never kept or echoed.
+const MAX_PASSWORD_LENGTH = 255;
+
+function requestedPassword(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string' || value.length > MAX_PASSWORD_LENGTH) {
+    throw new TypeError(`A document password must be text of at most ${MAX_PASSWORD_LENGTH} characters.`);
+  }
+  return value;
+}
+
 export function createDocumentPreviewOperations({
   cacheRoot,
   loadDocumentPreview,
@@ -82,7 +94,7 @@ export function createDocumentPreviewOperations({
     }
     return await loadDocumentPreview();
   };
-  const convert = async (root: string, relPath: string): Promise<DocumentPreviewPdf> => {
+  const convert = async (root: string, relPath: string, password = ''): Promise<DocumentPreviewPdf> => {
     const file = projectEntryPathIn(String(root || ''), String(relPath || ''));
     // A PDF needs no conversion: it is rasterized in place, so the editor can
     // show it with the same page viewer as converted documents.
@@ -95,7 +107,7 @@ export function createDocumentPreviewOperations({
     if (!office.documentPreviewFormat(file)) {
       throw new Error('This file type has no built-in document preview.');
     }
-    return await office.documentPreviewPdf(file, { cacheRoot });
+    return await office.documentPreviewPdf(file, password ? { cacheRoot, password } : { cacheRoot });
   };
   return {
     /** Absolute path of the converted PDF. Desktop-local: the renderer never
@@ -106,11 +118,11 @@ export function createDocumentPreviewOperations({
     documentPreviewPagesIn: async (
       root: string,
       relPath: string,
-      options: { pages?: unknown; maxWidth?: unknown } = {}
+      options: { pages?: unknown; maxWidth?: unknown; password?: unknown } = {}
     ) => {
       const pages = requestedPages(options.pages);
       const maxWidth = requestedWidth(options.maxWidth);
-      let pdf = await convert(root, relPath);
+      let pdf = await convert(root, relPath, requestedPassword(options.password));
       const office = await runtime();
       let rendered = await office.documentPreviewPages(pdf.path, { pages, maxWidth, cacheRoot });
       // The PDF is mutable: if it changed while rasterizing, the pixels may

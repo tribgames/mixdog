@@ -341,7 +341,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     starGithub: () => call('starGithub'),
     gitCliStatus: () => call('gitCliStatus'),
     installGitCli: () => call('installGitCli'),
-    libreOfficeStatus: () => call('libreOfficeStatus'),
+    libreOfficeStatus: (refresh) => call('libreOfficeStatus', [refresh === true]),
     installLibreOffice: () => call('installLibreOffice'),
     githubCliStatus: () => call('githubCliStatus'),
     githubRequest: (cwd, input) => call('githubRequest', [cwd, input]),

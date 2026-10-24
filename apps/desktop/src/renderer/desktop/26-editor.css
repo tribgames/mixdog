@@ -1072,6 +1072,30 @@
   opacity: 0.5;
   cursor: default;
 }
+.editor-pane-password {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  text-align: center;
+}
+.editor-pane-password p {
+  margin: 0;
+}
+.editor-pane-password input {
+  width: 100%;
+  min-width: 220px;
+  padding: 5px 8px;
+  border: var(--mx-hairline) solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text);
+  font: inherit;
+}
+.editor-pane-password-wrong {
+  color: var(--mx-danger);
+}
 .editor-pane-spinner {
   animation: var(--mx-motion-spin);
 }

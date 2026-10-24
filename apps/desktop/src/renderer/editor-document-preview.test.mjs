@@ -21,6 +21,11 @@ globalThis.requestAnimationFrame = (callback) => {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const { useEditorFileSession } = await import('./use-editor-file-session.ts');
+// Every import resolves before the first test registers: the runner's
+// --test-force-exit ends the process once registered tests finish.
+const { EditorPaneFileFallback } = await import('./editor-pane-surfaces.tsx');
+const { resetOfficeInstall } = await import('./editor-office-install.ts');
+const { storeDesktopStatus } = await import('./settings/desktop-status-cache.ts');
 
 async function mountSession(api, relPath) {
   window.mixdogDesktop = api;
@@ -347,13 +352,12 @@ test('a failed batch keeps the pages that arrived and Retry re-requests just tha
 });
 
 // ---- Office preview: "Install LibreOffice" in the failure note ----
-const { EditorPaneFileFallback } = await import('./editor-pane-surfaces.tsx');
-const { resetOfficeInstall } = await import('./editor-office-install.ts');
-const { storeDesktopStatus } = await import('./settings/desktop-status-cache.ts');
-
-async function mountFallback(api, relPath) {
+async function mountFallback(api, relPath, { active = true } = {}) {
   window.mixdogDesktop = api;
+  let setActive = () => {};
   function Harness() {
+    const [paneActive, setPaneActive] = React.useState(active);
+    setActive = setPaneActive;
     const editorRef = useRef(null);
     const syncLspRef = useRef(async () => false);
     const session = useEditorFileSession({
@@ -373,6 +377,14 @@ async function mountFallback(api, relPath) {
       load: session.load,
       note: session.documentError,
       officeMissing: session.documentOfficeMissing,
+      password: session.documentPassword
+        ? {
+            ...session.documentPassword,
+            onSubmit: session.unlockDocument,
+            onCancel: session.cancelDocumentPassword,
+          }
+        : undefined,
+      active: paneActive,
       onRetry: session.documentError ? session.reload : undefined,
       onOpen() {},
     });
@@ -381,12 +393,13 @@ async function mountFallback(api, relPath) {
   document.querySelector('main').append(host);
   const root = createRoot(host);
   await act(async () => root.render(React.createElement(Harness)));
-  return { root, host };
+  return { root, host, activate: (next) => act(async () => setActive(next)) };
 }
 
 function officeApi({ failure, install }) {
-  const calls = { previews: 0, installs: 0 };
+  const calls = { previews: 0, installs: 0, statusReads: 0, refreshes: [] };
   let installed = false;
+  let reported = false;
   const api = {
     previewDocumentPages: async (_p, _r, _a, options) => {
       calls.previews += 1;
@@ -399,11 +412,34 @@ function officeApi({ failure, install }) {
       installed = result.installed;
       return result;
     },
-    libreOfficeStatus: async () => ({ installed }),
+    // Like the host: a plain read answers from its cache (a stale "missing"
+    // until something re-probes); only a refresh read sees the real state.
+    libreOfficeStatus: async (refresh) => {
+      calls.statusReads += 1;
+      calls.refreshes.push(refresh);
+      if (refresh === true) reported = installed;
+      return { installed: reported };
+    },
     readProjectFile: async () => ({ content: '', mtimeMs: 11, binary: true, tooLarge: false, encoding: 'utf8' }),
     readEditorBackup: async () => null,
   };
-  return { api, calls };
+  // An install done outside Mixdog: only the backend changes, nothing is stored.
+  const installOutside = () => {
+    installed = true;
+  };
+  return { api, calls, installOutside };
+}
+
+function fakeClock(t) {
+  const realNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  t.after(() => {
+    Date.now = realNow;
+  });
+  return (ms) => {
+    now += ms;
+  };
 }
 
 const buttons = (host) => [...host.querySelectorAll('.editor-pane-notice-actions button')];
@@ -504,6 +540,57 @@ test('the phone surface hides the install button', async (t) => {
   }
 });
 
+test('an install outside Mixdog retries the failed preview when the window regains focus', async (t) => {
+  surface(t, true);
+  resetOfficeInstall();
+  const advance = fakeClock(t);
+  const { api, calls, installOutside } = officeApi({
+    failure: 'OFFICE_PREVIEW_UNAVAILABLE: no engine',
+    install: async () => ({ installed: true }),
+  });
+  const { root, host } = await mountFallback(api, 'docs/a.docx');
+  try {
+    assert.ok(installButton(host), 'the failed preview stays open');
+    assert.equal(calls.statusReads, 1, 'showing the failed preview checked the engine once');
+    installOutside();
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.equal(calls.statusReads, 1, 'a focus right after the check is throttled');
+    assert.equal(host.querySelector('#pages'), null);
+    advance(10_000);
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.equal(calls.statusReads, 2, 'the focus re-read the engine status');
+    assert.deepEqual(calls.refreshes, [true, true], 'both reads asked the host to re-probe');
+    assert.ok(host.querySelector('#pages'), 'the failed preview retried and renders');
+    assert.equal(calls.installs, 0, 'nothing was installed from Mixdog');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('an install outside Mixdog retries the failed preview when its pane is activated', async (t) => {
+  surface(t, true);
+  resetOfficeInstall();
+  const advance = fakeClock(t);
+  const { api, calls, installOutside } = officeApi({
+    failure: 'OFFICE_PREVIEW_UNAVAILABLE: no engine',
+    install: async () => ({ installed: true }),
+  });
+  const { root, host, activate } = await mountFallback(api, 'docs/a.docx');
+  try {
+    await activate(false);
+    installOutside();
+    advance(10_000);
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.equal(calls.statusReads, 1, 'a hidden pane does not re-check on focus');
+    assert.equal(host.querySelector('#pages'), null);
+    await activate(true);
+    assert.equal(calls.statusReads, 2, 'activating the pane re-read the engine status');
+    assert.ok(host.querySelector('#pages'), 'the failed preview retried and renders');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test('an install done elsewhere clears the failure and retries the failed pane', async (t) => {
   surface(t, true);
   resetOfficeInstall();
@@ -534,5 +621,113 @@ test('an install done elsewhere clears the failure and retries the failed pane',
     assert.equal(calls.previews, previewsBefore, 'the retry used the replaced reader');
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+// ---- Password-protected documents ----
+function protectedApi(password) {
+  const requests = [];
+  const api = {
+    previewDocumentPages: async (_p, _r, _a, options) => {
+      requests.push(options);
+      // As the IPC rejection arrives: Electron's prefix, then the runtime's coded text.
+      if (!options.password) {
+        throw new Error(
+          "Error invoking remote method 'mixdog:preview-document-pages': Error: This file is password-protected and can't be previewed. (OFFICE_PREVIEW_PASSWORD_PROTECTED)"
+        );
+      }
+      if (options.password !== password) {
+        throw new Error(
+          "Error invoking remote method 'mixdog:preview-document-pages': Error: That password didn't work. (OFFICE_PREVIEW_WRONG_PASSWORD)"
+        );
+      }
+      return { format: 'docx', mtimeMs: 1, size: 1, pageCount: 1, pages: options.pages.map(renderedPage) };
+    },
+    libreOfficeStatus: async () => ({ installed: true }),
+    readProjectFile: async () => ({ content: '', mtimeMs: 11, binary: true, tooLarge: false, encoding: 'utf8' }),
+    readEditorBackup: async () => null,
+  };
+  return { api, requests };
+}
+
+const passwordField = (host) => host.querySelector('.editor-pane-password input[type="password"]');
+const buttonNamed = (host, name) => buttons(host).find((button) => button.textContent.trim() === name);
+
+async function typeAndSubmit(host, value) {
+  const input = passwordField(host);
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  // react-dom loaded before this file's DOM existed, so it watches text fields
+  // the no-input-event way: a focused field whose value changed by a key.
+  await act(async () => {
+    input.dispatchEvent(new window.FocusEvent('focusin', { bubbles: true }));
+    setValue.call(input, value);
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    input.dispatchEvent(new window.KeyboardEvent('keyup', { bubbles: true }));
+  });
+  assert.equal(buttonNamed(host, 'Open').disabled, false, 'a typed password can be submitted');
+  await act(async () => buttonNamed(host, 'Open').click());
+}
+
+test('a protected document asks for its password, says when one is wrong, and opens with the right one', async (t) => {
+  surface(t, true);
+  const { api, requests } = protectedApi('Correct horse');
+  const { root, host } = await mountFallback(api, 'docs/secret.docx');
+  try {
+    assert.ok(passwordField(host), 'the protected failure shows a password field');
+    assert.match(host.textContent, /This file is password-protected\. Enter its password to preview it\./);
+    assert.equal(buttonNamed(host, 'Retry'), undefined, 'Open replaces Retry while the question is open');
+    assert.equal(buttonNamed(host, 'Open').disabled, true, 'nothing to submit yet');
+    assert.deepEqual(requests, [{ pages: [1] }], 'the first request carries no password');
+
+    await typeAndSubmit(host, 'wrong guess');
+    assert.deepEqual(requests[1], { pages: [1], password: 'wrong guess' }, 'submitting re-requests with the password');
+    assert.match(host.textContent, /That password didn't work\./);
+    assert.ok(passwordField(host), 'the field stays for another try');
+    assert.equal(passwordField(host).value, '', 'the field does not keep the password');
+    assert.equal(host.querySelector('#pages'), null);
+
+    await typeAndSubmit(host, 'Correct horse');
+    assert.deepEqual(requests[2], { pages: [1], password: 'Correct horse' });
+    assert.ok(host.querySelector('#pages'), 'the right password opens the preview');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('Cancel closes the password question and keeps the protected-file notice', async (t) => {
+  surface(t, true);
+  const { api, requests } = protectedApi('Correct horse');
+  const { root, host } = await mountFallback(api, 'docs/secret.xlsx');
+  try {
+    await act(async () => buttonNamed(host, 'Cancel').click());
+    assert.equal(passwordField(host), null);
+    assert.match(host.textContent, /This file is password-protected and can't be previewed\./);
+    assert.ok(buttonNamed(host, 'Retry'), 'Retry asks again');
+    assert.equal(requests.length, 1, 'cancelling sends nothing');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('a protected file no password can open, or one that needs Microsoft Office, offers no password field', async (t) => {
+  surface(t, true);
+  for (const [code, text] of [
+    ['OFFICE_PREVIEW_PASSWORD_UNSUPPORTED', /This file is password-protected and can't be previewed\./],
+    ['OFFICE_PREVIEW_PASSWORD_CORRUPT', /This file is password-protected and can't be previewed\./],
+    ['OFFICE_PREVIEW_PASSWORD_NEEDS_OFFICE', /Previewing this password-protected file needs Microsoft Office\./],
+  ]) {
+    const api = {
+      ...protectedApi('x').api,
+      previewDocumentPages: async () => {
+        throw new Error(`Engine text (${code})`);
+      },
+    };
+    const { root, host } = await mountFallback(api, 'docs/old.pptx');
+    try {
+      assert.equal(passwordField(host), null, code);
+      assert.match(host.textContent, text);
+    } finally {
+      await act(async () => root.unmount());
+    }
   }
 });

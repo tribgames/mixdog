@@ -3,7 +3,7 @@
 // its outcome: a pane opened later reads the same state, and every pane that is
 // open when the install succeeds retries its own preview.
 import { useSyncExternalStore } from 'react';
-import { storeDesktopStatus, subscribeDesktopStatus } from './settings/desktop-status-cache';
+import { readDesktopStatus, storeDesktopStatus, subscribeDesktopStatus } from './settings/desktop-status-cache';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 
@@ -34,6 +34,20 @@ subscribeDesktopStatus((key, value, previous) => {
   if ((previous as { installed?: boolean } | undefined)?.installed) return;
   officeInstalled();
 });
+
+const REFRESH_THROTTLE_MS = 3000;
+let lastRefreshAt = Number.NEGATIVE_INFINITY;
+
+/** Re-reads the Office engine status (an install done outside Mixdog records no
+ *  change by itself). A newly installed engine reaches the open failed previews
+ *  through the cache subscription above. Throttled: activation and window focus
+ *  can fire back to back. */
+export function refreshOfficeAvailability(api: typeof window.mixdogDesktop): void {
+  const now = Date.now();
+  if (now - lastRefreshAt < REFRESH_THROTTLE_MS) return;
+  lastRefreshAt = now;
+  void readDesktopStatus(api, 'libreOffice', true)?.catch(() => undefined);
+}
 
 /** Runs the existing guided install once; a second click while it runs joins it. */
 export function installOfficeForPreview(api: typeof window.mixdogDesktop): Promise<void> {
@@ -80,5 +94,6 @@ export function useOfficeInstall(): OfficeInstallState {
 /** Forgets the outcome of an earlier install (tests). */
 export function resetOfficeInstall(): void {
   running = null;
+  lastRefreshAt = Number.NEGATIVE_INFINITY;
   state = { phase: 'idle', error: '' };
 }

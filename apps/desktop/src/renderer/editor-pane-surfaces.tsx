@@ -1,9 +1,14 @@
 import { Download, ExternalLink } from 'lucide-react';
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { isPhoneSurfaceMarked } from './mobile-surface';
 import { ErrorNotice } from './ErrorNotice';
-import { installOfficeForPreview, subscribeOfficeInstalled, useOfficeInstall } from './editor-office-install';
+import {
+  installOfficeForPreview,
+  refreshOfficeAvailability,
+  subscribeOfficeInstalled,
+  useOfficeInstall,
+} from './editor-office-install';
 import type { EditorFileLoad } from './editor-file-loader';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -40,22 +45,91 @@ export function EditorPaneLoadingSurface({ breadcrumbs }: { breadcrumbs: ReactNo
   );
 }
 
+/** The question a password-protected document asks before it previews. The
+ *  typed password lives in this field until it is submitted, then leaves with
+ *  that one request; nothing else keeps it. */
+function DocumentPasswordForm({
+  wrong,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  wrong: boolean;
+  busy: boolean;
+  onSubmit(password: string): void;
+  onCancel(): void;
+}) {
+  const [value, setValue] = useState('');
+  const promptId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // After a wrong password the field takes focus again for the next try.
+  useEffect(() => {
+    if (wrong && !busy) inputRef.current?.focus();
+  }, [wrong, busy]);
+  return (
+    <form
+      className="editor-pane-password"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!value || busy) return;
+        onSubmit(value);
+        setValue('');
+      }}
+    >
+      <p id={promptId} role="status">
+        {t('This file is password-protected. Enter its password to preview it.')}
+      </p>
+      <input
+        ref={inputRef}
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        aria-labelledby={promptId}
+        aria-invalid={wrong || undefined}
+        disabled={busy}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      {wrong && (
+        <p className="editor-pane-password-wrong" role="alert">
+          {t("That password didn't work.")}
+        </p>
+      )}
+      <div className="editor-pane-notice-actions">
+        <button type="submit" className="primary" disabled={busy || !value}>
+          {busy && <ProgressSpinner size={14} className="editor-pane-spinner" aria-hidden="true" />} {t('Open')}
+        </button>
+        <button type="button" onClick={onCancel}>
+          {t('Cancel')}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function EditorPaneFileFallback({
   breadcrumbs,
   load,
   note,
   officeMissing,
+  password,
   onRetry,
   onOpen,
+  active = true,
 }: {
   breadcrumbs: ReactNode;
   load: EditorFileLoad;
+  /** The pane is the visible tab; activating it re-checks the Office engine. */
+  active?: boolean;
   /** Why a viewer that WAS attempted could not show this file — a failed
    *  document conversion. Absent for files that never had one. */
   note?: string;
   /** The conversion failed because neither LibreOffice nor Microsoft Office
    *  was found: the note offers to install LibreOffice. */
   officeMissing?: boolean;
+  /** The document is password-protected and a password can open it: the pane
+   *  asks for one in place of the note. */
+  password?: { wrong: boolean; busy: boolean; onSubmit(password: string): void; onCancel(): void };
   /** Tries the viewer again (a failed conversion may have been transient). */
   onRetry?(): void;
   onOpen(): void;
@@ -70,7 +144,18 @@ export function EditorPaneFileFallback({
   // The install may finish after this pane was left and reopened: whichever
   // pane is open then retries its own preview.
   useEffect(() => (installable ? subscribeOfficeInstalled(() => retryRef.current?.()) : undefined), [installable]);
+  // LibreOffice may be installed outside Mixdog while this failed preview stays
+  // open: re-read the engine status when the pane is activated or the window
+  // regains focus; a newly installed engine fires the retry above.
+  useEffect(() => {
+    if (!installable || !active) return undefined;
+    const refresh = () => refreshOfficeAvailability(window.mixdogDesktop);
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [installable, active]);
   const noteSurface = (() => {
+    if (password) return <DocumentPasswordForm {...password} />;
     if (!note) return null;
     if (!installable) return <ErrorNotice error={note} role="status" />;
     if (installing) {
@@ -128,7 +213,7 @@ export function EditorPaneFileFallback({
           </button>
         )}
         <OpenExternallyLabel onOpen={onOpen} disabled={installing} />
-        {onRetry && (
+        {onRetry && !password && (
           <button type="button" disabled={installing} onClick={onRetry}>
             {t('Retry')}
           </button>

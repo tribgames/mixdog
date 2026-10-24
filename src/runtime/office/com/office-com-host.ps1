@@ -7560,25 +7560,33 @@ function Assert-PreviewNotEncrypted([string]$path) {
     }
 }
 
-# The read-only open of the file preview. Word and Excel get a placeholder password, so a protected legacy file
-# fails at once instead of waiting on a prompt nobody can see; Word's "password is incorrect" (0x800A1520)
-# becomes the plain message. Links are not updated, macros stay off and DisplayAlerts is
-# off (New-HiddenApplication). Automation opens do not go through Protected View.
-function Open-PreviewDocument($app, [string]$format, [string]$path) {
+$script:PreviewWrongPasswordMessage = "That password didn't work. (OFFICE_PREVIEW_WRONG_PASSWORD)"
+
+# The read-only open of the file preview. Word and Excel get the user's password when the request carries one
+# (Documents.Open PasswordDocument, Workbooks.Open Password), else a placeholder, so a protected legacy file fails
+# at once instead of waiting on a prompt nobody can see. Word's "password is incorrect" (0x800A1520) becomes the
+# plain message: the protected one without a password, the wrong-password one with it. Presentations.Open takes no
+# password, so PowerPoint never gets one. Links are not updated, macros stay off and DisplayAlerts is off
+# (New-HiddenApplication). Automation opens do not go through Protected View.
+function Open-PreviewDocument($app, [string]$format, [string]$path, [string]$password) {
     $placeholder = 'mixdog-preview-no-password'
+    $openPassword = if ($password) { $password } else { $placeholder }
     try {
         switch ($format) {
-            'docx' { return $app.Documents.Open($path, $false, $true, $false, $placeholder, $placeholder, $false, $placeholder, $placeholder) }
+            'docx' { return $app.Documents.Open($path, $false, $true, $false, $openPassword, $placeholder, $false, $placeholder, $placeholder) }
             # No WriteResPassword: Excel rejects one for a workbook without write reservation (0x800A03EC), and a
             # read-only open never asks for it.
-            'xlsx' { return $app.Workbooks.Open($path, 0, $true, [Type]::Missing, $placeholder, [Type]::Missing, $true) }
+            'xlsx' { return $app.Workbooks.Open($path, 0, $true, [Type]::Missing, $openPassword, [Type]::Missing, $true) }
             'pptx' { return $app.Presentations.Open($path, $true, $true, $false) }
         }
     }
     catch {
         $inner = $_.Exception
         while ($null -ne $inner.InnerException) { $inner = $inner.InnerException }
-        if ($format -eq 'docx' -and $inner.HResult -eq 0x800A1520) { throw $script:PreviewPasswordMessage }
+        if ($format -eq 'docx' -and $inner.HResult -eq 0x800A1520) {
+            if ($password) { throw $script:PreviewWrongPasswordMessage }
+            throw $script:PreviewPasswordMessage
+        }
         throw
     }
 }
@@ -7801,7 +7809,7 @@ try {
         # A read-only request (the file preview) opens the document read-only, with no link updates and no
         # recalculation, and never waits on a password prompt. The close below discards, so nothing can be
         # written back.
-        $document = if ($payload.readOnly -eq $true) { Open-PreviewDocument $app $format $path } else { Open-BackgroundDocument $app $format $path }
+        $document = if ($payload.readOnly -eq $true) { Open-PreviewDocument $app $format $path ([string]$payload.password) } else { Open-BackgroundDocument $app $format $path }
     }
 
     switch ([string]$payload.action) {

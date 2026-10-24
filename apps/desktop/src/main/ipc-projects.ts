@@ -81,7 +81,7 @@ export function registerProjectIpc({
   handle(DESKTOP_IPC.githubStarStatus, () => operations.githubStarStatus());
   handle(DESKTOP_IPC.starGithub, () => operations.starGithub());
   // Extensions → Office: LibreOffice dependency probe + guided install.
-  handle(DESKTOP_IPC.libreOfficeStatus, () => operations.libreOfficeStatus());
+  handle(DESKTOP_IPC.libreOfficeStatus, (_event, refresh) => operations.libreOfficeStatus(refresh === true));
   handle(DESKTOP_IPC.installLibreOffice, () => operations.installLibreOffice());
   handle(DESKTOP_IPC.renameProject, async (_event, projectPath, alias) =>
     announceProjectsChanged(

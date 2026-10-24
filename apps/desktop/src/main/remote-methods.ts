@@ -700,7 +700,7 @@ function developerToolingRemoteMethods(invokeDesktopOperation: InvokeDesktopOper
     starGithub: () => invokeDesktopOperation('starGithub', []),
     gitCliStatus: () => invokeDesktopOperation('gitCliStatus', []),
     installGitCli: () => invokeDesktopOperation('installGitCli', []),
-    libreOfficeStatus: () => invokeDesktopOperation('libreOfficeStatus', []),
+    libreOfficeStatus: ([refresh]) => invokeDesktopOperation('libreOfficeStatus', [refresh === true]),
     installLibreOffice: () => invokeDesktopOperation('installLibreOffice', []),
     githubCliStatus: () => invokeDesktopOperation('githubCliStatus', []),
     githubRequest: ([cwd, input]) =>
@@ -1231,16 +1231,22 @@ function workspaceRemoteMethods({
     // Rasterized pages, never the converted PDF's path: a phone cannot open a
     // file on this machine, and the byte lane that could serve one is disabled
     // until it is encrypted. The operation validates the page window itself.
+    // A protected document's password arrives inside this end-to-end encrypted
+    // call and goes only to that conversion.
     previewDocumentPages: async ([projectPath, relPath, accessToken, options]) => {
       const target = await remoteFileTarget(host, grants, projectPath, relPath, accessToken);
       const request =
-        options && typeof options === 'object' ? (options as { pages?: unknown; maxWidth?: unknown }) : {};
+        options && typeof options === 'object'
+          ? (options as { pages?: unknown; maxWidth?: unknown; password?: unknown })
+          : {};
       // The conversion reads the opened, authorized file's real location.
       return withAuthorizedFile(target.absolute, target.root, (file) =>
         invokeDesktopOperation('documentPreviewPagesIn', [
           file.root,
           file.rel,
-          { pages: request.pages, maxWidth: request.maxWidth },
+          request.password === undefined
+            ? { pages: request.pages, maxWidth: request.maxWidth }
+            : { pages: request.pages, maxWidth: request.maxWidth, password: request.password },
         ])
       );
     },
