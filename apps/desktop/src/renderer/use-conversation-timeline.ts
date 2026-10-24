@@ -82,7 +82,8 @@ export function useConversationTimeline({
     scope: conversation,
     hasScrollGesture,
     eager: phone,
-    geometryRetained: Boolean(readTranscriptVirtualSnapshot(sessionKey)?.measurements?.length),
+    retainedGeometry: readTranscriptVirtualSnapshot(sessionKey)?.measurements,
+    pinned: following,
   });
   // A disabled reveal reads as revealed; only populated rows count as an entry.
   useLayoutEffect(() => {

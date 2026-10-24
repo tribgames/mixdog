@@ -1,5 +1,10 @@
 import { type MutableRefObject, useEffect, useLayoutEffect, useRef } from 'react';
-import { logicalScrollOffset, type TranscriptVirtualizer, viewportSize } from './transcript-list-geometry';
+import {
+  logicalScrollOffset,
+  transcriptThreadInset,
+  type TranscriptVirtualizer,
+  viewportSize,
+} from './transcript-list-geometry';
 import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 import { registerTranscriptScrollGeometry } from './use-transcript-follow';
 
@@ -40,7 +45,7 @@ export function useTranscriptScrollGeometry({
     const thread = space?.parentElement ?? null;
     if (thread && thread !== insetThread.current && thread.isConnected) {
       insetThread.current = thread;
-      scrollInset.current = Number.parseFloat(window.getComputedStyle(thread).paddingTop) || 0;
+      scrollInset.current = transcriptThreadInset(thread);
     }
     if (!root || !space || geometry.current?.root === root) return;
     geometry.current?.release();

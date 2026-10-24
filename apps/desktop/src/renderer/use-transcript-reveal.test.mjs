@@ -9,7 +9,7 @@ function mount(t, { eager = false, scrollHeight = 100 } = {}) {
   let frameId = 0;
   const frames = new Map();
   const { root, document } = installTestDom(t, {
-    html: '<!doctype html><div id="root"></div><section id="scope"><span hidden data-entry-pending></span><div id="viewport"><div id="content" style="height:100px"><div class="transcript-virtual-row" data-index="0" style="top:0px"></div></div></div></section>',
+    html: '<!doctype html><div id="root"></div><section id="scope"><span hidden data-entry-pending></span><div id="viewport"><div id="content" style="height:100px"><div class="transcript-virtual-row" data-index="0" data-timeline-key="r0" style="top:0px"></div></div></div></section>',
     rootId: 'root',
     globals: {
       requestAnimationFrame(callback) {
@@ -30,13 +30,20 @@ function mount(t, { eager = false, scrollHeight = 100 } = {}) {
     clientHeight: { value: 100 },
     scrollHeight: { get: () => scrollHeight },
   });
+  // What layout reads back for the visible row, against what the timeline
+  // remembered it at (size 100 at offset 0).
+  const row = document.querySelector('[data-index="0"]');
+  let rowHeight = 100;
+  row.getBoundingClientRect = () => ({ height: rowHeight, top: 0, bottom: rowHeight, width: 600 });
   const hasScrollGesture = () => false;
   let revealed = false;
   let identity = 'entry';
-  let geometryRetained = true;
+  let retainedGeometry = [{ key: 'r0', start: 0, size: 100 }];
+  let pinned = false;
   function Harness() {
     revealed = useTranscriptReveal({
       identity,
+      pinned,
       enabled: true,
       draft: false,
       viewport,
@@ -44,7 +51,7 @@ function mount(t, { eager = false, scrollHeight = 100 } = {}) {
       scope,
       hasScrollGesture,
       eager,
-      geometryRetained,
+      retainedGeometry,
     });
     return null;
   }
@@ -76,7 +83,21 @@ function mount(t, { eager = false, scrollHeight = 100 } = {}) {
       scrollHeight = 300;
     },
     dropGeometry: () => {
-      geometryRetained = false;
+      retainedGeometry = undefined;
+    },
+    // Whatever changed while away reaches the revisit as a row that reads back
+    // differently from what was remembered, or one that was never remembered.
+    rowReadsHeight: (height) => {
+      rowHeight = height;
+    },
+    rowMovedTo: (top) => {
+      row.style.top = `${top}px`;
+    },
+    rowForgotten: () => {
+      retainedGeometry = [{ key: 'other-row', start: 0, size: 100 }];
+    },
+    pin: (next) => {
+      pinned = next;
     },
   };
 }
@@ -132,6 +153,69 @@ test('a visit whose committed geometry is already final reveals in its first fra
   await Promise.resolve();
   entry.tick(48);
   assert.equal(entry.revealed(), true, 'no blank frame is painted before the restored rows');
+});
+
+test('a revisit with retained geometry reveals in the commit, before any frame callback', async (t) => {
+  const entry = mount(t);
+  const time = revealEntryThenOther(entry);
+  entry.visit('entry');
+  assert.equal(entry.revealed(), false, 'never painted before its microtasks ran');
+  await act(async () => {});
+  assert.equal(entry.revealed(), true, 'revealed without waiting for a frame');
+  assert.ok(time > 0);
+});
+
+// The remembered geometry is only valid for what it was measured under:
+// anything else settles through the stable-sample path like an entry.
+for (const [name, change] of [
+  [
+    'a visible row that reads back taller (width, zoom, fonts, skin, tool expansion)',
+    (entry) => entry.rowReadsHeight(140),
+  ],
+  ['a visible row that reads back shorter by one pixel', (entry) => entry.rowReadsHeight(99)],
+  ['a visible row at another offset (rows above changed)', (entry) => entry.rowMovedTo(8)],
+  ['a visible row that was never remembered (rows appended)', (entry) => entry.rowForgotten()],
+]) {
+  test(`a revisit with ${name} is not revealed in the commit and settles on stable samples`, async (t) => {
+    const entry = mount(t);
+    const time = revealEntryThenOther(entry);
+    change(entry);
+    entry.visit('entry');
+    await act(async () => {});
+    assert.equal(entry.revealed(), false, 'the remembered geometry may be wrong for the current inputs');
+    entry.tick(time);
+    assert.equal(entry.revealed(), true, "the commit and its next frame agree: today's settling path");
+  });
+}
+
+test('a pinned revisit whose end has not landed is not revealed in the commit', async (t) => {
+  const entry = mount(t);
+  entry.pin(true);
+  const time = revealEntryThenOther(entry);
+  entry.scrollOffEnd();
+  entry.visit('entry');
+  await act(async () => {});
+  assert.equal(entry.revealed(), false, 'the end pin has not placed the tail');
+  entry.tick(time);
+  assert.equal(entry.revealed(), true);
+});
+
+test('a revisit with a relearn of unmeasured estimates pending is not revealed in the commit', async (t) => {
+  const entry = mount(t);
+  const time = revealEntryThenOther(entry);
+  document.getElementById('viewport').setAttribute('data-transcript-relearn', '');
+  entry.visit('entry');
+  await act(async () => {});
+  assert.equal(entry.revealed(), false);
+  entry.tick(time);
+  assert.equal(entry.revealed(), true);
+});
+
+test('a first visit is not revealed in the commit', async (t) => {
+  const entry = mount(t);
+  entry.ready();
+  await act(async () => {});
+  assert.equal(entry.revealed(), false, 'a first visit still needs its stable samples');
 });
 
 test('a dock still easing to its height holds the entry reveal', async (t) => {

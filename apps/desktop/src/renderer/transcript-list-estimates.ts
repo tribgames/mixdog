@@ -1,9 +1,9 @@
-import { type MutableRefObject, type RefObject, useCallback, useRef } from 'react';
+import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from 'react';
 import { roomPassIsQuiet, routineReplyIsQuiet, taskReportIsQuiet } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { type TranscriptRowSurface, transcriptRowHeightStore } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
-import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
+import { TRANSCRIPT_RELEARN_ATTRIBUTE, TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
 
 /** Unmeasured rows start at their remembered or learned height instead of a
  *  flat 60px (transcript-row-estimates.ts). An estimate is held per key until
@@ -67,10 +67,20 @@ export function useTranscriptRowEstimates({
   // reader away from the end is never shifted by it; those rows pick up the
   // learned shape at the next full re-layout (a page landing, a new row).
   const relearnFrame = useRef(0);
+  // Marked on the viewport while a relearn waits for its frame: the entry
+  // reveal (use-transcript-reveal.ts) never takes a revisit as final then.
+  useEffect(
+    () => () => {
+      viewport.current?.removeAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE);
+    },
+    [viewport]
+  );
   const relearnEstimates = useCallback(() => {
     if (relearnFrame.current) return;
+    viewport.current?.setAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE, '');
     relearnFrame.current = window.requestAnimationFrame(() => {
       relearnFrame.current = 0;
+      viewport.current?.removeAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE);
       const instance = virtualizerRefForEstimates.current;
       if (instance?.options.anchorTo !== 'end' || hasScrollGestureRef.current()) return;
       for (const key of fallbackEstimates.current) heldEstimates.current.delete(key);
@@ -81,7 +91,7 @@ export function useTranscriptRowEstimates({
       coreScrollState(instance).notify(false);
       endPinForEstimates.current?.();
     });
-  }, [hasScrollGestureRef]);
+  }, [hasScrollGestureRef, viewport]);
   const measureRowSize = useCallback(
     (element: Element, entry: ResizeObserverEntry | undefined, instance: TranscriptVirtualizer) => {
       const size = measureTranscriptRow(element, entry, instance);

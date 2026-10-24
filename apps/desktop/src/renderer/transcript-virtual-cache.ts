@@ -17,6 +17,9 @@ export const TRANSCRIPT_VIRTUAL_OVERSCAN = 10;
 // is supplied by the dock, never guessed from an expected number of controls.
 export const TRANSCRIPT_BOTTOM_SPACER = 24;
 const TRANSCRIPT_VIRTUAL_CACHE_LIMIT = 16;
+/** Set on the viewport while the list owes a re-estimate of its unmeasured
+ *  rows (transcript-list-estimates.ts): its geometry is not final yet. */
+export const TRANSCRIPT_RELEARN_ATTRIBUTE = 'data-transcript-relearn';
 
 interface TranscriptVirtualSnapshot {
   measurements?: VirtualItem[];

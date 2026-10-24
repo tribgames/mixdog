@@ -56,6 +56,14 @@ export function measureTranscriptRow(
   return instance.itemSizeCache.get(key) ?? instance.measurementsCache[index]?.size ?? TRANSCRIPT_ROW_ESTIMATE;
 }
 
+/** Where the timeline starts inside the scroll content: the thread's top
+ *  padding (its only in-flow content above the spacer). Row offsets
+ *  (`style.top`, virtual starts) are spacer-relative, so a scroll offset maps
+ *  to them by subtracting this. A style read, not a layout read. */
+export function transcriptThreadInset(thread: Element): number {
+  return Number.parseFloat(window.getComputedStyle(thread).paddingTop) || 0;
+}
+
 // Newer virtual cores expose getLogicalScrollOffset(); the resolved core
 // predates it, so read the scrollOffset + pending scrollAdjustments pair here.
 export function logicalScrollOffset(instance: TranscriptVirtualizer): number {
