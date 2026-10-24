@@ -93,6 +93,33 @@ test('dev environment isolates every store and connection from the installed par
     assert.notEqual(env[key], second[key], key);
 });
 
+test('only the Google OAuth client crosses into an isolated or kept dev profile', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-dev-google-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const parent = {
+    PATH: process.env.PATH,
+    MIXDOG_GOOGLE_OAUTH_CLIENT_ID: 'mixdog.apps.googleusercontent.com',
+    MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: 'GOCSPX-public',
+    // A near miss and a neighbouring override are still stripped.
+    MIXDOG_GOOGLE_OAUTH_CLIENT_ID_OVERRIDE: 'x',
+    MIXDOG_GOOGLE_API_KEY: 'live-key',
+    MIXDOG_RELAY_URL: 'wss://live-relay',
+  };
+  for (const env of [
+    await createIsolatedDevEnv(parent, root),
+    await createPersistentDevEnv(parent, join(root, 'kept')),
+  ]) {
+    assert.equal(env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID, 'mixdog.apps.googleusercontent.com');
+    assert.equal(env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET, 'GOCSPX-public');
+    for (const key of ['MIXDOG_GOOGLE_OAUTH_CLIENT_ID_OVERRIDE', 'MIXDOG_GOOGLE_API_KEY', 'MIXDOG_RELAY_URL']) {
+      assert.equal(env[key], undefined, key);
+    }
+  }
+  const unset = await createIsolatedDevEnv({ PATH: process.env.PATH }, root);
+  assert.equal('MIXDOG_GOOGLE_OAUTH_CLIENT_ID' in unset, false);
+  assert.equal('MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET' in unset, false);
+});
+
 test('kept dev profile is reused across launches and keeps its data', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-dev-kept-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));

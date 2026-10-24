@@ -93,6 +93,27 @@ test('a port in use is skipped and its reservation released', async (t) => {
   );
 });
 
+test('an isolated instance keeps the Google OAuth client so the built-in sign-in can be tested', async (t) => {
+  const root = await tempRoot(t);
+  const instanceDir = join(root, 'instances', 'google-000000');
+  const parent = {
+    ...process.env,
+    MIXDOG_GOOGLE_OAUTH_CLIENT_ID: 'mixdog.apps.googleusercontent.com',
+    MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: 'GOCSPX-public',
+    MIXDOG_RELAY_URL: 'wss://relay.example.com',
+  };
+  const env = await instanceEnv({
+    instanceDir,
+    cdpPort: 9501,
+    rendererPort: 10501,
+    appDir: join(instanceDir, 'app', 'desktop'),
+    parent,
+  });
+  assert.equal(env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID, 'mixdog.apps.googleusercontent.com');
+  assert.equal(env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET, 'GOCSPX-public');
+  assert.equal(env.MIXDOG_RELAY_URL, 'off', 'every other live override is still replaced');
+});
+
 test('the instance environment never names the real data, userData or the shared dev profile', async (t) => {
   const root = await tempRoot(t);
   const instanceDir = join(root, 'instances', 'x-000000');

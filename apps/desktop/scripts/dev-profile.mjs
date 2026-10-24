@@ -11,6 +11,10 @@ import { refreshStaleLocalBinaries } from '../../../scripts/native-release-statu
 export const DEV_DEBUG_PORT = 9342;
 const desktopDir = fileURLToPath(new URL('..', import.meta.url));
 const PROFILE_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+// The only MIXDOG_* variables an isolated profile inherits: Mixdog's own
+// Google OAuth client, which Google treats as public for a desktop app. It
+// names no store or connection, and lets a dev app test the built-in sign-in.
+const INHERITED_ENV = new Set(['MIXDOG_GOOGLE_OAUTH_CLIENT_ID', 'MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET']);
 
 // Kept dev profiles live outside the repository and the installed app's data,
 // so settings, sign-ins and sessions survive restarts of the dev app only.
@@ -65,7 +69,7 @@ async function isolatedEnvFor(profile, parent) {
   // A shell launched by the installed daemon inherits its live data, bridge
   // and runtime paths. Overriding userData alone does not isolate that shell.
   for (const key of Object.keys(env)) {
-    if (/^(MIXDOG_|ELECTRON_)/i.test(key)) delete env[key];
+    if (/^(MIXDOG_|ELECTRON_)/i.test(key) && !INHERITED_ENV.has(key)) delete env[key];
   }
   Object.assign(env, {
     MIXDOG_DESKTOP_USER_DATA: profile,
