@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.3.5 - 2026-10-24
+
 Se agregaron reacciones con emojis, revisiones periódicas e inicio de sesión de modelos en servidores SSH, con conectores verificados de Google, deslizamientos de paneles en teléfonos y amplias correcciones.
 
 ### Nuevas funciones

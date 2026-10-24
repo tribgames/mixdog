@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.3.5 - 2026-10-24
+
 Adicionadas reações com emojis, revisões regulares e logins de modelos em servidor SSH, com conectores verificados do Google, gestos de deslizar gavetas no celular e amplas correções.
 
 ### Novos recursos

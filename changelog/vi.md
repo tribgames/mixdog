@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.3.5 - 2026-10-24
+
 Đã thêm biểu cảm emoji, kiểm tra định kỳ và đăng nhập mô hình máy chủ SSH, cùng với các kết nối Google đã xác minh, vuốt ngăn kéo trên điện thoại và nhiều bản sửa lỗi toàn diện.
 
 ### Tính năng mới

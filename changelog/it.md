@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.3.5 - 2026-10-24
+
 Aggiunte le reazioni con emoji, i controlli periodici e gli accessi ai modelli su server SSH, con connettori Google verificati, scorrimenti per i pannelli su smartphone e ampie correzioni.
 
 ### Nuove funzionalità

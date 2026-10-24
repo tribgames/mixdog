@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.3.5 - 2026-10-24
+
 Ajout des réactions emoji, des vérifications régulières et des connexions aux modèles sur serveur SSH, avec des connecteurs Google vérifiés, des balayages de volets sur téléphone et des correctifs étendus.
 
 ### Nouvelles fonctionnalités

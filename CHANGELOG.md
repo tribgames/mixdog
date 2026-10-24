@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.3.5 - 2026-10-24
+
 Added emoji reactions, regular check-ins and SSH server model logins, with verified Google connectors, phone drawer swipes and broad fixes.
 
 ### New features

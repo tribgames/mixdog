@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.3.5 - 2026-10-24
+
 Emoji-Reaktionen, regelmäßige Check-ins und SSH-Server-Modell-Logins hinzugefügt, mit verifizierten Google-Konnektoren, Drawer-Wischgesten auf dem Smartphone und umfassenden Fehlerbehebungen.
 
 ### Neue Funktionen
