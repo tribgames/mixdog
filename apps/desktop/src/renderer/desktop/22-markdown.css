@@ -1041,8 +1041,12 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
    count-aware tools, and a dedicated critical tool-error surface. */
 [data-component="text-shimmer"] {
   /* Slow sweep (2000ms read rushed). Applies to the status verb and running
-     tool-title glow alike. */
-  --text-shimmer-duration: 4000ms;
+     tool-title glow alike. The sweep steps at 24 fps on the running mark's
+     shared 1/24 s grid (14-live-activity.css): a cycle is a whole number of
+     frames, one pose each. A smooth sweep alone kept the compositor and GPU
+     drawing at the display's refresh rate for as long as a label ran. */
+  --text-shimmer-frames: 96;
+  --text-shimmer-duration: calc(var(--text-shimmer-frames) * 1s / 24);
   /* The ink the band rests on. A label that already sits at full ink (the
      Agents dock session name) lowers it one tier instead of down to faint. */
   --text-shimmer-base: var(--mx-text-faint);
@@ -1090,7 +1094,9 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
     #000 50%,
     transparent calc(50% + var(--text-shimmer-band) / 2)
   );
-  animation: text-shimmer-window var(--text-shimmer-duration) linear infinite;
+  /* Two keyframes, so steps() divides the whole cycle: one pose per frame.
+     `end` never shows the 50% pose, which is the next cycle's first. */
+  animation: text-shimmer-window var(--text-shimmer-duration) steps(var(--text-shimmer-frames), end) infinite;
 }
 [data-component="text-shimmer"] [data-slot="text-shimmer-glint"]::before {
   content: attr(data-text);
@@ -1102,7 +1108,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text-shimmer-glint, var(--mx-text));
-  animation: text-shimmer-window-copy var(--text-shimmer-duration) linear infinite;
+  animation: text-shimmer-window-copy var(--text-shimmer-duration) steps(var(--text-shimmer-frames), end) infinite;
 }
 @keyframes text-shimmer-window {
   from {
@@ -1127,12 +1133,13 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 .live-activity [data-component="text-shimmer"],
 .utility-dock .agent-session-heading h2 [data-component="text-shimmer"] {
   /* Band and rest lengths use terminal cells (CJK counted as 2).
-     Advance at 100ms per cell; cap long titles at a 3.2s cycle. */
+     Advance at 100ms (2.4 frames of 1/24 s) per cell; cap long titles at a
+     3.2s (76.8-frame) cycle; round the cycle to whole frames (2200ms -> 53
+     frames = 2208.33ms). */
   --text-shimmer-comet: 4;
   --text-shimmer-rest: 3;
-  --text-shimmer-duration: min(
-    calc((var(--text-shimmer-cells, 12) + var(--text-shimmer-comet) + var(--text-shimmer-rest)) * 100ms),
-    3200ms
+  --text-shimmer-frames: round(
+    min(calc((var(--text-shimmer-cells, 12) + var(--text-shimmer-comet) + var(--text-shimmer-rest)) * 2.4), 76.8)
   );
 }
 /* A heading breathes longer between passes than the status verb. */
@@ -1175,7 +1182,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   -webkit-mask-size: var(--text-shimmer-band) 100%;
   mask-size: var(--text-shimmer-band) 100%;
   transform: none;
-  animation: text-shimmer-mask var(--text-shimmer-duration) linear infinite;
+  animation: text-shimmer-mask var(--text-shimmer-duration) steps(var(--text-shimmer-frames), end) infinite;
 }
 html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-shimmer-glint"]::before {
   padding: 0;

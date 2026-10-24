@@ -20,6 +20,8 @@ function installToolActivityDom(userAgent) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/',
   });
+  // jsdom has no Web Animations: an element runs no animations.
+  dom.window.Element.prototype.getAnimations = () => [];
   Object.defineProperty(dom.window.navigator, 'userAgent', {
     configurable: true,
     value: userAgent,

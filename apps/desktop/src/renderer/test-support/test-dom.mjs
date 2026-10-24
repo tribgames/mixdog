@@ -34,6 +34,9 @@ export function installTestDom(t, options = {}) {
   } = options;
   const dom = new JSDOM(html, { url: 'https://mixdog.test/', ...jsdom });
   const { window } = dom;
+  // jsdom has no Web Animations: an element runs no animations (the
+  // decorative loops lock their phase through getAnimations on mount).
+  window.Element.prototype.getAnimations = () => [];
   const installed = {
     window,
     document: window.document,

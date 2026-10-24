@@ -4,6 +4,7 @@ import { t, uiFormatLocale } from './i18n';
 import { uiTimeUnit } from './ui-format';
 import { MxIcon } from './MxIcon';
 import { copyTextToClipboard } from './text-format';
+import { lockDecorativeLoops } from './decorative-motion-sync';
 
 const tokenFormatters = new Map<string, Intl.NumberFormat>();
 export function formatTokenCount(value: number): string {
@@ -69,7 +70,7 @@ export function TextShimmer({ text, active = true }: { text: string; active?: bo
       <span key={text} data-slot="text-shimmer-char" data-run={active ? 'true' : 'false'} aria-hidden="true">
         {text}
         {/* The glint's lit copy is CSS content, so the label's text is never doubled. */}
-        {active && <span data-slot="text-shimmer-glint" data-text={text} />}
+        {active && <span data-slot="text-shimmer-glint" data-text={text} ref={lockDecorativeLoops} />}
       </span>
     </span>
   );

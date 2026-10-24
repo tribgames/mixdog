@@ -8,6 +8,7 @@ import { subscribeUiLanguage, t, uiFormatLocale } from './i18n';
 import { modelDisplayName, modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
 import { useClock } from './use-clock';
+import { lockDecorativeLoops } from './decorative-motion-sync';
 import { liveAgentRows } from './agent-activity-model';
 import { onSessionPreviewsDeleted } from './image-preview-store';
 import { goalHasBackgroundWork } from './session-goal-presentation';
@@ -34,14 +35,10 @@ const ORCHESTRATION_MODE_LABELS: Record<string, string> = {
   balanced: 'Collaborative',
   swarm: 'Swarm',
 };
-// Clockwise r=8.5 rings around (12,12) starting at -120deg, 0deg and 120deg.
-// Each arc is the same ring drawn as an un-rotated path, so all three share
-// one bounding box (and so one gradient box) in every frame.
-const LIVE_ACTIVITY_ARC_PATHS = [
-  'M7.75 4.639A8.5 8.5 0 0 1 16.25 19.361A8.5 8.5 0 0 1 7.75 4.639',
-  'M20.5 12A8.5 8.5 0 0 1 3.5 12A8.5 8.5 0 0 1 20.5 12',
-  'M7.75 19.361A8.5 8.5 0 0 1 16.25 4.639A8.5 8.5 0 0 1 7.75 19.361',
-];
+// Three clockwise r=8.5 rings around (12,12) starting at -120deg, 0deg and
+// 120deg; a [dash, offset] frame puts one arc on each, as the design's
+// dashed rings did (pathLength 360, so both are in degrees).
+const LIVE_ACTIVITY_ARC_STARTS = [-120, 0, 120];
 // The arcs' 2000ms loop as [dash length, dash offset] on a 360-long ring, one
 // keyframe per 1/48 of the loop and the closing one, precomputed from the
 // design's buildFlow {dur 2000, headEnd .56, tailStart .26, pow 2.1, drift
@@ -111,19 +108,34 @@ export const LIVE_ACTIVITY_ARC_FRAMES: ReadonlyArray<readonly [number, number]> 
     ] as const;
   }),
 ];
+/** One frame's arcs as explicit circular arcs: a dash of `dash` degrees
+ *  starting `-offset` degrees past each ring's start (a zero-length dash is
+ *  a round dot). Exact geometry, not a dash on a ring path: Chromium places
+ *  dashes through the ring's measured length, which is uneven along the path
+ *  (up to ~1.4deg) and doubles the cap of a dash at the path's start/end
+ *  point. The loop's last pose (offset -119.36, past the middle of one arc)
+ *  and its first (offset 0.64, by the ring's start point) are the same
+ *  arrangement turned by the 120deg between rings, but drew 2.6deg apart
+ *  with 38% more ink: the mark jumped back and swelled at every loop seam. */
+export function liveActivityArcPath(dash: number, offset: number): string {
+  const point = (degrees: number) => {
+    const radians = (degrees * Math.PI) / 180;
+    return `${+(12 + 8.5 * Math.cos(radians)).toFixed(3)} ${+(12 + 8.5 * Math.sin(radians)).toFixed(3)}`;
+  };
+  return LIVE_ACTIVITY_ARC_STARTS.map((ring) => {
+    const from = point(ring - offset);
+    return dash > 0 ? `M${from}A8.5 8.5 0 0 1 ${point(ring - offset + dash)}` : `M${from}L${from}`;
+  }).join('');
+}
 /** Every arc frame side by side, 24 viewBox units apart, as one mask image.
  *  Stroke dashes cannot animate on the compositor: animated in place they
  *  repainted the mark on the main thread at the display's refresh rate for
  *  as long as a turn ran. The strip is rasterized once and a stepped
  *  transform slides it behind the mark's 14px window instead. */
 const LIVE_ACTIVITY_ARC_STRIP = (() => {
-  const frames = LIVE_ACTIVITY_ARC_FRAMES.map(([dash, offset], index) => {
-    const paths = LIVE_ACTIVITY_ARC_PATHS.map(
-      (d) =>
-        `<path d="${d}" pathLength="360" stroke-dasharray="${+dash.toFixed(3)} ${+(360 - dash).toFixed(3)}" stroke-dashoffset="${+offset.toFixed(3)}"/>`
-    ).join('');
-    return `<g transform="translate(${index * 24} 0)">${paths}</g>`;
-  }).join('');
+  const frames = LIVE_ACTIVITY_ARC_FRAMES.map(
+    ([dash, offset], index) => `<path transform="translate(${index * 24} 0)" d="${liveActivityArcPath(dash, offset)}"/>`
+  ).join('');
   const width = LIVE_ACTIVITY_ARC_FRAMES.length * 24;
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} 24" width="${width}" height="24" ` +
@@ -326,7 +338,7 @@ export function commandShowsActivity(snapshot: Snapshot): boolean {
  *  Memoized: the band re-renders on every lane frame and clock tick. */
 const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradientId: string }) {
   return (
-    <span className="live-activity-icon" aria-hidden="true">
+    <span className="live-activity-icon" aria-hidden="true" ref={lockDecorativeLoops}>
       <span className="live-activity-logo live-activity-arcs">
         <span className="live-activity-arc-strip" style={LIVE_ACTIVITY_ARC_STRIP_STYLE} />
       </span>
