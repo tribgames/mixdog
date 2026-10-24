@@ -6,8 +6,10 @@
 - Verify once, at the end, before reporting: each required check once,
   independent checks in parallel; reuse still-valid passing results and
   rerun failed or invalidated checks, reading failure logs in full first;
-  never read back your own writes. If repeated fixes leave the same failure unchanged,
-  test the underlying assumptions before another fix.
+  never read back your own writes.
+- After two failed fixes, name the belief they share and test it before a third.
+- Unexpected result: confirm the check sees the live artifact, not a cache or
+  stale copy, before blaming the system.
 - Use supplied commands unchanged except inputs, else documented defaults
   scoped to the change; no stricter flags or unrequested suites; gates belong
   to release.
