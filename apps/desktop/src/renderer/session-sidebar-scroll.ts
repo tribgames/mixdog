@@ -5,17 +5,20 @@ import { sessionListInsertedAtTop, sessionListKeepsExistingTopInsert } from './f
 import type { NavigationSelection } from './nav-types';
 import type { ProjectSessionGroup } from './session-sidebar-sections';
 import type { OpenMap } from './sidebar-open-state';
+import { sessionRowPitch } from './session-sidebar-virtual-rows';
 
 export const RECENT_SESSION_INITIAL_ROWS = 24;
 export const RECENT_SESSION_PAGE_ROWS = 32;
-/** Scroller viewport heights below the viewport at which a session list's end
- *  sentinel reveals the next page. Revealed only 240px ahead, a fast phone
- *  fling crossed that band in a few frames and ran into the end of the
- *  revealed rows before the page committed: the momentum died there and the
- *  rows appeared under a list at rest (phone: 빠르게 스크롤하고 놓으니 중간에
- *  멈추고 덜덜). Each revealed page re-checks (useSessionListPaging), so pages
- *  chain until the end is this far ahead again; rows outside the viewport
- *  are spacers (session-sidebar-virtual-rows), so the lead costs little. */
+/** Scroller viewport heights below the viewport a session list keeps its rows
+ *  revealed, so the rows are there when the reader arrives. A fling never
+ *  depends on it: the paging sentinel stands in for the unrevealed rows at
+ *  their height (VirtualSessionRows), so the scroll extent always reaches the
+ *  end of the whole list. While the extent ended at the revealed rows, a fast
+ *  phone fling (run by the compositor) outran the page commits (main thread)
+ *  on a busy phone whatever the lead: the momentum died at the end of the
+ *  revealed rows and the rows appeared under a list at rest (phone: 빠르게
+ *  스크롤하고 놓으니 중간에 멈추고 덜덜). Rows outside the viewport are spacers
+ *  (session-sidebar-virtual-rows), so the lead costs little. */
 const RECENT_SENTINEL_REVEAL_LEAD_VIEWPORTS = 4;
 /** The lead's floor, for a scroller without a box yet. */
 const RECENT_SENTINEL_REVEAL_MIN_PX = 240;
@@ -24,6 +27,12 @@ const RECENT_SENTINEL_REVEAL_MIN_PX = 240;
  *  scroller viewport this tall before the next page is revealed. */
 function sessionListRevealLead(viewportHeight: number): number {
   return Math.max(RECENT_SENTINEL_REVEAL_MIN_PX, viewportHeight * RECENT_SENTINEL_REVEAL_LEAD_VIEWPORTS);
+}
+
+/** A paged list's row limit after revealing the `wanted` rows the lead
+ *  reaches: a page at least, never past the list's `total`. */
+export function nextSessionRowLimit(current: number, wanted: number, total: number): number {
+  return Math.min(total, current + Math.max(RECENT_SESSION_PAGE_ROWS, wanted));
 }
 /** A reader's scroll (a finger on the list and the fling after it, or a wheel
  *  burst) is over once this long passes with no finger down and no scroll
@@ -121,7 +130,8 @@ function useSessionListPaging(
   sentinelRef: React.RefObject<HTMLDivElement | null>,
   enabled: boolean,
   visibleCount: number,
-  revealMore: () => void
+  /** Reveals `rows` more rows (a page at least). */
+  revealMore: (rows: number) => void
 ) {
   const revealWhenNear = useCallback(() => {
     if (!enabled) return;
@@ -129,8 +139,12 @@ function useSessionListPaging(
     const sentinel = sentinelRef.current;
     if (!scroller || !sentinel) return;
     const viewport = scroller.getBoundingClientRect();
-    if (sentinel.getBoundingClientRect().top - viewport.bottom > sessionListRevealLead(viewport.height)) return;
-    revealMore();
+    // How far the lead reaches past the revealed rows (the sentinel's top):
+    // one check reveals all of it, however far the reader got since the last
+    // one (a fling on a busy main thread, a jump to the end).
+    const reach = viewport.bottom + sessionListRevealLead(viewport.height) - sentinel.getBoundingClientRect().top;
+    if (reach < 0) return;
+    revealMore(Math.ceil(reach / sessionRowPitch()));
   }, [enabled, scrollerRef, sentinelRef, revealMore]);
   // Scrolling pages through the scroller's own scroll handler. No
   // IntersectionObserver: while one exists, Chromium runs a main-thread frame
@@ -158,7 +172,8 @@ interface SidebarListScrollInput {
   selection: NavigationSelection;
   rows: readonly DesktopSessionSummary[];
   visibleRecentRowCount: number;
-  revealMoreRecentRows: () => void;
+  /** Reveals `rows` more Recent rows (a page at least). */
+  revealMoreRecentRows: (rows: number) => void;
   recentOpen: boolean;
   archivedOpen: boolean;
   archivedRows: readonly DesktopSessionSummary[];
@@ -210,9 +225,12 @@ export function useSidebarListScroll({
   const archivedSentinelRef = useRef<HTMLDivElement | null>(null);
   const visibleArchivedRows = archivedRows.slice(0, archivedRowLimit);
   const hasMoreArchivedRows = visibleArchivedRows.length < archivedRows.length;
-  const revealMoreArchivedRows = useCallback(() => {
-    setArchivedRowLimit((current) => Math.min(archivedRows.length, current + RECENT_SESSION_PAGE_ROWS));
-  }, [archivedRows.length, setArchivedRowLimit]);
+  const revealMoreArchivedRows = useCallback(
+    (wanted: number) => {
+      setArchivedRowLimit((current) => nextSessionRowLimit(current, wanted, archivedRows.length));
+    },
+    [archivedRows.length, setArchivedRowLimit]
+  );
   useEffect(() => {
     if (!archivedOpen || selection.kind !== 'session') return;
     const selectedIndex = archivedRows.findIndex((session) => session.id === selection.id);

@@ -106,8 +106,14 @@ export function groupAutomationSessions(activityOrderedRows: DesktopSessionSumma
   return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
 }
 
-/** Renders `rows` as fork groups, covering at most `limit` rows (all by default). */
-export type RenderForkRows = (rows: readonly DesktopSessionSummary[], limit?: number) => React.ReactNode;
+/** Renders `rows` as fork groups, covering at most `limit` rows (all by default).
+ *  With `sentinelRef`, the list's paging sentinel follows them, standing in for
+ *  the rows past `limit`. */
+export type RenderForkRows = (
+  rows: readonly DesktopSessionSummary[],
+  limit?: number,
+  sentinelRef?: React.Ref<HTMLDivElement>
+) => React.ReactNode;
 
 /** Panel-header action slot. Rail destinations (Projects/Workflows/Schedules/
  *  Webhooks) hand their primary action to the panel title row instead of
@@ -593,15 +599,7 @@ export function recentSection({
           ) : (
             sessionsReady && rowCount === 0 && <p className="sidebar-section-empty">{t('No sessions.')}</p>
           )}
-          {renderRows(allRows, visibleRows.length)}
-          {hasMoreRows && (
-            <div
-              ref={sentinelRef}
-              className="session-list-sentinel"
-              aria-hidden="true"
-              style={{ height: 1, pointerEvents: 'none' }}
-            />
-          )}
+          {renderRows(allRows, visibleRows.length, hasMoreRows ? sentinelRef : undefined)}
         </nav>
       )}
     </section>
@@ -934,15 +932,7 @@ export function archivedSection({
       </div>
       {open && (
         <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>
-          {renderRows(allRows, visibleRows.length)}
-          {hasMoreRows && (
-            <div
-              ref={sentinelRef}
-              className="session-list-sentinel"
-              aria-hidden="true"
-              style={{ height: 1, pointerEvents: 'none' }}
-            />
-          )}
+          {renderRows(allRows, visibleRows.length, hasMoreRows ? sentinelRef : undefined)}
         </nav>
       )}
     </section>

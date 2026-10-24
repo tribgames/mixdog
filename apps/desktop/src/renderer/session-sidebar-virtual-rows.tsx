@@ -24,6 +24,20 @@ const VIRTUAL_ROWS_STEP = 8;
  *  fixed CSS height (31px desktop, the touch row on a phone). */
 const learnedRow = { height: 31, gap: 1 };
 
+/** The row slot (row plus the list's gap) every session list lays out. */
+export function sessionRowPitch(): number {
+  return learnedRow.height + learnedRow.gap;
+}
+
+/** The rows after a paged list's revealed ones. Its paging sentinel stands in
+ *  for them at their height, so the scroll extent always reaches the end of
+ *  the whole list: a fling runs on over rows whose page has not committed
+ *  yet instead of dying at the end of the revealed ones. */
+export interface UnrevealedRows {
+  count: number;
+  sentinelRef: React.Ref<HTMLDivElement>;
+}
+
 export interface VirtualRowItem {
   /** React key of the row this item renders. */
   key: string;
@@ -75,11 +89,13 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
   renderItem,
   scrollerRef,
   pinnedIds,
+  unrevealed,
 }: {
   items: readonly T[];
   renderItem(item: T): React.ReactNode;
   scrollerRef: React.RefObject<HTMLDivElement | null>;
   pinnedIds: ReadonlySet<string>;
+  unrevealed?: UnrevealedRows;
 }) {
   const windowed = items.length > VIRTUAL_ROWS_MIN;
   const markerRef = useRef<HTMLSpanElement | null>(null);
@@ -150,15 +166,19 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
   // Learn the row box and the list's origin from the rows on screen. Sections
   // above this list change its origin only through a sidebar render, which
   // hands this list a new `items`; a scroll step alone re-renders with the
-  // same items and skips the measurement (and its forced layout).
+  // same items and skips the measurement (and its forced layout). A list
+  // short of windowing measures too while rows stay unrevealed: their
+  // reserved height is laid out from this box.
+  const measured = windowed || Boolean(unrevealed?.count);
   // biome-ignore lint/correctness/useExhaustiveDependencies: items marks a sidebar render; geometry is read, not a trigger
   useLayoutEffect(() => {
-    if (!windowed) return;
+    if (!measured) return;
     const scroller = scrollerRef.current;
     const container = markerRef.current?.parentElement;
     if (!scroller || !container) return;
     const rows = container.querySelectorAll<HTMLElement>(':scope > .session-row[data-session-id]');
-    const indexes = renderedRef.current;
+    // Unwindowed, every item is mounted in order.
+    const indexes = windowed ? renderedRef.current : rows.length > 1 ? [0, 1] : [0];
     const first = rows[0];
     if (!first || indexes.length === 0) return;
     const firstRect = first.getBoundingClientRect();
@@ -179,7 +199,7 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
       Math.abs(gap - geometry.gap) > 0.1
     )
       setGeometry({ origin, height, gap });
-  }, [items, windowed, scrollerRef]);
+  }, [items, windowed, measured, scrollerRef]);
   const live = useRef({ items, indexById, windowed, origin: geometry.origin, pitch });
   live.current = { items, indexById, windowed, origin: geometry.origin, pitch };
   // Focus tracking and Tab across the window edge. The listeners sit on the
@@ -241,16 +261,21 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     (focusRequest.last ? stops.at(-1) : stops[0])?.focus({ preventScroll: true });
   }, [focusRequest, items]);
   const marker = <span key="virtual-origin" ref={markerRef} hidden />;
-  if (!windowed) return [marker, ...items.map(renderItem)];
-  // A spacer stands for `count` rows: their slots minus the one gap the
-  // spacer itself adds as a list item.
-  const spacer = (key: string, count: number) => (
+  // A stand-in for `count` rows: their slots minus the one gap the stand-in
+  // itself adds as a list item.
+  const extent = (count: number) => Math.max(0, count * pitch - geometry.gap);
+  const sentinel = unrevealed && (
     <div
-      key={key}
-      className="session-list-spacer"
+      key="unrevealed-rows"
+      ref={unrevealed.sentinelRef}
+      className="session-list-sentinel"
       aria-hidden="true"
-      style={{ height: Math.max(0, count * pitch - geometry.gap) }}
+      style={{ height: Math.max(1, extent(unrevealed.count)), pointerEvents: 'none' }}
     />
+  );
+  if (!windowed) return [marker, ...items.map(renderItem), sentinel];
+  const spacer = (key: string, count: number) => (
+    <div key={key} className="session-list-spacer" aria-hidden="true" style={{ height: extent(count) }} />
   );
   const nodes: React.ReactNode[] = [marker];
   let next = 0;
@@ -262,5 +287,6 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     next = index + 1;
   }
   if (next < items.length) nodes.push(spacer('spacer:end', items.length - next));
+  nodes.push(sentinel);
   return nodes;
 }

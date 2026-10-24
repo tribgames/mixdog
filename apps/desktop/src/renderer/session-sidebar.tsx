@@ -10,7 +10,7 @@ import { t } from './i18n';
 import type { NavigationSelection } from './nav-types';
 import {
   RECENT_SESSION_INITIAL_ROWS,
-  RECENT_SESSION_PAGE_ROWS,
+  nextSessionRowLimit,
   useHeldDuringUserScroll,
   useSidebarListScroll,
 } from './session-sidebar-scroll';
@@ -839,9 +839,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     if (selectedIndex < recentRowLimit) return;
     setRecentRowLimit(selectedIndex + 1);
   }, [recentRowLimit, rows, selection]);
-  const revealMoreRecentRows = useCallback(() => {
-    setRecentRowLimit((current) => Math.min(rows.length, current + RECENT_SESSION_PAGE_ROWS));
-  }, [rows.length]);
+  const revealMoreRecentRows = useCallback(
+    (wanted: number) => {
+      setRecentRowLimit((current) => nextSessionRowLimit(current, wanted, rows.length));
+    },
+    [rows.length]
+  );
   const visibleRecentRows = rows.slice(0, recentRowLimit);
   const sessionReorder = useSessionRowReorder({
     favoriteRows,

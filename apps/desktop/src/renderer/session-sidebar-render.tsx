@@ -29,7 +29,7 @@ import {
 } from './session-sidebar-sections';
 import type { useProjectFolderState, useSidebarOpenState } from './session-sidebar-state';
 import type { usePersistedListOrder } from './use-persisted-list-order';
-import { VirtualSessionRows, type VirtualRowItem } from './session-sidebar-virtual-rows';
+import { type UnrevealedRows, VirtualSessionRows, type VirtualRowItem } from './session-sidebar-virtual-rows';
 
 const prefetchStudioIntent = () => {
   void loadStudioViewModule().catch(() => undefined);
@@ -209,15 +209,21 @@ export function renderSessionRow(
 }
 
 /** `rows` as fork groups: each original with its forks beneath it while the
- *  group is expanded. Rows stay keyed by session, so toggling keeps them mounted. */
+ *  group is expanded. Rows stay keyed by session, so toggling keeps them mounted.
+ *  A paged list's sentinel stands in for the rows past `limit`. */
 function renderForkRows(
   ctx: SidebarSectionContext,
   rows: readonly DesktopSessionSummary[],
   limit: number | undefined,
   listKey?: string,
-  rowScope?: string
+  rowScope?: string,
+  sentinelRef?: React.Ref<HTMLDivElement>
 ) {
-  return renderSessionItems(ctx, forkRowItems(ctx, rows, limit), listKey, rowScope);
+  const items = forkRowItems(ctx, rows, limit);
+  const unrevealed = sentinelRef
+    ? { count: forkRowItems(ctx, rows, undefined).length - items.length, sentinelRef }
+    : undefined;
+  return renderSessionItems(ctx, items, listKey, rowScope, unrevealed);
 }
 
 /** One rendered row of a session list: the session and its fork role. */
@@ -258,13 +264,15 @@ function renderSessionItems(
   ctx: SidebarSectionContext,
   items: readonly SessionRowItem[],
   listKey?: string,
-  rowScope?: string
+  rowScope?: string,
+  unrevealed?: UnrevealedRows
 ) {
   return (
     <VirtualSessionRows
       items={items}
       scrollerRef={ctx.scrollerRef}
       pinnedIds={ctx.pinnedSessionIds}
+      unrevealed={unrevealed}
       renderItem={(item) => ctx.renderOrderedRow(item.session, listKey, rowScope, item.fork)}
     />
   );
@@ -495,7 +503,8 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
   const { openState, folders, rows, automationRows, archivedRows, bulkAction } = ctx;
   const { onAddProject, onNewProjectTask, onNewTask, unreadSessionIds } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
-  const renderUnorderedRows: RenderForkRows = (list, limit) => renderForkRows(ctx, list, limit, undefined, section);
+  const renderUnorderedRows: RenderForkRows = (list, limit, sentinelRef) =>
+    renderForkRows(ctx, list, limit, undefined, section, sentinelRef);
   switch (section) {
     case 'favorites':
       // With no favorites yet the section still appears while a session is
@@ -576,7 +585,7 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
         },
         headerProps,
         allRows: rows,
-        renderRows: (list, limit) => renderForkRows(ctx, list, limit, 'recent'),
+        renderRows: (list, limit, sentinelRef) => renderForkRows(ctx, list, limit, 'recent', undefined, sentinelRef),
       });
     case 'archived':
       return (

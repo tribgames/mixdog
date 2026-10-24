@@ -12,7 +12,10 @@ import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-l
 // page committed: the momentum died there and the rows appeared under a list
 // at rest (Android: 빠르게 손가락으로 스크롤하고 놓으니 중간에 멈추고 덜덜). The
 // first flick after returning from background hit it every time: the wake's
-// resync holds the main thread while the fling runs.
+// resync holds the main thread while the fling runs. No lead outruns a fling
+// on a busy main thread (the compositor runs the fling, each page waits for a
+// commit), so the paging sentinel now holds the unrevealed rows' height: the
+// scroll extent reaches the end of the whole list before its rows are revealed.
 
 const HARNESS = `
   import { useState } from 'react';
@@ -161,12 +164,14 @@ async function openPhoneList(browser, harness) {
   const box = await page.evaluate(() => {
     const scroller = document.querySelector('.session-sidebar-sessions .session-sidebar-scroll');
     const rect = scroller.getBoundingClientRect();
+    // The revealed rows end where the paging sentinel starts.
+    const sentinel = scroller.querySelector('.session-list-sentinel').getBoundingClientRect();
     return {
       x: rect.left + rect.width / 2,
       top: rect.top,
       bottom: Math.min(rect.bottom, window.innerHeight),
       height: scroller.clientHeight,
-      revealedEnd: scroller.scrollHeight - scroller.clientHeight,
+      revealedEnd: Math.round(sentinel.top - rect.top + scroller.scrollTop - scroller.clientHeight),
     };
   });
   assert.ok(box.height > 300, `the list has a phone-sized viewport (${box.height}px)`);
@@ -190,12 +195,16 @@ async function framesAtRest(page) {
 /** Offsets where the list stood against an end its revealed rows had while
  *  sessions were still unrevealed: the fling ran into the paging edge. The
  *  next page often commits in the very frame the fling hits, so the edge is
- *  any revealed end seen so far, not only the current one. */
+ *  any revealed end seen so far, not only the current one. The whole list's
+ *  end (its extent once every row is revealed) is no paging edge, though the
+ *  extent reaches it while rows are still unrevealed. */
 function stuckAtRevealedEnd(frames) {
+  const last = frames.at(-1);
+  const listEnd = last.more ? undefined : last.max;
   const ends = new Set();
   const stuck = new Set();
   for (const frame of frames) {
-    if (frame.more) ends.add(frame.max);
+    if (frame.more && frame.max !== listEnd) ends.add(frame.max);
     if (frame.top > 0 && [...ends].some((end) => Math.abs(end - frame.top) <= 1)) stuck.add(frame.top);
   }
   return [...stuck];
