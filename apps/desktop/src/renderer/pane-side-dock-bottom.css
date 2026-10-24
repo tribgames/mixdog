@@ -9,6 +9,9 @@
 .pane-cell[data-dock-placement="bottom"] {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  /* The side an open inline dock closes the cell's frame on (pane-layout.css). */
+  --dock-right: 0;
+  --dock-below: 1;
 }
 .pane-cell[data-dock-placement="bottom"] > .pane-side-dock,
 .pane-cell[data-dock-placement="bottom"] > .pane-side-dock-spacer {
@@ -88,11 +91,20 @@
     .pane-cell[data-dock-placement="bottom"]::after {
     grid-row: 1 / 5;
   }
+  /* Holds exactly the row the inline dock took: its gap plus the frame's 1px
+     side above it, less the ring it reached into on the outer edge. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-cell[data-dock-placement="bottom"] > .pane-side-dock-spacer {
+    margin: calc(var(--mx-sheet-gap) + 1px) 0 calc(-1px * var(--edge-bottom, 1)) 0;
+  }
+  /* While the cells draw the frame (pane-layout.css --frame) the dock reaches
+     into the ring with the sheet, and its gap keeps 1px more for the frame's
+     bottom side above it. */
   :root:not([data-mixdog-mobile-tabs])
     .pane-cell[data-dock-placement="bottom"]
-    > .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]),
-  :root:not([data-mixdog-mobile-tabs]) .pane-cell[data-dock-placement="bottom"] > .pane-side-dock-spacer {
-    margin: var(--mx-sheet-gap) 0 0 0;
+    > .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]) {
+    margin: calc(var(--mx-sheet-gap) + 1px * var(--frame, 0) * var(--no-bottom, 0))
+      calc(-1px * var(--frame, 0) * var(--edge-right, 0)) calc(-1px * var(--frame, 0) * var(--edge-bottom, 0))
+      calc(-1px * var(--frame, 0) * var(--edge-left, 0));
   }
   :root:not([data-mixdog-mobile-tabs]):not(
       :has(

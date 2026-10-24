@@ -1045,12 +1045,17 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   assert.match(open, /background: var\(--mx-sheet-surface\);/);
   const INL = '.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])';
   const inline = block.match(new RegExp(scope + ' ' + esc(INL) + ' \\{([^}]*)\\}'))[1];
-  assert.match(inline, /margin: 0 0 0 var\(--mx-sheet-gap\);/);
+  // The sheet gap on its left; while the cells draw the frame it also reaches into the ring and keeps
+  // 1px more gap for the frame's side (pane-frame-reserve.slow.test.mjs measures the geometry).
+  assert.match(
+    inline,
+    /margin: calc\(-1px \* var\(--frame, 0\) \* var\(--edge-top, 0\)\)[^;]*calc\(var\(--mx-sheet-gap\) \+ 1px \* var\(--frame, 0\)\);/
+  );
   assert.match(inline, /box-shadow: none;/);
   assert.doesNotMatch(inline, /border/);
   // Overlay keeps the sheet look (inset, border, radius) plus its shadow.
   assert.match(css, /\.pane-side-dock\[data-overlay="true"\] \{[^}]*box-shadow: var\(--mx-overlay\);/);
-  // The main panel's frame must not wrap an open inline dock: it drops its border and radius, and
+  // The main panel's frame must not wrap an open inline dock: it hides its border and radius, and
   // each pane cell draws its own sheet frame, closing the right side (border + corners) at the dock.
   const SURFACE_EXPANDED = ':not\\(:has\\([^{]*?data-expanded="true"\\]\\)\\)';
   // "An inline dock is open" is the column's own flag (useInlineDockFlag), padded to the (0,5,0)
@@ -1061,8 +1066,13 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   // An expanded browser/terminal lives on its own container, not on the dock's data-expanded: the
   // cells-draw-the-frame rules must step aside so the panel draws the single frame it is measured for.
   assert.doesNotMatch(block, new RegExp(scope + ' ' + esc('.main-panel[data-inline-dock')));
-  assert.match(unframed, /border: 0;\s*border-radius: 0;/);
-  assert.match(block, /\.pane-cell:has\(> \.pane-side-dock\[data-open="true"\][^{]*\) \{\s*--open-right: 1;/);
+  // The border only turns transparent: the panel's box (and every split inside it) keeps its size.
+  assert.match(unframed, /--frame: 1;\s*border-color: transparent;\s*border-radius: 0;/);
+  // The frame closes on the dock's side: the right, or below for a dock below the chat.
+  assert.match(
+    block,
+    /\.pane-cell:has\(> \.pane-side-dock\[data-open="true"\][^{]*\) \{\s*--open-right: max\(var\(--edge-right\), var\(--dock-right, 1\)\);\s*--no-bottom: max\(var\(--edge-bottom\), var\(--dock-below, 0\)\);/
+  );
   assert.match(block, /\.pane-cell::after \{[^}]*border-right-width: calc\(1px \* var\(--open-right\)\);/);
   assert.match(
     block,
@@ -1890,12 +1900,16 @@ test('vertical resize handles: 13px hit area centred on the divider, accent cent
     /\.pane-dock-diff-column:not\(\[hidden\]\) ~ \.workbench-side-panel\[data-side="right"\] > \.workbench-side-panel-resize \{([^}]*)\}/
   )[1];
   assert.match(pair, /left: -7px;\s*width: 13px;/);
-  // Split handles: hit area is 6px each side of the 1px handle, accent 3px centred (translateX(-50%) in the base rule).
+  // Split handles: hit area is 6px each side of the 1px handle, accent 3px centred on the divider's
+  // pixel by the base rule's offset (painted bounds: pane-frame-reserve.slow.test.mjs).
   assert.match(rule('\\.pane-split-row > \\.pane-resize-handle::before'), /left: -6px;\s*right: -6px;/);
-  assert.match(rule('\\.pane-split-row > \\.pane-resize-handle:is\\(:hover, \\.is-dragging\\)::after'), /width: 3px;/);
+  assert.match(
+    block,
+    /\.pane-split-row > \.pane-resize-handle:is\(:hover, \.is-dragging\)::after,[^{]*\.pane-split-column > \.pane-resize-handle:is\(:hover, \.is-dragging\)::after \{\s*--pane-handle-line: 3px;/
+  );
   assert.match(
     css,
-    /\.pane-split-row > \.pane-resize-handle::after \{[^}]*left: 50%;\s*width: 1px;\s*transform: translateX\(-50%\);/
+    /\.pane-split-row > \.pane-resize-handle::after \{[^}]*left: calc\(50% - var\(--pane-handle-line\) \/ 2\);\s*width: var\(--pane-handle-line\);/
   );
 });
 

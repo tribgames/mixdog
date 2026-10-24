@@ -245,6 +245,8 @@ html[data-mixdog-skin-photo="off"] .skin-motion {
 }
 html[data-mixdog-skin] .main-panel,
 html[data-mixdog-skin]:not([data-mixdog-mobile-tabs]) .main-panel {
+  /* The plate pane-layout.css's cell frames repaint under the panes. */
+  --mx-workspace-plate: var(--mx-skin-veil);
   background: var(--mx-skin-veil);
 }
 html[data-mixdog-skin] :is(.workbench-side-panel[data-side="left"], .pane-side-dock[data-open="true"]),

@@ -95,6 +95,8 @@
   bottom: -6px;
 }
 .pane-resize-handle::after {
+  /* The line's thickness: 1px at rest, the accent while hovered or dragged. */
+  --pane-handle-line: 1px;
   content: "";
   position: absolute;
   z-index: 2;
@@ -102,30 +104,36 @@
   background: var(--mx-border-structure);
   transition:
     background var(--mx-motion-chrome),
+    left var(--mx-motion-chrome),
+    top var(--mx-motion-chrome),
     width var(--mx-motion-chrome),
     height var(--mx-motion-chrome);
 }
+/* Centred by layout, not a translate: the line is offset from the 1px
+   divider by half the difference of the two thicknesses (0 at rest, −1px for
+   the 3px accent), so it lands on the divider's own pixels, snapped like its
+   box. Translated from the split's fractional position it was anti-aliased
+   into the next pixel column, where a crossing divider's plate (painted while
+   the cells draw the frame) covered that half at the T-junction: a dock
+   opening shifted the junction by up to 16 levels. Auto margins could not
+   centre the accent: wider than the divider, it fell back to a 0 offset. */
 .pane-split-row > .pane-resize-handle::after {
   top: 0;
   bottom: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
+  left: calc(50% - var(--pane-handle-line) / 2);
+  width: var(--pane-handle-line);
 }
 .pane-split-column > .pane-resize-handle::after {
   left: 0;
   right: 0;
-  top: 50%;
-  height: 1px;
-  transform: translateY(-50%);
+  top: calc(50% - var(--pane-handle-line) / 2);
+  height: var(--pane-handle-line);
 }
 .pane-split-row > .pane-resize-handle:hover::after,
-.pane-split-row > .pane-resize-handle.is-dragging::after {
-  width: 2px;
-}
+.pane-split-row > .pane-resize-handle.is-dragging::after,
 .pane-split-column > .pane-resize-handle:hover::after,
 .pane-split-column > .pane-resize-handle.is-dragging::after {
-  height: 2px;
+  --pane-handle-line: 2px;
 }
 .pane-resize-handle:hover,
 .pane-resize-handle.is-dragging {
@@ -920,7 +928,10 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-heade
   z-index: 30;
   top: 0;
   bottom: 0;
-  right: 0;
+  /* Its column's end line is auto, so `right` counts from the cell's padding
+     edge; while the cells draw the frame (pane-layout's --frame) the cell's
+     1px padding is the frame's ring, not the dock's. */
+  right: calc(1px * var(--frame, 0) * var(--edge-right, 0));
   box-shadow: var(--mx-overlay);
   background: var(--mx-window-band);
 }
@@ -1074,7 +1085,10 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     /* The left panel's right border is the divider. */
     border-left: 0;
     border-radius: 0 var(--mx-sheet-radius) var(--mx-sheet-radius) 0;
-    background: var(--mx-sheet-surface);
+    /* The plate under the panes; the cells and dividers paint it themselves
+       while they draw the frame (--frame below), so it reads the same. */
+    --mx-workspace-plate: var(--mx-sheet-surface);
+    background: var(--mx-workspace-plate);
     box-shadow: none;
     /* No clip: a rounded clip around the transcript scroller keeps Chromium
        from hit-testing it on the compositor, so every wheel event waited on
@@ -1141,6 +1155,67 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
   :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-split-cell:first-child .pane-cell {
     --open-right: 0;
   }
+  /* The sheet's ring: which sides of a box of the split chain lie on the main
+     panel's outer edge (1) or face a neighbour pane (0), inherited down the
+     chain. --frame is 1 while the cells draw the frame (the data-inline-dock
+     rule below sets it on the panel). */
+  :root:not([data-mixdog-mobile-tabs]) .main-panel {
+    --frame: 0;
+    --edge-top: 1;
+    --edge-right: 1;
+    --edge-bottom: 1;
+    --edge-left: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .app-shell.sidebar-collapsed .main-panel {
+    --edge-left: 1;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-split-cell:first-child {
+    --edge-right: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-split-cell:last-child {
+    --edge-left: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-column > .pane-split-cell:first-child {
+    --edge-bottom: 0;
+  }
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-column > .pane-split-cell:last-child {
+    --edge-top: 0;
+  }
+  /* While the cells draw the frame the main panel's border only turns
+     transparent, so the panel's content box, and with it every split's
+     allocation, stays exactly as it was. Each box of the split chain reaches
+     1px into that ring on the sides it lies on and pads the same 1px back: its
+     content box stays put, so no pane edge, divider, strip, chat or composer
+     moves. Only the cell frames (::before/::after) and an inline dock reach
+     into the ring, where the panel's border was. */
+  :root:not([data-mixdog-mobile-tabs]) .main-panel :is(.pane-split, .pane-split-cell, .pane-leaf, .pane-cell) {
+    margin: calc(-1px * var(--frame) * var(--edge-top)) calc(-1px * var(--frame) * var(--edge-right))
+      calc(-1px * var(--frame) * var(--edge-bottom)) calc(-1px * var(--frame) * var(--edge-left));
+    padding: calc(1px * var(--frame) * var(--edge-top)) calc(1px * var(--frame) * var(--edge-right))
+      calc(1px * var(--frame) * var(--edge-bottom)) calc(1px * var(--frame) * var(--edge-left));
+  }
+  /* A divider lies between two cells' plates, where the panel's plate showed
+     through: while the cells draw the frame it paints that plate itself, and
+     where it meets the ring, the ring's border over it (two offset shadows:
+     the border over the plate), so its hairline, its column and the ring
+     above and below it read exactly as with no dock open. */
+  :root:not([data-mixdog-mobile-tabs]) .main-panel .pane-resize-handle {
+    background: color-mix(in srgb, var(--mx-workspace-plate) calc(100% * var(--frame)), transparent);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .main-panel .pane-split-row > .pane-resize-handle {
+    box-shadow:
+      0 calc(-1px * var(--frame) * var(--edge-top)) 0 0 var(--mx-border),
+      0 calc(-1px * var(--frame) * var(--edge-top)) 0 0 var(--mx-workspace-plate),
+      0 calc(1px * var(--frame) * var(--edge-bottom)) 0 0 var(--mx-border),
+      0 calc(1px * var(--frame) * var(--edge-bottom)) 0 0 var(--mx-workspace-plate);
+  }
+  :root:not([data-mixdog-mobile-tabs]) .main-panel .pane-split-column > .pane-resize-handle {
+    box-shadow:
+      calc(-1px * var(--frame) * var(--edge-left)) 0 0 0 var(--mx-border),
+      calc(-1px * var(--frame) * var(--edge-left)) 0 0 0 var(--mx-workspace-plate),
+      calc(1px * var(--frame) * var(--edge-right)) 0 0 0 var(--mx-border),
+      calc(1px * var(--frame) * var(--edge-right)) 0 0 0 var(--mx-workspace-plate);
+  }
   :root:not([data-mixdog-mobile-tabs]) .pane-cell > .workspace-tabs-shell {
     border-top-left-radius: calc(var(--mx-cell-corner) * var(--no-top) * var(--no-left) * var(--folded));
     border-top-right-radius: calc(var(--mx-cell-corner) * var(--no-top) * var(--open-right));
@@ -1206,7 +1281,8 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
       .session-browser-surface-container[data-parked="false"][data-expanded="true"]
     )
   ) .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock] {
-    border: 0;
+    --frame: 1;
+    border-color: transparent;
     border-radius: 0;
     background: transparent;
   }
@@ -1219,8 +1295,6 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell {
     isolation: isolate;
-    /* The cell draws its own frame: its corners sit on the frame's edge. */
-    --mx-cell-corner: var(--mx-sheet-radius);
   }
   :root:not([data-mixdog-mobile-tabs]):not(
       :has(
@@ -1230,8 +1304,13 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     )
     .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell:has(> .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])) {
-    --open-right: 1;
+    --open-right: max(var(--edge-right), var(--dock-right, 1));
+    --no-bottom: max(var(--edge-bottom), var(--dock-below, 0));
   }
+  /* (Above: the frame closes on the dock's side — the right, or below the
+     column for a dock below the chat, where pane-side-dock-bottom.css sets
+     --dock-right: 0 and --dock-below: 1; its other sides keep their ring
+     flags.) */
   :root:not([data-mixdog-mobile-tabs]):not(
       :has(
         .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
@@ -1251,6 +1330,10 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     content: "";
     grid-column: 1;
     grid-row: 1 / -1;
+    /* Each drawn side sits 1px outside the column: in the ring on an outer
+       edge, in the dock's extra 1px of gap beside an inline dock. */
+    margin: calc(-1px * var(--no-top)) calc(-1px * var(--open-right)) calc(-1px * var(--no-bottom))
+      calc(-1px * var(--no-left) * var(--folded));
     pointer-events: none;
     border-radius: calc(var(--mx-sheet-radius) * var(--no-top) * var(--no-left) * var(--folded))
       calc(var(--mx-sheet-radius) * var(--no-top) * var(--open-right))
@@ -1266,7 +1349,8 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell::before {
     z-index: -1;
-    background: var(--mx-sheet-surface);
+    /* What the panel painted under the panes (a skin's veil included). */
+    background: var(--mx-workspace-plate);
   }
   :root:not([data-mixdog-mobile-tabs]):not(
       :has(
@@ -1276,50 +1360,16 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     )
     .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell::after {
-    z-index: 3;
+    /* Under the column, over the surface (::before, earlier in tree order):
+       the layers the panel's own border sat in, so the rows' rounded corners
+       overlap its anti-aliased edge exactly as they do with no dock open. Its
+       sides lie in the ring and the dock gap, outside every row. */
+    z-index: -1;
     border: 0 solid var(--mx-border);
     border-top-width: calc(1px * var(--no-top));
     border-right-width: calc(1px * var(--open-right));
     border-bottom-width: calc(1px * var(--no-bottom));
     border-left-width: calc(1px * var(--no-left) * var(--folded));
-  }
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
-    .pane-cell
-    > .workspace-tabs-shell,
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
-    .pane-cell
-    > .pane-surface-stack,
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
-    .pane-cell
-    > .pane-footer-slot,
-  :root:not([data-mixdog-mobile-tabs]):not(
-      :has(
-        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
-      )
-    )
-    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
-    .pane-cell
-    > .bottom-panel:not([data-state="closed"]) {
-    background: transparent;
   }
   /* The dock: a separate floating sheet. Overlay: inset inside the pane with
      its shadow. Inline: --mx-sheet-gap from the workspace sheet on its left
@@ -1338,7 +1388,10 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
   }
   :root:not([data-mixdog-mobile-tabs])
     .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]) {
-    margin: 0 0 0 var(--mx-sheet-gap);
+    /* While the cells draw the frame (--frame), the dock reaches into the
+       ring with the sheet and keeps 1px more gap for the frame's side. */
+    margin: calc(-1px * var(--frame, 0) * var(--edge-top, 0)) calc(-1px * var(--frame, 0) * var(--edge-right, 0))
+      calc(-1px * var(--frame, 0) * var(--edge-bottom, 0)) calc(var(--mx-sheet-gap) + 1px * var(--frame, 0));
     box-shadow: none;
   }
   :root:not([data-mixdog-mobile-tabs]):not(
@@ -1365,9 +1418,14 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     .pane-side-dock[data-open="true"][data-expanded="true"] {
     border-radius: calc(var(--mx-sheet-radius) - 1px);
   }
-  /* Holds the dock's column (gap included) while the dock is expanded. */
+  /* Holds the dock's column while the dock is expanded: exactly the room the
+     inline dock took — its gap plus the frame's 1px side on the left, and on
+     the right the ring it reached into on the outer edge, else the gap
+     before the neighbour pane — so expanding and collapsing never move the
+     conversation. */
   :root:not([data-mixdog-mobile-tabs]) .pane-side-dock-spacer {
-    margin: 0 0 0 var(--mx-sheet-gap);
+    margin: 0 calc(var(--mx-sheet-gap) * (1 - var(--edge-right, 1)) - 1px * var(--edge-right, 1)) 0
+      calc(var(--mx-sheet-gap) + 1px);
   }
   /* Every corner of a sheet dock follows the sheet radius without clipping the
      resize edges that sit just outside it. */
@@ -1521,8 +1579,10 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
     left: -6px;
     right: -6px;
   }
-  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-resize-handle:is(:hover, .is-dragging)::after {
-    width: 3px;
+  /* The accent: 3px, one pixel either side of the divider's. */
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-row > .pane-resize-handle:is(:hover, .is-dragging)::after,
+  :root:not([data-mixdog-mobile-tabs]) .pane-split-column > .pane-resize-handle:is(:hover, .is-dragging)::after {
+    --pane-handle-line: 3px;
   }
 }
 
