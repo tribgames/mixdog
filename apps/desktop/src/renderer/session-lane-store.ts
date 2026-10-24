@@ -37,6 +37,13 @@ interface SessionLaneStore {
    *  identity only when membership changes. */
   approvalSessionIds(): ReadonlySet<string>;
   subscribeApprovals(listener: () => void): () => void;
+  /** The sessions this window shows in a pane (the host forwards their lane
+   *  frames from now on). */
+  setShownSessionIds(sessionIds: Iterable<string>): void;
+  /** Shown sessions whose lane received a frame since they became shown: only
+   *  their lane is current. Changes notify the approval listeners; a new set
+   *  identity only when membership changes. */
+  liveSessionIds(): ReadonlySet<string>;
   /** Drop cached lanes with no subscribers (remote sync-gap recovery: an
    *  emptied lane re-reads through session.read on its next open). */
   evictInactive(): void;
@@ -468,6 +475,13 @@ export function createSessionLaneStore({
   let stop: (() => void) | null = null;
   let approvals: ReadonlySet<string> = new Set();
   const approvalListeners = new Set<() => void>();
+  let shown: ReadonlySet<string> = new Set();
+  let live: ReadonlySet<string> = new Set();
+  const setLive = (next: ReadonlySet<string>): void => {
+    if (next.size === live.size && [...next].every((id) => live.has(id))) return;
+    live = next;
+    for (const listener of [...approvalListeners]) listener();
+  };
   // Membership follows the lane's own toolApproval, so it costs one check per
   // frame and notifies only when a session starts or stops waiting.
   // A lane that left the cache (eviction, pruning, release) no longer carries
@@ -521,6 +535,10 @@ export function createSessionLaneStore({
     // An unnamed null is a baseline release, never a teardown — the decoder
     // baseline is dropped in preload and this cache is bounded by prune(), so
     // holding the frame costs nothing and keeps the pane painted.
+    // Any lane end (a daemon disconnect, an unload, a baseline release, a
+    // teardown) means its frames are no longer current: the transcript stays,
+    // but the lane stops being the approval source until its next real frame.
+    if (!update.snapshot && live.has(sessionId)) setLive(new Set([...live].filter((id) => id !== sessionId)));
     if (!update.snapshot && update.laneEnd !== 'gone' && prior) {
       reportSessionReadFrame(update, 'rejected');
       return;
@@ -566,6 +584,7 @@ export function createSessionLaneStore({
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
     syncApprovals(sessionId);
+    if (update.snapshot && shown.has(sessionId) && !live.has(sessionId)) setLive(new Set([...live, sessionId]));
     reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied', performance.now() - readFrameStartedAt);
     noteStreamLaneFrame(sessionId, nextSnapshot?.streamingTail);
     if ((listeners.get(sessionId)?.size || 0) === 0) {
@@ -619,6 +638,12 @@ export function createSessionLaneStore({
     },
     subscribedSessionIds: () => [...listeners.keys()],
     approvalSessionIds: () => approvals,
+    setShownSessionIds(sessionIds) {
+      shown = new Set(sessionIds);
+      // A newly shown session waits for its first frame; one no longer shown leaves.
+      setLive(new Set([...live].filter((id) => shown.has(id))));
+    },
+    liveSessionIds: () => live,
     subscribeApprovals(listener) {
       approvalListeners.add(listener);
       return () => {
@@ -661,6 +686,7 @@ export function createSessionLaneStore({
         approvals = new Set();
         for (const listener of [...approvalListeners]) listener();
       }
+      setLive(new Set());
     },
   };
 }

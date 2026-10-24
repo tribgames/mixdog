@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { defaultSessionLaneStore } from './session-lane-store';
 import { useWorkspaceCovered } from './workspace-cover';
 
 /** Until startup settles, an EMPTY set is the boot's provisional New Task
@@ -18,6 +19,13 @@ function provisionalBootFrame(sessionIds: readonly string[]): boolean {
  * Desktop transport versions fence out-of-order requests; the remote shim
  * owns its legacy encrypted-transport serialization. */
 let shownSessionIds: readonly string[] = [];
+
+/** The lane store learns the registration too: a shown session's lane is its
+ *  current state once a frame arrives (session-attention-index). */
+function setShownSessionIds(sessionIds: readonly string[]): void {
+  shownSessionIds = sessionIds;
+  defaultSessionLaneStore.setShownSessionIds(sessionIds);
+}
 
 /** The sessions this window currently shows (last registration). */
 export function currentVisibleSessionIds(): readonly string[] {
@@ -77,7 +85,7 @@ export function useVisibleSessions(sessionIds: string[]): void {
   const key = sessionIds.join('\0');
   // biome-ignore lint/correctness/useExhaustiveDependencies: key is the content signature of sessionIds, so a new array with the same ids does not re-register
   useLayoutEffect(() => {
-    shownSessionIds = sessionIds;
+    setShownSessionIds(sessionIds);
     const register = window.mixdogDesktop?.setVisibleSessions;
     if (!register) return;
     let cancelled = false;
@@ -114,6 +122,7 @@ export function useVisibleSessions(sessionIds: string[]): void {
   }, [key]);
   useEffect(
     () => () => {
+      setShownSessionIds([]);
       void window.mixdogDesktop?.setVisibleSessions?.([]).catch(() => undefined);
     },
     []

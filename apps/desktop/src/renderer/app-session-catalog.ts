@@ -7,6 +7,7 @@ import type { DesktopSessionSummary } from '../shared/contract';
 import { mergeSessionCatalogPushRows, mergeSessionCatalogRows } from '../shared/session-catalog';
 import { publishAgentRooms } from './agent-room-store';
 import { publishAgentModeSessions } from './agent-chat-mode';
+import { publishCatalogApprovalSessions } from './session-catalog-approvals';
 import { publishSessionGlances } from './session-glance-store';
 import {
   purgeRemovedSessionPreviews,
@@ -124,6 +125,7 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       publishAgentRooms(merged);
       publishAgentModeSessions(merged);
       publishSessionGlances(merged);
+      publishCatalogApprovalSessions(merged);
       // A renderer-staged create is presentation state, not durable startup
       // truth. It enters the cache only after a host catalog confirms the id.
       scheduleCachedSessionCatalogWrite(merged.filter((session) => !pendingCreates.current.has(session.id)));

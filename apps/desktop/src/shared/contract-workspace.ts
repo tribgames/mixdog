@@ -143,6 +143,10 @@ export interface DesktopSessionSummary {
   leadWorking?: boolean;
   /** The daemon is running a child agent owned by this lead session. */
   agentWorking?: boolean;
+  /** This session's live runtime shows an approval card (a tool approval, a
+   *  question, a sub-agent's delegated copy) waiting on the user: its list
+   *  rows read "needs you", whether or not any pane receives its lane. */
+  awaitingApproval?: boolean;
   /** Archive: hidden from Recent, restorable; file stays on disk. */
   archived?: boolean;
   /** Favorite: pinned to the Favorites section above Recent. */

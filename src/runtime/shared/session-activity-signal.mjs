@@ -13,7 +13,26 @@ export function onSessionActivityChange(listener) {
 }
 
 export function emitSessionActivityChange(sessionId = '') {
-  for (const listener of [...listeners]) {
+  emit(listeners, sessionId);
+}
+
+// A live session started or stopped showing an approval card waiting on the
+// user (its runtime state's `toolApproval`): the session catalog, which
+// stamps that on each row, listens and re-reads.
+const approvalCardListeners = new Set();
+
+export function onSessionApprovalCardChange(listener) {
+  if (typeof listener !== 'function') return () => {};
+  approvalCardListeners.add(listener);
+  return () => approvalCardListeners.delete(listener);
+}
+
+export function emitSessionApprovalCardChange(sessionId = '') {
+  emit(approvalCardListeners, sessionId);
+}
+
+function emit(targets, sessionId) {
+  for (const listener of [...targets]) {
     try {
       listener(String(sessionId || ''));
     } catch {

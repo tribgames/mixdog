@@ -7,6 +7,8 @@ import test from 'node:test';
 import { runtimeState } from '../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { createStoredSessionViews } from './daemon-stored-session-views.mjs';
 import { createSessionActionCalls } from './session-service/session-calls/session-action.mjs';
+import { createBusyTracker } from './session-service/retention/busy.mjs';
+import { onSessionApprovalCardChange } from '../runtime/shared/session-activity-signal.mjs';
 
 function views() {
   const calls = [];
@@ -105,7 +107,7 @@ test('the session catalog call returns a page with its cursor', async () => {
     listSessions: stored.listSessions,
     getRemoteSessionState: async () => null,
     projection: {},
-    retention: {},
+    retention: { awaitingApprovalSessionIds: () => new Set() },
     entries: {},
   });
   assert.deepEqual(await actions.listSessionCatalog({ page: { limit: 1 } }), {
@@ -114,4 +116,55 @@ test('the session catalog call returns a page with its cursor', async () => {
     remoteSession: null,
   });
   assert.deepEqual(await actions.listSessionCatalog(), { sessions: [{ id: 'async' }], remoteSession: null });
+});
+
+// A Lead waiting on the user's approval is still mid-turn (`working`); only
+// its live runtime knows it waits. The catalog is the one status every list
+// row reads, so it carries that for every session — open in a pane or not.
+test('the session catalog marks every session whose live runtime shows an approval card', async () => {
+  const runtime = (state) => ({ getState: () => state });
+  const sessions = new Set([
+    { id: 'asks', runtime: runtime({ busy: true, toolApproval: { id: 'ap-1', name: 'shell' } }) },
+    { id: 'question', runtime: runtime({ busy: true, toolApproval: { id: 'ap-2', kind: 'question' } }) },
+    { id: 'busy', runtime: runtime({ busy: true, toolApproval: null }) },
+  ]);
+  const busy = createBusyTracker({ sessions, currentSessionId: (entry) => entry.id });
+  const rows = [{ id: 'asks' }, { id: 'question' }, { id: 'busy' }, { id: 'cold' }];
+  const store = {
+    listStoredSessionSummariesAsync: async () => rows,
+    listStoredSessionSummaryPage: async () => ({ sessions: rows, nextCursor: null }),
+  };
+  const stored = createStoredSessionViews({ desktopRuntime: { loadSessionStore: async () => store } });
+  const actions = createSessionActionCalls({
+    isClosed: () => false,
+    log: () => {},
+    listSessions: stored.listSessions,
+    getRemoteSessionState: async () => null,
+    projection: {},
+    retention: busy,
+    entries: {},
+  });
+  const expected = [
+    { id: 'asks', awaitingApproval: true },
+    { id: 'question', awaitingApproval: true },
+    { id: 'busy' },
+    { id: 'cold' },
+  ];
+  assert.deepEqual((await actions.listSessionCatalog()).sessions, expected);
+  assert.deepEqual((await actions.listSessionCatalog({ page: { limit: 4 } })).sessions, expected);
+});
+
+test('a live session that starts or stops showing an approval card announces it once per transition', (t) => {
+  const seen = [];
+  t.after(onSessionApprovalCardChange((sessionId) => seen.push(sessionId)));
+  const entry = { id: 'lead' };
+  const busy = createBusyTracker({ sessions: new Set([entry]), currentSessionId: (row) => row.id });
+  busy.updateEntryBusy(entry, { busy: true });
+  assert.deepEqual(seen, [], 'no card, nothing to announce');
+  busy.updateEntryBusy(entry, { busy: true, toolApproval: { id: 'ap' } });
+  busy.updateEntryBusy(entry, { busy: true, toolApproval: { id: 'ap' } });
+  assert.deepEqual(seen, ['lead'], 'the card appeared: once');
+  busy.updateEntryBusy(entry, { busy: true, toolApproval: null });
+  busy.updateEntryBusy(entry, { busy: false });
+  assert.deepEqual(seen, ['lead', 'lead'], 'the card went away: once');
 });

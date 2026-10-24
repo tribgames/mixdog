@@ -109,15 +109,19 @@ test('a background sequence ends its worker holds before the capture, however it
   assert.deepEqual(stopped.events, ['step:key:true', 'step:key:true', 'release:s', 'capture']);
   assert.equal(failed.stopped_reason, 'background_target_hung');
 
-  // A step that yields to the user rejects the whole sequence to the outer queue.
+  // A step the user interrupts stops the sequence as an ordinary row; the
+  // holds end and the observation still follows.
   const yielded = holdRunner({
     stepReply: () => {
       throw new Error('user_input_active: the user moved');
     },
   });
-  await assert.rejects(yielded.run(), /user_input_active/);
-  const aborted = yielded;
-  assert.deepEqual(aborted.events, ['step:key:true', 'release:s']);
+  const interrupted = JSON.parse((await yielded.run()).text);
+  assert.deepEqual(yielded.events, ['step:key:true', 'release:s', 'capture']);
+  assert.equal(interrupted.ok, false);
+  assert.equal(interrupted.code, 'user_input_active');
+  assert.equal(interrupted.stopped_reason, 'user_input_active');
+  assert.equal(interrupted.steps[0].status, 'uncertain');
 
   const foreground = holdRunner({
     delivery: 'foreground',

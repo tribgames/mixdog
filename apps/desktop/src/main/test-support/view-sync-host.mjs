@@ -9,8 +9,9 @@ export async function viewSyncHost({ runTurns = false } = {}) {
   process.env.MIXDOG_DATA_DIR = directory;
   const records = new Map();
   const sinks = new Set();
-  // `working` holds the ids the daemon reports as running in its catalog rows.
-  const state = { creates: 0, submits: 0, agents: [], reads: 0, working: new Set() };
+  // `working` holds the ids the daemon reports as running in its catalog rows,
+  // `awaitingApproval` the ones it reports waiting on the user's approval.
+  const state = { creates: 0, submits: 0, agents: [], reads: 0, working: new Set(), awaitingApproval: new Set() };
   let loseTransport = () => {};
   const full = (record) => ({
     sessionId: record.id,
@@ -50,6 +51,7 @@ export async function viewSyncHost({ runTurns = false } = {}) {
               updatedAt: Date.now(),
               messageCount: row.snapshot.items.length,
               ...(state.working.has(row.id) ? { working: true } : {}),
+              ...(state.awaitingApproval.has(row.id) ? { awaitingApproval: true } : {}),
             })),
           };
         },

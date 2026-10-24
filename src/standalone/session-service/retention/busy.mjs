@@ -7,6 +7,7 @@
  * turn. The eviction sweep that consumes this lives in ../retention.mjs.
  */
 import { activeBackgroundTaskSessionIds, hasActiveBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
+import { emitSessionApprovalCardChange } from '../../../runtime/shared/session-activity-signal.mjs';
 
 export function createBusyTracker({ sessions, currentSessionId }) {
   function stateBusy(state) {
@@ -18,7 +19,26 @@ export function createBusyTracker({ sessions, currentSessionId }) {
   function updateEntryBusy(entry, state) {
     const next = stateBusy(state);
     entry.busy = next;
+    // Every runtime state change passes here, watched or headless: a session
+    // that starts or stops showing an approval card (any kind, a sub-agent's
+    // delegated copy included) announces it, so the session catalog — the one
+    // status source every list row has, open pane or not — re-reads it.
+    const awaitingApproval = Boolean(state?.toolApproval);
+    if (awaitingApproval !== (entry.awaitingApproval === true)) {
+      entry.awaitingApproval = awaitingApproval;
+      emitSessionApprovalCardChange(currentSessionId(entry) || '');
+    }
     return next;
+  }
+
+  /** Session ids whose live runtime shows an approval card waiting on the user. */
+  function awaitingApprovalSessionIds() {
+    const ids = new Set();
+    for (const entry of sessions) {
+      const sessionId = currentSessionId(entry);
+      if (sessionId && entry.runtime?.getState?.()?.toolApproval) ids.add(sessionId);
+    }
+    return ids;
   }
 
   function sessionBusy(entry) {
@@ -65,5 +85,12 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     return count;
   }
 
-  return { stateBusy, updateEntryBusy, sessionBusy, liveBusyCount, liveTurnBusyCount };
+  return {
+    stateBusy,
+    updateEntryBusy,
+    awaitingApprovalSessionIds,
+    sessionBusy,
+    liveBusyCount,
+    liveTurnBusyCount,
+  };
 }

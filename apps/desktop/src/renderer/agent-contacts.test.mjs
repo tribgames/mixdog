@@ -407,6 +407,30 @@ test('a contact surfaces approval and failure from its thread first', () => {
   assert.equal(contacts[1].preview, 'Waiting for approval');
 });
 
+// A bot's home is an agent-mode Lead: its own turn has no pool row, so only
+// the sessions waiting on the user say its turn is blocked, not working.
+test('a contact whose own home turn waits on the user reads attention over running', () => {
+  const sessions = [home('github-watcher', { working: true }), home('translator', { working: true })];
+  const needsUser = new Set(['sess_home_github-watcher']);
+  const [, watcher, translator] = agentContacts(AGENTS, sessions, new Map(), undefined, { needsUser });
+  assert.deepEqual(watcher.indicator, { kind: 'attention' });
+  assert.equal(watcher.preview, 'Waiting for approval');
+  assert.deepEqual(translator.indicator, { kind: 'running' }, 'only the waiting home');
+});
+
+test('the bot page marks a working home thread that waits on approval, not a spinner', async (t) => {
+  const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
+  const sessions = [work, home('github-watcher', { working: true, awaitingApproval: true })];
+  publishCatalogApprovalSessions(sessions);
+  t.after(() => publishCatalogApprovalSessions([]));
+  const { document, render } = mount(t, { sessions });
+  await render();
+  await render();
+  const watcher = document.querySelector('[data-agent-contact="github-watcher"]');
+  assert.ok(watcher.querySelector('.agent-chat-status[data-kind="attention-mark"]'));
+  assert.equal(watcher.querySelector('.agent-chat-status[data-kind="running"]'), null);
+});
+
 test('home threads leave the work sessions; every other group stays', () => {
   const groups = [
     { ownerId: 'lead-a', session: work, nodes: ['a'] },

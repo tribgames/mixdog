@@ -37,7 +37,8 @@ import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
 import { compactionArchivePath, readCompactionArchivePage } from './compaction-archive.mjs';
 import { currentSessionCatalogDb, onSessionCatalogDbChange, sessionCatalogDb } from './catalog-db/index.mjs';
 import { decodeCatalogCursor, encodeCatalogCursor, isAfterCursor } from './catalog-db/schema.mjs';
-import { onSessionActivityChange } from '../../../shared/session-activity-signal.mjs';
+import { onSessionActivityChange, onSessionApprovalCardChange } from '../../../shared/session-activity-signal.mjs';
+import { inFlightSessionActivity } from './manager/runtime-state.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
   offerStrictSessionRecord,
@@ -106,7 +107,23 @@ onSessionCatalogDbChange(() => notifyCatalogListeners());
 // Runtime activity transitions (turn start/settle, task wait, background
 // hand-off/finish) change only the Agents pool projection: `agent-activity`
 // lets the reader refresh just that, at once.
-onSessionActivityChange(() => notifyCatalogListeners('agent-activity'));
+// A transition that starts or settles a turn also changes the catalog rows'
+// `working` / `agentWorking` overlay. The listing that a turn's final save
+// triggers can run before the turn leaves the runtime map, and nothing else
+// re-lists: a bot home (no title write after its turn) kept `working` — a
+// spinner and no completion dot — until its next file change.
+let catalogActivity = '';
+onSessionActivityChange(() => {
+  notifyCatalogListeners('agent-activity');
+  const { working, agentWorking } = inFlightSessionActivity();
+  const next = `${[...working].sort().join(',')}|${[...agentWorking].sort().join(',')}`;
+  if (next === catalogActivity) return;
+  catalogActivity = next;
+  notifyCatalogListeners('turn-activity');
+});
+// A session started or stopped waiting on the user's approval: its catalog row
+// (`awaitingApproval`) changed, though no store file did.
+onSessionApprovalCardChange(() => notifyCatalogListeners('approval'));
 
 /** `listener()` runs when a background pass finds a session file that changed
  *  without a directory or index change, i.e. when an ordinary listing would

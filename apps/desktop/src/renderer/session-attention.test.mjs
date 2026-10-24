@@ -20,8 +20,14 @@ globalThis.ResizeObserver = window.ResizeObserver = class {
 globalThis.MutationObserver ??= window.MutationObserver;
 
 const { sessionAttention, strongestSessionAttention } = await import('../shared/session-attention.ts');
-const { sessionAttentionIndex, sessionAttentionOf } = await import('./session-attention-index.ts');
+const { effectiveApprovalSessionIds, sessionAttentionIndex, sessionAttentionOf } = await import(
+  './session-attention-index.ts'
+);
+const { useVisibleSessions } = await import('./use-visible-sessions.ts');
 const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+const { catalogApprovalSessionIds, publishCatalogApprovalSessions, subscribeCatalogApprovalSessions } = await import(
+  './session-catalog-approvals.ts'
+);
 const { WorkspaceTabStrip } = await import('./WorkspaceTabStrip.tsx');
 const { SessionSidebarRow } = await import('./session-sidebar-rows.tsx');
 const { projectsSection } = await import('./session-sidebar-sections.tsx');
@@ -123,6 +129,52 @@ test('the lane store tracks which sessions wait on a tool approval, changing ide
   }
 });
 
+// A lane carries an approval only while a pane receives it; the host catalog
+// marks every session that waits on the user, a background one too.
+test('a catalog approval reads needs you for a session no pane receives, over its running turn', () => {
+  const approvals = effectiveApprovalSessionIds(new Set(), new Set(['background']), new Set());
+  const index = sessionAttentionIndex([], approvals);
+  assert.equal(sessionAttentionOf(index, 'background', { running: true }), 'needs-you');
+  assert.equal(sessionAttentionOf(index, 'other', { running: true }), 'running');
+});
+
+test('each session takes its approval from one current source: its live lane, else the catalog', () => {
+  const lane = new Set(['shown', 'left-behind']);
+  const catalog = new Set(['background', 'shown-stale-catalog']);
+  const live = new Set(['shown', 'shown-stale-catalog']);
+  assert.deepEqual(
+    [...effectiveApprovalSessionIds(lane, catalog, live)].sort(),
+    ['background', 'shown'],
+    'a left-behind lane and a lagging catalog flag for a shown session both lose'
+  );
+});
+
+test('the catalog approval set follows awaitingApproval rows, changing identity only on membership', () => {
+  let notified = 0;
+  const stop = subscribeCatalogApprovalSessions(() => {
+    notified += 1;
+  });
+  try {
+    const row = (id, extra = {}) => ({ id, title: id, preview: '', updatedAt: 1, messageCount: 2, ...extra });
+    publishCatalogApprovalSessions([row('a', { working: true, awaitingApproval: true }), row('b', { working: true })]);
+    const waiting = catalogApprovalSessionIds();
+    assert.deepEqual([...waiting], ['a']);
+    publishCatalogApprovalSessions([row('a', { awaitingApproval: true }), row('b')]);
+    assert.equal(catalogApprovalSessionIds(), waiting, 'same membership, same identity');
+    publishCatalogApprovalSessions([row('a'), row('b')]);
+    assert.equal(catalogApprovalSessionIds().size, 0);
+    assert.equal(notified, 2);
+  } finally {
+    stop();
+    publishCatalogApprovalSessions([]);
+  }
+});
+
+function Visible({ ids }) {
+  useVisibleSessions(ids);
+  return null;
+}
+
 async function render(element) {
   const host = document.createElement('div');
   document.body.append(host);
@@ -149,16 +201,22 @@ test('session tabs show the strongest status, each with its own mark', async () 
   const tab = (id) => ({ key: `session:${id}`, title: id, selection: { kind: 'session', id } });
   const tabs = ['asks', 'broke', 'busy', 'seen', 'quiet'].map(tab);
   const view = await render(
-    React.createElement(WorkspaceTabStrip, {
-      tabs,
-      activeKey: tabs[0].key,
-      workingSessionIds: new Set(['asks', 'broke', 'busy']),
-      unreadSessionIds: new Set(['asks', 'broke', 'busy', 'seen']),
-      onSelectTab() {},
-      onCloseTab() {},
-      onReorderTab() {},
-      onNewTask() {},
-    })
+    React.createElement(
+      React.Fragment,
+      null,
+      // `asks` is shown in a pane: its lane is the current source.
+      React.createElement(Visible, { ids: ['asks'] }),
+      React.createElement(WorkspaceTabStrip, {
+        tabs,
+        activeKey: tabs[0].key,
+        workingSessionIds: new Set(['asks', 'broke', 'busy']),
+        unreadSessionIds: new Set(['asks', 'broke', 'busy', 'seen']),
+        onSelectTab() {},
+        onCloseTab() {},
+        onReorderTab() {},
+        onNewTask() {},
+      })
+    )
   );
   try {
     await act(async () => {
@@ -195,6 +253,257 @@ test('session tabs show the strongest status, each with its own mark', async () 
     assert.equal(cell('quiet').dataset.attention, undefined);
   } finally {
     await view.unmount();
+    defaultSessionLaneStore.clear();
+  }
+});
+
+test('a background tab whose session waits on approval shows needs you from the catalog alone', async () => {
+  window.mixdogDesktop = {
+    listAgentPool: async () => [],
+    subscribeAgentPool: () => () => {},
+  };
+  defaultSessionLaneStore.clear();
+  const tab = (id) => ({ key: `session:${id}`, title: id, selection: { kind: 'session', id } });
+  const tabs = ['open', 'background'].map(tab);
+  const view = await render(
+    React.createElement(WorkspaceTabStrip, {
+      tabs,
+      activeKey: tabs[0].key,
+      workingSessionIds: new Set(['open', 'background']),
+      onSelectTab() {},
+      onCloseTab() {},
+      onReorderTab() {},
+      onNewTask() {},
+    })
+  );
+  try {
+    // No lane frame ever reaches `background`: only its catalog row says it waits.
+    await act(async () => {
+      publishCatalogApprovalSessions([
+        { id: 'open', title: 'open', preview: '', updatedAt: 1, messageCount: 2, working: true },
+        {
+          id: 'background',
+          title: 'background',
+          preview: '',
+          updatedAt: 1,
+          messageCount: 2,
+          working: true,
+          awaitingApproval: true,
+        },
+      ]);
+    });
+    const cell = (id) => view.host.querySelector(`.workspace-tab[data-tab-key="session:${id}"]`);
+    assert.equal(cell('background').dataset.attention, 'needs-you');
+    assert.equal(cell('background').querySelector('.workspace-tab-status'), null, 'no spinner over the mark');
+    assert.equal(cell('open').dataset.attention, 'running');
+  } finally {
+    await view.unmount();
+    publishCatalogApprovalSessions([]);
+  }
+});
+
+test('a pane left behind keeps no stale needs-you: an answer elsewhere or a lost daemon clears it', async () => {
+  window.mixdogDesktop = {
+    listAgentPool: async () => [],
+    subscribeAgentPool: () => () => {},
+  };
+  defaultSessionLaneStore.clear();
+  const tab = (id) => ({ key: `session:${id}`, title: id, selection: { kind: 'session', id } });
+  const tabs = ['asks', 'other'].map(tab);
+  const row = (id, extra = {}) => ({
+    id,
+    title: id,
+    preview: '',
+    updatedAt: 1,
+    messageCount: 2,
+    working: true,
+    ...extra,
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const show = (ids) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(Visible, { ids }),
+          React.createElement(WorkspaceTabStrip, {
+            tabs,
+            activeKey: `session:${ids[0]}`,
+            workingSessionIds: new Set(['asks', 'other']),
+            onSelectTab() {},
+            onCloseTab() {},
+            onReorderTab() {},
+            onNewTask() {},
+          })
+        )
+      )
+    );
+  const attention = () => host.querySelector('.workspace-tab[data-tab-key="session:asks"]').dataset.attention;
+  try {
+    // Shown in a pane, the approval arrives on its lane.
+    await show(['asks']);
+    await act(async () => {
+      defaultSessionLaneStore.apply({
+        sessionId: 'asks',
+        frameSource: 'live',
+        snapshot: { sessionId: 'asks', busy: true, toolApproval: { id: 'ap', tool: 'shell' } },
+      });
+      publishCatalogApprovalSessions([row('asks', { awaitingApproval: true }), row('other')]);
+    });
+    assert.equal(attention(), 'needs-you');
+    // Switched away: the lane stays cached with its last frame; the catalog speaks.
+    await show(['other']);
+    assert.ok(defaultSessionLaneStore.get('asks')?.toolApproval, 'the retained lane still holds the card');
+    assert.equal(attention(), 'needs-you');
+    // Answered on the phone: the catalog clears it, the stale lane does not keep it.
+    await act(async () => publishCatalogApprovalSessions([row('asks'), row('other')]));
+    assert.equal(attention(), 'running');
+    // Waiting again, then the daemon is lost: the host strips the flag from its catalog.
+    await act(async () => publishCatalogApprovalSessions([row('asks', { awaitingApproval: true }), row('other')]));
+    assert.equal(attention(), 'needs-you');
+    await act(async () =>
+      publishCatalogApprovalSessions([row('asks', { working: false }), row('other', { working: false })])
+    );
+    assert.equal(attention(), 'running', 'no needs-you survives the disconnect');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    publishCatalogApprovalSessions([]);
+    defaultSessionLaneStore.clear();
+  }
+});
+
+test('a just-opened pane keeps the catalog mark until its lane receives a frame', async () => {
+  window.mixdogDesktop = {
+    listAgentPool: async () => [],
+    subscribeAgentPool: () => () => {},
+  };
+  defaultSessionLaneStore.clear();
+  // A lane left from an earlier visit, before the approval began.
+  defaultSessionLaneStore.apply({
+    sessionId: 'opening',
+    frameSource: 'live',
+    snapshot: { sessionId: 'opening', busy: true, toolApproval: null },
+  });
+  const tabs = [{ key: 'session:opening', title: 'opening', selection: { kind: 'session', id: 'opening' } }];
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const show = (ids) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(Visible, { ids }),
+          React.createElement(WorkspaceTabStrip, {
+            tabs,
+            activeKey: 'session:opening',
+            workingSessionIds: new Set(['opening']),
+            onSelectTab() {},
+            onCloseTab() {},
+            onReorderTab() {},
+            onNewTask() {},
+          })
+        )
+      )
+    );
+  const attention = () => host.querySelector('.workspace-tab[data-tab-key="session:opening"]').dataset.attention;
+  const frame = (toolApproval) =>
+    act(async () =>
+      defaultSessionLaneStore.apply({
+        sessionId: 'opening',
+        frameSource: 'replay',
+        snapshot: { sessionId: 'opening', busy: true, toolApproval },
+      })
+    );
+  try {
+    await show([]);
+    await act(async () =>
+      publishCatalogApprovalSessions([
+        { id: 'opening', title: 'opening', preview: '', updatedAt: 1, messageCount: 2, awaitingApproval: true },
+      ])
+    );
+    assert.equal(attention(), 'needs-you');
+    // Opened: no frame yet, the cached lane is the old visit's — the catalog still speaks.
+    await show(['opening']);
+    assert.equal(defaultSessionLaneStore.liveSessionIds().has('opening'), false);
+    assert.equal(attention(), 'needs-you', 'no gap before the first frame');
+    // The first frame since opening is current: the lane takes over.
+    await frame({ id: 'ap', tool: 'shell' });
+    assert.ok(defaultSessionLaneStore.liveSessionIds().has('opening'));
+    assert.equal(attention(), 'needs-you');
+    await frame(null);
+    assert.equal(attention(), 'running', 'answered in the pane: the lane clears it at once');
+    // Shown elsewhere again: back to the catalog, and a later reopen waits for a frame again.
+    await show([]);
+    assert.equal(defaultSessionLaneStore.liveSessionIds().has('opening'), false);
+    assert.equal(attention(), 'needs-you', 'the catalog flag (not refreshed yet) speaks again');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    publishCatalogApprovalSessions([]);
+    defaultSessionLaneStore.clear();
+  }
+});
+
+test('a daemon disconnect drops a shown lane’s approval authority until its next real frame', async () => {
+  window.mixdogDesktop = {
+    listAgentPool: async () => [],
+    subscribeAgentPool: () => () => {},
+  };
+  defaultSessionLaneStore.clear();
+  const tabs = [{ key: 'session:shown', title: 'shown', selection: { kind: 'session', id: 'shown' } }];
+  const row = (extra = {}) => ({ id: 'shown', title: 'shown', preview: '', updatedAt: 1, messageCount: 2, ...extra });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const attention = () => host.querySelector('.workspace-tab[data-tab-key="session:shown"]').dataset.attention;
+  const apply = (update) => act(async () => defaultSessionLaneStore.apply({ sessionId: 'shown', ...update }));
+  const approvalFrame = {
+    frameSource: 'live',
+    snapshot: { sessionId: 'shown', busy: true, toolApproval: { id: 'ap' } },
+  };
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(Visible, { ids: ['shown'] }),
+          React.createElement(WorkspaceTabStrip, {
+            tabs,
+            activeKey: 'session:shown',
+            workingSessionIds: new Set(['shown']),
+            onSelectTab() {},
+            onCloseTab() {},
+            onReorderTab() {},
+            onNewTask() {},
+          })
+        )
+      )
+    );
+    await apply(approvalFrame);
+    await act(async () => publishCatalogApprovalSessions([row({ awaitingApproval: true })]));
+    assert.equal(attention(), 'needs-you');
+    // The daemon drops while the pane still shows the session.
+    await apply({ frameSource: 'live', snapshot: null, laneEnd: 'disconnected' });
+    assert.ok(defaultSessionLaneStore.get('shown')?.toolApproval, 'the transcript (and its last card) stays');
+    assert.equal(defaultSessionLaneStore.liveSessionIds().has('shown'), false);
+    // The host strips the catalog flag on the loss: nothing keeps the mark.
+    await act(async () => publishCatalogApprovalSessions([row()]));
+    assert.equal(attention(), 'running');
+    // Reconnected, the first real frame makes the lane the source again.
+    await apply({ ...approvalFrame, frameSource: 'replay' });
+    assert.ok(defaultSessionLaneStore.liveSessionIds().has('shown'));
+    assert.equal(attention(), 'needs-you');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    publishCatalogApprovalSessions([]);
     defaultSessionLaneStore.clear();
   }
 });

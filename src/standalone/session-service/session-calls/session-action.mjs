@@ -40,7 +40,7 @@ export function createSessionActionCalls(ctx) {
     responseSessionId,
   } = ctx;
   const { bodyForClient } = ctx.projection;
-  const { retainUnwatched } = ctx.retention;
+  const { retainUnwatched, awaitingApprovalSessionIds } = ctx.retention;
   const { assertAvailable, hostedEntryForSession, entryForSession } = ctx.entries;
 
   /** A cold session's review, read from its durable turn record (the same
@@ -111,6 +111,16 @@ export function createSessionActionCalls(ctx) {
     return result;
   }
 
+  /** Rows with `awaitingApproval` on every session whose live runtime shows an
+   *  approval card: a list row reads "needs you" from it whether or not any
+   *  pane receives that session's lane. */
+  function withApprovalWaits(rows) {
+    if (!Array.isArray(rows)) return rows;
+    const waiting = awaitingApprovalSessionIds();
+    if (!waiting.size) return rows;
+    return rows.map((row) => (waiting.has(row?.id) ? { ...row, awaitingApproval: true } : row));
+  }
+
   async function listSessionCatalog(options = {}) {
     if (isClosed()) throw new Error('session service is closed');
     if (typeof listSessions !== 'function') {
@@ -124,7 +134,7 @@ export function createSessionActionCalls(ctx) {
     });
     // A `page: { limit, cursor }` request answers one page: { sessions, nextCursor }.
     const page = listed && !Array.isArray(listed) && Array.isArray(listed.sessions) ? listed : null;
-    const sessions = page ? page.sessions : listed;
+    const sessions = withApprovalWaits(page ? page.sessions : listed);
     const remoteSession = typeof getRemoteSessionState === 'function' ? await getRemoteSessionState() : null;
     const nextCursor = typeof page?.nextCursor === 'string' ? page.nextCursor : null;
     return {

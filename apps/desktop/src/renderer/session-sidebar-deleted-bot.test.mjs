@@ -230,11 +230,13 @@ test('a hidden bot shows again while it has unread messages or waits on the user
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const { setBotHiddenInSidebar, sidebarHiddenBots } = await import('./sidebar-hidden-bots-store.ts');
   const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+  const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
   stubDesktop(document.defaultView, [{ id: 'watcher', custom: true, kind: 'bot', definition: { name: 'Watcher' } }]);
   setBotHiddenInSidebar('watcher', true);
   t.after(() => {
     setBotHiddenInSidebar('watcher', false);
     defaultSessionLaneStore.clear();
+    publishCatalogApprovalSessions([]);
   });
   const render = (unread = new Set()) =>
     act(async () =>
@@ -267,17 +269,14 @@ test('a hidden bot shows again while it has unread messages or waits on the user
   await render();
   assert.equal(listed(), false, 'read: hidden again');
 
-  const approval = (toolApproval) =>
+  // Its chat is open in no pane: the host catalog says it waits on the user.
+  const approval = (awaitingApproval) =>
     act(async () =>
-      defaultSessionLaneStore.apply({
-        sessionId: 'sess_home_watcher',
-        frameSource: 'live',
-        snapshot: { sessionId: 'sess_home_watcher', busy: true, toolApproval },
-      })
+      publishCatalogApprovalSessions([{ id: 'sess_home_watcher', agentHome: 'watcher', awaitingApproval }])
     );
-  await approval({ id: 'ap-1', tool: 'shell' });
+  await approval(true);
   assert.equal(listed(), true, 'a pending approval brings it back');
-  await approval(null);
+  await approval(false);
   assert.equal(listed(), false, 'answered: hidden again');
   assert.ok(sidebarHiddenBots().has('watcher'), 'the hidden flag was kept throughout');
 });

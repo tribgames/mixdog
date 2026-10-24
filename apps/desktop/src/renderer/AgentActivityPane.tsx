@@ -1010,13 +1010,13 @@ export function AgentActivityPane({
   // The new-agent dialog, open with the model it starts on.
   const [creating, setCreating] = useState<{ route: DesktopModelSelection | null } | null>(null);
   const needle = searching ? query.trim().toLowerCase() : '';
-  // The bot page lists every bot, a switched-off one too (shown as off).
-  const contacts = useMemo(
-    () => agentContacts(contactAgents, sessions, homeNodes, unreadSessionIds, { includeDisabled: true }),
-    [contactAgents, homeNodes, sessions, unreadSessionIds]
-  );
   // Sessions waiting on the user, a Lead's own approval or question included.
   const { needsUser } = useSessionAttentionIndex();
+  // The bot page lists every bot, a switched-off one too (shown as off).
+  const contacts = useMemo(
+    () => agentContacts(contactAgents, sessions, homeNodes, unreadSessionIds, { includeDisabled: true, needsUser }),
+    [contactAgents, homeNodes, sessions, unreadSessionIds, needsUser]
+  );
   const openContact = (contact: AgentContact): Promise<string> => openAgentContact(contact, onOpenSession);
 
   const botOrder = useBotOrder();

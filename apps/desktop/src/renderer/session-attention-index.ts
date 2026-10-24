@@ -1,6 +1,7 @@
 // Which sessions need the user or carry a failure, for every session surface
 // (tabs, sidebar rows, project groups) at once. Both come from structural
-// state: a lane's pending tool approval and the agent pool's settled rows.
+// state: a pending tool approval (a lane's, the host catalog's) and the agent
+// pool's settled rows.
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { desktopAgentActivityState, isAwaitingTaskDesktopAgentEntry } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
@@ -9,6 +10,7 @@ import { agentPoolStore, startAgentPool } from './agent-activity-model';
 import { withoutDismissedAgentRows } from './agent-dismiss';
 import { dismissedJobsRevision, subscribeDismissedJobs } from './background-jobs-dismissed-store';
 import { browserApprovalSessionIds, subscribeBrowserApprovalSessions } from './browser-approval-marks';
+import { catalogApprovalSessionIds, subscribeCatalogApprovalSessions } from './session-catalog-approvals';
 import { defaultSessionLaneStore } from './session-lane-store';
 
 interface SessionAttentionIndex {
@@ -27,6 +29,22 @@ function agentSessionChain(agent: DesktopAgentPoolRow): string[] {
   return [agent.sessionId, agent.parentSessionId, agent.ownerSessionId]
     .map((id) => String(id || '').trim())
     .filter(Boolean);
+}
+
+/** The sessions waiting on a tool approval, each from its one current source:
+ *  a session shown in a pane whose lane has received a frame since it became
+ *  shown (`liveSessionIds`) from its lane, every other one from the host
+ *  catalog — a just-opened pane keeps the catalog's mark until its first frame. A lane left behind by a pane keeps its
+ *  last frame, so an approval answered elsewhere would stay on it. */
+export function effectiveApprovalSessionIds(
+  laneApprovalSessionIds: ReadonlySet<string>,
+  catalogApprovalSessionIds: ReadonlySet<string>,
+  liveSessionIds: ReadonlySet<string>
+): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const id of laneApprovalSessionIds) if (liveSessionIds.has(id)) ids.add(id);
+  for (const id of catalogApprovalSessionIds) if (!liveSessionIds.has(id)) ids.add(id);
+  return ids;
 }
 
 export function sessionAttentionIndex(
@@ -84,6 +102,8 @@ interface AttentionSelection {
   rows: readonly DesktopAgentPoolRow[] | null;
   approvals: ReadonlySet<string>;
   browserApprovals: ReadonlySet<string>;
+  catalogApprovals: ReadonlySet<string>;
+  liveSessions: ReadonlySet<string>;
   dismissedRevision: number;
   index: SessionAttentionIndex;
 }
@@ -96,6 +116,8 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
   const rows = store.getSnapshot();
   const approvals = defaultSessionLaneStore.approvalSessionIds();
   const browserApprovals = browserApprovalSessionIds();
+  const catalogApprovals = catalogApprovalSessionIds();
+  const liveSessions = defaultSessionLaneStore.liveSessionIds();
   const dismissedRevision = dismissedJobsRevision();
   const cached = selections.get(store);
   if (
@@ -103,11 +125,17 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
     cached.rows === rows &&
     cached.approvals === approvals &&
     cached.browserApprovals === browserApprovals &&
+    cached.catalogApprovals === catalogApprovals &&
+    cached.liveSessions === liveSessions &&
     cached.dismissedRevision === dismissedRevision
   ) {
     return cached.index;
   }
-  const next = sessionAttentionIndex(withoutDismissedAgentRows(rows), approvals, browserApprovals);
+  const next = sessionAttentionIndex(
+    withoutDismissedAgentRows(rows),
+    effectiveApprovalSessionIds(approvals, catalogApprovals, liveSessions),
+    browserApprovals
+  );
   const index =
     cached &&
     sameIds(cached.index.needsUser, next.needsUser) &&
@@ -115,7 +143,15 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
     sameIds(cached.index.waiting, next.waiting)
       ? cached.index
       : next;
-  selections.set(store, { rows, approvals, browserApprovals, dismissedRevision, index });
+  selections.set(store, {
+    rows,
+    approvals,
+    browserApprovals,
+    catalogApprovals,
+    liveSessions,
+    dismissedRevision,
+    index,
+  });
   return index;
 }
 
@@ -128,6 +164,7 @@ export function useSessionAttentionIndex(): SessionAttentionIndex {
         poolStore.subscribe(listener),
         defaultSessionLaneStore.subscribeApprovals(listener),
         subscribeBrowserApprovalSessions(listener),
+        subscribeCatalogApprovalSessions(listener),
         subscribeDismissedJobs(listener),
       ];
       return () => {

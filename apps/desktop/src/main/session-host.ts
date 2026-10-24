@@ -334,17 +334,17 @@ export class SessionHost implements DesktopService {
     });
   }
 
-  /** The cached rows' `working` / `agentWorking` come from the daemon's
-   *  in-memory run state and die with its connection: strip them and republish
-   *  so the sidebar stops spinning. The next listing restores whatever the
-   *  daemon reports again. */
+  /** The cached rows' `working` / `agentWorking` / `awaitingApproval` come
+   *  from the daemon's in-memory run state and die with its connection: strip
+   *  them and republish so the sidebar stops spinning. The next listing
+   *  restores whatever the daemon reports again. */
   private clearSessionActivity(): void {
     this.settlePublishedAgentPool();
     let changed = false;
     this.rawSessionRows = this.rawSessionRows.map((row) => {
-      if (!('working' in row) && !('agentWorking' in row)) return row;
+      if (!('working' in row) && !('agentWorking' in row) && !('awaitingApproval' in row)) return row;
       changed = true;
-      const { working: _working, agentWorking: _agentWorking, ...settled } = row;
+      const { working: _working, agentWorking: _agentWorking, awaitingApproval: _awaitingApproval, ...settled } = row;
       return settled;
     });
     if (changed) this.publishSessionCatalog(this.sessionCatalog());

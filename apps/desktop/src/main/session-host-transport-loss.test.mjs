@@ -82,3 +82,26 @@ test('losing the daemon stops the sidebar working flag at once; a reconnect rest
     await f.close();
   }
 });
+
+test('the catalog carries a waiting approval for every session, and drops it with the daemon', async () => {
+  const f = await viewSyncHost();
+  try {
+    f.put('lead', 'answer');
+    f.put('idle', 'answer');
+    f.state.working.add('lead');
+    f.state.awaitingApproval.add('lead');
+    const published = [];
+    f.host.subscribeSessions((sessions) => published.push(sessions));
+
+    // No pane reads `lead`: the catalog row alone says it waits on the user.
+    const listed = await f.host.listSessions();
+    assert.equal(lead(listed).awaitingApproval, true);
+    assert.equal(lead(listed).working, true);
+    assert.equal(listed.find((session) => session.id === 'idle').awaitingApproval, undefined);
+
+    f.loseTransport();
+    assert.equal(lead(published.at(-1)).awaitingApproval, undefined, 'no stale needs-you survives the loss');
+  } finally {
+    await f.close();
+  }
+});

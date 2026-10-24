@@ -247,6 +247,7 @@ export function desktopSessionSummaries(
           ...(working ? { working: true } : {}),
           ...(ownWorking ? { leadWorking: true } : {}),
           ...(agentWorking ? { agentWorking: true } : {}),
+          ...(row.awaitingApproval === true ? { awaitingApproval: true } : {}),
           ...(automationType ? { sourceType: automationType } : {}),
           ...(automationType && sourceName ? { sourceName } : {}),
           ...(provider ? { provider } : {}),

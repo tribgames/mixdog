@@ -38,9 +38,13 @@ const text = (value: unknown): string => (typeof value === 'string' ? value.trim
 function contactIndicator(
   session: DesktopSessionSummary | null,
   nodes: readonly AgentActivityNode[] | undefined,
-  unreadSessionIds: ReadonlySet<string> | undefined
+  unreadSessionIds: ReadonlySet<string> | undefined,
+  needsUser: ReadonlySet<string> | undefined
 ): AgentChatIndicator {
   if (!session) return null;
+  // The home thread's own turn waits on the user (an approval or a question):
+  // no pool row carries that, and it outranks the running turn it is part of.
+  if (needsUser?.has(session.id)) return { kind: 'attention' };
   const pooled = nodes?.length ? agentGroupIndicator(session.id, nodes, unreadSessionIds) : null;
   if (pooled && pooled.kind !== 'unread') return pooled;
   if (session.working) return { kind: 'running' };
@@ -74,14 +78,15 @@ function contactPreview(
   return shown || (mixy ? '' : t('No messages yet'));
 }
 
-/** Contacts in list order. `groups` are the pool's Lead groups by owner id.
+/** Contacts in list order. `groups` are the pool's Lead groups by owner id;
+ *  `needsUser` the sessions waiting on the user (useSessionAttentionIndex).
  *  Switched-off bots are left out unless `includeDisabled` (the 봇 page). */
 export function agentContacts(
   agents: unknown,
   sessions: readonly DesktopSessionSummary[],
   groups: ReadonlyMap<string, readonly AgentActivityNode[]>,
   unreadSessionIds?: ReadonlySet<string>,
-  { includeDisabled = false }: { includeDisabled?: boolean } = {}
+  { includeDisabled = false, needsUser }: { includeDisabled?: boolean; needsUser?: ReadonlySet<string> } = {}
 ): AgentContact[] {
   const homes = new Map<string, DesktopSessionSummary>();
   for (const session of sessions) {
@@ -96,7 +101,12 @@ export function agentContacts(
     disabled = false
   ): AgentContact => {
     const session = homes.get(agentId) ?? null;
-    const indicator = contactIndicator(session, session ? groups.get(session.id) : undefined, unreadSessionIds);
+    const indicator = contactIndicator(
+      session,
+      session ? groups.get(session.id) : undefined,
+      unreadSessionIds,
+      needsUser
+    );
     return {
       agentId,
       name,
