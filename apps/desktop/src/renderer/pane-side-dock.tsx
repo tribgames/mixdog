@@ -40,6 +40,7 @@ import {
   useDockHeightDrag,
   useDockMounting,
   useDockRoomHeight,
+  useInlineDockFlag,
   usePanelWidthDrag,
   useSidePanelPlacement,
   useSideFileProblems,
@@ -1889,6 +1890,13 @@ export function PaneSideDock(props: PaneSideDockProps) {
   // The dock header mounts the diff controls; the pane body shares this state.
   const diffView = useDiffViewState('pane-side-dock');
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // The workspace column's inline-dock flag (useInlineDockFlag): rewritten by
+  // every render, false until the layout below resolves an inline dock. Called
+  // before every measuring hook: on the commit that creates the host its
+  // layout effect is the one that claims, and it must run before theirs.
+  const inlineDock = useRef(false);
+  inlineDock.current = false;
+  useInlineDockFlag(hostRef, inlineDock);
   const cellWidth = useDockCellWidth(hostRef, openNow);
   // Desktop placement (Settings → Side panel position); the phone sheet keeps
   // its overlay grammar, so it always resolves to the right-hand layout.
@@ -2004,6 +2012,8 @@ export function PaneSideDock(props: PaneSideDockProps) {
   });
   const overlay = sideOverlay && !bottom;
   const dockExpanded = expanded && openNow && !mobileSheet;
+  // Exactly the host's data-open="true", data-overlay≠"true", data-expanded≠"true" below.
+  inlineDock.current = openNow && !overlay && !dockExpanded;
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
   const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
   committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}`;

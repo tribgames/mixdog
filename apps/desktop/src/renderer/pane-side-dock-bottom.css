@@ -76,7 +76,7 @@
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell[data-dock-placement="bottom"]::before,
   :root:not([data-mixdog-mobile-tabs]):not(
       :has(
@@ -84,7 +84,7 @@
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell[data-dock-placement="bottom"]::after {
     grid-row: 1 / 5;
   }
@@ -100,7 +100,7 @@
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-split-row
     > .pane-split-cell:first-child
     .pane-cell[data-dock-placement="bottom"]

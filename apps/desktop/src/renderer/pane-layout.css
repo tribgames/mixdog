@@ -1205,13 +1205,19 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
      frame instead (::before = surface, ::after = border), with the same joined
      rules as before. A side of the frame is drawn only on the composite's
      outer edge, next to the left panel divider (none), or where a dock follows
-     (its right border and corners). Flags: 1 = outer edge, 0 = neighbour. */
+     (its right border and corners). Flags: 1 = outer edge, 0 = neighbour.
+     "An inline dock is open" is the column's data-inline-dock, held by the
+     docks themselves (useInlineDockFlag), not a :has() over the column: that
+     re-walked every node of it, a hidden diff panel included, per keystroke.
+     The repeated attribute keeps the (0,5,0) specificity of the
+     `.main-panel:has(.pane-side-dock[data-open="true"]:not(…):not(…))` it
+     replaces, so the cascade is unchanged. */
   :root:not([data-mixdog-mobile-tabs]):not(
     :has(
       .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
       .session-browser-surface-container[data-parked="false"][data-expanded="true"]
     )
-  ) .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])) {
+  ) .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock] {
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -1222,7 +1228,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell {
     isolation: isolate;
     /* The cell draws its own frame: its corners sit on the frame's edge. */
@@ -1234,7 +1240,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell:has(> .pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])) {
     --open-right: 1;
   }
@@ -1244,7 +1250,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell::before,
   :root:not([data-mixdog-mobile-tabs]):not(
       :has(
@@ -1252,7 +1258,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell::after {
     content: "";
     grid-column: 1;
@@ -1269,7 +1275,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell::before {
     z-index: -1;
     background: var(--mx-sheet-surface);
@@ -1280,7 +1286,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell::after {
     z-index: 3;
     border: 0 solid var(--mx-border);
@@ -1295,7 +1301,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell
     > .workspace-tabs-shell,
   :root:not([data-mixdog-mobile-tabs]):not(
@@ -1304,7 +1310,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell
     > .pane-surface-stack,
   :root:not([data-mixdog-mobile-tabs]):not(
@@ -1313,7 +1319,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell
     > .pane-footer-slot,
   :root:not([data-mixdog-mobile-tabs]):not(
@@ -1322,7 +1328,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-cell
     > .bottom-panel:not([data-state="closed"]) {
     background: transparent;
@@ -1353,7 +1359,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
         .session-browser-surface-container[data-parked="false"][data-expanded="true"]
       )
     )
-    .main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]
     .pane-split-row
     > .pane-split-cell:first-child
     .pane-cell

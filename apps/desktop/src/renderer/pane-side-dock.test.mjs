@@ -1065,12 +1065,14 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   // The main panel's frame must not wrap an open inline dock: it drops its border and radius, and
   // each pane cell draws its own sheet frame, closing the right side (border + corners) at the dock.
   const SURFACE_EXPANDED = ':not\\(:has\\([^{]*?data-expanded="true"\\]\\)\\)';
-  const unframed = block.match(
-    new RegExp(scope + SURFACE_EXPANDED + ' \\.main-panel:has\\(' + esc(INL) + '\\) \\{([^}]*)\\}')
-  )[1];
+  // "An inline dock is open" is the column's own flag (useInlineDockFlag), padded to the (0,5,0)
+  // specificity of the `.main-panel:has(INL)` it replaced; no :has() walks the column any more.
+  const INLINE_FLAG = '.main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]';
+  const unframed = block.match(new RegExp(scope + SURFACE_EXPANDED + ' ' + esc(INLINE_FLAG) + ' \\{([^}]*)\\}'))[1];
+  assert.doesNotMatch(css.replace(/\/\*[\s\S]*?\*\//g, ''), /\.main-panel:has\(/);
   // An expanded browser/terminal lives on its own container, not on the dock's data-expanded: the
   // cells-draw-the-frame rules must step aside so the panel draws the single frame it is measured for.
-  assert.doesNotMatch(block, new RegExp(scope + ' \\.main-panel:has\\(\\.pane-side-dock'));
+  assert.doesNotMatch(block, new RegExp(scope + ' ' + esc('.main-panel[data-inline-dock')));
   assert.match(unframed, /border: 0;\s*border-radius: 0;/);
   assert.match(block, /\.pane-cell:has\(> \.pane-side-dock\[data-open="true"\][^{]*\) \{\s*--open-right: 1;/);
   assert.match(block, /\.pane-cell::after \{[^}]*border-right-width: calc\(1px \* var\(--open-right\)\);/);

@@ -5,6 +5,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useInsertionEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -216,6 +217,76 @@ export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, open
     return () => observer.disconnect();
   }, [hostRef, openNow]);
   return cellWidth;
+}
+
+/** The docks open inline in each workspace column, by claim. The column's
+ *  `data-inline-dock` holds while any claim does; the frame rules key on it
+ *  (pane-layout.css, pane-side-dock-bottom.css) instead of
+ *  `.main-panel:has(.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"]))`,
+ *  which re-walked the whole column — a hidden diff panel's ~50k nodes
+ *  included — on every composer keystroke (~4ms of style recalc per key). */
+const inlineDockClaims = new WeakMap<HTMLElement, Set<object>>();
+
+function claimInlineDock(column: HTMLElement, claim: object): void {
+  let claims = inlineDockClaims.get(column);
+  if (!claims) {
+    claims = new Set();
+    inlineDockClaims.set(column, claims);
+  }
+  claims.add(claim);
+  column.dataset.inlineDock = 'true';
+}
+
+function releaseInlineDock(column: HTMLElement, claim: object): void {
+  const claims = inlineDockClaims.get(column);
+  claims?.delete(claim);
+  if (!claims?.size) delete column.dataset.inlineDock;
+}
+
+/** Marks the `.main-panel` around `hostRef` with `data-inline-dock="true"`
+ *  while this dock is inline: `inline.current`, written by the dock's render
+ *  as exactly what its own data-open / data-overlay / data-expanded say (open,
+ *  not overlaying, not expanded). Several panes each own a dock; the flag
+ *  holds while any of them is inline.
+ *
+ *  Written in an insertion effect: React runs every insertion effect of a
+ *  commit (in its mutation phase, release on unmount included) before any
+ *  layout effect of that commit, so no layout effect anywhere in the tree —
+ *  the dock's own measurements, its children's, a sibling's — can measure the
+ *  layout the flag is about to change, just as with the `:has()` it replaces.
+ *  The one commit an insertion effect cannot reach the host is the one that
+ *  creates it (React attaches refs in the layout phase); there the layout
+ *  effect below claims it, so the caller calls this before its measuring
+ *  hooks. */
+export function useInlineDockFlag(
+  hostRef: RefObject<HTMLDivElement | null>,
+  inline: { readonly current: boolean }
+): void {
+  const claim = useRef<object>({});
+  const held = useRef<HTMLElement | null>(null);
+  const sync = () => {
+    const host = hostRef.current;
+    // Inline but not attached yet: the commit that creates the host (the layout effect syncs it).
+    if (inline.current && !host) return;
+    const column = inline.current && host ? host.closest<HTMLElement>('.main-panel') : null;
+    if (column === held.current) return;
+    if (held.current) releaseInlineDock(held.current, claim.current);
+    if (column) claimInlineDock(column, claim.current);
+    held.current = column;
+  };
+  useInsertionEffect(sync);
+  // Known limit, the commit that creates the host only: the claim lands here,
+  // so layout effects of earlier siblings and of the dock body's children in
+  // that one commit can measure the pre-flag layout (their observers measure
+  // again); the first paint is still flagged. Every later commit is exact.
+  useLayoutEffect(sync);
+  useInsertionEffect(
+    () => () => {
+      if (held.current) releaseInlineDock(held.current, claim.current);
+      held.current = null;
+    },
+    []
+  );
 }
 
 /** Bottom placement: the dock's own height preference, shared by every pane. */
