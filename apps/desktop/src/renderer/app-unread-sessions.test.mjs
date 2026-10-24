@@ -99,10 +99,19 @@ test('a turn that completes behind another app stays unread until focus returns'
   }
 });
 
-test("a bot's delegated session takes no completion dot; the bot's own chat still does", async () => {
+test("a bot's task session takes its own dot beside the bot's chat; reading the chat clears both, reading the task only the task", async () => {
   const dom = installDom({ focused: false });
   const api = {};
-  const task = { ...row, id: 'task-a', messageCount: 1, readMessageCount: 0, working: true, taskAgent: 'agent-1' };
+  const task = {
+    ...row,
+    id: 'task-a',
+    messageCount: 1,
+    readMessageCount: 0,
+    working: true,
+    taskAgent: 'agent-1',
+    taskFrom: 'home',
+    readWith: 'home-1',
+  };
   const home = { ...row, id: 'home-1', messageCount: 1, readMessageCount: 0, working: true };
   function Harness() {
     const viewedSessionRef = useRef('');
@@ -110,28 +119,43 @@ test("a bot's delegated session takes no completion dot; the bot's own chat stil
     return React.createElement('div', null, [...api.unreadSessionIds].join(','));
   }
   const marks = () => document.querySelector('#root div').textContent;
+  const turn = (count) => [
+    { ...task, working: false, messageCount: count },
+    { ...home, working: false, messageCount: count },
+  ];
   try {
     await act(async () => dom.root.render(React.createElement(Harness)));
     await act(async () => api.reconcileUnreadSessions([task, home]));
+    await act(async () => api.reconcileUnreadSessions(turn(3)));
+    assert.equal(marks(), 'task-a,home-1', 'both finished behind another app');
+    dom.state.focused = true;
+    await act(async () => api.consumeUnread('home-1', turn(3)));
+    assert.equal(marks(), '', 'the chat the task reports to was read: the task with it');
+
+    dom.state.focused = false;
     await act(async () =>
       api.reconcileUnreadSessions([
-        { ...task, working: false, messageCount: 3 },
-        { ...home, working: false, messageCount: 3 },
+        { ...task, messageCount: 3 },
+        { ...home, messageCount: 3 },
       ])
     );
-    assert.equal(marks(), 'home-1');
+    await act(async () => api.reconcileUnreadSessions(turn(5)));
+    assert.equal(marks(), 'task-a,home-1');
+    dom.state.focused = true;
+    await act(async () => api.consumeUnread('task-a', turn(5)));
+    assert.equal(marks(), 'home-1', 'the task alone read: its chat keeps its dot');
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
   }
 });
 
-test('while the user reads a bot chat, a coding session that finishes takes the dot; the tasks that bot made do not', async () => {
+test('while the user reads a bot chat, a coding session that finishes takes the dot; the tasks that bot made are read with the chat', async () => {
   const dom = installDom();
   const api = {};
   const home = { ...row, id: 'mixy-home', messageCount: 2, readMessageCount: 2, agentHome: 'mixy' };
   const coding = { ...row, id: 'coding', messageCount: 2, readMessageCount: 2, working: true };
-  const task = { ...coding, id: 'task-cache', taskAgent: 'mixy', taskFrom: 'home' };
+  const task = { ...coding, id: 'task-cache', taskAgent: 'mixy', taskFrom: 'home', readWith: 'mixy-home' };
   function Harness() {
     const viewedSessionRef = useRef('mixy-home');
     Object.assign(api, useUnreadSessions({ viewedSessionRef }));
@@ -151,8 +175,10 @@ test('while the user reads a bot chat, a coding session that finishes takes the 
   }
 });
 
-test("a delegated session's descendants (via the desktop projection) take no completion dot; a user's /inherit continuation does", async () => {
+test("a delegated session and its descendants (via the desktop projection) take their own dots, read with the bot's chat; a user's /inherit continuation is not", async () => {
   const { desktopSessionSummaries } = await import('../main/desktop-state.ts');
+  const { agentHomeSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const botChat = agentHomeSessionId('bot');
   const raw = (id, extra) => ({
     id,
     cwd: 'C:\\work',
@@ -173,7 +199,13 @@ test("a delegated session's descendants (via the desktop projection) take no com
         working,
         messageCount: count,
       }),
-      raw('cont', { owner: 'user', sourceType: 'lead', inheritedFromSessionId: 'task-a', working, messageCount: count }),
+      raw('cont', {
+        owner: 'user',
+        sourceType: 'lead',
+        inheritedFromSessionId: 'task-a',
+        working,
+        messageCount: count,
+      }),
     ]);
   const dom = installDom({ focused: false });
   const api = {};
@@ -185,8 +217,13 @@ test("a delegated session's descendants (via the desktop projection) take no com
   const marks = () => document.querySelector('#root div').textContent;
   try {
     await act(async () => dom.root.render(React.createElement(Harness)));
+    const readWith = Object.fromEntries(project(false, 3).map((session) => [session.id, session.readWith]));
+    assert.deepEqual(readWith, { 'task-a': botChat, kid: 'task-a', grandkid: 'kid', cont: undefined });
     await act(async () => api.reconcileUnreadSessions(project(true, 1)));
     await act(async () => api.reconcileUnreadSessions(project(false, 3)));
+    assert.equal(marks(), 'task-a,kid,grandkid,cont');
+    dom.state.focused = true;
+    await act(async () => api.consumeUnread(botChat, project(false, 3)));
     assert.equal(marks(), 'cont');
   } finally {
     await act(async () => dom.root.unmount());

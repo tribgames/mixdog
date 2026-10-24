@@ -6,7 +6,10 @@ import type {
 } from '../shared/contract';
 import { cleanIncomingTail } from '../shared/incoming-tail';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
-import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import {
+  agentHomeSessionId,
+  agentIdOfHomeSession,
+} from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { normalizeRoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
 
 // A user prompt plus an assistant reply: the smallest persisted conversation.
@@ -116,25 +119,36 @@ function taskAgentSource(row: Record<string, unknown>): string[] {
   return taskRow && sourceName.startsWith('agent:') ? sourceName.slice(6).split('@') : [];
 }
 
-/** Agent-owned sessions whose parent/owner chain reaches a delegated task session. */
-function delegatedDescendantIds(rows: Array<Record<string, unknown>>): Set<string> {
+/** The session whose reading also reads each delegated row (`readWith`): a
+ *  task session a bot made from its chat → that chat; an agent-owned session
+ *  below a task session (child, grandchild…) → the session it works under. */
+function readWithIds(rows: Array<Record<string, unknown>>): Map<string, string> {
+  const upper = new Map<string, string>();
   const delegated = new Set<string>();
-  for (const row of rows) if (taskAgentSource(row)[0]) delegated.add(String(row.id || ''));
-  const descendants = new Set<string>();
+  for (const row of rows) {
+    const [agent, from] = taskAgentSource(row);
+    if (!agent) continue;
+    const id = String(row.id || '');
+    delegated.add(id);
+    const home = from === 'home' ? agentHomeSessionId(agent) : '';
+    if (home) upper.set(id, home);
+  }
   for (let grew = delegated.size > 0; grew; ) {
     grew = false;
     for (const row of rows) {
       const id = String(row.id || '');
       if (delegated.has(id) || !(row.owner === 'agent' || row.visibility === 'agent-only')) continue;
-      const links = [row.parentSessionId, row.ownerSessionId].map((link) => String(link || '').trim());
-      if (links.some((link) => link && delegated.has(link))) {
+      const link = [row.parentSessionId, row.ownerSessionId]
+        .map((value) => String(value || '').trim())
+        .find((value) => value && delegated.has(value));
+      if (link) {
         delegated.add(id);
-        descendants.add(id);
+        upper.set(id, link);
         grew = true;
       }
     }
   }
-  return descendants;
+  return upper;
 }
 
 export function desktopSessionSummaries(
@@ -142,7 +156,7 @@ export function desktopSessionSummaries(
   titles: Readonly<Record<string, string>> = {},
   names: Readonly<Record<string, string>> = {}
 ): DesktopSessionSummary[] {
-  const delegatedDescendants = delegatedDescendantIds(rows);
+  const readWith = readWithIds(rows);
   return rows
     .flatMap((row): DesktopSessionSummary[] => {
       const rawMeta = row.desktopSession;
@@ -258,7 +272,7 @@ export function desktopSessionSummaries(
           ...(workspace ? { workspace } : {}),
           ...(agentHome ? { agentHome } : {}),
           ...(taskAgent ? { taskAgent } : {}),
-          ...(delegatedDescendants.has(id) ? { delegatedDescendant: true } : {}),
+          ...(readWith.has(id) ? { readWith: readWith.get(id) } : {}),
           ...(taskAgent && (taskFrom === 'home' || taskFrom === 'room' || taskFrom === 'run') ? { taskFrom } : {}),
           ...(row.sessionMode === 'agent' ? { sessionMode: 'agent' as const } : {}),
           ...(lastMessagePreview ? { lastMessagePreview } : {}),

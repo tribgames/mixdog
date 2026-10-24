@@ -58,6 +58,32 @@ export function shouldPublishSessionRead(
   return consumedUnread || messageCount > sharedReadCount(row);
 }
 
+/** Hops followed up a `readWith` chain (task session → bot chat, sub-agent →
+ *  its session…); a cycle or a deeper chain stops there. */
+const READ_WITH_DEPTH = 8;
+
+/** Whether `id` is read when the sessions `read` says are: itself, or a
+ *  session up its `readWith` chain (the chat a bot's task session reports to,
+ *  the session a sub-agent works under). */
+export function readAlong(
+  id: string,
+  upperOf: ReadonlyMap<string, string>,
+  read: (sessionId: string) => boolean
+): boolean {
+  let current = id;
+  for (let hop = 0; current && hop <= READ_WITH_DEPTH; hop += 1) {
+    if (read(current)) return true;
+    current = upperOf.get(current) ?? '';
+  }
+  return false;
+}
+
+function readWithMap(rows: readonly DesktopSessionSummary[]): Map<string, string> {
+  const upper = new Map<string, string>();
+  for (const row of rows) if (row.readWith) upper.set(row.id, row.readWith);
+  return upper;
+}
+
 export function resolveUnreadViewedSessionId({
   viewedSessionId,
   requestedSessionId,
@@ -152,9 +178,13 @@ export function useUnreadSessions({
       );
       previousWorkingSessionIds.current = workingIds;
       // "Viewed" means the surface is on screen AND focused (see
-      // sessionSurfaceEngaged), in any visible pane, focused or not.
+      // sessionSurfaceEngaged), in any visible pane, focused or not. A bot's
+      // task session (and the sub-agents under it) is also read with the chat
+      // it reports to: reading that chat reads them.
       const engaged = sessionSurfaceEngaged();
-      const viewing = (id: string) => engaged && (id === activeId || screenIds.has(id));
+      const upperOf = readWithMap(rows);
+      const onScreen = (id: string) => id === activeId || screenIds.has(id);
+      const viewing = (id: string) => engaged && readAlong(id, upperOf, onScreen);
       let dirty = false;
       for (const id of [...seen.keys()]) {
         if (liveIds.has(id)) continue;
@@ -215,10 +245,6 @@ export function useUnreadSessions({
         const row = rows.find((candidate) => candidate.id === id);
         if (!remotelyReadIds.has(id) && !viewing(id) && !noNewIncoming(row, seen.get(id))) unread.add(id);
       }
-      // Work a bot handed off reports back in that bot's chat, which takes the
-      // dot: the delegated session's own completion is not a second one.
-      // The delegated session's agent-owned descendants are part of that work.
-      for (const row of rows) if (row.taskAgent || row.delegatedDescendant) unread.delete(row.id);
       commitUnread(unread);
     },
     [commitUnread, loadSeen, persistSeen, publishRead, screenSessionIdsRef, viewedSessionRef]
@@ -227,26 +253,34 @@ export function useUnreadSessions({
   // Viewing a session consumes its marker — but only while the surface is
   // engaged, so a selected session in a hidden or unfocused window keeps its
   // dot. The caller fires this from an effect once the selection is known, and
-  // again whenever focus returns.
+  // again whenever focus returns. The sessions read with it (a bot chat's task
+  // sessions and their sub-agents: readAlong) are consumed with it.
   const consumeUnread = useCallback(
     (viewedSessionId: string, sessions: DesktopSessionSummary[]) => {
       if (!viewedSessionId) return;
       if (!sessionSurfaceEngaged()) return;
       const seen = loadSeen();
-      const row = sessions.find((session) => session.id === viewedSessionId);
-      const count = Math.max(Number(row?.messageCount) || 0, seen.get(viewedSessionId) || 0);
-      if (count > 0 && seen.get(viewedSessionId) !== count) {
-        seen.set(viewedSessionId, count);
-        persistSeen(seen);
-      }
+      const upperOf = readWithMap(sessions);
+      const along = sessions
+        .filter((session) => session.id !== viewedSessionId)
+        .filter((session) => readAlong(session.id, upperOf, (id) => id === viewedSessionId))
+        .map((session) => session.id);
       const current = unreadSessionIdsRef.current;
-      const consumedUnread = current.has(viewedSessionId);
-      if (row) publishRead(row, count, consumedUnread);
-      if (consumedUnread) {
-        const next = new Set(current);
-        next.delete(viewedSessionId);
-        commitUnread(next);
+      const next = new Set(current);
+      let dirty = false;
+      for (const id of [viewedSessionId, ...along]) {
+        const row = sessions.find((session) => session.id === id);
+        const count = Math.max(Number(row?.messageCount) || 0, seen.get(id) || 0);
+        if (count > 0 && seen.get(id) !== count) {
+          seen.set(id, count);
+          dirty = true;
+        }
+        const consumedUnread = current.has(id);
+        if (row) publishRead(row, count, consumedUnread);
+        next.delete(id);
       }
+      if (dirty) persistSeen(seen);
+      if (next.size !== current.size) commitUnread(next);
     },
     [commitUnread, loadSeen, persistSeen, publishRead]
   );
