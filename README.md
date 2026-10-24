@@ -177,8 +177,8 @@ you tokens, a star helps others find it.
 
 ## Sponsor
 
-Mixdog is free and developed by one person. Sponsorship pays for development
-time and the model tokens used for testing:
+Mixdog is free and open source. Sponsorship pays for development time and the
+model tokens used for testing:
 [github.com/sponsors/JYP8877](https://github.com/sponsors/JYP8877).
 
 ### Supporters
