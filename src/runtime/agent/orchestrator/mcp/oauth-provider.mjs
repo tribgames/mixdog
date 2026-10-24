@@ -60,7 +60,9 @@ export function createOAuthProvider({ cache, flow, lifetimeSignal, client = null
       return creds.tokens;
     },
     saveTokens: async (value) => {
-      lifetimeSignal.throwIfAborted();
+      // The login's own deadline/cancel signal (oauth-login.mjs) when one runs.
+      const signal = flow.signal ?? lifetimeSignal;
+      signal.throwIfAborted();
       // A browser sign-in of a client with its own scopes must be granted all
       // of them (a granular consent screen lets the user uncheck some): nothing
       // is stored, so the next connect asks again. A refresh is not checked.
@@ -68,6 +70,7 @@ export function createOAuthProvider({ cache, flow, lifetimeSignal, client = null
         const missing = missingScopes(client.scopes, value.scope);
         if (missing.length) throw scopeNotGranted(missing);
       }
+      const { tokens: priorTokens, identity: priorIdentity } = creds;
       await save(() => {
         creds.tokens = value;
         // A browser sign-in may be another account: its identity replaces the
@@ -76,6 +79,15 @@ export function createOAuthProvider({ cache, flow, lifetimeSignal, client = null
         if (flow.browserOpened) creds.identity = flow.identity ?? null;
         else if (flow.identity) creds.identity = flow.identity;
       });
+      // The login was reported failed while this write was outstanding: roll
+      // it back (same save path) so no tokens outlive the reported failure.
+      if (signal.aborted) {
+        await save(() => {
+          creds.tokens = priorTokens;
+          creds.identity = priorIdentity;
+        });
+        throw loginFailed();
+      }
     },
     saveCodeVerifier: (value) => {
       flow.verifier = value;

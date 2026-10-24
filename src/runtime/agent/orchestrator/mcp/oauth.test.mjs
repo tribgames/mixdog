@@ -414,7 +414,6 @@ function assertCallbackPage(response) {
 
 test('callback pages: success names the MCP server; a denied sign-in gets the error page without reflecting it', async (t) => {
   const server = await fixture(t);
-  let page;
   const { transport } = createMcpTransport({
     name: 'Fixture <Docs>',
     cfg: { type: 'http', url: server.url },
@@ -432,7 +431,7 @@ test('callback pages: success names the MCP server; a denied sign-in gets the er
   assert.equal(transport.oauth.loginStarted, false);
   assert.equal((await transport.oauth.fetch(server.url)).status, 405);
   assert.equal(transport.oauth.loginCompleted, true);
-  page = await server.page();
+  const page = await server.page();
   assert.equal(page.status, 200);
   assertCallbackPage(page);
   const html = await page.text();
@@ -1617,9 +1616,18 @@ test('a sign-in whose token response lacks a requested scope fails, stores no to
   assertCallbackPage(failure);
   const failureHtml = await failure.text();
   assert.match(failureHtml, /로그인 실패[\s\S]*Sign-in failed/);
-  assert.match(failureHtml, /Google Drive 접근 권한이 허용되지 않았습니다\. Mixdog로 돌아가 다시 연결하고, 권한 확인란을 체크해 주세요/);
-  assert.match(failureHtml, /Access to Google Drive was not granted\. Return to Mixdog and connect again with the access box checked/);
-  assert.doesNotMatch(failureHtml, /로그인 완료|Sign-in complete|fixture-token|fixture-refresh|fixture-code|calendar\.events/);
+  assert.match(
+    failureHtml,
+    /Google Drive 접근 권한이 허용되지 않았습니다\. Mixdog로 돌아가 다시 연결하고, 권한 확인란을 체크해 주세요/
+  );
+  assert.match(
+    failureHtml,
+    /Access to Google Drive was not granted\. Return to Mixdog and connect again with the access box checked/
+  );
+  assert.doesNotMatch(
+    failureHtml,
+    /로그인 완료|Sign-in complete|fixture-token|fixture-refresh|fixture-code|calendar\.events/
+  );
   assert.equal(hasStoredMcpOAuthTokens(server.url), false);
   for (const saved of store.values.values()) assert.equal(JSON.parse(saved).tokens, undefined);
   assert.equal(opened.length, 1);
@@ -1670,11 +1678,13 @@ function stallingStore() {
   const store = memoryStore();
   let started;
   let fail;
+  let release;
   const stalled = new Promise((resolve) => {
     started = resolve;
   });
-  const gate = new Promise((_, reject) => {
+  const gate = new Promise((resolve, reject) => {
     fail = () => reject(new Error('credential store unavailable'));
+    release = resolve;
   });
   gate.catch(() => {});
   const write = store.setSecretAsync;
@@ -1684,10 +1694,39 @@ function stallingStore() {
     await gate;
     return write(key, value);
   };
-  return { store, stalled, fail };
+  return { store, stalled, fail, release };
 }
 
 for (const mode of ['deadline', 'cancel']) {
+  test(`${mode} while the token write stalls, then the write succeeds: no tokens stay stored and the login fails`, async (t) => {
+    const server = await fixture(t);
+    const { store, stalled, release } = stallingStore();
+    const browser = approvingBrowser([], []);
+    const oauth = buildOAuth({
+      url: server.url,
+      credentialStore: store,
+      interactive: true,
+      serverName: 'Fixture',
+      timeoutMs: mode === 'deadline' ? 1500 : 3000,
+      openBrowser: async (href) => {
+        server.callbackFor(href);
+        await browser(href);
+      },
+    });
+    t.after(() => oauth.close());
+    const settled = oauth.fetch(server.url).then(
+      () => undefined,
+      (error) => error
+    );
+    await stalled;
+    if (mode === 'cancel') oauth.close();
+    else await new Promise((resolve) => setTimeout(resolve, 1700));
+    release();
+    assert.ok(await settled, 'the login that outlived its deadline or cancel fails');
+    assert.ok(store.values.size > 0);
+    for (const saved of store.values.values()) assert.equal(JSON.parse(saved).tokens, undefined);
+  });
+
   test(`${mode} while the token write stalls: the held callback page gets the failure page and the listener closes`, async (t) => {
     const server = await fixture(t);
     const { store, stalled, fail } = stallingStore();

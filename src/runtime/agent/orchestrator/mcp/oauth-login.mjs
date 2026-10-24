@@ -61,6 +61,7 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
     // Who this login's tokens belong to (oauth-account.mjs): the SDK keeps only
     // the token fields, so the token endpoint's answer is read here.
     flow.identity = undefined;
+    flow.signal = signal;
     const safeFetch = async (input, init = {}) => {
       const response = await fetchImpl(normalizeMcpTransportUrl(input), {
         ...init,
@@ -160,6 +161,7 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
       throw loginFailed();
     } finally {
       flow.allowBrowser = false;
+      flow.signal = undefined;
       signal.removeEventListener('abort', abort);
       closeListener();
       flow.finishCallback = undefined;
