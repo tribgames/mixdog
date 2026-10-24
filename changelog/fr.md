@@ -5,6 +5,34 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Ajout des réactions emoji, des vérifications régulières et des connexions aux modèles sur serveur SSH, avec des connecteurs Google vérifiés, des balayages de volets sur téléphone et des correctifs étendus.
+
+### Nouvelles fonctionnalités
+
+- **Réactions emoji** — Ajout des réactions emoji des bots sur les messages des utilisateurs avec un bouton d'activation dans Réglages → Général → "Réactions".
+- **Vérifications régulières** — Ajout de revues en arrière-plan toutes les 30 minutes sous Réglages → Profil, où votre bot principal vérifie les sessions actives et ne se réveille que si quelque chose nécessite votre attention.
+- **Connexions serveur SSH** — Ajout de l'exécution de modèles en utilisant les propres identifiants de fournisseurs d'un serveur SSH et de la configuration d'un fichier de clé privée lors de la connexion (#204).
+- **Connecteurs Google** — Ajout de connecteurs intégrés pour Google Agenda et Drive avec connexion vérifiée, nécessitant toutes les autorisations et conservant Gmail avec des mots de passe d'application.
+- **Navigation par balayage sur téléphone** — Ajout du balayage horizontal n'importe où sur le téléphone pour ouvrir la liste des sessions ou le dock de fichiers.
+
+### Modifications
+
+- Modification des aperçus Office pour s'afficher via Microsoft Office en l'absence de LibreOffice, détecter immédiatement les installations et demander le mot de passe des fichiers protégés.
+- Modification des planifications, bots, salons et sessions Lead pour permettre leur renommage depuis leurs menus, tout en préservant les heures d'exécution ponctuelles.
+- Modification du stockage des secrets Linux pour basculer sur des fichiers locaux protégés lorsqu'aucun trousseau de clés n'est disponible, en expliquant pourquoi les clés ne peuvent pas être lues (#204).
+- Modification des discussions de bots pour afficher les échanges avec d'autres sessions de façon intégrée, un clic sur la bulle du bot principal la fermant.
+
+### Corrections de bugs
+
+- Correction des bots de salon désactivés qui continuaient à prendre des tours, en les nommant clairement lorsqu'ils sont interpellés (#215).
+- Correction des fiches d'approbation qui volaient le focus pendant la saisie dans le Composer, et affichage d'un indicateur d'attente d'approbation du navigateur dans la liste des sessions sur téléphone.
+- Correction des sorties d'outils volumineuses sur téléphone qui ne se chargeaient pas via Afficher la sortie complète, et des discussions ouvertes bloquées sur les squelettes de chargement.
+- Correction du passage d'une session à l'autre qui envoyait un brouillon du Composer en cours au mauvais chat (#217).
+- Correction de la fermeture inattendue des menus contextuels et de lignes lors de la mise à jour d'un agent en arrière-plan ou du défilement de la transcription.
+- Correction de la connexion automatique du navigateur qui échouait lors de défis CAPTCHA ou de crashs de workers, en maintenant une identity de navigateur cohérente lors des vérifications Cloudflare.
+- Correction des paires de substitution d'emojis corrompues provoquant l'échec des requêtes de modèles, et isolation des fenêtres de quota complet afin de ne bloquer que les modèles affectés (#209).
+- Correction des agents terminés marqués comme annulés lors de leur fermeture, et possibilité de modifier les définitions directement sur place (#211, #216).
+
 ## v1.3.4 - 2026-10-23
 
 Correction du défilement sur téléphone qui s’arrêtait ou sautait, des listes de modèles omettant les modèles des fournisseurs, et des tableaux qui tremblaient lors de la diffusion d’une réponse.

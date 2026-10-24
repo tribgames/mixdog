@@ -4,6 +4,34 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Adicionadas reações com emojis, revisões regulares e logins de modelos em servidor SSH, com conectores verificados do Google, gestos de deslizar gavetas no celular e amplas correções.
+
+### Novos recursos
+
+- **Reações com emojis** — Adicionadas reações com emojis de bots em mensagens de usuários com uma opção em Configurações → Geral → "Reações".
+- **Revisões regulares** — Adicionadas revisões em segundo plano a cada 30 minutos em Configurações → Perfil, onde seu bot principal verifica sessões ativas e acorda apenas quando algo precisa de atenção.
+- **Logins em servidor SSH** — Adicionada a execução de modelos usando os próprios logins de provedores de um servidor SSH e a definição de um arquivo de chave privada ao conectar (#204).
+- **Conectores do Google** — Adicionados conectores integrados do Google Agenda e Drive com login verificado, exigindo todas as permissões e mantendo o Gmail com senhas de app.
+- **Navegação por deslize no celular** — Adicionado o deslizamento horizontal em qualquer parte do celular para abrir a lista de sessões ou o dock de arquivos.
+
+### Alterações
+
+- As visualizações do Office foram alteradas para serem renderizadas pelo Microsoft Office quando o LibreOffice estiver ausente, detectar instalações imediatamente e solicitar a senha de arquivos protegidos.
+- Agendamentos, bots, salas e sessões Lead foram alterados para permitir renomeação a partir de seus menus, mantendo intactos os horários de execuções únicas.
+- O armazenamento de segredos no Linux foi alterado para usar arquivos locais protegidos como alternativa quando nenhum chaveiro estiver disponível, explicando por que as chaves não podem ser lidas (#204).
+- Os chats de bots foram alterados para exibir trocas com outras sessões em linha, e clicar no balão de fala do bot principal o dispensa.
+
+### Correções de bugs
+
+- Corrigidos bots de salas desativados que continuavam jogando seus turnos, nomeando-os claramente quando mencionados (#215).
+- Corrigidos cartões de aprovação que roubavam o foco enquanto se digitava no campo de mensagem, e exibida uma marca de aprovação pendente do navegador na lista de sessões do celular.
+- Corrigidas saídas longas de ferramentas no celular que não carregavam através de Mostrar saída completa, e chats abertos travados em esqueletos de carregamento.
+- Corrigida a alternância entre sessões que enviava um rascunho em andamento no campo de mensagem para o chat errado (#217).
+- Corrigido o fechamento inesperado de menus de contexto e de linha sempre que um agente em segundo plano era atualizado ou a transcrição rolava.
+- Corrigida a falha no login automático do navegador diante de desafios de CAPTCHA ou falhas do worker, mantendo a identidade do navegador consistente nas verificações do Cloudflare.
+- Corrigidos pares substitutos de emojis corrompidos que causavam falhas em solicitações de modelos, e isoladas janelas de cota cheia para que bloqueiem apenas os modelos afetados (#209).
+- Corrigidos agentes finalizados marcados como cancelados ao serem fechados, permitindo a edição de definições diretamente no local (#211, #216).
+
 ## v1.3.4 - 2026-10-23
 
 Corrigida a rolagem no celular que parava ou pulava, listas de modelos sem modelos de provedores e tabelas que tremiam durante o streaming de respostas.

@@ -4,6 +4,34 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đã thêm biểu cảm emoji, kiểm tra định kỳ và đăng nhập mô hình máy chủ SSH, cùng với các kết nối Google đã xác minh, vuốt ngăn kéo trên điện thoại và nhiều bản sửa lỗi toàn diện.
+
+### Tính năng mới
+
+- **Biểu cảm emoji** — Đã thêm biểu cảm emoji của bot trên tin nhắn người dùng với nút bật/tắt trong Cài đặt → Chung → "Biểu cảm".
+- **Kiểm tra định kỳ** — Đã thêm tính năng đánh giá nền 30 phút một lần trong Cài đặt → Hồ sơ, nơi bot chính kiểm tra các phiên đang hoạt động và chỉ thức dậy khi có điều cần chú ý.
+- **Đăng nhập máy chủ SSH** — Đã thêm khả năng chạy mô hình bằng chính thông tin đăng nhập nhà cung cấp của máy chủ SSH và thiết lập tệp khóa riêng tư khi kết nối (#204).
+- **Kết nối Google** — Đã thêm các kết nối Google Calendar và Drive tích hợp sẵn với đăng nhập đã xác minh, yêu cầu tất cả các quyền và duy trì Gmail bằng mật khẩu ứng dụng.
+- **Điều hướng vuốt trên điện thoại** — Đã thêm thao tác vuốt ngang ở bất kỳ vị trí nào trên điện thoại để mở danh sách phiên hoặc dock tệp.
+
+### Thay đổi
+
+- Đã thay đổi tính năng xem trước tệp Office để hiển thị qua Microsoft Office khi thiếu LibreOffice, phát hiện cài đặt ngay lập tức và yêu cầu mật khẩu của các tệp được bảo vệ.
+- Đã thay đổi để có thể đổi tên lịch trình, bot, phòng và phiên Lead từ menu của chúng, đồng thời giữ nguyên thời gian chạy một lần.
+- Đã thay đổi kho lưu trữ bí mật trên Linux để dùng tệp cục bộ được bảo vệ khi không có chùm chìa khóa, đồng thời giải thích lý do không thể đọc khóa (#204).
+- Đã thay đổi cuộc trò chuyện với bot để hiển thị nội dung trao đổi với các phiên khác ngay trong dòng, và nhấp vào bong bóng thoại của bot chính để đóng lại.
+
+### Sửa lỗi
+
+- Đã sửa lỗi bot trong phòng đã tắt vẫn tiếp tục đến lượt xử lý, đồng thời gọi tên rõ ràng khi được nhắc tới (#215).
+- Đã sửa lỗi thẻ phê duyệt chiếm tiêu điểm khi đang nhập trong ô nhập, và hiển thị biểu tượng chờ phê duyệt trên trình duyệt trong danh sách phiên điện thoại.
+- Đã sửa lỗi đầu ra công cụ dài trên điện thoại không tải được qua Hiển thị đầu ra đầy đủ, và cuộc trò chuyện đã mở bị kẹt ở khung xương tải.
+- Đã sửa lỗi chuyển đổi giữa các phiên gửi bản nháp ô nhập đang soạn dở đến nhầm cuộc trò chuyện (#217).
+- Đã sửa lỗi menu chuột phải và menu hàng đóng bất ngờ mỗi khi tác nhân nền cập nhật hoặc bản chép lời cuộn.
+- Đã sửa lỗi tự động đăng nhập trình duyệt thất bại khi gặp thử thách CAPTCHA hoặc tiến trình worker bị sự cố, giữ nguyên định danh trình duyệt qua các lượt kiểm tra Cloudflare.
+- Đã sửa lỗi các cặp thay thế emoji bị hỏng khiến yêu cầu mô hình thất bại, và cô lập khoảng thời gian hết hạn ngạch để chỉ chặn các mô hình bị ảnh hưởng (#209).
+- Đã sửa lỗi tác nhân đã hoàn thành bị đánh dấu là đã hủy khi đóng, và cho phép chỉnh sửa trực tiếp định nghĩa tại chỗ (#211, #216).
+
 ## v1.3.4 - 2026-10-23
 
 Đã sửa lỗi cuộn trên điện thoại bị dừng hoặc giật nhảy, danh sách mô hình thiếu các mô hình từ nhà cung cấp và bảng bị rung lắc khi đang phát trực tuyến phản hồi.

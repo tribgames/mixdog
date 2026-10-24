@@ -5,6 +5,34 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se agregaron reacciones con emojis, revisiones periódicas e inicio de sesión de modelos en servidores SSH, con conectores verificados de Google, deslizamientos de paneles en teléfonos y amplias correcciones.
+
+### Nuevas funciones
+
+- **Reacciones con emojis** — Se añadieron reacciones con emojis de bots a los mensajes de usuario con un selector en Configuración → General → "Reacciones".
+- **Revisiones periódicas** — Se añadieron revisiones en segundo plano cada 30 minutos en Configuración → Perfil, donde su bot principal comprueba las sesiones activas y se activa solo cuando algo requiere atención.
+- **Inicios de sesión en servidor SSH** — Se añadió la ejecución de modelos mediante los inicios de sesión de proveedores propios de un servidor SSH y la configuración de un archivo de clave privada al conectarse (#204).
+- **Conectores de Google** — Se añadieron conectores integrados de Google Calendar y Drive con inicio de sesión verificado, que requieren todos los permisos y mantienen Gmail con contraseñas de aplicación.
+- **Navegación por deslizamiento en el teléfono** — Se añadió el deslizamiento horizontal en cualquier parte del teléfono para abrir la lista de sesiones o el dock de archivos.
+
+### Cambios
+
+- Se modificaron las vistas previas de Office para renderizarse a través de Microsoft Office cuando falta LibreOffice, detectar instalaciones de inmediato y solicitar la contraseña de los archivos protegidos.
+- Se modificaron programaciones, bots, salas y sesiones Lead para poder ser renombrados desde sus menús, manteniendo intactos los tiempos de ejecuciones únicas.
+- Se modificó el almacenamiento de secretos en Linux para recurrir a archivos locales protegidos cuando no haya un llavero disponible, explicando por qué no se pueden leer las claves (#204).
+- Se modificaron los chats de bots para mostrar intercambios con otras sesiones de forma integrada, y al hacer clic en el bocadillo del bot principal este se descarta.
+
+### Correcciones de errores
+
+- Se corrigió que los bots de sala desactivados continuaran tomando turnos, nombrándolos con claridad al dirigirse a ellos (#215).
+- Se corrigió que las tarjetas de aprobación robaran el foco al escribir en el editor de mensajes, y se mostró una marca de espera de aprobación del navegador en la lista de sesiones del teléfono.
+- Se corrigió que las salidas largas de herramientas en el teléfono no se cargaran mediante Mostrar salida completa, y que los chats abiertos se quedaran atascados en esqueletos de carga.
+- Se corrigió que al cambiar de sesión se enviara un borrador en curso del editor de mensajes al chat equivocado (#217).
+- Se corrigió que los menús contextuales y de fila se cerraran inesperadamente cada vez que un agente en segundo plano se actualizaba o se desplazaba la transcripción.
+- Se corrigió que el inicio de sesión automático del navegador fallara ante desafíos CAPTCHA o bloqueos del worker, manteniendo una identidad de navegador consistente en las comprobaciones de Cloudflare.
+- Se corrigió que los pares sustitutos de emojis rotos provocaran fallos en las solicitudes de modelos, y se aislaron las ventanas de cuota completa para bloquear solo los modelos afectados (#209).
+- Se corrigió que los agentes finalizados se marcaran como cancelados al cerrarse, y se permitió editar definiciones directamente in situ (#211, #216).
+
 ## v1.3.4 - 2026-10-23
 
 Se corrigieron el desplazamiento en teléfonos que se detenía o saltaba, las listas de modelos sin modelos de proveedores y el temblor de tablas durante la transmisión de respuestas.

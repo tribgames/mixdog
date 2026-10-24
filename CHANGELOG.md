@@ -5,6 +5,34 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Added emoji reactions, regular check-ins and SSH server model logins, with verified Google connectors, phone drawer swipes and broad fixes.
+
+### New features
+
+- **Emoji reactions** — Added bot emoji reactions on user messages with a toggle in Settings → General → "Reactions".
+- **Regular check-ins** — Added 30-minute background reviews under Settings → Profile where your representative bot checks active sessions and wakes only when something needs attention.
+- **SSH server logins** — Added running models using an SSH server's own provider logins and setting a private key file when connecting (#204).
+- **Google connectors** — Added built-in Google Calendar and Drive connectors with verified sign-in, requiring all permissions and keeping Gmail on app passwords.
+- **Phone swipe navigation** — Added horizontal swiping anywhere on the phone to open the session list or files dock.
+
+### Changes
+
+- Changed Office previews to render through Microsoft Office when LibreOffice is missing, detect installs immediately, and ask for the password of protected files.
+- Changed schedules, bots, rooms and Lead sessions to be renamable from their menus, keeping one-shot run times intact.
+- Changed Linux secret storage to fall back to protected local files when no keychain is available, explaining why keys cannot be read (#204).
+- Changed bot chats to show exchanges with other sessions inline, and clicking the representative bot's speech bubble dismisses it.
+
+### Bug fixes
+
+- Fixed switched-off room bots continuing to take turns, naming them clearly when addressed (#215).
+- Fixed approval cards stealing focus while typing in the composer, and showed a waiting browser-approval mark in the phone session list.
+- Fixed long tool outputs on the phone failing to load through Show full output, and opened chats sticking on loading skeletons.
+- Fixed switching between sessions sending an in-progress composer draft to the wrong chat (#217).
+- Fixed right-click and row menus closing unexpectedly whenever a background agent updated or transcript scrolled.
+- Fixed browser auto-sign-in failing on CAPTCHA challenges or worker crashes, keeping consistent browser identity across Cloudflare checks.
+- Fixed broken emoji surrogate pairs failing model requests, and isolated full quota windows so they block only affected models (#209).
+- Fixed finished agents being marked as canceled when closed, and allowed editing definitions directly in place (#211, #216).
+
 ## v1.3.4 - 2026-10-23
 
 Fixed phone scrolling that stopped or jumped, model lists missing provider models, and tables shaking while a reply streams.

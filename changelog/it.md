@@ -4,6 +4,34 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Aggiunte le reazioni con emoji, i controlli periodici e gli accessi ai modelli su server SSH, con connettori Google verificati, scorrimenti per i pannelli su smartphone e ampie correzioni.
+
+### Nuove funzionalità
+
+- **Reazioni con emoji** — Aggiunte le reazioni con emoji dei bot ai messaggi dell'utente con un interruttore in Impostazioni → Generale → "Reazioni".
+- **Controlli periodici** — Aggiunte revisioni in background ogni 30 minuti in Impostazioni → Profilo, in cui il bot principale controlla le sessioni attive e si attiva solo quando qualcosa richiede attenzione.
+- **Accessi al server SSH** — Aggiunta l'esecuzione di modelli usando gli accessi ai provider propri di un server SSH e l'impostazione di un file di chiave privata durante la connessione (#204).
+- **Connettori Google** — Aggiunti connettori integrati per Google Calendar e Drive con accesso verificato, che richiedono tutti i permessi e mantengono Gmail sulle password per le app.
+- **Navigazione con scorrimento su smartphone** — Aggiunto lo scorrimento orizzontale in qualsiasi punto dello smartphone per aprire l'elenco delle sessioni o il dock dei file.
+
+### Modifiche
+
+- Modificate le anteprime di Office per eseguire il rendering tramite Microsoft Office in assenza di LibreOffice, rilevare immediatamente le installazioni e richiedere la password dei file protetti.
+- Modificati pianificazioni, bot, stanze e sessioni Lead per poter essere rinominati dai rispettivi menu, mantenendo intatti gli orari delle esecuzioni singole.
+- Modificata l'archiviazione dei segreti su Linux per ricorrere a file locali protetti quando non è disponibile un portachiavi, spiegando il motivo per cui non è possibile leggere le chiavi (#204).
+- Modificate le chat dei bot per mostrare gli scambi con altre sessioni inline, consentendo di chiudere il fumetto del bot principale facendovi clic.
+
+### Correzioni di bug
+
+- Corretto il problema dei bot delle stanze disattivati che continuavano a prendere turni, nominandoli chiaramente quando interpellati (#215).
+- Corretto il problema delle schede di approvazione che sottraevano lo stato attivo durante la digitazione nel campo di input, e mostrato un indicatore di approvazione del browser in attesa nell'elenco delle sessioni su smartphone.
+- Corretto il mancato caricamento dei lunghi output degli strumenti su smartphone tramite mostra l'output completo, e i grafici o le chat aperte bloccate sulle schermate di caricamento.
+- Corretto il cambio di sessione che inviava una bozza in corso nel campo di input alla chat sbagliata (#217).
+- Corretta la chiusura imprevista dei menu di riga e contestuali ogni volta che un agente in background si aggiornava o la trascrizione scorreva.
+- Corretto l'accesso automatico del browser non riuscito in caso di verifica CAPTCHA o crash dei worker, mantenendo un'identità del browser coerente tra i controlli di Cloudflare.
+- Corrette le coppie surrogate di emoji danneggiate che causavano il fallimento delle richieste del modello, isolando le finestre di quota completa in modo da bloccare solo i modelli interessati (#209).
+- Corretti gli agenti completati contrassegnati come annullati alla chiusura, consentendo di modificare le definizioni direttamente sul posto (#211, #216).
+
 ## v1.3.4 - 2026-10-23
 
 Corretti lo scorrimento su smartphone che si interrompeva o saltava, gli elenchi dei modelli privi dei modelli dei provider e il tremolio delle tabelle durante lo streaming delle risposte.

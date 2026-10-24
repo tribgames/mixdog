@@ -4,6 +4,34 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Emoji-Reaktionen, regelmäßige Check-ins und SSH-Server-Modell-Logins hinzugefügt, mit verifizierten Google-Konnektoren, Drawer-Wischgesten auf dem Smartphone und umfassenden Fehlerbehebungen.
+
+### Neue Funktionen
+
+- **Emoji-Reaktionen** — Bot-Emoji-Reaktionen auf Benutzernachrichten mit einem Schalter unter Einstellungen → Allgemein → "Reaktionen" hinzugefügt.
+- **Regelmäßige Check-ins** — 30-minütige Hintergrundprüfungen unter Einstellungen → Profil hinzugefügt, bei denen Ihr Hauptbot aktive Sitzungen überprüft und nur aufwacht, wenn etwas Aufmerksamkeit erfordert.
+- **SSH-Server-Logins** — Ausführen von Modellen über die eigenen Provider-Logins eines SSH-Servers und Festlegen einer privaten Schlüsseldatei beim Verbinden hinzugefügt (#204).
+- **Google-Konnektoren** — Integrierte Google Kalender- und Drive-Konnektoren mit verifizierter Anmeldung hinzugefügt, die alle Berechtigungen anfordern und Gmail weiterhin über App-Passwörter betreiben.
+- **Wisch-Navigation auf dem Smartphone** — Horizontales Wischen an beliebiger Stelle auf dem Smartphone zum Öffnen der Sitzungsliste oder des Dateien-Docks hinzugefügt.
+
+### Änderungen
+
+- Office-Vorschauen so geändert, dass sie bei fehlendem LibreOffice über Microsoft Office gerendert werden, Installationen sofort erkannt werden und nach dem Passwort für geschützte Dateien gefragt wird.
+- Zeitpläne, Bots, Räume und Lead-Sitzungen so geändert, dass sie über ihre Menüs umbenannt werden können, wobei einmalige Laufzeiten erhalten bleiben.
+- Linux-Geheimnisspeicher so geändert, dass er auf geschützte lokale Dateien zurückgreift, wenn kein Schlüsselbund verfügbar ist, und erklärt, warum Schlüssel nicht gelesen werden können (#204).
+- Bot-Chats so geändert, dass der Austausch mit anderen Sitzungen inline angezeigt wird, und ein Klick auf die Sprechblase des Hauptbots diese schließt.
+
+### Fehlerbehebungen
+
+- Behoben: Ausgeschaltete Raum-Bots nahmen weiterhin an Spielzügen teil; sie werden nun bei direkter Ansprache deutlich benannt (#215).
+- Behoben: Genehmigungskarten stahlen beim Tippen im Composer den Fokus; in der Smartphone-Sitzungsliste wird nun eine Markierung für ausstehende Browser-Genehmigungen angezeigt.
+- Behoben: Lange Werkzeugausgaben auf dem Smartphone konnten über Vollständige Ausgabe anzeigen nicht geladen werden, und geöffnete Chats blieben an Ladeskeletten hängen.
+- Behoben: Beim Wechseln zwischen Sitzungen wurde ein laufender Composer-Entwurf an den falschen Chat gesendet (#217).
+- Behoben: Rechtsklick- und Zeilenmenüs schlossen sich unerwartet, sobald ein Hintergrund-Agent aktualisiert wurde oder das Transkript scrollte.
+- Behoben: Die automatische Browser-Anmeldung schlug bei CAPTCHA-Abfragen oder Worker-Abstürzen fehl; die Browser-Identität bleibt nun über Cloudflare-Prüfungen hinweg konsistent.
+- Behoben: Defekte Emoji-Surrogatpaare führten zu Fehlern bei Modellanfragen; vollständige Kontingentfenster wurden isoliert, sodass sie nur betroffene Modelle blockieren (#209).
+- Behoben: Beendete Agenten wurden beim Schließen als abgebrochen markiert; Definitionen können nun direkt an Ort und Stelle bearbeitet werden (#211, #216).
+
 ## v1.3.4 - 2026-10-23
 
 Scrollen auf dem Smartphone behoben, das stoppte oder sprang, sowie Modelllisten mit fehlenden Anbietermodellen und während des Antwort-Streamings wackelnde Tabellen korrigiert.
