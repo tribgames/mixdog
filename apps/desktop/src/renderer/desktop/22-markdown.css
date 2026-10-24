@@ -1309,6 +1309,32 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 :root[data-mixdog-motion="paused"] .tool-card:not(.settled) .tool-icon {
   animation-play-state: paused !important;
 }
+/* A sweep nobody can see holds still, on the same signals as the running
+   mark (14-live-activity.css): a transcript row outside the virtualizer's
+   visible range, a parked conversation, a retained pane surface, a dock pane
+   that is not the open dock's active view. Its cadence is unchanged. :root
+   outranks the phone's single-mask sweep rule, which restates the animation
+   shorthand (and with it a running play state). */
+:root
+  :is(
+    .transcript-virtual-row[data-offscreen="true"],
+    [data-conversation-parked="true"],
+    [data-retained],
+    .utility-dock-pane[data-surface-active="false"]
+  )
+  [data-component="text-shimmer"]
+  [data-slot="text-shimmer-glint"],
+:root
+  :is(
+    .transcript-virtual-row[data-offscreen="true"],
+    [data-conversation-parked="true"],
+    [data-retained],
+    .utility-dock-pane[data-surface-active="false"]
+  )
+  [data-component="text-shimmer"]
+  [data-slot="text-shimmer-glint"]::before {
+  animation-play-state: paused;
+}
 
 /* Finished composer and command surfaces. These rules intentionally stay
    scoped to Mixdog-owned controls while keeping the dock/menu rhythm. */

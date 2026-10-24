@@ -544,16 +544,11 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
 /* Rows outside the viewport (overscan, the pinned live row once the reader
    scrolls away) hold their infinite loaders still: a compositor loop nobody
    sees still costs a composited frame per vsync. TranscriptList marks the
-   rows from its virtualizer's visible range. */
+   rows from its virtualizer's visible range. The pause is per row: a row
+   still on screen keeps all its loops running, even one scrolled out of view
+   inside that row (the live band's status line above long reasoning). */
 .transcript-virtual-row[data-offscreen="true"]
-:is(
-  .spin,
-  .live-activity-arcs,
-  .live-activity-arc-strip,
-  .live-activity-star,
-  .live-activity-star-turn,
-  [data-slot="text-shimmer-glint"]
-),
+:is(.spin, .live-activity-arcs, .live-activity-arc-strip, [data-slot="text-shimmer-glint"]),
 .transcript-virtual-row[data-offscreen="true"] [data-slot="text-shimmer-glint"]::before {
   animation-play-state: paused;
 }

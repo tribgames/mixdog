@@ -98,9 +98,10 @@ const LIVE_ACTIVITY_ARC_FLOW: ReadonlyArray<readonly [number, number]> = [
   [0, -119.36],
 ];
 // Frame 0 is the static logo pose (reduced or paused motion); frames 1..96
-// play the loop at 48 fps: every keyframe and the midpoint to the next one.
-// 14-live-activity.css steps through exactly these 97 frames.
-const LIVE_ACTIVITY_ARC_FRAMES: ReadonlyArray<readonly [number, number]> = [
+// draw the loop at 48 fps: every keyframe and the midpoint to the next one.
+// 14-live-activity.css steps through every second one at 24 fps (the odd
+// frames, the keyframes themselves).
+export const LIVE_ACTIVITY_ARC_FRAMES: ReadonlyArray<readonly [number, number]> = [
   [80, -20],
   ...LIVE_ACTIVITY_ARC_FLOW.slice(0, -1).flatMap(([dash, offset], index) => {
     const [nextDash, nextOffset] = LIVE_ACTIVITY_ARC_FLOW[index + 1];
@@ -319,10 +320,9 @@ export function commandShowsActivity(snapshot: Snapshot): boolean {
   return Boolean(command) && String(command?.mode || '') !== 'resuming';
 }
 
-/** The running mark. Every loop is a compositor animation on an HTML box:
- *  the arcs' frame strip steps behind a 14px window that spins, and the star
- *  breathes on its own <svg> box inside a box that carries its quarter turns
- *  (an independent `rotate` on an <svg> itself cannot leave the main thread).
+/** The running mark. Both loops are compositor animations on HTML boxes: the
+ *  arcs' frame strip steps behind a 14px window that spins. The star at the
+ *  centre holds its static logo pose.
  *  Memoized: the band re-renders on every lane frame and clock tick. */
 const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradientId: string }) {
   return (
@@ -330,27 +330,19 @@ const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradie
       <span className="live-activity-logo live-activity-arcs">
         <span className="live-activity-arc-strip" style={LIVE_ACTIVITY_ARC_STRIP_STYLE} />
       </span>
-      <span className="live-activity-logo live-activity-star-turn">
-        <svg
-          className="live-activity-logo live-activity-star"
-          viewBox="0 0 24 24"
-          width="14"
-          height="14"
-          aria-hidden="true"
-        >
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" />
-              <stop offset="1" />
-            </linearGradient>
-          </defs>
-          <path
-            className="star"
-            fill={`url(#${gradientId})`}
-            d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z"
-          />
-        </svg>
-      </span>
+      <svg className="live-activity-logo" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" />
+            <stop offset="1" />
+          </linearGradient>
+        </defs>
+        <path
+          className="star"
+          fill={`url(#${gradientId})`}
+          d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z"
+        />
+      </svg>
     </span>
   );
 });

@@ -68,18 +68,6 @@ function project(items, turnKeys = items.map(() => 'turn')) {
   });
 }
 
-test('the running logo animates its star on its own <svg>, never an SVG-internal transform', async () => {
-  // A CSS transform animation on an element INSIDE an <svg> forced a layout
-  // every animation frame for as long as a turn ran (measured: LayoutCount
-  // equal to the frame count). On its own <svg> box it is a plain CSS transform.
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./desktop/14-live-activity.css', import.meta.url), 'utf8');
-  const tsx = await readFile(new URL('./transcript-status.tsx', import.meta.url), 'utf8');
-  assert.match(css, /\.live-activity-star\s*\{[^}]*animation:\s*live-activity-logo-star/);
-  assert.doesNotMatch(css, /\.live-activity-logo \.star\s*\{[^}]*animation:/);
-  assert.match(tsx, /className="live-activity-logo live-activity-star"/);
-});
-
 test('transcript row memoization retains no value-copy signature', () => {
   const item = { kind: 'assistant', text: 'large tool output' };
   assert.equal(transcriptItemsEqual(item, item), true);
