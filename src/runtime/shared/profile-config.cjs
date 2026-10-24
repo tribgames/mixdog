@@ -5,7 +5,7 @@
 const PROFILE_LANGUAGES = Object.freeze([
   { id: 'system', label: 'System (locale)', prompt: null },
   { id: 'en', label: 'English', prompt: 'English' },
-  { id: 'ko', label: 'Korean', prompt: 'Korean' },
+  { id: 'ko', label: '한국어', prompt: 'Korean' },
   { id: 'ja', label: '日本語', prompt: 'Japanese (日本語)' },
   { id: 'zh-Hans', label: '中文（简体）', prompt: 'Simplified Chinese (简体中文)' },
   { id: 'zh-Hant', label: '中文（繁體）', prompt: 'Traditional Chinese (繁體中文)' },
