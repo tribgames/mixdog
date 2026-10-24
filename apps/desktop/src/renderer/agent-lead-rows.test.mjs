@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { agentLeadRows } from './agent-lead-rows.tsx';
+
+const NOW = Date.UTC(2026, 0, 1, 12);
+const MINUTE = 60_000;
+
+function session(id, extra = {}) {
+  return {
+    id,
+    title: id,
+    messageCount: 3,
+    archived: false,
+    provider: 'anthropic-oauth',
+    model: 'claude-opus-5-5',
+    activityAt: NOW - MINUTE,
+    updatedAt: NOW - MINUTE,
+    ...extra,
+  };
+}
+
+const kinds = (rows) => Object.fromEntries(rows.map((row) => [row.sessionId, row.kind]));
+
+test('a session waiting on the user shows "!" whether it works, rests or settled long ago', () => {
+  const sessions = [
+    session('sess_working_approval', { working: true }),
+    session('sess_old_approval', { activityAt: NOW - 30 * 24 * 60 * MINUTE, updatedAt: NOW - 30 * 24 * 60 * MINUTE }),
+    session('sess_idle'),
+    session('sess_working'),
+  ];
+  sessions[3].working = true;
+  const rows = agentLeadRows([], new Set(['sess_working_approval', 'sess_old_approval']), { now: NOW, sessions });
+  assert.deepEqual(kinds(rows), {
+    sess_working_approval: 'attention',
+    sess_old_approval: 'attention',
+    sess_idle: 'idle',
+  });
+  assert.equal(
+    rows.every((row) => row.kind !== 'attention' || row.expiresAt === Number.POSITIVE_INFINITY),
+    true,
+    'a waiting session never expires out of the list'
+  );
+});

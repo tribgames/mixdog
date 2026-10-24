@@ -6,7 +6,7 @@
 // window after it settled, as in 1.2, then leaves.
 import { Bot, Pin } from 'lucide-react';
 import type React from 'react';
-import { Fragment } from 'react';
+import { Fragment, useEffect } from 'react';
 import { AGENT_PANE_VISIBLE_MS } from '../../../../src/runtime/shared/agent-reap-state.mjs';
 import type { RetainChoice } from './bot-order-store';
 import { desktopAgentActivityState, hasPendingDesktopAgentWork } from '../shared/agent-activity';
@@ -36,6 +36,9 @@ export interface AgentLeadRow {
   pinned: boolean;
   /** Sub-agents hang under it (running, or finished and not yet cleared). */
   hasSubAgents: boolean;
+  /** When it leaves the "Keep finished agents" window; Infinity while it
+   *  works, waits on the user, is pinned or carries no settle stamp. */
+  expiresAt: number;
 }
 
 interface LeadGroup {
@@ -63,6 +66,8 @@ export function retainWindowMs(choice: RetainChoice): number {
 /** Whether something settled at `stamp` is still inside `windowMs`. An
  *  unstamped pool row has no provable age and stays (as the pool treats it). */
 const withinWindow = (stamp: number, now: number, windowMs: number): boolean => !(stamp > 0) || now - stamp < windowMs;
+/** The longest delay setTimeout honors. */
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
 export interface AgentLeadRowOptions {
   now?: number;
@@ -109,7 +114,9 @@ export function agentLeadRows(
       (node) => hasPendingDesktopAgentWork(node.agent) || desktopAgentActivityState(node.agent) === 'running'
     );
     const isPinned = pinned.has(group.ownerId);
-    if (!attention && !running && !isPinned && !withinWindow(settledAt(flat), now, retainMs)) continue;
+    const settled = settledAt(flat);
+    const resting = !attention && !running && !isPinned;
+    if (resting && !withinWindow(settled, now, retainMs)) continue;
     const { session } = group;
     const lead: DesktopAgentPoolRow | undefined = flat.find((node) => node.sessionId === group.ownerId)?.agent;
     const provider = lead?.provider || session.provider || null;
@@ -134,25 +141,29 @@ export function agentLeadRows(
       kind,
       pinned: isPinned,
       hasSubAgents: subAgentNodes(group.ownerId, group.nodes).length > 0,
+      expiresAt: resting && settled > 0 ? settled + retainMs : Number.POSITIVE_INFINITY,
     });
   }
   const pooled = new Set(groups.map((group) => group.ownerId));
   for (const session of sessions) {
-    if (pooled.has(session.id) || session.working || !ordinaryLeadSession(session)) continue;
+    // A session waiting on the user is always listed with its "!", working or not.
+    const attention = needsUser.has(session.id);
+    if (pooled.has(session.id) || (session.working && !attention) || !ordinaryLeadSession(session)) continue;
     const at = Number(session.activityAt) || session.updatedAt || 0;
     const isPinned = pinned.has(session.id);
-    if (!isPinned && !(at > 0 && withinWindow(at, now, retainMs))) continue;
+    if (!attention && !isPinned && !(at > 0 && withinWindow(at, now, retainMs))) continue;
     const provider = session.provider || null;
     const model = modelDisplayName(session.model, provider || '');
     rows.push({
       sessionId: session.id,
       title: sessionDisplayTitle(session, t('Untitled session')),
       provider,
-      preview: model || t('Idle'),
+      preview: model || (attention ? t('Waiting for approval') : t('Idle')),
       at,
-      kind: 'idle',
+      kind: attention ? 'attention' : 'idle',
       pinned: isPinned,
       hasSubAgents: false,
+      expiresAt: isPinned || attention ? Number.POSITIVE_INFINITY : at + retainMs,
     });
   }
   return rows.sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.at - left.at);
@@ -167,8 +178,12 @@ export function AgentLeadRows({
   onToggleExpanded,
   renderSubtree,
   divider = true,
+  onExpire,
 }: {
   rows: readonly AgentLeadRow[];
+  /** Called when the earliest row's window ends, so the owner rebuilds the
+   *  rows: nothing else changes then (no pool or catalog event). */
+  onExpire?(): void;
   /** A hairline above (the pane decides: something visible precedes). */
   divider?: boolean;
   selectedSessionId?: string;
@@ -183,6 +198,16 @@ export function AgentLeadRows({
   // The rows no longer wear the Lead face, but mounting the page still loads it
   // (and moves a face this device kept locally to the host) for the approvals.
   useLeadAvatar();
+  const nextExpiry = Math.min(Number.POSITIVE_INFINITY, ...rows.map((row) => row.expiresAt));
+  // Keyed on `rows` (rebuilt on every owner render): a timer that fired a hair
+  // early re-arms for what is left instead of leaving the row stuck.
+  useEffect(() => {
+    if (!onExpire || !Number.isFinite(nextExpiry)) return undefined;
+    // setTimeout fires at once past 2^31-1 ms (a future-dated stamp): cap the
+    // wait so the re-arm on the next render reaches the real expiry instead.
+    const timer = setTimeout(onExpire, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextExpiry - Date.now())));
+    return () => clearTimeout(timer);
+  }, [rows, nextExpiry, onExpire]);
   if (rows.length === 0) return null;
   return (
     <>

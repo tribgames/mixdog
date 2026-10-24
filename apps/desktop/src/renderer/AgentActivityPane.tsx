@@ -9,6 +9,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -1019,6 +1020,9 @@ export function AgentActivityPane({
   const openContact = (contact: AgentContact): Promise<string> => openAgentContact(contact, onOpenSession);
 
   const botOrder = useBotOrder();
+  // A finished Lead's window ends on the clock, not on an event: the Lead rows
+  // call this then, and the re-render rebuilds them without the expired one.
+  const [, rebuildLeadRows] = useReducer((tick: number) => tick + 1, 0);
   const roomList = useAgentRoomRows(sessions, needle, unreadSessionIds);
   const loading = agents === null || (!sessionsReady && groups.length === 0);
   if (active) beginBootSurface('agent-activity', 'catalog');
@@ -1272,6 +1276,7 @@ export function AgentActivityPane({
               {/* Without a representative bot the page shows only its create prompt. */}
               <AgentLeadRows
                 rows={shownLeadRows}
+                onExpire={rebuildLeadRows}
                 divider={divider || workCount > 0}
                 selectedSessionId={selectedSessionId}
                 onOpen={(sessionId) => onOpenLeadSession?.(sessionId)}
