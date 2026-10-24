@@ -34,6 +34,18 @@
   border-radius: 0;
   box-shadow: none;
 }
+/* A pane entering a session carries the same mark at the New Task
+   watermark's scale and ink, so the hand-off from New Task never shrinks the
+   logo to a dot (user: 세션 진입 시 40px 로딩이 너무 작다). The arcs keep
+   their sweep; the box opacity sets the watermark's quiet weight. */
+.pane-surface-cover .window-loading-mark {
+  width: 200px;
+  height: 200px;
+  /* The mark inks itself with --mx-text-soft inline; the watermark's ink is
+     the full text tone. */
+  --mx-text-soft: var(--mx-text);
+  opacity: 0.14;
+}
 /* A conversation cover (phone and wide pane alike) spans the transcript viewport only; the
    composer dock below it stays painted, so it carries no sheet corner. */
 :root .conversation > .transcript-shell > .pane-surface-cover {
