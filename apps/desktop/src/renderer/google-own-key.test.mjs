@@ -59,6 +59,25 @@ test('apply sets the key on Calendar and Drive only; revert clears it and drops 
     assert.equal(a[0].oauthClientSecret, 'sec', c);
   }
 
+  // One more account touches only the new server: no sign-out or save on existing accounts.
+  const more = host([
+    { name: 'google-calendar', connector: 'google-calendar', connected: true, ownClient: true },
+    { name: 'google-calendar-2', connector: 'google-calendar', connected: true, ownClient: true },
+    { name: 'google-drive', connector: 'google-drive', connected: true },
+  ]);
+  const added = await applyGoogleOwnKey(more.invoke, { clientId: ID, clientSecret: 'sec' }, 'google-calendar');
+  assert.equal(added, 'google-calendar-3');
+  const moreWrites = more.calls.filter(([c]) => c !== 'mcpStatus');
+  assert.deepEqual(
+    moreWrites.map(([c]) => c),
+    ['addMcpServer'],
+    'existing accounts get no signOutMcpServer / saveMcpServer'
+  );
+  assert.equal(moreWrites[0][1][0].name, 'google-calendar-3');
+  assert.equal(moreWrites[0][1][0].url, 'https://calendar.mixdog.invalid/mcp?account=google-calendar-3');
+  assert.equal(moreWrites[0][1][0].oauthClientId, ID);
+  assert.equal(moreWrites[0][1][0].oauthClientSecret, 'sec');
+
   const back = host([
     { name: 'gmail', connector: 'gmail', connected: true },
     { name: 'google-calendar', connector: 'google-calendar', connected: false },

@@ -27,6 +27,8 @@ export interface ConnectorCatalogEntry {
   backend: ConnectorBackend;
   /** Curated deferred-tool manifest line (connector-triggers.mjs). */
   trigger: string;
+  /** New connections go by app password only (Gmail). */
+  appPasswordOnly?: boolean;
 }
 
 export const CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[];
@@ -41,6 +43,8 @@ export function connectorServerInput(
   key?: string,
   options?: { extraAccount?: boolean }
 ): Record<string, unknown>;
+export function connectorAppPasswordOnly(entry: ConnectorCatalogEntry | null | undefined): boolean;
+export function connectorUsesGoogleClient(entry: ConnectorCatalogEntry | null | undefined): boolean;
 export function connectorMultiAccount(entry: ConnectorCatalogEntry | null | undefined): boolean;
 export const GMAIL_APP_PASSWORD: Readonly<{ url: string; accountHeader: string; helpUrl: string }>;
 export function gmailAddress(value: unknown): string;

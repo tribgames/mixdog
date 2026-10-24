@@ -167,7 +167,11 @@ test('Mixdog’s Google client, or the user’s own, replaces client registratio
     // Without an embedded client file (google-oauth-client.test.mjs covers the
     // file itself), the environment is the only source.
     if (!existsSync(GOOGLE_OAUTH_CLIENT_FILE)) {
-      assert.equal(mcpOAuthClientFor(gmail, gmail.url), null, 'the source ships no Google client');
+      assert.throws(
+        () => mcpOAuthClientFor(gmail, gmail.url),
+        /clientUnavailable/,
+        'the source ships no Google client, and Google never gets dynamic registration'
+      );
     }
     process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID = 'mixdog.apps.googleusercontent.com';
     process.env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET = 'GOCSPX-public';

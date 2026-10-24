@@ -7,7 +7,7 @@
 //     its scopes and the provider's offline-access parameter.
 import { createHash } from 'node:crypto';
 import keychain from '../../../../lib/keychain-cjs.cjs';
-import { connectorById, connectorOfServer } from '../../../shared/connector-catalog.mjs';
+import { connectorById, connectorOfServer, gmailAppPasswordAccount } from '../../../shared/connector-catalog.mjs';
 import { GOOGLE_AUTH_PARAMS, googleOAuthClient } from '../../../shared/google-oauth-client.mjs';
 import { normalizeMcpTransportUrl } from './client-config.mjs';
 
@@ -50,6 +50,13 @@ export function mcpOAuthClientFor(cfg, url) {
     const authParams = catalog?.oauthClient === 'google' ? GOOGLE_AUTH_PARAMS : undefined;
     return { clientId: own, secretAccount: mcpOAuthClientSecretAccount(url), scopes, authParams };
   }
-  const builtIn = catalog?.oauthClient ? BUILT_IN_CLIENTS[catalog.oauthClient]?.() : null;
-  return builtIn ? { ...builtIn, scopes } : null;
+  if (!catalog?.oauthClient || gmailAppPasswordAccount(cfg)) return null;
+  const builtIn = BUILT_IN_CLIENTS[catalog.oauthClient]?.();
+  // Google offers no dynamic client registration: never fall back to it.
+  if (!builtIn) {
+    throw new Error(
+      `MCP OAuth clientUnavailable: this build has no built-in ${catalog.oauthClient} sign-in client; use your own ${catalog.oauthClient} client.`
+    );
+  }
+  return { ...builtIn, scopes };
 }

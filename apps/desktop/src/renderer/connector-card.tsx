@@ -4,14 +4,17 @@
 // with the marks of the connected services.
 import { Link } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
-import { connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
+import { connectorAppPasswordOnly, connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
 import {
+  appPasswordAccount,
   cancelConnectorLogin,
   CONNECTORS_CHANGED_EVENT,
   connectCatalogConnector,
   finishConnectorLogin,
+  needsOwnGoogleClient,
   openConnectorsTab,
-  readMcpServers,
+  ownGoogleClientNote,
+  readMcpStatus,
   retireConnectorLogin,
   useConnectorLogin,
 } from './connector-connect';
@@ -45,13 +48,21 @@ export function connectorCardIds(items: readonly TranscriptItem[]): string[] {
 
 /** The host's MCP rows, re-read whenever a connector or setup change lands. */
 function useMcpServers(): Row[] | null {
+  return useMcpStatus().servers;
+}
+
+/** The host's MCP rows plus whether this build has the built-in Google client. */
+function useMcpStatus(): { servers: Row[] | null; googleClient: boolean } {
   const [servers, setServers] = useState<Row[] | null>(null);
+  const [googleClient, setGoogleClient] = useState(true);
   useEffect(() => {
     let live = true;
     const read = () =>
-      void readMcpServers()
+      void readMcpStatus()
         .then((next) => {
-          if (live) setServers(next);
+          if (!live) return;
+          setServers(next.servers);
+          setGoogleClient(next.googleClient);
         })
         .catch(() => undefined);
     read();
@@ -63,12 +74,12 @@ function useMcpServers(): Row[] | null {
       unsubscribe();
     };
   }, []);
-  return servers;
+  return { servers, googleClient };
 }
 
 export function ConnectorChatCard({ id }: { id: string }) {
   const entry = connectorById(id);
-  const servers = useMcpServers();
+  const { servers, googleClient } = useMcpStatus();
   const server = servers?.find((row) => row.connector === id && row.source !== 'plugin') ?? null;
   const name = server ? String(server.name) : '';
   const login = useConnectorLogin(name, id);
@@ -82,24 +93,32 @@ export function ConnectorChatCard({ id }: { id: string }) {
   if (!entry) return null;
   const connected = view.status === 'connected';
   const waiting = view.status === 'pending';
+  const appPasswordOnly = connectorAppPasswordOnly(entry) && (!server || Boolean(appPasswordAccount(server)));
+  // Judged on the selected server (the one Connect would use), once the host has answered.
+  const ownClient = !appPasswordOnly && servers !== null && needsOwnGoogleClient(entry, server, googleClient);
   const connect = () => {
     if (capabilityBlockedRemotely('beginMcpOAuthLogin')) {
       showDesktopToast(manageOnHostNote(), 'info');
       return;
     }
-    // A key happens on the 커넥터 tab.
-    if (entry.backend.kind !== 'oauth') {
+    // A key, an app password or the user's own Google client happens on the 커넥터 tab.
+    if (entry.backend.kind !== 'oauth' || appPasswordOnly || ownClient) {
       openConnectorsTab();
       return;
     }
     connectCatalogConnector(entry).catch((reason) => showDesktopToast(errorMessage(reason), 'error'));
   };
-  let line: ReactNode =
-    entry.backend.kind === 'oauth' ? t('Sign in in the browser') : t('Finish on the Connectors tab');
+  let line: ReactNode = appPasswordOnly
+    ? t('Connect with an app password on the Connectors tab')
+    : ownClient
+      ? ownGoogleClientNote()
+      : entry.backend.kind === 'oauth'
+        ? t('Sign in in the browser')
+        : t('Finish on the Connectors tab');
   if (waiting) line = <ConnectorStep view={view} connector={entry.id} />;
   else if (connected) line = connectorIdentity(server) || name;
   else if (view.status === 'failed') line = view.error;
-  else if (server?.authRequired === true) line = t('Sign-in required');
+  else if (server?.authRequired === true && !ownClient) line = t('Sign-in required');
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <div> card; role="group" names it.
     <div

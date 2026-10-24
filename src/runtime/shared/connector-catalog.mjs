@@ -53,6 +53,9 @@ export const CONNECTOR_CATALOG = Object.freeze(
       id: 'gmail',
       name: 'Gmail',
       backend: google('gmail', GOOGLE_SCOPES.gmail, ['send_email']),
+      // New Gmail connections use an app password only (GMAIL_APP_PASSWORD);
+      // a Gmail server already on the Google sign-in keeps working.
+      appPasswordOnly: true,
     },
     {
       id: 'google-calendar',
@@ -184,6 +187,17 @@ export function gmailAppPasswordServerInput(name, email, password) {
  *  once: Gmail (also by app password), Calendar and Drive with the Google
  *  sign-in. Other remote servers keep one (their tokens and URL are shared). */
 export function connectorMultiAccount(entry) {
+  return entry?.backend?.kind === 'oauth' && entry.backend.oauthClient === 'google';
+}
+
+/** Whether a new connection of `entry` goes by app password only (Gmail). */
+export function connectorAppPasswordOnly(entry) {
+  return entry?.appPasswordOnly === true;
+}
+
+/** Whether `entry` signs in with Mixdog's built-in Google client (or the
+ *  user's own Google client in its place). */
+export function connectorUsesGoogleClient(entry) {
   return entry?.backend?.kind === 'oauth' && entry.backend.oauthClient === 'google';
 }
 

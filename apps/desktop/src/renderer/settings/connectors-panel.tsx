@@ -15,6 +15,8 @@ import {
   cancelConnectorLogin,
   CONNECTORS_CHANGED_EVENT,
   connectCatalogConnector,
+  needsOwnGoogleClient,
+  ownGoogleClientNote,
   disconnectConnector,
   finishConnectorLogin,
   gmailAppPasswordErrorText,
@@ -60,12 +62,7 @@ import {
   ExtensionNote,
   ExtensionSection,
 } from './extension-detail';
-import {
-  McpEditorDialog,
-  mcpErrorSummary,
-  mcpRowDescription,
-  mcpStatus,
-} from './mcp-editor-dialog';
+import { McpEditorDialog, mcpErrorSummary, mcpRowDescription, mcpStatus } from './mcp-editor-dialog';
 import { PluginInfo } from './plugin-info';
 import { capabilityBlockedRemotely, manageOnHostNote } from './remote-capability-guard';
 
@@ -491,6 +488,7 @@ function ConnectorDetail({
   onAdvanced,
   onRemovePlugin,
   onAppPassword = null,
+  ownClientNote = '',
   accounts = [],
   onAddAccount = null,
   onDisconnectAccount = null,
@@ -512,6 +510,8 @@ function ConnectorDetail({
   onRemovePlugin: (() => void) | null;
   /** Gmail: 앱 비밀번호로 연결 beside the Google sign-in. */
   onAppPassword?: ((server: Row | null) => void) | null;
+  /** This build has no built-in Google client and none is configured. */
+  ownClientNote?: string;
   onClose(): void;
 }) {
   const [more, setMore] = useState(false);
@@ -634,6 +634,7 @@ function ConnectorDetail({
         </ExtensionNote>
       )}
       {reason && <ExtensionNote tone="danger">{reason}</ExtensionNote>}
+      {ownClientNote && !connected && !pending && <ExtensionNote>{ownClientNote}</ExtensionNote>}
       {framed && entry && framedAccounts.length > 0 && (
         <ExtensionSection
           title={t('Account')}
@@ -719,7 +720,16 @@ const openLink = (url: string) => void window.mixdogDesktop?.openExternal?.(url)
 /** "내 Google 키 사용": the user's own Google OAuth client; with it Google
  *  Calendar and Drive appear in the list. The downloaded client_secret_*.json
  *  is picked or pasted. */
-function GoogleOwnKeyDialog({ active, onClose }: { active: boolean; onClose(): void }) {
+function GoogleOwnKeyDialog({
+  active,
+  newAccountOf,
+  onClose,
+}: {
+  active: boolean;
+  /** Also adds one more account of this connector on the key, then signs it in. */
+  newAccountOf: ConnectorCatalogEntry | null;
+  onClose(): void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pasted, setPasted] = useState('');
@@ -736,10 +746,15 @@ function GoogleOwnKeyDialog({ active, onClose }: { active: boolean; onClose(): v
       .finally(() => setBusy(false));
   };
   const apply = (source: string) =>
-    finish(
-      async () => applyGoogleOwnKey(invokeCapability, parseGoogleClientJson(source)),
-      t('Your Google key is in use.')
-    );
+    finish(async () => {
+      const added = await applyGoogleOwnKey(invokeCapability, parseGoogleClientJson(source), newAccountOf?.id);
+      // The new account's server runs on the key now: its sign-in may start.
+      if (added && newAccountOf) {
+        connectCatalogConnector(newAccountOf, '', null, { server: added }).catch((reason) =>
+          showDesktopToast(errorMessage(reason), 'error')
+        );
+      }
+    }, t('Your Google key is in use.'));
   return (
     <ExtensionDetailDialog
       width="compact"
@@ -1303,7 +1318,10 @@ export function ConnectorsPanel(context: PanelContext) {
   const [keyEntry, setKeyEntry] = useState<ConnectorCatalogEntry | null>(null);
   // "내 Google 키 사용": `null` closed, else whether a Google server already runs on the user's key.
   const [googleKey, setGoogleKey] = useState<boolean | null>(null);
-  const openGoogleKey = () => {
+  // The connector whose extra account the open key dialog also adds, if any.
+  const [googleKeyAccountOf, setGoogleKeyAccountOf] = useState<ConnectorCatalogEntry | null>(null);
+  const openGoogleKey = (newAccountOf: ConnectorCatalogEntry | null = null) => {
+    setGoogleKeyAccountOf(newAccountOf);
     closeAdd();
     const names = servers
       .filter((server) => server.connector === 'google-calendar' || server.connector === 'google-drive')
@@ -1343,8 +1361,21 @@ export function ConnectorsPanel(context: PanelContext) {
       target: server ? { server: String(server.name) } : { add: true },
     });
   };
+  // A build without the built-in Google client never starts that sign-in.
+  // Only the host's affirmative `googleClient` offers it; a host that doesn't say is unknown.
+  const googleClient = record(data.mcp).googleClient !== false;
+  const mcpLoaded = sectionLoaded(data, 'mcp');
+  const ownClientNeeded = (entry: ConnectorCatalogEntry, server: Row | null) =>
+    mcpLoaded && needsOwnGoogleClient(entry, server, googleClient);
+  // `newAccountOf`: the key dialog also adds one more account of that connector.
+  const askOwnClient = (newAccountOf: ConnectorCatalogEntry | null = null) => {
+    showDesktopToast(ownGoogleClientNote(), 'info');
+    openGoogleKey(newAccountOf);
+  };
   const addAccount = (entry: ConnectorCatalogEntry) => {
     if (connectLocked) return lockedToast();
+    // A new account has no client of its own yet.
+    if (ownClientNeeded(entry, null)) return askOwnClient(entry);
     connectCatalogConnector(entry, '', null, { add: true }).catch((reason) =>
       showDesktopToast(errorMessage(reason), 'error')
     );
@@ -1354,6 +1385,7 @@ export function ConnectorsPanel(context: PanelContext) {
     if (entry.backend.kind === 'apiKey') return setKeyEntry(entry);
     // Gmail is app-password only: an app-password server is reconnected, else a new account is added.
     if (entry.id === 'gmail') return openAppPassword(entry, appPasswordAccount(server) ? server : null);
+    if (ownClientNeeded(entry, server)) return askOwnClient();
     connectCatalogConnector(entry).catch((reason) => showDesktopToast(errorMessage(reason), 'error'));
   };
   const openEditor = (name: string) => {
@@ -1416,6 +1448,9 @@ export function ConnectorsPanel(context: PanelContext) {
           }
           onDisconnectAccount={(account) => disconnect(account, true, row.entry.name)}
           onAppPassword={row.entry.id === 'gmail' ? (account) => openAppPassword(row.entry, account) : null}
+          ownClientNote={
+            row.entry.id !== 'gmail' && ownClientNeeded(row.entry, row.server) ? ownGoogleClientNote() : ''
+          }
           onClose={() => setDetail(null)}
         />
       );
@@ -1460,7 +1495,7 @@ export function ConnectorsPanel(context: PanelContext) {
   const editorName = editor && editor !== 'new' ? editor.name : '';
   const editorRow = editorName ? serverByName(editorName) : null;
   const removingId = removing ? String(removing.id || removing.name) : '';
-  const loaded = sectionLoaded(data, 'mcp');
+  const loaded = mcpLoaded;
 
   return (
     <>
@@ -1548,12 +1583,14 @@ export function ConnectorsPanel(context: PanelContext) {
           onClose={() => setAppPassword(null)}
         />
       )}
-      {googleKey !== null && <GoogleOwnKeyDialog active={googleKey} onClose={() => setGoogleKey(null)} />}
+      {googleKey !== null && (
+        <GoogleOwnKeyDialog active={googleKey} newAccountOf={googleKeyAccountOf} onClose={() => setGoogleKey(null)} />
+      )}
       {(createOpen || addOpen) && !connectLocked && (
         <CustomConnectorDialog
           taken={servers.map((server) => String(server.name))}
           run={run}
-          onGoogleKey={openGoogleKey}
+          onGoogleKey={() => openGoogleKey()}
           onAdvanced={() => {
             closeAdd();
             if (editLocked) lockedToast();

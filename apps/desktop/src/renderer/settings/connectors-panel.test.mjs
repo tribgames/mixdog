@@ -583,12 +583,12 @@ test('several Gmail accounts side by side: each is its own server, shown with it
     cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
     removeMcpServer: () => ({ signIn: 'removed', revoked: false }),
   };
-  await connectCatalogConnector(connectorById('gmail'), '', null, { add: true });
-  const added = calls.find(([capability]) => capability === 'addMcpServer')[1][0];
-  assert.equal(added.name, 'gmail-3');
-  assert.equal(added.url, 'https://gmail.mixdog.invalid/mcp?account=gmail-3');
-  assert.deepEqual(calls.find(([capability]) => capability === 'beginMcpOAuthLogin')[1], ['gmail-3']);
-  cancelConnectorLogin('gmail-3');
+  await assert.rejects(
+    connectCatalogConnector(connectorById('gmail'), '', null, { add: true }),
+    /app password only/,
+    'Gmail takes no new Google sign-in'
+  );
+  assert.ok(!calls.some(([capability]) => ['addMcpServer', 'beginMcpOAuthLogin'].includes(capability)));
 
   // An app-password account of an address already connected is reconnected, not duplicated.
   calls.length = 0;
@@ -723,7 +723,7 @@ test('Google Calendar and Drive sign-ins tell the user to check every box; other
     let live = [];
     calls.length = 0;
     handlers = {
-      mcpStatus: () => ({ servers: live }),
+      mcpStatus: () => ({ servers: live, googleClient: true }),
       addMcpServer: (input) => {
         live = [...live, { name: input.name, connector: input.connector, enabled: true, authRequired: true }];
         return { name: input.name };
@@ -761,7 +761,7 @@ test('Google Calendar and Drive sign-ins tell the user to check every box; other
 test('a scopeNotGranted failure row shows the short instruction whole, with the full sentence as its tooltip', async () => {
   let live = [];
   handlers = {
-    mcpStatus: () => ({ servers: live }),
+    mcpStatus: () => ({ servers: live, googleClient: true }),
     addMcpServer: (input) => {
       live = [{ name: input.name, connector: input.connector, enabled: true, authRequired: true }];
       return { name: input.name };
@@ -852,4 +852,71 @@ test('the full step (chat card, detail note) carries the whole Google notice; on
   assert.equal(one.querySelectorAll('.connectors-row-step-text').length, 1);
   assert.equal(one.title, notice);
   await compact.unmount();
+});
+
+const CLIENT_FILE = JSON.stringify({
+  installed: { client_id: 'mine.apps.googleusercontent.com', client_secret: 'GOCSPX-mine' },
+});
+
+test('without the built-in Google client a second account asks for a key first and is created on it', async () => {
+  const live = [
+    {
+      name: 'google-calendar',
+      connector: 'google-calendar',
+      enabled: true,
+      connected: true,
+      status: 'connected',
+      source: 'config',
+      ownClient: true,
+      oauth: { signedIn: true, account: 'me@example.com' },
+    },
+  ];
+  calls.length = 0;
+  handlers = {
+    mcpStatus: () => ({ servers: live, googleClient: false }),
+    getMcpServerConfig: () => ({ oauthClientId: 'mine.apps.googleusercontent.com' }),
+    signOutMcpServer: () => ({}),
+    saveMcpServer: () => ({}),
+    addMcpServer: (input) => {
+      live.push({ name: input.name, connector: input.connector, enabled: true, authRequired: true, ownClient: true });
+      return { name: input.name };
+    },
+    beginMcpOAuthLogin: () => ({ flowId: 'k1', state: 'pending', url: 'https://accounts.google.com/x' }),
+    getMcpOAuthLoginStatus: () => ({ flowId: 'k1', state: 'pending' }),
+    cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
+  };
+  const pane = await render(
+    React.createElement(CategoryPanel, {
+      category: 'connectors',
+      context: panelContext({
+        data: { mcp: { servers: live, googleClient: false }, plugins: { plugins: [] }, __loadedSections: ['mcp'] },
+      }),
+    })
+  );
+  await click(rowOf(pane.host, 'google-calendar').querySelector('.extensions-row-open'));
+  const detail = document.body.querySelector('.connectors-detail-dialog');
+  assert.doesNotMatch(detail.textContent, /no built-in Google sign-in/, 'the connected account needs no note');
+  await click(button(detail, '+ Add account'));
+  await settle();
+  const keyDialog = document.body.querySelector('.connectors-key-dialog');
+  assert.ok(keyDialog, 'the own-key dialog opens instead of a doomed sign-in');
+  assert.ok(!calls.some(([capability]) => ['addMcpServer', 'beginMcpOAuthLogin'].includes(capability)));
+
+  // The downloaded client file is picked: the dialog applies it at once.
+  const picker = keyDialog.querySelector('input[type="file"]');
+  Object.defineProperty(picker, 'files', { configurable: true, value: [{ text: async () => CLIENT_FILE }] });
+  await act(async () => picker.dispatchEvent(new window.Event('change', { bubbles: true })));
+  await settle(30);
+  const added = calls.filter(([capability]) => capability === 'addMcpServer').map(([, args]) => args[0]);
+  const second = added.find((input) => input.connector === 'google-calendar');
+  assert.equal(second.name, 'google-calendar-2');
+  assert.equal(second.url, 'https://calendar.mixdog.invalid/mcp?account=google-calendar-2');
+  assert.equal(second.oauthClientId, 'mine.apps.googleusercontent.com');
+  assert.ok(
+    !calls.some(([capability]) => ['signOutMcpServer', 'saveMcpServer'].includes(capability)),
+    'the existing account is left as it is'
+  );
+  assert.deepEqual(calls.find(([capability]) => capability === 'beginMcpOAuthLogin')[1], ['google-calendar-2']);
+  cancelConnectorLogin('google-calendar-2');
+  await pane.unmount();
 });

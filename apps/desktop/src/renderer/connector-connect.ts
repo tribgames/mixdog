@@ -5,7 +5,9 @@
 // server name, so a flow started in chat shows on the pane's row too.
 import { useSyncExternalStore } from 'react';
 import {
+  connectorAppPasswordOnly,
   connectorMultiAccount,
+  connectorUsesGoogleClient,
   connectorServerInput,
   gmailAddress,
   gmailAppPasswordServerInput,
@@ -145,9 +147,36 @@ export function announceConnectorsChanged(): void {
 }
 
 /** The host's current MCP status rows. */
-export async function readMcpServers(): Promise<Row[]> {
+export async function readMcpStatus(): Promise<{ servers: Row[]; googleClient: boolean }> {
   const status = (await invoke<Row>('mcpStatus')) ?? {};
-  return Array.isArray(status.servers) ? (status.servers as Row[]) : [];
+  return {
+    servers: Array.isArray(status.servers) ? (status.servers as Row[]) : [],
+    // Only an explicit `false` means no built-in client; a host that does not
+    // say (an older SSH/phone host) is attempted as before.
+    googleClient: status.googleClient !== false,
+  };
+}
+
+export async function readMcpServers(): Promise<Row[]> {
+  return (await readMcpStatus()).servers;
+}
+
+/** Whether signing in `server` (null: a server still to be created) of `entry`
+ *  needs the user's own Google client: a Google sign-in whose host
+ *  reported no built-in client, and that server not on a client of its own. */
+export function needsOwnGoogleClient(
+  entry: ConnectorCatalogEntry | null | undefined,
+  server: Row | null | undefined,
+  googleClient: boolean
+): boolean {
+  return connectorUsesGoogleClient(entry) && !googleClient && server?.ownClient !== true;
+}
+
+/** The note for a Google sign-in this build cannot start by itself. */
+export function ownGoogleClientNote(): string {
+  return t(
+    'This build has no built-in Google sign-in. Use your own Google client: Connectors → Add custom connector → Use my Google key.'
+  );
 }
 
 const HOST_LOGIN_FAILED = /MCP OAuth (login failed|sign-in was not completed)|sign-in is no longer pending/i;
@@ -445,7 +474,7 @@ export async function connectCatalogConnector(
   publish(placeholder, starting);
   let name = '';
   try {
-    const servers = await readMcpServers();
+    const { servers, googleClient } = await readMcpStatus();
     const ofConnector = servers.filter((server) => server.connector === entry.id && server.source !== 'plugin');
     const address = appPassword ? gmailAddress(appPassword.email) : '';
     const existing = target
@@ -466,6 +495,15 @@ export async function connectCatalogConnector(
     // A Gmail already on an app password reconnects as it is; the Google
     // sign-in replaces it only after 연결 해제.
     if (existing && appPasswordAccount(existing)) viaOAuth = false;
+    // Gmail takes no new Google sign-in; one already on it keeps reconnecting.
+    if (viaOAuth && connectorAppPasswordOnly(entry) && !existing) {
+      throw new Error(t('Gmail connects with an app password only.'));
+    }
+    // The chosen server's own client counts, not another account's; a new
+    // account has none yet.
+    if (viaOAuth && needsOwnGoogleClient(entry, existing, googleClient)) {
+      throw new Error(ownGoogleClientNote());
+    }
     const input = appPassword
       ? gmailAppPasswordServerInput(name, appPassword.email, appPassword.password)
       : !existing

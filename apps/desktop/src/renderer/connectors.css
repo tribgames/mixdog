@@ -327,12 +327,12 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
 }
+/* The chat card keeps its status and failure text whole (only sidebar rows are one line). */
 .connector-chat-copy > small {
-  overflow: hidden;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 /* The Agents pane's "커넥터" pill: the guide pill's shape, marks overlapped. */

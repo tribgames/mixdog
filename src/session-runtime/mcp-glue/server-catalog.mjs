@@ -3,6 +3,7 @@
 // explicit owner metadata), per-server config reads, and the live/failed rollup.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { connectorOfServer, gmailAppPasswordAccount } from '../../runtime/shared/connector-catalog.mjs';
+import { googleOAuthClient } from '../../runtime/shared/google-oauth-client.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
 import { resolveMcpServerCatalog } from './plugin-servers.mjs';
 
@@ -153,6 +154,8 @@ export function createMcpServerCatalog({
       // Gmail connected with an app password: the account it runs as.
       const appPasswordAccount = gmailAppPasswordAccount(cfg);
       if (appPasswordAccount) row.appPassword = { account: appPasswordAccount };
+      // A catalog connector running on the user's own Google client.
+      if (connector && typeof cfg?.oauthClientId === 'string' && cfg.oauthClientId.trim()) row.ownClient = true;
       if (entry.owner) {
         row.owner = entry.owner;
         row.pluginEnabled = entry.pluginEnabled;
@@ -172,7 +175,7 @@ export function createMcpServerCatalog({
 
   function mcpStatus() {
     if (envFlag('MIXDOG_DISABLE_MCP')) {
-      return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
+      return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0, googleClient: Boolean(googleOAuthClient()) };
     }
     const catalog = resolveCatalog();
     const servers = statusRows(catalog);
@@ -186,6 +189,9 @@ export function createMcpServerCatalog({
       failedCount: servers.filter((row) => row.status === 'failed').length,
       warnings: catalog.warnings,
       declarationErrors,
+      // Whether this build carries Mixdog's own Google client (else the
+      // Google sign-ins need the user's own client).
+      googleClient: Boolean(googleOAuthClient()),
     };
   }
 
